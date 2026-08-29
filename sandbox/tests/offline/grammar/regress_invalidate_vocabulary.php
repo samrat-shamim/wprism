@@ -40,7 +40,7 @@
  *   PART 3 — the FEATURE GATE. The verb is v3-staged through `engine_features`
  *   (§ v3.2), so it ships with no version integer moving. The gate refuses by
  *   FEATURE NAME, fires on a malformed reach (presence, not shape), and cannot
- *   be minted by a `site.duo.json` policy override.
+ *   be minted by a `site.wprism.json` policy override.
  *
  *   PART 4 — the RUNTIME. TypedTableMaterializer executes the verb on both
  *   spellings and REFUSES when the entry survives, which is what makes the
@@ -50,7 +50,7 @@
  *   PART 5 — THE ACCEPTANCE, through the real product path. The shipped PMPro
  *   manifest has dropped BOTH its `actions[]` and its `providers[]` — that
  *   adapter's entire executable surface — in exchange for one declarative line,
- *   and `duo manifest-validate` reports `[ok]`. Its `tier_decision()` is now
+ *   and `wprism manifest-validate` reports `[ok]`. Its `tier_decision()` is now
  *   `declarative_manifest`. This is intentionally fleet-visible product work:
  *   the changed manifest digest requires the ordinary recompile-and-repin flow.
  */
@@ -62,8 +62,8 @@ require_once __DIR__ . '/../../lib/FakeWpdb.php';
 
 $repo = dirname(__DIR__, 4);
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 3);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 3);
 }
 
 require_once $repo . '/agent/src/Kernel/Canon.php';
@@ -72,12 +72,12 @@ require_once $repo . '/agent/src/Adapter/AdapterContractGrammar.php';
 require_once $repo . '/agent/src/Adapter/AdapterSources.php';
 require_once $repo . '/agent/src/Apply/TypedTableMaterializer.php';
 
-use Duo\AdapterContractGrammar;
-use Duo\AdapterSources;
-use Duo\ManifestGrammar;
-use Duo\TypedTableMaterializer;
-use DuoTest\FakeWpdb;
-use DuoTest\WpStore;
+use WPrism\AdapterContractGrammar;
+use WPrism\AdapterSources;
+use WPrism\ManifestGrammar;
+use WPrism\TypedTableMaterializer;
+use WPrismTest\FakeWpdb;
+use WPrismTest\WpStore;
 
 /** One `tables.<t>` declaration carrying exactly the invalidate entries given. */
 $table = static fn(array $entries): array => [
@@ -92,23 +92,23 @@ $table = static fn(array $entries): array => [
 $accepts = static function (array $entries, string $label) use ($table): void {
     try {
         ManifestGrammar::assert_table_grammar('acme_things', $table($entries), "manifest 'acme'");
-        duo_check(true, $label);
+        wprism_check(true, $label);
     } catch (\Throwable $e) {
-        duo_check(false, $label);
-        duo_check_detail('unexpected refusal: ' . $e->getMessage());
+        wprism_check(false, $label);
+        wprism_check_detail('unexpected refusal: ' . $e->getMessage());
     }
 };
 
 $refuses = static function (array $entries, string $needle, string $label) use ($table): void {
     try {
         ManifestGrammar::assert_table_grammar('acme_things', $table($entries), "manifest 'acme'");
-        duo_check(false, $label);
-        duo_check_detail('expected a refusal, nothing was thrown');
+        wprism_check(false, $label);
+        wprism_check_detail('expected a refusal, nothing was thrown');
     } catch (\RuntimeException $e) {
-        duo_check(str_contains($e->getMessage(), $needle), $label);
+        wprism_check(str_contains($e->getMessage(), $needle), $label);
         if (!str_contains($e->getMessage(), $needle)) {
-            duo_check_detail('refusal does not name "' . $needle . '"');
-            duo_check_detail('message: ' . $e->getMessage());
+            wprism_check_detail('refusal does not name "' . $needle . '"');
+            wprism_check_detail('message: ' . $e->getMessage());
         }
     }
 };
@@ -129,13 +129,13 @@ $snippetsProvider = (string) file_get_contents($repo . '/adapter-packages/code-s
 // DEMAND 1: the id on the KEY side. PMPro now consumes the admitted primitive
 // directly, proving the verb has a shipped product owner after its compatibility
 // provider is removed rather than surviving only as unused engine vocabulary.
-duo_check_same(
+wprism_check_same(
     [['cache_group' => 'pmpro_membership_level_meta', 'cache_key' => '{id}']],
     $pmproManifest['tables']['pmpro_membership_levels']['invalidate'] ?? null,
     'DEMAND 1 is still in the tree as a shipped declarative consumer: Paid Memberships Pro drops the '
         . "current row id from 'pmpro_membership_level_meta' — the id on the KEY side"
 );
-duo_check(
+wprism_check(
     !isset($pmproManifest['providers'])
         && !isset($pmproManifest['actions'])
         && !is_file($repo . '/adapter-packages/paid-memberships-pro/package/runtime/providers/paid-memberships-pro-cache.php'),
@@ -145,7 +145,7 @@ duo_check(
 // DEMAND 2: the id on the GROUP side, in an unrelated plugin. This is what makes
 // the "{id} in EITHER member" rule a generalisation instead of a transcription
 // of PMPro's one spelling.
-duo_check(
+wprism_check(
     str_contains($wooProvider, "wp_cache_delete('lookup_table', 'object_' . \$id)"),
     'DEMAND 2 is still in the tree, and is INDEPENDENT: manifests/providers/woocommerce-product-lookups.php '
         . "drops wp_cache_delete('lookup_table', 'object_<row id>') — the same primitive with the id on the "
@@ -157,7 +157,7 @@ duo_check(
 // out — and manifests/woocommerce.json:307 already reviewed the blanket case into
 // the top-level `actions` channel, so admitting it would overturn a decision
 // rather than close a gap.
-duo_check(
+wprism_check(
     str_contains($snippetsProvider, 'wp_cache_delete(\\Code_Snippets\\Settings\\CACHE_KEY, \\Code_Snippets\\CACHE_GROUP)'),
     'THE SINGLE-DEMAND SHAPE is real and is still single: manifests/providers/code-snippets-state.php drops a '
         . 'table-scoped entry whose key and group are both literal — one demand, so it does not enter'
@@ -165,11 +165,11 @@ duo_check(
 
 $ledger = json_decode((string) file_get_contents($repo . '/tools/engine-gaps.json'), true, 512, JSON_THROW_ON_ERROR);
 
-duo_check(
+wprism_check(
     ($ledger['primitives']['row_cache_entry_invalidation']['status'] ?? null) === 'shipped',
     'the ledger records the ADMITTED verb as shipped: primitive `row_cache_entry_invalidation`'
 );
-duo_check(
+wprism_check(
     ($ledger['primitives']['table_scoped_cache_entry_invalidation']['status'] ?? null) === 'open',
     'AND IT STILL RECORDS THE REFUSED ONE: primitive `table_scoped_cache_entry_invalidation` stays `open`. A '
         . 'ledger that forgot the shapes the boundary turned away would make the boundary look free'
@@ -189,13 +189,13 @@ $demandFor = static function (array $ledger, string $primitive): array {
     return $names;
 };
 
-duo_check_same(
+wprism_check_same(
     ['Code Snippets'],
     $demandFor($ledger, 'table_scoped_cache_entry_invalidation'),
     'the refused shape has exactly ONE demanding candidate in the ledger — which is the whole reason it is '
         . 'refused, stated as data the open-demand ranking can count rather than as a paragraph'
 );
-duo_check(
+wprism_check(
     in_array('Paid Memberships Pro', $demandFor($ledger, 'row_cache_entry_invalidation'), true),
     'the admitted verb names the candidate it closed: Paid Memberships Pro'
 );
@@ -271,20 +271,20 @@ $refuses(
 // =====================================================================
 
 $FEATURE = ManifestGrammar::INVALIDATE_VOCABULARY_FEATURE;
-duo_check_same('invalidate-vocabulary/v1', $FEATURE, 'the gating feature name');
+wprism_check_same('invalidate-vocabulary/v1', $FEATURE, 'the gating feature name');
 
-duo_check(
+wprism_check(
     in_array($FEATURE, AdapterContractGrammar::implemented_features(), true),
     'the engine IMPLEMENTS the feature, so a manifest may declare it (§ v3.2: a name nothing implements is '
         . 'refused as unimplemented rather than admitted as forward-looking)'
 );
-duo_check_same(
+wprism_check_same(
     [],
     AdapterContractGrammar::admitted_feature_keys(['engine_features' => [$FEATURE]]),
     'AND IT CLAIMS NO TOP-LEVEL KEY: this feature widens a value vocabulary inside a section that already '
         . 'exists, so § v3.3\'s partition does not move and no manifest gains a section'
 );
-duo_check_same(
+wprism_check_same(
     33,
     count(AdapterContractGrammar::admitted_top_level_keys([])),
     'the closed top-level key set is still 33 (register row R-21) — a value-vocabulary feature must not '
@@ -293,7 +293,7 @@ duo_check_same(
 
 $gated = ['pmpro_membership_levels' => $table([['cache_group' => 'pmpro_membership_level_meta', 'cache_key' => '{id}']])];
 
-duo_check_throws(
+wprism_check_throws(
     static fn() => ManifestGrammar::validate_tables(['tables' => $gated], "manifest 'acme'"),
     \RuntimeException::class,
     'THE GATE REFUSES BY FEATURE NAME when the manifest has not declared it — never by mis-reading the '
@@ -305,13 +305,13 @@ try {
         ['engine_features' => [$FEATURE], 'tables' => $gated],
         "manifest 'acme'"
     );
-    duo_check(true, 'and admits the identical declaration once the feature is declared');
+    wprism_check(true, 'and admits the identical declaration once the feature is declared');
 } catch (\Throwable $e) {
-    duo_check(false, 'and admits the identical declaration once the feature is declared');
-    duo_check_detail('unexpected refusal: ' . $e->getMessage());
+    wprism_check(false, 'and admits the identical declaration once the feature is declared');
+    wprism_check_detail('unexpected refusal: ' . $e->getMessage());
 }
 
-duo_check_throws(
+wprism_check_throws(
     static fn() => ManifestGrammar::validate_tables(
         ['tables' => ['acme_things' => $table([['cache_group' => 42]])]],
         "manifest 'acme'"
@@ -329,14 +329,14 @@ duo_check_throws(
 // would look like a manifest's and the site half would become the one place a
 // gated verb can be unlocked by a document nothing validates it in.
 $sitePolicy = ['engine_features' => [$FEATURE], 'tables' => $gated];
-duo_check_throws(
+wprism_check_throws(
     static fn() => ManifestGrammar::validate_tables($sitePolicy, 'site policy', true),
     \RuntimeException::class,
     'A SITE POLICY CANNOT MINT THE FEATURE: even spelling the feature list into `policy`, a site table '
         . 'override is held to the ungated vocabulary',
     "the engine feature 'invalidate-vocabulary/v1' gates"
 );
-duo_check(
+wprism_check(
     (bool) preg_match(
         '/ManifestGrammar::validate_tables\(\$site\[.policy.\] \?\? \[\], \$label, true\)/',
         (string) file_get_contents($repo . '/agent/src/Policy/SitePolicyValidator.php')
@@ -345,7 +345,7 @@ duo_check(
         . 'needs it forgets, so the wiring is asserted rather than assumed'
 );
 
-duo_check_same(
+wprism_check_same(
     // The sections the OTHER features claim (WP-4.2, WP-6.1, WP-6.4, WP-6.5) —
     // and deliberately NOT one for this rider: the assertion's point is that a
     // feature with no `keys` contributes no section floor, and the merged
@@ -400,7 +400,7 @@ $run = (new ReflectionClass(TypedTableMaterializer::class))->getMethod('runInval
 
 $store->cache['pmpro_membership_level_meta']['7'] = ['stale' => true];
 $run->invoke($materializer, ['cache_group' => 'pmpro_membership_level_meta', 'cache_key' => '{id}'], 7);
-duo_check_same(
+wprism_check_same(
     ['pmpro_membership_level_meta/7'],
     $cacheDeletes,
     'RUNTIME, key-side: {id} substitutes into cache_key and the exact entry is dropped'
@@ -409,7 +409,7 @@ duo_check_same(
 $cacheDeletes = [];
 $store->cache['object_7']['lookup_table'] = ['stale' => true];
 $run->invoke($materializer, ['cache_group' => 'object_{id}', 'cache_key' => 'lookup_table'], 7);
-duo_check_same(
+wprism_check_same(
     ['object_7/lookup_table'],
     $cacheDeletes,
     'RUNTIME, group-side: {id} substitutes into cache_group — WooCommerce\'s spelling runs on the same code'
@@ -436,7 +436,7 @@ $survives = new TypedTableMaterializer(
     static fn(string $table): array => []
 );
 $store->cache['pmpro_membership_level_meta']['9'] = ['stale' => true];
-duo_check_throws(
+wprism_check_throws(
     static fn() => $run->invoke($survives, ['cache_group' => 'pmpro_membership_level_meta', 'cache_key' => '{id}'], 9),
     \RuntimeException::class,
     'AN UNVERIFIED INVALIDATION IS REFUSED: a delete the cache backend ignored is exactly the stale read the '
@@ -450,7 +450,7 @@ duo_check_throws(
 
 $shipped = $pmproManifest;
 
-duo_check_same(
+wprism_check_same(
     ['tier_basis' => 'no interpreter, regenerator, provider, or native action is declared',
      'trust_tier' => 'declarative_manifest'],
     AdapterSources::tier_decision($shipped),
@@ -458,7 +458,7 @@ duo_check_same(
         . '— one action, one provider, one wp_cache_delete() loop — is gone and the tier DROPS from '
         . 'compatibility_shim to declarative_manifest'
 );
-duo_check_same(
+wprism_check_same(
     ['invalidate-vocabulary/v1', 'spec-window/v1'],
     $shipped['engine_features'] ?? null,
     'the shipped adapter explicitly negotiates the post-v3 invalidate vocabulary before using it'
@@ -466,7 +466,7 @@ duo_check_same(
 
 $cmd = implode(' ', array_map('escapeshellarg', [
     PHP_BINARY,
-    $repo . '/cli/duo',
+    $repo . '/cli/wprism',
     'manifest-validate',
     $repo,
     '--manifest=paid-memberships-pro',
@@ -480,17 +480,17 @@ if (is_resource($proc)) {
     fclose($pipes[2]);
     proc_close($proc);
 }
-duo_check(
+wprism_check(
     str_contains($stdout, '[ok] paid-memberships-pro'),
-    'AND IT LOADS THROUGH THE PRODUCT PATH: the real `duo manifest-validate` reports [ok] for the shipped '
+    'AND IT LOADS THROUGH THE PRODUCT PATH: the real `wprism manifest-validate` reports [ok] for the shipped '
         . 'declarative PMPro — the migration is reachable by the product, not only by this suite'
 );
 if (!str_contains($stdout, '[ok] paid-memberships-pro')) {
-    duo_check_detail('stdout: ' . substr($stdout, 0, 1200));
-    duo_check_detail('stderr: ' . substr($stderr, 0, 600));
+    wprism_check_detail('stdout: ' . substr($stdout, 0, 1200));
+    wprism_check_detail('stderr: ' . substr($stderr, 0, 600));
 }
 
-duo_check(
+wprism_check(
     !array_key_exists('providers', $shipped)
         && !array_key_exists('actions', $shipped)
         && ($shipped['spec_version'] ?? null) === 3,
@@ -498,4 +498,4 @@ duo_check(
         . 'the feature-gated declarative verb. Operators recompile and re-pin this intentional digest change'
 );
 
-duo_check_summary('regress_invalidate_vocabulary');
+wprism_check_summary('regress_invalidate_vocabulary');

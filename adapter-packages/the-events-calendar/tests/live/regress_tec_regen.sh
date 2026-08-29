@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression — DUO-3234: derived tables with a HARD per-entity
+# Regression — issue #3234: derived tables with a HARD per-entity
 # query-availability dependency (task #124, TEC's tec_occurrences shape).
 # Live, docker-based (matches every other Apply.php-touching regression in
 # this repo — regress_snapshot_meta.sh/regress_shipping_zones.sh/
@@ -13,7 +13,7 @@
 #
 # Proves, against the REAL The Events Calendar 6.17.2 and the SHIPPED
 # adapter-packages/the-events-calendar/package/manifest.json (not a synthetic declaration):
-#   0. DUO-3301's R3-B render checker keeps its complete-response and
+#   0. issue #3301's R3-B render checker keeps its complete-response and
 #      producer-safe aggregate assertion contract. This source-wiring
 #      preflight prevents `echo "$LIST_HTML" | grep -q` from returning as
 #      a soft false-negative under pipefail.
@@ -23,14 +23,14 @@
 #      matching tec_occurrences row) until a manual regeneration step.
 #      This script proves that step now runs automatically.
 #   2. The hard-fail + marker-retry mechanics team-lead's design review
-#      required (DUO-3234's Linear thread, point 5): a genuine
-#      regen_dependency verification failure hard-fails `duo apply`
+#      required (issue #3234's Linear thread, point 5): a genuine
+#      regen_dependency verification failure hard-fails `wprism apply`
 #      (nonzero exit), AND — the load-bearing correctness property — a
 #      LATER apply with no further content changes still retries and
 #      resolves it, rather than silently reporting all-clear (the
 #      false-green retry the design review specifically flagged).
 #   3. regen_pending:<uuid> (this file's own marker) is independently
-#      load-bearing, not merely redundant with DUO-3206's unrelated
+#      load-bearing, not merely redundant with issue #3206's unrelated
 #      apply_in_progress marker (landed later, picked up via a rebase onto
 #      main after this script was first written — see step (6e)'s comment
 #      for the full interaction). Step (7) manufactures a scenario with a
@@ -39,14 +39,14 @@
 #      off this file's own kv_prefix() scan.
 #   4. Design review's two REQUIRED follow-on conditions (both missed on
 #      the first merge — see the issue's own comment history):
-#        (a) PLAN VISIBILITY — `duo plan` (read-only) surfaces a live
+#        (a) PLAN VISIBILITY — `wprism plan` (read-only) surfaces a live
 #            regen_pending marker into plan.regen_pending and
 #            plan.warnings (step 6e, and again in step 7's isolated
-#            scenario where DUO-3206's own incomplete_apply signal is
+#            scenario where issue #3206's own incomplete_apply signal is
 #            deliberately absent — proving this file's own field, not
-#            DUO-3206's, is what's doing the surfacing there).
-#        (b) STATUS FAIL-CLOSED — `cli/duo status <env>` (cli/src/
-#            PlanSummary.php, DUO-3221's decision-matrix) reports the
+#            issue #3206's, is what's doing the surfacing there).
+#        (b) STATUS FAIL-CLOSED — `cli/wprism status <env>` (cli/src/
+#            PlanSummary.php, issue #3221's decision-matrix) reports the
 #            outstanding regen_pending marker and removes that signal once
 #            it resolves — step (7c-status)/(7d-status). Once the marker
 #            clears, TEC's certified disposition leaves no independent
@@ -67,7 +67,7 @@
 # adapter while leaving shipped evidence untouched.
 set -euo pipefail
 PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
-export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 cd "$(dirname "$0")/../../../../sandbox"
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
@@ -96,26 +96,26 @@ grep -qi '</html>' <<<"$SYNTHETIC_HTML" || fail "synthetic response lacks closin
 for title in "Fall Open House" "Community Meetup" "Annual Gala"; do
   grep -qF "$title" <<<"$SYNTHETIC_HTML" || fail "producer-safe title check missed '$title'"
 done
-pass "DUO-3301 render-check contract: complete response, producer-safe title checks, hard aggregate failure"
+pass "issue #3301 render-check contract: complete response, producer-safe title checks, hard aggregate failure"
 SELF="../adapter-packages/the-events-calendar/tests/live/regress_tec_regen.sh"
-! grep -Fq 'DUO_''MANIFESTS_DIR' "$SELF" \
+! grep -Fq 'WPRISM_''MANIFESTS_DIR' "$SELF" \
   || fail 'TEC fault fixture reintroduced process-global manifest selection'
 grep -Fq 'AdapterLibrary::fromSourceTree' "$SELF" \
   || fail 'TEC fault fixture no longer constructs an explicit source-layout library'
 pass "TEC fault injection selects its package library explicitly"
 # The owning issue can run its focused, docker-free contract independently
-# from DUO-3234's older live regen scenarios below.
+# from issue #3234's older live regen scenarios below.
 [ "${TEC_REGEN_PREFLIGHT_ONLY:-0}" = "1" ] && exit 0
 
 PAIR="${TEC_REGEN_PAIR:-asnaptec}"
 PORT1="${TEC_REGEN_PORT1:-8936}"
 PORT2="${TEC_REGEN_PORT2:-8937}"
-export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2" DUO_CODEBIND_PLUGIN=""
+export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2" WPRISM_CODEBIND_PLUGIN=""
 
-wp1() { docker compose -p "duo-$PAIR" -f pair.yml run --rm -T cli1 wp "$@"; }
-wp2() { docker compose -p "duo-$PAIR" -f pair.yml run --rm -T cli2 wp "$@"; }
+wp1() { docker compose -p "wprism-$PAIR" -f pair.yml run --rm -T cli1 wp "$@"; }
+wp2() { docker compose -p "wprism-$PAIR" -f pair.yml run --rm -T cli2 wp "$@"; }
 wp2_fault() {
-  [ "${1:-}" = duo ] || fail 'fault runner accepts only wp duo commands'
+  [ "${1:-}" = wprism ] || fail 'fault runner accepts only wp wprism commands'
   local subcommand="${2:-}" assoc='{}' arg key value assoc_b64
   [ "$subcommand" = plan ] || [ "$subcommand" = apply ] \
     || fail 'fault runner accepts only plan/apply'
@@ -134,29 +134,29 @@ wp2_fault() {
     esac
   done
   assoc_b64=$(printf '%s' "$assoc" | base64 | tr -d '\n')
-  docker compose -p "duo-$PAIR" -f pair.yml run --rm -T \
-    -e DUO_TEST_ADAPTER_LIBRARY=/siterepo/.tmp-tec-library \
-    -e DUO_TEST_ASSOC_B64="$assoc_b64" -e DUO_TEST_SUBCOMMAND="$subcommand" cli2 wp eval '
-      $subcommand = (string) getenv("DUO_TEST_SUBCOMMAND");
-      $assoc = json_decode(base64_decode((string) getenv("DUO_TEST_ASSOC_B64"), true), true, 512, JSON_THROW_ON_ERROR);
-      $assoc["adapter_library"] = \Duo\AdapterLibrary::fromSourceTree((string) getenv("DUO_TEST_ADAPTER_LIBRARY"));
-      (new \Duo\Cli())->{$subcommand}([], $assoc);
+  docker compose -p "wprism-$PAIR" -f pair.yml run --rm -T \
+    -e WPRISM_TEST_ADAPTER_LIBRARY=/siterepo/.tmp-tec-library \
+    -e WPRISM_TEST_ASSOC_B64="$assoc_b64" -e WPRISM_TEST_SUBCOMMAND="$subcommand" cli2 wp eval '
+      $subcommand = (string) getenv("WPRISM_TEST_SUBCOMMAND");
+      $assoc = json_decode(base64_decode((string) getenv("WPRISM_TEST_ASSOC_B64"), true), true, 512, JSON_THROW_ON_ERROR);
+      $assoc["adapter_library"] = \WPrism\AdapterLibrary::fromSourceTree((string) getenv("WPRISM_TEST_ADAPTER_LIBRARY"));
+      (new \WPrism\Cli())->{$subcommand}([], $assoc);
     '
 }
-GIT_1="git -C siterepo/${PAIR}1 -c user.name=duo-$PAIR -c user.email=$PAIR@example.test"
+GIT_1="git -C siterepo/${PAIR}1 -c user.name=wprism-$PAIR -c user.email=$PAIR@example.test"
 
 SHIPPED_MANIFEST="../adapter-packages/the-events-calendar/package/manifest.json"
 TEST_LIBRARY_ROOT="siterepo/${PAIR}2/.tmp-tec-library"
 MANIFEST="$TEST_LIBRARY_ROOT/adapter-packages/the-events-calendar/package/manifest.json"
 
-# cli/duo status <env> needs a repo-root .duo-envs.json naming this pair's
-# side-2 (cli2) docker service — same pattern cli_status_truth.sh (DUO-3221)
+# cli/wprism status <env> needs a repo-root .wprism-envs.json naming this pair's
+# side-2 (cli2) docker service — same pattern cli_status_truth.sh (issue #3221)
 # already established. Written once, used by step (7)'s isolated
 # regen_pending-alone status proof below. Gitignored (.gitignore:5), and
 # this script's own worktree is never shared with another agent's, so
 # there's no cross-session collision risk in writing it at repo root.
-DUO_CLI="$(pwd)/../cli/duo"
-ENVS_FILE="$(pwd)/../.duo-envs.json"
+WPRISM_CLI="$(pwd)/../cli/wprism"
+ENVS_FILE="$(pwd)/../.wprism-envs.json"
 ENV_NAME="${PAIR}2"
 
 cleanup() {
@@ -177,7 +177,7 @@ cat > "$ENVS_FILE" <<EOF
   }
 }
 EOF
-pass ".duo-envs.json written for cli/duo status <$ENV_NAME>"
+pass ".wprism-envs.json written for cli/wprism status <$ENV_NAME>"
 
 say "install + activate The Events Calendar 6.17.2 on both sides"
 wp1 plugin install the-events-calendar --version=6.17.2 --activate >/dev/null
@@ -194,7 +194,7 @@ $event_id = tribe_events()->set_args([
     'status' => 'publish',
     'start_date' => '2026-09-05 17:00:00',
     'end_date' => '2026-09-05 20:00:00',
-    'description' => 'Seeded for DUO-3234.',
+    'description' => 'Seeded for issue #3234.',
 ])->create()->ID;
 if (!$event_id) { fwrite(STDERR, "failed to create event\n"); exit(1); }
 echo "event_id=$event_id\n";
@@ -213,9 +213,9 @@ EVENT_ID_1=$(wp1 post list --post_type=tribe_events --format=ids)
 pass "side 1 seeded: event_id=$EVENT_ID_1"
 
 say "site repo: pin the SHIPPED the-events-calendar manifest (the actual deliverable)"
-rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1/.git" "siterepo/${PAIR}2" "siterepo/${PAIR}1/state" "siterepo/${PAIR}1/site.duo.json"
+rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1/.git" "siterepo/${PAIR}2" "siterepo/${PAIR}1/state" "siterepo/${PAIR}1/site.wprism.json"
 git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "the-events-calendar"],
   "policy": {
@@ -242,7 +242,7 @@ $GIT_1 push -qu origin main
 pass "site repo initialized, pinning the shipped manifest"
 
 say "(2) capture on side 1"
-wp1 duo capture --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
 EVENT_FILE=$(ls "siterepo/${PAIR}1/state/posts/tribe_events/"*.json 2>/dev/null || ls "siterepo/${PAIR}1/state/posts/tribe_events/"*.md 2>/dev/null)
 [ -n "$EVENT_FILE" ] || fail "expected a captured tribe_events post"
 pass "captured cleanly: $EVENT_FILE"
@@ -257,13 +257,13 @@ $GIT_1 push -q origin main
 say "(3) clone into side 2 (fresh target), apply — THE core proof"
 git clone -q "siterepo/origin-$PAIR.git" "siterepo/${PAIR}2"
 REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-APPLY1=$(wp2 duo apply --repo=/siterepo --default-author=admin --revision="$REV" --adopt-by-slug=posts,terms,menus,tables --format=json | tail -1)
+APPLY1=$(wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$REV" --adopt-by-slug=posts,terms,menus,tables --format=json | tail -1)
 echo "$APPLY1"
 echo "$APPLY1" | jq -e '.canary == "clean"' >/dev/null || fail "expected a clean canary on the first apply (output: $APPLY1)"
 pass "applied to side 2, canary clean"
 
 EVENT_ID_2=$(wp2 post list --post_type=tribe_events --format=ids)
-[ -n "$EVENT_ID_2" ] || fail "THE ORIGINAL R3-B BREAK: wp post list --post_type=tribe_events finds NOTHING on side 2 — the event is invisible to WP_Query, exactly the bug DUO-3234 exists to fix"
+[ -n "$EVENT_ID_2" ] || fail "THE ORIGINAL R3-B BREAK: wp post list --post_type=tribe_events finds NOTHING on side 2 — the event is invisible to WP_Query, exactly the bug issue #3234 exists to fix"
 pass "THE CORE FIX PROVEN: wp post list --post_type=tribe_events finds the applied event on side 2 (event_id=$EVENT_ID_2) — NO manual regeneration step, unlike every prior grind round"
 
 OCC_2=$(wp2 db query "SELECT COUNT(*) FROM wp_tec_occurrences WHERE post_id=$EVENT_ID_2" --skip-column-names 2>/dev/null | tr -d '\r')
@@ -289,71 +289,71 @@ cp ../adapter-packages/the-events-calendar/package/runtime/regenerators/the-even
   "$TEST_LIBRARY_ROOT/adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php"
 
 say "(4) byte-identical recapture on side 2"
-wp2 duo capture --repo=/siterepo
+wp2 wprism capture --repo=/siterepo
 EVENT_FILE_2=$(ls "siterepo/${PAIR}2/state/posts/tribe_events/"*.json 2>/dev/null || ls "siterepo/${PAIR}2/state/posts/tribe_events/"*.md 2>/dev/null)
 diff -u "$EVENT_FILE" "$EVENT_FILE_2" >/dev/null || fail "tribe_events file diverged between side 1 and recaptured side 2"
 pass "byte-identical recapture"
 
-say "(5) wp duo lint — hard gate, zero findings expected"
+say "(5) wp wprism lint — hard gate, zero findings expected"
 LINT_RC=0
-LINT_OUT=$(wp2 duo lint --repo=/siterepo 2>&1) || LINT_RC=$?
+LINT_OUT=$(wp2 wprism lint --repo=/siterepo 2>&1) || LINT_RC=$?
 echo "$LINT_OUT"
-[ "$LINT_RC" -eq 0 ] || fail "wp duo lint found findings (exit $LINT_RC)"
+[ "$LINT_RC" -eq 0 ] || fail "wp wprism lint found findings (exit $LINT_RC)"
 pass "lint: zero findings"
 
 say "(6) THE DESIGN-REVIEW PROOF: a genuine verification failure hard-fails apply, and a LATER apply with no further content changes still retries and resolves it"
 
 say "(6a) small, real content change on side 1 (forces this event back into the 'update' plan bucket)"
-wp1 post update "$EVENT_ID_1" --post_content='Updated for the DUO-3234 hard-fail/retry proof.' >/dev/null
-wp1 duo capture --repo=/siterepo >/dev/null
+wp1 post update "$EVENT_ID_1" --post_content='Updated for the issue #3234 hard-fail/retry proof.' >/dev/null
+wp1 wprism capture --repo=/siterepo >/dev/null
 $GIT_1 add -A
 $GIT_1 commit -qm "capture: content tweak to force the update bucket"
 $GIT_1 push -q origin main
 
 say "(6b) add a valid verifier column that remains NULL, then temporarily point the SHIPPED manifest at it (deterministic, reversible failure — restored by this script's own EXIT trap even on a failed run)"
-wp2 db query "ALTER TABLE wp_tec_occurrences ADD COLUMN duo_regress_never_matches BIGINT NULL" >/dev/null
-jq '.post_types.tribe_events.regen_dependency.verify.column = "duo_regress_never_matches"' "$MANIFEST" > "$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST"
-jq -e '.post_types.tribe_events.regen_dependency.verify.column == "duo_regress_never_matches"' "$MANIFEST" >/dev/null || fail "failed to perturb the manifest for the failure test"
+wp2 db query "ALTER TABLE wp_tec_occurrences ADD COLUMN wprism_regress_never_matches BIGINT NULL" >/dev/null
+jq '.post_types.tribe_events.regen_dependency.verify.column = "wprism_regress_never_matches"' "$MANIFEST" > "$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST"
+jq -e '.post_types.tribe_events.regen_dependency.verify.column == "wprism_regress_never_matches"' "$MANIFEST" >/dev/null || fail "failed to perturb the manifest for the failure test"
 
 git -C "siterepo/${PAIR}2" pull -q origin main
 REV2=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
 say "(6c) apply — expect a HARD FAILURE (nonzero exit), not a warning, not a silent skip"
 set +e
-APPLY2=$(wp2_fault duo apply --repo=/siterepo --default-author=admin --revision="$REV2" --adopt-by-slug=posts,terms,menus,tables --format=json 2>&1)
+APPLY2=$(wp2_fault wprism apply --repo=/siterepo --default-author=admin --revision="$REV2" --adopt-by-slug=posts,terms,menus,tables --format=json 2>&1)
 APPLY2_RC=$?
 set -e
 echo "$APPLY2"
-[ "$APPLY2_RC" -ne 0 ] || fail "expected duo apply to hard-fail on a genuine regen_dependency verification failure — it exited 0"
+[ "$APPLY2_RC" -ne 0 ] || fail "expected wprism apply to hard-fail on a genuine regen_dependency verification failure — it exited 0"
 APPLY2_JSON=$(printf '%s\n' "$APPLY2" | awk 'NF { line=$0 } END { print line }')
 printf '%s\n' "$APPLY2_JSON" | jq -e '
-  .format == "duo-command-refusal/v1" and
+  .format == "wprism-command-refusal/v1" and
   .ok == false and .command == "apply" and
   .error == "apply_failed" and .reason_code == "apply_failed" and
   .details_redacted == true
 ' >/dev/null || fail "verification failure did not produce the stable redacted apply refusal: $APPLY2"
-if grep -q "duo_regress_never_matches" <<<"$APPLY2_JSON"; then
+if grep -q "wprism_regress_never_matches" <<<"$APPLY2_JSON"; then
   fail "public apply refusal leaked the private verifier column"
 fi
-pass "duo apply hard-failed as required (exit $APPLY2_RC) with the stable redacted refusal envelope"
+pass "wprism apply hard-failed as required (exit $APPLY2_RC) with the stable redacted refusal envelope"
 
-MARKER=$(wp2 db query "SELECT v FROM wp_duo_kv WHERE k = 'regen_pending:$CAPTURED_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
+MARKER=$(wp2 db query "SELECT v FROM wp_wprism_kv WHERE k = 'regen_pending:$CAPTURED_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
 [ "$MARKER" = "tribe_events" ] || fail "expected a regen_pending:<uuid> marker recording post_type=tribe_events, got '$MARKER'"
-pass "regen_pending marker recorded in duo_kv (post_type=$MARKER) — this is what makes the next apply retry"
+pass "regen_pending marker recorded in wprism_kv (post_type=$MARKER) — this is what makes the next apply retry"
 
 say "(6d) restore the manifest and physical schema to their correct, shipped state"
 cp "$SHIPPED_MANIFEST" "$MANIFEST"
 jq -e '.post_types.tribe_events.regen_dependency.verify.column == "post_id"' "$MANIFEST" >/dev/null || fail "manifest restoration did not produce the expected verify.column"
-wp2 db query "ALTER TABLE wp_tec_occurrences DROP COLUMN duo_regress_never_matches" >/dev/null
-FAULT_COLUMN_COUNT=$(wp2 db query "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_tec_occurrences' AND COLUMN_NAME = 'duo_regress_never_matches'" --skip-column-names 2>/dev/null | tr -d '\r')
+wp2 db query "ALTER TABLE wp_tec_occurrences DROP COLUMN wprism_regress_never_matches" >/dev/null
+FAULT_COLUMN_COUNT=$(wp2 db query "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_tec_occurrences' AND COLUMN_NAME = 'wprism_regress_never_matches'" --skip-column-names 2>/dev/null | tr -d '\r')
 [ "$FAULT_COLUMN_COUNT" = "0" ] || fail "verifier fault column survived restoration (count=$FAULT_COLUMN_COUNT)"
 pass "manifest and verifier-only schema column restored"
 
 say "(6e) THE LOAD-BEARING PROOF: re-run apply with ZERO further content changes — the regen failure still gets retried and resolved automatically, not silently skipped (the exact false-green retry the design review flagged)"
-PLAN3=$(wp2_fault duo plan --repo=/siterepo --format=json | tail -1)
+PLAN3=$(wp2_fault wprism plan --repo=/siterepo --format=json | tail -1)
 echo "$PLAN3"
 # NOTE on this assertion's history: this used to check the event shows as
 # 'unchanged' in plan, to prove regen_pending:<uuid> alone (not plan's
-# content-hash bucketing) is what forces the retry. DUO-3206 (landed after
+# content-hash bucketing) is what forces the retry. issue #3206 (landed after
 # this test was first written, merged in via rebase) added its OWN
 # whole-apply apply_in_progress marker — set before every apply's main
 # transaction, cleared only after rebuild() AND a following ledger
@@ -362,35 +362,35 @@ echo "$PLAN3"
 # stays set on exactly this failure, and forces EVERY entity (not just
 # this one) into the 'update' bucket with retry:true on the next plan —
 # see Apply::build_plan()'s own incomplete_apply handling. Both markers
-# are real and both get set by this failure; DUO-3206's coarser mechanism
+# are real and both get set by this failure; issue #3206's coarser mechanism
 # is simply what's now visible in plan's bucketing. Step (7) below proves
 # regen_pending:<uuid> still does independent, load-bearing work with
 # apply_in_progress absent entirely.
 echo "$PLAN3" | jq -e --arg u "$CAPTURED_UUID" '.update | any(.uuid == $u and .retry == true)' >/dev/null \
-  || fail "expected the event in plan's update bucket with retry:true (DUO-3206's apply_in_progress forcing a full retry after the regen failure) — plan: $PLAN3"
+  || fail "expected the event in plan's update bucket with retry:true (issue #3206's apply_in_progress forcing a full retry after the regen failure) — plan: $PLAN3"
 echo "$PLAN3" | jq -e '.incomplete_apply | length > 0' >/dev/null \
   || fail "expected plan.incomplete_apply to be non-empty (apply_in_progress marker still set from the failed run) — plan: $PLAN3"
-pass "confirmed: plan shows the retry-forcing state (incomplete_apply + retry:true), driven by DUO-3206's apply_in_progress marker set by the same regen failure"
+pass "confirmed: plan shows the retry-forcing state (incomplete_apply + retry:true), driven by issue #3206's apply_in_progress marker set by the same regen failure"
 
-# DUO-3234 design review, addition 1: plan must ALSO surface the
+# issue #3234 design review, addition 1: plan must ALSO surface the
 # regen_pending marker itself here, in the natural "between a failed
-# apply and its retry" moment — not just DUO-3206's coarser
+# apply and its retry" moment — not just issue #3206's coarser
 # incomplete_apply signal. Step (7) below is the cleaner, isolated proof
 # that regen_pending alone (no incomplete_apply at all) still surfaces and
-# still flips `duo status`; this assertion instead proves both signals
+# still flips `wprism status`; this assertion instead proves both signals
 # genuinely coexist at the point they'd actually occur together.
 echo "$PLAN3" | jq -e --arg u "$CAPTURED_UUID" '.regen_pending | any(.uuid == $u and .post_type == "tribe_events")' >/dev/null \
   || fail "expected plan.regen_pending to name the event (uuid + post_type) here — plan: $PLAN3"
 echo "$PLAN3" | jq -e --arg u "$CAPTURED_UUID" '.warnings | any(test($u) and test("regeneration"))' >/dev/null \
   || fail "expected plan.warnings to contain a regeneration-pending message naming the uuid — plan: $PLAN3"
-pass "confirmed: plan.regen_pending and plan.warnings both name the event — an operator running plain 'duo plan' here sees the truth, not 'nothing to do'"
+pass "confirmed: plan.regen_pending and plan.warnings both name the event — an operator running plain 'wprism plan' here sees the truth, not 'nothing to do'"
 
-APPLY3=$(wp2_fault duo apply --repo=/siterepo --default-author=admin --revision="$REV2" --adopt-by-slug=posts,terms,menus,tables --format=json | tail -1)
+APPLY3=$(wp2_fault wprism apply --repo=/siterepo --default-author=admin --revision="$REV2" --adopt-by-slug=posts,terms,menus,tables --format=json | tail -1)
 echo "$APPLY3"
 echo "$APPLY3" | jq -e '.canary == "clean"' >/dev/null || fail "expected the retry apply to succeed cleanly (output: $APPLY3)"
 pass "retry apply succeeded — the previously-failed verification now resolves automatically, with no new content change and no manual intervention"
 
-MARKER_AFTER=$(wp2 db query "SELECT COUNT(*) FROM wp_duo_kv WHERE k = 'regen_pending:$CAPTURED_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
+MARKER_AFTER=$(wp2 db query "SELECT COUNT(*) FROM wp_wprism_kv WHERE k = 'regen_pending:$CAPTURED_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
 [ "$MARKER_AFTER" = "0" ] || fail "expected the regen_pending marker to be cleared after a successful retry (still present)"
 pass "marker cleared — the ledger no longer carries a stale retry target"
 
@@ -400,11 +400,11 @@ FINAL_VISIBLE=$(wp2 post list --post_type=tribe_events --format=ids)
 [ -n "$FINAL_VISIBLE" ] || fail "event should still be visible to wp post list after the whole failure/retry sequence"
 pass "final state confirmed correct: tec_occurrences present, event visible to WP_Query"
 
-say "(7) ISOLATION PROOF: regen_pending:<uuid> resolves independently of DUO-3206's apply_in_progress — no failed apply, no forced full-tree retry, just this repo's own marker-consulting logic"
+say "(7) ISOLATION PROOF: regen_pending:<uuid> resolves independently of issue #3206's apply_in_progress — no failed apply, no forced full-tree retry, just this repo's own marker-consulting logic"
 say "(7a) sanity: confirm this environment is fully clean before manufacturing the isolated scenario"
-CLEAN_INCOMPLETE=$(wp2 db query "SELECT COUNT(*) FROM wp_duo_kv WHERE k = 'apply_in_progress'" --skip-column-names 2>/dev/null | tr -d '\r')
+CLEAN_INCOMPLETE=$(wp2 db query "SELECT COUNT(*) FROM wp_wprism_kv WHERE k = 'apply_in_progress'" --skip-column-names 2>/dev/null | tr -d '\r')
 [ "$CLEAN_INCOMPLETE" = "0" ] || fail "expected apply_in_progress to be absent after (6e)'s successful retry (got count=$CLEAN_INCOMPLETE) — cannot isolate the marker's own behavior otherwise"
-CLEAN_PLAN=$(wp2_fault duo plan --repo=/siterepo --format=json | tail -1)
+CLEAN_PLAN=$(wp2_fault wprism plan --repo=/siterepo --format=json | tail -1)
 echo "$CLEAN_PLAN" | jq -e --arg u "$CAPTURED_UUID" '.unchanged | any(.uuid == $u)' >/dev/null \
   || fail "expected the event back to plain 'unchanged' bucketing now that both markers are clear — plan: $CLEAN_PLAN"
 pass "environment confirmed clean: no apply_in_progress, event is plain 'unchanged' — a true baseline for the isolation proof"
@@ -413,54 +413,54 @@ say "(7b) manufacture drift by hand: delete the live tec_occurrences row, then m
 wp2 db query "DELETE FROM wp_tec_occurrences WHERE post_id=$EVENT_ID_2" >/dev/null
 ORPHAN_OCC=$(wp2 db query "SELECT COUNT(*) FROM wp_tec_occurrences WHERE post_id=$EVENT_ID_2" --skip-column-names 2>/dev/null | tr -d '\r')
 [ "$ORPHAN_OCC" = "0" ] || fail "expected the manual tec_occurrences delete to have taken effect (got count=$ORPHAN_OCC)"
-wp2 db query "INSERT INTO wp_duo_kv (k, v) VALUES ('regen_pending:$CAPTURED_UUID', 'tribe_events') ON DUPLICATE KEY UPDATE v = VALUES(v)" >/dev/null
-MARKER_PLANTED=$(wp2 db query "SELECT v FROM wp_duo_kv WHERE k = 'regen_pending:$CAPTURED_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
+wp2 db query "INSERT INTO wp_wprism_kv (k, v) VALUES ('regen_pending:$CAPTURED_UUID', 'tribe_events') ON DUPLICATE KEY UPDATE v = VALUES(v)" >/dev/null
+MARKER_PLANTED=$(wp2 db query "SELECT v FROM wp_wprism_kv WHERE k = 'regen_pending:$CAPTURED_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
 [ "$MARKER_PLANTED" = "tribe_events" ] || fail "expected the manually-planted marker to read back, got '$MARKER_PLANTED'"
 pass "tec_occurrences row deleted; regen_pending:<uuid> marker planted by hand; apply_in_progress deliberately left untouched (still absent)"
 
-say "(7c) plan still shows plain BUCKET 'unchanged' (DUO-3206's apply_in_progress plays no role here) — but, per design review addition 1, plan.regen_pending must still name the marker explicitly"
-ISO_PLAN=$(wp2_fault duo plan --repo=/siterepo --format=json | tail -1)
+say "(7c) plan still shows plain BUCKET 'unchanged' (issue #3206's apply_in_progress plays no role here) — but, per design review addition 1, plan.regen_pending must still name the marker explicitly"
+ISO_PLAN=$(wp2_fault wprism plan --repo=/siterepo --format=json | tail -1)
 echo "$ISO_PLAN"
 echo "$ISO_PLAN" | jq -e --arg u "$CAPTURED_UUID" '.unchanged | any(.uuid == $u)' >/dev/null \
   || fail "expected the event to still show as plain 'unchanged' (no incomplete_apply, no retry:true — apply_in_progress was never set this time) — plan: $ISO_PLAN"
 echo "$ISO_PLAN" | jq -e '.incomplete_apply | length == 0' >/dev/null \
   || fail "expected plan.incomplete_apply to be EMPTY this time (no apply_in_progress marker exists) — plan: $ISO_PLAN"
-pass "confirmed: plan shows plain 'unchanged', zero incomplete_apply — DUO-3206's mechanism plays no role in this scenario"
+pass "confirmed: plan shows plain 'unchanged', zero incomplete_apply — issue #3206's mechanism plays no role in this scenario"
 
 echo "$ISO_PLAN" | jq -e --arg u "$CAPTURED_UUID" '.regen_pending | any(.uuid == $u and .post_type == "tribe_events")' >/dev/null \
   || fail "expected plan.regen_pending to name the hand-planted marker even with incomplete_apply empty — plan: $ISO_PLAN"
-pass "confirmed: plan.regen_pending surfaces the marker on its own, with zero DUO-3206 involvement (incomplete_apply is empty, regen_pending is not)"
+pass "confirmed: plan.regen_pending surfaces the marker on its own, with zero issue #3206 involvement (incomplete_apply is empty, regen_pending is not)"
 
-say "(7c-status) duo status must surface REGEN_PENDING explicitly (in addition to TEC's independent capability-registry promotion gate)"
+say "(7c-status) wprism status must surface REGEN_PENDING explicitly (in addition to TEC's independent capability-registry promotion gate)"
 set +e
-STATUS_OUT=$("$DUO_CLI" status "$ENV_NAME" 2>&1)
+STATUS_OUT=$("$WPRISM_CLI" status "$ENV_NAME" 2>&1)
 STATUS_RC=$?
 set -e
 echo "$STATUS_OUT"
-[ "$STATUS_RC" -ne 0 ] || fail "expected 'duo status $ENV_NAME' to exit non-zero while a regen_pending marker is outstanding — it exited 0"
+[ "$STATUS_RC" -ne 0 ] || fail "expected 'wprism status $ENV_NAME' to exit non-zero while a regen_pending marker is outstanding — it exited 0"
 grep -q "REGEN_PENDING (" <<<"$STATUS_OUT" \
-  || fail "duo status output doesn't surface the outstanding REGEN_PENDING section (output: $STATUS_OUT)"
-pass "duo status reports not-safe-to-promote (exit $STATUS_RC) and surfaces the outstanding REGEN_PENDING section explicitly"
+  || fail "wprism status output doesn't surface the outstanding REGEN_PENDING section (output: $STATUS_OUT)"
+pass "wprism status reports not-safe-to-promote (exit $STATUS_RC) and surfaces the outstanding REGEN_PENDING section explicitly"
 
 say "(7d) apply anyway (no content changed, nothing forces a normal retry) — regen_pending:<uuid> alone must still trigger regen_dependencies() and repair the row"
-ISO_APPLY=$(wp2_fault duo apply --repo=/siterepo --default-author=admin --revision="$REV2" --adopt-by-slug=posts,terms,menus,tables --format=json | tail -1)
+ISO_APPLY=$(wp2_fault wprism apply --repo=/siterepo --default-author=admin --revision="$REV2" --adopt-by-slug=posts,terms,menus,tables --format=json | tail -1)
 echo "$ISO_APPLY"
 echo "$ISO_APPLY" | jq -e '.canary == "clean"' >/dev/null || fail "expected the isolated marker-driven apply to succeed cleanly (output: $ISO_APPLY)"
 pass "apply succeeded with zero plan-visible work, purely on the strength of the planted regen_pending:<uuid> marker"
 
 ISO_OCC=$(wp2 db query "SELECT COUNT(*) FROM wp_tec_occurrences WHERE post_id=$EVENT_ID_2" --skip-column-names 2>/dev/null | tr -d '\r')
 [ "$ISO_OCC" = "1" ] || fail "expected the manually-deleted tec_occurrences row to be regenerated (got count=$ISO_OCC)"
-ISO_MARKER_AFTER=$(wp2 db query "SELECT COUNT(*) FROM wp_duo_kv WHERE k = 'regen_pending:$CAPTURED_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
+ISO_MARKER_AFTER=$(wp2 db query "SELECT COUNT(*) FROM wp_wprism_kv WHERE k = 'regen_pending:$CAPTURED_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
 [ "$ISO_MARKER_AFTER" = "0" ] || fail "expected the manually-planted marker to be cleared after the isolated repair (still present)"
-pass "ISOLATION PROOF confirmed: tec_occurrences row regenerated and marker cleared with NO apply_in_progress involvement whatsoever — regen_pending:<uuid> is independently load-bearing, not merely redundant with DUO-3206"
+pass "ISOLATION PROOF confirmed: tec_occurrences row regenerated and marker cleared with NO apply_in_progress involvement whatsoever — regen_pending:<uuid> is independently load-bearing, not merely redundant with issue #3206"
 
 say "(7d-status) the REGEN_PENDING status signal clears after repair and certified TEC is promotable"
 STATUS_CLEAN_RC=0
-STATUS_CLEAN_OUT=$("$DUO_CLI" status "$ENV_NAME" 2>&1) || STATUS_CLEAN_RC=$?
+STATUS_CLEAN_OUT=$("$WPRISM_CLI" status "$ENV_NAME" 2>&1) || STATUS_CLEAN_RC=$?
 echo "$STATUS_CLEAN_OUT"
-[ "$STATUS_CLEAN_RC" -eq 0 ] || fail "expected certified TEC with no recovery marker to make 'duo status $ENV_NAME' promotable (exit=$STATUS_CLEAN_RC)"
+[ "$STATUS_CLEAN_RC" -eq 0 ] || fail "expected certified TEC with no recovery marker to make 'wprism status $ENV_NAME' promotable (exit=$STATUS_CLEAN_RC)"
 if grep -q "REGEN_PENDING (" <<<"$STATUS_CLEAN_OUT"; then
-  fail "duo status still reports an outstanding REGEN_PENDING section after the marker resolved (output: $STATUS_CLEAN_OUT)"
+  fail "wprism status still reports an outstanding REGEN_PENDING section after the marker resolved (output: $STATUS_CLEAN_OUT)"
 fi
 if grep -q "ADAPTER_DISPOSITIONS (" <<<"$STATUS_CLEAN_OUT"; then
   fail "certified TEC still reports an adapter-disposition blocker after recovery (output: $STATUS_CLEAN_OUT)"
@@ -469,24 +469,24 @@ grep -q "only optional env value(s) missing — safe to promote" <<<"$STATUS_CLE
   || fail "clean certified TEC status omitted its explicit safe-to-promote result (output: $STATUS_CLEAN_OUT)"
 pass "REGEN_PENDING and adapter-disposition blockers cleared; certified TEC status is safe to promote"
 
-say "(8) ORPHAN-SWEEP PROOF (design review addition 2): a regen_pending marker that can never resolve again must not sit in duo_kv forever — both orphan shapes get swept, loudly, in the same pass that would have processed them"
+say "(8) ORPHAN-SWEEP PROOF (design review addition 2): a regen_pending marker that can never resolve again must not sit in wprism_kv forever — both orphan shapes get swept, loudly, in the same pass that would have processed them"
 
 say "(8a) orphan shape 1: manifest no longer declares a regen_dependency for the post type"
 jq 'del(.post_types.tribe_events.regen_dependency)' "$MANIFEST" > "$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST"
 jq -e '.post_types.tribe_events.regen_dependency == null' "$MANIFEST" >/dev/null || fail "failed to strip regen_dependency from the manifest for the orphan-sweep test"
-wp2 db query "INSERT INTO wp_duo_kv (k, v) VALUES ('regen_pending:$CAPTURED_UUID', 'tribe_events') ON DUPLICATE KEY UPDATE v = VALUES(v)" >/dev/null
-ORPHAN1_PLANTED=$(wp2 db query "SELECT v FROM wp_duo_kv WHERE k = 'regen_pending:$CAPTURED_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
+wp2 db query "INSERT INTO wp_wprism_kv (k, v) VALUES ('regen_pending:$CAPTURED_UUID', 'tribe_events') ON DUPLICATE KEY UPDATE v = VALUES(v)" >/dev/null
+ORPHAN1_PLANTED=$(wp2 db query "SELECT v FROM wp_wprism_kv WHERE k = 'regen_pending:$CAPTURED_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
 [ "$ORPHAN1_PLANTED" = "tribe_events" ] || fail "expected the orphan-1 marker to be planted, got '$ORPHAN1_PLANTED'"
 pass "regen_dependency declaration removed from the manifest; regen_pending:<uuid> marker (re-)planted by hand"
 
-ORPHAN1_APPLY=$(wp2_fault duo apply --repo=/siterepo --default-author=admin --revision="$REV2" --adopt-by-slug=posts,terms,menus,tables --format=json | tail -1)
+ORPHAN1_APPLY=$(wp2_fault wprism apply --repo=/siterepo --default-author=admin --revision="$REV2" --adopt-by-slug=posts,terms,menus,tables --format=json | tail -1)
 echo "$ORPHAN1_APPLY"
 echo "$ORPHAN1_APPLY" | jq -e '.canary == "clean"' >/dev/null || fail "expected apply to succeed cleanly while sweeping an orphaned marker (output: $ORPHAN1_APPLY)"
 echo "$ORPHAN1_APPLY" | jq -e --arg u "$CAPTURED_UUID" '.warnings | any(test($u) and test("dropped") and test("no longer declares"))' >/dev/null \
   || fail "expected apply's warnings to name the dropped marker and the 'no longer declares' reason — output: $ORPHAN1_APPLY"
-ORPHAN1_AFTER=$(wp2 db query "SELECT COUNT(*) FROM wp_duo_kv WHERE k = 'regen_pending:$CAPTURED_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
+ORPHAN1_AFTER=$(wp2 db query "SELECT COUNT(*) FROM wp_wprism_kv WHERE k = 'regen_pending:$CAPTURED_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
 [ "$ORPHAN1_AFTER" = "0" ] || fail "expected the orphaned marker to be swept (deleted) — still present"
-pass "orphan shape 1 swept: apply succeeded, warned by name naming why, marker gone from duo_kv"
+pass "orphan shape 1 swept: apply succeeded, warned by name naming why, marker gone from wprism_kv"
 
 say "(8a-restore) restore the manifest's regen_dependency declaration"
 cp "$SHIPPED_MANIFEST" "$MANIFEST"
@@ -495,19 +495,19 @@ pass "manifest restored"
 
 say "(8b) orphan shape 2: the marker's uuid no longer resolves to a local post id (a made-up uuid, never applied)"
 FAKE_UUID="00000000-0000-7000-8000-000000000000"
-wp2 db query "INSERT INTO wp_duo_kv (k, v) VALUES ('regen_pending:$FAKE_UUID', 'tribe_events') ON DUPLICATE KEY UPDATE v = VALUES(v)" >/dev/null
-ORPHAN2_PLANTED=$(wp2 db query "SELECT v FROM wp_duo_kv WHERE k = 'regen_pending:$FAKE_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
+wp2 db query "INSERT INTO wp_wprism_kv (k, v) VALUES ('regen_pending:$FAKE_UUID', 'tribe_events') ON DUPLICATE KEY UPDATE v = VALUES(v)" >/dev/null
+ORPHAN2_PLANTED=$(wp2 db query "SELECT v FROM wp_wprism_kv WHERE k = 'regen_pending:$FAKE_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
 [ "$ORPHAN2_PLANTED" = "tribe_events" ] || fail "expected the orphan-2 marker to be planted, got '$ORPHAN2_PLANTED'"
 pass "regen_pending marker planted for a uuid that was never applied ($FAKE_UUID)"
 
-ORPHAN2_APPLY=$(wp2_fault duo apply --repo=/siterepo --default-author=admin --revision="$REV2" --adopt-by-slug=posts,terms,menus,tables --format=json | tail -1)
+ORPHAN2_APPLY=$(wp2_fault wprism apply --repo=/siterepo --default-author=admin --revision="$REV2" --adopt-by-slug=posts,terms,menus,tables --format=json | tail -1)
 echo "$ORPHAN2_APPLY"
 echo "$ORPHAN2_APPLY" | jq -e '.canary == "clean"' >/dev/null || fail "expected apply to succeed cleanly while sweeping the second orphaned marker (output: $ORPHAN2_APPLY)"
 echo "$ORPHAN2_APPLY" | jq -e --arg u "$FAKE_UUID" '.warnings | any(test($u) and test("dropped") and test("no longer resolves"))' >/dev/null \
   || fail "expected apply's warnings to name the dropped marker and the 'no longer resolves' reason — output: $ORPHAN2_APPLY"
-ORPHAN2_AFTER=$(wp2 db query "SELECT COUNT(*) FROM wp_duo_kv WHERE k = 'regen_pending:$FAKE_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
+ORPHAN2_AFTER=$(wp2 db query "SELECT COUNT(*) FROM wp_wprism_kv WHERE k = 'regen_pending:$FAKE_UUID'" --skip-column-names 2>/dev/null | tr -d '\r')
 [ "$ORPHAN2_AFTER" = "0" ] || fail "expected the second orphaned marker to be swept (deleted) — still present"
-pass "orphan shape 2 swept: apply succeeded, warned by name naming why, marker gone from duo_kv"
+pass "orphan shape 2 swept: apply succeeded, warned by name naming why, marker gone from wprism_kv"
 
 say "all proofs green"
-pass "DUO-3234 fully verified live: the original R3-B break is fixed automatically, the design-review-required hard-fail + marker-retry mechanics are proven under a genuine verification failure, plan/status surface a pending marker truthfully, and both orphan-marker shapes get swept loudly rather than lingering forever"
+pass "issue #3234 fully verified live: the original R3-B break is fixed automatically, the design-review-required hard-fail + marker-retry mechanics are proven under a genuine verification failure, plan/status surface a pending marker truthfully, and both orphan-marker shapes get swept loudly rather than lingering forever"

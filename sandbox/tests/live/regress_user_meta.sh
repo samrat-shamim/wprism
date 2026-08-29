@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression — DUO-3268: login-keyed authored user-meta sidecars.
+# Regression — issue #3268: login-keyed authored user-meta sidecars.
 # Defaults to historical pair umeta3268; shared-host agents provide their own
 # exact pair/ports through USER_META_PAIR/PORT1/PORT2. The caller owns teardown
 # so failed evidence remains inspectable until it has been read.
@@ -9,8 +9,8 @@ cd "$(dirname "$0")/../.." # -> sandbox/
 PAIR=${USER_META_PAIR:-umeta3268}
 PORT1=${USER_META_PORT1:-9301}
 PORT2=${USER_META_PORT2:-9302}
-export DUO_PAIR=$PAIR DUO_PORT1=$PORT1 DUO_PORT2=$PORT2
-COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml)
+export WPRISM_PAIR=$PAIR WPRISM_PORT1=$PORT1 WPRISM_PORT2=$PORT2
+COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml)
 SITE1="siterepo/${PAIR}1"
 SITE2="siterepo/${PAIR}2"
 
@@ -37,7 +37,7 @@ assert_redacted_json_refusal() {
   json=$(tail -n 1 <<<"$output")
   jq -e --arg command "$command" --arg remediation "$remediation" '
     (keys | sort) == ["command", "details_redacted", "diagnostics", "error", "format", "message", "ok", "reason_code", "remediation"]
-    and .format == "duo-command-refusal/v1"
+    and .format == "wprism-command-refusal/v1"
     and .ok == false
     and .command == $command
     and .error == ($command + "_failed")
@@ -67,7 +67,7 @@ assert_typed_json_refusal() {
     --arg diagnostic_message "$diagnostic_message" \
     --arg diagnostic_remediation "$diagnostic_remediation" '
       (keys | sort) == ["command", "diagnostics", "error", "format", "message", "ok", "reason_code", "remediation"]
-      and .format == "duo-command-refusal/v1"
+      and .format == "wprism-command-refusal/v1"
       and .ok == false
       and .command == "capture"
       and .error == $error_code
@@ -106,7 +106,7 @@ wp2 user meta update "$TARGET_EDITOR" agency_color red >/dev/null
 wp2 user meta update "$TARGET_EDITOR" runtime_marker target-runtime >/dev/null
 
 mkdir -p "$SITE1"
-cat > "$SITE1/site.duo.json" <<'JSON'
+cat > "$SITE1/site.wprism.json" <<'JSON'
 {
   "manifests": ["core"],
   "policy": {
@@ -131,12 +131,12 @@ JSON
 
 sync_repo() {
   rm -rf "$SITE2/state"
-  cp "$SITE1/site.duo.json" "$SITE2/site.duo.json"
+  cp "$SITE1/site.wprism.json" "$SITE2/site.wprism.json"
   cp -R "$SITE1/state" "$SITE2/state"
 }
 
 say "capture emits one exact-login sidecar and excludes target-local keys"
-wp1 duo capture --repo=/siterepo --format=json >/tmp/duo-umeta-capture.json
+wp1 wprism capture --repo=/siterepo --format=json >/tmp/wprism-umeta-capture.json
 SIDE_FILE=$(find "$SITE1/state/user-meta" -type f -name '*.json')
 [ "$(find "$SITE1/state/user-meta" -type f | wc -l | tr -d ' ')" = "1" ] || fail "expected one user-meta sidecar"
 jq -e '.login == "agency-editor" and .meta.agency_color == "blue" and .meta.profile_owner == "user:agency-editor" and (.meta.runtime_marker | not)' "$SIDE_FILE" >/dev/null \
@@ -145,7 +145,7 @@ pass "source sidecar is login-keyed, authored-only, and contains no user uuid"
 
 say "apply resolves the same exact login at a different numeric id"
 sync_repo
-APPLY1=$(wp2 duo apply --repo=/siterepo --format=json --adopt-by-slug=posts,terms | tail -1)
+APPLY1=$(wp2 wprism apply --repo=/siterepo --format=json --adopt-by-slug=posts,terms | tail -1)
 [ "$(wp2 user meta get "$TARGET_EDITOR" agency_color)" = "blue" ] || fail "authored user meta did not apply"
 [ "$(wp2 user meta get "$TARGET_EDITOR" profile_owner)" = "$TARGET_EDITOR" ] || fail "user ref did not resolve by target login"
 [ "$(wp2 user meta get "$TARGET_EDITOR" runtime_marker)" = "target-runtime" ] || fail "target runtime user meta was clobbered"
@@ -162,13 +162,13 @@ TARGET_CASE=$(wp2 user create Case.Editor case-target@example.test --role=author
 wp1 user meta update "$SOURCE_STRICT" strict_note strict-value >/dev/null
 wp1 user meta update "$SOURCE_OPTIONAL" optional_note optional-value >/dev/null
 wp1 user meta update "$SOURCE_EDITOR" agency_color green >/dev/null
-wp1 duo capture --repo=/siterepo --format=json >/tmp/duo-umeta-capture-missing.json
+wp1 wprism capture --repo=/siterepo --format=json >/tmp/wprism-umeta-capture-missing.json
 sync_repo
-PLAN=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
+PLAN=$(wp2 wprism plan --repo=/siterepo --format=json | tail -1)
 echo "$PLAN" | jq -e \
   '([.missing_user[].login] == ["case.editor"]) and ([.skipped_user_meta[].login] == ["optional-editor"])' >/dev/null \
   || fail "plan did not distinguish block from warn-and-skip missing logins"
-if APPLY_FAIL=$(wp2 duo apply --repo=/siterepo --format=json 2>&1); then
+if APPLY_FAIL=$(wp2 wprism apply --repo=/siterepo --format=json 2>&1); then
   fail "apply should refuse the case-divergent required login"
 fi
 assert_redacted_json_refusal apply "$APPLY_FAIL" "missing-user refusal"
@@ -181,7 +181,7 @@ pass "missing exact login blocks before mutation; JSON refusal is redacted and p
 say "once the exact login exists, apply proceeds and reports the warn-only skip"
 wp2 user delete "$TARGET_CASE" --yes >/dev/null
 TARGET_STRICT=$(wp2 user create case.editor case-exact@example.test --role=author --user_pass=test --porcelain)
-APPLY2=$(wp2 duo apply --repo=/siterepo --format=json | tail -1)
+APPLY2=$(wp2 wprism apply --repo=/siterepo --format=json | tail -1)
 [ "$(wp2 user meta get "$TARGET_EDITOR" agency_color)" = "green" ] || fail "blocked authored update did not land after reconciliation"
 [ "$(wp2 user meta get "$TARGET_STRICT" strict_note)" = "strict-value" ] || fail "exact-login sidecar did not land"
 echo "$APPLY2" | jq -e '.verification.result == "pass" and .verification.skipped_user_meta == 1' >/dev/null \
@@ -191,12 +191,12 @@ pass "exact login lands; optional missing login is a truthful warn-and-skip succ
 say "removing the final authored value retains an empty sidecar and deletes only that owned key"
 wp1 user meta delete "$SOURCE_EDITOR" agency_color >/dev/null
 wp1 user meta delete "$SOURCE_EDITOR" profile_owner >/dev/null
-wp1 duo capture --repo=/siterepo --format=json >/tmp/duo-umeta-capture-removal.json
+wp1 wprism capture --repo=/siterepo --format=json >/tmp/wprism-umeta-capture-removal.json
 EDITOR_FILE=$(jq -r 'select(.login == "agency-editor") | input_filename' "$SITE1"/state/user-meta/*.json)
 [ -n "$EDITOR_FILE" ] || fail "empty sidecar was not retained after final key removal"
 jq -e '.meta == {}' "$EDITOR_FILE" >/dev/null || fail "retained sidecar should carry an empty meta map"
 sync_repo
-wp2 duo apply --repo=/siterepo --format=json >/tmp/duo-umeta-apply-removal.json
+wp2 wprism apply --repo=/siterepo --format=json >/tmp/wprism-umeta-apply-removal.json
 if wp2 user meta get "$TARGET_EDITOR" agency_color >/dev/null 2>&1; then
   fail "removed authored key still exists on target"
 fi
@@ -208,7 +208,7 @@ wp2 user meta update "$TARGET_EDITOR" agency_color target-only >/dev/null
 "${COMPOSE[@]}" run --rm -T --entrypoint sh cli1 \
   -c 'rm -- "$1"' sh "/siterepo/${EDITOR_FILE#"$SITE1/"}"
 sync_repo
-wp2 duo apply --repo=/siterepo --format=json >/tmp/duo-umeta-apply-file-absence.json
+wp2 wprism apply --repo=/siterepo --format=json >/tmp/wprism-umeta-apply-file-absence.json
 [ "$(wp2 user meta get "$TARGET_EDITOR" agency_color)" = "target-only" ] \
   || fail "sidecar file absence incorrectly deleted target metadata"
 pass "sidecar absence leaves target metadata untouched"
@@ -216,7 +216,7 @@ pass "sidecar absence leaves target metadata untouched"
 say "PII and secret values fail recursively until their exact rule is reviewed"
 SOURCE_PII=$(wp1 user create pii-editor pii-source@example.test --role=author --user_pass=test --porcelain)
 wp1 user meta update "$SOURCE_PII" contact_email editor@example.test >/dev/null
-if PII_FAIL=$(wp1 duo capture --repo=/siterepo --format=json 2>&1); then
+if PII_FAIL=$(wp1 wprism capture --repo=/siterepo --format=json 2>&1); then
   fail "PII-bearing authored user meta should refuse without allow_pii"
 fi
 assert_typed_json_refusal \
@@ -232,11 +232,11 @@ PII_FAIL_JSON=$(tail -n 1 <<<"$PII_FAIL")
 ! grep -Fq 'editor@example.test' <<<"$PII_FAIL_JSON" || fail "PII refusal exposed the raw email value"
 
 tmp_policy=$(mktemp)
-jq '.policy.user_meta.contact_email.allow_pii = true' "$SITE1/site.duo.json" > "$tmp_policy"
+jq '.policy.user_meta.contact_email.allow_pii = true' "$SITE1/site.wprism.json" > "$tmp_policy"
 chmod 0644 "$tmp_policy"
-mv "$tmp_policy" "$SITE1/site.duo.json"
+mv "$tmp_policy" "$SITE1/site.wprism.json"
 wp1 user meta update "$SOURCE_PII" api_token ghp_abcdefghijklmnopqrstuvwxyz123456 >/dev/null
-if SECRET_FAIL=$(wp1 duo capture --repo=/siterepo --format=json 2>&1); then
+if SECRET_FAIL=$(wp1 wprism capture --repo=/siterepo --format=json 2>&1); then
   fail "secret-bearing authored user meta should refuse without allow_secret"
 fi
 assert_typed_json_refusal \

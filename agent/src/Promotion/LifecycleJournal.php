@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/PromotionSessionJournal.php';
 
@@ -110,12 +110,12 @@ final class LifecycleJournal {
         self::assertIdentity($owner, $artifactHash);
         self::assertState($entity, $beforeHash, $beforeHash);
         if (!in_array($phase, ['all', 'retire', 'activate'], true)) {
-            throw new \RuntimeException("duo: unsupported lifecycle attempt phase '$phase'");
+            throw new \RuntimeException("wprism: unsupported lifecycle attempt phase '$phase'");
         }
         $session = self::session($owner, $artifactHash, true);
         if (self::attempt($session) !== null) {
             throw new \RuntimeException(
-                'duo: unresolved lifecycle attempt must be recovered before another hook window can start'
+                'wprism: unresolved lifecycle attempt must be recovered before another hook window can start'
             );
         }
         $payload = $session->toArray();
@@ -151,7 +151,7 @@ final class LifecycleJournal {
         $attempt = self::attempt($session);
         if ($attempt !== null) {
             throw new \RuntimeException(
-                "duo: $context refused — unresolved lifecycle attempt {$attempt->phase()} for {$attempt->entity()} "
+                "wprism: $context refused — unresolved lifecycle attempt {$attempt->phase()} for {$attempt->entity()} "
                 . "started at {$attempt->beforeHash()}; restore the exact pre-lifecycle database checkpoint before retrying"
             );
         }
@@ -160,7 +160,7 @@ final class LifecycleJournal {
     public static function recordAssertPhaseStart(string $owner, string $artifactHash, string $phase): void {
         self::assertIdentity($owner, $artifactHash);
         if (!in_array($phase, ['retire', 'activate'], true)) {
-            throw new \RuntimeException("duo: unsupported ordered lifecycle phase '$phase'");
+            throw new \RuntimeException("wprism: unsupported ordered lifecycle phase '$phase'");
         }
         $session = self::session($owner, $artifactHash, true);
         $completed = self::phases($session);
@@ -169,7 +169,7 @@ final class LifecycleJournal {
             return;
         }
         throw new \RuntimeException(
-            "duo: lifecycle phase '$phase' is out of order for this promotion session; run host retirement then fresh-process activation"
+            "wprism: lifecycle phase '$phase' is out of order for this promotion session; run host retirement then fresh-process activation"
         );
     }
 
@@ -177,7 +177,7 @@ final class LifecycleJournal {
         self::recordAssertPhaseStart($owner, $artifactHash, $phase);
         $session = self::session($owner, $artifactHash, true);
         if (self::attempt($session) !== null) {
-            throw new \RuntimeException("duo: lifecycle phase '$phase' cannot complete with an unresolved hook attempt");
+            throw new \RuntimeException("wprism: lifecycle phase '$phase' cannot complete with an unresolved hook attempt");
         }
         $completed = self::phases($session);
         if (($phase === 'retire' && $completed === ['retire'])
@@ -194,7 +194,7 @@ final class LifecycleJournal {
         $session = self::session($owner, $artifactHash, true);
         if (self::phases($session) !== ['retire', 'activate']) {
             throw new \RuntimeException(
-                'duo: code-finalize refused — this promotion session has not completed lifecycle retirement and fresh-process activation in order'
+                'wprism: code-finalize refused — this promotion session has not completed lifecycle retirement and fresh-process activation in order'
             );
         }
     }
@@ -202,7 +202,7 @@ final class LifecycleJournal {
     private static function session(string $owner, string $artifactHash, bool $required): ?PromotionSessionRecord {
         $session = PromotionSessionJournal::readFor($owner, $artifactHash);
         if ($session === null && $required) {
-            throw new \RuntimeException('duo: lifecycle state transition lost its promotion session');
+            throw new \RuntimeException('wprism: lifecycle state transition lost its promotion session');
         }
         return $session;
     }
@@ -221,7 +221,7 @@ final class LifecycleJournal {
     private static function requireAttempt(PromotionSessionRecord $session): LifecycleAttemptRecord {
         $attempt = self::attempt($session);
         if ($attempt === null) {
-            throw new \RuntimeException('duo: lifecycle attempt is missing at its completion boundary');
+            throw new \RuntimeException('wprism: lifecycle attempt is missing at its completion boundary');
         }
         return $attempt;
     }
@@ -239,7 +239,7 @@ final class LifecycleJournal {
             || !hash_equals($entity, $attempt->entity())
             || !in_array($attempt->phase(), $phases, true)
             || !hash_equals($beforeHash, $attempt->beforeHash())) {
-            throw new \RuntimeException('duo: lifecycle attempt boundary changed before its successful receipt could be published');
+            throw new \RuntimeException('wprism: lifecycle attempt boundary changed before its successful receipt could be published');
         }
     }
 
@@ -249,14 +249,14 @@ final class LifecycleJournal {
         if (!is_array($phases)
             || array_values($phases) !== $phases
             || !in_array($phases, [[], ['retire'], ['retire', 'activate']], true)) {
-            throw new \RuntimeException('duo: malformed lifecycle phase journal');
+            throw new \RuntimeException('wprism: malformed lifecycle phase journal');
         }
         return $phases;
     }
 
     private static function assertIdentity(string $owner, string $artifactHash): void {
         if ($owner === '' || !preg_match('/^[a-f0-9]{64}$/D', $artifactHash)) {
-            throw new \RuntimeException('duo: malformed lifecycle journal identity');
+            throw new \RuntimeException('wprism: malformed lifecycle journal identity');
         }
     }
 
@@ -264,7 +264,7 @@ final class LifecycleJournal {
         if ($entity !== 'options/core'
             || !preg_match('/^[a-f0-9]{64}$/D', $beforeHash)
             || !preg_match('/^[a-f0-9]{64}$/D', $afterHash)) {
-            throw new \RuntimeException('duo: malformed lifecycle state transition; refusing three-way bypass');
+            throw new \RuntimeException('wprism: malformed lifecycle state transition; refusing three-way bypass');
         }
     }
 }

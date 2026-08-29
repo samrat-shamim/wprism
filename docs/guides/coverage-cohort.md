@@ -5,7 +5,7 @@ demand rank, authored with the toolchain, and then *graded by whether the
 coverage ratio moved*. That last clause is the whole guide. Adapters existing
 is not the result; adapters existing is the input.
 
-Read this when you have `duo census` output in front of you and you are about
+Read this when you have `wprism census` output in front of you and you are about
 to decide what to build next. The per-adapter craft — what a manifest declares,
 how to classify a surface, what a disposition has to say — is
 [adapter-authoring.md](adapter-authoring.md); this page never restates it. This
@@ -18,7 +18,7 @@ and read the answer honestly when it is not the answer you wanted.
 > **finding**, not a success.
 
 That sentence is not exhortation. It is a value in a document:
-`duo census --baseline=` emits `cohort.verdict`, and the word for that outcome
+`wprism census --baseline=` emits `cohort.verdict`, and the word for that outcome
 is `shipped_without_movement`, published beside a `finding` object that says so
 in prose. There is no way to run the instrument, ship a cohort, move nothing,
 and have the output read as a win.
@@ -34,13 +34,13 @@ goal, and every number on the page agrees with it.
 
 ```sh
 # What is, now.
-duo census --dir=<inventories/> --format=json > current.census.json
+wprism census --dir=<inventories/> --format=json > current.census.json
 
 # What moved, against a census you kept before the cohort.
-duo census --baseline=before.census.json --current=current.census.json
+wprism census --baseline=before.census.json --current=current.census.json
 
 # Or in one step: read the baseline from disk, measure the current side here.
-duo census --baseline=before.census.json --dir=<inventories/>
+wprism census --baseline=before.census.json --dir=<inventories/>
 ```
 
 `--current` and `--site`/`--dir` both name the current side, so passing both is
@@ -53,7 +53,7 @@ Neither form is the one that "works across a flag day". A kept baseline document
 is readable whichever engine wrote it; `comparability.engine` records the move
 instead of refusing it, because a program worth re-baselining usually crossed one.
 
-The output is a `duo-cohort-rebaseline/v1` document with five blocks:
+The output is a `wprism-cohort-rebaseline/v1` document with five blocks:
 
 | block | the question it answers |
 |---|---|
@@ -131,7 +131,7 @@ question anyone asked of it.
 
 ## The label you are measuring under
 
-Read `basis.sample_class` before quoting any ratio. `duo census` publishes one of
+Read `basis.sample_class` before quoting any ratio. `wprism census` publishes one of
 `one-site`, `narrow` or `fleet` from the eligible submission count, and at or
 below the narrow bound it says so in as many words:
 
@@ -155,16 +155,16 @@ single-site, and it appears in `population.excluded` with the reason.
 Nine steps. Each verb below exists today; the ones that are dev-side tooling
 rather than operator verbs are marked as such.
 
-### 1. Rank — `duo census`
+### 1. Rank — `wprism census`
 
 ```sh
-duo census --dir=inventories/ --health=proposals.json --limit=20
+wprism census --dir=inventories/ --health=proposals.json --limit=20
 ```
 
 The rank is `sites installed × surface no reviewed adapter covers`, so the top
 row is the plugin costing the most sites the most surface. Take the cohort off
 the top of it, not off a conversation. `--health` folds in the derived document
-`duo adapter proposals --format=json` writes, which ranks the *other* kind of
+`wprism adapter proposals --format=json` writes, which ranks the *other* kind of
 work — adapters that exist and have fallen behind their plugin's releases —
 beside the adapters that do not exist yet. Those compete for the same week.
 
@@ -174,10 +174,10 @@ same bytes, which is how the baseline below is verified — but that needs both
 halves preserved, and the inventories are per-site captures nobody re-takes. In
 practice the kept document is the only baseline you will have.
 
-### 2. Probe — `wp duo adapter-probe`
+### 2. Probe — `wp wprism adapter-probe`
 
 ```sh
-wp duo adapter-probe --format=json > probe.json
+wp wprism adapter-probe --format=json > probe.json
 ```
 
 Run against an environment that actually has the plugin installed and exercised.
@@ -185,11 +185,11 @@ The probe reads the named unprefixed tables and the target's own schema
 (`SHOW COLUMNS`, `SHOW INDEX`, `information_schema`) and answers a closed
 question set. It carries no row values and promotes nothing.
 
-### 3. Draft — `duo adapter-draft`
+### 3. Draft — `wprism adapter-draft`
 
 ```sh
 mkdir -p adapter-packages/<n>/package
-duo adapter-draft <site-repo> --name=<n> --evidence=probe.json \
+wprism adapter-draft <site-repo> --name=<n> --evidence=probe.json \
   --out=adapter-packages/<n>/package/manifest.json
 ```
 
@@ -199,10 +199,10 @@ evidence notes are still yours to write. Complete the capsule structure and
 reviewed disposition as described in
 [adapter-authoring.md](adapter-authoring.md), where the craft lives.
 
-### 4. Boundary — `duo adapter boundary`
+### 4. Boundary — `wprism adapter boundary`
 
 ```sh
-duo adapter boundary --releases=<n>.releases.json --anchor=<version> \
+wprism adapter boundary --releases=<n>.releases.json --anchor=<version> \
                      --outcomes=<n>.outcomes.json --format=json
 ```
 
@@ -215,7 +215,7 @@ exit 0 emits the finished document, and `sandbox/bin/adapter-boundary.sh` is the
 loop between. It never writes a manifest — the range and its byte-equal
 restatement in `adapter-packages/<n>/package/disposition.json` stay one reviewed human edit.
 
-At cohort scale, `duo adapter proposals` is the scheduled job around the same
+At cohort scale, `wprism adapter proposals` is the scheduled job around the same
 planner across every adapter in a ledger directory.
 
 ### 5. Vectors — record once, replay forever *(dev-side)*
@@ -226,7 +226,7 @@ CONF_RECORD_VECTOR=<out.json> bash sandbox/conformance/run.sh <manifest-name>
 
 A live conformance sweep proves the round trip against a disposable pair. That
 pair is budgeted, so it cannot be your iteration loop. Recording a
-`duo-conformance-vector/v1` document during a sweep that *already passed* turns
+`wprism-conformance-vector/v1` document during a sweep that *already passed* turns
 the one live proof into an offline suite that replays it on every gate run
 afterwards. The replay says a deliberately weaker word than the sweep did —
 `vector_replayed`, not `conformance_verified` — so a recording cannot be mistaken
@@ -245,10 +245,10 @@ files, so a kit is by construction a function of the tree at the moment it was
 built. There is no second copy of the harness in the repository that could
 receive a fix the original never got.
 
-### 7. Certify — `duo adapter certify`
+### 7. Certify — `wprism adapter certify`
 
 ```sh
-duo adapter certify <site-repo> --name=<n> --secret-key-file=<f> \
+wprism adapter certify <site-repo> --name=<n> --secret-key-file=<f> \
                     --reason='<why this adapter is trusted here>' [--pin --adopt-scope]
 ```
 
@@ -258,27 +258,27 @@ act. Key handling, reviewer tiers and revocation are
 [trust-enrollment.md](trust-enrollment.md); do not mint a key inside a site
 repository, because a site repository is committed and published.
 
-### 8. Bulk adopt — `duo adapter adopt-scope`
+### 8. Bulk adopt — `wprism adapter adopt-scope`
 
 ```sh
-duo adapter adopt-scope <site-repo> <site-repo> … --name=<n> --dry-run
-duo adapter adopt-scope <site-repo> <site-repo> … --name=<n>
+wprism adapter adopt-scope <site-repo> <site-repo> … --name=<n> --dry-run
+wprism adapter adopt-scope <site-repo> <site-repo> … --name=<n>
 ```
 
 **This is the step that decides whether the cohort moves the metric.** Everything
 before it produces an adapter; this is what makes sites pin it. One reviewed
 invocation writes the post types and taxonomies the adapter declares authored
-into every named `site.duo.json` that had decided nothing about them, instead of
+into every named `site.wprism.json` that had decided nothing about them, instead of
 N hand edits. Every repository must already resolve the adapter, and the whole
 set is refused unwritten if one does not. A class a site *recorded* is printed
 and left alone — overriding one is a per-site act.
 
 Run `--dry-run` first. It reports the same plan and writes nothing.
 
-### 9. Re-measure — `duo census --baseline=`
+### 9. Re-measure — `wprism census --baseline=`
 
 ```sh
-duo census --baseline=before.census.json --dir=inventories/
+wprism census --baseline=before.census.json --dir=inventories/
 ```
 
 Collect fresh inventories from the same labelled sites, then difference. Publish
@@ -343,13 +343,13 @@ difference in the **library** and in nothing else.
 
 **The baseline.** `sandbox/tests/fixtures/census/g0-baseline.census.json` was
 produced by the engine of its own day — `spec_version: 2`, `agent_version: 0.5.0`
-— at commit `f99f6712`, the commit that first shipped `duo census` and therefore
+— at commit `f99f6712`, the commit that first shipped `wprism census` and therefore
 the earliest moment this program could measure itself at all. It is reproducible,
 which is what makes it admissible as a baseline rather than a re-print:
 
 ```sh
 git archive f99f6712 | tar -x -C <tmp>
-php <tmp>/cli/duo census --dir=sandbox/tests/fixtures/census/core-estate --format=json \
+php <tmp>/cli/wprism census --dir=sandbox/tests/fixtures/census/core-estate --format=json \
   | diff - sandbox/tests/fixtures/census/g0-baseline.census.json
 ```
 

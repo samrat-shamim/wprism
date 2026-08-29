@@ -78,7 +78,7 @@ require_fixture_ids TARGET_TAX_CLASS_ID
 
 wp_conf2 option update woocommerce_paypal_settings --format=json \
   '{"enabled":"yes","email":"target-paypal@example.test","identity_token":"target-secret-token-preserved"}' >/dev/null
-wp_conf2 option update duo_target_environment_neighbor 'target-neighbor-preserved' >/dev/null
+wp_conf2 option update wprism_target_environment_neighbor 'target-neighbor-preserved' >/dev/null
 wp_conf2 option update woocommerce_demo_store no >/dev/null
 wp_conf2 option update woocommerce_demo_store_notice '<em>hostile target notice</em>' >/dev/null
 wp_conf2 option update woocommerce_thumbnail_cropping '1:1' >/dev/null
@@ -90,7 +90,7 @@ wp_conf2 option update woocommerce_maybe_regenerate_images_hash 'target-thumbnai
 # Manufacture two valid Review Order pages. The source-slug page is the
 # identity that apply must adopt, while Woo's option deliberately points at a
 # second valid shortcode page so its init fast path cannot repair the hostile
-# reference before Duo runs. Changing the option must therefore select the
+# reference before WPrism runs. Changing the option must therefore select the
 # fresh-process rewrite action and retire the hostile route.
 TARGET_REVIEW_IDS=$(wp_conf2 eval '
 update_option("woocommerce_feature_customer_review_request_enabled", "yes");
@@ -161,7 +161,7 @@ $order->calculate_totals();
 $order->save();
 echo $order->get_id();
 ')
-# DUO-3381: the premise, asserted before the behavior. This order IS the
+# issue #3381: the premise, asserted before the behavior. This order IS the
 # fixture checks/woocommerce.sh's "target order disappeared" assertion is
 # about — if the eval above silently hands back nothing (a `docker compose
 # run` starved under host load, never a non-zero exit), that check fails
@@ -178,13 +178,13 @@ wp_conf2 wc hpos sync >/dev/null
 TARGET_RUNTIME=$(wp_conf2 eval '
 global $wpdb;
 $wpdb->replace($wpdb->prefix . "woocommerce_sessions", [
-  "session_key" => "duo-target-runtime-session",
+  "session_key" => "wprism-target-runtime-session",
   "session_value" => "a:1:{s:5:\"probe\";s:6:\"target\";}",
   "session_expiry" => time() + 7200,
 ], ["%s", "%s", "%d"]);
-as_schedule_single_action(time() + 7200, "duo_woo_target_runtime_probe", [], "duo-woo-runtime");
-echo (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key=\"duo-target-runtime-session\"")
-  . "|" . (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook=\"duo_woo_target_runtime_probe\"");
+as_schedule_single_action(time() + 7200, "wprism_woo_target_runtime_probe", [], "wprism-woo-runtime");
+echo (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key=\"wprism-target-runtime-session\"")
+  . "|" . (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook=\"wprism_woo_target_runtime_probe\"");
 ')
 require_fixture_state "conf2's target-only runtime session/queue rows" "1|1" "$TARGET_RUNTIME"
 echo "woocommerce postdeploy: target_runtime_order=$TARGET_ORDER_ID (HPOS enabled and compatibility-synced before apply)"

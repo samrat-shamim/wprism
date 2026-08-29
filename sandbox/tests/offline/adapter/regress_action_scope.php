@@ -2,19 +2,19 @@
 declare(strict_types=1);
 
 /**
- * Offline regression for exact manifest ACTION selection (DUO-3338) and
+ * Offline regression for exact manifest ACTION selection (issue #3338) and
  * Apply's canonical surface projection. No WordPress target or WP-CLI is
  * contacted.
  *
  * The selection semantics under test are deliberately identical to the ones
  * the retired free-form `rebuilders` channel had — scoped declarations fire
  * only on an exact canonical-surface match, un-triggered declarations remain
- * unscoped, and an empty surface set fires nothing — because DUO-3338 was a
+ * unscoped, and an empty surface set fires nothing — because issue #3338 was a
  * channel migration, not a behavior change. The probe fixture uses the closed
  * native action so the harness needs no provider code on disk.
  */
 
-define('DUO_SPEC_VERSION', 2);
+define('WPRISM_SPEC_VERSION', 2);
 require dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
 require dirname(__DIR__, 4) . '/agent/src/Kernel/OptionState.php';
 require dirname(__DIR__, 4) . '/agent/src/Policy/Policy.php';
@@ -46,7 +46,7 @@ $effect = static function (string $id): array {
 
 $manifest = [
     'name' => 'trigger-probe',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'plugin' => 'trigger-probe/trigger-probe.php',
     'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
     'actions' => [
@@ -80,9 +80,9 @@ $manifest = [
     ],
 ];
 
-$policy = \DuoTest\FrozenPolicy::policy([$manifest], [
+$policy = \WPrismTest\FrozenPolicy::policy([$manifest], [
     'manifests' => ['trigger-probe'],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'policy' => [
         'options' => ['active_plugins' => ['class' => 'managed', 'autoload' => 'preserve']],
         'post_meta' => [],
@@ -125,9 +125,9 @@ $check(
 
 $expectThrow = static function (array $badManifest, string $needle, string $label) use ($check): void {
     try {
-        \DuoTest\FrozenPolicy::policy(
+        \WPrismTest\FrozenPolicy::policy(
             [$badManifest],
-            \DuoTest\FrozenPolicy::site([$badManifest], DUO_SPEC_VERSION)
+            \WPrismTest\FrozenPolicy::site([$badManifest], WPRISM_SPEC_VERSION)
         );
         $check(false, "$label is rejected before selection");
     } catch (Throwable $failure) {
@@ -147,24 +147,24 @@ $bad = $manifest;
 $bad['actions'][0]['unexpected'] = true;
 $expectThrow($bad, 'unknown key', 'unknown action key');
 
-$apply = new \Duo\ApplyPlanner(
+$apply = new \WPrism\ApplyPlanner(
     $policy,
     [],
     static fn(string $uuid, string $kind): ?int => null,
     static fn(string $uuid, string $kind): ?int => null
 );
 $surfaceMethod = new class($policy) {
-    public function __construct(private readonly \Duo\Policy $policy) {}
+    public function __construct(private readonly \WPrism\Policy $policy) {}
     public function invoke(mixed $_, array $work, array $tree, array $deletions = []): array {
-        return \Duo\CanonicalSurfaces::for_apply($work, $tree, $deletions, $this->policy);
+        return \WPrism\CanonicalSurfaces::for_apply($work, $tree, $deletions, $this->policy);
     }
 };
-$rebuildWorkMethod = new ReflectionMethod(\Duo\ApplyPlanner::class, 'rebuild_work');
-$optionNamesMethod = new ReflectionMethod(\Duo\ApplyPlanner::class, 'option_rebuild_names');
+$rebuildWorkMethod = new ReflectionMethod(\WPrism\ApplyPlanner::class, 'rebuild_work');
+$optionNamesMethod = new ReflectionMethod(\WPrism\ApplyPlanner::class, 'option_rebuild_names');
 $optionDelta = $optionNamesMethod->invoke(
     $apply,
     [
-        'format' => 'duo-options/v1',
+        'format' => 'wprism-options/v1',
         'records' => [
             'woocommerce_calc_taxes' => ['state' => 'present', 'autoload' => 'yes', 'value' => true],
             'woocommerce_currency' => ['state' => 'present', 'autoload' => 'yes', 'value' => 'USD'],
@@ -173,8 +173,8 @@ $optionDelta = $optionNamesMethod->invoke(
         ],
     ],
     [
-        'content' => \Duo\Canon::encode([
-            'format' => 'duo-options/v1',
+        'content' => \WPrism\Canon::encode([
+            'format' => 'wprism-options/v1',
             'records' => [
                 'woocommerce_calc_taxes' => ['state' => 'present', 'autoload' => 'yes', 'value' => false],
                 'woocommerce_currency' => ['state' => 'present', 'autoload' => 'yes', 'value' => 'EUR'],
@@ -192,7 +192,7 @@ $check(
 $freshOptionDelta = $optionNamesMethod->invoke(
     $apply,
     [
-        'format' => 'duo-options/v1',
+        'format' => 'wprism-options/v1',
         'records' => [
             'woocommerce_calc_taxes' => ['state' => 'present', 'autoload' => 'yes', 'value' => true],
             'woocommerce_noop' => ['state' => 'absent'],
@@ -209,7 +209,7 @@ $tree = [
     'post-uuid' => ['type' => 'post', 'data' => ['type' => 'product']],
     'term-uuid' => ['type' => 'term', 'data' => ['taxonomy' => 'product_cat']],
     'options/core' => ['type' => 'options', 'data' => [
-        'format' => 'duo-options/v1',
+        'format' => 'wprism-options/v1',
         'records' => [
             'woocommerce_calc_taxes' => ['state' => 'present', 'autoload' => 'yes', 'value' => true],
             'woocommerce_currency' => ['state' => 'present', 'autoload' => 'yes', 'value' => 'USD'],

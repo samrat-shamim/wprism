@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Offline target-handoff regression for DUO-3344 scoped promotion.
+ * Offline target-handoff regression for issue #3344 scoped promotion.
  *
  * This deliberately supplies only PromotionLock's Ledger/Db seam: the
  * random target generation plus its signed external receipt must survive an
@@ -14,7 +14,7 @@ declare(strict_types=1);
  * to prove their closed selection vocabulary.
  */
 
-namespace Duo {
+namespace WPrism {
     /** @internal Test-only in-memory substitute for the target kv seam. */
     final class ScopedPromotionTargetLedger {
         /** @var array<string,string> */
@@ -170,12 +170,12 @@ namespace Duo {
 }
 
 namespace {
-    use Duo\Apply;
-    use Duo\CommandRefusalException;
-    use Duo\PromotionLock;
-    use Duo\ScopedPromotionAuthority;
-    use Duo\ScopedPromotionTargetLedger;
-    use Duo\Orchestrator\CodeDeploy;
+    use WPrism\Apply;
+    use WPrism\CommandRefusalException;
+    use WPrism\PromotionLock;
+    use WPrism\ScopedPromotionAuthority;
+    use WPrism\ScopedPromotionTargetLedger;
+    use WPrism\Orchestrator\CodeDeploy;
 
     /**
      * Enough of wpdb's promotion-lock surface to drive the real SQL-facing
@@ -184,13 +184,13 @@ namespace {
      */
     final class ScopedPromotionTargetFakeWpdb {
         public string $prefix = 'wp_';
-        public string $dbname = 'duo_scoped_promotion_target_test';
-        public string|false|null $duoKvEngine = 'InnoDB';
+        public string $dbname = 'wprism_scoped_promotion_target_test';
+        public string|false|null $wprismKvEngine = 'InnoDB';
         private int $connection = 4401;
         private bool $fenceHeld = false;
 
         public function prepare(string $query, mixed ...$args): string {
-            return 'duo-test-sql:' . base64_encode(serialize([$query, $args]));
+            return 'wprism-test-sql:' . base64_encode(serialize([$query, $args]));
         }
 
         public function get_var(string $query): string|false|null {
@@ -208,10 +208,10 @@ namespace {
                         'engine assertion must follow transaction-bound promotion lock/session reads'
                     );
                 }
-                if (($args[0] ?? null) !== $this->prefix . 'duo_kv') {
+                if (($args[0] ?? null) !== $this->prefix . 'wprism_kv') {
                     throw new RuntimeException('unexpected promotion-lock engine table query');
                 }
-                return $this->duoKvEngine;
+                return $this->wprismKvEngine;
             }
             if (str_contains($template, 'GET_LOCK')) {
                 $this->fenceHeld = true;
@@ -298,10 +298,10 @@ namespace {
 
         /** @return array{0:string,1:list<mixed>} */
         private function decode(string $query): array {
-            if (!str_starts_with($query, 'duo-test-sql:')) {
+            if (!str_starts_with($query, 'wprism-test-sql:')) {
                 throw new RuntimeException('unexpected unprepared promotion-lock query');
             }
-            $decoded = unserialize(base64_decode(substr($query, strlen('duo-test-sql:'))), [
+            $decoded = unserialize(base64_decode(substr($query, strlen('wprism-test-sql:'))), [
                 'allowed_classes' => false,
             ]);
             if (!is_array($decoded) || !is_string($decoded[0] ?? null) || !is_array($decoded[1] ?? null)) {
@@ -362,11 +362,11 @@ namespace {
         'allow_deletes' => false,
         'artifact_hash' => $artifact,
         'exclusion_state' => 'held',
-        'format' => 'duo-scoped-promotion-witness/v1',
+        'format' => 'wprism-scoped-promotion-witness/v1',
         'generation' => 7,
         'ok' => true,
         'owner' => $owner,
-        'receipt_format' => 'duo-scoped-promotion-receipt/v1',
+        'receipt_format' => 'wprism-scoped-promotion-receipt/v1',
         'receipt_id' => str_repeat('r', 32),
         'receipt_payload_sha256' => $receipt,
         'recovery_ready' => true,
@@ -463,7 +463,7 @@ namespace {
         'malformed scoped receipt remains byte-stable while receipt-less recovery is refused'
     );
     ScopedPromotionTargetLedger::$values['promotion_session'] = $sessionBytes;
-    // DUO-3353 keeps PromotionLock as a compatibility facade; the lease
+    // issue #3353 keeps PromotionLock as a compatibility facade; the lease
     // implementation owns the scoped handoff and replacement transaction.
     $lockSource = (string) file_get_contents("$root/agent/src/Promotion/PromotionLease.php");
     $beginScopedOffset = strpos($lockSource, 'public static function begin_scoped');
@@ -630,11 +630,11 @@ namespace {
     $ordinaryReplacementTransactionStarts = ScopedPromotionTargetLedger::$transactionStarts;
     $ordinaryReplacementTransactionRollbacks = ScopedPromotionTargetLedger::$transactionRollbacks;
     $ordinaryReplacementLockWrites = ScopedPromotionTargetLedger::$promotionLockWrites;
-    $GLOBALS['wpdb']->duoKvEngine = 'MyISAM';
+    $GLOBALS['wpdb']->wprismKvEngine = 'MyISAM';
     $expect(
         static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300),
-        'requires an InnoDB duo_kv table',
-        'nontransactional duo_kv refuses ordinary-session replacement before any handoff mutation'
+        'requires an InnoDB wprism_kv table',
+        'nontransactional wprism_kv refuses ordinary-session replacement before any handoff mutation'
     );
     $check(
         (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $ordinaryCompletedBytes
@@ -649,7 +649,7 @@ namespace {
             && ScopedPromotionTargetLedger::$promotionLockWrites === $ordinaryReplacementLockWrites,
         'nontransactional storage refusal rolls back its metadata-locked reads without changing the ordinary session or lock'
     );
-    $GLOBALS['wpdb']->duoKvEngine = 'InnoDB';
+    $GLOBALS['wpdb']->wprismKvEngine = 'InnoDB';
     $ordinaryReplacementLockWrites = ScopedPromotionTargetLedger::$promotionLockWrites;
     ScopedPromotionTargetLedger::$failNextPromotionSessionUpsert = true;
     $expect(
@@ -1025,17 +1025,17 @@ namespace {
     ScopedPromotionTargetLedger::$values = [];
     PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300);
 
-    $applyReflection = new ReflectionClass(\Duo\ApplyRequestCoordinator::class);
+    $applyReflection = new ReflectionClass(\WPrism\ApplyRequestCoordinator::class);
     $requestGate = $applyReflection->getMethod('assert_scoped_promotion_request');
     $validScopedOpts = [
-        'scope_request' => ['format' => 'duo-scope-request/v1', 'scope_hash' => $scopeHash],
+        'scope_request' => ['format' => 'wprism-scope-request/v1', 'scope_hash' => $scopeHash],
         'promotion_owner' => $owner,
         'artifact_hash' => $artifact,
         'scoped_promotion_receipt' => $receipt,
     ];
     $expect(
         static fn() => $requestGate->invoke(null, [
-            'scope_request' => ['format' => 'duo-scope-request/v1', 'scope_hash' => $scopeHash],
+            'scope_request' => ['format' => 'wprism-scope-request/v1', 'scope_hash' => $scopeHash],
             'promotion_owner' => $owner,
             'artifact_hash' => $artifact,
         ], true),
@@ -1068,7 +1068,7 @@ namespace {
     );
     $expect(
         static fn() => $requestGate->invoke(null, [
-            'scope_request' => ['format' => 'duo-scope-request/v1'],
+            'scope_request' => ['format' => 'wprism-scope-request/v1'],
             'scoped_promotion_receipt' => $receipt,
         ], true, $witness),
         'invalid scoped promotion continuation',
@@ -1076,7 +1076,7 @@ namespace {
     );
     $expect(
         static fn() => $requestGate->invoke(null, [
-            'scope_request' => ['format' => 'duo-scope-request/v1'],
+            'scope_request' => ['format' => 'wprism-scope-request/v1'],
             'promotion_owner' => $owner,
             'scoped_promotion_receipt' => 'not-a-sha256',
         ], true, $witness),
@@ -1161,7 +1161,7 @@ namespace {
             && str_contains($cliSource, 'direct scope contract cannot enter scoped promotion'),
         'CLI structurally refuses a receipt-bearing direct local contract unless the compact orchestrator wire is present'
     );
-    $cli = new \Duo\Cli();
+    $cli = new \WPrism\Cli();
     $expect(
         static fn() => $cli->promotion_begin_scoped([], [
             'promotion-owner' => $owner,
@@ -1185,7 +1185,7 @@ namespace {
 
     $beginArgs = CodeDeploy::beginScopedArgs($owner, $artifact, $receipt, $scopeHash);
     $check(
-        in_array('duo', $beginArgs, true)
+        in_array('wprism', $beginArgs, true)
             && in_array('promotion-begin-scoped', $beginArgs, true)
             && in_array('--promotion-owner=' . $owner, $beginArgs, true)
             && in_array('--artifact-hash=' . $artifact, $beginArgs, true)
@@ -1203,7 +1203,7 @@ namespace {
     );
     $completeArgs = CodeDeploy::completeScopedArgs($owner, $artifact, $receipt, $scopeHash);
     $check(
-        in_array('duo', $completeArgs, true)
+        in_array('wprism', $completeArgs, true)
             && in_array('promotion-complete-scoped', $completeArgs, true)
             && in_array('--promotion-owner=' . $owner, $completeArgs, true)
             && in_array('--artifact-hash=' . $artifact, $completeArgs, true)
@@ -1238,7 +1238,7 @@ namespace {
     $selectionGate = new class($selectionState) {
         public function __construct(private readonly object $state) {}
         public function invoke(mixed $_, array $work, array $deletions, array $tree): void {
-            \Duo\RebuildActionNegotiator::assert_scoped_promotion_selection(
+            \WPrism\RebuildActionNegotiator::assert_scoped_promotion_selection(
                 $this->state->actions,
                 $work,
                 $deletions,
@@ -1248,7 +1248,7 @@ namespace {
     };
     $taxonomyGate = new class {
         public function invoke(mixed $_, array $work, array $tree, array $deletions): bool {
-            return \Duo\NativeRebuildExecutor::needs_taxonomy_recount($work, $tree, $deletions);
+            return \WPrism\NativeRebuildExecutor::needs_taxonomy_recount($work, $tree, $deletions);
         }
     };
     $dbContainedTree = [

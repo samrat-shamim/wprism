@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // UUID ownership and natural-key validation are a pure compiler boundary.
 // Normal direct loads close the collaborators this file names; focused CLI

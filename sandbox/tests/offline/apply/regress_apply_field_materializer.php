@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline characterization for DUO-3347's shared authored-field layer.
+ * Offline characterization for issue #3347's shared authored-field layer.
  *
  * The low-level meta/option writes are driven through the extracted
  * ApplyFieldMaterializer against a deterministic fake wpdb. The source checks
@@ -43,7 +43,7 @@ require_once __DIR__ . '/../../../../agent/src/Apply/ApplyFieldMaterializer.php'
 require_once __DIR__ . '/../../../../agent/src/Apply/EntityAdopter.php';
 require_once __DIR__ . '/../../../../adapter-packages/polylang/package/runtime/interpreters/polylang.php';
 
-use Duo\ApplyFieldMaterializer;
+use WPrism\ApplyFieldMaterializer;
 
 final class ApplyFieldMaterializerFakeWpdb {
     public string $prefix = 'wp_';
@@ -69,7 +69,7 @@ final class ApplyFieldMaterializerFakeWpdb {
     /** @var list<array<string,mixed>> */
     public array $termTaxonomyRows = [];
     /** @var list<array<string,mixed>> */
-    public array $duoMapRows = [];
+    public array $wprismMapRows = [];
     /** @var list<array<string,mixed>> */
     public array $optionRows = [];
     /** @var list<string> */
@@ -94,11 +94,11 @@ final class ApplyFieldMaterializerFakeWpdb {
 
     public function query(string $sql): int|false {
         $this->queries[] = $sql;
-        if (preg_match('/^SAVEPOINT `duo_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
+        if (preg_match('/^SAVEPOINT `wprism_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
             $this->savepointExists = true;
             return 1;
         }
-        if (preg_match('/^RELEASE SAVEPOINT `duo_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
+        if (preg_match('/^RELEASE SAVEPOINT `wprism_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
             if (!$this->savepointExists) {
                 $this->last_error = 'SAVEPOINT does not exist';
                 return false;
@@ -107,21 +107,21 @@ final class ApplyFieldMaterializerFakeWpdb {
             return 1;
         }
         if (preg_match(
-            '/^INSERT INTO wp_duo_map \\(uuid, entity_type, id_kind, local_id\\)\\s+'
+            '/^INSERT INTO wp_wprism_map \\(uuid, entity_type, id_kind, local_id\\)\\s+'
                 . "VALUES \\('([^']+)', '([^']+)', '([^']+)', ([0-9]+)\\)\\s+"
                 . 'ON DUPLICATE KEY UPDATE entity_type = VALUES\\(entity_type\\)$/D',
             trim($sql),
             $match
         ) === 1) {
             [$uuid, $entityType, $idKind, $localId] = [$match[1], $match[2], $match[3], (int) $match[4]];
-            foreach ($this->duoMapRows as &$row) {
+            foreach ($this->wprismMapRows as &$row) {
                 if ($row['uuid'] === $uuid && $row['id_kind'] === $idKind) {
                     $row['entity_type'] = $entityType;
                     return 1;
                 }
             }
             unset($row);
-            $this->duoMapRows[] = [
+            $this->wprismMapRows[] = [
                 'uuid' => $uuid,
                 'entity_type' => $entityType,
                 'id_kind' => $idKind,
@@ -138,11 +138,11 @@ final class ApplyFieldMaterializerFakeWpdb {
             throw new RuntimeException('fixture expected ARRAY_A');
         }
         if (preg_match(
-            "/^SELECT entity_type, local_id FROM wp_duo_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'$/D",
+            "/^SELECT entity_type, local_id FROM wp_wprism_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'$/D",
             trim($sql),
             $match
         ) === 1) {
-            foreach ($this->duoMapRows as $row) {
+            foreach ($this->wprismMapRows as $row) {
                 if ($row['uuid'] === $match[1] && $row['id_kind'] === $match[2]) {
                     return [
                         'entity_type' => (string) $row['entity_type'],
@@ -153,11 +153,11 @@ final class ApplyFieldMaterializerFakeWpdb {
             return null;
         }
         if (preg_match(
-            "/^SELECT uuid, entity_type FROM wp_duo_map WHERE id_kind = '([^']+)' AND local_id = ([0-9]+)$/D",
+            "/^SELECT uuid, entity_type FROM wp_wprism_map WHERE id_kind = '([^']+)' AND local_id = ([0-9]+)$/D",
             trim($sql),
             $match
         ) === 1) {
-            foreach ($this->duoMapRows as $row) {
+            foreach ($this->wprismMapRows as $row) {
                 if ($row['id_kind'] === $match[1] && (int) $row['local_id'] === (int) $match[2]) {
                     return [
                         'uuid' => (string) $row['uuid'],
@@ -172,7 +172,7 @@ final class ApplyFieldMaterializerFakeWpdb {
 
     public function get_var(string $sql) {
         $this->queries[] = $sql;
-        if (str_contains($sql, 'SELECT local_id FROM wp_duo_map')) {
+        if (str_contains($sql, 'SELECT local_id FROM wp_wprism_map')) {
             preg_match("/uuid = '([^']+)'/", $sql, $match);
             return isset($this->idByUuid[(string) ($match[1] ?? '')])
                 ? (string) $this->idByUuid[(string) $match[1]]
@@ -346,7 +346,7 @@ final class ApplyFieldMaterializerFakeWpdb {
                     return [];
                 }
                 if ($this->forcedMetaRead === 'oversize') {
-                    return array_fill(0, \Duo\MetaRows::MAX_OWNER_ROWS + 1, [
+                    return array_fill(0, \WPrism\MetaRows::MAX_OWNER_ROWS + 1, [
                         'meta_id' => '1', 'meta_key_bytes' => '7', 'meta_value_bytes' => '5',
                     ]);
                 }
@@ -354,7 +354,7 @@ final class ApplyFieldMaterializerFakeWpdb {
                     return [[
                         'meta_id' => '1',
                         'meta_key_bytes' => '7',
-                        'meta_value_bytes' => (string) (\Duo\MetaRows::MAX_META_VALUE_BYTES + 1),
+                        'meta_value_bytes' => (string) (\WPrism\MetaRows::MAX_META_VALUE_BYTES + 1),
                     ]];
                 }
                 if ($this->forcedMetaRead === 'aggregate-overflow') {
@@ -363,7 +363,7 @@ final class ApplyFieldMaterializerFakeWpdb {
                         $aggregateRows[] = [
                             'meta_id' => (string) $metaId,
                             'meta_key_bytes' => '1',
-                            'meta_value_bytes' => (string) \Duo\MetaRows::MAX_META_VALUE_BYTES,
+                            'meta_value_bytes' => (string) \WPrism\MetaRows::MAX_META_VALUE_BYTES,
                         ];
                     }
                     return $aggregateRows;
@@ -573,7 +573,7 @@ $check(substr_count($materializerSource, 'function reconcile_authored_meta(') ==
 $check(substr_count($materializerSource, 'function reconcile_authored_term_meta(') === 1,
     'termmeta reconciliation has one implementation in the collaborator');
 // reconcile_authored_meta()'s only caller, finalize_post(), itself moved to
-// PostMaterializer in DUO-3347 slice 11 -- the new
+// PostMaterializer in issue #3347 slice 11 -- the new
 // PostMaterializer::finalize_post() calls
 // ApplyFieldMaterializer::reconcile_authored_meta() directly (calling back
 // through Apply's own facade would be circular), so Apply's own facade is
@@ -598,7 +598,7 @@ $materializer->upsert_meta($wpdb->postmeta, 'post_id', 19, 'nullable', null, 'te
 $inserted = array_values(array_filter($wpdb->postMetaRows, static fn(array $row): bool => $row['meta_key'] === 'nullable'));
 $check(count($inserted) === 1 && $inserted[0]['meta_value'] === null, 'upsert_meta preserves a real SQL NULL on insert');
 
-$termPolicy = new \Duo\Policy();
+$termPolicy = new \WPrism\Policy();
 $termPolicy->manifests = [[
     'name' => 'term-meta-fixture',
     'interpreter' => 'nullable-fixture',
@@ -619,12 +619,12 @@ $nullableInterpreter = new class() {
             : ['class' => 'runtime'];
     }
 };
-$interpreterInstances = new ReflectionProperty(\Duo\Policy::class, 'interpreterInstances');
+$interpreterInstances = new ReflectionProperty(\WPrism\Policy::class, 'interpreterInstances');
 $interpreterInstances->setValue($termPolicy, ['nullable-fixture' => $nullableInterpreter]);
-$termTokens = new \Duo\Tokens('https://source.test', 'https://source.test/wp-content/uploads');
+$termTokens = new \WPrism\Tokens('https://source.test', 'https://source.test/wp-content/uploads');
 $termMaterializer = new ApplyFieldMaterializer($termPolicy, $termTokens);
 $termMaterializer->begin_authored_transaction();
-\Duo\CacheInvalidationTransaction::begin();
+\WPrism\CacheInvalidationTransaction::begin();
 $wpdb->termMetaRows = [[
     'meta_id' => 8,
     'term_id' => 31,
@@ -668,12 +668,12 @@ $wpdb->termMetaRows = [[
 ], [
     'meta_id' => 20,
     'term_id' => 32,
-    'meta_key' => '_duo_uuid',
+    'meta_key' => '_wprism_uuid',
     'meta_value' => '11111111-1111-7111-8111-111111111111',
 ], [
     'meta_id' => 21,
     'term_id' => 32,
-    'meta_key' => '_DUO_UUID',
+    'meta_key' => '_WPRISM_UUID',
     'meta_value' => '11111111-1111-7111-8111-111111111111',
 ]];
 $identityLock = $termMaterializer->meta_owner_range_lock(
@@ -682,7 +682,7 @@ $identityLock = $termMaterializer->meta_owner_range_lock(
     'exact identity alias regression'
 );
 try {
-    $identityLock->exact_key_rows(32, '_duo_uuid');
+    $identityLock->exact_key_rows(32, '_wprism_uuid');
     $lockedAliasRefused = false;
 } catch (Throwable $failure) {
     $lockedAliasRefused = str_contains($failure->getMessage(), 'collation-equal non-byte-exact');
@@ -690,9 +690,9 @@ try {
 $check($lockedAliasRefused, 'locked metadata exact-key lookup refuses a collation-equal alias');
 $wpdb->termMetaRows = array_values(array_filter(
     $wpdb->termMetaRows,
-    static fn(array $row): bool => !((int) $row['term_id'] === 32 && $row['meta_key'] === '_DUO_UUID')
+    static fn(array $row): bool => !((int) $row['term_id'] === 32 && $row['meta_key'] === '_WPRISM_UUID')
 ));
-$exactIdentityRows = $identityLock->exact_key_rows(32, '_duo_uuid');
+$exactIdentityRows = $identityLock->exact_key_rows(32, '_wprism_uuid');
 $check(
     count($exactIdentityRows) === 1
         && ($exactIdentityRows[0]['meta_value'] ?? null) === '11111111-1111-7111-8111-111111111111',
@@ -756,7 +756,7 @@ $check(
     'term-meta reconciliation purges the same-process WordPress cache while accepting an already-absent cache key'
 );
 
-$polylangPolicy = new \Duo\Policy();
+$polylangPolicy = new \WPrism\Policy();
 $polylangPolicy->manifests = [[
     'name' => 'polylang',
     'interpreter' => 'polylang',
@@ -766,7 +766,7 @@ $polylangPolicy->manifests = [[
 ]];
 $interpreterInstances->setValue(
     $polylangPolicy,
-    ['polylang' => new \Duo\Interpreters\Polylang($polylangPolicy)]
+    ['polylang' => new \WPrism\Interpreters\Polylang($polylangPolicy)]
 );
 $polylangMaterializer = new ApplyFieldMaterializer($polylangPolicy, $termTokens);
 $polylangMaterializer->begin_authored_transaction();
@@ -930,7 +930,7 @@ $repeatedRows = [
     'duplicates' => 'forbid',
     'order' => 'preserve',
 ];
-$repeatedPolicy = new \Duo\Policy();
+$repeatedPolicy = new \WPrism\Policy();
 $repeatedPolicy->site = ['policy' => [
     'post_meta' => [
         '_organizers' => ['class' => 'authored', 'ref' => 'post', 'repeated_rows' => $repeatedRows],
@@ -943,7 +943,7 @@ $repeatedPolicy->site = ['policy' => [
         '_term_runtime' => ['class' => 'runtime'],
     ],
 ]];
-$repeatedTokens = new \Duo\Tokens('https://target.example.test', 'https://target.example.test/wp-content/uploads');
+$repeatedTokens = new \WPrism\Tokens('https://target.example.test', 'https://target.example.test/wp-content/uploads');
 $repeatedMaterializer = new ApplyFieldMaterializer($repeatedPolicy, $repeatedTokens);
 $repeatedMaterializer->begin_authored_transaction();
 $postUuids = [
@@ -1001,7 +1001,7 @@ foreach ($malformedRepeatedCases as [$malformedValue, $expectedFailure]) {
     );
 }
 
-$contextPolicy = new \Duo\Policy();
+$contextPolicy = new \WPrism\Policy();
 $contextPolicy->site = ['policy' => ['post_meta' => [
     '_context_old' => ['class' => 'authored'],
     '_context_mode' => ['class' => 'runtime'],
@@ -1017,7 +1017,7 @@ $contextInterpreter = new class($repeatedRows) {
             : ['class' => 'runtime'];
     }
 };
-$contextInterpreterInstances = new ReflectionProperty(\Duo\Policy::class, 'interpreterInstances');
+$contextInterpreterInstances = new ReflectionProperty(\WPrism\Policy::class, 'interpreterInstances');
 $contextInterpreterInstances->setValue($contextPolicy, ['repeated-context-fixture' => $contextInterpreter]);
 $contextMaterializer = new ApplyFieldMaterializer($contextPolicy, $repeatedTokens);
 $contextMaterializer->begin_authored_transaction();
@@ -1111,7 +1111,7 @@ try {
         'post 91'
     );
     $failedInsertRefused = false;
-} catch (\Duo\DatabaseMutationException $failure) {
+} catch (\WPrism\DatabaseMutationException $failure) {
     $failedInsertRefused = $failure->mutationContext === 'apply insert repeated post 91 meta';
 }
 $check($failedInsertRefused,
@@ -1140,7 +1140,7 @@ try {
     $wireAliasRefused = false;
 } catch (RuntimeException $failure) {
     $wireAliasRefused = $failure->getMessage()
-        === "duo: repeated-row authored post 91 meta '_organizers' resolves to a duplicate target wire value";
+        === "wprism: repeated-row authored post 91 meta '_organizers' resolves to a duplicate target wire value";
 }
 $check($wireAliasRefused,
     'distinct canonical rows that resolve to one target wire value refuse before mutation');
@@ -1284,7 +1284,7 @@ foreach (['insert', 'update', 'delete', 'reorder'] as $mode) {
             $wpdb->mutateMetaAfterSize = $mode;
         }
         $wpdb->mutateMetaTable = $rowsProperty;
-        $beforeDuoMutations = count($wpdb->mutations);
+        $beforeWPrismMutations = count($wpdb->mutations);
         try {
             if ($termMeta) {
                 $repeatedMaterializer->reconcile_authored_term_meta($ownerId, [
@@ -1301,8 +1301,8 @@ foreach (['insert', 'update', 'delete', 'reorder'] as $mode) {
                 || str_contains($failure->getMessage(), 'malformed or changed row')
                 || str_contains($failure->getMessage(), 'value read disagrees with the bounded size preflight');
         }
-        $check($concurrentRefused && count($wpdb->mutations) === $beforeDuoMutations,
-            ($termMeta ? 'term' : 'post') . " repeated-row $mode drift between compact/hash reads refuses before Duo mutation");
+        $check($concurrentRefused && count($wpdb->mutations) === $beforeWPrismMutations,
+            ($termMeta ? 'term' : 'post') . " repeated-row $mode drift between compact/hash reads refuses before WPrism mutation");
     }
 }
 $wpdb->postMetaRows = $postRowsBeforeConcurrency;
@@ -1372,9 +1372,9 @@ $check($materializer->option_wire_value(['x' => 1]) === 'a:1:{s:1:"x";i:1;}',
     'option_wire_value retains WordPress serialized array bytes');
 $check($materializer->option_wire_value('') === '', 'option_wire_value leaves an empty string empty');
 
-$adopterPolicy = new \Duo\Policy();
+$adopterPolicy = new \WPrism\Policy();
 $adopterMaterializer = new ApplyFieldMaterializer($adopterPolicy, $termTokens);
-$adopter = new \Duo\EntityAdopter($adopterPolicy, [], $adopterMaterializer);
+$adopter = new \WPrism\EntityAdopter($adopterPolicy, [], $adopterMaterializer);
 $adoptionUuid = '00000000-0000-4000-8000-000000000099';
 $adoptionPath = 'terms/category/portable-source.json';
 $wpdb->termTaxonomyRows = [[
@@ -1383,7 +1383,7 @@ $wpdb->termTaxonomyRows = [[
     'taxonomy' => 'category',
 ]];
 $wpdb->termMetaRows = [];
-$wpdb->duoMapRows = [];
+$wpdb->wprismMapRows = [];
 $adoptionWarnings = [];
 $adopterMaterializer->begin_authored_transaction();
 $adopter->adopt(
@@ -1400,10 +1400,10 @@ $check(
     count(array_filter(
         $wpdb->termMetaRows,
         static fn(array $row): bool => (int) $row['term_id'] === 41
-            && $row['meta_key'] === '_duo_uuid'
+            && $row['meta_key'] === '_wprism_uuid'
             && $row['meta_value'] === $adoptionUuid
     )) === 1
-        && count($wpdb->duoMapRows) === 2,
+        && count($wpdb->wprismMapRows) === 2,
     'term adoption installs one exact UUID sidecar and both term ledger identities'
 );
 $menuAdoptionUuid = '00000000-0000-4000-8000-000000000098';
@@ -1413,7 +1413,7 @@ $wpdb->termTaxonomyRows = [[
     'taxonomy' => 'nav_menu',
 ]];
 $wpdb->termMetaRows = [];
-$wpdb->duoMapRows = [];
+$wpdb->wprismMapRows = [];
 $menuAdoptionWarnings = [];
 $adopterMaterializer->begin_authored_transaction();
 $adopter->adopt(
@@ -1424,17 +1424,17 @@ $adopter->adopt(
 $adopterMaterializer->end_authored_transaction();
 $check(
     $menuAdoptionWarnings === ["adopted env term 42 as $menuAdoptionUuid (menus/portable-source.json)"]
-        && count($wpdb->duoMapRows) === 2,
+        && count($wpdb->wprismMapRows) === 2,
     'menu adoption uses the canonical nav_menu taxonomy instead of treating a menu as a malformed term'
 );
 
 if ($failures) {
-    \Duo\CacheInvalidationTransaction::end();
+    \WPrism\CacheInvalidationTransaction::end();
     echo "\n" . count($failures) . " failure(s):\n";
     foreach ($failures as $failure) {
         echo "  - $failure\n";
     }
     exit(1);
 }
-\Duo\CacheInvalidationTransaction::end();
+\WPrism\CacheInvalidationTransaction::end();
 echo "\nall ApplyFieldMaterializer checks passed\n";

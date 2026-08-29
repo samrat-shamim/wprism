@@ -35,8 +35,8 @@
 #   MUP_BOOTSTRAP=init|manual   how step 2 creates the site repository
 #   MUP_STEP11=required|record-gap   see "The step-11 transport gate" below
 #   MUP_JOURNEY_SHOP_URL        the shop journey's path (default /shop/)
-#   DUO_EXPECTED_SOURCE_SHA     bind this run to an exact source commit
-#   DUO_WORDPRESS_ORG_OFFLINE   0|1, forwarded to pair.sh/fetch-artifact
+#   WPRISM_EXPECTED_SOURCE_SHA     bind this run to an exact source commit
+#   WPRISM_WORDPRESS_ORG_OFFLINE   0|1, forwarded to pair.sh/fetch-artifact
 #
 # ## Offline modes
 #
@@ -58,9 +58,9 @@
 #
 # ## The step-11 gate
 #
-# `duo recover` lists two sources: the signed receipt of the adopted rollback
+# `wprism recover` lists two sources: the signed receipt of the adopted rollback
 # authority (an SSH-adopted target only) and the plain database checkpoint
-# every operator-directed release RETAINS under `.duo/checkpoints/` (every
+# every operator-directed release RETAINS under `.wprism/checkpoints/` (every
 # transport — round-3 T5, `RetainedCheckpoints`). `sandbox/bin/pair.sh`
 # publishes no sshd, so on this pair the release at step 9 runs the
 # operator-directed profile, its frozen plan claims `restores: database
@@ -70,7 +70,7 @@
 # that gap is kept for a target that genuinely refuses:
 #
 #   MUP_STEP11=required   (default) step 11 runs exactly as §6.1 writes it and
-#                         FAILS if `duo recover --list` cannot list the
+#                         FAILS if `wprism recover --list` cannot list the
 #                         checkpoint the release just took, or the restore does
 #                         not make the printed boundary literally true.
 #   MUP_STEP11=record-gap steps 1-10 and 12-13 still produce evidence; if step
@@ -95,7 +95,7 @@ SANDBOX="$(pwd -P)"
 REPO_ROOT="$(cd .. && pwd -P)"
 # shellcheck source=../../bin/artifact-library.sh
 . "$SANDBOX/bin/artifact-library.sh"
-DUO="$REPO_ROOT/cli/duo"
+WPRISM="$REPO_ROOT/cli/wprism"
 FIXTURES="$SANDBOX/tests/fixtures/mup"
 
 MODE=run
@@ -117,7 +117,7 @@ THEME_SLUG="${MUP_THEME_SLUG:-storefront}"
 THEME_VERSION="${MUP_THEME_VERSION:-}"
 BOOTSTRAP="${MUP_BOOTSTRAP:-init}"
 STEP11="${MUP_STEP11:-required}"
-WORDPRESS_OFFLINE="${DUO_WORDPRESS_ORG_OFFLINE:-0}"
+WORDPRESS_OFFLINE="${WPRISM_WORDPRESS_ORG_OFFLINE:-0}"
 
 FAILURES=0
 STEP11_EXECUTED=0
@@ -144,7 +144,7 @@ run() {
   "$@"
 }
 
-# run_in <dir> <argv...> — the same, in a subshell rooted at <dir>. `duo
+# run_in <dir> <argv...> — the same, in a subshell rooted at <dir>. `wprism
 # assess`/`contract`/`release` resolve the LOCAL site repository from the
 # current working directory (AssessCommand::siteRepo()), so which directory
 # they run in is part of the command, not an accident of the shell.
@@ -170,9 +170,9 @@ require() { command -v "$1" >/dev/null 2>&1 || fail "required command is missing
 
 # mup_json_tail <file> — the trailing canonical JSON document.
 #
-# `duo release --plan-only --format=json` prints the rendered authorization
+# `wprism release --plan-only --format=json` prints the rendered authorization
 # page and THEN the document (ReleaseCommand::run()), so a bare `jq .` over
-# the whole stream fails. `\Duo\Canon::encode()` is pretty-printed, which puts
+# the whole stream fails. `\WPrism\Canon::encode()` is pretty-printed, which puts
 # the document's opening brace alone on a line at column 0 and puts every
 # nested object's brace after a `"key": `, so the LAST bare `{` line is the
 # start of the last document and nothing else can be.
@@ -187,7 +187,7 @@ mup_json_tail() {
 #
 # A human view may print an internal identifier only when a documented command
 # consumes it. Nothing consumes an operation id, a session id, a lease owner
-# or an artifact hash from `duo assess`, so none of the three shapes those
+# or an artifact hash from `wprism assess`, so none of the three shapes those
 # take may appear: a 36-character UUID, a bare 64-hex digest, or a bare 32-hex
 # digest. `sha256:`-prefixed digests are matched by the 64-hex rule too, which
 # is deliberate — assess names `--format=json` on every line that hides one.
@@ -222,8 +222,8 @@ mup_assess_projection() {
 # unclassified row may never give.
 mup_assert_assess_document() {
   local file="$1"
-  jq -e '.format == "duo-assess-report/v1"' -- "$file" >/dev/null \
-    || { printf 'not a duo-assess-report/v1 document: %s\n' "$file" >&2; return 1; }
+  jq -e '.format == "wprism-assess-report/v1"' -- "$file" >/dev/null \
+    || { printf 'not a wprism-assess-report/v1 document: %s\n' "$file" >&2; return 1; }
   local offenders
   offenders="$(jq -r '
     [.surfaces[] | select(.state_class == "unclassified")
@@ -236,7 +236,7 @@ mup_assert_assess_document() {
 }
 
 # mup_assert_plan_document <json-file> — §6.1 step 8. The plan validates as a
-# `duo-authorization-plan/v1`, cites the contract it was authorized under,
+# `wprism-authorization-plan/v1`, cites the contract it was authorized under,
 # lists what recovery does NOT restore, and names the recovery profile AND the
 # reason it was selected. "Names the profile" without "and why" is the failure
 # this checks for: a profile with no stated reason is an assertion, not
@@ -244,7 +244,7 @@ mup_assert_assess_document() {
 mup_assert_plan_document() {
   local file="$1"
   jq -e '
-    .format == "duo-authorization-plan/v1"
+    .format == "wprism-authorization-plan/v1"
     and (.plan_digest | test("^sha256:[0-9a-f]{64}$"))
     and (.contract_digest | type == "string") and (.contract_digest | test("^sha256:[0-9a-f]{64}$"))
     and (.recovery_profile.claim.does_not_restore | type == "array")
@@ -254,7 +254,7 @@ mup_assert_plan_document() {
     and (.recovery_profile.selected_because | length) > 0
     and (.effects.unknown_blocking | length) == 0
   ' -- "$file" >/dev/null \
-    || { printf 'the authorization plan is not a complete duo-authorization-plan/v1: %s\n' "$file" >&2; return 1; }
+    || { printf 'the authorization plan is not a complete wprism-authorization-plan/v1: %s\n' "$file" >&2; return 1; }
   return 0
 }
 
@@ -265,14 +265,14 @@ mup_assert_plan_document() {
 mup_assert_verify_report() {
   local file="$1"
   jq -e '
-    .format == "duo-verify-report/v1"
+    .format == "wprism-verify-report/v1"
     and .verdict == "pass"
     and .convergence.status == "pass"
     and (.journeys | length) >= 2
     and (.journeys | all(.status == "pass"))
     and (.uncovered_surfaces | type == "array")
   ' -- "$file" >/dev/null \
-    || { printf 'the verify report is not a passing duo-verify-report/v1: %s\n' "$file" >&2; return 1; }
+    || { printf 'the verify report is not a passing wprism-verify-report/v1: %s\n' "$file" >&2; return 1; }
   return 0
 }
 
@@ -311,7 +311,7 @@ mup_boundary_expectation() {
 mup_assert_claim_literal() {
   local file="$1" path="${2:-.}"
   jq -e "$path"' as $c
-    | $c.format == "duo-recovery-claim/v1"
+    | $c.format == "wprism-recovery-claim/v1"
       and ($c.does_not_restore | type == "array") and ($c.does_not_restore | length) > 0
       and ($c.maximum_loss_boundary | type == "string") and ($c.maximum_loss_boundary | length) > 0
       and ($c.restores | type == "array")
@@ -376,7 +376,7 @@ mup_projection_subset() {
 # `--from <env>` as well as for the target (the source provider answers
 # `inspect`, `snapshot-prepare` and `snapshot-create`), and the reference
 # provider's config names ${PAIR}1 as its `source_environment`. Only the
-# release target `${PAIR}2` carries none — `duo release`/`verify`/`recover`
+# release target `${PAIR}2` carries none — `wprism release`/`verify`/`recover`
 # need no provider. Extracted so the run path and --self-check write the SAME
 # bytes; a registry the grind can write but the orchestrator cannot load is a
 # failure worth finding offline.
@@ -401,14 +401,14 @@ mup_write_registry() {
 # `CommandEnvironmentProvider::fromEnvironment()` is EnvironmentLifecycle's own
 # provider-config schema: closed key set {command, timeout_seconds}, a
 # non-empty argv whose executable is absolute, a 1..60 second timeout, and the
-# `_machine_local` provenance flag only `.duo-envs.json` can carry. Running it
+# `_machine_local` provenance flag only `.wprism-envs.json` can carry. Running it
 # here means a malformed provider block refuses on this machine, offline,
 # instead of at materialization time with a snapshot already taken.
 mup_validate_registry() {
   php -r '
     require $argv[2] . "/cli/src/Environment/Registry.php";
     require $argv[2] . "/cli/src/Environment/EnvironmentLifecycle.php";
-    $envs = \Duo\Orchestrator\Registry::load($argv[1], dirname($argv[1]));
+    $envs = \WPrism\Orchestrator\Registry::load($argv[1], dirname($argv[1]));
     $source = $argv[3];
     $target = $argv[4];
     foreach ([$target, $source] as $name) {
@@ -419,8 +419,8 @@ mup_validate_registry() {
     }
     // The materializer builds a provider client for BOTH ends of a
     // rehearsal, so both entries must be loadable as provider-bearing.
-    \Duo\Orchestrator\CommandEnvironmentProvider::fromEnvironment($target, $envs[$target]);
-    \Duo\Orchestrator\CommandEnvironmentProvider::fromEnvironment($source, $envs[$source]);
+    \WPrism\Orchestrator\CommandEnvironmentProvider::fromEnvironment($target, $envs[$target]);
+    \WPrism\Orchestrator\CommandEnvironmentProvider::fromEnvironment($source, $envs[$source]);
     echo "target and source provider config accepted by EnvironmentLifecycle\n";
   ' "$1" "$REPO_ROOT" "$2" "$3"
 }
@@ -436,7 +436,7 @@ self_check() {
   # json tail
   got="$(mup_json_tail "$FIXTURES/plan-only.stdout.txt" | jq -r '.format')" \
     || soft_fail "mup_json_tail could not extract the plan document"
-  [ "$got" = 'duo-authorization-plan/v1' ] \
+  [ "$got" = 'wprism-authorization-plan/v1' ] \
     && pass "mup_json_tail extracts the document a rendered plan page is followed by" \
     || soft_fail "mup_json_tail extracted '$got'"
   if mup_json_tail "$FIXTURES/assess-human.clean.txt" >/dev/null 2>&1; then
@@ -587,24 +587,24 @@ self_check() {
   # registry shape + EnvironmentLifecycle's provider-config schema, offline
   local tmp
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/grind-mup-selfcheck.XXXXXX")"
-  mup_write_registry "$tmp/.duo-envs.json" "$SANDBOX/pair.yml" mup1 mup2 \
+  mup_write_registry "$tmp/.wprism-envs.json" "$SANDBOX/pair.yml" mup1 mup2 \
     "$(command -v php)" "$REPO_ROOT/tools/reference-env-provider.php" "$tmp/config.json"
-  if mup_validate_registry "$tmp/.duo-envs.json" mup1 mup2 >/dev/null 2>&1; then
+  if mup_validate_registry "$tmp/.wprism-envs.json" mup1 mup2 >/dev/null 2>&1; then
     pass "the registry this grind writes is accepted by EnvironmentLifecycle's provider-config schema, source and target"
   else
-    soft_fail "the registry this grind writes is rejected by EnvironmentLifecycle: $(mup_validate_registry "$tmp/.duo-envs.json" mup1 mup2 2>&1)"
+    soft_fail "the registry this grind writes is rejected by EnvironmentLifecycle: $(mup_validate_registry "$tmp/.wprism-envs.json" mup1 mup2 2>&1)"
   fi
   # The reference provider (tools/reference-env-provider.php, since the
   # reusable preview slot) requires every environment it is configured for to
   # use pair.sh's canonical logical name `<pair><side>`; side 2 is at once the
   # rehearsal target and the release target under that one name.
-  if jq -e '(.envs | keys | sort) == ["mup1", "mup2"]' "$tmp/.duo-envs.json" >/dev/null; then
+  if jq -e '(.envs | keys | sort) == ["mup1", "mup2"]' "$tmp/.wprism-envs.json" >/dev/null; then
     pass "the registry names exactly the pair's two canonical logical environments"
   else
-    soft_fail "the registry names environments other than mup1/mup2: $(jq -c '.envs | keys' "$tmp/.duo-envs.json")"
+    soft_fail "the registry names environments other than mup1/mup2: $(jq -c '.envs | keys' "$tmp/.wprism-envs.json")"
   fi
   # A relative provider executable is the mistake this schema exists to catch.
-  jq '.envs.mup2.environment_provider.command[0] = "php"' "$tmp/.duo-envs.json" > "$tmp/relative.json"
+  jq '.envs.mup2.environment_provider.command[0] = "php"' "$tmp/.wprism-envs.json" > "$tmp/relative.json"
   if mup_validate_registry "$tmp/relative.json" mup1 mup2 >/dev/null 2>&1; then
     soft_fail "EnvironmentLifecycle accepted a relative provider executable"
   else
@@ -647,14 +647,14 @@ cleanup() {
       printf 'FAIL: grind pair destroy failed for %s\n' "$PAIR" >&2
       status=1
     fi
-    containers="$(docker ps -aq --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null)"
-    volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null)"
-    networks="$(docker network ls -q --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null)"
+    containers="$(docker ps -aq --filter "label=com.docker.compose.project=wprism-$PAIR" 2>/dev/null)"
+    volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=wprism-$PAIR" 2>/dev/null)"
+    networks="$(docker network ls -q --filter "label=com.docker.compose.project=wprism-$PAIR" 2>/dev/null)"
     if [ -n "$containers$volumes$networks" ]; then
-      printf 'FAIL: cleanup left Docker resources for project duo-%s behind\n' "$PAIR" >&2
+      printf 'FAIL: cleanup left Docker resources for project wprism-%s behind\n' "$PAIR" >&2
       status=1
     fi
-    databases="$(docker exec -e MYSQL_PWD=root duo-shared-db mariadb -uroot -N -B --raw \
+    databases="$(docker exec -e MYSQL_PWD=root wprism-shared-db mariadb -uroot -N -B --raw \
       -e "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME IN ('wp_${PAIR}1','wp_${PAIR}2')" 2>/dev/null)"
     if [ -n "$databases" ]; then
       printf 'FAIL: cleanup left pair database(s) behind: %s\n' "$databases" >&2
@@ -678,10 +678,10 @@ preflight() {
   fi
   [[ "$PORT1" =~ ^[0-9]+$ && "$PORT2" =~ ^[0-9]+$ && "$PORT1" != "$PORT2" ]] \
     || fail "MUP_PORT1/MUP_PORT2 must be two different numeric host ports (got '$PORT1'/'$PORT2')"
-  case "$WORDPRESS_OFFLINE" in 0|1) ;; *) fail "DUO_WORDPRESS_ORG_OFFLINE must be 0 or 1" ;; esac
+  case "$WORDPRESS_OFFLINE" in 0|1) ;; *) fail "WPRISM_WORDPRESS_ORG_OFFLINE must be 0 or 1" ;; esac
   case "$BOOTSTRAP" in init|manual) ;; *) fail "MUP_BOOTSTRAP must be 'init' or 'manual'" ;; esac
   case "$STEP11" in required|record-gap) ;; *) fail "MUP_STEP11 must be 'required' or 'record-gap'" ;; esac
-  [ -f "$DUO" ] || fail "host CLI missing: $DUO"
+  [ -f "$WPRISM" ] || fail "host CLI missing: $WPRISM"
   [ -f "$REPO_ROOT/tools/reference-env-provider.php" ] \
     || fail "the reference environment provider is missing: $REPO_ROOT/tools/reference-env-provider.php"
 
@@ -745,7 +745,7 @@ else
   mkdir -p "$SANDBOX/tmp"
   SCRATCH="$(mktemp -d "$SANDBOX/tmp/grind-mup.XXXXXX")"
 fi
-ENVS_FILE="$SCRATCH/.duo-envs.json"
+ENVS_FILE="$SCRATCH/.wprism-envs.json"
 PROVIDER_CONFIG="$SCRATCH/reference-env-provider.json"
 PROVIDER_STATE="$SCRATCH/provider-state"
 EVIDENCE="$SCRATCH/evidence"
@@ -756,15 +756,15 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
-export DUO_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
+export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2"
+export WPRISM_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
 COMPOSE_FILES=("$SANDBOX/pair.yml" "$SANDBOX/pair.http.yml" "$SANDBOX/pair.artifacts.yml")
 PAIR_UP_FLAGS=(--http --artifacts)
 if [ "$WORDPRESS_OFFLINE" = 1 ]; then
   COMPOSE_FILES+=("$SANDBOX/pair.wordpress-offline.yml")
   PAIR_UP_FLAGS+=(--wordpress-offline)
 fi
-COMPOSE=(docker compose -p "duo-$PAIR")
+COMPOSE=(docker compose -p "wprism-$PAIR")
 for file in "${COMPOSE_FILES[@]}"; do COMPOSE+=(-f "$file"); done
 PAIR_COMPOSE=("${COMPOSE[@]}")
 # shellcheck source=../../bin/fetch-artifact.sh
@@ -776,9 +776,9 @@ wp_side() { # wp_side <1|2> <wp args...>
 }
 wp1() { wp_side 1 "$@"; }
 wp2() { wp_side 2 "$@"; }
-duo_in() { # duo_in <cwd> <duo args...>
+wprism_in() { # wprism_in <cwd> <wprism args...>
   local dir="$1"; shift
-  run_in "$dir" php "$DUO" "--envs-file=$ENVS_FILE" "$@"
+  run_in "$dir" php "$WPRISM" "--envs-file=$ENVS_FILE" "$@"
 }
 git1() { run git -C "$HOST_R1" "$@"; }
 git2() { run git -C "$HOST_R2" "$@"; }
@@ -787,11 +787,11 @@ git2() { run git -C "$HOST_R2" "$@"; }
 # it: exported so pair.sh's own assert_candidate_source refuses BEFORE reset
 # DROP/CREATEs a database or a container starts. Unset leaves the run
 # byte-identical and explicitly not candidate-bound.
-if [ -n "${DUO_EXPECTED_SOURCE_SHA:-}" ]; then
-  export DUO_EXPECTED_SOURCE_SHA
-  pass "candidate-source gate armed: DUO_EXPECTED_SOURCE_SHA=$DUO_EXPECTED_SOURCE_SHA"
+if [ -n "${WPRISM_EXPECTED_SOURCE_SHA:-}" ]; then
+  export WPRISM_EXPECTED_SOURCE_SHA
+  pass "candidate-source gate armed: WPRISM_EXPECTED_SOURCE_SHA=$WPRISM_EXPECTED_SOURCE_SHA"
 else
-  note "DUO_EXPECTED_SOURCE_SHA is unset — this run is NOT bound to a source commit"
+  note "WPRISM_EXPECTED_SOURCE_SHA is unset — this run is NOT bound to a source commit"
 fi
 
 run mkdir -p "$PROVIDER_STATE" "$EVIDENCE"
@@ -803,21 +803,21 @@ run mkdir -p "$PROVIDER_STATE" "$EVIDENCE"
 say "step 1/13 — pair '$PAIR' up on :$PORT1/:$PORT2, pinned extensions, seeded catalog"
 if ! dry; then validate_artifact_library \
   || fail "artifact library is malformed; the grind refused before pair reset"; fi
-# The pair's cli containers need Git: `duo init` (step 2 in its §6.1 form)
-# proves Git on the target before confirming, and `duo rehearse` reads the
+# The pair's cli containers need Git: `wprism init` (step 2 in its §6.1 form)
+# proves Git on the target before confirming, and `wprism rehearse` reads the
 # production side's HEAD commit inside its own environment
 # (EnvironmentLifecycle::productionCommit()). The stock wordpress:cli image
-# ships none, so the same evidence-only image `regress_duo_init.sh` builds is
+# ships none, so the same evidence-only image `regress_wprism_init.sh` builds is
 # used here — `sandbox/init-cli.Dockerfile`, wordpress:cli-php8.3 plus git —
-# and handed to pair.sh through DUO_CLI_IMAGE. Every later `duo` call in this
+# and handed to pair.sh through WPRISM_CLI_IMAGE. Every later `wprism` call in this
 # grind inherits the variable, so the docker transport runs the same image.
-DUO_CLI_IMAGE="${DUO_CLI_IMAGE:-duo-mup-cli-git:${PAIR}}"
-export DUO_CLI_IMAGE
+WPRISM_CLI_IMAGE="${WPRISM_CLI_IMAGE:-wprism-mup-cli-git:${PAIR}}"
+export WPRISM_CLI_IMAGE
 if ! dry; then
-  docker build -q -f init-cli.Dockerfile -t "$DUO_CLI_IMAGE" . >/dev/null \
-    || fail "could not build the Git-enabled cli image $DUO_CLI_IMAGE from sandbox/init-cli.Dockerfile"
+  docker build -q -f init-cli.Dockerfile -t "$WPRISM_CLI_IMAGE" . >/dev/null \
+    || fail "could not build the Git-enabled cli image $WPRISM_CLI_IMAGE from sandbox/init-cli.Dockerfile"
 else
-  plan "docker build -q -f init-cli.Dockerfile -t $DUO_CLI_IMAGE .   # wordpress:cli-php8.3 + git"
+  plan "docker build -q -f init-cli.Dockerfile -t $WPRISM_CLI_IMAGE .   # wordpress:cli-php8.3 + git"
 fi
 PAIR_UP=1
 run bash bin/pair.sh reset "$PAIR"
@@ -825,7 +825,7 @@ run bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" "${PAIR_UP_FLAGS[@]}"
 
 install_side() { # install_side <1|2> <author|target>
   local side="$1" role="$2" artifact
-  wp_side "$side" option update blogname "Duo MUP ${PAIR}${side}"
+  wp_side "$side" option update blogname "WPrism MUP ${PAIR}${side}"
   wp_side "$side" site empty --yes
   if dry; then
     plan "fetch_artifact woocommerce $WOO_VERSION cli$side plugin"
@@ -846,7 +846,7 @@ install_side() { # install_side <1|2> <author|target>
   return 0
 }
 # Side 1 is the author: activated and set up, because capture must see a fully
-# set-up environment. Side 2 arrives with extension FILES only — `duo deploy`
+# set-up environment. Side 2 arrives with extension FILES only — `wprism deploy`
 # inside the release reconciles activation from canonical, which is the whole
 # point of deploy-before-apply and is exactly conformance/run.sh's split.
 install_side 1 author
@@ -857,19 +857,19 @@ PRODUCT_A_ID=""
 PRODUCT_B_ID=""
 LANDING_ID=""
 if dry; then
-  plan "wp wc product create --name='Duo Ceramic Mug' --regular_price=24.00 ... (x3)"
-  plan "wp post create --post_type=page --post_title='Duo grind landing page' ..."
+  plan "wp wc product create --name='WPrism Ceramic Mug' --regular_price=24.00 ... (x3)"
+  plan "wp post create --post_type=page --post_title='WPrism grind landing page' ..."
   PRODUCT_A_ID='<product-a-id>'; PRODUCT_B_ID='<product-b-id>'; LANDING_ID='<landing-id>'
 else
-  PRODUCT_A_ID="$(wp1 wc product create --name='Duo Ceramic Mug' --type=simple \
-    --regular_price=24.00 --sku=DUO-MUG --status=publish --user=admin --porcelain | tr -d '\r')"
-  PRODUCT_B_ID="$(wp1 wc product create --name='Duo Enamel Pin' --type=simple \
-    --regular_price=8.00 --sku=DUO-PIN --status=publish --user=admin --porcelain | tr -d '\r')"
-  wp1 wc product create --name='Duo Tote Bag' --type=simple \
-    --regular_price=15.00 --sku=DUO-TOTE --status=publish --user=admin --porcelain >/dev/null
+  PRODUCT_A_ID="$(wp1 wc product create --name='WPrism Ceramic Mug' --type=simple \
+    --regular_price=24.00 --sku=WPRISM-MUG --status=publish --user=admin --porcelain | tr -d '\r')"
+  PRODUCT_B_ID="$(wp1 wc product create --name='WPrism Enamel Pin' --type=simple \
+    --regular_price=8.00 --sku=WPRISM-PIN --status=publish --user=admin --porcelain | tr -d '\r')"
+  wp1 wc product create --name='WPrism Tote Bag' --type=simple \
+    --regular_price=15.00 --sku=WPRISM-TOTE --status=publish --user=admin --porcelain >/dev/null
   LANDING_ID="$(wp1 post create --post_type=page --post_status=publish \
-    --post_title='Duo grind landing page' --post_name=duo-grind-landing \
-    --post_content='<p>Duo grind landing page, before the release.</p>' --porcelain | tr -d '\r')"
+    --post_title='WPrism grind landing page' --post_name=wprism-grind-landing \
+    --post_content='<p>WPrism grind landing page, before the release.</p>' --porcelain | tr -d '\r')"
   [ -n "$PRODUCT_A_ID" ] && [ -n "$LANDING_ID" ] \
     || fail "the catalog seed did not produce a product and a page on ${PAIR}1"
 fi
@@ -879,7 +879,7 @@ fi
 SHOP_PATH="${MUP_JOURNEY_SHOP_URL:-/shop/}"
 LANDING_PATH="/?page_id=$LANDING_ID"
 if ! dry; then
-  LANDING_URL="$(wp1 post list --post_type=page --name=duo-grind-landing --field=url | tr -d '\r' | head -1)"
+  LANDING_URL="$(wp1 post list --post_type=page --name=wprism-grind-landing --field=url | tr -d '\r' | head -1)"
   case "$LANDING_URL" in
     "$BASE1"*) LANDING_PATH="${LANDING_URL#"$BASE1"}" ;;
     *) note "the landing page URL '$LANDING_URL' is not under $BASE1; probing by query string instead" ;;
@@ -890,7 +890,7 @@ pass "pair up; woocommerce $WOO_VERSION + $THEME_SLUG $THEME_VERSION installed; 
 # ---------------------------------------------------------------------------
 # Registry: the two sides, both carrying the provider block.
 # ---------------------------------------------------------------------------
-say "registry — .duo-envs.json for ${PAIR}1 and ${PAIR}2"
+say "registry — .wprism-envs.json for ${PAIR}1 and ${PAIR}2"
 # `${PAIR}2` is at once the rehearsal target and the release target: MUP §6.1
 # makes side 2 both, and the reference provider (tools/reference-env-provider.php,
 # since the reusable preview slot) requires every environment it is configured
@@ -899,12 +899,12 @@ say "registry — .duo-envs.json for ${PAIR}1 and ${PAIR}2"
 # SOURCE, carries the provider block too (see mup_write_registry).
 if dry; then
   plan "write $ENVS_FILE (docker cli1/cli2; both carry environment_provider -> php $PROVIDER $PROVIDER_CONFIG)"
-  plan "write $PROVIDER_CONFIG (duo-reference-env-provider-config/v1, pair $PAIR)"
+  plan "write $PROVIDER_CONFIG (wprism-reference-env-provider-config/v1, pair $PAIR)"
 else
   mup_write_registry "$ENVS_FILE" "${COMPOSE_FILES[0]}" "${PAIR}1" "${PAIR}2" \
     "$PHP_BIN" "$PROVIDER" "$PROVIDER_CONFIG"
   mup_validate_registry "$ENVS_FILE" "${PAIR}1" "${PAIR}2" \
-    || fail "the .duo-envs.json this grind wrote is not loadable as a machine-local provider registry"
+    || fail "the .wprism-envs.json this grind wrote is not loadable as a machine-local provider registry"
   jq -n \
     --arg pair "$PAIR" --arg script "$SANDBOX/bin/pair.sh" --arg dir "$SANDBOX" \
     --arg origin "$ORIGIN" --arg state "$PROVIDER_STATE" --arg source "${PAIR}1" --arg target "${PAIR}2" \
@@ -912,16 +912,16 @@ else
     --arg repo1 "$HOST_R1" --arg repo2 "$HOST_R2" \
     --argjson files "$(printf '%s\n' "${COMPOSE_FILES[@]}" | jq -R . | jq -sc .)" '
     {
-      format: "duo-reference-env-provider-config/v1",
+      format: "wprism-reference-env-provider-config/v1",
       pair: $pair, pair_script: $script, compose_dir: $dir, compose_files: $files,
-      controller_repo: $origin, db_container: "duo-shared-db", state_root: $state,
+      controller_repo: $origin, db_container: "wprism-shared-db", state_root: $state,
       source_environment: $source, destroy_scope: "side", withheld_capabilities: [],
       environments: {
         ($source): {role: "source", side: 1, port: $port1,
-                    container: ("duo-" + $pair + "-wp1-1"), service: "cli1",
+                    container: ("wprism-" + $pair + "-wp1-1"), service: "cli1",
                     database: ("wp_" + $pair + "1"), repo: $repo1},
         ($target):  {role: "target", side: 2, port: $port2,
-                     container: ("duo-" + $pair + "-wp2-1"), service: "cli2",
+                     container: ("wprism-" + $pair + "-wp2-1"), service: "cli2",
                      database: ("wp_" + $pair + "2"), repo: $repo2}
       }
     }' > "$PROVIDER_CONFIG"
@@ -931,11 +931,11 @@ fi
 # malformed provider config discovered at materialization time has already
 # cost a snapshot.
 if ! dry; then
-  printf '{"action":"capabilities","environment":"%s","format":"duo-branch-environment-provider-request/v1","input":[],"operation_id":"20260817-090000-0000000000000000abcdefab"}\n' "${PAIR}2" \
+  printf '{"action":"capabilities","environment":"%s","format":"wprism-branch-environment-provider-request/v1","input":[],"operation_id":"20260817-090000-0000000000000000abcdefab"}\n' "${PAIR}2" \
     | php "$PROVIDER" --print-plan "$PROVIDER_CONFIG" > "$EVIDENCE/provider-plan.json" \
     || fail "the reference provider refused the config this grind wrote; see $EVIDENCE/provider-plan.json"
   jq -e '
-    .format == "duo-reference-env-provider-plan/v1" and .executed == false
+    .format == "wprism-reference-env-provider-plan/v1" and .executed == false
     and .provider.protocol == 1
     and ([.capabilities_advertised[]] | index("repository.materialize"))
     and ([.capabilities_advertised[]] | index("environment.attach"))
@@ -950,16 +950,16 @@ pass "provider config validates against the provider's own schema and advertises
 # ---------------------------------------------------------------------------
 # Step 2 — adopt / init side 1, baseline clean.
 # ---------------------------------------------------------------------------
-say "step 2/13 — bootstrap the site repository on ${PAIR}1, then duo status clean"
+say "step 2/13 — bootstrap the site repository on ${PAIR}1, then wprism status clean"
 run git init --bare -b main "$ORIGIN"
-# `duo adopt` is the control-plane transfer verb, and AdoptCommand refuses any
+# `wprism adopt` is the control-plane transfer verb, and AdoptCommand refuses any
 # transport that is not an AdoptionTransport. A pair side already carries the
 # agent (pair.sh mounts it), so adoption has nothing to transfer here — assert
 # the typed refusal rather than pretending the verb was skipped for taste.
 ADOPT_OUT="$SCRATCH/adopt.txt"
 if ! dry; then
-  if duo_in "$HOST_R1" adopt "${PAIR}1" > "$ADOPT_OUT" 2>&1; then
-    note "duo adopt ${PAIR}1 succeeded on this transport"
+  if wprism_in "$HOST_R1" adopt "${PAIR}1" > "$ADOPT_OUT" 2>&1; then
+    note "wprism adopt ${PAIR}1 succeeded on this transport"
   else
     # Two typed refusals are legitimate here and both name the cause: the
     # driver preflight (docker implements neither code.transfer nor
@@ -968,24 +968,24 @@ if ! dry; then
     # preflight without adoption authority.
     if grep -Fq "driver preflight blocked 'adopt'" "$ADOPT_OUT" \
       || grep -Fq 'adopt requires a transport with explicit control-plane transfer authority' "$ADOPT_OUT"; then
-      pass "duo adopt refuses the pair's docker transport with a typed reason (the pair side already carries the agent): $(head -1 "$ADOPT_OUT")"
+      pass "wprism adopt refuses the pair's docker transport with a typed reason (the pair side already carries the agent): $(head -1 "$ADOPT_OUT")"
     else
-      fail "duo adopt failed for a reason this grind does not recognize; see $ADOPT_OUT"
+      fail "wprism adopt failed for a reason this grind does not recognize; see $ADOPT_OUT"
     fi
   fi
 else
-  plan "(cd $HOST_R1 && php $DUO --envs-file=$ENVS_FILE adopt ${PAIR}1)"
+  plan "(cd $HOST_R1 && php $WPRISM --envs-file=$ENVS_FILE adopt ${PAIR}1)"
 fi
 
 if [ "$BOOTSTRAP" = init ]; then
-  duo_in "$HOST_R1" init "${PAIR}1" --yes
+  wprism_in "$HOST_R1" init "${PAIR}1" --yes
 else
   # The conformance shape: a hand-written registry plus one capture. Kept as
-  # an explicit alternative because `duo init`'s proposal is evidence-gated
+  # an explicit alternative because `wprism init`'s proposal is evidence-gated
   # and a stale generated registry makes it refuse for a reason that has
   # nothing to do with this grind.
   if dry; then
-    plan "write $HOST_R1/site.duo.json (manifests core+woocommerce, spec_version 2)"
+    plan "write $HOST_R1/site.wprism.json (manifests core+woocommerce, spec_version 2)"
   else
     jq -n '{
       manifests: ["core", "woocommerce"],
@@ -993,13 +993,13 @@ else
                post_types: ["post","page","attachment","product","product_variation","shop_coupon"],
                taxonomies: ["category","post_tag","product_cat","product_type"]},
       spec_version: 2
-    }' > "$HOST_R1/site.duo.json"
+    }' > "$HOST_R1/site.wprism.json"
     cp site-repo.gitignore.template "$HOST_R1/.gitignore"
     git init -q -b main "$HOST_R1"
   fi
-  duo_in "$HOST_R1" capture "${PAIR}1"
+  wprism_in "$HOST_R1" capture "${PAIR}1"
 fi
-# `duo init` creates the worktree itself; the manual bootstrap already did.
+# `wprism init` creates the worktree itself; the manual bootstrap already did.
 # Either way the repository exists before the first commit, and the plan says
 # so rather than hiding a conditional.
 if dry || [ ! -d "$HOST_R1/.git" ]; then
@@ -1007,29 +1007,29 @@ if dry || [ ! -d "$HOST_R1/.git" ]; then
 fi
 git1 remote add origin "$ORIGIN"
 git1 add -A
-git1 -c user.name=duo -c user.email=duo@example.test commit -qm "grind_mup: baseline capture of ${PAIR}1"
+git1 -c user.name=wprism -c user.email=wprism@example.test commit -qm "grind_mup: baseline capture of ${PAIR}1"
 git1 push -qu origin main
 
 STATUS1="$SCRATCH/status-1.txt"
 if ! dry; then
-  duo_in "$HOST_R1" status "${PAIR}1" > "$STATUS1" 2>&1 \
-    || fail "duo status ${PAIR}1 did not exit 0 after the baseline; see $STATUS1"
+  wprism_in "$HOST_R1" status "${PAIR}1" > "$STATUS1" 2>&1 \
+    || fail "wprism status ${PAIR}1 did not exit 0 after the baseline; see $STATUS1"
   grep -q ', 0 conflict, 0 collision,' "$STATUS1" \
-    || fail "duo status ${PAIR}1 is not clean after the baseline; see $STATUS1"
+    || fail "wprism status ${PAIR}1 is not clean after the baseline; see $STATUS1"
 else
-  plan "(cd $HOST_R1 && php $DUO --envs-file=$ENVS_FILE status ${PAIR}1)"
+  plan "(cd $HOST_R1 && php $WPRISM --envs-file=$ENVS_FILE status ${PAIR}1)"
 fi
-pass "step 2 — baseline committed on main; duo status ${PAIR}1 is clean"
+pass "step 2 — baseline committed on main; wprism status ${PAIR}1 is clean"
 
 # ---------------------------------------------------------------------------
-# Step 3 — duo assess.
+# Step 3 — wprism assess.
 # ---------------------------------------------------------------------------
-say "step 3/13 — duo assess ${PAIR}1 (JSON document, then the human leak gate)"
+say "step 3/13 — wprism assess ${PAIR}1 (JSON document, then the human leak gate)"
 ASSESS1_JSON="$EVIDENCE/assess-${PAIR}1.json"
 ASSESS1_HUMAN="$EVIDENCE/assess-${PAIR}1.txt"
 if ! dry; then
-  duo_in "$HOST_R1" assess "${PAIR}1" --format=json > "$SCRATCH/assess1.raw" \
-    || fail "duo assess ${PAIR}1 --format=json refused; see $SCRATCH/assess1.raw"
+  wprism_in "$HOST_R1" assess "${PAIR}1" --format=json > "$SCRATCH/assess1.raw" \
+    || fail "wprism assess ${PAIR}1 --format=json refused; see $SCRATCH/assess1.raw"
   mup_json_tail "$SCRATCH/assess1.raw" > "$ASSESS1_JSON"
   mup_assert_assess_document "$ASSESS1_JSON" || fail "step 3: the assess document is not usable"
   EXPECT_PRODUCTS=$'authored\tmanage\tReady\tPlatform-certified\tprevented'
@@ -1041,25 +1041,25 @@ if ! dry; then
   [ "$GOT_ORDERS" = "$EXPECT_ORDERS" ] \
     || fail "step 3: orders projected '$GOT_ORDERS', expected '$EXPECT_ORDERS'"
 
-  duo_in "$HOST_R1" assess "${PAIR}1" > "$ASSESS1_HUMAN" 2>&1 \
-    || fail "duo assess ${PAIR}1 (human) refused; see $ASSESS1_HUMAN"
-  mup_assert_no_internal_ids "$ASSESS1_HUMAN" "duo assess ${PAIR}1" \
+  wprism_in "$HOST_R1" assess "${PAIR}1" > "$ASSESS1_HUMAN" 2>&1 \
+    || fail "wprism assess ${PAIR}1 (human) refused; see $ASSESS1_HUMAN"
+  mup_assert_no_internal_ids "$ASSESS1_HUMAN" "wprism assess ${PAIR}1" \
     || fail "step 3: MUP §5.2 — the human assess view printed an identifier no documented command consumes"
 else
-  plan "(cd $HOST_R1 && php $DUO --envs-file=$ENVS_FILE assess ${PAIR}1 --format=json)"
-  plan "(cd $HOST_R1 && php $DUO --envs-file=$ENVS_FILE assess ${PAIR}1)"
+  plan "(cd $HOST_R1 && php $WPRISM --envs-file=$ENVS_FILE assess ${PAIR}1 --format=json)"
+  plan "(cd $HOST_R1 && php $WPRISM --envs-file=$ENVS_FILE assess ${PAIR}1)"
 fi
 pass "step 3 — assess validates; products and orders project the §6.1 words; the human view leaks no internal id"
 
 # ---------------------------------------------------------------------------
 # Step 4 — propose, review, accept the application contract.
 # ---------------------------------------------------------------------------
-say "step 4/13 — duo contract ${PAIR}1 propose -> review -> accept"
-# Per environment since DUO-3503: `.duo/contract/<env>/proposed.json`.
-PROPOSED="$HOST_R1/.duo/contract/${PAIR}1/proposed.json"
-CONTRACT="$HOST_R1/.duo/contract/contract.json"
-PROJECTION="$HOST_R1/.duo/contract/projection.json"
-duo_in "$HOST_R1" contract "${PAIR}1" propose
+say "step 4/13 — wprism contract ${PAIR}1 propose -> review -> accept"
+# Per environment since issue #3503: `.wprism/contract/<env>/proposed.json`.
+PROPOSED="$HOST_R1/.wprism/contract/${PAIR}1/proposed.json"
+CONTRACT="$HOST_R1/.wprism/contract/contract.json"
+PROJECTION="$HOST_R1/.wprism/contract/projection.json"
+wprism_in "$HOST_R1" contract "${PAIR}1" propose
 
 # The review step MUP §3.4 requires a human for, performed here as the exact
 # edit that review consists of: the generated code-lifecycle entry is
@@ -1070,7 +1070,7 @@ duo_in "$HOST_R1" contract "${PAIR}1" propose
 # the same edit, because a contract with no journey makes verification
 # byte-level only and step 10 asserts otherwise.
 if ! dry; then
-  [ -f "$PROPOSED" ] || fail "step 4: duo contract propose wrote no $PROPOSED"
+  [ -f "$PROPOSED" ] || fail "step 4: wprism contract propose wrote no $PROPOSED"
   jq --arg reason "the only external effect this site's installed set has in the lifecycle window is WordPress' own activation/deactivation hooks; reviewed against woocommerce $WOO_VERSION and $THEME_SLUG $THEME_VERSION for this grind, which run no mail, payment or webhook code" \
      --arg shop "$SHOP_PATH" --arg landing "$LANDING_PATH" '
     .contract.declarations.external_effects =
@@ -1085,9 +1085,9 @@ if ! dry; then
       ]
     | .contract.declarations.journeys = [
         {id: "shop-index", url: $shop, expect_status: 200,
-         expect_contains: "Duo Ceramic Mug", affected_surfaces: ["post_type:product"]},
+         expect_contains: "WPrism Ceramic Mug", affected_surfaces: ["post_type:product"]},
         {id: "landing-page", url: $landing, expect_status: 200,
-         expect_contains: "Duo grind landing page", affected_surfaces: ["post_type:page"]}
+         expect_contains: "WPrism grind landing page", affected_surfaces: ["post_type:page"]}
       ]
   ' "$PROPOSED" > "$PROPOSED.reviewed" \
     || fail "step 4: could not review the proposed contract"
@@ -1098,10 +1098,10 @@ if ! dry; then
     || fail "step 4: the reviewed proposal does not carry the declared lifecycle window and two journeys"
   mv "$PROPOSED.reviewed" "$PROPOSED"
 else
-  plan "jq: review .duo/contract/${PAIR}1/proposed.json — declare code-lifecycle-window live/provider-state restorable/operator; declare journeys $SHOP_PATH and $LANDING_PATH"
+  plan "jq: review .wprism/contract/${PAIR}1/proposed.json — declare code-lifecycle-window live/provider-state restorable/operator; declare journeys $SHOP_PATH and $LANDING_PATH"
 fi
 
-duo_in "$HOST_R1" contract "${PAIR}1" accept
+wprism_in "$HOST_R1" contract "${PAIR}1" accept
 DIGEST_A=""
 DIGEST_B=""
 if ! dry; then
@@ -1109,30 +1109,30 @@ if ! dry; then
   [ -f "$PROJECTION" ] || fail "step 4: accept wrote no $PROJECTION"
   jq -e '.attestation.state == "unsigned"' "$CONTRACT" >/dev/null \
     || fail "step 4: this profile may only ever write attestation.state unsigned"
-  duo_in "$HOST_R1" contract "${PAIR}1" show --format=json > "$SCRATCH/show-a.raw"
-  duo_in "$HOST_R1" contract "${PAIR}1" show --format=json > "$SCRATCH/show-b.raw"
+  wprism_in "$HOST_R1" contract "${PAIR}1" show --format=json > "$SCRATCH/show-a.raw"
+  wprism_in "$HOST_R1" contract "${PAIR}1" show --format=json > "$SCRATCH/show-b.raw"
   DIGEST_A="$(mup_json_tail "$SCRATCH/show-a.raw" | jq -r '.contract.contract_digest // .contract_digest')"
   DIGEST_B="$(mup_json_tail "$SCRATCH/show-b.raw" | jq -r '.contract.contract_digest // .contract_digest')"
   [ -n "$DIGEST_A" ] && [ "$DIGEST_A" = "$DIGEST_B" ] \
-    || fail "step 4: contract_digest is not stable across two duo contract show runs ('$DIGEST_A' vs '$DIGEST_B')"
+    || fail "step 4: contract_digest is not stable across two wprism contract show runs ('$DIGEST_A' vs '$DIGEST_B')"
 else
   DIGEST_A='<contract-digest>'
-  plan "(cd $HOST_R1 && php $DUO --envs-file=$ENVS_FILE contract ${PAIR}1 show --format=json)  # twice, same digest"
+  plan "(cd $HOST_R1 && php $WPRISM --envs-file=$ENVS_FILE contract ${PAIR}1 show --format=json)  # twice, same digest"
 fi
 git1 add -A
-git1 -c user.name=duo -c user.email=duo@example.test commit -qm "grind_mup: accept the reviewed application contract"
+git1 -c user.name=wprism -c user.email=wprism@example.test commit -qm "grind_mup: accept the reviewed application contract"
 git1 push -q origin main
 pass "step 4 — contract.json + projection.json accepted, digest stable, attestation unsigned ($DIGEST_A)"
 
 # ---------------------------------------------------------------------------
 # Step 5 — rehearse the preview from side 1.
 # ---------------------------------------------------------------------------
-say "step 5/13 — duo rehearse ${PAIR}2 --from ${PAIR}1 --branch main"
+say "step 5/13 — wprism rehearse ${PAIR}2 --from ${PAIR}1 --branch main"
 REHEARSE_OUT="$EVIDENCE/rehearse.txt"
 BANNER='containment: unknown — not enforced in this profile; do not point this environment at live payment or mail credentials.'
 if ! dry; then
-  duo_in "$HOST_R1" rehearse "${PAIR}2" --from "${PAIR}1" --branch main > "$REHEARSE_OUT" 2>&1 \
-    || fail "duo rehearse ${PAIR}2 refused or failed; see $REHEARSE_OUT"
+  wprism_in "$HOST_R1" rehearse "${PAIR}2" --from "${PAIR}1" --branch main > "$REHEARSE_OUT" 2>&1 \
+    || fail "wprism rehearse ${PAIR}2 refused or failed; see $REHEARSE_OUT"
   [ "$(head -n 1 "$REHEARSE_OUT")" = "$BANNER" ] \
     || fail "step 5: the containment banner is not the first line of the rehearsal report; see $REHEARSE_OUT"
   [ "$(grep -cF "$BANNER" "$REHEARSE_OUT")" = 1 ] \
@@ -1141,10 +1141,10 @@ if ! dry; then
     || fail "step 5: the rehearsal printed no 'what a release would touch' preview"
   grep -Fq 'cannot authorize an Experimental or Uncertified capability' "$REHEARSE_OUT" \
     || fail "step 5: the rehearsal did not state what a preview cannot authorize"
-  [ -f "$HOST_R2/site.duo.json" ] \
+  [ -f "$HOST_R2/site.wprism.json" ] \
     || fail "step 5: the preview converged but $HOST_R2 carries no materialized site repository"
 else
-  plan "(cd $HOST_R1 && php $DUO --envs-file=$ENVS_FILE rehearse ${PAIR}2 --from ${PAIR}1 --branch main)"
+  plan "(cd $HOST_R1 && php $WPRISM --envs-file=$ENVS_FILE rehearse ${PAIR}2 --from ${PAIR}1 --branch main)"
 fi
 pass "step 5 — preview converged; banner present and printed once; release preview present"
 
@@ -1153,14 +1153,14 @@ pass "step 5 — preview converged; banner present and printed once; release pre
 # ---------------------------------------------------------------------------
 say "step 6/13 — edit one product price and one page body on the preview, then capture twice"
 NEW_PRICE=31.50
-NEW_BODY='<p>Duo grind landing page, released through duo release.</p>'
+NEW_BODY='<p>WPrism grind landing page, released through wprism release.</p>'
 if ! dry; then
-  PREVIEW_PRODUCT_ID="$(wp2 post list --post_type=product --name=duo-ceramic-mug --field=ID | tr -d '\r' | head -1)"
+  PREVIEW_PRODUCT_ID="$(wp2 post list --post_type=product --name=wprism-ceramic-mug --field=ID | tr -d '\r' | head -1)"
   [ -n "$PREVIEW_PRODUCT_ID" ] \
-    || fail "step 6: the preview carries no duo-ceramic-mug product to edit"
-  PREVIEW_PAGE_ID="$(wp2 post list --post_type=page --name=duo-grind-landing --field=ID | tr -d '\r' | head -1)"
+    || fail "step 6: the preview carries no wprism-ceramic-mug product to edit"
+  PREVIEW_PAGE_ID="$(wp2 post list --post_type=page --name=wprism-grind-landing --field=ID | tr -d '\r' | head -1)"
   [ -n "$PREVIEW_PAGE_ID" ] \
-    || fail "step 6: the preview carries no duo-grind-landing page to edit"
+    || fail "step 6: the preview carries no wprism-grind-landing page to edit"
   wp2 post meta update "$PREVIEW_PRODUCT_ID" _regular_price "$NEW_PRICE"
   wp2 post meta update "$PREVIEW_PRODUCT_ID" _price "$NEW_PRICE"
   wp2 post update "$PREVIEW_PAGE_ID" --post_content="$NEW_BODY"
@@ -1169,8 +1169,8 @@ else
   plan "wp2 post meta update <product> _regular_price $NEW_PRICE  # and _price"
   plan "wp2 post update <page> --post_content=..."
 fi
-duo_in "$HOST_R2" capture "${PAIR}2"
-duo_in "$HOST_R2" capture "${PAIR}2" --out=/siterepo/.tmp-state2
+wprism_in "$HOST_R2" capture "${PAIR}2"
+wprism_in "$HOST_R2" capture "${PAIR}2" --out=/siterepo/.tmp-state2
 if ! dry; then
   diff -r "$HOST_R2/state" "$HOST_R2/.tmp-state2" \
     || fail "step 6: capture is not deterministic on the preview"
@@ -1183,7 +1183,7 @@ pass "step 6 — the preview's two authored edits captured; capture twice is byt
 # ---------------------------------------------------------------------------
 say "step 7/13 — commit the preview's capture and merge it to main in the origin"
 git2 add -A
-git2 -c user.name=duo -c user.email=duo@example.test commit -qm "grind_mup: authored price and page-body edit from the preview"
+git2 -c user.name=wprism -c user.email=wprism@example.test commit -qm "grind_mup: authored price and page-body edit from the preview"
 git2 push -q origin HEAD:main
 MAIN_SHA=""
 if ! dry; then
@@ -1207,7 +1207,7 @@ pass "step 7 — origin main is $MAIN_SHA"
 # yet. Nothing else on the target is touched, and the revert is asserted
 # afterwards so it cannot silently no-op.
 #
-# The revert alone is not enough, and `duo release` said so (run 13): the
+# The revert alone is not enough, and `wprism release` said so (run 13): the
 # target's identity ledger recorded the EDITED values at step 6's capture, so
 # reverting the live rows underneath it reads as `drift` (the site moved
 # since its last capture/apply), and a drifted target is refused
@@ -1220,14 +1220,14 @@ pass "step 7 — origin main is $MAIN_SHA"
 # ---------------------------------------------------------------------------
 say "step 7b/13 — revert the two live values on ${PAIR}2 so the release has something to apply"
 PRE_PRICE=24.00
-PRE_BODY='<p>Duo grind landing page, before the release.</p>'
+PRE_BODY='<p>WPrism grind landing page, before the release.</p>'
 if ! dry; then
   wp2 post meta update "$PREVIEW_PRODUCT_ID" _regular_price "$PRE_PRICE"
   wp2 post meta update "$PREVIEW_PRODUCT_ID" _price "$PRE_PRICE"
   wp2 post update "$PREVIEW_PAGE_ID" --post_content="$PRE_BODY"
   [ "$(wp2 post meta get "$PREVIEW_PRODUCT_ID" _regular_price | tr -d '\r')" = "$PRE_PRICE" ] \
     || fail "step 7b: the live price revert did not take"
-  duo_in "$HOST_R2" capture "${PAIR}2" > "$SCRATCH/capture-7b.txt" 2>&1 \
+  wprism_in "$HOST_R2" capture "${PAIR}2" > "$SCRATCH/capture-7b.txt" 2>&1 \
     || { cat "$SCRATCH/capture-7b.txt" >&2; fail "step 7b: the capture that records the reverted values in the target ledger failed"; }
   git2 checkout -q -- .
   git2 clean -fdq
@@ -1235,7 +1235,7 @@ if ! dry; then
     || fail "step 7b: the target clone is not back at main after discarding the ledger-updating capture"
 else
   plan "wp2 post meta update <product> _regular_price $PRE_PRICE  # and _price, and the page body"
-  plan "(cd $HOST_R2 && php $DUO --envs-file=$ENVS_FILE capture ${PAIR}2)   # ledger records the pre-release values"
+  plan "(cd $HOST_R2 && php $WPRISM --envs-file=$ENVS_FILE capture ${PAIR}2)   # ledger records the pre-release values"
   plan "git -C $HOST_R2 checkout -- . && git -C $HOST_R2 clean -fd          # working tree back to main"
 fi
 pass "step 7b — the target's live price and page body are back at their pre-release values, and its ledger knows"
@@ -1243,12 +1243,12 @@ pass "step 7b — the target's live price and page body are back at their pre-re
 # ---------------------------------------------------------------------------
 # Step 8 — the frozen authorization plan, --plan-only.
 # ---------------------------------------------------------------------------
-say "step 8/13 — duo release ${PAIR}2 --from=$MAIN_SHA --plan-only --format=json"
+say "step 8/13 — wprism release ${PAIR}2 --from=$MAIN_SHA --plan-only --format=json"
 PLAN_JSON="$EVIDENCE/authorization-plan.json"
 if ! dry; then
-  duo_in "$HOST_R2" release "${PAIR}2" --from="$MAIN_SHA" --plan-only --format=json \
+  wprism_in "$HOST_R2" release "${PAIR}2" --from="$MAIN_SHA" --plan-only --format=json \
     > "$SCRATCH/plan-only.raw" 2>"$SCRATCH/plan-only.err" \
-    || fail "duo release --plan-only refused; see $SCRATCH/plan-only.raw and $SCRATCH/plan-only.err"
+    || fail "wprism release --plan-only refused; see $SCRATCH/plan-only.raw and $SCRATCH/plan-only.err"
   mup_json_tail "$SCRATCH/plan-only.raw" > "$PLAN_JSON"
   mup_assert_plan_document "$PLAN_JSON" || fail "step 8: the authorization plan is incomplete"
   mup_assert_claim_literal "$PLAN_JSON" '.recovery_profile.claim' \
@@ -1262,12 +1262,12 @@ if ! dry; then
   [ "$UPDATES" -gt 0 ] \
     || fail "step 8: the frozen plan authorizes no entity change, so steps 9-12 would prove nothing"
   # --plan-only mutates nothing at all, including the site repository.
-  [ ! -d "$HOST_R2/.duo/releases" ] || [ -z "$(ls -A "$HOST_R2/.duo/releases" 2>/dev/null)" ] \
+  [ ! -d "$HOST_R2/.wprism/releases" ] || [ -z "$(ls -A "$HOST_R2/.wprism/releases" 2>/dev/null)" ] \
     || fail "step 8: --plan-only froze a plan to disk"
 else
   PLAN_DIGEST='<plan-digest>'; RECOVERY_PROFILE='operator-directed'
   PLAN_BOUNDARY='writes committed after checkpoint <ts>'; UPDATES='<n>'
-  plan "(cd $HOST_R2 && php $DUO --envs-file=$ENVS_FILE release ${PAIR}2 --from=$MAIN_SHA --plan-only --format=json)"
+  plan "(cd $HOST_R2 && php $WPRISM --envs-file=$ENVS_FILE release ${PAIR}2 --from=$MAIN_SHA --plan-only --format=json)"
 fi
 pass "step 8 — plan $PLAN_DIGEST cites the contract, authorizes $UPDATES change(s), names profile '$RECOVERY_PROFILE'"
 pass "step 8 — maximum loss boundary, verbatim: $PLAN_BOUNDARY"
@@ -1275,11 +1275,11 @@ pass "step 8 — maximum loss boundary, verbatim: $PLAN_BOUNDARY"
 # ---------------------------------------------------------------------------
 # Step 9 — release, deploy before apply.
 # ---------------------------------------------------------------------------
-say "step 9/13 — duo release ${PAIR}2 --from=$MAIN_SHA --yes"
+say "step 9/13 — wprism release ${PAIR}2 --from=$MAIN_SHA --yes"
 RELEASE_OUT="$EVIDENCE/release.txt"
 if ! dry; then
-  duo_in "$HOST_R2" release "${PAIR}2" --from="$MAIN_SHA" --yes > "$RELEASE_OUT" 2>&1 \
-    || { cat "$RELEASE_OUT" >&2; fail "duo release ${PAIR}2 did not exit 0"; }
+  wprism_in "$HOST_R2" release "${PAIR}2" --from="$MAIN_SHA" --yes > "$RELEASE_OUT" 2>&1 \
+    || { cat "$RELEASE_OUT" >&2; fail "wprism release ${PAIR}2 did not exit 0"; }
   grep -Fq "authorization frozen: " "$RELEASE_OUT" \
     || fail "step 9: the release printed no frozen-plan path, so nothing was durably bound before mutation"
   # Deploy before apply, read from promote's own receipts. `code-stage` and
@@ -1298,28 +1298,28 @@ if ! dry; then
       'promote phase: code-finalize' 'promote phase: apply' \
       || fail "step 9: the code phases did not bracket the lifecycle before apply"
   fi
-  [ -n "$(ls -A "$HOST_R2/.duo/releases" 2>/dev/null)" ] \
-    || fail "step 9: the release left no frozen plan in .duo/releases"
+  [ -n "$(ls -A "$HOST_R2/.wprism/releases" 2>/dev/null)" ] \
+    || fail "step 9: the release left no frozen plan in .wprism/releases"
 else
-  plan "(cd $HOST_R2 && php $DUO --envs-file=$ENVS_FILE release ${PAIR}2 --from=$MAIN_SHA --yes)"
+  plan "(cd $HOST_R2 && php $WPRISM --envs-file=$ENVS_FILE release ${PAIR}2 --from=$MAIN_SHA --yes)"
 fi
 pass "step 9 — released; the receipts show deploy before apply"
 
 # ---------------------------------------------------------------------------
 # Step 10 — verify.
 # ---------------------------------------------------------------------------
-say "step 10/13 — duo verify ${PAIR}2"
+say "step 10/13 — wprism verify ${PAIR}2"
 VERIFY_JSON="$EVIDENCE/verify.json"
 if ! dry; then
-  duo_in "$HOST_R2" verify "${PAIR}2" --format=json > "$SCRATCH/verify.raw" 2>&1 \
-    || { cat "$SCRATCH/verify.raw" >&2; fail "duo verify ${PAIR}2 did not pass"; }
+  wprism_in "$HOST_R2" verify "${PAIR}2" --format=json > "$SCRATCH/verify.raw" 2>&1 \
+    || { cat "$SCRATCH/verify.raw" >&2; fail "wprism verify ${PAIR}2 did not pass"; }
   mup_json_tail "$SCRATCH/verify.raw" > "$VERIFY_JSON"
   mup_assert_verify_report "$VERIFY_JSON" || fail "step 10: the verify report is not a pass"
   jq -e '.uncovered_surfaces | type == "array"' "$VERIFY_JSON" >/dev/null \
     || fail "step 10: uncovered_surfaces was not reported"
   note "uncovered surfaces: $(jq -r '.uncovered_surfaces | join(", ") | if . == "" then "(none)" else . end' "$VERIFY_JSON")"
 else
-  plan "(cd $HOST_R2 && php $DUO --envs-file=$ENVS_FILE verify ${PAIR}2 --format=json)"
+  plan "(cd $HOST_R2 && php $WPRISM --envs-file=$ENVS_FILE verify ${PAIR}2 --format=json)"
 fi
 pass "step 10 — convergence pass, both declared journeys pass, uncovered surfaces reported"
 
@@ -1332,23 +1332,23 @@ if ! dry; then
   [ "$POST_RELEASE_PRICE" = "$NEW_PRICE" ] \
     || fail "step 10: the release did not write the authored price (target says '$POST_RELEASE_PRICE')"
   case "$POST_RELEASE_BODY" in
-    *"released through duo release"*) ;;
+    *"released through wprism release"*) ;;
     *) fail "step 10: the release did not write the authored page body" ;;
   esac
 fi
 PRE_RELEASE_ASSESS="$EVIDENCE/assess-${PAIR}2-pre-recovery.json"
 if ! dry; then
-  duo_in "$HOST_R2" assess "${PAIR}2" --format=json > "$SCRATCH/assess2-pre.raw" \
-    || fail "step 10: duo assess ${PAIR}2 refused before recovery"
+  wprism_in "$HOST_R2" assess "${PAIR}2" --format=json > "$SCRATCH/assess2-pre.raw" \
+    || fail "step 10: wprism assess ${PAIR}2 refused before recovery"
   mup_json_tail "$SCRATCH/assess2-pre.raw" > "$PRE_RELEASE_ASSESS"
 else
-  plan "(cd $HOST_R2 && php $DUO --envs-file=$ENVS_FILE assess ${PAIR}2 --format=json)  # pre-recovery projection"
+  plan "(cd $HOST_R2 && php $WPRISM --envs-file=$ENVS_FILE assess ${PAIR}2 --format=json)  # pre-recovery projection"
 fi
 
 # ---------------------------------------------------------------------------
 # Step 11 — the thesis gate.
 # ---------------------------------------------------------------------------
-say "step 11/13 — a runtime row written after the checkpoint, then duo recover"
+say "step 11/13 — a runtime row written after the checkpoint, then wprism recover"
 ORDER_ID=""
 if ! dry; then
   # `post_type:shop_order` is what the pinned WooCommerce manifest classes
@@ -1357,7 +1357,7 @@ if ! dry; then
   # preserved locally and never copied. It is written AFTER the release's
   # checkpoint, so the printed boundary is the only thing that decides its fate.
   ORDER_ID="$(wp2 post create --post_type=shop_order --post_status=publish \
-    --post_title='duo-grind-post-checkpoint-order' --porcelain | tr -d '\r')"
+    --post_title='wprism-grind-post-checkpoint-order' --porcelain | tr -d '\r')"
   [ -n "$ORDER_ID" ] || fail "step 11: could not write a post-checkpoint runtime row on ${PAIR}2"
   [ "$(wp2 post list --post_type=shop_order --post_status=publish --field=ID \
       | tr -d '\r' | grep -cx "$ORDER_ID" || true)" = 1 ] \
@@ -1373,12 +1373,12 @@ RECOVER_OUT="$EVIDENCE/recover.txt"
 RECOVER_JSON="$EVIDENCE/recover-outcome.json"
 LIST_RC=0
 if dry; then
-  plan "(cd $HOST_R2 && php $DUO --envs-file=$ENVS_FILE recover ${PAIR}2 --list --format=json)"
-  plan "(cd $HOST_R2 && php $DUO --envs-file=$ENVS_FILE recover ${PAIR}2 --restore=<receipt-id> --writers-excluded)"
+  plan "(cd $HOST_R2 && php $WPRISM --envs-file=$ENVS_FILE recover ${PAIR}2 --list --format=json)"
+  plan "(cd $HOST_R2 && php $WPRISM --envs-file=$ENVS_FILE recover ${PAIR}2 --restore=<receipt-id> --writers-excluded)"
   plan "wp2 post meta get <product> _regular_price   # must be $PRE_PRICE again"
   plan "wp2 post list --post_type=shop_order         # fate must match: $PLAN_BOUNDARY"
 else
-  duo_in "$HOST_R2" recover "${PAIR}2" --list --format=json > "$SCRATCH/recover-list.raw" 2>"$RECOVER_LIST" \
+  wprism_in "$HOST_R2" recover "${PAIR}2" --list --format=json > "$SCRATCH/recover-list.raw" 2>"$RECOVER_LIST" \
     || LIST_RC=$?
 fi
 
@@ -1387,22 +1387,22 @@ if [ "$LIST_RC" != 0 ] && ! dry; then
   if grep -Fq 'recovery_authority_unavailable' "$RECOVER_LIST" \
      || grep -Fq 'carries no rollback authority runtime' "$RECOVER_LIST"; then
     if [ "$STEP11" = record-gap ]; then
-      note "duo recover refused: this transport carries no rollback authority runtime"
+      note "wprism recover refused: this transport carries no rollback authority runtime"
       mup_assert_claim_literal "$PLAN_JSON" '.recovery_profile.claim' \
         || fail "step 11: even in record-gap mode, the frozen plan's claim must be literal"
       printf '\n\033[1;31mTHESIS GATE NOT EXECUTED — step 11 ran in MUP_STEP11=record-gap mode\033[0m\n' >&3
       printf 'THESIS GATE NOT EXECUTED — step 11 ran in MUP_STEP11=record-gap mode\n' >&2
       STEP11_EXECUTED=0
     else
-      fail "step 11: duo recover ${PAIR}2 --list refused with recovery_authority_unavailable.
+      fail "step 11: wprism recover ${PAIR}2 --list refused with recovery_authority_unavailable.
 Since round-3 T5 the operator-directed release checkpoint promote retains under
-.duo/checkpoints is listed and restorable on every transport (RetainedCheckpoints),
+.wprism/checkpoints is listed and restorable on every transport (RetainedCheckpoints),
 so this refusal means the verb regressed, not that the pair cannot carry it.
 Run with MUP_STEP11=record-gap only to collect the other twelve steps' evidence."
     fi
   else
     cat "$RECOVER_LIST" >&2
-    fail "step 11: duo recover --list failed for a reason this grind does not recognize"
+    fail "step 11: wprism recover --list failed for a reason this grind does not recognize"
   fi
 elif ! dry; then
   mup_json_tail "$SCRATCH/recover-list.raw" > "$CATALOG_JSON" 2>/dev/null \
@@ -1422,9 +1422,9 @@ elif ! dry; then
     pass "step 11 — the release's checkpoint is listed as receipt $RECEIPT_ID (a signed receipt; promote printed no retained path)"
   fi
 
-  duo_in "$HOST_R2" recover "${PAIR}2" --restore="$RECEIPT_ID" --writers-excluded \
+  wprism_in "$HOST_R2" recover "${PAIR}2" --restore="$RECEIPT_ID" --writers-excluded \
     > "$RECOVER_OUT" 2>&1 \
-    || { cat "$RECOVER_OUT" >&2; fail "step 11: duo recover --restore did not complete"; }
+    || { cat "$RECOVER_OUT" >&2; fail "step 11: wprism recover --restore did not complete"; }
 
   # The claim is printed BEFORE acting. `recovery profile:` (the claim's
   # first line, RecoveryClaim::humanLines()) precedes the first driven step —
@@ -1435,7 +1435,7 @@ elif ! dry; then
   CLAIM_LINE="$(grep -n -m1 -E '^recovery profile: ' "$RECOVER_OUT" | cut -d: -f1 || true)"
   ACTION_LINE="$(grep -n -m1 -E '^  (abort|begin|import|final-abort|signed-rollback): ' "$RECOVER_OUT" | cut -d: -f1 || true)"
   [ -n "$CLAIM_LINE" ] \
-    || fail "step 11: duo recover printed no recovery claim; see $RECOVER_OUT"
+    || fail "step 11: wprism recover printed no recovery claim; see $RECOVER_OUT"
   if [ -n "$ACTION_LINE" ]; then
     [ "$CLAIM_LINE" -lt "$ACTION_LINE" ] \
       || fail "step 11: the recovery claim was printed after recovery started; see $RECOVER_OUT"
@@ -1478,11 +1478,11 @@ fi
 # ---------------------------------------------------------------------------
 # Step 12 — the post-recovery projection.
 # ---------------------------------------------------------------------------
-say "step 12/13 — duo assess ${PAIR}2 after recovery"
+say "step 12/13 — wprism assess ${PAIR}2 after recovery"
 POST_RECOVERY_ASSESS="$EVIDENCE/assess-${PAIR}2-post-recovery.json"
 if ! dry; then
-  duo_in "$HOST_R2" assess "${PAIR}2" --format=json > "$SCRATCH/assess2-post.raw" \
-    || fail "step 12: duo assess ${PAIR}2 refused after recovery"
+  wprism_in "$HOST_R2" assess "${PAIR}2" --format=json > "$SCRATCH/assess2-post.raw" \
+    || fail "step 12: wprism assess ${PAIR}2 refused after recovery"
   mup_json_tail "$SCRATCH/assess2-post.raw" > "$POST_RECOVERY_ASSESS"
   mapfile -t SCOPE_SURFACES < <(jq -r '.scope.surfaces[]' "$PLAN_JSON")
   if [ "${#SCOPE_SURFACES[@]}" -eq 0 ]; then
@@ -1496,27 +1496,27 @@ if ! dry; then
   fi
   pass "step 12 — the projection for ${#SCOPE_SURFACES[@]} in-scope surface(s) is unchanged by the release and recovery"
 else
-  plan "(cd $HOST_R2 && php $DUO --envs-file=$ENVS_FILE assess ${PAIR}2 --format=json)  # compare in-scope projection"
+  plan "(cd $HOST_R2 && php $WPRISM --envs-file=$ENVS_FILE assess ${PAIR}2 --format=json)  # compare in-scope projection"
 fi
 
 # ---------------------------------------------------------------------------
 # Step 13 — reap, twice.
 # ---------------------------------------------------------------------------
-say "step 13/13 — duo rehearse ${PAIR}2 --reap, then again"
+say "step 13/13 — wprism rehearse ${PAIR}2 --reap, then again"
 REAP1="$EVIDENCE/reap-1.txt"
 REAP2="$EVIDENCE/reap-2.txt"
 if ! dry; then
-  duo_in "$HOST_R1" rehearse "${PAIR}2" --reap > "$REAP1" 2>&1 \
+  wprism_in "$HOST_R1" rehearse "${PAIR}2" --reap > "$REAP1" 2>&1 \
     || { cat "$REAP1" >&2; fail "step 13: the first reap failed"; }
   grep -Eq 'destroyed|detached' "$REAP1" \
     || fail "step 13: the first reap receipt says neither destroyed nor detached; see $REAP1"
-  duo_in "$HOST_R1" rehearse "${PAIR}2" --reap > "$REAP2" 2>&1 \
+  wprism_in "$HOST_R1" rehearse "${PAIR}2" --reap > "$REAP2" 2>&1 \
     || { cat "$REAP2" >&2; fail "step 13: the repeated reap was not idempotent"; }
   grep -Eq 'destroyed|detached' "$REAP2" \
     || fail "step 13: the repeated reap printed no receipt; see $REAP2"
   pass "step 13 — reap receipt: $(grep -Eom1 'destroyed|detached' "$REAP1"); repeating it is idempotent"
 else
-  plan "(cd $HOST_R1 && php $DUO --envs-file=$ENVS_FILE rehearse ${PAIR}2 --reap)  # twice"
+  plan "(cd $HOST_R1 && php $WPRISM --envs-file=$ENVS_FILE rehearse ${PAIR}2 --reap)  # twice"
 fi
 
 # ---------------------------------------------------------------------------

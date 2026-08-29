@@ -81,7 +81,7 @@ version_matrix_reset_after_delete() {
   # these as env/runtime/derived). `site empty` deletes the tribe_events
   # posts but not their tec_occurrences rows, and the target-only cache row
   # conformance/postdeploy/the-events-calendar.sh plants
-  # ('duo-readiness-target-only') would otherwise survive into the next
+  # ('wprism-readiness-target-only') would otherwise survive into the next
   # boundary iteration and satisfy that iteration's own runtime-preservation
   # assertion without this run having preserved anything.
   "$cli" eval '
@@ -121,7 +121,7 @@ for TEC_VERSION in 6.17.2 6.17.3; do
     || fail "side 1 installed version mismatch: expected $TEC_VERSION, got $TEC_INSTALLED_1"
   pass "side 1: the-events-calendar $TEC_VERSION installed from verified artifact, active"
 
-  cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+  cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "the-events-calendar"],
   "policy": {
@@ -141,8 +141,8 @@ EOF
   "${GIT1[@]}" push -qu origin main
 
   seed_the_events_calendar_content
-  wp1 duo capture --repo=/siterepo
-  wp1 duo lint --repo=/siterepo
+  wp1 wprism capture --repo=/siterepo
+  wp1 wprism lint --repo=/siterepo
   "${GIT1[@]}" add -A
   "${GIT1[@]}" commit -qm "capture: The Events Calendar $TEC_VERSION native graph"
   "${GIT1[@]}" push -q origin main
@@ -156,18 +156,18 @@ EOF
   wp2 plugin is-active the-events-calendar >/dev/null 2>&1 \
     && fail "TEC $TEC_VERSION target premise must begin inactive"
 
-  wp2 duo deploy --repo=/siterepo
+  wp2 wprism deploy --repo=/siterepo
   wp2 plugin is-active the-events-calendar >/dev/null \
     || fail "deploy did not activate the admitted TEC $TEC_VERSION artifact"
   postdeploy_the_events_calendar_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+  wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
     || fail "apply canary not clean at the-events-calendar $TEC_VERSION"
   postapply_the_events_calendar_content
   check_the_events_calendar_boundary_content
 
-  wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
+  wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-final
   TEC_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
   rm -rf "siterepo/${PAIR}2/.tmp-final"
   [ -z "$TEC_DIFF" ] \
@@ -187,22 +187,22 @@ EOF
       || fail "TEC supported in-place upgrade did not install 6.17.3 on both populated sides"
 
     TEC_UPGRADE_DEPLOY_RC=0
-    TEC_UPGRADE_DEPLOY_OUT=$(wp2 duo deploy --repo=/siterepo 2>&1) || TEC_UPGRADE_DEPLOY_RC=$?
-    require_duo_answered "TEC out-of-band 6.17.2 to 6.17.3 upgrade refusal" human "$TEC_UPGRADE_DEPLOY_OUT"
+    TEC_UPGRADE_DEPLOY_OUT=$(wp2 wprism deploy --repo=/siterepo 2>&1) || TEC_UPGRADE_DEPLOY_RC=$?
+    require_wprism_answered "TEC out-of-band 6.17.2 to 6.17.3 upgrade refusal" human "$TEC_UPGRADE_DEPLOY_OUT"
     [ "$TEC_UPGRADE_DEPLOY_RC" -ne 0 ] \
       && grep -q 'deploy refused — code_drift' <<<"$TEC_UPGRADE_DEPLOY_OUT" \
       && grep -q 'recorded 6.17.2' <<<"$TEC_UPGRADE_DEPLOY_OUT" \
       && grep -q 'is 6.17.3 on this environment' <<<"$TEC_UPGRADE_DEPLOY_OUT" \
       || fail "TEC out-of-band upgrade did not refuse at the exact code-drift boundary: $TEC_UPGRADE_DEPLOY_OUT"
-    wp2 duo deploy --repo=/siterepo --force-code-drift >/dev/null
-    TEC_UPGRADE_PLAN=$(wp2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-    require_duo_answered "TEC 6.17.2 to 6.17.3 target plan" json "$TEC_UPGRADE_PLAN"
+    wp2 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
+    TEC_UPGRADE_PLAN=$(wp2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+    require_wprism_answered "TEC 6.17.2 to 6.17.3 target plan" json "$TEC_UPGRADE_PLAN"
     jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$TEC_UPGRADE_PLAN" >/dev/null \
       || fail "TEC supported in-place upgrade invented authored work: $TEC_UPGRADE_PLAN"
 
     TEC_POST_UPGRADE_ONLY=1 TEC_VERSION=6.17.3 check_the_events_calendar_boundary_content
-    wp1 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-upgrade-source
-    wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-upgrade-target
+    wp1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-tec-upgrade-source
+    wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-tec-upgrade-target
     TEC_UPGRADE_SOURCE_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}1/.tmp-tec-upgrade-source" || true)
     TEC_UPGRADE_TARGET_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-tec-upgrade-target" || true)
     rm -rf "siterepo/${PAIR}1/.tmp-tec-upgrade-source" "siterepo/${PAIR}2/.tmp-tec-upgrade-target"
@@ -225,7 +225,7 @@ TEC_IN_RANGE_ARTIFACT=$(fetch_artifact the-events-calendar 6.17.3 cli1)
 wp1 plugin install "$TEC_IN_RANGE_ARTIFACT" --activate >/dev/null
 [ "$(wp1 plugin get the-events-calendar --field=version)" = 6.17.3 ] \
   || fail "TEC negative-control premise did not install exact 6.17.3 bytes"
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "the-events-calendar"],
   "policy": {
@@ -244,7 +244,7 @@ cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 "${GIT1[@]}" commit -qm "policy: The Events Calendar adjacent-version refusal"
 "${GIT1[@]}" push -qu origin main
 seed_the_events_calendar_content
-wp1 duo capture --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "capture: valid TEC graph for adjacent-version refusal"
 "${GIT1[@]}" push -q origin main
@@ -258,7 +258,7 @@ TEC_INSTALLED_OOR=$(wp1 plugin get the-events-calendar --field=version)
   || fail "negative control: expected the-events-calendar 6.17.1 installed, got $TEC_INSTALLED_OOR"
 
 TEC_REFUSAL_RC=0
-TEC_REFUSAL_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1) || TEC_REFUSAL_RC=$?
+TEC_REFUSAL_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1) || TEC_REFUSAL_RC=$?
 [ "$TEC_REFUSAL_RC" -ne 0 ] \
   || fail "expected deploy to refuse the-events-calendar 6.17.1, but it exited 0: $TEC_REFUSAL_OUT"
 grep -Eq "outside_version_range|outside the '.*' manifest's declared version_range" <<<"$TEC_REFUSAL_OUT" \

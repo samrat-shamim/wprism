@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 /**
  * Build the offline fixture site the round-3 release/verify/recover suites
- * drive `php cli/duo` against.
+ * drive `php cli/wprism` against.
  *
  * It extends `sandbox/tests/fixtures/assess/make-fixture.php` rather than
  * duplicating it: the assess fixture already ships the `local` environment
@@ -12,13 +12,13 @@ declare(strict_types=1);
  * make. Release composes that same assessment, so re-inventing those answers
  * here would make the two fixtures able to disagree about the same site.
  *
- * On top of it this adds, all read out of `$DUO_FIXTURES`:
+ * On top of it this adds, all read out of `$WPRISM_FIXTURES`:
  *
- *   - a complete `wp duo plan --format=json` envelope with a valid
- *     `category_summary`, in several variants selected by `$DUO_PLAN`;
- *   - a `wp duo compile --format=json` summary carrying a content address and
+ *   - a complete `wp wprism plan --format=json` envelope with a valid
+ *     `category_summary`, in several variants selected by `$WPRISM_PLAN`;
+ *   - a `wp wprism compile --format=json` summary carrying a content address and
  *     NO code descriptor by default, so content-only promotion runs no
- *     lifecycle hooks; `DUO_CODE_ENABLED=1` selects a code-bearing summary;
+ *     lifecycle hooks; `WPRISM_CODE_ENABLED=1` selects a code-bearing summary;
  *   - answers for promotion's own phases, each with an injectable exit code;
  *   - two real commits in the site repository, so `--from` has a matching ref
  *     (`HEAD`) and a deliberately non-matching one (`other`).
@@ -26,18 +26,18 @@ declare(strict_types=1);
  * Environment variables the generated `wp` honours, on top of the assess
  * fixture's own three:
  *
- *   DUO_PLAN=<name>          which plan fixture `duo plan` returns
+ *   WPRISM_PLAN=<name>          which plan fixture `wprism plan` returns
  *                            (plan, plan-converged, plan-incomplete-lifecycle,
  *                             plan-incomplete-apply, plan-drift, plan-deletes)
- *   DUO_PLAN_AFTER=<name>    the plan returned from the Nth call onward,
+ *   WPRISM_PLAN_AFTER=<name>    the plan returned from the Nth call onward,
  *                            which is how a suite makes the target's state
  *                            differ AFTER a failed promotion
- *   DUO_PLAN_AFTER_CALL=<n>  the 1-based call index DUO_PLAN_AFTER starts at
- *   DUO_BEGIN_EXIT=<n>       `duo promotion-begin` exit code (default 0)
- *   DUO_LIFECYCLE_EXIT=<n>   `duo deploy --lifecycle-phase=...` exit code
- *   DUO_APPLY_EXIT=<n>       `duo apply` exit code
- *   DUO_COMPILE_EXIT=<n>     `duo compile` exit code
- *   DUO_CODE_ENABLED=1       select the code-bearing compile summary
+ *   WPRISM_PLAN_AFTER_CALL=<n>  the 1-based call index WPRISM_PLAN_AFTER starts at
+ *   WPRISM_BEGIN_EXIT=<n>       `wprism promotion-begin` exit code (default 0)
+ *   WPRISM_LIFECYCLE_EXIT=<n>   `wprism deploy --lifecycle-phase=...` exit code
+ *   WPRISM_APPLY_EXIT=<n>       `wprism apply` exit code
+ *   WPRISM_COMPILE_EXIT=<n>     `wprism compile` exit code
+ *   WPRISM_CODE_ENABLED=1       select the code-bearing compile summary
  *
  * Usage: make-release-site.php <dir>
  */
@@ -45,7 +45,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__, 4);
 require_once $root . '/cli/src/Plan/PlanContract.php';
 
-use Duo\Orchestrator\PlanContract;
+use WPrism\Orchestrator\PlanContract;
 
 $dir = $argv[1] ?? null;
 if (!is_string($dir) || $dir === '') {
@@ -61,7 +61,7 @@ if ($status !== 0) {
 }
 
 /**
- * One `duo-plan-category-summary/v1` projection.
+ * One `wprism-plan-category-summary/v1` projection.
  *
  * The numbers are the agent's own arithmetic contract — `PlanContract`
  * validates them — so the helper takes the whole picture and the caller
@@ -130,7 +130,7 @@ function release_summary(array $overrides = []): array {
     }
 
     return [
-        'format' => 'duo-plan-category-summary/v1',
+        'format' => 'wprism-plan-category-summary/v1',
         'redaction' => 'values_omitted',
         'facets' => 'overlapping',
         'vocabulary' => ['generated_effects' => ['public_label' => 'generated', 'wire_class' => 'derived']],
@@ -171,7 +171,7 @@ $plans = [];
 // The releasable plan: three authored-state rows, nothing unsafe, no code.
 $plans['plan'] = release_plan(['create' => $create, 'update' => $update], release_summary());
 
-// The converged target `duo verify` reads after a release.
+// The converged target `wprism verify` reads after a release.
 $plans['plan-converged'] = release_plan(
     ['unchanged' => array_merge($create, $update)],
     release_summary([
@@ -287,46 +287,46 @@ if (!str_contains($wp, $anchor)) {
 }
 $release = <<<'SH'
 case " $* " in
-  *" duo plan "*)
-      plan="${DUO_PLAN:-plan}"
-      if [ -n "${DUO_PLAN_AFTER:-}" ]; then
-        seen=$(cat "$DUO_FIXTURES/plan-calls" 2>/dev/null || echo 0)
+  *" wprism plan "*)
+      plan="${WPRISM_PLAN:-plan}"
+      if [ -n "${WPRISM_PLAN_AFTER:-}" ]; then
+        seen=$(cat "$WPRISM_FIXTURES/plan-calls" 2>/dev/null || echo 0)
         seen=$((seen + 1))
-        printf '%s' "$seen" > "$DUO_FIXTURES/plan-calls"
-        if [ "$seen" -ge "${DUO_PLAN_AFTER_CALL:-2}" ]; then plan="$DUO_PLAN_AFTER"; fi
+        printf '%s' "$seen" > "$WPRISM_FIXTURES/plan-calls"
+        if [ "$seen" -ge "${WPRISM_PLAN_AFTER_CALL:-2}" ]; then plan="$WPRISM_PLAN_AFTER"; fi
       fi
-      cat "$DUO_FIXTURES/$plan.json"; exit 0 ;;
-  *" duo compile "*)
-      [ "${DUO_COMPILE_EXIT:-0}" = 0 ] || { echo 'compile refused' >&2; exit "${DUO_COMPILE_EXIT}"; }
+      cat "$WPRISM_FIXTURES/$plan.json"; exit 0 ;;
+  *" wprism compile "*)
+      [ "${WPRISM_COMPILE_EXIT:-0}" = 0 ] || { echo 'compile refused' >&2; exit "${WPRISM_COMPILE_EXIT}"; }
       out=""
       for a in "$@"; do case "$a" in --out=*) out="${a#--out=}" ;; esac; done
-      compile="$DUO_FIXTURES/compile.json"
-      [ "${DUO_CODE_ENABLED:-0}" = 1 ] && compile="$DUO_FIXTURES/compile-code.json"
+      compile="$WPRISM_FIXTURES/compile.json"
+      [ "${WPRISM_CODE_ENABLED:-0}" = 1 ] && compile="$WPRISM_FIXTURES/compile-code.json"
       [ -n "$out" ] && cp "$compile" "$out"
       cat "$compile"; exit 0 ;;
-  *" duo pending "*)
-      # DUO-3521: the review queue, so a suite can drive `duo pending`'s
+  *" wprism pending "*)
+      # issue #3521: the review queue, so a suite can drive `wprism pending`'s
       # bounded human view against a queue it chose the size of.
-      # `DUO_PENDING` names a JSON file; without it the queue is empty,
+      # `WPRISM_PENDING` names a JSON file; without it the queue is empty,
       # which is what every suite that does not set it saw before.
-      if [ -n "${DUO_PENDING:-}" ]; then cat "$DUO_PENDING"; else printf '[]\n'; fi
+      if [ -n "${WPRISM_PENDING:-}" ]; then cat "$WPRISM_PENDING"; else printf '[]\n'; fi
       exit 0 ;;
-  *" duo promotion-begin "*) exit "${DUO_BEGIN_EXIT:-0}" ;;
-  *" duo promotion-abort "*) exit "${DUO_ABORT_EXIT:-0}" ;;
-  *" duo code-preflight "*)
-      printf '%s\n' '{"format":"duo-code-runtime/v1","enabled":true,"change_required":true,"compatible":true,"code_revision":"d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4","target":{"php":"8.3.0","wordpress":"6.8.2","source":"target-control-plane"},"requirements":[],"diagnostics":[]}'
+  *" wprism promotion-begin "*) exit "${WPRISM_BEGIN_EXIT:-0}" ;;
+  *" wprism promotion-abort "*) exit "${WPRISM_ABORT_EXIT:-0}" ;;
+  *" wprism code-preflight "*)
+      printf '%s\n' '{"format":"wprism-code-runtime/v1","enabled":true,"change_required":true,"compatible":true,"code_revision":"d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4","target":{"php":"8.3.0","wordpress":"6.8.2","source":"target-control-plane"},"requirements":[],"diagnostics":[]}'
       exit 0 ;;
-  *" duo code-stage "*) exit 0 ;;
-  *" duo deploy "*) exit "${DUO_LIFECYCLE_EXIT:-0}" ;;
-  *" duo lifecycle-settle "*) exit 0 ;;
-  *" duo code-finalize "*) exit 0 ;;
-  *" duo apply "*) exit "${DUO_APPLY_EXIT:-0}" ;;
-  *" duo checkpoint-seal "*)
+  *" wprism code-stage "*) exit 0 ;;
+  *" wprism deploy "*) exit "${WPRISM_LIFECYCLE_EXIT:-0}" ;;
+  *" wprism lifecycle-settle "*) exit 0 ;;
+  *" wprism code-finalize "*) exit 0 ;;
+  *" wprism apply "*) exit "${WPRISM_APPLY_EXIT:-0}" ;;
+  *" wprism checkpoint-seal "*)
       out=""
       for a in "$@"; do case "$a" in --output=*) out="${a#--output=}" ;; esac; done
       [ -n "$out" ] || exit 2
       cat > "$out"
-      exit "${DUO_SEAL_EXIT:-0}" ;;
+      exit "${WPRISM_SEAL_EXIT:-0}" ;;
   *" db export "*)
       for a in "$@"; do
         case "$a" in
@@ -334,8 +334,8 @@ case " $* " in
           /*) printf 'fixture checkpoint\n' > "$a" ;;
         esac
       done
-      exit "${DUO_EXPORT_EXIT:-0}" ;;
-  *" db import "*) exit "${DUO_IMPORT_EXIT:-0}" ;;
+      exit "${WPRISM_EXPORT_EXIT:-0}" ;;
+  *" db import "*) exit "${WPRISM_IMPORT_EXIT:-0}" ;;
 SH;
 $wp = str_replace($anchor, trim($release), $wp);
 file_put_contents($wpPath, $wp);

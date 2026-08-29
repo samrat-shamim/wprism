@@ -1,10 +1,10 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/ReferenceScopeClassifier.php';
 
 /**
- * Structure-aware rewriting of shortcode attributes -- DUO-3259, the
+ * Structure-aware rewriting of shortcode attributes -- issue #3259, the
  * shortcode twin of Blocks.php's block_attrs mechanism (see that class's
  * own docblock for the shared dangling-vs-unscoped triage this reuses via
  * ReferenceScopeClassifier, the extracted core of the same
@@ -91,7 +91,7 @@ final class Shortcodes {
             return self::rewrite_instance($m, $rules, $tokens, true, $policy, $forceUnresolvedRefs, $postLabel);
         }, $content);
         if ($out === null) {
-            throw new \RuntimeException('duo: shortcode rewrite regex failed; refusing unproven content');
+            throw new \RuntimeException('wprism: shortcode rewrite regex failed; refusing unproven content');
         }
         return $out;
     }
@@ -106,7 +106,7 @@ final class Shortcodes {
             return self::rewrite_instance($m, $rules, $tokens, false, $policy, false, '');
         }, $content);
         if ($out === null) {
-            throw new \RuntimeException('duo: shortcode rewrite regex failed; refusing unproven content');
+            throw new \RuntimeException('wprism: shortcode rewrite regex failed; refusing unproven content');
         }
         return $out;
     }
@@ -205,11 +205,11 @@ final class Shortcodes {
                 return self::rewrite_one_attr($am, $rule, $tokens, $capture, $policy, $forceUnresolvedRefs, $postLabel, $tag);
             }, $rawAttrs, -1, $count, PREG_UNMATCHED_AS_NULL);
             if ($rewritten === null) {
-                throw new \RuntimeException("duo: shortcode '$tag' attribute rewrite regex failed; refusing unproven content");
+                throw new \RuntimeException("wprism: shortcode '$tag' attribute rewrite regex failed; refusing unproven content");
             }
             if (array_key_exists('lookup', $rule) && $count !== 1) {
                 throw new \RuntimeException(
-                    "duo: shortcode '$tag' requires exactly one '$attrName' alternate-identity attribute; found $count"
+                    "wprism: shortcode '$tag' requires exactly one '$attrName' alternate-identity attribute; found $count"
                 );
             }
             $rawAttrs = $rewritten;
@@ -228,7 +228,7 @@ final class Shortcodes {
         $pattern = get_shortcode_atts_regex();
         $matched = preg_match_all($pattern, $rawAttrs, $matches, PREG_SET_ORDER);
         if ($matched === false) {
-            throw new \RuntimeException("duo: shortcode '$tag' attribute regex failed; refusing unproven positional content");
+            throw new \RuntimeException("wprism: shortcode '$tag' attribute regex failed; refusing unproven positional content");
         }
         if ($matched === 0) {
             return;
@@ -237,7 +237,7 @@ final class Shortcodes {
             foreach ([1, 3, 5] as $group) {
                 if (isset($match[$group]) && $match[$group] !== '') {
                     throw new \RuntimeException(
-                        "duo: shortcode '$tag' positional refs refuse named attributes; the callback consumes "
+                        "wprism: shortcode '$tag' positional refs refuse named attributes; the callback consumes "
                         . 'the first parsed value and a named attribute would change its argument'
                     );
                 }
@@ -280,7 +280,7 @@ final class Shortcodes {
         if ($capture) {
             if (!self::is_positive_decimal_alternate($value)) {
                 throw new \RuntimeException(
-                    "duo: shortcode '$tag' positional[$position] must be a positive decimal alternate id"
+                    "wprism: shortcode '$tag' positional[$position] must be a positive decimal alternate id"
                 );
             }
             $canonicalToken = $tokens->shortcode_alternate_token($value, $lookup, $postType);
@@ -297,19 +297,19 @@ final class Shortcodes {
                 : $tokens->id_to_token($postId, (string) $rule['kind']);
             if ($token === null) {
                 throw new \RuntimeException(
-                    "duo: shortcode '$tag' positional[$position] alternate id '$value' resolves to unmanaged post $postId"
+                    "wprism: shortcode '$tag' positional[$position] alternate id '$value' resolves to unmanaged post $postId"
                 );
             }
             if ($canonicalToken !== null && $token !== $canonicalToken) {
                 throw new \RuntimeException(
-                    "duo: shortcode '$tag' positional[$position] alternate id '$value' disagrees with its canonical witness"
+                    "wprism: shortcode '$tag' positional[$position] alternate id '$value' disagrees with its canonical witness"
                 );
             }
             $replacement = $quote . $token . $quote;
         } else {
             if (!str_starts_with($value, '{{')) {
                 throw new \RuntimeException(
-                    "duo: shortcode '$tag' positional[$position] retained raw alternate id '$value' at apply"
+                    "wprism: shortcode '$tag' positional[$position] retained raw alternate id '$value' at apply"
                 );
             }
             $postId = $tokens->token_to_id($value);
@@ -317,7 +317,7 @@ final class Shortcodes {
             $alternate = $tokens->shortcode_alternate($value, $lookup, $postType);
             if ($alternate === null && $tokens->shortcode_alternates_sealed()) {
                 throw new \RuntimeException(
-                    "duo: shortcode '$tag' positional[$position] token has no canonical alternate witness '$lookup' for post $postId"
+                    "wprism: shortcode '$tag' positional[$position] token has no canonical alternate witness '$lookup' for post $postId"
                 );
             }
             $alternate ??= self::alternate_post_meta($postId, $lookup, $postType, $tag, $position);
@@ -333,7 +333,7 @@ final class Shortcodes {
         $pattern = get_shortcode_atts_regex();
         $matched = preg_match_all($pattern, $rawAttrs, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
         if ($matched === false) {
-            throw new \RuntimeException('duo: shortcode positional regex failed; refusing unproven content');
+            throw new \RuntimeException('wprism: shortcode positional regex failed; refusing unproven content');
         }
         if ($matched === 0) {
             return $out;
@@ -373,7 +373,7 @@ final class Shortcodes {
         $args = [$metaKey, $alternate, $postType, ...$status['args']];
         $rows = $wpdb->get_col($wpdb->prepare($sql, $args));
         if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException("duo: shortcode '$tag' positional[$position] alternate lookup failed; refusing an unproven identity");
+            throw new \RuntimeException("wprism: shortcode '$tag' positional[$position] alternate lookup failed; refusing an unproven identity");
         }
         $ids = array_values(array_unique(array_map('intval', $rows)));
         if ($allowMissing && $ids === []) {
@@ -382,7 +382,7 @@ final class Shortcodes {
         if (count($rows) !== 1 || count($ids) !== 1) {
             $why = $ids === [] ? 'no matching form' : 'multiple matching forms or duplicate alternate metadata';
             throw new \RuntimeException(
-                "duo: shortcode '$tag' positional[$position] alternate id '$alternate' has $why via post_meta '$metaKey'"
+                "wprism: shortcode '$tag' positional[$position] alternate id '$alternate' has $why via post_meta '$metaKey'"
             );
         }
         return $ids[0];
@@ -399,7 +399,7 @@ final class Shortcodes {
         $values = array_values(array_unique(array_map('strval', $rows)));
         if (count($values) !== 1 || !self::is_positive_decimal_alternate($values[0] ?? '')) {
             throw new \RuntimeException(
-                "duo: shortcode '$tag' positional[$position] target post $postId has no unique positive decimal post_meta '$metaKey'"
+                "wprism: shortcode '$tag' positional[$position] target post $postId has no unique positive decimal post_meta '$metaKey'"
             );
         }
         return $values[0];
@@ -424,20 +424,20 @@ final class Shortcodes {
         $args = [$metaKey, $alternate, $postType, ...$status['args']];
         $rows = $wpdb->get_col($wpdb->prepare($sql, $args));
         if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException("duo: shortcode '$tag' positional[$position] target collision check failed; refusing an unproven identity");
+            throw new \RuntimeException("wprism: shortcode '$tag' positional[$position] target collision check failed; refusing an unproven identity");
         }
         $rawIds = array_map('intval', $rows);
         $ids = array_values(array_unique($rawIds));
         $selectedCount = count(array_filter($rawIds, static fn(int $id): bool => $id === $postId));
         if ($selectedCount > 1) {
             throw new \RuntimeException(
-                "duo: shortcode '$tag' positional[$position] target post $postId has duplicate '$metaKey' metadata rows"
+                "wprism: shortcode '$tag' positional[$position] target post $postId has duplicate '$metaKey' metadata rows"
             );
         }
         foreach ($ids as $id) {
             if ($id !== $postId) {
                 throw new \RuntimeException(
-                    "duo: shortcode '$tag' positional[$position] alternate '$alternate' is already owned by "
+                    "wprism: shortcode '$tag' positional[$position] alternate '$alternate' is already owned by "
                     . "another $postType row ($id) in post_meta '$metaKey'"
                 );
             }
@@ -453,7 +453,7 @@ final class Shortcodes {
         ));
         if ((string) $actualType !== $postType) {
             throw new \RuntimeException(
-                "duo: shortcode '$tag' $locator token resolves to post $postId outside post_type '$postType'"
+                "wprism: shortcode '$tag' $locator token resolves to post $postId outside post_type '$postType'"
             );
         }
     }
@@ -596,7 +596,7 @@ final class Shortcodes {
         if ($capture) {
             if (!self::is_lower_hex($value, $prefixLength)) {
                 throw new \RuntimeException(
-                    "duo: shortcode '$tag' $locator must be exactly $prefixLength lowercase hexadecimal bytes"
+                    "wprism: shortcode '$tag' $locator must be exactly $prefixLength lowercase hexadecimal bytes"
                 );
             }
             $canonicalToken = $tokens->shortcode_alternate_token($value, $metaKey, $postType);
@@ -612,19 +612,19 @@ final class Shortcodes {
             $token = $postId === null ? $canonicalToken : $tokens->id_to_token($postId, 'post');
             if ($token === null) {
                 throw new \RuntimeException(
-                    "duo: shortcode '$tag' $locator prefix '$value' resolves to unmanaged post $postId"
+                    "wprism: shortcode '$tag' $locator prefix '$value' resolves to unmanaged post $postId"
                 );
             }
             if ($canonicalToken !== null && $token !== $canonicalToken) {
                 throw new \RuntimeException(
-                    "duo: shortcode '$tag' $locator prefix '$value' disagrees with its canonical witness"
+                    "wprism: shortcode '$tag' $locator prefix '$value' disagrees with its canonical witness"
                 );
             }
             return $ws . $name . '="' . $token . '"';
         }
         if (!str_starts_with($value, '{{')) {
             throw new \RuntimeException(
-                "duo: shortcode '$tag' $locator retained raw alternate '$value' at apply"
+                "wprism: shortcode '$tag' $locator retained raw alternate '$value' at apply"
             );
         }
         $postId = $tokens->token_to_id($value);
@@ -632,7 +632,7 @@ final class Shortcodes {
         $alternate = $tokens->shortcode_alternate($value, $metaKey, $postType);
         if ($alternate === null && $tokens->shortcode_alternates_sealed()) {
             throw new \RuntimeException(
-                "duo: shortcode '$tag' $locator token has no canonical alternate witness '$metaKey' for post $postId"
+                "wprism: shortcode '$tag' $locator token has no canonical alternate witness '$metaKey' for post $postId"
             );
         }
         $alternate ??= self::prefix_alternate_post_meta(
@@ -667,7 +667,7 @@ final class Shortcodes {
         $storedLengths = self::named_alternate_stored_lengths($lookup);
         if (!self::is_lower_hex_stored_value($storedValue, $storedLengths)) {
             throw new \RuntimeException(
-                "duo: shortcode '$tag' attribute '$attr' canonical post_meta '{$lookup['post_meta']}' "
+                "wprism: shortcode '$tag' attribute '$attr' canonical post_meta '{$lookup['post_meta']}' "
                 . 'must be ' . self::stored_length_requirement($storedLengths)
             );
         }
@@ -701,12 +701,12 @@ final class Shortcodes {
         if (count($rows) !== 1 || count($ids) !== 1) {
             $why = $ids === [] ? 'no matching form' : 'multiple matching forms or duplicate alternate metadata';
             throw new \RuntimeException(
-                "duo: shortcode '$tag' $locator prefix '$prefix' has $why via post_meta '$metaKey'"
+                "wprism: shortcode '$tag' $locator prefix '$prefix' has $why via post_meta '$metaKey'"
             );
         }
         if (!self::is_lower_hex_stored_value((string) $rows[0]['meta_value'], $storedLengths)) {
             throw new \RuntimeException(
-                "duo: shortcode '$tag' $locator prefix '$prefix' resolves through malformed post_meta '$metaKey'"
+                "wprism: shortcode '$tag' $locator prefix '$prefix' resolves through malformed post_meta '$metaKey'"
             );
         }
         return $ids[0];
@@ -731,12 +731,12 @@ final class Shortcodes {
         )) ?: [];
         if (count($rows) > 1) {
             throw new \RuntimeException(
-                "duo: shortcode '$tag' $locator target post $postId has duplicate '$metaKey' metadata rows"
+                "wprism: shortcode '$tag' $locator target post $postId has duplicate '$metaKey' metadata rows"
             );
         }
         if (count($rows) !== 1 || !self::is_lower_hex_stored_value((string) ($rows[0] ?? ''), $storedLengths)) {
             throw new \RuntimeException(
-                "duo: shortcode '$tag' $locator target post $postId has no unique "
+                "wprism: shortcode '$tag' $locator target post $postId has no unique "
                 . self::stored_length_requirement($storedLengths) . " post_meta '$metaKey'"
             );
         }
@@ -755,13 +755,13 @@ final class Shortcodes {
         $rawIds = array_map(static fn(array $row): int => (int) $row['post_id'], $rows);
         if ($postId !== null && count(array_filter($rawIds, static fn(int $id): bool => $id === $postId)) > 1) {
             throw new \RuntimeException(
-                "duo: shortcode '$tag' $locator target post $postId has duplicate '$metaKey' metadata rows"
+                "wprism: shortcode '$tag' $locator target post $postId has duplicate '$metaKey' metadata rows"
             );
         }
         foreach (array_values(array_unique($rawIds)) as $id) {
             if ($postId === null || $id !== $postId) {
                 throw new \RuntimeException(
-                    "duo: shortcode '$tag' $locator prefix '$prefix' is already owned by another $postType row ($id) "
+                    "wprism: shortcode '$tag' $locator prefix '$prefix' is already owned by another $postType row ($id) "
                     . "in post_meta '$metaKey'"
                 );
             }
@@ -786,7 +786,7 @@ final class Shortcodes {
         $rows = $wpdb->get_results($wpdb->prepare($sql, [$metaKey, $postType, ...$status['args']]), ARRAY_A);
         if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
             throw new \RuntimeException(
-                "duo: shortcode '$tag' $locator prefix collision lookup failed; refusing an unproven identity"
+                "wprism: shortcode '$tag' $locator prefix collision lookup failed; refusing an unproven identity"
             );
         }
         return array_values(array_filter($rows, static function (array $row) use ($prefix): bool {
@@ -821,11 +821,11 @@ final class Shortcodes {
     }
 
     /**
-     * DUO-3259: task #73's own unscoped-vs-dangling triage, ported a
+     * issue #3259: task #73's own unscoped-vs-dangling triage, ported a
      * second time this session (Blocks::queue_unscoped() the first).
      * Unlike that method, this one does NOT re-derive the three-way
      * decision inline -- it calls the shared ReferenceScopeClassifier
-     * directly, the extraction DUO-3259 itself added
+     * directly, the extraction issue #3259 itself added
      * specifically so a third ref-carrying surface would not need a
      * third hand-copy of the same logic. See that method's own docblock
      * for the full three-reasons reasoning (dangling / not-yet-minted /

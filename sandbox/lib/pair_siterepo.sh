@@ -28,7 +28,7 @@ pair_siterepo_prepare_roots() { # <name>
   chmod 0777 "siterepo/${name}1" "siterepo/${name}2"
 }
 
-# DUO-3420: return one pair-owned bind root to the host user after uid 33 has
+# issue #3420: return one pair-owned bind root to the host user after uid 33 has
 # created capture/state trees in it. The path is never accepted from argv: it
 # is derived only from an already validated pair name and a closed side value.
 # A one-shot root container bind-mounts precisely that resolved directory at
@@ -104,7 +104,7 @@ pair_siterepo_host_one() { # <name> <side (1|2)>
   [[ "$root_inode_before" =~ ^[0-9]+$ ]] \
     || fail "exact pair repository inode is malformed before ownership handback: $root"
 
-  cli_image="${DUO_CLI_IMAGE:-wordpress:cli-php8.3}"
+  cli_image="${WPRISM_CLI_IMAGE:-wordpress:cli-php8.3}"
   if ! docker run --rm -u root \
     --mount "type=bind,src=${root_abs},dst=/siterepo" \
     --entrypoint sh "$cli_image" -ceu '
@@ -199,8 +199,8 @@ pair_siterepo_refuse_codebind_reset() { # <name>
   if ! existing="$(docker ps -a --format '{{.Names}}' 2>/dev/null)"; then
     fail "could not enumerate pair containers before reset; refusing without a verified codebind check"
   fi
-  for container in "duo-${name}-wp1-1" "duo-${name}-wp2-1" \
-                   "duo-${name}-cli1-1" "duo-${name}-cli2-1"; do
+  for container in "wprism-${name}-wp1-1" "wprism-${name}-wp2-1" \
+                   "wprism-${name}-cli1-1" "wprism-${name}-cli2-1"; do
     if ! printf '%s\n' "$existing" | grep -Fqx -- "$container"; then
       continue
     fi

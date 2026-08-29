@@ -18,10 +18,10 @@
 # pair <name>, given whichever overlay files this call wants layered in.
 pair_compose_configure() { # pair_compose_configure <name> [overlay-file ...]
   local name="$1"; shift
-  PAIR_COMPOSE=(docker compose -p "duo-${name}" -f pair.yml)
+  PAIR_COMPOSE=(docker compose -p "wprism-${name}" -f pair.yml)
   local f
   for f in "$@"; do PAIR_COMPOSE+=(-f "$f"); done
-  # DUO-3277: every PAIR_COMPOSE invocation needs all three source roots in
+  # issue #3277: every PAIR_COMPOSE invocation needs all three source roots in
   # the environment now, not just `up` -- pair.yml
   # references them unconditionally, so `stop`/`start`/`destroy` (which
   # never went through cmd_up's own export) would otherwise hand compose
@@ -32,7 +32,7 @@ pair_compose_configure() { # pair_compose_configure <name> [overlay-file ...]
   # rather than duplicated at each call site (caught live: the first
   # version of this fix only set them in cmd_up and `stop` broke instantly).
   pair_identity_export_source_mounts \
-    || fail "could not resolve a safe source checkout via git -- DUO_SOURCE_ROOT must be an exact physical worktree of this repository"
+    || fail "could not resolve a safe source checkout via git -- WPRISM_SOURCE_ROOT must be an exact physical worktree of this repository"
   # Which shared database server pair.yml:94 renders into WORDPRESS_DB_HOST.
   # pair.sh exports it once at load from DB_CONTAINER (pair_db_select_engine()),
   # so it is already set for EVERY subcommand by the time they funnel through
@@ -40,12 +40,12 @@ pair_compose_configure() { # pair_compose_configure <name> [overlay-file ...]
   # than in cmd_up, and for the same measured failure: this rewrites .env on
   # every call, so a cmd_up-only export let `stop` on a mysql-lane pair put the
   # MariaDB host back in the file the next subprocess compose call reads.
-  # The duo-shared-db default remains for a caller that sources this library
-  # without pair.sh at all; it matches pair.yml's own `${DUO_DB_HOST:-...}` so
+  # The wprism-shared-db default remains for a caller that sources this library
+  # without pair.sh at all; it matches pair.yml's own `${WPRISM_DB_HOST:-...}` so
   # such a caller renders byte-identically to before the MySQL lane existed.
-  export DUO_DB_HOST="${DUO_DB_HOST:-duo-shared-db}"
+  export WPRISM_DB_HOST="${WPRISM_DB_HOST:-wprism-shared-db}"
 
-  # DUO-3277 (CI caught this the first version above missed): that export
+  # issue #3277 (CI caught this the first version above missed): that export
   # only reaches pair.sh's OWN "${PAIR_COMPOSE[@]}" calls -- it dies with
   # this process and never reaches the many OTHER scripts (sandbox/
   # conformance/run.sh, every regress_*.sh/grind_*.sh) that invoke `pair.sh
@@ -53,7 +53,7 @@ pair_compose_configure() { # pair_compose_configure <name> [overlay-file ...]
   # `docker compose -f pair.yml ...` calls afterward (confirmed: that's how
   # essentially every one of them actually works, not a hypothetical edge
   # case -- see run.sh's own $COMPOSE + its wp_env() helper). Those scripts
-  # already re-export DUO_PAIR/DUO_PORT1/DUO_PORT2 themselves for the same
+  # already re-export WPRISM_PAIR/WPRISM_PORT1/WPRISM_PORT2 themselves for the same
   # process-boundary reason (see run.sh's comment by its own export line),
   # but making every caller duplicate canonical_root()'s git logic too
   # would be fragile -- easy to add a new call site and forget it, with no
@@ -69,26 +69,26 @@ pair_compose_configure() { # pair_compose_configure <name> [overlay-file ...]
   # subcommand already funnels through, covers every current AND future
   # caller with zero changes to any of them. Overwritten (never appended)
   # so a stale value can never survive a worktree/checkout change. A teardown
-  # launched without an evidence lane's DUO_SOURCE_ROOT can still rewrite this
+  # launched without an evidence lane's WPRISM_SOURCE_ROOT can still rewrite this
   # worktree's file to the canonical checkout mid-run, so live callers also
   # pin their resolved mounts via pair_identity_export_source_mounts(); shell
   # environment variables outrank .env during Compose interpolation.
   #
-  # DUO_DB_HOST rides this same channel for the same process-boundary reason,
+  # WPRISM_DB_HOST rides this same channel for the same process-boundary reason,
   # with a sharper failure mode than a broken mount: a pair brought up on the
   # MySQL evidence lane whose conformance/regress subprocesses then re-rendered
-  # pair.yml's duo-shared-db default would run GREEN against MariaDB while the
+  # pair.yml's wprism-shared-db default would run GREEN against MariaDB while the
   # operator recorded it as MySQL evidence -- wrong-engine evidence is worse
   # than no evidence.
-  printf 'DUO_AGENT_SRC=%s\nDUO_ADAPTER_PACKAGES_SRC=%s\nDUO_PLATFORM_SRC=%s\nDUO_DB_HOST=%s\n' \
-    "$DUO_AGENT_SRC" "$DUO_ADAPTER_PACKAGES_SRC" "$DUO_PLATFORM_SRC" "$DUO_DB_HOST" > .env
+  printf 'WPRISM_AGENT_SRC=%s\nWPRISM_ADAPTER_PACKAGES_SRC=%s\nWPRISM_PLATFORM_SRC=%s\nWPRISM_DB_HOST=%s\n' \
+    "$WPRISM_AGENT_SRC" "$WPRISM_ADAPTER_PACKAGES_SRC" "$WPRISM_PLATFORM_SRC" "$WPRISM_DB_HOST" > .env
 
 }
 
 pair_compose_live_pairs() { # pair_compose_live_pairs — one live pair name per line
   # Filtered by ConfigFiles (must include this sandbox's pair.yml), not by
   # project-name pattern: the legacy sandbox/docker-compose.yml's own
-  # project is literally named "duo-sandbox", which — being lowercase
+  # project is literally named "wprism-sandbox", which — being lowercase
   # letters only — would otherwise pass right through a naming-convention
   # filter and get miscounted as one of this redesign's own pairs.  Every
   # command in this query is checked: unavailable Docker, malformed JSON, or
@@ -102,8 +102,8 @@ pair_compose_live_pairs() { # pair_compose_live_pairs — one live pair name per
       | select((.ConfigFiles // "") | type == "string")
       | select((.ConfigFiles // "") | test("/pair\\.yml(,|$)"))
       | select((.Name // "") | type == "string")
-      | select((.Name // "") | startswith("duo-"))
-      | .Name[4:]
+      | select((.Name // "") | startswith("wprism-"))
+      | .Name[7:]
     end
   '
 }
@@ -120,8 +120,8 @@ pair_compose_stopped_pairs() { # pair_compose_stopped_pairs — one stopped pair
       | select((.Status // "") | type == "string")
       | select((.Status // "") | contains("running") | not)
       | select((.Name // "") | type == "string")
-      | select((.Name // "") | startswith("duo-"))
-      | .Name[4:]
+      | select((.Name // "") | startswith("wprism-"))
+      | .Name[7:]
     end
   '
 }
@@ -136,8 +136,8 @@ pair_compose_all_pairs() { # pair_compose_all_pairs — one live/stopped pair na
       | select((.ConfigFiles // "") | type == "string")
       | select((.ConfigFiles // "") | test("/pair\\.yml(,|$)"))
       | select((.Name // "") | type == "string")
-      | select((.Name // "") | startswith("duo-"))
-      | .Name[4:]
+      | select((.Name // "") | startswith("wprism-"))
+      | .Name[7:]
     end
   '
 }
@@ -145,9 +145,9 @@ pair_compose_all_pairs() { # pair_compose_all_pairs — one live/stopped pair na
 pair_compose_pair_bound_ports() { # pair_compose_pair_bound_ports <name> — persisted host ports, including stopped containers
   local name="$1" container containers observed port ports=''
   containers="$(docker ps -a \
-    --filter "label=com.docker.compose.project=duo-${name}" \
+    --filter "label=com.docker.compose.project=wprism-${name}" \
     --format '{{.Names}}' 2>/dev/null)" || return 1
-  for container in "duo-${name}-wp1-1" "duo-${name}-wp2-1"; do
+  for container in "wprism-${name}-wp1-1" "wprism-${name}-wp2-1"; do
     # A partially-created or headless pair may have no web container or no
     # bindings. A present container's persisted HostConfig remains readable
     # while stopped, unlike a listener-only probe.

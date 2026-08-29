@@ -1,4 +1,4 @@
-# Duo — Branchable WordPress
+# WPrism — Branchable WordPress
 
 Adapter capability claims live with their owners: each
 `adapter-packages/<slug>/package/manifest.json` declares a surface and its
@@ -15,7 +15,7 @@ php tools/adapter-grade.php render
 The stable explanation is [docs/capabilities.md](docs/capabilities.md); plugins
 always run unmodified.
 
-Duo makes the reviewed, certified authored surfaces of a WordPress site **branchable like code** — branch, edit, merge, promote — without modifying plugin or theme source. Authored content and configuration live canonically in a git repository; runtime data (orders, comments, sessions, caches) stays environment-local and untouched. Anything Duo cannot classify or certify is refused loudly, never guessed — a surface no manifest declares and no reviewer dispositioned is unsupported.
+WPrism makes the reviewed, certified authored surfaces of a WordPress site **branchable like code** — branch, edit, merge, promote — without modifying plugin or theme source. Authored content and configuration live canonically in a git repository; runtime data (orders, comments, sessions, caches) stays environment-local and untouched. Anything WPrism cannot classify or certify is refused loudly, never guessed — a surface no manifest declares and no reviewer dispositioned is unsupported.
 
 **Status:** the correctness core is complete (H1 exit, 2026-08-08 — no known path by which authored data silently fails to propagate), and the running horizon is adoption on real hosts: a real SSH adoption run, certified crash-rollback machinery, and automatic verified-rollback promotion are in; a first third-party production site is next. Direction and the honest boundary live in [docs/roadmap.md](docs/roadmap.md).
 
@@ -33,33 +33,33 @@ digest-pinned WooCommerce pair. It requires PHP 8+, Docker with Compose, Git,
 and `jq`; no package installation is performed:
 
 ```sh
-cli/duo demo start --scenario=woocommerce
-# edit “Duo Demo Mug” at the printed source wp-admin URL
-cli/duo demo capture
-git -C sandbox/siterepo/duodemo1 diff
-cli/duo demo apply
-cli/duo demo refusal
-cli/duo demo stop
+cli/wprism demo start --scenario=woocommerce
+# edit “WPrism Demo Mug” at the printed source wp-admin URL
+cli/wprism demo capture
+git -C sandbox/siterepo/wprismdemo1 diff
+cli/wprism demo apply
+cli/wprism demo refusal
+cli/wprism demo stop
 ```
 
 `apply` proves a target-only order and live stock value survived the managed
 catalog change; `refusal` proves a caller cannot replace the registry's trusted
 target binding. For a
-real site, `duo connect` creates the local repository/registry only after
-native reachability, WordPress and topology inspection probes, and `duo
+real site, `wprism connect` creates the local repository/registry only after
+native reachability, WordPress and topology inspection probes, and `wprism
 onboard` composes adopt → assess → init without a handwritten seed:
 
 ```sh
-DUO_CLI="$PWD/cli/duo"
-"$DUO_CLI" connect production --workspace=../my-site \
+WPRISM_CLI="$PWD/cli/wprism"
+"$WPRISM_CLI" connect production --workspace=../my-site \
   --transport=ssh --host=deploy@wp.example.com \
   --wp-path=/var/www/html --repo-path=/home/deploy/site-repo
 cd ../my-site
-"$DUO_CLI" onboard production --git-url=git@github.com:you/my-site.git
+"$WPRISM_CLI" onboard production --git-url=git@github.com:you/my-site.git
 ```
 
 The Git remote must be empty and reachable with configured credentials from
-both this controller and the WordPress target. Duo verifies that before
+both this controller and the WordPress target. WPrism verifies that before
 adoption or initialization changes the site.
 
 The [quickstart](docs/guides/quickstart.md) explains both paths. Continue with
@@ -68,22 +68,22 @@ The [quickstart](docs/guides/quickstart.md) explains both paths. Continue with
 [capabilities-and-limits](docs/guides/capabilities-and-limits.md), and read
 [recovery](docs/guides/recovery.md) before the first production release.
 
-## The `duo` CLI
+## The `wprism` CLI
 
 Host-agnostic, dependency-free PHP orchestration ([cli/](cli/); full reference in [cli/README.md](cli/README.md)) over **local**, **Docker**, and **SSH** transports, driven from a committable environment registry.
 
 - **Environment-bound:** `onboard`, `adopt`, `init`, `assess`, `contract`, `status`, `doctor`, `capture`, `plan`, `apply`, `deploy`, `preview`/`rehearse`, `release`, `verify`, `recover`, `promote`, `pending`, `classify`, `capabilities`, `explain`, `coverage`, `scope`, `env-set`, `refresh`, `rebase`, `adapter-observe`, `driver-capabilities`.
 - **Repo-local (no environment):** `connect`, `demo`, `envs`, `env materialize|reap`, `manifest-validate`, `adapter-draft`, `adapter`.
 
-`duo capabilities` reports the same reviewed disposition, exact scope, and explicit unsupported surfaces that readiness and promotion consume, evaluated against the live target (`duo-capability-report/v1`). `duo promote` composes deploy-before-apply under promotion locks and, when the target proves every rollback capability, automatically selects the **verified-rollback profile** (DUO-3310); otherwise it remains operator-directed with an explicit warning.
+`wprism capabilities` reports the same reviewed disposition, exact scope, and explicit unsupported surfaces that readiness and promotion consume, evaluated against the live target (`wprism-capability-report/v1`). `wprism promote` composes deploy-before-apply under promotion locks and, when the target proves every rollback capability, automatically selects the **verified-rollback profile** (issue #3310); otherwise it remains operator-directed with an explicit warning.
 
-The composed customer loop sits on top of those: `duo assess` is a read-only, decision-first projection of every WordPress surface into the product's own vocabulary, and `duo contract` records the reviewed result as a per-site application contract. `duo rehearse` materializes a disposable preview and states plainly that it is a preview and not a sandbox. `duo release` freezes and prints an authorization plan — scope, conditions, what may change, the literal recovery claim, effects, remaining authority — before any mutation, then composes `duo promote` unchanged and runs `duo verify` (convergence plus contract-declared journey oracles) behind it. `duo recover` is the operator verb over the recovery runtime, printing the same restores/does-not-restore claim the plan carried and enforcing writer exclusion and code-first ordering.
+The composed customer loop sits on top of those: `wprism assess` is a read-only, decision-first projection of every WordPress surface into the product's own vocabulary, and `wprism contract` records the reviewed result as a per-site application contract. `wprism rehearse` materializes a disposable preview and states plainly that it is a preview and not a sandbox. `wprism release` freezes and prints an authorization plan — scope, conditions, what may change, the literal recovery claim, effects, remaining authority — before any mutation, then composes `wprism promote` unchanged and runs `wprism verify` (convergence plus contract-declared journey oracles) behind it. `wprism recover` is the operator verb over the recovery runtime, printing the same restores/does-not-restore claim the plan carried and enforcing writer exclusion and code-first ordering.
 
-The core loop for unclassified writes: loud block → `duo pending <env>` (journal-evidenced proposals, ref hints, secret flags) → `duo classify <env>` triage (interactive or `--accept-proposals`; secrets can never be authored silently) → clean capture → `wp duo policy-to-manifest` export. `duo adapter-draft` turns captured state into inert `_draft` manifest candidates for human ratification.
+The core loop for unclassified writes: loud block → `wprism pending <env>` (journal-evidenced proposals, ref hints, secret flags) → `wprism classify <env>` triage (interactive or `--accept-proposals`; secrets can never be authored silently) → clean capture → `wp wprism policy-to-manifest` export. `wprism adapter-draft` turns captured state into inert `_draft` manifest candidates for human ratification.
 
 ## Reviewed and tested, not asserted
 
-Capability claims are derived, never duplicated by hand. A claim passes three gates in order: `adapter-packages/<slug>/package/manifest.json` **declares** the surface; its sibling `package/disposition.json`, kept outside the manifest document so no adapter can certify itself, records a human's **reviewed** status and reason; and the capsule's named conformance/live tests (or an explicit participant-declared [integration scenario](integration-scenarios/)) **exercise** it against a live WordPress pair. Core and shared compatibility live separately in [platform/adapter-library/](platform/adapter-library/). `tools/capability-doc.php render` projects the current source set to stdout, while `make release-gate` validates it without requiring an adapter edit outside its capsule. `duo capabilities` answers the same question against a live target. Review can also *reduce* capability: working but unreviewable behavior is removed and refused, not shipped under-proven.
+Capability claims are derived, never duplicated by hand. A claim passes three gates in order: `adapter-packages/<slug>/package/manifest.json` **declares** the surface; its sibling `package/disposition.json`, kept outside the manifest document so no adapter can certify itself, records a human's **reviewed** status and reason; and the capsule's named conformance/live tests (or an explicit participant-declared [integration scenario](integration-scenarios/)) **exercise** it against a live WordPress pair. Core and shared compatibility live separately in [platform/adapter-library/](platform/adapter-library/). `tools/capability-doc.php render` projects the current source set to stdout, while `make release-gate` validates it without requiring an adapter edit outside its capsule. `wprism capabilities` answers the same question against a live target. Review can also *reduce* capability: working but unreviewable behavior is removed and refused, not shipped under-proven.
 
 What this deliberately is not: a claim is not sealed to a content-addressed evidence bundle, and no digest binds it to a particular run. The honest reading of a `certified` row is *declared, reviewed by a named human, and exercised by the named live suites* — nothing stronger.
 
@@ -95,10 +95,10 @@ What this deliberately is not: a claim is not sealed to a content-addressed evid
 | [DESIGN.md](DESIGN.md) | Founding design record: state partition, classification policy, identity model, GitOps semantics |
 | [docs/](docs/README.md) | Map of the documentation tree: guides, runtime references, module map, engineering history |
 | [docs/guides/](docs/guides/README.md) | Operator guides: quickstart, daily workflow, code updates, adapter authoring, coverage cohorts, limits |
-| [docs/adoption.md](docs/adoption.md) | Installing/updating Duo on an existing SSH WordPress host |
+| [docs/adoption.md](docs/adoption.md) | Installing/updating WPrism on an existing SSH WordPress host |
 | [docs/roadmap.md](docs/roadmap.md) | Owner roadmap: thesis, horizons, standing decisions |
-| [agent/](agent/) | The Duo agent — drop-in mu-plugin + `wp duo …` engine commands |
-| [cli/](cli/) | The `duo` orchestrator CLI + transports |
+| [agent/](agent/) | The WPrism agent — drop-in mu-plugin + `wp wprism …` engine commands |
+| [cli/](cli/) | The `wprism` orchestrator CLI + transports |
 | [adapter-packages/](adapter-packages/) | One capsule per plugin adapter: shipped package bytes plus package-local tests, fixtures, and evidence |
 | [platform/adapter-library/](platform/adapter-library/) | Core classification, profiles, platform compatibility, and adapter authority roots |
 | [integration-scenarios/](integration-scenarios/) | Explicitly participant-declared cross-adapter evidence |
@@ -126,8 +126,8 @@ make spike-c          # provenance: admin vs anonymous writes vs manifest ground
 make spike-d          # WooCommerce catalog round-trip + fail-closed product deletion
 make spike-e          # ACF interpreter round-trip
 make conformance-<m>  # per-manifest clean-room gate (core, woocommerce, acf, yoast, …)
-make cli-smoke        # duo CLI end-to-end over the docker transport
-make cli-triage-smoke # interactive duo classify triage end-to-end
+make cli-smoke        # wprism CLI end-to-end over the docker transport
+make cli-triage-smoke # interactive wprism classify triage end-to-end
 make release-gate     # regenerate-and-compare: the capability document and the classmaps must match their sources
 make down             # stop; `make clean` also deletes volumes
 ```
@@ -136,16 +136,16 @@ Beyond these, the Makefile carries the full live and offline regression surface 
 
 ## Working an issue (agents)
 
-Engineering work is tracked in Linear ("Duo WP Branchability — Correctness Closure"). Agents dispatched with a `LINEAR-LOOP` prompt follow [docs/agents/linear-loop.md](docs/agents/linear-loop.md) — claim gate with Linear readback, branch-per-issue → PR → squash-merge, verified close gate ([scripts/close-gate-check.sh](scripts/close-gate-check.sh)). Fresh host setup is one command:
+Engineering work is tracked in Linear ("WPrism WP Branchability — Correctness Closure"). Agents dispatched with a `LINEAR-LOOP` prompt follow [docs/agents/linear-loop.md](docs/agents/linear-loop.md) — claim gate with Linear readback, branch-per-issue → PR → squash-merge, verified close gate ([scripts/close-gate-check.sh](scripts/close-gate-check.sh)). Fresh host setup is one command:
 
 ```sh
-git clone https://github.com/duotronic-ai/duo-wp && cd duo-wp
+git clone https://github.com/duotronic-ai/wprism && cd wprism
 bash scripts/agent-bootstrap.sh   # verifies host prereqs, pre-pulls sandbox images
 ```
 
 ## License
 
-Duo is free software, licensed under the [GNU General Public License, version 2
+WPrism is free software, licensed under the [GNU General Public License, version 2
 or later](LICENSE) — the WordPress ecosystem's own license. The `agent/` drop-in
 runs inside WordPress, so GPL compatibility is not just a choice here but the
 shipped half's natural obligation; the whole repository carries one license

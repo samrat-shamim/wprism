@@ -1,11 +1,11 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 /**
- * The published `duo-branch-environment-provider-request/v1` and
- * `duo-branch-environment-provider-response/v1` protocol, as data.
+ * The published `wprism-branch-environment-provider-request/v1` and
+ * `wprism-branch-environment-provider-response/v1` protocol, as data.
  *
  * WHY THIS FILE EXISTS
  * --------------------
@@ -14,11 +14,11 @@ namespace Duo\Orchestrator;
  * `CommandEnvironmentProvider::validateActionResult()`
  * (EnvironmentLifecycle.php:357-476), `assertAction()` (:536-547) and the field
  * validators at (:478-535) — and the only way to reach those refusals was
- * `duo env materialize`, whose second provider action freezes the named
+ * `wprism env materialize`, whose second provider action freezes the named
  * production source (`snapshot-prepare`, EnvironmentLifecycle.php:1017-1021).
  * "Debug your provider against prod" is not an onboarding path, so the closed
  * key sets and their field types are extracted here ONCE and read back by the
- * orchestrator, by `duo env provider-check`, and by the generator that writes
+ * orchestrator, by `wprism env provider-check`, and by the generator that writes
  * docs/branch-environment-provider.md.
  *
  * THE ANTI-DRIFT CONTRACT
@@ -60,9 +60,9 @@ final class EnvironmentProviderProtocol {
      * closes and types the RESPONSE and leaves the request open (call(),
      * EnvironmentLifecycle.php:254-263), so these describe what a provider
      * will actually receive rather than something it can be refused over. */
-    /** A registry environment name as written in site.duo.json / .duo-envs.json. */
+    /** A registry environment name as written in site.wprism.json / .wprism-envs.json. */
     public const TYPE_ENV_NAME = 'environment-name';
-    /** An absolute filesystem path on the host that runs `duo`. */
+    /** An absolute filesystem path on the host that runs `wprism`. */
     public const TYPE_PATH = 'absolute-path';
     /** A Git ref name, already resolved to the accompanying object id. */
     public const TYPE_GIT_REF = 'git-ref';
@@ -231,7 +231,7 @@ final class EnvironmentProviderProtocol {
                     'operation.receipts', 'environment.' . $mode, 'environment.' . $reap,
                 ]),
                 'conditional' => ['environment.ttl', 'environment.ttl.read'],
-                'conditional_when' => '`duo env materialize --ttl <seconds>` is given',
+                'conditional_when' => '`wprism env materialize --ttl <seconds>` is given',
             ];
             $sets[] = [
                 'id' => 'rehearse-target-' . $mode,
@@ -244,7 +244,7 @@ final class EnvironmentProviderProtocol {
                     'operation.receipts', 'environment.' . $mode, 'environment.' . $reap,
                 ]),
                 'conditional' => ['environment.ttl', 'environment.ttl.read'],
-                'conditional_when' => '`duo rehearse --ttl <seconds>` is given',
+                'conditional_when' => '`wprism rehearse --ttl <seconds>` is given',
             ];
         }
         // EnvironmentLifecycle.php:965-972.
@@ -307,7 +307,7 @@ final class EnvironmentProviderProtocol {
      * deliberately says no more than "has missing or unknown fields" — the
      * boundary must not describe host internals back to an untrusted provider
      * — so the naming lives here, on the operator's side of the boundary,
-     * where `duo env provider-check` renders it.
+     * where `wprism env provider-check` renders it.
      *
      * @return ?array{action:string,field:string,expected:string,observed:string}
      */

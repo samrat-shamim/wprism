@@ -9,15 +9,15 @@
 # are derived with a HARD per-entity query-availability dependency, not a
 # soft cache — the manifest can mark them 'derived' but the grammar has no
 # primitive for 'apply must regenerate this or the entity is unusable'
-# (CLOSED by DUO-3234: post_types.<type>.regen_dependency is exactly that
+# (CLOSED by issue #3234: post_types.<type>.regen_dependency is exactly that
 # primitive now, declared for tribe_events in manifests/the-events-
-# calendar.json — see "DUO-3234's regen_dependency contract, proven live"
+# calendar.json — see "issue #3234's regen_dependency contract, proven live"
 # below, which now proves the automatic fix rather than the manual-step
 # gap this round originally found); (2)
 # PMPro's real content-restriction table, pmpro_memberships_pages, has a
-# COMPOSITE primary key (no surrogate id column), a gap closed by DUO-3235's
+# COMPOSITE primary key (no surrogate id column), a gap closed by issue #3235's
 # identity.mode=composite_ref grammar; (3) pmpro_membership_levelmeta's own
-# PK column is named meta_id, not id, also closed by DUO-3235's id_column
+# PK column is named meta_id, not id, also closed by issue #3235's id_column
 # override. See the two post-apply proofs below: both authored facts now
 # capture and converge without manual repair.
 #
@@ -29,11 +29,11 @@
 # `docker compose down` (off-limits — other agents share the shared db and
 # network). `pair.sh stop r3b` between runs IS fine and expected (frees
 # RAM/CPU immediately; containers/volumes/databases all kept, so the
-# TEC+PMPro install + seeded content survive at zero footprint — DUO-3256/
-# DUO-3258's own hygiene note, generalizing the original "never torn down"
+# TEC+PMPro install + seeded content survive at zero footprint — issue #3256/
+# issue #3258's own hygiene note, generalizing the original "never torn down"
 # convention: stopped-not-destroyed is what that convention actually
 # requires now that host pair-budget discipline matters). Every run wipes
-# WP content, the duo ledger tables, the
+# WP content, the wprism ledger tables, the
 # tec_*/pmpro_* custom tables, the PMPro system-page options, and the
 # site-repo git state from scratch — mirroring grind_r1b_shop.sh's own
 # reset_env_state() approach exactly (NOT sandbox/bin/pair.sh's own `reset`
@@ -61,8 +61,8 @@ PAIR="${R3B_PAIR:-r3b}"
 PORT1="${R3B_PORT1:-8852}"
 PORT2="${R3B_PORT2:-8853}"
 [[ "$PAIR" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || fail "invalid pair name '$PAIR'"
-export DUO_PAIR="$PAIR"
-PAIR_COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.journal.yml)
+export WPRISM_PAIR="$PAIR"
+PAIR_COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml -f pair.journal.yml)
 R3B1="http://localhost:$PORT1"
 R3B2="http://localhost:$PORT2"
 HOST1="siterepo/${PAIR}1"
@@ -71,8 +71,8 @@ ORIGIN="siterepo/origin-${PAIR}.git"
 
 wp1() { "${PAIR_COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${PAIR_COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
-GIT_1="git -C $HOST1 -c user.name=duo-$PAIR-1 -c user.email=$PAIR-1@example.test"
-GIT_2="git -C $HOST2 -c user.name=duo-$PAIR-2 -c user.email=$PAIR-2@example.test"
+GIT_1="git -C $HOST1 -c user.name=wprism-$PAIR-1 -c user.email=$PAIR-1@example.test"
+GIT_2="git -C $HOST2 -c user.name=wprism-$PAIR-2 -c user.email=$PAIR-2@example.test"
 
 say "boot pair $PAIR (${PAIR}1 :$PORT1 / ${PAIR}2 :$PORT2), idempotent"
 bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --http --journal
@@ -128,10 +128,10 @@ reset_env_state() { # reset_env_state <cli-fn>
   # into being called with a WP_Error in place of a user id, no PHP
   # fatal, no script failure — just a quietly-missing membership row).
   "$cli" user delete dana.rivera --yes --reassign=1 >/dev/null 2>&1 || true
-  "$cli" db query "TRUNCATE TABLE wp_duo_map" >/dev/null 2>&1 || true
-  "$cli" db query "TRUNCATE TABLE wp_duo_state" >/dev/null 2>&1 || true
-  "$cli" db query "TRUNCATE TABLE wp_duo_kv" >/dev/null 2>&1 || true
-  "$cli" db query "TRUNCATE TABLE wp_duo_journal" >/dev/null 2>&1 || true
+  "$cli" db query "TRUNCATE TABLE wp_wprism_map" >/dev/null 2>&1 || true
+  "$cli" db query "TRUNCATE TABLE wp_wprism_state" >/dev/null 2>&1 || true
+  "$cli" db query "TRUNCATE TABLE wp_wprism_kv" >/dev/null 2>&1 || true
+  "$cli" db query "TRUNCATE TABLE wp_wprism_journal" >/dev/null 2>&1 || true
 }
 say "reset content/ledger/custom-tables on both sides (plugins stay installed+active)"
 reset_env_state wp1
@@ -139,11 +139,11 @@ reset_env_state wp2
 pass "both envs content-clean; TEC + PMPro remain active"
 
 say "fresh site repo (own origin, own clones)"
-rm -rf "$ORIGIN" "$HOST1/.git" "$HOST1/state" "$HOST1/site.duo.json"
+rm -rf "$ORIGIN" "$HOST1/.git" "$HOST1/state" "$HOST1/site.wprism.json"
 find "$HOST2" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 git init --bare -b main "$ORIGIN" >/dev/null
 mkdir -p "$HOST1" "$HOST2"
-cat > "$HOST1/site.duo.json" <<'EOF'
+cat > "$HOST1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "the-events-calendar", "paid-memberships-pro"],
   "policy": {
@@ -248,11 +248,11 @@ grep -q SEED_COMPLETE <<<"$SEED_OUT" || fail "seed script did not complete"
 pass "r3b1 seeded: venue, organizer, 3 events (one venue+organizer, one bare, one venue-only), PMPro's 9 system pages, 2 membership levels with real pricing + confirmation text containing an internal link, Studio Members Only page restricted to Studio Access, a real member signup (dana.rivera)"
 
 say "core loop: capture (both graduated manifests already pinned — capture should succeed immediately)"
-wp1 duo capture --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
 pass "capture succeeded with zero unclassified-meta gate firing — manifests/the-events-calendar.json + manifests/paid-memberships-pro.json fully cover this site's real content"
 
 say "deliberately exercise task #73's unscoped-ref gate: retype the checkout page's own row out of scope, un-mint its identity"
-# DUO-3256: this used to remove "page" from policy.post_types wholesale,
+# issue #3256: this used to remove "page" from policy.post_types wholesale,
 # which also un-scopes the OTHER ~9 real page-type entities already
 # captured on disk (PMPro's system pages + Studio Members Only) — and
 # Capture::run() compiles+authorizes the EXISTING repo/state tree against
@@ -296,11 +296,11 @@ restore_checkout() {
   done
 }
 trap restore_checkout EXIT
-wp1 db query "DELETE FROM wp_duo_map WHERE id_kind='post' AND local_id=$CHECKOUT_ID"
+wp1 db query "DELETE FROM wp_wprism_map WHERE id_kind='post' AND local_id=$CHECKOUT_ID"
 wp1 db query "UPDATE wp_posts SET post_parent=0 WHERE post_parent=$CHECKOUT_ID"
-wp1 db query "UPDATE wp_posts SET post_type='duo_test_unscoped' WHERE ID=$CHECKOUT_ID"
+wp1 db query "UPDATE wp_posts SET post_type='wprism_test_unscoped' WHERE ID=$CHECKOUT_ID"
 set +e
-GATE_OUT=$(wp1 duo capture --repo=/siterepo 2>&1)
+GATE_OUT=$(wp1 wprism capture --repo=/siterepo 2>&1)
 GATE_RC=$?
 set -e
 [ "$GATE_RC" -ne 0 ] || fail "expected the unscoped-ref gate to abort capture"
@@ -309,15 +309,15 @@ grep -q "pmpro_checkout_page_id" <<<"$GATE_OUT" || fail "gate did not name the o
 pass "loud-and-blocking gate fired correctly, naming the option, the raw id, and the real target type"
 trap - EXIT
 restore_checkout
-wp1 duo capture --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
 pass "scope fixed, recapture succeeds cleanly"
 
 say "hard lint gate"
-wp1 duo lint --repo=/siterepo
+wp1 wprism lint --repo=/siterepo
 pass "lint: 0 findings"
 
 say "capture-twice determinism"
-wp1 duo capture --repo=/siterepo --out=/siterepo/.tmp-state2
+wp1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-state2
 diff -r "$HOST1/state" "$HOST1/.tmp-state2" || fail "capture is not deterministic"
 rm -rf "$HOST1/.tmp-state2"
 pass "capture-twice diff is empty"
@@ -328,7 +328,7 @@ $GIT_1 push -q origin main
 
 say "round-trip: clone into ${PAIR}2, deploy, plan, apply (adopt installer collisions)"
 git clone -q "$ORIGIN" "$HOST2"
-# DUO-3216/DUO-3250: deploy runs BEFORE plan/apply, matching the documented
+# issue #3216/issue #3250: deploy runs BEFORE plan/apply, matching the documented
 # deploy-before-apply contract (docs/code-half.md §3.4) and the
 # exact ordering grind_r1b_shop.sh's own PR #14 fix established for this
 # same class of scenario. This reorder is proactive, not reactive to a live
@@ -338,26 +338,26 @@ git clone -q "$ORIGIN" "$HOST2"
 # objectively non-compliant, and a silent landmine for the day this
 # scenario grows a theme-divergence or staggered-activation step the way
 # grind_r1b_shop.sh/grind_r3a_multilingual.sh already have.
-wp2 duo deploy --repo=/siterepo
-PLAN_TXT=$(wp2 duo plan --repo=/siterepo)
+wp2 wprism deploy --repo=/siterepo
+PLAN_TXT=$(wp2 wprism plan --repo=/siterepo)
 grep -q 'COLLISION' <<<"$PLAN_TXT" || fail "expected installer-created page/post/term collisions in the plan"
 REV=$(git -C "$HOST2" rev-parse HEAD)
-wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" \
+wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" \
   | tee /tmp/r3b_apply1.txt
 grep -q 'canary clean' /tmp/r3b_apply1.txt || fail "apply canary not clean"
 pass "deploy + apply succeeded on r3b2 (canary clean)"
 
 say "byte-identical recapture across environments"
-wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
+wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-final
 DIFF_OUT=$(diff -rq "$HOST1/state" "$HOST2/.tmp-final" || true)
 rm -rf "$HOST2/.tmp-final"
 [ -z "$DIFF_OUT" ] || fail "byte-identity broken: $DIFF_OUT"
 pass "byte-identical: posts, terms, options, AND typed-snapshot table entities (pmpro_membership_levels, pmpro_membership_levelmeta, pmpro_memberships_pages)"
 
-say "DUO-3234's regen_dependency contract, proven live: TEC's derived custom tables are now regenerated automatically as part of apply — the manual-step gap this round originally found is closed"
-# DUO-3258: this step used to assert the GAP itself (zero tec_occurrences,
+say "issue #3234's regen_dependency contract, proven live: TEC's derived custom tables are now regenerated automatically as part of apply — the manual-step gap this round originally found is closed"
+# issue #3258: this step used to assert the GAP itself (zero tec_occurrences,
 # invisible events, then a manual per-event regeneration loop reproducing
-# TEC's own Single_Event_Migration_Strategy machinery by hand). DUO-3234
+# TEC's own Single_Event_Migration_Strategy machinery by hand). issue #3234
 # landed manifests/the-events-calendar.json's post_types.tribe_events.
 # regen_dependency (regenerator="the-events-calendar", verify={table:
 # tec_occurrences, column: post_id}) — see that manifest's own note: "the
@@ -367,7 +367,7 @@ say "DUO-3234's regen_dependency contract, proven live: TEC's derived custom tab
 # verification still finds no row afterward. The round-trip apply above
 # already proves this succeeded — a regen_dependencies() failure would
 # have thrown before "canary clean" ever printed — this step makes that
-# proof explicit and checks the regen_pending ledger directly (DUO-3234's
+# proof explicit and checks the regen_pending ledger directly (issue #3234's
 # own designed observability surface), rather than only inferring success
 # from apply's own exit code.
 TEC_ROWS=$(wp2 db query "SELECT COUNT(*) FROM wp_tec_occurrences" --skip-column-names)
@@ -376,12 +376,12 @@ TEC_B1_NOW=$(wp1 db query "SELECT COUNT(*) FROM wp_tec_occurrences" --skip-colum
   || fail "expected tec_occurrences to be nonzero and consistent with the source side's count after a fresh apply (source r3b1=$TEC_B1_NOW, target r3b2=$TEC_ROWS) — the regen_dependency contract is not behaving as declared"
 VISIBLE_COUNT=$(wp2 post list --post_type=tribe_events --post_status=any --format=count)
 [ "$VISIBLE_COUNT" = "3" ] || fail "expected all 3 applied events immediately visible to WP_Query with no manual step (got $VISIBLE_COUNT)"
-PLAN_AFTER=$(wp2 duo plan --repo=/siterepo)
+PLAN_AFTER=$(wp2 wprism plan --repo=/siterepo)
 grep -q ', 0 regen_pending' <<<"$PLAN_AFTER" || fail "expected zero regen_pending markers outstanding after a clean apply (plan said: $(grep -o '[0-9]* regen_pending' <<<"$PLAN_AFTER"))"
 wp2 rewrite flush >/dev/null
-pass "confirmed fixed: DUO-3234's regen_dependency contract transparently regenerated wp_tec_occurrences as part of apply itself — 3/3 events visible immediately, tec_occurrences consistent with source ($TEC_ROWS rows), zero regen_pending markers outstanding, no manual step required. This WAS the round's central finding; DUO-3234 is why it no longer holds."
+pass "confirmed fixed: issue #3234's regen_dependency contract transparently regenerated wp_tec_occurrences as part of apply itself — 3/3 events visible immediately, tec_occurrences consistent with source ($TEC_ROWS rows), zero regen_pending markers outstanding, no manual step required. This WAS the round's central finding; issue #3234 is why it no longer holds."
 
-say "DUO-3235's composite_ref contract, proven live: PMPro's page-restriction join row propagated and resolved to r3b2's own entity ids"
+say "issue #3235's composite_ref contract, proven live: PMPro's page-restriction join row propagated and resolved to r3b2's own entity ids"
 RESTRICT_ROWS_B1=$(wp1 db query "SELECT COUNT(*) FROM wp_pmpro_memberships_pages" --skip-column-names)
 RESTRICT_ROWS_B2=$(wp2 db query "SELECT COUNT(*) FROM wp_pmpro_memberships_pages" --skip-column-names)
 [ "$RESTRICT_ROWS_B1" = "1" ] || fail "expected exactly one authored restriction row on r3b1 (got $RESTRICT_ROWS_B1)"
@@ -393,7 +393,7 @@ RESTRICT_MATCH_B2=$(wp2 db query "SELECT COUNT(*) FROM wp_pmpro_memberships_page
 pass "confirmed fixed: the composite_ref row exists immediately after apply and points at r3b2's own Studio Access level + Studio Members Only page; no PMPro repair call was needed"
 
 say "complete-response render checks + negative host-leak assertion"
-# DUO-3301 reproduced the former aggregate "delay" on an isolated pair:
+# issue #3301 reproduced the former aggregate "delay" on an isolated pair:
 # the checker reported a missing title, while an immediate complete
 # 79,953-byte response contained all three titles. The cause was the
 # producer-side SIGPIPE race in `echo "$LIST_HTML" | grep -q` under
@@ -448,14 +448,14 @@ say "divergent-edit merge: conflicting Community-level price edits on both envir
 $GIT_1 checkout -qb price-r3b1 main
 LEVEL1_ID_B1=$(wp1 db query "SELECT id FROM wp_pmpro_membership_levels WHERE name='Community'" --skip-column-names)
 wp1 db query "UPDATE wp_pmpro_membership_levels SET billing_amount=12.99 WHERE id=$LEVEL1_ID_B1"
-wp1 duo capture --repo=/siterepo >/dev/null
+wp1 wprism capture --repo=/siterepo >/dev/null
 $GIT_1 add -A && $GIT_1 commit -qm "price: Community membership -> 12.99" && $GIT_1 push -qu origin price-r3b1
 
 $GIT_2 fetch -q origin
 $GIT_2 checkout -qb price-r3b2 origin/main
 LEVEL1_ID_B2=$(wp2 db query "SELECT id FROM wp_pmpro_membership_levels WHERE name='Community'" --skip-column-names)
 wp2 db query "UPDATE wp_pmpro_membership_levels SET billing_amount=8.99 WHERE id=$LEVEL1_ID_B2"
-wp2 duo capture --repo=/siterepo >/dev/null
+wp2 wprism capture --repo=/siterepo >/dev/null
 $GIT_2 add -A && $GIT_2 commit -qm "price: Community membership -> 8.99" && $GIT_2 push -qu origin price-r3b2
 
 $GIT_1 checkout -q main
@@ -485,13 +485,13 @@ pass "conflict resolved editorially (split the difference: 10.99), committed, pu
 
 say "apply the merged price to both environments; confirm convergence"
 REV1=$(git -C "$HOST1" rev-parse HEAD)
-wp1 duo apply --repo=/siterepo --default-author=admin --revision="$REV1" >/dev/null
+wp1 wprism apply --repo=/siterepo --default-author=admin --revision="$REV1" >/dev/null
 [ "$(wp1 db query "SELECT billing_amount FROM wp_pmpro_membership_levels WHERE id=$LEVEL1_ID_B1" --skip-column-names)" = "10.99000000" ] || fail "r3b1 did not converge"
 
 git -C "$HOST2" checkout -q main
 git -C "$HOST2" pull -q origin main
 REV2=$(git -C "$HOST2" rev-parse HEAD)
-wp2 duo apply --repo=/siterepo --default-author=admin --force-theirs --revision="$REV2" >/dev/null
+wp2 wprism apply --repo=/siterepo --default-author=admin --force-theirs --revision="$REV2" >/dev/null
 [ "$(wp2 db query "SELECT billing_amount FROM wp_pmpro_membership_levels WHERE id=$LEVEL1_ID_B2" --skip-column-names)" = "10.99000000" ] || fail "r3b2 did not converge"
 pass "both environments converged on the editorially-merged price (\$10.99)"
 

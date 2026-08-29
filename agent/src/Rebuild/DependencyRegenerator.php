@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 if (!class_exists(Policy::class, false)) {
     require_once __DIR__ . '/../Policy/Policy.php';
@@ -83,7 +83,7 @@ final class DependencyRegenerator {
                 continue; // batch path owns this marker
             }
             if (($this->selectionDeclaresEntityBatchFor)('post:' . $postType)) {
-                // DUO-3342: the provider dispatch owns this marker. It arms
+                // issue #3342: the provider dispatch owns this marker. It arms
                 // regen_pending for the entities it delivers and clears them
                 // only on a verified receipt, so a marker armed by a failed
                 // provider invocation reaches this loop with no
@@ -95,11 +95,11 @@ final class DependencyRegenerator {
             }
             // Manifest no longer declares this post type's dependency
             // (unpinned, or the declaration was removed) — nothing safe to
-            // verify or regenerate against. DUO-3234 design review,
-            // addition 2: a marker like this would otherwise sit in duo_kv
+            // verify or regenerate against. issue #3234 design review,
+            // addition 2: a marker like this would otherwise sit in wprism_kv
             // forever with nothing ever consulting it again — sweep it
             // here, in the same pass that would otherwise have processed
-            // it, and say so loudly (an operator auditing duo_kv later has
+            // it, and say so loudly (an operator auditing wprism_kv later has
             // no other way to learn a marker silently vanished, or why).
             Ledger::kv_delete($k);
             $warnings[] = "regen_pending marker for post $uuid (type '$postType') dropped: "
@@ -119,7 +119,7 @@ final class DependencyRegenerator {
                 // not — the post was deleted since the marker was set, or
                 // the marker outlived an apply that never actually created
                 // it. Either way nothing is live to verify against, and
-                // (DUO-3234 design review, addition 2) a marker for a uuid
+                // (issue #3234 design review, addition 2) a marker for a uuid
                 // that will never resolve again must not sit forever —
                 // sweep it, loudly, but only if a marker for it actually
                 // exists (a $work-sourced candidate with no local id would
@@ -144,7 +144,7 @@ final class DependencyRegenerator {
             $regenName = (string) $decl['regenerator'];
             $regenerator = $regenerators[$regenName]
                 ?? throw new \RuntimeException(
-                    "duo: post type '$postType' declares regen_dependency.regenerator='$regenName' "
+                    "wprism: post type '$postType' declares regen_dependency.regenerator='$regenName' "
                     . 'but it did not load (see Policy::regenerators())'
                 );
             try {
@@ -152,7 +152,7 @@ final class DependencyRegenerator {
             } catch (\Throwable $t) {
                 Ledger::kv_set($markerKey, $postType);
                 throw new \RuntimeException(
-                    "duo: regenerator '$regenName' failed for post $localId (uuid $uuid, type '$postType'): "
+                    "wprism: regenerator '$regenName' failed for post $localId (uuid $uuid, type '$postType'): "
                     . $t->getMessage(),
                     0, $t
                 );
@@ -161,7 +161,7 @@ final class DependencyRegenerator {
             if (!$this->regen_verify_exists($verify, $localId)) {
                 Ledger::kv_set($markerKey, $postType);
                 throw new \RuntimeException(
-                    "duo: regen_dependency verification failed for post $localId (uuid $uuid, type '$postType') — "
+                    "wprism: regen_dependency verification failed for post $localId (uuid $uuid, type '$postType') — "
                     . "expected a row in {$verify['table']} where {$verify['column']} = $localId after calling "
                     . "regenerator '$regenName', found none. Re-running apply will retry (a regen_pending marker "
                     . 'was recorded), but the underlying regeneration mechanism needs investigation.'
@@ -287,7 +287,7 @@ final class DependencyRegenerator {
                     // Malformed either way: no dispatcher can replay a receipt
                     // with no post type or no captured id. Said out loud for
                     // the same reason the pending-marker sweep below says it:
-                    // an operator auditing duo_kv has no other way to learn a
+                    // an operator auditing wprism_kv has no other way to learn a
                     // durable receipt vanished, or why.
                     Ledger::kv_delete((string) $key);
                     $warnings[] = "$label marker for post $markerUuid dropped: the stored receipt "
@@ -297,7 +297,7 @@ final class DependencyRegenerator {
                 $surface = 'post:' . $postType;
                 if ($this->policy->regen_batch($postType) === null) {
                     if (($this->selectionDeclaresChannelFor)($channel, $surface)) {
-                        // DUO-3342: owned by the provider dispatch, which
+                        // issue #3342: owned by the provider dispatch, which
                         // delivers this marker's row on its matching channel
                         // and deletes it only after a verified receipt. This
                         // pass is not its owner and must not sweep it — doing
@@ -431,7 +431,7 @@ final class DependencyRegenerator {
             }
             $regenerator = $regenerators[$name]
                 ?? throw new \RuntimeException(
-                    "duo: batch regen_dependency regenerator '$name' did not load (see Policy::regenerators())"
+                    "wprism: batch regen_dependency regenerator '$name' did not load (see Policy::regenerators())"
                 );
             $markers = array_fill_keys(array_keys($job['uuids']), true);
             $markFailure = function (\Throwable $t) use ($markers, $job, $name): void {
@@ -442,7 +442,7 @@ final class DependencyRegenerator {
                     }
                 }
                 throw new \RuntimeException(
-                    "duo: batch regenerator '$name' failed: " . $t->getMessage(),
+                    "wprism: batch regenerator '$name' failed: " . $t->getMessage(),
                     0,
                     $t
                 );
@@ -485,7 +485,7 @@ final class DependencyRegenerator {
                         Ledger::kv_set(self::REGEN_PENDING_PREFIX . $uuid, (string) $postType);
                     }
                     throw new \RuntimeException(
-                        'duo: batch regen_dependency verification failed for post ' . (int) $id
+                        'wprism: batch regen_dependency verification failed for post ' . (int) $id
                         . " (type '$postType') — expected a row in {$decl['verify']['table']} where "
                         . "{$decl['verify']['column']} = " . (int) $id
                     );

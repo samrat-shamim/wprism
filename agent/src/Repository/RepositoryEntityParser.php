@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // This parser is a canonical-file-to-IR boundary. Normal direct loads close
 // every collaborator it uses, but CLI refusal fixtures may preload fake Canon

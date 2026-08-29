@@ -3,17 +3,17 @@
 sandbox/siterepo/
 sandbox/tmp/
 
-# DUO-3277: pair.sh writes this so docker compose auto-loads
-# DUO_AGENT_SRC/DUO_MANIFESTS_SRC (resolved against THIS checkout's own
+# issue #3277: pair.sh writes this so docker compose auto-loads
+# WPRISM_AGENT_SRC/WPRISM_MANIFESTS_SRC (resolved against THIS checkout's own
 # canonical root) for any subsequent compose call made by any script from
 # sandbox/ — never committed, since the paths it holds are host- and
 # checkout-specific.
 sandbox/.env
-/.duo-envs.json
-/.duo/
+/.wprism-envs.json
+/.wprism/
 .claude/worktrees/
 
-# DUO-3213: capture's staging/backup/lock and durable protocol artifacts
+# issue #3213: capture's staging/backup/lock and durable protocol artifacts
 # (agent/src/Publication/Publish.php)
 # — siblings of any published state dir; git must never see one, even
 # transiently mid-capture or during recovery.
@@ -28,19 +28,19 @@ sandbox/.env
 /state.capture-receipt.previous
 /state.capture-receipt.next
 /state.capture.lock
-/.duo-init-code-*
-/.duo-init-attempt
-/.duo-init-attempt.next
-/.*.duo-init-*
+/.wprism-init-code-*
+/.wprism-init-attempt
+/.wprism-init-attempt.next
+/.*.wprism-init-*
 
-# DUO-3232: see sandbox/site-repo.gitignore.template's own note — belt-and-
+# issue #3232: see sandbox/site-repo.gitignore.template's own note — belt-and-
 # suspenders for local testing against this repo's own root, mirroring
-# .duo-envs.json's identical treatment above. The real,
+# .wprism-envs.json's identical treatment above. The real,
 # load-bearing copy of this ignore rule is the template, which becomes
 # every managed site-repo's OWN .gitignore.
-/.duo-env-values.json
+/.wprism-env-values.json
 
-# DUO-3223 (version-boundary matrix / artifact-sourcing ruling, issue
+# issue #3223 (version-boundary matrix / artifact-sourcing ruling, issue
 # comment 0ec1d2e3): the content-addressed cache sandbox/bin/fetch-
 # artifact.sh downloads pinned plugin ZIPs into. Package-owned
 # evidence/artifacts.lock.json fragments (the pins themselves) ARE committed;
@@ -49,12 +49,12 @@ sandbox/.env
 sandbox/conformance/artifacts-cache/*
 !sandbox/conformance/artifacts-cache/.gitkeep
 
-# DUO-3223: generated content-addressed certification bundles. The schema,
+# issue #3223: generated content-addressed certification bundles. The schema,
 # builder, verifier, and reference harness are committed; each run's logs and
 # environment evidence are immutable outputs published by digest, not source.
 sandbox/certification-bundles/
 
-# DUO WP-4: the repo-root dev toolchain (composer.json / phpstan.neon.dist /
+# WPRISM WP-4: the repo-root dev toolchain (composer.json / phpstan.neon.dist /
 # .php-cs-fixer.dist.php / phpunit.xml.dist) is structurally unshippable —
 # cli/src/Onboarding/Adopt.php tars exactly `agent manifests recovery`, so none of this
 # can reach a managed site. What follows is the toolchain's *machine-local*

@@ -1,29 +1,29 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 
-use Duo\CommandRefusalException;
+use WPrism\CommandRefusalException;
 
 /**
- * Section 1 of `duo assess` — the stack, and the authority Duo actually has
+ * Section 1 of `wprism assess` — the stack, and the authority WPrism actually has
  * (round-3 MUP §2.1, §4.1).
  *
  * Two blocks are produced here and nothing else.
  *
- * **`stack()`** is `duo-assess-inventory/v1`'s `target` block, passed
+ * **`stack()`** is `wprism-assess-inventory/v1`'s `target` block, passed
  * through verbatim after its closed key set is proved. It is deliberately a
  * pass-through rather than a re-derivation: the versions an operator reads
  * in an assessment must be the ones the target itself reported, and a host
  * that reformatted them would be a second, quieter source of truth. The
- * validation exists because `duo-assess-report/v1` re-publishes this block
+ * validation exists because `wprism-assess-report/v1` re-publishes this block
  * under a closed schema (`ContractProposal::validateAssessReport()`), so a
  * malformed inventory has to fail here — where the environment is still
  * named — rather than at proposal time.
  *
- * **`authority()`** is the honest answer to "what access does Duo have on
+ * **`authority()`** is the honest answer to "what access does WPrism have on
  * this site, right now, for this command". MUP §2.1's human line reads
  * `authority: ssh deploy@prod · read-only for this command · repo /srv/site`,
  * and every fact behind it is composed by `AssessCommand` from a different
@@ -42,14 +42,14 @@ use Duo\CommandRefusalException;
  *
  * One placement note that is a consequence, not a preference: the installed
  * plugin/theme/attachment COUNTS live under `authority.installed` rather
- * than beside the versions in `target`. `duo-assess-report/v1`'s top level
+ * than beside the versions in `target`. `wprism-assess-report/v1`'s top level
  * is a closed key set of exactly nine keys and `target` is the inventory's
  * block verbatim, so there is no third place for a count to go. They are
  * counts of what this environment holds, which is the same question the
  * rest of this block answers.
  */
 final class StackInventory {
-    /** `duo-assess-inventory/v1`'s target block, exactly. */
+    /** `wprism-assess-inventory/v1`'s target block, exactly. */
     public const TARGET_KEYS = ['wordpress', 'php', 'database', 'site_mode', 'home', 'siteurl'];
 
     public const DATABASE_KEYS = ['engine', 'version'];
@@ -70,7 +70,7 @@ final class StackInventory {
     /**
      * The stack block, proved and passed through.
      *
-     * @param array<string,mixed> $inventory a `duo-assess-inventory/v1` document
+     * @param array<string,mixed> $inventory a `wprism-assess-inventory/v1` document
      * @return array<string,mixed> the inventory's `target`, byte-for-byte
      */
     public static function stack(array $inventory): array {
@@ -121,7 +121,7 @@ final class StackInventory {
      *        repository path), `site_repo` (the LOCAL site repository the
      *        proposal is written into), `doctor` (a `Doctor::run()` result),
      *        `bootstrap` (a probe result or null), `init_probe` (a probe
-     *        result or null), `catalog` (the host `duo-adapter-catalog/v2`
+     *        result or null), `catalog` (the host `wprism-adapter-catalog/v2`
      *        document or null) and `inventory` (the assess inventory).
      * @return array<string,mixed>
      */
@@ -161,7 +161,7 @@ final class StackInventory {
      * The detail strings are deliberately dropped: they carry target paths,
      * ssh destinations and wp-cli output, and MUP §5.2's rule is that a
      * human view prints an internal identifier only when a documented
-     * command consumes it. `duo doctor <env>` is that command, and it is
+     * command consumes it. `wprism doctor <env>` is that command, and it is
      * named in the remediation.
      *
      * @param array{ok?:bool,checks?:list<array{label:string,ok:bool,detail:string,advisory?:bool}>} $doctor
@@ -198,7 +198,7 @@ final class StackInventory {
     }
 
     /**
-     * The installed-plugin rows of a `duo-assess-inventory/v1` document.
+     * The installed-plugin rows of a `wprism-assess-inventory/v1` document.
      *
      * `plugins` is a bare list of `{basename,name,version,active}` rows and
      * stays one: two of this method's three consumers feed the assess_digest
@@ -235,7 +235,7 @@ final class StackInventory {
      * WP_PLUGIN_DIR and the active list, and only the engine knows which
      * manifests its pins resolved. So this reads a published list rather than
      * deriving one — a host-side derivation would be a second, weaker answer
-     * that disagreed with `duo init`'s refusal on exactly the sites where it
+     * that disagreed with `wprism init`'s refusal on exactly the sites where it
      * mattered.
      *
      * `plugins_without_adapter[]` rows are `{basename, file, slug}` — all
@@ -318,7 +318,7 @@ final class StackInventory {
      * The installed code, by identity and version.
      *
      * This block exists for one reason and it is worth stating: the assess
-     * report's `assess_digest` is what `duo contract accept` binds a review
+     * report's `assess_digest` is what `wprism contract accept` binds a review
      * to, and a review is stale exactly when the site it described has
      * moved. Plugin and theme versions are the fastest-moving facts on a
      * WordPress site AND the facts the proposed contract's `stack.plugins`
@@ -367,7 +367,7 @@ final class StackInventory {
      * The three adapter sources, and which of them this assessment reached.
      *
      * The host catalog can see the shipped library and (with a repository)
-     * its `adapters/` overlay; the third source — one `duo-adapter.json` at
+     * its `adapters/` overlay; the third source — one `wprism-adapter.json` at
      * the root of each active plugin — lives in `WP_PLUGIN_DIR` and is only
      * reachable on the target, which is why the inventory carries the
      * target's own survey. Reporting both, with each source marked scanned
@@ -375,7 +375,7 @@ final class StackInventory {
      * installed".
      *
      * @param array<string,mixed> $inventory
-     * @param array<string,mixed>|null $catalog a `duo-adapter-catalog/v2` document
+     * @param array<string,mixed>|null $catalog a `wprism-adapter-catalog/v2` document
      * @return array<string,mixed>
      */
     private static function adapters(array $inventory, ?array $catalog): array {
@@ -449,7 +449,7 @@ final class StackInventory {
         return new CommandRefusalException(
             'assess_inventory_malformed',
             $message,
-            'update the target agent so `wp duo assess-inventory` emits the current document, then rerun assess'
+            'update the target agent so `wp wprism assess-inventory` emits the current document, then rerun assess'
         );
     }
 }

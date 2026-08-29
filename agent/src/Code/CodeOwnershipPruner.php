@@ -1,10 +1,10 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/PathSafety.php';
 
 /**
- * Removal authority for one immutable code descriptor set (DUO-3350 slice
+ * Removal authority for one immutable code descriptor set (issue #3350 slice
  * 5, extracted from Code -- the seam CodeMaterializer.php's own docblock
  * already named "removal authority remains in Code until the
  * CodeOwnershipPruner slice"): computes the deterministic prior-owned-file
@@ -13,7 +13,7 @@ require_once __DIR__ . '/../Kernel/PathSafety.php';
  * path before any write, and performs the actual unlink/rmdir once that
  * preflight passes. A sibling read-only method (owned_extra_files) answers
  * a related but distinct question -- does a COMPLETED descriptor's owned
- * root contain any file Duo never recorded -- used by baseline/mismatch
+ * root contain any file WPrism never recorded -- used by baseline/mismatch
  * verification rather than by removal itself.
  *
  * Code keeps thin compatibility facades for all three entry points
@@ -38,7 +38,7 @@ final class CodeOwnershipPruner {
     /**
      * Prune the union of completed, previously staged, and current component
      * roots against the current descriptor.  Ownership is component-scoped:
-     * a stale file inside an adopted plugin/theme/mu-plugin root is Duo-owned,
+     * a stale file inside an adopted plugin/theme/mu-plugin root is WPrism-owned,
      * while an unrelated sibling component is never traversed or touched.
      *
      * @param array<string,array<string,mixed>> $history
@@ -47,7 +47,7 @@ final class CodeOwnershipPruner {
      */
     public static function remove_old_owned_files(?array $previous, ?array $staged, array $history, array $current, array $roots): array {
         if (!defined('WP_CONTENT_DIR') || !is_string(WP_CONTENT_DIR) || WP_CONTENT_DIR === '') {
-            throw new \RuntimeException('duo: code-finalize requires WordPress WP_CONTENT_DIR');
+            throw new \RuntimeException('wprism: code-finalize requires WordPress WP_CONTENT_DIR');
         }
         $inventory = self::removal_inventory($previous, $staged, $history, $current);
         self::assert_removal_inventory($inventory, $roots);
@@ -60,14 +60,14 @@ final class CodeOwnershipPruner {
             // changes are detected close to each unlink/rmdir. These checks
             // are not an atomic defense against an adversarial concurrent
             // directory-to-symlink swap; promotion requires filesystem
-            // exclusion from non-Duo writers (documented in repo-format.md).
+            // exclusion from non-WPrism writers (documented in repo-format.md).
             if (!PathSafety::safe_component_root($root, $roots) || PathSafety::reserved_path($root)) {
-                throw new \RuntimeException("duo: code-finalize refuses unsafe owned root '$root'");
+                throw new \RuntimeException("wprism: code-finalize refuses unsafe owned root '$root'");
             }
             PathSafety::assert_no_symlinked_target_path($root, true, 'code-finalize');
             $absolute = PathSafety::safe_join(WP_CONTENT_DIR, $root);
             if (is_link($absolute)) {
-                throw new \RuntimeException("duo: code-finalize refuses to traverse a symlink at owned root '$root'");
+                throw new \RuntimeException("wprism: code-finalize refuses to traverse a symlink at owned root '$root'");
             }
             if (!file_exists($absolute)) {
                 continue;
@@ -75,10 +75,10 @@ final class CodeOwnershipPruner {
             if (is_file($absolute)) {
                 if (!isset($currentPaths[$root]) && isset($knownHashes[$root])
                     && !isset($knownHashes[$root][hash_file('sha256', $absolute)])) {
-                    throw new \RuntimeException("duo: code-finalize refuses to remove changed prior-owned file '$root'");
+                    throw new \RuntimeException("wprism: code-finalize refuses to remove changed prior-owned file '$root'");
                 }
                 if (!isset($currentPaths[$root]) && (!@unlink($absolute) || file_exists($absolute))) {
-                    throw new \RuntimeException("duo: code-finalize could not remove owned file '$root'");
+                    throw new \RuntimeException("wprism: code-finalize could not remove owned file '$root'");
                 }
                 if (!isset($currentPaths[$root])) {
                     $removed[] = $root;
@@ -86,13 +86,13 @@ final class CodeOwnershipPruner {
                 continue;
             }
             if (!is_dir($absolute)) {
-                throw new \RuntimeException("duo: code-finalize refuses to mutate a special owned root '$root'");
+                throw new \RuntimeException("wprism: code-finalize refuses to mutate a special owned root '$root'");
             }
             self::prune_owned_directory($absolute, $root, $currentPaths, $removed, $knownHashes);
             if (!PathSafety::has_current_path_at_or_below($root, $currentPaths)
                 && is_dir($absolute)
                 && (!@rmdir($absolute) || is_dir($absolute))) {
-                throw new \RuntimeException("duo: code-finalize could not remove obsolete owned directory '$root'");
+                throw new \RuntimeException("wprism: code-finalize could not remove obsolete owned directory '$root'");
             }
         }
         sort($removed, SORT_STRING);
@@ -169,12 +169,12 @@ final class CodeOwnershipPruner {
         $currentPaths = $inventory['current_paths'];
         foreach ($inventory['roots'] as $root) {
             if (!PathSafety::safe_component_root($root, $roots) || PathSafety::reserved_path($root)) {
-                throw new \RuntimeException("duo: code-finalize refuses unsafe owned root '$root'");
+                throw new \RuntimeException("wprism: code-finalize refuses unsafe owned root '$root'");
             }
             PathSafety::assert_no_symlinked_target_path($root, true, 'code-finalize preflight');
             $absolute = PathSafety::safe_join(WP_CONTENT_DIR, $root);
             if (is_link($absolute)) {
-                throw new \RuntimeException("duo: code-finalize refuses to traverse a symlink at owned root '$root'");
+                throw new \RuntimeException("wprism: code-finalize refuses to traverse a symlink at owned root '$root'");
             }
             if (!file_exists($absolute)) {
                 continue;
@@ -186,7 +186,7 @@ final class CodeOwnershipPruner {
                 continue;
             }
             if (!is_dir($absolute)) {
-                throw new \RuntimeException("duo: code-finalize refuses to mutate a special owned root '$root'");
+                throw new \RuntimeException("wprism: code-finalize refuses to mutate a special owned root '$root'");
             }
             self::assert_prunable_directory($absolute, $root, $currentPaths, $knownHashes);
         }
@@ -201,26 +201,26 @@ final class CodeOwnershipPruner {
     ): void {
         $children = @scandir($absolute);
         if ($children === false) {
-            throw new \RuntimeException("duo: code-finalize cannot read owned component '$relativeRoot'");
+            throw new \RuntimeException("wprism: code-finalize cannot read owned component '$relativeRoot'");
         }
         foreach ($children as $child) {
             if ($child === '.' || $child === '..') {
                 continue;
             }
             if (!PathSafety::safe_component($child)) {
-                throw new \RuntimeException("duo: code-finalize found an unsafe path under owned component '$relativeRoot'");
+                throw new \RuntimeException("wprism: code-finalize found an unsafe path under owned component '$relativeRoot'");
             }
             $relative = $relativeRoot . '/' . $child;
             $path = $absolute . '/' . $child;
             if (is_link($path)) {
-                throw new \RuntimeException("duo: code-finalize refuses to delete a symlink at '$relative'");
+                throw new \RuntimeException("wprism: code-finalize refuses to delete a symlink at '$relative'");
             }
             if (is_dir($path)) {
                 self::assert_prunable_directory($path, $relative, $currentPaths, $knownHashes);
                 continue;
             }
             if (!is_file($path)) {
-                throw new \RuntimeException("duo: code-finalize refuses to mutate a special path '$relative'");
+                throw new \RuntimeException("wprism: code-finalize refuses to mutate a special path '$relative'");
             }
             if (!isset($currentPaths[$relative])) {
                 self::assert_obsolete_file_unchanged($path, $relative, $knownHashes);
@@ -232,7 +232,7 @@ final class CodeOwnershipPruner {
     private static function assert_obsolete_file_unchanged(string $absolute, string $relative, array $knownHashes): void {
         if (isset($knownHashes[$relative])
             && !isset($knownHashes[$relative][hash_file('sha256', $absolute)])) {
-            throw new \RuntimeException("duo: code-finalize refuses to remove changed prior-owned file '$relative'");
+            throw new \RuntimeException("wprism: code-finalize refuses to remove changed prior-owned file '$relative'");
         }
     }
 
@@ -292,13 +292,13 @@ final class CodeOwnershipPruner {
             $expected = $currentTypes[$relative] ?? $historical;
             if (count($expected) !== 1 && isset($currentTypes[$relative])) {
                 throw new \RuntimeException(
-                    "duo: code-finalize current descriptor has conflicting filesystem types for '$relative'"
+                    "wprism: code-finalize current descriptor has conflicting filesystem types for '$relative'"
                 );
             }
             if (is_file($absolute)) {
                 if (!isset($expected['file'])) {
                     throw new \RuntimeException(
-                        "duo: code-finalize refuses recorded directory '$relative' that is now a file"
+                        "wprism: code-finalize refuses recorded directory '$relative' that is now a file"
                     );
                 }
                 continue;
@@ -306,13 +306,13 @@ final class CodeOwnershipPruner {
             if (is_dir($absolute)) {
                 if (!isset($expected['directory'])) {
                     throw new \RuntimeException(
-                        "duo: code-finalize refuses recorded file '$relative' that is now a directory"
+                        "wprism: code-finalize refuses recorded file '$relative' that is now a directory"
                     );
                 }
                 continue;
             }
             throw new \RuntimeException(
-                "duo: code-finalize refuses recorded path '$relative' that is now a special filesystem entry"
+                "wprism: code-finalize refuses recorded path '$relative' that is now a special filesystem entry"
             );
         }
     }
@@ -321,48 +321,48 @@ final class CodeOwnershipPruner {
     private static function prune_owned_directory(string $absolute, string $relativeRoot, array $currentPaths, array &$removed, array $knownHashes): void {
         $children = @scandir($absolute);
         if ($children === false) {
-            throw new \RuntimeException("duo: code-finalize cannot read owned component '$relativeRoot'");
+            throw new \RuntimeException("wprism: code-finalize cannot read owned component '$relativeRoot'");
         }
         foreach ($children as $child) {
             if ($child === '.' || $child === '..') {
                 continue;
             }
             if (!PathSafety::safe_component($child)) {
-                throw new \RuntimeException("duo: code-finalize found an unsafe path under owned component '$relativeRoot'");
+                throw new \RuntimeException("wprism: code-finalize found an unsafe path under owned component '$relativeRoot'");
             }
             $relative = $relativeRoot . '/' . $child;
             $path = $absolute . '/' . $child;
             if (is_link($path)) {
-                throw new \RuntimeException("duo: code-finalize refuses to delete a symlink at '$relative'");
+                throw new \RuntimeException("wprism: code-finalize refuses to delete a symlink at '$relative'");
             }
             if (is_dir($path)) {
                 self::prune_owned_directory($path, $relative, $currentPaths, $removed, $knownHashes);
                 if (!PathSafety::has_current_path_at_or_below($relative, $currentPaths)
                     && is_dir($path)
                     && (!@rmdir($path) || is_dir($path))) {
-                    throw new \RuntimeException("duo: code-finalize could not remove obsolete owned directory '$relative'");
+                    throw new \RuntimeException("wprism: code-finalize could not remove obsolete owned directory '$relative'");
                 }
                 continue;
             }
             if (!is_file($path)) {
-                throw new \RuntimeException("duo: code-finalize refuses to mutate a special path '$relative'");
+                throw new \RuntimeException("wprism: code-finalize refuses to mutate a special path '$relative'");
             }
             if (isset($currentPaths[$relative])) {
                 continue;
             }
             if (isset($knownHashes[$relative])
                 && !isset($knownHashes[$relative][hash_file('sha256', $path)])) {
-                throw new \RuntimeException("duo: code-finalize refuses to remove changed prior-owned file '$relative'");
+                throw new \RuntimeException("wprism: code-finalize refuses to remove changed prior-owned file '$relative'");
             }
             if (!@unlink($path) || file_exists($path)) {
-                throw new \RuntimeException("duo: code-finalize could not remove owned file '$relative'");
+                throw new \RuntimeException("wprism: code-finalize could not remove owned file '$relative'");
             }
             $removed[] = $relative;
         }
     }
 
     /**
-     * Whether a COMPLETED descriptor's owned roots contain any file Duo
+     * Whether a COMPLETED descriptor's owned roots contain any file WPrism
      * never recorded -- a read-only verification question distinct from
      * removal itself, used by baseline completion and mismatch detection.
      *

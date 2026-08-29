@@ -1,5 +1,5 @@
 {
-  "format": "duo-adapter-release-list/v1",
+  "format": "wprism-adapter-release-list/v1",
   "slug": "wpforms-lite",
   "source": "api.wordpress.org/plugins/info/1.2 (action=plugin_information, request[slug]=wpforms-lite, request[fields][versions]=1) queried 2026-08-25; stable tag at query time was 2.0.0.5, 197 versions listed. Each ZIP below was fetched once from downloads.wordpress.org by this recon run and digested with `shasum -a 256`; the raw API response is recorded beside this file as api-wporg.wpforms-lite.json. No digest here was copied from a release history this tool read at run time.",
   "recorded_at": "2026-08-25",

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Onboarding/Adopt.php';
 require_once __DIR__ . '/AdoptCommand.php';
@@ -45,7 +45,7 @@ final class OnboardCommand {
                 throw new \RuntimeException('--handoff-only requires --git-url=<url>');
             }
         } catch (\Throwable $error) {
-            fwrite(STDERR, 'duo: onboard: ' . $error->getMessage() . "\n");
+            fwrite(STDERR, 'wprism: onboard: ' . $error->getMessage() . "\n");
             return 1;
         }
 
@@ -71,7 +71,7 @@ final class OnboardCommand {
                 $args,
                 static function (array $refusal): void {
                     $message = (string) ($refusal['message'] ?? 'initialization refused');
-                    fwrite(STDERR, "duo: $message\n");
+                    fwrite(STDERR, "wprism: $message\n");
                 },
                 $status,
                 static fn(): mixed => fgets(STDIN),
@@ -89,7 +89,7 @@ final class OnboardCommand {
                     ? $handoff($driver, $workspace, (string) $gitUrl)
                     : self::publishAndCheckout($driver, $workspace, (string) $gitUrl);
             } catch (\Throwable $error) {
-                fwrite(STDERR, 'duo: onboard handoff: ' . $error->getMessage() . "\n");
+                fwrite(STDERR, 'wprism: onboard handoff: ' . $error->getMessage() . "\n");
                 return 1;
             }
             self::renderHandoffSuccess($sourceRoot, $driver, $branch);
@@ -104,12 +104,12 @@ final class OnboardCommand {
                 $preflightReceipt = self::assertPristineLocalCheckout($workspace);
                 $handoffPreflight($driver, $workspace, $gitUrl);
             } catch (\Throwable $error) {
-                fwrite(STDERR, 'duo: onboard handoff preflight: ' . $error->getMessage() . "\n");
+                fwrite(STDERR, 'wprism: onboard handoff preflight: ' . $error->getMessage() . "\n");
                 return 1;
             }
         }
 
-        echo "Onboarding 1/3: install Duo transactionally.\n";
+        echo "Onboarding 1/3: install WPrism transactionally.\n";
         $exit = $adopt($driver, [], $sourceRoot);
         if ($exit !== 0) {
             return $exit;
@@ -124,7 +124,7 @@ final class OnboardCommand {
             try {
                 $handoffReceipt = self::assessmentReceipt($workspace, $preflightReceipt);
             } catch (\Throwable $error) {
-                fwrite(STDERR, 'duo: onboard handoff: ' . $error->getMessage() . "\n");
+                fwrite(STDERR, 'wprism: onboard handoff: ' . $error->getMessage() . "\n");
                 return 1;
             }
         }
@@ -137,7 +137,7 @@ final class OnboardCommand {
             try {
                 self::assertPristineLocalCheckout($workspace, $handoffReceipt);
             } catch (\Throwable $error) {
-                fwrite(STDERR, 'duo: onboard handoff: ' . $error->getMessage() . "\n");
+                fwrite(STDERR, 'wprism: onboard handoff: ' . $error->getMessage() . "\n");
                 $handoffResume($sourceRoot, $driver);
                 return 1;
             }
@@ -149,13 +149,13 @@ final class OnboardCommand {
                     ? $handoff($driver, $workspace, $gitUrl)
                     : self::publishAndCheckout($driver, $workspace, $gitUrl, $handoffReceipt);
             } catch (\Throwable $error) {
-                fwrite(STDERR, 'duo: onboard handoff: ' . $error->getMessage() . "\n");
+                fwrite(STDERR, 'wprism: onboard handoff: ' . $error->getMessage() . "\n");
                 $handoffResume($sourceRoot, $driver);
                 return 1;
             }
             self::renderHandoffSuccess($sourceRoot, $driver, $branch);
         } else {
-            $cli = realpath($sourceRoot . '/cli/duo') ?: $sourceRoot . '/cli/duo';
+            $cli = realpath($sourceRoot . '/cli/wprism') ?: $sourceRoot . '/cli/wprism';
             echo "Initialized successfully. Publish it later without repeating adopt/assess/init:\n";
             echo '  ' . escapeshellarg($cli) . ' onboard ' . escapeshellarg($driver->name())
                 . " --handoff-only --git-url=<empty-remote-url>\n";
@@ -246,7 +246,7 @@ final class OnboardCommand {
             . 'branch=$(git -C "$repo" symbolic-ref --quiet --short HEAD) || '
             . '{ echo "target Git worktree has detached HEAD" >&2; exit 1; }; '
             . 'git check-ref-format --branch "$branch" >/dev/null; '
-            . 'receipt_ref="refs/duo/handoff/$branch"; '
+            . 'receipt_ref="refs/wprism/handoff/$branch"; '
             . 'origin_missing=0; if git -C "$repo" remote get-url origin >/dev/null 2>&1; then '
             . 'test "$(git -C "$repo" remote get-url --all origin)" = "$url" || '
             . '{ echo "target origin URL does not match --git-url" >&2; exit 1; }; '
@@ -255,41 +255,41 @@ final class OnboardCommand {
             . 'else origin_missing=1; fi; '
             . 'if head=$(git -C "$repo" rev-parse --verify HEAD 2>/dev/null); then '
             . 'receipt=$(git -C "$repo" rev-parse --verify "$receipt_ref" 2>/dev/null) || '
-            . '{ echo "target history is not an owned Duo handoff revision" >&2; exit 1; }; '
+            . '{ echo "target history is not an owned WPrism handoff revision" >&2; exit 1; }; '
             . 'test "$head" = "$receipt" || { echo "target handoff receipt does not match HEAD" >&2; exit 1; }; '
             . 'git -C "$repo" for-each-ref --format="%(refname) %(objectname)" | '
             . 'awk -v branch="$branch" -v head="$head" \''
             . '$1 == "refs/heads/" branch && $2 == head { next } '
-            . '$1 == "refs/duo/handoff/" branch && $2 == head { next } '
+            . '$1 == "refs/wprism/handoff/" branch && $2 == head { next } '
             . '$1 == "refs/remotes/origin/" branch && $2 == head { next } '
             . '{ exit 1 }\' || { echo "target Git refs exceed the owned handoff boundary" >&2; exit 1; }; '
-            . 'test -z "$(git -C "$repo" status --porcelain -- .gitignore site.duo.json code state media)" || '
+            . 'test -z "$(git -C "$repo" status --porcelain -- .gitignore site.wprism.json code state media)" || '
             . '{ echo "target managed publication tree changed after its handoff receipt" >&2; exit 1; }; '
             . 'else '
             . 'test -z "$(git -C "$repo" for-each-ref --format="%(refname)")" || '
             . '{ echo "target repository has refs before initial publication" >&2; exit 1; }; '
             . 'test -z "$(git -C "$repo" ls-files)" || '
             . '{ echo "target index is not empty before initial publication" >&2; exit 1; }; '
-            . 'git -C "$repo" add .gitignore site.duo.json code state media; '
+            . 'git -C "$repo" add .gitignore site.wprism.json code state media; '
             . 'staged=$(git -C "$repo" diff --cached --name-only); '
             . 'while IFS= read -r path; do case "$path" in '
-            . '.gitignore|site.duo.json|code/*|state/*|media/*) ;; '
+            . '.gitignore|site.wprism.json|code/*|state/*|media/*) ;; '
             . '*) echo "target staged path exceeds the managed publication boundary: $path" >&2; exit 1 ;; esac; '
-            . "done <<DUO_STAGED\n\$staged\nDUO_STAGED\n"
+            . "done <<WPRISM_STAGED\n\$staged\nWPRISM_STAGED\n"
             . 'tree=$(git -C "$repo" write-tree); '
-            . 'head=$(git -C "$repo" -c user.name=duo -c user.email=duo@example.test '
-            . 'commit-tree "$tree" -m "duo: initial managed baseline"); '
+            . 'head=$(git -C "$repo" -c user.name=wprism -c user.email=wprism@example.test '
+            . 'commit-tree "$tree" -m "wprism: initial managed baseline"); '
             . 'printf "start\\ncreate refs/heads/%s %s\\ncreate %s %s\\nprepare\\ncommit\\n" '
             . '"$branch" "$head" "$receipt_ref" "$head" | git -C "$repo" update-ref --stdin; fi; '
             . 'remote=$(git -C "$repo" ls-remote --refs "$url"); '
             . 'expected=$(printf "%s\\trefs/heads/%s" "$head" "$branch"); '
             . 'if [ -n "$remote" ] && [ "$remote" != "$expected" ]; then '
-            . 'echo "Git remote contains refs outside the exact prior Duo publication" >&2; exit 1; fi; '
+            . 'echo "Git remote contains refs outside the exact prior WPrism publication" >&2; exit 1; fi; '
             . 'git -C "$repo" push "$url" "$head:refs/heads/$branch"; '
             . 'if [ "$origin_missing" -eq 1 ]; then git -C "$repo" remote add origin "$url"; fi; '
             . 'git -C "$repo" fetch origin "$branch"; '
             . 'git -C "$repo" branch --set-upstream-to="origin/$branch" "$branch" >/dev/null; '
-            . 'printf "DUO_HANDOFF %s %s\\n" "$branch" "$head"';
+            . 'printf "WPRISM_HANDOFF %s %s\\n" "$branch" "$head"';
         $target = self::captureTargetRaw(
             $driver,
             $script,
@@ -299,7 +299,7 @@ final class OnboardCommand {
         if ($target['exit'] !== 0) {
             throw new \RuntimeException('target Git publish failed: ' . trim($target['stderr']));
         }
-        if (preg_match('/^DUO_HANDOFF ([^\s]+) ([a-f0-9]{40})$/m', $target['stdout'], $published) !== 1) {
+        if (preg_match('/^WPRISM_HANDOFF ([^\s]+) ([a-f0-9]{40})$/m', $target['stdout'], $published) !== 1) {
             throw new \RuntimeException('target Git publish returned no branch/revision receipt');
         }
         $branch = $published[1];
@@ -324,8 +324,8 @@ final class OnboardCommand {
         self::assertPristineLocalCheckout($workspace, $initialReceipt);
         $token = bin2hex(random_bytes(16));
         $backups = [
-            $workspace . '/site.duo.json' => $workspace . '/.git/duo-handoff-site-' . $token,
-            $workspace . '/.gitignore' => $workspace . '/.git/duo-handoff-ignore-' . $token,
+            $workspace . '/site.wprism.json' => $workspace . '/.git/wprism-handoff-site-' . $token,
+            $workspace . '/.gitignore' => $workspace . '/.git/wprism-handoff-ignore-' . $token,
         ];
         $moved = [];
         $checkoutSucceeded = false;
@@ -347,8 +347,8 @@ final class OnboardCommand {
             if ($head['exit'] !== 0 || trim($head['stdout']) !== $revision) {
                 throw new \RuntimeException('local checkout does not match the target publication receipt');
             }
-            if ($initialReceipt['duo'] !== null
-                && self::localTreeReceipt($workspace . '/.duo') !== $initialReceipt['duo']) {
+            if ($initialReceipt['wprism'] !== null
+                && self::localTreeReceipt($workspace . '/.wprism') !== $initialReceipt['wprism']) {
                 throw new \RuntimeException('local assessment artifacts changed during checkout');
             }
         } catch (\Throwable $error) {
@@ -375,32 +375,32 @@ final class OnboardCommand {
     }
 
     private static function assertLocalBoundary(string $workspace): void {
-        self::assertGeneratedFile($workspace . '/site.duo.json', Adopt::repositorySeedBytes());
+        self::assertGeneratedFile($workspace . '/site.wprism.json', Adopt::repositorySeedBytes());
         self::assertGeneratedFile($workspace . '/.gitignore', Adopt::repositoryGitignoreBytes());
     }
 
     /**
-     * @param ?array{branch:string,paths:array<string,array<string,mixed>>,duo:?array<int,array<string,mixed>>} $expected
-     * @return array{branch:string,paths:array<string,array<string,mixed>>,duo:?array<int,array<string,mixed>>}
+     * @param ?array{branch:string,paths:array<string,array<string,mixed>>,wprism:?array<int,array<string,mixed>>} $expected
+     * @return array{branch:string,paths:array<string,array<string,mixed>>,wprism:?array<int,array<string,mixed>>}
      */
     private static function assertPristineLocalCheckout(string $workspace, ?array $expected = null): array {
         if (is_link($workspace . '/.git') || !is_dir($workspace . '/.git')
-            || is_link($workspace . '/.duo-envs.json') || !is_file($workspace . '/.duo-envs.json')) {
+            || is_link($workspace . '/.wprism-envs.json') || !is_file($workspace . '/.wprism-envs.json')) {
             throw new \RuntimeException('local workspace control boundary is not ordinary');
         }
         $entries = array_values(array_diff(scandir($workspace) ?: [], ['.', '..']));
         sort($entries, SORT_STRING);
-        $allowed = ['.duo-envs.json', '.git', '.gitignore', 'site.duo.json'];
-        if (in_array('.duo', $entries, true)) {
-            $allowed[] = '.duo';
+        $allowed = ['.git', '.gitignore', '.wprism-envs.json', 'site.wprism.json'];
+        if (in_array('.wprism', $entries, true)) {
+            $allowed[] = '.wprism';
             sort($allowed, SORT_STRING);
-            if (is_link($workspace . '/.duo') || !is_dir($workspace . '/.duo')) {
+            if (is_link($workspace . '/.wprism') || !is_dir($workspace . '/.wprism')) {
                 throw new \RuntimeException('local assessment artifact boundary is not an ordinary directory');
             }
-            $duoEntries = array_values(array_diff(scandir($workspace . '/.duo') ?: [], ['.', '..']));
-            if ($duoEntries !== ['contract'] || is_link($workspace . '/.duo/contract')
-                || !is_dir($workspace . '/.duo/contract')) {
-                throw new \RuntimeException('local .duo boundary contains artifacts outside the assessment contract directory');
+            $wprismEntries = array_values(array_diff(scandir($workspace . '/.wprism') ?: [], ['.', '..']));
+            if ($wprismEntries !== ['contract'] || is_link($workspace . '/.wprism/contract')
+                || !is_dir($workspace . '/.wprism/contract')) {
+                throw new \RuntimeException('local .wprism boundary contains artifacts outside the assessment contract directory');
             }
         }
         if ($entries !== $allowed) {
@@ -416,13 +416,13 @@ final class OnboardCommand {
             throw new \RuntimeException('local workspace Git state is no longer the empty connect boundary');
         }
         $paths = [];
-        foreach (['.duo-envs.json', '.git', '.gitignore', 'site.duo.json'] as $relative) {
+        foreach (['.wprism-envs.json', '.git', '.gitignore', 'site.wprism.json'] as $relative) {
             $paths[$relative] = self::localPathIdentity($workspace . '/' . $relative);
         }
         $receipt = [
             'branch' => trim($branch['stdout']),
             'paths' => $paths,
-            'duo' => in_array('.duo', $entries, true) ? self::localTreeReceipt($workspace . '/.duo') : null,
+            'wprism' => in_array('.wprism', $entries, true) ? self::localTreeReceipt($workspace . '/.wprism') : null,
         ];
         if ($expected !== null && $receipt !== $expected) {
             throw new \RuntimeException('local workspace changed during target publication; local boundary was not moved');
@@ -431,17 +431,17 @@ final class OnboardCommand {
     }
 
     /**
-     * Assessment may add exactly one ignored `.duo/contract` tree. The
+     * Assessment may add exactly one ignored `.wprism/contract` tree. The
      * connect-created registry, Git boundary, seeds, and branch remain the
      * authority captured before target code is installed or bootstrapped.
      *
-     * @param array{branch:string,paths:array<string,array<string,mixed>>,duo:?array<int,array<string,mixed>>} $before
-     * @return array{branch:string,paths:array<string,array<string,mixed>>,duo:?array<int,array<string,mixed>>}
+     * @param array{branch:string,paths:array<string,array<string,mixed>>,wprism:?array<int,array<string,mixed>>} $before
+     * @return array{branch:string,paths:array<string,array<string,mixed>>,wprism:?array<int,array<string,mixed>>}
      */
     private static function assessmentReceipt(string $workspace, array $before): array {
         $after = self::assertPristineLocalCheckout($workspace);
         if ($after['branch'] !== $before['branch'] || $after['paths'] !== $before['paths']
-            || ($before['duo'] !== null && $after['duo'] !== $before['duo'])) {
+            || ($before['wprism'] !== null && $after['wprism'] !== $before['wprism'])) {
             throw new \RuntimeException('local connect authority changed during adoption or assessment');
         }
         return $after;
@@ -569,7 +569,7 @@ final class OnboardCommand {
         EnvironmentDriver $driver,
         string $branch
     ): void {
-        $cli = realpath($sourceRoot . '/cli/duo') ?: $sourceRoot . '/cli/duo';
+        $cli = realpath($sourceRoot . '/cli/wprism') ?: $sourceRoot . '/cli/wprism';
         echo "Published the initialized target baseline and checked out branch $branch in this workspace.\n";
         echo "Next: inspect the initialized target through the configured environment:\n";
         echo '  ' . escapeshellarg($cli) . ' assess ' . escapeshellarg($driver->name()) . "\n";
@@ -583,8 +583,8 @@ final class OnboardCommand {
     }
 
     private static function handoffResumeMessage(string $sourceRoot, EnvironmentDriver $driver): string {
-        $cli = realpath($sourceRoot . '/cli/duo') ?: $sourceRoot . '/cli/duo';
-        return "Duo installation and initialization completed. Resume only Git publication after correcting the failure:\n"
+        $cli = realpath($sourceRoot . '/cli/wprism') ?: $sourceRoot . '/cli/wprism';
+        return "WPrism installation and initialization completed. Resume only Git publication after correcting the failure:\n"
             . '  ' . escapeshellarg($cli) . ' onboard ' . escapeshellarg($driver->name())
             . " --handoff-only --git-url=<same-remote-url>\n";
     }

@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
-use Duo\Tooling\AdapterPackageProjection;
+use WPrism\Tooling\AdapterPackageProjection;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -17,7 +17,7 @@ final class AdapterPackageProjectionTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->root = sys_get_temp_dir() . '/duo-adapter-projection-' . bin2hex(random_bytes(8));
+        $this->root = sys_get_temp_dir() . '/wprism-adapter-projection-' . bin2hex(random_bytes(8));
         self::makeDirectory($this->root);
         $resolvedRoot = realpath($this->root);
         self::assertNotFalse($resolvedRoot);

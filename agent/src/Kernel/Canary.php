@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Cross-cutting side-effect canary, armed during apply: any content-CRUD hook fire, wp_mail
@@ -46,7 +46,7 @@ final class Canary {
         add_filter('pre_http_request', function ($pre, $args, $url) {
             if (self::$armed) {
                 self::$violations[] = "http request attempted: $url";
-                return new \WP_Error('duo_canary', 'duo canary blocked outbound http during apply');
+                return new \WP_Error('wprism_canary', 'wprism canary blocked outbound http during apply');
             }
             return $pre;
         }, -2147483646, 3);
@@ -100,7 +100,7 @@ final class Canary {
      * Every WordPress bootstrap — wp-cli's included — fires 'init', where core
      * decides whether scheduled cron events are due (wp-includes/cron.php
      * wp_cron()); if so it defers to 'shutdown' and dispatches a non-blocking
-     * HTTP POST to this site's own wp-cron.php (spawn_cron()). None of duo's
+     * HTTP POST to this site's own wp-cron.php (spawn_cron()). None of wprism's
      * own commands (capture/plan/apply) should be the trigger for that
      * background side-effect request — the same posture as the apply canary,
      * extended to the command's own bootstrap. Suppressed for the life of
@@ -117,7 +117,7 @@ final class Canary {
         self::$cronSuppressed = true;
         add_filter('pre_http_request', function ($preempt, $parsed_args, $url) {
             return str_contains($url, '/wp-cron.php')
-                ? new \WP_Error('duo_cron_suppressed', 'duo: suppressed a wp-cron spawn triggered by a duo command')
+                ? new \WP_Error('wprism_cron_suppressed', 'wprism: suppressed a wp-cron spawn triggered by a wprism command')
                 : $preempt;
         }, 10, 3);
     }

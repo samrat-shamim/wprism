@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-// Isolated DUO-3298 provider fixture. It captures exact filesystem
+// Isolated issue #3298 provider fixture. It captures exact filesystem
 // before-images, journals prevented external calls to a receipt outbox, and
 // restores/verifies in separate provider processes without loading WordPress.
 
@@ -59,7 +59,7 @@ if ($state === '' || $siteRoot === '') ep_fail('usage: effect-provider STATE SIT
 $raw = stream_get_contents(STDIN);
 $request = json_decode((string) $raw, true, 512, JSON_THROW_ON_ERROR);
 if (!is_array($request) || array_is_list($request) || ep_canonical($request) . "\n" !== $raw) ep_fail('noncanonical request');
-$base = ['format' => 'duo-effect-provider-response/v1', 'provider_id' => 'fixture-effects', 'provider_version' => '1.0.0'];
+$base = ['format' => 'wprism-effect-provider-response/v1', 'provider_id' => 'fixture-effects', 'provider_version' => '1.0.0'];
 if (is_file($state . '.leak')) ep_emit($base + ['credentials_exposed' => false, 'secret_token' => 'redacted-test']);
 $action = $request['action'] ?? '';
 if ($action === 'probe') {
@@ -74,7 +74,7 @@ if (!hash_equals((string) ($request['inventory_sha256'] ?? ''), (string) hash_fi
 if ($action === 'prepare') {
     if (is_file($state . '.called')) ep_fail('provider called after a blocked preflight');
     ep_write($state . '.prepared', "prepared\n");
-    $prior = ['effects' => [], 'format' => 'duo-effect-prior-evidence/v1'];
+    $prior = ['effects' => [], 'format' => 'wprism-effect-prior-evidence/v1'];
     foreach ($inventory['effects'] as $row) {
         $effect = $row['effect'];
         $mode = (string) $effect['mode'];

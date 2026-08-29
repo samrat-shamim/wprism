@@ -49,7 +49,7 @@ if (!function_exists('wp_upload_dir')) {
     function wp_upload_dir($time = null, $create_dir = true, $refresh_cache = false) {
         return [
             'baseurl' => 'http://example.test/wp-content/uploads',
-            'basedir' => sys_get_temp_dir() . '/duo-regress-uploads',
+            'basedir' => sys_get_temp_dir() . '/wprism-regress-uploads',
         ];
     }
 }
@@ -97,7 +97,7 @@ final class FakeWpdb {
 
     public function get_var($prepared) {
         [$sql, $args] = $this->unwrap($prepared);
-        if (str_contains($sql, 'SELECT local_id FROM') && str_contains($sql, 'duo_map')) {
+        if (str_contains($sql, 'SELECT local_id FROM') && str_contains($sql, 'wprism_map')) {
             [$uuid, $kind] = $args;
             foreach ($this->identity[$kind] ?? [] as $localId => $u) {
                 if ($u === $uuid) {
@@ -106,11 +106,11 @@ final class FakeWpdb {
             }
             return null;
         }
-        if (str_contains($sql, 'SELECT uuid FROM') && str_contains($sql, 'duo_map')) {
+        if (str_contains($sql, 'SELECT uuid FROM') && str_contains($sql, 'wprism_map')) {
             [$kind, $localId] = $args;
             return $this->identity[$kind][(int) $localId] ?? null;
         }
-        // DUO-3212: Capture::ref_target_type()'s two scalar lookups (real
+        // issue #3212: Capture::ref_target_type()'s two scalar lookups (real
         // row's own type, independent of whether it's minted a uuid) —
         // reuses the SAME $postsById/$termsById fixtures get_row() above
         // already has, since both are answering the same underlying
@@ -193,13 +193,13 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/JsonRefs.php';
 require __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
 require __DIR__ . '/../../../../agent/src/Grammar/Blocks.php';
 require __DIR__ . '/../../../../agent/src/Review/Lint.php';
-// DUO-3212: Blocks::queue_unscoped() calls Capture::ref_target_type()
+// issue #3212: Blocks::queue_unscoped() calls Capture::ref_target_type()
 // directly (public static, zero instance dependency — see its own
 // docblock) rather than duplicating the query shapes it encapsulates.
 // Loading the class definition only; nothing here ever instantiates
 // Capture or calls any of its other (WordPress-dependent) methods.
 require __DIR__ . '/../../../../agent/src/Capture/Capture.php';
-// DUO-3259: Blocks.php's $rewriteString closure now unconditionally calls
+// issue #3259: Blocks.php's $rewriteString closure now unconditionally calls
 // Shortcodes::capture_rewrite_text()/apply_rewrite_text() too (the new
 // integration point) -- the class must be loadable wherever Blocks.php
 // is, exactly like Capture.php above. No support/wp-shortcode-stub.php
@@ -209,12 +209,12 @@ require __DIR__ . '/../../../../agent/src/Capture/Capture.php';
 // shortcode_refs.php for the harness that DOES exercise that path.
 require_once __DIR__ . '/../../../../agent/src/Grammar/Shortcodes.php';
 
-use Duo\Canon;
-use Duo\Policy;
-use Duo\Tokens;
-use Duo\Blocks;
-use Duo\Lint;
-use Duo\OptionState;
+use WPrism\Canon;
+use WPrism\Policy;
+use WPrism\Tokens;
+use WPrism\Blocks;
+use WPrism\Lint;
+use WPrism\OptionState;
 
 const MAPPED_UUID = '01980000-0001-7000-8000-000000000001';
 const MAPPED_ID = 501;
@@ -248,9 +248,9 @@ $wpdb->postsById[TEC_SOURCE_ORGANIZER_TWO_ID] = [
 // does NOT resolve) so both branches of "fires regardless of whether the
 // id resolves" get exercised across the two new/changed classes.
 $wpdb->postsById[777] = ['post_type' => 'post', 'post_title' => 'Some Real Post'];
-// DUO-3212: a real row of a type this fixture's bare `new Policy()` does
+// issue #3212: a real row of a type this fixture's bare `new Policy()` does
 // NOT have in scope (post_types() falls back to its default ['post',
-// 'page', 'attachment'] with no site.duo.json override here) — the exact
+// 'page', 'attachment'] with no site.wprism.json override here) — the exact
 // UNSCOPED shape Capture::ref_target_type()'s own docblock uses as its
 // worked example ("elementor_active_kit when elementor_library isn't in
 // policy.post_types"), reused verbatim rather than inventing a new one.
@@ -445,7 +445,7 @@ try {
     $legacyRefused = $e->getMessage();
 }
 check(
-    $legacyRefused === "duo: block 'core/legacy-widget' attribute 'id' is explicitly unsupported: "
+    $legacyRefused === "wprism: block 'core/legacy-widget' attribute 'id' is explicitly unsupported: "
         . 'widget ids are environment-local',
     'B1g: an explicit unsupported block attribute refuses during structural capture rather than leaking unchanged'
 );
@@ -557,7 +557,7 @@ check(str_contains($w, 'core/gallery') && str_contains($w, 'ids') && str_contain
 // wp-image-N innerHTML class rewrite half-applied? The two mechanisms are
 // independent (attrs.id via the block_attrs rule loop; wp-image-N via its
 // own regex + its own id_to_token() call on the class's digits) -- confirm
-// they don't interfere with each other's control flow. DUO-3212 closed the
+// they don't interfere with each other's control flow. issue #3212 closed the
 // asymmetry this case used to document: the class rewrite now drops on
 // unmapped too, matching attrs.id exactly (previously it fail-OPEN, leaking
 // the raw digits unchanged into canonical state).
@@ -568,7 +568,7 @@ $tokens->warnings = [];
 $b4out = Blocks::capture_rewrite($b4in, $policy, $tokens);
 $b4blocks = parse_blocks($b4out);
 check(!array_key_exists('id', $b4blocks[0]['attrs']), 'B4: attrs.id dropped for the unmapped core/image (same as B2)');
-check(!str_contains($b4blocks[0]['innerHTML'], 'wp-image-999'), 'B4: wp-image-999 class in innerHTML is now DROPPED, not left unchanged (DUO-3212 closes the fail-open)');
+check(!str_contains($b4blocks[0]['innerHTML'], 'wp-image-999'), 'B4: wp-image-999 class in innerHTML is now DROPPED, not left unchanged (issue #3212 closes the fail-open)');
 check(!str_contains($b4blocks[0]['innerHTML'], 'wp-image-{{'), 'B4: class was definitely not (even partially) tokenized');
 check(str_contains($b4blocks[0]['innerHTML'], 'class=""'), 'B4: class attribute is empty, not malformed, once its sole class is dropped (got: ' . $b4blocks[0]['innerHTML'] . ')');
 $w = implode(' | ', $tokens->warnings);
@@ -778,7 +778,7 @@ check($b6a === $b6b, 'B6: capture-twice on the same raw (unmapped-ref) content i
 // ======================================================================
 echo "\n== Lint.php: unrewritten_registered_ref ==\n";
 
-$stateDir = sys_get_temp_dir() . '/duo_regress_block_refs_' . bin2hex(random_bytes(4));
+$stateDir = sys_get_temp_dir() . '/wprism_regress_block_refs_' . bin2hex(random_bytes(4));
 register_shutdown_function(fn() => rrmdir($stateDir));
 
 function write_fixture_post(string $stateDir, string $slug, string $uuid, string $body): string {
@@ -887,9 +887,9 @@ Canon::write_file($stateDir . '/options/core.json', Canon::encode(OptionState::d
 // characterization so an extraction cannot silently narrow the historical
 // id-key heuristic while all existing end-to-end fixtures remain green.
 $lintSource = file_get_contents(__DIR__ . '/../../../../agent/src/Review/Lint.php');
-check(class_exists('Duo\\StructuredReferenceScanner'), 'S0: structured scanner collaborator is loadable');
+check(class_exists('WPrism\\StructuredReferenceScanner'), 'S0: structured scanner collaborator is loadable');
 check(str_contains((string) $lintSource, 'StructuredReferenceScanner::scan'), 'S0: Lint delegates structured traversal to the collaborator');
-$directStructured = \Duo\StructuredReferenceScanner::scan(
+$directStructured = \WPrism\StructuredReferenceScanner::scan(
     ['wpseo_opengraph-image-id' => 777],
     'direct-structured.json',
     'meta',

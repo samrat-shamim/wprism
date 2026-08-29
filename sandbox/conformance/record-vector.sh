@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The LIVE half of WP-2.7: leave a replayable `duo-conformance-vector/v1`
+# The LIVE half of WP-2.7: leave a replayable `wprism-conformance-vector/v1`
 # document behind after a sweep that already passed.
 #
 # This is a HOOK ON run.sh, deliberately not a second harness. Everything a
@@ -11,7 +11,7 @@
 #     environments") — a recorder that booted its own pair would be recording
 #     a round trip nobody checked;
 #   * the LIVE rows behind that tree, which only exist while conf1 is up;
-#   * a `duo-adapter-probe/v1` document read off that same running target, at
+#   * a `wprism-adapter-probe/v1` document read off that same running target, at
 #     the exact package-owned artifact version the library installed.
 #
 # docs/agents/live-pair-budget.md allocates order 4 to exactly this: one
@@ -66,14 +66,14 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"; rm -f "${CONF_REPO1}/.tmp-record-vector.php" "${CONF_REPO1}/.tmp-record-vector-tables.json"' EXIT
 
 echo "record-vector: probing $TABLES on conf1"
-wp_conf1 duo adapter-probe --tables="$TABLES" --format=json | awk 'NF { line=$0 } END { print line }' > "$WORK/probe.json"
-jq -e '.format == "duo-adapter-probe/v1" and .authority == false' "$WORK/probe.json" >/dev/null \
-  || { echo "FAIL: adapter-probe did not answer with a duo-adapter-probe/v1 document" >&2; exit 1; }
+wp_conf1 wprism adapter-probe --tables="$TABLES" --format=json | awk 'NF { line=$0 } END { print line }' > "$WORK/probe.json"
+jq -e '.format == "wprism-adapter-probe/v1" and .authority == false' "$WORK/probe.json" >/dev/null \
+  || { echo "FAIL: adapter-probe did not answer with a wprism-adapter-probe/v1 document" >&2; exit 1; }
 
 # The row dump runs on the TARGET because that is the only place the rows are.
 # It reads through $wpdb with no plugin API involved: a vector records what the
 # database held when capture read it, which is the state the offline replay
-# seeds FakeWpdb with. duo_map is restricted to the id_kinds this manifest
+# seeds FakeWpdb with. wprism_map is restricted to the id_kinds this manifest
 # declares so one adapter's vector never carries another's identity.
 jq -c '{tables: ((.tables // {}) | keys), id_kinds: [(.tables // {})[] | .id_kind // empty]}' \
   "$MANIFEST_JSON" > "${CONF_REPO1}/.tmp-record-vector-tables.json"
@@ -94,7 +94,7 @@ foreach ($spec['tables'] as $table) {
     }
     $result = $wpdb->get_results("SELECT * FROM `$prefixed`", ARRAY_A);
     if ((string) $wpdb->last_error !== '') {
-        throw new RuntimeException("duo: conformance vector could not read $prefixed: {$wpdb->last_error}");
+        throw new RuntimeException("wprism: conformance vector could not read $prefixed: {$wpdb->last_error}");
     }
     $rows[$table] = $result ?: [];
 }
@@ -105,25 +105,25 @@ if ($kinds !== []) {
     $wpdb->last_error = '';
     $map = $wpdb->get_results(
         $wpdb->prepare(
-            "SELECT uuid, entity_type, id_kind, local_id FROM {$wpdb->prefix}duo_map "
+            "SELECT uuid, entity_type, id_kind, local_id FROM {$wpdb->prefix}wprism_map "
             . "WHERE id_kind IN ($in) ORDER BY id_kind ASC, local_id ASC",
             $kinds
         ),
         ARRAY_A
     );
     if ((string) $wpdb->last_error !== '') {
-        throw new RuntimeException("duo: conformance vector could not read duo_map: {$wpdb->last_error}");
+        throw new RuntimeException("wprism: conformance vector could not read wprism_map: {$wpdb->last_error}");
     }
 }
 echo wp_json_encode([
-    'agent_version' => defined('DUO_AGENT_VERSION') ? DUO_AGENT_VERSION : 'unknown',
-    'ledger' => ['duo_map' => $map ?: []],
+    'agent_version' => defined('WPRISM_AGENT_VERSION') ? WPRISM_AGENT_VERSION : 'unknown',
+    'ledger' => ['wprism_map' => $map ?: []],
     'rows' => $rows,
-    'spec_version' => defined('DUO_SPEC_VERSION') ? DUO_SPEC_VERSION : 0,
+    'spec_version' => defined('WPRISM_SPEC_VERSION') ? WPRISM_SPEC_VERSION : 0,
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 PHPEOF
 
-echo "record-vector: dumping declared rows and duo_map from conf1"
+echo "record-vector: dumping declared rows and wprism_map from conf1"
 wp_conf1 eval-file /siterepo/.tmp-record-vector.php | awk 'NF { line=$0 } END { print line }' > "$WORK/rows.json"
 jq -e 'has("rows") and has("ledger")' "$WORK/rows.json" >/dev/null \
   || { echo "FAIL: the row dump did not answer with rows and ledger" >&2; exit 1; }

@@ -7,13 +7,13 @@
  */
 
 namespace {
-    final class DuoFakeTheme {
+    final class WPrismFakeTheme {
         public function __construct(private string $slug) {}
         public function exists(): bool { return in_array($this->slug, ['child', 'correct-parent'], true); }
         public function get(string $field): string { return $field === 'Version' ? '1.0.0' : ''; }
     }
 
-    $duoTemplateFixtureOptions = [
+    $wprismTemplateFixtureOptions = [
         'stylesheet' => 'child',
         'template' => 'wrong-parent',
         'active_plugins' => [],
@@ -23,13 +23,13 @@ namespace {
     function get_plugins(): array { return []; }
     function is_wp_error($value): bool { return false; }
     function get_option(string $name) {
-        global $duoTemplateFixtureOptions;
-        return $duoTemplateFixtureOptions[$name] ?? null;
+        global $wprismTemplateFixtureOptions;
+        return $wprismTemplateFixtureOptions[$name] ?? null;
     }
-    function wp_get_theme(string $slug): DuoFakeTheme { return new DuoFakeTheme($slug); }
+    function wp_get_theme(string $slug): WPrismFakeTheme { return new WPrismFakeTheme($slug); }
 }
 
-namespace Duo {
+namespace WPrism {
     final class Policy {
         public function version_ranges(): array { return []; }
         public function theme_ranges(): array { return []; }

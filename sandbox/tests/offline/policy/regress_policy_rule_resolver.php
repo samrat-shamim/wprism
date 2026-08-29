@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline characterization of Policy's pure exact/pattern rule-selection
- * kernel (DUO-3348 slice 54).
+ * kernel (issue #3348 slice 54).
  */
 declare(strict_types=1);
 
@@ -16,7 +16,7 @@ $check = static function (bool $ok, string $message) use (&$failures): void {
 };
 
 $child = proc_open(
-    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\Duo\\PolicyRuleResolver::class, false) && !class_exists(\\Duo\\Policy::class, false) && !class_exists(\\Duo\\RepositoryCompiler::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $resolverPath],
+    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\WPrism\\PolicyRuleResolver::class, false) && !class_exists(\\WPrism\\Policy::class, false) && !class_exists(\\WPrism\\RepositoryCompiler::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $resolverPath],
     [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
     $pipes
 );
@@ -36,7 +36,7 @@ $check(
 
 require_once $resolverPath;
 
-use Duo\PolicyRuleResolver;
+use WPrism\PolicyRuleResolver;
 
 $withOptionAutoload = static function (array $rule, array $source): array {
     if (!array_key_exists('autoload', $rule) && array_key_exists('option_autoload', $source)) {
@@ -77,7 +77,7 @@ $resolver = new PolicyRuleResolver($site, $manifests, $withOptionAutoload);
 $check(
     $resolver->details('options', 'site_exact') === [
         'rule' => ['class' => 'authored', 'autoload' => 'no'],
-        'source' => 'site.duo.json',
+        'source' => 'site.wprism.json',
     ]
         && $resolver->details('options', 'shared') === [
             'rule' => ['class' => 'derived', 'autoload' => 'yes'],
@@ -89,7 +89,7 @@ $check(
         ]
         && $resolver->details('post_meta', 'site_meta') === [
             'rule' => ['class' => 'derived'],
-            'source' => 'site.duo.json',
+            'source' => 'site.wprism.json',
         ],
     'site overrides, core-yields-to-plugin precedence, source provenance, and option-autoload normalization remain exact'
 );
@@ -125,7 +125,7 @@ require_once "$root/agent/src/Kernel/Canon.php";
 require_once "$root/agent/src/Kernel/OptionState.php";
 require_once "$root/agent/src/Policy/Policy.php";
 
-$policy = new Duo\Policy();
+$policy = new WPrism\Policy();
 $policy->site = $site;
 $policy->manifests = $manifests;
 $check(
@@ -133,7 +133,7 @@ $check(
         && $policy->post_meta_rule_details('meta_pattern_example') === $resolver->details('post_meta', 'meta_pattern_example')
         && $policy->term_meta_rule('meta_pattern_example') === $resolver->details('term_meta', 'meta_pattern_example')['rule']
         && $policy->user_meta_rule('meta_pattern_example') === null
-        && Duo\Policy::closed_vocabularies()['pattern_keys'] === PolicyRuleResolver::pattern_keys(),
+        && WPrism\Policy::closed_vocabularies()['pattern_keys'] === PolicyRuleResolver::pattern_keys(),
     'Policy preserves public exact/pattern rule facades and publishes the resolver-owned pattern vocabulary'
 );
 $policy->site['policy']['options']['site_exact'] = ['class' => 'runtime'];
@@ -141,7 +141,7 @@ $policy->manifests[1]['options']['plugin_late'] = ['class' => 'authored'];
 $check(
     $policy->option_rule_details('site_exact') === [
         'rule' => ['class' => 'runtime', 'autoload' => 'no'],
-        'source' => 'site.duo.json',
+        'source' => 'site.wprism.json',
     ]
         && $policy->option_rule('plugin_late') === ['class' => 'authored', 'autoload' => 'yes'],
     'Policy constructs a fresh resolver per query so mutable fixture site/manifests remain observable'

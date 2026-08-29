@@ -1,52 +1,52 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 /**
  * Read-only proof that one adoption-capable driver points at a safe target.
  *
  * DriverCapabilityReport remains deliberately target-free. This report is
- * the second gate: `duo adopt` obtains it after static negotiation and before
+ * the second gate: `wprism adopt` obtains it after static negotiation and before
  * allocating an archive, creating a directory, or changing target bytes.
  */
 final class BootstrapEligibilityReport {
-    public const FORMAT = 'duo-bootstrap-eligibility/v1';
+    public const FORMAT = 'wprism-bootstrap-eligibility/v1';
 
     /**
      * Discover the real standard MU leaf while shadowing it before WordPress
      * can load any existing MU plugin. A pre-adoption target has no protected
-     * Duo agent yet, so this is intentionally smaller than CodeDeploy's normal
+     * WPrism agent yet, so this is intentionally smaller than CodeDeploy's normal
      * control bootstrap and refuses an explicitly relocated MU directory.
      */
     private const READ_ONLY_BOOTSTRAP = <<<'PHP'
-$duoWpRoot = (string) (\WP_CLI::get_runner()->config['path'] ?? '');
-if ($duoWpRoot === '') {
-    $duoWpRoot = (string) getcwd();
+$wprismWpRoot = (string) (\WP_CLI::get_runner()->config['path'] ?? '');
+if ($wprismWpRoot === '') {
+    $wprismWpRoot = (string) getcwd();
 }
-$duoResolvedRoot = realpath($duoWpRoot);
-if ($duoResolvedRoot === false) {
-    throw new \RuntimeException('duo: bootstrap eligibility could not resolve the WordPress root');
+$wprismResolvedRoot = realpath($wprismWpRoot);
+if ($wprismResolvedRoot === false) {
+    throw new \RuntimeException('wprism: bootstrap eligibility could not resolve the WordPress root');
 }
-$duoWpRoot = rtrim($duoResolvedRoot, '/');
+$wprismWpRoot = rtrim($wprismResolvedRoot, '/');
 if (defined('WPMU_PLUGIN_DIR')) {
-    throw new \RuntimeException('duo: bootstrap eligibility started with WPMU_PLUGIN_DIR already defined');
+    throw new \RuntimeException('wprism: bootstrap eligibility started with WPMU_PLUGIN_DIR already defined');
 }
-\WP_CLI::add_hook('after_wp_config_load', static function () use ($duoWpRoot): void {
+\WP_CLI::add_hook('after_wp_config_load', static function () use ($wprismWpRoot): void {
     if (defined('SUNRISE')) {
-        throw new \RuntimeException('duo: bootstrap eligibility cannot isolate a configured SUNRISE loader');
+        throw new \RuntimeException('wprism: bootstrap eligibility cannot isolate a configured SUNRISE loader');
     }
-    $duoStandardContent = $duoWpRoot . '/wp-content';
-    $duoConfiguredContent = defined('WP_CONTENT_DIR')
+    $wprismStandardContent = $wprismWpRoot . '/wp-content';
+    $wprismConfiguredContent = defined('WP_CONTENT_DIR')
         ? rtrim(str_replace('\\', '/', (string) constant('WP_CONTENT_DIR')), '/')
-        : $duoStandardContent;
-    if ($duoConfiguredContent !== $duoStandardContent || defined('WPMU_PLUGIN_DIR')) {
+        : $wprismStandardContent;
+    if ($wprismConfiguredContent !== $wprismStandardContent || defined('WPMU_PLUGIN_DIR')) {
         throw new \RuntimeException(
-            'duo: local bootstrap eligibility requires the standard wp-content/mu-plugins control-plane root'
+            'wprism: local bootstrap eligibility requires the standard wp-content/mu-plugins control-plane root'
         );
     }
-    define('DUO_BOOTSTRAP_WPMU_PLUGIN_DIR', $duoStandardContent . '/mu-plugins');
-    define('WPMU_PLUGIN_DIR', $duoStandardContent . '/.duo-bootstrap-read-only-' . bin2hex(random_bytes(16)));
+    define('WPRISM_BOOTSTRAP_WPMU_PLUGIN_DIR', $wprismStandardContent . '/mu-plugins');
+    define('WPMU_PLUGIN_DIR', $wprismStandardContent . '/.wprism-bootstrap-read-only-' . bin2hex(random_bytes(16)));
 });
 PHP;
 
@@ -78,7 +78,7 @@ PHP;
             $sourceOk
                 ? 'the controller source contains the complete fixed control-plane artifact'
                 : 'the controller source is missing part of the fixed control-plane artifact',
-            'restore this Duo checkout\'s agent, adapter packages, platform adapter library, assembler, and complete recovery runtime, then retry'
+            'restore this WPrism checkout\'s agent, adapter packages, platform adapter library, assembler, and complete recovery runtime, then retry'
         );
         if (!$sourceOk) {
             return self::finish($environment, $driverId, '[invalid]', $checks, null);
@@ -101,8 +101,8 @@ PHP;
             return self::finish($environment, $driverId, '[invalid]', $checks, null);
         }
 
-        $reachable = self::capture(static fn(): array => $transport->captureRaw('echo duo-reachable'));
-        $reachableOk = $reachable['exit'] === 0 && trim($reachable['stdout']) === 'duo-reachable';
+        $reachable = self::capture(static fn(): array => $transport->captureRaw('echo wprism-reachable'));
+        $reachableOk = $reachable['exit'] === 0 && trim($reachable['stdout']) === 'wprism-reachable';
         $checks[] = self::check(
             'transport_reachable',
             $reachableOk,
@@ -132,7 +132,7 @@ PHP;
         }
 
         $mu = self::capture(static fn(): array => $transport->captureWp(
-            self::controlArgs(['eval', 'echo DUO_BOOTSTRAP_WPMU_PLUGIN_DIR;'])
+            self::controlArgs(['eval', 'echo WPRISM_BOOTSTRAP_WPMU_PLUGIN_DIR;'])
         ));
         $muDir = trim($mu['stdout']);
         $muOk = $mu['exit'] === 0
@@ -170,9 +170,9 @@ PHP;
                 'control_authority',
                 $authorityOk,
                 $authorityOk
-                    ? 'the local target has no pre-existing Duo control plane or recovery authority'
-                    : 'local bootstrap is initial-only and found a pre-existing Duo control-plane or authority path',
-                'use the existing environment update path for an installed Duo target, or move the prior control plane aside only after operator review'
+                    ? 'the local target has no pre-existing WPrism control plane or recovery authority'
+                    : 'local bootstrap is initial-only and found a pre-existing WPrism control-plane or authority path',
+                'use the existing environment update path for an installed WPrism target, or move the prior control plane aside only after operator review'
             );
             $topologyOk = $authorityOk;
         }
@@ -269,18 +269,17 @@ PHP;
     private static function topologyScript(string $wp, string $mu, string $repo): string {
         $q = static fn(string $value): string => escapeshellarg($value);
         $dirTargets = [
-            $mu . '/duo',
-            $mu . '/manifests',
-            $mu . '/duo-control',
-            $repo . '/.duo',
-            $repo . '/.duo/control',
-            $repo . '/.duo/control/recovery-runtime',
-            $repo . '/.duo/rollback',
+            $mu . '/wprism',
+            $mu . '/wprism-control',
+            $repo . '/.wprism',
+            $repo . '/.wprism/control',
+            $repo . '/.wprism/control/recovery-runtime',
+            $repo . '/.wprism/rollback',
         ];
         $fileTargets = [
-            $mu . '/duo-loader.php',
-            $mu . '/duo-control/adapter-revocations.json',
-            $repo . '/site.duo.json',
+            $mu . '/wprism-loader.php',
+            $mu . '/wprism-control/adapter-revocations.json',
+            $repo . '/site.wprism.json',
         ];
 
         $script = 'set -u' . "\n"
@@ -306,12 +305,11 @@ PHP;
                 . "[ ! -e $quoted ] || [ -f $quoted ] || { echo destination_type; exit 0; }; "
                 . 'check_ancestors ' . $q(dirname($path)) . " || exit 0; check_parent_write $quoted || exit 0\n";
         }
-        $script .= "[ ! -e \"\$mu/.duo-adopt-lock\" ] || { echo adoption_in_progress; exit 0; }\n"
-            . "if [ -e \"\$mu\" ]; then stale=\$(find \"\$mu\" -maxdepth 1 \( -name '.duo-adopt-txn-*' -o -name '.duo-new-*' -o -name '.duo-old-*' -o -name '.duo-loader-new-*' -o -name '.duo-loader-old-*' -o -name '.duo-manifests-old-*' \) -print -quit 2>/dev/null) || { echo topology_unreadable; exit 0; }; [ -z \"\$stale\" ] || { echo stale_transaction; exit 0; }; fi\n"
-            . "if [ -e \"\$repo\" ]; then stale=\$(find \"\$repo\" -maxdepth 1 \( -name '.duo-new-*' -o -name '.duo-old-*' -o -name '.site.duo.new-*' \) -print -quit 2>/dev/null) || { echo topology_unreadable; exit 0; }; [ -z \"\$stale\" ] || { echo stale_transaction; exit 0; }; fi\n"
-            . "for tree in \"\$mu/duo\" \"\$mu/manifests\" \"\$mu/duo-control\" \"\$repo/.duo\"; do if [ -e \"\$tree\" ]; then [ -r \"\$tree\" ] || { echo source_unreadable; exit 0; }; special=\$(find \"\$tree\" ! -type d ! -type f -print -quit 2>/dev/null) || { echo source_unreadable; exit 0; }; [ -z \"\$special\" ] || { echo control_special; exit 0; }; unreadable=\$(find \"\$tree\" -type f ! -exec test -r '{}' \; -print -quit 2>/dev/null) || { echo source_unreadable; exit 0; }; [ -z \"\$unreadable\" ] || { echo source_unreadable; exit 0; }; fi; done\n"
-            . "for file in \"\$mu/duo-loader.php\" \"\$repo/site.duo.json\"; do [ ! -e \"\$file\" ] || [ -r \"\$file\" ] || { echo source_unreadable; exit 0; }; done\n"
-            . "legacy_revocations=\"\$mu/manifests/capabilities/adapter-revocations.json\"; durable_revocations=\"\$mu/duo-control/adapter-revocations.json\"; if [ -e \"\$legacy_revocations\" ] || [ -L \"\$legacy_revocations\" ]; then [ -f \"\$legacy_revocations\" ] && [ ! -L \"\$legacy_revocations\" ] && [ -r \"\$legacy_revocations\" ] && [ -f \"\$durable_revocations\" ] && [ ! -L \"\$durable_revocations\" ] && [ -r \"\$durable_revocations\" ] && php -r '\$a = @file_get_contents(\$argv[1]); \$b = @file_get_contents(\$argv[2]); exit(is_string(\$a) && is_string(\$b) && hash_equals(\$a, \$b) ? 0 : 1);' \"\$legacy_revocations\" \"\$durable_revocations\" || { echo legacy_revocation_unmigrated; exit 0; }; fi\n"
+        $script .= "[ ! -e \"\$mu/.wprism-adopt-lock\" ] || { echo adoption_in_progress; exit 0; }\n"
+            . "if [ -e \"\$mu\" ]; then stale=\$(find \"\$mu\" -maxdepth 1 \( -name '.wprism-adopt-txn-*' -o -name '.wprism-new-*' -o -name '.wprism-old-*' -o -name '.wprism-loader-new-*' -o -name '.wprism-loader-old-*' \) -print -quit 2>/dev/null) || { echo topology_unreadable; exit 0; }; [ -z \"\$stale\" ] || { echo stale_transaction; exit 0; }; fi\n"
+            . "if [ -e \"\$repo\" ]; then stale=\$(find \"\$repo\" -maxdepth 1 \( -name '.wprism-new-*' -o -name '.wprism-old-*' -o -name '.site.wprism.new-*' \) -print -quit 2>/dev/null) || { echo topology_unreadable; exit 0; }; [ -z \"\$stale\" ] || { echo stale_transaction; exit 0; }; fi\n"
+            . "for tree in \"\$mu/wprism\" \"\$mu/wprism-control\" \"\$repo/.wprism\"; do if [ -e \"\$tree\" ]; then [ -r \"\$tree\" ] || { echo source_unreadable; exit 0; }; special=\$(find \"\$tree\" ! -type d ! -type f -print -quit 2>/dev/null) || { echo source_unreadable; exit 0; }; [ -z \"\$special\" ] || { echo control_special; exit 0; }; unreadable=\$(find \"\$tree\" -type f ! -exec test -r '{}' \; -print -quit 2>/dev/null) || { echo source_unreadable; exit 0; }; [ -z \"\$unreadable\" ] || { echo source_unreadable; exit 0; }; fi; done\n"
+            . "for file in \"\$mu/wprism-loader.php\" \"\$repo/site.wprism.json\"; do [ ! -e \"\$file\" ] || [ -r \"\$file\" ] || { echo source_unreadable; exit 0; }; done\n"
             . "echo safe\n";
         return $script;
     }
@@ -369,20 +367,16 @@ PHP;
                 'correct wp_path and its ownership before retrying adoption',
             ],
             'source_unreadable' => [
-                'the prior Duo authority tree cannot be safely read for staging',
-                'repair ownership and read access for repo_path/.duo, then retry',
-            ],
-            'legacy_revocation_unmigrated' => [
-                'the legacy flat library carries adapter revocations without a byte-identical durable control copy',
-                'copy manifests/capabilities/adapter-revocations.json byte-for-byte to duo-control/adapter-revocations.json, then retry',
+                'the prior WPrism authority tree cannot be safely read for staging',
+                'repair ownership and read access for repo_path/.wprism, then retry',
             ],
             'adoption_in_progress' => [
                 'an adoption lock already exists',
-                'inspect the existing .duo-adopt-lock and recover or finish that adoption before retrying',
+                'inspect the existing .wprism-adopt-lock and recover or finish that adoption before retrying',
             ],
             'stale_transaction' => [
                 'stale adoption transaction paths require operator review',
-                'inspect and recover the stale .duo-adopt-* paths before retrying; do not delete an active transaction',
+                'inspect and recover the stale .wprism-adopt-* paths before retrying; do not delete an active transaction',
             ],
             default => [
                 'the target filesystem eligibility probe did not return a recognized result',
@@ -404,8 +398,8 @@ PHP;
     private static function sourceComplete(string $sourceRoot): bool {
         $root = rtrim($sourceRoot, '/');
         $files = [
-            '/agent/duo.php',
-            '/agent/duo-loader.php',
+            '/agent/wprism.php',
+            '/agent/wprism-loader.php',
             '/platform/adapter-library/core/manifest.json',
             '/platform/adapter-library/capabilities/platform.json',
             '/tools/src/AdapterPackageProjection.php',
@@ -433,7 +427,7 @@ PHP;
         }
         require_once $root . '/tools/src/AdapterPackageProjection.php';
         try {
-            \Duo\Tooling\AdapterPackageProjection::plan($root);
+            \WPrism\Tooling\AdapterPackageProjection::plan($root);
         } catch (\Throwable) {
             return false;
         }
@@ -475,7 +469,7 @@ PHP;
     }
 
     private static function localControlPlaneAbsent(string $mu, string $repo): bool {
-        foreach ([$mu . '/duo', $mu . '/duo-loader.php', $mu . '/manifests', $repo . '/.duo'] as $path) {
+        foreach ([$mu . '/wprism', $mu . '/wprism-loader.php', $mu . '/wprism-control', $repo . '/.wprism'] as $path) {
             if (file_exists($path) || is_link($path)) {
                 return false;
             }

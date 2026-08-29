@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 if (!class_exists(Canary::class, false)) {
     require_once __DIR__ . '/../Kernel/Canary.php';
@@ -33,7 +33,7 @@ final class Orphans {
         $decl = $tables[$table] ?? null;
         if ($decl === null) {
             throw new \RuntimeException(
-                "duo: orphans requires a declared authored_snapshot table; '$table' is not one in this repository"
+                "wprism: orphans requires a declared authored_snapshot table; '$table' is not one in this repository"
             );
         }
         Snapshot::assert_row_schema($table, $decl);
@@ -51,18 +51,18 @@ final class Orphans {
             ];
         }
         if ($delete && $reparent !== '') {
-            throw new \RuntimeException('duo: orphans accepts exactly one of --delete or --reparent=<column>=<target-local-id>');
+            throw new \RuntimeException('wprism: orphans accepts exactly one of --delete or --reparent=<column>=<target-local-id>');
         }
         if (($decl['identity']['mode'] ?? 'mapped') === 'composite_ref') {
             throw new \RuntimeException(
-                "duo: mutation of composite_ref orphan rows in '$table' is not supported by scalar --row selection; "
+                "wprism: mutation of composite_ref orphan rows in '$table' is not supported by scalar --row selection; "
                 . 'delete/recreate the canonical join fact instead'
             );
         }
 
         $rowArg = trim((string) ($opts['row'] ?? ''));
         if (!preg_match('/^[1-9][0-9]*$/', $rowArg)) {
-            throw new \RuntimeException("duo: --row=<positive-local-id> is required for '$table' repair");
+            throw new \RuntimeException("wprism: --row=<positive-local-id> is required for '$table' repair");
         }
         $localId = (int) $rowArg;
         $selected = null;
@@ -73,7 +73,7 @@ final class Orphans {
             }
         }
         if ($selected === null) {
-            throw new \RuntimeException("duo: $table {$decl['pk']}=$localId is not currently orphaned; no mutation attempted");
+            throw new \RuntimeException("wprism: $table {$decl['pk']}=$localId is not currently orphaned; no mutation attempted");
         }
 
         $action = $delete ? 'delete' : 'reparent';
@@ -93,26 +93,26 @@ final class Orphans {
                 [$column, $targetId] = self::parse_reparent($reparent);
                 $kind = self::ref_kind($decl, $column);
                 if ($kind === null) {
-                    throw new \RuntimeException("duo: '$column' is not a declared structural ref column of '$table'");
+                    throw new \RuntimeException("wprism: '$column' is not a declared structural ref column of '$table'");
                 }
                 if (Ledger::uuid_for($targetId, $kind) === null
                     || !self::target_exists($tables, $kind, $targetId)) {
                     throw new \RuntimeException(
-                        "duo: cannot reparent $table {$decl['pk']}=$localId: target $kind local id $targetId is unmanaged or absent"
+                        "wprism: cannot reparent $table {$decl['pk']}=$localId: target $kind local id $targetId is unmanaged or absent"
                     );
                 }
                 Snapshot::reparent_local_row($policy, $table, $localId, $column, $targetId);
                 foreach (self::scan($table, $decl) as $remaining) {
                     if (($remaining['local_id'] ?? null) === $localId) {
                         throw new \RuntimeException(
-                            "duo: reparent left $table {$decl['pk']}=$localId with unresolved structural refs; transaction rolled back"
+                            "wprism: reparent left $table {$decl['pk']}=$localId with unresolved structural refs; transaction rolled back"
                         );
                     }
                 }
             }
             $violations = Canary::violations();
             if ($violations) {
-                throw new \RuntimeException('duo: orphans canary violation: ' . implode('; ', $violations));
+                throw new \RuntimeException('wprism: orphans canary violation: ' . implode('; ', $violations));
             }
             Db::commit('orphans transaction commit');
             $transactionStarted = false;
@@ -154,7 +154,7 @@ final class Orphans {
         $prefixed = $wpdb->prefix . self::name($table);
         $live = $wpdb->get_results("SELECT $select FROM `$prefixed` ORDER BY $order", ARRAY_A) ?: [];
         if ($wpdb->last_error) {
-            throw new \RuntimeException("duo: orphan scan failed for '$table'");
+            throw new \RuntimeException("wprism: orphan scan failed for '$table'");
         }
 
         $out = [];
@@ -188,7 +188,7 @@ final class Orphans {
 
     private static function parse_reparent(string $value): array {
         if (!preg_match('/^([A-Za-z0-9_]+)=([1-9][0-9]*)$/', $value, $m)) {
-            throw new \RuntimeException('duo: --reparent must be <column>=<positive-target-local-id>');
+            throw new \RuntimeException('wprism: --reparent must be <column>=<positive-target-local-id>');
         }
         return [$m[1], (int) $m[2]];
     }

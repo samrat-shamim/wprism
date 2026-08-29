@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
@@ -18,11 +18,11 @@ require_once __DIR__ . '/../Plan/HumanViewLimit.php';
 require_once __DIR__ . '/AssessCommand.php';
 require_once __DIR__ . '/CommandOutput.php';
 
-use Duo\Canon;
-use Duo\CommandRefusalException;
+use WPrism\Canon;
+use WPrism\CommandRefusalException;
 
 /**
- * `duo contract <env> show|propose|accept` — the per-site application
+ * `wprism contract <env> show|propose|accept` — the per-site application
  * contract as an operator verb (round-3 MUP §2.6, §3; verb boundary per the
  * module map's rule 9).
  *
@@ -50,7 +50,7 @@ use Duo\CommandRefusalException;
  *
  * **`attest`** is the fourth posture and the newest. It signs the ALREADY
  * ACCEPTED contract under an Ed25519 key the operator provisioned in this
- * repository's own `.duo/contract/authorities.json`, so the document carries
+ * repository's own `.wprism/contract/authorities.json`, so the document carries
  * a machine-checkable statement of who approved it and until when. It
  * contacts nothing, it never proposes or edits declarations — attest signs
  * what review produced — and on every site that has not provisioned a key it
@@ -72,10 +72,10 @@ use Duo\CommandRefusalException;
  *
  * Staleness is a claim about the SITE, so it must never be the way an
  * environment mix-up is reported. The proposal lives at
- * `.duo/contract/<env>/proposed.json` and stamps the environment it was
+ * `.wprism/contract/<env>/proposed.json` and stamps the environment it was
  * generated for, and `accept` compares that stamp against the environment
  * it was invoked for before it contacts anything
- * (`contract_proposal_environment_mismatch`). Before DUO-3503 the one
+ * (`contract_proposal_environment_mismatch`). Before issue #3503 the one
  * shared slot made a cross-environment overwrite surface as
  * `contract_proposal_stale` — "the site returns something different now"
  * about a site that had not moved.
@@ -109,7 +109,7 @@ final class ContractCommand {
     /** What the signed document says it is, when the operator states nothing else. */
     private const DEFAULT_REASON =
         'attested under an operator-provisioned contract trust root: a customer-organization '
-        . 'statement about this site, explicitly not a Duo endorsement';
+        . 'statement about this site, explicitly not a WPrism endorsement';
 
     /**
      * @param list<string> $extra everything after `<env>`
@@ -127,7 +127,7 @@ final class ContractCommand {
         $json = AssessCommand::wantsJson($extra);
         try {
             $subcommand = self::subcommand($extra);
-            // DUO-3521: `show` was already bounded at a hardcoded 50; what it
+            // issue #3521: `show` was already bounded at a hardcoded 50; what it
             // lacked was the flag every other bounded view publishes. The
             // grammar and the refusal are the shared ones, so an operator
             // learns `--limit=<1..200>` once.
@@ -165,7 +165,7 @@ final class ContractCommand {
             throw new CommandRefusalException(
                 'contract_missing',
                 'this site repository has no accepted application contract',
-                'run duo contract <env> propose, review the proposal, then duo contract <env> accept'
+                'run wprism contract <env> propose, review the proposal, then wprism contract <env> accept'
             );
         }
         $projection = $store->readProjection();
@@ -193,8 +193,8 @@ final class ContractCommand {
         $result = self::freshAssessment($driver, $sourceRoot, $hostCatalog, $clock);
         // A proposal binds this checkout's provenance to the target's
         // verdicts, so proposing across two different reviewed libraries is
-        // the unsafe act DUO-3484 gates (AssessReport::
-        // requireDispositionsAgree()). `duo assess` still answers under the
+        // the unsafe act issue #3484 gates (AssessReport::
+        // requireDispositionsAgree()). `wprism assess` still answers under the
         // same skew — it withholds the file and says so.
         AssessReport::requireDispositionsAgree($result['report']);
         AssessCommand::writeLocalArtifacts($result);
@@ -215,7 +215,7 @@ final class ContractCommand {
         if ($remaining > 0) {
             $lines[] = '  ' . $remaining . ' more (use --format=json)';
         }
-        $lines[] = 'a proposal is not authority: edit the reviewed fields, then run duo contract '
+        $lines[] = 'a proposal is not authority: edit the reviewed fields, then run wprism contract '
             . self::token($driver->name()) . ' accept';
 
         return $lines;
@@ -248,7 +248,7 @@ final class ContractCommand {
             throw new CommandRefusalException(
                 'contract_proposal_missing',
                 'this site repository has no proposed application contract',
-                'run duo contract <env> propose, review the proposal, then accept it'
+                'run wprism contract <env> propose, review the proposal, then accept it'
             );
         }
         ContractProposal::validateProposal($proposal);
@@ -259,7 +259,7 @@ final class ContractCommand {
         // reach the same answer helps nobody. `validateProposal()` has
         // required a non-empty `environment` since the format existed
         // (ContractProposal.php:313-318) and nothing had ever compared it,
-        // so the field was a promise the product did not keep (DUO-3503).
+        // so the field was a promise the product did not keep (issue #3503).
         // Per-environment paths make a mismatch here mean the file was
         // moved, copied or hand-edited — the residual case the path alone
         // cannot rule out, and exactly the one where accepting a contract
@@ -268,7 +268,7 @@ final class ContractCommand {
             throw new CommandRefusalException(
                 'contract_proposal_environment_mismatch',
                 'the proposal was generated for a different environment than this accept',
-                'run duo contract ' . self::token($driver->name())
+                'run wprism contract ' . self::token($driver->name())
                     . ' propose for this environment, review the fresh proposal, then accept it',
                 [[
                     'proposed_for' => self::token((string) $proposal['environment']),
@@ -287,7 +287,7 @@ final class ContractCommand {
         // is inside the digest, so a checkout that moved makes the proposal
         // stale as well — and `contract_proposal_stale` says "the site returns
         // something different now" about a site that did not move. The
-        // operator gets the cause, not the consequence (DUO-3484).
+        // operator gets the cause, not the consequence (issue #3484).
         AssessReport::requireDispositionsAgree($result['report']);
         $rebound = AssessReport::rebind($result['report'], (string) $proposal['generated_at']);
         $freshDigest = ContractProposal::assessDigest($rebound);
@@ -296,7 +296,7 @@ final class ContractCommand {
             throw new CommandRefusalException(
                 'contract_proposal_stale',
                 'the proposal was generated from a different assessment than the site returns now',
-                'run duo contract ' . self::token($driver->name())
+                'run wprism contract ' . self::token($driver->name())
                     . ' propose again, review the fresh proposal, then accept it',
                 [[
                     'code' => 'contract_proposal_stale',
@@ -316,7 +316,7 @@ final class ContractCommand {
 
         if ($json) {
             return [rtrim(Canon::encode([
-                'format' => 'duo-contract-accept/v1',
+                'format' => 'wprism-contract-accept/v1',
                 'environment' => $driver->name(),
                 'contract_digest' => (string) $contract['contract_digest'],
                 'staged' => $staged,
@@ -344,7 +344,7 @@ final class ContractCommand {
      *
      * ## Ordering, and why it is this ordering
      *
-     * The public key is registered in `.duo/contract/authorities.json` BEFORE
+     * The public key is registered in `.wprism/contract/authorities.json` BEFORE
      * anything is signed, because that file is where `verify()` resolves a key
      * from and a signature under an unregistered key is a document that cannot
      * be read back. If signing or writing then fails, the trust root is
@@ -380,7 +380,7 @@ final class ContractCommand {
             throw new CommandRefusalException(
                 'contract_missing',
                 'this site repository has no accepted application contract',
-                'run duo contract <env> propose, review the proposal, then duo contract <env> accept; '
+                'run wprism contract <env> propose, review the proposal, then wprism contract <env> accept; '
                     . 'attest signs what review produced, never a fresh document'
             );
         }
@@ -428,7 +428,7 @@ final class ContractCommand {
 
         if ($json) {
             return [rtrim(Canon::encode([
-                'format' => 'duo-contract-attest/v1',
+                'format' => 'wprism-contract-attest/v1',
                 'contract_digest' => (string) $signed['contract_digest'],
                 'attestation' => $verified,
                 'staged' => $staged,
@@ -481,7 +481,7 @@ final class ContractCommand {
                 throw new CommandRefusalException(
                     'invalid_arguments',
                     "attest requires $required",
-                    'run duo contract <env> attest --secret-key-file=<path> --principal=<who> '
+                    'run wprism contract <env> attest --secret-key-file=<path> --principal=<who> '
                         . '--policy-version=<v>; an attestation that states nothing proves nothing'
                 );
             }
@@ -509,7 +509,7 @@ final class ContractCommand {
                 'contract_attestation_key_unreadable',
                 'the attestation secret key file could not be read as an Ed25519 private key',
                 'pass --secret-key-file=<path> to a chmod 600 file holding a base64 or hexadecimal '
-                    . 'Ed25519 secret key, as duo adapter keygen writes',
+                    . 'Ed25519 secret key, as wprism adapter keygen writes',
                 [],
                 $e->getMessage(),
                 $e
@@ -581,7 +581,7 @@ final class ContractCommand {
                 . ' · policy ' . self::safe($attestation['policy_version'] ?? '?')
                 . ' · expires ' . self::safe($attestation['expires_at'] ?? '?')]);
         }
-        // DUO-3521: this slice had NO tail line, so a site with more than 50
+        // issue #3521: this slice had NO tail line, so a site with more than 50
         // declared effects printed a truncated sample that read as complete —
         // the one failure mode `N more (use --format=json)` exists to prevent.
         $shownEffects = array_slice($effects, 0, $limit);
@@ -607,7 +607,7 @@ final class ContractCommand {
         }
 
         if ($projection === null) {
-            $lines[] = 'projection: none on disk (run duo assess <env> to regenerate it)';
+            $lines[] = 'projection: none on disk (run wprism assess <env> to regenerate it)';
 
             return $lines;
         }
@@ -641,16 +641,16 @@ final class ContractCommand {
      * @param list<string> $paths repository-relative
      */
     private static function stage(string $siteRepo, array $paths): bool {
-        // `-f`: the site repository's own boundary (`duo init`'s required
-        // `/.duo/` rule, InitRepositoryBoundary::ensure_gitignore()) ignores
-        // Duo's whole private working area — checkpoints, artifacts, env
+        // `-f`: the site repository's own boundary (`wprism init`'s required
+        // `/.wprism/` rule, InitRepositoryBoundary::ensure_gitignore()) ignores
+        // WPrism's whole private working area — checkpoints, artifacts, env
         // values, control state — and that boundary is right. The two review
         // artifacts are the deliberate exception MUP §3.1 names as committed:
         // the contract is a reviewed declaration and the projection its
         // review record, and a `git add` that silently obeyed the boundary
         // left every product-initialized site with a contract nothing
         // versioned (grind_mup.sh step 4). Force-adding exactly these two
-        // paths tracks them from here on; nothing else under .duo/ is touched.
+        // paths tracks them from here on; nothing else under .wprism/ is touched.
         $command = array_merge(['git', '-C', $siteRepo, 'add', '-f', '--'], $paths);
         $process = @proc_open(
             $command,
@@ -710,7 +710,7 @@ final class ContractCommand {
         return new CommandRefusalException(
             'invalid_arguments',
             'contract takes exactly one subcommand',
-            'run duo contract <env> ' . implode('|', self::SUBCOMMANDS)
+            'run wprism contract <env> ' . implode('|', self::SUBCOMMANDS)
         );
     }
 

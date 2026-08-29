@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/CompiledArtifact.php';
 require_once __DIR__ . '/../Kernel/MediaPayloadAuthority.php';
@@ -52,7 +52,7 @@ final class CompiledArtifactReader {
         if (!hash_equals(ArtifactPolicyIdentity::site_hash($policy), $artifact->site_hash())) {
             throw self::artifact_exception(
                 'compiled_artifact_policy_mismatch', $path,
-                'compiled site policy does not match the active site.duo.json'
+                'compiled site policy does not match the active site.wprism.json'
             );
         }
         if (!hash_equals(ArtifactPolicyIdentity::manifest_hash($policy), $artifact->manifest_hash())) {
@@ -128,15 +128,15 @@ final class CompiledArtifactReader {
             ],
             'compiled_artifact_policy_mismatch' => [
                 'the compiled artifact was built from a different site policy than the one active on this repository',
-                'recompile the repository against its current site.duo.json, then rerun this command with that artifact',
+                'recompile the repository against its current site.wprism.json, then rerun this command with that artifact',
             ],
             'compiled_artifact_manifest_mismatch' => [
                 'the compiled manifest and interpreter set does not match this repository\'s active manifest pins',
-                'recompile the repository and re-pin it with the object wp duo manifest-pin emits, then rerun this command with the new artifact',
+                'recompile the repository and re-pin it with the object wp wprism manifest-pin emits, then rerun this command with the new artifact',
             ],
             'compiled_artifact_code_mismatch' => [
                 'the compiled artifact and the active site policy disagree about whether this repository materializes code',
-                'recompile the repository under its current site.duo.json so artifact and policy agree about code, then rerun this command',
+                'recompile the repository under its current site.wprism.json so artifact and policy agree about code, then rerun this command',
             ],
             'compiled_artifact_code_state_contract_unavailable' => [
                 'this agent build cannot validate the code/state bridge the compiled artifact declares',
@@ -164,7 +164,7 @@ final class CompiledArtifactReader {
      *
      * `$operatorMessage` is harvested from a RepositoryCompilationException
      * built from this same diagnostic row, so `getMessage()` — including the
-     * "duo: repository compilation failed (1 blocking diagnostic(s)); no target
+     * "wprism: repository compilation failed (1 blocking diagnostic(s)); no target
      * contact or mutation attempted:" framing and the `[code] path — message`
      * line (agent/src/Repository/CompiledArtifact.php:227-236) — is provably
      * byte-identical to what `WP_CLI::error()` printed before. That object is

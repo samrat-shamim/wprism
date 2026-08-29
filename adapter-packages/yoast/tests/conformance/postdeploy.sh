@@ -100,7 +100,7 @@ echo wp_json_encode($ids, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n
 PHPEOF
 
 $COMPOSE exec -T --user root wp2 sh -c \
-  'printf "%s\n" "<?php" "add_filter(\"Yoast\\\\WP\\\\SEO\\\\should_index_indexables\", \"__return_true\", 999);" > /var/www/html/wp-content/mu-plugins/duo-yoast-index-fixture.php'
+  'printf "%s\n" "<?php" "add_filter(\"Yoast\\\\WP\\\\SEO\\\\should_index_indexables\", \"__return_true\", 999);" > /var/www/html/wp-content/mu-plugins/wprism-yoast-index-fixture.php'
 
 HOSTILE_OUT=$(wp_conf2 eval-file /siterepo/.tmp-yoast-hostile.php)
 rm -f "$HOSTILE_FILE"

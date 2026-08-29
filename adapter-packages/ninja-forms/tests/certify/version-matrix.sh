@@ -110,7 +110,7 @@ for NINJA_VERSION in 3.4.34.2 3.14.11; do
   [ "$INSTALLED_1" = "$NINJA_VERSION" ] || fail "side 1 installed version mismatch: expected $NINJA_VERSION, got $INSTALLED_1"
   pass "side 1: ninja-forms $NINJA_VERSION installed from verified artifact, active"
 
-  cat > "siterepo/${PAIR}1/site.duo.json" <<EOF
+  cat > "siterepo/${PAIR}1/site.wprism.json" <<EOF
 {
   "manifests": ["core", "ninja-forms"],
   "policy": {
@@ -130,9 +130,9 @@ EOF
   "${GIT1[@]}" push -qu origin main
 
   seed_ninja_forms_content
-  wp1 duo capture --repo=/siterepo
+  wp1 wprism capture --repo=/siterepo
   pass "captured on side 1 (ninja-forms $NINJA_VERSION)"
-  wp1 duo lint --repo=/siterepo
+  wp1 wprism lint --repo=/siterepo
   pass "lint: 0 findings"
 
   "${GIT1[@]}" add -A
@@ -145,16 +145,16 @@ EOF
   require_fixture_values INSTALLED_2
   [ "$INSTALLED_2" = "$NINJA_VERSION" ] || fail "side 2 installed version mismatch: expected $NINJA_VERSION, got $INSTALLED_2"
 
-  wp2 duo deploy --repo=/siterepo
+  wp2 wprism deploy --repo=/siterepo
   postdeploy_ninja_forms_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at ninja-forms $NINJA_VERSION"
   pass "deploy + apply succeeded on side 2 (ninja-forms $NINJA_VERSION, canary clean)"
 
   check_ninja_forms_boundary_content
 
-  wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"
+  wp2 wprism capture --repo=/siterepo --out="/siterepo/.tmp-final"
   DIFF_OUT=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
   rm -rf "siterepo/${PAIR}2/.tmp-final"
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at ninja-forms $NINJA_VERSION: $DIFF_OUT"
@@ -171,8 +171,8 @@ EOF
       || fail 'Ninja Forms in-place upgrade did not install exact 3.14.11 on both environments'
 
     UPGRADE_DRIFT_RC=0
-    UPGRADE_DRIFT_OUT=$(wp2 duo deploy --repo=/siterepo 2>&1) || UPGRADE_DRIFT_RC=$?
-    require_duo_answered 'Ninja Forms out-of-band 3.4.34.2 to 3.14.11 upgrade refusal' human "$UPGRADE_DRIFT_OUT"
+    UPGRADE_DRIFT_OUT=$(wp2 wprism deploy --repo=/siterepo 2>&1) || UPGRADE_DRIFT_RC=$?
+    require_wprism_answered 'Ninja Forms out-of-band 3.4.34.2 to 3.14.11 upgrade refusal' human "$UPGRADE_DRIFT_OUT"
     [ "$UPGRADE_DRIFT_RC" -ne 0 ] \
       && grep -q 'code_drift' <<<"$UPGRADE_DRIFT_OUT" \
       && grep -q '3.4.34.2' <<<"$UPGRADE_DRIFT_OUT" \
@@ -182,8 +182,8 @@ EOF
     # Re-baseline the explicit code replacement, then publish one real native
     # form edit under the new release so apply must exercise mapping and the
     # fresh-process cache provider across the in-place lifecycle boundary.
-    wp1 duo deploy --repo=/siterepo --force-code-drift >/dev/null
-    wp2 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp1 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp2 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
     wp1 eval '
       global $wpdb;
       $id=(int)$wpdb->get_var("SELECT id FROM {$wpdb->prefix}nf3_forms WHERE title=\"Job Application\"");
@@ -193,14 +193,14 @@ EOF
       WPN_Helper::delete_nf_cache($id);
       WPN_Helper::build_nf_cache($id);
     ' >/dev/null
-    wp1 duo capture --repo=/siterepo
-    wp1 duo lint --repo=/siterepo
+    wp1 wprism capture --repo=/siterepo
+    wp1 wprism lint --repo=/siterepo
     "${GIT1[@]}" add -A
     "${GIT1[@]}" commit -qm 'capture: Ninja Forms 3.4.34.2 to 3.14.11 in-place upgrade'
     "${GIT1[@]}" push -q origin main
     git -C "siterepo/${PAIR}2" pull -q origin main
     UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-    wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV" \
+    wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV" \
       2>&1 | tee "$VMATRIX_APPLY_LOG"
     grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
       || fail 'Ninja Forms 3.4.34.2 -> 3.14.11 apply canary was not clean'
@@ -208,7 +208,7 @@ EOF
       || fail 'Ninja Forms cache provider v2 did not fire across the in-place upgrade'
     check_ninja_forms_boundary_content 'Job Application Upgrade 東京 🚀'
 
-    wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-ninja-upgrade-final
+    wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-ninja-upgrade-final
     UPGRADE_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-ninja-upgrade-final" || true)
     rm -rf "siterepo/${PAIR}2/.tmp-ninja-upgrade-final"
     [ -z "$UPGRADE_DIFF" ] \
@@ -221,8 +221,8 @@ EOF
     [ "$(wp2 plugin get ninja-forms --field=version)" = 3.4.34.2 ] \
       || fail 'Ninja Forms downgrade probe did not install exact 3.4.34.2'
     DOWNGRADE_RC=0
-    DOWNGRADE_OUT=$(wp2 duo deploy --repo=/siterepo 2>&1) || DOWNGRADE_RC=$?
-    require_duo_answered 'Ninja Forms out-of-band 3.14.11 to 3.4.34.2 downgrade refusal' human "$DOWNGRADE_OUT"
+    DOWNGRADE_OUT=$(wp2 wprism deploy --repo=/siterepo 2>&1) || DOWNGRADE_RC=$?
+    require_wprism_answered 'Ninja Forms out-of-band 3.14.11 to 3.4.34.2 downgrade refusal' human "$DOWNGRADE_OUT"
     [ "$DOWNGRADE_RC" -ne 0 ] \
       && grep -q 'code_drift' <<<"$DOWNGRADE_OUT" \
       && grep -q '3.14.11' <<<"$DOWNGRADE_OUT" \
@@ -231,9 +231,9 @@ EOF
     wp2 plugin install "$UPGRADE_ARTIFACT_2" --force --activate >/dev/null
     [ "$(wp2 plugin get ninja-forms --field=version)" = 3.14.11 ] \
       || fail 'Ninja Forms downgrade recovery did not restore exact 3.14.11'
-    wp2 duo deploy --repo=/siterepo --force-code-drift >/dev/null
-    DOWNGRADE_PLAN=$(wp2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-    require_duo_answered 'Ninja Forms plan after rejected downgrade recovery' json "$DOWNGRADE_PLAN"
+    wp2 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
+    DOWNGRADE_PLAN=$(wp2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+    require_wprism_answered 'Ninja Forms plan after rejected downgrade recovery' json "$DOWNGRADE_PLAN"
     jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$DOWNGRADE_PLAN" >/dev/null \
       || fail "Ninja Forms rejected downgrade recovery invented authored work: $DOWNGRADE_PLAN"
     check_ninja_forms_boundary_content 'Job Application Upgrade 東京 🚀'
@@ -256,7 +256,7 @@ NEGATIVE_INSTALLED=$(wp1 plugin get ninja-forms --field=version)
 require_fixture_values NEGATIVE_INSTALLED
 [ "$NEGATIVE_INSTALLED" = "3.14.11" ] \
   || fail "negative control premise did not install exact ninja-forms 3.14.11 bytes"
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "ninja-forms"],
   "policy": {
@@ -275,7 +275,7 @@ cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 "${GIT1[@]}" commit -qm "policy: ninja-forms negative-control pin"
 "${GIT1[@]}" push -qu origin main
 seed_ninja_forms_content
-wp1 duo capture --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "capture: valid Ninja Forms state for negative control"
 "${GIT1[@]}" push -q origin main
@@ -288,7 +288,7 @@ INSTALLED_OOR=$(wp1 plugin get ninja-forms --field=version)
 [ "$INSTALLED_OOR" = "3.3.21.4" ] || fail "negative control: expected ninja-forms 3.3.21.4 installed, got $INSTALLED_OOR"
 
 set +e
-DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse ninja-forms 3.3.21.4 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"

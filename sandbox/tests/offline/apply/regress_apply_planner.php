@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for ApplyPlanner (DUO-3347: the pure
+ * Offline regression for ApplyPlanner (issue #3347: the pure
  * conflict/display-projection half of plan production extracted out of
  * Apply.php). Existing suites (regress_conflict_view.php,
  * regress_plan_title_render.php, regress_lifecycle_state_handoff.php,
@@ -19,14 +19,14 @@ require_once __DIR__ . '/../../../../agent/src/Apply/ApplyPlanner.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/Apply.php';
 
-use Duo\ApplyPlanner;
-use Duo\ApplyPlanBuilder;
-use Duo\Canon;
-use Duo\EnvironmentValues;
-use Duo\OptionState;
-use Duo\Policy;
-use Duo\Snapshot;
-use Duo\Uuid;
+use WPrism\ApplyPlanner;
+use WPrism\ApplyPlanBuilder;
+use WPrism\Canon;
+use WPrism\EnvironmentValues;
+use WPrism\OptionState;
+use WPrism\Policy;
+use WPrism\Snapshot;
+use WPrism\Uuid;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -49,7 +49,7 @@ $view = ApplyPlanner::conflict_view(
     str_repeat('c', 64),
     ['--force-theirs']
 );
-$check($view['format'] === 'duo-plan-conflict/v1', 'conflict_view: versioned format');
+$check($view['format'] === 'wprism-plan-conflict/v1', 'conflict_view: versioned format');
 $check($view['kind'] === 'concurrent_change', 'conflict_view: update intent is a concurrent_change, not a tombstone');
 $check($view['choices'][1]['effect'] === 'replace_target_authored_state', 'conflict_view: update intent derives replace effect');
 $check($view['choices'][1]['destructive'] === true, 'conflict_view: apply_repository choice is destructive');
@@ -235,10 +235,10 @@ $check(
 
 // --------------------------------------------- recreated-reference projection
 
-$recreatedTarget = Uuid::v5(Uuid::NAMESPACE_DUO, 'reference-rebind-target');
-$unchangedReferrer = Uuid::v5(Uuid::NAMESPACE_DUO, 'reference-rebind-unchanged');
-$driftedReferrer = Uuid::v5(Uuid::NAMESPACE_DUO, 'reference-rebind-drifted');
-$unrelatedEntity = Uuid::v5(Uuid::NAMESPACE_DUO, 'reference-rebind-unrelated');
+$recreatedTarget = Uuid::v5(Uuid::NAMESPACE_WPRISM, 'reference-rebind-target');
+$unchangedReferrer = Uuid::v5(Uuid::NAMESPACE_WPRISM, 'reference-rebind-unchanged');
+$driftedReferrer = Uuid::v5(Uuid::NAMESPACE_WPRISM, 'reference-rebind-drifted');
+$unrelatedEntity = Uuid::v5(Uuid::NAMESPACE_WPRISM, 'reference-rebind-unrelated');
 $referenceTree = [
     $recreatedTarget => [
         'type' => 'post', 'path' => 'posts/page/target.md', 'hash' => 'target-repository-hash',
@@ -325,7 +325,7 @@ $check($blockedEvidence['status'] === 'incomplete', 'forced_override_evidence: g
 // -------------------------------------------------------- incomplete_override_refusal
 
 $refusal = ApplyPlanner::incomplete_override_refusal([$incompleteEvidence], 'operator detail');
-$check($refusal instanceof \Duo\CommandRefusalException, 'incomplete_override_refusal: returns a typed machine-readable refusal');
+$check($refusal instanceof \WPrism\CommandRefusalException, 'incomplete_override_refusal: returns a typed machine-readable refusal');
 $check($refusal->reasonCode === 'apply_conflict_override_incomplete', 'incomplete_override_refusal: exact reason code');
 
 // -------------------------------------------------------------- entity_display_title
@@ -513,9 +513,9 @@ $check(
 $check(
     $envProjection['warnings'] === [
         "env_missing: option 'a_required' is required and not yet provisioned on "
-            . "this environment — see 'wp duo env-set --name=a_required --stdin'",
+            . "this environment — see 'wp wprism env-set --name=a_required --stdin'",
         "env_missing: option 'empty_required' is required and not yet provisioned on "
-            . "this environment — see 'wp duo env-set --name=empty_required --stdin'",
+            . "this environment — see 'wp wprism env-set --name=empty_required --stdin'",
     ],
     'env projection: required warnings retain the exact plan/status vocabulary and declaration order'
 );
@@ -549,9 +549,9 @@ $check(
 $check(
     $intendedProjection['warnings'] === [
         "env_missing: option 'a_required' is required and not yet provisioned on "
-            . "this environment — see 'wp duo env-set --name=a_required --stdin'",
+            . "this environment — see 'wp wprism env-set --name=a_required --stdin'",
         "env_missing: option 'empty_required' is required and different from its intended value on "
-            . "this environment — see 'wp duo env-set --name=empty_required --stdin'",
+            . "this environment — see 'wp wprism env-set --name=empty_required --stdin'",
     ] && $expectedReads === ['z_optional', 'a_required', 'm_present', 'empty_required'],
     'env intended values: missing and mismatched required values have distinct diagnostics and every binding is read'
 );
@@ -564,12 +564,12 @@ $unboundProjection = ApplyPlanner::env_missing_projection(
 $check(
     $unboundProjection['warnings'] === [
         "env_missing: option 'present_required' is required and present but has no intended-value binding on "
-            . "this environment — see 'wp duo env-set --name=present_required --stdin'",
+            . "this environment — see 'wp wprism env-set --name=present_required --stdin'",
     ],
     'env intended values: a non-empty live value without recorded intent remains red'
 );
 
-$envRepo = sys_get_temp_dir() . '/duo-env-values-' . getmypid();
+$envRepo = sys_get_temp_dir() . '/wprism-env-values-' . getmypid();
 if (!is_dir($envRepo)) {
     mkdir($envRepo, 0700, true);
 }
@@ -595,7 +595,7 @@ try {
     $insecureRefusal = $failure->getMessage();
 }
 $check(
-    $insecureRefusal === 'duo: .duo-env-values.json must be readable only by its owner (mode 0600)',
+    $insecureRefusal === 'wprism: .wprism-env-values.json must be readable only by its owner (mode 0600)',
     'env intended values: group/world-readable secret files refuse rather than being trusted'
 );
 chmod($envPath, 0600);
@@ -630,7 +630,7 @@ $optionPlanner = new ApplyPlanner(
     static fn(string $uuid, string $kind): ?int => null
 );
 $desiredOptions = [
-    'format' => 'duo-options/v1',
+    'format' => 'wprism-options/v1',
     'records' => [
         'authored_option' => ['state' => 'present', 'autoload' => 'yes', 'value' => 'desired'],
         'managed_option' => ['state' => 'present', 'autoload' => 'yes', 'value' => 'lifecycle'],
@@ -643,7 +643,7 @@ $check(
 );
 $observedOptions = [
     'content' => Canon::encode([
-        'format' => 'duo-options/v1',
+        'format' => 'wprism-options/v1',
         'records' => [
             'authored_option' => ['state' => 'present', 'autoload' => 'yes', 'value' => 'old'],
             'managed_option' => ['state' => 'present', 'autoload' => 'yes', 'value' => 'old-lifecycle'],
@@ -657,7 +657,7 @@ $check(
 );
 $unchangedOptions = [
     'content' => Canon::encode([
-        'format' => 'duo-options/v1',
+        'format' => 'wprism-options/v1',
         'records' => [
             'authored_option' => ['state' => 'present', 'autoload' => 'yes', 'value' => 'desired'],
             'managed_option' => ['state' => 'present', 'autoload' => 'yes', 'value' => 'different-lifecycle'],
@@ -681,7 +681,7 @@ $sidebarTarget = [
     'content' => Canon::encode([
         'widgets' => [
             ['uuid' => 'widget-1', 'type' => 'text', 'settings' => ['text' => 'keep']],
-            ['uuid' => 'widget-target-only', 'type' => 'text', 'settings' => ['_duo_unmanaged' => true]],
+            ['uuid' => 'widget-target-only', 'type' => 'text', 'settings' => ['_wprism_unmanaged' => true]],
         ],
     ]),
 ];
@@ -712,7 +712,7 @@ $sidebarContentlessTarget = [
         'widgets' => [[
             'uuid' => 'widget-target-only',
             'type' => 'text',
-            'settings' => ['_duo_unmanaged' => true],
+            'settings' => ['_wprism_unmanaged' => true],
         ]],
     ]),
 ];
@@ -745,7 +745,7 @@ try {
 }
 $check(
     $sidebarMissingMapMessage ===
-        'duo: widget identity history is missing for sidebars/main.json; refusing to infer which live '
+        'wprism: widget identity history is missing for sidebars/main.json; refusing to infer which live '
         . 'instance owns a canonical UUID. Restore identity-export before plan/apply.',
     'sidebar projection: unmanaged defaults plus a missing desired map refuse identity inference'
 );
@@ -857,7 +857,7 @@ $check(
 
 // ----------------------------------------------- natural-key continuity notes
 
-$naturalKeyUuid = Uuid::v5(Uuid::NAMESPACE_DUO, 'acme_rooms:fresh-room');
+$naturalKeyUuid = Uuid::v5(Uuid::NAMESPACE_WPRISM, 'acme_rooms:fresh-room');
 $naturalKeyCollisionResolverCalls = [];
 $naturalKeyTableResolverCalls = [];
 $naturalKeyPlanner = new ApplyPlanner(
@@ -972,7 +972,7 @@ $rawTtPlanner = new ApplyPlanner(
     ],
     ],
     static fn(string $uuid, string $kind): ?int => null,
-    static fn(string $uuid, string $kind): ?int => \Duo\Ledger::id_for($uuid, $kind)
+    static fn(string $uuid, string $kind): ?int => \WPrism\Ledger::id_for($uuid, $kind)
 );
 $builderReflection = new ReflectionClass(ApplyPlanBuilder::class);
 $builderForRawTt = $builderReflection->newInstanceWithoutConstructor();
@@ -1209,7 +1209,7 @@ final class ApplyPlannerCollisionWpdb {
 $plannerConstructor = (new ReflectionClass(ApplyPlanner::class))->getConstructor();
 $check(
     array_map(static fn(ReflectionParameter $p): string => (string) $p->getType(), $plannerConstructor->getParameters()) === [
-        'Duo\\Policy', 'array', 'Closure', 'Closure',
+        'WPrism\\Policy', 'array', 'Closure', 'Closure',
     ],
     'collision planner: constructor separates collision-token and raw-table ledger resolvers'
 );
@@ -1392,8 +1392,8 @@ $check(
         && !str_contains($applySource, 'regen_context_plan_rows('),
     'regeneration debt: planner owns projection while ApplyPlanEnvironment supplies Ledger/Policy boundaries'
 );
-$envBuildStart = strpos($builderSource, '        // DUO-3232: env-bound value provisioning checklist.');
-$envBuildEnd = strpos($builderSource, '        // DUO-3249:', $envBuildStart);
+$envBuildStart = strpos($builderSource, '        // issue #3232: env-bound value provisioning checklist.');
+$envBuildEnd = strpos($builderSource, '        // issue #3249:', $envBuildStart);
 $envBuildSection = substr($builderSource, $envBuildStart, $envBuildEnd - $envBuildStart);
 $check(
     preg_match('/public static function env_missing_projection\(/', $plannerSource) === 1
@@ -1454,7 +1454,7 @@ $sidebarSection = substr($builderSource, $sidebarSectionStart, $sidebarSectionEn
 $check(
     str_contains($sidebarSection, '$this->apply_planner()->project_sidebar_deletes(')
         && !str_contains($sidebarSection, 'Ledger::id_for')
-        && !str_contains($sidebarSection, '_duo_unmanaged')
+        && !str_contains($sidebarSection, '_wprism_unmanaged')
         && preg_match('/public function project_sidebar_deletes\(/', $plannerSource) === 1,
     'sidebar projection: Apply delegates widget-delete planning while the planner owns identity evidence and target-only classification'
 );
@@ -1476,10 +1476,10 @@ $check(ApplyPlanner::rebind_binding([]) === null, 'rebind_binding: absent flags 
 $binding = ApplyPlanner::rebind_binding(['rebind_from_home' => 'http://localhost:9600/', 'rebind_from_uploads' => 'http://localhost:9600/wp-content/uploads/']);
 $check($binding === ['home' => 'http://localhost:9600', 'uploads' => 'http://localhost:9600/wp-content/uploads'], 'rebind_binding: both URLs, trailing slash trimmed');
 $lone = null;
-try { ApplyPlanner::rebind_binding(['rebind_from_home' => 'http://localhost:9600']); } catch (\Duo\CommandRefusalException $e) { $lone = $e->reasonCode; }
+try { ApplyPlanner::rebind_binding(['rebind_from_home' => 'http://localhost:9600']); } catch (\WPrism\CommandRefusalException $e) { $lone = $e->reasonCode; }
 $check($lone === 'invalid_arguments', 'rebind_binding: a lone home URL refuses (a binding needs both)');
 $bad = null;
-try { ApplyPlanner::rebind_binding(['rebind_from_home' => 'localhost:9600', 'rebind_from_uploads' => 'http://localhost:9600/u']); } catch (\Duo\CommandRefusalException $e) { $bad = $e->reasonCode; }
+try { ApplyPlanner::rebind_binding(['rebind_from_home' => 'localhost:9600', 'rebind_from_uploads' => 'http://localhost:9600/u']); } catch (\WPrism\CommandRefusalException $e) { $bad = $e->reasonCode; }
 $check($bad === 'invalid_arguments', 'rebind_binding: a non-URL home refuses');
 
 // The foreign-bound observation equals the repository → the entity is the

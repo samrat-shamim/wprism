@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * DUO-3354: characterize the pure serialized term-description detector.
+ * issue #3354: characterize the pure serialized term-description detector.
  * Product-path lint smoke still verifies the term-file facade and taxonomy
  * declaration gate; this pin keeps parser/result semantics registry-ready.
  */
@@ -18,10 +18,10 @@ require __DIR__ . '/../../../../agent/src/Review/Pending.php';
 require __DIR__ . '/../../../../agent/src/Review/LintFinding.php';
 require __DIR__ . '/../../../../agent/src/Review/SerializedTermDescriptionScanner.php';
 
-use Duo\SerializedTermDescriptionScanner;
+use WPrism\SerializedTermDescriptionScanner;
 
-check(!class_exists(\Duo\Policy::class, false), 'serialized-description scanner standalone load does not load Policy');
-check(!class_exists(\Duo\Ledger::class, false), 'serialized-description scanner standalone load does not load Ledger');
+check(!class_exists(\WPrism\Policy::class, false), 'serialized-description scanner standalone load does not load Policy');
+check(!class_exists(\WPrism\Ledger::class, false), 'serialized-description scanner standalone load does not load Ledger');
 check(!function_exists('get_option'), 'serialized-description scanner standalone load does not need WordPress runtime helpers');
 
 $match = ['kind' => 'post', 'id' => 7, 'title' => 'Known post', 'post_type' => 'post'];

@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 if (!class_exists(Db::class, false)) {
     require_once __DIR__ . '/../Kernel/Db.php';
@@ -7,7 +7,7 @@ if (!class_exists(Db::class, false)) {
 
 /** Versioned disaster-recovery sidecar for environment-bound identity. */
 final class IdentityBackup {
-    public const FORMAT = 'duo-identity-ledger/v1';
+    public const FORMAT = 'wprism-identity-ledger/v1';
 
     public static function create(string $repo): array {
         Ledger::ensure();
@@ -68,18 +68,18 @@ final class IdentityBackup {
         Ledger::ensure();
         $artifact = Canon::decode(Canon::read_file($path));
         if (!is_array($artifact) || ($artifact['format'] ?? '') !== self::FORMAT) {
-            throw new \RuntimeException('duo: identity sidecar has an unsupported or missing format');
+            throw new \RuntimeException('wprism: identity sidecar has an unsupported or missing format');
         }
         $expected = (string) ($artifact['integrity_sha256'] ?? '');
         if (!preg_match('/^[0-9a-f]{64}$/', $expected) || !hash_equals($expected, self::hash($artifact))) {
-            throw new \RuntimeException('duo: identity sidecar integrity hash does not verify');
+            throw new \RuntimeException('wprism: identity sidecar integrity hash does not verify');
         }
 
         $policy = Policy::load($repo);
         $compiled = RepositoryCompiler::compile($repo, $policy);
         foreach (['repository_revision' => $compiled->revision_hash(), 'site_hash' => $compiled->site_hash(), 'manifest_hash' => $compiled->manifest_hash()] as $key => $active) {
             if (!hash_equals($active, (string) ($artifact[$key] ?? ''))) {
-                throw new \RuntimeException("duo: identity sidecar $key does not match the active repository");
+                throw new \RuntimeException("wprism: identity sidecar $key does not match the active repository");
             }
         }
         global $wpdb;
@@ -103,7 +103,7 @@ final class IdentityBackup {
             foreach ($currentMaps as $row) {
                 $expectedRow = $incomingMapIndex[$row['uuid'] . '|' . $row['id_kind']] ?? null;
                 if ($expectedRow === null || Canon::encode($expectedRow) !== Canon::encode($row)) {
-                    throw new \RuntimeException('duo: current identity ledger conflicts with the sidecar; refusing partial or implicit rebinding');
+                    throw new \RuntimeException('wprism: current identity ledger conflicts with the sidecar; refusing partial or implicit rebinding');
                 }
             }
             $currentStates = [];
@@ -118,16 +118,16 @@ final class IdentityBackup {
             foreach ($currentStates as $row) {
                 $expectedRow = $incomingStateIndex[$row['uuid']] ?? null;
                 if ($expectedRow === null || Canon::encode($expectedRow) !== Canon::encode($row)) {
-                    throw new \RuntimeException('duo: current sync-state ledger conflicts with the sidecar');
+                    throw new \RuntimeException('wprism: current sync-state ledger conflicts with the sidecar');
                 }
             }
 
             Db::query(
-                "DELETE FROM {$wpdb->prefix}duo_map",
+                "DELETE FROM {$wpdb->prefix}wprism_map",
                 'clearing identity mappings for restore'
             );
             Db::query(
-                "DELETE FROM {$wpdb->prefix}duo_state",
+                "DELETE FROM {$wpdb->prefix}wprism_state",
                 'clearing sync state for restore'
             );
             foreach ($incomingPlain as $row) {
@@ -136,12 +136,12 @@ final class IdentityBackup {
             foreach ($states as $row) {
                 Ledger::set_state_hash($row['uuid'], $row['entity_type'], $row['content_hash']);
                 if ($wpdb->last_error) {
-                    throw new \RuntimeException("duo: failed restoring sync state: {$wpdb->last_error}");
+                    throw new \RuntimeException("wprism: failed restoring sync state: {$wpdb->last_error}");
                 }
             }
             Ledger::kv_set('applied_revision', (string) ($artifact['applied_revision'] ?? ''));
             if ($wpdb->last_error) {
-                throw new \RuntimeException("duo: failed restoring applied revision: {$wpdb->last_error}");
+                throw new \RuntimeException("wprism: failed restoring applied revision: {$wpdb->last_error}");
             }
             Db::commit('committing identity import');
             $transactionStarted = false;
@@ -161,7 +161,7 @@ final class IdentityBackup {
 
     private static function validate_maps($value, array $tables): array {
         if (!is_array($value) || !array_is_list($value)) {
-            throw new \RuntimeException('duo: identity sidecar maps must be a list');
+            throw new \RuntimeException('wprism: identity sidecar maps must be a list');
         }
         $seenUuidKind = [];
         $seenLocal = [];
@@ -175,17 +175,17 @@ final class IdentityBackup {
         }
         foreach ($value as $i => $row) {
             if (!is_array($row)) {
-                throw new \RuntimeException("duo: identity sidecar maps[$i] is not an object");
+                throw new \RuntimeException("wprism: identity sidecar maps[$i] is not an object");
             }
             $uuid = (string) ($row['uuid'] ?? '');
             $kind = (string) ($row['id_kind'] ?? '');
             $local = (int) ($row['local_id'] ?? 0);
             $entityType = (string) ($row['entity_type'] ?? '');
             if (!Uuid::is($uuid) || $kind === '' || $local <= 0 || $entityType === '') {
-                throw new \RuntimeException("duo: identity sidecar maps[$i] has an invalid identity tuple");
+                throw new \RuntimeException("wprism: identity sidecar maps[$i] has an invalid identity tuple");
             }
             if (isset($seenUuidKind["$uuid|$kind"]) || isset($seenLocal["$kind|$local"])) {
-                throw new \RuntimeException("duo: identity sidecar maps[$i] duplicates a UUID/kind or kind/local tuple");
+                throw new \RuntimeException("wprism: identity sidecar maps[$i] duplicates a UUID/kind or kind/local tuple");
             }
             $seenUuidKind["$uuid|$kind"] = true;
             $seenLocal["$kind|$local"] = true;
@@ -195,7 +195,7 @@ final class IdentityBackup {
             ], $tables, $mapLookup);
             if (!hash_equals($actualWitness, (string) ($row['witness'] ?? ''))) {
                 throw new \RuntimeException(
-                    "duo: identity sidecar witness mismatch for $uuid ($kind:$local); database row is missing or stale"
+                    "wprism: identity sidecar witness mismatch for $uuid ($kind:$local); database row is missing or stale"
                 );
             }
             $value[$i] = [
@@ -208,7 +208,7 @@ final class IdentityBackup {
                 $names = array_keys($kinds);
                 sort($names, SORT_STRING);
                 if ($names !== [Ledger::KIND_TERM, Ledger::KIND_TT]) {
-                    throw new \RuntimeException("duo: identity sidecar UUID $uuid is reused across incompatible kinds");
+                    throw new \RuntimeException("wprism: identity sidecar UUID $uuid is reused across incompatible kinds");
                 }
             }
         }
@@ -218,18 +218,18 @@ final class IdentityBackup {
 
     private static function validate_states($value): array {
         if (!is_array($value) || !array_is_list($value)) {
-            throw new \RuntimeException('duo: identity sidecar states must be a list');
+            throw new \RuntimeException('wprism: identity sidecar states must be a list');
         }
         $seen = [];
         foreach ($value as $i => $row) {
             if (!is_array($row)) {
-                throw new \RuntimeException("duo: identity sidecar states[$i] is not an object");
+                throw new \RuntimeException("wprism: identity sidecar states[$i] is not an object");
             }
             $uuid = (string) ($row['uuid'] ?? '');
             $hash = (string) ($row['content_hash'] ?? '');
             $type = (string) ($row['entity_type'] ?? '');
             if ($uuid === '' || $type === '' || !preg_match('/^[0-9a-f]{64}$/', $hash) || isset($seen[$uuid])) {
-                throw new \RuntimeException("duo: identity sidecar states[$i] is invalid or duplicated");
+                throw new \RuntimeException("wprism: identity sidecar states[$i] is invalid or duplicated");
             }
             $seen[$uuid] = true;
             $value[$i] = ['uuid' => $uuid, 'entity_type' => $type, 'content_hash' => $hash];
@@ -247,7 +247,7 @@ final class IdentityBackup {
         foreach ($policy->widget_types() as $type => $_decl) {
             $kind = SidebarState::kind((string) $type);
             if (isset($out[$kind])) {
-                throw new \RuntimeException("duo: identity kind '$kind' is declared by both a table and widget type");
+                throw new \RuntimeException("wprism: identity kind '$kind' is declared by both a table and widget type");
             }
             $out[$kind] = ['widget_type' => (string) $type];
         }
@@ -273,14 +273,14 @@ final class IdentityBackup {
                 $local
             ), 'term-taxonomy identity witness');
             if ($rows === []) {
-                throw new \RuntimeException("duo: term-taxonomy identity row $local is missing");
+                throw new \RuntimeException("wprism: term-taxonomy identity row $local is missing");
             }
             if (count($rows) !== 1
                 || !is_array($rows[0])
                 || array_keys($rows[0]) !== ['term_taxonomy_id', 'term_id']
                 || self::positive_integer($rows[0]['term_taxonomy_id'] ?? null) !== $local
                 || ($termId = self::positive_integer($rows[0]['term_id'] ?? null)) === null) {
-                throw new \RuntimeException('duo: term-taxonomy identity witness returned a malformed/ambiguous row');
+                throw new \RuntimeException('wprism: term-taxonomy identity witness returned a malformed/ambiguous row');
             }
             self::assert_embedded_uuid(
                 $wpdb->termmeta,
@@ -299,7 +299,7 @@ final class IdentityBackup {
         }
         $decl = $tables[$kind] ?? null;
         if ($decl === null) {
-            throw new \RuntimeException("duo: cannot export or restore unsupported identity kind '$kind'");
+            throw new \RuntimeException("wprism: cannot export or restore unsupported identity kind '$kind'");
         }
         $table = $wpdb->prefix . preg_replace('/[^A-Za-z0-9_]/', '', $decl['table']);
         if (($decl['identity']['mode'] ?? 'mapped') === 'composite_ref') {
@@ -318,16 +318,16 @@ final class IdentityBackup {
                 $refUuid = $mapLookup[$kindByCol[$col] . '|' . $localByCol[$col]] ?? null;
                 if (!is_string($refUuid) || !Uuid::is($refUuid)) {
                     throw new \RuntimeException(
-                        "duo: composite identity {$decl['table']}:$local cannot resolve {$kindByCol[$col]} "
+                        "wprism: composite identity {$decl['table']}:$local cannot resolve {$kindByCol[$col]} "
                         . "ref {$localByCol[$col]} from the sidecar"
                     );
                 }
                 $uuidParts[] = "$col=$refUuid";
             }
-            $derived = Uuid::v5(Uuid::NAMESPACE_DUO, implode(':', $uuidParts));
+            $derived = Uuid::v5(Uuid::NAMESPACE_WPRISM, implode(':', $uuidParts));
             if (!hash_equals($derived, $uuid)) {
                 throw new \RuntimeException(
-                    "duo: composite identity $uuid ({$decl['table']}:$local) does not match its referenced identities"
+                    "wprism: composite identity $uuid ({$decl['table']}:$local) does not match its referenced identities"
                 );
             }
             $where = [];
@@ -340,7 +340,7 @@ final class IdentityBackup {
                 "SELECT * FROM `$table` WHERE " . implode(' AND ', $where), ...$args
             ), ARRAY_A);
             if ($row === null) {
-                throw new \RuntimeException("duo: composite identity row {$decl['table']}:$local is missing");
+                throw new \RuntimeException("wprism: composite identity row {$decl['table']}:$local is missing");
             }
             return hash('sha256', Canon::encode([
                 'kind' => $kind, 'local_id' => $local, 'table' => $decl['table'], 'row' => $row,
@@ -349,7 +349,7 @@ final class IdentityBackup {
         $pk = preg_replace('/[^A-Za-z0-9_]/', '', $decl['pk']);
         $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM `$table` WHERE `$pk` = %d", $local), ARRAY_A);
         if ($row === null) {
-            throw new \RuntimeException("duo: mapped identity row {$decl['table']}:$local is missing");
+            throw new \RuntimeException("wprism: mapped identity row {$decl['table']}:$local is missing");
         }
         return hash('sha256', Canon::encode([
             'kind' => $kind, 'local_id' => $local, 'table' => $decl['table'], 'row' => $row,
@@ -370,7 +370,7 @@ final class IdentityBackup {
             'SELECT meta_id, meta_key, OCTET_LENGTH(meta_key) AS meta_key_bytes, '
             . 'OCTET_LENGTH(meta_value) AS meta_value_bytes '
             . "FROM `$metaTable` WHERE `$ownerColumn` = %d "
-            . "AND meta_key = '_duo_uuid' ORDER BY meta_id ASC LIMIT 3",
+            . "AND meta_key = '_wprism_uuid' ORDER BY meta_id ASC LIMIT 3",
             $ownerId
         ), $purpose);
         if (count($rows) !== 1
@@ -380,11 +380,11 @@ final class IdentityBackup {
             ]
             || ($metaId = self::positive_integer($rows[0]['meta_id'] ?? null)) === null
             || !is_string($rows[0]['meta_key'] ?? null)
-            || !hash_equals('_duo_uuid', $rows[0]['meta_key'])
-            || self::nonnegative_integer($rows[0]['meta_key_bytes'] ?? null) !== strlen('_duo_uuid')
+            || !hash_equals('_wprism_uuid', $rows[0]['meta_key'])
+            || self::nonnegative_integer($rows[0]['meta_key_bytes'] ?? null) !== strlen('_wprism_uuid')
             || self::nonnegative_integer($rows[0]['meta_value_bytes'] ?? null) !== strlen($uuid)) {
             throw new \RuntimeException(
-                "duo: embedded identity does not verify for $uuid ($purpose:$ownerId)"
+                "wprism: embedded identity does not verify for $uuid ($purpose:$ownerId)"
             );
         }
         $payload = self::checked_rows($wpdb->prepare(
@@ -398,11 +398,11 @@ final class IdentityBackup {
             || array_keys($payload[0]) !== ['meta_id', 'meta_key', 'meta_value']
             || self::positive_integer($payload[0]['meta_id'] ?? null) !== $metaId
             || !is_string($payload[0]['meta_key'] ?? null)
-            || !hash_equals('_duo_uuid', $payload[0]['meta_key'])
+            || !hash_equals('_wprism_uuid', $payload[0]['meta_key'])
             || !is_string($payload[0]['meta_value'] ?? null)
             || !hash_equals($uuid, $payload[0]['meta_value'])) {
             throw new \RuntimeException(
-                "duo: embedded identity bounded payload does not verify for $uuid ($purpose:$ownerId)"
+                "wprism: embedded identity bounded payload does not verify for $uuid ($purpose:$ownerId)"
             );
         }
     }
@@ -415,14 +415,14 @@ final class IdentityBackup {
         if (!is_array($rows)
             || !array_is_list($rows)
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: database error while reading $purpose");
+            throw new \RuntimeException("wprism: database error while reading $purpose");
         }
         return $rows;
     }
 
     private static function assert_identifier(string $identifier, string $purpose): void {
         if (preg_match('/^[A-Za-z0-9_]{1,64}$/D', $identifier) !== 1) {
-            throw new \RuntimeException("duo: $purpose is not a safe database identifier");
+            throw new \RuntimeException("wprism: $purpose is not a safe database identifier");
         }
     }
 

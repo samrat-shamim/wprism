@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 // Most production/bootstrap paths load Canon before Code; a few offline
-// contract fixtures install a local Duo\Canon seam first, so only load the
+// contract fixtures install a local WPrism\Canon seam first, so only load the
 // production implementation when no Canon class exists yet. This mirrors
 // CodeDescriptorCompiler.php:4-9 for the same reason.
 if (!class_exists(Canon::class, false)) {
@@ -13,7 +13,7 @@ if (!class_exists(Canon::class, false)) {
 require_once __DIR__ . '/../Kernel/PathSafety.php';
 
 /**
- * `duo-code-lock/v2` — the sourcing declaration for every plugin and theme
+ * `wprism-code-lock/v2` — the sourcing declaration for every plugin and theme
  * component a repository's code half carries.
  *
  * Two lists, one invariant. `components` names the third-party components
@@ -27,14 +27,14 @@ require_once __DIR__ . '/../Kernel/PathSafety.php';
  * CodeDescriptorCompiler::lock_diagnostics()) rather than vendored by
  * omission. There is no third classification and no "vendor it anyway"
  * escape: a premium plugin is imported once as an archive on the host
- * (`duo code-import`) and locked as `imported-archive`, exactly like a
+ * (`wprism code-import`) and locked as `imported-archive`, exactly like a
  * wp.org release is locked as `wp-org-release`.
  *
- * `duo-code-lock/v1` (DUO-3499) declared `components` only and admitted a
+ * `wprism-code-lock/v1` (issue #3499) declared `components` only and admitted a
  * `vendored-archive` origin — a ZIP committed inside the repository, which
  * is third-party bytes in Git by another name. v1 documents still parse
  * (their `first_party` is empty, so any component Git carries beside them
- * reaches `code_component_undeclared` and the remedy names `duo
+ * reaches `code_component_undeclared` and the remedy names `wprism
  * code-classify`), but a `vendored-archive` entry is refused by name, since
  * no writer ever produced one and nothing will resolve one again.
  *
@@ -61,13 +61,13 @@ require_once __DIR__ . '/../Kernel/PathSafety.php';
  * from one algorithm, so they cannot drift apart.
  */
 final class CodeSourceLock {
-    public const FORMAT = 'duo-code-lock/v2';
+    public const FORMAT = 'wprism-code-lock/v2';
 
-    /** The DUO-3499 grammar: `components` only, no `first_party`. Read, never written. */
-    public const LEGACY_FORMAT = 'duo-code-lock/v1';
+    /** The issue #3499 grammar: `components` only, no `first_party`. Read, never written. */
+    public const LEGACY_FORMAT = 'wprism-code-lock/v1';
 
     /** The only lock path a `code.format: 2` declaration may name. */
-    public const PATH = 'code/duo-code.lock.json';
+    public const PATH = 'code/wprism-code.lock.json';
 
     /**
      * Lockable roots. `mu-plugins` is deliberately absent: user mu-plugins are
@@ -83,7 +83,7 @@ final class CodeSourceLock {
      * `wp-org-release`: the canonical downloads.wordpress.org archive for a
      * published version, fetched by the host. `imported-archive`: an archive
      * the operator imported into the host's content-addressed cache with
-     * `duo code-import`, identified by its digest alone — the lock records no
+     * `wprism code-import`, identified by its digest alone — the lock records no
      * URL and no path for it, because a vendor download URL is usually
      * license-keyed and a path would name bytes the repository must not carry.
      *
@@ -91,7 +91,7 @@ final class CodeSourceLock {
      */
     public const KINDS = ['imported-archive', 'wp-org-release'];
 
-    /** Refused by name, with the remedy: the only kind DUO-3499 shipped that put third-party bytes in Git. */
+    /** Refused by name, with the remedy: the only kind issue #3499 shipped that put third-party bytes in Git. */
     public const REMOVED_KIND = 'vendored-archive';
 
     /**
@@ -110,7 +110,7 @@ final class CodeSourceLock {
     public static function parse(string $json): array {
         $decoded = json_decode($json, true);
         if (!is_array($decoded) || array_is_list($decoded)) {
-            throw new \RuntimeException('duo: code lock is not a JSON object');
+            throw new \RuntimeException('wprism: code lock is not a JSON object');
         }
         self::assert_lock($decoded);
         return $decoded;
@@ -128,7 +128,7 @@ final class CodeSourceLock {
         $format = $lock['format'] ?? null;
         if ($format !== self::FORMAT && $format !== self::LEGACY_FORMAT) {
             throw new \RuntimeException(
-                'duo: code lock format must be "' . self::FORMAT . '" (or the legacy "' . self::LEGACY_FORMAT . '")'
+                'wprism: code lock format must be "' . self::FORMAT . '" (or the legacy "' . self::LEGACY_FORMAT . '")'
             );
         }
         $keys = array_keys($lock);
@@ -136,12 +136,12 @@ final class CodeSourceLock {
         $expected = $format === self::FORMAT ? ['components', 'first_party', 'format'] : ['components', 'format'];
         if ($keys !== $expected) {
             throw new \RuntimeException(
-                'duo: code lock ' . $format . ' must contain exactly ' . implode(', ', $expected)
+                'wprism: code lock ' . $format . ' must contain exactly ' . implode(', ', $expected)
             );
         }
         $components = $lock['components'];
         if (!is_array($components) || !array_is_list($components)) {
-            throw new \RuntimeException('duo: code lock components must be a list');
+            throw new \RuntimeException('wprism: code lock components must be a list');
         }
         $seen = [];
         $order = [];
@@ -149,7 +149,7 @@ final class CodeSourceLock {
             self::assert_entry($entry, (int) $i);
             $key = $entry['root'] . '/' . $entry['component'];
             if (isset($seen[$key])) {
-                throw new \RuntimeException("duo: code lock declares component '$key' more than once");
+                throw new \RuntimeException("wprism: code lock declares component '$key' more than once");
             }
             $seen[$key] = true;
             $order[] = [(string) $entry['root'], (string) $entry['component']];
@@ -157,7 +157,7 @@ final class CodeSourceLock {
         $sorted = $order;
         usort($sorted, static fn(array $a, array $b): int => $a <=> $b);
         if ($order !== $sorted) {
-            throw new \RuntimeException('duo: code lock components are not deterministically sorted by root then component');
+            throw new \RuntimeException('wprism: code lock components are not deterministically sorted by root then component');
         }
         if ($format === self::FORMAT) {
             self::assert_first_party($lock['first_party'], $seen);
@@ -175,22 +175,22 @@ final class CodeSourceLock {
      */
     private static function assert_first_party($firstParty, array $locked): void {
         if (!is_array($firstParty) || !array_is_list($firstParty)) {
-            throw new \RuntimeException('duo: code lock first_party must be a list');
+            throw new \RuntimeException('wprism: code lock first_party must be a list');
         }
         $seen = [];
         foreach ($firstParty as $i => $identity) {
             if (!is_string($identity) || !self::is_identity($identity)) {
                 throw new \RuntimeException(
-                    "duo: code lock first_party[$i] must be one '{root}/{component}' identity with root "
+                    "wprism: code lock first_party[$i] must be one '{root}/{component}' identity with root "
                     . implode('/', self::ROOTS) . ' and one safe component segment'
                 );
             }
             if (isset($seen[$identity])) {
-                throw new \RuntimeException("duo: code lock first_party declares '$identity' more than once");
+                throw new \RuntimeException("wprism: code lock first_party declares '$identity' more than once");
             }
             if (isset($locked[$identity])) {
                 throw new \RuntimeException(
-                    "duo: code lock declares '$identity' both as a locked component and as first-party"
+                    "wprism: code lock declares '$identity' both as a locked component and as first-party"
                 );
             }
             $seen[$identity] = true;
@@ -198,7 +198,7 @@ final class CodeSourceLock {
         $sorted = array_keys($seen);
         sort($sorted, SORT_STRING);
         if ($firstParty !== $sorted) {
-            throw new \RuntimeException('duo: code lock first_party is not deterministically sorted');
+            throw new \RuntimeException('wprism: code lock first_party is not deterministically sorted');
         }
     }
 
@@ -213,29 +213,29 @@ final class CodeSourceLock {
     /** @param mixed $entry */
     private static function assert_entry($entry, int $i): void {
         if (!is_array($entry) || array_is_list($entry)) {
-            throw new \RuntimeException("duo: code lock components[$i] must be an object");
+            throw new \RuntimeException("wprism: code lock components[$i] must be an object");
         }
         $keys = array_keys($entry);
         sort($keys, SORT_STRING);
         if ($keys !== ['component', 'origin', 'root', 'tree_sha256', 'version']) {
             throw new \RuntimeException(
-                "duo: code lock components[$i] must contain exactly component, origin, root, tree_sha256, and version"
+                "wprism: code lock components[$i] must contain exactly component, origin, root, tree_sha256, and version"
             );
         }
         if (!is_string($entry['root']) || !in_array($entry['root'], self::ROOTS, true)) {
             throw new \RuntimeException(
-                "duo: code lock components[$i] root must be one of " . implode('/', self::ROOTS)
+                "wprism: code lock components[$i] root must be one of " . implode('/', self::ROOTS)
             );
         }
         if (!is_string($entry['component']) || !PathSafety::safe_component($entry['component'])) {
-            throw new \RuntimeException("duo: code lock components[$i] component must be one safe path segment");
+            throw new \RuntimeException("wprism: code lock components[$i] component must be one safe path segment");
         }
         if (!is_string($entry['version']) || trim($entry['version']) === ''
             || preg_match('/[\x00-\x1f\x7f]/', $entry['version']) === 1) {
-            throw new \RuntimeException("duo: code lock components[$i] version must be a non-empty single-line string");
+            throw new \RuntimeException("wprism: code lock components[$i] version must be a non-empty single-line string");
         }
         if (!self::is_digest($entry['tree_sha256'])) {
-            throw new \RuntimeException("duo: code lock components[$i] tree_sha256 must be 64 lowercase hex characters");
+            throw new \RuntimeException("wprism: code lock components[$i] tree_sha256 must be 64 lowercase hex characters");
         }
         self::assert_origin($entry['origin'], $i);
     }
@@ -243,7 +243,7 @@ final class CodeSourceLock {
     /** @param mixed $origin */
     private static function assert_origin($origin, int $i): void {
         if (!is_array($origin) || array_is_list($origin)) {
-            throw new \RuntimeException("duo: code lock components[$i] origin must be an object");
+            throw new \RuntimeException("wprism: code lock components[$i] origin must be an object");
         }
         $kind = $origin['kind'] ?? null;
         if ($kind === self::REMOVED_KIND) {
@@ -252,14 +252,14 @@ final class CodeSourceLock {
             // vocabulary. The archive the entry pointed at is still in their
             // repository; importing it is one command.
             throw new \RuntimeException(
-                "duo: code lock components[$i] origin.kind '" . self::REMOVED_KIND . "' is no longer a lock origin: "
+                "wprism: code lock components[$i] origin.kind '" . self::REMOVED_KIND . "' is no longer a lock origin: "
                 . 'Git must not carry third-party code, archives included; import the archive on the host with '
-                . '`duo code-import <archive.zip>` and re-lock the component with `duo code-classify`'
+                . '`wprism code-import <archive.zip>` and re-lock the component with `wprism code-classify`'
             );
         }
         if (!is_string($kind) || !in_array($kind, self::KINDS, true)) {
             throw new \RuntimeException(
-                "duo: code lock components[$i] origin.kind must be one of " . implode('/', self::KINDS)
+                "wprism: code lock components[$i] origin.kind must be one of " . implode('/', self::KINDS)
             );
         }
         $keys = array_keys($origin);
@@ -271,12 +271,12 @@ final class CodeSourceLock {
         sort($withRoot, SORT_STRING);
         if ($keys !== $required && $keys !== $withRoot) {
             throw new \RuntimeException(
-                "duo: code lock components[$i] origin of kind '$kind' must contain exactly "
+                "wprism: code lock components[$i] origin of kind '$kind' must contain exactly "
                 . implode(', ', $required) . ' and may add archive_root'
             );
         }
         if (!self::is_digest($origin['archive_sha256'])) {
-            throw new \RuntimeException("duo: code lock components[$i] origin.archive_sha256 must be 64 lowercase hex characters");
+            throw new \RuntimeException("wprism: code lock components[$i] origin.archive_sha256 must be 64 lowercase hex characters");
         }
         if ($kind === 'wp-org-release') {
             $url = $origin['url'];
@@ -287,7 +287,7 @@ final class CodeSourceLock {
             if (!is_string($url) || !str_starts_with($url, 'https://') || strlen($url) < 12
                 || preg_match('/\s/', $url) === 1) {
                 throw new \RuntimeException(
-                    "duo: code lock components[$i] origin.url must be an https:// URL with no whitespace"
+                    "wprism: code lock components[$i] origin.url must be an https:// URL with no whitespace"
                 );
             }
         }
@@ -299,7 +299,7 @@ final class CodeSourceLock {
         if (array_key_exists('archive_root', $origin)
             && (!is_string($origin['archive_root']) || !PathSafety::safe_relative($origin['archive_root']))) {
             throw new \RuntimeException(
-                "duo: code lock components[$i] origin.archive_root must be a safe relative path inside the archive"
+                "wprism: code lock components[$i] origin.archive_root must be a safe relative path inside the archive"
             );
         }
     }
@@ -369,7 +369,7 @@ final class CodeSourceLock {
     /**
      * `{root}/{component}` => true for every first-party declaration. A legacy
      * v1 lock declares none, which is what sends every component Git carries
-     * beside it to `code_component_undeclared` until `duo code-classify`
+     * beside it to `code_component_undeclared` until `wprism code-classify`
      * re-declares the repository.
      *
      * @param array<string,mixed> $lock
@@ -444,7 +444,7 @@ final class CodeSourceLock {
      */
     public static function gitignore_line(string $root, string $component): string {
         if (!in_array($root, self::ROOTS, true) || !PathSafety::safe_component($component)) {
-            throw new \RuntimeException('duo: code lock cannot ignore an unsafe component identity');
+            throw new \RuntimeException('wprism: code lock cannot ignore an unsafe component identity');
         }
         return '/' . self::SOURCE . '/' . $root . '/' . $component . '/';
     }

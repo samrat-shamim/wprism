@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Shared-MariaDB bring-up, readiness, admin SQL, and per-pair database
 # lifecycle -- the one-server-many-databases design pair.sh's own header
-# describes (wp_<name>1/wp_<name>2 on the single duo-db server, never a
+# describes (wp_<name>1/wp_<name>2 on the single wprism-db server, never a
 # per-pair server).
 #
 # This library owns only the SQL/container primitives. Pair discovery, host
@@ -14,7 +14,7 @@
 # inherited-environment convention pair_budget_lock.sh already established for
 # this file family.
 
-pair_db_select_engine() { # pair_db_select_engine — set DB_CONTAINER/DB_CLIENT/DB_COMPOSE/DB_LABEL from DUO_DB_ENGINE
+pair_db_select_engine() { # pair_db_select_engine — set DB_CONTAINER/DB_CLIENT/DB_COMPOSE/DB_LABEL from WPRISM_DB_ENGINE
   # The MySQL 8.x evidence lane (sandbox/db.mysql.yml) is a SECOND shared
   # server in its own compose project, so selecting it is a matter of which
   # container/client/project a pair talks to -- never an edit to db.yml, which
@@ -28,22 +28,22 @@ pair_db_select_engine() { # pair_db_select_engine — set DB_CONTAINER/DB_CLIENT
   # An unrecognised value REFUSES rather than falling back to mariadb: a typo'd
   # engine that silently produced MariaDB evidence while the operator believed
   # they were measuring MySQL is precisely the wrong-engine hazard this lane
-  # exists to rule out (see sandbox/pair.yml's DUO_DB_HOST paragraph).
-  case "${DUO_DB_ENGINE:-mariadb}" in
+  # exists to rule out (see sandbox/pair.yml's WPRISM_DB_HOST paragraph).
+  case "${WPRISM_DB_ENGINE:-mariadb}" in
     mariadb)
-      DB_CONTAINER=duo-shared-db
+      DB_CONTAINER=wprism-shared-db
       DB_CLIENT=mariadb
-      DB_COMPOSE=(docker compose -p duo-db -f db.yml)
-      DB_LABEL='MariaDB (duo-db)'
+      DB_COMPOSE=(docker compose -p wprism-db -f db.yml)
+      DB_LABEL='MariaDB (wprism-db)'
       ;;
     mysql)
-      DB_CONTAINER=duo-shared-mysql
+      DB_CONTAINER=wprism-shared-mysql
       DB_CLIENT=mysql
-      DB_COMPOSE=(docker compose -p duo-db-mysql -f db.mysql.yml)
-      DB_LABEL='MySQL (duo-db-mysql)'
+      DB_COMPOSE=(docker compose -p wprism-db-mysql -f db.mysql.yml)
+      DB_LABEL='MySQL (wprism-db-mysql)'
       ;;
     *)
-      fail "unknown DUO_DB_ENGINE '${DUO_DB_ENGINE:-}' -- supported engines are 'mariadb' (default) and 'mysql'"
+      fail "unknown WPRISM_DB_ENGINE '${WPRISM_DB_ENGINE:-}' -- supported engines are 'mariadb' (default) and 'mysql'"
       ;;
   esac
 }
@@ -94,7 +94,7 @@ pair_db_ensure_app_user() {
   # the MariaDB client speaks; the ALTER converges an account a pre-fix run
   # already created under the default plugin. The MariaDB arm is the
   # pre-existing bytes, untouched.
-  if [ "${DB_CONTAINER:-duo-shared-db}" = "duo-shared-mysql" ]; then
+  if [ "${DB_CONTAINER:-wprism-shared-db}" = "wprism-shared-mysql" ]; then
     pair_db_sql <<'SQL'
 CREATE USER IF NOT EXISTS 'wordpress'@'%' IDENTIFIED WITH mysql_native_password BY 'wordpress';
 ALTER USER 'wordpress'@'%' IDENTIFIED WITH mysql_native_password BY 'wordpress';

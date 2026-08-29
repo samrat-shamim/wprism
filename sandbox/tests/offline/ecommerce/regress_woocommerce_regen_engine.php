@@ -9,7 +9,7 @@
  * cleanup, no-op/unrelated isolation, callback heartbeats, and the unchanged
  * legacy single-id path without loading WordPress or WooCommerce.
  *
- * DUO-3342 migrated the shipped WooCommerce lookup repair from the batch
+ * issue #3342 migrated the shipped WooCommerce lookup repair from the batch
  * regen_dependency channel to the provider contract, so the file grew a second
  * half that re-expresses every behavioural claim above against
  * Apply::rebuild()'s provider dispatch. The batch half is deliberately KEPT
@@ -24,14 +24,14 @@
  * so a product/variation branch in engine code could not satisfy either.
  */
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 2);
 }
 if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }
 
-$fixtureDir = sys_get_temp_dir() . '/duo_regress_woo_engine_' . bin2hex(random_bytes(4));
+$fixtureDir = sys_get_temp_dir() . '/wprism_regress_woo_engine_' . bin2hex(random_bytes(4));
 mkdir($fixtureDir . '/regenerators', 0777, true);
 register_shutdown_function(static function () use ($fixtureDir): void {
     if (!is_dir($fixtureDir)) {
@@ -49,7 +49,7 @@ register_shutdown_function(static function () use ($fixtureDir): void {
 
 file_put_contents($fixtureDir . '/regenerators/fake-batch.php', <<<'PHP'
 <?php
-namespace Duo\Regenerators;
+namespace WPrism\Regenerators;
 final class FakeBatch {
     public static int $calls = 0;
     public static int $heartbeats = 0;
@@ -95,7 +95,7 @@ PHP
 
 file_put_contents($fixtureDir . '/regenerators/fake-single.php', <<<'PHP'
 <?php
-namespace Duo\Regenerators;
+namespace WPrism\Regenerators;
 final class FakeSingle {
     public static array $calls = [];
     public function __construct($policy) {}
@@ -110,7 +110,7 @@ PHP
 
 file_put_contents($fixtureDir . '/batch.json', json_encode([
     'name' => 'batch',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => [
         'product' => [
             'children' => ['product_variation'],
@@ -136,15 +136,15 @@ file_put_contents($fixtureDir . '/batch.json', json_encode([
         ],
         // Deliberately unrelated CPT names: the deletion-receipt mechanism
         // must follow this declaration rather than a product convention.
-        'duo_story' => [
-            'children' => ['duo_chapter'],
+        'wprism_story' => [
+            'children' => ['wprism_chapter'],
             'regen_dependency' => [
                 'regenerator' => 'fake-batch',
                 'verify' => ['table' => 'lookup', 'column' => 'post_id'],
                 'batch' => ['enabled' => true, 'always_on_write' => true],
             ],
         ],
-        'duo_chapter' => [
+        'wprism_chapter' => [
             'regen_dependency' => [
                 'regenerator' => 'fake-batch',
                 'verify' => ['table' => 'lookup', 'column' => 'post_id'],
@@ -153,14 +153,14 @@ file_put_contents($fixtureDir . '/batch.json', json_encode([
         ],
         // This pair intentionally has no children declaration. Its matching
         // post_parent rows below must not be inferred into a parent receipt.
-        'duo_unrelated_parent' => [
+        'wprism_unrelated_parent' => [
             'regen_dependency' => [
                 'regenerator' => 'fake-batch',
                 'verify' => ['table' => 'lookup', 'column' => 'post_id'],
                 'batch' => ['enabled' => true, 'always_on_write' => true],
             ],
         ],
-        'duo_unrelated_child' => [
+        'wprism_unrelated_child' => [
             'regen_dependency' => [
                 'regenerator' => 'fake-batch',
                 'verify' => ['table' => 'lookup', 'column' => 'post_id'],
@@ -169,7 +169,7 @@ file_put_contents($fixtureDir . '/batch.json', json_encode([
         ],
     ],
 ], JSON_PRETTY_PRINT));
-// The provider-dispatch half's fixture (DUO-3342). Deliberately declares NO
+// The provider-dispatch half's fixture (issue #3342). Deliberately declares NO
 // regen_dependency: the two dispatchers may not both claim a post type, and
 // negotiation refuses a channel-declaring capability on one that a batch
 // declaration owns. `children` is what the engine's pre-delete inventory reads
@@ -177,7 +177,7 @@ file_put_contents($fixtureDir . '/batch.json', json_encode([
 // same declared relation the batch half does, under different CPT names.
 file_put_contents($fixtureDir . '/provider.json', json_encode([
     'name' => 'provider',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'plugin' => 'fake-dispatch/fake-dispatch.php',
     'version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
     'providers' => [[
@@ -192,17 +192,17 @@ file_put_contents($fixtureDir . '/provider.json', json_encode([
         'provider' => 'fake-dispatch',
         'capability' => 'rebuild',
         'args' => new stdClass(),
-        'triggers' => ['post:duo_widget', 'post:duo_widget_part'],
+        'triggers' => ['post:wprism_widget', 'post:wprism_widget_part'],
     ]],
     'post_types' => [
-        'duo_widget' => ['class' => 'authored', 'children' => ['duo_widget_part']],
-        'duo_widget_part' => ['class' => 'authored'],
-        'duo_widget_unrelated' => ['class' => 'authored'],
+        'wprism_widget' => ['class' => 'authored', 'children' => ['wprism_widget_part']],
+        'wprism_widget_part' => ['class' => 'authored'],
+        'wprism_widget_unrelated' => ['class' => 'authored'],
     ],
 ], JSON_PRETTY_PRINT));
 file_put_contents($fixtureDir . '/legacy.json', json_encode([
     'name' => 'legacy',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => [
         'widget' => [
             'regen_dependency' => [
@@ -257,11 +257,11 @@ final class WooEngineFakeWpdb {
 
     public function query(string $query): int|false {
         $this->last_error = '';
-        if (preg_match("/INSERT INTO wp_duo_kv .*VALUES \\('((?:[^'\\\\]|\\\\.)*)', '((?:[^'\\\\]|\\\\.)*)'\\)/", $query, $m)) {
+        if (preg_match("/INSERT INTO wp_wprism_kv .*VALUES \\('((?:[^'\\\\]|\\\\.)*)', '((?:[^'\\\\]|\\\\.)*)'\\)/", $query, $m)) {
             $this->kv[stripslashes($m[1])] = stripslashes($m[2]);
             return 1;
         }
-        if (preg_match("/DELETE FROM wp_duo_kv WHERE k = '((?:[^'\\\\]|\\\\.)*)'/", $query, $m)) {
+        if (preg_match("/DELETE FROM wp_wprism_kv WHERE k = '((?:[^'\\\\]|\\\\.)*)'/", $query, $m)) {
             unset($this->kv[stripslashes($m[1])]);
             return 1;
         }
@@ -280,10 +280,10 @@ final class WooEngineFakeWpdb {
         if ($this->readFails($query)) {
             return [];
         }
-        if (str_contains($query, 'INNER JOIN wp_posts') || str_contains($query, 'duo_map m')) {
+        if (str_contains($query, 'INNER JOIN wp_posts') || str_contains($query, 'wprism_map m')) {
             $this->catalogScanCalls++;
         }
-        if (str_contains($query, 'SELECT k, v FROM wp_duo_kv')) {
+        if (str_contains($query, 'SELECT k, v FROM wp_wprism_kv')) {
             return array_map(
                 static fn(string $k, string $v): array => ['k' => $k, 'v' => $v],
                 array_keys($this->kv),
@@ -341,10 +341,10 @@ final class WooEngineFakeWpdb {
         if ($this->readFails($query)) {
             return null;
         }
-        if (preg_match("/SELECT v FROM wp_duo_kv WHERE k = '((?:[^'\\\\]|\\\\.)*)'/", $query, $m)) {
+        if (preg_match("/SELECT v FROM wp_wprism_kv WHERE k = '((?:[^'\\\\]|\\\\.)*)'/", $query, $m)) {
             return $this->kv[stripslashes($m[1])] ?? null;
         }
-        if (preg_match("/SELECT local_id FROM wp_duo_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $query, $m)) {
+        if (preg_match("/SELECT local_id FROM wp_wprism_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $query, $m)) {
             foreach ($this->map as $row) {
                 if ($row['uuid'] === $m[1] && $row['kind'] === $m[2]) {
                     return $row['id'];
@@ -352,7 +352,7 @@ final class WooEngineFakeWpdb {
             }
             return null;
         }
-        if (preg_match("/SELECT uuid FROM wp_duo_map WHERE id_kind = '([^']+)' AND local_id = (\\d+)/", $query, $m)) {
+        if (preg_match("/SELECT uuid FROM wp_wprism_map WHERE id_kind = '([^']+)' AND local_id = (\\d+)/", $query, $m)) {
             foreach ($this->map as $row) {
                 if ($row['kind'] === $m[1] && (int) $row['id'] === (int) $m[2]) {
                     return $row['uuid'];
@@ -410,13 +410,13 @@ $wpdb->postsRows[204] = ['post_type' => 'product_variation', 'post_parent' => 20
 $wpdb->postsRows[205] = ['post_type' => 'product_variation', 'post_parent' => 201];
 $wpdb->postsRows[101] = ['post_type' => 'product', 'post_parent' => 0];
 $wpdb->postsRows[102] = ['post_type' => 'product_variation', 'post_parent' => 100];
-$wpdb->postsRows[301] = ['post_type' => 'duo_story', 'post_parent' => 0];
-$wpdb->postsRows[302] = ['post_type' => 'duo_chapter', 'post_parent' => 301];
-$wpdb->postsRows[303] = ['post_type' => 'duo_chapter', 'post_parent' => 301];
-$wpdb->postsRows[304] = ['post_type' => 'duo_unrelated_child', 'post_parent' => 301];
-$wpdb->postsRows[305] = ['post_type' => 'duo_unrelated_parent', 'post_parent' => 0];
-$wpdb->postsRows[306] = ['post_type' => 'duo_unrelated_child', 'post_parent' => 305];
-$wpdb->postsRows[307] = ['post_type' => 'duo_unrelated_child', 'post_parent' => 305];
+$wpdb->postsRows[301] = ['post_type' => 'wprism_story', 'post_parent' => 0];
+$wpdb->postsRows[302] = ['post_type' => 'wprism_chapter', 'post_parent' => 301];
+$wpdb->postsRows[303] = ['post_type' => 'wprism_chapter', 'post_parent' => 301];
+$wpdb->postsRows[304] = ['post_type' => 'wprism_unrelated_child', 'post_parent' => 301];
+$wpdb->postsRows[305] = ['post_type' => 'wprism_unrelated_parent', 'post_parent' => 0];
+$wpdb->postsRows[306] = ['post_type' => 'wprism_unrelated_child', 'post_parent' => 305];
+$wpdb->postsRows[307] = ['post_type' => 'wprism_unrelated_child', 'post_parent' => 305];
 $wpdb->lookupRows = [
     101 => true, 102 => true, 103 => true, 104 => true, 105 => true,
     301 => true, 302 => true, 303 => true, 304 => true,
@@ -432,12 +432,12 @@ require __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require __DIR__ . '/../../../../agent/src/Apply/Apply.php';
 
 $fixtureLibrary = manifest_fixture_adapter_library($fixtureDir);
-$policy = \Duo\Policy::load(null, ['batch', 'legacy'], adapterLibrary: $fixtureLibrary);
-$apply = new \Duo\RegenerationContextStore(
+$policy = \WPrism\Policy::load(null, ['batch', 'legacy'], adapterLibrary: $fixtureLibrary);
+$apply = new \WPrism\RegenerationContextStore(
     $policy,
     static fn(string $channel, string $surface): bool => false
 );
-$regen = new \Duo\DependencyRegenerator(
+$regen = new \WPrism\DependencyRegenerator(
     $policy,
     $apply,
     static fn(string $surface): bool => false,
@@ -446,8 +446,8 @@ $regen = new \Duo\DependencyRegenerator(
     static fn(string $surface): bool => false,
     static function (): void {}
 );
-$captureReparent = new \ReflectionMethod(\Duo\RegenerationContextStore::class, 'capture_reparents');
-$captureDelete = new \ReflectionMethod(\Duo\RegenerationContextStore::class, 'capture_deletions');
+$captureReparent = new \ReflectionMethod(\WPrism\RegenerationContextStore::class, 'capture_reparents');
+$captureDelete = new \ReflectionMethod(\WPrism\RegenerationContextStore::class, 'capture_deletions');
 $captureDeleteSource = implode("\n", array_slice(
     (array) file($captureDelete->getFileName(), FILE_IGNORE_NEW_LINES),
     $captureDelete->getStartLine() - 1,
@@ -482,7 +482,7 @@ $check(!preg_match('/if\\s*\\(\\s*\\$postType\\s*={2,3}\\s*[\'\"]product[\'\"]/'
     && !preg_match('/post_type\\s*=\\s*[\'\"]product_variation[\'\"]/', $captureDeleteSource),
     'deletion receipt inventory has no product/variation literal decision');
 
-// A declared duo_story -> duo_chapter relation uses wp_posts.post_parent.
+// A declared wprism_story -> wprism_chapter relation uses wp_posts.post_parent.
 // The fixture carries one explicit child tombstone, one live declared child,
 // and one explicit but unrelated child CPT. Only the declared, explicit child
 // belongs in the parent receipt; no implicit cascade is authorized.
@@ -501,7 +501,7 @@ $check(is_array($storyParentContext) && ($storyParentContext['child_ids'] ?? nul
 $check(isset($storyContextsByUuid[$storyDeletedChapter]) && isset($storyContextsByUuid[$storyUnrelatedChild]),
     'explicit child tombstones keep their own receipts instead of granting parent cascade authority');
 $storyInventory = $wpdb->childInventoryQueries[count($wpdb->childInventoryQueries) - 1] ?? null;
-$check($storyInventory === ['parent_id' => 301, 'post_types' => ['duo_chapter']],
+$check($storyInventory === ['parent_id' => 301, 'post_types' => ['wprism_chapter']],
     'generic inventory query is driven by the declared unrelated child CPT');
 
 // The existing batch-rebuild consumer must suppress only receipt ids. It must
@@ -510,16 +510,16 @@ $check($storyInventory === ['parent_id' => 301, 'post_types' => ['duo_chapter']]
 // zero baseline without loading it merely to inspect a static property.
 $storyCallsBefore = 0;
 $invoke([], [], $storyDeleteContexts);
-$storyBatchCall = count(\Duo\Regenerators\FakeBatch::$deletions) - 1;
+$storyBatchCall = count(\WPrism\Regenerators\FakeBatch::$deletions) - 1;
 $storyBatchParentContext = null;
-foreach (\Duo\Regenerators\FakeBatch::$deletions[$storyBatchCall] as $context) {
+foreach (\WPrism\Regenerators\FakeBatch::$deletions[$storyBatchCall] as $context) {
     if (($context['uuid'] ?? '') === $storyParent) {
         $storyBatchParentContext = $context;
         break;
     }
 }
-$check(\Duo\Regenerators\FakeBatch::$calls === $storyCallsBefore + 1
-    && \Duo\Regenerators\FakeBatch::$ids[$storyBatchCall] === [],
+$check(\WPrism\Regenerators\FakeBatch::$calls === $storyCallsBefore + 1
+    && \WPrism\Regenerators\FakeBatch::$ids[$storyBatchCall] === [],
     'parent/child tombstone receipts dispatch no invented live ids');
 $check(is_array($storyBatchParentContext) && ($storyBatchParentContext['child_ids'] ?? null) === [302],
     'batch rebuild receives the filtered generic parent receipt');
@@ -549,10 +549,10 @@ $check(!isset($wpdb->lookupRows[305]) && !isset($wpdb->lookupRows[306]) && isset
 
 // Keep the long-standing batch scenarios below independent: this new receipt
 // seam has already asserted its own call trace and uses disjoint fixture ids.
-\Duo\Regenerators\FakeBatch::$calls = 0;
-\Duo\Regenerators\FakeBatch::$heartbeats = 0;
-\Duo\Regenerators\FakeBatch::$ids = [];
-\Duo\Regenerators\FakeBatch::$deletions = [];
+\WPrism\Regenerators\FakeBatch::$calls = 0;
+\WPrism\Regenerators\FakeBatch::$heartbeats = 0;
+\WPrism\Regenerators\FakeBatch::$ids = [];
+\WPrism\Regenerators\FakeBatch::$deletions = [];
 
 // The pre-mutation receipt itself accumulates roots across chained moves. This
 // reflection seam stands in for two authored transactions: A->B is captured,
@@ -630,32 +630,32 @@ unset($wpdb->kv['regen_reparent_context:' . $adoptVariation]);
 // An existing row does not suppress a changed write candidate, and no
 // unrelated mapped product is discovered through a catalog-wide scan.
 $invoke($work($u1), $tree);
-$check(\Duo\Regenerators\FakeBatch::$calls === 1, 'changed product dispatches the batch adapter despite an existing row');
-$check(\Duo\Regenerators\FakeBatch::$ids[0] === [101], 'batch receives only this apply write candidate');
+$check(\WPrism\Regenerators\FakeBatch::$calls === 1, 'changed product dispatches the batch adapter despite an existing row');
+$check(\WPrism\Regenerators\FakeBatch::$ids[0] === [101], 'batch receives only this apply write candidate');
 $check($wpdb->catalogScanCalls === 0, 'candidate dispatch performs no whole-catalog mapped-post scan');
 
 // Empty/no-op work and a non-batch post do not load/call the Woo batch path.
-$before = \Duo\Regenerators\FakeBatch::$calls;
+$before = \WPrism\Regenerators\FakeBatch::$calls;
 $invoke([], [], []);
-$check(\Duo\Regenerators\FakeBatch::$calls === $before, 'no-op apply skips batch regeneration');
+$check(\WPrism\Regenerators\FakeBatch::$calls === $before, 'no-op apply skips batch regeneration');
 unset($wpdb->lookupRows[103]);
 $invoke($work($u3), $tree);
-$check(\Duo\Regenerators\FakeBatch::$calls === $before, 'unrelated legacy post skips the batch adapter');
-$check(\Duo\Regenerators\FakeSingle::$calls === [103], 'legacy missing-row dependency retains single-id behavior');
+$check(\WPrism\Regenerators\FakeBatch::$calls === $before, 'unrelated legacy post skips the batch adapter');
+$check(\WPrism\Regenerators\FakeSingle::$calls === [103], 'legacy missing-row dependency retains single-id behavior');
 
 // A batch declaration that opts out of always-on-write keeps existence-gated
 // changed-work behavior; this flag is not silently ignored.  Pending markers
 // and deletion receipts remain unconditional below.
-$before = \Duo\Regenerators\FakeBatch::$calls;
+$before = \WPrism\Regenerators\FakeBatch::$calls;
 $invoke($work($u4), $tree);
-$check(\Duo\Regenerators\FakeBatch::$calls === $before, 'always_on_write=false skips an existing changed-row candidate');
+$check(\WPrism\Regenerators\FakeBatch::$calls === $before, 'always_on_write=false skips an existing changed-row candidate');
 unset($wpdb->lookupRows[104]);
 $invoke($work($u4), $tree);
-$check(\Duo\Regenerators\FakeBatch::$calls === $before + 1, 'always_on_write=false dispatches when verification is missing');
+$check(\WPrism\Regenerators\FakeBatch::$calls === $before + 1, 'always_on_write=false dispatches when verification is missing');
 
 // Read errors at the declarative verification boundary are not equivalent to
 // a missing row: the adapter must not run on an uncertain database view.
-$before = \Duo\Regenerators\FakeBatch::$calls;
+$before = \WPrism\Regenerators\FakeBatch::$calls;
 $wpdb->failReadContaining = 'SHOW TABLES LIKE';
 try {
     $invoke($work($u4), $tree);
@@ -664,7 +664,7 @@ try {
     $check(str_contains($e->getMessage(), 'regeneration bookkeeping read failed: verify table lookup'),
         'verification-table read failure is surfaced');
 }
-$check(\Duo\Regenerators\FakeBatch::$calls === $before,
+$check(\WPrism\Regenerators\FakeBatch::$calls === $before,
     'verification-table read failure does not dispatch a regenerator');
 $wpdb->failReadContaining = '';
 $wpdb->last_error = '';
@@ -673,8 +673,8 @@ $wpdb->last_error = '';
 // retain the marker and refuse the pass instead of treating it as empty.
 $markerReadKey = 'regen_pending:' . $u1;
 $wpdb->kv[$markerReadKey] = 'product';
-$before = \Duo\Regenerators\FakeBatch::$calls;
-$wpdb->failReadContaining = 'SELECT k, v FROM wp_duo_kv';
+$before = \WPrism\Regenerators\FakeBatch::$calls;
+$wpdb->failReadContaining = 'SELECT k, v FROM wp_wprism_kv';
 try {
     $invoke([], [], []);
     $check(false, 'pending-marker inventory read failure is surfaced');
@@ -683,7 +683,7 @@ try {
         'pending-marker inventory read failure is surfaced');
 }
 $check(isset($wpdb->kv[$markerReadKey]), 'failed marker inventory read retains the durable retry marker');
-$check(\Duo\Regenerators\FakeBatch::$calls === $before,
+$check(\WPrism\Regenerators\FakeBatch::$calls === $before,
     'failed marker inventory read dispatches no regenerator');
 $wpdb->failReadContaining = '';
 $wpdb->last_error = '';
@@ -693,10 +693,10 @@ unset($wpdb->kv[$markerReadKey]);
 // disappears; the engine drops them and records the reason in warnings.
 $orphanKey = 'regen_pending:orphan-batch-uuid';
 $wpdb->kv[$orphanKey] = 'product';
-$before = \Duo\Regenerators\FakeBatch::$calls;
+$before = \WPrism\Regenerators\FakeBatch::$calls;
 $invoke([], [], []);
 $check(!isset($wpdb->kv[$orphanKey]), 'orphan batch regen_pending marker is swept');
-$check(\Duo\Regenerators\FakeBatch::$calls === $before, 'orphan marker sweep does not invoke a plugin adapter');
+$check(\WPrism\Regenerators\FakeBatch::$calls === $before, 'orphan marker sweep does not invoke a plugin adapter');
 
 // Reparent receipts survive a failed batch together with the live variation's
 // pending marker. If the variation moves again A->B->C before retry, the
@@ -727,7 +727,7 @@ $reparentContextBC = [
     'child_ids' => [],
 ];
 $wpdb->kv[$reparentKey] = json_encode($reparentContextAB);
-\Duo\Regenerators\FakeBatch::$fail = true;
+\WPrism\Regenerators\FakeBatch::$fail = true;
 try {
     $invoke($work($u2), $tree, [$reparentContextAB]);
     $check(false, 'injected reparent batch failure is surfaced');
@@ -736,8 +736,8 @@ try {
 }
 $check(isset($wpdb->kv[$reparentKey]), 'failed reparent retains durable context');
 $check(isset($wpdb->kv['regen_pending:' . $u2]), 'failed reparent retains live pending marker');
-$firstReparentCall = count(\Duo\Regenerators\FakeBatch::$deletions) - 1;
-$check(\Duo\Regenerators\FakeBatch::$deletions[$firstReparentCall][0]['kind'] === 'reparent', 'failed A->B dispatch carries reparent context');
+$firstReparentCall = count(\WPrism\Regenerators\FakeBatch::$deletions) - 1;
+$check(\WPrism\Regenerators\FakeBatch::$deletions[$firstReparentCall][0]['kind'] === 'reparent', 'failed A->B dispatch carries reparent context');
 
 // This is the second authored move before retry. The engine must merge the
 // durable A/B marker with the B/C current context rather than letting the
@@ -748,8 +748,8 @@ try {
 } catch (\Throwable $e) {
     $check(str_contains($e->getMessage(), 'injected batch failure'), 'chained B->C batch failure is surfaced');
 }
-$chainedFailureCall = count(\Duo\Regenerators\FakeBatch::$deletions) - 1;
-$chainedRoots = array_map('intval', (array) (\Duo\Regenerators\FakeBatch::$deletions[$chainedFailureCall][0]['root_ids'] ?? []));
+$chainedFailureCall = count(\WPrism\Regenerators\FakeBatch::$deletions) - 1;
+$chainedRoots = array_map('intval', (array) (\WPrism\Regenerators\FakeBatch::$deletions[$chainedFailureCall][0]['root_ids'] ?? []));
 sort($chainedRoots, SORT_NUMERIC);
 $check($chainedRoots === [100, 200, 300], 'failed chained reparent merges all A/B/C root ids');
 $check(isset($wpdb->kv[$reparentKey]) && isset($wpdb->kv['regen_pending:' . $u2]), 'failed chained reparent retains both durable and pending markers');
@@ -759,10 +759,10 @@ $mergedReparentContext = $reparentContextBC;
 $mergedReparentContext['root_ids'] = [100, 200, 300];
 $wpdb->kv[$reparentKey] = json_encode($mergedReparentContext);
 
-\Duo\Regenerators\FakeBatch::$fail = false;
+\WPrism\Regenerators\FakeBatch::$fail = false;
 $invoke([], [], []);
-$receiptOnlyCall = count(\Duo\Regenerators\FakeBatch::$deletions) - 1;
-$receiptOnlyRoots = array_map('intval', (array) (\Duo\Regenerators\FakeBatch::$deletions[$receiptOnlyCall][0]['root_ids'] ?? []));
+$receiptOnlyCall = count(\WPrism\Regenerators\FakeBatch::$deletions) - 1;
+$receiptOnlyRoots = array_map('intval', (array) (\WPrism\Regenerators\FakeBatch::$deletions[$receiptOnlyCall][0]['root_ids'] ?? []));
 sort($receiptOnlyRoots, SORT_NUMERIC);
 $check($receiptOnlyRoots === [100, 200, 300], 'receipt-only retry replays every accumulated root');
 $check(!isset($wpdb->kv[$reparentKey]) && !isset($wpdb->kv['regen_pending:' . $u2]), 'successful receipt-only retry clears both markers');
@@ -794,25 +794,25 @@ $deletedAfterReparent = [
 $wpdb->kv[$deletedAfterReparentKey] = json_encode($deletedAfterReparentContext);
 $wpdb->kv['regen_pending:' . $u5] = 'product_variation';
 $wpdb->lookupRows[105] = true;
-\Duo\Regenerators\FakeBatch::$fail = true;
+\WPrism\Regenerators\FakeBatch::$fail = true;
 try {
     $invoke($work($u5), $tree, [$deletedAfterReparentContext]);
     $check(false, 'failed reparent before deletion is surfaced');
 } catch (\Throwable $e) {
     $check(str_contains($e->getMessage(), 'injected batch failure'), 'failed reparent before deletion is surfaced');
 }
-\Duo\Regenerators\FakeBatch::$fail = false;
+\WPrism\Regenerators\FakeBatch::$fail = false;
 $deletedAfterDeleteKey = 'regen_delete_context:' . $u5;
 $wpdb->kv[$deletedAfterDeleteKey] = json_encode($deletedAfterReparent);
 $invoke([], [], [$deletedAfterReparent]);
-$deleteAfterReparentCall = count(\Duo\Regenerators\FakeBatch::$deletions) - 1;
-$deleteAfterReparentIds = \Duo\Regenerators\FakeBatch::$ids[$deleteAfterReparentCall];
+$deleteAfterReparentCall = count(\WPrism\Regenerators\FakeBatch::$deletions) - 1;
+$deleteAfterReparentIds = \WPrism\Regenerators\FakeBatch::$ids[$deleteAfterReparentCall];
 $deleteAfterReparentKinds = array_map(
     static fn(array $context): string => (string) ($context['kind'] ?? 'delete'),
-    \Duo\Regenerators\FakeBatch::$deletions[$deleteAfterReparentCall]
+    \WPrism\Regenerators\FakeBatch::$deletions[$deleteAfterReparentCall]
 );
 $reparentRetryContext = null;
-foreach (\Duo\Regenerators\FakeBatch::$deletions[$deleteAfterReparentCall] as $context) {
+foreach (\WPrism\Regenerators\FakeBatch::$deletions[$deleteAfterReparentCall] as $context) {
     if (($context['kind'] ?? 'delete') === 'reparent') {
         $reparentRetryContext = $context;
         break;
@@ -836,18 +836,18 @@ $check(!isset($wpdb->kv[$deletedAfterReparentKey])
 
 // A failed write leaves a durable pending marker; a later marker-only retry
 // naturally replays the same live id and clears it only after verification.
-\Duo\Regenerators\FakeBatch::$fail = true;
+\WPrism\Regenerators\FakeBatch::$fail = true;
 try {
     $invoke($work($u1), $tree);
     $check(false, 'injected batch failure is surfaced');
 } catch (\Throwable $e) {
     $check(str_contains($e->getMessage(), 'injected batch failure'), 'batch failure is surfaced to apply');
 }
-$failedDispatchCalls = \Duo\Regenerators\FakeBatch::$calls;
+$failedDispatchCalls = \WPrism\Regenerators\FakeBatch::$calls;
 $check(isset($wpdb->kv['regen_pending:' . $u1]), 'failed batch retains regen_pending marker');
-\Duo\Regenerators\FakeBatch::$fail = false;
+\WPrism\Regenerators\FakeBatch::$fail = false;
 $invoke([], [], []);
-$check(\Duo\Regenerators\FakeBatch::$calls === $failedDispatchCalls + 1, 'pending-only retry dispatches the failed product');
+$check(\WPrism\Regenerators\FakeBatch::$calls === $failedDispatchCalls + 1, 'pending-only retry dispatches the failed product');
 $check(!isset($wpdb->kv['regen_pending:' . $u1]), 'successful retry clears regen_pending marker');
 
 // A delete can be the only candidate.  Its context is forwarded and cleared
@@ -867,16 +867,16 @@ $invoke([], [], [[
     'parent_id' => 100,
     'child_ids' => [],
 ]]);
-$last = count(\Duo\Regenerators\FakeBatch::$deletions) - 1;
-$check(\Duo\Regenerators\FakeBatch::$ids[$last] === [], 'delete-only dispatch has no invented live ids');
-$check(\Duo\Regenerators\FakeBatch::$deletions[$last][0]['parent_id'] === 100, 'delete context preserves parent id');
+$last = count(\WPrism\Regenerators\FakeBatch::$deletions) - 1;
+$check(\WPrism\Regenerators\FakeBatch::$ids[$last] === [], 'delete-only dispatch has no invented live ids');
+$check(\WPrism\Regenerators\FakeBatch::$deletions[$last][0]['parent_id'] === 100, 'delete context preserves parent id');
 $check(!isset($wpdb->kv[$deleteKey]), 'successful delete-only batch clears durable context');
 
 // The generic engine supplies and the adapter consumes a heartbeat callback.
-$check(\Duo\Regenerators\FakeBatch::$heartbeats > 0, 'batch engine passes an invoked heartbeat callback');
+$check(\WPrism\Regenerators\FakeBatch::$heartbeats > 0, 'batch engine passes an invoked heartbeat callback');
 
 // ======================================================================
-// DUO-3342: the SAME semantics, driven through the provider dispatch.
+// issue #3342: the SAME semantics, driven through the provider dispatch.
 //
 // Every behavioural claim the batch scenarios above make is re-expressed
 // here against Apply::rebuild()'s provider path: candidate scoping, the
@@ -915,7 +915,7 @@ final class FakeDispatchProvider {
     public static function declaration(): array {
         return [
             'args' => [],
-            'reads' => ['post:duo_widget', 'post:duo_widget_part'],
+            'reads' => ['post:wprism_widget', 'post:wprism_widget_part'],
             'writes' => ['table:lookup'],
             'scope' => 'entity',
             'idempotent' => true,
@@ -994,37 +994,37 @@ final class FakeDispatchProvider {
     }
 }
 
-echo "\n== the same semantics through the provider dispatch (DUO-3342) ==\n";
+echo "\n== the same semantics through the provider dispatch (issue #3342) ==\n";
 
 
-$providerPolicy = \Duo\Policy::load(null, ['provider'], adapterLibrary: $fixtureLibrary);
-$providerAction = $providerPolicy->actions_for(['post:duo_widget'])[0];
+$providerPolicy = \WPrism\Policy::load(null, ['provider'], adapterLibrary: $fixtureLibrary);
+$providerAction = $providerPolicy->actions_for(['post:wprism_widget'])[0];
 $check(($providerAction['capability'] ?? null) === 'rebuild'
-    && ($providerAction['triggers'] ?? null) === ['post:duo_widget', 'post:duo_widget_part'],
+    && ($providerAction['triggers'] ?? null) === ['post:wprism_widget', 'post:wprism_widget_part'],
     'the provider fixture action is selected off its own declared surfaces');
-$check($providerPolicy->regen_batch('duo_widget') === null
-    && $providerPolicy->regen_batch('duo_widget_part') === null,
+$check($providerPolicy->regen_batch('wprism_widget') === null
+    && $providerPolicy->regen_batch('wprism_widget_part') === null,
     'and its post types are claimed by no batch regenerator, which is what lets one dispatcher own their markers');
 
-$providerSelection = new \Duo\RebuildSelection($providerPolicy);
+$providerSelection = new \WPrism\RebuildSelection($providerPolicy);
 $providerSelection->set_selected_actions([$providerAction]);
 $providerNegotiation = [
     'providers' => ['fake-dispatch' => new FakeDispatchProvider()],
     'capabilities' => ['fake-dispatch' => ['rebuild' => FakeDispatchProvider::declaration()]],
 ];
 $providerSelection->set_negotiated_providers($providerNegotiation);
-$providerApply = new \Duo\RegenerationContextStore(
+$providerApply = new \WPrism\RegenerationContextStore(
     $providerPolicy,
     fn(string $channel, string $surface): bool =>
         $providerSelection->declares_channel_for($channel, $surface)
 );
-$providerDispatcher = new \Duo\RebuildActionDispatcher(
+$providerDispatcher = new \WPrism\RebuildActionDispatcher(
     $providerPolicy,
-    new \Duo\ProviderActionBatchBuilder($providerPolicy, \Duo\Snapshot::row_tables($providerPolicy)),
+    new \WPrism\ProviderActionBatchBuilder($providerPolicy, \WPrism\Snapshot::row_tables($providerPolicy)),
     static function (): void {}
 );
-$captureDeleteProvider = new \ReflectionMethod(\Duo\RegenerationContextStore::class, 'capture_deletions');
-$captureReparentProvider = new \ReflectionMethod(\Duo\RegenerationContextStore::class, 'capture_reparents');
+$captureDeleteProvider = new \ReflectionMethod(\WPrism\RegenerationContextStore::class, 'capture_deletions');
+$captureReparentProvider = new \ReflectionMethod(\WPrism\RegenerationContextStore::class, 'capture_reparents');
 
 /**
  * One rebuild() pass. Returns the pass's own warnings/receipts plus whether it
@@ -1077,18 +1077,18 @@ $wpdb->map[] = ['uuid' => $widgetPart, 'kind' => 'post', 'id' => 402];
 $wpdb->map[] = ['uuid' => $widgetOtherPart, 'kind' => 'post', 'id' => 403];
 $wpdb->map[] = ['uuid' => $widgetUnrelated, 'kind' => 'post', 'id' => 404];
 $wpdb->map[] = ['uuid' => $widgetMoved, 'kind' => 'post', 'id' => 405];
-$wpdb->postsRows[401] = ['post_type' => 'duo_widget', 'post_parent' => 0];
-$wpdb->postsRows[402] = ['post_type' => 'duo_widget_part', 'post_parent' => 401];
-$wpdb->postsRows[403] = ['post_type' => 'duo_widget_part', 'post_parent' => 401];
-$wpdb->postsRows[404] = ['post_type' => 'duo_widget_unrelated', 'post_parent' => 401];
-$wpdb->postsRows[405] = ['post_type' => 'duo_widget_part', 'post_parent' => 401];
+$wpdb->postsRows[401] = ['post_type' => 'wprism_widget', 'post_parent' => 0];
+$wpdb->postsRows[402] = ['post_type' => 'wprism_widget_part', 'post_parent' => 401];
+$wpdb->postsRows[403] = ['post_type' => 'wprism_widget_part', 'post_parent' => 401];
+$wpdb->postsRows[404] = ['post_type' => 'wprism_widget_unrelated', 'post_parent' => 401];
+$wpdb->postsRows[405] = ['post_type' => 'wprism_widget_part', 'post_parent' => 401];
 foreach ([401, 402, 403, 404, 405] as $lookupId) {
     $wpdb->lookupRows[$lookupId] = true;
 }
 $providerTree = [
-    $widget => ['type' => 'post', 'data' => ['type' => 'duo_widget']],
-    $widgetPart => ['type' => 'post', 'data' => ['type' => 'duo_widget_part']],
-    $widgetMoved => ['type' => 'post', 'data' => ['type' => 'duo_widget_part', 'parent' => '{{post:' . $widget . '}}']],
+    $widget => ['type' => 'post', 'data' => ['type' => 'wprism_widget']],
+    $widgetPart => ['type' => 'post', 'data' => ['type' => 'wprism_widget_part']],
+    $widgetMoved => ['type' => 'post', 'data' => ['type' => 'wprism_widget_part', 'parent' => '{{post:' . $widget . '}}']],
 ];
 $providerWork = static fn(string $uuid): array => [['uuid' => $uuid]];
 $deleteRow = static fn(string $uuid, string $postType): array => [
@@ -1138,7 +1138,7 @@ $check(($capturedByUuid[$widget]['child_ids'] ?? null) === [402],
 $check(isset($capturedByUuid[$widgetPart]) && !isset($capturedByUuid[$widgetUnrelated]),
     'the declared child keeps its own receipt; an undeclared sibling CPT gets none');
 $check(($wpdb->childInventoryQueries[count($wpdb->childInventoryQueries) - 1] ?? null)
-    === ['parent_id' => 401, 'post_types' => ['duo_widget_part']],
+    === ['parent_id' => 401, 'post_types' => ['wprism_widget_part']],
     'and the inventory query is driven by the declared child CPT, not a product convention');
 $check(count($wpdb->childInventoryQueries) === $inventoryBefore + 1,
     'the undeclared post type performs no child inventory query of its own');
@@ -1146,9 +1146,9 @@ $check(count($wpdb->childInventoryQueries) === $inventoryBefore + 1,
 // --- delivery, deleted-id suppression, and clear-on-verified ---
 $run = $driveProvider(
     $providerWork($widgetOtherPart),
-    $providerTree + [$widgetOtherPart => ['type' => 'post', 'data' => ['type' => 'duo_widget_part']]],
+    $providerTree + [$widgetOtherPart => ['type' => 'post', 'data' => ['type' => 'wprism_widget_part']]],
     [],
-    [$deleteRow($widget, 'duo_widget'), $deleteRow($widgetPart, 'duo_widget_part')],
+    [$deleteRow($widget, 'wprism_widget'), $deleteRow($widgetPart, 'wprism_widget_part')],
     true
 );
 $deliveredDeletes = array_values(array_filter($lastContext(), static fn(array $r): bool => $r['kind'] === 'delete'));
@@ -1161,7 +1161,7 @@ foreach ($deliveredDeletes as $row) {
     }
 }
 $check(($parentRow['child_ids'] ?? null) === [402] && ($parentRow['parent_id'] ?? null) === 0
-    && ($parentRow['post_type'] ?? null) === 'duo_widget',
+    && ($parentRow['post_type'] ?? null) === 'wprism_widget',
     'carrying the captured inventory the regenerator channel carried — the documented parity gap is closed');
 $check($lastIds() === [403],
     'the still-live sibling is live work, and the deleted ids never appear among it');
@@ -1177,19 +1177,19 @@ $captureDeleteProvider->invoke($providerApply, [['type' => 'post', 'uuid' => $wi
 $check(isset($wpdb->kv['regen_delete_context:' . $widget]), 'a fresh capture arms the durable delete marker');
 FakeDispatchProvider::$fail = true;
 $run = $driveProvider($providerWork($widgetOtherPart), $providerTree + [
-    $widgetOtherPart => ['type' => 'post', 'data' => ['type' => 'duo_widget_part']],
+    $widgetOtherPart => ['type' => 'post', 'data' => ['type' => 'wprism_widget_part']],
 ]);
 // One asymmetry with the batch path, observed rather than asserted away: the
 // batch dispatcher re-throws the adapter's own message inline, while
 // Providers::invoke() carries it as $previous under a fixed wrapper. Both are
 // hard apply failures; only the rendered text differs, and the operator-facing
-// half of that is DUO-3338's posture, not this migration's.
-$check(str_contains($run['error'], "duo: required manifest action 'provider:fake-dispatch/rebuild' failed")
+// half of that is issue #3338's posture, not this migration's.
+$check(str_contains($run['error'], "wprism: required manifest action 'provider:fake-dispatch/rebuild' failed")
     && str_contains($run['error'], "provider 'fake-dispatch' capability 'rebuild' failed"),
     'a provider failure is a hard apply failure naming the declaration, not a warning');
 $check(isset($wpdb->kv['regen_delete_context:' . $widget]),
     'THE RETRY AUTHORITY: the durable delete receipt survives the failure');
-$check(($wpdb->kv['regen_pending:' . $widgetOtherPart] ?? null) === 'duo_widget_part',
+$check(($wpdb->kv['regen_pending:' . $widgetOtherPart] ?? null) === 'wprism_widget_part',
     'and the live candidate keeps a pending marker, exactly as the batch path leaves one');
 FakeDispatchProvider::$fail = false;
 $run = $driveProvider();
@@ -1221,7 +1221,7 @@ $wpdb->kv['regen_reparent_context:' . $widgetMoved] = json_encode([
     'kind' => 'reparent',
     'uuid' => $widgetMoved,
     'id' => 405,
-    'post_type' => 'duo_widget_part',
+    'post_type' => 'wprism_widget_part',
     'old_parent_id' => 401,
     'new_parent_id' => 406,
     'parent_id' => 401,
@@ -1261,19 +1261,19 @@ $wpdb->kv['regen_reparent_context:' . $widgetMoved] = json_encode([
     'kind' => 'reparent',
     'uuid' => $widgetMoved,
     'id' => 405,
-    'post_type' => 'duo_widget_part',
+    'post_type' => 'wprism_widget_part',
     'old_parent_id' => 401,
     'new_parent_id' => 406,
     'parent_id' => 401,
     'root_ids' => [401, 406],
     'child_ids' => [],
 ]);
-$wpdb->kv['regen_pending:' . $widgetMoved] = 'duo_widget_part';
+$wpdb->kv['regen_pending:' . $widgetMoved] = 'wprism_widget_part';
 $wpdb->kv['regen_delete_context:' . $widgetMoved] = json_encode([
     'kind' => 'delete',
     'uuid' => $widgetMoved,
     'id' => 405,
-    'post_type' => 'duo_widget_part',
+    'post_type' => 'wprism_widget_part',
     'parent_id' => 406,
     'child_ids' => [],
 ]);

@@ -6,11 +6,11 @@
  * ## What is actually driven here
  *
  * `LifecyclePlanner::code_mismatch()` over a REAL `Policy` — a
- * `duo-policy-snapshot/v6` envelope through `Policy::from_snapshot()`, so the
+ * `wprism-policy-snapshot/v6` envelope through `Policy::from_snapshot()`, so the
  * site-level evidence grammar runs on the same fail-closed wire a live load
  * uses; `ApplyPreparationCoordinator::enforce_code_mismatch_gate()`, the public
- * gate `duo apply` calls; and `PlanSummary::render()`, whose `ok` is the
- * readiness answer `duo status` prints and `duo release` refuses on
+ * gate `wprism apply` calls; and `PlanSummary::render()`, whose `ok` is the
+ * readiness answer `wprism status` prints and `wprism release` refuses on
  * (`release_target_not_clean`). Nothing is re-implemented: the verdict comes
  * out of the minting site, and each refusal out of the site that refuses.
  *
@@ -61,25 +61,25 @@ require_once __DIR__ . '/../../lib/check.php';
 
 $root = dirname(__DIR__, 4);
 
-define('DUO_SPEC_VERSION', 2);
+define('WPRISM_SPEC_VERSION', 2);
 
 // ---- WordPress lifecycle primitives LifecyclePlanner::code_mismatch() reads.
 // Defining validate_plugin() also short-circuits Deploy's wp-admin include
 // (Deploy.php:882-886), which is why no ABSPATH is needed here.
-$GLOBALS['duo_test_plugins'] = [];
-$GLOBALS['duo_test_active'] = [];
+$GLOBALS['wprism_test_plugins'] = [];
+$GLOBALS['wprism_test_active'] = [];
 
 class WP_Error {
     public function __construct(public string $message = '') {}
 }
 function validate_plugin(string $plugin): mixed {
-    return isset($GLOBALS['duo_test_plugins'][$plugin]) ? 0 : new WP_Error("plugin '$plugin' does not exist");
+    return isset($GLOBALS['wprism_test_plugins'][$plugin]) ? 0 : new WP_Error("plugin '$plugin' does not exist");
 }
 function get_plugins(): array {
-    return $GLOBALS['duo_test_plugins'];
+    return $GLOBALS['wprism_test_plugins'];
 }
 function get_option(string $name, mixed $default = false): mixed {
-    return $name === 'active_plugins' ? $GLOBALS['duo_test_active'] : $default;
+    return $name === 'active_plugins' ? $GLOBALS['wprism_test_active'] : $default;
 }
 function is_wp_error(mixed $thing): bool {
     return $thing instanceof WP_Error;
@@ -95,15 +95,15 @@ require_once __DIR__ . '/../../lib/frozen_policy.php';
 // no agent class here references it, and none may.
 require_once $root . '/cli/src/Adapter/AdapterBoundary.php';
 
-use Duo\ArtifactPolicyIdentity;
-use Duo\LifecyclePlanner;
-use Duo\Orchestrator\AdapterBoundary;
-use Duo\Orchestrator\PlanContract;
-use Duo\Orchestrator\PlanSummary;
-use Duo\PlanCategorySummary;
-use Duo\Policy;
-use Duo\VersionEvidenceGrammar;
-use DuoTest\FrozenPolicy;
+use WPrism\ArtifactPolicyIdentity;
+use WPrism\LifecyclePlanner;
+use WPrism\Orchestrator\AdapterBoundary;
+use WPrism\Orchestrator\PlanContract;
+use WPrism\Orchestrator\PlanSummary;
+use WPrism\PlanCategorySummary;
+use WPrism\Policy;
+use WPrism\VersionEvidenceGrammar;
+use WPrismTest\FrozenPolicy;
 
 const GVR_PLUGIN = 'graduated-probe/graduated-probe.php';
 const GVR_MANIFEST = 'graduated-probe';
@@ -113,7 +113,7 @@ const GVR_SLUG = 'graduated-probe';
 function gvr_manifest(): array {
     return [
         'name' => GVR_MANIFEST,
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
         'plugin' => GVR_PLUGIN,
         'version_range' => ['min' => '6.0.0', 'max' => '6.9.0'],
     ];
@@ -168,8 +168,8 @@ function gvr_policy(array $site): Policy {
  * @return array<string,mixed>|null
  */
 function gvr_row(Policy $policy, string $installed): ?array {
-    $GLOBALS['duo_test_plugins'] = [GVR_PLUGIN => ['Version' => $installed]];
-    $GLOBALS['duo_test_active'] = [GVR_PLUGIN];
+    $GLOBALS['wprism_test_plugins'] = [GVR_PLUGIN => ['Version' => $installed]];
+    $GLOBALS['wprism_test_active'] = [GVR_PLUGIN];
     $rows = LifecyclePlanner::code_mismatch($policy, ['active_plugins' => [GVR_PLUGIN]]);
     return $rows[0] ?? null;
 }
@@ -177,17 +177,17 @@ function gvr_row(Policy $policy, string $installed): ?array {
 // =====================================================================
 // 1. The two vocabularies are one vocabulary.
 // =====================================================================
-duo_check_same(
+wprism_check_same(
     AdapterBoundary::OUTCOMES,
     VersionEvidenceGrammar::OUTCOMES,
     'the agent-side outcome vocabulary restates the bisector\'s exactly (agent/ may not reference cli/)'
 );
-duo_check_same(
+wprism_check_same(
     AdapterBoundary::OUTCOME_GREEN,
     VersionEvidenceGrammar::OUTCOME_GREEN,
     'the one outcome that graduates is the bisector\'s own green'
 );
-duo_check(
+wprism_check(
     !in_array(VersionEvidenceGrammar::OUTCOME_GREEN, [
         AdapterBoundary::OUTCOME_BOOT_FATAL,
         AdapterBoundary::OUTCOME_DIVERGES,
@@ -200,7 +200,7 @@ duo_check(
 // 2. The control: inside the declared window is untouched.
 // =====================================================================
 $inside = gvr_policy(gvr_site(null));
-duo_check_same(null, gvr_row($inside, '6.8.7'), 'a plugin inside the declared window mints no row at all');
+wprism_check_same(null, gvr_row($inside, '6.8.7'), 'a plugin inside the declared window mints no row at all');
 
 // =====================================================================
 // 3. The pinned refusal (rule 8), and the absent-evidence guard (rule 9).
@@ -210,15 +210,15 @@ duo_check_same(null, gvr_row($inside, '6.8.7'), 'a plugin inside the declared wi
 // hold still.
 // =====================================================================
 $pinnedRefusal = GVR_PLUGIN . " 6.9.1 is active in this environment, outside the '" . GVR_MANIFEST
-    . "' manifest's declared version_range (>=6.0.0 <6.9.0, pinned by site.duo.json). "
+    . "' manifest's declared version_range (>=6.0.0 <6.9.0, pinned by site.wprism.json). "
     . 'Classification guarantees for this plugin are NOT validated against this version — apply may '
     . 'silently misclassify fields. Update the plugin, pin an older manifest, or pass '
     . '--force-code-mismatch to proceed at your own risk.';
 
 $noEvidence = gvr_row(gvr_policy(gvr_site(null)), '6.9.1');
-duo_check_same('outside_version_range', $noEvidence['issue'] ?? null, 'with NO recorded evidence the finding is unchanged');
-duo_check_same($pinnedRefusal, $noEvidence['message'] ?? null, 'the pre-existing refusal message is byte-identical');
-duo_check(
+wprism_check_same('outside_version_range', $noEvidence['issue'] ?? null, 'with NO recorded evidence the finding is unchanged');
+wprism_check_same($pinnedRefusal, $noEvidence['message'] ?? null, 'the pre-existing refusal message is byte-identical');
+wprism_check(
     !array_key_exists('evidence', $noEvidence ?? []),
     'a blocking finding carries no evidence key — there is nothing to report'
 );
@@ -226,12 +226,12 @@ duo_check(
 // The same site, now holding evidence for releases that do not reach the
 // installed bytes. This is the case that separates "graduated" from "assumed".
 $partial = gvr_row(gvr_policy(gvr_site([gvr_outcome('6.9.0', 'green')])), '6.9.1');
-duo_check_same(
+wprism_check_same(
     'outside_version_range',
     $partial['issue'] ?? null,
     'evidence that stops short of the installed release does not graduate it'
 );
-duo_check_same($pinnedRefusal, $partial['message'] ?? null, 'and it refuses with the identical message');
+wprism_check_same($pinnedRefusal, $partial['message'] ?? null, 'and it refuses with the identical message');
 
 // =====================================================================
 // 4. The graduation itself.
@@ -241,41 +241,41 @@ $graduatedPolicy = gvr_policy(gvr_site([
     gvr_outcome('6.9.1', 'green'),
 ]));
 $graduated = gvr_row($graduatedPolicy, '6.9.1');
-duo_check_same(
+wprism_check_same(
     VersionEvidenceGrammar::VERDICT,
     $graduated['issue'] ?? null,
     'a fully-evidenced interval mints the third, NAMED verdict'
 );
-duo_check_same('version_range_graduated', VersionEvidenceGrammar::VERDICT, 'the verdict word is pinned');
-duo_check_same('6.9.1', $graduated['installed_version'] ?? null, 'the verdict names the installed version');
-duo_check_same(GVR_MANIFEST, $graduated['manifest'] ?? null, 'the verdict names the manifest whose window it graduated');
-duo_check_same(
+wprism_check_same('version_range_graduated', VersionEvidenceGrammar::VERDICT, 'the verdict word is pinned');
+wprism_check_same('6.9.1', $graduated['installed_version'] ?? null, 'the verdict names the installed version');
+wprism_check_same(GVR_MANIFEST, $graduated['manifest'] ?? null, 'the verdict names the manifest whose window it graduated');
+wprism_check_same(
     ['min' => '6.0.0', 'max' => '6.9.0'],
     $graduated['version_range'] ?? null,
     'the verdict still reports the declared window it is outside of — it never rewrites it'
 );
-duo_check_same(
+wprism_check_same(
     [gvr_outcome('6.9.0', 'green'), gvr_outcome('6.9.1', 'green')],
     $graduated['evidence'] ?? null,
     'the verdict carries EVERY per-release row it rests on, in recorded release order'
 );
-duo_check(
+wprism_check(
     str_contains($graduated['message'] ?? '', '6.9.0 green (recapture sha256:6.9.0:green)')
         && str_contains($graduated['message'] ?? '', '6.9.1 green (recapture sha256:6.9.1:green)'),
     'the human message names each release WITH its recorded probe signature'
 );
-duo_check(
+wprism_check(
     str_contains($graduated['message'] ?? '', 'a release with no recorded probe blocks')
         && str_contains($graduated['message'] ?? '', 'does not widen'),
     'the message states the limit of the evidence and that no range was widened'
 );
-duo_check(
+wprism_check(
     !str_contains($graduated['message'] ?? '', '--force-code-mismatch'),
     'the graduated verdict does not advertise the force flag — nothing was forced'
 );
 // The release INSIDE the window is vouched for by the manifest and is not
 // evidence this verdict needs; it must not appear in the reported set.
-duo_check(
+wprism_check(
     !in_array('6.8.7', array_column($graduated['evidence'] ?? [], 'version'), true),
     'releases inside the declared window are not restated as evidence'
 );
@@ -286,7 +286,7 @@ $noisy = gvr_row(gvr_policy(gvr_site([
     gvr_outcome('6.9.0', 'green'),
     gvr_outcome('6.9.1', 'green'),
 ])), '6.9.1');
-duo_check_same(
+wprism_check_same(
     VersionEvidenceGrammar::VERDICT,
     $noisy['issue'] ?? null,
     'a failure recorded on the OTHER side of the window is outside the interval and does not block'
@@ -305,12 +305,12 @@ foreach ([
         gvr_outcome('6.9.0', 'green'),
         gvr_outcome('6.9.1', $outcome),
     ])), '6.9.1');
-    duo_check_same(
+    wprism_check_same(
         'outside_version_range',
         $blocked['issue'] ?? null,
         "an installed release recorded '$outcome' still blocks ($why)"
     );
-    duo_check_same($pinnedRefusal, $blocked['message'] ?? null, "and '$outcome' refuses with the pinned message");
+    wprism_check_same($pinnedRefusal, $blocked['message'] ?? null, "and '$outcome' refuses with the pinned message");
 }
 
 // An INTERIOR release that moved blocks too, even though the installed one is
@@ -319,7 +319,7 @@ $interior = gvr_row(gvr_policy(gvr_site([
     gvr_outcome('6.9.0', 'round-trip-diverges'),
     gvr_outcome('6.9.1', 'green'),
 ])), '6.9.1');
-duo_check_same(
+wprism_check_same(
     'outside_version_range',
     $interior['issue'] ?? null,
     'a release inside the interval that diverged blocks even when the installed one probed green'
@@ -332,7 +332,7 @@ $otherManifest = gvr_row(
     gvr_policy(gvr_site([gvr_outcome('6.9.0', 'green'), gvr_outcome('6.9.1', 'green')], manifest: 'someone-else')),
     '6.9.1'
 );
-duo_check_same(
+wprism_check_same(
     'outside_version_range',
     $otherManifest['issue'] ?? null,
     "evidence recorded against another adapter's declared surfaces does not graduate this one"
@@ -345,7 +345,7 @@ $otherPlugin = gvr_row(
     )),
     '6.9.1'
 );
-duo_check_same(
+wprism_check_same(
     'outside_version_range',
     $otherPlugin['issue'] ?? null,
     'evidence keyed to a different plugin basename does not graduate this one'
@@ -358,7 +358,7 @@ $unlisted = gvr_row(
     gvr_policy(gvr_site([gvr_outcome('6.9.0', 'green')], releases: ['6.0.0', '6.8.7', '6.9.0'])),
     '6.9.1'
 );
-duo_check_same(
+wprism_check_same(
     'outside_version_range',
     $unlisted['issue'] ?? null,
     'an installed release absent from the recorded release list cannot graduate'
@@ -366,15 +366,15 @@ duo_check_same(
 
 // A version header WordPress could not read has nothing for evidence to be
 // about, and graduating it would be graduating an unknown.
-$GLOBALS['duo_test_plugins'] = [GVR_PLUGIN => []];
-$GLOBALS['duo_test_active'] = [GVR_PLUGIN];
+$GLOBALS['wprism_test_plugins'] = [GVR_PLUGIN => []];
+$GLOBALS['wprism_test_active'] = [GVR_PLUGIN];
 $unknown = LifecyclePlanner::code_mismatch($graduatedPolicy, ['active_plugins' => [GVR_PLUGIN]])[0] ?? null;
-duo_check_same(
+wprism_check_same(
     'outside_version_range',
     $unknown['issue'] ?? null,
     'an unreadable installed version blocks no matter what evidence exists'
 );
-duo_check(
+wprism_check(
     str_contains($unknown['message'] ?? '', '(unknown version)'),
     'and it keeps the pre-existing "(unknown version)" wording'
 );
@@ -388,12 +388,12 @@ $belowSite = gvr_site(
     releases: ['5.9.0', '5.9.5', '6.0.0', '6.8.7']
 );
 $below = gvr_row(gvr_policy($belowSite), '5.9.0');
-duo_check_same(
+wprism_check_same(
     VersionEvidenceGrammar::VERDICT,
     $below['issue'] ?? null,
     'an installed release BELOW min graduates on evidence covering [installed, min)'
 );
-duo_check_same(
+wprism_check_same(
     [gvr_outcome('5.9.0', 'green'), gvr_outcome('5.9.5', 'green')],
     $below['evidence'] ?? null,
     'and its reported interval runs from the installed bytes up to the window floor'
@@ -402,7 +402,7 @@ $belowPartial = gvr_row(
     gvr_policy(gvr_site([gvr_outcome('5.9.0', 'green')], releases: ['5.9.0', '5.9.5', '6.0.0', '6.8.7'])),
     '5.9.0'
 );
-duo_check_same(
+wprism_check_same(
     'outside_version_range',
     $belowPartial['issue'] ?? null,
     'a gap on the downgrade side blocks exactly as a gap on the upgrade side does'
@@ -412,20 +412,20 @@ duo_check_same(
 // 8. `core` takes NEITHER path. Asserted against the shipped manifest, not
 //    against a fixture that could be made to say anything.
 // =====================================================================
-$coreManifest = \Duo\Canon::decode(file_get_contents($root . '/platform/adapter-library/core/manifest.json'));
-duo_check(
+$coreManifest = \WPrism\Canon::decode(file_get_contents($root . '/platform/adapter-library/core/manifest.json'));
+wprism_check(
     !array_key_exists('plugin', $coreManifest) && !array_key_exists('version_range', $coreManifest),
     'the shipped core manifest declares no plugin and no version_range'
 );
 $corePolicy = gvr_policy(gvr_site([gvr_outcome('6.9.1', 'green')]));
-duo_check_same(
+wprism_check_same(
     [],
     array_keys(array_diff_key($corePolicy->version_ranges(), [GVR_PLUGIN => true])),
     'only the plugin-claiming manifest contributes a range; a core-shaped manifest contributes none'
 );
-$GLOBALS['duo_test_plugins'] = [GVR_PLUGIN => ['Version' => '6.9.1']];
-$GLOBALS['duo_test_active'] = [];
-duo_check_same(
+$GLOBALS['wprism_test_plugins'] = [GVR_PLUGIN => ['Version' => '6.9.1']];
+$GLOBALS['wprism_test_active'] = [];
+wprism_check_same(
     [],
     LifecyclePlanner::code_mismatch($corePolicy, ['active_plugins' => []]),
     'with nothing declared active neither the refusal nor the graduated verdict can fire'
@@ -440,38 +440,38 @@ require_once $root . '/agent/src/Apply/ApplyPreparationCoordinator.php';
 $blockingRow = ['issue' => 'outside_version_range', 'kind' => 'plugin', 'message' => 'BLOCKING ROW MESSAGE'];
 $graduatedRow = ['issue' => VersionEvidenceGrammar::VERDICT, 'kind' => 'plugin', 'message' => 'GRADUATED ROW MESSAGE'];
 
-$applyEnvelope = "duo: apply refused — code_mismatch:\n\n  - BLOCKING ROW MESSAGE\n\n"
-    . "Run 'duo deploy <env>' first for lifecycle reconciliation, "
+$applyEnvelope = "wprism: apply refused — code_mismatch:\n\n  - BLOCKING ROW MESSAGE\n\n"
+    . "Run 'wprism deploy <env>' first for lifecycle reconciliation, "
     . 'or pass --force-code-mismatch to proceed despite those lifecycle mismatches.';
 try {
-    \Duo\ApplyPreparationCoordinator::enforce_code_mismatch_gate([$blockingRow], []);
-    duo_check(false, 'apply still refuses an un-evidenced outside_version_range');
+    \WPrism\ApplyPreparationCoordinator::enforce_code_mismatch_gate([$blockingRow], []);
+    wprism_check(false, 'apply still refuses an un-evidenced outside_version_range');
 } catch (\RuntimeException $e) {
-    duo_check_same($applyEnvelope, $e->getMessage(), 'the apply code_mismatch refusal envelope is byte-identical');
+    wprism_check_same($applyEnvelope, $e->getMessage(), 'the apply code_mismatch refusal envelope is byte-identical');
 }
 try {
-    duo_check_same(
+    wprism_check_same(
         [],
-        \Duo\ApplyPreparationCoordinator::enforce_code_mismatch_gate([$graduatedRow], []),
+        \WPrism\ApplyPreparationCoordinator::enforce_code_mismatch_gate([$graduatedRow], []),
         'apply does not refuse the graduated verdict, and never reports it as forced'
     );
 } catch (\RuntimeException $e) {
-    duo_check(false, 'apply does not refuse the graduated verdict, and never reports it as forced');
-    duo_check_detail('refused: ' . $e->getMessage());
+    wprism_check(false, 'apply does not refuse the graduated verdict, and never reports it as forced');
+    wprism_check_detail('refused: ' . $e->getMessage());
 }
 try {
-    \Duo\ApplyPreparationCoordinator::enforce_code_mismatch_gate([$graduatedRow, $blockingRow], []);
-    duo_check(false, 'a graduated row does not launder an un-evidenced one beside it');
+    \WPrism\ApplyPreparationCoordinator::enforce_code_mismatch_gate([$graduatedRow, $blockingRow], []);
+    wprism_check(false, 'a graduated row does not launder an un-evidenced one beside it');
 } catch (\RuntimeException $e) {
-    duo_check_same(
+    wprism_check_same(
         $applyEnvelope,
         $e->getMessage(),
         'the refusal lists ONLY the un-evidenced row, byte-identically, when both are present'
     );
 }
-duo_check_same(
+wprism_check_same(
     [$blockingRow],
-    \Duo\ApplyPreparationCoordinator::enforce_code_mismatch_gate(
+    \WPrism\ApplyPreparationCoordinator::enforce_code_mismatch_gate(
         [$graduatedRow, $blockingRow],
         ['force_code_mismatch' => true]
     ),
@@ -485,33 +485,33 @@ duo_check_same(
 //     uses to hold an extraction still.
 // =====================================================================
 $deploySource = (string) file_get_contents($root . '/agent/src/Promotion/Deploy.php');
-duo_check(
-    str_contains($deploySource, '"duo: deploy refused — code_mismatch:\n\n$list\n\n"' . "\n"
+wprism_check(
+    str_contains($deploySource, '"wprism: deploy refused — code_mismatch:\n\n$list\n\n"' . "\n"
         . "                . 'Install/vendor whatever is missing (or update code/) in this environment first, '\n"
         . "                . 'or pass --force-code-mismatch to proceed anyway.'"),
     'the deploy code_mismatch refusal envelope is byte-identical'
 );
-duo_check(
-    str_contains($deploySource, '"duo: deploy refused — code_drift:\n\n$list\n\n"' . "\n"
+wprism_check(
+    str_contains($deploySource, '"wprism: deploy refused — code_drift:\n\n$list\n\n"' . "\n"
         . "                . 'Reconcile the environment to a known version first, or pass --force-code-drift to proceed anyway.'"),
     'the deploy code_drift refusal envelope is byte-identical'
 );
-duo_check(
+wprism_check(
     str_contains($deploySource, "                    'code_revision_stale',\n"
         . "                    VersionEvidenceGrammar::VERDICT,\n"),
     'deploy names the graduated verdict by constant in its non-blocking list, never by a second copy of the string'
 );
-duo_check(
+wprism_check(
     !str_contains($deploySource, "'outside_version_range',\n                ]"),
     'deploy never adds outside_version_range itself to that list — the un-evidenced finding still blocks'
 );
-duo_check(
+wprism_check(
     str_contains($deploySource, "\$warnings[] = 'GRADUATED outside_version_range: ' . \$r['message'];"),
     'deploy reports the graduated verdict on every run rather than silently dropping it'
 );
 
 // =====================================================================
-// 10b. The host's readiness answer. A `duo status` that stayed red would
+// 10b. The host's readiness answer. A `wprism status` that stayed red would
 //      leave "safe to promote?" answering no to the exact condition this
 //      verdict resolves, so the graduated row is subtracted from `ok` — and
 //      from nothing else: the `N code_mismatch` count line and the JSON
@@ -519,7 +519,7 @@ duo_check(
 // =====================================================================
 require_once $root . '/cli/src/Plan/PlanSummary.php';
 
-duo_check_same(
+wprism_check_same(
     VersionEvidenceGrammar::VERDICT,
     PlanContract::GRADUATED_VERSION_RANGE,
     'the host spells the same wire word the agent mints (cli:Plan reaches no agent module)'
@@ -529,23 +529,23 @@ $emptyPlan = array_fill_keys([
     'create', 'update', 'adopt', 'unchanged', 'drift', 'conflict',
     'collision', 'delete', 'delete_conflict', 'deleted', 'code_mismatch',
 ], []);
-$refuseSentence = 'code_mismatch findings — duo apply will refuse until resolved (or run with --force-code-mismatch)';
+$refuseSentence = 'code_mismatch findings — wprism apply will refuse until resolved (or run with --force-code-mismatch)';
 
 $graduatedPlan = $emptyPlan;
 $graduatedPlan['code_mismatch'] = [$graduated];
 $graduatedRender = PlanSummary::render($graduatedPlan);
 $graduatedLines = implode("\n", $graduatedRender['lines']);
-duo_check_same(true, $graduatedRender['ok'], 'a graduated verdict alone leaves the plan safe to promote');
-duo_check(
+wprism_check_same(true, $graduatedRender['ok'], 'a graduated verdict alone leaves the plan safe to promote');
+wprism_check(
     str_contains($graduatedRender['lines'][0] ?? '', '1 code_mismatch'),
     'and is still counted in the code_mismatch summary line — the bucket is unchanged'
 );
-duo_check(
+wprism_check(
     str_contains($graduatedLines, 'VERSION_RANGE_GRADUATED')
         && str_contains($graduatedLines, GVR_PLUGIN),
     'the host renders it loudly, in its own block, naming the plugin'
 );
-duo_check(
+wprism_check(
     !str_contains($graduatedLines, $refuseSentence),
     'and never prints the CODE_MISMATCH remedy sentence, which would be false about it'
 );
@@ -553,8 +553,8 @@ duo_check(
 $blockedPlan = $emptyPlan;
 $blockedPlan['code_mismatch'] = [$noEvidence];
 $blockedRender = PlanSummary::render($blockedPlan);
-duo_check_same(false, $blockedRender['ok'], 'an un-evidenced outside_version_range still makes status not safe to promote');
-duo_check(
+wprism_check_same(false, $blockedRender['ok'], 'an un-evidenced outside_version_range still makes status not safe to promote');
+wprism_check(
     str_contains(implode("\n", $blockedRender['lines']), $refuseSentence),
     'and still carries the pre-existing remedy sentence byte-for-byte'
 );
@@ -563,8 +563,8 @@ $bothPlan = $emptyPlan;
 $bothPlan['code_mismatch'] = [$graduated, $noEvidence];
 $bothRender = PlanSummary::render($bothPlan);
 $bothLines = implode("\n", $bothRender['lines']);
-duo_check_same(false, $bothRender['ok'], 'a graduated row beside a blocking one does not make the plan promotable');
-duo_check(
+wprism_check_same(false, $bothRender['ok'], 'a graduated row beside a blocking one does not make the plan promotable');
+wprism_check(
     str_contains($bothLines, 'VERSION_RANGE_GRADUATED') && str_contains($bothLines, $refuseSentence),
     'both blocks render; neither is folded into the other'
 );
@@ -574,12 +574,12 @@ duo_check(
 // =====================================================================
 $compatibility = (new ReflectionClass(PlanCategorySummary::class))
     ->getConstant('CODE_COMPATIBILITY_ISSUES');
-duo_check_same(
+wprism_check_same(
     ['missing_in_code', 'outside_version_range'],
     $compatibility,
     'the graduated verdict is deliberately absent from CODE_COMPATIBILITY_ISSUES'
 );
-duo_check(
+wprism_check(
     !in_array(VersionEvidenceGrammar::VERDICT, $compatibility, true),
     'because that counter is projected as unsupported_code, which is the opposite of what this verdict claims'
 );
@@ -589,16 +589,16 @@ duo_check(
 //     revision — and a site declaring none moves neither hash.
 // =====================================================================
 $plainPolicy = gvr_policy(gvr_site(null));
-duo_check_same(
+wprism_check_same(
     ArtifactPolicyIdentity::site_hash($plainPolicy),
     ArtifactPolicyIdentity::state_site_hash($plainPolicy),
     'a site declaring no evidence and no code has identical site and state hashes (nothing was unset)'
 );
-duo_check(
+wprism_check(
     ArtifactPolicyIdentity::site_hash($graduatedPolicy) !== ArtifactPolicyIdentity::site_hash($plainPolicy),
     'adding evidence moves site_hash — an artifact compiled before it is correctly rejected'
 );
-duo_check_same(
+wprism_check_same(
     ArtifactPolicyIdentity::state_site_hash($plainPolicy),
     ArtifactPolicyIdentity::state_site_hash($graduatedPolicy),
     'and moves no state revision: evidence names no option, meta key, post type or table'
@@ -610,7 +610,7 @@ duo_check_same(
 //     identical sequence for both).
 // =====================================================================
 $refuses = static function (array $site, string $contains, string $message): void {
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => gvr_policy($site),
         \RuntimeException::class,
         $message,
@@ -670,10 +670,10 @@ $refuses(
 // The empty-outcomes case is legal grammar and simply never graduates: a site
 // may record the release list before any probe has run.
 $emptyOutcomes = gvr_row(gvr_policy(gvr_site([])), '6.9.1');
-duo_check_same(
+wprism_check_same(
     'outside_version_range',
     $emptyOutcomes['issue'] ?? null,
     'a recorded release list with no outcomes yet is valid grammar and graduates nothing'
 );
 
-duo_check_summary('graduated version_range verdict');
+wprism_check_summary('graduated version_range verdict');

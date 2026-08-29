@@ -1,4 +1,4 @@
-# Verification-only overlay for DUO-3431's warm-cache acceptance. A bundle
+# Verification-only overlay for issue #3431's warm-cache acceptance. A bundle
 # may layer this onto its disposable pair after prewarming every digest-pinned
 # artifact; any remaining bare wp plugin/theme install then reaches loopback
 # instead of the WordPress.org catalog and fails loudly. Local ZIP installs

@@ -30,8 +30,8 @@ prepare_code_snippets_boundary_target() {
 
 check_code_snippets_boundary_content() { # <label>
   local label="$1" out source_id target_id
-  source_id=$(wp1 db query "SELECT id FROM wp_snippets WHERE name='Duo portable content 東京 🚀'" --skip-column-names | tr -d '[:space:]')
-  target_id=$(wp2 db query "SELECT id FROM wp_snippets WHERE name='Duo portable content 東京 🚀'" --skip-column-names | tr -d '[:space:]')
+  source_id=$(wp1 db query "SELECT id FROM wp_snippets WHERE name='WPrism portable content 東京 🚀'" --skip-column-names | tr -d '[:space:]')
+  target_id=$(wp2 db query "SELECT id FROM wp_snippets WHERE name='WPrism portable content 東京 🚀'" --skip-column-names | tr -d '[:space:]')
   require_fixture_ids source_id target_id
   [ "$source_id" != "$target_id" ] \
     || fail "Code Snippets $label source/target local IDs accidentally matched"
@@ -41,7 +41,7 @@ check_code_snippets_boundary_content() { # <label>
     $snippets = Code_Snippets\get_snippets();
     $content = null;
     foreach ($snippets as $snippet) {
-      if ($snippet->name === "Duo portable content 東京 🚀") { $content = $snippet; }
+      if ($snippet->name === "WPrism portable content 東京 🚀") { $content = $snippet; }
     }
     if (!$content) { throw new RuntimeException("portable content snippet missing"); }
     $page = get_page_by_path("code-snippets-reference-matrix", OBJECT, "page");
@@ -61,8 +61,8 @@ check_code_snippets_boundary_content() { # <label>
       "files" => $files,
       "flat" => Code_Snippets\Snippet_Files::is_active(),
       "page" => $page ? $page->post_content : "",
-      "priority" => (int) $wpdb->get_var("SELECT priority FROM `$table` WHERE name=\"Duo runtime filter\""),
-      "runtime" => apply_filters("duo_code_snippets_runtime", "base"),
+      "priority" => (int) $wpdb->get_var("SELECT priority FROM `$table` WHERE name=\"WPrism runtime filter\""),
+      "runtime" => apply_filters("wprism_code_snippets_runtime", "base"),
       "sample_count" => (int) $wpdb->get_var("SELECT COUNT(*) FROM `$table` WHERE tags LIKE \"%sample%\""),
     ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
   ')
@@ -71,7 +71,7 @@ check_code_snippets_boundary_content() { # <label>
   printf '%s\n' "$out" | jq -e --arg source "$source_id" --arg target "$target_id" '
     .api_count == 3 and .sample_count == 0 and .flat == true and
     .runtime == "base|repository-runtime" and .priority == 32767 and
-    (.content_render | contains("duo-code-snippet-marker")) and
+    (.content_render | contains("wprism-code-snippet-marker")) and
     (.content_render | contains("東京 🚀")) and
     ([.page | scan("code_snippet(?:_source)? (?:id|snippet_id)=\\\"" + $target + "\\\"")] | length) == 4 and
     (.page | contains("\\\"" + $source + "\\\"") | not) and
@@ -126,7 +126,7 @@ for CODE_SNIPPETS_VERSION in 3.9.5 3.9.6; do
     || fail "side 1 installed version mismatch: expected $CODE_SNIPPETS_VERSION, got $CS_INSTALLED_1"
   pass "side 1: code-snippets $CODE_SNIPPETS_VERSION installed from verified artifact, active"
 
-  cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+  cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "code-snippets"],
   "policy": {
@@ -146,8 +146,8 @@ EOF
   "${GIT1[@]}" push -qu origin main
 
   seed_code_snippets_content
-  wp1 duo capture --repo=/siterepo
-  wp1 duo lint --repo=/siterepo
+  wp1 wprism capture --repo=/siterepo
+  wp1 wprism lint --repo=/siterepo
   "${GIT1[@]}" add -A
   "${GIT1[@]}" commit -qm "capture: Code Snippets $CODE_SNIPPETS_VERSION executable and reference state"
   "${GIT1[@]}" push -q origin main
@@ -158,17 +158,17 @@ EOF
   require_fixture_values INSTALLED_2
   [ "$INSTALLED_2" = "$CODE_SNIPPETS_VERSION" ] \
     || fail "side 2 installed version mismatch: expected $CODE_SNIPPETS_VERSION, got $INSTALLED_2"
-  wp2 duo deploy --repo=/siterepo
+  wp2 wprism deploy --repo=/siterepo
   prepare_code_snippets_boundary_target
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+  wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
     || fail "apply canary not clean at code-snippets $CODE_SNIPPETS_VERSION"
   grep -q 'provider capability fired: code-snippets-state@1.0.0 rebuild_snippet_state' "$VMATRIX_APPLY_LOG" \
     || fail "Code Snippets provider did not fire at $CODE_SNIPPETS_VERSION"
   check_code_snippets_boundary_content "$CODE_SNIPPETS_VERSION"
 
-  wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
+  wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-final
   CS_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
   rm -rf "siterepo/${PAIR}2/.tmp-final"
   [ -z "$CS_DIFF" ] \
@@ -192,16 +192,16 @@ EOF
       && [ "$(wp2 plugin get code-snippets --field=version)" = 3.9.6 ] \
       || fail "Code Snippets supported in-place upgrade did not install 3.9.6 on both sides"
     UPGRADE_DEPLOY_RC=0
-    UPGRADE_DEPLOY_OUT=$(wp2 duo deploy --repo=/siterepo 2>&1) || UPGRADE_DEPLOY_RC=$?
-    require_duo_answered "Code Snippets out-of-band 3.9.5 to 3.9.6 upgrade refusal" human "$UPGRADE_DEPLOY_OUT"
+    UPGRADE_DEPLOY_OUT=$(wp2 wprism deploy --repo=/siterepo 2>&1) || UPGRADE_DEPLOY_RC=$?
+    require_wprism_answered "Code Snippets out-of-band 3.9.5 to 3.9.6 upgrade refusal" human "$UPGRADE_DEPLOY_OUT"
     [ "$UPGRADE_DEPLOY_RC" -ne 0 ] \
       && grep -q 'deploy refused — code_drift' <<<"$UPGRADE_DEPLOY_OUT" \
       && grep -q 'recorded 3.9.5' <<<"$UPGRADE_DEPLOY_OUT" \
       && grep -q 'is 3.9.6 on this environment' <<<"$UPGRADE_DEPLOY_OUT" \
       || fail "Code Snippets out-of-band upgrade did not refuse at the exact code-drift boundary: $UPGRADE_DEPLOY_OUT"
-    wp2 duo deploy --repo=/siterepo --force-code-drift >/dev/null
-    UPGRADE_PLAN=$(wp2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-    require_duo_answered "Code Snippets 3.9.5 to 3.9.6 target plan" json "$UPGRADE_PLAN"
+    wp2 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
+    UPGRADE_PLAN=$(wp2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+    require_wprism_answered "Code Snippets 3.9.5 to 3.9.6 target plan" json "$UPGRADE_PLAN"
     jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$UPGRADE_PLAN" >/dev/null \
       || fail "Code Snippets supported in-place upgrade invented authored work: $UPGRADE_PLAN"
     [ "$(wp1 eval 'global $wpdb; echo hash("sha256", wp_json_encode($wpdb->get_results("SELECT name,description,code,tags,scope,priority,active FROM {$wpdb->prefix}snippets ORDER BY id", ARRAY_A), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));')" = "$UPGRADE_BEFORE_1" ] \
@@ -222,7 +222,7 @@ NEGATIVE_INSTALLED=$(wp1 plugin get code-snippets --field=version)
 require_fixture_values NEGATIVE_INSTALLED
 [ "$NEGATIVE_INSTALLED" = 3.9.5 ] \
   || fail "negative control premise did not install exact code-snippets 3.9.5 bytes"
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "code-snippets"],
   "policy": {
@@ -241,7 +241,7 @@ cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 "${GIT1[@]}" commit -qm "policy: Code Snippets negative-control pin"
 "${GIT1[@]}" push -qu origin main
 seed_code_snippets_content
-wp1 duo capture --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "capture: valid Code Snippets state for negative control"
 "${GIT1[@]}" push -q origin main
@@ -262,7 +262,7 @@ CS_REFUSAL_BEFORE=$(wp1 eval '
 ')
 require_observed_nonempty "Code Snippets refusal state baseline" "$CS_REFUSAL_BEFORE"
 set +e
-DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] \

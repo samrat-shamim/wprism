@@ -17,8 +17,8 @@
 require __DIR__ . '/../../../agent/src/Kernel/Canon.php';
 require __DIR__ . '/../../../agent/src/Publication/Publish.php';
 
-use Duo\Canon;
-use Duo\Publish;
+use WPrism\Canon;
+use WPrism\Publish;
 
 $stateDir = $argv[1] ?? null;
 if (!$stateDir) {

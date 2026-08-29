@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 final class Uuid {
     /**
@@ -11,7 +11,7 @@ final class Uuid {
      * ever captured one (Snapshot.php's typed-snapshot identity model —
      * see its docblock).
      */
-    public const NAMESPACE_DUO = 'cbb54905-b001-4f6f-8a79-a275a4e8112d';
+    public const NAMESPACE_WPRISM = 'cbb54905-b001-4f6f-8a79-a275a4e8112d';
 
     /** RFC 9562 UUIDv7: 48-bit ms timestamp + version + 74 random bits. */
     public static function v7(): string {
@@ -34,25 +34,25 @@ final class Uuid {
      *
      * Why this exists (Snapshot.php's "natural_key" identity mode): rows in
      * an authored custom table have no meta table of their own to carry a
-     * durable `_duo_uuid`-equivalent (posts/terms get that via postmeta/
+     * durable `_wprism_uuid`-equivalent (posts/terms get that via postmeta/
      * termmeta), so identity for a declared table's rows lives ONLY in the
-     * duo_map ledger, keyed by (id_kind, local_id). For most such tables
+     * wprism_map ledger, keyed by (id_kind, local_id). For most such tables
      * (nf3_forms, nf3_fields, ...) the ledger plus its versioned recovery
      * sidecar is the durable store; a populated restore without that metadata
      * fails closed. But a table with a genuinely
      * stable, human-chosen, unique natural key (e.g.
      * woocommerce_attribute_taxonomies.attribute_name) can do better: minting
-     * the uuid as v5(NAMESPACE_DUO, "<table>:<natural key value>") instead of
+     * the uuid as v5(NAMESPACE_WPRISM, "<table>:<natural key value>") instead of
      * a random v7() means the SAME uuid is re-derived from the live row even
-     * if duo_map is ever lost — recapture reconciles with the existing
+     * if wprism_map is ever lost — recapture reconciles with the existing
      * canonical file instead of minting a phantom duplicate. Callers must
-     * still record the result in duo_map via Ledger::set() for normal-path
+     * still record the result in wprism_map via Ledger::set() for normal-path
      * bidirectional lookups; determinism is the verified recovery key.
      */
     public static function v5(string $namespace, string $name): string {
         $ns = str_replace('-', '', $namespace);
         if (!preg_match('/^[0-9a-f]{32}$/', $ns)) {
-            throw new \RuntimeException("duo: Uuid::v5() namespace '$namespace' is not a valid UUID");
+            throw new \RuntimeException("wprism: Uuid::v5() namespace '$namespace' is not a valid UUID");
         }
         $hash = sha1(hex2bin($ns) . $name);
         $hex = substr($hash, 0, 12)

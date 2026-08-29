@@ -71,7 +71,7 @@ for CF7_VERSION in 6.0 6.1.7; do
   [ "$INSTALLED_1" = "$CF7_VERSION" ] || fail "side 1 installed version mismatch: expected $CF7_VERSION, got $INSTALLED_1"
   pass "side 1: contact-form-7 $CF7_VERSION installed from verified artifact, active"
 
-  cat > "siterepo/${PAIR}1/site.duo.json" <<EOF
+  cat > "siterepo/${PAIR}1/site.wprism.json" <<EOF
 {
   "manifests": ["core", "contact-form-7"],
   "policy": {
@@ -105,7 +105,7 @@ EOF
   [[ "$CF7_MODERN_SHORTCODE" == *"id=\"${CF7_SOURCE_HASH:0:7}\""* ]] \
     || fail "CF7 $CF7_VERSION shortcode does not use the persisted _hash prefix: $CF7_MODERN_SHORTCODE"
 
-  wp1 duo capture --repo=/siterepo
+  wp1 wprism capture --repo=/siterepo
   pass "captured on side 1 (contact-form-7 $CF7_VERSION)"
 
   if rg -n "\[contact-form[[:space:]]+$CF7_OLD_ID([[:space:]]|\])" "siterepo/${PAIR}1/state/posts" >/dev/null 2>&1; then
@@ -120,7 +120,7 @@ EOF
     || fail "CF7 $CF7_VERSION capture did not emit a canonical named post token"
   pass "capture: contact-form-7 $CF7_VERSION canonicalized legacy decimal and modern hash-prefix identities"
 
-  wp1 duo lint --repo=/siterepo
+  wp1 wprism lint --repo=/siterepo
   pass "lint: 0 findings"
 
   "${GIT1[@]}" add -A
@@ -133,9 +133,9 @@ EOF
   require_fixture_values INSTALLED_2
   [ "$INSTALLED_2" = "$CF7_VERSION" ] || fail "side 2 installed version mismatch: expected $CF7_VERSION, got $INSTALLED_2"
 
-  wp2 duo deploy --repo=/siterepo
+  wp2 wprism deploy --repo=/siterepo
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at contact-form-7 $CF7_VERSION"
   pass "deploy + apply succeeded on side 2 (contact-form-7 $CF7_VERSION, canary clean)"
 
@@ -172,7 +172,7 @@ EOF
     || fail "CF7 $CF7_VERSION target legacy page did not resolve its own form id $TARGET_FORM_ID"
   pass "target: contact-form-7 $CF7_VERSION modern and legacy shortcodes resolve to target form $TARGET_FORM_ID"
 
-  wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"
+  wp2 wprism capture --repo=/siterepo --out="/siterepo/.tmp-final"
   DIFF_OUT=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
   rm -rf "siterepo/${PAIR}2/.tmp-final"
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at contact-form-7 $CF7_VERSION: $DIFF_OUT"
@@ -190,10 +190,10 @@ EOF
 
     # Exact code replacement changes the captured code witness. Re-baseline
     # that explicit drift, then publish only real native data migrations.
-    wp1 duo deploy --repo=/siterepo --force-code-drift >/dev/null
-    wp2 duo deploy --repo=/siterepo --force-code-drift >/dev/null
-    wp1 duo capture --repo=/siterepo
-    wp1 duo lint --repo=/siterepo
+    wp1 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp2 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp1 wprism capture --repo=/siterepo
+    wp1 wprism lint --repo=/siterepo
     if ! git -C "siterepo/${PAIR}1" diff --quiet -- state; then
       "${GIT1[@]}" add -A
       "${GIT1[@]}" commit -qm "capture: CF7 in-place 6.0 to 6.1.7 migration"
@@ -201,7 +201,7 @@ EOF
       git -C "siterepo/${PAIR}2" pull -q origin main
     fi
     UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-    wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV" \
+    wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV" \
       2>&1 | tee "$VMATRIX_APPLY_LOG"
     grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
       || fail "CF7 in-place 6.0 -> 6.1.7 apply canary was not clean"
@@ -234,7 +234,7 @@ EOF
     UPGRADE_FORM_ID=$(jq -r '.id' <<<"$UPGRADE_NATIVE")
     grep -q "_wpcf7\" value=\"$UPGRADE_FORM_ID\"" <<<"$UPGRADE_FRONT" \
       || fail "CF7 6.1.7 did not resolve the modern identity authored under 6.0"
-    wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-cf7-upgrade-final
+    wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-cf7-upgrade-final
     UPGRADE_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-cf7-upgrade-final" || true)
     rm -rf "siterepo/${PAIR}2/.tmp-cf7-upgrade-final"
     [ -z "$UPGRADE_DIFF" ] \
@@ -252,7 +252,7 @@ wp1 plugin install "$OUT_OF_RANGE_ARTIFACT" --activate >/dev/null
 INSTALLED_OOR=$(wp1 plugin get contact-form-7 --field=version)
 [ "$INSTALLED_OOR" = "5.9.8" ] || fail "negative control: expected contact-form-7 5.9.8 installed, got $INSTALLED_OOR"
 
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "contact-form-7"],
   "policy": {
@@ -271,13 +271,13 @@ cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 "${GIT1[@]}" commit -qm "policy: contact-form-7 negative-control pin, out-of-range plugin installed"
 "${GIT1[@]}" push -qu origin main
 
-wp1 duo capture --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "capture: empty state, contact-form-7 5.9.8 still installed"
 "${GIT1[@]}" push -q origin main
 
 set +e
-DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse contact-form-7 5.9.8 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"

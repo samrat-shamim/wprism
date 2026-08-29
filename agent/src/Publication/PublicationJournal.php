@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // Kept on the historical publication load path because Cli's public refusal
 // allowlist audits this class by declaration file. DurableFilesystem consumes
@@ -27,8 +27,8 @@ final class PublicationRecord {
     /** @param array<string,mixed> $payload */
     private static function assertShape(array $payload): void {
         $format = $payload['format'] ?? null;
-        $isIntent = $format === 'duo-capture-intent/v1';
-        $isReceipt = $format === 'duo-capture-receipt/v1';
+        $isIntent = $format === 'wprism-capture-intent/v1';
+        $isReceipt = $format === 'wprism-capture-receipt/v1';
         if (!$isIntent && !$isReceipt) {
             throw new \InvalidArgumentException('unsupported publication record format');
         }
@@ -76,7 +76,7 @@ final class PublicationRecord {
 }
 
 /**
- * Publish: atomic tree publication for `duo capture` (DUO-3213).
+ * Publish: atomic tree publication for `wprism capture` (issue #3213).
  *
  * Pure filesystem, zero WordPress/$wpdb dependency — deliberate, so every
  * guarantee here is independently testable offline (no docker, no WP
@@ -174,7 +174,7 @@ class PublicationJournal {
         self::assert_protocol_roots($stateDir);
         $intent = self::read_record(self::intent_path($stateDir), 'intent');
         if ($intent !== null) {
-            self::assert_record($intent, 'intent', 'duo-capture-intent/v1');
+            self::assert_record($intent, 'intent', 'wprism-capture-intent/v1');
         }
         return $intent;
     }
@@ -184,7 +184,7 @@ class PublicationJournal {
         self::assert_protocol_roots($stateDir);
         $receipt = self::read_record(self::receipt_path($stateDir), 'receipt');
         if ($receipt !== null) {
-            self::assert_record($receipt, 'receipt', 'duo-capture-receipt/v1');
+            self::assert_record($receipt, 'receipt', 'wprism-capture-receipt/v1');
         }
         return $receipt;
     }
@@ -215,7 +215,7 @@ class PublicationJournal {
         if ($record === null) {
             throw self::ambiguous_recovery('initial capture intent next-transition is missing');
         }
-        self::assert_record($record, 'intent', 'duo-capture-intent/v1');
+        self::assert_record($record, 'intent', 'wprism-capture-intent/v1');
         $staging = self::stage_dir($stateDir);
         // A removal transition also leaves only `.next`, but its candidate
         // has already been published and its staging tree is normally gone.
@@ -279,7 +279,7 @@ class PublicationJournal {
         $backup = self::backup_dir($stateDir);
 
         if ($receipt !== null) {
-            self::assert_record($receipt, 'receipt', 'duo-capture-receipt/v1');
+            self::assert_record($receipt, 'receipt', 'wprism-capture-receipt/v1');
             if (!is_dir($stateDir)) {
                 throw self::ambiguous_recovery('initial committed receipt retained no published state tree');
             }
@@ -297,7 +297,7 @@ class PublicationJournal {
                 }
                 return $log;
             }
-            self::assert_record($intent, 'intent', 'duo-capture-intent/v1');
+            self::assert_record($intent, 'intent', 'wprism-capture-intent/v1');
             self::assert_first_publication($intent);
             if (($intent['id'] ?? null) !== ($receipt['intent_id'] ?? null)
                 || !hash_equals((string) $intent['candidate_sha256'], (string) $receipt['candidate_sha256'])
@@ -321,7 +321,7 @@ class PublicationJournal {
             }
             return $log;
         }
-        self::assert_record($intent, 'intent', 'duo-capture-intent/v1');
+        self::assert_record($intent, 'intent', 'wprism-capture-intent/v1');
         self::assert_first_publication($intent);
         $phase = (string) ($intent['phase'] ?? '');
         if ($phase === 'committing') {
@@ -398,11 +398,11 @@ class PublicationJournal {
         $path = self::lock_path($stateDir);
         $dir = dirname($path);
         if (!is_dir($dir) && !mkdir($dir, 0777, true) && !is_dir($dir)) {
-            throw new \RuntimeException("duo: cannot create directory $dir for the capture lock");
+            throw new \RuntimeException("wprism: cannot create directory $dir for the capture lock");
         }
         $fh = fopen($path, 'c'); // create-if-missing, never truncate on open — only flock() state matters
         if ($fh === false) {
-            throw new \RuntimeException("duo: cannot open capture lock file $path");
+            throw new \RuntimeException("wprism: cannot open capture lock file $path");
         }
         return self::acquire_lock_handle($fh, $stateDir, $path);
     }
@@ -419,12 +419,12 @@ class PublicationJournal {
         $path = self::lock_path($stateDir);
         $dir = dirname($path);
         if (!is_dir($dir)) {
-            throw new \RuntimeException('duo: cannot create first capture lock outside an existing repository root');
+            throw new \RuntimeException('wprism: cannot create first capture lock outside an existing repository root');
         }
         $fh = @fopen($path, 'x');
         if ($fh === false) {
             throw new \RuntimeException(
-                "duo: first capture lock boundary changed after review; preserving the existing path $path"
+                "wprism: first capture lock boundary changed after review; preserving the existing path $path"
             );
         }
         $opened = @fstat($fh);
@@ -434,13 +434,13 @@ class PublicationJournal {
             && (string) ($opened['ino'] ?? '') === (string) ($named['ino'] ?? '');
         if (!$createdSame) {
             fclose($fh);
-            throw new \RuntimeException('duo: first capture lock changed identity immediately after creation');
+            throw new \RuntimeException('wprism: first capture lock changed identity immediately after creation');
         }
         try {
-            if (getenv('DUO_TEST_MODE') === '1'
-                && getenv('DUO_TEST_INIT_FAIL_PHASE') === 'lock-acquire-after-create') {
+            if (getenv('WPRISM_TEST_MODE') === '1'
+                && getenv('WPRISM_TEST_INIT_FAIL_PHASE') === 'lock-acquire-after-create') {
                 fclose($fh);
-                throw new \RuntimeException('duo: injected first capture lock acquisition refusal');
+                throw new \RuntimeException('wprism: injected first capture lock acquisition refusal');
             }
             return self::acquire_lock_handle($fh, $stateDir, $path);
         } catch (\Throwable $failure) {
@@ -461,8 +461,8 @@ class PublicationJournal {
     private static function acquire_lock_handle($fh, string $stateDir, string $path) {
         if (!flock($fh, LOCK_EX | LOCK_NB)) {
             fclose($fh);
-            $operatorMessage = "duo: capture refused — another capture is already publishing to $stateDir (lock held: $path).\n"
-                . 'Concurrent captures to the same destination are never interleaved (DUO-3213); '
+            $operatorMessage = "wprism: capture refused — another capture is already publishing to $stateDir (lock held: $path).\n"
+                . 'Concurrent captures to the same destination are never interleaved (issue #3213); '
                 . 'wait for the other one to finish and re-run.';
             throw new CommandRefusalException(
                 'capture_lock_held',
@@ -496,7 +496,7 @@ class PublicationJournal {
      */
     public static function assert_lock_path($handle, string $stateDir): void {
         if (!is_resource($handle)) {
-            throw new \InvalidArgumentException('duo: capture lock assertion requires an open descriptor');
+            throw new \InvalidArgumentException('wprism: capture lock assertion requires an open descriptor');
         }
         $path = self::lock_path($stateDir);
         clearstatcache(true, $path);
@@ -508,7 +508,7 @@ class PublicationJournal {
             || (string) $fd['dev'] !== (string) $named['dev']
             || (string) $fd['ino'] !== (string) $named['ino']) {
             throw new \RuntimeException(
-                "duo: capture lock pathname changed while its original descriptor remained held: $path"
+                "wprism: capture lock pathname changed while its original descriptor remained held: $path"
             );
         }
     }
@@ -604,10 +604,10 @@ class PublicationJournal {
         // it remains useful audit evidence, but is never authority for the
         // newer intent.
         if ($intent !== null) {
-            self::assert_record($intent, 'intent', 'duo-capture-intent/v1');
+            self::assert_record($intent, 'intent', 'wprism-capture-intent/v1');
         }
         if ($receipt !== null) {
-            self::assert_record($receipt, 'receipt', 'duo-capture-receipt/v1');
+            self::assert_record($receipt, 'receipt', 'wprism-capture-receipt/v1');
         }
         $matchingReceipt = $intent !== null && $receipt !== null
             && ($intent['id'] ?? null) === ($receipt['intent_id'] ?? null)
@@ -666,7 +666,7 @@ class PublicationJournal {
         }
 
         if ($intent !== null) {
-            self::assert_record($intent, 'intent', 'duo-capture-intent/v1');
+            self::assert_record($intent, 'intent', 'wprism-capture-intent/v1');
             $phase = (string) ($intent['phase'] ?? '');
 
             if ($phase === 'prepared') {
@@ -856,7 +856,7 @@ class PublicationJournal {
         // true, and a foreach over an empty $entities array would never
         // call the writer at all, so nothing would create it otherwise.
         if (!is_dir($stagingDir) && !mkdir($stagingDir, 0777, true) && !is_dir($stagingDir)) {
-            throw new \RuntimeException("duo: cannot create staging directory $stagingDir");
+            throw new \RuntimeException("wprism: cannot create staging directory $stagingDir");
         }
         foreach ($entities as $e) {
             $path = $stagingDir . '/' . $e['path'];
@@ -880,10 +880,10 @@ class PublicationJournal {
     public static function write_entities_fresh(string $stagingDir, array $entities): array {
         self::assert_protocol_roots(str_replace('.capture-staging', '', $stagingDir));
         if (file_exists($stagingDir) || is_link($stagingDir)) {
-            throw new InitialStateBoundaryException('duo: initial capture staging boundary was not absent');
+            throw new InitialStateBoundaryException('wprism: initial capture staging boundary was not absent');
         }
         $stagingParent = dirname($stagingDir);
-        // One inode-bound helper for the whole entity walk (DUO-3425): the same
+        // One inode-bound helper for the whole entity walk (issue #3425): the same
         // per-op guarantee as run_bound_operation, one subprocess instead of
         // one per staged file. The finally guarantees a mid-walk throw can never
         // leak a live child.
@@ -933,7 +933,7 @@ class PublicationJournal {
                     $destination = $parent . '/' . $fileName;
                     if (file_exists($destination) || is_link($destination)) {
                         throw new InitialStateBoundaryException(
-                            'duo: initial capture staging gained an unowned entity path'
+                            'wprism: initial capture staging gained an unowned entity path'
                         );
                     }
                     $createdFiles[$relative] = self::write_file_fresh(
@@ -959,7 +959,7 @@ class PublicationJournal {
                     self::remove_owned_tree($stagingDir, $manifest, 'initial capture staging');
                 } catch (\Throwable $cleanupFailure) {
                     throw new InitialStateBoundaryException(
-                        'duo: initial capture refused and retained changed staging evidence: ' . $failure->getMessage(),
+                        'wprism: initial capture refused and retained changed staging evidence: ' . $failure->getMessage(),
                         0,
                         $failure
                     );
@@ -977,7 +977,7 @@ class PublicationJournal {
     }
 
     /**
-     * DUO-3427: compared through the canonical encoding, not PHP's `!==`.
+     * issue #3427: compared through the canonical encoding, not PHP's `!==`.
      *
      * Every manifest that reaches a RECOVERY authority has made a round trip
      * through the sealed init journal, and Canon::encode() ksorts object keys
@@ -985,7 +985,7 @@ class PublicationJournal {
      * {dev, ino, path, sha256, type} while tree_ownership_manifest() builds
      * {type, dev, ino, sha256, path} in insertion order. PHP's `===` on arrays
      * requires the same key ORDER as well as the same pairs, so this predicate
-     * answered "changed after Duo created it" for two manifests that describe
+     * answered "changed after WPrism created it" for two manifests that describe
      * the same bytes on the same inodes, and it answered it for EVERY
      * fresh-process rollback: the whole strict first-publication recovery path
      * could only ever refuse. A proven, complete rollback then surfaced as
@@ -996,7 +996,7 @@ class PublicationJournal {
      * Both siblings already compared canonically before this — the proposal-
      * time gate (InitRecovery::interrupted_attempt_manual_recovery_reason()'s
      * $manifestMismatch) and the file-level twin (remove_owned_file_initial()
-     * below) — so this was the same-commit asymmetry family as DUO-3421's
+     * below) — so this was the same-commit asymmetry family as issue #3421's
      * git_empty_identity drift: the read-only gate advertised a confirmable
      * recovery that this authority would then refuse mid-protocol. One
      * comparison now, in all three places. Ordering is the ONLY thing this
@@ -1026,7 +1026,7 @@ class PublicationJournal {
     ): array {
         $parent = dirname($path);
         if (is_link($parent) || !is_dir($parent) || file_exists($path) || is_link($path)) {
-            throw new InitialStateBoundaryException("duo: initial $label boundary was not absent");
+            throw new InitialStateBoundaryException("wprism: initial $label boundary was not absent");
         }
         $expectedParent ??= self::path_identity($parent, 'directory');
         $request = [
@@ -1039,7 +1039,7 @@ class PublicationJournal {
             ? $helper->run($parent, $request, $bytes, $label)
             : self::run_bound_operation($parent, $request, $bytes, $label);
         if (self::path_identity($path, 'file') !== $identity) {
-            throw new InitialStateBoundaryException("duo: initial $label changed immediately after its bound write");
+            throw new InitialStateBoundaryException("wprism: initial $label changed immediately after its bound write");
         }
         self::fsync_dir($parent);
         return $identity;
@@ -1063,7 +1063,7 @@ class PublicationJournal {
         ?BoundHelper $helper = null
     ): array {
         if (file_exists($parent . '/' . $name) || is_link($parent . '/' . $name)) {
-            throw new InitialStateBoundaryException("duo: initial $label boundary was not absent");
+            throw new InitialStateBoundaryException("wprism: initial $label boundary was not absent");
         }
         $request = [
             'op' => 'mkdir',
@@ -1075,7 +1075,7 @@ class PublicationJournal {
             ? $helper->run($parent, $request, '', $label)
             : self::run_bound_operation($parent, $request, '', $label);
         if (self::path_identity($parent . '/' . $name, 'directory') !== $identity) {
-            throw new InitialStateBoundaryException("duo: initial $label changed immediately after its bound mkdir");
+            throw new InitialStateBoundaryException("wprism: initial $label changed immediately after its bound mkdir");
         }
         return $identity;
     }
@@ -1095,7 +1095,7 @@ class PublicationJournal {
     ): array {
         $parent = dirname($path);
         if (file_exists($path) || is_link($path)) {
-            throw new InitialStateBoundaryException("duo: initial $label boundary was not absent");
+            throw new InitialStateBoundaryException("wprism: initial $label boundary was not absent");
         }
         $request = [
             'op' => 'copy',
@@ -1109,7 +1109,7 @@ class PublicationJournal {
             ? $helper->run($parent, $request, '', $label)
             : self::run_bound_operation($parent, $request, '', $label);
         if (self::path_identity($path, 'file') !== $identity) {
-            throw new InitialStateBoundaryException("duo: initial $label changed immediately after its bound copy");
+            throw new InitialStateBoundaryException("wprism: initial $label changed immediately after its bound copy");
         }
         return $identity;
     }
@@ -1117,17 +1117,17 @@ class PublicationJournal {
     /** @param array{type:string,dev:string,ino:string,sha256:string} $identity */
     public static function remove_owned_file(string $path, array $identity, string $label): void {
         if (self::path_identity($path, 'file') !== $identity) {
-            throw new InitialStateBoundaryException("duo: changed $label was preserved during compensation");
+            throw new InitialStateBoundaryException("wprism: changed $label was preserved during compensation");
         }
-        $claim = dirname($path) . '/.' . basename($path) . '.duo-claim-' . bin2hex(random_bytes(8));
+        $claim = dirname($path) . '/.' . basename($path) . '.wprism-claim-' . bin2hex(random_bytes(8));
         if (!@rename($path, $claim)) {
-            throw new InitialStateBoundaryException("duo: could not claim $label during compensation");
+            throw new InitialStateBoundaryException("wprism: could not claim $label during compensation");
         }
         if (self::path_identity($claim, 'file') !== $identity) {
             if (!file_exists($path) && !is_link($path)) {
                 @link($claim, $path);
             }
-            throw new InitialStateBoundaryException("duo: raced $label was retained during compensation");
+            throw new InitialStateBoundaryException("wprism: raced $label was retained during compensation");
         }
         @unlink($claim);
     }
@@ -1143,11 +1143,11 @@ class PublicationJournal {
 
     private static function assert_relative_entity_path(string $path): void {
         if ($path === '' || str_starts_with($path, '/') || str_contains($path, "\0")) {
-            throw new \RuntimeException('duo: capture entity has an unsafe repository path');
+            throw new \RuntimeException('wprism: capture entity has an unsafe repository path');
         }
         foreach (explode('/', $path) as $part) {
             if ($part === '' || $part === '.' || $part === '..') {
-                throw new \RuntimeException('duo: capture entity has an unsafe repository path');
+                throw new \RuntimeException('wprism: capture entity has an unsafe repository path');
             }
         }
     }
@@ -1171,7 +1171,7 @@ class PublicationJournal {
         string $label
     ): array {
         if (!function_exists('proc_open') || !defined('PHP_BINARY') || PHP_BINARY === '') {
-            throw new InitialStateBoundaryException("duo: initial $label requires the bound-filesystem helper");
+            throw new InitialStateBoundaryException("wprism: initial $label requires the bound-filesystem helper");
         }
         $script = <<<'PHP'
 $fail = static function (string $message): void {
@@ -1285,12 +1285,12 @@ PHP;
             $parent
         );
         if (!is_resource($process)) {
-            throw new InitialStateBoundaryException("duo: initial $label could not start its bound-filesystem helper");
+            throw new InitialStateBoundaryException("wprism: initial $label could not start its bound-filesystem helper");
         }
         $header = json_encode($request, JSON_UNESCAPED_SLASHES);
         if (!is_string($header)) {
             @proc_terminate($process);
-            throw new InitialStateBoundaryException("duo: initial $label could not encode its bound-filesystem request");
+            throw new InitialStateBoundaryException("wprism: initial $label could not encode its bound-filesystem request");
         }
         $remaining = $header . "\n" . $bytes;
         while ($remaining !== '') {
@@ -1310,7 +1310,7 @@ PHP;
         if ($remaining !== '' || $exit !== 0 || !is_array($identity)) {
             $reason = trim(is_string($stderr) ? $stderr : '');
             throw new InitialStateBoundaryException(
-                "duo: initial $label refused at its inode-bound parent"
+                "wprism: initial $label refused at its inode-bound parent"
                     . ($reason === '' ? '' : ': ' . $reason)
             );
         }
@@ -1325,7 +1325,7 @@ PHP;
     /** @param array<string,string> $expected */
     private static function assert_path_identity(string $path, array $expected, string $type): void {
         if (self::path_identity($path, $type) !== $expected) {
-            throw new InitialStateBoundaryException('duo: initial publication parent path changed identity');
+            throw new InitialStateBoundaryException('wprism: initial publication parent path changed identity');
         }
     }
 
@@ -1354,7 +1354,7 @@ PHP;
         ksort($actual, SORT_STRING);
         if ($actual !== $expected) {
             throw new InitialStateBoundaryException(
-                'duo: initial publication tree contains content not created by this attempt'
+                'wprism: initial publication tree contains content not created by this attempt'
             );
         }
     }
@@ -1370,7 +1370,7 @@ PHP;
         $backup = self::backup_dir($stateDir);
 
         if (!is_dir($staging)) {
-            throw new \RuntimeException("duo: swap() called with no staged candidate at $staging");
+            throw new \RuntimeException("wprism: swap() called with no staged candidate at $staging");
         }
         if (is_dir($backup)) {
             // recover() always clears this before a build starts, and
@@ -1379,7 +1379,7 @@ PHP;
             // destination, which the capture lock exists specifically to
             // prevent), not an ordinary crash-recovery case.
             throw new \RuntimeException(
-                "duo: refusing to swap — unexpected pre-existing $backup. This should be impossible while holding "
+                "wprism: refusing to swap — unexpected pre-existing $backup. This should be impossible while holding "
                 . 'the capture lock; if you see this, something bypassed Publish::lock().'
             );
         }
@@ -1389,7 +1389,7 @@ PHP;
         $hadPrevious = is_dir($stateDir);
         if ($hadPrevious && !@rename($stateDir, $backup)) {
             throw new \RuntimeException(
-                "duo: atomic swap failed at step 1 (rename $stateDir -> $backup) — the previous tree is untouched "
+                "wprism: atomic swap failed at step 1 (rename $stateDir -> $backup) — the previous tree is untouched "
                 . "at $stateDir; the new candidate is left at $staging for inspection or re-run."
             );
         }
@@ -1404,7 +1404,7 @@ PHP;
                 @rename($backup, $stateDir);
             }
             throw new \RuntimeException(
-                "duo: atomic swap failed at step 2 (rename $staging -> $stateDir) — attempted to restore the "
+                "wprism: atomic swap failed at step 2 (rename $staging -> $stateDir) — attempted to restore the "
                 . "previous tree automatically; the built candidate is left at $staging for inspection. Re-run "
                 . 'capture (recover() will reconcile whatever this left behind).'
             );
@@ -1436,11 +1436,11 @@ PHP;
         self::assert_owned_tree($stateDir, $stateManifest, 'initial state reservation');
         self::assert_owned_tree($staging, $stagingManifest, 'initial capture staging');
         if (file_exists($backup) || is_link($backup)) {
-            throw new InitialStateBoundaryException('duo: initial capture backup boundary was not absent');
+            throw new InitialStateBoundaryException('wprism: initial capture backup boundary was not absent');
         }
         self::fault_checkpoint('pre-swap');
         if (!@rename($stateDir, $backup)) {
-            throw new InitialStateBoundaryException('duo: initial state reservation could not be claimed for publication');
+            throw new InitialStateBoundaryException('wprism: initial state reservation could not be claimed for publication');
         }
         try {
             self::assert_owned_tree($backup, $stateManifest, 'initial state reservation');
@@ -1456,7 +1456,7 @@ PHP;
                 @rename($backup, $stateDir);
             }
             throw new InitialStateBoundaryException(
-                'duo: initial published-state boundary changed during the atomic swap'
+                'wprism: initial published-state boundary changed during the atomic swap'
             );
         }
         self::assert_owned_tree($stateDir, $stagingManifest, 'initial published state');
@@ -1478,12 +1478,12 @@ PHP;
         self::assert_protocol_roots($stateDir);
         self::assert_not_symlink_root($candidateDir, 'capture candidate');
         if (!is_dir($candidateDir)) {
-            throw new \RuntimeException("duo: cannot create capture intent — staged candidate is missing: $candidateDir");
+            throw new \RuntimeException("wprism: cannot create capture intent — staged candidate is missing: $candidateDir");
         }
         $candidate = self::tree_digest($candidateDir);
         $previous = is_dir($stateDir) ? self::tree_digest($stateDir) : self::empty_tree_digest();
         $intent = [
-            'format' => 'duo-capture-intent/v1',
+            'format' => 'wprism-capture-intent/v1',
             'id' => bin2hex(random_bytes(16)),
             'phase' => 'prepared',
             'candidate_sha256' => $candidate,
@@ -1498,7 +1498,7 @@ PHP;
     /** Mark the intent after both filesystem renames have returned. */
     public static function mark_swapped(string $stateDir, array $intent, bool $initExclusion = false): array {
         self::assert_protocol_roots($stateDir);
-        self::assert_record($intent, 'intent', 'duo-capture-intent/v1');
+        self::assert_record($intent, 'intent', 'wprism-capture-intent/v1');
         $onDisk = self::read_record_with_missing_retry(
             self::intent_path($stateDir),
             'intent',
@@ -1529,7 +1529,7 @@ PHP;
      */
     public static function mark_commit_ready(string $stateDir, array $intent, bool $initExclusion = false): array {
         self::assert_protocol_roots($stateDir);
-        self::assert_record($intent, 'intent', 'duo-capture-intent/v1');
+        self::assert_record($intent, 'intent', 'wprism-capture-intent/v1');
         $onDisk = self::read_record_with_missing_retry(
             self::intent_path($stateDir),
             'intent',
@@ -1555,7 +1555,7 @@ PHP;
     /** Mark the exact point immediately before issuing DB COMMIT. */
     public static function mark_committing(string $stateDir, array $intent, bool $initExclusion = false): array {
         self::assert_protocol_roots($stateDir);
-        self::assert_record($intent, 'intent', 'duo-capture-intent/v1');
+        self::assert_record($intent, 'intent', 'wprism-capture-intent/v1');
         $onDisk = self::read_record_with_missing_retry(
             self::intent_path($stateDir),
             'intent',
@@ -1590,7 +1590,7 @@ PHP;
      */
     public static function write_receipt(string $stateDir, array $intent, bool $createOnly = false): array {
         self::assert_protocol_roots($stateDir);
-        self::assert_record($intent, 'intent', 'duo-capture-intent/v1');
+        self::assert_record($intent, 'intent', 'wprism-capture-intent/v1');
         if (!is_dir($stateDir)) {
             throw self::ambiguous_recovery('capture cannot write its receipt because state/ is missing after COMMIT');
         }
@@ -1621,7 +1621,7 @@ PHP;
             throw self::ambiguous_recovery('published state/ does not match the candidate named by the capture receipt');
         }
         $receipt = [
-            'format' => 'duo-capture-receipt/v1',
+            'format' => 'wprism-capture-receipt/v1',
             'intent_id' => (string) $intent['id'],
             'phase' => 'committed',
             'candidate_sha256' => (string) $intent['candidate_sha256'],
@@ -1649,7 +1649,7 @@ PHP;
      */
     public static function cleanup_committed(string $stateDir, array $receipt): void {
         self::assert_protocol_roots($stateDir);
-        self::assert_record($receipt, 'receipt', 'duo-capture-receipt/v1');
+        self::assert_record($receipt, 'receipt', 'wprism-capture-receipt/v1');
         if (!is_dir($stateDir)) {
             throw self::ambiguous_recovery('post-commit cleanup found published state/ missing');
         }
@@ -1712,7 +1712,7 @@ PHP;
         array $intentIdentity
     ): void {
         self::assert_protocol_roots($stateDir);
-        self::assert_record($receipt, 'receipt', 'duo-capture-receipt/v1');
+        self::assert_record($receipt, 'receipt', 'wprism-capture-receipt/v1');
         if (!is_dir($stateDir)) {
             throw self::ambiguous_recovery('initial committed state no longer matches its receipt');
         }
@@ -1742,7 +1742,7 @@ PHP;
 
     /**
      * Strict first-publication cleanup has no durable claim journal. Under
-     * the documented init-wide non-Duo-writer exclusion, remove the exact
+     * the documented init-wide non-WPrism-writer exclusion, remove the exact
      * already-verified object in place so a SIGKILL cannot strand a hidden
      * claim that a later init would mistake for a clean completion.
      *
@@ -1856,7 +1856,7 @@ PHP;
      * was created for, carrying that exact record?
      *
      * The ONE binding rule, shared by the removal authority below and the
-     * read-only classifier beside it (DUO-3427). Fail-closed by construction:
+     * read-only classifier beside it (issue #3427). Fail-closed by construction:
      * an unreadable stat, an unreadable or malformed record, a different
      * inode, or different bytes all answer false, so a temp is only ever
      * called bound on positive evidence.
@@ -1893,7 +1893,7 @@ PHP;
     }
 
     /**
-     * DUO-3427: the read-only twin of the removal authority below, for the
+     * issue #3427: the read-only twin of the removal authority below, for the
      * proposal-time gate.
      *
      * `InitRecovery::interrupted_attempt_manual_recovery_reason()` refused EVERY
@@ -1905,7 +1905,7 @@ PHP;
      * there leaves precisely the bound shape: same inode, same bytes, one
      * unlink away from resolved. The gate sent it to manual archive-and-
      * recreate anyway, and a rollback the engine could perform in full was
-     * never offered. Same asymmetry family as DUO-3421's git_empty_identity
+     * never offered. Same asymmetry family as issue #3421's git_empty_identity
      * and this issue's manifest key ordering: the read-only gate and the
      * authority answering one question two ways.
      *
@@ -2025,8 +2025,8 @@ PHP;
 
     /** @param array<string,mixed> $previous @param array<string,mixed> $next */
     private static function assert_record_transition(array $previous, array $next, string $label): void {
-        self::assert_record($previous, $label, $label === 'intent' ? 'duo-capture-intent/v1' : 'duo-capture-receipt/v1');
-        self::assert_record($next, $label, $label === 'intent' ? 'duo-capture-intent/v1' : 'duo-capture-receipt/v1');
+        self::assert_record($previous, $label, $label === 'intent' ? 'wprism-capture-intent/v1' : 'wprism-capture-receipt/v1');
+        self::assert_record($next, $label, $label === 'intent' ? 'wprism-capture-intent/v1' : 'wprism-capture-receipt/v1');
         if ($label === 'receipt') {
             return;
         }
@@ -2078,7 +2078,7 @@ PHP;
         }
         $handle = @fopen($path, 'rb');
         if ($handle === false) {
-            throw new \RuntimeException("duo: capture recovery cannot read $label record $path");
+            throw new \RuntimeException("wprism: capture recovery cannot read $label record $path");
         }
         try {
             $opened = @fstat($handle);
@@ -2111,7 +2111,7 @@ PHP;
             fclose($handle);
         }
         if ($bytes === false) {
-            throw new \RuntimeException("duo: capture recovery cannot read $label record $path");
+            throw new \RuntimeException("wprism: capture recovery cannot read $label record $path");
         }
         try {
             $record = Canon::decode($bytes);
@@ -2150,7 +2150,7 @@ PHP;
                 if (!@link($tmp, $nextPath)) {
                     if ($createOnly) {
                         throw new InitialStateBoundaryException(
-                            "duo: initial capture $label next-transition boundary changed before durable publication"
+                            "wprism: initial capture $label next-transition boundary changed before durable publication"
                         );
                     }
                     throw self::ambiguous_recovery(
@@ -2162,7 +2162,7 @@ PHP;
                 if (!@link($nextPath, $path)) {
                     if ($createOnly) {
                         throw new InitialStateBoundaryException(
-                            "duo: initial capture $label boundary changed before durable publication"
+                            "wprism: initial capture $label boundary changed before durable publication"
                         );
                     }
                     throw self::ambiguous_recovery(
@@ -2183,7 +2183,7 @@ PHP;
                     // atomic same-filesystem replacement. Ordinary capture
                     // uses the fixed slots below so every interruption is a
                     // finite recovery state; the repository contract keeps
-                    // non-Duo writers out of the state.capture* namespace.
+                    // non-WPrism writers out of the state.capture* namespace.
                     if (!@rename($tmp, $path)) {
                         throw self::ambiguous_recovery("capture $label record could not publish its next phase");
                     }
@@ -2272,14 +2272,14 @@ PHP;
 
     /** Test-only seam for one transient missing canonical-record read. */
     private static function test_readback_miss_once(string $scope): bool {
-        if (getenv('DUO_TEST_MODE') !== '1') {
+        if (getenv('WPRISM_TEST_MODE') !== '1') {
             return false;
         }
-        $requested = (string) (getenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE') ?: '');
+        $requested = (string) (getenv('WPRISM_TEST_PUBLISH_READBACK_MISS_ONCE') ?: '');
         if ($requested !== $scope) {
             return false;
         }
-        putenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE');
+        putenv('WPRISM_TEST_PUBLISH_READBACK_MISS_ONCE');
         return true;
     }
 
@@ -2402,7 +2402,7 @@ PHP;
         self::assert_not_symlink_root($backup, 'retained backup');
         if (!@rename($backup, $stateDir)) {
             throw new \RuntimeException(
-                "duo: capture recovery failed — $stateDir is missing and retained backup $backup could not be restored; "
+                "wprism: capture recovery failed — $stateDir is missing and retained backup $backup could not be restored; "
                 . 'verify the backup and move it manually before retrying'
             );
         }
@@ -2424,7 +2424,7 @@ PHP;
         ?\Throwable $previous = null
     ): CommandRefusalException {
         return CommandRefusalException::ambiguousCaptureRecovery(
-            'duo: capture recovery is blocked by an ambiguous publication/COMMIT boundary — '
+            'wprism: capture recovery is blocked by an ambiguous publication/COMMIT boundary — '
                 . $reason . '; refusing to retry or discard the retained backup. Inspect the intent, receipt, and database before continuing.',
             $previous
         );
@@ -2432,14 +2432,14 @@ PHP;
 
     /** Test-only fault seam; production is inert unless explicitly enabled. */
     private static function fault_checkpoint(string $phase): void {
-        if (getenv('DUO_TEST_MODE') !== '1') {
+        if (getenv('WPRISM_TEST_MODE') !== '1') {
             return;
         }
-        $requested = (string) (getenv('DUO_TEST_PUBLISH_FAIL_PHASE') ?: getenv('DUO_TEST_CAPTURE_FAIL_PHASE'));
+        $requested = (string) (getenv('WPRISM_TEST_PUBLISH_FAIL_PHASE') ?: getenv('WPRISM_TEST_CAPTURE_FAIL_PHASE'));
         if ($requested !== '' && $requested === $phase) {
-            throw new \RuntimeException("duo: injected capture publication failure at $phase");
+            throw new \RuntimeException("wprism: injected capture publication failure at $phase");
         }
-        $kill = (string) (getenv('DUO_TEST_PUBLISH_KILL_PHASE') ?: getenv('DUO_TEST_CAPTURE_KILL_PHASE'));
+        $kill = (string) (getenv('WPRISM_TEST_PUBLISH_KILL_PHASE') ?: getenv('WPRISM_TEST_CAPTURE_KILL_PHASE'));
         if ($kill === $phase) {
             if (function_exists('posix_kill')) {
                 @posix_kill(getmypid(), defined('SIGKILL') ? SIGKILL : 9);
@@ -2544,7 +2544,7 @@ PHP;
 }
 
 /**
- * Persistent inode-bound filesystem helper (DUO-3425).
+ * Persistent inode-bound filesystem helper (issue #3425).
  *
  * Publish::run_bound_operation() proves one mutation per fresh `php -r`
  * subprocess. Its crux is P1, "CWD-as-inode-capability": the child is placed
@@ -2752,14 +2752,14 @@ PHP;
     private function ensure_started(string $label): void {
         if ($this->poisoned) {
             throw new InitialStateBoundaryException(
-                "duo: initial $label cannot reuse a torn-down bound-filesystem helper"
+                "wprism: initial $label cannot reuse a torn-down bound-filesystem helper"
             );
         }
         if ($this->process !== null) {
             return;
         }
         if (!function_exists('proc_open') || !defined('PHP_BINARY') || PHP_BINARY === '') {
-            throw new InitialStateBoundaryException("duo: initial $label requires the bound-filesystem helper");
+            throw new InitialStateBoundaryException("wprism: initial $label requires the bound-filesystem helper");
         }
         $pipes = [];
         $process = @proc_open(
@@ -2768,7 +2768,7 @@ PHP;
             $pipes
         );
         if (!is_resource($process)) {
-            throw new InitialStateBoundaryException("duo: initial $label could not start its bound-filesystem helper");
+            throw new InitialStateBoundaryException("wprism: initial $label could not start its bound-filesystem helper");
         }
         $this->process = $process;
         $this->pipes = $pipes;
@@ -2794,7 +2794,7 @@ PHP;
         if (!is_string($header)) {
             $this->close();
             throw new InitialStateBoundaryException(
-                "duo: initial $label could not encode its bound-filesystem request"
+                "wprism: initial $label could not encode its bound-filesystem request"
             );
         }
         $remaining = $header . "\n" . $bytes;
@@ -2826,7 +2826,7 @@ PHP;
         }
         $this->close();
         throw new InitialStateBoundaryException(
-            "duo: initial $label refused at its inode-bound parent"
+            "wprism: initial $label refused at its inode-bound parent"
                 . ($reason === '' ? '' : ': ' . $reason)
         );
     }

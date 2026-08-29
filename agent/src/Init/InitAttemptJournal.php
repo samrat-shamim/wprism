@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Publication/Publish.php';
@@ -7,7 +7,7 @@ require_once __DIR__ . '/InitFaults.php';
 require_once __DIR__ . '/InitOwnedArtifacts.php';
 require_once __DIR__ . '/InitProtocol.php';
 
-/** Typed view of the existing duo-init-attempt/v1 envelope. */
+/** Typed view of the existing wprism-init-attempt/v1 envelope. */
 final class InitAttemptRecord {
     private const PHASES = [
         'preparing', 'locked', 'git-planned', 'git-reserved',
@@ -17,7 +17,7 @@ final class InitAttemptRecord {
         'gitignore-planned', 'gitignore-ready', 'code-stage-planned',
         'code-staging', 'code-staged', 'code-root-planned',
         'code-root-reserved', 'code-publish-planned',
-        // DUO-3499: the code lock is published inside the already-reserved
+        // issue #3499: the code lock is published inside the already-reserved
         // code root, between the verified payload rename and `code-ready`, so
         // the identity recorded at `code-ready` covers the lock too.
         'code-lock-planned', 'code-lock-written', 'code-ready',
@@ -43,7 +43,7 @@ final class InitAttemptRecord {
             || !is_array($record['proposal'] ?? null)
             || !is_string($record['repository'] ?? null)
             || !is_string($record['repository_identity'] ?? null)) {
-            throw new \RuntimeException("duo: interrupted init $label is malformed or unsealed");
+            throw new \RuntimeException("wprism: interrupted init $label is malformed or unsealed");
         }
         return new self($record);
     }
@@ -65,7 +65,7 @@ final class InitAttemptRecord {
             || ($current['repository_identity'] ?? null) !== ($candidate['repository_identity'] ?? null)
             || Canon::encode($current['proposal'] ?? null) !== Canon::encode($candidate['proposal'] ?? null)) {
             throw new \RuntimeException(
-                'duo: interrupted init next-record is not a forward transition of its canonical sealed attempt'
+                'wprism: interrupted init next-record is not a forward transition of its canonical sealed attempt'
             );
         }
     }
@@ -84,7 +84,7 @@ final class InitAttemptJournal {
         $hasNext = file_exists($nextPath) || is_link($nextPath);
         if (!$hasAttempt && $hasNext) {
             throw new \RuntimeException(
-                'duo: interrupted init next-record exists without its canonical sealed attempt; retained it'
+                'wprism: interrupted init next-record exists without its canonical sealed attempt; retained it'
             );
         }
         if (!$hasAttempt) {
@@ -101,12 +101,12 @@ final class InitAttemptJournal {
     /** @return array<string,mixed> */
     public static function read_file(string $path, string $label): array {
         if (is_link($path) || !is_file($path)) {
-            throw new \RuntimeException("duo: interrupted init $label is not an ordinary regular file");
+            throw new \RuntimeException("wprism: interrupted init $label is not an ordinary regular file");
         }
         $raw = Canon::read_file($path);
         $record = Canon::decode($raw);
         if (!is_array($record)) {
-            throw new \RuntimeException("duo: interrupted init $label is not an object");
+            throw new \RuntimeException("wprism: interrupted init $label is not an object");
         }
         $seal = $record['record_sha256'] ?? null;
         // Validate against the exact payload bytes. Decoding and re-encoding
@@ -123,7 +123,7 @@ final class InitAttemptJournal {
             : '';
         if (!is_string($seal) || preg_match('/^[a-f0-9]{64}$/D', $seal) !== 1
             || !hash_equals($seal, $payloadHash)) {
-            throw new \RuntimeException("duo: interrupted init $label is malformed or unsealed");
+            throw new \RuntimeException("wprism: interrupted init $label is malformed or unsealed");
         }
         return InitAttemptRecord::fromArray($record, $label)->toArray();
     }
@@ -154,7 +154,7 @@ final class InitAttemptJournal {
         }
         if (preg_match('/^sha256:[a-f0-9]{64}$/D', $expectedIdentity) !== 1
             || !hash_equals($expectedIdentity, InitOwnedArtifacts::regular_file_identity($path, self::FILE))) {
-            throw new \RuntimeException('duo: interrupted init record changed before its durable phase transition');
+            throw new \RuntimeException('wprism: interrupted init record changed before its durable phase transition');
         }
         $tmp = $parent . '/' . self::NEXT_FILE;
         $tmpIdentity = Publish::write_file_fresh(
@@ -167,7 +167,7 @@ final class InitAttemptJournal {
             InitFaults::checkpoint('attempt-transition-pre-rename');
             InitFaults::checkpoint('attempt-transition-pre-rename-' . (string) $attempt['phase']);
             if (!@rename($tmp, $path)) {
-                throw new \RuntimeException('duo: interrupted init record phase transition could not be published');
+                throw new \RuntimeException('wprism: interrupted init record phase transition could not be published');
             }
             Publish::sync_parent($path);
         } finally {
@@ -195,10 +195,10 @@ final class InitAttemptJournal {
             (string) $publication['published'],
             InitOwnedArtifacts::regular_file_identity($path, self::FILE)
         )) {
-            throw new \RuntimeException('duo: interrupted init canonical journal changed before transition recovery');
+            throw new \RuntimeException('wprism: interrupted init canonical journal changed before transition recovery');
         }
         if (!@rename($nextPath, $path)) {
-            throw new \RuntimeException('duo: interrupted init could not publish its sealed next journal phase');
+            throw new \RuntimeException('wprism: interrupted init could not publish its sealed next journal phase');
         }
         Publish::sync_parent($path);
         return [

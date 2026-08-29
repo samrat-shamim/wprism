@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Pure wire codec for durable entity identity tokens.
@@ -56,7 +56,7 @@ final class IdentityTokenCodec {
      */
     public static function decode(string $token): array {
         if (!preg_match('/^\{\{(' . self::KIND_NAME_RE . '):([0-9a-f-]{36})\}\}$/', $token, $m)) {
-            throw new \RuntimeException("duo: malformed ref token '$token'");
+            throw new \RuntimeException("wprism: malformed ref token '$token'");
         }
         return ['kind' => $m[1], 'uuid' => $m[2]];
     }

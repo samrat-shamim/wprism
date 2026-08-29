@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for DUO-3206's checked mutation primitive. The live
+ * Offline regression for issue #3206's checked mutation primitive. The live
  * companion shell test exercises Apply/Ledger ordering; this file pins the
  * wpdb return-value semantics that made the original defect possible.
  */
@@ -9,10 +9,10 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require_once __DIR__ . '/../../../../cli/src/Plan/PlanSummary.php';
 
-use Duo\DatabaseMutationException;
-use Duo\Db;
-use Duo\TransientDbException;
-use Duo\Orchestrator\PlanSummary;
+use WPrism\DatabaseMutationException;
+use WPrism\Db;
+use WPrism\TransientDbException;
+use WPrism\Orchestrator\PlanSummary;
 
 final class FakeWpdb {
     public string $prefix = 'wp_';
@@ -66,7 +66,7 @@ $expectFailure(fn() => Db::update('wp_posts', [], [], null, null, 'test update')
 $expectFailure(fn() => Db::delete('wp_posts', [], null, 'test delete'), 'test delete');
 $expectFailure(fn() => Db::query('COMMIT', 'test commit'), 'test commit');
 
-// DUO-3213 capture retries only deadlocks/timeouts. The central checked
+// issue #3213 capture retries only deadlocks/timeouts. The central checked
 // layer must preserve that typed distinction without exposing driver text.
 $wpdb->last_error = "Deadlock found while handling sk_live_must_not_leak";
 $expectTransient(fn() => Db::insert('wp_posts', [], null, 'capture identity insert'), 'capture identity insert');
@@ -78,20 +78,20 @@ $check(Db::update('wp_posts', [], [], null, null, 'zero-row update') === 0, 'zer
 $check(Db::delete('wp_posts', [], null, 'zero-row delete') === 0, 'zero-row delete was treated as failure');
 
 // A nominally successful insert with no generated id is still unusable for
-// Duo identity and must fail before local id zero can enter the ledger.
+// WPrism identity and must fail before local id zero can enter the ledger.
 $wpdb->next = 1;
 $wpdb->insert_id = 0;
 $expectFailure(fn() => Db::insert_id('test insert id'), 'test insert id did not produce an id');
 
-putenv('DUO_TEST_MODE=1');
-putenv('DUO_TEST_FAIL_DB_CONTEXT=injected update,injected rollback');
+putenv('WPRISM_TEST_MODE=1');
+putenv('WPRISM_TEST_FAIL_DB_CONTEXT=injected update,injected rollback');
 $expectFailure(
     fn() => Db::update('wp_options', [], [], null, null, 'injected update'),
     'injected update (injected)'
 );
 $expectFailure(fn() => Db::rollback('injected rollback'), 'injected rollback (injected)');
-putenv('DUO_TEST_MODE');
-putenv('DUO_TEST_FAIL_DB_CONTEXT');
+putenv('WPRISM_TEST_MODE');
+putenv('WPRISM_TEST_FAIL_DB_CONTEXT');
 
 $emptyPlan = array_fill_keys(
     ['create', 'update', 'adopt', 'unchanged', 'drift', 'conflict', 'collision', 'delete'],

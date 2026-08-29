@@ -14,7 +14,7 @@ declare(strict_types=1);
 require_once dirname(__DIR__, 2) . '/lib/check.php';
 require_once dirname(__DIR__, 4) . '/cli/src/Environment/EnvironmentLifecycle.php';
 
-use Duo\Orchestrator\CommandEnvironmentProvider;
+use WPrism\Orchestrator\CommandEnvironmentProvider;
 
 $scratch = $argv[1] ?? '';
 if ($scratch === '') {
@@ -50,26 +50,26 @@ foreach ([$stateRoot, $fakeBin, $sourceRepo, $targetRepo] as $directory) {
 
 $docker = <<<'SH'
 #!/bin/sh
-printf 'docker' >> "$DUO_SLOT_ACTION_LOG"
-printf ' <%s>' "$@" >> "$DUO_SLOT_ACTION_LOG"
-printf '\n' >> "$DUO_SLOT_ACTION_LOG"
+printf 'docker' >> "$WPRISM_SLOT_ACTION_LOG"
+printf ' <%s>' "$@" >> "$WPRISM_SLOT_ACTION_LOG"
+printf '\n' >> "$WPRISM_SLOT_ACTION_LOG"
 if [ "${1:-}" = port ]; then
-  [ -f "$DUO_SLOT_STARTED" ] || exit 33
+  [ -f "$WPRISM_SLOT_STARTED" ] || exit 33
   case "${2:-}" in
     *wp1*) printf '0.0.0.0:8181\n' ;;
     *)     printf '0.0.0.0:8182\n' ;;
   esac
 fi
-if [ -f "$DUO_SLOT_FAIL_CLEAR" ]; then
+if [ -f "$WPRISM_SLOT_FAIL_CLEAR" ]; then
   case " $* " in
     *" rm -rf /var/www/html/wp-content/uploads "*) exit 45 ;;
   esac
 fi
-if [ -f "$DUO_SLOT_SLOW_CLEAR" ]; then
+if [ -f "$WPRISM_SLOT_SLOW_CLEAR" ]; then
   case " $* " in
     *" rm -rf /var/www/html/wp-content/uploads "*)
-      : > "$DUO_SLOT_CLEAR_ENTERED"
-      while [ -f "$DUO_SLOT_SLOW_CLEAR" ]; do sleep 0.05; done
+      : > "$WPRISM_SLOT_CLEAR_ENTERED"
+      while [ -f "$WPRISM_SLOT_SLOW_CLEAR" ]; do sleep 0.05; done
       ;;
   esac
 fi
@@ -77,20 +77,20 @@ exit 0
 SH;
 $pair = <<<'SH'
 #!/bin/sh
-printf 'pair' >> "$DUO_SLOT_ACTION_LOG"
-printf ' <%s>' "$@" >> "$DUO_SLOT_ACTION_LOG"
-printf '\n' >> "$DUO_SLOT_ACTION_LOG"
+printf 'pair' >> "$WPRISM_SLOT_ACTION_LOG"
+printf ' <%s>' "$@" >> "$WPRISM_SLOT_ACTION_LOG"
+printf '\n' >> "$WPRISM_SLOT_ACTION_LOG"
 case "${1:-}" in
   up)
-    [ ! -f "$DUO_SLOT_FAIL_PAIR" ] || exit 44
-    if [ -f "$DUO_SLOT_SLOW_PAIR" ]; then
-      : > "$DUO_SLOT_PAIR_ENTERED"
-      while [ -f "$DUO_SLOT_SLOW_PAIR" ]; do sleep 0.05; done
+    [ ! -f "$WPRISM_SLOT_FAIL_PAIR" ] || exit 44
+    if [ -f "$WPRISM_SLOT_SLOW_PAIR" ]; then
+      : > "$WPRISM_SLOT_PAIR_ENTERED"
+      while [ -f "$WPRISM_SLOT_SLOW_PAIR" ]; do sleep 0.05; done
     fi
-    : > "$DUO_SLOT_STARTED"
+    : > "$WPRISM_SLOT_STARTED"
     ;;
   destroy)
-    rm -f "$DUO_SLOT_STARTED"
+    rm -f "$WPRISM_SLOT_STARTED"
     ;;
 esac
 exit 0
@@ -136,14 +136,14 @@ file_put_contents(
 );
 
 putenv('PATH=' . $fakeBin . PATH_SEPARATOR . (string) getenv('PATH'));
-putenv('DUO_SLOT_ACTION_LOG=' . $actionLog);
-putenv('DUO_SLOT_STARTED=' . $started);
-putenv('DUO_SLOT_FAIL_PAIR=' . $failPair);
-putenv('DUO_SLOT_FAIL_CLEAR=' . $failClear);
-putenv('DUO_SLOT_SLOW_PAIR=' . $slowPair);
-putenv('DUO_SLOT_PAIR_ENTERED=' . $pairEntered);
-putenv('DUO_SLOT_SLOW_CLEAR=' . $slowClear);
-putenv('DUO_SLOT_CLEAR_ENTERED=' . $clearEntered);
+putenv('WPRISM_SLOT_ACTION_LOG=' . $actionLog);
+putenv('WPRISM_SLOT_STARTED=' . $started);
+putenv('WPRISM_SLOT_FAIL_PAIR=' . $failPair);
+putenv('WPRISM_SLOT_FAIL_CLEAR=' . $failClear);
+putenv('WPRISM_SLOT_SLOW_PAIR=' . $slowPair);
+putenv('WPRISM_SLOT_PAIR_ENTERED=' . $pairEntered);
+putenv('WPRISM_SLOT_SLOW_CLEAR=' . $slowClear);
+putenv('WPRISM_SLOT_CLEAR_ENTERED=' . $clearEntered);
 
 /** @return CommandEnvironmentProvider */
 function slot_provider(string $providerScript, string $configPath, string $environment, string $label): CommandEnvironmentProvider {
@@ -200,7 +200,7 @@ function slot_request(string $environment, string $action, string $operation, ar
     return [
         'action' => $action,
         'environment' => $environment,
-        'format' => 'duo-branch-environment-provider-request/v1',
+        'format' => 'wprism-branch-environment-provider-request/v1',
         'input' => $input,
         'operation_id' => $operation,
     ];
@@ -301,7 +301,7 @@ function slot_media_clear_count(string $actionLog): int {
 }
 
 function slot_database_command_count(string $actionLog): int {
-    return substr_count(slot_physical_log($actionLog), 'docker <exec> <-i> <duo-shared-db> <mariadb> <-uroot> <-proot>');
+    return substr_count(slot_physical_log($actionLog), 'docker <exec> <-i> <wprism-shared-db> <mariadb> <-uroot> <-proot>');
 }
 
 function slot_pair_up_count(string $actionLog): int {
@@ -310,8 +310,8 @@ function slot_pair_up_count(string $actionLog): int {
 
 /** @param array{exit:int,result:array<string,mixed>,error:string,provider_error:string} $result */
 function slot_refusal(array $result, string $needle, string $label): void {
-    duo_check_same(1, $result['exit'], $label);
-    duo_check(str_contains($result['provider_error'], $needle), $label . ' names the refused invariant');
+    wprism_check_same(1, $result['exit'], $label);
+    wprism_check(str_contains($result['provider_error'], $needle), $label . ' names the refused invariant');
 }
 
 $operationA = 'preview-operation-a-000000000000000000000001';
@@ -325,43 +325,43 @@ $operationReapB = 'preview-operation-reap-b-0000000000000000005';
 $target = slot_provider($providerScript, $configPath, 'mup2', 'target');
 
 $createdA = slot_call($target, $stateRoot, 'create', $operationA, ['mode' => 'create']);
-duo_check_same(0, $createdA['exit'], 'the first preview acquires the reusable physical slot through the shipped provider client');
+wprism_check_same(0, $createdA['exit'], 'the first preview acquires the reusable physical slot through the shipped provider client');
 $identityA = $createdA['result'];
-duo_check_same(1, $identityA['lease_generation'] ?? null, 'the first preview owns generation 1');
-duo_check(is_file($started), 'acquisition starts the stopped physical slot before URL discovery');
-duo_check_same(1, slot_media_clear_count($actionLog), 'generation-1 create clears media exactly once');
-duo_check_same(2, slot_database_command_count($actionLog), 'generation-1 create clears and recreates its database exactly once');
+wprism_check_same(1, $identityA['lease_generation'] ?? null, 'the first preview owns generation 1');
+wprism_check(is_file($started), 'acquisition starts the stopped physical slot before URL discovery');
+wprism_check_same(1, slot_media_clear_count($actionLog), 'generation-1 create clears media exactly once');
+wprism_check_same(2, slot_database_command_count($actionLog), 'generation-1 create clears and recreates its database exactly once');
 
 $replayedCreateA = slot_call($target, $stateRoot, 'create', $operationA, ['mode' => 'create']);
-duo_check_same(0, $replayedCreateA['exit'], 'a lost generation-1 create response is retryable through the shipped provider client');
-duo_check_same($identityA['_response_sha256'] ?? null, $replayedCreateA['result']['_response_sha256'] ?? null, 'a repeated create returns the exact generation-1 provider response');
-duo_check_same(1, slot_media_clear_count($actionLog), 'replaying create does not clear populated media');
-duo_check_same(2, slot_database_command_count($actionLog), 'replaying create does not clear the populated database');
+wprism_check_same(0, $replayedCreateA['exit'], 'a lost generation-1 create response is retryable through the shipped provider client');
+wprism_check_same($identityA['_response_sha256'] ?? null, $replayedCreateA['result']['_response_sha256'] ?? null, 'a repeated create returns the exact generation-1 provider response');
+wprism_check_same(1, slot_media_clear_count($actionLog), 'replaying create does not clear populated media');
+wprism_check_same(2, slot_database_command_count($actionLog), 'replaying create does not clear the populated database');
 
 unlink($started);
 $pairUpsBeforeMissingRetry = slot_pair_up_count($actionLog);
 $missingPresentRetry = slot_call($target, $stateRoot, 'create', $operationA, ['mode' => 'create']);
 slot_refusal($missingPresentRetry, 'reference provider command failed', 'a present-lease retry refuses when its physical slot disappeared');
-duo_check_same($pairUpsBeforeMissingRetry, slot_pair_up_count($actionLog), 'a present-lease retry never reallocates a disappeared pair');
-duo_check_same(1, slot_media_clear_count($actionLog), 'a disappeared present-lease retry does not clear media');
-duo_check_same(2, slot_database_command_count($actionLog), 'a disappeared present-lease retry does not clear the database');
+wprism_check_same($pairUpsBeforeMissingRetry, slot_pair_up_count($actionLog), 'a present-lease retry never reallocates a disappeared pair');
+wprism_check_same(1, slot_media_clear_count($actionLog), 'a disappeared present-lease retry does not clear media');
+wprism_check_same(2, slot_database_command_count($actionLog), 'a disappeared present-lease retry does not clear the database');
 touch($started);
 
 $beforeBusy = slot_physical_log($actionLog);
 $busy = slot_call($target, $stateRoot, 'create', $operationBusy, ['mode' => 'create']);
 slot_refusal($busy, 'preview slot is already owned', 'another branch cannot acquire an occupied preview slot');
-duo_check_same($beforeBusy, slot_physical_log($actionLog), 'a refused concurrent acquisition executes no physical command');
+wprism_check_same($beforeBusy, slot_physical_log($actionLog), 'a refused concurrent acquisition executes no physical command');
 
 $healthyActiveState = (string) file_get_contents($stateRoot . '/state.json');
 unlink($stateRoot . '/state.json');
 $beforeMissingState = slot_physical_log($actionLog);
 $missingStateAcquire = slot_call($target, $stateRoot, 'create', $operationBusy, ['mode' => 'create']);
 slot_refusal($missingStateAcquire, 'state is missing after initialization', 'missing durable state cannot reset an occupied slot to generation zero');
-duo_check_same($beforeMissingState, slot_physical_log($actionLog), 'missing provider state refuses before physical mutation');
+wprism_check_same($beforeMissingState, slot_physical_log($actionLog), 'missing provider state refuses before physical mutation');
 $missingStatePlan = slot_raw($providerScript, $configPath, slot_request('mup2', 'create', $operationBusy, ['mode' => 'create']), true);
-duo_check_same(1, $missingStatePlan['exit'], 'dry-run cannot plan generation zero after initialized state is lost');
-duo_check(str_contains($missingStatePlan['stderr'], 'state is missing after initialization'), 'dry-run names the same missing-state invariant as live acquisition');
-duo_check_same($beforeMissingState, slot_physical_log($actionLog), 'missing-state dry-run executes no physical command');
+wprism_check_same(1, $missingStatePlan['exit'], 'dry-run cannot plan generation zero after initialized state is lost');
+wprism_check(str_contains($missingStatePlan['stderr'], 'state is missing after initialization'), 'dry-run names the same missing-state invariant as live acquisition');
+wprism_check_same($beforeMissingState, slot_physical_log($actionLog), 'missing-state dry-run executes no physical command');
 file_put_contents($stateRoot . '/state.json', $healthyActiveState);
 
 $phaseState = json_decode($healthyActiveState, true, 512, JSON_THROW_ON_ERROR);
@@ -373,16 +373,16 @@ file_put_contents($stateRoot . '/state.json', json_encode($phaseState, JSON_UNES
 $beforePhaseMismatch = slot_physical_log($actionLog);
 $phaseMismatch = slot_call($target, $stateRoot, 'create', $operationA, ['mode' => 'create']);
 slot_refusal($phaseMismatch, 'history differs from current ownership', 'acquisition and resource phases must agree before retry');
-duo_check_same($beforePhaseMismatch, slot_physical_log($actionLog), 'phase-mismatched retry executes no physical command');
+wprism_check_same($beforePhaseMismatch, slot_physical_log($actionLog), 'phase-mismatched retry executes no physical command');
 file_put_contents($stateRoot . '/state.json', $healthyActiveState);
 
 $missingResourceState = json_decode($healthyActiveState, true, 512, JSON_THROW_ON_ERROR);
-unset($missingResourceState['resources']['duo-mup-wp2']);
+unset($missingResourceState['resources']['wprism-mup-wp2']);
 file_put_contents($stateRoot . '/state.json', json_encode($missingResourceState, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
 $beforeMissingResource = slot_physical_log($actionLog);
 $missingResource = slot_call($target, $stateRoot, 'create', $operationBusy, ['mode' => 'create']);
 slot_refusal($missingResource, 'resource state is missing beneath its initialized authority', 'initialized authority cannot fall back to a virgin resource row');
-duo_check_same($beforeMissingResource, slot_physical_log($actionLog), 'missing resource row refuses before physical mutation');
+wprism_check_same($beforeMissingResource, slot_physical_log($actionLog), 'missing resource row refuses before physical mutation');
 file_put_contents($stateRoot . '/state.json', $healthyActiveState);
 
 $driftConfigPath = $scratch . '/provider-drift.json';
@@ -399,31 +399,31 @@ $driftedInspect = slot_call(
     slot_identity_input($identityA) + ['role' => 'target']
 );
 slot_refusal($driftedInspect, 'state authority is bound to another configured target', 'an active lease refuses changed configured mutation topology');
-duo_check_same($beforeDrift, slot_physical_log($actionLog), 'configured-topology drift refuses before any physical command');
+wprism_check_same($beforeDrift, slot_physical_log($actionLog), 'configured-topology drift refuses before any physical command');
 
 $aliasConfigPath = $scratch . '/provider-alias.json';
 $aliasConfig = $config;
 $aliasConfig['environments']['mup2']['database'] = $aliasConfig['environments']['mup1']['database'];
 file_put_contents($aliasConfigPath, json_encode($aliasConfig, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
 $alias = slot_raw($providerScript, $aliasConfigPath, slot_request('mup2', 'capabilities', $operationA, []));
-duo_check_same(1, $alias['exit'], 'configured endpoints cannot alias the source side');
-duo_check(str_contains($alias['stderr'], 'database does not belong to its pair side'), 'endpoint-alias refusal names the noncanonical database');
+wprism_check_same(1, $alias['exit'], 'configured endpoints cannot alias the source side');
+wprism_check(str_contains($alias['stderr'], 'database does not belong to its pair side'), 'endpoint-alias refusal names the noncanonical database');
 
 $pairScopeConfigPath = $scratch . '/provider-pair-scope.json';
 $pairScopeConfig = $config;
 $pairScopeConfig['destroy_scope'] = 'pair';
 file_put_contents($pairScopeConfigPath, json_encode($pairScopeConfig, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
 $pairScope = slot_raw($providerScript, $pairScopeConfigPath, slot_request('mup2', 'capabilities', $operationA, []));
-duo_check_same(1, $pairScope['exit'], 'one target lease cannot authorize pair-wide source deletion');
-duo_check(str_contains($pairScope['stderr'], 'one target lease cannot authorize pair-wide source deletion'), 'pair-scope refusal names the missing source authority');
+wprism_check_same(1, $pairScope['exit'], 'one target lease cannot authorize pair-wide source deletion');
+wprism_check(str_contains($pairScope['stderr'], 'one target lease cannot authorize pair-wide source deletion'), 'pair-scope refusal names the missing source authority');
 
 $pathConfigPath = $scratch . '/provider-path-alias.json';
 $pathConfig = $config;
 $pathConfig['environments']['mup2']['repo'] = $composeDir . '/siterepo/other/../mup2';
 file_put_contents($pathConfigPath, json_encode($pathConfig, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
 $pathAlias = slot_raw($providerScript, $pathConfigPath, slot_request('mup2', 'capabilities', $operationA, []));
-duo_check_same(1, $pathAlias['exit'], 'destructive repository paths must be lexically normalized');
-duo_check(str_contains($pathAlias['stderr'], 'must be lexically normalized'), 'path-alias refusal names the normalization invariant');
+wprism_check_same(1, $pathAlias['exit'], 'destructive repository paths must be lexically normalized');
+wprism_check(str_contains($pathAlias['stderr'], 'must be lexically normalized'), 'path-alias refusal names the normalization invariant');
 
 $sourceStateRoot = $sourceRepo . '/provider-state';
 mkdir($sourceStateRoot, 0700, true);
@@ -432,8 +432,8 @@ $sourceStateConfig = $config;
 $sourceStateConfig['state_root'] = $sourceStateRoot;
 file_put_contents($sourceStateConfigPath, json_encode($sourceStateConfig, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
 $sourceStateOverlap = slot_raw($providerScript, $sourceStateConfigPath, slot_request('mup2', 'capabilities', $operationA, []));
-duo_check_same(1, $sourceStateOverlap['exit'], 'provider-owned state cannot live inside the source repository');
-duo_check(str_contains($sourceStateOverlap['stderr'], 'state authority path') && str_contains($sourceStateOverlap['stderr'], 'overlaps the source repo'), 'source-state overlap refusal names the authority boundary');
+wprism_check_same(1, $sourceStateOverlap['exit'], 'provider-owned state cannot live inside the source repository');
+wprism_check(str_contains($sourceStateOverlap['stderr'], 'state authority path') && str_contains($sourceStateOverlap['stderr'], 'overlaps the source repo'), 'source-state overlap refusal names the authority boundary');
 
 $foreignPairConfigPath = $scratch . '/provider-foreign-pair.json';
 $foreignPairConfig = $config;
@@ -442,12 +442,12 @@ $foreignPairConfig['source_environment'] = 'other1';
 $foreignPairConfig['environments'] = [
     'other1' => [
         'role' => 'source', 'side' => 1, 'port' => 8181,
-        'container' => 'duo-other-wp1-1', 'service' => 'cli1',
+        'container' => 'wprism-other-wp1-1', 'service' => 'cli1',
         'database' => 'wp_other1', 'repo' => $composeDir . '/siterepo/other1',
     ],
     'other2' => [
         'role' => 'target', 'side' => 2, 'port' => 8182,
-        'container' => 'duo-other-wp2-1', 'service' => 'cli2',
+        'container' => 'wprism-other-wp2-1', 'service' => 'cli2',
         'database' => 'wp_other2', 'repo' => $composeDir . '/siterepo/other2',
     ],
 ];
@@ -459,18 +459,18 @@ $foreignPair = slot_provider($providerScript, $foreignPairConfigPath, 'other2', 
 $beforeForeignPair = slot_physical_log($actionLog);
 $foreignPairAcquire = slot_call($foreignPair, $stateRoot, 'create', $operationBusy, ['mode' => 'create']);
 slot_refusal($foreignPairAcquire, 'state authority is bound to another configured target', 'one state root cannot mint a second resource id over an occupied slot');
-duo_check_same($beforeForeignPair, slot_physical_log($actionLog), 'foreign resource-id acquisition refuses before physical mutation');
+wprism_check_same($beforeForeignPair, slot_physical_log($actionLog), 'foreign resource-id acquisition refuses before physical mutation');
 
 $source = slot_provider($providerScript, $configPath, 'mup1', 'source');
 $sourceInspect = slot_call($source, $stateRoot, 'inspect', $operationA, ['role' => 'source']);
-duo_check_same(0, $sourceInspect['exit'], 'the source remains inspectable after target lease rotation was introduced');
-$sourceIdentity = 'duo-pair-mup-side-1';
-duo_check_same(
+wprism_check_same(0, $sourceInspect['exit'], 'the source remains inspectable after target lease rotation was introduced');
+$sourceIdentity = 'wprism-pair-mup-side-1';
+wprism_check_same(
     'pair-lease-' . substr(hash('sha256', $sourceIdentity), 0, 20),
     $sourceInspect['result']['lease_id'] ?? null,
     'source lease identity remains byte-compatible with the pre-slot provider'
 );
-duo_check_same(
+wprism_check_same(
     hash('sha256', 'ownership:' . $sourceIdentity),
     $sourceInspect['result']['ownership_receipt_sha256'] ?? null,
     'source ownership evidence remains byte-compatible with the pre-slot provider'
@@ -490,31 +490,31 @@ $sourcePrepare = slot_call(
     slot_identity_input($sourceInspect['result']) + ['snapshot_session_id' => 'source-session-000000000001']
 );
 slot_refusal($sourcePrepare, 'source topology differs from the inspected operation', 'snapshot preparation refuses source topology changed after inspect');
-duo_check_same($beforeSourceDrift, slot_physical_log($actionLog), 'source-topology drift refuses before snapshot commands');
+wprism_check_same($beforeSourceDrift, slot_physical_log($actionLog), 'source-topology drift refuses before snapshot commands');
 $beforeSourceDestroy = slot_physical_log($actionLog);
 $sourceDestroy = slot_call($source, $stateRoot, 'destroy', $operationA, []);
 slot_refusal($sourceDestroy, 'requires the configured target role', 'a destructive target action cannot run against the source side');
-duo_check_same($beforeSourceDestroy, slot_physical_log($actionLog), 'source-role destruction refuses before any physical command');
+wprism_check_same($beforeSourceDestroy, slot_physical_log($actionLog), 'source-role destruction refuses before any physical command');
 
 $planInput = slot_identity_input($identityA) + ['url' => $identityA['url']];
 $plan = slot_raw($providerScript, $configPath, slot_request('mup2', 'url-set', $operationA, $planInput), true);
-duo_check_same(0, $plan['exit'], '--print-plan validates the real active generation-1 identity from provider state');
-duo_check_same(true, $plan['decoded']['identity_input_checked'] ?? null, 'the active target plan records that its real lease identity was checked');
+wprism_check_same(0, $plan['exit'], '--print-plan validates the real active generation-1 identity from provider state');
+wprism_check_same(true, $plan['decoded']['identity_input_checked'] ?? null, 'the active target plan records that its real lease identity was checked');
 $foreignPlanInput = $planInput;
 $foreignPlanInput['expected_lease_generation'] = 99;
 $foreignPlan = slot_raw($providerScript, $configPath, slot_request('mup2', 'url-set', $operationA, $foreignPlanInput), true);
-duo_check_same(1, $foreignPlan['exit'], '--print-plan refuses a foreign generation instead of validating a fabricated target identity');
-duo_check(str_contains($foreignPlan['stderr'], "identity input differs at 'expected_lease_generation'"), 'the plan refusal names the foreign generation');
+wprism_check_same(1, $foreignPlan['exit'], '--print-plan refuses a foreign generation instead of validating a fabricated target identity');
+wprism_check(str_contains($foreignPlan['stderr'], "identity input differs at 'expected_lease_generation'"), 'the plan refusal names the foreign generation');
 $retryCreatePlan = slot_raw($providerScript, $configPath, slot_request('mup2', 'create', $operationA, ['mode' => 'create']), true);
-duo_check_same(0, $retryCreatePlan['exit'], '--print-plan accepts the exact active create retry');
-duo_check_same(
-    [['argv' => ['docker', 'port', 'duo-mup-wp2-1', '80/tcp']]],
+wprism_check_same(0, $retryCreatePlan['exit'], '--print-plan accepts the exact active create retry');
+wprism_check_same(
+    [['argv' => ['docker', 'port', 'wprism-mup-wp2-1', '80/tcp']]],
     $retryCreatePlan['decoded']['commands'] ?? null,
     'an active create retry plans only the non-mutating physical-presence proof'
 );
 $busyPlan = slot_raw($providerScript, $configPath, slot_request('mup2', 'create', $operationBusy, ['mode' => 'create']), true);
-duo_check_same(1, $busyPlan['exit'], '--print-plan refuses a foreign acquisition while the slot is occupied');
-duo_check(str_contains($busyPlan['stderr'], 'preview slot is already owned'), 'the foreign acquisition plan names slot ownership');
+wprism_check_same(1, $busyPlan['exit'], '--print-plan refuses a foreign acquisition while the slot is occupied');
+wprism_check(str_contains($busyPlan['stderr'], 'preview slot is already owned'), 'the foreign acquisition plan names slot ownership');
 
 $fenceAResponse = slot_call(
     $target,
@@ -523,7 +523,7 @@ $fenceAResponse = slot_call(
     $operationA,
     slot_identity_input($identityA) + ['mutation_owner' => 'preview-owner-a']
 );
-duo_check_same(0, $fenceAResponse['exit'], 'generation 1 acquires its mutation fence');
+wprism_check_same(0, $fenceAResponse['exit'], 'generation 1 acquires its mutation fence');
 $fenceA = $fenceAResponse['result'];
 $foreignFence = slot_call(
     $target,
@@ -538,54 +538,54 @@ $destroyAInput = slot_identity_input($identityA) + slot_mutation_input($fenceA) 
 $beforeWrongMode = slot_physical_log($actionLog);
 $wrongDetachA = slot_call($target, $stateRoot, 'detach', $operationA, $destroyAInput);
 slot_refusal($wrongDetachA, "acquired with 'create' must be reaped with 'destroy'", 'a created slot cannot be detached');
-duo_check_same($beforeWrongMode, slot_physical_log($actionLog), 'a reap-mode mismatch executes no physical command');
+wprism_check_same($beforeWrongMode, slot_physical_log($actionLog), 'a reap-mode mismatch executes no physical command');
 
 $destroyedA = slot_call($target, $stateRoot, 'destroy', $operationA, $destroyAInput);
-duo_check_same(0, $destroyedA['exit'], 'generation 1 is reaped through compare-and-reap');
-duo_check_same(2, slot_media_clear_count($actionLog), 'generation-1 reap clears media exactly once');
-duo_check_same(4, slot_database_command_count($actionLog), 'generation-1 reap clears its database exactly once');
+wprism_check_same(0, $destroyedA['exit'], 'generation 1 is reaped through compare-and-reap');
+wprism_check_same(2, slot_media_clear_count($actionLog), 'generation-1 reap clears media exactly once');
+wprism_check_same(4, slot_database_command_count($actionLog), 'generation-1 reap clears its database exactly once');
 
 $alteredAInput = $destroyAInput;
 $alteredAInput['compare_and_reap'] = false;
 $beforeAltered = slot_physical_log($actionLog);
 $alteredA = slot_call($target, $stateRoot, 'destroy', $operationA, $alteredAInput);
 slot_refusal($alteredA, 'preview slot has no active owner', 'the terminal operation id with changed input is not a receipt replay');
-duo_check_same($beforeAltered, slot_physical_log($actionLog), 'an altered terminal replay executes no physical command');
+wprism_check_same($beforeAltered, slot_physical_log($actionLog), 'an altered terminal replay executes no physical command');
 
 $createdB = slot_call($target, $stateRoot, 'create', $operationB, ['mode' => 'create']);
-duo_check_same(0, $createdB['exit'], 'a second preview reuses the physical slot');
+wprism_check_same(0, $createdB['exit'], 'a second preview reuses the physical slot');
 $identityB = $createdB['result'];
-duo_check_same(2, $identityB['lease_generation'] ?? null, 'slot reuse rotates to generation 2');
-duo_check_same($identityA['environment_identity'] ?? null, $identityB['environment_identity'] ?? null, 'slot reuse retains the logical environment identity');
-duo_check_same($identityA['resource_id'] ?? null, $identityB['resource_id'] ?? null, 'slot reuse retains the physical resource id');
-duo_check(
+wprism_check_same(2, $identityB['lease_generation'] ?? null, 'slot reuse rotates to generation 2');
+wprism_check_same($identityA['environment_identity'] ?? null, $identityB['environment_identity'] ?? null, 'slot reuse retains the logical environment identity');
+wprism_check_same($identityA['resource_id'] ?? null, $identityB['resource_id'] ?? null, 'slot reuse retains the physical resource id');
+wprism_check(
     ($identityB['lease_id'] ?? null) !== ($identityA['lease_id'] ?? null)
         && ($identityB['ownership_receipt_sha256'] ?? null) !== ($identityA['ownership_receipt_sha256'] ?? null),
     'slot reuse rotates the configured-topology-bound lease and ownership receipt'
 );
-duo_check_same(3, slot_media_clear_count($actionLog), 'generation-2 acquisition starts from one clean media tree');
-duo_check_same(6, slot_database_command_count($actionLog), 'generation-2 acquisition starts from one clean database');
+wprism_check_same(3, slot_media_clear_count($actionLog), 'generation-2 acquisition starts from one clean media tree');
+wprism_check_same(6, slot_database_command_count($actionLog), 'generation-2 acquisition starts from one clean database');
 
 $branchBMarker = $targetRepo . '/branch-b.marker';
 file_put_contents($branchBMarker, "generation-b\n");
 $beforeOldReplay = slot_physical_log($actionLog);
 $oldReplay = slot_call($target, $stateRoot, 'destroy', $operationA, $destroyAInput);
-duo_check_same(0, $oldReplay['exit'], 'an exact lost generation-1 reap response remains retryable after reuse');
-duo_check_same($destroyedA['result']['_response_sha256'] ?? null, $oldReplay['result']['_response_sha256'] ?? null, 'the lost reap returns the exact generation-1 provider response');
-duo_check_same($beforeOldReplay, slot_physical_log($actionLog), 'replaying the old reap executes no generation-2 physical command');
-duo_check_same("generation-b\n", @file_get_contents($branchBMarker), 'the cached old reap preserves generation-2 repository bytes');
+wprism_check_same(0, $oldReplay['exit'], 'an exact lost generation-1 reap response remains retryable after reuse');
+wprism_check_same($destroyedA['result']['_response_sha256'] ?? null, $oldReplay['result']['_response_sha256'] ?? null, 'the lost reap returns the exact generation-1 provider response');
+wprism_check_same($beforeOldReplay, slot_physical_log($actionLog), 'replaying the old reap executes no generation-2 physical command');
+wprism_check_same("generation-b\n", @file_get_contents($branchBMarker), 'the cached old reap preserves generation-2 repository bytes');
 
 $forgedOld = slot_call($target, $stateRoot, 'destroy', $operationForged, $destroyAInput);
 slot_refusal($forgedOld, "identity input differs at 'expected_lease_generation'", 'a new request carrying the stale generation-1 lease refuses');
-duo_check_same($beforeOldReplay, slot_physical_log($actionLog), 'the stale generation-1 refusal executes no physical command');
-duo_check_same("generation-b\n", @file_get_contents($branchBMarker), 'the stale generation-1 refusal preserves generation-2 repository bytes');
+wprism_check_same($beforeOldReplay, slot_physical_log($actionLog), 'the stale generation-1 refusal executes no physical command');
+wprism_check_same("generation-b\n", @file_get_contents($branchBMarker), 'the stale generation-1 refusal preserves generation-2 repository bytes');
 
 $busyAfterReplay = slot_call($target, $stateRoot, 'create', $operationBusy, ['mode' => 'create']);
 slot_refusal($busyAfterReplay, 'preview slot is already owned', 'the cached old reap does not release generation 2 for another branch');
 
 $inspectB = slot_call($target, $stateRoot, 'inspect', $operationB, slot_identity_input($identityB) + ['role' => 'target']);
-duo_check_same(0, $inspectB['exit'], 'generation 2 remains inspectable after stale traffic');
-duo_check_same(2, $inspectB['result']['lease_generation'] ?? null, 'inspect still reports generation 2');
+wprism_check_same(0, $inspectB['exit'], 'generation 2 remains inspectable after stale traffic');
+wprism_check_same(2, $inspectB['result']['lease_generation'] ?? null, 'inspect still reports generation 2');
 
 $fenceBResponse = slot_call(
     $target,
@@ -594,7 +594,7 @@ $fenceBResponse = slot_call(
     $operationB,
     slot_identity_input($identityB) + ['mutation_owner' => 'preview-owner-b']
 );
-duo_check_same(0, $fenceBResponse['exit'], 'generation 2 acquires its mutation fence');
+wprism_check_same(0, $fenceBResponse['exit'], 'generation 2 acquires its mutation fence');
 $fenceB = $fenceBResponse['result'];
 $releasedB = slot_call(
     $target,
@@ -603,7 +603,7 @@ $releasedB = slot_call(
     $operationB,
     slot_identity_input($identityB) + slot_mutation_input($fenceB)
 );
-duo_check_same(0, $releasedB['exit'], 'generation 2 can release its materialization fence');
+wprism_check_same(0, $releasedB['exit'], 'generation 2 can release its materialization fence');
 $destroyWithReleased = slot_call(
     $target,
     $stateRoot,
@@ -620,26 +620,26 @@ $reapFenceB = slot_call(
     $operationReapB,
     slot_identity_input($identityB) + ['mutation_owner' => 'preview-owner-b-reap']
 );
-duo_check_same(0, $reapFenceB['exit'], 'generation 2 acquires a distinct reap fence after release');
+wprism_check_same(0, $reapFenceB['exit'], 'generation 2 acquires a distinct reap fence after release');
 $destroyBInput = slot_identity_input($identityB) + slot_mutation_input($reapFenceB['result']) + ['compare_and_reap' => true];
 $beforeFailedReap = slot_physical_log($actionLog);
 touch($failClear);
 $failedDestroyB = slot_call($target, $stateRoot, 'destroy', $operationReapB, $destroyBInput);
 slot_refusal($failedDestroyB, 'reference provider command failed', 'a partial physical reap persists an incomplete reap intent');
 $afterFailedReap = slot_physical_log($actionLog);
-duo_check($afterFailedReap !== $beforeFailedReap, 'the injected reap failure occurs after physical cleanup begins');
+wprism_check($afterFailedReap !== $beforeFailedReap, 'the injected reap failure occurs after physical cleanup begins');
 $foreignReapDuringRecovery = slot_call($target, $stateRoot, 'destroy', $operationForged, $destroyBInput);
 slot_refusal($foreignReapDuringRecovery, 'reap retry differs from its persisted intent', 'a different reap request cannot resume partial cleanup');
-duo_check_same($afterFailedReap, slot_physical_log($actionLog), 'a foreign reap request executes no additional physical cleanup');
+wprism_check_same($afterFailedReap, slot_physical_log($actionLog), 'a foreign reap request executes no additional physical cleanup');
 $blockedDuringReap = slot_call($target, $stateRoot, 'inspect', $operationB, slot_identity_input($identityB) + ['role' => 'target']);
 slot_refusal($blockedDuringReap, 'reap is incomplete', 'an incompletely reaped slot cannot be inspected as usable');
 $foreignDuringReap = slot_call($target, $stateRoot, 'create', $operationBusy, ['mode' => 'create']);
 slot_refusal($foreignDuringReap, 'reap is incomplete', 'an incompletely reaped slot cannot be acquired by another branch');
-duo_check_same($afterFailedReap, slot_physical_log($actionLog), 'non-reap traffic executes no physical command while reap recovery is required');
+wprism_check_same($afterFailedReap, slot_physical_log($actionLog), 'non-reap traffic executes no physical command while reap recovery is required');
 unlink($failClear);
 $destroyedB = slot_call($target, $stateRoot, 'destroy', $operationReapB, $destroyBInput);
-duo_check_same(0, $destroyedB['exit'], 'the exact generation-2 reap resumes after partial cleanup');
-duo_check(!is_file($branchBMarker), 'the authorized generation-2 reap clears its repository');
+wprism_check_same(0, $destroyedB['exit'], 'the exact generation-2 reap resumes after partial cleanup');
+wprism_check(!is_file($branchBMarker), 'the authorized generation-2 reap clears its repository');
 
 $healthyAbsentState = (string) file_get_contents($stateRoot . '/state.json');
 $corruptAbsentState = json_decode($healthyAbsentState, true, 512, JSON_THROW_ON_ERROR);
@@ -650,26 +650,26 @@ file_put_contents($stateRoot . '/state.json', json_encode($corruptAbsentState, J
 $beforeAbsentCorruption = slot_physical_log($actionLog);
 $corruptAbsentAcquire = slot_call($target, $stateRoot, 'create', $operationBusy, ['mode' => 'create']);
 slot_refusal($corruptAbsentAcquire, 'no terminal acquisition history', 'an absent slot with corrupt lineage cannot rotate to another generation');
-duo_check_same($beforeAbsentCorruption, slot_physical_log($actionLog), 'corrupt absent lineage refuses before physical acquisition');
+wprism_check_same($beforeAbsentCorruption, slot_physical_log($actionLog), 'corrupt absent lineage refuses before physical acquisition');
 file_put_contents($stateRoot . '/state.json', $healthyAbsentState);
 
 $beforeRetiredA = slot_physical_log($actionLog);
 $retiredA = slot_call($target, $stateRoot, 'create', $operationA, ['mode' => 'create']);
 slot_refusal($retiredA, 'terminal preview-slot acquisition cannot be resurrected', 'an old acquisition cannot resurrect after later generations terminate');
-duo_check_same($beforeRetiredA, slot_physical_log($actionLog), 'retired acquisition replay executes no physical command');
+wprism_check_same($beforeRetiredA, slot_physical_log($actionLog), 'retired acquisition replay executes no physical command');
 
 unlink($started);
 $pairUpsBeforeAttach = slot_pair_up_count($actionLog);
 $missingAttach = slot_call($target, $stateRoot, 'attach', $operationD, ['mode' => 'attach']);
 slot_refusal($missingAttach, 'reference provider command failed', 'attach refuses when no independently provisioned physical slot exists');
-duo_check_same($pairUpsBeforeAttach, slot_pair_up_count($actionLog), 'attach never allocates a missing pair');
+wprism_check_same($pairUpsBeforeAttach, slot_pair_up_count($actionLog), 'attach never allocates a missing pair');
 $stateAfterMissingAttach = json_decode((string) file_get_contents($stateRoot . '/state.json'), true, 512, JSON_THROW_ON_ERROR);
-duo_check_same(2, $stateAfterMissingAttach['resources']['duo-mup-wp2']['generation'] ?? null, 'failed attach publishes no new lease generation');
+wprism_check_same(2, $stateAfterMissingAttach['resources']['wprism-mup-wp2']['generation'] ?? null, 'failed attach publishes no new lease generation');
 touch($started);
 $attachedD = slot_call($target, $stateRoot, 'attach', $operationD, ['mode' => 'attach']);
-duo_check_same(0, $attachedD['exit'], 'a pre-existing physical slot can be reused through attach');
+wprism_check_same(0, $attachedD['exit'], 'a pre-existing physical slot can be reused through attach');
 $identityD = $attachedD['result'];
-duo_check_same(3, $identityD['lease_generation'] ?? null, 'successful attach rotates the reusable slot to generation 3');
+wprism_check_same(3, $identityD['lease_generation'] ?? null, 'successful attach rotates the reusable slot to generation 3');
 $fenceD = slot_call(
     $target,
     $stateRoot,
@@ -677,7 +677,7 @@ $fenceD = slot_call(
     $operationD,
     slot_identity_input($identityD) + ['mutation_owner' => 'preview-owner-d']
 );
-duo_check_same(0, $fenceD['exit'], 'the attached generation acquires its mutation fence');
+wprism_check_same(0, $fenceD['exit'], 'the attached generation acquires its mutation fence');
 $wrongDestroyD = slot_call(
     $target,
     $stateRoot,
@@ -693,12 +693,12 @@ $detachD = slot_call(
     $operationD,
     slot_identity_input($identityD) + slot_mutation_input($fenceD['result']) + ['compare_and_reap' => true]
 );
-duo_check_same(0, $detachD['exit'], 'an attached slot is released through detach');
+wprism_check_same(0, $detachD['exit'], 'an attached slot is released through detach');
 unlink($started);
 $beforeAbsentInspect = slot_physical_log($actionLog);
 $absentD = slot_call($target, $stateRoot, 'inspect', $operationD, slot_identity_input($identityD) + ['role' => 'target']);
-duo_check_same('absent', $absentD['result']['presence'] ?? null, 'a stopped reusable slot remains inspectable as absent');
-duo_check_same($beforeAbsentInspect, slot_physical_log($actionLog), 'absent inspect does not call docker port on a stopped slot');
+wprism_check_same('absent', $absentD['result']['presence'] ?? null, 'a stopped reusable slot remains inspectable as absent');
+wprism_check_same($beforeAbsentInspect, slot_physical_log($actionLog), 'absent inspect does not call docker port on a stopped slot');
 
 $operationCrash = 'preview-operation-crash-00000000000000000006';
 touch($failPair);
@@ -707,11 +707,11 @@ slot_refusal($crashed, 'reference provider command failed', 'a failed pair conve
 $beforeForeignCrash = slot_physical_log($actionLog);
 $foreignDuringCrash = slot_call($target, $stateRoot, 'create', $operationBusy, ['mode' => 'create']);
 slot_refusal($foreignDuringCrash, 'preview slot is already owned', 'another operation cannot take an acquiring slot');
-duo_check_same($beforeForeignCrash, slot_physical_log($actionLog), 'foreign acquisition during crash recovery executes no physical command');
+wprism_check_same($beforeForeignCrash, slot_physical_log($actionLog), 'foreign acquisition during crash recovery executes no physical command');
 unlink($failPair);
 $resumedCrash = slot_call($target, $stateRoot, 'create', $operationCrash, ['mode' => 'create']);
-duo_check_same(0, $resumedCrash['exit'], 'the exact crashed acquisition resumes and completes');
-duo_check_same(4, $resumedCrash['result']['lease_generation'] ?? null, 'crash recovery retains the persisted generation instead of allocating another');
+wprism_check_same(0, $resumedCrash['exit'], 'the exact crashed acquisition resumes and completes');
+wprism_check_same(4, $resumedCrash['result']['lease_generation'] ?? null, 'crash recovery retains the persisted generation instead of allocating another');
 $crashFence = slot_call(
     $target,
     $stateRoot,
@@ -734,8 +734,8 @@ $corruptReapInput = slot_identity_input($resumedCrash['result'])
     + ['compare_and_reap' => true];
 $corruptReap = slot_call($target, $stateRoot, 'destroy', $operationCrash, $corruptReapInput);
 slot_refusal($corruptReap, 'reap has no acquisition history', 'corrupt acquisition history refuses before destructive reap');
-duo_check_same($beforeCorruptReap, slot_physical_log($actionLog), 'corrupt acquisition history executes no physical command');
-duo_check_same("crash-generation\n", @file_get_contents($crashMarker), 'corrupt acquisition history preserves repository bytes');
+wprism_check_same($beforeCorruptReap, slot_physical_log($actionLog), 'corrupt acquisition history executes no physical command');
+wprism_check_same("crash-generation\n", @file_get_contents($crashMarker), 'corrupt acquisition history preserves repository bytes');
 file_put_contents($crashStatePath, $healthyCrashState);
 $crashDestroy = slot_call(
     $target,
@@ -744,7 +744,7 @@ $crashDestroy = slot_call(
     $operationCrash,
     $corruptReapInput
 );
-duo_check_same(0, $crashDestroy['exit'], 'the resumed acquisition can be reaped normally');
+wprism_check_same(0, $crashDestroy['exit'], 'the resumed acquisition can be reaped normally');
 
 $raceOperationA = 'preview-race-operation-a-00000000000000000001';
 $raceOperationB = 'preview-race-operation-b-00000000000000000002';
@@ -755,32 +755,32 @@ $mediaBeforeRace = slot_media_clear_count($actionLog);
 $databaseBeforeRace = slot_database_command_count($actionLog);
 $raceA = slot_raw_start($providerScript, $configPath, slot_request('mup2', 'create', $raceOperationA, ['mode' => 'create']));
 // The barrier is the observable event or the child's death, never a wall
-// clock. DUO-3492: the 2.0s budget this replaced expired under load — 16
+// clock. issue #3492: the 2.0s budget this replaced expired under load — 16
 // concurrent copies of this suite on a 10-core host, 1 in 16 — and the suite
 // then asserted against a slot the provider had not reached yet. The child
 // touches $pairEntered before it blocks in the injected seam, so it either
 // arrives or exits and this loop always ends.
 while (!is_file($pairEntered) && (proc_get_status($raceA['process'])['running'] ?? false)) usleep(20000);
-duo_check(is_file($pairEntered), 'one concurrent acquisition reaches physical allocation while holding the provider state lock');
+wprism_check(is_file($pairEntered), 'one concurrent acquisition reaches physical allocation while holding the provider state lock');
 $beforeBlockedContender = slot_physical_log($actionLog);
 $raceB = slot_raw_start($providerScript, $configPath, slot_request('mup2', 'create', $raceOperationB, ['mode' => 'create']));
 usleep(200000);
 $blockedStatus = proc_get_status($raceB['process']);
-duo_check(($blockedStatus['running'] ?? false) === true, 'the second controller remains blocked while the first holds the state lock');
-duo_check_same($beforeBlockedContender, slot_physical_log($actionLog), 'the blocked controller reaches no physical command before lock handoff');
+wprism_check(($blockedStatus['running'] ?? false) === true, 'the second controller remains blocked while the first holds the state lock');
+wprism_check_same($beforeBlockedContender, slot_physical_log($actionLog), 'the blocked controller reaches no physical command before lock handoff');
 unlink($slowPair);
 $raceResultA = slot_raw_finish($raceA);
 $raceResultB = slot_raw_finish($raceB);
 $raceExits = [$raceResultA['exit'], $raceResultB['exit']];
 sort($raceExits, SORT_NUMERIC);
-duo_check_same([0, 1], $raceExits, 'two simultaneous acquisitions produce exactly one owner and one refusal');
-duo_check_same($pairUpsBeforeRace + 1, slot_pair_up_count($actionLog), 'concurrent acquisition allocates the physical pair exactly once');
-duo_check_same($mediaBeforeRace + 1, slot_media_clear_count($actionLog), 'concurrent acquisition clears target media exactly once');
-duo_check_same($databaseBeforeRace + 2, slot_database_command_count($actionLog), 'concurrent acquisition clears the target database exactly once');
+wprism_check_same([0, 1], $raceExits, 'two simultaneous acquisitions produce exactly one owner and one refusal');
+wprism_check_same($pairUpsBeforeRace + 1, slot_pair_up_count($actionLog), 'concurrent acquisition allocates the physical pair exactly once');
+wprism_check_same($mediaBeforeRace + 1, slot_media_clear_count($actionLog), 'concurrent acquisition clears target media exactly once');
+wprism_check_same($databaseBeforeRace + 2, slot_database_command_count($actionLog), 'concurrent acquisition clears the target database exactly once');
 $raceWinner = $raceResultA['exit'] === 0 ? $raceResultA : $raceResultB;
 $raceLoser = $raceResultA['exit'] === 0 ? $raceResultB : $raceResultA;
 $raceWinnerOperation = $raceResultA['exit'] === 0 ? $raceOperationA : $raceOperationB;
-duo_check(str_contains($raceLoser['stderr'], 'preview slot is already owned'), 'the losing concurrent controller names the active owner');
+wprism_check(str_contains($raceLoser['stderr'], 'preview slot is already owned'), 'the losing concurrent controller names the active owner');
 $raceIdentity = $raceWinner['decoded']['result'] ?? [];
 $raceCleanupOperation = 'preview-race-cleanup-000000000000000000001';
 $raceFence = slot_call(
@@ -790,7 +790,7 @@ $raceFence = slot_call(
     $raceCleanupOperation,
     slot_identity_input($raceIdentity) + ['mutation_owner' => 'preview-race-cleanup-owner']
 );
-duo_check_same(0, $raceFence['exit'], 'the sole concurrent winner owns the generation used for cleanup');
+wprism_check_same(0, $raceFence['exit'], 'the sole concurrent winner owns the generation used for cleanup');
 $raceDestroy = slot_call(
     $target,
     $stateRoot,
@@ -798,12 +798,12 @@ $raceDestroy = slot_call(
     $raceCleanupOperation,
     slot_identity_input($raceIdentity) + slot_mutation_input($raceFence['result']) + ['compare_and_reap' => true]
 );
-duo_check_same(0, $raceDestroy['exit'], "the concurrent winner '$raceWinnerOperation' reaps normally");
+wprism_check_same(0, $raceDestroy['exit'], "the concurrent winner '$raceWinnerOperation' reaps normally");
 
 $orphanAcquireOperation = 'preview-orphan-acquire-0000000000000000001';
 $orphanReapOperation = 'preview-orphan-reap-0000000000000000000002';
 $orphanCreated = slot_call($target, $stateRoot, 'create', $orphanAcquireOperation, ['mode' => 'create']);
-duo_check_same(0, $orphanCreated['exit'], 'the orphan-child regression acquires a fresh preview generation');
+wprism_check_same(0, $orphanCreated['exit'], 'the orphan-child regression acquires a fresh preview generation');
 $orphanFence = slot_call(
     $target,
     $stateRoot,
@@ -822,13 +822,13 @@ $orphanReap = slot_raw_start(
     slot_request('mup2', 'destroy', $orphanReapOperation, $orphanDestroyInput)
 );
 // Same barrier discipline as the acquisition race above: wait for the seam the
-// fake docker announces, or for the provider parent to exit. DUO-3492 saw the
+// fake docker announces, or for the provider parent to exit. issue #3492 saw the
 // 2.0s budget this replaced expire under load, after which the SIGKILL landed
 // before the destructive child existed and the orphan the next two assertions
 // are about was never created.
 while (!is_file($clearEntered) && (proc_get_status($orphanReap['process'])['running'] ?? false)) usleep(20000);
-duo_check(is_file($clearEntered), 'destructive child reaches the injected timeout seam after durable reap intent');
-duo_check(proc_terminate($orphanReap['process'], 9), 'the regression forcibly terminates the provider parent at the client-timeout seam');
+wprism_check(is_file($clearEntered), 'destructive child reaches the injected timeout seam after durable reap intent');
+wprism_check(proc_terminate($orphanReap['process'], 9), 'the regression forcibly terminates the provider parent at the client-timeout seam');
 usleep(100000);
 $beforeOrphanRetry = slot_physical_log($actionLog);
 $orphanRetry = slot_raw_start(
@@ -838,14 +838,14 @@ $orphanRetry = slot_raw_start(
 );
 usleep(200000);
 $orphanRetryStatus = proc_get_status($orphanRetry['process']);
-duo_check(($orphanRetryStatus['running'] ?? false) === true, 'exact retry waits while the killed parent\'s destructive child retains the physical lock');
-duo_check_same($beforeOrphanRetry, slot_physical_log($actionLog), 'no retry command overlaps the orphaned destructive child');
+wprism_check(($orphanRetryStatus['running'] ?? false) === true, 'exact retry waits while the killed parent\'s destructive child retains the physical lock');
+wprism_check_same($beforeOrphanRetry, slot_physical_log($actionLog), 'no retry command overlaps the orphaned destructive child');
 unlink($slowClear);
 $orphanKilledResult = slot_raw_finish($orphanReap);
 $orphanRetryResult = slot_raw_finish($orphanRetry);
-duo_check($orphanKilledResult['exit'] !== 0, 'the killed provider parent publishes no terminal receipt');
-duo_check_same(0, $orphanRetryResult['exit'], 'the exact reap resumes only after the orphaned child exits');
-duo_check_same('destroyed', $orphanRetryResult['decoded']['result']['disposition'] ?? null, 'orphan-safe retry publishes the terminal absence receipt');
+wprism_check($orphanKilledResult['exit'] !== 0, 'the killed provider parent publishes no terminal receipt');
+wprism_check_same(0, $orphanRetryResult['exit'], 'the exact reap resumes only after the orphaned child exits');
+wprism_check_same('destroyed', $orphanRetryResult['decoded']['result']['disposition'] ?? null, 'orphan-safe retry publishes the terminal absence receipt');
 
 $malformedStateRoot = $scratch . '/malformed-state';
 mkdir($malformedStateRoot, 0700, true);
@@ -853,7 +853,7 @@ $malformedConfigPath = $scratch . '/provider-malformed-state.json';
 $malformedConfig = $config;
 $malformedConfig['state_root'] = $malformedStateRoot;
 file_put_contents($malformedConfigPath, json_encode($malformedConfig, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
-file_put_contents($malformedStateRoot . '/state.initialized', "duo-reference-env-provider-state/v1\n");
+file_put_contents($malformedStateRoot . '/state.initialized', "wprism-reference-env-provider-state/v1\n");
 file_put_contents($malformedStateRoot . '/state.json', json_encode([
     'acquisitions' => [],
     'fences' => [],
@@ -869,7 +869,7 @@ $malformedTarget = slot_provider($providerScript, $malformedConfigPath, 'mup2', 
 $beforeMalformedState = slot_physical_log($actionLog);
 $malformedInspect = slot_call($malformedTarget, $malformedStateRoot, 'inspect', 'malformed-state-inspect-00000000001', ['role' => 'target']);
 slot_refusal($malformedInspect, "state 'resources' is malformed", 'numeric-key state maps fail closed after capability negotiation');
-duo_check_same($beforeMalformedState, slot_physical_log($actionLog), 'malformed state refuses before physical inspection');
+wprism_check_same($beforeMalformedState, slot_physical_log($actionLog), 'malformed state refuses before physical inspection');
 
 $malformedMarkerRoot = $scratch . '/malformed-marker';
 mkdir($malformedMarkerRoot . '/state.initialized', 0700, true);
@@ -882,9 +882,9 @@ $beforeMalformedMarker = slot_physical_log($actionLog);
 $malformedMarkerInspect = slot_call($malformedMarkerTarget, $malformedMarkerRoot, 'inspect', 'malformed-marker-inspect-0000000001', ['role' => 'target']);
 slot_refusal($malformedMarkerInspect, 'initialization marker is malformed', 'a non-file initialization marker fails closed');
 $malformedMarkerPlan = slot_raw($providerScript, $malformedMarkerConfigPath, slot_request('mup2', 'create', 'malformed-marker-plan-0000000000001', ['mode' => 'create']), true);
-duo_check_same(1, $malformedMarkerPlan['exit'], 'dry-run also refuses a malformed initialization marker');
-duo_check(str_contains($malformedMarkerPlan['stderr'], 'initialization marker is malformed'), 'dry-run names the malformed marker invariant');
-duo_check_same($beforeMalformedMarker, slot_physical_log($actionLog), 'malformed marker refuses without physical inspection');
+wprism_check_same(1, $malformedMarkerPlan['exit'], 'dry-run also refuses a malformed initialization marker');
+wprism_check(str_contains($malformedMarkerPlan['stderr'], 'initialization marker is malformed'), 'dry-run names the malformed marker invariant');
+wprism_check_same($beforeMalformedMarker, slot_physical_log($actionLog), 'malformed marker refuses without physical inspection');
 
 $legacyStateRoot = $scratch . '/legacy-state';
 mkdir($legacyStateRoot, 0700, true);
@@ -903,7 +903,7 @@ $legacyTarget = slot_provider($providerScript, $legacyConfigPath, 'mup2', 'legac
 $beforeLegacy = slot_physical_log($actionLog);
 $legacyInspect = slot_call($legacyTarget, $legacyStateRoot, 'inspect', 'legacy-inspect-000000000000000001', ['role' => 'target']);
 slot_refusal($legacyInspect, 'legacy preview-slot state has no acquisition history', 'an absent legacy tombstone fails closed instead of guessing its retired acquisition');
-duo_check_same($beforeLegacy, slot_physical_log($actionLog), 'legacy absent-state refusal executes no physical command');
+wprism_check_same($beforeLegacy, slot_physical_log($actionLog), 'legacy absent-state refusal executes no physical command');
 
 $legacyActiveRoot = $scratch . '/legacy-active-state';
 mkdir($legacyActiveRoot, 0700, true);
@@ -922,6 +922,6 @@ $legacyActiveTarget = slot_provider($providerScript, $legacyActiveConfigPath, 'm
 $beforeLegacyActive = slot_physical_log($actionLog);
 $legacyActive = slot_call($legacyActiveTarget, $legacyActiveRoot, 'inspect', 'legacy-active-inspect-00000000001', ['role' => 'target']);
 slot_refusal($legacyActive, 'legacy preview-slot state has no acquisition history', 'legacy active state fails closed with an explicit remediation');
-duo_check_same($beforeLegacyActive, slot_physical_log($actionLog), 'legacy active-state refusal executes no physical command');
+wprism_check_same($beforeLegacyActive, slot_physical_log($actionLog), 'legacy active-state refusal executes no physical command');
 
-duo_check_summary('reusable preview slot');
+wprism_check_summary('reusable preview slot');

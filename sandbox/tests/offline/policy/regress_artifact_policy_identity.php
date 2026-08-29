@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for ArtifactPolicyIdentity (DUO-3348 slice 30).
+ * Offline regression for ArtifactPolicyIdentity (issue #3348 slice 30).
  *
  * RepositoryCompiler's policy-bound artifact identity has no repository
  * traversal, target access, or compiler-builder state: it derives the site
@@ -13,7 +13,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 
 function is_multisite(): bool {
     return false;
@@ -21,9 +21,9 @@ function is_multisite(): bool {
 
 require_once __DIR__ . '/../../../../agent/src/Policy/ArtifactPolicyIdentity.php';
 
-use Duo\ArtifactPolicyIdentity;
-use Duo\Canon;
-use Duo\Policy;
+use WPrism\ArtifactPolicyIdentity;
+use WPrism\Canon;
+use WPrism\Policy;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -34,17 +34,17 @@ $check = static function (bool $ok, string $message) use (&$failures): void {
 };
 
 $check(
-    class_exists(\Duo\Policy::class, false)
-        && class_exists(\Duo\Canon::class, false)
-        && class_exists(\Duo\AdapterSources::class, false)
-        && class_exists(\Duo\ManifestDispositions::class, false)
-        && !class_exists(\Duo\RepositoryCompiler::class, false),
+    class_exists(\WPrism\Policy::class, false)
+        && class_exists(\WPrism\Canon::class, false)
+        && class_exists(\WPrism\AdapterSources::class, false)
+        && class_exists(\WPrism\ManifestDispositions::class, false)
+        && !class_exists(\WPrism\RepositoryCompiler::class, false),
     'ArtifactPolicyIdentity directly loads its policy identity stack without pulling in the repository-tree compiler'
 );
 
 require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php';
 
-use Duo\RepositoryCompiler;
+use WPrism\RepositoryCompiler;
 
 // Pinned explicitly rather than taking the default single-manifest load: the
 // digest folds below are only exercised by adapters that declare them — acf

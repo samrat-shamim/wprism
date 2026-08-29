@@ -1,19 +1,19 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 
 /**
- * The payload carried by DUO-3206's `apply_in_progress` ledger marker.
+ * The payload carried by issue #3206's `apply_in_progress` ledger marker.
  *
  * The marker used to be the constant `'1'`, and that single bit is why
- * DUO-3489 could silently overwrite a preserved local edit. A failed apply
+ * issue #3489 could silently overwrite a preserved local edit. A failed apply
  * leaves the marker set; the next plan folds `unchanged`/`drift`/`conflict`
  * into `update` with `retry:true` (see
  * ApplyPlanner::project_incomplete_apply_retry()) because after a partial
- * apply `duo_state` still names the pre-apply base, so a row this run
+ * apply `wprism_state` still names the pre-apply base, so a row this run
  * actually WROTE can re-read as any of the three. That reasoning holds only
  * for rows the failed run wrote. Environment-only `drift` is exactly the
  * bucket a normal apply deliberately does NOT write
@@ -27,13 +27,13 @@ require_once __DIR__ . '/../Kernel/Canon.php';
  * back only through this class. A marker without a v1/v2 record — one written
  * by an older agent, or hand-planted by a recovery script — reports `null`,
  * which the projection reads as "the interrupted run recorded nothing" and
- * keeps DUO-3206's original whole-bucket widening rather than inventing a
+ * keeps issue #3206's original whole-bucket widening rather than inventing a
  * preservation claim it has no evidence for.
  *
- * DUO-3491: the preserved-drift record cannot answer the same question for
+ * issue #3491: the preserved-drift record cannot answer the same question for
  * the `conflict` bucket, and that bucket is drained into `update` too. A
- * three-way conflict on a row the failed run wrote is DUO-3206's own artifact
- * (stale `duo_state` base) and must widen; a three-way conflict on any other
+ * three-way conflict on a row the failed run wrote is issue #3206's own artifact
+ * (stale `wprism_state` base) and must widen; a three-way conflict on any other
  * identity is a genuine env-and-repo divergence that a first apply refuses
  * without `--force-theirs` (ApplyPreparationCoordinator.php:58). Only one of
  * the two is derivable from `preserved_drift`, because a row the run never
@@ -44,7 +44,7 @@ require_once __DIR__ . '/../Kernel/Canon.php';
  * create+adopt+update+conflict) locked in immediately before the first
  * mutation. "Not in `write_set`" is a hard fact about what this run was
  * authorized to touch; "in it" means the run may have mutated that row, which
- * is precisely the condition DUO-3206's widening was built for.
+ * is precisely the condition issue #3206's widening was built for.
  */
 final class IncompleteApplyMarker {
     /**
@@ -55,13 +55,13 @@ final class IncompleteApplyMarker {
      * "no field" would read as "wrote nothing", the exact false claim
      * write_set() exists to prevent.
      */
-    public const FORMAT = 'duo-apply-in-progress/v2';
+    public const FORMAT = 'wprism-apply-in-progress/v2';
 
     /**
-     * DUO-3489's wire, still on any target interrupted under 9b440c3. Read
+     * issue #3489's wire, still on any target interrupted under 9b440c3. Read
      * for its `preserved_drift` record and for nothing else.
      */
-    public const FORMAT_V1 = 'duo-apply-in-progress/v1';
+    public const FORMAT_V1 = 'wprism-apply-in-progress/v1';
 
     /**
      * The marker value written immediately before the first target mutation.
@@ -139,7 +139,7 @@ final class IncompleteApplyMarker {
      * when this marker makes no such claim — a v1 record, an older agent's
      * bare `'1'`, or a hand-planted value. Null is not "wrote nothing": the
      * projection must fall back to the evidence that marker does carry
-     * (DUO-3489's preserved-drift record, or DUO-3206's blanket widening)
+     * (issue #3489's preserved-drift record, or issue #3206's blanket widening)
      * rather than read absence as a preservation claim.
      *
      * @return array<string,true>|null uuid => true

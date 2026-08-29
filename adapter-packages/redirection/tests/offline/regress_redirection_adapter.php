@@ -243,7 +243,7 @@ namespace {
     require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ManifestProviderRuntime.php';
     require_once dirname(__DIR__, 4) . '/adapter-packages/redirection/package/runtime/providers/redirection-state.php';
 
-    use Duo\Providers\RedirectionState;
+    use WPrism\Providers\RedirectionState;
 
     $root = dirname(__DIR__, 4);
     $manifest = json_decode(
@@ -253,51 +253,51 @@ namespace {
         JSON_THROW_ON_ERROR
     );
 
-    duo_check_same('redirection', $manifest['name'] ?? null,
+    wprism_check_same('redirection', $manifest['name'] ?? null,
         'A1: the shipped manifest names Redirection');
-    duo_check_same(['max' => '5.9.1', 'min' => '5.9.0'], $manifest['version_range'] ?? null,
+    wprism_check_same(['max' => '5.9.1', 'min' => '5.9.0'], $manifest['version_range'] ?? null,
         'A1: the manifest admits only the one exact exercised release');
-    duo_check_same(
+    wprism_check_same(
         ['manifest-provider-runtime/v1', 'mixed-column-codecs/v1', 'spec-window/v1', 'structured-evidence/v1', 'typed-column-codecs/v1'],
         $manifest['engine_features'] ?? null,
         'A2: the mixed codec and every v3 section are feature-gated'
     );
-    duo_check_same(
+    wprism_check_same(
         ['container' => 'php_serialized_or_text', 'leaves' => 'text'],
         $manifest['column_codecs']['redirection_items']['action_data'] ?? null,
         'A2: action_data declares the measured plain/serialized/NULL union'
     );
-    duo_check_same('runtime', $manifest['tables']['redirection_logs']['class'] ?? null,
+    wprism_check_same('runtime', $manifest['tables']['redirection_logs']['class'] ?? null,
         'A3: redirect request logs stay target-local');
-    duo_check_same('runtime', $manifest['tables']['redirection_404']['class'] ?? null,
+    wprism_check_same('runtime', $manifest['tables']['redirection_404']['class'] ?? null,
         'A3: 404 request logs stay target-local');
-    duo_check_same('runtime', $manifest['tables']['redirection_items']['columns']['last_count']['class'] ?? null,
+    wprism_check_same('runtime', $manifest['tables']['redirection_items']['columns']['last_count']['class'] ?? null,
         'A3: hit counts never enter authored state');
-    duo_check_same('red_group', $manifest['tables']['redirection_groups']['id_kind'] ?? null,
+    wprism_check_same('red_group', $manifest['tables']['redirection_groups']['id_kind'] ?? null,
         'A4: groups use a bounded mapped identity keyspace');
-    duo_check_same(
+    wprism_check_same(
         [['column' => 'group_id', 'kind' => 'red_group', 'table' => 'redirection_groups']],
         $manifest['tables']['redirection_items']['refs'] ?? null,
         'A4: item group ids are explicit cross-environment references'
     );
-    duo_check_same('red_group', $manifest['options']['redirection_options']['sub_keys']['monitor_post']['ref'] ?? null,
+    wprism_check_same('red_group', $manifest['options']['redirection_options']['sub_keys']['monitor_post']['ref'] ?? null,
         'A4: the selected monitor group is remapped instead of copied numerically');
-    duo_check_same('derived', $manifest['options']['redirection_options']['sub_keys']['cache_key']['class'] ?? null,
+    wprism_check_same('derived', $manifest['options']['redirection_options']['sub_keys']['cache_key']['class'] ?? null,
         'A5: the cache generation is provider-owned derived state');
-    duo_check_same('env', $manifest['options']['redirection_options']['sub_keys']['modules']['class'] ?? null,
+    wprism_check_same('env', $manifest['options']['redirection_options']['sub_keys']['modules']['class'] ?? null,
         'A5: server-module configuration stays environment-owned');
-    duo_check_same([], $manifest['deletions'] ?? [],
+    wprism_check_same([], $manifest['deletions'] ?? [],
         'A6: no custom-table deletion authority is advertised');
     $sourceSeed = (string) file_get_contents(dirname(__DIR__) . '/conformance/seed.sh');
     $targetSeed = (string) file_get_contents(dirname(__DIR__) . '/conformance/postdeploy.sh');
     foreach (['source' => $sourceSeed, 'target' => $targetSeed] as $side => $script) {
-        duo_check(str_contains($script, 'redirection database install 2>&1')
+        wprism_check(str_contains($script, 'redirection database install 2>&1')
             && str_contains($script, 'SHOW TABLES LIKE %s')
             && str_contains($script, '.groups >= 2')
             && str_contains($script, 'all(. == true)'),
             "A7: $side live fixture completes and verifies Redirection's public onboarding before authoring rows");
     }
-    duo_check(str_contains($targetSeed, '.manifests = ["core", "redirection"]')
+    wprism_check(str_contains($targetSeed, '.manifests = ["core", "redirection"]')
         && str_contains($targetSeed, '.policy.post_types = []')
         && str_contains($targetSeed, '.policy.taxonomies = []')
         && str_contains($targetSeed, '.policy.scope.taxonomy.category.class = "runtime"')
@@ -308,11 +308,11 @@ namespace {
         && str_contains($targetSeed, 'RESTORED_WIDGET_HASH')
         && str_contains($targetSeed, '--repo=/siterepo/.tmp-redirection-identity-repo')
         && str_contains($targetSeed, '--out=/siterepo/.tmp-redirection-identity-state')
-        && str_contains($targetSeed, 'skips canonical duo_state/media publication')
-        && !str_contains($targetSeed, 'duo capture --repo=/siterepo --out=/siterepo/.tmp-redirection-target-identity'),
+        && str_contains($targetSeed, 'skips canonical wprism_state/media publication')
+        && !str_contains($targetSeed, 'wprism capture --repo=/siterepo --out=/siterepo/.tmp-redirection-target-identity'),
         'A8: output-only target mapping retains core grammar without rebasing canonical conflict state');
     $matrixSeed = (string) file_get_contents(dirname(__DIR__) . '/certify/version-matrix.sh');
-    duo_check(str_contains($matrixSeed, 'wp2 redirection database install')
+    wprism_check(str_contains($matrixSeed, 'wp2 redirection database install')
         && str_contains($matrixSeed, 'Redirection 5.9.0 boundary target database readiness')
         && str_contains($matrixSeed, 'SHOW TABLES LIKE %s')
         && str_contains($matrixSeed, '.groups >= 2')
@@ -320,33 +320,33 @@ namespace {
         'A9: exact-version target completes and verifies the same native onboarding before table reset');
 
     $provider = new RedirectionState($manifest['providers'][0]);
-    duo_check_same(
+    wprism_check_same(
         ['id' => 'redirection-state', 'plugin' => 'redirection/redirection.php', 'version' => '1.0.0'],
         $provider->identity(),
         'B1: provider identity exactly matches the manifest declaration'
     );
     $capability = $provider->capabilities()['rebuild_redirect_state'] ?? null;
-    duo_check(is_array($capability)
+    wprism_check(is_array($capability)
         && ($capability['idempotent'] ?? null) === true
         && ($capability['scope'] ?? null) === 'site'
         && ($capability['scoped']['reconcile'] ?? null) === true,
         'B1: provider advertises a scoped, recoverable site postcondition');
 
     $receipt = $provider->invoke('rebuild_redirect_state', []);
-    duo_check(($receipt['verified'] ?? null) === true,
+    wprism_check(($receipt['verified'] ?? null) === true,
         'B2: happy-path provider returns a verified receipt');
-    duo_check_same([1], $GLOBALS['red_flushes'],
+    wprism_check_same([1], $GLOBALS['red_flushes'],
         'B2: provider reaches only the WordPress module flush boundary');
-    duo_check_same(1, $GLOBALS['red_option_saves'],
+    wprism_check_same(1, $GLOBALS['red_option_saves'],
         'B2: a primed cache generation is rotated exactly once');
-    duo_check((int) $receipt['after']['cache_key'] > 41 && $GLOBALS['red_cache_resets'] >= 1,
+    wprism_check((int) $receipt['after']['cache_key'] > 41 && $GLOBALS['red_cache_resets'] >= 1,
         'B2: the plugin cache generation advances and its process cache resets');
-    duo_check_same(2, $receipt['after']['group_count'] ?? null,
+    wprism_check_same(2, $receipt['after']['group_count'] ?? null,
         'B3: provider receipt proves the full group cardinality');
-    duo_check_same(4, $receipt['after']['item_count'] ?? null,
+    wprism_check_same(4, $receipt['after']['item_count'] ?? null,
         'B3: provider receipt proves every mixed-shape item');
     $receiptJson = json_encode($receipt, JSON_UNESCAPED_SLASHES);
-    duo_check(is_string($receiptJson)
+    wprism_check(is_string($receiptJson)
         && !str_contains($receiptJson, 'source.example.test')
         && !str_contains($receiptJson, '/summer'),
         'B3: count/hash receipt exposes no redirect source or target value');
@@ -355,9 +355,9 @@ namespace {
     $scoped = $provider->reconcile_scoped(
         'rebuild_redirect_state',
         [],
-        ['format' => 'duo-scoped-effect-operation/v1', 'id' => 'fixture']
+        ['format' => 'wprism-scoped-effect-operation/v1', 'id' => 'fixture']
     );
-    duo_check(($scoped['verified'] ?? null) === true
+    wprism_check(($scoped['verified'] ?? null) === true
         && (int) $scoped['after']['cache_key'] > $beforeReconcile,
         'B4: recovery reconciliation replays the idempotent repair and re-verifies it');
 
@@ -365,12 +365,12 @@ namespace {
     $GLOBALS['red_initial_cache_key'] = 0;
     $GLOBALS['red_option_saves'] = 0;
     $disabled = $provider->invoke('rebuild_redirect_state', []);
-    duo_check_same(0, $GLOBALS['red_option_saves'],
+    wprism_check_same(0, $GLOBALS['red_option_saves'],
         'B5: disabled plugin cache mode is preserved rather than enabled implicitly');
-    duo_check_same(false, $disabled['after']['cache_enabled'] ?? null,
+    wprism_check_same(false, $disabled['after']['cache_enabled'] ?? null,
         'B5: disabled cache mode still passes native row readback');
 
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('unknown', []),
         RuntimeException::class,
         'C1: undeclared provider capability refuses',
@@ -378,7 +378,7 @@ namespace {
     );
 
     $GLOBALS['red_multisite'] = true;
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_redirect_state', []),
         RuntimeException::class,
         'C2: multisite refuses before effect',
@@ -388,18 +388,18 @@ namespace {
 
     $GLOBALS['red_groups'][1]['module_id'] = '2';
     $beforeFlushes = count($GLOBALS['red_flushes']);
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_redirect_state', []),
         RuntimeException::class,
         'C3: Apache group refuses before server-file effects',
         'Apache/Nginx'
     );
-    duo_check_same($beforeFlushes, count($GLOBALS['red_flushes']),
+    wprism_check_same($beforeFlushes, count($GLOBALS['red_flushes']),
         'C3: unsupported server module is rejected before public flush dispatch');
     $GLOBALS['red_groups'] = red_fixture_groups();
 
     $GLOBALS['red_items'][0]['group_id'] = '999';
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_redirect_state', []),
         RuntimeException::class,
         'C4: orphan redirect refuses before cache rotation',
@@ -408,7 +408,7 @@ namespace {
     $GLOBALS['red_items'] = red_fixture_items();
 
     $GLOBALS['red_items'][0]['action_type'] = 'extension_action';
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_redirect_state', []),
         RuntimeException::class,
         'C5: unreviewed action vocabulary refuses',
@@ -417,7 +417,7 @@ namespace {
     $GLOBALS['red_items'] = red_fixture_items();
 
     $GLOBALS['red_items'][0]['match_data'] = '{bad-json';
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_redirect_state', []),
         RuntimeException::class,
         'C6: malformed native match JSON refuses',
@@ -428,7 +428,7 @@ namespace {
     $GLOBALS['red_options']['cache_key'] = 50;
     $GLOBALS['red_initial_cache_key'] = 50;
     $GLOBALS['red_group_api_mismatch'] = true;
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_redirect_state', []),
         RuntimeException::class,
         'C7: stale group API readback prevents a success receipt',
@@ -439,7 +439,7 @@ namespace {
     $GLOBALS['red_options']['cache_key'] = 60;
     $GLOBALS['red_initial_cache_key'] = 60;
     $GLOBALS['red_item_api_mismatch'] = true;
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_redirect_state', []),
         RuntimeException::class,
         'C8: same-count stale item readback prevents a success receipt',
@@ -448,12 +448,12 @@ namespace {
     $GLOBALS['red_item_api_mismatch'] = false;
 
     $GLOBALS['wpdb']->failReads = true;
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_redirect_state', []),
         RuntimeException::class,
         'C9: schema/read failure refuses instead of hashing an empty projection',
         'verification query failed'
     );
 
-    duo_check_summary('Redirection adapter/provider');
+    wprism_check_summary('Redirection adapter/provider');
 }

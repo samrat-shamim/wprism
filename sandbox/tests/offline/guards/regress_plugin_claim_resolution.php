@@ -9,7 +9,7 @@
  * measures the one thing that changed and, at greater length, everything that
  * did not:
  *
- *  - WITH an explicit `site.duo.json` `policy.adapter_claims` resolution the
+ *  - WITH an explicit `site.wprism.json` `policy.adapter_claims` resolution the
  *    pin set loads, the named manifest's range is what bounds the subject in
  *    BOTH pin orders, and the displaced claimant is REPORTED with the
  *    `displaced_by_resolution` code — never hidden;
@@ -27,7 +27,7 @@
  *    such claim, refuses — the drift case, not the typo case.
  *
  * Everything runs through the real `Policy::load()` against real manifest
- * files in an explicit scratch `AdapterLibrary` and a real `site.duo.json`, the same
+ * files in an explicit scratch `AdapterLibrary` and a real `site.wprism.json`, the same
  * product path a site takes; no validator is called directly except where a
  * check is explicitly about one collaborator's own seam.
  *
@@ -38,9 +38,9 @@
 // WordPress supplies this in production; Policy::load()'s single-site gate
 // calls it before anything else. Same switchable stub the adapter-contract
 // suite uses, for the same reason: no WordPress bootstrap offline.
-$GLOBALS['duo_test_is_multisite'] = false;
+$GLOBALS['wprism_test_is_multisite'] = false;
 function is_multisite(): bool {
-    return (bool) $GLOBALS['duo_test_is_multisite'];
+    return (bool) $GLOBALS['wprism_test_is_multisite'];
 }
 
 require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
@@ -49,13 +49,13 @@ require __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../policy/manifest_fixtures.php';
 
-use Duo\AdapterClaimResolutions;
-use Duo\AdapterLibrary;
-use Duo\Canon;
-use Duo\Policy;
+use WPrism\AdapterClaimResolutions;
+use WPrism\AdapterLibrary;
+use WPrism\Canon;
+use WPrism\Policy;
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 0);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 0);
 }
 
 $failures = 0;
@@ -104,7 +104,7 @@ $scratch = [];
 /** A scratch manifest library; the whole set is written fresh per group. */
 function library(array $manifests): void {
     global $scratch;
-    $root = sys_get_temp_dir() . '/duo_regress_claim_resolution_lib_' . bin2hex(random_bytes(4));
+    $root = sys_get_temp_dir() . '/wprism_regress_claim_resolution_lib_' . bin2hex(random_bytes(4));
     mkdir($root, 0777, true);
     foreach ($manifests as $name => $manifest) {
         Canon::write_file("$root/$name.json", Canon::encode($manifest));
@@ -125,12 +125,12 @@ function claim_policy_load(?string $repo, ?array $names = null): Policy {
 /** A scratch repository carrying only the pins and the policy under test. */
 function repo(array $pins, array $policy = []): string {
     global $scratch;
-    $root = sys_get_temp_dir() . '/duo_regress_claim_resolution_repo_' . bin2hex(random_bytes(4));
+    $root = sys_get_temp_dir() . '/wprism_regress_claim_resolution_repo_' . bin2hex(random_bytes(4));
     mkdir($root, 0777, true);
-    Canon::write_file("$root/site.duo.json", Canon::encode([
+    Canon::write_file("$root/site.wprism.json", Canon::encode([
         'manifests' => $pins,
         'policy' => $policy === [] ? new \stdClass() : $policy,
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]));
     $scratch[] = $root;
     return $root;
@@ -151,7 +151,7 @@ const RANGE_B = ['min' => '2.0.0', 'max' => '3.0.0'];
 function plugin_manifest(string $name, array $range, array $extra = []): array {
     return [
         'name' => $name,
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
         'plugin' => PLUGIN,
         'version_range' => $range,
     ] + $extra;
@@ -170,12 +170,12 @@ function resolution(string $kind, string $id, string $inForce, ?string $note = n
 // it from the engine would assert only that the engine agrees with itself.
 // The `{"max":…,"min":…}` ordering is Canon's own key sort on the manifest
 // bytes the engine re-encodes, not a typo.
-const UNRESOLVED_PLUGIN_REFUSAL = "duo: manifests 'conf-a' and 'conf-b' both declare plugin 'acme/acme.php' "
+const UNRESOLVED_PLUGIN_REFUSAL = "wprism: manifests 'conf-a' and 'conf-b' both declare plugin 'acme/acme.php' "
     . 'with different version_range values ({"max":"2.0.0","min":"1.0.0"} vs {"max":"3.0.0","min":"2.0.0"}) '
     . '— conflicting ownership with no v2 composition rule; pin only one, or narrow one range to a disjoint '
     . 'window';
 
-const UNRESOLVED_THEME_REFUSAL = "duo: manifests 'theme-a' and 'theme-b' both declare theme 'acme-theme' "
+const UNRESOLVED_THEME_REFUSAL = "wprism: manifests 'theme-a' and 'theme-b' both declare theme 'acme-theme' "
     . 'with different theme_version_range values ({"max":"2.0.0","min":"1.0.0"} vs '
     . '{"max":"10.0.0","min":"9.0.0"}) — conflicting ownership with no v2 composition rule; pin only one, '
     . 'or narrow one range to a disjoint window';
@@ -205,8 +205,8 @@ check_same(
 library([
     'conf-a' => plugin_manifest('conf-a', RANGE_A),
     'conf-b' => plugin_manifest('conf-b', RANGE_B),
-    'oth-a' => ['name' => 'oth-a', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'other/other.php', 'version_range' => RANGE_A],
-    'oth-b' => ['name' => 'oth-b', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'other/other.php', 'version_range' => RANGE_B],
+    'oth-a' => ['name' => 'oth-a', 'spec_version' => WPRISM_SPEC_VERSION, 'plugin' => 'other/other.php', 'version_range' => RANGE_A],
+    'oth-b' => ['name' => 'oth-b', 'spec_version' => WPRISM_SPEC_VERSION, 'plugin' => 'other/other.php', 'version_range' => RANGE_B],
 ]);
 check_same(
     UNRESOLVED_PLUGIN_REFUSAL,
@@ -383,13 +383,13 @@ echo "\n== the theme arm mirrors the plugin arm exactly ==\n";
 
 $themeA = [
     'name' => 'theme-a',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'theme' => 'acme-theme',
     'theme_version_range' => ['min' => '1.0.0', 'max' => '2.0.0'],
 ];
 $themeB = [
     'name' => 'theme-b',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'theme' => 'acme-theme',
     'theme_version_range' => ['min' => '9.0.0', 'max' => '10.0.0'],
 ];
@@ -445,7 +445,7 @@ expect_throw(
 library([
     'conf-a' => plugin_manifest('conf-a', RANGE_A),
     'conf-b' => plugin_manifest('conf-b', RANGE_B),
-    'bystander' => ['name' => 'bystander', 'spec_version' => DUO_SPEC_VERSION],
+    'bystander' => ['name' => 'bystander', 'spec_version' => WPRISM_SPEC_VERSION],
 ]);
 expect_throw(
     fn() => claim_policy_load(repo(['conf-a', 'conf-b', 'bystander'], resolution('plugin', PLUGIN, 'bystander'))),
@@ -551,7 +551,7 @@ check(
 );
 
 // The collision refusal is now a function of the site half of policy, so
-// `duo manifest-validate` run WITHOUT --site must annotate it as possibly
+// `wprism manifest-validate` run WITHOUT --site must annotate it as possibly
 // site-resolvable. The list that decides is a constant, and a list that lagged
 // the engine would send an author to add an override they already have.
 $manifestValidate = (string) file_get_contents($root . '/cli/src/Adapter/ManifestValidate.php');

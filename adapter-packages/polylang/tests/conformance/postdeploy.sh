@@ -127,7 +127,7 @@ require_once ABSPATH . 'wp-admin/includes/image.php';
 require_once ABSPATH . 'wp-admin/includes/media.php';
 $attachments = [];
 foreach (['en', 'fr', 'ar'] as $index => $language) {
-    $path = "/tmp/duo-polylang-media-$language.png";
+    $path = "/tmp/wprism-polylang-media-$language.png";
     $image = imagecreatetruecolor(72, 48);
     if (!$image) {
         throw new RuntimeException('Polylang target media image allocation failed');
@@ -143,7 +143,7 @@ foreach (['en', 'fr', 'ar'] as $index => $language) {
     imagepng($image, $path);
     imagedestroy($image);
     $attachmentId = media_handle_sideload(
-        ['name' => "duo-polylang-media-$language.png", 'tmp_name' => $path],
+        ['name' => "wprism-polylang-media-$language.png", 'tmp_name' => $path],
         $posts[$language],
         "Polylang Media $language 東京 🚀"
     );
@@ -153,7 +153,7 @@ foreach (['en', 'fr', 'ar'] as $index => $language) {
     $attachments[$language] = (int) $attachmentId;
     $renamed = wp_update_post([
         'ID' => (int) $attachmentId,
-        'post_name' => "duo-polylang-media-$language",
+        'post_name' => "wprism-polylang-media-$language",
     ], true);
     if (is_wp_error($renamed)) {
         throw new RuntimeException('Polylang target media identity normalization failed');
@@ -197,7 +197,7 @@ $options['browser'] = 1;
 update_option('polylang', $options);
 update_option('pll_language_from_content_available', 'target-runtime-sentinel');
 update_option('pll_language_taxonomies', ['target-runtime-taxonomy-cache']);
-update_option('duo_polylang_undeclared_neighbor', 'target-only-preserved');
+update_option('wprism_polylang_undeclared_neighbor', 'target-only-preserved');
 set_theme_mod('nav_menu_locations', ['primary' => (int) $staleMenu]);
 update_option('rewrite_rules', ['^target-stale/?$' => 'index.php?target-stale=1']);
 

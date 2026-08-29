@@ -5,7 +5,7 @@
 # authored-state, or plugin bytes can change.
 set -euo pipefail
 PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
-export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 cd "$PACKAGE_ROOT/../../sandbox"
 
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
@@ -17,7 +17,7 @@ pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 PAIR="${POLYLANG_MULTISITE_PAIR:-pllms}"
 PORT1="${POLYLANG_MULTISITE_PORT1:-9020}"
 PORT2="${POLYLANG_MULTISITE_PORT2:-9021}"
-EXPECTED_SHA="${POLYLANG_MULTISITE_EXPECTED_SOURCE_SHA:-${DUO_EXPECTED_SOURCE_SHA:-}}"
+EXPECTED_SHA="${POLYLANG_MULTISITE_EXPECTED_SOURCE_SHA:-${WPRISM_EXPECTED_SOURCE_SHA:-}}"
 ROOT="$(cd .. && pwd -P)"
 HEAD="$(git -C "$ROOT" rev-parse HEAD)"
 [[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] || fail "invalid POLYLANG_MULTISITE_PAIR '$PAIR'"
@@ -29,16 +29,16 @@ HEAD="$(git -C "$ROOT" rev-parse HEAD)"
   || fail 'Polylang multisite evidence requires a clean candidate checkout'
 command -v jq >/dev/null || fail 'jq required'
 
-WORDPRESS_OFFLINE="${DUO_WORDPRESS_ORG_OFFLINE:-0}"
-case "$WORDPRESS_OFFLINE" in 0|1) ;; *) fail 'DUO_WORDPRESS_ORG_OFFLINE must be 0 or 1' ;; esac
-export DUO_SOURCE_ROOT="$ROOT" DUO_EXPECTED_SOURCE_SHA="$EXPECTED_SHA" DUO_PAIR="$PAIR"
-PAIR_COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)
+WORDPRESS_OFFLINE="${WPRISM_WORDPRESS_ORG_OFFLINE:-0}"
+case "$WORDPRESS_OFFLINE" in 0|1) ;; *) fail 'WPRISM_WORDPRESS_ORG_OFFLINE must be 0 or 1' ;; esac
+export WPRISM_SOURCE_ROOT="$ROOT" WPRISM_EXPECTED_SOURCE_SHA="$EXPECTED_SHA" WPRISM_PAIR="$PAIR"
+PAIR_COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml -f pair.artifacts.yml)
 UP_FLAGS=(--artifacts)
 if [ "$WORDPRESS_OFFLINE" = 1 ]; then
   PAIR_COMPOSE+=(-f pair.wordpress-offline.yml)
   UP_FLAGS+=(--wordpress-offline)
 fi
-export DUO_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
+export WPRISM_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
 wp1() { "${PAIR_COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 REPO="siterepo/${PAIR}1"
 . bin/fetch-artifact.sh
@@ -66,13 +66,13 @@ export CONF_REPO1 CONF1_PORT COMPOSE
 wp_conf1() { wp1 "$@"; }
 . "$(dirname "${BASH_SOURCE[0]}")/../conformance/seed.sh"
 unset -f wp_conf1
-jq -n '{manifests:["core","polylang"],policy:{options:{},post_meta:{},post_types:["post","page","attachment","wp_block","nav_menu_item"],taxonomies:["category","post_tag","language","term_language","post_translations","term_translations","nav_menu"]},spec_version:2}' > "$REPO/site.duo.json"
+jq -n '{manifests:["core","polylang"],policy:{options:{},post_meta:{},post_types:["post","page","attachment","wp_block","nav_menu_item"],taxonomies:["category","post_tag","language","term_language","post_translations","term_translations","nav_menu"]},spec_version:2}' > "$REPO/site.wprism.json"
 cp site-repo.gitignore.template "$REPO/.gitignore"
-wp1 option update duo_polylang_multisite_canary untouched >/dev/null
-SITE_BEFORE=$(shasum -a 256 "$REPO/site.duo.json" | awk '{print $1}')
+wp1 option update wprism_polylang_multisite_canary untouched >/dev/null
+SITE_BEFORE=$(shasum -a 256 "$REPO/site.wprism.json" | awk '{print $1}')
 
 say 'convert the populated exact fixture to a real WordPress multisite'
-wp1 core multisite-convert --title='Duo Polylang 3.8.6 Multisite Refusal' >/dev/null
+wp1 core multisite-convert --title='WPrism Polylang 3.8.6 Multisite Refusal' >/dev/null
 [ "$(wp1 eval 'echo is_multisite() ? "yes" : "no";')" = yes ] || fail 'WordPress did not report multisite'
 [ "$(wp1 plugin get polylang --field=version)" = 3.8.6 ] || fail 'multisite conversion changed Polylang version'
 PLUGIN_AFTER=$(wp1 eval 'echo hash_file("sha256", WP_PLUGIN_DIR . "/polylang/polylang.php");' | tail -1)
@@ -84,7 +84,7 @@ $rows=[];
 foreach (["posts","terms","term_taxonomy","term_relationships","postmeta","options"] as $table) {
   $name=$wpdb->$table;
   // WordPress renews this one process-local cron lease during a long WP-CLI
-  // command. It is runtime coordination, not authored/plugin/Duo state; keep
+  // command. It is runtime coordination, not authored/plugin/WPrism state; keep
   // every other option row inside the zero-effect fingerprint.
   $sql=$table === "options"
     ? $wpdb->prepare("SELECT * FROM $name WHERE option_name <> %s ORDER BY 1", "_transient_doing_cron")
@@ -103,21 +103,21 @@ require_observed_nonempty 'Polylang multisite populated graph' "$FINGERPRINT"
 for command in capture plan deploy apply; do
   say "multisite $command must refuse before effect"
   set +e
-  OUT=$(wp1 duo "$command" --repo=/siterepo --format=json 2>/dev/null)
+  OUT=$(wp1 wprism "$command" --repo=/siterepo --format=json 2>/dev/null)
   RC=$?
   set -e
   [ "$RC" -ne 0 ] || fail "Polylang multisite $command returned success"
   printf '%s\n' "$OUT" | awk 'NF { line=$0 } END { print line }' | jq -e --arg command "$command" '
-    .format == "duo-command-refusal/v1" and .ok == false and .command == $command and
+    .format == "wprism-command-refusal/v1" and .ok == false and .command == $command and
     .reason_code == "multisite_unsupported" and .error == "multisite_unsupported" and
     (has("details_redacted") | not) and (.message | contains("multisite is unsupported")) and
     (.remediation | contains("single-site"))
   ' >/dev/null || fail "Polylang multisite $command did not return typed refusal"
   [ "$(wp1 eval 'echo hash_file("sha256", WP_PLUGIN_DIR . "/polylang/polylang.php");' | tail -1)" = "$PLUGIN_SHA" ] || fail "Polylang multisite $command changed plugin bytes"
   [ "$(polylang_graph_fingerprint)" = "$FINGERPRINT" ] || fail "Polylang multisite $command mutated the populated graph"
-  [ "$(shasum -a 256 "$REPO/site.duo.json" | awk '{print $1}')" = "$SITE_BEFORE" ] || fail "Polylang multisite $command mutated site.duo.json"
+  [ "$(shasum -a 256 "$REPO/site.wprism.json" | awk '{print $1}')" = "$SITE_BEFORE" ] || fail "Polylang multisite $command mutated site.wprism.json"
   [ ! -e "$REPO/state" ] && [ ! -e "$REPO/state.capture-staging" ] && [ ! -e "$REPO/state.capture-backup" ] || fail "Polylang multisite $command published repository state"
-  [ "$(wp1 option get duo_polylang_multisite_canary)" = untouched ] || fail "Polylang multisite $command mutated authored state"
+  [ "$(wp1 option get wprism_polylang_multisite_canary)" = untouched ] || fail "Polylang multisite $command mutated authored state"
   pass "Polylang multisite $command refused with zero repository/plugin effect"
 done
 

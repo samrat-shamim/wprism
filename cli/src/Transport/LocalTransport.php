@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/Transport.php';
 require_once __DIR__ . '/RecoveryTransport.php';
@@ -18,16 +18,16 @@ final class LocalTransport extends Transport implements AdoptionTransport, Recov
         return rtrim($this->repoPath, '/');
     }
 
-    public const BOOTSTRAP_FORMAT = 'duo-local-control-plane/v1';
+    public const BOOTSTRAP_FORMAT = 'wprism-local-control-plane/v1';
 
     /**
      * The closed set of control-handoff paths this transport will create or
      * remove. `RollbackAuthority` sends exactly two shapes — `input` for
      * `execute --input=` and `request` for a signed receipt/event — and the
      * names match what SSH puts on the wire, which an offline fixture already
-     * pins (sandbox/tests/fixtures/duo3344-scoped-promote-unit.php:364).
+     * pins (sandbox/tests/fixtures/scoped-promote-unit.php:364).
      */
-    private const CONTROL_INPUT_PATH = '#^/tmp/duo-rollback-(?:input|request)-[a-f0-9]{32}\.json$#D';
+    private const CONTROL_INPUT_PATH = '#^/tmp/wprism-rollback-(?:input|request)-[a-f0-9]{32}\.json$#D';
 
     private string $wpPath;
     private bool $bootstrapAuthorized;
@@ -74,9 +74,9 @@ final class LocalTransport extends Transport implements AdoptionTransport, Recov
         // docblock states. Arming it therefore needs the same machine-local
         // provenance the local bootstrap needs (:63 above), which only the
         // machine-local overlay carries: Registry passes machineLocal=true for
-        // an untracked `.duo-envs.json` and for an explicitly selected
+        // an untracked `.wprism-envs.json` and for an explicitly selected
         // `--envs-file` (Environment/Registry.php:69/:125), and false for a
-        // Git-tracked site.duo.json (:39).
+        // Git-tracked site.wprism.json (:39).
         if (RecoveryConfig::declaredIn($cfg) && ($cfg['_machine_local'] ?? null) !== true) {
             throw new \RuntimeException(
                 "env '$name': local rollback authority is privileged and has no machine-local authorization"
@@ -88,7 +88,7 @@ final class LocalTransport extends Transport implements AdoptionTransport, Recov
     public function describe(): string {
         $bootstrap = $this->bootstrapAuthorized ? ' bootstrap=authorized' : '';
         // Suffixes appear only for an environment that opted in, the same
-        // shape DockerTransport's `mode` suffix uses: `duo envs` stays
+        // shape DockerTransport's `mode` suffix uses: `wprism envs` stays
         // byte-identical for every environment that never configured a
         // rollback authority (AGENTS.md rule 8).
         $recovery = $this->recovery->describeSuffix();
@@ -100,7 +100,7 @@ final class LocalTransport extends Transport implements AdoptionTransport, Recov
      * its keys are configured. SSH answers true unconditionally because
      * adoption has always provisioned the runtime there; making local
      * unconditional would put a new `[WARN] rollback authority: unavailable`
-     * line into `duo status` for every existing local environment.
+     * line into `wprism status` for every existing local environment.
      */
     public function carriesRollbackAuthority(): bool {
         return $this->recovery->configured();
@@ -159,9 +159,9 @@ final class LocalTransport extends Transport implements AdoptionTransport, Recov
      * create in putControlInput(), not the directory.
      */
     public function allocateControlInput(string $label): string {
-        $path = '/tmp/duo-rollback-' . $label . '-' . bin2hex(random_bytes(16)) . '.json';
+        $path = '/tmp/wprism-rollback-' . $label . '-' . bin2hex(random_bytes(16)) . '.json';
         if (preg_match(self::CONTROL_INPUT_PATH, $path) !== 1) {
-            throw new \RuntimeException('duo rollback: local control handoff label is outside the closed set');
+            throw new \RuntimeException('wprism rollback: local control handoff label is outside the closed set');
         }
         $this->controlInputs[$path] = null;
         return $path;
@@ -245,7 +245,7 @@ final class LocalTransport extends Transport implements AdoptionTransport, Recov
             'supported' => false,
             'reason' => 'local control-plane bootstrap is privileged and has no machine-local authorization',
             'remediation' => 'put bootstrap {"format":"' . self::BOOTSTRAP_FORMAT
-                . '"} in this environment\'s untracked .duo-envs.json entry, then retry',
+                . '"} in this environment\'s untracked .wprism-envs.json entry, then retry',
         ];
     }
 
@@ -257,7 +257,7 @@ final class LocalTransport extends Transport implements AdoptionTransport, Recov
      * @return array{exit:int,stdout:string,stderr:string}
      */
     public function uploadFile(string $localPath, string $remotePath): array {
-        if (preg_match('#^/tmp/duo-adopt-[a-f0-9]{24}\.tar$#D', $remotePath) !== 1) {
+        if (preg_match('#^/tmp/wprism-adopt-[a-f0-9]{24}\.tar$#D', $remotePath) !== 1) {
             return ['exit' => 64, 'stdout' => '', 'stderr' => 'local adoption destination is outside the closed temporary path'];
         }
         return self::exclusiveCopy($localPath, $remotePath, 'local adoption');
@@ -410,7 +410,7 @@ final class LocalTransport extends Transport implements AdoptionTransport, Recov
 
     /** @return array{exit:int,stdout:string,stderr:string} */
     public function cleanupUploadedFile(string $path, string $identity): array {
-        if (preg_match('#^/tmp/duo-adopt-[a-f0-9]{24}\.tar$#D', $path) !== 1
+        if (preg_match('#^/tmp/wprism-adopt-[a-f0-9]{24}\.tar$#D', $path) !== 1
             || preg_match('/^[0-9]+:[0-9]+:32768$/D', $identity) !== 1) {
             return ['exit' => 64, 'stdout' => '', 'stderr' => 'local adoption cleanup identity is invalid'];
         }

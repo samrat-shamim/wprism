@@ -1,29 +1,33 @@
 <?php
 /**
- * WP-4.4: the reviewed claim source is one document per subject, and NOT ONE
- * ADAPTER DIGEST MOVED (spec/repo-format.md § v3.4).
+ * WP-4.4: the reviewed claim source is one document per subject, and the
+ * current WPrism identity baseline is pinned through the product path
+ * (spec/repo-format.md § v3.4).
  *
  * WHY THIS SUITE EXISTS
  * ---------------------
  * `manifests/dispositions.json` was 302 lines, 37,707 bytes and 16 entries in
- * one file; it is now 17 documents under `manifests/dispositions/`. That is a
+ * one file; the current library has one package-local disposition per adapter
+ * plus `platform/adapter-library/core/disposition.json` — 17 subjects in all.
+ * That is a
  * relocation of bytes AGENTS.md rule 2 calls adapter identity:
  * `ArtifactPolicyIdentity::manifest_rows()` folds each manifest's own
  * disposition into that adapter's row and the row hashed IS its `digest`, so a
  * one-byte canonical difference in one document would move that adapter's
- * digest, every `site.duo.json` content pin naming it, and — through
- * `manifest_hash` — every compiled artifact in the field. On a flag day whose
- * entire premise is that no shipped digest moves, that is the failure this
- * whole package had to make impossible rather than unlikely.
+ * digest, every `site.wprism.json` content pin naming it, and — through
+ * `manifest_hash` — every compiled artifact in the field. The WPrism
+ * greenfield baseline below pins the current 17-subject set explicitly, so a
+ * split-induced byte change is still a measured fleet-visible failure.
  *
  * THE GATE ASSERTION, AND WHY IT IS NOT A TAUTOLOGY
  * ------------------------------------------------
- * PART 1 pins all 16 shipped digests, `manifest_hash` and `registry_sha256` as
- * LITERALS captured from the tree BEFORE the split, through the product path a
- * deployed site uses. Recomputing both sides of an equality would prove
- * nothing — it would hold whatever the split did to the bytes — so the
- * expected values are frozen text in this file and the comparison is against
- * the engine.
+ * PART 1 pins the current WPrism 17-subject digests, `manifest_hash` and
+ * `registry_sha256` as LITERALS captured from this greenfield tree, through
+ * the product path a deployed site uses. Recomputing both sides of an equality
+ * would prove nothing — it would hold whatever the split did to the bytes —
+ * so the expected values are frozen text in this file and the comparison is
+ * against the engine. The older split-transition values remain below as
+ * historical exact maps; they are not the current baseline.
  *
  * PART 2 is what makes that comparison a measurement. It enumerates the
  * canonical-encoding hazards a relocation of JSON can introduce and measures
@@ -49,14 +53,14 @@
  */
 declare(strict_types=1);
 
-// WP-4.12: derived from agent/duo.php, not retyped. This suite reads the
+// WP-4.12: derived from agent/wprism.php, not retyped. This suite reads the
 // SHIPPED platform.json (through Policy::load -> AdapterRegistry), and that
 // document restates both defines — so a literal here disagrees with the tree
 // the moment the defines move and the suite dies on "platform version
 // disagrees with the loaded agent" instead of reporting anything about
 // dispositions. See sandbox/tests/lib/agent_version.php.
 require_once __DIR__ . '/../../lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 if (!function_exists('is_multisite')) {
     function is_multisite(): bool {
         return false;
@@ -72,11 +76,11 @@ require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterRegistry.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/ArtifactPolicyIdentity.php';
 
-use Duo\ArtifactPolicyIdentity;
-use Duo\AdapterLibrary;
-use Duo\Canon;
-use Duo\ManifestDispositions;
-use Duo\Policy;
+use WPrism\ArtifactPolicyIdentity;
+use WPrism\AdapterLibrary;
+use WPrism\Canon;
+use WPrism\ManifestDispositions;
+use WPrism\Policy;
 
 $repo = dirname(__DIR__, 4);
 $adapterLibrary = AdapterLibrary::fromSourceTree($repo);
@@ -106,19 +110,17 @@ $removeTree = static function (string $path) use (&$removeTree): void {
 };
 $removeTree($scratchRoot);
 register_shutdown_function(static function () use ($removeTree, $scratchRoot): void {
-    if (duo_check_failed() === 0) {
+    if (wprism_check_failed() === 0) {
         $removeTree($scratchRoot);
     }
 });
 
 // ---------------------------------------------------------------------------
-echo "\nPART 1 — THE GATE: every shipped digest is the digest it was before the split\n";
+echo "\nPART 1 — THE GATE: every shipped digest matches the explicit WPrism baseline\n";
 // ---------------------------------------------------------------------------
-// Captured from the pre-split tree (adapter-program @ ed852db6) by loading all
-// 16 shipped manifests and reading ArtifactPolicyIdentity::resolved_adapters().
-// These are the numbers a deployed site holds in `site.duo.json` and in every
-// compiled artifact, so a moved one here is a fleet-wide
-// `compiled_artifact_manifest_mismatch` and not a test failure.
+// Historical capture from the pre-split tree (adapter-program @ ed852db6),
+// retained as the exact input to the transition overlays below. It covered the
+// then-shipped 16-subject set; it is not the current WPrism expected map.
 $frozenDigests = [
     'acf' => '59bcfb5c04958c9e4b340f2c47772b245f4afee15e358eef692c0887365450c3',
     'advanced-editor-tools' => 'f053a9a1974869ae957795357282250ef664194ed3be192d97222789a4b755c3',
@@ -126,7 +128,7 @@ $frozenDigests = [
     'code-snippets' => 'b65ed9be8c7ddbe4436bf98bbaf0bb1dbf412b67817f1884082fe1df56c1851b',
     'contact-form-7' => '8b85b02e7cc816799be570b1e86e0fa16502628771abd66dbe74415e85f34553',
     'core' => '9c07275d02d726336a2270ce4260403f40dc406c3353470adf714cf753905aa2',
-    'duo-agency-cpt' => '77ba41d17579c97ee27cd30a3eac67224c66f9244d74e349b29035cd3ae95362',
+    'wprism-agency-cpt' => '77ba41d17579c97ee27cd30a3eac67224c66f9244d74e349b29035cd3ae95362',
     'elementor' => '80df69cc238bf8859b02635519d562e069442b5948091fe666bfaab81d4bf42b',
     'ninja-forms' => '54a069f27fb1518f7a7dee825fb004cf1cdecb95024f83f6b51fd87e7d32352c',
     'paid-memberships-pro' => 'ec1109615042d839f4958319bfe1b52be98f95a3024748c91f92f6ce5d27bf72',
@@ -142,8 +144,8 @@ const SPLIT_FROZEN_REGISTRY_SHA = '8d6c35cfe4c5f21193e83cc4707a11359680df8e95e48
 const SPLIT_FROZEN_SNAPSHOT_SHA = 'c9ef88ac0f92ba04411de26738b974deca77600c8e79947b53e927703cf93bbc';
 
 /**
- * The reviewed post-split changes that have moved shipped identities since
- * that capture: #561 rewrote manifests/the-events-calendar.json and promoted
+ * Historical reviewed changes that moved identities after that capture: #561
+ * rewrote manifests/the-events-calendar.json and promoted
  * its disposition experimental -> certified, and widened manifests/core.json's
  * native rewrite action to declare TEC's rewrite-listener effects. The
  * reviewed Polylang and WooCommerce production-readiness ports then rewrote
@@ -155,15 +157,11 @@ const SPLIT_FROZEN_SNAPSHOT_SHA = 'c9ef88ac0f92ba04411de26738b974deca77600c8e799
  * valid in either supported layout. Correcting those paths moved five of the
  * same ten adapter digests again; regress_spec_v3_digest_neutrality.php pins
  * every corrected runtime file byte and the five resulting digests.
- * Rule 2 makes all ten fleet-visible BY DESIGN.
+ * Rule 2 makes each of those historical transitions fleet-visible BY DESIGN.
  *
- * The six unaffected frozen digests above are NOT regenerated — this is an overlay, and
- * PART 1 asserts the moved set is exactly these ten. An eleventh adapter is a
- * tripwire failure, not a re-pin. That keeps the split's
- * own invariant ("relocating the reviewed source moved no identity") measured
- * against numbers captured before the relocation, on every adapter the
- * reviewed changes did not touch. Re-freezing all 16 to absorb 4 would have
- * retired the evidence for the other 12 to fix a red run.
+ * The frozen map and these overlays remain historical evidence only. The
+ * current WPrism gate is the explicit 17-subject map below; it does not infer
+ * an unmoved or moved count from the pre-split capture.
  */
 const SPLIT_REVIEWED_MOVED_ADAPTERS = [
     'code-snippets',
@@ -269,54 +267,52 @@ const SPLIT_LIFECYCLE_SETTLEMENT_MOVED_DIGESTS = [
 const SPLIT_LIFECYCLE_SETTLEMENT_MANIFEST_HASH = 'ebf0a904a8fa73b72c0b9a0dad58016a7ad640d18177ab2829c74f0ddcd38502';
 const SPLIT_LIFECYCLE_SETTLEMENT_SNAPSHOT_SHA = '938b9214d772604a1aab3574e4b447d362d5a7c4aac6938035c3c52aab9adaeb';
 
+/**
+ * The current WPrism greenfield baseline. Unlike the historical split
+ * overlays above, this map includes every currently shipped subject,
+ * including Redirection, and is the only expected identity set used against
+ * the live source tree below. These literals are intentionally explicit:
+ * changing a package or disposition requires a deliberate re-pin.
+ */
+const WPRISM_CURRENT_DIGESTS = [
+    'acf' => 'c86d0888237d2b9cfce09f5287d03c6cc4bda46c768f15a32bfab9101ba2307d',
+    'advanced-editor-tools' => 'cfc61d12273c7b72cd24c9a7cf2a4b2dd2b08a8a3b261f43c96893aa3ba4492d',
+    'classic-editor' => '908c6cd00f9cd389b40105bbb1f906ae5271ad13dfafcbc65d4face4ff2156ea',
+    'code-snippets' => 'ca66c5959ea2fa0d0fc39b6d5d2f3da0a866c728bd8eb2b9c0d942455054fc04',
+    'contact-form-7' => 'd1a3ad05cdc7423417d986b97a286c7528e3efb03ee21c4e1703a50e666ac44b',
+    'core' => '9f9a23cfb2be0b8dd693cecd1df6adb4e9082ca8d589675ce95bfae85c185b63',
+    'elementor' => '5383779c98b51bb94e2aab363d72729fd55003798656f7d025f8773ae5793d64',
+    'ninja-forms' => '35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011',
+    'paid-memberships-pro' => '70b0a7cb07b54118dd4645be00bc60bbe1ab0a10972e7b6c3fbe26971c759bdd',
+    'polylang' => '60edabfdaab55d4ea74d0c6ac71228bffc2b2911afe57a962ac898ee73064548',
+    'redirection' => '6ba607e26345be23b0a89eeee69dadc0ceff75ca40b8cdf9d0ab88d066303bc7',
+    'the-events-calendar' => '7027ed71fe7346417f728e3a29299fe167c6d662fb8b451faf84d8d4bdb81b39',
+    'woocommerce' => 'bc76c97206b5f8af22dbd1cfab5973b1c5415d4c45dfddcad02110f6f525323c',
+    'wprism-agency-cpt' => '174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab',
+    'wps-hide-login' => '4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050',
+    'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
+    'yoast-duplicate-post' => '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456',
+];
+const WPRISM_CURRENT_MANIFEST_HASH = 'd505246dc59ee5effbae863bb14e16b91b36c1a4b38c37672ed3f4a547da5bf2';
+const WPRISM_CURRENT_REGISTRY_SHA = '010967c0ff23cb8dcd875944bd8d113f294daaf9002d4b226c7fc32ba4f42c86';
+const WPRISM_CURRENT_SNAPSHOT_SHA = '67d561b3597389d0275255f39f1afb44a602ffedeebfabbc784ad3b95d02204c';
+
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
-duo_check(
+wprism_check(
     $shippedRegistry instanceof ManifestDispositions,
     'the shipped library loads its reviewed claim source from the per-subject directory'
 );
-$shippedNames = array_keys($frozenDigests);
+$shippedNames = array_keys(WPRISM_CURRENT_DIGESTS);
 $shippedPolicy = Policy::load(null, $shippedNames, adapterLibrary: $adapterLibrary);
 $observed = [];
 foreach (ArtifactPolicyIdentity::resolved_adapters($shippedPolicy) as $row) {
     $observed[(string) $row['name']] = (string) $row['digest'];
 }
 ksort($observed, SORT_STRING);
-$expectedDigests = $frozenDigests;
-foreach (SPLIT_REVIEWED_MOVED_DIGESTS as $movedName => $movedDigest) {
-    $expectedDigests[$movedName] = $movedDigest;
-}
-foreach (SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS as $movedName => $movedDigest) {
-    $expectedDigests[$movedName] = $movedDigest;
-}
-foreach (SPLIT_LOCAL_CACHE_MOVED_DIGESTS as $movedName => $movedDigest) {
-    $expectedDigests[$movedName] = $movedDigest;
-}
-foreach (SPLIT_NATIVE_HOOK_MOVED_DIGESTS as $movedName => $movedDigest) {
-    $expectedDigests[$movedName] = $movedDigest;
-}
-foreach (SPLIT_DATA_STORE_HOOK_MOVED_DIGESTS as $movedName => $movedDigest) {
-    $expectedDigests[$movedName] = $movedDigest;
-}
-foreach (SPLIT_MARIADB_PRIORITY_MOVED_DIGESTS as $movedName => $movedDigest) {
-    $expectedDigests[$movedName] = $movedDigest;
-}
-foreach (SPLIT_MARIADB_ARGS_INDEX_MOVED_DIGESTS as $movedName => $movedDigest) {
-    $expectedDigests[$movedName] = $movedDigest;
-}
-foreach (SPLIT_RETENTION_NATIVE_HOOK_MOVED_DIGESTS as $movedName => $movedDigest) {
-    $expectedDigests[$movedName] = $movedDigest;
-}
-foreach (SPLIT_RETENTION_CRON_OWNER_MOVED_DIGESTS as $movedName => $movedDigest) {
-    $expectedDigests[$movedName] = $movedDigest;
-}
-foreach (SPLIT_LIFECYCLE_SETTLEMENT_MOVED_DIGESTS as $movedName => $movedDigest) {
-    $expectedDigests[$movedName] = $movedDigest;
-}
-ksort($expectedDigests, SORT_STRING);
-duo_check_same(
-    10,
-    count(SPLIT_REVIEWED_MOVED_ADAPTERS),
-    'the reviewed overlay names exactly ten post-split adapters; another identity move is a new reviewed re-pin, never a fixture refresh'
+wprism_check_same(
+    array_keys(SPLIT_REVIEWED_MOVED_DIGESTS),
+    SPLIT_REVIEWED_MOVED_ADAPTERS,
+    'the historical split transition names exactly the adapters recorded in its explicit digest map; later WPrism identity changes are pinned separately'
 );
 $packageDependencyMovedNames = [];
 foreach (SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS as $name => $digest) {
@@ -325,7 +321,7 @@ foreach (SPLIT_PACKAGE_DEPENDENCY_MOVED_DIGESTS as $name => $digest) {
         $packageDependencyMovedNames[] = $name;
     }
 }
-duo_check_same(
+wprism_check_same(
     SPLIT_PACKAGE_DEPENDENCY_MOVED_ADAPTERS,
     $packageDependencyMovedNames,
     'the package dependency-path overlay changes exactly five prior digest literals, preserving the earlier values '
@@ -341,7 +337,7 @@ foreach (SPLIT_LOCAL_CACHE_MOVED_DIGESTS as $name => $digest) {
         $localCacheMovedNames[] = $name;
     }
 }
-duo_check_same(
+wprism_check_same(
     ['woocommerce'],
     $localCacheMovedNames,
     'the stock-WordPress local-cache correction changes only the WooCommerce digest and preserves both prior values '
@@ -358,7 +354,7 @@ foreach (SPLIT_NATIVE_HOOK_MOVED_DIGESTS as $name => $digest) {
         $nativeHookMovedNames[] = $name;
     }
 }
-duo_check_same(
+wprism_check_same(
     ['woocommerce'],
     $nativeHookMovedNames,
     'the exact WordPress and WooCommerce native-hook correction changes only WooCommerce and preserves the third '
@@ -376,7 +372,7 @@ foreach (SPLIT_DATA_STORE_HOOK_MOVED_DIGESTS as $name => $digest) {
         $dataStoreHookMovedNames[] = $name;
     }
 }
-duo_check_same(
+wprism_check_same(
     ['woocommerce'],
     $dataStoreHookMovedNames,
     'the completed-migration Action Scheduler selector correction changes only WooCommerce and preserves the fourth '
@@ -395,7 +391,7 @@ foreach (SPLIT_MARIADB_PRIORITY_MOVED_DIGESTS as $name => $digest) {
         $mariaDbPriorityMovedNames[] = $name;
     }
 }
-duo_check_same(
+wprism_check_same(
     ['woocommerce'],
     $mariaDbPriorityMovedNames,
     'the MariaDB native-priority normalization changes only WooCommerce and preserves the fifth transition as a '
@@ -415,7 +411,7 @@ foreach (SPLIT_MARIADB_ARGS_INDEX_MOVED_DIGESTS as $name => $digest) {
         $mariaDbArgsIndexMovedNames[] = $name;
     }
 }
-duo_check_same(
+wprism_check_same(
     ['woocommerce'],
     $mariaDbArgsIndexMovedNames,
     'the MariaDB full-width args-index normalization changes only WooCommerce and preserves the sixth transition as '
@@ -436,7 +432,7 @@ foreach (SPLIT_RETENTION_NATIVE_HOOK_MOVED_DIGESTS as $name => $digest) {
         $retentionNativeHookMovedNames[] = $name;
     }
 }
-duo_check_same(
+wprism_check_same(
     ['woocommerce'],
     $retentionNativeHookMovedNames,
     'the native shared retention-hook correction changes only WooCommerce and preserves the seventh transition as '
@@ -458,7 +454,7 @@ foreach (SPLIT_RETENTION_CRON_OWNER_MOVED_DIGESTS as $name => $digest) {
         $retentionCronOwnerMovedNames[] = $name;
     }
 }
-duo_check_same(
+wprism_check_same(
     ['woocommerce'],
     $retentionCronOwnerMovedNames,
     'the native background-process ownership correction changes only WooCommerce and preserves the eighth '
@@ -481,17 +477,17 @@ foreach (SPLIT_LIFECYCLE_SETTLEMENT_MOVED_DIGESTS as $name => $digest) {
         $lifecycleSettlementMovedNames[] = $name;
     }
 }
-duo_check_same(
+wprism_check_same(
     ['woocommerce'],
     $lifecycleSettlementMovedNames,
     'the bounded lifecycle-migration settlement provider changes only WooCommerce and preserves the ninth '
     . 'transition as a separate reviewed identity'
 );
-duo_check_same(
-    $expectedDigests,
+wprism_check_same(
+    WPRISM_CURRENT_DIGESTS,
     $observed,
-    '6 OF THE 16 SHIPPED ADAPTER DIGESTS ARE BYTE-IDENTICAL to the pre-split tree — the invariant the flag day '
-    . 'rests on; the other ten carry reviewed post-split migrations and are re-pinned above'
+    'the current WPrism greenfield baseline pins every shipped adapter digest explicitly; a disposition split that '
+    . 'changes any manifest row is a measured identity failure'
 );
 $movedNames = [];
 foreach ($observed as $name => $digest) {
@@ -499,20 +495,18 @@ foreach ($observed as $name => $digest) {
         $movedNames[] = $name;
     }
 }
-duo_check_same(
-    SPLIT_REVIEWED_MOVED_ADAPTERS,
+wprism_check_same(
+    array_keys(WPRISM_CURRENT_DIGESTS),
     $movedNames,
-    'and the moved set is EXACTLY the reviewed one — the split relocated the reviewed claim source and moved no '
-    . 'identity, which is still measured here against pre-relocation numbers on every other adapter'
+    'and the current identity set is exactly the explicit WPrism baseline, including the shipped Redirection subject'
 );
-duo_check_same(
-    SPLIT_LIFECYCLE_SETTLEMENT_MANIFEST_HASH,
+wprism_check_same(
+    WPRISM_CURRENT_MANIFEST_HASH,
     ArtifactPolicyIdentity::manifest_hash($shippedPolicy),
-    'and manifest_hash over all 16 pins — the number a compiled artifact binds — moved from the reviewed-manifest '
-    . 'address with each reviewed runtime correction, including the WooCommerce local-cache boundary, not because '
-    . 'disposition storage split or the files relocated'
+    'and manifest_hash over the current 17 pins — the number a compiled artifact binds — is pinned to the WPrism '
+    . 'greenfield source rather than derived from a stale split-era count'
 );
-duo_check(
+wprism_check(
     SPLIT_REVIEWED_MANIFEST_HASH !== SPLIT_FROZEN_MANIFEST_HASH
         && SPLIT_PACKAGE_DEPENDENCY_MANIFEST_HASH !== SPLIT_REVIEWED_MANIFEST_HASH
         && SPLIT_LOCAL_CACHE_MANIFEST_HASH !== SPLIT_PACKAGE_DEPENDENCY_MANIFEST_HASH
@@ -523,24 +517,26 @@ duo_check(
         && SPLIT_RETENTION_NATIVE_HOOK_MANIFEST_HASH !== SPLIT_MARIADB_ARGS_INDEX_MANIFEST_HASH
         && SPLIT_RETENTION_CRON_OWNER_MANIFEST_HASH !== SPLIT_RETENTION_NATIVE_HOOK_MANIFEST_HASH
         && SPLIT_LIFECYCLE_SETTLEMENT_MANIFEST_HASH !== SPLIT_RETENTION_CRON_OWNER_MANIFEST_HASH
+        && WPRISM_CURRENT_MANIFEST_HASH !== SPLIT_LIFECYCLE_SETTLEMENT_MANIFEST_HASH
         && SPLIT_REVIEWED_REGISTRY_SHA !== SPLIT_FROZEN_REGISTRY_SHA
         && SPLIT_REVIEWED_SNAPSHOT_SHA !== SPLIT_FROZEN_SNAPSHOT_SHA
-        && SPLIT_LIFECYCLE_SETTLEMENT_SNAPSHOT_SHA !== SPLIT_REVIEWED_SNAPSHOT_SHA,
+        && SPLIT_LIFECYCLE_SETTLEMENT_SNAPSHOT_SHA !== SPLIT_REVIEWED_SNAPSHOT_SHA
+        && WPRISM_CURRENT_REGISTRY_SHA !== SPLIT_REVIEWED_REGISTRY_SHA
+        && WPRISM_CURRENT_SNAPSHOT_SHA !== SPLIT_LIFECYCLE_SETTLEMENT_SNAPSHOT_SHA,
     '...and all re-pinned numbers really differ from their frozen originals, so the assertions '
     . 'around them are re-pins a reviewer must read rather than restatements of the frozen constants'
 );
-duo_check_same(
-    SPLIT_REVIEWED_REGISTRY_SHA,
+wprism_check_same(
+    WPRISM_CURRENT_REGISTRY_SHA,
     $shippedRegistry->sha256(),
-    'and registry_sha256, the content address a host contract pins, reassembles from the per-subject documents '
-    . 'to exactly one document — carrying #561\'s TEC promotion, Polylang/WooCommerce review, and Redirection, not the '
-    . 'split itself (WP-4.5 is the rider that narrows this to per-subject addressing)'
+    'and registry_sha256, the content address a host contract pins, reassembles from the current per-subject '
+    . 'documents to exactly one WPrism registry (WP-4.5 is the rider that narrows this to per-subject addressing)'
 );
-duo_check_same(
-    SPLIT_LIFECYCLE_SETTLEMENT_SNAPSHOT_SHA,
+wprism_check_same(
+    WPRISM_CURRENT_SNAPSHOT_SHA,
     hash('sha256', Canon::encode($shippedPolicy->export_snapshot())),
-    'and the frozen policy snapshot — which carries the whole registry as `dispositions` — moves with the '
-    . 'reviewed claims it embeds and with nothing else, so the split alone never invalidated a compiled artifact'
+    'and the current policy snapshot — which carries the whole registry as `dispositions` — is pinned to the same '
+    . 'explicit WPrism baseline'
 );
 // The relocation must also be invisible in the other direction: bytes frozen
 // before it still reconstruct a policy, through the validator that reads them.
@@ -548,7 +544,7 @@ duo_check_same(
 // against the site's own pins (Policy.php:653-655), and the 16-pin policy above
 // was loaded without a site file to state them.
 $corePolicy = Policy::load(null, ['core'], adapterLibrary: $adapterLibrary);
-duo_check_same(
+wprism_check_same(
     ArtifactPolicyIdentity::manifest_hash($corePolicy),
     ArtifactPolicyIdentity::manifest_hash(Policy::from_snapshot($corePolicy->export_snapshot(), $adapterLibrary)),
     'and the v6 snapshot round trip reproduces manifest_hash, so from_snapshot() reads the reassembled document the '
@@ -588,14 +584,14 @@ foreach ($reviewedDocuments as $document) {
     $documentCount++;
     $walk(Canon::decode(Canon::read_file($document)), basename($document, '.json'));
 }
-duo_check_same(18, $documentCount, 'the reviewed source is 18 documents: 17 subjects and the profiles map');
-duo_check_same(
+wprism_check_same(18, $documentCount, 'the reviewed source is 18 documents: 17 subjects and the profiles map');
+wprism_check_same(
     [],
     $numberMembers,
     'no shipped reviewed member is a number, so the int/float hazard below cannot arise from these bytes — but a '
     . 'reviewed entry that starts carrying one arrives in a suite that measures what it costs'
 );
-duo_check_same(
+wprism_check_same(
     [],
     $nonAsciiMembers,
     'and no shipped reason carries a non-ASCII character, so the UTF-8 composition hazard cannot arise from them '
@@ -636,7 +632,7 @@ $probeManifest = [
     'name' => 'split-probe',
     'option_autoload' => 'preserve',
     'options' => ['split_probe_layout' => ['class' => 'authored']],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ];
 $probeEntry = [
     'capabilities' => [
@@ -678,7 +674,7 @@ $reverseKeys = static function ($value) use (&$reverseKeys) {
     return $out;
 };
 $keyReversedEntry = $reverseKeys($probeEntry);
-duo_check_same(
+wprism_check_same(
     $baseline,
     $probeDigest($probeLibrary('key-order', $probeManifest, $keyReversedEntry), 'split-probe'),
     'MAP KEY ORDER is neutral at every nesting level (Canon.php:44,58) — which is exactly why one entry may be '
@@ -693,7 +689,7 @@ $listReorderedEntry = $probeEntry;
 $listReorderedEntry['capabilities']['lifecycle_phases'] = array_reverse(
     $probeEntry['capabilities']['lifecycle_phases']
 );
-duo_check(
+wprism_check(
     $probeDigest($probeLibrary('list-order', $probeManifest, $listReorderedEntry), 'split-probe') !== $baseline,
     'HAZARD nested list order: reversing `capabilities.lifecycle_phases` MOVES the digest, so PART 1 would catch a '
     . 'splitter that re-ordered a list'
@@ -718,7 +714,7 @@ duo_check(
 $wholeFloat = Canon::encode(['reviewed_revision' => 3]) === Canon::encode(['reviewed_revision' => 3.0]);
 $pastPrecision = Canon::encode(Canon::decode('{"reviewed_revision":10000000000000000001}'))
     === Canon::encode(Canon::decode('{"reviewed_revision":10000000000000000002}'));
-duo_check(
+wprism_check(
     $wholeFloat && $pastPrecision,
     'HAZARD int/float is the one the digest CANNOT catch: Canon erases the int/float distinction for a whole '
     . 'number, and two distinct integers past PHP precision collide on one float — which is exactly why the census '
@@ -735,7 +731,7 @@ $precomposedEntry = $probeEntry;
 $precomposedEntry['reason'] = "Certified against the re\u{00E9}dited reviewed boundary.";
 $decomposedEntry = $probeEntry;
 $decomposedEntry['reason'] = "Certified against the ree\u{0301}dited reviewed boundary.";
-duo_check(
+wprism_check(
     $precomposedEntry['reason'] !== $decomposedEntry['reason']
         && $probeDigest($probeLibrary('nfc', $probeManifest, $precomposedEntry), 'split-probe')
             !== $probeDigest($probeLibrary('nfd', $probeManifest, $decomposedEntry), 'split-probe'),
@@ -788,15 +784,15 @@ $noDocument = $reviewedLibrary('missing-document', static function (string $dir)
         throw new RuntimeException('the probe disposition directory was not created');
     }
 });
-duo_check_same(
-    'duo: manifest disposition coverage mismatch; missing=[core], extra=[]',
+wprism_check_same(
+    'wprism: manifest disposition coverage mismatch; missing=[core], extra=[]',
     $refusal(static function () use ($noDocument, $coreManifest): void {
         ManifestDispositions::load($noDocument)?->assert_covers([$coreManifest]);
     }),
     'a document missing for a PINNED subject refuses by name, in the monolith coverage sentence to the byte'
 );
-duo_check_same(
-    "duo: manifest disposition 'core' must be an object",
+wprism_check_same(
+    "wprism: manifest disposition 'core' must be an object",
     $refusal(static function () use ($reviewedLibrary, $coreManifest): void {
         $dir = $reviewedLibrary('null-document', static function (string $dir): void {
             Canon::write_file($dir . '/core.json', "null\n");
@@ -815,42 +811,42 @@ $entryRules = [
             $entry['status'] = 'ratified';
             return $entry;
         },
-        "duo: manifest disposition 'core' has a malformed required field",
+        "wprism: manifest disposition 'core' has a malformed required field",
     ],
     'the synthesized runtime status, DECLARED' => [
         static function (array $entry): array {
             $entry['status'] = ManifestDispositions::STATUS_UNCOVERED;
             return $entry;
         },
-        "duo: manifest disposition 'core' has a malformed required field",
+        "wprism: manifest disposition 'core' has a malformed required field",
     ],
     'capabilities with a key the closed set does not carry' => [
         static function (array $entry): array {
             $entry['capabilities']['invented'] = [];
             return $entry;
         },
-        "duo: manifest disposition 'core' capabilities are malformed",
+        "wprism: manifest disposition 'core' capabilities are malformed",
     ],
     'deletion semantics missing an arm' => [
         static function (array $entry): array {
             unset($entry['capabilities']['deletion_semantics']['unsupported']);
             return $entry;
         },
-        "duo: manifest disposition 'core' deletion semantics are malformed",
+        "wprism: manifest disposition 'core' deletion semantics are malformed",
     ],
     'a declared section the manifest does not carry' => [
         static function (array $entry): array {
             $entry['capabilities']['field_sections'][] = 'invented_section';
             return $entry;
         },
-        "duo: manifest disposition 'core' names absent manifest section 'invented_section'",
+        "wprism: manifest disposition 'core' names absent manifest section 'invented_section'",
     ],
     'an unsupported row with no reason' => [
         static function (array $entry): array {
             $entry['unsupported'][0]['reason'] = '';
             return $entry;
         },
-        "duo: manifest disposition 'core' unsupported[0] is malformed",
+        "wprism: manifest disposition 'core' unsupported[0] is malformed",
     ],
     'default-authored evidence for a keyspace the manifest never declares' => [
         static function (array $entry): array {
@@ -861,14 +857,14 @@ $entryRules = [
             ];
             return $entry;
         },
-        "duo: manifest disposition 'core' names non-default-authored keyspace 'not_a_core_table'",
+        "wprism: manifest disposition 'core' names non-default-authored keyspace 'not_a_core_table'",
     ],
     'a certified claim citing nothing' => [
         static function (array $entry): array {
             unset($entry['evidence']);
             return $entry;
         },
-        "duo: certified manifest disposition 'core' lacks current bundle evidence",
+        "wprism: certified manifest disposition 'core' lacks current bundle evidence",
     ],
 ];
 foreach ($entryRules as $label => [$edit, $expected]) {
@@ -881,7 +877,7 @@ foreach ($entryRules as $label => [$edit, $expected]) {
     $message = $refusal(static function () use ($dir, $coreManifest): void {
         ManifestDispositions::load($dir)?->assert_covers([$coreManifest]);
     });
-    duo_check(
+    wprism_check(
         str_contains($message, $expected),
         "per-entry rule fires from the split form, unchanged: $label ($message)"
     );
@@ -902,8 +898,8 @@ $badProfile = $reviewedLibrary('bad-profile', static function (string $documents
         ],
     ]));
 });
-duo_check_same(
-    "duo: manifest disposition profile 'orphan' is malformed",
+wprism_check_same(
+    "wprism: manifest disposition profile 'orphan' is malformed",
     $refusal(static function () use ($badProfile): void {
         ManifestDispositions::load($badProfile);
     }),
@@ -913,7 +909,7 @@ $goodProfile = $reviewedLibrary('good-profile', static function (string $documen
     Canon::write_file($documents . '/core.json', Canon::encode($coreEntry));
     copy($adapterLibrary->profilesPath(), $documents . '/profiles.json');
 });
-duo_check_same(
+wprism_check_same(
     ['fse'],
     array_keys(ManifestDispositions::load($goodProfile)?->profiles() ?? []),
     'and the shipped profiles document resolves against a directory that declares its subject'
@@ -921,7 +917,7 @@ duo_check_same(
 
 // The frozen root rule keeps its one live reader: a snapshot is still the WHOLE
 // document, so validate_root() still refuses a malformed one.
-duo_check(
+wprism_check(
     str_contains(
         $refusal(static function () use ($coreManifest): void {
             ManifestDispositions::from_snapshot(['format' => ManifestDispositions::FORMAT], [$coreManifest]);
@@ -943,7 +939,7 @@ $strayName = $reviewedLibrary('stray-name', static function (string $documents) 
     // is enforced; without a profile there is nothing to resolve and no listing.
     Canon::write_file($documents . '/profiles.json', Canon::encode([]));
 });
-duo_check(
+wprism_check(
     str_contains(
         $refusal(static function () use ($strayName): void {
             ManifestDispositions::load($strayName)?->data();
@@ -953,7 +949,7 @@ duo_check(
     'a document not named for a canonical adapter slug refuses rather than being skipped — reviewed bytes with no '
     . 'subject are the authoring half of the coverage rule'
 );
-duo_check(
+wprism_check(
     str_contains(
         $refusal(static function () use ($goodProfile): void {
             ManifestDispositions::load($goodProfile)?->entry('profiles');
@@ -970,7 +966,7 @@ Canon::write_file($staleMonolith . '/dispositions.json', Canon::encode([
     'manifests' => ['core' => $coreEntry],
     'profiles' => [],
 ]));
-duo_check(
+wprism_check(
     str_contains(
         $refusal(static function () use ($staleMonolith): void {
             ManifestDispositions::load($staleMonolith);
@@ -981,4 +977,4 @@ duo_check(
     . 'this library refuses everywhere else'
 );
 
-duo_check_summary('disposition split');
+wprism_check_summary('disposition split');

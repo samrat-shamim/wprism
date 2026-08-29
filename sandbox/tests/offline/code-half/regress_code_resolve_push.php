@@ -1,8 +1,8 @@
 <?php
 /**
- * Offline product contract for host→target code push over ssh (DUO-3514).
+ * Offline product contract for host→target code push over ssh (issue #3514).
  *
- * Before this, `duo code-resolve` on an ssh environment refused
+ * Before this, `wprism code-resolve` on an ssh environment refused
  * `code_resolve_transport_unsupported` and the automatic deploy phase refused
  * with it unless the target ALREADY hashed correctly — so a fresh clone of a
  * split repository could not be deployed over ssh at all. docs/code-half.md
@@ -13,7 +13,7 @@
  * What separates that from "scp and hope" is the ORDER, and this suite pins
  * it end to end against a REAL filesystem rather than a mock: the fixture
  * transport executes the target-side scripts through `sh`, copies the archive
- * with `copy()`, and answers `wp duo code-inventory` by running the agent's
+ * with `copy()`, and answers `wp wprism code-inventory` by running the agent's
  * own `CodeDescriptorCompiler::component_inventory()`. Nothing is stubbed
  * except the network hop itself, so the tar members, the staging layout, the
  * `mv` guards and the digests are the real ones.
@@ -31,7 +31,7 @@
  *   D. a re-run transfers nothing at all — no allocation, no archive;
  *   E. `--dry-run` transfers nothing either, and says what it would do;
  *   F. a driver that is NOT a `CodePushTransport` keeps the byte-identical
- *      `code_resolve_transport_unsupported` refusal, DUO-3514 sentence
+ *      `code_resolve_transport_unsupported` refusal, issue #3514 sentence
  *      included, because for it that sentence is still true.
  *
  * The local and docker arms are NOT re-pinned here: `regress_code_resolve.php`
@@ -50,18 +50,18 @@ require_once __DIR__ . '/../../../../agent/src/Code/CodeSourceLock.php';
 require_once __DIR__ . '/../../../../cli/src/Code/CodeResolver.php';
 require_once __DIR__ . '/../../../../cli/src/Command/CodeResolveCommand.php';
 
-use Duo\CodeSourceLock;
-use Duo\Orchestrator\CodeResolveCommand;
-use Duo\Orchestrator\WpOrgReleases;
+use WPrism\CodeSourceLock;
+use WPrism\Orchestrator\CodeResolveCommand;
+use WPrism\Orchestrator\WpOrgReleases;
 
 const PUSH_FORMAT_2 = [
     'format' => 2,
     'layout' => 'wp-content',
-    'lock' => 'code/duo-code.lock.json',
+    'lock' => 'code/wprism-code.lock.json',
     'source' => 'code/wp-content',
 ];
 
-$scratch = sys_get_temp_dir() . '/duo_regress_code_push_' . bin2hex(random_bytes(6));
+$scratch = sys_get_temp_dir() . '/wprism_regress_code_push_' . bin2hex(random_bytes(6));
 $registry = $scratch . '/registry';
 mkdir($registry . '/plugin', 0775, true);
 mkdir($registry . '/theme', 0775, true);
@@ -115,7 +115,7 @@ function push_tree_digest(string $scratch, array $files): string {
 }
 
 /**
- * A TARGET repository: `site.duo.json` at code format 2, the declared lock,
+ * A TARGET repository: `site.wprism.json` at code format 2, the declared lock,
  * and only the components named in `$present` materialized.
  *
  * @param list<array<string,mixed>> $lockRows
@@ -126,8 +126,8 @@ function push_make_target(string $scratch, int &$seq, array $lockRows, array $pr
     mkdir($repo . '/code/wp-content/plugins', 0775, true);
     mkdir($repo . '/code/wp-content/themes', 0775, true);
     file_put_contents(
-        $repo . '/site.duo.json',
-        \Duo\Canon::encode(['code' => PUSH_FORMAT_2, 'format' => 1, 'site' => 'fixture'])
+        $repo . '/site.wprism.json',
+        \WPrism\Canon::encode(['code' => PUSH_FORMAT_2, 'format' => 1, 'site' => 'fixture'])
     );
     file_put_contents($repo . '/' . CodeSourceLock::PATH, CodeSourceLock::encode($lockRows));
     foreach ($present as $key => $files) {
@@ -140,9 +140,9 @@ if (!class_exists(ZipArchive::class)) {
     // Not a skip, and not a silent one: without ZipArchive this host cannot
     // verify a release at all, so the push has nothing verified to ship. That
     // is a refusal to state, not a suite to pass.
-    duo_check(false, 'the php-zip extension is required to exercise the code push; install php-zip and rerun');
+    wprism_check(false, 'the php-zip extension is required to exercise the code push; install php-zip and rerun');
     push_remove_tree($scratch);
-    duo_check_summary('regress_code_resolve_push');
+    wprism_check_summary('regress_code_resolve_push');
 }
 
 // ---------------------------------------------------------------------------
@@ -208,15 +208,15 @@ $fixtureFile = $scratch . '/push_fixture.php';
 $runnerFile = $scratch . '/push_runner.php';
 
 file_put_contents($fixtureFile, str_replace(
-    '__DUO_ROOT__',
+    '__WPRISM_ROOT__',
     var_export($root, true),
     <<<'PHP_FIXTURE'
 <?php
 declare(strict_types=1);
-require_once __DUO_ROOT__ . '/cli/src/Transport/Transport.php';
-require_once __DUO_ROOT__ . '/cli/src/Transport/CodePushTransport.php';
-require_once __DUO_ROOT__ . '/cli/src/Command/CodeResolveCommand.php';
-require_once __DUO_ROOT__ . '/agent/src/Code/CodeDescriptorCompiler.php';
+require_once __WPRISM_ROOT__ . '/cli/src/Transport/Transport.php';
+require_once __WPRISM_ROOT__ . '/cli/src/Transport/CodePushTransport.php';
+require_once __WPRISM_ROOT__ . '/cli/src/Command/CodeResolveCommand.php';
+require_once __WPRISM_ROOT__ . '/agent/src/Code/CodeDescriptorCompiler.php';
 
 /**
  * An ssh-shaped transport whose "target" is a real directory on this host.
@@ -224,11 +224,11 @@ require_once __DUO_ROOT__ . '/agent/src/Code/CodeDescriptorCompiler.php';
  * Everything the real SshTransport does over the wire is done locally and
  * recorded: `captureRaw()` runs the script through `sh` (so the mkdir, the
  * tar extract, the mv guards and the rm are the REAL ones), `putCodePushInput`
- * copies the archive, and `captureWp(['duo','code-inventory',…])` answers with
+ * copies the archive, and `captureWp(['wprism','code-inventory',…])` answers with
  * the agent's own component_inventory() over the named repository. Only the
  * network hop is absent.
  */
-class PushFixtureTransport extends \Duo\Orchestrator\Transport {
+class PushFixtureTransport extends \WPrism\Orchestrator\Transport {
     /** @var list<string> the ordered call log the suite asserts on */
     public array $events = [];
     /** @var list<string> every target path this fixture was asked to allocate */
@@ -264,7 +264,7 @@ class PushFixtureTransport extends \Duo\Orchestrator\Transport {
     }
 
     public function captureWp(array $wpArgs): array {
-        if (($wpArgs[0] ?? '') !== 'duo' || ($wpArgs[1] ?? '') !== 'code-inventory') {
+        if (($wpArgs[0] ?? '') !== 'wprism' || ($wpArgs[1] ?? '') !== 'code-inventory') {
             $this->events[] = 'wp:other';
             return ['exit' => 1, 'stdout' => '', 'stderr' => 'unsupported'];
         }
@@ -274,20 +274,20 @@ class PushFixtureTransport extends \Duo\Orchestrator\Transport {
                 $repo = substr($arg, strlen('--repo='));
             }
         }
-        $staged = str_contains($repo, '/' . \Duo\Orchestrator\CodeResolveCommand::PUSH_STAGING . '/');
+        $staged = str_contains($repo, '/' . \WPrism\Orchestrator\CodeResolveCommand::PUSH_STAGING . '/');
         $this->events[] = $staged ? 'wp:inventory-staged' : 'wp:inventory';
-        $source = rtrim($repo, '/') . '/' . \Duo\CodeDescriptorCompiler::SOURCE;
-        $components = is_dir($source) ? \Duo\CodeDescriptorCompiler::component_inventory($source) : [];
+        $source = rtrim($repo, '/') . '/' . \WPrism\CodeDescriptorCompiler::SOURCE;
+        $components = is_dir($source) ? \WPrism\CodeDescriptorCompiler::component_inventory($source) : [];
         return ['exit' => 0, 'stdout' => json_encode([
-            'format' => 'duo-code-inventory/v1',
+            'format' => 'wprism-code-inventory/v1',
             'components' => $components,
-            'source' => \Duo\CodeDescriptorCompiler::SOURCE,
+            'source' => \WPrism\CodeDescriptorCompiler::SOURCE,
         ], JSON_UNESCAPED_SLASHES), 'stderr' => ''];
     }
 
     public function allocateCodePushInput(string $label): string {
         $this->events[] = 'allocate';
-        $path = sys_get_temp_dir() . '/duo-code-push-' . $label . '-' . bin2hex(random_bytes(16)) . '.tar';
+        $path = sys_get_temp_dir() . '/wprism-code-push-' . $label . '-' . bin2hex(random_bytes(16)) . '.tar';
         $this->allocated[] = $path;
         return $path;
     }
@@ -319,7 +319,7 @@ class PushFixtureTransport extends \Duo\Orchestrator\Transport {
     }
 
     private function classify(string $script): string {
-        if (str_contains($script, '/site.duo.json')) {
+        if (str_contains($script, '/site.wprism.json')) {
             return 'raw:site';
         }
         if (str_contains($script, $this->lockPath)) {
@@ -344,18 +344,18 @@ final class PushlessFixtureTransport extends PushFixtureTransport {
 
 /** With it, which is the only difference between the two arms. */
 final class PushCapableFixtureTransport extends PushFixtureTransport implements
-    \Duo\Orchestrator\CodePushTransport {
+    \WPrism\Orchestrator\CodePushTransport {
 }
 PHP_FIXTURE
 ));
 
 file_put_contents($runnerFile, str_replace(
-    '__DUO_FIXTURE__',
+    '__WPRISM_FIXTURE__',
     var_export($fixtureFile, true),
     <<<'PHP_RUNNER'
 <?php
 declare(strict_types=1);
-require_once __DUO_FIXTURE__;
+require_once __WPRISM_FIXTURE__;
 
 $spec = json_decode((string) $argv[1], true);
 $class = ($spec['pushable'] ?? true) ? 'PushCapableFixtureTransport' : 'PushlessFixtureTransport';
@@ -366,9 +366,9 @@ $driver = new $class(
 );
 $phase = null;
 if (($spec['mode'] ?? 'verb') === 'verb') {
-    $exit = \Duo\Orchestrator\CodeResolveCommand::run($driver, (array) ($spec['extra'] ?? []));
+    $exit = \WPrism\Orchestrator\CodeResolveCommand::run($driver, (array) ($spec['extra'] ?? []));
 } else {
-    $phase = \Duo\Orchestrator\CodeResolveCommand::deployPhase($driver, (string) ($spec['verb'] ?? 'deploy'));
+    $phase = \WPrism\Orchestrator\CodeResolveCommand::deployPhase($driver, (string) ($spec['verb'] ?? 'deploy'));
     $exit = $phase ?? 0;
 }
 // A side channel, never stdout: one assertion below is that a repository with
@@ -385,7 +385,7 @@ PHP_RUNNER
 /**
  * Run one command boundary in a child process.
  *
- * `DUO_CODE_ARTIFACT_BASE` is pinned at the local `file://` registry: the
+ * `WPRISM_CODE_ARTIFACT_BASE` is pinned at the local `file://` registry: the
  * command boundary constructs its own WpOrgReleases and would otherwise take
  * the canonical downloads.wordpress.org base, which the offline corpus must
  * never reach.
@@ -404,7 +404,7 @@ function push_run(string $runnerFile, string $scratch, array $spec, array $env =
         $pipes,
         null,
         array_merge((array) getenv(), [
-            'DUO_CODE_ARTIFACT_BASE' => 'file://' . $registry,
+            'WPRISM_CODE_ARTIFACT_BASE' => 'file://' . $registry,
             'XDG_CACHE_HOME' => $scratch . '/xdg',
         ], $env)
     );
@@ -428,12 +428,12 @@ function push_run(string $runnerFile, string $scratch, array $spec, array $env =
     ];
 }
 
-/** Whatever `/tmp/duo-code-push-*.tar` a run left behind. @return list<string> */
+/** Whatever `/tmp/wprism-code-push-*.tar` a run left behind. @return list<string> */
 function push_stray_archives(array $allocated): array {
     return array_values(array_filter($allocated, static fn(string $path): bool => is_file($path)));
 }
 
-/** The `.duo/code-push/` staging entries a run left behind. @return list<string> */
+/** The `.wprism/code-push/` staging entries a run left behind. @return list<string> */
 function push_stray_staging(string $repo): array {
     $found = glob($repo . '/' . CodeResolveCommand::PUSH_STAGING . '/*');
     return $found === false ? [] : array_values($found);
@@ -449,8 +449,8 @@ $result = push_run($runnerFile, $scratch, [
     'verb' => 'deploy',
     'repo_path' => $target,
 ]);
-duo_check_same('continue', $result['phase'], 'the deploy phase resolves and pushes on ssh instead of refusing');
-duo_check_same(
+wprism_check_same('continue', $result['phase'], 'the deploy phase resolves and pushes on ssh instead of refusing');
+wprism_check_same(
     [
         'raw:site', 'raw:lock', 'wp:inventory',
         'allocate', 'put', 'raw:extract', 'wp:inventory-staged',
@@ -461,34 +461,34 @@ duo_check_same(
     'THE ordering contract: read the target, allocate, place, extract into staging, VERIFY the staged trees, '
     . 'publish, re-verify the repository, then clean up — the staged verification sits before the publish'
 );
-duo_check_same(
+wprism_check_same(
     $wooTreeDigest,
     WpOrgReleases::treeDigest($target . '/code/wp-content/plugins/woocommerce'),
     'and afterwards the target holds the plugin at exactly the digest its lock declares'
 );
-duo_check_same(
+wprism_check_same(
     $themeTreeDigest,
     WpOrgReleases::treeDigest($target . '/code/wp-content/themes/storefront'),
     'and the theme too'
 );
-duo_check_same([], push_stray_archives($result['allocated']), 'the pushed archive is removed from the target');
-duo_check_same([], push_stray_staging($target), 'and so is the target-side staging directory');
-duo_check(
+wprism_check_same([], push_stray_archives($result['allocated']), 'the pushed archive is removed from the target');
+wprism_check_same([], push_stray_staging($target), 'and so is the target-side staging directory');
+wprism_check(
     str_contains($result['stdout'], "deploy phase: code-resolve\n")
         && str_contains($result['stdout'], 'RESOLVED plugins/woocommerce 11.0.0')
         && str_contains($result['stdout'], 'deploy: 2 materialized, 0 unchanged.'),
-    'reported in the vocabulary duo code-resolve already prints, with no new row state invented for ssh'
+    'reported in the vocabulary wprism code-resolve already prints, with no new row state invented for ssh'
 );
-duo_check(
-    !str_contains($result['stdout'] . $result['stderr'], 'DUO-3514'),
-    'and nothing names DUO-3514 as unimplemented work any more on this arm'
+wprism_check(
+    !str_contains($result['stdout'] . $result['stderr'], 'issue #3514'),
+    'and nothing names issue #3514 as unimplemented work any more on this arm'
 );
 
 // The host leaves no staging worktree of its own behind either.
-duo_check_same(
+wprism_check_same(
     [],
     array_values(array_filter(
-        (array) glob(sys_get_temp_dir() . '/duo-code-push-*'),
+        (array) glob(sys_get_temp_dir() . '/wprism-code-push-*'),
         static fn(string $path): bool => is_dir($path)
     )),
     'and the throwaway HOST staging worktree is removed too'
@@ -497,12 +497,12 @@ duo_check_same(
 // The verb, not the phase: same mechanism, the verb's own rendering, exit 0.
 $verbTarget = push_make_target($scratch, $targetSeq, $lockRows);
 $result = push_run($runnerFile, $scratch, ['mode' => 'verb', 'repo_path' => $verbTarget]);
-duo_check_same(0, $result['exit'], 'duo code-resolve now SUCCEEDS on an ssh environment');
-duo_check(
-    str_contains($result['stdout'], 'duo: code-resolve: 2 component(s) declared in ' . CodeSourceLock::PATH),
+wprism_check_same(0, $result['exit'], 'wprism code-resolve now SUCCEEDS on an ssh environment');
+wprism_check(
+    str_contains($result['stdout'], 'wprism: code-resolve: 2 component(s) declared in ' . CodeSourceLock::PATH),
     'rendering under the verb prefix rather than a phase prefix'
 );
-duo_check_same(
+wprism_check_same(
     $wooTreeDigest,
     WpOrgReleases::treeDigest($verbTarget . '/code/wp-content/plugins/woocommerce'),
     'and the bytes are present where the target reads them'
@@ -519,33 +519,33 @@ $result = push_run($runnerFile, $scratch, [
     'repo_path' => $corrupt,
     'corrupt_from' => $scratch . '/tamper',
 ]);
-duo_check_same(1, $result['phase'], 'a tree that arrives corrupted refuses the phase');
-duo_check(
-    str_contains($result['stderr'], '[' . \Duo\Orchestrator\CodeResolver::REASON_TREE_DIGEST_MISMATCH . ']'),
+wprism_check_same(1, $result['phase'], 'a tree that arrives corrupted refuses the phase');
+wprism_check(
+    str_contains($result['stderr'], '[' . \WPrism\Orchestrator\CodeResolver::REASON_TREE_DIGEST_MISMATCH . ']'),
     'with the tree-digest reason code the host-side resolver already uses for the same class of failure'
 );
-duo_check(
+wprism_check(
     str_contains($result['stderr'], 'plugins/woocommerce'),
     'naming the component whose digest disagreed'
 );
-duo_check_same(
+wprism_check_same(
     0,
     count(array_filter($result['events'], static fn(string $e): bool => $e === 'raw:publish')),
     'THE property: ZERO publish calls — the verification is target-side and it happens BEFORE any rename'
 );
-duo_check(
+wprism_check(
     !is_dir($corrupt . '/code/wp-content/plugins/woocommerce')
         && !is_dir($corrupt . '/code/wp-content/themes/storefront'),
     'so the target code/wp-content is untouched, not half-written'
 );
-duo_check_same(
+wprism_check_same(
     ['remove', 'raw:rm-staging'],
     array_values(array_slice($result['events'], -2)),
     'and the finally still removes the archive and the staging directory on the refusal path'
 );
-duo_check_same([], push_stray_archives($result['allocated']), 'leaving no /tmp/duo-code-push-*.tar behind');
-duo_check_same([], push_stray_staging($corrupt), 'and no .duo/code-push/ entry behind');
-duo_check(
+wprism_check_same([], push_stray_archives($result['allocated']), 'leaving no /tmp/wprism-code-push-*.tar behind');
+wprism_check_same([], push_stray_staging($corrupt), 'and no .wprism/code-push/ entry behind');
+wprism_check(
     str_contains($result['stderr'], 'refusing before compile'),
     'stating that it stopped before compile, so no lease and no checkpoint exist to compensate'
 );
@@ -561,26 +561,26 @@ $result = push_run($runnerFile, $scratch, [
     'verb' => 'deploy',
     'repo_path' => $drifted,
 ]);
-duo_check_same(1, $result['phase'], 'a component present at a different digest refuses');
-duo_check(
-    str_contains($result['stderr'], '[' . \Duo\Orchestrator\CodeResolver::REASON_DRIFTED . ']'),
+wprism_check_same(1, $result['phase'], 'a component present at a different digest refuses');
+wprism_check(
+    str_contains($result['stderr'], '[' . \WPrism\Orchestrator\CodeResolver::REASON_DRIFTED . ']'),
     'with CodeResolver\'s own drift reason code: the doctrine crosses the transport unchanged'
 );
-duo_check(
+wprism_check(
     str_contains($result['stderr'], 'nothing overwrites a tree Git does not carry'),
     'and the same remedy sentence, because it is the same rule'
 );
-duo_check_same(
+wprism_check_same(
     ['raw:site', 'raw:lock', 'wp:inventory'],
     $result['events'],
     'refusing after the READ and before the first allocation: nothing is fetched, nothing is transferred'
 );
-duo_check_same(
+wprism_check_same(
     $plantedDigest,
     WpOrgReleases::treeDigest($drifted . '/code/wp-content/plugins/woocommerce'),
     'and the operator\'s own bytes are byte-identical afterwards'
 );
-duo_check(
+wprism_check(
     !is_dir($drifted . '/code/wp-content/themes/storefront'),
     'the ABSENT sibling is not pushed either: a repository half at the lock is the state nobody can reason about'
 );
@@ -594,13 +594,13 @@ $result = push_run($runnerFile, $scratch, [
     'verb' => 'deploy',
     'repo_path' => $target,
 ]);
-duo_check_same('continue', $result['phase'], 'a target that already holds every locked component proceeds');
-duo_check_same(
+wprism_check_same('continue', $result['phase'], 'a target that already holds every locked component proceeds');
+wprism_check_same(
     ['raw:site', 'raw:lock', 'wp:inventory'],
     $result['events'],
     'and transfers nothing at all: no allocation, no archive, no extract'
 );
-duo_check(
+wprism_check(
     str_contains($result['stdout'], 'UNCHANGED plugins/woocommerce')
         && str_contains($result['stdout'], 'deploy: 0 materialized, 2 unchanged.'),
     'reporting every component unchanged, exactly as the read-only arm did before the push existed'
@@ -616,18 +616,18 @@ $result = push_run($runnerFile, $scratch, [
     'repo_path' => $dry,
     'extra' => ['--dry-run'],
 ]);
-duo_check_same(0, $result['exit'], 'a dry run over ssh exits 0');
-duo_check_same(
+wprism_check_same(0, $result['exit'], 'a dry run over ssh exits 0');
+wprism_check_same(
     ['raw:site', 'raw:lock', 'wp:inventory'],
     $result['events'],
     'and contacts the target only to READ: no allocation and no archive'
 );
-duo_check(
+wprism_check(
     str_contains($result['stdout'], 'WOULD-RESOLVE plugins/woocommerce 11.0.0')
-        && str_contains($result['stdout'], 'duo: --dry-run: nothing was fetched, written, or cached.'),
+        && str_contains($result['stdout'], 'wprism: --dry-run: nothing was fetched, written, or cached.'),
     'saying what it would do in the vocabulary the host-side dry run already prints'
 );
-duo_check(
+wprism_check(
     !is_dir($dry . '/code/wp-content/plugins/woocommerce'),
     'and nothing lands on the target'
 );
@@ -643,21 +643,21 @@ $result = push_run($runnerFile, $scratch, [
     'repo_path' => $unpushable,
     'pushable' => false,
 ]);
-duo_check_same(1, $result['phase'], 'a driver that does not implement CodePushTransport still refuses');
-duo_check(
+wprism_check_same(1, $result['phase'], 'a driver that does not implement CodePushTransport still refuses');
+wprism_check(
     str_contains($result['stderr'], '[' . CodeResolveCommand::REASON_TRANSPORT_UNSUPPORTED . ']'),
     'with the byte-identical reason code'
 );
-duo_check(
-    str_contains($result['stderr'], 'host-to-target push over ssh is DUO-3514 and is not implemented'),
-    'and the byte-identical DUO-3514 sentence, which for a transport with no push mechanism is still true'
+wprism_check(
+    str_contains($result['stderr'], 'host-to-target push over ssh is issue #3514 and is not implemented'),
+    'and the byte-identical issue #3514 sentence, which for a transport with no push mechanism is still true'
 );
-duo_check(
+wprism_check(
     str_contains($result['stderr'], 'plugins/woocommerce 11.0.0 (absent)')
         && str_contains($result['stderr'], 'themes/storefront 4.6.0 (absent)'),
     'naming each pending component in lock order, exactly as before'
 );
-duo_check_same(
+wprism_check_same(
     ['raw:site', 'raw:lock', 'wp:inventory'],
     $result['events'],
     'and the read sequence it issues is unchanged'
@@ -670,8 +670,8 @@ $result = push_run($runnerFile, $scratch, [
     'verb' => 'deploy',
     'repo_path' => $unpushable,
 ]);
-duo_check_same('continue', $result['phase'], 'and the identical run through a CodePushTransport succeeds');
+wprism_check_same('continue', $result['phase'], 'and the identical run through a CodePushTransport succeeds');
 
 push_remove_tree($scratch);
 
-duo_check_summary('regress_code_resolve_push');
+wprism_check_summary('regress_code_resolve_push');

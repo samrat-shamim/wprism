@@ -62,7 +62,7 @@ CLASSIC_INSTALLED_1=$(wp1 plugin get classic-editor --field=version)
   || fail "side 1 installed version mismatch: expected $CLASSIC_VERSION, got $CLASSIC_INSTALLED_1"
 pass "side 1: classic-editor $CLASSIC_VERSION installed from verified artifact, active"
 
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "classic-editor"],
   "policy": {
@@ -82,8 +82,8 @@ cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 "${GIT1[@]}" push -qu origin main
 
 seed_classic_editor_content
-wp1 duo capture --repo=/siterepo
-wp1 duo lint --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
+wp1 wprism lint --repo=/siterepo
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "capture: Classic Editor $CLASSIC_VERSION settings and routed posts"
 "${GIT1[@]}" push -q origin main
@@ -94,14 +94,14 @@ INSTALLED_2=$(wp2 plugin get classic-editor --field=version)
 require_fixture_values INSTALLED_2
 [ "$INSTALLED_2" = "$CLASSIC_VERSION" ] \
   || fail "side 2 installed version mismatch: expected $CLASSIC_VERSION, got $INSTALLED_2"
-wp2 duo deploy --repo=/siterepo
+wp2 wprism deploy --repo=/siterepo
 REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
 grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
   || fail "apply canary not clean at classic-editor $CLASSIC_VERSION"
 check_classic_editor_boundary_content
 
-wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
+wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-final
 CLASSIC_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
 rm -rf "siterepo/${PAIR}2/.tmp-final"
 [ -z "$CLASSIC_DIFF" ] \
@@ -118,7 +118,7 @@ NEGATIVE_INSTALLED=$(wp1 plugin get classic-editor --field=version)
 require_fixture_values NEGATIVE_INSTALLED
 [ "$NEGATIVE_INSTALLED" = "1.7.0" ] \
   || fail "negative control premise did not install exact classic-editor 1.7.0 bytes"
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "classic-editor"],
   "policy": {
@@ -137,7 +137,7 @@ cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 "${GIT1[@]}" commit -qm "policy: Classic Editor negative-control pin"
 "${GIT1[@]}" push -qu origin main
 seed_classic_editor_content
-wp1 duo capture --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "capture: valid Classic Editor state for negative control"
 "${GIT1[@]}" push -q origin main
@@ -152,7 +152,7 @@ INSTALLED_OOR=$(wp1 plugin get classic-editor --field=version)
 CLASSIC_REFUSAL_BEFORE=$(wp1 eval 'echo hash("sha256", wp_json_encode([get_option("classic-editor-replace", null), get_option("classic-editor-allow-users", null)]));')
 require_observed_nonempty "Classic Editor refusal state baseline" "$CLASSIC_REFUSAL_BEFORE"
 set +e
-DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] \

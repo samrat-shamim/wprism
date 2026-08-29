@@ -12,8 +12,8 @@ if (!defined('ARRAY_A')) {
 
 require_once __DIR__ . '/../../../../agent/src/Capture/EntityMetaCapture.php';
 
-use Duo\EntityMetaCapture;
-use Duo\OrderPreserved;
+use WPrism\EntityMetaCapture;
+use WPrism\OrderPreserved;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -32,7 +32,7 @@ $throws = static function (callable $run, string $fragment, string $message) use
 };
 
 $check(class_exists(EntityMetaCapture::class, false), 'EntityMetaCapture loads as a direct offline boundary');
-foreach (['Duo\\Capture', 'Duo\\Policy', 'Duo\\Tokens'] as $runtimeClass) {
+foreach (['WPrism\\Capture', 'WPrism\\Policy', 'WPrism\\Tokens'] as $runtimeClass) {
     $check(!class_exists($runtimeClass, false), "EntityMetaCapture does not load $runtimeClass");
 }
 
@@ -171,7 +171,7 @@ final class EntityMetaWpdbFixture {
                 return [];
             }
             if ($this->forcedResult === 'oversize') {
-                return array_fill(0, \Duo\MetaRows::MAX_OWNER_ROWS + 1, [
+                return array_fill(0, \WPrism\MetaRows::MAX_OWNER_ROWS + 1, [
                     'meta_id' => '1',
                     'meta_key_bytes' => '7',
                     'meta_value_bytes' => '5',
@@ -181,7 +181,7 @@ final class EntityMetaWpdbFixture {
                 return [[
                     'meta_id' => '1',
                     'meta_key_bytes' => '7',
-                    'meta_value_bytes' => (string) (\Duo\MetaRows::MAX_META_VALUE_BYTES + 1),
+                    'meta_value_bytes' => (string) (\WPrism\MetaRows::MAX_META_VALUE_BYTES + 1),
                 ]];
             }
             $forced = $this->forcedResult;

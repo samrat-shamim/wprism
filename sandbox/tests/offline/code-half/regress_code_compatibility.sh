@@ -6,23 +6,23 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 
-DUO_ROOT="$ROOT" php -d display_errors=1 <<'PHP'
+WPRISM_ROOT="$ROOT" php -d display_errors=1 <<'PHP'
 <?php
-$root = getenv('DUO_ROOT');
-$duoSource = (string) file_get_contents($root . '/agent/duo.php');
-if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $duoSource, $specMatch) !== 1
-    || preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $duoSource, $agentMatch) !== 1) {
+$root = getenv('WPRISM_ROOT');
+$wprismSource = (string) file_get_contents($root . '/agent/wprism.php');
+if (preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", $wprismSource, $specMatch) !== 1
+    || preg_match("/define\('WPRISM_AGENT_VERSION', '([^']+)'\)/", $wprismSource, $agentMatch) !== 1) {
     throw new \RuntimeException('regress_code_compatibility: cannot resolve agent versions');
 }
-define('DUO_SPEC_VERSION', (int) $specMatch[1]);
-define('DUO_AGENT_VERSION', (string) $agentMatch[1]);
-$duoAgentClassmap = require $root . '/agent/duo-classmap.php';
-if (!is_array($duoAgentClassmap)) {
-    throw new \RuntimeException('regress_code_compatibility: agent/duo-classmap.php did not return a map');
+define('WPRISM_SPEC_VERSION', (int) $specMatch[1]);
+define('WPRISM_AGENT_VERSION', (string) $agentMatch[1]);
+$wprismAgentClassmap = require $root . '/agent/wprism-classmap.php';
+if (!is_array($wprismAgentClassmap)) {
+    throw new \RuntimeException('regress_code_compatibility: agent/wprism-classmap.php did not return a map');
 }
-$duoAgentFiles = [];
-foreach ($duoAgentClassmap as $duoAgentPath) {
-    $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
+$wprismAgentFiles = [];
+foreach ($wprismAgentClassmap as $wprismAgentPath) {
+    $wprismAgentFiles[basename((string) $wprismAgentPath, '.php')] = (string) $wprismAgentPath;
 }
 foreach ([
     'Uuid', 'Canon', 'OptionState', 'Db', 'Secrets', 'PersonalData',
@@ -30,21 +30,21 @@ foreach ([
     'Snapshot', 'Deletion', 'RepositoryAuthorization', 'SidebarState',
     'CodeStateContract', 'RepositoryCompiler',
 ] as $file) {
-    $duoAgentFile = $duoAgentFiles[$file] ?? null;
-    if (!is_string($duoAgentFile)) {
-        throw new \RuntimeException('regress_code_compatibility: agent source ' . $file . '.php is absent from agent/duo-classmap.php');
+    $wprismAgentFile = $wprismAgentFiles[$file] ?? null;
+    if (!is_string($wprismAgentFile)) {
+        throw new \RuntimeException('regress_code_compatibility: agent source ' . $file . '.php is absent from agent/wprism-classmap.php');
     }
-    require_once $root . '/agent/' . $duoAgentFile;
+    require_once $root . '/agent/' . $wprismAgentFile;
 }
 
-use Duo\Canon;
-use Duo\AdapterLibrary;
-use Duo\Code;
-use Duo\CodeCompatibility;
-use Duo\OptionState;
-use Duo\Policy;
-use Duo\RepositoryCompilationException;
-use Duo\RepositoryCompiler;
+use WPrism\Canon;
+use WPrism\AdapterLibrary;
+use WPrism\Code;
+use WPrism\CodeCompatibility;
+use WPrism\OptionState;
+use WPrism\Policy;
+use WPrism\RepositoryCompilationException;
+use WPrism\RepositoryCompiler;
 
 function fail_compat(string $message): never { throw new RuntimeException("FAIL: $message"); }
 function check_compat(bool $condition, string $message): void {
@@ -69,7 +69,7 @@ function has_code_compat(array $diagnostics, string $code): bool {
     return in_array($code, codes_compat($diagnostics), true);
 }
 
-$tmp = sys_get_temp_dir() . '/duo-code-compat-' . bin2hex(random_bytes(6));
+$tmp = sys_get_temp_dir() . '/wprism-code-compat-' . bin2hex(random_bytes(6));
 $source = "$tmp/code/wp-content";
 mkdir($source, 0777, true);
 register_shutdown_function(static function () use ($tmp): void { remove_compat($tmp); });
@@ -109,7 +109,7 @@ $runtimeClean = CodeCompatibility::target_report(
     ['php' => '8.3.7', 'wordpress' => '6.8.2', 'source' => 'target-control-plane']
 );
 check_compat(
-    ($runtimeClean['format'] ?? null) === 'duo-code-runtime/v1'
+    ($runtimeClean['format'] ?? null) === 'wprism-code-runtime/v1'
         && ($runtimeClean['compatible'] ?? false) === true
         && ($runtimeClean['diagnostics'] ?? null) === []
         && count((array) ($runtimeClean['requirements'] ?? [])) === 2,
@@ -381,7 +381,7 @@ $adapterLibrary = AdapterLibrary::fromSourceTree($libraryRoot);
 $repo = "$tmp/compiler-repo";
 mkdir("$repo/state/options", 0777, true);
 mkdir("$repo/media", 0777, true);
-put_compat("$repo/site.duo.json", Canon::encode([
+put_compat("$repo/site.wprism.json", Canon::encode([
     'manifests' => ['core', 'compat-fixture'],
     'policy' => [
         'options' => (object) [], 'post_meta' => (object) [], 'term_meta' => (object) [],
@@ -456,9 +456,9 @@ echo "ok: source version/theme ranges and dependency closure diagnostics are det
 echo "ok: RepositoryCompiler and compile_for_diff reject out-of-range vendored source before target contact\n";
 PHP
 
-DUO_ROOT="$ROOT" php -d display_errors=1 <<'PHP'
+WPRISM_ROOT="$ROOT" php -d display_errors=1 <<'PHP'
 <?php
-namespace Duo;
+namespace WPrism;
 
 final class CompiledRepository {
     public function __construct(
@@ -497,8 +497,8 @@ final class PromotionLock {
     public static function release(string $owner, string $artifact): void {}
 }
 
-$root = getenv('DUO_ROOT');
-define('WP_CONTENT_DIR', sys_get_temp_dir() . '/duo-code-compat-stage-target-' . bin2hex(random_bytes(6)));
+$root = getenv('WPRISM_ROOT');
+define('WP_CONTENT_DIR', sys_get_temp_dir() . '/wprism-code-compat-stage-target-' . bin2hex(random_bytes(6)));
 define('WP_PLUGIN_DIR', WP_CONTENT_DIR . '/plugins');
 define('WPMU_PLUGIN_DIR', WP_CONTENT_DIR . '/mu-plugins');
 require_once "$root/agent/src/Kernel/Canon.php";
@@ -523,7 +523,7 @@ function remove_stage_compat(string $path): void {
     @rmdir($path);
 }
 
-$repo = sys_get_temp_dir() . '/duo-code-compat-stage-repo-' . bin2hex(random_bytes(6));
+$repo = sys_get_temp_dir() . '/wprism-code-compat-stage-repo-' . bin2hex(random_bytes(6));
 $source = "$repo/code/wp-content";
 mkdir($source . '/plugins/provider', 0777, true);
 mkdir($source . '/plugins/dependent', 0777, true);

@@ -4,10 +4,10 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../../cli/src/Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../../../../cli/src/Command/DriverCapabilitiesCommand.php';
 
-use Duo\Orchestrator\DriverCapability;
-use Duo\Orchestrator\DriverCapabilityReport;
-use Duo\Orchestrator\DriverCapabilitiesCommand;
-use Duo\Orchestrator\EnvironmentDriver;
+use WPrism\Orchestrator\DriverCapability;
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\DriverCapabilitiesCommand;
+use WPrism\Orchestrator\EnvironmentDriver;
 
 function fail_driver_capabilities(string $message): never {
     fwrite(STDERR, "FAIL: $message\n");

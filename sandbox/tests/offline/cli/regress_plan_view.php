@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for DUO-3345's bounded plan-view slice.
+ * Offline regression for issue #3345's bounded plan-view slice.
  *
  * It drives the real agent projection and separately deployable host twin
  * against a deliberately reversed, secret-shaped complete plan. No
@@ -8,8 +8,8 @@
  */
 declare(strict_types=1);
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 2);
 }
 require_once __DIR__ . '/../../../../agent/src/Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../../../../agent/src/Review/PlanExplanation.php';
@@ -19,15 +19,15 @@ require_once __DIR__ . '/../../../../cli/src/Plan/PlanContract.php';
 require_once __DIR__ . '/../../../../cli/src/Plan/PlanSummary.php';
 require_once __DIR__ . '/../../../../cli/src/Plan/PlanView.php';
 
-use Duo\CommandRefusalException;
-use Duo\PlanCategorySummary;
-use Duo\PlanView as AgentPlanView;
-use Duo\Orchestrator\EnvironmentDriver;
-use Duo\Orchestrator\DriverCapability;
-use Duo\Orchestrator\DriverCapabilityReport;
-use Duo\Orchestrator\PlanContract;
-use Duo\Orchestrator\PlanSummary;
-use Duo\Orchestrator\PlanView as HostPlanView;
+use WPrism\CommandRefusalException;
+use WPrism\PlanCategorySummary;
+use WPrism\PlanView as AgentPlanView;
+use WPrism\Orchestrator\EnvironmentDriver;
+use WPrism\Orchestrator\DriverCapability;
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\PlanContract;
+use WPrism\Orchestrator\PlanSummary;
+use WPrism\Orchestrator\PlanView as HostPlanView;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -364,7 +364,7 @@ foreach ([
 try {
     HostPlanView::requestFromArgs(['--category=unknown']);
     $check(false, 'host rejects unknown status view token');
-} catch (\Duo\Orchestrator\PlanViewException $e) {
+} catch (\WPrism\Orchestrator\PlanViewException $e) {
     $check($e->reasonCode === 'invalid_arguments' && !str_contains($e->publicMessage, 'unknown'),
         'host typed-refuses invalid status input without echoing it');
 }
@@ -385,22 +385,22 @@ $check(array_filter($controlLines, static fn(string $line): bool => preg_match('
 // cmd_status through a fake in-memory transport. This proves one canonical
 // filtered request reaches the agent plan call and a legacy/missing view fails
 // closed rather than making a second call or silently falling back.
-$duoSource = file_get_contents(__DIR__ . '/../../../../cli/duo');
-if (!is_string($duoSource)) {
+$wprismSource = file_get_contents(__DIR__ . '/../../../../cli/wprism');
+if (!is_string($wprismSource)) {
     fwrite(STDERR, "FAIL: could not read host shell\n");
     exit(1);
 }
-$duoMain = "\ntry {\n    exit(main(\$argv));";
-$duoAt = strpos($duoSource, $duoMain);
-$duoPhp = strpos($duoSource, '<?php');
-if ($duoAt === false || $duoPhp === false) {
+$wprismMain = "\ntry {\n    exit(main(\$argv));";
+$wprismAt = strpos($wprismSource, $wprismMain);
+$wprismPhp = strpos($wprismSource, '<?php');
+if ($wprismAt === false || $wprismPhp === false) {
     fwrite(STDERR, "FAIL: host shell main guard moved\n");
     exit(1);
 }
-$duoSource = substr($duoSource, $duoPhp + 5, $duoAt - ($duoPhp + 5));
-$duoSource = str_replace('__DIR__', var_export(dirname(__DIR__, 4) . '/cli', true), $duoSource);
-$duoSource = (string) preg_replace('/^require /m', 'require_once ', $duoSource);
-eval($duoSource);
+$wprismSource = substr($wprismSource, $wprismPhp + 5, $wprismAt - ($wprismPhp + 5));
+$wprismSource = str_replace('__DIR__', var_export(dirname(__DIR__, 4) . '/cli', true), $wprismSource);
+$wprismSource = (string) preg_replace('/^require /m', 'require_once ', $wprismSource);
+eval($wprismSource);
 
 final class PlanViewStatusDriver implements EnvironmentDriver {
     /** @var list<array<int,string>> */
@@ -439,7 +439,7 @@ $statusExit = cmd_status($driver, [
 $statusOut = (string) ob_get_clean();
 $check($statusExit === 1 && count($driver->calls) === 1
     && $driver->calls[0] === [
-        'duo', 'plan', '--repo=/fixture/repo', '--category=authored_state,media', '--action=create,update',
+        'wprism', 'plan', '--repo=/fixture/repo', '--category=authored_state,media', '--action=create,update',
         '--entity=post,attachment', '--limit=2', '--format=json',
     ], 'filtered status forwards one normalized request and keeps full-plan blocked readiness');
 $check(str_contains($statusOut, 'VIEW CREATE')
@@ -453,7 +453,7 @@ $cleanExit = cmd_status($cleanDriver);
 ob_end_clean();
 $check($cleanExit === 0
     && $cleanDriver->calls === [[
-        'duo', 'plan', '--repo=/fixture/repo', '--format=json',
+        'wprism', 'plan', '--repo=/fixture/repo', '--format=json',
     ]],
     'unfiltered legacy status remains clean and makes its one unchanged plan request');
 $legacyDriver = new PlanViewStatusDriver($cleanNoView);
@@ -463,7 +463,7 @@ ob_end_clean();
 $check($legacyExit === 1 && count($legacyDriver->calls) === 1,
     'requested host view absent from a clean legacy/full plan fails closed without a second plan call');
 $malformedViewPlan = $cleanNoView;
-$malformedViewPlan['plan_view'] = ['format' => 'duo-plan-view/v0'];
+$malformedViewPlan['plan_view'] = ['format' => 'wprism-plan-view/v0'];
 $malformedDriver = new PlanViewStatusDriver($malformedViewPlan);
 ob_start();
 $malformedExit = cmd_status($malformedDriver, ['--action=create']);

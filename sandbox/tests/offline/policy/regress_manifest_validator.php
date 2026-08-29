@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline regression for the pure per-manifest validation pipeline
- * (DUO-3348 slice 28).
+ * (issue #3348 slice 28).
  *
  * The direct calls characterize both live and frozen ordering modes, while
  * the loader checks prove source/pin handling remains outside the extracted
@@ -10,8 +10,8 @@
  */
 declare(strict_types=1);
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 2);
 }
 
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
@@ -20,10 +20,10 @@ require_once __DIR__ . '/../../../../agent/src/Policy/ManifestValidator.php';
 require_once __DIR__ . '/manifest_fixtures.php';
 require_once __DIR__ . '/../../lib/frozen_policy.php';
 
-use Duo\Canon;
-use Duo\ManifestValidator;
-use Duo\Policy;
-use DuoTest\FrozenPolicy;
+use WPrism\Canon;
+use WPrism\ManifestValidator;
+use WPrism\Policy;
+use WPrismTest\FrozenPolicy;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -92,7 +92,7 @@ $check(
 );
 
 $frozenSnapshot = static function (array $manifests): array {
-    return FrozenPolicy::envelope($manifests, FrozenPolicy::site($manifests, DUO_SPEC_VERSION));
+    return FrozenPolicy::envelope($manifests, FrozenPolicy::site($manifests, WPRISM_SPEC_VERSION));
 };
 try {
     manifest_fixture_policy_from_snapshot($frozenSnapshot([manifest_a(), manifest_b()]));
@@ -101,14 +101,14 @@ try {
     $check(false, 'Policy::from_snapshot() uses the extracted frozen pipeline (threw: ' . $e->getMessage() . ')');
 }
 
-$root = sys_get_temp_dir() . '/duo_regress_manifest_validator_' . bin2hex(random_bytes(4));
+$root = sys_get_temp_dir() . '/wprism_regress_manifest_validator_' . bin2hex(random_bytes(4));
 $manifests = $root . '/manifests';
 mkdir($manifests, 0777, true);
 manifest_fixture_code($manifests);
-Canon::write_file($root . '/site.duo.json', Canon::encode([
+Canon::write_file($root . '/site.wprism.json', Canon::encode([
     'manifests' => ['a', 'b'],
     'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ]));
 Canon::write_file($manifests . '/a.json', Canon::encode(manifest_a()));
 Canon::write_file($manifests . '/b.json', Canon::encode(manifest_b()));

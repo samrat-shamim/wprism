@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 
@@ -11,7 +11,7 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
  * tombstone byte-for-byte until the entity reappears.
  */
 final class Deletion {
-    public const FORMAT = 'duo-deletion/v1';
+    public const FORMAT = 'wprism-deletion/v1';
 
     /** @return array{kind:string,type:string} */
     public static function descriptor(array $entity): array {
@@ -50,13 +50,13 @@ final class Deletion {
             'term' => ['termmeta', 'term_taxonomy', 'term_relationships'],
             'menu' => ['termmeta', 'term_taxonomy', 'term_relationships', 'menu_items'],
             'table' => self::table_requires_attached_meta($policy, $type) ? ['attached_meta'] : [],
-            default => throw new \RuntimeException("duo: invalid deletion kind '$kind'"),
+            default => throw new \RuntimeException("wprism: invalid deletion kind '$kind'"),
         };
         $declared = array_values(array_unique(array_map('strval', (array) ($cap['cascades'] ?? []))));
         $missing = array_values(array_diff($required, $declared));
         if ($missing) {
             throw new \RuntimeException(
-                "duo: deletion capability $selector omits required cascade effect(s): " . implode(', ', $missing)
+                "wprism: deletion capability $selector omits required cascade effect(s): " . implode(', ', $missing)
             );
         }
         return $cap;
@@ -64,7 +64,7 @@ final class Deletion {
 
     /** One reviewed machine contract for a generic deletion selector no adapter owns. */
     private static function unsupported_capability_refusal(string $selector): CommandRefusalException {
-        $operatorMessage = "duo: deletion intent for $selector is unsupported — no pinned adapter declares its reverse-reference checks and cascade effects";
+        $operatorMessage = "wprism: deletion intent for $selector is unsupported — no pinned adapter declares its reverse-reference checks and cascade effects";
         return new CommandRefusalException(
             'unsupported_deletion',
             "deletion intent for $selector is unsupported because no pinned adapter owns its destructive semantics",

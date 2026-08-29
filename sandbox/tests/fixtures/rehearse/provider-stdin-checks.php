@@ -1,6 +1,6 @@
 <?php
 /**
- * DUO-3492: the reference provider's external-command boundary, on the write
+ * issue #3492: the reference provider's external-command boundary, on the write
  * side.
  *
  * `ref_run()` feeds a child's stdin over a non-blocking pipe. A child that
@@ -15,7 +15,7 @@
  *     concurrent copies of regress_rehearse_provider.sh on a 10-core host
  *     produced 3 spurious `create`/`destroy` refusals in 32 runs, all reading
  *     "could not send reference provider command input", none reproducible
- *     standalone. That is the flake DUO-3492 was filed for.
+ *     standalone. That is the flake issue #3492 was filed for.
  *  2. It destroyed the diagnosis. The child's exit status and stderr — the
  *     only evidence that says WHY docker refused — were discarded in favour of
  *     a message about this provider's own pipe.
@@ -51,7 +51,7 @@ foreach (['ref_run', 'ref_checked'] as $name) {
 // remainder. That is what makes the EPIPE deterministic here instead of
 // scheduling-dependent the way the product path is.
 $dump = str_repeat("INSERT INTO `wp_options` VALUES (1,'siteurl','http://source.example:9600','on');\n", 4096);
-duo_check(strlen($dump) > 65536, 'the fixture dump is larger than one pipe buffer, so it cannot be written in one go');
+wprism_check(strlen($dump) > 65536, 'the fixture dump is larger than one pipe buffer, so it cannot be written in one go');
 
 $diagnostics = [];
 set_error_handler(static function (int $number, string $message) use (&$diagnostics): bool {
@@ -90,12 +90,12 @@ function stdin_run(array $argv, string $input): array {
 }
 
 $ignored = stdin_run($ignoresStdin, $dump);
-duo_check_same(0, $ignored['exit'], 'a child that refuses the dump on stdin and exits 0 is not a provider failure');
-duo_check_same([], $diagnostics, 'the broken-pipe write emits no PHP diagnostic for the offline guard to fail on');
+wprism_check_same(0, $ignored['exit'], 'a child that refuses the dump on stdin and exits 0 is not a provider failure');
+wprism_check_same([], $diagnostics, 'the broken-pipe write emits no PHP diagnostic for the offline guard to fail on');
 
 $drained = stdin_run($drainsStdin, $dump);
-duo_check_same(0, $drained['exit'], 'a child that drains the dump still exits through the same boundary');
-duo_check_same(
+wprism_check_same(0, $drained['exit'], 'a child that drains the dump still exits through the same boundary');
+wprism_check_same(
     strlen($dump),
     (int) trim($drained['stdout']),
     'a reading child receives every byte: the write side stops only when the reader is gone, never on its own'
@@ -107,15 +107,15 @@ try {
 } catch (Throwable $error) {
     $refusal = $error->getMessage();
 }
-duo_check(is_string($refusal), 'a stdin-refusing child that fails still refuses');
-duo_check(
+wprism_check(is_string($refusal), 'a stdin-refusing child that fails still refuses');
+wprism_check(
     is_string($refusal) && str_contains($refusal, 'mariadb: refusing the statement'),
     'the refusal carries the child\'s own stderr instead of a message about this provider\'s pipe'
 );
-duo_check(
+wprism_check(
     is_string($refusal) && !str_contains($refusal, 'could not send reference provider command input'),
     'a broken pipe is never reported as the provider failing to send its input'
 );
 
 restore_error_handler();
-duo_check_summary('reference provider stdin boundary');
+wprism_check_summary('reference provider stdin boundary');

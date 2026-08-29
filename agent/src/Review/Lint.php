@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/BlockReferenceScanner.php';
 require_once __DIR__ . '/MenuReferenceScanner.php';
@@ -35,8 +35,8 @@ require_once __DIR__ . '/../Repository/StateTreeWalker.php';
  * versions, ordering indexes). Every finding says so in its own "note" —
  * the caveat travels with the finding, never left implicit.
  *
- * Eight detection classes (five from wave 1, plus DUO-3259's shortcode pair
- * and DUO-3260's url-query-ref class below — sub-key option refs and
+ * Eight detection classes (five from wave 1, plus issue #3259's shortcode pair
+ * and issue #3260's url-query-ref class below — sub-key option refs and
  * id-keyed arrays are task #11's wave 2, deliberately not attempted here):
  *
  *   bare_id — a numeric scalar / array element / CSV segment inside an
@@ -77,7 +77,7 @@ require_once __DIR__ . '/../Repository/StateTreeWalker.php';
  *     resolved with JsonRefs itself, so ref-bearing leaf keys need not look
  *     id-shaped (Polylang's language-slug-keyed nav_menus shape). Before this
  *     class existed, registered block paths were exempted unconditionally;
- *     before DUO-3241, structured paths still depended on the fallback key-
+ *     before issue #3241, structured paths still depended on the fallback key-
  *     name heuristic. Both made a declared ref whose rewrite failed invisible
  *     to lint — exactly the "declared ref, failed rewrite" gap byte-identical
  *     round-tripping cannot catch.
@@ -92,7 +92,7 @@ require_once __DIR__ . '/../Repository/StateTreeWalker.php';
  *     needed (there is no such rule to check).
  *
  *   unregistered_shortcode_attr / unrewritten_registered_shortcode_ref
- *     (DUO-3259) — the shortcode-attribute twins of unregistered_block_attr
+ *     (issue #3259) — the shortcode-attribute twins of unregistered_block_attr
  *     / unrewritten_registered_ref above, same two-way split (no rule at
  *     all for an id-shaped attribute name, vs. a rule exists but the value
  *     is still numeric — the declared rewrite never ran), scoped to
@@ -100,7 +100,7 @@ require_once __DIR__ . '/../Repository/StateTreeWalker.php';
  *     for (see scan_shortcodes()'s own docblock for why an unbounded "any
  *     shortcode on the system" scan isn't attempted).
  *
- *   unrewritten_url_query_ref (DUO-3260) — a `?p=`/`?page_id=`/
+ *   unrewritten_url_query_ref (issue #3260) — a `?p=`/`?page_id=`/
  *     `?attachment_id=` query-string parameter (WordPress's own internal-
  *     link id scheme; NOT `?page=`, which is WordPress's own separate
  *     pagination var) still holding a raw digit anywhere in captured
@@ -115,7 +115,7 @@ require_once __DIR__ . '/../Repository/StateTreeWalker.php';
  *
  * Finding shape (every class): {class, path, locator, value, matches?,
  * note}. `path` is state-relative (e.g. "posts/post/<uuid>--slug.md").
- * `locator` is a JSON-ish pointer into that file (e.g. "meta.duo_related
+ * `locator` is a JSON-ish pointer into that file (e.g. "meta.wprism_related
  * [1]", "options.sticky_posts[0]", "blocks.core/image.attrs.id",
  * "description[fr]"). `matches`, when present, is {kind, id, title,
  * post_type} — the same shape Pending::resolve_id() returns, reused
@@ -123,7 +123,7 @@ require_once __DIR__ . '/../Repository/StateTreeWalker.php';
  * class-specific honest caveat (never assume — small ids coincide).
  *
  * A ninth class, `proposed_lint_ok` (WP-2.4), is a bare_id on a custom-table
- * column whose LIVE MySQL TYPE — supplied by a `duo-adapter-probe/v1` document,
+ * column whose LIVE MySQL TYPE — supplied by a `wprism-adapter-probe/v1` document,
  * never guessed — bounds the column's value space to {0,1}. It is a re-CLASS,
  * not a suppression: the row is still emitted, still counted, and still exits
  * 1, and it carries the type as its premise plus the exact declaration to paste
@@ -136,7 +136,7 @@ require_once __DIR__ . '/../Repository/StateTreeWalker.php';
  * that is not a byte of the state tree — the home URL, every id resolution,
  * the probe's column types, and whether this process can parse blocks or
  * shortcodes at all — arrives through one `LintEnvironment`. That is the whole
- * reason `duo lint` (host, WordPress-free) and `wp duo lint` (live) can be one
+ * reason `wprism lint` (host, WordPress-free) and `wp wprism lint` (live) can be one
  * implementation with byte-identical findings: the host hands scan_tree() a
  * RECORDED environment, and nothing else about the call differs.
  */
@@ -149,16 +149,16 @@ final class Lint {
      * The two scan classes that need WordPress's own parsers, named exactly
      * once so a caller printing `LintEnvironment::deferrals()` prints the
      * engine's words and not its own paraphrase. Neither can be recorded into
-     * a `duo-lint-environment/v1` transcript — see that class's docblock,
+     * a `wprism-lint-environment/v1` transcript — see that class's docblock,
      * correction (3).
      */
     private const BLOCK_DEFERRAL = 'unregistered_block_attr / unrewritten_registered_ref (block attributes): '
         . 'WordPress parse_blocks() is unavailable in this process, so no block attribute was read. Run '
-        . '`wp duo lint` on the target for this class.';
+        . '`wp wprism lint` on the target for this class.';
 
     private const SHORTCODE_DEFERRAL = 'unregistered_shortcode_attr / unrewritten_registered_shortcode_ref: '
         . 'WordPress get_shortcode_regex()/shortcode_parse_atts() are unavailable in this process, so no shortcode '
-        . 'attribute was read. Run `wp duo lint` on the target for this class.';
+        . 'attribute was read. Run `wp wprism lint` on the target for this class.';
 
     /**
      * `$env` is the one seam for every non-state input (see the class docblock).
@@ -172,7 +172,7 @@ final class Lint {
     public static function scan_tree(string $stateDir, Policy $policy, ?LintEnvironment $env = null): array {
         $stateDir = rtrim($stateDir, '/');
         if (!is_dir($stateDir)) {
-            throw new \RuntimeException("duo: state dir not found: $stateDir (nothing captured yet?)");
+            throw new \RuntimeException("wprism: state dir not found: $stateDir (nothing captured yet?)");
         }
         $env ??= LintEnvironment::live();
         // A replayed transcript describes ONE tree; this is where it says so,
@@ -210,7 +210,7 @@ final class Lint {
                     self::scan_table_file($stateDir, $rel, $policy, $home, $homeEscaped, $env, $findings);
                     break;
                 default:
-                    throw new \LogicException('duo: unknown canonical lint surface ' . $file['surface']);
+                    throw new \LogicException('wprism: unknown canonical lint surface ' . $file['surface']);
             }
         }
         return $findings;
@@ -219,17 +219,17 @@ final class Lint {
     /**
      * The live environment, as a factory on the class both verbs already name.
      *
-     * `wp duo lint` reaches `LintEnvironment` only through here, and hands the
+     * `wp wprism lint` reaches `LintEnvironment` only through here, and hands the
      * transcript back out as a plain array (`document()`), so `Cli.php` names
      * no `agent/src/Review` class it did not already name. That is not
      * cosmetic: `sandbox/tests/offline/cli/regress_cli_json_refusals.php`
-     * pre-declares its own `Duo\Canon` and `Duo\Pending` stubs and then
+     * pre-declares its own `WPrism\Canon` and `WPrism\Pending` stubs and then
      * `require`s `Cli.php`, so a new `require_once` in that file for a Review
      * class that pulls either one is an immediate "Cannot redeclare class"
      * fatal in an unrelated suite. One factory keeps `Cli.php`'s load set
      * exactly as it was.
      *
-     * @param array<string,mixed>|null $probe a `duo-adapter-probe/v1` document
+     * @param array<string,mixed>|null $probe a `wprism-adapter-probe/v1` document
      */
     public static function live_environment(?array $probe = null): LintEnvironment {
         return LintEnvironment::live($probe);
@@ -240,7 +240,7 @@ final class Lint {
      *
      * Extracted from `Cli::lint()` verbatim (column widths, the `value=` and
      * ` matches=` spellings, the four-space note indent) because WP-2.4 gives
-     * lint a SECOND caller — the WordPress-free `duo lint-tree` host verb — and
+     * lint a SECOND caller — the WordPress-free `wprism lint-tree` host verb — and
      * two copies of a renderer is how two verbs that share an implementation
      * start printing different things about it. AGENTS.md rule 8 pins the
      * WP-CLI bytes; one renderer is what keeps them pinned across two callers
@@ -444,7 +444,7 @@ final class Lint {
 
         // (d) unrewritten_registered_ref inside a `json` body (WP-6.5). The
         // measured gap this closes: on the 2026-08-25 recon site four true
-        // cross-entity references existed and `wp duo lint` found TWO — both
+        // cross-entity references existed and `wp wprism lint` found TWO — both
         // block attributes — because nothing looked inside a JSON post_content
         // at all. Needs no live environment beyond the id resolver: the body is
         // already in captured state, so this is a pure read of what the
@@ -468,7 +468,7 @@ final class Lint {
      * smart tags (`"replyto": "{field_id=\"2\"}"`). Every one is a small number
      * that collides with a real post id on any site and none is a reference, so
      * the heuristic would have produced three false findings per form — the
-     * DUO-3508 class of noise `Pending::ref_hint()`'s own guard exists to
+     * issue #3508 class of noise `Pending::ref_hint()`'s own guard exists to
      * suppress, reintroduced under a different name.
      *
      * @param array<string,mixed> $rule
@@ -582,7 +582,7 @@ final class Lint {
     // ------------------------------------------------------------ shortcodes
 
     /**
-     * DUO-3259: the shortcode twin of scan_blocks() above — same two-class
+     * issue #3259: the shortcode twin of scan_blocks() above — same two-class
      * structure (unregistered_shortcode_attr / unrewritten_registered_
      * shortcode_ref mirror unregistered_block_attr / unrewritten_
      * registered_ref exactly), but scoped to shortcode TAGS this engine
@@ -595,7 +595,7 @@ final class Lint {
      * a policy fact). Discovering unknown reference-shaped shortcodes in
      * the wild is a different, unbounded problem, deliberately out of
      * scope here — the same "ground it in what shipped manifests actually
-     * declare" discipline DUO-3259's own filing already committed to.
+     * declare" discipline issue #3259's own filing already committed to.
      *
      * Read-only, so shortcode_parse_atts() is used directly to get a
      * clean {name: value} map — its capture-time lossy normalizations
@@ -776,7 +776,7 @@ final class Lint {
         foreach ($options as $key => $value) {
             $rule = $policy->option_rule((string) $key) ?? [];
             if (!empty($rule['sub_keys'])) {
-                // DUO-3233: the SAME "declared paths clean, undeclared
+                // issue #3233: the SAME "declared paths clean, undeclared
                 // positions in the same structure still flagged" contract,
                 // nested one level — each NAMED sub-key carries its own
                 // rule (json_refs/key_refs/ref/lint_ok), exactly like a
@@ -806,7 +806,7 @@ final class Lint {
             }
             foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
                 if ($id === 0 || $id === 1) {
-                    // DUO-3508's guard on Pending::ref_hint() (Pending.php:315-329)
+                    // issue #3508's guard on Pending::ref_hint() (Pending.php:315-329)
                     // suppresses a value that is WHOLLY 0/1 -- a boolean flag can
                     // never be a reference -- but only for a scalar row read whole.
                     // numeric_candidates()'s array branch (Pending.php:406-413)
@@ -1061,7 +1061,7 @@ final class Lint {
     }
 
     /**
-     * DUO-3260: a `?p=`/`?page_id=`/`?attachment_id=` query-string
+     * issue #3260: a `?p=`/`?page_id=`/`?attachment_id=` query-string
      * parameter (WordPress's own internal-link id scheme, confirmed by
      * reading wp-includes/canonical.php's redirect_canonical() directly —
      * NOT `?page=`, WordPress's own separate pagination var) still

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 /** Target-free registry, transport, and capability preflight for host commands. */
 final class EnvironmentCommandPreflight {
@@ -14,7 +14,7 @@ final class EnvironmentCommandPreflight {
         // take <env>: assess reads that target, and every contract
         // subcommand except `show` re-runs an assessment against it. `show`
         // reads only committed files, but registering the verb per-
-        // subcommand would make one word of `duo contract` resolve its
+        // subcommand would make one word of `wprism contract` resolve its
         // environment and another not — a difference an operator would
         // discover as an inconsistent error message rather than a feature.
         'assess', 'contract',
@@ -25,12 +25,12 @@ final class EnvironmentCommandPreflight {
         // list reads as the document does; `regress_environment_command_preflight.php`
         // pins the order as a two-sided ratchet.
         'release', 'verify', 'recover', 'rehearse',
-        // DUO-3499. `code-classify` is environment-bound for the same reason
+        // issue #3499. `code-classify` is environment-bound for the same reason
         // `assess` is: it takes <env> and asks that target for its own code
         // inventory, so the trees it stops tracking are provably the trees
         // that target compiles.
         'code-classify',
-        // DUO-3500. `code-resolve` is environment-bound because <env> is what
+        // issue #3500. `code-resolve` is environment-bound because <env> is what
         // decides WHERE the bytes go: the transport says whether the host can
         // reach the repository at all, and `repo_path` is the local one for a
         // local environment. It runs no target command on the path it

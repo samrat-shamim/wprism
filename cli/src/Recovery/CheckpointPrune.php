@@ -1,23 +1,23 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/RetainedCheckpoints.php';
 
-use Duo\CommandRefusalException;
+use WPrism\CommandRefusalException;
 
 /**
  * Removing retained release checkpoints, as an EXPLICIT operator verb and
- * never as a background policy (DUO-3514's retention half).
+ * never as a background policy (issue #3514's retention half).
  *
  * ## The growth this answers, and the fix it deliberately is not
  *
  * Two writers retain a whole-database dump per release and neither of them
- * ever removes one: `cli/duo`'s `cmd_promote_internal()` writes
- * `.duo/checkpoints/promote-<run-id>.sql.enc` (cli/duo:2236) and
+ * ever removes one: `cli/wprism`'s `cmd_promote_internal()` writes
+ * `.wprism/checkpoints/promote-<run-id>.sql.enc` (cli/wprism:2236) and
  * `DeployCommand::run()` writes `deploy-<run-id>.sql` under the same lease
  * (DeployCommand.php:67). A target that has released weekly for a year holds
  * fifty-two whole-DB dumps and no verb in the product deletes any of them.
@@ -42,7 +42,7 @@ use Duo\CommandRefusalException;
  *     (:229-233), so the newest `keep` promotes and the newest `keep` deploys
  *     each survive. A month of deploys can never age out the last promote.
  *  3. **Only `isRetained()` rows are candidates.** A signed receipt is not a
- *     file under `.duo/checkpoints` and its `id` is a receipt id chosen by the
+ *     file under `.wprism/checkpoints` and its `id` is a receipt id chosen by the
  *     rollback authority, not a file name — `prefixForRow()`'s own docblock
  *     (:301-312) states that a receipt id beginning `deploy-` would otherwise
  *     resolve to a path promote never wrote.
@@ -50,8 +50,8 @@ use Duo\CommandRefusalException;
  *     a signed generation is mid-rollback is pruning during an in-flight
  *     release. This costs nothing on a transport with no authority, where the
  *     row set is empty.
- *  5. **Only the `.sql` is removed.** The sibling `.duo/artifacts/<stem>.json`
- *     and the frozen plan under `.duo/releases/` stay, and
+ *  5. **Only the `.sql` is removed.** The sibling `.wprism/artifacts/<stem>.json`
+ *     and the frozen plan under `.wprism/releases/` stay, and
  *     `DISCLOSURE_ARTIFACTS_KEPT` says so: those are what
  *     `RecoverCommand::priorCodeRevision()` (:561) and `planHadCodePhase()`
  *     (:587) read for the checkpoints that REMAIN, so deleting them would
@@ -80,7 +80,7 @@ use Duo\CommandRefusalException;
  * docker and ssh alike.
  */
 final class CheckpointPrune {
-    public const FORMAT = 'duo-checkpoint-prune/v1';
+    public const FORMAT = 'wprism-checkpoint-prune/v1';
 
     /** The closed bounds of `--prune-retained=<keep-n>`. */
     public const KEEP_MIN = 1;
@@ -108,12 +108,12 @@ final class CheckpointPrune {
         . 'and deploy files, so the most recent before-image of each verb survives every prune';
 
     public const DISCLOSURE_ARTIFACTS_KEPT =
-        'only the retained .sql under .duo/checkpoints is removed; the sibling .duo/artifacts/<stem>.json and the '
-        . 'frozen authorization plan under .duo/releases are kept, because those are what the code-first gate reads '
+        'only the retained .sql under .wprism/checkpoints is removed; the sibling .wprism/artifacts/<stem>.json and the '
+        . 'frozen authorization plan under .wprism/releases are kept, because those are what the code-first gate reads '
         . 'for the checkpoints this prune left in place';
 
     public const DISCLOSURE_NEVER_AUTOMATIC =
-        'Duo prunes nothing on its own: retained checkpoints are removed only by this explicit operator verb';
+        'WPrism prunes nothing on its own: retained checkpoints are removed only by this explicit operator verb';
 
     /**
      * Decide what a prune would remove. Pure.
@@ -151,7 +151,7 @@ final class CheckpointPrune {
                         self::REASON_GENERATION_ACTIVE,
                         'a signed rollback generation on this target is not in a terminal state, so its release is '
                             . 'still in flight and no retained checkpoint may be removed',
-                        'finish or roll back the active generation — duo recover <env> --list names it — then '
+                        'finish or roll back the active generation — wprism recover <env> --list names it — then '
                             . 're-run the prune'
                     );
                 }
@@ -280,7 +280,7 @@ final class CheckpointPrune {
             throw new CommandRefusalException(
                 self::REASON_UNAVAILABLE,
                 'the target could not remove the retained release checkpoints this prune named',
-                'run duo doctor ' . $driver->name() . ' and repair the transport it reports, then re-run the prune',
+                'run wprism doctor ' . $driver->name() . ' and repair the transport it reports, then re-run the prune',
                 [['detail' => trim((string) (($result['stderr'] ?? '') !== ''
                     ? $result['stderr']
                     : ($result['stdout'] ?? '')))]]
@@ -295,7 +295,7 @@ final class CheckpointPrune {
      *
      * Both are load-bearing and neither is redundant: the grammar is what an
      * operator hits, and this is what keeps rule 1 true for any future caller
-     * that reaches `plan()` without going through `duo recover`'s flags.
+     * that reaches `plan()` without going through `wprism recover`'s flags.
      */
     public static function assertKeep(int $keep): void {
         if ($keep < self::KEEP_MIN || $keep > self::KEEP_MAX) {
@@ -313,7 +313,7 @@ final class CheckpointPrune {
             self::REASON_MALFORMED,
             'the target answered the retained checkpoint prune with a line this build cannot read',
             'upgrade the host orchestrator to the build that matches this target, or inspect '
-                . '.duo/checkpoints on the target by hand before pruning again',
+                . '.wprism/checkpoints on the target by hand before pruning again',
             [['detail' => $detail]]
         );
     }

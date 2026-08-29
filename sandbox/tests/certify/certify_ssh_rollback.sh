@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# DUO-3299: production-form SSH rollback certification. Four disposable
+# issue #3299: production-form SSH rollback certification. Four disposable
 # containers provide two independent SSH hosts and two independent MariaDB
 # servers. All authority/recovery actions cross SSH through product APIs.
 set -euo pipefail
@@ -8,7 +8,7 @@ export COPYFILE_DISABLE=1
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$ROOT"
 
-PREFIX="${SSH_ROLLBACK_FIXTURE:-codexmaca3299}"
+PREFIX="${SSH_ROLLBACK_FIXTURE:-ssh-rollback}"
 SOURCE_PORT="${SSH_ROLLBACK_SOURCE_PORT:-9396}"
 TARGET_PORT="${SSH_ROLLBACK_TARGET_PORT:-9397}"
 NET="${PREFIX}-net"
@@ -19,9 +19,9 @@ TARGET="${PREFIX}-target"
 SOURCE_VOLUME="${PREFIX}-source-wordpress"
 TARGET_VOLUME="${PREFIX}-target-wordpress"
 IMAGE="${PREFIX}-ssh-image"
-TMP="$(mktemp -d /tmp/duo3299.XXXXXX)"
+TMP="$(mktemp -d /tmp/ssh-rollback.XXXXXX)"
 EVIDENCE_ROOT="${SSH_ROLLBACK_EVIDENCE_DIR:-$ROOT/sandbox/tmp/ssh-rollback-certification}"
-DUO="$ROOT/cli/duo"
+WPRISM="$ROOT/cli/wprism"
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
@@ -42,8 +42,8 @@ trap cleanup_all EXIT
 cleanup_fixture
 mkdir -p "$TMP" "$EVIDENCE_ROOT"
 
-ssh_source() { ssh -F "$TMP/ssh_config" duo-rollback-source "$@"; }
-ssh_target() { ssh -F "$TMP/ssh_config" duo-rollback-target "$@"; }
+ssh_source() { ssh -F "$TMP/ssh_config" wprism-rollback-source "$@"; }
+ssh_target() { ssh -F "$TMP/ssh_config" wprism-rollback-target "$@"; }
 
 say "build two SSH hosts and two independent database servers"
 docker build -q -t "$IMAGE" -f sandbox/tests/fixtures/ssh-adopt.Dockerfile . >/dev/null
@@ -86,20 +86,20 @@ done
 docker run -d --name "$SOURCE" --network "$NET" -p "127.0.0.1:${SOURCE_PORT}:22" \
   -v "$SOURCE_VOLUME:/var/www/html" -v "$TMP/id_ed25519.pub:/tmp/authorized_key:ro" \
   --entrypoint sh "$IMAGE" -lc \
-  'cp /tmp/authorized_key /home/duo/.ssh/authorized_keys; chown duo:duo /home/duo/.ssh/authorized_keys; chmod 0600 /home/duo/.ssh/authorized_keys; exec /usr/sbin/sshd -D -e' >/dev/null
+  'cp /tmp/authorized_key /home/wprism/.ssh/authorized_keys; chown wprism:wprism /home/wprism/.ssh/authorized_keys; chmod 0600 /home/wprism/.ssh/authorized_keys; exec /usr/sbin/sshd -D -e' >/dev/null
 docker run -d --name "$TARGET" --network "$NET" -p "127.0.0.1:${TARGET_PORT}:22" \
   -v "$TARGET_VOLUME:/var/www/html" -v "$TMP/id_ed25519.pub:/tmp/authorized_key:ro" \
   --entrypoint sh "$IMAGE" -lc \
-  'cp /tmp/authorized_key /home/duo/.ssh/authorized_keys; chown duo:duo /home/duo/.ssh/authorized_keys; chmod 0600 /home/duo/.ssh/authorized_keys; exec /usr/sbin/sshd -D -e' >/dev/null
+  'cp /tmp/authorized_key /home/wprism/.ssh/authorized_keys; chown wprism:wprism /home/wprism/.ssh/authorized_keys; chmod 0600 /home/wprism/.ssh/authorized_keys; exec /usr/sbin/sshd -D -e' >/dev/null
 
 for port in "$SOURCE_PORT" "$TARGET_PORT"; do
   for _ in $(seq 1 60); do ssh-keyscan -p "$port" 127.0.0.1 >>"$TMP/known_hosts" 2>/dev/null && break; sleep 1; done
 done
 cat >"$TMP/ssh_config" <<EOF
-Host duo-rollback-source
+Host wprism-rollback-source
   HostName 127.0.0.1
   Port $SOURCE_PORT
-  User duo
+  User wprism
   IdentityFile $TMP/id_ed25519
   UserKnownHostsFile $TMP/known_hosts
   StrictHostKeyChecking yes
@@ -108,10 +108,10 @@ Host duo-rollback-source
   ControlMaster auto
   ControlPersist 60
   ControlPath $TMP/ssh-%C
-Host duo-rollback-target
+Host wprism-rollback-target
   HostName 127.0.0.1
   Port $TARGET_PORT
-  User duo
+  User wprism
   IdentityFile $TMP/id_ed25519
   UserKnownHostsFile $TMP/known_hosts
   StrictHostKeyChecking yes
@@ -130,36 +130,36 @@ ssh_source "cd /var/www/html && wp config create --dbname=sourcewp --dbuser=word
 ssh_target "cd /var/www/html && wp config create --dbname=targetwp --dbuser=wordpress --dbpass=target-wordpress-pass --dbhost=$TARGET_DB --skip-check --quiet"
 ssh_source "cd /var/www/html && wp core install --url=http://source.rollback.test --title=Source --admin_user=admin --admin_password=admin-pass --admin_email=source@example.test --skip-email --quiet"
 ssh_target "cd /var/www/html && wp core install --url=http://target.rollback.test --title=Target --admin_user=admin --admin_password=admin-pass --admin_email=target@example.test --skip-email --quiet"
-ssh_source "cd /var/www/html && wp db query \"CREATE TABLE duo_cert_state (id bigint primary key, value varchar(191) not null); INSERT INTO duo_cert_state VALUES (1,'desired-source');\""
-ssh_target "cd /var/www/html && wp db query \"CREATE TABLE duo_cert_state (id bigint primary key, value varchar(191) not null); INSERT INTO duo_cert_state VALUES (1,'prior'); CREATE TABLE duo_cert_lease (id bigint primary key, owner varchar(191) not null);\""
+ssh_source "cd /var/www/html && wp db query \"CREATE TABLE wprism_cert_state (id bigint primary key, value varchar(191) not null); INSERT INTO wprism_cert_state VALUES (1,'desired-source');\""
+ssh_target "cd /var/www/html && wp db query \"CREATE TABLE wprism_cert_state (id bigint primary key, value varchar(191) not null); INSERT INTO wprism_cert_state VALUES (1,'prior'); CREATE TABLE wprism_cert_lease (id bigint primary key, owner varchar(191) not null);\""
 
-ssh_target 'mkdir -p /home/duo/providers /home/duo/provider-state /home/duo/releases/release-prior/wp-content/plugins/acme /home/duo/releases/release-desired-1/wp-content/plugins/acme /home/duo/releases/release-desired-2/wp-content/plugins/acme /home/duo/uploads/2026/08 /home/duo/offload /home/duo/media /home/duo/site/wp-content/uploads'
+ssh_target 'mkdir -p /home/wprism/providers /home/wprism/provider-state /home/wprism/releases/release-prior/wp-content/plugins/acme /home/wprism/releases/release-desired-1/wp-content/plugins/acme /home/wprism/releases/release-desired-2/wp-content/plugins/acme /home/wprism/uploads/2026/08 /home/wprism/offload /home/wprism/media /home/wprism/site/wp-content/uploads'
 for file in recovery-exclusion-provider.php recovery-adapter.php ssh-rollback-checkpoint-provider.php code-release-provider.php upload-provider.php effect-provider.php ssh-rollback-db-loss-probe.php; do
-  scp -F "$TMP/ssh_config" "sandbox/tests/fixtures/$file" "duo-rollback-target:/home/duo/providers/$file" >/dev/null
+  scp -F "$TMP/ssh_config" "sandbox/tests/fixtures/$file" "wprism-rollback-target:/home/wprism/providers/$file" >/dev/null
 done
-ssh_target 'chmod 0700 /home/duo/providers/*.php'
+ssh_target 'chmod 0700 /home/wprism/providers/*.php'
 printf "%s\n" "<?php echo 'prior';" >"$TMP/prior.php"
 printf "%s\n" "<?php echo 'desired-1';" >"$TMP/desired-1.php"
 printf "%s\n" "<?php echo 'desired-2';" >"$TMP/desired-2.php"
-scp -F "$TMP/ssh_config" "$TMP/prior.php" duo-rollback-target:/home/duo/releases/release-prior/wp-content/plugins/acme/acme.php >/dev/null
-scp -F "$TMP/ssh_config" "$TMP/desired-1.php" duo-rollback-target:/home/duo/releases/release-desired-1/wp-content/plugins/acme/acme.php >/dev/null
-scp -F "$TMP/ssh_config" "$TMP/desired-2.php" duo-rollback-target:/home/duo/releases/release-desired-2/wp-content/plugins/acme/acme.php >/dev/null
-ssh_target "printf 'release-prior\\n' > /home/duo/provider-state/code-pointer"
-ssh_target "printf 'prior-effect' > /home/duo/site/wp-content/uploads/duo-rollback-effect.txt"
-ssh_target "printf 'prior-upload' > /home/duo/uploads/2026/08/photo.jpg"
+scp -F "$TMP/ssh_config" "$TMP/prior.php" wprism-rollback-target:/home/wprism/releases/release-prior/wp-content/plugins/acme/acme.php >/dev/null
+scp -F "$TMP/ssh_config" "$TMP/desired-1.php" wprism-rollback-target:/home/wprism/releases/release-desired-1/wp-content/plugins/acme/acme.php >/dev/null
+scp -F "$TMP/ssh_config" "$TMP/desired-2.php" wprism-rollback-target:/home/wprism/releases/release-desired-2/wp-content/plugins/acme/acme.php >/dev/null
+ssh_target "printf 'release-prior\\n' > /home/wprism/provider-state/code-pointer"
+ssh_target "printf 'prior-effect' > /home/wprism/site/wp-content/uploads/wprism-rollback-effect.txt"
+ssh_target "printf 'prior-upload' > /home/wprism/uploads/2026/08/photo.jpg"
 printf 'desired-upload' >"$TMP/desired-upload"
 MEDIA_SHA="$(shasum -a 256 "$TMP/desired-upload" | awk '{print $1}')"
 MEDIA_BLOB="${MEDIA_SHA}.jpg"
-scp -F "$TMP/ssh_config" "$TMP/desired-upload" "duo-rollback-target:/home/duo/media/$MEDIA_BLOB" >/dev/null
+scp -F "$TMP/ssh_config" "$TMP/desired-upload" "wprism-rollback-target:/home/wprism/media/$MEDIA_BLOB" >/dev/null
 openssl rand 32 >"$TMP/checkpoint.key"
 openssl rand 32 >"$TMP/upload.key"
-scp -F "$TMP/ssh_config" "$TMP/checkpoint.key" duo-rollback-target:/home/duo/provider-state/checkpoint.key >/dev/null
-scp -F "$TMP/ssh_config" "$TMP/upload.key" duo-rollback-target:/home/duo/provider-state/upload.key >/dev/null
-ssh_target 'chmod 0600 /home/duo/provider-state/*.key'
+scp -F "$TMP/ssh_config" "$TMP/checkpoint.key" wprism-rollback-target:/home/wprism/provider-state/checkpoint.key >/dev/null
+scp -F "$TMP/ssh_config" "$TMP/upload.key" wprism-rollback-target:/home/wprism/provider-state/upload.key >/dev/null
+ssh_target 'chmod 0600 /home/wprism/provider-state/*.key'
 
-jq -n --arg host "$TARGET_DB" '{host:$host,port:3306,database:"targetwp",user:"wordpress",password:"target-wordpress-pass",admin_user:"root",admin_password:"target-root-pass",code_pointer:"/home/duo/provider-state/code-pointer",effect_target:"/home/duo/site/wp-content/uploads/duo-rollback-effect.txt"}' >"$TMP/db.json"
-scp -F "$TMP/ssh_config" "$TMP/db.json" duo-rollback-target:/home/duo/provider-state/db.json >/dev/null
-ssh_target 'chmod 0600 /home/duo/provider-state/db.json'
+jq -n --arg host "$TARGET_DB" '{host:$host,port:3306,database:"targetwp",user:"wordpress",password:"target-wordpress-pass",admin_user:"root",admin_password:"target-root-pass",code_pointer:"/home/wprism/provider-state/code-pointer",effect_target:"/home/wprism/site/wp-content/uploads/wprism-rollback-effect.txt"}' >"$TMP/db.json"
+scp -F "$TMP/ssh_config" "$TMP/db.json" wprism-rollback-target:/home/wprism/provider-state/db.json >/dev/null
+ssh_target 'chmod 0600 /home/wprism/provider-state/db.json'
 
 php -r '$pair=sodium_crypto_sign_keypair();file_put_contents($argv[1],base64_encode(sodium_crypto_sign_secretkey($pair))."\n");file_put_contents($argv[2],base64_encode(sodium_crypto_sign_publickey($pair))."\n");' "$TMP/signing.key" "$TMP/public.key"
 chmod 0600 "$TMP/signing.key"
@@ -172,20 +172,20 @@ ARTIFACT_1="$(printf %s artifact-generation-1 | shasum -a 256 | awk '{print $1}'
 ARTIFACT_2="$(printf %s artifact-generation-2 | shasum -a 256 | awk '{print $1}')"
 CODE_FILE_SHA_1="$(shasum -a 256 "$TMP/desired-1.php" | awk '{print $1}')"
 CODE_FILE_SHA_2="$(shasum -a 256 "$TMP/desired-2.php" | awk '{print $1}')"
-CODE_REVISION_1="$(php -r 'require $argv[1];$sha=$argv[2];$code=["files"=>[["path"=>"plugins/acme/acme.php","sha256"=>$sha]],"format"=>"duo-code/v1","layout"=>"wp-content","owned_roots"=>["plugins/acme"],"plugin_main_files"=>[["basename"=>"acme/acme.php","path"=>"plugins/acme/acme.php","sha256"=>$sha]],"source"=>"code/wp-content","theme_slugs"=>[],"theme_templates"=>[]];echo hash("sha256",Duo\Canon::encode($code));' "$ROOT/agent/src/Kernel/Canon.php" "$CODE_FILE_SHA_1")"
-CODE_REVISION_2="$(php -r 'require $argv[1];$sha=$argv[2];$code=["files"=>[["path"=>"plugins/acme/acme.php","sha256"=>$sha]],"format"=>"duo-code/v1","layout"=>"wp-content","owned_roots"=>["plugins/acme"],"plugin_main_files"=>[["basename"=>"acme/acme.php","path"=>"plugins/acme/acme.php","sha256"=>$sha]],"source"=>"code/wp-content","theme_slugs"=>[],"theme_templates"=>[]];echo hash("sha256",Duo\Canon::encode($code));' "$ROOT/agent/src/Kernel/Canon.php" "$CODE_FILE_SHA_2")"
+CODE_REVISION_1="$(php -r 'require $argv[1];$sha=$argv[2];$code=["files"=>[["path"=>"plugins/acme/acme.php","sha256"=>$sha]],"format"=>"wprism-code/v1","layout"=>"wp-content","owned_roots"=>["plugins/acme"],"plugin_main_files"=>[["basename"=>"acme/acme.php","path"=>"plugins/acme/acme.php","sha256"=>$sha]],"source"=>"code/wp-content","theme_slugs"=>[],"theme_templates"=>[]];echo hash("sha256",WPrism\Canon::encode($code));' "$ROOT/agent/src/Kernel/Canon.php" "$CODE_FILE_SHA_1")"
+CODE_REVISION_2="$(php -r 'require $argv[1];$sha=$argv[2];$code=["files"=>[["path"=>"plugins/acme/acme.php","sha256"=>$sha]],"format"=>"wprism-code/v1","layout"=>"wp-content","owned_roots"=>["plugins/acme"],"plugin_main_files"=>[["basename"=>"acme/acme.php","path"=>"plugins/acme/acme.php","sha256"=>$sha]],"source"=>"code/wp-content","theme_slugs"=>[],"theme_templates"=>[]];echo hash("sha256",WPrism\Canon::encode($code));' "$ROOT/agent/src/Kernel/Canon.php" "$CODE_FILE_SHA_2")"
 
 cat >"$TMP/envs.json" <<EOF
 {
   "envs": {
     "source": {
-      "transport": "ssh", "host": "duo-rollback-source", "ssh_config": "$TMP/ssh_config",
-      "wp_path": "/var/www/html", "repo_path": "/home/duo/site"
+      "transport": "ssh", "host": "wprism-rollback-source", "ssh_config": "$TMP/ssh_config",
+      "wp_path": "/var/www/html", "repo_path": "/home/wprism/site"
     },
     "target": {
-      "transport": "ssh", "host": "duo-rollback-target", "ssh_config": "$TMP/ssh_config",
-      "wp_path": "/var/www/html", "repo_path": "/home/duo/site",
-      "rollback_key_id": "duo-3299-live", "rollback_signing_key": "$TMP/signing.key",
+      "transport": "ssh", "host": "wprism-rollback-target", "ssh_config": "$TMP/ssh_config",
+      "wp_path": "/var/www/html", "repo_path": "/home/wprism/site",
+      "rollback_key_id": "ssh-rollback-live", "rollback_signing_key": "$TMP/signing.key",
       "verified_rollback": {
         "claim_ttl_seconds": 120,
         "encryption_key_id": "ssh-kms-fixture",
@@ -193,17 +193,17 @@ cat >"$TMP/envs.json" <<EOF
       },
       "rollback_recovery": {
         "adapters": {
-          "code_restore": ["/usr/local/bin/php", "/home/duo/providers/recovery-adapter.php"],
-          "database_restore": ["/usr/local/bin/php", "/home/duo/providers/recovery-adapter.php"],
-          "prior_verify": ["/usr/local/bin/php", "/home/duo/providers/recovery-adapter.php"],
-          "storage_restore": ["/usr/local/bin/php", "/home/duo/providers/recovery-adapter.php"]
+          "code_restore": ["/usr/local/bin/php", "/home/wprism/providers/recovery-adapter.php"],
+          "database_restore": ["/usr/local/bin/php", "/home/wprism/providers/recovery-adapter.php"],
+          "prior_verify": ["/usr/local/bin/php", "/home/wprism/providers/recovery-adapter.php"],
+          "storage_restore": ["/usr/local/bin/php", "/home/wprism/providers/recovery-adapter.php"]
         },
-        "checkpoint_provider": ["/usr/local/bin/php", "/home/duo/providers/ssh-rollback-checkpoint-provider.php", "/home/duo/provider-state/checkpoint", "/home/duo/provider-state/db.json", "/home/duo/provider-state/checkpoint.key"],
-        "code_release_provider": ["/usr/local/bin/php", "/home/duo/providers/code-release-provider.php", "/home/duo/provider-state/code", "/home/duo/releases", "/home/duo/provider-state/code-pointer"],
-        "effect_provider": ["/usr/local/bin/php", "/home/duo/providers/effect-provider.php", "/home/duo/provider-state/effects", "/home/duo/site"],
-        "exclusion_provider": ["/usr/local/bin/php", "/home/duo/providers/recovery-exclusion-provider.php", "/home/duo/provider-state/exclusion.json"],
+        "checkpoint_provider": ["/usr/local/bin/php", "/home/wprism/providers/ssh-rollback-checkpoint-provider.php", "/home/wprism/provider-state/checkpoint", "/home/wprism/provider-state/db.json", "/home/wprism/provider-state/checkpoint.key"],
+        "code_release_provider": ["/usr/local/bin/php", "/home/wprism/providers/code-release-provider.php", "/home/wprism/provider-state/code", "/home/wprism/releases", "/home/wprism/provider-state/code-pointer"],
+        "effect_provider": ["/usr/local/bin/php", "/home/wprism/providers/effect-provider.php", "/home/wprism/provider-state/effects", "/home/wprism/site"],
+        "exclusion_provider": ["/usr/local/bin/php", "/home/wprism/providers/recovery-exclusion-provider.php", "/home/wprism/provider-state/exclusion.json"],
         "timeout_seconds": 30,
-        "upload_provider": ["/usr/local/bin/php", "/home/duo/providers/upload-provider.php", "/home/duo/provider-state/uploads", "/home/duo/uploads", "/home/duo/offload", "/home/duo/media", "/home/duo/provider-state/upload.key"]
+        "upload_provider": ["/usr/local/bin/php", "/home/wprism/providers/upload-provider.php", "/home/wprism/provider-state/uploads", "/home/wprism/uploads", "/home/wprism/offload", "/home/wprism/media", "/home/wprism/provider-state/upload.key"]
       }
     }
   },
@@ -213,13 +213,13 @@ cat >"$TMP/envs.json" <<EOF
       "code": {
         "code_revision": "$CODE_REVISION_1",
         "files": [{"path":"plugins/acme/acme.php","sha256":"$CODE_FILE_SHA_1"}],
-        "format": "duo-code/v1", "layout": "wp-content", "owned_roots": ["plugins/acme"],
+        "format": "wprism-code/v1", "layout": "wp-content", "owned_roots": ["plugins/acme"],
         "plugin_main_files": [{"basename":"acme/acme.php","path":"plugins/acme/acme.php","sha256":"$CODE_FILE_SHA_1"}],
         "source": "code/wp-content", "theme_slugs": [], "theme_templates": []
       },
       "effects_inventory": [
-        {"effect":{"adapter":{"id":"fixture-file","inverse":"restore-bytes","inverse_inputs":["path","prior_sha256"],"verifier":"fresh-readback","verifier_inputs":["path","prior_sha256"],"version":"1.0.0"},"id":"lifecycle-file","kind":"filesystem","mode":"reversible","selector":{"scope":"external","type":"path","value":"wp-content/uploads/duo-rollback-effect.txt"}},"manifest":"rollback-fixture","phase":"lifecycle","source":"lifecycle_effects"},
-        {"effect":{"id":"rebuild-table","kind":"database","mode":"restorable","selector":{"scope":"database_checkpoint","type":"table","value":"duo_cert_state"}},"manifest":"rollback-fixture","phase":"rebuild","source":"provider:rollback-fixture/rebuild_table"},
+        {"effect":{"adapter":{"id":"fixture-file","inverse":"restore-bytes","inverse_inputs":["path","prior_sha256"],"verifier":"fresh-readback","verifier_inputs":["path","prior_sha256"],"version":"1.0.0"},"id":"lifecycle-file","kind":"filesystem","mode":"reversible","selector":{"scope":"external","type":"path","value":"wp-content/uploads/wprism-rollback-effect.txt"}},"manifest":"rollback-fixture","phase":"lifecycle","source":"lifecycle_effects"},
+        {"effect":{"id":"rebuild-table","kind":"database","mode":"restorable","selector":{"scope":"database_checkpoint","type":"table","value":"wprism_cert_state"}},"manifest":"rollback-fixture","phase":"rebuild","source":"provider:rollback-fixture/rebuild_table"},
         {"effect":{"id":"prevent-http","kind":"http","mode":"prevented","prevention":"receipt_outbox","selector":{"scope":"external","type":"url_prefix","value":"https://rollback.invalid/hooks/"}},"manifest":"rollback-fixture","phase":"lifecycle","source":"lifecycle_effects"}
       ],
       "resolved_adapters": [{"name":"rollback-fixture","version":"1.0.0"}],
@@ -230,13 +230,13 @@ cat >"$TMP/envs.json" <<EOF
       "code": {
         "code_revision": "$CODE_REVISION_2",
         "files": [{"path":"plugins/acme/acme.php","sha256":"$CODE_FILE_SHA_2"}],
-        "format": "duo-code/v1", "layout": "wp-content", "owned_roots": ["plugins/acme"],
+        "format": "wprism-code/v1", "layout": "wp-content", "owned_roots": ["plugins/acme"],
         "plugin_main_files": [{"basename":"acme/acme.php","path":"plugins/acme/acme.php","sha256":"$CODE_FILE_SHA_2"}],
         "source": "code/wp-content", "theme_slugs": [], "theme_templates": []
       },
       "effects_inventory": [
-        {"effect":{"adapter":{"id":"fixture-file","inverse":"restore-bytes","inverse_inputs":["path","prior_sha256"],"verifier":"fresh-readback","verifier_inputs":["path","prior_sha256"],"version":"1.0.0"},"id":"lifecycle-file","kind":"filesystem","mode":"reversible","selector":{"scope":"external","type":"path","value":"wp-content/uploads/duo-rollback-effect.txt"}},"manifest":"rollback-fixture","phase":"lifecycle","source":"lifecycle_effects"},
-        {"effect":{"id":"rebuild-table","kind":"database","mode":"restorable","selector":{"scope":"database_checkpoint","type":"table","value":"duo_cert_state"}},"manifest":"rollback-fixture","phase":"rebuild","source":"provider:rollback-fixture/rebuild_table"},
+        {"effect":{"adapter":{"id":"fixture-file","inverse":"restore-bytes","inverse_inputs":["path","prior_sha256"],"verifier":"fresh-readback","verifier_inputs":["path","prior_sha256"],"version":"1.0.0"},"id":"lifecycle-file","kind":"filesystem","mode":"reversible","selector":{"scope":"external","type":"path","value":"wp-content/uploads/wprism-rollback-effect.txt"}},"manifest":"rollback-fixture","phase":"lifecycle","source":"lifecycle_effects"},
+        {"effect":{"id":"rebuild-table","kind":"database","mode":"restorable","selector":{"scope":"database_checkpoint","type":"table","value":"wprism_cert_state"}},"manifest":"rollback-fixture","phase":"rebuild","source":"provider:rollback-fixture/rebuild_table"},
         {"effect":{"id":"prevent-http","kind":"http","mode":"prevented","prevention":"receipt_outbox","selector":{"scope":"external","type":"url_prefix","value":"https://rollback.invalid/hooks/"}},"manifest":"rollback-fixture","phase":"lifecycle","source":"lifecycle_effects"}
       ],
       "resolved_adapters": [{"name":"rollback-fixture","version":"1.0.0"}],
@@ -244,20 +244,20 @@ cat >"$TMP/envs.json" <<EOF
     }
   },
   "fixture": {
-    "code_pointer": "/home/duo/provider-state/code-pointer",
-    "code_state": "/home/duo/provider-state/code",
-    "control_root": "/home/duo/site/.duo/control",
-    "db_config": "/home/duo/provider-state/db.json",
-    "db_probe": "/home/duo/providers/ssh-rollback-db-loss-probe.php",
-    "effect_target": "/home/duo/site/wp-content/uploads/duo-rollback-effect.txt",
+    "code_pointer": "/home/wprism/provider-state/code-pointer",
+    "code_state": "/home/wprism/provider-state/code",
+    "control_root": "/home/wprism/site/.wprism/control",
+    "db_config": "/home/wprism/provider-state/db.json",
+    "db_probe": "/home/wprism/providers/ssh-rollback-db-loss-probe.php",
+    "effect_target": "/home/wprism/site/wp-content/uploads/wprism-rollback-effect.txt",
     "media_blob": "$MEDIA_BLOB", "media_sha256": "$MEDIA_SHA",
-    "release_root": "/home/duo/releases", "uploads": "/home/duo/uploads"
+    "release_root": "/home/wprism/releases", "uploads": "/home/wprism/uploads"
   }
 }
 EOF
 
-"$DUO" --envs-file="$TMP/envs.json" adopt source >/dev/null
-"$DUO" --envs-file="$TMP/envs.json" adopt target >/dev/null
+"$WPRISM" --envs-file="$TMP/envs.json" adopt source >/dev/null
+"$WPRISM" --envs-file="$TMP/envs.json" adopt target >/dev/null
 pass "both hosts adopted; target recovery providers passed product preflight"
 
 say "execute closed crash matrix and converge rollback + commit generations"
@@ -281,15 +281,15 @@ php sandbox/tests/fixtures/ssh-rollback-certify-driver.php "$TMP/envs.json" "$TM
 pass "198 injected cases produced signed-chain evidence and only verified rollback/commit outcomes"
 
 say "prove target cleanup, destroy owned fixture, then sign the canonical bundle"
-STATUS="$(ssh_target 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php status --root=/home/duo/site/.duo/control')"
+STATUS="$(ssh_target 'php /home/wprism/site/.wprism/control/recovery-runtime/rollback-control.php status --root=/home/wprism/site/.wprism/control')"
 require_observed_nonempty "target rollback status" "$STATUS"
 jq -e '.terminal == true and .state == "committed" and .exclusion_state == "released"' <<<"$STATUS" >/dev/null \
   || fail "target did not finish committed with exclusion released"
-TARGET_PLAINTEXT_COUNT="$(ssh_target "find /home/duo/site/.duo /home/duo/provider-state -type f \\( -name '*.sql' -o -name '*.dump' -o -name '*.plain' \\) -print | wc -l | tr -d ' '")"
+TARGET_PLAINTEXT_COUNT="$(ssh_target "find /home/wprism/site/.wprism /home/wprism/provider-state -type f \\( -name '*.sql' -o -name '*.dump' -o -name '*.plain' \\) -print | wc -l | tr -d ' '")"
 require_observed_nonempty "target plaintext checkpoint count" "$TARGET_PLAINTEXT_COUNT"
 [ "$TARGET_PLAINTEXT_COUNT" = 0 ] \
   || fail "plaintext checkpoint material remains"
-TARGET_EXCLUSION_STATE="$(ssh_target "php -r '\$s=json_decode(file_get_contents(\"/home/duo/provider-state/exclusion.json\"),true);echo \$s[\"state\"];'")"
+TARGET_EXCLUSION_STATE="$(ssh_target "php -r '\$s=json_decode(file_get_contents(\"/home/wprism/provider-state/exclusion.json\"),true);echo \$s[\"state\"];'")"
 require_observed_nonempty "target maintenance exclusion state" "$TARGET_EXCLUSION_STATE"
 [ "$TARGET_EXCLUSION_STATE" = released ] \
   || fail "maintenance exclusion remains held"

@@ -8,7 +8,7 @@
  * AGENTS.md rule 2 states the consequence of one byte under `manifests/`: a
  * deployed site refuses with `compiled_artifact_manifest_mismatch`. That is
  * ONE of the sites a move trips. Rule 8 names a second (platform.json against
- * `agent/duo.php`'s two defines). Nothing enumerated the rest, so the failure
+ * `agent/wprism.php`'s two defines). Nothing enumerated the rest, so the failure
  * mode was "the gate nobody enumerated" — discovered on a customer site rather
  * than at review time. `tools/platform-move-gates.json` is that enumeration;
  * this suite is what keeps it honest, by deriving the candidate set from the
@@ -52,7 +52,7 @@
  * ----------------------------------------------
  * A digest taken over a DOCUMENT that happens to contain an identity value is
  * not itself one of the three axes, and neither is site identity — a
- * `site.duo.json` move is a different change class, answered by its own
+ * `site.wprism.json` move is a different change class, answered by its own
  * registered refusal (`compiled_artifact_policy_mismatch`). The cost of widening
  * was measured rather than assumed: adding a bare `digest` stem to the 17 below
  * — the single most tempting relaxation — takes the candidate set from 76 to
@@ -375,19 +375,19 @@ function pmg_candidates(string $base, array $roots, array &$collisions = []): ar
 
 $registerPath = $root . '/tools/platform-move-gates.json';
 $registerRaw = file_get_contents($registerPath);
-duo_check(is_string($registerRaw) && $registerRaw !== '', 'tools/platform-move-gates.json is readable');
+wprism_check(is_string($registerRaw) && $registerRaw !== '', 'tools/platform-move-gates.json is readable');
 $register = json_decode((string) $registerRaw, true);
-duo_check(is_array($register), 'tools/platform-move-gates.json is a JSON object');
-duo_check_same('duo-platform-move-gates/v1', $register['format'] ?? null, 'register declares its format');
-duo_check(
+wprism_check(is_array($register), 'tools/platform-move-gates.json is a JSON object');
+wprism_check_same('wprism-platform-move-gates/v1', $register['format'] ?? null, 'register declares its format');
+wprism_check(
     is_array($register['sites'] ?? null) && array_is_list($register['sites']),
     'register carries a sites list'
 );
-duo_check(
+wprism_check(
     is_array($register['anchors'] ?? null) && array_is_list($register['anchors']),
     'register carries an anchors list'
 );
-duo_check(
+wprism_check(
     is_array($register['exclusions'] ?? null) && array_is_list($register['exclusions']),
     'register carries an exclusions list'
 );
@@ -437,13 +437,13 @@ foreach ($register['sites'] as $index => $entry) {
     }
     $listed[$site] = $entry;
 }
-duo_check_same([], $nameless, 'every register entry names a site');
-duo_check_same([], $duplicated, 'no site is registered twice');
-duo_check_same([], $misordered, 'the register stays sorted by site, so a diff reads as one line');
-duo_check_same([], $badVerdict, 'every entry declares a verdict of gate/carrier/derivation');
-duo_check_same([], $unexplained, 'every entry states WHY — an exclusion without its reason is a silent omission');
-duo_check_same([], $badAxis, 'every entry names at least one of the manifest/platform/authority axes');
-duo_check($verdicts['gate'] > 0, 'the register names at least one gate (' . $verdicts['gate'] . ')');
+wprism_check_same([], $nameless, 'every register entry names a site');
+wprism_check_same([], $duplicated, 'no site is registered twice');
+wprism_check_same([], $misordered, 'the register stays sorted by site, so a diff reads as one line');
+wprism_check_same([], $badVerdict, 'every entry declares a verdict of gate/carrier/derivation');
+wprism_check_same([], $unexplained, 'every entry states WHY — an exclusion without its reason is a silent omission');
+wprism_check_same([], $badAxis, 'every entry names at least one of the manifest/platform/authority axes');
+wprism_check($verdicts['gate'] > 0, 'the register names at least one gate (' . $verdicts['gate'] . ')');
 fwrite(STDOUT, sprintf(
     "register: %d sites — %d gate, %d carrier, %d derivation\n",
     count($listed),
@@ -458,11 +458,11 @@ fwrite(STDOUT, sprintf(
 
 $collisions = [];
 $candidates = pmg_candidates($root, PMG_ROOTS, $collisions);
-duo_check(count($candidates) > 40, 'the predicate walked the shipped tree (' . count($candidates) . ' candidates)');
-duo_check_same([], $collisions, 'no two candidate units in one file share a name, so every key resolves to one site');
+wprism_check(count($candidates) > 40, 'the predicate walked the shipped tree (' . count($candidates) . ' candidates)');
+wprism_check_same([], $collisions, 'no two candidate units in one file share a name, so every key resolves to one site');
 
 $unlisted = array_diff(array_keys($candidates), array_keys($listed));
-duo_check_same(
+wprism_check_same(
     [],
     array_values($unlisted),
     'every candidate the predicate selects is in tools/platform-move-gates.json'
@@ -470,7 +470,7 @@ duo_check_same(
 );
 
 $stale = array_diff(array_keys($listed), array_keys($candidates));
-duo_check_same(
+wprism_check_same(
     [],
     array_values($stale),
     'every registered site still exists in the tree — a key that stopped resolving is a real move'
@@ -485,7 +485,7 @@ duo_check_same(
 // ---------------------------------------------------------------------------
 
 $units = pmg_units($root, PMG_ROOTS);
-duo_check(count($units) > count($candidates), 'the unit walk sees more than the selected set (' . count($units) . ' units)');
+wprism_check(count($units) > count($candidates), 'the unit walk sees more than the selected set (' . count($units) . ' units)');
 
 $absentExclusions = [];
 $ambiguousExclusions = [];
@@ -535,18 +535,18 @@ foreach ($register['exclusions'] as $index => $entry) {
         $wrongArm[] = "$site => declared '" . (is_string($arm) ? $arm : gettype($arm)) . "', derived '$expected'";
     }
 }
-duo_check_same([], $absentExclusions, 'every excluded site still exists in the tree — a renamed exclusion is stale prose');
-duo_check_same([], $ambiguousExclusions, 'every excluded site resolves to exactly one unit, so the reason describes one thing');
-duo_check_same(
+wprism_check_same([], $absentExclusions, 'every excluded site still exists in the tree — a renamed exclusion is stale prose');
+wprism_check_same([], $ambiguousExclusions, 'every excluded site resolves to exactly one unit, so the reason describes one thing');
+wprism_check_same(
     [],
     $selectedExclusions,
     'no excluded site is selected by the predicate — an arm widened until it selects one must be reviewed, not absorbed'
 );
-duo_check_same([], $alsoRegistered, 'no site is both registered and excluded');
-duo_check_same([], $unexplainedExclusions, 'every exclusion states WHY it is not a gate on one of the three axes');
-duo_check_same([], $misorderedExclusions, 'the exclusions stay sorted by site');
-duo_check_same([], $wrongArm, 'every exclusion names the arm that actually dropped it, re-derived from the tree');
-duo_check(count($register['exclusions']) > 0, 'the register records at least one reviewed exclusion');
+wprism_check_same([], $alsoRegistered, 'no site is both registered and excluded');
+wprism_check_same([], $unexplainedExclusions, 'every exclusion states WHY it is not a gate on one of the three axes');
+wprism_check_same([], $misorderedExclusions, 'the exclusions stay sorted by site');
+wprism_check_same([], $wrongArm, 'every exclusion names the arm that actually dropped it, re-derived from the tree');
+wprism_check(count($register['exclusions']) > 0, 'the register records at least one reviewed exclusion');
 fwrite(STDOUT, 'exclusions: ' . count($register['exclusions']) . " reviewed drops re-derived from the tree\n");
 
 // ---------------------------------------------------------------------------
@@ -565,8 +565,8 @@ foreach ($register['anchors'] as $anchor) {
         $demotedAnchors[] = (string) $anchor;
     }
 }
-duo_check_same([], $unselectedAnchors, 'every anchor is still selected by the predicate — an arm that stops selecting one is a weakening');
-duo_check_same([], $demotedAnchors, 'every anchor is still recorded as a gate');
+wprism_check_same([], $unselectedAnchors, 'every anchor is still selected by the predicate — an arm that stops selecting one is a weakening');
+wprism_check_same([], $demotedAnchors, 'every anchor is still recorded as a gate');
 fwrite(STDOUT, 'anchors: ' . count($register['anchors']) . " re-derived from the tree\n");
 
 // The headline refusals AGENTS.md and the operator-facing surfaces quote. If a
@@ -583,7 +583,7 @@ foreach ($namedRefusals as $site => $axis) {
         $missingRefusals[] = "$site ($axis)";
     }
 }
-duo_check_same([], $missingRefusals, 'the four refusals AGENTS.md and the CLI quote are registered on their axis');
+wprism_check_same([], $missingRefusals, 'the four refusals AGENTS.md and the CLI quote are registered on their axis');
 
 // ---------------------------------------------------------------------------
 // 5. The comparison itself fails on an unlisted candidate. Asserting the diff
@@ -597,7 +597,7 @@ $probe = (string) $register['anchors'][0];
 $registered = array_intersect_key($candidates, $listed);
 $withoutProbe = $listed;
 unset($withoutProbe[$probe]);
-duo_check_same(
+wprism_check_same(
     [$probe],
     array_values(array_diff(array_keys($registered), array_keys($withoutProbe))),
     "dropping $probe from the register surfaces it as unlisted"
@@ -609,15 +609,15 @@ duo_check_same(
 //    arm 1's three carve-outs were added.
 // ---------------------------------------------------------------------------
 
-$scratch = sys_get_temp_dir() . '/duo-platform-move-gates-' . getmypid() . '-' . bin2hex(random_bytes(4));
-duo_check(mkdir($scratch . '/synthetic', 0700, true), 'synthetic root created');
+$scratch = sys_get_temp_dir() . '/wprism-platform-move-gates-' . getmypid() . '-' . bin2hex(random_bytes(4));
+wprism_check(mkdir($scratch . '/synthetic', 0700, true), 'synthetic root created');
 file_put_contents($scratch . '/synthetic/Probe.php', <<<'PHP'
 <?php
 final class Probe {
     /** A new gate: compares a manifest hash and refuses. */
     public static function assertPinned(array $artifact, string $active): void {
         if (!hash_equals((string) $artifact['manifest_hash'], $active)) {
-            throw new \RuntimeException('duo: synthetic manifest mismatch');
+            throw new \RuntimeException('wprism: synthetic manifest mismatch');
         }
     }
 
@@ -642,12 +642,12 @@ final class Probe {
 PHP);
 
 $synthetic = pmg_candidates($scratch, ['synthetic']);
-duo_check_same(
+wprism_check_same(
     ['synthetic/Probe.php::assertPinned', 'synthetic/Probe.php::shape'],
     array_keys($synthetic),
     'the predicate selects a new gate and a bare shape gate, and nothing else'
 );
-duo_check_same(
+wprism_check_same(
     ['manifest_hash'],
     $synthetic['synthetic/Probe.php::assertPinned']['tokens'],
     'the selected gate reports the identity token it matched on'
@@ -667,14 +667,14 @@ $certificationReaders = [
 ];
 foreach ($certificationReaders as $relative) {
     $source = (string) file_get_contents($root . '/' . $relative);
-    duo_check(
+    wprism_check(
         str_contains($source, 'platform/adapter-library/capabilities/platform.json'),
         "$relative reads the checked-in platform authority"
     );
-    duo_check(
+    wprism_check(
         !str_contains($source, 'manifests/capabilities/platform.json'),
         "$relative cannot regress to the retired flat-library path"
     );
 }
 
-duo_check_summary('regress-platform-move-gates');
+wprism_check_summary('regress-platform-move-gates');

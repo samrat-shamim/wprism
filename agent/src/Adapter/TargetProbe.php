@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
-// No \Duo dependency to require: every read below is a WordPress global,
+// No \WPrism dependency to require: every read below is a WordPress global,
 // function, or constant, which is exactly what makes this the one place a
 // live-target fact enters the adapter cluster.
 

@@ -15,20 +15,22 @@
  * `declaration_evidence` is a genuinely new top-level section that did not exist
  * when v3 was cut, so PART 1's three verdicts are the claim being exercised for
  * real and PART 2 is the part that would have made all of it worthless:
- * `DUO_SPEC_VERSION` IS STILL 3, read out of `agent/duo.php` in this same run.
+ * `WPRISM_SPEC_VERSION` IS STILL 3, read out of `agent/wprism.php` in this same run.
  * A channel that worked while the integer quietly moved would have demonstrated
  * the opposite of what it set out to.
  *
  * WHAT IT DELIBERATELY DOES NOT CLAIM
  * -----------------------------------
- * That the shipped library uses the section. It cannot, and PART 4 asserts the
- * absence rather than glossing it: a manifest byte is adapter identity
- * (AGENTS.md rule 2), so adopting the section across the 16 shipped adapters
- * would move all 16 digests and invalidate every pin and certificate naming one,
- * for what is a documentation change. So the declaration-to-rationale link is
- * gated two ways at once — `regress_shipped_option_declarations.php:237` keeps
- * its `str_contains($text, 'DUO-3509')` grep over `notes` prose for the shipped
- * library, and the schema check below covers fixtures and out-of-tree adapters.
+ * That every shipped adapter uses the section. Redirection was authored with
+ * it; the 16 pre-existing packages were not retrofitted, and PART 4 asserts
+ * that boundary rather than glossing it: a manifest byte is adapter identity
+ * (AGENTS.md rule 2), so adopting the section across those 16 packages would
+ * move all 17 digests and invalidate every pin and certificate naming one, for
+ * what is a documentation change. So the declaration-to-rationale link is
+ * gated two ways at once — `regress_shipped_option_declarations.php` keeps its
+ * `str_contains($text, 'issue #3509')` grep over `notes` prose for the existing
+ * packages, and the schema check below covers Redirection, fixtures, and
+ * out-of-tree adapters.
  * PART 4 pins BOTH halves, including the grep it did not replace, because a
  * conversion that only half happened is worth less than a written statement of
  * which half is which.
@@ -45,7 +47,7 @@
  * run a child process at N+1 because the rule they measure sat above the shipped
  * engine's ceiling. This one does not: the whole point is that the section is
  * live on the SHIPPED engine, at the SHIPPED version, so every verdict here is
- * read through `duo manifest-validate` and the shipped grammar, in this process
+ * read through `wprism manifest-validate` and the shipped grammar, in this process
  * and one child of the real CLI.
  */
 declare(strict_types=1);
@@ -55,17 +57,17 @@ require_once __DIR__ . '/../../lib/check.php';
 
 $repo = dirname(__DIR__, 4);
 
-// The engine's own defines, read out of agent/duo.php the way every other
+// The engine's own defines, read out of agent/wprism.php the way every other
 // offline suite that needs them does — never a literal, so PART 2's assertion
 // is a MEASUREMENT of the shipped tree and not a restatement of this file.
-$duoSource = (string) file_get_contents($repo . '/agent/duo.php');
-if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $duoSource, $m) !== 1) {
-    fwrite(STDERR, "could not resolve DUO_SPEC_VERSION from agent/duo.php\n");
+$wprismSource = (string) file_get_contents($repo . '/agent/wprism.php');
+if (preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", $wprismSource, $m) !== 1) {
+    fwrite(STDERR, "could not resolve WPRISM_SPEC_VERSION from agent/wprism.php\n");
     exit(1);
 }
-define('DUO_SPEC_VERSION', (int) $m[1]);
-preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $duoSource, $agentMatch);
-define('DUO_AGENT_VERSION', (string) ($agentMatch[1] ?? '0.0.0'));
+define('WPRISM_SPEC_VERSION', (int) $m[1]);
+preg_match("/define\('WPRISM_AGENT_VERSION', '([^']+)'\)/", $wprismSource, $agentMatch);
+define('WPRISM_AGENT_VERSION', (string) ($agentMatch[1] ?? '0.0.0'));
 
 require_once $repo . '/agent/src/Kernel/Canon.php';
 require_once $repo . '/agent/src/Kernel/OptionState.php';
@@ -78,13 +80,13 @@ require_once $repo . '/agent/src/Adapter/AdapterContractGrammar.php';
 require_once $repo . '/agent/src/Adapter/AdapterCertification.php';
 require_once $repo . '/agent/src/Adapter/StructuredEvidence.php';
 
-use Duo\AdapterCertification;
-use Duo\AdapterContractGrammar;
-use Duo\Canon;
-use Duo\ReferenceKindGrammar;
-use Duo\StructuredEvidence;
+use WPrism\AdapterCertification;
+use WPrism\AdapterContractGrammar;
+use WPrism\Canon;
+use WPrism\ReferenceKindGrammar;
+use WPrism\StructuredEvidence;
 
-$N = DUO_SPEC_VERSION;
+$N = WPRISM_SPEC_VERSION;
 $SECTION = StructuredEvidence::SECTION;
 /** The feature that claims the section. Engine-owned, and permanent (R-19). */
 const SE_FEATURE = 'structured-evidence/v1';
@@ -189,12 +191,12 @@ echo "\nPART 1 — the three verdicts § v3.3's growth rule promises, on a secti
 $report('engine features implemented: ' . implode(', ', AdapterContractGrammar::implemented_features()));
 $report('v3-only sections: ' . json_encode(AdapterContractGrammar::section_min_spec(), JSON_UNESCAPED_SLASHES));
 
-duo_check(
+wprism_check(
     in_array(SE_FEATURE, AdapterContractGrammar::implemented_features(), true),
     'the engine implements `' . SE_FEATURE . '` — the vocabulary is engine-owned, so this is the only place '
         . 'the name can come from (R-19)'
 );
-duo_check_same(
+wprism_check_same(
     [$SECTION],
     AdapterContractGrammar::admitted_feature_keys(['engine_features' => [SE_FEATURE]]),
     '...and that feature claims exactly `' . $SECTION . '`, from the ONE constant that also decides its first '
@@ -202,13 +204,13 @@ duo_check_same(
 );
 
 // VERDICT 1 — declared and implemented ADMITS.
-duo_check_same(
+wprism_check_same(
     null,
     $verdict($adapter('acme-evidence', [SE_CHANNEL_FEATURE, SE_FEATURE], [$SECTION => $goodRecord])),
     'VERDICT 1 (declared + implemented): the section is ADMITTED — a top-level key in NO arm of the signer\'s '
         . 'partition, loading only because a declared feature claims it'
 );
-duo_check(
+wprism_check(
     !in_array($SECTION, AdapterContractGrammar::admitted_top_level_keys([]), true),
     '...and it is admitted BESIDE the partition rather than inside it: with no feature declared the base '
         . 'admitted set does not contain it, which is what makes this the growth rule and not a widened partition'
@@ -218,27 +220,27 @@ duo_check(
 $unimplemented = (string) $verdict(
     $adapter('acme-evidence', [SE_CHANNEL_FEATURE, 'structured-evidence/v2'], [$SECTION => $goodRecord])
 );
-duo_check(
+wprism_check(
     str_contains($unimplemented, "declares engine feature 'structured-evidence/v2'")
         && str_contains($unimplemented, 'this engine does not implement it')
         && str_contains($unimplemented, 'spec/repo-format.md § v3.2'),
     'VERDICT 2 (declared, unimplemented): refuses naming the FEATURE — and `/vN` is the change channel, so a '
         . 'meaning that moves becomes a NEW name beside the old one rather than an edit of it'
 );
-duo_check(
+wprism_check(
     !str_contains($unimplemented, "'" . $SECTION . "'"),
     '...and does NOT name the section: the author\'s spelling is correct and their engine is old, which are '
         . 'two different remedies'
 );
-duo_check(
+wprism_check(
     str_contains($unimplemented, 'run an engine that has the feature'),
     '...so the remedy names the engine, not the manifest'
 );
-duo_check_detail('VERDICT 2: ' . $unimplemented);
+wprism_check_detail('VERDICT 2: ' . $unimplemented);
 
 // VERDICT 3 — UNDECLARED refuses as a typo, naming the key.
 $typo = (string) $verdict($adapter('acme-evidence', [], [$SECTION => $goodRecord]));
-duo_check(
+wprism_check(
     str_contains($typo, "the top-level key '" . $SECTION . "'")
         && str_contains($typo, 'does not recognise')
         && str_contains($typo, 'correct the spelling')
@@ -246,12 +248,12 @@ duo_check(
     'VERDICT 3 (undeclared): refuses as a MISSPELLING, naming the key — the third verdict, distinct from both '
         . 'others, which is the property § v3.3 says has no fourth answer'
 );
-duo_check(
+wprism_check(
     str_contains($typo, 'this engine implements: ' . implode(', ', AdapterContractGrammar::implemented_features())),
     '...and enumerates the implemented feature names, so an author who meant to declare one can'
 );
-duo_check(!str_contains($typo, "\n"), '...and is one line, so it survives a WP-CLI error and a harness that pins it');
-duo_check_detail('VERDICT 3: ' . $typo);
+wprism_check(!str_contains($typo, "\n"), '...and is one line, so it survives a WP-CLI error and a harness that pins it');
+wprism_check_detail('VERDICT 3: ' . $typo);
 
 // The fourth arm of the same rule, at the OTHER end of the window: the section
 // is v3-only, so the version that the whole shipped library still declares
@@ -259,7 +261,7 @@ duo_check_detail('VERDICT 3: ' . $typo);
 $atFloor = $adapter('acme-evidence', [], [$SECTION => $goodRecord]);
 $atFloor['spec_version'] = $N - 1;
 $floorRefusal = (string) $verdict($atFloor);
-duo_check(
+wprism_check(
     str_contains($floorRefusal, "the section '" . $SECTION . "'")
         && str_contains($floorRefusal, 'implements only at spec_version ' . $N)
         && str_contains($floorRefusal, 'declare spec_version ' . $N . ' to use it, or remove the section'),
@@ -268,35 +270,35 @@ duo_check(
 );
 
 // ===========================================================================
-echo "\nPART 2 — THE NO-BUMP PROOF: DUO_SPEC_VERSION is still $N\n";
+echo "\nPART 2 — THE NO-BUMP PROOF: WPRISM_SPEC_VERSION is still $N\n";
 // ===========================================================================
 
 // This is the assertion the whole work package exists for. Everything above
 // would be equally true of a section that arrived with a version bump; what
 // makes it a demonstration is that the integer did not move to admit it.
-duo_check_same(
+wprism_check_same(
     3,
     $N,
-    'DUO_SPEC_VERSION is 3, read out of agent/duo.php — the section shipped AFTER the flip and the wire '
+    'WPRISM_SPEC_VERSION is 3, read out of agent/wprism.php — the section shipped AFTER the flip and the wire '
         . 'version did not move to admit it (spec/repo-format.md § v3.14)'
 );
-$adapterLibrary = \Duo\AdapterLibrary::fromSourceTree($repo);
+$adapterLibrary = \WPrism\AdapterLibrary::fromSourceTree($repo);
 $platform = Canon::decode(Canon::read_file($adapterLibrary->platformBoundaryPath()));
-duo_check_same(
+wprism_check_same(
     $N,
     $platform['platform']['spec_version'] ?? null,
-    '...and manifests/capabilities/platform.json restates the same 3, so the boundary a certificate signs '
+    '...and platform/adapter-library/capabilities/platform.json restates the same 3, so the boundary a certificate signs '
         . 'against did not move either (AGENTS.md rule 8)'
 );
 $since = AdapterContractGrammar::section_min_spec();
-duo_check_same(
+wprism_check_same(
     $N,
     $since[$SECTION] ?? null,
     '...and the new section\'s own `since` is ' . $N . ' — the version this engine ALREADY ran at. A `since` '
         . 'of ' . ($N + 1) . ' would have refused it at every version the window accepts, which is how a '
         . 'channel meant to avoid a flag day would have quietly scheduled one'
 );
-duo_check_same(
+wprism_check_same(
     $since[$SECTION] ?? null,
     $since['engine_features'] ?? null,
     '...the same `since` the channel\'s own key has: the section joined the era that already existed rather '
@@ -312,7 +314,7 @@ foreach ([$N - 2, $N - 1, $N, $N + 1] as $candidate) {
         $accepted[] = $candidate;
     }
 }
-duo_check_same(
+wprism_check_same(
     [$N - 1, $N],
     $accepted,
     '...and the acceptance window is still {' . ($N - 1) . ', ' . $N . '} — a bump would have moved the FLOOR '
@@ -331,12 +333,12 @@ $sectionVerdict = static function (mixed $section) use ($adapter, $verdict): str
     );
 };
 
-duo_check(
+wprism_check(
     str_contains($sectionVerdict([]), 'is [] — the section is a non-empty OBJECT'),
     'an empty section refuses: a document that declares it is founded and then declines to say on what reads '
         . 'as coverage, which is worse than declaring nothing'
 );
-duo_check(
+wprism_check(
     str_contains($sectionVerdict(['not an object']), 'the section is a non-empty OBJECT keyed by the declaration'),
     '...and a LIST refuses, naming the shape — the polymorphism `notes` has (a list in 14 manifests, an '
         . 'object in 2) is exactly what this section exists not to repeat'
@@ -345,15 +347,15 @@ duo_check(
 $dangling = $sectionVerdict(['optoins.acme_settings' => [
     'evidence' => [['source' => 'a', 'locator' => 'b', 'observation' => 'c']],
 ]]);
-duo_check(
+wprism_check(
     str_contains($dangling, 'declares the target "optoins.acme_settings"')
         && str_contains($dangling, "this manifest declares no top-level 'optoins'"),
     'THE LOAD-BEARING RULE: a target ADDRESSES a declaration this manifest makes, so one transposed letter in '
         . 'the head refuses at load — the thing a `str_contains($notes, $name)` grep structurally cannot do'
 );
-duo_check_detail('dangling target: ' . $dangling);
+wprism_check_detail('dangling target: ' . $dangling);
 
-duo_check(
+wprism_check(
     str_contains(
         $sectionVerdict([StructuredEvidence::SECTION . '.x' => [
             'evidence' => [['source' => 'a', 'locator' => 'b', 'observation' => 'c']],
@@ -364,14 +366,14 @@ duo_check(
         . 'the unfalsifiable prose the section replaces'
 );
 
-duo_check(
+wprism_check(
     str_contains(
         $sectionVerdict(['options.acme_settings' => ['evidence' => []]]),
         '.evidence is [] — a non-empty LIST of {locator, observation, source} objects is required'
     ),
     'an empty `evidence[]` refuses, and the refusal names the path AND the required row shape'
 );
-duo_check(
+wprism_check(
     str_contains(
         $sectionVerdict(['options.acme_settings' => [
             'evidence' => [['source' => 'a', 'locator' => 'b', 'observation' => 'c']],
@@ -382,7 +384,7 @@ duo_check(
     'a record is CLOSED: an unrecognised member refuses by name, because a member no checker reads is `notes` '
         . 'again one nesting level deeper'
 );
-duo_check(
+wprism_check(
     str_contains(
         $sectionVerdict(['options.acme_settings' => [
             'evidence' => [['source' => 'a', 'locator' => 'b']],
@@ -391,7 +393,7 @@ duo_check(
     ),
     '...and closed in the OTHER direction too: a row missing a member refuses naming the member and the index'
 );
-duo_check(
+wprism_check(
     str_contains(
         $sectionVerdict(['options.acme_settings' => [
             'evidence' => [['source' => 'a', 'locator' => 'b', 'observation' => '   ']],
@@ -401,7 +403,7 @@ duo_check(
     '...and a whitespace-only member refuses: an evidence row whose observation says nothing is a row that '
         . 'passes a shape check while asserting nothing'
 );
-duo_check(
+wprism_check(
     str_contains(
         $sectionVerdict(['options.acme_settings' => [
             'evidence' => [['source' => 'a', 'locator' => 'b', 'observation' => 'c']],
@@ -412,7 +414,7 @@ duo_check(
     'AN OPEN QUESTION CANNOT SHIP: `answered[]` rows are {question, answer} pairs, so a draft\'s bare '
         . 'deferral string is refused — a deferral belongs in the `_draft` sidecar that gets stripped'
 );
-duo_check_same(
+wprism_check_same(
     null,
     $verdict($adapter('acme-evidence', [SE_CHANNEL_FEATURE, SE_FEATURE], [$SECTION => [
         'options.acme_settings' => [
@@ -429,7 +431,7 @@ $twoDefects = [
     'zzz.later' => ['evidence' => [['source' => 'a', 'locator' => 'b', 'observation' => 'c']]],
     'options.acme_settings' => ['evidence' => []],
 ];
-duo_check(
+wprism_check(
     str_contains((string) $sectionVerdict($twoDefects), 'options.acme_settings')
         && str_contains((string) $sectionVerdict(array_reverse($twoDefects, true)), 'options.acme_settings'),
     'targets are walked SORTED, so a manifest re-serialized by a tool that does not sort gets the same first '
@@ -455,7 +457,7 @@ try {
 } catch (\Throwable $e) {
     $refWalk = $e->getMessage();
 }
-duo_check_same(
+wprism_check_same(
     null,
     $refWalk,
     'the section is INERT under the blind ref-kind walk without a fifth skip being added for it: its members '
@@ -514,19 +516,19 @@ $broken = $adapter('acme-broken', [SE_CHANNEL_FEATURE, SE_FEATURE], [$SECTION =>
 unset($broken['options']);
 Canon::write_file($scratch . '/adapter-packages/acme-broken/package/manifest.json', Canon::encode($broken));
 
-$validate = $run([PHP_BINARY, $repo . '/cli/duo', 'manifest-validate', $scratch]);
-duo_check(
+$validate = $run([PHP_BINARY, $repo . '/cli/wprism', 'manifest-validate', $scratch]);
+wprism_check(
     str_contains($validate['stdout'], '[ok] acme-evidence'),
-    'THROUGH THE PRODUCT PATH: `duo manifest-validate` reports [ok] for an out-of-tree adapter carrying the '
+    'THROUGH THE PRODUCT PATH: `wprism manifest-validate` reports [ok] for an out-of-tree adapter carrying the '
         . 'section — no synthetic engine, no mutant tree, the shipped CLI at the shipped version'
 );
-duo_check(
+wprism_check(
     str_contains($validate['stdout'], '[error] acme-broken')
         && str_contains($validate['stdout'], "declares no top-level 'options'"),
     '...and [error] for its sibling whose addressed declaration was deleted: the rationale outlives the '
         . 'declaration by exactly zero releases, which is the whole point of an address'
 );
-duo_check($validate['exit'] !== 0, '...and the run fails, because a pin set holding an unloadable adapter is not a passing check');
+wprism_check($validate['exit'] !== 0, '...and the run fails, because a pin set holding an unloadable adapter is not a passing check');
 
 // THE DEFERRAL, RECORDED RATHER THAN GLOSSED. Existing shipped manifests are
 // never mass-retrofitted: `ArtifactPolicyIdentity::manifest_rows()` folds each
@@ -541,7 +543,7 @@ $adopters = array_values(array_filter(
     array_keys($shippedManifests),
     static fn(string $n): bool => array_key_exists($SECTION, $shippedManifests[$n])
 ));
-duo_check_same(
+wprism_check_same(
     ['redirection'],
     $adopters,
     'Redirection is the first shipped manifest authored with structured evidence; no pre-existing manifest was retrofitted'
@@ -551,13 +553,13 @@ $report('shipped manifests: ' . count($shippedManifests) . '; adopting the secti
 $grepSuite = (string) file_get_contents(
     $repo . '/sandbox/tests/offline/policy/regress_shipped_option_declarations.php'
 );
-duo_check(
-    str_contains($grepSuite, "str_contains(\$text, 'DUO-3509')"),
+wprism_check(
+    str_contains($grepSuite, "str_contains(\$text, 'issue #3509')"),
     'AND THE PROSE GREP STAYS: `regress_shipped_option_declarations.php` still greps an issue id out of '
-        . '`notes` for the shipped library, because that library cannot carry the structured section without '
-        . 'moving its digests. The gate converts per adapter, when one is next touched for a product reason'
+        . '`notes` for the 16 pre-existing packages, because retrofitting them would move their digests. '
+        . 'The gate converts per adapter, when one is next touched for a product reason'
 );
-duo_check(
+wprism_check(
     str_contains($grepSuite, 'regress_structured_evidence.php'),
     '...and that suite NAMES this one at the grep, so the deferral is a written cross-reference a reviewer '
         . 'meets at the site, not a note in a merge description nobody reads again'
@@ -565,10 +567,10 @@ duo_check(
 
 // `notes` is a SIBLING, not a predecessor: an adapter may carry both, and
 // nothing here reads or rewrites the prose.
-duo_check_same(
+wprism_check_same(
     null,
     $verdict($adapter('acme-evidence', [SE_CHANNEL_FEATURE, SE_FEATURE], [
-        'notes' => ['acme_settings is an authored blob; see DUO-3509'],
+        'notes' => ['acme_settings is an authored blob; see issue #3509'],
         $SECTION => $goodRecord,
     ])),
     'a manifest carrying BOTH `notes` and the section loads: nothing is migrated, nothing is rewritten, and '
@@ -601,7 +603,7 @@ $signer = static function (string $name, array $manifest) use ($ratify): ?string
 // certificate.
 $signerAdapter = $adapter('acme-evidence', [SE_CHANNEL_FEATURE, SE_FEATURE], [$SECTION => $goodRecord]);
 $signerVerdict = $signer('acme-evidence', $signerAdapter);
-duo_check_same(
+wprism_check_same(
     null,
     $signerVerdict,
     'THE POSTURE, MEASURED AGAIN AFTER WP-6.6: an adapter that uses the channel AND this section is now '
@@ -613,7 +615,7 @@ $armed = AdapterContractGrammar::admitted_feature_key_arms($signerAdapter);
 // than in the roster's declaration order: a map whose iteration order depended
 // on which feature was listed first would make the arm a function of the
 // manifest's own spelling.
-duo_check_same(
+wprism_check_same(
     [$SECTION => 'non_surface', 'engine_features' => 'non_surface'],
     $armed,
     '...and the answer for both keys is `non_surface`: the claim channel covers no state, and a certificate '
@@ -622,7 +624,7 @@ duo_check_same(
 );
 $surfaces = (new ReflectionMethod(AdapterCertification::class, 'siteSurfaceSections'))
     ->invoke(null, 'acme-evidence', $signerAdapter);
-duo_check(
+wprism_check(
     !in_array($SECTION, $surfaces['entity'], true) && !in_array($SECTION, $surfaces['field'], true)
         && !in_array('engine_features', $surfaces['entity'], true)
         && !in_array('engine_features', $surfaces['field'], true),
@@ -639,16 +641,16 @@ $sectionOnly = (string) $signer('acme-evidence', [
     'options' => ['acme_settings' => ['class' => 'authored', 'autoload' => 'yes']],
     $SECTION => $goodRecord,
 ]);
-duo_check(
+wprism_check(
     str_contains($sectionOnly, "declares '" . $SECTION . "'")
         && str_contains($sectionOnly, 'which this signer cannot classify')
         && str_contains($sectionOnly, 'teach the signer this section'),
     '...while the section WITHOUT its feature declared keeps the refusal byte for byte: the arm is read per '
         . 'manifest, and a certificate may not claim coverage of a section this engine reads nothing from'
 );
-duo_check_detail('signer refusal (section, feature undeclared): ' . $sectionOnly);
+wprism_check_detail('signer refusal (section, feature undeclared): ' . $sectionOnly);
 $partition = AdapterCertification::topLevelKeyPartition();
-duo_check(
+wprism_check(
     !in_array($SECTION, array_merge(
         $partition['entity_sections'],
         $partition['field_sections'],
@@ -664,21 +666,21 @@ echo "\nPART 6 — the register and the spec say the same thing the engine does\
 // ===========================================================================
 
 $register = (string) file_get_contents($repo . '/docs/wire-surface.md');
-duo_check(
+wprism_check(
     str_contains($register, '### R-29 — Structured declaration evidence'),
     'the wire-surface register carries R-29 for the section — a new wire surface acquired with no bump, which '
         . 'is the first row in the register that was not paid for by one'
 );
-duo_check(
+wprism_check(
     str_contains($register, 'structured-evidence/v1') && str_contains($register, '`' . $SECTION . '`'),
     '...naming both the feature and the key it claims, projected from the engine constants by '
         . '`tools/wire-surface.php` and byte-compared by `make release-gate`'
 );
 $specBody = (string) file_get_contents($repo . '/spec/repo-format.md');
-duo_check(
+wprism_check(
     str_contains($specBody, '### v3.14 `' . $SECTION . '` — the first POST-v3 section, shipped with no bump'),
     'and spec/repo-format.md § v3.14 is the section every refusal above cites — a rule whose cited section '
         . 'does not exist is a rule an author cannot check'
 );
 
-duo_check_summary('structured typed evidence');
+wprism_check_summary('structured typed evidence');

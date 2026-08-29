@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for LifecycleExecutor (DUO-3350 slice 8: the real
+ * Offline regression for LifecycleExecutor (issue #3350 slice 8: the real
  * WordPress lifecycle mutation pass -- deactivate, dependency-ordered
  * activate, active_plugins order correction, switch_theme() -- extracted
  * from Deploy::run()). Deliberately narrow, the same wiring/shape idiom the
@@ -98,7 +98,7 @@ check(
 // parameter, and every produced value comes back through one return array.
 require_once $root . '/agent/src/Promotion/LifecycleExecutor.php';
 require_once $root . '/agent/src/Promotion/Deploy.php';
-$executor = new ReflectionClass(\Duo\LifecycleExecutor::class);
+$executor = new ReflectionClass(\WPrism\LifecycleExecutor::class);
 $execute = $executor->getMethod('execute');
 check($execute->isPublic(), 'execute() is public on LifecycleExecutor');
 check($execute->isStatic(), 'execute() is static on LifecycleExecutor');
@@ -111,9 +111,9 @@ check(
     'execute() keeps its complete, explicit twelve-parameter shape'
 );
 
-$deploy = new ReflectionClass(\Duo\Deploy::class);
+$deploy = new ReflectionClass(\WPrism\Deploy::class);
 foreach (['dependency_ordered_activations', 'dependency_ordered_deactivations'] as $widened) {
-    check($deploy->getMethod($widened)->isPublic(), "Deploy::$widened() widened to public (DUO-3350 slice 8)");
+    check($deploy->getMethod($widened)->isPublic(), "Deploy::$widened() widened to public (issue #3350 slice 8)");
 }
 foreach (['plugin_dependency_requirements', 'plugin_dependency_slug', 'order_deactivations', 'order_activations'] as $stillPrivate) {
     check($deploy->getMethod($stillPrivate)->isPrivate(), "Deploy::$stillPrivate() stays private, untouched by this slice");

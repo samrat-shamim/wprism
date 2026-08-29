@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/AdapterPackage.php';
@@ -77,7 +77,7 @@ final class AdapterLibrary
         foreach (self::entries($packagesRoot, 'adapter package source directory') as $slug) {
             self::assertLogicalSlug($slug, "adapter package basename at $packagesRoot/$slug");
             if (isset($packageRoots[$slug])) {
-                throw new \RuntimeException("duo: duplicate adapter package $slug in the source tree");
+                throw new \RuntimeException("wprism: duplicate adapter package $slug in the source tree");
             }
             $capsule = self::assertDirectory($root, $packagesRoot . '/' . $slug, "adapter capsule $slug");
             self::assertAllowedEntries(
@@ -106,7 +106,7 @@ final class AdapterLibrary
     {
         self::assertLogicalSlug($slug, 'adapter package name');
         if ($slug === 'core') {
-            throw new \RuntimeException('duo: core is platform-owned and has no adapter authoring capsule');
+            throw new \RuntimeException('wprism: core is platform-owned and has no adapter authoring capsule');
         }
 
         $root = self::canonicalRoot($directory);
@@ -168,7 +168,7 @@ final class AdapterLibrary
         foreach (self::entries($adaptersRoot, 'embedded adapter packages directory') as $slug) {
             self::assertLogicalSlug($slug, "embedded adapter package basename at $adaptersRoot/$slug");
             if (isset($packageRoots[$slug])) {
-                throw new \RuntimeException("duo: duplicate embedded adapter package $slug");
+                throw new \RuntimeException("wprism: duplicate embedded adapter package $slug");
             }
             $packageRoots[$slug] = self::assertDirectory(
                 $root,
@@ -210,7 +210,7 @@ final class AdapterLibrary
 
         $manifestPaths = self::manifestPaths($root);
         if ($manifestPaths === []) {
-            throw new \RuntimeException("duo: adapter library has no manifests: $root");
+            throw new \RuntimeException("wprism: adapter library has no manifests: $root");
         }
         $dispositionPaths = self::dispositionPaths($root, $profiles);
         $runtimePaths = [];
@@ -226,19 +226,19 @@ final class AdapterLibrary
         foreach ($manifestPaths as $basename => $manifestPath) {
             $manifest = Canon::decode(Canon::read_file($manifestPath));
             if (!is_array($manifest)) {
-                throw new \RuntimeException("duo: adapter manifest is not a JSON object: $manifestPath");
+                throw new \RuntimeException("wprism: adapter manifest is not a JSON object: $manifestPath");
             }
             $declaredName = $manifest['name'] ?? null;
             if (!is_string($declaredName)) {
-                throw new \RuntimeException("duo: adapter manifest has no string name: $manifestPath");
+                throw new \RuntimeException("wprism: adapter manifest has no string name: $manifestPath");
             }
             self::assertName($declaredName, "adapter name declared by $manifestPath");
             if (isset($specs[$declaredName])) {
-                throw new \RuntimeException("duo: duplicate adapter name $declaredName in the flat library");
+                throw new \RuntimeException("wprism: duplicate adapter name $declaredName in the flat library");
             }
             if ($declaredName !== $basename) {
                 throw new \RuntimeException(
-                    "duo: adapter manifest basename $basename disagrees with its declared name $declaredName"
+                    "wprism: adapter manifest basename $basename disagrees with its declared name $declaredName"
                 );
             }
             $specs[$declaredName] = self::runtimeDeclarations($declaredName, $manifest);
@@ -252,7 +252,7 @@ final class AdapterLibrary
             $missing = array_values(array_diff($manifestNames, $dispositionNames));
             $orphaned = array_values(array_diff($dispositionNames, $manifestNames));
             throw new \RuntimeException(
-                'duo: adapter disposition coverage disagrees with manifests; missing=[' . implode(',', $missing)
+                'wprism: adapter disposition coverage disagrees with manifests; missing=[' . implode(',', $missing)
                 . '], orphaned=[' . implode(',', $orphaned) . ']'
             );
         }
@@ -419,7 +419,7 @@ final class AdapterLibrary
         $platformRevocations = $platformRoot . '/' . self::REVOCATIONS;
         if ($operatorRevocationsPath !== null && self::nodeExists($platformRevocations)) {
             throw new \RuntimeException(
-                'duo: embedded platform adapter library may not carry operator revocations; '
+                'wprism: embedded platform adapter library may not carry operator revocations; '
                 . "the durable control path is $operatorRevocationsPath"
             );
         }
@@ -433,7 +433,7 @@ final class AdapterLibrary
         }
 
         if (isset($adapterRoots['core'])) {
-            throw new \RuntimeException('duo: adapter package core collides with the platform-owned core package');
+            throw new \RuntimeException('wprism: adapter package core collides with the platform-owned core package');
         }
         $adapterRoots['core'] = $coreRoot;
         ksort($adapterRoots, SORT_STRING);
@@ -448,7 +448,7 @@ final class AdapterLibrary
         foreach ($adapterRoots as $slug => $packageRoot) {
             [$package, $packageAnchors, $runtime] = self::logicalPackage($root, $slug, $packageRoot);
             if (isset($packages[$package->name()])) {
-                throw new \RuntimeException("duo: duplicate adapter name {$package->name()} in the logical library");
+                throw new \RuntimeException("wprism: duplicate adapter name {$package->name()} in the logical library");
             }
             if ($runtime['interpreter'] !== null) {
                 self::claimRuntime(
@@ -488,17 +488,17 @@ final class AdapterLibrary
     private static function externalControlPath(string $path, string $label): string
     {
         if ($path === '' || str_contains($path, "\0") || !str_starts_with($path, '/')) {
-            throw new \RuntimeException("duo: $label control path is invalid: " . var_export($path, true));
+            throw new \RuntimeException("wprism: $label control path is invalid: " . var_export($path, true));
         }
         if (is_link($path)) {
-            throw new \RuntimeException("duo: $label may not be a symlink: $path");
+            throw new \RuntimeException("wprism: $label may not be a symlink: $path");
         }
         if (!file_exists($path)) {
             return $path;
         }
         $canonical = realpath($path);
         if ($canonical === false || !is_file($canonical) || !is_readable($canonical)) {
-            throw new \RuntimeException("duo: $label is not a readable regular file: $path");
+            throw new \RuntimeException("wprism: $label is not a readable regular file: $path");
         }
         return $canonical;
     }
@@ -526,16 +526,16 @@ final class AdapterLibrary
         );
         $manifest = Canon::decode(Canon::read_file($manifestPath));
         if (!is_array($manifest)) {
-            throw new \RuntimeException("duo: adapter manifest is not a JSON object: $manifestPath");
+            throw new \RuntimeException("wprism: adapter manifest is not a JSON object: $manifestPath");
         }
         $declaredName = $manifest['name'] ?? null;
         if (!is_string($declaredName)) {
-            throw new \RuntimeException("duo: adapter manifest has no string name: $manifestPath");
+            throw new \RuntimeException("wprism: adapter manifest has no string name: $manifestPath");
         }
         self::assertLogicalSlug($declaredName, "adapter name declared by $manifestPath");
         if ($declaredName !== $slug) {
             throw new \RuntimeException(
-                "duo: adapter package basename $slug disagrees with its declared name $declaredName"
+                "wprism: adapter package basename $slug disagrees with its declared name $declaredName"
             );
         }
 
@@ -576,10 +576,10 @@ final class AdapterLibrary
                 foreach (self::entries($kindRoot, "adapter $slug runtime $kind directory") as $entry) {
                     $path = $kindRoot . '/' . $entry;
                     if (is_link($path)) {
-                        throw new \RuntimeException("duo: adapter runtime may not be a symlink: $path");
+                        throw new \RuntimeException("wprism: adapter runtime may not be a symlink: $path");
                     }
                     if (!is_file($path) || !str_ends_with($entry, '.php')) {
-                        throw new \RuntimeException("duo: unexpected adapter runtime entry: $path");
+                        throw new \RuntimeException("wprism: unexpected adapter runtime entry: $path");
                     }
                     $id = substr($entry, 0, -4);
                     self::assertRuntimeName($id, "adapter runtime basename at $path");
@@ -644,7 +644,7 @@ final class AdapterLibrary
     {
         foreach (self::entries($directory, $label) as $entry) {
             if (!in_array($entry, $allowed, true)) {
-                throw new \RuntimeException("duo: unexpected $label entry: $directory/$entry");
+                throw new \RuntimeException("wprism: unexpected $label entry: $directory/$entry");
             }
         }
     }
@@ -657,14 +657,14 @@ final class AdapterLibrary
     private static function canonicalRoot(string $directory): string
     {
         if ($directory === '' || str_contains($directory, "\0")) {
-            throw new \RuntimeException('duo: adapter library root is invalid');
+            throw new \RuntimeException('wprism: adapter library root is invalid');
         }
         if (is_link($directory)) {
-            throw new \RuntimeException("duo: adapter library root may not be a symlink: $directory");
+            throw new \RuntimeException("wprism: adapter library root may not be a symlink: $directory");
         }
         $root = realpath($directory);
         if ($root === false || !is_dir($root) || !is_readable($root)) {
-            throw new \RuntimeException("duo: adapter library root is not a readable directory: $directory");
+            throw new \RuntimeException("wprism: adapter library root is not a readable directory: $directory");
         }
         return rtrim($root, '/');
     }
@@ -672,11 +672,11 @@ final class AdapterLibrary
     private static function assertDirectory(string $root, string $path, string $label): string
     {
         if (is_link($path)) {
-            throw new \RuntimeException("duo: $label may not be a symlink: $path");
+            throw new \RuntimeException("wprism: $label may not be a symlink: $path");
         }
         $canonical = realpath($path);
         if ($canonical === false || !is_dir($canonical) || !is_readable($canonical)) {
-            throw new \RuntimeException("duo: $label is not a readable directory: $path");
+            throw new \RuntimeException("wprism: $label is not a readable directory: $path");
         }
         self::assertContained($root, $canonical, $label);
         return $canonical;
@@ -685,11 +685,11 @@ final class AdapterLibrary
     private static function assertFile(string $root, string $path, string $label): string
     {
         if (is_link($path)) {
-            throw new \RuntimeException("duo: $label may not be a symlink: $path");
+            throw new \RuntimeException("wprism: $label may not be a symlink: $path");
         }
         $canonical = realpath($path);
         if ($canonical === false || !is_file($canonical) || !is_readable($canonical)) {
-            throw new \RuntimeException("duo: $label is not a readable regular file: $path");
+            throw new \RuntimeException("wprism: $label is not a readable regular file: $path");
         }
         self::assertContained($root, $canonical, $label);
         return $canonical;
@@ -698,7 +698,7 @@ final class AdapterLibrary
     private static function assertContained(string $root, string $path, string $label): void
     {
         if (!str_starts_with($path, $root . '/')) {
-            throw new \RuntimeException("duo: $label escapes the adapter library root: $path");
+            throw new \RuntimeException("wprism: $label escapes the adapter library root: $path");
         }
     }
 
@@ -714,15 +714,15 @@ final class AdapterLibrary
             $path = $root . '/' . $entry;
             if (isset($allowedDirectories[$entry])) {
                 if (is_link($path) || !is_dir($path)) {
-                    throw new \RuntimeException("duo: adapter library entry $entry is not its required directory");
+                    throw new \RuntimeException("wprism: adapter library entry $entry is not its required directory");
                 }
                 continue;
             }
             if (is_link($path)) {
-                throw new \RuntimeException("duo: adapter library entry may not be a symlink: $path");
+                throw new \RuntimeException("wprism: adapter library entry may not be a symlink: $path");
             }
             if (!is_file($path) || !str_ends_with($entry, '.json')) {
-                throw new \RuntimeException("duo: unexpected entry in adapter library root: $path");
+                throw new \RuntimeException("wprism: unexpected entry in adapter library root: $path");
             }
             $name = substr($entry, 0, -5);
             self::assertName($name, "adapter manifest basename at $path");
@@ -743,10 +743,10 @@ final class AdapterLibrary
                 continue;
             }
             if (is_link($path)) {
-                throw new \RuntimeException("duo: adapter disposition may not be a symlink: $path");
+                throw new \RuntimeException("wprism: adapter disposition may not be a symlink: $path");
             }
             if (!is_file($path) || !str_ends_with($entry, '.json')) {
-                throw new \RuntimeException("duo: unexpected adapter disposition entry: $path");
+                throw new \RuntimeException("wprism: unexpected adapter disposition entry: $path");
             }
             $name = substr($entry, 0, -5);
             self::assertName($name, "adapter disposition basename at $path");
@@ -764,10 +764,10 @@ final class AdapterLibrary
         foreach (self::entries($base, "adapter $directory directory") as $entry) {
             $path = $base . '/' . $entry;
             if (is_link($path)) {
-                throw new \RuntimeException("duo: adapter runtime may not be a symlink: $path");
+                throw new \RuntimeException("wprism: adapter runtime may not be a symlink: $path");
             }
             if (!is_file($path) || !str_ends_with($entry, '.php')) {
-                throw new \RuntimeException("duo: unexpected adapter runtime entry: $path");
+                throw new \RuntimeException("wprism: unexpected adapter runtime entry: $path");
             }
             $id = substr($entry, 0, -4);
             self::assertName($id, "adapter runtime basename at $path");
@@ -787,7 +787,7 @@ final class AdapterLibrary
         foreach (self::entries($directory, 'adapter capabilities directory') as $entry) {
             $path = $directory . '/' . $entry;
             if (!isset($allowed[$entry])) {
-                throw new \RuntimeException("duo: unexpected adapter capability entry: $path");
+                throw new \RuntimeException("wprism: unexpected adapter capability entry: $path");
             }
             self::assertFile($root, $path, "adapter capability $entry");
         }
@@ -802,7 +802,7 @@ final class AdapterLibrary
         $interpreter = null;
         if (array_key_exists('interpreter', $manifest)) {
             if (!is_string($manifest['interpreter'])) {
-                throw new \RuntimeException("duo: adapter $name interpreter must be a string");
+                throw new \RuntimeException("wprism: adapter $name interpreter must be a string");
             }
             self::assertName($manifest['interpreter'], "adapter $name interpreter id");
             $interpreter = $manifest['interpreter'];
@@ -811,22 +811,22 @@ final class AdapterLibrary
         $providers = [];
         if (array_key_exists('providers', $manifest)) {
             if (!is_array($manifest['providers']) || !array_is_list($manifest['providers'])) {
-                throw new \RuntimeException("duo: adapter $name providers must be a JSON list");
+                throw new \RuntimeException("wprism: adapter $name providers must be a JSON list");
             }
             foreach ($manifest['providers'] as $index => $provider) {
                 if (!is_array($provider)) {
-                    throw new \RuntimeException("duo: adapter $name provider $index must be a JSON object");
+                    throw new \RuntimeException("wprism: adapter $name provider $index must be a JSON object");
                 }
                 if (($provider['source'] ?? null) !== 'manifest') {
                     continue;
                 }
                 $id = $provider['id'] ?? null;
                 if (!is_string($id)) {
-                    throw new \RuntimeException("duo: adapter $name manifest provider $index has no string id");
+                    throw new \RuntimeException("wprism: adapter $name manifest provider $index has no string id");
                 }
                 self::assertName($id, "adapter $name provider id");
                 if (in_array($id, $providers, true)) {
-                    throw new \RuntimeException("duo: adapter $name declares provider $id more than once");
+                    throw new \RuntimeException("wprism: adapter $name declares provider $id more than once");
                 }
                 $providers[] = $id;
             }
@@ -835,7 +835,7 @@ final class AdapterLibrary
         $regenerators = [];
         if (array_key_exists('post_types', $manifest)) {
             if (!is_array($manifest['post_types'])) {
-                throw new \RuntimeException("duo: adapter $name post_types must be a JSON object");
+                throw new \RuntimeException("wprism: adapter $name post_types must be a JSON object");
             }
             foreach ($manifest['post_types'] as $postType => $postTypePolicy) {
                 if (!is_array($postTypePolicy) || !array_key_exists('regen_dependency', $postTypePolicy)) {
@@ -843,12 +843,12 @@ final class AdapterLibrary
                 }
                 $dependency = $postTypePolicy['regen_dependency'];
                 if (!is_array($dependency)) {
-                    throw new \RuntimeException("duo: adapter $name post type $postType regen_dependency must be an object");
+                    throw new \RuntimeException("wprism: adapter $name post type $postType regen_dependency must be an object");
                 }
                 $regenerator = $dependency['regenerator'] ?? null;
                 if (!is_string($regenerator)) {
                     throw new \RuntimeException(
-                        "duo: adapter $name post type $postType regen_dependency has no string regenerator"
+                        "wprism: adapter $name post type $postType regen_dependency has no string regenerator"
                     );
                 }
                 self::assertName($regenerator, "adapter $name regenerator id");
@@ -867,7 +867,7 @@ final class AdapterLibrary
     {
         if (isset($owners[$id]) && $owners[$id] !== $name) {
             throw new \RuntimeException(
-                "duo: adapter runtime $kind $id is declared by both {$owners[$id]} and $name"
+                "wprism: adapter runtime $kind $id is declared by both {$owners[$id]} and $name"
             );
         }
         $owners[$id] = $name;
@@ -885,7 +885,7 @@ final class AdapterLibrary
         sort($undeclared, SORT_STRING);
         if ($missing !== [] || $undeclared !== []) {
             throw new \RuntimeException(
-                "duo: adapter runtime coverage disagrees in $directory; missing=[" . implode(',', $missing)
+                "wprism: adapter runtime coverage disagrees in $directory; missing=[" . implode(',', $missing)
                 . '], undeclared=[' . implode(',', $undeclared) . ']'
             );
         }
@@ -896,7 +896,7 @@ final class AdapterLibrary
     {
         $entries = @scandir($directory);
         if ($entries === false) {
-            throw new \RuntimeException("duo: cannot read $label: $directory");
+            throw new \RuntimeException("wprism: cannot read $label: $directory");
         }
         $entries = array_values(array_filter(
             $entries,
@@ -910,21 +910,21 @@ final class AdapterLibrary
     {
         if (preg_match('/^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/D', $name) !== 1
             || preg_match('/[a-z]/D', $name) !== 1) {
-            throw new \RuntimeException("duo: $label is not a canonical lowercase ASCII slug: " . var_export($name, true));
+            throw new \RuntimeException("wprism: $label is not a canonical lowercase ASCII slug: " . var_export($name, true));
         }
     }
 
     private static function assertLogicalSlug(string $name, string $label): void
     {
         if (preg_match('/\A[a-z][a-z0-9]*(?:-[a-z0-9]+)*\z/D', $name) !== 1) {
-            throw new \RuntimeException("duo: $label is not a canonical adapter slug: " . var_export($name, true));
+            throw new \RuntimeException("wprism: $label is not a canonical adapter slug: " . var_export($name, true));
         }
     }
 
     private static function assertRuntimeName(string $name, string $label): void
     {
         if (preg_match('/\A[a-z0-9][a-z0-9_-]*\z/D', $name) !== 1) {
-            throw new \RuntimeException("duo: $label is not a canonical runtime name: " . var_export($name, true));
+            throw new \RuntimeException("wprism: $label is not a canonical runtime name: " . var_export($name, true));
         }
     }
 }

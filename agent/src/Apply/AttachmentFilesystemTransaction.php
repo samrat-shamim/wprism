@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/DurableFilesystem.php';
@@ -27,7 +27,7 @@ if (!class_exists(CompiledRepository::class, false)) {
  * and mode at the metadata COMMIT boundary.
  */
 final class AttachmentFilesystemTransaction {
-    private const FORMAT = 'duo-attachment-filesystem-transaction/v1';
+    private const FORMAT = 'wprism-attachment-filesystem-transaction/v1';
     private const DIRECTORY = 'attachment-filesystem';
     private const MAX_FILE_BYTES = MediaPayloadAuthority::MAX_FILE_BYTES;
     private const MAX_ATTACHMENT_BYTES = 536870912;
@@ -56,7 +56,7 @@ final class AttachmentFilesystemTransaction {
      * Load a crashed prior attempt before target capture observes files.
      *
      * The caller owns the database read so this filesystem service never
-     * opens an implicit transaction or hides the exact duo_kv authority it
+     * opens an implicit transaction or hides the exact wprism_kv authority it
      * expects. Call pending_marker_identity() after this returns, read that
      * key through Ledger, then call recover_pending_with_marker().
      */
@@ -75,7 +75,7 @@ final class AttachmentFilesystemTransaction {
             $locked = $this->read_journal();
             if (!hash_equals(Canon::encode($this->journal), Canon::encode($locked))) {
                 throw new \RuntimeException(
-                    'duo: attachment durable journal changed while its destination locks were acquired'
+                    'wprism: attachment durable journal changed while its destination locks were acquired'
                 );
             }
             $this->journal = $locked;
@@ -113,7 +113,7 @@ final class AttachmentFilesystemTransaction {
         $bindings = [];
         foreach ($this->journal['rows'] as $row) {
             if (!is_int($row['attachment_id'] ?? null) || $row['attachment_id'] <= 0) {
-                throw new \RuntimeException('duo: attachment durable journal lacks a target attachment identity');
+                throw new \RuntimeException('wprism: attachment durable journal lacks a target attachment identity');
             }
             $bindings[] = [
                 'attachment_id' => $row['attachment_id'],
@@ -147,7 +147,7 @@ final class AttachmentFilesystemTransaction {
         $phase = (string) $this->journal['phase'];
         if (!hash_equals($this->compiled->artifact_hash(), (string) $this->journal['artifact_hash'])) {
             throw new \RuntimeException(
-                'duo: attachment filesystem recovery requires the exact compiled artifact that owns the pending upload intent'
+                'wprism: attachment filesystem recovery requires the exact compiled artifact that owns the pending upload intent'
             );
         }
         $this->assert_transaction_byte_budget();
@@ -170,7 +170,7 @@ final class AttachmentFilesystemTransaction {
                 return;
             }
             throw new \RuntimeException(
-                'duo: attachment filesystem recovery found published state without its database commit marker; recovery_required'
+                'wprism: attachment filesystem recovery found published state without its database commit marker; recovery_required'
             );
         }
 
@@ -181,7 +181,7 @@ final class AttachmentFilesystemTransaction {
         if ($metadataMarker !== null && hash_equals($metadataMarker, $marker)) {
             if (!in_array($phase, ['metadata_committing', 'metadata_committed', 'removing_stale', 'complete'], true)) {
                 throw new \RuntimeException(
-                    'duo: attachment metadata marker appears before its durable generation phase; recovery_required'
+                    'wprism: attachment metadata marker appears before its durable generation phase; recovery_required'
                 );
             }
             if ($phase === 'metadata_committing') {
@@ -193,7 +193,7 @@ final class AttachmentFilesystemTransaction {
         if (!hash_equals($authoredMarker, $marker)
             || in_array($phase, ['metadata_committed', 'removing_stale', 'complete'], true)) {
             throw new \RuntimeException(
-                'duo: attachment filesystem recovery marker does not match the durable phase authority; recovery_required'
+                'wprism: attachment filesystem recovery marker does not match the durable phase authority; recovery_required'
             );
         }
         if (in_array($phase, ['authored_prepared', 'publishing_originals', 'originals_published'], true)) {
@@ -235,7 +235,7 @@ final class AttachmentFilesystemTransaction {
             if ($existing !== $wanted
                 || !hash_equals((string) $this->journal['artifact_hash'], $this->compiled->artifact_hash())) {
                 throw new \RuntimeException(
-                    'duo: attachment filesystem recovery work differs from the pending durable upload intent'
+                    'wprism: attachment filesystem recovery work differs from the pending durable upload intent'
                 );
             }
             foreach ($planned as $position => $wantedRow) {
@@ -244,7 +244,7 @@ final class AttachmentFilesystemTransaction {
                     || !hash_equals((string) $existingRow['original_path'], (string) $wantedRow['original_path'])
                     || !hash_equals((string) $existingRow['media_blob'], (string) $wantedRow['media_blob'])) {
                     throw new \RuntimeException(
-                        'duo: attachment filesystem recovery rows differ from the pending durable upload intent'
+                        'wprism: attachment filesystem recovery rows differ from the pending durable upload intent'
                     );
                 }
             }
@@ -253,11 +253,11 @@ final class AttachmentFilesystemTransaction {
         $current = $this->current_directory();
         if (file_exists($current) || is_link($current)) {
             throw new \RuntimeException(
-                'duo: attachment filesystem preparation found an unrecovered durable upload intent'
+                'wprism: attachment filesystem preparation found an unrecovered durable upload intent'
             );
         }
         if (!@mkdir($current, 0700)) {
-            throw new \RuntimeException('duo: attachment filesystem could not create its durable intent directory');
+            throw new \RuntimeException('wprism: attachment filesystem could not create its durable intent directory');
         }
         $this->assert_private_directory($current, 'attachment intent directory');
 
@@ -283,7 +283,7 @@ final class AttachmentFilesystemTransaction {
         $this->journal['rows'] = $rows;
         $preflightRoot = $this->current_directory() . '/preflight';
         if (!@mkdir($preflightRoot, 0700)) {
-            throw new \RuntimeException('duo: attachment markerless media preflight directory could not be created');
+            throw new \RuntimeException('wprism: attachment markerless media preflight directory could not be created');
         }
         $this->assert_private_directory($preflightRoot, 'attachment markerless media preflight directory');
         foreach ($this->journal['rows'] as $position => $row) {
@@ -305,7 +305,7 @@ final class AttachmentFilesystemTransaction {
     /** Bind the target post id and exact prior native file ownership. */
     public function register_attachment(int $id, array $front, array $ownedPriorPaths): void {
         if ($id <= 0 || $this->journal === null) {
-            throw new \RuntimeException('duo: attachment filesystem registration lacks a prepared upload transaction');
+            throw new \RuntimeException('wprism: attachment filesystem registration lacks a prepared upload transaction');
         }
         $uuid = (string) ($front['uuid'] ?? '');
         foreach ($this->journal['rows'] as $position => $row) {
@@ -314,25 +314,25 @@ final class AttachmentFilesystemTransaction {
             }
             if (!hash_equals((string) $row['original_path'], (string) ($front['file'] ?? ''))
                 || !hash_equals((string) $row['media_blob'], (string) ($front['media'] ?? ''))) {
-                throw new \RuntimeException('duo: attachment filesystem registration disagrees with compiled upload authority');
+                throw new \RuntimeException('wprism: attachment filesystem registration disagrees with compiled upload authority');
             }
             $owned = [];
             foreach ($ownedPriorPaths as $path) {
                 if (!is_string($path)) {
-                    throw new \RuntimeException('duo: attachment filesystem received malformed prior metadata ownership');
+                    throw new \RuntimeException('wprism: attachment filesystem received malformed prior metadata ownership');
                 }
                 $this->assert_relative_path($path);
                 if (isset($owned[$path])) {
-                    throw new \RuntimeException('duo: attachment filesystem received duplicate prior metadata ownership');
+                    throw new \RuntimeException('wprism: attachment filesystem received duplicate prior metadata ownership');
                 }
                 $owned[$path] = true;
             }
             if (count($owned) > self::MAX_OWNED_PRIOR_FILES) {
-                throw new \RuntimeException('duo: attachment prior metadata ownership exceeds its file bound');
+                throw new \RuntimeException('wprism: attachment prior metadata ownership exceeds its file bound');
             }
             $existing = $row['attachment_id'];
             if ($existing !== null && $existing !== $id) {
-                throw new \RuntimeException('duo: attachment filesystem registration changed the target attachment identity');
+                throw new \RuntimeException('wprism: attachment filesystem registration changed the target attachment identity');
             }
             // Old attached-file paths are known only after their exact target
             // metadata owner range is locked. Reacquire new and old file
@@ -358,11 +358,11 @@ final class AttachmentFilesystemTransaction {
             $original = (string) $row['original_path'];
             $originalPrior = $priorByPath[$original] ?? null;
             if (!is_array($originalPrior)) {
-                throw new \RuntimeException('duo: attachment destination lacks its frozen collision witness');
+                throw new \RuntimeException('wprism: attachment destination lacks its frozen collision witness');
             }
             if (($originalPrior['state'] ?? null) === 'present' && !isset($owned[$original])) {
                 throw new \RuntimeException(
-                    'duo: attachment destination is present without exact prior attached-file ownership'
+                    'wprism: attachment destination is present without exact prior attached-file ownership'
                 );
             }
             $this->journal['authority_sha256'] = $this->authority_hash($this->journal);
@@ -370,7 +370,7 @@ final class AttachmentFilesystemTransaction {
             $this->write_journal();
             return;
         }
-        throw new \RuntimeException('duo: attachment filesystem registration is outside the prepared upload inventory');
+        throw new \RuntimeException('wprism: attachment filesystem registration is outside the prepared upload inventory');
     }
 
     /**
@@ -383,11 +383,11 @@ final class AttachmentFilesystemTransaction {
         if ($this->journal === null) return null;
         if ($this->resumingCommitted) return null;
         if (!in_array($this->journal['phase'], ['prepared', 'originals_published'], true)) {
-            throw new \RuntimeException('duo: attachment filesystem transaction is not sealable from its current phase');
+            throw new \RuntimeException('wprism: attachment filesystem transaction is not sealable from its current phase');
         }
         foreach ($this->journal['rows'] as $row) {
             if (!is_int($row['attachment_id'] ?? null) || $row['attachment_id'] <= 0) {
-                throw new \RuntimeException('duo: attachment filesystem transaction lacks a target attachment identity');
+                throw new \RuntimeException('wprism: attachment filesystem transaction lacks a target attachment identity');
             }
         }
         $this->journal['authority_sha256'] = $this->authority_hash($this->journal);
@@ -402,7 +402,7 @@ final class AttachmentFilesystemTransaction {
         if ($this->resumingCommitted) return;
         if ($marker === null || !hash_equals($this->marker_value($this->journal), $marker)) {
             throw new \RuntimeException(
-                'duo: attachment filesystem publication lacks its exact committed database marker; recovery_required'
+                'wprism: attachment filesystem publication lacks its exact committed database marker; recovery_required'
             );
         }
         $this->publish_originals();
@@ -414,7 +414,7 @@ final class AttachmentFilesystemTransaction {
         if ($this->resumingCommitted) return;
         if ($marker !== null) {
             throw new \RuntimeException(
-                'duo: attachment filesystem rollback found a committed database marker; recovery_required'
+                'wprism: attachment filesystem rollback found a committed database marker; recovery_required'
             );
         }
         if ($this->journal['phase'] !== 'preparing') {
@@ -449,7 +449,7 @@ final class AttachmentFilesystemTransaction {
             'publishing_derivatives', 'derivatives_published', 'metadata_committing',
             'metadata_committed', 'removing_stale', 'complete',
         ], true)) {
-            throw new \RuntimeException('duo: attachment metadata generation cannot start from the current durable phase');
+            throw new \RuntimeException('wprism: attachment metadata generation cannot start from the current durable phase');
         }
         if ($this->journal['generation_sha256'] !== null) {
             $this->read_generation_manifest();
@@ -469,13 +469,13 @@ final class AttachmentFilesystemTransaction {
                 $this->remove_owned_tree($stageDirectory);
             }
             if (!@mkdir($stageDirectory, 0700, true)) {
-                throw new \RuntimeException('duo: attachment metadata staging directory could not be created');
+                throw new \RuntimeException('wprism: attachment metadata staging directory could not be created');
             }
             $this->assert_private_directory($stageDirectory, 'attachment metadata staging directory');
             $mediaName = (string) $row['media_blob'];
             if ($this->compiled->media_size($mediaName) > self::MAX_FILE_BYTES
                 || !hash_equals((string) $row['original_sha256'], $this->compiled->media_sha256($mediaName))) {
-                throw new \RuntimeException('duo: attachment metadata staging input disagrees with compiled bytes');
+                throw new \RuntimeException('wprism: attachment metadata staging input disagrees with compiled bytes');
             }
             $stageOriginal = $stageDirectory . '/' . basename((string) $row['original_path']);
             $this->write_new_media_file($stageOriginal, $mediaName, 'attachment metadata staging original');
@@ -485,7 +485,7 @@ final class AttachmentFilesystemTransaction {
             $results[] = $result;
         }
         $manifest = [
-            'format' => 'duo-attachment-generated-inventory/v1',
+            'format' => 'wprism-attachment-generated-inventory/v1',
             'intent_id' => $this->journal['intent_id'],
             'rows' => $results,
         ];
@@ -494,7 +494,7 @@ final class AttachmentFilesystemTransaction {
         if (file_exists($manifestPath) || is_link($manifestPath)) {
             $existing = $this->read_json_file($manifestPath, 'attachment generation manifest');
             if (!hash_equals(Canon::encode($manifest), Canon::encode($existing))) {
-                throw new \RuntimeException('duo: attachment generation manifest changed across crash recovery');
+                throw new \RuntimeException('wprism: attachment generation manifest changed across crash recovery');
             }
         } else {
             $this->write_json_file($manifestPath, $manifest, 'attachment generation manifest');
@@ -514,7 +514,7 @@ final class AttachmentFilesystemTransaction {
             return;
         }
         if (!in_array($this->journal['phase'], ['metadata_generated', 'publishing_derivatives'], true)) {
-            throw new \RuntimeException('duo: attachment derivatives cannot publish from the current durable phase');
+            throw new \RuntimeException('wprism: attachment derivatives cannot publish from the current durable phase');
         }
         $manifest = $this->read_generation_manifest();
         $this->assert_prepublication_inventory($manifest);
@@ -534,7 +534,7 @@ final class AttachmentFilesystemTransaction {
                 )) continue;
                 if (!$this->states_equal($prior, $current)) {
                     throw new \RuntimeException(
-                        'duo: attachment derivative changed after its before-image/absence witness; recovery_required'
+                        'wprism: attachment derivative changed after its before-image/absence witness; recovery_required'
                     );
                 }
                 $this->atomic_replace(
@@ -560,11 +560,11 @@ final class AttachmentFilesystemTransaction {
             if (!is_string($serialized)
                 || strlen($serialized) > self::MAX_METADATA_BYTES
                 || !hash_equals((string) $row['metadata_sha256'], hash('sha256', $serialized))) {
-                throw new \RuntimeException('duo: attachment generated metadata bytes do not verify');
+                throw new \RuntimeException('wprism: attachment generated metadata bytes do not verify');
             }
             $decoded = PlainData::decode_serialized($serialized, 'attachment generated metadata');
             if (!is_array($decoded)) {
-                throw new \RuntimeException('duo: attachment generated metadata is not a canonical array');
+                throw new \RuntimeException('wprism: attachment generated metadata is not a canonical array');
             }
             $out[] = [
                 'attachment_id' => (int) $row['attachment_id'],
@@ -582,7 +582,7 @@ final class AttachmentFilesystemTransaction {
     public function seal_metadata_transaction(): array {
         if ($this->journal === null
             || !in_array($this->journal['phase'], ['derivatives_published', 'metadata_committing'], true)) {
-            throw new \RuntimeException('duo: attachment metadata transaction lacks published derivative authority');
+            throw new \RuntimeException('wprism: attachment metadata transaction lacks published derivative authority');
         }
         $this->assert_metadata_commit_files();
         $this->journal['phase'] = 'metadata_committing';
@@ -597,7 +597,7 @@ final class AttachmentFilesystemTransaction {
     public function assert_metadata_commit_files(): void {
         if ($this->journal === null
             || !in_array($this->journal['phase'], ['derivatives_published', 'metadata_committing'], true)) {
-            throw new \RuntimeException('duo: attachment metadata byte proof lacks a committing durable phase');
+            throw new \RuntimeException('wprism: attachment metadata byte proof lacks a committing durable phase');
         }
         $this->read_generation_manifest();
         $this->assert_desired_originals();
@@ -607,7 +607,7 @@ final class AttachmentFilesystemTransaction {
     public function metadata_transaction_committed(?string $marker): void {
         if ($this->journal === null) return;
         if ($marker === null || !hash_equals($this->metadata_marker_value($this->journal), $marker)) {
-            throw new \RuntimeException('duo: attachment metadata commit lacks its exact durable marker; recovery_required');
+            throw new \RuntimeException('wprism: attachment metadata commit lacks its exact durable marker; recovery_required');
         }
         $this->journal['phase'] = 'metadata_committed';
         $this->write_journal();
@@ -623,7 +623,7 @@ final class AttachmentFilesystemTransaction {
         if (!in_array($this->journal['phase'], ['metadata_committed', 'removing_stale'], true)
             || $marker === null
             || !hash_equals($this->metadata_marker_value($this->journal), $marker)) {
-            throw new \RuntimeException('duo: attachment stale derivative cleanup lacks committed metadata authority');
+            throw new \RuntimeException('wprism: attachment stale derivative cleanup lacks committed metadata authority');
         }
         $manifest = $this->read_generation_manifest();
         $this->journal['phase'] = 'removing_stale';
@@ -644,14 +644,14 @@ final class AttachmentFilesystemTransaction {
                 $current = $this->observe_path($path);
                 if (($current['state'] ?? null) === 'absent') continue;
                 if (!$this->states_equal($prior, $current)) {
-                    throw new \RuntimeException('duo: stale attachment derivative changed before exact removal; recovery_required');
+                    throw new \RuntimeException('wprism: stale attachment derivative changed before exact removal; recovery_required');
                 }
                 if (!@unlink($this->absolute_path($path))) {
-                    throw new \RuntimeException('duo: stale attachment derivative removal failed');
+                    throw new \RuntimeException('wprism: stale attachment derivative removal failed');
                 }
                 $this->sync_directory(dirname($this->absolute_path($path)));
                 if (($this->observe_path($path)['state'] ?? null) !== 'absent') {
-                    throw new \RuntimeException('duo: stale attachment derivative remained after exact removal');
+                    throw new \RuntimeException('wprism: stale attachment derivative remained after exact removal');
                 }
             }
         }
@@ -664,7 +664,7 @@ final class AttachmentFilesystemTransaction {
     public function cleanup_complete(?string $marker): void {
         if ($this->journal === null) return;
         if ($this->journal['phase'] !== 'complete' || $marker !== null) {
-            throw new \RuntimeException('duo: attachment durable intent cleanup lacks complete marker-free authority');
+            throw new \RuntimeException('wprism: attachment durable intent cleanup lacks complete marker-free authority');
         }
         $this->assert_final_inventory();
         $this->remove_current_journal();
@@ -681,7 +681,7 @@ final class AttachmentFilesystemTransaction {
         $inventory = [];
         foreach ($this->compiled->uploads_inventory() as $row) {
             if (!is_array($row) || !is_string($row['attachment_uuid'] ?? null)) {
-                throw new \RuntimeException('duo: compiled upload inventory is malformed at attachment apply');
+                throw new \RuntimeException('wprism: compiled upload inventory is malformed at attachment apply');
             }
             $inventory[$row['attachment_uuid']] = $row;
         }
@@ -701,7 +701,7 @@ final class AttachmentFilesystemTransaction {
                 || $front['mime'] === ''
                 || strlen($front['mime']) > 191
                 || !preg_match('/^[0-9a-f]{64}$/D', (string) ($row['original_sha256'] ?? ''))) {
-                throw new \RuntimeException('duo: authored attachment lacks exact compiled upload authority');
+                throw new \RuntimeException('wprism: authored attachment lacks exact compiled upload authority');
             }
             $this->assert_relative_path((string) $row['original_path']);
             $planned[] = [
@@ -732,12 +732,12 @@ final class AttachmentFilesystemTransaction {
             $directory = (string) $row['derivative_directory'];
             $prefix = (string) $row['derivative_prefix'];
             if (str_starts_with($path, self::DIRECTORY . '/') || $path === self::DIRECTORY) {
-                throw new \RuntimeException('duo: attachment upload authority collides with its durable journal namespace');
+                throw new \RuntimeException('wprism: attachment upload authority collides with its durable journal namespace');
             }
             $pathIdentity = self::portable_path_identity($path);
             if (isset($originals[$pathIdentity])) {
                 throw new \RuntimeException(
-                    'duo: compiled upload authority contains duplicate or filesystem-aliased original paths'
+                    'wprism: compiled upload authority contains duplicate or filesystem-aliased original paths'
                 );
             }
             $originals[$pathIdentity] = $path;
@@ -754,7 +754,7 @@ final class AttachmentFilesystemTransaction {
                     || !hash_equals($left['directory_identity'], $right['directory_identity'])) continue;
                 if (str_starts_with($left['prefix_identity'], $right['prefix_identity'])
                     || str_starts_with($right['prefix_identity'], $left['prefix_identity'])) {
-                    throw new \RuntimeException('duo: compiled attachment derivative authorities overlap');
+                    throw new \RuntimeException('wprism: compiled attachment derivative authorities overlap');
                 }
             }
             foreach ($originals as $original) {
@@ -764,7 +764,7 @@ final class AttachmentFilesystemTransaction {
                         self::portable_path_identity(basename($original)),
                         $left['prefix_identity']
                     )) {
-                    throw new \RuntimeException('duo: attachment original collides with a derivative authority');
+                    throw new \RuntimeException('wprism: attachment original collides with a derivative authority');
                 }
             }
         }
@@ -780,7 +780,7 @@ final class AttachmentFilesystemTransaction {
             $snapshot = $this->snapshot_path($relative, $position, $index);
             $aggregate += (int) ($snapshot['size'] ?? 0);
             if ($aggregate > self::MAX_ATTACHMENT_BYTES) {
-                throw new \RuntimeException('duo: attachment prior inventory exceeds its bounded byte limit');
+                throw new \RuntimeException('wprism: attachment prior inventory exceeds its bounded byte limit');
             }
             $prior[] = $snapshot;
         }
@@ -795,24 +795,24 @@ final class AttachmentFilesystemTransaction {
         $named = @lstat($path);
         if (!is_array($named)) {
             if (file_exists($path) || is_link($path)) {
-                throw new \RuntimeException('duo: attachment prior path has an unreadable filesystem identity');
+                throw new \RuntimeException('wprism: attachment prior path has an unreadable filesystem identity');
             }
             return $this->absent_path_state($relative);
         }
         if (is_link($path) || !is_file($path) || (($named['mode'] ?? 0) & 0170000) !== 0100000) {
-            throw new \RuntimeException('duo: attachment prior path is a symlink or non-regular file');
+            throw new \RuntimeException('wprism: attachment prior path is a symlink or non-regular file');
         }
         $size = $this->canonical_file_size($named['size'] ?? null);
         $mode = $this->safe_existing_publication_mode($named);
         if ($size === null || $size > self::MAX_FILE_BYTES) {
-            throw new \RuntimeException('duo: attachment prior file exceeds its bounded byte limit');
+            throw new \RuntimeException('wprism: attachment prior file exceeds its bounded byte limit');
         }
         $beforeRelative = 'before/' . $position . '-' . $index . '.bin';
         $before = $this->current_directory() . '/' . $beforeRelative;
         $this->copy_witnessed_file($path, $before, $named, $size);
         $sha = @hash_file('sha256', $path);
         if (!is_string($sha) || !hash_equals($sha, (string) @hash_file('sha256', $before))) {
-            throw new \RuntimeException('duo: attachment prior file changed while its before-image was sealed');
+            throw new \RuntimeException('wprism: attachment prior file changed while its before-image was sealed');
         }
         return [
             'before_image' => $beforeRelative,
@@ -830,7 +830,7 @@ final class AttachmentFilesystemTransaction {
     private function copy_witnessed_file(string $source, string $destination, array $named, int $size): void {
         $directory = dirname($destination);
         if (!is_dir($directory) && !@mkdir($directory, 0700)) {
-            throw new \RuntimeException('duo: attachment before-image directory could not be created');
+            throw new \RuntimeException('wprism: attachment before-image directory could not be created');
         }
         $this->assert_private_directory($directory, 'attachment before-image directory');
         $input = @fopen($source, 'rb');
@@ -840,7 +840,7 @@ final class AttachmentFilesystemTransaction {
             if (is_resource($input)) fclose($input);
             if (is_resource($output)) fclose($output);
             @unlink($temp);
-            throw new \RuntimeException('duo: attachment before-image stream could not be opened');
+            throw new \RuntimeException('wprism: attachment before-image stream could not be opened');
         }
         $opened = fstat($input);
         $written = 0;
@@ -849,21 +849,21 @@ final class AttachmentFilesystemTransaction {
             while (!feof($input)) {
                 $chunk = fread($input, 1048576);
                 if (!is_string($chunk)) {
-                    throw new \RuntimeException('duo: attachment before-image source read failed');
+                    throw new \RuntimeException('wprism: attachment before-image source read failed');
                 }
                 if ($chunk === '') break;
                 $offset = 0;
                 while ($offset < strlen($chunk)) {
                     $count = fwrite($output, substr($chunk, $offset));
                     if (!is_int($count) || $count <= 0) {
-                        throw new \RuntimeException('duo: attachment before-image write failed');
+                        throw new \RuntimeException('wprism: attachment before-image write failed');
                     }
                     $offset += $count;
                     $written += $count;
                 }
             }
             if ($written !== $size || !fflush($output) || (function_exists('fsync') && !fsync($output))) {
-                throw new \RuntimeException('duo: attachment before-image durability check failed');
+                throw new \RuntimeException('wprism: attachment before-image durability check failed');
             }
         } finally {
             fclose($input);
@@ -879,11 +879,11 @@ final class AttachmentFilesystemTransaction {
             || $this->canonical_file_size($after['size'] ?? null) !== $size
             || is_link($source) || !is_file($source)) {
             @unlink($temp);
-            throw new \RuntimeException('duo: attachment prior file changed identity while copied');
+            throw new \RuntimeException('wprism: attachment prior file changed identity while copied');
         }
         if (!@rename($temp, $destination)) {
             @unlink($temp);
-            throw new \RuntimeException('duo: attachment before-image atomic publication failed');
+            throw new \RuntimeException('wprism: attachment before-image atomic publication failed');
         }
         $this->sync_file($destination);
         $this->sync_directory($directory);
@@ -892,7 +892,7 @@ final class AttachmentFilesystemTransaction {
     private function publish_originals(): void {
         if ($this->journal === null) return;
         if (!in_array($this->journal['phase'], ['authored_prepared', 'publishing_originals', 'originals_published'], true)) {
-            throw new \RuntimeException('duo: attachment originals cannot publish from the current durable phase');
+            throw new \RuntimeException('wprism: attachment originals cannot publish from the current durable phase');
         }
         if ($this->journal['phase'] === 'originals_published') {
             $this->assert_desired_originals();
@@ -904,7 +904,7 @@ final class AttachmentFilesystemTransaction {
             $mediaName = (string) $row['media_blob'];
             if ($this->compiled->media_size($mediaName) > self::MAX_FILE_BYTES
                 || !hash_equals((string) $row['original_sha256'], $this->compiled->media_sha256($mediaName))) {
-                throw new \RuntimeException('duo: compiled attachment original exceeds or disagrees with its bounded upload authority');
+                throw new \RuntimeException('wprism: compiled attachment original exceeds or disagrees with its bounded upload authority');
             }
             $prior = $this->original_prior($row);
             $current = $this->observe_path((string) $row['original_path']);
@@ -914,7 +914,7 @@ final class AttachmentFilesystemTransaction {
                     (string) $row['original_sha256'],
                     (int) $prior['publish_mode']
                 )) {
-                    throw new \RuntimeException('duo: completed attachment original changed after atomic publication; recovery_required');
+                    throw new \RuntimeException('wprism: completed attachment original changed after atomic publication; recovery_required');
                 }
                 continue;
             }
@@ -929,7 +929,7 @@ final class AttachmentFilesystemTransaction {
                 continue;
             }
             if (!$this->states_equal($prior, $current)) {
-                throw new \RuntimeException('duo: attachment original changed after its before-image was frozen; recovery_required');
+                throw new \RuntimeException('wprism: attachment original changed after its before-image was frozen; recovery_required');
             }
             $this->atomic_replace_media(
                 (string) $row['original_path'],
@@ -952,28 +952,28 @@ final class AttachmentFilesystemTransaction {
         $parent = dirname($target);
         $parentIdentity = $this->contained_directory_identity($parent, 'attachment destination directory');
         if (!$this->states_equal($expected, $this->observe_path($relative))) {
-            throw new \RuntimeException('duo: attachment destination changed immediately before atomic replacement');
+            throw new \RuntimeException('wprism: attachment destination changed immediately before atomic replacement');
         }
-        $tempName = '.duo-attachment-' . (string) $this->journal['intent_id'] . '-' . bin2hex(random_bytes(8)) . '.tmp';
+        $tempName = '.wprism-attachment-' . (string) $this->journal['intent_id'] . '-' . bin2hex(random_bytes(8)) . '.tmp';
         $temp = $parent . '/' . $tempName;
         $handle = @fopen($temp, 'x+b');
         if (!is_resource($handle)) {
-            throw new \RuntimeException('duo: attachment destination temp file could not be created');
+            throw new \RuntimeException('wprism: attachment destination temp file could not be created');
         }
         try {
             if (!@chmod($temp, $publishMode)) {
-                throw new \RuntimeException('duo: attachment destination temp mode could not be sealed');
+                throw new \RuntimeException('wprism: attachment destination temp mode could not be sealed');
             }
             $offset = 0;
             while ($offset < strlen($bytes)) {
                 $written = fwrite($handle, substr($bytes, $offset));
                 if (!is_int($written) || $written <= 0) {
-                    throw new \RuntimeException('duo: attachment destination temp write failed');
+                    throw new \RuntimeException('wprism: attachment destination temp write failed');
                 }
                 $offset += $written;
             }
             if (!fflush($handle) || (function_exists('fsync') && !fsync($handle))) {
-                throw new \RuntimeException('duo: attachment destination temp durability check failed');
+                throw new \RuntimeException('wprism: attachment destination temp durability check failed');
             }
             $tempStat = fstat($handle);
             $parentStat = $this->contained_directory_identity($parent, 'attachment destination directory');
@@ -981,34 +981,34 @@ final class AttachmentFilesystemTransaction {
                 || !$this->directory_identities_equal($parentIdentity, $parentStat)
                 || (string) ($tempStat['dev'] ?? '') !== (string) ($parentStat['dev'] ?? '')
                 || (((int) ($tempStat['mode'] ?? 0)) & 0777) !== $publishMode) {
-                throw new \RuntimeException('duo: attachment temp and destination are not on one filesystem');
+                throw new \RuntimeException('wprism: attachment temp and destination are not on one filesystem');
             }
         } finally {
             fclose($handle);
         }
         if (!$this->states_equal($expected, $this->observe_path($relative))) {
             @unlink($temp);
-            throw new \RuntimeException('duo: attachment destination changed before atomic rename');
+            throw new \RuntimeException('wprism: attachment destination changed before atomic rename');
         }
         $beforeRenameParent = $this->contained_directory_identity($parent, 'attachment destination directory');
         if (!$this->directory_identities_equal($parentIdentity, $beforeRenameParent)) {
             @unlink($temp);
-            throw new \RuntimeException('duo: attachment destination directory changed before atomic rename');
+            throw new \RuntimeException('wprism: attachment destination directory changed before atomic rename');
         }
         if (!@rename($temp, $target)) {
             @unlink($temp);
-            throw new \RuntimeException('duo: attachment destination atomic rename failed');
+            throw new \RuntimeException('wprism: attachment destination atomic rename failed');
         }
         $this->sync_file($target);
         $this->sync_directory($parent);
         $afterRenameParent = $this->contained_directory_identity($parent, 'attachment destination directory');
         if (!$this->directory_identities_equal($parentIdentity, $afterRenameParent)) {
-            throw new \RuntimeException('duo: attachment destination directory changed during atomic publication; recovery_required');
+            throw new \RuntimeException('wprism: attachment destination directory changed during atomic publication; recovery_required');
         }
         $after = $this->observe_path($relative);
         $desired = hash('sha256', $bytes);
         if (!$this->state_is_desired($after, $desired, $publishMode)) {
-            throw new \RuntimeException('duo: attachment destination atomic replacement failed exact readback');
+            throw new \RuntimeException('wprism: attachment destination atomic replacement failed exact readback');
         }
     }
 
@@ -1024,21 +1024,21 @@ final class AttachmentFilesystemTransaction {
         $parent = dirname($target);
         $parentIdentity = $this->contained_directory_identity($parent, 'attachment destination directory');
         if (!$this->states_equal($expected, $this->observe_path($relative))) {
-            throw new \RuntimeException('duo: attachment destination changed immediately before atomic replacement');
+            throw new \RuntimeException('wprism: attachment destination changed immediately before atomic replacement');
         }
-        $temp = $parent . '/.duo-attachment-' . (string) $this->journal['intent_id'] . '-'
+        $temp = $parent . '/.wprism-attachment-' . (string) $this->journal['intent_id'] . '-'
             . bin2hex(random_bytes(8)) . '.tmp';
         $handle = @fopen($temp, 'x+b');
         if (!is_resource($handle)) {
-            throw new \RuntimeException('duo: attachment destination temp file could not be created');
+            throw new \RuntimeException('wprism: attachment destination temp file could not be created');
         }
         try {
             if (!@chmod($temp, $publishMode)) {
-                throw new \RuntimeException('duo: attachment destination temp mode could not be sealed');
+                throw new \RuntimeException('wprism: attachment destination temp mode could not be sealed');
             }
             $this->compiled->copy_media_to_stream($mediaName, $handle);
             if (!fflush($handle) || (function_exists('fsync') && !fsync($handle))) {
-                throw new \RuntimeException('duo: attachment destination temp durability check failed');
+                throw new \RuntimeException('wprism: attachment destination temp durability check failed');
             }
             $tempStat = fstat($handle);
             $parentStat = $this->contained_directory_identity($parent, 'attachment destination directory');
@@ -1046,7 +1046,7 @@ final class AttachmentFilesystemTransaction {
                 || !$this->directory_identities_equal($parentIdentity, $parentStat)
                 || (string) ($tempStat['dev'] ?? '') !== (string) ($parentStat['dev'] ?? '')
                 || (((int) ($tempStat['mode'] ?? 0)) & 0777) !== $publishMode) {
-                throw new \RuntimeException('duo: attachment temp and destination are not on one filesystem');
+                throw new \RuntimeException('wprism: attachment temp and destination are not on one filesystem');
             }
         } catch (\Throwable $failure) {
             @unlink($temp);
@@ -1056,12 +1056,12 @@ final class AttachmentFilesystemTransaction {
         }
         if (!$this->states_equal($expected, $this->observe_path($relative))) {
             @unlink($temp);
-            throw new \RuntimeException('duo: attachment destination changed before atomic rename');
+            throw new \RuntimeException('wprism: attachment destination changed before atomic rename');
         }
         $beforeRenameParent = $this->contained_directory_identity($parent, 'attachment destination directory');
         if (!$this->directory_identities_equal($parentIdentity, $beforeRenameParent) || !@rename($temp, $target)) {
             @unlink($temp);
-            throw new \RuntimeException('duo: attachment destination atomic publication failed');
+            throw new \RuntimeException('wprism: attachment destination atomic publication failed');
         }
         $this->sync_file($target);
         $this->sync_directory($parent);
@@ -1069,14 +1069,14 @@ final class AttachmentFilesystemTransaction {
             $parentIdentity,
             $this->contained_directory_identity($parent, 'attachment destination directory')
         )) {
-            throw new \RuntimeException('duo: attachment destination directory changed during atomic publication; recovery_required');
+            throw new \RuntimeException('wprism: attachment destination directory changed during atomic publication; recovery_required');
         }
         if (!$this->state_is_desired(
             $this->observe_path($relative),
             $this->compiled->media_sha256($mediaName),
             $publishMode
         )) {
-            throw new \RuntimeException('duo: attachment destination atomic replacement failed exact readback');
+            throw new \RuntimeException('wprism: attachment destination atomic replacement failed exact readback');
         }
     }
 
@@ -1089,7 +1089,7 @@ final class AttachmentFilesystemTransaction {
             clearstatcache(true, $path);
             if (!file_exists($path) && !is_link($path)) {
                 if (!@mkdir($path, 0755)) {
-                    throw new \RuntimeException('duo: attachment destination directory could not be created safely');
+                    throw new \RuntimeException('wprism: attachment destination directory could not be created safely');
                 }
                 $this->sync_directory(dirname($path));
             }
@@ -1105,7 +1105,7 @@ final class AttachmentFilesystemTransaction {
                 (string) $row['original_sha256'],
                 (int) $prior['publish_mode']
             )) {
-                throw new \RuntimeException('duo: attachment original publication lacks exact final bytes');
+                throw new \RuntimeException('wprism: attachment original publication lacks exact final bytes');
             }
         }
     }
@@ -1120,7 +1120,7 @@ final class AttachmentFilesystemTransaction {
             foreach ($currentPaths as $path) {
                 if (!isset($expectedPaths[$path])) {
                     throw new \RuntimeException(
-                        'duo: attachment derivative inventory changed after its exact roster was frozen; recovery_required'
+                        'wprism: attachment derivative inventory changed after its exact roster was frozen; recovery_required'
                     );
                 }
                 unset($expectedPaths[$path]);
@@ -1128,7 +1128,7 @@ final class AttachmentFilesystemTransaction {
             foreach (array_keys($expectedPaths) as $extra) {
                 if (!in_array($extra, (array) $row['owned_prior_paths'], true)) {
                     throw new \RuntimeException(
-                        'duo: attachment prior witness is outside its new-prefix or old-metadata authority'
+                        'wprism: attachment prior witness is outside its new-prefix or old-metadata authority'
                     );
                 }
             }
@@ -1144,7 +1144,7 @@ final class AttachmentFilesystemTransaction {
                     continue;
                 }
                 if (!$this->states_equal($prior, $current)) {
-                    throw new \RuntimeException('duo: attachment prior inventory changed before rollback classification; recovery_required');
+                    throw new \RuntimeException('wprism: attachment prior inventory changed before rollback classification; recovery_required');
                 }
             }
         }
@@ -1165,22 +1165,22 @@ final class AttachmentFilesystemTransaction {
             foreach ($entries as $entry) {
                 if (++$entryCount > self::MAX_DIRECTORY_ENTRIES) {
                     throw new \RuntimeException(
-                        'duo: attachment derivative inventory exceeds its bounded directory-entry limit'
+                        'wprism: attachment derivative inventory exceeds its bounded directory-entry limit'
                     );
                 }
                 $name = $entry->getFilename();
                 $aliasMatches = str_starts_with(self::portable_path_identity($name), $prefixIdentity);
                 if ($aliasMatches && !str_starts_with($name, $prefix)) {
                     throw new \RuntimeException(
-                        'duo: attachment derivative authority has a case/Unicode-normalization filesystem alias'
+                        'wprism: attachment derivative authority has a case/Unicode-normalization filesystem alias'
                     );
                 }
                 if (!$aliasMatches || $name === $prefix) continue;
                 if (count($paths) >= self::MAX_DERIVATIVES + 1) {
-                    throw new \RuntimeException('duo: attachment derivative inventory exceeds its bounded file limit');
+                    throw new \RuntimeException('wprism: attachment derivative inventory exceeds its bounded file limit');
                 }
                 if ($entry->isLink() || !$entry->isFile()) {
-                    throw new \RuntimeException('duo: attachment derivative inventory contains a symlink or special file');
+                    throw new \RuntimeException('wprism: attachment derivative inventory contains a symlink or special file');
                 }
                 $paths[] = ($directory === '' ? '' : $directory . '/') . $name;
             }
@@ -1193,7 +1193,7 @@ final class AttachmentFilesystemTransaction {
         foreach ($row['prior'] as $prior) {
             if (hash_equals((string) $prior['path'], (string) $row['original_path'])) return $prior;
         }
-        throw new \RuntimeException('duo: attachment journal lacks an exact original before-image');
+        throw new \RuntimeException('wprism: attachment journal lacks an exact original before-image');
     }
 
     /** @return array<string,mixed> */
@@ -1203,20 +1203,20 @@ final class AttachmentFilesystemTransaction {
         $stat = @lstat($path);
         if (!is_array($stat)) {
             if (file_exists($path) || is_link($path)) {
-                throw new \RuntimeException('duo: attachment path identity is unreadable');
+                throw new \RuntimeException('wprism: attachment path identity is unreadable');
             }
             return ['path' => $relative, 'sha256' => null, 'size' => 0, 'state' => 'absent'];
         }
         if (is_link($path) || !is_file($path) || (($stat['mode'] ?? 0) & 0170000) !== 0100000) {
-            throw new \RuntimeException('duo: attachment path is a symlink or non-regular file');
+            throw new \RuntimeException('wprism: attachment path is a symlink or non-regular file');
         }
         $size = $this->canonical_file_size($stat['size'] ?? null);
         if ($size === null || $size > self::MAX_FILE_BYTES) {
-            throw new \RuntimeException('duo: attachment path exceeds its bounded byte limit');
+            throw new \RuntimeException('wprism: attachment path exceeds its bounded byte limit');
         }
         $sha = @hash_file('sha256', $path);
         if (!is_string($sha)) {
-            throw new \RuntimeException('duo: attachment path could not be hashed');
+            throw new \RuntimeException('wprism: attachment path could not be hashed');
         }
         return [
             'dev' => (string) $stat['dev'],
@@ -1264,7 +1264,7 @@ final class AttachmentFilesystemTransaction {
     private function safe_existing_publication_mode(array $stat): int {
         $raw = $stat['mode'] ?? null;
         if (!is_int($raw)) {
-            throw new \RuntimeException('duo: attachment file mode witness is malformed');
+            throw new \RuntimeException('wprism: attachment file mode witness is malformed');
         }
         $mode = $raw & 0777;
         $this->assert_safe_publication_mode($mode);
@@ -1277,17 +1277,17 @@ final class AttachmentFilesystemTransaction {
         while (!file_exists($directory) && !is_link($directory)) {
             $parent = dirname($directory);
             if (hash_equals($parent, $directory)) {
-                throw new \RuntimeException('duo: attachment publication mode lacks a physical parent directory');
+                throw new \RuntimeException('wprism: attachment publication mode lacks a physical parent directory');
             }
             $directory = $parent;
         }
         $identity = $this->contained_directory_identity($directory, 'attachment publication mode parent');
         $raw = $identity['mode'] ?? null;
         if (!is_int($raw)) {
-            throw new \RuntimeException('duo: attachment publication parent mode is malformed');
+            throw new \RuntimeException('wprism: attachment publication parent mode is malformed');
         }
         // WordPress derives upload-file permissions from the containing
-        // directory. Duo additionally clears world-write and positively sets
+        // directory. WPrism additionally clears world-write and positively sets
         // owner read/write, so a permissive process umask is never authority.
         $mode = (($raw & 0066) | 0600) & 0664;
         $this->assert_safe_publication_mode($mode);
@@ -1305,7 +1305,7 @@ final class AttachmentFilesystemTransaction {
     private function assert_safe_publication_mode(mixed $mode): void {
         if (!$this->is_safe_publication_mode($mode)) {
             throw new \RuntimeException(
-                'duo: attachment publication mode is malformed, unreadable, or world-writable'
+                'wprism: attachment publication mode is malformed, unreadable, or world-writable'
             );
         }
     }
@@ -1327,7 +1327,7 @@ final class AttachmentFilesystemTransaction {
         foreach ($entries as $entry) {
             $name = $entry->getFilename();
             if ($entry->isLink() || !$entry->isFile()) {
-                throw new \RuntimeException('duo: native attachment metadata generated a symlink, directory, or special file');
+                throw new \RuntimeException('wprism: native attachment metadata generated a symlink, directory, or special file');
             }
             $path = $entry->getPathname();
             $stat = @lstat($path);
@@ -1337,15 +1337,15 @@ final class AttachmentFilesystemTransaction {
                 || $size > self::MAX_FILE_BYTES
                 || !is_string($sha)
                 || (((int) ($stat['mode'] ?? 0)) & 0077) !== 0) {
-                throw new \RuntimeException('duo: native attachment metadata generated an unreadable or oversized file');
+                throw new \RuntimeException('wprism: native attachment metadata generated an unreadable or oversized file');
             }
             $aggregate += $size;
             if ($aggregate > self::MAX_ATTACHMENT_BYTES) {
-                throw new \RuntimeException('duo: native attachment metadata generated files exceed their aggregate bound');
+                throw new \RuntimeException('wprism: native attachment metadata generated files exceed their aggregate bound');
             }
             if (hash_equals($name, $originalName)) {
                 if (!hash_equals((string) $row['original_sha256'], $sha)) {
-                    throw new \RuntimeException('duo: native attachment metadata mutated the authored original in staging');
+                    throw new \RuntimeException('wprism: native attachment metadata mutated the authored original in staging');
                 }
                 continue;
             }
@@ -1357,7 +1357,7 @@ final class AttachmentFilesystemTransaction {
                 || str_contains($name, '\\')
                 || preg_match('/[\x00-\x1F\x7F]/', $name) === 1
                 || isset($generatedByName[$name])) {
-                throw new \RuntimeException('duo: native attachment metadata generated a file outside its bounded derivative authority');
+                throw new \RuntimeException('wprism: native attachment metadata generated a file outside its bounded derivative authority');
             }
             $target = ((string) $row['derivative_directory'] === ''
                 ? ''
@@ -1377,7 +1377,7 @@ final class AttachmentFilesystemTransaction {
         $metadata = $this->normalize_generated_metadata($metadata, $row, $stageOriginal, $generatedByName);
         $serialized = serialize($metadata);
         if (strlen($serialized) > self::MAX_METADATA_BYTES) {
-            throw new \RuntimeException('duo: normalized attachment metadata exceeds its bounded storage limit');
+            throw new \RuntimeException('wprism: normalized attachment metadata exceeds its bounded storage limit');
         }
         return [
             'attachment_id' => (int) $row['attachment_id'],
@@ -1401,14 +1401,14 @@ final class AttachmentFilesystemTransaction {
             ? $this->canonical_file_size($originalStat['size'] ?? null)
             : null;
         if ($originalSize === null) {
-            throw new \RuntimeException('duo: native attachment metadata original filesize witness is malformed');
+            throw new \RuntimeException('wprism: native attachment metadata original filesize witness is malformed');
         }
         if (array_key_exists('file', $metadata)) {
             $file = $metadata['file'];
             if (!is_string($file)
                 || !hash_equals(basename($file), $originalName)) {
                 throw new \RuntimeException(
-                    'duo: native attachment metadata tried to replace the authored attached-file identity'
+                    'wprism: native attachment metadata tried to replace the authored attached-file identity'
                 );
             }
             // Core derives this from the staged input via
@@ -1418,16 +1418,16 @@ final class AttachmentFilesystemTransaction {
         }
         if (array_key_exists('filesize', $metadata)
             && (!is_int($metadata['filesize']) || $metadata['filesize'] !== $originalSize)) {
-            throw new \RuntimeException('duo: native attachment metadata original filesize disagrees with sealed staging bytes');
+            throw new \RuntimeException('wprism: native attachment metadata original filesize disagrees with sealed staging bytes');
         }
         $referenced = [];
         if (array_key_exists('sizes', $metadata)) {
             if (!is_array($metadata['sizes'])
                 || ($metadata['sizes'] !== [] && array_is_list($metadata['sizes']))) {
-                throw new \RuntimeException('duo: native attachment metadata sizes projection is malformed');
+                throw new \RuntimeException('wprism: native attachment metadata sizes projection is malformed');
             }
             if (count($metadata['sizes']) > self::MAX_DERIVATIVES) {
-                throw new \RuntimeException('duo: native attachment metadata sizes projection exceeds its bound');
+                throw new \RuntimeException('wprism: native attachment metadata sizes projection exceeds its bound');
             }
             foreach ($metadata['sizes'] as $sizeName => $size) {
                 if (!is_string($sizeName)
@@ -1436,16 +1436,16 @@ final class AttachmentFilesystemTransaction {
                     || preg_match('/[\x00-\x1F\x7F]/', $sizeName) === 1
                     || !is_array($size)
                     || !is_string($size['file'] ?? null)) {
-                    throw new \RuntimeException('duo: native attachment metadata size row is malformed');
+                    throw new \RuntimeException('wprism: native attachment metadata size row is malformed');
                 }
                 $file = $size['file'];
                 if (!hash_equals($file, basename($file)) || !isset($generatedByName[$file])) {
-                    throw new \RuntimeException('duo: native attachment metadata references an undeclared derivative file');
+                    throw new \RuntimeException('wprism: native attachment metadata references an undeclared derivative file');
                 }
                 if (array_key_exists('filesize', $size)
                     && (!is_int($size['filesize']) || $size['filesize'] !== $generatedByName[$file])) {
                     throw new \RuntimeException(
-                        'duo: native attachment metadata derivative filesize disagrees with sealed staging bytes'
+                        'wprism: native attachment metadata derivative filesize disagrees with sealed staging bytes'
                     );
                 }
                 $referenced[$file] = true;
@@ -1453,7 +1453,7 @@ final class AttachmentFilesystemTransaction {
         }
         $unreferenced = array_diff_key($generatedByName, $referenced);
         if ($unreferenced !== []) {
-            throw new \RuntimeException('duo: native attachment metadata generated files absent from its metadata projection');
+            throw new \RuntimeException('wprism: native attachment metadata generated files absent from its metadata projection');
         }
         $stageNeedles = [$stageOriginal, $this->current_directory(), self::DIRECTORY];
         $this->assert_no_staging_reference($metadata, $stageNeedles, 0);
@@ -1463,12 +1463,12 @@ final class AttachmentFilesystemTransaction {
 
     private function assert_no_staging_reference(mixed $value, array $needles, int $depth): void {
         if ($depth > PlainData::MAX_DEPTH) {
-            throw new \RuntimeException('duo: native attachment metadata exceeds its normalized depth bound');
+            throw new \RuntimeException('wprism: native attachment metadata exceeds its normalized depth bound');
         }
         if (is_string($value)) {
             foreach ($needles as $needle) {
                 if ($needle !== '' && str_contains($value, $needle)) {
-                    throw new \RuntimeException('duo: native attachment metadata retained a staging path');
+                    throw new \RuntimeException('wprism: native attachment metadata retained a staging path');
                 }
             }
             return;
@@ -1482,11 +1482,11 @@ final class AttachmentFilesystemTransaction {
     private function read_generation_manifest(): array {
         if ($this->journal === null
             || !is_string($this->journal['generation_sha256'] ?? null)) {
-            throw new \RuntimeException('duo: attachment durable journal lacks a generated inventory identity');
+            throw new \RuntimeException('wprism: attachment durable journal lacks a generated inventory identity');
         }
         $manifest = $this->read_json_file($this->generation_manifest_path(), 'attachment generation manifest');
         if (array_keys($manifest) !== ['format', 'intent_id', 'rows']
-            || ($manifest['format'] ?? null) !== 'duo-attachment-generated-inventory/v1'
+            || ($manifest['format'] ?? null) !== 'wprism-attachment-generated-inventory/v1'
             || ($manifest['intent_id'] ?? null) !== $this->journal['intent_id']
             || !is_array($manifest['rows'] ?? null)
             || !array_is_list($manifest['rows'])
@@ -1495,12 +1495,12 @@ final class AttachmentFilesystemTransaction {
                 (string) $this->journal['generation_sha256'],
                 hash('sha256', Canon::encode($manifest))
             )) {
-            throw new \RuntimeException('duo: attachment generated inventory is malformed or changed');
+            throw new \RuntimeException('wprism: attachment generated inventory is malformed or changed');
         }
         foreach ($manifest['rows'] as $position => $result) {
             $expected = $this->read_generated_result($position, $this->journal['rows'][$position]);
             if (!hash_equals(Canon::encode($expected), Canon::encode($result))) {
-                throw new \RuntimeException('duo: attachment generated row disagrees with its sealed result');
+                throw new \RuntimeException('wprism: attachment generated row disagrees with its sealed result');
             }
         }
         $this->assert_transaction_byte_budget($manifest);
@@ -1519,7 +1519,7 @@ final class AttachmentFilesystemTransaction {
             $size = $this->compiled->media_size($mediaName);
             if ($size > self::MAX_FILE_BYTES
                 || !hash_equals((string) $row['original_sha256'], $this->compiled->media_sha256($mediaName))) {
-                throw new \RuntimeException('duo: attachment transaction original payload is oversized or changed');
+                throw new \RuntimeException('wprism: attachment transaction original payload is oversized or changed');
             }
             $this->add_transaction_bytes($total, $size);
             foreach ($row['prior'] as $prior) {
@@ -1535,7 +1535,7 @@ final class AttachmentFilesystemTransaction {
                 ? base64_decode($generated['metadata_base64'], true)
                 : false;
             if (!is_string($serialized) || strlen($serialized) > self::MAX_METADATA_BYTES) {
-                throw new \RuntimeException('duo: attachment transaction metadata payload is malformed or oversized');
+                throw new \RuntimeException('wprism: attachment transaction metadata payload is malformed or oversized');
             }
             $this->add_transaction_bytes($total, strlen($serialized));
         }
@@ -1544,7 +1544,7 @@ final class AttachmentFilesystemTransaction {
     private function add_transaction_bytes(int &$total, int $bytes): void {
         if ($bytes < 0 || $bytes > self::MAX_TRANSACTION_BYTES - $total) {
             throw new \RuntimeException(
-                'duo: attachment filesystem transaction exceeds its 64 GiB aggregate byte authority'
+                'wprism: attachment filesystem transaction exceeds its 64 GiB aggregate byte authority'
             );
         }
         $total += $bytes;
@@ -1561,17 +1561,17 @@ final class AttachmentFilesystemTransaction {
             || !is_string($row['metadata_base64'] ?? null)
             || strlen($row['metadata_base64']) > (int) ceil(self::MAX_METADATA_BYTES * 4 / 3) + 4
             || preg_match('/^[0-9a-f]{64}$/D', (string) ($row['metadata_sha256'] ?? '')) !== 1) {
-            throw new \RuntimeException('duo: attachment generated result has an invalid closed shape');
+            throw new \RuntimeException('wprism: attachment generated result has an invalid closed shape');
         }
         $serialized = base64_decode($row['metadata_base64'], true);
         if (!is_string($serialized)
             || strlen($serialized) > self::MAX_METADATA_BYTES
             || !hash_equals($row['metadata_sha256'], hash('sha256', $serialized))) {
-            throw new \RuntimeException('duo: attachment generated metadata payload does not verify');
+            throw new \RuntimeException('wprism: attachment generated metadata payload does not verify');
         }
         $metadata = PlainData::decode_serialized($serialized, 'attachment generated result');
         if (!is_array($metadata)) {
-            throw new \RuntimeException('duo: attachment generated result metadata is not an array');
+            throw new \RuntimeException('wprism: attachment generated result metadata is not an array');
         }
         $seen = [];
         $aggregate = 0;
@@ -1587,7 +1587,7 @@ final class AttachmentFilesystemTransaction {
                 || !is_string($file['stage_path'] ?? null)
                 || !is_string($file['target_path'] ?? null)
                 || !str_starts_with($file['stage_path'], 'stage/' . $position . '/')) {
-                throw new \RuntimeException('duo: attachment generated file witness is malformed');
+                throw new \RuntimeException('wprism: attachment generated file witness is malformed');
             }
             $this->assert_relative_path($file['stage_path']);
             $this->assert_relative_path($file['target_path']);
@@ -1597,12 +1597,12 @@ final class AttachmentFilesystemTransaction {
                 || !str_starts_with($name, (string) $journalRow['derivative_prefix'])
                 || !hash_equals(basename($file['stage_path']), $name)
                 || isset($seen[$file['target_path']])) {
-                throw new \RuntimeException('duo: attachment generated file is outside its derivative authority');
+                throw new \RuntimeException('wprism: attachment generated file is outside its derivative authority');
             }
             $seen[$file['target_path']] = true;
             $aggregate += $file['size'];
             if ($aggregate > self::MAX_ATTACHMENT_BYTES) {
-                throw new \RuntimeException('duo: attachment generated file witnesses exceed their aggregate bound');
+                throw new \RuntimeException('wprism: attachment generated file witnesses exceed their aggregate bound');
             }
             $this->read_bounded_file(
                 $this->current_directory() . '/' . $file['stage_path'],
@@ -1628,7 +1628,7 @@ final class AttachmentFilesystemTransaction {
             $currentPaths = $this->inventory_paths($row);
             foreach ($currentPaths as $path) {
                 if (!isset($allowed[$path])) {
-                    throw new \RuntimeException('duo: attachment derivative prefix gained an unowned file before publication');
+                    throw new \RuntimeException('wprism: attachment derivative prefix gained an unowned file before publication');
                 }
             }
             foreach ($row['prior'] as $prior) {
@@ -1648,7 +1648,7 @@ final class AttachmentFilesystemTransaction {
                     $generated[$path]['publish_mode']
                 )) continue;
                 if (!$this->states_equal($prior, $current)) {
-                    throw new \RuntimeException('duo: attachment prior file changed before derivative publication');
+                    throw new \RuntimeException('wprism: attachment prior file changed before derivative publication');
                 }
             }
             foreach ($generated as $path => $desired) {
@@ -1656,7 +1656,7 @@ final class AttachmentFilesystemTransaction {
                 if (($prior['state'] ?? null) === 'present'
                     && !in_array($path, (array) $row['owned_prior_paths'], true)) {
                     throw new \RuntimeException(
-                        'duo: generated attachment derivative collides with an existing file not owned by prior native metadata'
+                        'wprism: generated attachment derivative collides with an existing file not owned by prior native metadata'
                     );
                 }
                 if ($prior['state'] === 'absent') {
@@ -1666,7 +1666,7 @@ final class AttachmentFilesystemTransaction {
                         $desired['sha256'],
                         $desired['publish_mode']
                     )) {
-                        throw new \RuntimeException('duo: attachment generated target appeared after its absence witness');
+                        throw new \RuntimeException('wprism: attachment generated target appeared after its absence witness');
                     }
                 }
             }
@@ -1682,7 +1682,7 @@ final class AttachmentFilesystemTransaction {
                     (string) $file['sha256'],
                     (int) $file['publish_mode']
                 )) {
-                    throw new \RuntimeException('duo: attachment derivative publication lacks exact final bytes');
+                    throw new \RuntimeException('wprism: attachment derivative publication lacks exact final bytes');
                 }
             }
         }
@@ -1711,7 +1711,7 @@ final class AttachmentFilesystemTransaction {
                 sort($expectedKeys, SORT_STRING);
                 sort($actualKeys, SORT_STRING);
                 if ($expectedKeys !== $actualKeys) {
-                    throw new \RuntimeException('duo: attachment final derivative inventory contains stale or unknown files');
+                    throw new \RuntimeException('wprism: attachment final derivative inventory contains stale or unknown files');
                 }
             }
         }
@@ -1739,12 +1739,12 @@ final class AttachmentFilesystemTransaction {
     private function write_json_file(string $path, array $value, string $purpose): void {
         $directory = dirname($path);
         if (!is_dir($directory) && !@mkdir($directory, 0700, true)) {
-            throw new \RuntimeException("duo: $purpose directory could not be created");
+            throw new \RuntimeException("wprism: $purpose directory could not be created");
         }
         $this->assert_private_directory($directory, "$purpose directory");
         $encoded = Canon::encode($value) . "\n";
         if (strlen($encoded) > 33554432) {
-            throw new \RuntimeException("duo: $purpose exceeds its durable JSON byte bound");
+            throw new \RuntimeException("wprism: $purpose exceeds its durable JSON byte bound");
         }
         $this->write_new_file($path, $encoded, $purpose);
     }
@@ -1754,33 +1754,33 @@ final class AttachmentFilesystemTransaction {
         try {
             $decoded = Canon::decode($bytes);
         } catch (\Throwable $failure) {
-            throw new \RuntimeException("duo: $purpose is not canonical JSON", 0, $failure);
+            throw new \RuntimeException("wprism: $purpose is not canonical JSON", 0, $failure);
         }
         if (!is_array($decoded) || array_is_list($decoded)) {
-            throw new \RuntimeException("duo: $purpose is not one object");
+            throw new \RuntimeException("wprism: $purpose is not one object");
         }
         return $decoded;
     }
 
     private function write_new_file(string $path, string $bytes, string $purpose): void {
         if (file_exists($path) || is_link($path)) {
-            throw new \RuntimeException("duo: $purpose destination already exists");
+            throw new \RuntimeException("wprism: $purpose destination already exists");
         }
         $directory = dirname($path);
         $identity = $this->contained_directory_identity($directory, "$purpose directory");
-        $temp = $directory . '/.duo-new-' . bin2hex(random_bytes(8)) . '.tmp';
+        $temp = $directory . '/.wprism-new-' . bin2hex(random_bytes(8)) . '.tmp';
         $handle = @fopen($temp, 'x+b');
-        if (!is_resource($handle)) throw new \RuntimeException("duo: $purpose temp could not be created");
+        if (!is_resource($handle)) throw new \RuntimeException("wprism: $purpose temp could not be created");
         try {
             $this->harden_private_handle($handle, "$purpose temp");
             $offset = 0;
             while ($offset < strlen($bytes)) {
                 $written = fwrite($handle, substr($bytes, $offset));
-                if (!is_int($written) || $written <= 0) throw new \RuntimeException("duo: $purpose write failed");
+                if (!is_int($written) || $written <= 0) throw new \RuntimeException("wprism: $purpose write failed");
                 $offset += $written;
             }
             if (!fflush($handle) || (function_exists('fsync') && !fsync($handle))) {
-                throw new \RuntimeException("duo: $purpose durability check failed");
+                throw new \RuntimeException("wprism: $purpose durability check failed");
             }
         } finally {
             fclose($handle);
@@ -1788,7 +1788,7 @@ final class AttachmentFilesystemTransaction {
         $after = $this->contained_directory_identity($directory, "$purpose directory");
         if (!$this->directory_identities_equal($identity, $after) || !@rename($temp, $path)) {
             @unlink($temp);
-            throw new \RuntimeException("duo: $purpose atomic publication failed");
+            throw new \RuntimeException("wprism: $purpose atomic publication failed");
         }
         $this->sync_file($path);
         $this->sync_directory($directory);
@@ -1796,20 +1796,20 @@ final class AttachmentFilesystemTransaction {
 
     private function write_new_media_file(string $path, string $mediaName, string $purpose): void {
         if (file_exists($path) || is_link($path)) {
-            throw new \RuntimeException("duo: $purpose destination already exists");
+            throw new \RuntimeException("wprism: $purpose destination already exists");
         }
         $directory = dirname($path);
         $identity = $this->contained_directory_identity($directory, "$purpose directory");
-        $temp = $directory . '/.duo-new-' . bin2hex(random_bytes(8)) . '.tmp';
+        $temp = $directory . '/.wprism-new-' . bin2hex(random_bytes(8)) . '.tmp';
         $handle = @fopen($temp, 'x+b');
         if (!is_resource($handle)) {
-            throw new \RuntimeException("duo: $purpose temp could not be created");
+            throw new \RuntimeException("wprism: $purpose temp could not be created");
         }
         try {
             $this->harden_private_handle($handle, "$purpose temp");
             $this->compiled->copy_media_to_stream($mediaName, $handle);
             if (!fflush($handle) || (function_exists('fsync') && !fsync($handle))) {
-                throw new \RuntimeException("duo: $purpose durability check failed");
+                throw new \RuntimeException("wprism: $purpose durability check failed");
             }
         } catch (\Throwable $failure) {
             @unlink($temp);
@@ -1820,7 +1820,7 @@ final class AttachmentFilesystemTransaction {
         $after = $this->contained_directory_identity($directory, "$purpose directory");
         if (!$this->directory_identities_equal($identity, $after) || !@rename($temp, $path)) {
             @unlink($temp);
-            throw new \RuntimeException("duo: $purpose atomic publication failed");
+            throw new \RuntimeException("wprism: $purpose atomic publication failed");
         }
         $this->sync_file($path);
         $this->sync_directory($directory);
@@ -1843,13 +1843,13 @@ final class AttachmentFilesystemTransaction {
             || $size === null
             || $size > $maximum
             || ($expectedSize !== null && $size !== $expectedSize)) {
-            throw new \RuntimeException('duo: attachment durable file is special, malformed, or oversized');
+            throw new \RuntimeException('wprism: attachment durable file is special, malformed, or oversized');
         }
         $bytes = @file_get_contents($path);
         if (!is_string($bytes)
             || strlen($bytes) !== $size
             || ($expectedSha !== null && !hash_equals($expectedSha, hash('sha256', $bytes)))) {
-            throw new \RuntimeException('duo: attachment durable file bytes do not verify');
+            throw new \RuntimeException('wprism: attachment durable file bytes do not verify');
         }
         return $bytes;
     }
@@ -1864,7 +1864,7 @@ final class AttachmentFilesystemTransaction {
         if ($this->locks !== []) return;
         $lockDirectory = (string) $this->journalRoot . '/locks';
         if (!is_dir($lockDirectory) && !@mkdir($lockDirectory, 0700)) {
-            throw new \RuntimeException('duo: attachment filesystem lock directory could not be created');
+            throw new \RuntimeException('wprism: attachment filesystem lock directory could not be created');
         }
         $this->assert_private_directory($lockDirectory, 'attachment lock directory');
         $lockPath = $lockDirectory . '/transaction.lock';
@@ -1873,17 +1873,17 @@ final class AttachmentFilesystemTransaction {
             foreach (new \FilesystemIterator($lockDirectory, \FilesystemIterator::SKIP_DOTS) as $entry) {
                 if (++$entryCount > 1 || !hash_equals($entry->getFilename(), 'transaction.lock')) {
                     throw new \RuntimeException(
-                        'duo: attachment lock registry exceeds its single bounded authority'
+                        'wprism: attachment lock registry exceeds its single bounded authority'
                     );
                 }
             }
             $existed = file_exists($lockPath) || is_link($lockPath);
             if (is_link($lockPath)) {
-                throw new \RuntimeException('duo: attachment transaction lock identity is unsafe');
+                throw new \RuntimeException('wprism: attachment transaction lock identity is unsafe');
             }
             $handle = @fopen($lockPath, 'c+b');
             if (!is_resource($handle)) {
-                throw new \RuntimeException('duo: attachment transaction lock could not be opened');
+                throw new \RuntimeException('wprism: attachment transaction lock could not be opened');
             }
             try {
                 if (!$existed) {
@@ -1897,13 +1897,13 @@ final class AttachmentFilesystemTransaction {
                     || (string) ($opened['dev'] ?? '') !== (string) ($named['dev'] ?? '')
                     || (string) ($opened['ino'] ?? '') !== (string) ($named['ino'] ?? '')
                     || !flock($handle, LOCK_EX | LOCK_NB)) {
-                    throw new \RuntimeException('duo: attachment transaction lock identity is unsafe');
+                    throw new \RuntimeException('wprism: attachment transaction lock identity is unsafe');
                 }
             } catch (\Throwable $failure) {
                 fclose($handle);
                 throw $failure;
             }
-            // One stable inode serializes every attachment path owned by Duo.
+            // One stable inode serializes every attachment path owned by WPrism.
             // Per-path files are not unlink-safe under flock and accumulate an
             // unbounded durable inode roster across ordinary renames.
             $this->locks['transaction'] = $handle;
@@ -1929,16 +1929,16 @@ final class AttachmentFilesystemTransaction {
             $root = is_array($uploads) ? ($uploads['basedir'] ?? null) : null;
             $error = is_array($uploads) ? ($uploads['error'] ?? false) : null;
             if (!is_string($root) || $root === '' || ($error !== false && $error !== '')) {
-                throw new \RuntimeException('duo: attachment filesystem could not resolve a healthy uploads root');
+                throw new \RuntimeException('wprism: attachment filesystem could not resolve a healthy uploads root');
             }
             $root = rtrim($root, '/\\');
             if ($root === '' || !str_starts_with($root, '/')) {
-                throw new \RuntimeException('duo: attachment filesystem requires an absolute uploads root');
+                throw new \RuntimeException('wprism: attachment filesystem requires an absolute uploads root');
             }
             $this->assert_directory($root, 'uploads root');
             $real = realpath($root);
             if (!is_string($real) || $real === '') {
-                throw new \RuntimeException('duo: attachment filesystem uploads root has no physical identity');
+                throw new \RuntimeException('wprism: attachment filesystem uploads root has no physical identity');
             }
             $this->root = rtrim($real, '/');
         }
@@ -1954,14 +1954,14 @@ final class AttachmentFilesystemTransaction {
                 || !is_string($real)
                 || !hash_equals($candidate, rtrim($real, '/'))) {
                 throw new \RuntimeException(
-                    'duo: attachment filesystem requires an exact physical repository control root'
+                    'wprism: attachment filesystem requires an exact physical repository control root'
                 );
             }
             if ($real === $this->root
                 || str_starts_with($real . '/', $this->root . '/')
                 || str_starts_with($this->root . '/', $real . '/')) {
                 throw new \RuntimeException(
-                    'duo: attachment filesystem control state must be outside the web-served uploads tree'
+                    'wprism: attachment filesystem control state must be outside the web-served uploads tree'
                 );
             }
             if (defined('ABSPATH')) {
@@ -1970,15 +1970,15 @@ final class AttachmentFilesystemTransaction {
                     && ($real === rtrim($wordpress, '/')
                         || str_starts_with($real . '/', rtrim($wordpress, '/') . '/'))) {
                     throw new \RuntimeException(
-                        'duo: attachment filesystem control state must be outside the WordPress document tree'
+                        'wprism: attachment filesystem control state must be outside the WordPress document tree'
                     );
                 }
             }
-            $control = $real . '/.duo';
+            $control = $real . '/.wprism';
             if (!file_exists($control) && !is_link($control)) {
                 if (!$createJournalRoot) return false;
                 if (!@mkdir($control, 0700)) {
-                    throw new \RuntimeException('duo: attachment filesystem could not create its private control directory');
+                    throw new \RuntimeException('wprism: attachment filesystem could not create its private control directory');
                 }
                 $this->sync_directory($real);
             }
@@ -1988,7 +1988,7 @@ final class AttachmentFilesystemTransaction {
         if (!file_exists($this->journalRoot) && !is_link($this->journalRoot)) {
             if (!$createJournalRoot) return false;
             if (!@mkdir($this->journalRoot, 0700)) {
-                throw new \RuntimeException('duo: attachment filesystem journal root could not be created');
+                throw new \RuntimeException('wprism: attachment filesystem journal root could not be created');
             }
             $this->sync_directory(dirname($this->journalRoot));
         }
@@ -2008,7 +2008,7 @@ final class AttachmentFilesystemTransaction {
         if ($this->journal === null) return;
         $bytes = Canon::encode($this->journal) . "\n";
         if (strlen($bytes) > 1048576) {
-            throw new \RuntimeException('duo: attachment durable journal exceeds its encoded byte limit');
+            throw new \RuntimeException('wprism: attachment durable journal exceeds its encoded byte limit');
         }
         $path = $this->journal_path();
         $directory = dirname($path);
@@ -2016,20 +2016,20 @@ final class AttachmentFilesystemTransaction {
         $temp = $directory . '/.journal-' . bin2hex(random_bytes(8)) . '.tmp';
         $handle = @fopen($temp, 'x+b');
         if (!is_resource($handle)) {
-            throw new \RuntimeException('duo: attachment journal temp file could not be created');
+            throw new \RuntimeException('wprism: attachment journal temp file could not be created');
         }
         try {
             $this->harden_private_handle($handle, 'attachment journal temp');
             $written = fwrite($handle, $bytes);
             if ($written !== strlen($bytes) || !fflush($handle) || (function_exists('fsync') && !fsync($handle))) {
-                throw new \RuntimeException('duo: attachment journal durable write failed');
+                throw new \RuntimeException('wprism: attachment journal durable write failed');
             }
         } finally {
             fclose($handle);
         }
         if (!@rename($temp, $path)) {
             @unlink($temp);
-            throw new \RuntimeException('duo: attachment journal atomic publication failed');
+            throw new \RuntimeException('wprism: attachment journal atomic publication failed');
         }
         $this->sync_file($path);
         $this->sync_directory($directory);
@@ -2039,16 +2039,16 @@ final class AttachmentFilesystemTransaction {
         $path = $this->journal_path();
         clearstatcache(true, $path);
         if (is_link($path) || !is_file($path)) {
-            throw new \RuntimeException('duo: attachment durable journal is missing or not a regular file');
+            throw new \RuntimeException('wprism: attachment durable journal is missing or not a regular file');
         }
         $this->assert_private_file($path, 'attachment durable journal');
         $size = @filesize($path);
         if (!is_int($size) || $size < 2 || $size > 1048576) {
-            throw new \RuntimeException('duo: attachment durable journal exceeds its bounded byte limit');
+            throw new \RuntimeException('wprism: attachment durable journal exceeds its bounded byte limit');
         }
         $decoded = Canon::decode(Canon::read_file($path));
         if (!is_array($decoded) || array_is_list($decoded)) {
-            throw new \RuntimeException('duo: attachment durable journal is malformed');
+            throw new \RuntimeException('wprism: attachment durable journal is malformed');
         }
         $this->assert_journal($decoded);
         return $decoded;
@@ -2075,7 +2075,7 @@ final class AttachmentFilesystemTransaction {
             || !array_is_list($journal['rows'])
             || count($journal['rows']) < 1
             || count($journal['rows']) > self::MAX_DERIVATIVES) {
-            throw new \RuntimeException('duo: attachment durable journal has an invalid closed shape');
+            throw new \RuntimeException('wprism: attachment durable journal has an invalid closed shape');
         }
         $hasGeneration = in_array($journal['phase'], [
             'metadata_generated', 'publishing_derivatives', 'derivatives_published',
@@ -2085,19 +2085,19 @@ final class AttachmentFilesystemTransaction {
             ? (!is_string($journal['generation_sha256'])
                 || preg_match('/^[0-9a-f]{64}$/D', $journal['generation_sha256']) !== 1)
             : $journal['generation_sha256'] !== null) {
-            throw new \RuntimeException('duo: attachment durable journal has an invalid metadata-generation identity');
+            throw new \RuntimeException('wprism: attachment durable journal has an invalid metadata-generation identity');
         }
         $this->assert_journal_rows($journal);
         if ($journal['phase'] === 'preparing') {
             if ($journal['authority_sha256'] !== null) {
-                throw new \RuntimeException('duo: preparing attachment journal has premature authority bytes');
+                throw new \RuntimeException('wprism: preparing attachment journal has premature authority bytes');
             }
             return;
         }
         if (!is_string($journal['authority_sha256'])
             || preg_match('/^[0-9a-f]{64}$/D', $journal['authority_sha256']) !== 1
             || !hash_equals($journal['authority_sha256'], $this->authority_hash($journal))) {
-            throw new \RuntimeException('duo: attachment durable journal authority hash does not verify');
+            throw new \RuntimeException('wprism: attachment durable journal authority hash does not verify');
         }
     }
 
@@ -2106,7 +2106,7 @@ final class AttachmentFilesystemTransaction {
         $seenPath = [];
         foreach ($journal['rows'] as $row) {
             if (!is_array($row) || array_is_list($row)) {
-                throw new \RuntimeException('duo: attachment durable journal row is malformed');
+                throw new \RuntimeException('wprism: attachment durable journal row is malformed');
             }
             $keys = array_keys($row);
             sort($keys, SORT_STRING);
@@ -2142,7 +2142,7 @@ final class AttachmentFilesystemTransaction {
                 || !is_array($row['prior'] ?? null)
                 || !array_is_list($row['prior'])
                 || count($row['prior']) > self::MAX_OWNED_PRIOR_FILES) {
-                throw new \RuntimeException('duo: attachment durable journal row has an invalid closed shape');
+                throw new \RuntimeException('wprism: attachment durable journal row has an invalid closed shape');
             }
             $this->assert_relative_path((string) $row['original_path']);
             if ($row['derivative_directory'] !== '') {
@@ -2152,7 +2152,7 @@ final class AttachmentFilesystemTransaction {
             $path = (string) $row['original_path'];
             $pathIdentity = self::portable_path_identity($path);
             if (isset($seenUuid[$uuid]) || isset($seenPath[$pathIdentity])) {
-                throw new \RuntimeException('duo: attachment durable journal has duplicate attachment authority');
+                throw new \RuntimeException('wprism: attachment durable journal has duplicate attachment authority');
             }
             $seenUuid[$uuid] = true;
             $seenPath[$pathIdentity] = true;
@@ -2160,7 +2160,7 @@ final class AttachmentFilesystemTransaction {
             $aggregate = 0;
             foreach ($row['prior'] as $prior) {
                 if (!is_array($prior) || array_is_list($prior)) {
-                    throw new \RuntimeException('duo: attachment durable prior row is malformed');
+                    throw new \RuntimeException('wprism: attachment durable prior row is malformed');
                 }
                 $priorKeys = array_keys($prior);
                 sort($priorKeys, SORT_STRING);
@@ -2184,17 +2184,17 @@ final class AttachmentFilesystemTransaction {
                             || !is_int($prior['mode'] ?? null)
                             || $prior['mode'] !== $prior['publish_mode']
                             || preg_match('/^[0-9a-f]{64}$/D', (string) $prior['sha256']) !== 1))) {
-                    throw new \RuntimeException('duo: attachment durable prior row has an invalid closed shape');
+                    throw new \RuntimeException('wprism: attachment durable prior row has an invalid closed shape');
                 }
                 $this->assert_relative_path($prior['path']);
                 $priorIdentity = self::portable_path_identity($prior['path']);
                 if (isset($seenPrior[$priorIdentity])) {
-                    throw new \RuntimeException('duo: attachment durable prior inventory has duplicate paths');
+                    throw new \RuntimeException('wprism: attachment durable prior inventory has duplicate paths');
                 }
                 $seenPrior[$priorIdentity] = true;
                 $aggregate += $prior['size'];
                 if ($aggregate > self::MAX_ATTACHMENT_BYTES) {
-                    throw new \RuntimeException('duo: attachment durable prior inventory exceeds its byte limit');
+                    throw new \RuntimeException('wprism: attachment durable prior inventory exceeds its byte limit');
                 }
                 if ($state === 'present') {
                     $before = $this->current_directory() . '/' . $prior['before_image'];
@@ -2204,20 +2204,20 @@ final class AttachmentFilesystemTransaction {
             $seenOwned = [];
             foreach ($row['owned_prior_paths'] as $ownedPath) {
                 if (!is_string($ownedPath)) {
-                    throw new \RuntimeException('duo: attachment durable owned-prior roster is malformed');
+                    throw new \RuntimeException('wprism: attachment durable owned-prior roster is malformed');
                 }
                 $this->assert_relative_path($ownedPath);
                 $ownedIdentity = self::portable_path_identity($ownedPath);
                 if (isset($seenOwned[$ownedIdentity]) || !isset($seenPrior[$ownedIdentity])) {
                     throw new \RuntimeException(
-                        'duo: attachment durable owned-prior roster is duplicate or lacks a frozen witness'
+                        'wprism: attachment durable owned-prior roster is duplicate or lacks a frozen witness'
                     );
                 }
                 $seenOwned[$ownedIdentity] = true;
             }
             if ($journal['phase'] !== 'preparing'
                 && (!isset($seenPrior[$pathIdentity]) || $row['prior'] === [])) {
-                throw new \RuntimeException('duo: attachment durable journal lacks its original prior witness');
+                throw new \RuntimeException('wprism: attachment durable journal lacks its original prior witness');
             }
         }
     }
@@ -2234,7 +2234,7 @@ final class AttachmentFilesystemTransaction {
             || $size !== $prior['size']
             || !is_string($sha)
             || !hash_equals((string) $prior['sha256'], $sha)) {
-            throw new \RuntimeException('duo: attachment durable before-image does not match its journal witness');
+            throw new \RuntimeException('wprism: attachment durable before-image does not match its journal witness');
         }
     }
 
@@ -2272,18 +2272,18 @@ final class AttachmentFilesystemTransaction {
         foreach ($iterator as $entry) {
             $path = $entry->getPathname();
             if ($entry->isLink()) {
-                throw new \RuntimeException('duo: attachment journal cleanup found a symbolic link');
+                throw new \RuntimeException('wprism: attachment journal cleanup found a symbolic link');
             }
             if ($entry->isDir()) {
-                if (!@rmdir($path)) throw new \RuntimeException('duo: attachment journal directory cleanup failed');
+                if (!@rmdir($path)) throw new \RuntimeException('wprism: attachment journal directory cleanup failed');
             } elseif ($entry->isFile()) {
-                if (!@unlink($path)) throw new \RuntimeException('duo: attachment journal file cleanup failed');
+                if (!@unlink($path)) throw new \RuntimeException('wprism: attachment journal file cleanup failed');
             } else {
-                throw new \RuntimeException('duo: attachment journal cleanup found a special file');
+                throw new \RuntimeException('wprism: attachment journal cleanup found a special file');
             }
         }
         if (!@rmdir($directory)) {
-            throw new \RuntimeException('duo: attachment journal root cleanup failed');
+            throw new \RuntimeException('wprism: attachment journal root cleanup failed');
         }
     }
 
@@ -2324,14 +2324,14 @@ final class AttachmentFilesystemTransaction {
             foreach (new \FilesystemIterator($directory, \FilesystemIterator::SKIP_DOTS) as $entry) {
                 if (++$count > self::MAX_DIRECTORY_ENTRIES) {
                     throw new \RuntimeException(
-                        'duo: attachment filesystem alias proof exceeds its bounded directory-entry limit'
+                        'wprism: attachment filesystem alias proof exceeds its bounded directory-entry limit'
                     );
                 }
                 $name = $entry->getFilename();
                 if (!hash_equals($wanted, self::portable_path_identity($name))) continue;
                 if (!hash_equals($segment, $name)) {
                     throw new \RuntimeException(
-                        'duo: attachment upload authority has a case/Unicode-normalization filesystem alias'
+                        'wprism: attachment upload authority has a case/Unicode-normalization filesystem alias'
                     );
                 }
                 $exact = true;
@@ -2343,7 +2343,7 @@ final class AttachmentFilesystemTransaction {
 
     public static function portable_path_identity(string $value): string {
         if (preg_match('//u', $value) !== 1) {
-            throw new \RuntimeException('duo: attachment filesystem alias proof received invalid UTF-8');
+            throw new \RuntimeException('wprism: attachment filesystem alias proof received invalid UTF-8');
         }
         if (preg_match('/^[\x00-\x7F]*$/D', $value) === 1) {
             return strtolower($value);
@@ -2352,12 +2352,12 @@ final class AttachmentFilesystemTransaction {
             || !function_exists('mb_convert_case')
             || !defined('MB_CASE_FOLD')) {
             throw new \RuntimeException(
-                'duo: attachment Unicode filesystem alias proof requires normalization/case-fold support'
+                'wprism: attachment Unicode filesystem alias proof requires normalization/case-fold support'
             );
         }
         $normalized = \Normalizer::normalize($value, \Normalizer::FORM_C);
         if (!is_string($normalized)) {
-            throw new \RuntimeException('duo: attachment Unicode filesystem alias normalization failed');
+            throw new \RuntimeException('wprism: attachment Unicode filesystem alias normalization failed');
         }
         return mb_convert_case($normalized, MB_CASE_FOLD, 'UTF-8');
     }
@@ -2369,7 +2369,7 @@ final class AttachmentFilesystemTransaction {
             || !is_int($characters) || preg_match('/[\x00-\x1F\x7F]/', $relative) === 1
             || array_filter($segments, static fn(string $segment): bool =>
                 $segment === '' || $segment === '.' || $segment === '..' || strlen($segment) > 255)) {
-            throw new \RuntimeException('duo: attachment upload path is not a bounded normalized relative path');
+            throw new \RuntimeException('wprism: attachment upload path is not a bounded normalized relative path');
         }
     }
 
@@ -2377,7 +2377,7 @@ final class AttachmentFilesystemTransaction {
         clearstatcache(true, $path);
         $stat = @lstat($path);
         if (!is_array($stat) || is_link($path) || !is_dir($path) || (($stat['mode'] ?? 0) & 0170000) !== 0040000) {
-            throw new \RuntimeException("duo: $label is missing, symlinked, or not a directory");
+            throw new \RuntimeException("wprism: $label is missing, symlinked, or not a directory");
         }
     }
 
@@ -2385,7 +2385,7 @@ final class AttachmentFilesystemTransaction {
         $this->assert_directory($path, $label);
         $stat = @lstat($path);
         if (!is_array($stat) || (((int) ($stat['mode'] ?? 0)) & 0077) !== 0) {
-            throw new \RuntimeException("duo: $label permits group/other access to private attachment state");
+            throw new \RuntimeException("wprism: $label permits group/other access to private attachment state");
         }
     }
 
@@ -2394,11 +2394,11 @@ final class AttachmentFilesystemTransaction {
         $metadata = @stream_get_meta_data($handle);
         $path = is_array($metadata) ? ($metadata['uri'] ?? null) : null;
         if (!is_string($path) || $path === '' || !@chmod($path, 0600)) {
-            throw new \RuntimeException("duo: $label could not be restricted to owner-only access");
+            throw new \RuntimeException("wprism: $label could not be restricted to owner-only access");
         }
         $stat = @fstat($handle);
         if (!is_array($stat) || (((int) ($stat['mode'] ?? 0)) & 0077) !== 0) {
-            throw new \RuntimeException("duo: $label retained group/other access");
+            throw new \RuntimeException("wprism: $label retained group/other access");
         }
     }
 
@@ -2408,7 +2408,7 @@ final class AttachmentFilesystemTransaction {
             || is_link($path)
             || !is_file($path)
             || (((int) ($stat['mode'] ?? 0)) & 0077) !== 0) {
-            throw new \RuntimeException("duo: $label is not an owner-only regular file");
+            throw new \RuntimeException("wprism: $label is not an owner-only regular file");
         }
     }
 
@@ -2425,7 +2425,7 @@ final class AttachmentFilesystemTransaction {
             || !is_string($real)
             || (($real !== $this->root && !str_starts_with($real, (string) $this->root . '/'))
                 && ($real !== $this->journalRoot && !str_starts_with($real, (string) $this->journalRoot . '/')))) {
-            throw new \RuntimeException("duo: $label escapes the physical uploads or private control root");
+            throw new \RuntimeException("wprism: $label escapes the physical uploads or private control root");
         }
         return [
             'dev' => (string) ($stat['dev'] ?? ''),

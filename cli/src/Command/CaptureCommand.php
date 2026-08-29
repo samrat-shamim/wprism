@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/CommandOutput.php';
@@ -119,7 +119,7 @@ final class CaptureCommand {
                     $extra,
                     'scope_contract_invalid',
                     'the local scope contract is malformed, tampered, or unsupported',
-                    'generate a fresh contract with duo scope --contract and retry capture'
+                    'generate a fresh contract with wprism scope --contract and retry capture'
                 );
             }
         }
@@ -149,7 +149,7 @@ final class CaptureCommand {
             $forward[] = '--expected-repository-branch=' . $targetBranch;
         }
         return $driver->streamWp(
-            array_merge(['duo', 'capture', '--repo=' . $driver->repoPath()], $forward)
+            array_merge(['wprism', 'capture', '--repo=' . $driver->repoPath()], $forward)
         );
     }
 
@@ -171,7 +171,7 @@ final class CaptureCommand {
         if (CommandOutput::wantsAgentRefusalJson('capture', $extra)) {
             return CommandOutput::renderRefusalJson('capture', $reasonCode, $message, $remediation);
         }
-        fwrite(STDERR, "duo: capture: $message; $remediation\n");
+        fwrite(STDERR, "wprism: capture: $message; $remediation\n");
         return 2;
     }
 }

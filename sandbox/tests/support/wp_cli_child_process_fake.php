@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace DuoTest;
+namespace WPrismTest;
 
 /** Shared offline WP-CLI runtime shape for the bounded child launcher. */
 final class WpCliChildConfigurator {
@@ -73,7 +73,7 @@ function proc_open_compat(
     if ($exit < 0 || $exit > 255) {
         return false;
     }
-    $stderrFirst = ($GLOBALS['duo_wp_cli_child_fake_stderr_first'] ?? false) === true;
+    $stderrFirst = ($GLOBALS['wprism_wp_cli_child_fake_stderr_first'] ?? false) === true;
     $script = $stderrFirst
         ? 'fwrite(STDERR, base64_decode($argv[2], true)); fwrite(STDOUT, base64_decode($argv[1], true)); '
         : 'fwrite(STDOUT, base64_decode($argv[1], true)); fwrite(STDERR, base64_decode($argv[2], true)); ';

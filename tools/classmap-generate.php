@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 /**
  * Generate the two committed classmaps that back the drop-in's additive
- * autoload fallback (agent/duo-classmap.php, cli/duo-classmap.php).
+ * autoload fallback (agent/wprism-classmap.php, cli/wprism-classmap.php).
  *
- * Why this exists: the product has no autoloader by design — agent/duo.php
- * require_once's 91 files at load (duo.php:15-105), agent/src holds 224 files
- * across 17 directories that all declare the one flat `namespace Duo;` and
- * require their own dependencies, and cli/duo requires its 52 cli/src
- * files plus 7 agent/src ones. That contract stays (owner ruling D4: no
+ * Why this exists: the product has no autoloader by design — agent/wprism.php
+ * explicitly requires its eager-load set, every agent/src file declares the
+ * one flat `namespace WPrism;` and requires its own dependencies, and
+ * cli/wprism does the same for its orchestration surface. That contract stays
+ * (owner ruling D4: no
  * require line is deleted). What the maps add is a *fallback*: an autoloader
  * only ever fires for a class that is still undeclared at the moment it is
  * referenced, so with every existing require retained the map is dead weight
@@ -30,17 +30,16 @@ declare(strict_types=1);
  *    machines must produce identical files or the byte-compare above is
  *    worthless: a map that differs per host turns `make release-gate` into a
  *    coin flip and puts a spurious diff in every unrelated PR.
- *  - Recursive scan of agent/src (17 directories) and cli/src (12). What is
- *    flat is the NAMESPACE, not the tree: all 224 agent/src files declare
- *    `namespace Duo;` and all 75 namespaced cli/src files declare
- *    `namespace Duo\Orchestrator;` whatever directory they sit in. So the
+ *  - Recursive scan of agent/src and cli/src. What is flat is the NAMESPACE,
+ *    not the tree: agent source declares `namespace WPrism;` and orchestration
+ *    source declares `namespace WPrism\Orchestrator;` whatever directory each
+ *    file sits in. So the
  *    walk finds files; it never derives a name from a path, and a future
  *    sub-namespaced subdirectory is picked up without touching this
  *    generator.
  *  - Every declaration in a file is mapped, not just the one whose name
- *    matches the filename: 14 agent/src files and 6 cli/src files declare
- *    more than one type, and 3 agent/src + 15 cli/src files have a primary
- *    type whose name differs from the filename (cli/src/Command/CommandOutput.php
+ *    matches the filename: multi-type files and files whose primary type does
+ *    not match the filename are both present (cli/src/Command/CommandOutput.php
  *    alone carries CommandOutput plus its exception types). A
  *    filename-derived map would silently miss all of them, which is exactly
  *    the class of bug an autoloader must not have.
@@ -56,7 +55,7 @@ declare(strict_types=1);
  * in CM_EXCLUSIONS below. A type is excluded only when *including* it would
  * change behaviour — i.e. its file has a top-level side effect that is safe
  * under the require that exists today but not under an arbitrary autoload
- * trigger. A tokenizer audit of all 271 files found exactly one such file
+ * trigger. A tokenizer audit of the complete source trees found exactly one such file
  * (see CM_EXCLUSIONS); every other top-level statement in agent/src is an
  * idempotent `class_exists(X::class, false)`-guarded require, which runs the
  * same way whether the file arrives by require or by autoload.
@@ -70,17 +69,17 @@ declare(strict_types=1);
 /**
  * FQCN => reason it is deliberately absent from the generated map.
  *
- * Duo\Cli: agent/src/Command/Cli.php's last line is
- * `WP_CLI::add_command('duo', Cli::class);` — a top-level side effect. Today
- * that file is required from exactly one place, agent/duo.php's closing
+ * WPrism\Cli: agent/src/Command/Cli.php's last line is
+ * `WP_CLI::add_command('wprism', Cli::class);` — a top-level side effect. Today
+ * that file is required from exactly one place, agent/wprism.php's closing
  * `if (defined('WP_CLI') && WP_CLI)` block, so the call only ever runs with a
  * WP-CLI runtime present. Autoloading it would run that line from wherever
- * the first `Duo\Cli` reference happened to be: outside WP-CLI that is an
+ * the first `WPrism\Cli` reference happened to be: outside WP-CLI that is an
  * immediate fatal on an undefined WP_CLI class, and inside WP-CLI it is a
- * duplicate command registration. Excluding it keeps `Duo\Cli` resolvable
+ * duplicate command registration. Excluding it keeps `WPrism\Cli` resolvable
  * only through the require that already gates it.
  *
- * Duo\InitialStateBoundaryException: declared three times, each behind
+ * WPrism\InitialStateBoundaryException: declared three times, each behind
  * `if (!class_exists(InitialStateBoundaryException::class, false))` —
  * agent/src/Kernel/DurableFilesystem.php:8, agent/src/Publication/PublicationJournal.php:7 and
  * agent/src/Publication/Publish.php:6. Whichever file loads first wins, deliberately
@@ -95,8 +94,8 @@ declare(strict_types=1);
  * @var array<string,string>
  */
 const CM_EXCLUSIONS = [
-    'Duo\\Cli' => 'agent/src/Command/Cli.php ends in a top-level WP_CLI::add_command() call; it must stay gated behind duo.php\'s WP_CLI require',
-    'Duo\\InitialStateBoundaryException' => 'declared three times behind class_exists(..., false) guards (DurableFilesystem.php, PublicationJournal.php, Publish.php); no single file is its home',
+    'WPrism\\Cli' => 'agent/src/Command/Cli.php ends in a top-level WP_CLI::add_command() call; it must stay gated behind wprism.php\'s WP_CLI require',
+    'WPrism\\InitialStateBoundaryException' => 'declared three times behind class_exists(..., false) guards (DurableFilesystem.php, PublicationJournal.php, Publish.php); no single file is its home',
 ];
 
 /**
@@ -106,8 +105,8 @@ const CM_EXCLUSIONS = [
  * @var array<string,array{0:string,1:string}>
  */
 const CM_TARGETS = [
-    'agent' => ['src', 'duo-classmap.php'],
-    'cli' => ['src', 'duo-classmap.php'],
+    'agent' => ['src', 'wprism-classmap.php'],
+    'cli' => ['src', 'wprism-classmap.php'],
 ];
 
 const CM_HEADER = 'GENERATED by tools/classmap-generate.php — do not edit; regenerate with: php tools/classmap-generate.php';

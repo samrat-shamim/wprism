@@ -1,9 +1,9 @@
 <?php
 /**
- * DUO-3506 — the two `promotion-abort` refusals carry a stable reason code,
+ * issue #3506 — the two `promotion-abort` refusals carry a stable reason code,
  * and their operator sentence does not move.
  *
- * `duo recover <env> --restore=<older retained id> --writers-excluded` stopped
+ * `wprism recover <env> --restore=<older retained id> --writers-excluded` stopped
  * at step 1 with one constant, reasonless line because these two refusals were
  * bare `\RuntimeException`s: `Cli::halt_json_failure()` classified them
  * through its catch-all (agent/src/Command/Cli.php:79-94), so a machine caller
@@ -51,11 +51,11 @@ require_once __DIR__ . '/../../../../agent/src/Promotion/PromotionLease.php';
 require_once __DIR__ . '/../../../../agent/src/Promotion/PromotionLock.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 
-use Duo\CommandRefusalException;
-use Duo\PromotionLease;
-use Duo\PromotionLock;
-use DuoTest\FakeWpdb;
-use DuoTest\WpStore;
+use WPrism\CommandRefusalException;
+use WPrism\PromotionLease;
+use WPrism\PromotionLock;
+use WPrismTest\FakeWpdb;
+use WPrismTest\WpStore;
 
 /** The abort this operator is trying to run: an older release's cleanup. */
 const OBSOLETE_OWNER = 'promote-obsolete-checkpoint-owner';
@@ -66,9 +66,9 @@ const LATER_OWNER = 'promote-later-release-owner';
 const LATER_ARTIFACT = '0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0';
 
 /**
- * One `duo_kv` store, rebuilt per case.
+ * One `wprism_kv` store, rebuilt per case.
  *
- * `Ledger::kv_get()` reads `SELECT v FROM {prefix}duo_kv WHERE k = %s`
+ * `Ledger::kv_get()` reads `SELECT v FROM {prefix}wprism_kv WHERE k = %s`
  * (agent/src/Repository/Ledger.php:552-556), so seeding rows is the whole
  * fixture: the lease row under `promotion_lock` and the durable session row
  * under `promotion_session`.
@@ -79,7 +79,7 @@ function abort_reason_seed(array $rows): FakeWpdb {
     WpStore::reset();
     $wpdb = FakeWpdb::install();
     $wpdb->setLockResult(1);
-    $wpdb->seedTable('wp_duo_kv', array_values(array_map(
+    $wpdb->seedTable('wp_wprism_kv', array_values(array_map(
         static fn(string $key, array $payload): array => [
             'k' => $key,
             'v' => json_encode($payload, JSON_UNESCAPED_SLASHES),
@@ -122,15 +122,15 @@ function abort_reason_refusal(string $owner, string $artifact, string $case): ?C
     try {
         PromotionLease::abort($owner, $artifact);
     } catch (CommandRefusalException $refusal) {
-        duo_check(true, "$case refuses with a typed, machine-readable refusal");
+        wprism_check(true, "$case refuses with a typed, machine-readable refusal");
 
         return $refusal;
     } catch (\Throwable $other) {
-        duo_check(false, "$case threw " . get_class($other) . ' instead of CommandRefusalException');
+        wprism_check(false, "$case threw " . get_class($other) . ' instead of CommandRefusalException');
 
         return null;
     }
-    duo_check(false, "$case did not refuse at all");
+    wprism_check(false, "$case did not refuse at all");
 
     return null;
 }
@@ -145,17 +145,17 @@ abort_reason_seed(['promotion_session' => abort_reason_session(LATER_OWNER, LATE
 
 $superseded = abort_reason_refusal(OBSOLETE_OWNER, OBSOLETE_ARTIFACT, 'a superseded abort');
 if ($superseded !== null) {
-    duo_check_same(
+    wprism_check_same(
         'promotion_abort_session_superseded',
         $superseded->reasonCode,
         'the superseded abort names promotion_abort_session_superseded'
     );
-    duo_check_same(
+    wprism_check_same(
         'promotion abort refused: a newer promotion session superseded the one this abort names',
         $superseded->publicMessage,
         'its public message states the property without naming the session'
     );
-    duo_check_same(
+    wprism_check_same(
         'restore or recover the release that owns the latest begun promotion session; an obsolete checkpoint '
             . 'is not a safe recovery source, so recover this target through the provider that owns its backups '
             . 'instead',
@@ -164,46 +164,46 @@ if ($superseded !== null) {
     );
     // The live pin greps this sentence on a real pair
     // (sandbox/tests/live/regress_promotion_lock.sh:105). It must not move.
-    duo_check_same(
-        "duo: promotion abort refused; the latest begun session belongs to '" . LATER_OWNER . "' "
+    wprism_check_same(
+        "wprism: promotion abort refused; the latest begun session belongs to '" . LATER_OWNER . "' "
             . "for artifact '" . LATER_ARTIFACT . "'",
         $superseded->getMessage(),
         'getMessage() is byte-identical to the operator sentence WP_CLI::error() prints'
     );
-    duo_check(
+    wprism_check(
         $superseded instanceof \RuntimeException,
         'it is still a \RuntimeException, so every existing catch around abort behaves identically'
     );
-    duo_check_same(false, $superseded->detailsRedacted, 'the reviewed public fields survive the class screen');
+    wprism_check_same(false, $superseded->detailsRedacted, 'the reviewed public fields survive the class screen');
 }
 
 // ------------------------------------------------------ the §5.2 boundary
 // The reason the operator sentence cannot simply be republished: it carries a
 // lease owner token and a 64-hex artifact hash, and MUP §5.2 admits an
 // internal identifier into a public view only when a documented command
-// consumes it. `duo recover` publishes the payload below and nothing else.
+// consumes it. `wprism recover` publishes the payload below and nothing else.
 if ($superseded !== null) {
     $payload = $superseded->payload();
     $published = json_encode($payload, JSON_UNESCAPED_SLASHES);
-    duo_check_same(
+    wprism_check_same(
         'promotion_abort_session_superseded',
         $payload['error'] ?? null,
         'the published payload carries the reason code'
     );
-    duo_check(
+    wprism_check(
         !str_contains((string) $published, LATER_OWNER) && !str_contains((string) $published, OBSOLETE_OWNER),
         'no lease owner token reaches the published payload'
     );
-    duo_check(
+    wprism_check(
         preg_match('/(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])/', (string) $published) !== 1,
         'no 64-hex artifact hash reaches the published payload'
     );
-    duo_check_same(
+    wprism_check_same(
         false,
         CommandRefusalException::containsSensitivePublicDetail($payload),
         'the payload passes the same screen Cli.php applies at the serialization boundary'
     );
-    duo_check(
+    wprism_check(
         !array_key_exists('details_redacted', $payload),
         'the refusal is classified, so it is not the redacted catch-all this used to fall into'
     );
@@ -219,28 +219,28 @@ abort_reason_seed([
 
 $notOwned = abort_reason_refusal(OBSOLETE_OWNER, OBSOLETE_ARTIFACT, 'an abort of a lease held by another release');
 if ($notOwned !== null) {
-    duo_check_same(
+    wprism_check_same(
         'promotion_abort_lock_not_owned',
         $notOwned->reasonCode,
         'the foreign-lease abort names promotion_abort_lock_not_owned'
     );
-    duo_check_same(
+    wprism_check_same(
         'promotion abort refused: the promotion lease on this target belongs to a different owner and artifact',
         $notOwned->publicMessage,
         'its public message states the property without naming the holder'
     );
-    duo_check_same(
+    wprism_check_same(
         'release the exact recorded lease through the release that holds it, or restore its database '
             . 'checkpoint, before aborting again',
         $notOwned->remediation,
         'its remediation names the two ways the lease legitimately goes away'
     );
-    duo_check_same(
-        "duo: promotion abort refused; lock belongs to '" . LATER_OWNER . "' for artifact '" . LATER_ARTIFACT . "'",
+    wprism_check_same(
+        "wprism: promotion abort refused; lock belongs to '" . LATER_OWNER . "' for artifact '" . LATER_ARTIFACT . "'",
         $notOwned->getMessage(),
         'getMessage() is byte-identical to the operator sentence WP_CLI::error() prints'
     );
-    duo_check_same(
+    wprism_check_same(
         false,
         CommandRefusalException::containsSensitivePublicDetail($notOwned->payload()),
         'the foreign-lease payload is value-free too'
@@ -253,12 +253,12 @@ if ($notOwned !== null) {
 // from a cleanup that is simply late.
 abort_reason_seed([]);
 $noSession = PromotionLock::abort(OBSOLETE_OWNER, OBSOLETE_ARTIFACT);
-duo_check_same(true, $noSession['already_absent'], 'an abort with no lease and no session is still idempotent');
-duo_check_same(false, $noSession['released'], 'nothing was released, because nothing was there');
+wprism_check_same(true, $noSession['already_absent'], 'an abort with no lease and no session is still idempotent');
+wprism_check_same(false, $noSession['released'], 'nothing was released, because nothing was there');
 
 abort_reason_seed(['promotion_session' => abort_reason_session(OBSOLETE_OWNER, OBSOLETE_ARTIFACT)]);
 $ownSession = PromotionLock::abort(OBSOLETE_OWNER, OBSOLETE_ARTIFACT);
-duo_check_same(
+wprism_check_same(
     true,
     $ownSession['already_absent'],
     'an abort whose own session is still the latest begun one succeeds, as before'
@@ -270,10 +270,10 @@ duo_check_same(
 $guides = dirname(__DIR__, 4) . '/docs/guides/capabilities-and-limits.md';
 $guideText = (string) file_get_contents($guides);
 foreach (['promotion_abort_session_superseded', 'promotion_abort_lock_not_owned'] as $code) {
-    duo_check(
+    wprism_check(
         str_contains($guideText, $code),
         "docs/guides/capabilities-and-limits.md carries a refusal-to-remedy row for $code"
     );
 }
 
-duo_check_summary('promotion abort reason codes (DUO-3506)');
+wprism_check_summary('promotion abort reason codes (issue #3506)');

@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // This collaborator is exercised directly by offline harnesses. Keep its
 // reference-keyspace dependency explicit instead of relying on Policy's
@@ -24,7 +24,7 @@ final class ReferenceKeyspaceGrammar {
      * without making pin order semantic. Also reject the pre-existing flat
      * wire ambiguity where two EAV sidecars attach to one row table.
      *
-     * @param array<string,mixed> $sitePolicy site.duo.json's policy object
+     * @param array<string,mixed> $sitePolicy site.wprism.json's policy object
      * @param list<array<string,mixed>> $manifests pinned manifest sources
      * @param array<string,array<string,mixed>> $declaredTables merged table declarations
      */
@@ -99,7 +99,7 @@ final class ReferenceKeyspaceGrammar {
             }
         };
 
-        $checkSource($sitePolicy, 'site.duo.json');
+        $checkSource($sitePolicy, 'site.wprism.json');
         foreach ($manifests as $manifest) {
             $checkSource($manifest, "manifest '" . ($manifest['name'] ?? '?') . "'");
         }
@@ -114,13 +114,13 @@ final class ReferenceKeyspaceGrammar {
                 || !is_string($attached['table'] ?? null) || $attached['table'] === ''
                 || !is_string($attached['column'] ?? null) || $attached['column'] === '') {
                 throw new \RuntimeException(
-                    "duo: attached-meta table '$table' must declare attached_to {table, column}"
+                    "wprism: attached-meta table '$table' must declare attached_to {table, column}"
                 );
             }
             $owner = $attached['table'];
             if (isset($owners[$owner])) {
                 throw new \RuntimeException(
-                    "duo: attached-meta tables '{$owners[$owner]}' and '$table' both attach to '$owner'; "
+                    "wprism: attached-meta tables '{$owners[$owner]}' and '$table' both attach to '$owner'; "
                     . 'the canonical row has one flat meta map, so multiple sidecars are ambiguous'
                 );
             }

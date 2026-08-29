@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline adversarial contract for DUO-3314's separately signed site-adapter
+ * Offline adversarial contract for issue #3314's separately signed site-adapter
  * certification.  The fixture is deliberately plugin-blind: its adapter is
  * only a small data manifest, yet the test exercises the exact authority,
  * bundle, ratification, Ed25519, live, and frozen boundaries a real adapter
@@ -9,7 +9,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
@@ -63,27 +63,27 @@ if (!function_exists('get_option')) {
 }
 if (!function_exists('apply_filters')) {
     function apply_filters($tag, $value) {
-        if ($tag === 'duo_providers' && ($GLOBALS['cert_plugin_registry_throw'] ?? null) !== null) {
+        if ($tag === 'wprism_providers' && ($GLOBALS['cert_plugin_registry_throw'] ?? null) !== null) {
             throw new RuntimeException($GLOBALS['cert_plugin_registry_throw']);
         }
-        return $tag === 'duo_providers'
+        return $tag === 'wprism_providers'
             ? (array) ($GLOBALS['cert_plugin_providers'] ?? [])
             : $value;
     }
 }
 require_once __DIR__ . '/../../../../agent/src/Command/Cli.php';
 
-use Duo\AdapterCertification;
-use Duo\AdapterLibrary;
-use Duo\AdapterSources;
-use Duo\Canon;
-use Duo\InitPlanner;
-use Duo\ManifestDispositions;
-use Duo\Policy;
-use Duo\Providers;
-use Duo\RepositoryCompiler;
-use Duo\Orchestrator\CodeDeploy;
-use Duo\Orchestrator\PlanSummary;
+use WPrism\AdapterCertification;
+use WPrism\AdapterLibrary;
+use WPrism\AdapterSources;
+use WPrism\Canon;
+use WPrism\InitPlanner;
+use WPrism\ManifestDispositions;
+use WPrism\Policy;
+use WPrism\Providers;
+use WPrism\RepositoryCompiler;
+use WPrism\Orchestrator\CodeDeploy;
+use WPrism\Orchestrator\PlanSummary;
 
 $failures = 0;
 
@@ -228,7 +228,7 @@ function cert_write_bundle(
         cert_descriptor($adapterPath, 'adapters/' . $name . '.json'),
     ];
     $bundle = [
-        // Non-empty by default (DUO-3339/B2): `artifacts[]` is the half of a
+        // Non-empty by default (issue #3339/B2): `artifacts[]` is the half of a
         // certified adapter's VERSION story that says what was actually
         // exercised and at which version, and it is the one field
         // `certification_evidence` has to decode the retained envelope to
@@ -306,7 +306,7 @@ if (!function_exists('sodium_crypto_sign_seed_keypair')) {
     exit(1);
 }
 
-$root = sys_get_temp_dir() . '/duo_site_adapter_certification_' . bin2hex(random_bytes(6));
+$root = sys_get_temp_dir() . '/wprism_site_adapter_certification_' . bin2hex(random_bytes(6));
 if (!defined('ABSPATH')) {
     // The provider diagnostic gate recognizes an ordinary WordPress target,
     // while this harness supplies its narrow lifecycle primitives itself.
@@ -322,11 +322,11 @@ $manifest = [
     'name' => 'site-demo',
     'option_autoload' => 'preserve',
     'post_types' => [],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'tables' => [],
 ];
 $ratification = [
-    'format' => 'duo-manifest-dispositions/v1',
+    'format' => 'wprism-manifest-dispositions/v1',
     'manifests' => [
         'site-demo' => [
             'capabilities' => [
@@ -354,7 +354,7 @@ $ratification = [
     'profiles' => [],
 ];
 $platform = [
-    'agent_version' => DUO_AGENT_VERSION,
+    'agent_version' => WPRISM_AGENT_VERSION,
     'branchable_state' => 'only exact certified registry surfaces and operations',
     'compatibility' => [
         // The shipped boundary's own shapes: a per-engine database map and a
@@ -384,7 +384,7 @@ $platform = [
     ],
     'plugin_execution' => 'unmodified',
     'site_mode' => 'single-site',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ];
 
 cert_write_canon($site . '/adapters/site-demo.json', $manifest);
@@ -412,7 +412,7 @@ $keys->{'review-key'} = [
     'trust_tiers' => ['declarative_manifest'],
 ];
 $authorities = [
-    'format' => 'duo-adapter-authorities/v1',
+    'format' => 'wprism-adapter-authorities/v1',
     'keys' => $keys,
 ];
 cert_write_canon($agent . '/capabilities/adapter-authorities.json', $authorities);
@@ -519,8 +519,8 @@ cert_check(
     'per-row capability claim carries its own current signed evidence facts'
 );
 cert_check(
-    ($verified['claim']['platform']['agent_version'] ?? null) === DUO_AGENT_VERSION
-    && ($verified['claim']['platform']['spec_version'] ?? null) === DUO_SPEC_VERSION
+    ($verified['claim']['platform']['agent_version'] ?? null) === WPRISM_AGENT_VERSION
+    && ($verified['claim']['platform']['spec_version'] ?? null) === WPRISM_SPEC_VERSION
     && ($verified['claim']['provider_code']['binding'] ?? null) === 'providers_negotiation',
     'per-row claim carries its signed platform boundary while plugin provider code remains negotiation-anchored'
 );
@@ -556,7 +556,7 @@ $grownRecord['adapter_names'] = ['acme-second-vendor', 'site-demo'];
 $grownRecord['trust_tiers'] = ['declarative_manifest', 'plugin_provider'];
 $grownKeys->{'review-key'} = $grownRecord;
 cert_write_canon($agent . '/capabilities/adapter-authorities.json', [
-    'format' => 'duo-adapter-authorities/v1',
+    'format' => 'wprism-adapter-authorities/v1',
     'keys' => $grownKeys,
 ]);
 try {
@@ -583,7 +583,7 @@ $identityRecord = $identityKeys->{'review-key'};
 $identityRecord['status'] = 'revoked';
 $identityKeys->{'review-key'} = $identityRecord;
 cert_write_canon($agent . '/capabilities/adapter-authorities.json', [
-    'format' => 'duo-adapter-authorities/v1',
+    'format' => 'wprism-adapter-authorities/v1',
     'keys' => $identityKeys,
 ]);
 cert_expect_throw(
@@ -597,7 +597,7 @@ $narrowedRecord = $narrowedKeys->{'review-key'};
 $narrowedRecord['adapter_names'] = ['acme-second-vendor'];
 $narrowedKeys->{'review-key'} = $narrowedRecord;
 cert_write_canon($agent . '/capabilities/adapter-authorities.json', [
-    'format' => 'duo-adapter-authorities/v1',
+    'format' => 'wprism-adapter-authorities/v1',
     'keys' => $narrowedKeys,
 ]);
 cert_expect_throw(
@@ -617,7 +617,7 @@ echo "\n== plugin-owned provider certification and offline negotiation ==\n";
 $providerSite = $root . '/provider-site';
 $providerBundle = $root . '/provider-bundle';
 $providerAgent = $root . '/provider-agent';
-$providerPolicyManifests = duo_cert_project_library(
+$providerPolicyManifests = wprism_cert_project_library(
     $sourceAdapterLibrary,
     $root . '/provider-policy-library'
 );
@@ -651,7 +651,7 @@ $providerManifest = [
         'source' => 'plugin',
         'version' => '1.2.3',
     ]],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'tables' => [],
     'version_range' => $providerRange,
 ];
@@ -683,7 +683,7 @@ $providerKeys->{'provider-key'} = [
     'trust_tiers' => ['plugin_provider'],
 ];
 $providerAuthorities = [
-    'format' => 'duo-adapter-authorities/v1',
+    'format' => 'wprism-adapter-authorities/v1',
     'keys' => $providerKeys,
 ];
 cert_write_canon($providerAgent . '/capabilities/platform.json', [
@@ -750,7 +750,7 @@ $pluginDir = $root . '/wp-content/plugins';
 $pluginFile = $pluginDir . '/acme/acme.php';
 cert_write($pluginFile, <<<'PLUGIN'
 <?php
-final class DuoCertificationPluginProvider {
+final class WPrismCertificationPluginProvider {
     public function identity(): array {
         return ['id' => 'site-cache', 'plugin' => 'acme/acme.php', 'version' => '1.2.3'];
     }
@@ -775,7 +775,7 @@ final class DuoCertificationPluginProvider {
     }
 }
 
-final class DuoCertificationWrongRegistrationProvider {
+final class WPrismCertificationWrongRegistrationProvider {
     public function identity(): array {
         return ['id' => 'site-cache', 'plugin' => 'acme/acme.php', 'version' => '9.9.9'];
     }
@@ -797,7 +797,7 @@ final class DuoCertificationWrongRegistrationProvider {
     }
 }
 
-final class DuoCertificationMissingCapabilityProvider {
+final class WPrismCertificationMissingCapabilityProvider {
     public function identity(): array {
         return ['id' => 'site-cache', 'plugin' => 'acme/acme.php', 'version' => '1.2.3'];
     }
@@ -819,13 +819,13 @@ final class DuoCertificationMissingCapabilityProvider {
     }
 }
 
-final class DuoCertificationThrowingCapabilitiesProvider {
+final class WPrismCertificationThrowingCapabilitiesProvider {
     public function identity(): array {
         return ['id' => 'site-cache', 'plugin' => 'acme/acme.php', 'version' => '1.2.3'];
     }
 
     public function capabilities(): array {
-        throw new RuntimeException("https://provider.example.test/rebuild?access_token=DUO_PROVIDER_SECRET_TOKEN\nINJECTED_PROVIDER_LINE");
+        throw new RuntimeException("https://provider.example.test/rebuild?access_token=WPRISM_PROVIDER_SECRET_TOKEN\nINJECTED_PROVIDER_LINE");
     }
 
     public function invoke(string $capability, array $args): array {
@@ -834,9 +834,9 @@ final class DuoCertificationThrowingCapabilitiesProvider {
     }
 }
 
-final class DuoCertificationThrowingIdentityProvider {
+final class WPrismCertificationThrowingIdentityProvider {
     public function identity(): array {
-        throw new RuntimeException("https://provider.example.test/identity?access_token=DUO_PROVIDER_SECRET_TOKEN\nINJECTED_PROVIDER_LINE");
+        throw new RuntimeException("https://provider.example.test/identity?access_token=WPRISM_PROVIDER_SECRET_TOKEN\nINJECTED_PROVIDER_LINE");
     }
 
     public function capabilities(): array {
@@ -856,11 +856,11 @@ final class DuoCertificationThrowingIdentityProvider {
     }
 }
 
-final class DuoCertificationMalformedIdentityProvider {
+final class WPrismCertificationMalformedIdentityProvider {
     public function identity(): array {
         return ['id' => new class {
             public function __toString(): string {
-                throw new RuntimeException("https://provider.example.test/identity?access_token=DUO_PROVIDER_SECRET_TOKEN\nINJECTED_PROVIDER_LINE");
+                throw new RuntimeException("https://provider.example.test/identity?access_token=WPRISM_PROVIDER_SECRET_TOKEN\nINJECTED_PROVIDER_LINE");
             }
         }];
     }
@@ -884,7 +884,7 @@ final class DuoCertificationMalformedIdentityProvider {
 PLUGIN
 );
 require_once $pluginFile;
-$GLOBALS['cert_plugin_providers'] = [new \DuoCertificationPluginProvider()];
+$GLOBALS['cert_plugin_providers'] = [new \WPrismCertificationPluginProvider()];
 $GLOBALS['cert_plugin_registry_throw'] = null;
 if (!defined('WP_PLUGIN_DIR')) {
     define('WP_PLUGIN_DIR', $pluginDir);
@@ -917,7 +917,7 @@ PHP
 );
 cert_write($lazyProvider, <<<'PHP'
 <?php
-final class DuoCertificationLazyApiProvider {
+final class WPrismCertificationLazyApiProvider {
     public function identity(): array {
         return ['id' => 'lazy-cache', 'plugin' => 'lazy/lazy.php', 'version' => '1.0.0'];
     }
@@ -945,11 +945,11 @@ $lazyScript = str_replace(
     <<<'PHP'
 <?php
 declare(strict_types=1);
-define('DUO_SPEC_VERSION', 2);
+define('WPRISM_SPEC_VERSION', 2);
 define('ABSPATH', __ABSPATH__);
 define('WP_PLUGIN_DIR', __WP_PLUGIN_DIR__);
 function apply_filters(string $tag, mixed $value): mixed {
-    return $tag === 'duo_providers' ? (array) ($GLOBALS['lazy_providers'] ?? []) : $value;
+    return $tag === 'wprism_providers' ? (array) ($GLOBALS['lazy_providers'] ?? []) : $value;
 }
 function get_option(string $name, mixed $default = false): mixed {
     return $name === 'active_plugins' ? ['lazy/lazy.php'] : $default;
@@ -964,9 +964,9 @@ require __ENGINE_ROOT__ . '/agent/src/Policy/Policy.php';
 require __ENGINE_ROOT__ . '/agent/src/Promotion/Deploy.php';
 require __ENGINE_ROOT__ . '/agent/src/Adapter/Providers.php';
 require __PROVIDER_FILE__;
-$GLOBALS['lazy_providers'] = [new DuoCertificationLazyApiProvider()];
+$GLOBALS['lazy_providers'] = [new WPrismCertificationLazyApiProvider()];
 $GLOBALS['lazy_provider_invocations'] = 0;
-$payload['gate_before_loader'] = \Duo\Providers::runtime_negotiation_available();
+$payload['gate_before_loader'] = \WPrism\Providers::runtime_negotiation_available();
 $lazyManifest = [
     'name' => 'lazy-provider',
     'spec_version' => 2,
@@ -988,23 +988,23 @@ $lazyManifest = [
 // The synthetic adapter is plugin-bundled, so the v6 source record carries
 // that provenance explicitly. It never impersonates a shipped package merely
 // because a process-global path points at matching bytes.
-$lazyPath = 'plugins/lazy/duo-adapter.json';
+$lazyPath = 'plugins/lazy/wprism-adapter.json';
 $lazyReason = "adapter 'lazy-provider' is bundled by the active plugin 'lazy/lazy.php' ($lazyPath) and carries "
     . 'no reviewed certification evidence; a bundled adapter cannot be certified in place — certification is '
     . 'a repository-scoped signed companion at adapters/certifications/lazy-provider.json.';
-$lazyAdapterLibrary = \Duo\AdapterLibrary::fromSourceTree(__ENGINE_ROOT__);
+$lazyAdapterLibrary = \WPrism\AdapterLibrary::fromSourceTree(__ENGINE_ROOT__);
 try {
-    $policy = \Duo\Policy::from_snapshot([
-        'format' => 'duo-policy-snapshot/v6',
+    $policy = \WPrism\Policy::from_snapshot([
+        'format' => 'wprism-policy-snapshot/v6',
         'adapter_sources' => [
             'certificates' => [],
-            'format' => 'duo-adapter-sources/v2',
+            'format' => 'wprism-adapter-sources/v2',
             'out_of_tree' => ['lazy-provider' => [
                 'certification' => 'uncertified',
                 'provenance' => [
-                    'format' => 'duo-adapter-sources/v2',
+                    'format' => 'wprism-adapter-sources/v2',
                     'path' => $lazyPath,
-                    'sha256' => hash('sha256', \Duo\Canon::encode($lazyManifest)),
+                    'sha256' => hash('sha256', \WPrism\Canon::encode($lazyManifest)),
                     'source' => 'plugin',
                 ],
                 'reason' => $lazyReason,
@@ -1020,7 +1020,7 @@ try {
         ],
         'manifests' => [$lazyManifest],
     ], $lazyAdapterLibrary);
-    $negotiation = \Duo\Providers::negotiate($policy, $policy->actions_for(['post:page']));
+    $negotiation = \WPrism\Providers::negotiate($policy, $policy->actions_for(['post:page']));
     $payload['problems'] = $negotiation['problems'];
 } catch (\Throwable $failure) {
     $payload['error'] = $failure->getMessage();
@@ -1096,10 +1096,10 @@ cert_write_canon($providerPolicyManifests . '/capabilities/platform.json', [
     'platform' => $platform,
 ]);
 $providerPolicyLibrary = AdapterLibrary::fromLegacyFlatDirectory($providerPolicyManifests);
-cert_write_canon($site . '/site.duo.json', [
+cert_write_canon($site . '/site.wprism.json', [
     'manifests' => [['name' => 'site-demo', 'source' => 'site']],
     'policy' => new stdClass(),
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ]);
 try {
     $providerPolicy = Policy::load($site, adapterLibrary: $providerPolicyLibrary);
@@ -1111,15 +1111,15 @@ try {
 } catch (Throwable $e) {
     cert_check(false, 'a site pin validates the same safe provider plugin basename before runtime provider negotiation (' . $e->getMessage() . ')');
 } finally {
-    unlink($site . '/site.duo.json');
+    unlink($site . '/site.wprism.json');
 }
 cert_write($certPath, $declarativeCertificateRaw);
 cert_write_canon($site . '/adapters/site-demo.json', $manifest);
 $keys->{'review-key'}['trust_tiers'] = $declarativeTiers;
 cert_write_canon($agent . '/capabilities/adapter-authorities.json', $authorities);
 echo "\n== Policy, digest pin, reporting, and host-promotion integration ==\n";
-$integrationManifests = duo_cert_project_library(
-    \Duo\AdapterLibrary::fromSourceTree(dirname(__DIR__, 4)),
+$integrationManifests = wprism_cert_project_library(
+    \WPrism\AdapterLibrary::fromSourceTree(dirname(__DIR__, 4)),
     $root . '/integration-library'
 );
 // The copied library keeps its shipped dispositions and gets this fixture's
@@ -1138,17 +1138,17 @@ $integrationKeys = new stdClass();
 $integrationKeys->{'review-key'} = $keys->{'review-key'};
 $integrationKeys->{'provider-key'} = $providerKeys->{'provider-key'};
 cert_write_canon($integrationManifests . '/capabilities/adapter-authorities.json', [
-    'format' => 'duo-adapter-authorities/v1',
+    'format' => 'wprism-adapter-authorities/v1',
     'keys' => $integrationKeys,
 ]);
 $integrationLibrary = AdapterLibrary::fromLegacyFlatDirectory($integrationManifests);
 $originalCertificateRaw = (string) file_get_contents($certPath);
 
 try {
-    cert_write_canon($providerSite . '/site.duo.json', [
+    cert_write_canon($providerSite . '/site.wprism.json', [
         'manifests' => [['name' => 'site-plugin', 'source' => 'site']],
         'policy' => new stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]);
     $providerUnpinnedPolicy = Policy::load($providerSite, adapterLibrary: $integrationLibrary);
     $providerUnpinnedResolved = RepositoryCompiler::resolved_adapters($providerUnpinnedPolicy);
@@ -1208,7 +1208,7 @@ try {
     );
     WP_CLI::$lines = [];
     WP_CLI::$halts = [];
-    (new \Duo\Cli())->capabilities([], ['repo' => $providerSite, 'adapter_library' => $integrationLibrary]);
+    (new \WPrism\Cli())->capabilities([], ['repo' => $providerSite, 'adapter_library' => $integrationLibrary]);
     $providerHuman = implode("\n", WP_CLI::$lines);
     cert_check(
         str_contains($providerHuman, 'CAPABILITY site-plugin BLOCKED')
@@ -1220,7 +1220,7 @@ try {
         'the product human capability renderer exposes signed-unpinned readiness and exits with the red-answer code'
     );
     WP_CLI::$lines = [];
-    (new \Duo\Cli())->capabilities([], [
+    (new \WPrism\Cli())->capabilities([], [
         'repo' => $providerSite,
         'format' => 'json',
         'adapter_library' => $integrationLibrary,
@@ -1240,10 +1240,10 @@ try {
         'name' => 'site-plugin',
         'source' => 'site',
     ];
-    cert_write_canon($providerSite . '/site.duo.json', [
+    cert_write_canon($providerSite . '/site.wprism.json', [
         'manifests' => [$providerExactPin],
         'policy' => new stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]);
     $providerPinnedPolicy = Policy::load($providerSite, adapterLibrary: $integrationLibrary);
     $providerPinnedResolved = RepositoryCompiler::resolved_adapters($providerPinnedPolicy);
@@ -1267,7 +1267,7 @@ try {
         'human status/plan rendering is clean after the exact provider pin'
     );
     WP_CLI::$lines = [];
-    (new \Duo\Cli())->capabilities([], ['repo' => $providerSite, 'adapter_library' => $integrationLibrary]);
+    (new \WPrism\Cli())->capabilities([], ['repo' => $providerSite, 'adapter_library' => $integrationLibrary]);
     $providerPinnedHuman = implode("\n", WP_CLI::$lines);
     cert_check(
         str_contains($providerPinnedHuman, 'CAPABILITY site-plugin CERTIFIED')
@@ -1277,7 +1277,7 @@ try {
         'the product human capability renderer reports the exact plugin-provider pin as certified'
     );
     WP_CLI::$lines = [];
-    (new \Duo\Cli())->capabilities([], [
+    (new \WPrism\Cli())->capabilities([], [
         'repo' => $providerSite,
         'format' => 'json',
         'adapter_library' => $integrationLibrary,
@@ -1327,13 +1327,13 @@ try {
         $status = PlanSummary::render(['adapter_dispositions' => $planRows]);
         $statusText = implode("\n", $status['lines']);
         WP_CLI::$lines = [];
-        (new \Duo\Cli())->capabilities([], [
+        (new \WPrism\Cli())->capabilities([], [
             'repo' => $providerSite,
             'adapter_library' => $integrationLibrary,
         ]);
         $cliText = implode("\n", WP_CLI::$lines);
         foreach ([$reportJson, $planJson, $statusText, $cliText] as $public) {
-            if (str_contains($public, 'DUO_PROVIDER_SECRET_TOKEN')
+            if (str_contains($public, 'WPRISM_PROVIDER_SECRET_TOKEN')
                 || str_contains($public, 'INJECTED_PROVIDER_LINE')) {
                 return false;
             }
@@ -1393,7 +1393,7 @@ try {
         'an unrelated plan surface does not inherit a global provider blocker, and diagnostics invoked no provider action'
     );
 
-    $GLOBALS['cert_plugin_providers'] = [new \DuoCertificationWrongRegistrationProvider()];
+    $GLOBALS['cert_plugin_providers'] = [new \WPrismCertificationWrongRegistrationProvider()];
     $GLOBALS['cert_provider_invocations'] = 0;
     $wrongRegistrationReport = $providerPinnedPolicy->capability_report(['operation' => 'promote']);
     $wrongRegistrationPlanRows = $providerPlanDispositions($providerPinnedPolicy, ['post:page']);
@@ -1411,7 +1411,7 @@ try {
         'wrong provider registration identity blocks global capability JSON and the selected plan without invoking it'
     );
 
-    $GLOBALS['cert_plugin_providers'] = [new \DuoCertificationMissingCapabilityProvider()];
+    $GLOBALS['cert_plugin_providers'] = [new \WPrismCertificationMissingCapabilityProvider()];
     $GLOBALS['cert_provider_invocations'] = 0;
     $missingCapabilityReport = $providerPinnedPolicy->capability_report(['operation' => 'promote']);
     $missingCapabilityPlanRows = $providerPlanDispositions($providerPinnedPolicy, ['post:page']);
@@ -1429,7 +1429,7 @@ try {
         'missing advertised capability blocks global capability JSON and the selected plan without invoking it'
     );
 
-    $GLOBALS['cert_plugin_providers'] = [new \DuoCertificationThrowingCapabilitiesProvider()];
+    $GLOBALS['cert_plugin_providers'] = [new \WPrismCertificationThrowingCapabilitiesProvider()];
     $GLOBALS['cert_provider_invocations'] = 0;
     $throwingCapabilitiesReport = $providerPinnedPolicy->capability_report(['operation' => 'promote']);
     $throwingCapabilitiesPlanRows = $providerPlanDispositions($providerPinnedPolicy, ['post:page']);
@@ -1455,7 +1455,7 @@ try {
         'a capabilities()-throwing provider remains a structured, redacted global/selected-plan blocker without invoking it'
     );
 
-    $GLOBALS['cert_plugin_providers'] = [new \DuoCertificationThrowingIdentityProvider()];
+    $GLOBALS['cert_plugin_providers'] = [new \WPrismCertificationThrowingIdentityProvider()];
     $GLOBALS['cert_provider_invocations'] = 0;
     $throwingIdentityReport = $providerPinnedPolicy->capability_report(['operation' => 'promote']);
     $throwingIdentityPlanRows = $providerPlanDispositions($providerPinnedPolicy, ['post:page']);
@@ -1480,7 +1480,7 @@ try {
         'an identity()-throwing plugin registration remains a structured, redacted global/selected-plan blocker without invoking it'
     );
 
-    $GLOBALS['cert_plugin_providers'] = [new \DuoCertificationMalformedIdentityProvider()];
+    $GLOBALS['cert_plugin_providers'] = [new \WPrismCertificationMalformedIdentityProvider()];
     $GLOBALS['cert_provider_invocations'] = 0;
     $malformedIdentityReport = $providerPinnedPolicy->capability_report(['operation' => 'promote']);
     $malformedIdentityPlanRows = $providerPlanDispositions($providerPinnedPolicy, ['post:page']);
@@ -1505,7 +1505,7 @@ try {
         'a malformed Stringable plugin registration id is skipped without a fatal or public payload leak'
     );
 
-    $GLOBALS['cert_plugin_registry_throw'] = "https://provider.example.test/registry?access_token=DUO_PROVIDER_SECRET_TOKEN\nINJECTED_PROVIDER_LINE";
+    $GLOBALS['cert_plugin_registry_throw'] = "https://provider.example.test/registry?access_token=WPRISM_PROVIDER_SECRET_TOKEN\nINJECTED_PROVIDER_LINE";
     $GLOBALS['cert_provider_invocations'] = 0;
     $registryFailureReport = $providerPinnedPolicy->capability_report(['operation' => 'promote']);
     $registryFailurePlanRows = $providerPlanDispositions($providerPinnedPolicy, ['post:page']);
@@ -1516,7 +1516,7 @@ try {
     cert_check(
         ($registryFailureReport['ready'] ?? null) === false
         && $hasProviderDiagnosticFields($registryFailureBlocker, 'provider_registry_unavailable')
-        && (($registryFailureBlocker['expected'] ?? null) === 'a readable `duo_providers` registry')
+        && (($registryFailureBlocker['expected'] ?? null) === 'a readable `wprism_providers` registry')
         && (($registryFailureBlocker['found'] ?? null) === 'provider registry callback failed')
         && $hasProviderDiagnosticFields(
             cert_provider_blocker($registryFailurePlanRows, 'provider_registry_unavailable'),
@@ -1528,7 +1528,7 @@ try {
             'provider_registry_unavailable'
         )
         && $GLOBALS['cert_provider_invocations'] === 0,
-        'a throwing duo_providers registry remains a structured, redacted global/selected-plan/status/CLI blocker without invoking it'
+        'a throwing wprism_providers registry remains a structured, redacted global/selected-plan/status/CLI blocker without invoking it'
     );
 
     $GLOBALS['cert_plugin_registry_throw'] = null;
@@ -1546,10 +1546,10 @@ try {
         'a valid negotiated provider remains ready globally and for its selected plan, without running an action'
     );
 
-    cert_write_canon($site . '/site.duo.json', [
+    cert_write_canon($site . '/site.wprism.json', [
         'manifests' => [['name' => 'site-demo', 'source' => 'site']],
         'policy' => new stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]);
     $unpinnedPolicy = Policy::load($site, adapterLibrary: $integrationLibrary);
     $unpinnedResolved = RepositoryCompiler::resolved_adapters($unpinnedPolicy);
@@ -1568,28 +1568,28 @@ try {
         'host promotion refuses the signed-but-unpinned compiled adapter'
     );
 
-    cert_write_canon($site . '/site.duo.json', [
+    cert_write_canon($site . '/site.wprism.json', [
         'manifests' => [[
             'digest' => $certifiedDigest,
             'name' => 'site-demo',
             'source' => 'shipped',
         ]],
         'policy' => new stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]);
     cert_expect_throw(
         static fn() => Policy::load($site, adapterLibrary: $integrationLibrary),
         'pinned to the shipped adapter source but resolves from the site source',
         'a signed adapter pin cannot lie about its source'
     );
-    cert_write_canon($site . '/site.duo.json', [
+    cert_write_canon($site . '/site.wprism.json', [
         'manifests' => [[
             'digest' => str_repeat('0', 64),
             'name' => 'site-demo',
             'source' => 'site',
         ]],
         'policy' => new stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]);
     cert_expect_throw(
         static fn() => Policy::load($site, adapterLibrary: $integrationLibrary),
@@ -1598,10 +1598,10 @@ try {
     );
 
     $exactPin = ['digest' => $certifiedDigest, 'name' => 'site-demo', 'source' => 'site'];
-    cert_write_canon($site . '/site.duo.json', [
+    cert_write_canon($site . '/site.wprism.json', [
         'manifests' => [$exactPin],
         'policy' => new stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]);
     $pinnedPolicy = Policy::load($site, adapterLibrary: $integrationLibrary);
     $pinnedResolved = RepositoryCompiler::resolved_adapters($pinnedPolicy);
@@ -1630,11 +1630,11 @@ try {
     );
 
     // ==================================================================
-    echo "\n== DUO-3339: a signed adapter's VERSION story is reportable (the #168 gap) ==\n";
+    echo "\n== issue #3339: a signed adapter's VERSION story is reportable (the #168 gap) ==\n";
     // ==================================================================
     // The reviewed dispositions name the SHIPPED subset only, so a name-keyed
     // claim lookup answers null for every out-of-tree row, and
-    // `duo adapter inspect` printed "registry claim: (none)" for an adapter
+    // `wprism adapter inspect` printed "registry claim: (none)" for an adapter
     // carrying a complete, verified signed envelope. survey() now carries that
     // envelope's own facts on the row instead. Everything asserted here is
     // PROJECTED, never recomputed: if any of it could drift from the signed
@@ -1711,7 +1711,7 @@ try {
     // worth having if the surface an operator actually runs prints it.
     $inspectRun = cert_run([
         PHP_BINARY,
-        dirname(__DIR__, 4) . '/cli/duo',
+        dirname(__DIR__, 4) . '/cli/wprism',
         'adapter',
         'inspect',
         'site-demo',
@@ -1728,7 +1728,7 @@ try {
             'registry claim:    (none — a non-shipped adapter never has a shipped reviewed claim; its own '
             . 'signed certification evidence is reported below)'
         ),
-        '`duo adapter inspect` renders that evidence block for the signed site adapter, and the absent shipped '
+        '`wprism adapter inspect` renders that evidence block for the signed site adapter, and the absent shipped '
         . 'registry claim beside it now says WHY it is absent and where the real evidence is — it used to print a '
         . 'bare "(none)" and stop, which read as "nothing is known" (exit ' . $inspectRun['exit'] . ')'
     );
@@ -1748,7 +1748,7 @@ try {
     );
 
     // ==================================================================
-    echo "\n== DUO-3339/B2: a plugin-bundled adapter cannot hold this certification ==\n";
+    echo "\n== issue #3339/B2: a plugin-bundled adapter cannot hold this certification ==\n";
     // ==================================================================
     // Three hard bindings make it impossible, and all three are inside the
     // SIGNED statement rather than beside it: certificatePath() derives
@@ -1760,7 +1760,7 @@ try {
     $pluginFrozen = $policySnapshot;
     $pluginFrozen['adapter_sources']['out_of_tree']['site-demo']['provenance']['source'] = 'plugin';
     $pluginFrozen['adapter_sources']['out_of_tree']['site-demo']['provenance']['path']
-        = 'plugins/site-demo/duo-adapter.json';
+        = 'plugins/site-demo/wprism-adapter.json';
     cert_expect_throw(
         static fn() => Policy::from_snapshot($pluginFrozen, $integrationLibrary),
         'bundled by a plugin and cannot carry a certificate',
@@ -1775,8 +1775,8 @@ try {
     $pluginFrozenUnsigned['adapter_sources']['out_of_tree']['site-demo'] = [
         'certification' => 'uncertified',
         'provenance' => [
-            'format' => 'duo-adapter-sources/v2',
-            'path' => 'plugins/site-demo/duo-adapter.json',
+            'format' => 'wprism-adapter-sources/v2',
+            'path' => 'plugins/site-demo/wprism-adapter.json',
             'sha256' => hash('sha256', Canon::encode($manifest)),
             'source' => 'plugin',
         ],
@@ -1791,7 +1791,7 @@ try {
     );
 
     // ==================================================================
-    echo "\n== DUO-3339/B2: the promotion path completes with the bundling plugin ACTIVE ==\n";
+    echo "\n== issue #3339/B2: the promotion path completes with the bundling plugin ACTIVE ==\n";
     // ==================================================================
     // Amendment A's whole justification, executed: a plugin bundles an adapter
     // under the SAME name as the certified repository package. Precedence
@@ -1806,12 +1806,12 @@ try {
     // above it.
     $b2Plugins = $root . '/b2-plugins';
     cert_write($b2Plugins . '/acme/acme.php', "<?php\n// fixture plugin\n");
-    cert_write_canon($b2Plugins . '/acme/duo-adapter.json', [
+    cert_write_canon($b2Plugins . '/acme/wprism-adapter.json', [
         'name' => 'site-demo',
         'option_autoload' => 'preserve',
         'plugin' => 'acme/acme.php',
         'post_types' => [],
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
         'tables' => [],
     ]);
     $b2Script = str_replace(
@@ -1831,7 +1831,7 @@ declare(strict_types=1);
 // document and the loaded agent disagree ("agent capability platform boundary
 // disagrees with the loaded agent"). Derived, never retyped.
 require __ENGINE_ROOT__ . '/sandbox/tests/lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 define('ABSPATH', __ABSPATH__);
 define('WP_PLUGIN_DIR', __WP_PLUGIN_DIR__);
 function is_multisite(): bool { return false; }
@@ -1845,18 +1845,18 @@ require __ENGINE_ROOT__ . '/agent/src/Policy/Policy.php';
 require __ENGINE_ROOT__ . '/agent/src/Repository/Ledger.php';
 require __ENGINE_ROOT__ . '/agent/src/Repository/RepositoryCompiler.php';
 $payload = [];
-$adapterLibrary = \Duo\AdapterLibrary::fromLegacyFlatDirectory(__MANIFESTS__);
+$adapterLibrary = \WPrism\AdapterLibrary::fromLegacyFlatDirectory(__MANIFESTS__);
 try {
-    $policy = \Duo\Policy::load(__SITE__, adapterLibrary: $adapterLibrary);
+    $policy = \WPrism\Policy::load(__SITE__, adapterLibrary: $adapterLibrary);
     $sources = $policy->adapter_sources();
     $payload['source'] = $sources->source('site-demo');
     $payload['path'] = $sources->path('site-demo');
     $payload['certification'] = $sources->diagnostics($policy->manifests)['site-demo']['certification'] ?? null;
     $payload['ready'] = $policy->capability_report(['operation' => 'promote'])['ready'] ?? null;
-    $payload['digest'] = \Duo\RepositoryCompiler::resolved_adapters($policy)[0]['digest'] ?? null;
+    $payload['digest'] = \WPrism\RepositoryCompiler::resolved_adapters($policy)[0]['digest'] ?? null;
     $payload['not_installed'] = $sources->not_installed();
     $payload['plugin_refusals'] = $sources->plugin_refusals();
-    $survey = \Duo\AdapterSources::survey_library($adapterLibrary, __SITE__);
+    $survey = \WPrism\AdapterSources::survey_library($adapterLibrary, __SITE__);
     $payload['survey_not_installed'] = $survey['not_installed'];
     $payload['survey_sources'] = $survey['sources'];
 } catch (\Throwable $failure) {
@@ -1883,7 +1883,7 @@ PHP
         count($b2['not_installed'] ?? []) === 1
         && ($b2Shadow['reason_code'] ?? null) === 'shadowed'
         && ($b2Shadow['name'] ?? null) === 'site-demo'
-        && ($b2Shadow['path'] ?? null) === 'plugins/acme/duo-adapter.json'
+        && ($b2Shadow['path'] ?? null) === 'plugins/acme/wprism-adapter.json'
         && ($b2Shadow['winner']['source'] ?? null) === 'site'
         && ($b2Shadow['winner']['path'] ?? null) === 'adapters/site-demo.json'
         && ($b2['plugin_refusals'] ?? null) === [],
@@ -1896,10 +1896,10 @@ PHP
         'and discover() and survey() agree about it row for row, from the one scan'
     );
 
-    cert_write_canon($site . '/site.duo.json', [
+    cert_write_canon($site . '/site.wprism.json', [
         'manifests' => ['core', $exactPin],
         'policy' => new stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]);
     $mixedPolicy = Policy::load($site, adapterLibrary: $integrationLibrary);
     $mixedReport = $mixedPolicy->capability_report(['operation' => 'promote']);
@@ -1958,20 +1958,20 @@ PHP
         base64_encode($secret)
     );
     cert_write($certPath, $updatedCertificate);
-    cert_write_canon($site . '/site.duo.json', [
+    cert_write_canon($site . '/site.wprism.json', [
         'manifests' => [$exactPin],
         'policy' => new stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]);
     cert_expect_throw(
         static fn() => Policy::load($site, adapterLibrary: $integrationLibrary),
         'digest mismatch',
         'changing and re-signing the evidence bundle invalidates the prior explicit adapter pin'
     );
-    cert_write_canon($site . '/site.duo.json', [
+    cert_write_canon($site . '/site.wprism.json', [
         'manifests' => [['name' => 'site-demo', 'source' => 'site']],
         'policy' => new stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]);
     $updatedDigest = RepositoryCompiler::resolved_adapters(
         Policy::load($site, adapterLibrary: $integrationLibrary)
@@ -1990,16 +1990,16 @@ PHP
     // threw a bare \RuntimeException; scan_site_source() could not tell it from
     // a forgery, so discover() refused the WHOLE site source and Policy::load()
     // propagated it uncaught (Policy.php:400). One upgrade therefore took every
-    // command on every site holding a certified adapter — including the `duo
+    // command on every site holding a certified adapter — including the `wprism
     // adapter certify --pin` that is the only way back — for a condition no
     // site caused. Cases (d) and (e) below are what keep the remedy from being
     // the fallback rule 9 forbids: the line is drawn at TWO named typed
     // exceptions, and everything else still refuses.
     cert_write($certPath, $originalCertificateRaw);
-    cert_write_canon($site . '/site.duo.json', [
+    cert_write_canon($site . '/site.wprism.json', [
         'manifests' => ['core', $exactPin],
         'policy' => new stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]);
     $currentPolicy = Policy::load($site, adapterLibrary: $integrationLibrary);
     $currentResolved = RepositoryCompiler::resolved_adapters($currentPolicy);
@@ -2098,7 +2098,7 @@ PHP
         $frozenStale = $t;
     }
     cert_check(
-        $frozenStale instanceof \Duo\StalePlatformSiteAdapterCertificate,
+        $frozenStale instanceof \WPrism\StalePlatformSiteAdapterCertificate,
         '(f) verifyFrozen() raises the same TYPED staleness the live entry point does, so one signal serves both '
         . 'paths and neither can drift (' . ($frozenStale === null ? 'no exception' : get_class($frozenStale)) . ')'
     );
@@ -2126,7 +2126,7 @@ PHP
         cert_check(false, '(f) and it withdraws exactly the claim the live scan does — unreachable: from_snapshot refused');
     }
 
-    // (g) Remedy invocability. `duo adapter certify --pin` runs Policy::load()
+    // (g) Remedy invocability. `wprism adapter certify --pin` runs Policy::load()
     // three times (AdapterCertify.php:283 pre-flight, :349/:663 pin object,
     // :570 scope), so under whole-source refusal the repair command was the
     // first casualty of the condition it repairs. Driven on a COPY so the
@@ -2138,7 +2138,7 @@ PHP
     chmod($root . '/remedy-secret.key', 0600);
     $remedyRun = cert_run([
         PHP_BINARY,
-        dirname(__DIR__, 4) . '/cli/duo',
+        dirname(__DIR__, 4) . '/cli/wprism',
         'adapter',
         'certify',
         $remedySite,
@@ -2151,7 +2151,7 @@ PHP
     ]);
     cert_check(
         $remedyRun['exit'] === 0 && str_contains($remedyRun['stdout'], 'certified:  site-demo'),
-        '(g) `duo adapter certify --pin` — the one command that repairs this — completes on the degraded site '
+        '(g) `wprism adapter certify --pin` — the one command that repairs this — completes on the degraded site '
         . '(exit ' . $remedyRun['exit'] . ' ' . trim($remedyRun['stderr']) . ')'
     );
     try {
@@ -2166,7 +2166,7 @@ PHP
     }
     $remedyInspect = cert_run([
         PHP_BINARY,
-        dirname(__DIR__, 4) . '/cli/duo',
+        dirname(__DIR__, 4) . '/cli/wprism',
         'adapter',
         'inspect',
         'site-demo',
@@ -2185,7 +2185,7 @@ PHP
             array_column($remedyInspectReport['adapter']['verdict']['reasons'] ?? [], 'code'),
             true
         ),
-        '(g) and `duo adapter inspect` preserves that exact repository pin instead of replacing it with a '
+        '(g) and `wprism adapter inspect` preserves that exact repository pin instead of replacing it with a '
         . 'name-only request and contradicting doctor (' . trim($remedyInspect['stderr']) . ')'
     );
 
@@ -2219,7 +2219,7 @@ PHP
         $revokedIntegrationKeys->{$revokedId} = $revokedRecord;
     }
     cert_write_canon($integrationManifests . '/capabilities/adapter-authorities.json', [
-        'format' => 'duo-adapter-authorities/v1',
+        'format' => 'wprism-adapter-authorities/v1',
         'keys' => $revokedIntegrationKeys,
     ]);
     cert_expect_throw(
@@ -2233,7 +2233,7 @@ PHP
         . 'source; a withdrawal here would launder a revoked signature into unsigned support'
     );
     cert_write_canon($integrationManifests . '/capabilities/adapter-authorities.json', [
-        'format' => 'duo-adapter-authorities/v1',
+        'format' => 'wprism-adapter-authorities/v1',
         'keys' => $integrationKeys,
     ]);
 
@@ -2259,7 +2259,7 @@ PHP
         cert_write_canon($certPath, $unparseableMutation(Canon::decode($originalCertificateRaw)));
         cert_expect_throw(
             static fn() => Policy::load($site, adapterLibrary: $integrationLibrary),
-            'duo: site adapter certification',
+            'wprism: site adapter certification',
             "(e) $unparseableLabel still refuses the whole source"
         );
     }
@@ -2276,7 +2276,7 @@ PHP
     // Canon's canonical form IS four-space pretty JSON with a trailing newline
     // — a pretty-printed re-encode of already-sorted keys is byte-identical.
     $nonCanonicalFutureWire = Canon::decode($originalCertificateRaw);
-    $nonCanonicalFutureWire['format'] = 'duo-adapter-certification/v2';
+    $nonCanonicalFutureWire['format'] = 'wprism-adapter-certification/v2';
     cert_write($certPath, json_encode(
         $nonCanonicalFutureWire,
         JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
@@ -2310,7 +2310,7 @@ PHP
     // mechanism proved against a synthetic version field — which is exactly
     // what makes case (e) above a real line rather than a tautology.
     $futureWire = Canon::decode($originalCertificateRaw);
-    $futureWire['format'] = 'duo-adapter-certification/v2';
+    $futureWire['format'] = 'wprism-adapter-certification/v2';
     cert_write_canon($certPath, $futureWire);
     $wirePolicy = null;
     try {
@@ -2335,13 +2335,13 @@ PHP
     // "one predicate too wide" the risk note is about, tested rather than
     // reasoned about.
     foreach ([
-        'duo-adapter-certification/v0',
-        'duo-adapter-certification/v01',
-        'duo-adapter-certification/v',
-        'duo-adapter-certification/vnext',
-        'duo-adapter-certification/v2x',
-        'duo-adapter-certification/v2 ',
-        'duo-site-adapter-certification/v2',
+        'wprism-adapter-certification/v0',
+        'wprism-adapter-certification/v01',
+        'wprism-adapter-certification/v',
+        'wprism-adapter-certification/vnext',
+        'wprism-adapter-certification/v2x',
+        'wprism-adapter-certification/v2 ',
+        'wprism-site-adapter-certification/v2',
     ] as $nearMissFormat) {
         $nearMiss = Canon::decode($originalCertificateRaw);
         $nearMiss['format'] = $nearMissFormat;
@@ -2363,7 +2363,7 @@ PHP
     // The agent boundary is back to CURRENT here, so nothing but the wire
     // version is in play.
     $mutatedFutureWire = Canon::decode($originalCertificateRaw);
-    $mutatedFutureWire['format'] = 'duo-adapter-certification/v2';
+    $mutatedFutureWire['format'] = 'wprism-adapter-certification/v2';
     $mutatedFutureWire['statement']['bundle']['git_revision'] = str_repeat('f', 40);
     cert_write_canon($certPath, $mutatedFutureWire);
     $mutatedWirePolicy = null;
@@ -2402,7 +2402,7 @@ PHP
     // adapters/certification/ can author: a one-key file naming a future wire.
     // assertExactKeys runs AHEAD of the wire test precisely so this cannot
     // reach the typed signal — before that ordering it degraded the adapter.
-    cert_write_canon($certPath, ['format' => 'duo-adapter-certification/v2']);
+    cert_write_canon($certPath, ['format' => 'wprism-adapter-certification/v2']);
     cert_expect_throw(
         static fn() => Policy::load($site, adapterLibrary: $integrationLibrary),
         'site adapter certification must contain exactly format, signature, statement',
@@ -2412,7 +2412,7 @@ PHP
     // (h3) And the signature must at least be a canonical base64 Ed25519-length
     // signature, proved before the wire test for the same reason.
     $shortSignatureFutureWire = Canon::decode($originalCertificateRaw);
-    $shortSignatureFutureWire['format'] = 'duo-adapter-certification/v2';
+    $shortSignatureFutureWire['format'] = 'wprism-adapter-certification/v2';
     $shortSignatureFutureWire['signature'] = base64_encode('not an ed25519 signature');
     cert_write_canon($certPath, $shortSignatureFutureWire);
     cert_expect_throw(
@@ -2439,7 +2439,7 @@ PHP
     // mean the snapshot was edited.
     $frozenWireEnvelope = $currentEnvelope;
     $frozenWireCertificate = Canon::decode((string) base64_decode((string) $currentEnvelope['certificate_json'], true));
-    $frozenWireCertificate['format'] = 'duo-adapter-certification/v2';
+    $frozenWireCertificate['format'] = 'wprism-adapter-certification/v2';
     $frozenWireRaw = Canon::encode($frozenWireCertificate);
     // Digest recomputed so the envelope's own integrity check passes and the
     // outcome below is the wire test, not 'corrupt certificate bytes'.
@@ -2491,7 +2491,7 @@ PHP
     // could never assemble this), and the verifier is the boundary being tested.
     $signatureFramer = new ReflectionMethod(AdapterCertification::class, 'signatureBytes');
     $flipCertificate = Canon::decode($originalCertificateRaw);
-    $flipCertificate['statement']['platform']['spec_version'] = DUO_SPEC_VERSION + 1;
+    $flipCertificate['statement']['platform']['spec_version'] = WPRISM_SPEC_VERSION + 1;
     $flipStatementTyped = json_decode(Canon::encode($flipCertificate['statement']), false, 512, JSON_THROW_ON_ERROR);
     $flipCertificate['signature'] = base64_encode(sodium_crypto_sign_detached(
         (string) $signatureFramer->invoke(null, $flipStatementTyped),
@@ -2506,11 +2506,11 @@ PHP
         $flipThrown = $t;
     }
     cert_check(
-        $flipThrown instanceof \Duo\StalePlatformSiteAdapterCertificate
+        $flipThrown instanceof \WPrism\StalePlatformSiteAdapterCertificate
         && str_contains(
             $flipThrown->getMessage(),
-            "duo: site adapter 'site-demo' certification was signed under spec version "
-            . (DUO_SPEC_VERSION + 1) . ', which is not the spec version ' . DUO_SPEC_VERSION
+            "wprism: site adapter 'site-demo' certification was signed under spec version "
+            . (WPRISM_SPEC_VERSION + 1) . ', which is not the spec version ' . WPRISM_SPEC_VERSION
             . ' this agent publishes'
         ),
         '(k) a spec_version the agent no longer publishes raises the TYPED staleness, and this is the sentence '
@@ -2543,7 +2543,7 @@ PHP
         $flipFrozenThrown = $t;
     }
     cert_check(
-        $flipFrozenThrown instanceof \Duo\StalePlatformSiteAdapterCertificate,
+        $flipFrozenThrown instanceof \WPrism\StalePlatformSiteAdapterCertificate,
         '(k) the FROZEN entry point raises the identical typed signal — a promoted site meets the flip from its '
         . 'snapshot, and one signal serves both paths ('
         . ($flipFrozenThrown === null ? 'no exception' : get_class($flipFrozenThrown)) . ')'
@@ -2564,7 +2564,7 @@ PHP
                 'agent platform boundary this agent no longer publishes'
             )
             && (RepositoryCompiler::resolved_adapters($flipFrozenPolicy)[0]['digest'] ?? null) === $currentCoreDigest,
-            '(k) and it withdraws the same one claim inside the frozen snapshot — `duo adapter certify --pin` '
+            '(k) and it withdraws the same one claim inside the frozen snapshot — `wprism adapter certify --pin` '
             . 're-establishes it against the post-flip boundary (§ v3.12)'
         );
     }
@@ -2609,7 +2609,7 @@ PHP
         $revokedThrown = $t;
     }
     cert_check(
-        $revokedThrown instanceof \Duo\WithdrawnAuthoritySiteAdapterCertificate
+        $revokedThrown instanceof \WPrism\WithdrawnAuthoritySiteAdapterCertificate
         && $revokedThrown->withdrawal() === AdapterSources::WITHDRAWN_AUTHORITY_REVOKED
         && str_contains($revokedThrown->getMessage(), 'is revoked by the platform-signed revocation record'),
         '(l) a typed revocation of the signing key raises the THIRD typed withdrawal, carrying its own tag ('
@@ -2695,7 +2695,7 @@ PHP
     // (j) THE PIN CONCESSION IS ABOUT STATE, NOT SPELLING. A withdrawn adapter
     // is only unbricked if the operator's pin rides the concession, and the
     // source-qualified `{name,source,digest}` form is not the only one an
-    // operator writes: neither `duo adapter certify --pin` nor `wp duo
+    // operator writes: neither `wprism adapter certify --pin` nor `wp wprism
     // manifest-pin` emits the bare `{name,digest}`, so that shape is
     // hand-written — a shorter statement of the same intent, not a weaker one.
     // PinResolver asks source() rather than the pin, so the concession follows
@@ -2705,10 +2705,10 @@ PHP
         'format' => ManifestDispositions::PLATFORM_FORMAT,
         'platform' => $stalePlatform,
     ]);
-    cert_write_canon($site . '/site.duo.json', [
+    cert_write_canon($site . '/site.wprism.json', [
         'manifests' => ['core', ['digest' => $certifiedDigest, 'name' => 'site-demo']],
         'policy' => new stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]);
     try {
         $sourcelessPolicy = Policy::load($site, adapterLibrary: $integrationLibrary);
@@ -2726,18 +2726,18 @@ PHP
     // buys nothing for an adapter that did not resolve from the site source. A
     // shipped manifest that changed under a digest pin is a real integrity
     // failure, and its refusal must not have moved one byte.
-    cert_write_canon($site . '/site.duo.json', [
+    cert_write_canon($site . '/site.wprism.json', [
         'manifests' => [
             ['digest' => str_repeat('a', 64), 'name' => 'core'],
             ['digest' => $certifiedDigest, 'name' => 'site-demo'],
         ],
         'policy' => new stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]);
     cert_expect_throw(
         static fn() => Policy::load($site, adapterLibrary: $integrationLibrary),
-        "duo: manifest 'core' digest mismatch: expected " . str_repeat('a', 64) . ", actual $currentCoreDigest — "
-        . 'review the manifest change, then update its site.duo.json pin',
+        "wprism: manifest 'core' digest mismatch: expected " . str_repeat('a', 64) . ", actual $currentCoreDigest — "
+        . 'review the manifest change, then update its site.wprism.json pin',
         '(j) but a SOURCE-LESS digest pin on a SHIPPED-resolved manifest still refuses byte-identically — the '
         . 'concession followed the resolved source, not the absence of a declared one'
     );
@@ -2748,23 +2748,23 @@ PHP
         'format' => ManifestDispositions::PLATFORM_FORMAT,
         'platform' => $platform,
     ]);
-    cert_write_canon($site . '/site.duo.json', [
+    cert_write_canon($site . '/site.wprism.json', [
         'manifests' => ['core', ['digest' => str_repeat('b', 64), 'name' => 'site-demo']],
         'policy' => new stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]);
     cert_expect_throw(
         static fn() => Policy::load($site, adapterLibrary: $integrationLibrary),
-        "duo: manifest 'site-demo' digest mismatch: expected " . str_repeat('b', 64),
+        "wprism: manifest 'site-demo' digest mismatch: expected " . str_repeat('b', 64),
         '(j) and a source-less digest pin on a STILL-CERTIFIED site adapter refuses too — is_certified() is what '
         . 'gates the concession, and dropping `source` did not loosen it'
     );
 
     cert_write($certPath, $originalCertificateRaw);
-    cert_write_canon($site . '/site.duo.json', [
+    cert_write_canon($site . '/site.wprism.json', [
         'manifests' => [['name' => 'site-demo', 'source' => 'site']],
         'policy' => new stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]);
 } finally {
     cert_write($certPath, $originalCertificateRaw);
@@ -2784,7 +2784,7 @@ cert_check(
 cert_write_canon($site . '/adapters/site-demo.json', $manifest);
 
 $v2Envelope = $envelope;
-$v2Envelope['format'] = 'duo-adapter-certification/v2';
+$v2Envelope['format'] = 'wprism-adapter-certification/v2';
 cert_expect_throw(
     static fn() => AdapterCertification::verifyFrozen($agent, 'site-demo', $manifest, $v2Envelope),
     'envelope',
@@ -2920,16 +2920,16 @@ cert_expect_throw(
 // docs/guides/adapter-authoring.md: an edit "moves the digest and the claim
 // drops back to uncertified" — the whole source scan must NOT hard-fail over a
 // superseded companion; it resolves the adapter as uncertified support (the
-// same state a companion-absent site adapter reaches), which `duo adapter
+// same state a companion-absent site adapter reaches), which `wprism adapter
 // certify --pin` re-establishes. grind_adoption A8 exercises exactly this.
-$editedSources = \Duo\AdapterSources::discover($agent, $site);
+$editedSources = \WPrism\AdapterSources::discover($agent, $site);
 cert_check(
     !$editedSources->is_certified('site-demo'),
     'an edited (superseded) site adapter resolves as uncertified through the whole source scan, never a hard refusal'
 );
 cert_write_canon($site . '/adapters/site-demo.json', $manifest);
 cert_check(
-    \Duo\AdapterSources::discover($agent, $site)->is_certified('site-demo'),
+    \WPrism\AdapterSources::discover($agent, $site)->is_certified('site-demo'),
     'restoring the exact certified bytes restores the certified claim (the untouched companion binds them again)'
 );
 
@@ -3030,7 +3030,7 @@ unlink($site . '/adapters/certifications/orphan.json');
 // certificate, nothing throws, and the unlink below deletes the pair the
 // rest of the suite relies on. The refusal under test is about the
 // EXTENSION's case, which a distinct basename exercises identically on
-// every host. Fixture manufacture asserted before the refusal (DUO-3381).
+// every host. Fixture manufacture asserted before the refusal (issue #3381).
 cert_write($site . '/adapters/certifications/variant.JSON', $certificateRaw);
 cert_check(
     is_file($site . '/adapters/certifications/variant.JSON')
@@ -3055,8 +3055,8 @@ cert_remove_tree($site . '/adapters/certifications/nested');
 chmod($site . '/adapters/certifications', 0000);
 try {
     cert_expect_throw(
-        static fn() => \Duo\AdapterSources::discover_library(
-            \Duo\AdapterLibrary::fromSourceTree(dirname(__DIR__, 4)),
+        static fn() => \WPrism\AdapterSources::discover_library(
+            \WPrism\AdapterLibrary::fromSourceTree(dirname(__DIR__, 4)),
             $site
         ),
         'not readable',
@@ -3085,8 +3085,8 @@ echo "\n== T6 §3.1/§3.2: the SITE trust root, and Site-certified ==\n";
 // root, in the operator's own repository, with the one honest relaxation the
 // weaker evidence requires.
 $orgRoot = $root . '/site-root';
-$orgAgent = duo_cert_project_library(
-    \Duo\AdapterLibrary::fromSourceTree(dirname(__DIR__, 4)),
+$orgAgent = wprism_cert_project_library(
+    \WPrism\AdapterLibrary::fromSourceTree(dirname(__DIR__, 4)),
     $orgRoot . '/agent-library'
 );
 $orgSite = $orgRoot . '/site';
@@ -3097,7 +3097,7 @@ $orgManifest = [
     'option_autoload' => 'preserve',
     'options' => ['acme_catalog_layout' => ['class' => 'authored']],
     'post_types' => [],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'tables' => [],
 ];
 cert_write_canon($orgSite . '/adapters/acme-catalog.json', $orgManifest);
@@ -3111,7 +3111,7 @@ cert_write_canon($orgAgent . '/capabilities/platform.json', [
     'platform' => $platform,
 ]);
 cert_write_canon($orgAgent . '/capabilities/adapter-authorities.json', [
-    'format' => 'duo-adapter-authorities/v1',
+    'format' => 'wprism-adapter-authorities/v1',
     'keys' => new stdClass(),
 ]);
 $orgLibrary = AdapterLibrary::fromLegacyFlatDirectory($orgAgent);
@@ -3130,7 +3130,7 @@ $orgKeyRecord = [
 $orgKeys = new stdClass();
 $orgKeys->{'acme-ops'} = $orgKeyRecord;
 cert_write_canon($orgSite . '/adapters/authorities.json', [
-    'format' => 'duo-adapter-authorities/v1',
+    'format' => 'wprism-adapter-authorities/v1',
     'keys' => $orgKeys,
 ]);
 cert_write($orgRoot . '/acme-ops.key', base64_encode($orgSecret) . "\n");
@@ -3139,7 +3139,7 @@ chmod($orgRoot . '/acme-ops.key', 0600);
 // The evidence an operator can actually produce: the loader's own grammar
 // verdict and a stated reason, with NO exercise proof.
 $orgRatification = [
-    'format' => 'duo-manifest-dispositions/v1',
+    'format' => 'wprism-manifest-dispositions/v1',
     'manifests' => [
         'acme-catalog' => [
             'capabilities' => [
@@ -3172,7 +3172,7 @@ $orgRatification = [
 $orgEvidence = [
     'exercised' => false,
     'grammar' => 'ok',
-    'reason' => 'duo manifest-validate reported ok; this adapter has not been exercised against a live target',
+    'reason' => 'wprism manifest-validate reported ok; this adapter has not been exercised against a live target',
 ];
 cert_write_bundle($orgBundle, $orgSite, $orgRatification, [
     'name' => 'acme-catalog',
@@ -3232,10 +3232,10 @@ cert_check(
 );
 
 // The two words on every catalog row, before and after the exact pin.
-cert_write_canon($orgSite . '/site.duo.json', [
+cert_write_canon($orgSite . '/site.wprism.json', [
     'manifests' => [['name' => 'acme-catalog', 'source' => 'site']],
     'policy' => new stdClass(),
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ]);
 $orgSurveyRow = null;
 foreach (AdapterSources::survey_library($orgLibrary, $orgSite)['adapters'] as $orgRow) {
@@ -3259,10 +3259,10 @@ try {
 } catch (Throwable $t) {
     cert_check(false, 'the name+source pin loads so manifest-pin can print the exact object (' . $t->getMessage() . ')');
 }
-cert_write_canon($orgSite . '/site.duo.json', [
+cert_write_canon($orgSite . '/site.wprism.json', [
     'manifests' => [['digest' => $orgDigest, 'name' => 'acme-catalog', 'source' => 'site']],
     'policy' => new stdClass(),
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ]);
 $orgPinnedPolicy = Policy::load($orgSite, adapterLibrary: $orgLibrary);
 $orgDiagnostics = $orgPinnedPolicy->adapter_sources()->diagnostics($orgPinnedPolicy->manifests);
@@ -3275,7 +3275,7 @@ cert_check(
 $orgReport = $orgPinnedPolicy->capability_report(['operation' => 'promote']);
 cert_check(
     ($orgReport['ready'] ?? null) === false && ($orgReport['blockers'] ?? null) !== [],
-    'duo promote blocks a site-signed claim that records no exercise — got '
+    'wprism promote blocks a site-signed claim that records no exercise — got '
     . Canon::encode(['blockers' => array_column((array) ($orgReport['blockers'] ?? []), 'code'),
         'ready' => $orgReport['ready'] ?? null])
 );
@@ -3308,7 +3308,7 @@ $clashKeys->{'acme-ops'} = ['adapter_names' => ['acme-catalog'], 'algorithm' => 
     'public_key' => base64_encode($public), 'scope' => 'site_adapter_certification',
     'status' => 'trusted', 'trust_tiers' => ['declarative_manifest']];
 cert_write_canon($orgAgent . '/capabilities/adapter-authorities.json', [
-    'format' => 'duo-adapter-authorities/v1',
+    'format' => 'wprism-adapter-authorities/v1',
     'keys' => $clashKeys,
 ]);
 // The LIVE path names the rule (G2-FIXES m3). It used to answer "does not match
@@ -3318,7 +3318,7 @@ cert_write_canon($orgAgent . '/capabilities/adapter-authorities.json', [
 // rather than only on the frozen one, from one call site.
 cert_expect_throw(
     static fn() => AdapterCertification::verifyFile($orgAgent, $orgSite, 'acme-catalog', $orgManifest, $orgCertPath),
-    "duo: authority key 'acme-ops' is reviewed and shipped by this agent, so a site trust root cannot claim it",
+    "wprism: authority key 'acme-ops' is reviewed and shipped by this agent, so a site trust root cannot claim it",
     'a site key id the shipped library also declares is refused BY THE SHIPPED-WINS RULE on the live path too, '
     . 'with the sentence R-13 records rather than a binding mismatch about the wrong root'
 );
@@ -3328,7 +3328,7 @@ cert_expect_throw(
     'the frozen path asks the same shipped-wins question, which needs no repository'
 );
 cert_write_canon($orgAgent . '/capabilities/adapter-authorities.json', [
-    'format' => 'duo-adapter-authorities/v1',
+    'format' => 'wprism-adapter-authorities/v1',
     'keys' => new stdClass(),
 ]);
 
@@ -3336,7 +3336,7 @@ cert_write_canon($orgAgent . '/capabilities/adapter-authorities.json', [
 // operator's own revocation takes effect.
 $orgKeys->{'acme-ops'}['status'] = 'revoked';
 cert_write_canon($orgSite . '/adapters/authorities.json', [
-    'format' => 'duo-adapter-authorities/v1',
+    'format' => 'wprism-adapter-authorities/v1',
     'keys' => $orgKeys,
 ]);
 cert_expect_throw(
@@ -3346,7 +3346,7 @@ cert_expect_throw(
 );
 $orgKeys->{'acme-ops'}['status'] = 'trusted';
 cert_write_canon($orgSite . '/adapters/authorities.json', [
-    'format' => 'duo-adapter-authorities/v1',
+    'format' => 'wprism-adapter-authorities/v1',
     'keys' => $orgKeys,
 ]);
 cert_check(
@@ -3369,7 +3369,7 @@ cert_check(
     . 'ordinary uncertified row'
 );
 cert_write_canon($orgSite . '/adapters/authorities.json', [
-    'format' => 'duo-adapter-authorities/v1',
+    'format' => 'wprism-adapter-authorities/v1',
     'keys' => $orgKeys,
 ]);
 
@@ -3377,7 +3377,7 @@ cert_write_canon($orgSite . '/adapters/authorities.json', [
 // agent-owned key must refuse: a platform-rooted certificate states a
 // reviewed exercise, and that is the whole difference between the two words.
 cert_write_canon($orgAgent . '/capabilities/adapter-authorities.json', [
-    'format' => 'duo-adapter-authorities/v1',
+    'format' => 'wprism-adapter-authorities/v1',
     'keys' => (object) ['platform-key' => [
         'adapter_names' => ['acme-catalog'],
         'algorithm' => 'ed25519',
@@ -3406,7 +3406,7 @@ cert_check(
     . 'bundle (' . trim($platformUnexercised['stderr']) . ')'
 );
 cert_write_canon($orgAgent . '/capabilities/adapter-authorities.json', [
-    'format' => 'duo-adapter-authorities/v1',
+    'format' => 'wprism-adapter-authorities/v1',
     'keys' => new stdClass(),
 ]);
 
@@ -3445,13 +3445,13 @@ cert_check(
 // ======================================================================
 echo "\n== T6: sign_site() — the agent owns the unexercised bundle ==\n";
 // ======================================================================
-// The host verb `duo adapter certify` calls ONE entry point and writes what it
+// The host verb `wprism adapter certify` calls ONE entry point and writes what it
 // returns. The bundle grammar and its producer stay in one file, so a host
 // that drifted could not mint a certificate at all rather than minting one
 // nothing re-verifies.
 $autoRoot = $root . '/auto-site';
-$autoAgent = duo_cert_project_library(
-    \Duo\AdapterLibrary::fromSourceTree(dirname(__DIR__, 4)),
+$autoAgent = wprism_cert_project_library(
+    \WPrism\AdapterLibrary::fromSourceTree(dirname(__DIR__, 4)),
     $autoRoot . '/agent-library'
 );
 $autoSite = $autoRoot . '/site';
@@ -3466,7 +3466,7 @@ $autoManifest = [
     'options' => ['acme_shop_layout' => ['class' => 'authored']],
     'plugin' => 'acme-shop/acme-shop.php',
     'post_types' => [],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'tables' => [
         'acme_shop_index' => [
             'class' => 'authored_typed_snapshot_post_v1',
@@ -3482,7 +3482,7 @@ cert_write_canon($autoAgent . '/capabilities/platform.json', [
     'platform' => $platform,
 ]);
 cert_write_canon($autoAgent . '/capabilities/adapter-authorities.json', [
-    'format' => 'duo-adapter-authorities/v1',
+    'format' => 'wprism-adapter-authorities/v1',
     'keys' => new stdClass(),
 ]);
 $autoKeypair = sodium_crypto_sign_seed_keypair(str_repeat('A', SODIUM_CRYPTO_SIGN_SEEDBYTES));
@@ -3496,18 +3496,18 @@ $autoKeys->{'acme-ops'} = [
     'trust_tiers' => ['declarative_manifest'],
 ];
 cert_write_canon($autoSite . '/adapters/authorities.json', [
-    'format' => 'duo-adapter-authorities/v1',
+    'format' => 'wprism-adapter-authorities/v1',
     'keys' => $autoKeys,
 ]);
 cert_write($autoRoot . '/acme-ops.key', base64_encode(sodium_crypto_sign_secretkey($autoKeypair)) . "\n");
 chmod($autoRoot . '/acme-ops.key', 0600);
-cert_write_canon($autoSite . '/site.duo.json', [
+cert_write_canon($autoSite . '/site.wprism.json', [
     'manifests' => [['name' => 'acme-shop', 'source' => 'site']],
     'policy' => new stdClass(),
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ]);
 
-$autoReason = 'duo manifest-validate reported ok; certified by the site operator, not exercised';
+$autoReason = 'wprism manifest-validate reported ok; certified by the site operator, not exercised';
 $autoSign = cert_run([
     PHP_BINARY,
     __DIR__ . '/../../../../scripts/adapter-certification.php',
@@ -3634,7 +3634,7 @@ $autoRefusals = [
             $agentKeys = new stdClass();
             $agentKeys->{'review-key'} = $keys->{'review-key'};
             cert_write_canon($autoAgent . '/capabilities/adapter-authorities.json', [
-                'format' => 'duo-adapter-authorities/v1',
+                'format' => 'wprism-adapter-authorities/v1',
                 'keys' => $agentKeys,
             ]);
         },
@@ -3668,7 +3668,7 @@ foreach ($autoRefusals as $autoLabel => [$autoExtra, $autoNeedle, $autoSetup]) {
     );
 }
 cert_write_canon($autoAgent . '/capabilities/adapter-authorities.json', [
-    'format' => 'duo-adapter-authorities/v1',
+    'format' => 'wprism-adapter-authorities/v1',
     'keys' => new stdClass(),
 ]);
 
@@ -3685,7 +3685,7 @@ cert_write_canon($autoSite . '/adapters/acme-shop.json', [
     'name' => 'acme-shop',
     'option_autoload' => 'preserve',
     'options' => ['acme_shop_layout' => ['class' => 'authored']],
-    'spec_version' => DUO_SPEC_VERSION + 97,
+    'spec_version' => WPRISM_SPEC_VERSION + 97,
 ]);
 $autoBroken = cert_run([
     PHP_BINARY, __DIR__ . '/../../../../scripts/adapter-certification.php', 'sign-site',

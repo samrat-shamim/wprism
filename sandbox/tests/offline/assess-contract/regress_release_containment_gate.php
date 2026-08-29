@@ -34,13 +34,13 @@ require_once __DIR__ . '/../../../../cli/src/Release/AuthorizationPlan.php';
 require_once __DIR__ . '/../../../../cli/src/Release/NextAction.php';
 require_once __DIR__ . '/../../../../cli/src/Release/ReleaseOutcome.php';
 
-use Duo\Orchestrator\ApplicationContract;
-use Duo\Orchestrator\AuthorizationPlan;
-use Duo\Orchestrator\NextAction;
-use Duo\Orchestrator\ProjectionVocabulary;
-use Duo\Orchestrator\RecoveryClaim;
-use Duo\Orchestrator\RecoveryProfileSelection;
-use Duo\Orchestrator\ReleaseOutcome;
+use WPrism\Orchestrator\ApplicationContract;
+use WPrism\Orchestrator\AuthorizationPlan;
+use WPrism\Orchestrator\NextAction;
+use WPrism\Orchestrator\ProjectionVocabulary;
+use WPrism\Orchestrator\RecoveryClaim;
+use WPrism\Orchestrator\RecoveryProfileSelection;
+use WPrism\Orchestrator\ReleaseOutcome;
 
 $fixtures = __DIR__ . '/../../fixtures/release';
 
@@ -111,21 +111,21 @@ function gate_inputs(array $overrides = []): array {
 // ------------------------------------------------ §1.6: the containment gate
 $refusals = AuthorizationPlan::refusals(gate_inputs(['contract' => $undeclared]));
 $gate = gate_find($refusals, 'release_live_effect_undeclared');
-duo_check(
+wprism_check(
     $gate !== null,
     'a plan with a code lifecycle phase and no declared live effect refuses before the plan is frozen'
 );
-duo_check_same('declare in contract', $gate['gap_action'] ?? null, "the §1.6 refusal's next action is declare in contract");
-duo_check(
+wprism_check_same('declare in contract', $gate['gap_action'] ?? null, "the §1.6 refusal's next action is declare in contract");
+wprism_check(
     in_array((string) ($gate['gap_action'] ?? ''), ProjectionVocabulary::GAP_ACTIONS, true),
     'the §1.6 refusal carries a §2.1 gap action, not a release next action'
 );
-duo_check(
+wprism_check(
     str_contains((string) ($gate['remediation'] ?? ''), AuthorizationPlan::LIFECYCLE_WINDOW_SURFACE),
     'the remediation names the exact surfaces the contract entry must cover'
 );
 
-duo_check_same(
+wprism_check_same(
     [],
     gate_reasons(array_filter(
         AuthorizationPlan::refusals(gate_inputs()),
@@ -145,7 +145,7 @@ $unreviewed['declarations']['external_effects'] = [[
     'surfaces' => ['plugins/themes'],
 ]];
 $unreviewed = ApplicationContract::withDigest($unreviewed);
-duo_check(
+wprism_check(
     gate_find(AuthorizationPlan::refusals(gate_inputs(['contract' => $unreviewed])), 'release_live_effect_undeclared')
         !== null,
     'the generator placeholder is not authority: an unreviewed declaration still refuses'
@@ -162,7 +162,7 @@ $unknownSemantics['declarations']['external_effects'] = [[
     'surfaces' => ['plugins/themes'],
 ]];
 $unknownSemantics = ApplicationContract::withDigest($unknownSemantics);
-duo_check(
+wprism_check(
     gate_find(AuthorizationPlan::refusals(gate_inputs(['contract' => $unknownSemantics])), 'release_live_effect_undeclared')
         !== null,
     'a declaration that leaves recovery semantics unknown declares nothing and still refuses'
@@ -172,7 +172,7 @@ $readOnlyLifecycle = gate_inputs(['contract' => $undeclared, 'scope' => [
     'code' => ['lifecycle_phases' => ['verify'], 'plugins_changed' => 0, 'themes_changed' => 0],
     'surfaces' => ['products', 'pages'],
 ]]);
-duo_check(
+wprism_check(
     gate_find(AuthorizationPlan::refusals($readOnlyLifecycle), 'release_live_effect_undeclared') === null,
     'a verify-only phase is a read-back, not the hook-firing window, and does not demand a declaration'
 );
@@ -183,42 +183,42 @@ $kinds = array_map(
     static fn (array $row): string => (string) $row['kind'],
     $document['authority_still_required']
 );
-duo_check(
+wprism_check(
     in_array('declared_live_effect', $kinds, true),
     'a declared live lifecycle window produces the declared_live_effect authority row (plan-bound authority)'
 );
-duo_check(
+wprism_check(
     in_array('operator_confirmation', $kinds, true),
     'a production-visible mutation always still needs operator confirmation'
 );
-duo_check_same('live', $document['effects']['containment'], 'entering the declared window makes the plan containment live');
-duo_check_same(
+wprism_check_same('live', $document['effects']['containment'], 'entering the declared window makes the plan containment live');
+wprism_check_same(
     ProjectionVocabulary::CONTAINMENT_BASIS_UNKNOWN,
     $document['effects']['containment_basis'],
     'the live window states the profile-honest basis, never a prevention it does not enforce'
 );
-duo_check_same(
+wprism_check_same(
     'contract.declarations.external_effects[0]',
     $document['effects']['lifecycle_window']['declared_in'] ?? null,
     'the plan cites exactly which contract entry authorized the window'
 );
-duo_check_same([], $document['effects']['unknown_blocking'], 'a frozen plan never carries an unknown blocking effect');
+wprism_check_same([], $document['effects']['unknown_blocking'], 'a frozen plan never carries an unknown blocking effect');
 
 $noLifecycle = AuthorizationPlan::build(gate_inputs(['scope' => [
     'code' => ['lifecycle_phases' => [], 'plugins_changed' => 0, 'themes_changed' => 0],
     'surfaces' => ['products', 'pages'],
 ]]));
-duo_check_same(
+wprism_check_same(
     null,
     $noLifecycle['effects']['lifecycle_window'],
     'a release that never enters the lifecycle window says so rather than citing a declaration it did not use'
 );
-duo_check_same(
+wprism_check_same(
     'prevented',
     $noLifecycle['effects']['containment'],
     'without the lifecycle window the plan projects the prevented containment its surfaces prove'
 );
-duo_check_same(
+wprism_check_same(
     ProjectionVocabulary::CONTAINMENT_BASIS_PREVENTED,
     $noLifecycle['effects']['containment_basis'],
     'prevented carries §1.5\'s literal basis string'
@@ -243,13 +243,13 @@ foreach ([
         AuthorizationPlan::refusals(gate_inputs(['projection' => $blocked])),
         'release_surface_not_releasable'
     );
-    duo_check($refusal !== null, "a surface projecting $readiness in scope refuses before the plan is frozen");
-    duo_check_same(
+    wprism_check($refusal !== null, "a surface projecting $readiness in scope refuses before the plan is frozen");
+    wprism_check_same(
         $expectedAction,
         $refusal['gap_action'] ?? null,
-        "the $readiness refusal carries the same gap action duo assess printed for that row"
+        "the $readiness refusal carries the same gap action wprism assess printed for that row"
     );
-    duo_check(
+    wprism_check(
         !NextAction::isAction((string) ($refusal['gap_action'] ?? '')),
         "the $readiness refusal never carries a release next action"
     );
@@ -258,14 +258,14 @@ foreach ([
 $recomputed = $projection;
 $recomputed[0]['operations']['release']['readiness'] = 'Unsupported';
 unset($recomputed[0]['operations']['release']['gap_action']);
-duo_check_same(
+wprism_check_same(
     'exclude',
     gate_find(AuthorizationPlan::refusals(gate_inputs(['projection' => $recomputed])), 'release_surface_not_releasable')['gap_action'],
     'a projection row without a stored gap action is recomputed through the one vocabulary, not guessed'
 );
 
 // A preserve-local surface (the spec's orders row) projects `Unsupported`
-// for release because Duo never copies it — that is the boundary the release
+// for release because WPrism never copies it — that is the boundary the release
 // respects, not a gap: the row is outside the release's mutation scope, so
 // neither the readiness gate nor the recovery-semantics gate applies to it.
 $preserved = $projection;
@@ -274,28 +274,28 @@ $preserved[0]['operations']['release']['handling'] = 'preserve local';
 $preserved[0]['operations']['release']['readiness'] = 'Unsupported';
 $preserved[0]['operations']['release']['gap_action'] = 'nothing — supported';
 $preserved[0]['operations']['release']['effect_recovery_semantics'] = 'not applicable';
-duo_check_same(
+wprism_check_same(
     null,
     gate_find(AuthorizationPlan::refusals(gate_inputs(['projection' => $preserved])), 'release_surface_not_releasable'),
     'a preserve-local surface projecting Unsupported does not refuse the release: it is outside the mutation scope'
 );
 $preservedUnknown = $preserved;
 $preservedUnknown[0]['operations']['release']['effect_recovery_semantics'] = 'unknown';
-duo_check_same(
+wprism_check_same(
     null,
     gate_find(AuthorizationPlan::refusals(gate_inputs(['projection' => $preservedUnknown])), 'release_recovery_semantics_unknown'),
     'a preserve-local surface is skipped by the recovery-semantics gate too: the release never mutates it'
 );
 $preservedManaged = $preserved;
 $preservedManaged[0]['operations']['release']['handling'] = 'manage';
-duo_check(
+wprism_check(
     gate_find(AuthorizationPlan::refusals(gate_inputs(['projection' => $preservedManaged])), 'release_surface_not_releasable') !== null,
     'only the literal handling word `preserve local` takes a surface out of scope; a managed Unsupported row still refuses'
 );
 
 $unknownRecovery = $projection;
 $unknownRecovery[0]['operations']['release']['effect_recovery_semantics'] = 'unknown';
-duo_check(
+wprism_check(
     gate_find(AuthorizationPlan::refusals(gate_inputs(['projection' => $unknownRecovery])), 'release_recovery_semantics_unknown')
         !== null,
     'unknown effect recovery semantics on a surface this release mutates refuses'
@@ -303,11 +303,11 @@ duo_check(
 
 // ------------------------------------------------------------- deletions
 $deleteRefusals = AuthorizationPlan::refusals(gate_inputs(['plan' => $deletePlan]));
-duo_check(
+wprism_check(
     gate_find($deleteRefusals, 'release_deletes_not_authorized') !== null,
     'a plan that deletes owned entities refuses without --with-deletes'
 );
-duo_check(
+wprism_check(
     array_key_exists('gap_action', gate_find($deleteRefusals, 'release_deletes_not_authorized'))
         && gate_find($deleteRefusals, 'release_deletes_not_authorized')['gap_action'] === null,
     'the deletes flag is an authorization flag, so its refusal carries no assessment gap action'
@@ -317,16 +317,16 @@ $authorizedDeletes = AuthorizationPlan::refusals(gate_inputs([
     'flags' => ['plan_only' => false, 'with_deletes' => true],
     'plan' => $deletePlan,
 ]));
-duo_check(
+wprism_check(
     gate_find($authorizedDeletes, 'release_deletes_not_authorized') === null,
     '--with-deletes authorizes the deletion itself'
 );
 $unsupportedDelete = gate_find($authorizedDeletes, 'release_delete_unsupported');
-duo_check(
+wprism_check(
     $unsupportedDelete !== null,
     'a surface named unsupported for delete in the contract refuses even with --with-deletes'
 );
-duo_check_same(
+wprism_check_same(
     'exclude',
     $unsupportedDelete['gap_action'] ?? null,
     'an unsupported deletion is excluded, not repaired: it is a stated boundary'
@@ -338,19 +338,19 @@ $registryUnsupported = AuthorizationPlan::refusals(gate_inputs([
     'flags' => ['plan_only' => false, 'with_deletes' => true],
     'plan' => $deletePlan,
 ]));
-duo_check(
+wprism_check(
     gate_find($registryUnsupported, 'release_delete_unsupported') !== null,
     "the registry's own deletion_semantics.unsupported list refuses the same way the contract's does"
 );
 
 // ------------------------------------ pre-freeze refusals stay pre-freeze
 $outcome = ReleaseOutcome::refusedBeforeFreeze('production', $gate);
-duo_check_same(ReleaseOutcome::REFUSED, $outcome['status'], 'a pre-freeze refusal is a refused outcome');
-duo_check_same(null, $outcome['plan_digest'], 'a refused release names no frozen plan, because there is none');
-duo_check_same(null, $outcome['failure'], 'a refused release carries no post-freeze failure');
-duo_check_same('declare in contract', $outcome['refusal']['gap_action'], 'the gap action survives into the outcome');
+wprism_check_same(ReleaseOutcome::REFUSED, $outcome['status'], 'a pre-freeze refusal is a refused outcome');
+wprism_check_same(null, $outcome['plan_digest'], 'a refused release names no frozen plan, because there is none');
+wprism_check_same(null, $outcome['failure'], 'a refused release carries no post-freeze failure');
+wprism_check_same('declare in contract', $outcome['refusal']['gap_action'], 'the gap action survives into the outcome');
 
-duo_check_throws(
+wprism_check_throws(
     static fn () => ReleaseOutcome::refusedBeforeFreeze('production', [
         'gap_action' => 'recover',
         'message' => 'a release next action smuggled into a pre-freeze refusal',
@@ -361,7 +361,7 @@ duo_check_throws(
     'a release next action cannot be attached to a pre-freeze refusal'
 );
 
-duo_check_refuses(
+wprism_check_refuses(
     static function (): void {
         $mixed = ReleaseOutcome::failedAfterFreeze(
             'production',
@@ -375,4 +375,4 @@ duo_check_refuses(
     'an outcome carrying both closed vocabularies refuses'
 );
 
-duo_check_summary('regress_release_containment_gate');
+wprism_check_summary('regress_release_containment_gate');

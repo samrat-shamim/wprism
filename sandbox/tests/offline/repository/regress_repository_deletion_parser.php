@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo {
+namespace WPrism {
     final class Canon {
         /** @return array<string,mixed> */
         public static function decode(string $content): array {
@@ -34,8 +34,8 @@ namespace Duo {
 namespace {
     require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryDeletionParser.php';
 
-    use Duo\Policy;
-    use Duo\RepositoryDeletionParser;
+    use WPrism\Policy;
+    use WPrism\RepositoryDeletionParser;
 
     $failures = [];
     $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -48,7 +48,7 @@ namespace {
     $hash = str_repeat('a', 64);
     $validatorPath = realpath(__DIR__ . '/../../../../agent/src/Repository/RepositoryDeletionParser.php');
     $probe = proc_open(
-        [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\Duo\\Policy::class, false) && class_exists(\\Duo\\Deletion::class, false) && !class_exists(\\Duo\\RepositoryCompiler::class, false) ? "loaded\\n" : "broken\\n";', (string) $validatorPath],
+        [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\WPrism\\Policy::class, false) && class_exists(\\WPrism\\Deletion::class, false) && !class_exists(\\WPrism\\RepositoryCompiler::class, false) ? "loaded\\n" : "broken\\n";', (string) $validatorPath],
         [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
         $pipes
     );
@@ -62,14 +62,14 @@ namespace {
         $probeExit = 1;
     }
     $check($probeExit === 0 && $probeOut === "loaded\n" && $probeErr === '', 'normal direct loading closes deletion dependencies without loading RepositoryCompiler');
-    $check(!class_exists(\Duo\RepositoryCompiler::class, false), 'fake Canon/Policy direct loading does not pull RepositoryCompiler');
+    $check(!class_exists(\WPrism\RepositoryCompiler::class, false), 'fake Canon/Policy direct loading does not pull RepositoryCompiler');
 
     $policy = new Policy();
     $policy->capabilities = [
         'post:page' => ['cascades' => ['postmeta', 'post_revisions', 'term_relationships']],
         'term:category' => ['cascades' => ['termmeta', 'term_taxonomy', 'term_relationships']],
         'menu:nav_menu' => ['cascades' => ['termmeta', 'term_taxonomy', 'term_relationships', 'menu_items']],
-        'table:duo_rows' => ['cascades' => []],
+        'table:wprism_rows' => ['cascades' => []],
     ];
     $diagnostics = [];
     $parser = new RepositoryDeletionParser(
@@ -81,7 +81,7 @@ namespace {
     $reset = static function () use (&$diagnostics): void { $diagnostics = []; };
     $record = static function (string $kind, string $type, string $source) use ($uuid, $hash): array {
         return [
-            'format' => 'duo-deletion/v1',
+            'format' => 'wprism-deletion/v1',
             'uuid' => $uuid,
             'kind' => $kind,
             'type' => $type,
@@ -94,7 +94,7 @@ namespace {
         ['post', 'page', "posts/page/$uuid--hello.md"],
         ['term', 'category', "terms/category/$uuid--news.json"],
         ['menu', 'nav_menu', 'menus/primary.json'],
-        ['table', 'duo_rows', "tables/duo_rows/$uuid--one.json"],
+        ['table', 'wprism_rows', "tables/wprism_rows/$uuid--one.json"],
     ] as [$kind, $type, $source]) {
         $reset();
         $content = json_encode($record($kind, $type, $source), JSON_THROW_ON_ERROR);
@@ -104,7 +104,7 @@ namespace {
 
     $reset();
     $bad = $record('not-a-kind', 'page', 'wrong');
-    $bad['format'] = 'duo-deletion/v0';
+    $bad['format'] = 'wprism-deletion/v0';
     $bad['uuid'] = 'not-a-uuid';
     $bad['expected_hash'] = 'wrong';
     unset($bad['expected_revision']);

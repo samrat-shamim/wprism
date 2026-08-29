@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Regression — DUO-3288: WooCommerce global-attribute deletion remains a
-# deliberate, loud refusal until Duo can model Woo's semantic delete.
+# Regression — issue #3288: WooCommerce global-attribute deletion remains a
+# deliberate, loud refusal until WPrism can model Woo's semantic delete.
 #
 # WooCommerce 11.0.0's wc_delete_attribute() does much more than delete the
 # woocommerce_attribute_taxonomies row: it derives pa_<slug>, deletes terms
 # through wp_delete_term(), fires hooks, schedules a rewrite flush, and clears
 # transient + object caches. Its live reverse references are strings and
-# serialized/meta-key shapes, not the attribute row's numeric id. Duo v1's
+# serialized/meta-key shapes, not the attribute row's numeric id. WPrism v1's
 # scalar-id guards and attached-meta table cascades cannot represent that
 # contract safely.
 #
@@ -24,14 +24,14 @@
 # it available for inspection, matching the sandbox certification convention.
 set -euo pipefail
 PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
-export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 cd "$(dirname "$0")/../../../../sandbox"
 
 PAIR="${WOOATTRDEL_PAIR:-wooattrdel}"
 PORT1="${WOOATTRDEL_PORT1:-8996}"
 PORT2="${WOOATTRDEL_PORT2:-8997}"
-COMPOSE="docker compose -p duo-$PAIR -f pair.yml"
-export DUO_PAIR="$PAIR"
+COMPOSE="docker compose -p wprism-$PAIR -f pair.yml"
+export WPRISM_PAIR="$PAIR"
 
 wp1() { $COMPOSE run --rm -T cli1 wp "$@"; }
 wp2() { $COMPOSE run --rm -T cli2 wp "$@"; }
@@ -45,7 +45,7 @@ command -v jq >/dev/null || fail "jq required"
 HOST1="siterepo/${PAIR}1"
 HOST2="siterepo/${PAIR}2"
 ORIGIN="siterepo/origin-${PAIR}.git"
-GIT1=(git -C "$HOST1" -c user.name=duo-a -c user.email=a@example.test)
+GIT1=(git -C "$HOST1" -c user.name=wprism-a -c user.email=a@example.test)
 
 say "clean-room pair + exact WooCommerce 11.0.0"
 bash bin/pair.sh reset "$PAIR"
@@ -58,7 +58,7 @@ pass "both isolated environments run WooCommerce 11.0.0"
 
 say "initialize a Woo-scoped site repo"
 git init --bare -q -b main "$ORIGIN"
-cat > "$HOST1/site.duo.json" <<'EOF'
+cat > "$HOST1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "woocommerce"],
   "policy": {
@@ -75,15 +75,15 @@ git -C "$HOST1" init -q -b main
 git -C "$HOST1" remote add origin "../origin-${PAIR}.git"
 
 say "seed a real global attribute, term, variable product, variation, and lookup row on source"
-ATTR1=$(wp1 wc product_attribute create --name='Duo Delete Probe' --slug=duo-delete-probe --type=select --order_by=menu_order --has_archives=false --user=admin --porcelain)
+ATTR1=$(wp1 wc product_attribute create --name='WPrism Delete Probe' --slug=wprism-delete-probe --type=select --order_by=menu_order --has_archives=false --user=admin --porcelain)
 wp1 wc product_attribute_term create "$ATTR1" --name=Red --slug=red --user=admin >/dev/null
 PRODUCT1=$(wp1 wc product create --name='Attribute Delete Probe Product' --type=variable \
   --attributes="[{\"id\":$ATTR1,\"variation\":true,\"visible\":true,\"options\":[\"Red\"]}]" \
   --status=publish --user=admin --porcelain)
 wp1 wc product_variation create "$PRODUCT1" \
   --attributes="[{\"id\":$ATTR1,\"option\":\"Red\"}]" \
-  --regular_price=19.99 --sku=DUO-ATTR-DELETE-PROBE --user=admin >/dev/null
-wp1 duo capture --repo=/siterepo >/dev/null
+  --regular_price=19.99 --sku=WPRISM-ATTR-DELETE-PROBE --user=admin >/dev/null
+wp1 wprism capture --repo=/siterepo >/dev/null
 # Capture writes as uid 33. Return this exact root before host Git indexes the
 # resulting tree; the handback also makes later target backup removal writable.
 repo_host 1
@@ -110,8 +110,8 @@ DELETE FROM wp_terms;
 DELETE FROM wp_postmeta;
 DELETE FROM wp_posts;
 ' >/dev/null
-APPLY_BASE=$(wp2 duo apply --repo=/siterepo --default-author=admin --format=json | tail -1)
-# DUO-3338 replaced the free-form `rebuilders` command strings with structured
+APPLY_BASE=$(wp2 wprism apply --repo=/siterepo --default-author=admin --format=json | tail -1)
+# issue #3338 replaced the free-form `rebuilders` command strings with structured
 # actions, so the per-declaration confirmation lines Apply::rebuild() emits are
 # now the action's closed identity plus its value-level verification, not the
 # command text and an exit code. Both are pinned byte-exactly here, and the
@@ -138,19 +138,19 @@ pass "target converged and its lookup/cache fixtures are live"
 target_facts() {
   wp2 eval "
 global \$wpdb;
-\$taxonomy = 'pa_duo-delete-probe';
+\$taxonomy = 'pa_wprism-delete-probe';
 \$tt = (int) \$wpdb->get_var(\$wpdb->prepare(\"SELECT term_taxonomy_id FROM {\$wpdb->term_taxonomy} WHERE taxonomy = %s LIMIT 1\", \$taxonomy));
 \$attrs = wc_get_attribute_taxonomies();
 \$names = array_map(static fn(\$a) => \$a->attribute_name, \$attrs);
 sort(\$names, SORT_STRING);
 echo wp_json_encode([
-  'attribute_row' => (int) \$wpdb->get_var(\"SELECT COUNT(*) FROM {\$wpdb->prefix}woocommerce_attribute_taxonomies WHERE attribute_name='duo-delete-probe'\"),
+  'attribute_row' => (int) \$wpdb->get_var(\"SELECT COUNT(*) FROM {\$wpdb->prefix}woocommerce_attribute_taxonomies WHERE attribute_name='wprism-delete-probe'\"),
   'taxonomy_exists' => taxonomy_exists(\$taxonomy),
   'term_taxonomy' => (int) \$wpdb->get_var(\$wpdb->prepare(\"SELECT COUNT(*) FROM {\$wpdb->term_taxonomy} WHERE taxonomy = %s\", \$taxonomy)),
   'terms' => (int) \$wpdb->get_var(\$wpdb->prepare(\"SELECT COUNT(*) FROM {\$wpdb->terms} t JOIN {\$wpdb->term_taxonomy} tt ON tt.term_id=t.term_id WHERE tt.taxonomy = %s\", \$taxonomy)),
   'relationships' => \$tt ? (int) \$wpdb->get_var(\$wpdb->prepare(\"SELECT COUNT(*) FROM {\$wpdb->term_relationships} WHERE term_taxonomy_id = %d\", \$tt)) : 0,
-  'product_meta' => (int) \$wpdb->get_var(\$wpdb->prepare(\"SELECT COUNT(*) FROM {\$wpdb->postmeta} WHERE post_id = %d AND meta_key='_product_attributes' AND meta_value LIKE '%%pa_duo-delete-probe%%'\", $PRODUCT2)),
-  'variation_meta' => (int) \$wpdb->get_var(\$wpdb->prepare(\"SELECT COUNT(*) FROM {\$wpdb->postmeta} WHERE post_id = %d AND meta_key='attribute_pa_duo-delete-probe'\", $VARIATION2)),
+  'product_meta' => (int) \$wpdb->get_var(\$wpdb->prepare(\"SELECT COUNT(*) FROM {\$wpdb->postmeta} WHERE post_id = %d AND meta_key='_product_attributes' AND meta_value LIKE '%%pa_wprism-delete-probe%%'\", $PRODUCT2)),
+  'variation_meta' => (int) \$wpdb->get_var(\$wpdb->prepare(\"SELECT COUNT(*) FROM {\$wpdb->postmeta} WHERE post_id = %d AND meta_key='attribute_pa_wprism-delete-probe'\", $VARIATION2)),
   'lookup_rows' => (int) \$wpdb->get_var(\$wpdb->prepare(\"SELECT COUNT(*) FROM {\$wpdb->prefix}wc_product_attributes_lookup WHERE taxonomy = %s\", \$taxonomy)),
   'cached_names' => \$names,
   'rewrite_event' => (bool) wp_next_scheduled('woocommerce_flush_rewrite_rules'),
@@ -164,20 +164,20 @@ echo "$BEFORE" | jq -e '
   .attribute_row == 1 and .taxonomy_exists == true and
   .term_taxonomy == 1 and .terms == 1 and .relationships >= 1 and
   .product_meta == 1 and .variation_meta == 1 and .lookup_rows >= 1 and
-  (.cached_names | index("duo-delete-probe")) != null and
+  (.cached_names | index("wprism-delete-probe")) != null and
   .rewrite_event == false
 ' >/dev/null || fail "target fixture is incomplete before the refusal checks: $BEFORE"
 
 say "source definition-row disappearance must refuse the exact table selector without publishing"
-# Use the narrow row disappearance that originally exposed DUO-3288. Calling
+# Use the narrow row disappearance that originally exposed issue #3288. Calling
 # wc_delete_attribute() here would correctly delete the pa_* term too, causing
-# capture to encounter (and refuse) term:pa_duo-delete-probe before it reaches
+# capture to encounter (and refuse) term:pa_wprism-delete-probe before it reaches
 # the table entity. Woo's broader API effects are characterized separately in
 # the manifest/spec evidence; this assertion is intentionally selector-exact.
 wp1 db query "DELETE FROM wp_woocommerce_attribute_taxonomies WHERE attribute_id=$ATTR1" >/dev/null
 wp1 transient delete wc_attribute_taxonomies >/dev/null
 set +e
-CAPTURE_ERR=$(wp1 duo capture --repo=/siterepo 2>&1)
+CAPTURE_ERR=$(wp1 wprism capture --repo=/siterepo 2>&1)
 CAPTURE_RC=$?
 set -e
 [ "$CAPTURE_RC" -ne 0 ] || fail "capture accepted unsupported Woo attribute deletion"
@@ -193,7 +193,7 @@ ATTR_FILE=$(find "$HOST2/state/tables/woocommerce_attribute_taxonomies" -type f 
 [ -n "$ATTR_FILE" ] || fail "target repository attribute entity file missing"
 UUID=$(jq -r '.uuid' "$ATTR_FILE")
 EXPECTED_HASH=$(shasum -a 256 "$ATTR_FILE" | awk '{print $1}')
-EXPECTED_REVISION=$(wp2 eval 'echo \Duo\RepositoryCompiler::compile("/siterepo", \Duo\Policy::load("/siterepo"))->revision_hash();')
+EXPECTED_REVISION=$(wp2 eval 'echo \WPrism\RepositoryCompiler::compile("/siterepo", \WPrism\Policy::load("/siterepo"))->revision_hash();')
 SOURCE_PATH="tables/woocommerce_attribute_taxonomies/$(basename "$ATTR_FILE")"
 BACKUP="$HOST2/.tmp-unsupported-attribute.json"
 mkdir -p "$HOST2/state/deletions"
@@ -203,13 +203,13 @@ jq -n \
   --arg expected_revision "$EXPECTED_REVISION" \
   --arg source_path "$SOURCE_PATH" \
   --arg uuid "$UUID" \
-  '{expected_hash:$expected_hash,expected_revision:$expected_revision,format:"duo-deletion/v1",kind:"table",source_path:$source_path,type:"woocommerce_attribute_taxonomies",uuid:$uuid}' \
+  '{expected_hash:$expected_hash,expected_revision:$expected_revision,format:"wprism-deletion/v1",kind:"table",source_path:$source_path,type:"woocommerce_attribute_taxonomies",uuid:$uuid}' \
   > "$HOST2/state/deletions/$UUID.json"
 
 set +e
-PLAN_ERR=$(wp2 duo plan --repo=/siterepo --format=json 2>&1)
+PLAN_ERR=$(wp2 wprism plan --repo=/siterepo --format=json 2>&1)
 PLAN_RC=$?
-APPLY_ERR=$(wp2 duo apply --repo=/siterepo --with-deletes --force-delete-referenced --default-author=admin 2>&1)
+APPLY_ERR=$(wp2 wprism apply --repo=/siterepo --with-deletes --force-delete-referenced --default-author=admin 2>&1)
 APPLY_RC=$?
 set -e
 [ "$PLAN_RC" -ne 0 ] || fail "plan accepted a hand-authored unsupported tombstone"
@@ -228,16 +228,16 @@ say "restore the supported tree and prove plan/capture convergence"
 rm "$HOST2/state/deletions/$UUID.json"
 rmdir "$HOST2/state/deletions"
 mv "$BACKUP" "$ATTR_FILE"
-PLAN_OK=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
+PLAN_OK=$(wp2 wprism plan --repo=/siterepo --format=json | tail -1)
 echo "$PLAN_OK" | jq -e '
   (.create | length) == 0 and (.update | length) == 0 and
   (.drift | length) == 0 and (.conflict | length) == 0 and
   (.delete | length) == 0 and (.delete_conflict | length) == 0 and
   (.warnings | length) == 0
 ' >/dev/null || fail "restored target did not plan cleanly: $PLAN_OK"
-wp2 duo capture --repo=/siterepo >/dev/null
+wp2 wprism capture --repo=/siterepo >/dev/null
 [ -z "$(git -C "$HOST2" status --porcelain)" ] || fail "target recapture changed the converged repository tree"
 pass "restored supported state plans and recaptures with zero diff"
 
 bash bin/pair.sh destroy "$PAIR"
-pass "DUO-3288 regression complete; isolated pair destroyed"
+pass "issue #3288 regression complete; isolated pair destroyed"

@@ -1,7 +1,7 @@
 {
     "fse": {
         "evidence": {
-            "bundle_schema": "duo-subject-certification-bundle/v1",
+            "bundle_schema": "wprism-subject-certification-bundle/v1",
             "tests": [
                 "conformance-fse"
             ]

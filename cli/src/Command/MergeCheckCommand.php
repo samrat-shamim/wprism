@@ -1,14 +1,14 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/CommandOutput.php';
 require_once __DIR__ . '/../Refresh/MergeCheck.php';
 require_once __DIR__ . '/../Refresh/RefreshFieldDiff.php';
 
 /**
- * Host command boundary for `duo merge-check`.
+ * Host command boundary for `wprism merge-check`.
  *
  * ## The exit-code contract is the deliverable
  *
@@ -26,7 +26,7 @@ require_once __DIR__ . '/../Refresh/RefreshFieldDiff.php';
  * 3 is deliberately an ANSWER, not a refusal, and that distinction is the
  * whole point: under `--format=json` exit 3 emits the SUCCESS document with
  * `verdict: "conflicts"` or `verdict: "code_skew"`, never a
- * `duo-command-refusal/v1` envelope. A CI job can therefore treat 1 as "my
+ * `wprism-command-refusal/v1` envelope. A CI job can therefore treat 1 as "my
  * pipeline is broken" and 3 as "this merge is not safe yet" without parsing
  * prose. 3 was verified unused elsewhere in `cli/` before it was claimed.
  */
@@ -56,7 +56,7 @@ final class MergeCheckCommand {
                 MergeCheck::EXIT_USAGE,
                 'invalid_arguments',
                 $e->getMessage(),
-                'run `duo merge-check [--ref=<ref>] [--against=<ref>] [--base=<ref>] [--format=json]`'
+                'run `wprism merge-check [--ref=<ref>] [--against=<ref>] [--base=<ref>] [--format=json]`'
             );
         }
         $json = ($flags['--format'] ?? null) === 'json';
@@ -90,7 +90,7 @@ final class MergeCheckCommand {
         $exit = (int) ($document['exit_code'] ?? MergeCheck::EXIT_OK);
         if ($json) {
             // Canon::encode() already terminates with LF (Canon.php:102).
-            echo \Duo\Canon::encode($document);
+            echo \WPrism\Canon::encode($document);
             return $exit;
         }
         self::render($document);
@@ -122,13 +122,13 @@ final class MergeCheckCommand {
             );
             return $code;
         }
-        fwrite(STDERR, 'duo: merge-check: ' . $message . "\n");
+        fwrite(STDERR, 'wprism: merge-check: ' . $message . "\n");
         if ($diagnostic !== null && trim($diagnostic) !== '') {
             foreach (explode("\n", rtrim($diagnostic, "\n")) as $line) {
                 fwrite(STDERR, '  ' . $line . "\n");
             }
         }
-        fwrite(STDERR, 'duo: merge-check: remedy: ' . $remediation . "\n");
+        fwrite(STDERR, 'wprism: merge-check: remedy: ' . $remediation . "\n");
         return $code;
     }
 
@@ -161,7 +161,7 @@ final class MergeCheckCommand {
                 if (!is_array($entry) || ($entry['category'] ?? null) !== 'conflicting') {
                     continue;
                 }
-                // Same label seam and the same quoting as `duo refresh`
+                // Same label seam and the same quoting as `wprism refresh`
                 // (RefreshCommand::renderPlan): one conflict row vocabulary
                 // across both verbs, so an operator reads one thing.
                 $label = RefreshFieldDiff::localPlanEntryLabel($entry);
@@ -189,7 +189,7 @@ final class MergeCheckCommand {
         }
         if ($plan !== null) {
             echo 'advisory: this plan carries no production authority; '
-                . "run duo rebase <production-env> --production-ref=<ref> to materialize\n";
+                . "run wprism rebase <production-env> --production-ref=<ref> to materialize\n";
         }
     }
 
@@ -200,7 +200,7 @@ final class MergeCheckCommand {
      * code can be trusted.
      *
      * `--scope-contract` is deliberately absent. A scoped plan needs P to
-     * carry `duo-refresh-scope/v1` evidence whose `scope_hash` matches the
+     * carry `wprism-refresh-scope/v1` evidence whose `scope_hash` matches the
      * contract (RefreshPlan.php:349-353), and only a live scoped
      * `refresh-export` can produce that — so a merge-check that accepted the
      * flag could only ever refuse it. Recorded as a non-claim rather than

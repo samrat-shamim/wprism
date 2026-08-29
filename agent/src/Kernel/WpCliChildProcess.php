@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 /**
  * Bounded fresh WP-CLI process transport.
@@ -10,7 +10,7 @@ namespace Duo;
  * drains them sequentially (php/class-wp-cli.php:1607-1669, audited
  * 2026-08-24). A child that fills stderr before closing stdout deadlocks that
  * path, and either stream is accumulated without a byte or wall-clock bound.
- * Duo needs the same runtime config and alias propagation, so this helper
+ * WPrism needs the same runtime config and alias propagation, so this helper
  * reproduces only that reviewed command construction and replaces the capture
  * loop. Receipt grammar, acceptable output, and exit policy stay with the
  * closed caller rather than becoming a generic command-success oracle.
@@ -40,7 +40,7 @@ final class WpCliChildProcess {
     // This fixed program runs under the exact PHP binary WP-CLI selected. It
     // creates the process group before any plugin code and independently
     // refuses a child binary that lacks the required primitives.
-    private const SESSION_WRAPPER = 'if(!function_exists("passthru")||!function_exists("posix_setsid")){fwrite(STDERR,"duo-child-process-profile-unavailable\\n");exit(125);}$sid=posix_setsid();if(!is_int($sid)||$sid<1){fwrite(STDERR,"duo-child-session-unavailable\\n");exit(125);}$status=126;$result=passthru("exec /bin/sh -c ".escapeshellarg((string)($argv[1]??"")),$status);if($result===false){fwrite(STDERR,"duo-child-exec-unavailable\\n");exit(126);}exit(is_int($status)&&$status>=0&&$status<=255?$status:126);';
+    private const SESSION_WRAPPER = 'if(!function_exists("passthru")||!function_exists("posix_setsid")){fwrite(STDERR,"wprism-child-process-profile-unavailable\\n");exit(125);}$sid=posix_setsid();if(!is_int($sid)||$sid<1){fwrite(STDERR,"wprism-child-session-unavailable\\n");exit(125);}$status=126;$result=passthru("exec /bin/sh -c ".escapeshellarg((string)($argv[1]??"")),$status);if($result===false){fwrite(STDERR,"wprism-child-exec-unavailable\\n");exit(126);}exit(is_int($status)&&$status>=0&&$status<=255?$status:126);';
 
     /**
      * Launch one fixed caller-owned WP-CLI command and capture bounded output.
@@ -80,7 +80,7 @@ final class WpCliChildProcess {
     ): array {
         $bytes = strlen($input);
         if ($bytes < 1 || $bytes > self::MAX_INPUT_BYTES) {
-            throw new \RuntimeException('duo: bounded WP-CLI child input is outside the fixed transport boundary');
+            throw new \RuntimeException('wprism: bounded WP-CLI child input is outside the fixed transport boundary');
         }
         return self::capture_request($command, $input, $timeoutSeconds, $stdoutLimit, $stderrLimit);
     }
@@ -101,7 +101,7 @@ final class WpCliChildProcess {
             $commandBoundary['command_line']
         );
         if ($input === null && (!defined('STDIN') || !is_resource(STDIN))) {
-            throw new \RuntimeException('duo: bounded WP-CLI child has no inherited standard input');
+            throw new \RuntimeException('wprism: bounded WP-CLI child has no inherited standard input');
         }
 
         $pipes = [];
@@ -117,7 +117,7 @@ final class WpCliChildProcess {
                 $pipes
             );
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('duo: bounded WP-CLI child could not start', 0, $failure);
+            throw new \RuntimeException('wprism: bounded WP-CLI child could not start', 0, $failure);
         }
         if (!is_resource($process)
             || !isset($pipes[1], $pipes[2])
@@ -128,7 +128,7 @@ final class WpCliChildProcess {
             if (is_resource($process)) {
                 self::terminate_and_reap($process, $pipes, null);
             }
-            throw new \RuntimeException('duo: bounded WP-CLI child could not start');
+            throw new \RuntimeException('wprism: bounded WP-CLI child could not start');
         }
 
         $initialStatus = @proc_get_status($process);
@@ -137,7 +137,7 @@ final class WpCliChildProcess {
             || !is_int($initialStatus['pid'])
             || $initialStatus['pid'] < 2) {
             self::terminate_and_reap($process, $pipes, null);
-            throw new \RuntimeException('duo: bounded WP-CLI child process state became unreadable');
+            throw new \RuntimeException('wprism: bounded WP-CLI child process state became unreadable');
         }
         $leaderPid = $initialStatus['pid'];
 
@@ -168,20 +168,20 @@ final class WpCliChildProcess {
     ): void {
         $bytes = strlen($command);
         if ($bytes < 1 || $bytes > self::MAX_COMMAND_BYTES || str_contains($command, "\0")) {
-            throw new \RuntimeException('duo: bounded WP-CLI child command is outside the fixed transport boundary');
+            throw new \RuntimeException('wprism: bounded WP-CLI child command is outside the fixed transport boundary');
         }
         if ($timeoutSeconds < 1 || $timeoutSeconds > self::MAX_TIMEOUT_SECONDS) {
-            throw new \RuntimeException('duo: bounded WP-CLI child timeout is outside the fixed transport boundary');
+            throw new \RuntimeException('wprism: bounded WP-CLI child timeout is outside the fixed transport boundary');
         }
         if ($stdoutLimit < 1
             || $stderrLimit < 1
             || $stdoutLimit > self::MAX_CAPTURE_BYTES
             || $stderrLimit > self::MAX_CAPTURE_BYTES
             || $stdoutLimit + $stderrLimit > self::MAX_CAPTURE_BYTES) {
-            throw new \RuntimeException('duo: bounded WP-CLI child output limits exceed the fixed transport boundary');
+            throw new \RuntimeException('wprism: bounded WP-CLI child output limits exceed the fixed transport boundary');
         }
         if (!in_array(PHP_OS_FAMILY, ['Linux', 'Darwin'], true)) {
-            throw new \RuntimeException('duo: bounded WP-CLI child requires the reviewed POSIX process profile');
+            throw new \RuntimeException('wprism: bounded WP-CLI child requires the reviewed POSIX process profile');
         }
     }
 
@@ -197,11 +197,11 @@ final class WpCliChildProcess {
             'posix_setsid',
         ] as $function) {
             if (!function_exists($function)) {
-                throw new \RuntimeException('duo: bounded WP-CLI child requires the reviewed POSIX process profile');
+                throw new \RuntimeException('wprism: bounded WP-CLI child requires the reviewed POSIX process profile');
             }
         }
         if (!function_exists('is_executable') || !is_executable('/bin/sh')) {
-            throw new \RuntimeException('duo: bounded WP-CLI child requires the reviewed POSIX process profile');
+            throw new \RuntimeException('wprism: bounded WP-CLI child requires the reviewed POSIX process profile');
         }
     }
 
@@ -220,14 +220,14 @@ final class WpCliChildProcess {
         if (!class_exists('WP_CLI', false)
             || !is_callable(['WP_CLI', 'get_configurator'])
             || !is_callable(['WP_CLI', 'get_runner'])) {
-            throw new \RuntimeException('duo: bounded WP-CLI child requires the loaded WP-CLI process runtime');
+            throw new \RuntimeException('wprism: bounded WP-CLI child requires the loaded WP-CLI process runtime');
         }
         foreach ($requiredFunctions as $function) {
             if (!function_exists($function)) {
-                throw new \RuntimeException('duo: bounded WP-CLI child requires the loaded WP-CLI process runtime');
+                throw new \RuntimeException('wprism: bounded WP-CLI child requires the loaded WP-CLI process runtime');
             }
         }
-        \WP_CLI\Utils\check_proc_available('Duo bounded child launch');
+        \WP_CLI\Utils\check_proc_available('WPrism bounded child launch');
 
         $argv = $GLOBALS['argv'] ?? null;
         if (!is_array($argv)
@@ -236,30 +236,30 @@ final class WpCliChildProcess {
             || $argv[0] === ''
             || strlen($argv[0]) > 4096
             || str_contains($argv[0], "\0")) {
-            throw new \RuntimeException('duo: bounded WP-CLI child found an invalid executable boundary');
+            throw new \RuntimeException('wprism: bounded WP-CLI child found an invalid executable boundary');
         }
         $phpBinary = \WP_CLI\Utils\get_php_binary();
         if (!is_string($phpBinary)
             || $phpBinary === ''
             || strlen($phpBinary) > 4096
             || str_contains($phpBinary, "\0")) {
-            throw new \RuntimeException('duo: bounded WP-CLI child found an invalid PHP executable boundary');
+            throw new \RuntimeException('wprism: bounded WP-CLI child found an invalid PHP executable boundary');
         }
 
         $configurator = \WP_CLI::get_configurator();
         if (!is_object($configurator) || !is_callable([$configurator, 'parse_args'])) {
-            throw new \RuntimeException('duo: bounded WP-CLI child found an invalid runtime configurator');
+            throw new \RuntimeException('wprism: bounded WP-CLI child found an invalid runtime configurator');
         }
         $parseRuntime = \Closure::fromCallable([$configurator, 'parse_args']);
         $parsed = $parseRuntime(array_slice($argv, 1));
         if (!is_array($parsed) || !isset($parsed[2]) || !is_array($parsed[2])) {
-            throw new \RuntimeException('duo: bounded WP-CLI child found malformed runtime configuration');
+            throw new \RuntimeException('wprism: bounded WP-CLI child found malformed runtime configuration');
         }
         $runtimeConfig = $parsed[2];
         foreach ($runtimeConfig as $key => $_value) {
             if (!is_string($key)
                 || preg_match('/^[A-Za-z0-9_.:-]{1,64}$/D', $key) !== 1) {
-                throw new \RuntimeException('duo: bounded WP-CLI child found malformed runtime configuration');
+                throw new \RuntimeException('wprism: bounded WP-CLI child found malformed runtime configuration');
             }
             // Same override rule as WP_CLI::runcommand(): a command that
             // explicitly starts with this runtime key owns its value.
@@ -269,12 +269,12 @@ final class WpCliChildProcess {
         }
         $runtime = \WP_CLI\Utils\assoc_args_to_str($runtimeConfig);
         if (!is_string($runtime) || strlen($runtime) > 65536 || str_contains($runtime, "\0")) {
-            throw new \RuntimeException('duo: bounded WP-CLI child found malformed runtime configuration');
+            throw new \RuntimeException('wprism: bounded WP-CLI child found malformed runtime configuration');
         }
 
         $runner = \WP_CLI::get_runner();
         if (!is_object($runner)) {
-            throw new \RuntimeException('duo: bounded WP-CLI child found an invalid alias runtime');
+            throw new \RuntimeException('wprism: bounded WP-CLI child found an invalid alias runtime');
         }
         $alias = $runner->alias ?? null;
         $aliasPrefix = '';
@@ -282,7 +282,7 @@ final class WpCliChildProcess {
             if (!is_string($alias)
                 || strlen($alias) > 128
                 || preg_match('/^[A-Za-z0-9_.:-]+$/D', $alias) !== 1) {
-                throw new \RuntimeException('duo: bounded WP-CLI child found an invalid alias runtime');
+                throw new \RuntimeException('wprism: bounded WP-CLI child found an invalid alias runtime');
             }
             if ('@' !== substr(ltrim($command), 0, 1)) {
                 $aliasPrefix = '@' . $alias . ' ';
@@ -294,7 +294,7 @@ final class WpCliChildProcess {
             . ' ' . escapeshellarg($argv[0])
             . ' ' . $aliasPrefix . $runtime . ' ' . $command;
         if (strlen($commandLine) > self::MAX_COMMAND_LINE_BYTES || str_contains($commandLine, "\0")) {
-            throw new \RuntimeException('duo: bounded WP-CLI child command line exceeds the fixed transport boundary');
+            throw new \RuntimeException('wprism: bounded WP-CLI child command line exceeds the fixed transport boundary');
         }
         return ['php_binary' => $phpBinary, 'command_line' => $commandLine];
     }
@@ -306,7 +306,7 @@ final class WpCliChildProcess {
             . ' -r ' . escapeshellarg(self::SESSION_WRAPPER)
             . ' -- ' . escapeshellarg($commandLine);
         if (strlen($launchLine) > self::MAX_LAUNCH_LINE_BYTES || str_contains($launchLine, "\0")) {
-            throw new \RuntimeException('duo: bounded WP-CLI child launch line exceeds the fixed transport boundary');
+            throw new \RuntimeException('wprism: bounded WP-CLI child launch line exceeds the fixed transport boundary');
         }
         return $launchLine;
     }
@@ -330,7 +330,7 @@ final class WpCliChildProcess {
         if (@stream_set_blocking($pipes[1], false) !== true
             || @stream_set_blocking($pipes[2], false) !== true
             || ($input !== null && @stream_set_blocking($pipes[0], false) !== true)) {
-            throw new \RuntimeException('duo: bounded WP-CLI child could not configure its transport pipes');
+            throw new \RuntimeException('wprism: bounded WP-CLI child could not configure its transport pipes');
         }
         $buffers = [1 => '', 2 => ''];
         $limits = [1 => $stdoutLimit, 2 => $stderrLimit];
@@ -359,7 +359,7 @@ final class WpCliChildProcess {
                 if (!is_resource($pipes[$index])) {
                     unset($pipes[$index]);
                     if ($termination === null) {
-                        $termination = 'duo: bounded WP-CLI child output transport failed';
+                        $termination = 'wprism: bounded WP-CLI child output transport failed';
                     }
                     continue;
                 }
@@ -383,14 +383,14 @@ final class WpCliChildProcess {
                 $except = null;
                 $selected = @stream_select($read, $write, $except, 0, self::SELECT_MICROSECONDS);
                 if ($selected === false && $termination === null) {
-                    $termination = 'duo: bounded WP-CLI child transport failed';
+                    $termination = 'wprism: bounded WP-CLI child transport failed';
                 } elseif (is_int($selected) && $selected > 0) {
                     foreach ($read as $stream) {
                         $index = $stream === ($pipes[1] ?? null) ? 1 : 2;
                         $chunk = @fread($stream, self::READ_BYTES);
                         if (!is_string($chunk)) {
                             if ($termination === null) {
-                                $termination = 'duo: bounded WP-CLI child output transport failed';
+                                $termination = 'wprism: bounded WP-CLI child output transport failed';
                             }
                             continue;
                         }
@@ -398,7 +398,7 @@ final class WpCliChildProcess {
                             continue;
                         }
                         if (strlen($buffers[$index]) + strlen($chunk) > $limits[$index]) {
-                            $termination = 'duo: bounded WP-CLI child output exceeded its fixed byte limit';
+                            $termination = 'wprism: bounded WP-CLI child output exceeded its fixed byte limit';
                             continue;
                         }
                         $buffers[$index] .= $chunk;
@@ -408,7 +408,7 @@ final class WpCliChildProcess {
                         $written = @fwrite($pipes[0], $chunk);
                         if (!is_int($written)) {
                             if ($termination === null) {
-                                $termination = 'duo: bounded WP-CLI child input transport failed';
+                                $termination = 'wprism: bounded WP-CLI child input transport failed';
                             }
                         } elseif ($written > 0) {
                             $inputOffset += $written;
@@ -427,7 +427,7 @@ final class WpCliChildProcess {
                 $status = @proc_get_status($process);
                 if (!is_array($status) || !array_key_exists('running', $status)) {
                     if ($termination === null) {
-                        $termination = 'duo: bounded WP-CLI child process state became unreadable';
+                        $termination = 'wprism: bounded WP-CLI child process state became unreadable';
                     }
                     $running = true;
                 } else {
@@ -441,7 +441,7 @@ final class WpCliChildProcess {
                 }
                 if (!$running) {
                     if ($input !== null && $inputOffset < $inputLength && $termination === null) {
-                        $termination = 'duo: bounded WP-CLI child input transport failed';
+                        $termination = 'wprism: bounded WP-CLI child input transport failed';
                     }
                     if (isset($pipes[0]) && is_resource($pipes[0])) {
                         @fclose($pipes[0]);
@@ -462,7 +462,7 @@ final class WpCliChildProcess {
                             $chunk = @fread($pipes[$index], self::READ_BYTES);
                             if (!is_string($chunk)) {
                                 if ($termination === null) {
-                                    $termination = 'duo: bounded WP-CLI child output transport failed';
+                                    $termination = 'wprism: bounded WP-CLI child output transport failed';
                                 }
                                 break;
                             }
@@ -471,7 +471,7 @@ final class WpCliChildProcess {
                             }
                             if ($termination === null) {
                                 if (strlen($buffers[$index]) + strlen($chunk) > $limits[$index]) {
-                                    $termination = 'duo: bounded WP-CLI child output exceeded its fixed byte limit';
+                                    $termination = 'wprism: bounded WP-CLI child output exceeded its fixed byte limit';
                                 } else {
                                     $buffers[$index] .= $chunk;
                                 }
@@ -488,14 +488,14 @@ final class WpCliChildProcess {
             $now = hrtime(true);
             $groupAlive = self::process_group_exists($leaderPid);
             if ($termination === null && $now >= $deadline) {
-                $termination = 'duo: bounded WP-CLI child exceeded its wall-clock limit';
+                $termination = 'wprism: bounded WP-CLI child exceeded its wall-clock limit';
             }
             if ($termination === null
                 && !$running
                 && $groupAlive
                 && $exitObservedAt !== null
                 && $now >= $exitObservedAt + self::TERM_GRACE_NANOSECONDS) {
-                $termination = 'duo: bounded WP-CLI child left its process group running after exit';
+                $termination = 'wprism: bounded WP-CLI child left its process group running after exit';
             }
 
             if ($termination !== null && ($running || $groupAlive) && $termAt === null) {
@@ -517,7 +517,7 @@ final class WpCliChildProcess {
             if ($termination !== null
                 && $termAt !== null
                 && $now >= $termAt + self::TERM_GRACE_NANOSECONDS + self::KILL_GRACE_NANOSECONDS) {
-                throw new \RuntimeException('duo: bounded WP-CLI child process group could not be reaped after termination');
+                throw new \RuntimeException('wprism: bounded WP-CLI child process group could not be reaped after termination');
             }
         }
 
@@ -536,7 +536,7 @@ final class WpCliChildProcess {
         }
         $exit = $observedExit ?? $closedExit;
         if (!is_int($exit) || $exit < 0) {
-            throw new \RuntimeException('duo: bounded WP-CLI child returned an unreadable exit status');
+            throw new \RuntimeException('wprism: bounded WP-CLI child returned an unreadable exit status');
         }
         return [
             'return_code' => $exit,

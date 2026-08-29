@@ -29,7 +29,7 @@
 
 **Known debts.**
 
-- Largest engine module (32 files; only `Kernel`'s 34 is bigger) and the largest fan-out in the repo: `ApplyRequestCoordinator` carries 50 `require_once` lines, `ApplyServices` 27.
+- Largest engine module (33 files; only `Kernel`'s 34 is bigger) and the largest fan-out in the repo: `ApplyRequestCoordinator` carries 50 `require_once` lines, `ApplyServices` 27.
 - 14 edges into Scope and 13 into Rebuild: the apply/scope/rebuild triangle is the densest part of the engine SCC.
 
-**Sub-namespace plan.** Target `Duo\Apply\`. Not in this round: the move keeps `namespace Duo;` flat so that manifest interpreters/providers can keep naming `\Duo\Policy`, `\Duo\ProviderSdk`, `\Duo\Providers` and `\Duo\Canon` by FQCN — those hook files are `hash_file`'d into every adapter's identity row (`ArtifactPolicyIdentity::manifest_rows()`), so renaming the namespace moves each `adapter_digest` and forces a recompile plus a reviewed re-pin on every deployed site. Kernel migrates first (no inbound FQCN from manifests); Policy, Adapter and Canon migrate last, behind a hook-file change.
+**Sub-namespace plan.** Target `WPrism\Apply\`. Not in this round: the move keeps `namespace WPrism;` flat so that manifest interpreters/providers can keep naming `\WPrism\Policy`, `\WPrism\ProviderSdk`, `\WPrism\Providers` and `\WPrism\Canon` by FQCN — those hook files are `hash_file`'d into every adapter's identity row (`ArtifactPolicyIdentity::manifest_rows()`), so renaming the namespace moves each `adapter_digest` and forces a recompile plus a reviewed re-pin on every deployed site. Kernel migrates first (no inbound FQCN from manifests); Policy, Adapter and Canon migrate last, behind a hook-file change.

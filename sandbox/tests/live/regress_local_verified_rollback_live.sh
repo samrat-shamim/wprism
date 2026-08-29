@@ -2,7 +2,7 @@
 # Live public-path regression: automatic verified rollback on a `local` target.
 #
 # The local mirror of regress_ssh_adopt.sh's rollback-authority evidence, on
-# the estate shape DUO-3365 established for the local transport: one disposable
+# the estate shape issue #3365 established for the local transport: one disposable
 # pair supplies an installed WordPress database and webroot volume, its own
 # containers are stopped, and a controller container mounts that webroot. The
 # host CLI and the target then share one filesystem, which is what makes the
@@ -10,19 +10,19 @@
 #
 # What it proves, through the product commands and nothing else:
 #
-#   1. `duo adopt` on a `local` environment whose machine-local .duo-envs.json
+#   1. `wprism adopt` on a `local` environment whose machine-local .wprism-envs.json
 #      entry carries rollback_key_id/rollback_signing_key/rollback_recovery
 #      provisions the public key and recovery-config, not just the runtime
 #      files. Before RecoveryTransport that gate was `instanceof SshTransport`,
 #      so a local adopt installed a runtime it could never authorize against.
-#   2. `duo promote` prints `promote profile: automatic verified rollback` and
+#   2. `wprism promote` prints `promote profile: automatic verified rollback` and
 #      its phase sequence, instead of the WARN + operator-directed checkpoint
 #      path.
 #   3. A failure injected at `lifecycle-activate` reaches
-#      `duo: promote: lifecycle-activate failed; entering signed verified
+#      `wprism: promote: lifecycle-activate failed; entering signed verified
 #      rollback` and converges to `prior world verified; rollback generation
 #      <n> is rolled_back and exclusion is released`.
-#   4. `duo recover <env> --list` reads the signed catalog rather than refusing
+#   4. `wprism recover <env> --list` reads the signed catalog rather than refusing
 #      with `recovery_authority_unavailable`.
 #
 # What it does NOT prove, deliberately: this is evidence, not a certificate.
@@ -35,7 +35,7 @@
 # the file-backed fixtures the offline recovery suites drive
 # (sandbox/tests/fixtures/), not the MariaDB-backed
 # ssh-rollback-checkpoint-provider.php, which is specific to the certification
-# estate's own `duo_cert_state` schema. The subject here is the transport and
+# estate's own `wprism_cert_state` schema. The subject here is the transport and
 # the product path, not the provider.
 #
 # The CODE-RELEASE provider is the one exception, and it is authored here
@@ -44,13 +44,13 @@
 # one-plugin release (`release_descriptor()`:24-38 returns owned_roots
 # ['wp-content/plugins/acme'] and two rows), which is exactly the shape
 # certify_ssh_rollback.sh hand-authors its plans in — that estate never runs
-# `duo promote`, so nothing there has to agree with a compiled artifact. A real
+# `wprism promote`, so nothing there has to agree with a compiled artifact. A real
 # WordPress code half can never be that shape: code-stage refuses unless the
 # canonical `stylesheet`/`template` in state/options/core.json name a theme
 # directory inside code/wp-content/themes, and all three lifecycle records must
 # be present (agent/src/Code/CodeStateContract.php:79-91 and :161-173), so a
 # code-enabled repository always owns at least a theme root beside its plugin
-# roots. Against that plan the shipped fixture refuses with "duo code release:
+# roots. Against that plan the shipped fixture refuses with "wprism code release:
 # desired release roots disagree with compiled plan"
 # (recovery/CodeRelease.php:527). The provider written below is therefore
 # PLAN-BOUND rather than payload-bound: it derives both descriptors by walking
@@ -71,7 +71,7 @@ cd "$REPO_ROOT"
 PAIR="${LOCAL_VERIFIED_PAIR:-codexlocalverified}"
 PORT1="${LOCAL_VERIFIED_PORT1:-9184}"
 PORT2="${LOCAL_VERIFIED_PORT2:-9185}"
-EXPECTED_SHA="${DUO_EXPECTED_SOURCE_SHA:-}"
+EXPECTED_SHA="${WPRISM_EXPECTED_SOURCE_SHA:-}"
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
@@ -85,27 +85,27 @@ done
 PORT1=$((10#$PORT1)); PORT2=$((10#$PORT2))
 (( PORT1 >= 8900 && PORT1 <= 65534 && PORT1 % 2 == 0 && PORT2 == PORT1 + 1 )) \
   || fail "LOCAL_VERIFIED_PORT1 must be an even port >=8900 and PORT2 its successor"
-[[ "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || fail "DUO_EXPECTED_SOURCE_SHA must be the exact candidate SHA"
+[[ "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || fail "WPRISM_EXPECTED_SOURCE_SHA must be the exact candidate SHA"
 
 ACTUAL_SHA="$(git rev-parse --verify 'HEAD^{commit}')"
-[ "$EXPECTED_SHA" = "$ACTUAL_SHA" ] || fail "DUO_EXPECTED_SOURCE_SHA does not equal this checkout HEAD"
+[ "$EXPECTED_SHA" = "$ACTUAL_SHA" ] || fail "WPRISM_EXPECTED_SOURCE_SHA does not equal this checkout HEAD"
 [ -d "$REPO_ROOT/.git" ] || fail "live verified-rollback evidence must run from a standalone clone"
 [ -z "$(git status --porcelain --untracked-files=all)" ] || fail "live verified-rollback evidence requires a clean checkout"
-export DUO_EXPECTED_SOURCE_SHA="$ACTUAL_SHA"
+export WPRISM_EXPECTED_SOURCE_SHA="$ACTUAL_SHA"
 
 HOST_REPO1="$REPO_ROOT/sandbox/siterepo/${PAIR}1"
 HOST_REPO2="$REPO_ROOT/sandbox/siterepo/${PAIR}2"
 HOST_ORIGIN="$REPO_ROOT/sandbox/siterepo/origin-${PAIR}.git"
-WP_VOLUME="duo-${PAIR}_wp1"
-REPO_VOLUME="duo-${PAIR}-verified-repo"
-IMAGE="duo-local-verified-cli:${PAIR}"
+WP_VOLUME="wprism-${PAIR}_wp1"
+REPO_VOLUME="wprism-${PAIR}-verified-repo"
+IMAGE="wprism-local-verified-cli:${PAIR}"
 SCRATCH_ROOT=""
 ENVS_FILE=""
 SIGNING_KEY=""
 SUITE_FIXTURES=""
 EVIDENCE_LOG=""
-THEME_SLUG="duo-verified-fixture"
-PROBE_COMPONENT="plugins/duo-promotion-probe"
+THEME_SLUG="wprism-verified-fixture"
+PROBE_COMPONENT="plugins/wprism-promotion-probe"
 THEME_COMPONENT="themes/$THEME_SLUG"
 PAIR_OWNED=0
 REPO_VOLUME_OWNED=0
@@ -115,8 +115,8 @@ GREEN=0
 if [ -e "$HOST_REPO1" ] || [ -e "$HOST_REPO2" ] || [ -e "$HOST_ORIGIN" ]; then
   fail "pair repository roots already exist; choose an unused LOCAL_VERIFIED_PAIR"
 fi
-if [ -n "$(docker ps -a --filter "label=com.docker.compose.project=duo-${PAIR}" --format '{{.ID}}')" ]; then
-  fail "compose project duo-${PAIR} already has containers; choose an unused pair"
+if [ -n "$(docker ps -a --filter "label=com.docker.compose.project=wprism-${PAIR}" --format '{{.ID}}')" ]; then
+  fail "compose project wprism-${PAIR} already has containers; choose an unused pair"
 fi
 if docker volume inspect "$REPO_VOLUME" >/dev/null 2>&1; then
   fail "evidence volume $REPO_VOLUME already exists; inspect it or choose an unused pair"
@@ -128,11 +128,11 @@ fi
 SCRATCH_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/${PAIR}-local-verified.XXXXXX")"
 ENVS_FILE="$SCRATCH_ROOT/envs.json"
 # The controller runs as uid 33 with HOME=/ inside wordpress:cli-php8.3, and
-# `duo init` builds its code-artifact cache before classifying any component --
+# `wprism init` builds its code-artifact cache before classifying any component --
 # even one this estate declares first-party (cli/src/Code/WpOrgReleases.php:117-127
 # resolves $XDG_CACHE_HOME, else ~/.cache -- "/.cache" here, which uid 33 cannot
 # create; measured on the first run of this suite, 2026-08-24: "could not create
-# the code artifact cache at /.cache/duo/code-artifacts"). A real operator's host
+# the code artifact cache at /.cache/wprism/code-artifacts"). A real operator's host
 # has a cache; give the controller one on scratch, world-writable because the
 # bind mount is owned by the host user and the container writes as uid 33.
 CACHE_DIR="$SCRATCH_ROOT/cache"
@@ -159,7 +159,7 @@ cleanup_on_exit() {
     if ! bash "$REPO_ROOT/sandbox/bin/pair.sh" destroy "$PAIR" >>"$EVIDENCE_LOG" 2>&1; then
       printf 'FAIL: pair destroy failed; preserving all evidence and live resources for %s\n' "$PAIR" >&2
       cleanup_failed=1
-    elif ! remaining=$(docker ps -a --filter "label=com.docker.compose.project=duo-${PAIR}" --format '{{.ID}}'); then
+    elif ! remaining=$(docker ps -a --filter "label=com.docker.compose.project=wprism-${PAIR}" --format '{{.ID}}'); then
       printf 'FAIL: could not verify pair teardown; preserving evidence for %s\n' "$PAIR" >&2
       cleanup_failed=1
     elif [ -n "$remaining" ]; then
@@ -309,7 +309,7 @@ function release_descriptor(string $role, string $releaseRoot, string $release, 
         'artifact_hash' => $artifact,
         'code_revision' => $revision,
         'files' => array_values($rows),
-        'format' => 'duo-code-release-descriptor/v1',
+        'format' => 'wprism-code-release-descriptor/v1',
         'generation' => $generation,
         'owned_roots' => $owned,
         'release_id' => $release,
@@ -350,7 +350,7 @@ $pointer = $argv[3];
 $priorRelease = is_file($pointer) ? trim((string) file_get_contents($pointer)) : 'release-prior';
 $desiredRelease = 'release-desired-' . (string) ($request['generation'] ?? 0);
 $action = (string) ($request['action'] ?? '');
-$base = ['format' => 'duo-code-release-provider-response/v1'];
+$base = ['format' => 'wprism-code-release-provider-response/v1'];
 
 if ($action === 'probe') {
     release_output($base + [
@@ -369,7 +369,7 @@ if ($action === 'prepare') {
     // desired descriptor's hash up front, which a provider can only satisfy by
     // already knowing the descriptor bytes -- that is the controller-knows-the-
     // release shape the certification driver drives, not the product path.
-    if (($request['format'] ?? '') !== 'duo-code-release-provider-request/v2'
+    if (($request['format'] ?? '') !== 'wprism-code-release-provider-request/v2'
         || !is_array($request['desired_code_inventory'] ?? null)) {
         release_fail('unsupported prepare request format');
     }
@@ -454,7 +454,7 @@ FIXTURE_PHP
 # is what makes the compiled payload deterministic run to run.
 cat > "$SUITE_FIXTURES/theme/style.css" <<'FIXTURE_CSS'
 /*
-Theme Name: Duo Local Verified Fixture
+Theme Name: WPrism Local Verified Fixture
 Version: 1.0.0
 Description: Regression-only theme for the local verified-rollback estate.
 */
@@ -473,7 +473,7 @@ FIXTURE_INDEX
 cat > "$SUITE_FIXTURES/failing-probe.php" <<'FIXTURE_PROBE'
 <?php
 /**
- * Plugin Name: Duo Promotion Probe
+ * Plugin Name: WPrism Promotion Probe
  * Version: 1.0.0
  */
 
@@ -492,17 +492,17 @@ bash sandbox/bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless >>"$EVIDENCE_LO
 
 pair_compose() {
   (cd "$REPO_ROOT/sandbox" && \
-    DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2" \
-    docker compose -p "duo-${PAIR}" -f pair.yml "$@")
+    WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2" \
+    docker compose -p "wprism-${PAIR}" -f pair.yml "$@")
 }
 pair_compose stop wp1 wp2 cli1 cli2 >>"$EVIDENCE_LOG" 2>&1
 docker volume inspect "$WP_VOLUME" >/dev/null 2>&1 || fail "pair webroot volume $WP_VOLUME is missing"
-docker volume create --label "duo.live-regression=local-verified-rollback" "$REPO_VOLUME" >/dev/null
+docker volume create --label "wprism.live-regression=local-verified-rollback" "$REPO_VOLUME" >/dev/null
 REPO_VOLUME_OWNED=1
 
 # The pair's bind destinations exist underneath its named volume. With every
 # pair container stopped, remove only those test-owned mountpoint bytes so the
-# controller sees the required pre-Duo WordPress target.
+# controller sees the required pre-WPrism WordPress target.
 docker run --rm --user 0 \
   -v "$WP_VOLUME:/var/www/html" -v "$REPO_VOLUME:/siterepo" \
   --entrypoint sh "$IMAGE" -eu -c '
@@ -510,21 +510,21 @@ docker run --rm --user 0 \
     chown 33:33 /siterepo
     mkdir -p /var/www/html/wp-content/mu-plugins
     chown 33:33 /var/www/html/wp-content/mu-plugins
-    rm -rf /var/www/html/wp-content/mu-plugins/duo \
-      /var/www/html/wp-content/mu-plugins/duo-loader.php \
+    rm -rf /var/www/html/wp-content/mu-plugins/wprism \
+      /var/www/html/wp-content/mu-plugins/wprism-loader.php \
       /var/www/html/wp-content/mu-plugins/manifests
   '
 
 DOCKER_COMMON=(
-  --rm --network duo-shared --user 33:33 --workdir /duo-source
-  -e WORDPRESS_DB_HOST=duo-shared-db
+  --rm --network wprism-shared --user 33:33 --workdir /wprism-source
+  -e WORDPRESS_DB_HOST=wprism-shared-db
   -e WORDPRESS_DB_USER=wordpress
   -e WORDPRESS_DB_PASSWORD=wordpress
   -e "WORDPRESS_DB_NAME=wp_${PAIR}1"
   -e 'WORDPRESS_CONFIG_EXTRA=define("WP_ENVIRONMENT_TYPE", "local");'
   -v "$WP_VOLUME:/var/www/html"
   -v "$REPO_VOLUME:/siterepo"
-  -v "$REPO_ROOT:/duo-source:ro"
+  -v "$REPO_ROOT:/wprism-source:ro"
   -v "$ENVS_FILE:/controller/envs.json:ro"
   -v "$SIGNING_KEY:/controller/signing.key:ro"
   -v "$SUITE_FIXTURES:/controller/fixtures:ro"
@@ -534,7 +534,7 @@ DOCKER_COMMON=(
 
 controller() {
   docker run "${DOCKER_COMMON[@]}" --entrypoint php "$IMAGE" \
-    /duo-source/cli/duo --envs-file=/controller/envs.json "$@"
+    /wprism-source/cli/wprism --envs-file=/controller/envs.json "$@"
 }
 target_wp() {
   docker run "${DOCKER_COMMON[@]}" --entrypoint wp "$IMAGE" --path=/var/www/html "$@"
@@ -564,7 +564,7 @@ target_sh '
   mkdir -p /siterepo/providers /siterepo/provider-state /siterepo/releases /siterepo/uploads/2026/08 /siterepo/offload /siterepo/media
   for file in offline-checkpoint-provider.php upload-provider.php \
               effect-provider.php recovery-adapter.php recovery-exclusion-provider.php; do
-    cp "/duo-source/sandbox/tests/fixtures/$file" "/siterepo/providers/$file"
+    cp "/wprism-source/sandbox/tests/fixtures/$file" "/siterepo/providers/$file"
     chmod 0700 "/siterepo/providers/$file"
   done
   cp /controller/fixtures/code-release-provider.php /siterepo/providers/code-release-provider.php
@@ -588,7 +588,7 @@ $body = ["envs" => [
         "transport" => "local",
         "wp_path" => "/var/www/html",
         "repo_path" => "/siterepo/site",
-        "bootstrap" => ["format" => "duo-local-control-plane/v1"],
+        "bootstrap" => ["format" => "wprism-local-control-plane/v1"],
         "rollback_key_id" => "local-verified-live",
         "rollback_signing_key" => "/controller/signing.key",
         "verified_rollback" => [
@@ -634,7 +634,7 @@ $body = ["envs" => [
         "transport" => "local",
         "wp_path" => "/var/www/html",
         "repo_path" => "/siterepo/site",
-        "bootstrap" => ["format" => "duo-local-control-plane/v1"],
+        "bootstrap" => ["format" => "wprism-local-control-plane/v1"],
     ],
 ]];
 file_put_contents($argv[1], json_encode($body, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
@@ -642,11 +642,11 @@ file_put_contents($argv[1], json_encode($body, JSON_PRETTY_PRINT | JSON_UNESCAPE
 chmod 0644 "$ENVS_FILE"
 pass "machine-local environment names its rollback authority"
 
-say "duo envs is unchanged for the environment that did not opt in"
+say "wprism envs is unchanged for the environment that did not opt in"
 run_controller "envs" envs
-[ "$CODE" -eq 0 ] || fail "duo envs failed"
+[ "$CODE" -eq 0 ] || fail "wprism envs failed"
 grep -Fq 'rollback_key_id=local-verified-live' <<<"$OUT" \
-  || fail "duo envs did not name the configured local rollback authority"
+  || fail "wprism envs did not name the configured local rollback authority"
 grep -Eq '^unarmed[[:space:]]+local  wp_path=/var/www/html repo_path=/siterepo/site bootstrap=authorized$' <<<"$OUT" \
   || grep -Fq 'local  wp_path=/var/www/html repo_path=/siterepo/site bootstrap=authorized' <<<"$OUT" \
   || fail "the un-armed local environment's describe line moved"
@@ -657,14 +657,14 @@ run_controller "adopt" adopt local
 [ "$CODE" -eq 0 ] || fail "local adopt failed"
 grep -Fq '+ rollback authority' <<<"$OUT" || fail "adopt did not report installing the rollback authority"
 target_sh '
-  test -f /siterepo/site/.duo/control/recovery-runtime/rollback-control.php
-  test -f /siterepo/site/.duo/control/recovery-config.json
-  test -f /siterepo/site/.duo/control/public-keys/local-verified-live.pub
-  test -f /siterepo/site/.duo/control/target.json
-  test ! -e /siterepo/site/.duo/control/rollback-signing.key
-  test ! -e /siterepo/site/.duo/control/private-keys
+  test -f /siterepo/site/.wprism/control/recovery-runtime/rollback-control.php
+  test -f /siterepo/site/.wprism/control/recovery-config.json
+  test -f /siterepo/site/.wprism/control/public-keys/local-verified-live.pub
+  test -f /siterepo/site/.wprism/control/target.json
+  test ! -e /siterepo/site/.wprism/control/rollback-signing.key
+  test ! -e /siterepo/site/.wprism/control/private-keys
 ' || fail "local adopt did not provision the public-key-only rollback authority"
-[ "$(target_sh 'stat -c %a /siterepo/site/.duo/control')" = "700" ] \
+[ "$(target_sh 'stat -c %a /siterepo/site/.wprism/control')" = "700" ] \
   || fail "rollback control root is not protected mode 0700"
 pass "the local control plane carries the public key and recovery-config, and no private material"
 
@@ -693,9 +693,9 @@ say "initialize the canonical baseline over a wholly first-party code half"
 # wp.org at promote time and the compiled payload is byte-identical run to run.
 target_sh '
   set -eu
-  mkdir -p /var/www/html/wp-content/plugins/duo-promotion-probe
-  cp /duo-source/sandbox/tests/fixtures/duo-promotion-probe.php \
-     /var/www/html/wp-content/plugins/duo-promotion-probe/duo-promotion-probe.php
+  mkdir -p /var/www/html/wp-content/plugins/wprism-promotion-probe
+  cp /wprism-source/sandbox/tests/fixtures/wprism-promotion-probe.php \
+     /var/www/html/wp-content/plugins/wprism-promotion-probe/wprism-promotion-probe.php
   mkdir -p "/var/www/html/wp-content/themes/'"$THEME_SLUG"'"
   cp /controller/fixtures/theme/style.css /controller/fixtures/theme/index.php \
      "/var/www/html/wp-content/themes/'"$THEME_SLUG"'/"
@@ -704,7 +704,7 @@ target_sh '
 # assertFirstPartyKnown: "--first-party names …, which is not a component this
 # site has" on an installed-but-inactive probe, measured 2026-08-24), so both
 # are activated before the proposal is built.
-target_wp plugin activate duo-promotion-probe >/dev/null || fail "could not activate the promotion probe before init"
+target_wp plugin activate wprism-promotion-probe >/dev/null || fail "could not activate the promotion probe before init"
 target_wp theme activate "$THEME_SLUG" >/dev/null || fail "could not activate the first-party theme before init"
 # --allow-unmanaged-plugins: the probe has no adapter, so init otherwise blocks on
 # active_plugin_without_adapter before evaluating --first-party (init readiness
@@ -722,8 +722,8 @@ grep -Fq 'Initialized canonical state baseline' <<<"$OUT" || fail "init omitted 
 target_sh '
   set -eu
   git -C /siterepo/site add -A
-  git -C /siterepo/site -c user.name=duo -c user.email=duo@example.test \
-    commit -qm "duo: initial code and state baselines"
+  git -C /siterepo/site -c user.name=wprism -c user.email=wprism@example.test \
+    commit -qm "wprism: initial code and state baselines"
 ' || fail "could not publish the initialized baseline"
 pass "canonical baseline established and published"
 
@@ -752,7 +752,7 @@ stage_release() {
 # after the authority's current terminal generation, which target.json states.
 next_release() {
   local generation
-  generation="$(target_sh 'php -r "echo (int) (json_decode(file_get_contents(\"/siterepo/site/.duo/control/target.json\"), true)[\"generation\"] ?? -1);"')" \
+  generation="$(target_sh 'php -r "echo (int) (json_decode(file_get_contents(\"/siterepo/site/.wprism/control/target.json\"), true)[\"generation\"] ?? -1);"')" \
     || fail "could not read the rollback authority generation"
   [[ "$generation" =~ ^[0-9]+$ ]] || fail "the rollback authority reported no usable generation"
   printf 'release-desired-%s\n' "$((generation + 1))"
@@ -769,10 +769,10 @@ say "promote selects the automatic verified profile off SSH"
 # reach lifecycle-activate through the signed generation, not through the
 # operator-directed checkpoint path. (Its bytes are already in the code half --
 # see init above.)
-target_wp plugin activate duo-promotion-probe >/dev/null || fail "could not activate the promotion probe"
+target_wp plugin activate wprism-promotion-probe >/dev/null || fail "could not activate the promotion probe"
 run_controller "capture" capture local --yes
 [ "$CODE" -eq 0 ] || fail "capture failed"
-target_wp plugin deactivate duo-promotion-probe >/dev/null || fail "could not deactivate the promotion probe"
+target_wp plugin deactivate wprism-promotion-probe >/dev/null || fail "could not deactivate the promotion probe"
 
 run_controller "promote" promote local
 [ "$CODE" -eq 0 ] || fail "verified promote failed"
@@ -785,7 +785,7 @@ grep -Fq 'promote phase: apply' <<<"$OUT" || fail "promote did not reach apply"
 grep -Fq 'WARN automatic verified rollback unavailable' <<<"$OUT" \
   && fail "promote still warned that the verified profile is unavailable" \
   || pass "promote ran the signed verified profile end to end on a local target"
-[ "$(target_wp option get duo_promotion_probe_activated 2>/dev/null || true)" = yes ] \
+[ "$(target_wp option get wprism_promotion_probe_activated 2>/dev/null || true)" = yes ] \
   || fail "the lifecycle activation hook did not run for real"
 pass "generation 1 committed through the signed verified profile"
 
@@ -810,25 +810,25 @@ say "a lifecycle-activate failure converges through the signed rollback"
 target_sh '
   set -eu
   cp /controller/fixtures/failing-probe.php \
-     /siterepo/site/code/wp-content/plugins/duo-promotion-probe/duo-promotion-probe.php
-  git -C /siterepo/site -c user.name=duo -c user.email=duo@example.test commit -qam "inject lifecycle-activate failure"
+     /siterepo/site/code/wp-content/plugins/wprism-promotion-probe/wprism-promotion-probe.php
+  git -C /siterepo/site -c user.name=wprism -c user.email=wprism@example.test commit -qam "inject lifecycle-activate failure"
 ' || fail "could not author the failing build in the code half"
 FAILING_RELEASE="$(next_release)"
 [ "$FAILING_RELEASE" = release-desired-2 ] \
   || fail "the committed generation did not advance the authority to 1"
 stage_release "$FAILING_RELEASE"
-target_wp plugin deactivate duo-promotion-probe >/dev/null 2>&1 || true
+target_wp plugin deactivate wprism-promotion-probe >/dev/null 2>&1 || true
 run_controller "failing promote" promote local
 [ "$CODE" -ne 0 ] || fail "promote succeeded despite an injected lifecycle-activate failure"
-grep -Fq 'duo: promote: lifecycle-activate failed; entering signed verified rollback' <<<"$OUT" \
+grep -Fq 'wprism: promote: lifecycle-activate failed; entering signed verified rollback' <<<"$OUT" \
   || fail "the injected failure did not enter the signed verified rollback"
-grep -Eq 'duo: promote: prior world verified; rollback generation [0-9]+ is rolled_back and exclusion is released' <<<"$OUT" \
+grep -Eq 'wprism: promote: prior world verified; rollback generation [0-9]+ is rolled_back and exclusion is released' <<<"$OUT" \
   || fail "the signed rollback did not converge to a verified prior world with the exclusion released"
 grep -Fq 'operator-directed' <<<"$OUT" \
   && fail "a verified promotion fell through to the operator-directed dump path" \
   || pass "a failure after promoting converged through signed operations only"
 
-STATUS_JSON="$(target_sh 'php /siterepo/site/.duo/control/recovery-runtime/rollback-control.php status --root=/siterepo/site/.duo/control')"
+STATUS_JSON="$(target_sh 'php /siterepo/site/.wprism/control/recovery-runtime/rollback-control.php status --root=/siterepo/site/.wprism/control')"
 jq -e '.state == "rolled_back" and .terminal == true' <<<"$STATUS_JSON" >/dev/null \
   || fail "the target authority did not finish rolled_back and terminal"
 EXCLUSION_STATE="$(target_sh 'php -r "\$s=json_decode(file_get_contents(\"/siterepo/provider-state/exclusion.json\"),true);echo \$s[\"state\"];"')"

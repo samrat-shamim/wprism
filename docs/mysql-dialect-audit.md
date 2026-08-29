@@ -40,9 +40,9 @@ Ledger line at 563; it is 619 on this branch, and they missed the
 
 | path:line | statement |
 | --- | --- |
-| `agent/src/Repository/Ledger.php:390` | `INSERT INTO {prefix}duo_map (uuid, entity_type, id_kind, local_id) VALUES (%s,%s,%s,%d) ON DUPLICATE KEY UPDATE entity_type = VALUES(entity_type)` |
-| `agent/src/Repository/Ledger.php:417` | `INSERT INTO {prefix}duo_state (uuid, entity_type, content_hash) VALUES (%s,%s,%s) ON DUPLICATE KEY UPDATE entity_type = VALUES(entity_type), content_hash = VALUES(content_hash)` |
-| `agent/src/Repository/Ledger.php:619` | `INSERT INTO {prefix}duo_kv (k, v) VALUES (%s,%s) ON DUPLICATE KEY UPDATE v = VALUES(v)` |
+| `agent/src/Repository/Ledger.php:390` | `INSERT INTO {prefix}wprism_map (uuid, entity_type, id_kind, local_id) VALUES (%s,%s,%s,%d) ON DUPLICATE KEY UPDATE entity_type = VALUES(entity_type)` |
+| `agent/src/Repository/Ledger.php:417` | `INSERT INTO {prefix}wprism_state (uuid, entity_type, content_hash) VALUES (%s,%s,%s) ON DUPLICATE KEY UPDATE entity_type = VALUES(entity_type), content_hash = VALUES(content_hash)` |
+| `agent/src/Repository/Ledger.php:619` | `INSERT INTO {prefix}wprism_kv (k, v) VALUES (%s,%s) ON DUPLICATE KEY UPDATE v = VALUES(v)` |
 | `agent/src/Repository/SidebarState.php:496` | `INSERT INTO {options} (option_name, option_value, autoload) VALUES (%s,%s,'yes') ON DUPLICATE KEY UPDATE option_value = VALUES(option_value)` |
 | `agent/src/Repository/SidebarState.php:521` | same, for the `sidebars_widgets` option |
 | `agent/src/Promotion/PromotionLease.php:385` | `VALUES(v)` used as the *then* branch of an `IF(...)` inside the lease CAS — see §2 |
@@ -102,10 +102,10 @@ phase with the measurement above.
 
 ### Exact SQL and schema
 
-`duo_kv` is created at `agent/src/Repository/Ledger.php:94-99`:
+`wprism_kv` is created at `agent/src/Repository/Ledger.php:94-99`:
 
 ```sql
-CREATE TABLE IF NOT EXISTS {prefix}duo_kv (
+CREATE TABLE IF NOT EXISTS {prefix}wprism_kv (
     k VARCHAR(191) NOT NULL,
     v LONGTEXT NULL,
     PRIMARY KEY (k)
@@ -145,7 +145,7 @@ real cause was a JSON parse error.
 
 ### How reachable is it?
 
-Not on the normal path. `duo_kv`'s lease rows are written only by
+Not on the normal path. `wprism_kv`'s lease rows are written only by
 `PromotionLease` via `wp_json_encode($payload)` (`:388` and the renew/session
 writers), so `v` is always valid JSON in a healthy target. The hazard is a
 **foreign/legacy/truncated** row: a partially-written `LONGTEXT`, a row left
@@ -156,9 +156,9 @@ closed (predicate false, lease not taken); on MySQL it would raise 3141.
 
 1. **Normal path**: a real promotion acquire → renew → release cycle on the
    MySQL pair completes, with `$wpdb->last_error` empty at each step and the
-   `duo_kv` row present/absent exactly as on MariaDB.
+   `wprism_kv` row present/absent exactly as on MariaDB.
 2. **Planted-garbage path**: deliberately
-   `UPDATE wp_<pair>1.wp_duo_kv SET v='not-json' WHERE k='promotion_lock'`
+   `UPDATE wp_<pair>1.wp_wprism_kv SET v='not-json' WHERE k='promotion_lock'`
    and then run an acquire. Record which of the two happens:
    - the predicate evaluates false and the lease refuses cleanly (MariaDB
      semantics), or
@@ -186,8 +186,8 @@ belongs in the widening commit with the measured error quoted beside it.
 
 | path:line | name expression | length |
 | --- | --- | --- |
-| `agent/src/Kernel/ProcessFence.php:85` | `'duo:' . substr(hash('sha256', $dbname . '|' . $prefix), 0, 59)` | **63** |
-| `agent/src/Init/InitConfirmation.php:904` | `'duo-init:' . substr(hash('sha256', $prefix . "\0" . $repo), 0, 48)` | **57** |
+| `agent/src/Kernel/ProcessFence.php:85` | `'wprism:' . substr(hash('sha256', $dbname . '|' . $prefix), 0, 59)` | **63** |
+| `agent/src/Init/InitConfirmation.php:904` | `'wprism-init:' . substr(hash('sha256', $prefix . "\0" . $repo), 0, 48)` | **57** |
 
 (Both computed, not estimated: `4 + 59 = 63`, `9 + 48 = 57`.)
 
@@ -206,27 +206,27 @@ Statements: `SELECT GET_LOCK(%s, 0)` (`ProcessFence.php:41`,
 
 So both names fit — 63 is inside 64 by exactly one character, and 57 has
 comfortable room. But 63 is **one edit away** from breaking: bumping the
-`substr` length by one, or lengthening the `'duo:'` prefix, produces a name
+`substr` length by one, or lengthening the `'wprism:'` prefix, produces a name
 that works on MariaDB and errors on MySQL. Nothing in the tree asserts that
 bound today.
 
 `ProcessFence` also depends on the multi-lock semantics: `isContinuous()`
 (`:51-63`) re-checks `CONNECTION_ID()` and `IS_USED_LOCK(name)` and treats a
 connection change as a continuity break. It never assumes it is the session's
-only lock — but `InitConfirmation` holds its own `duo-init:` lock on the same
+only lock — but `InitConfirmation` holds its own `wprism-init:` lock on the same
 connection at overlapping times, which would be a real bug on a pre-5.7-style
 "one lock per session" server. Both claimed/probed engines are past that.
 
 ### What the live probe must assert
 
-1. On `duo-shared-mysql`: `SELECT GET_LOCK(REPEAT('x',63),0)` returns `1`,
+1. On `wprism-shared-mysql`: `SELECT GET_LOCK(REPEAT('x',63),0)` returns `1`,
    `IS_USED_LOCK(REPEAT('x',63))` returns the current `CONNECTION_ID()`, a
    *second* `GET_LOCK(REPEAT('y',63),0)` in the same session also returns `1`
    (multi-lock), and `RELEASE_LOCK(REPEAT('x',63))` returns `1` while `y`
    stays held.
 2. `SELECT GET_LOCK(REPEAT('x',65),0)` — record the exact error, so the
    64-char bound is measured on this server rather than assumed.
-3. A real `duo init` and a real promotion on the MySQL pair, confirming
+3. A real `wprism init` and a real promotion on the MySQL pair, confirming
    `ProcessFence::assertHeld()` never raises *"promotion process fence is not
    continuously held by this database connection"* across a normal lifecycle.
 
@@ -249,11 +249,11 @@ separate item.
 `Ledger::ensure()` (`agent/src/Repository/Ledger.php:74-105`) appends
 `$wpdb->get_charset_collate()` to all four `CREATE TABLE` statements:
 
-- `duo_map` — `uuid CHAR(36)`, `PRIMARY KEY (uuid, id_kind)`, `UNIQUE KEY
+- `wprism_map` — `uuid CHAR(36)`, `PRIMARY KEY (uuid, id_kind)`, `UNIQUE KEY
   kind_local (id_kind, local_id)`
-- `duo_state` — `uuid VARCHAR(64)`, `PRIMARY KEY (uuid)`
-- `duo_kv` — `k VARCHAR(191)`, `PRIMARY KEY (k)`
-- `duo_journal` — `item VARCHAR(191)`, plus its own indexes
+- `wprism_state` — `uuid VARCHAR(64)`, `PRIMARY KEY (uuid)`
+- `wprism_kv` — `k VARCHAR(191)`, `PRIMARY KEY (k)`
+- `wprism_journal` — `item VARCHAR(191)`, plus its own indexes
 
 191 is the utf8mb4 legacy figure (191 × 4 bytes ≤ the old 767-byte InnoDB
 index-prefix limit). It is not a MySQL-vs-MariaDB difference by itself; the
@@ -268,14 +268,14 @@ server default resolve to.
   `utf8mb4_uca1400_ai_ci`.
 
 A collation difference changes **key comparison semantics** — which distinct
-strings collide on `duo_kv.k` and `duo_map.uuid`. For hex/UUID keys the
+strings collide on `wprism_kv.k` and `wprism_map.uuid`. For hex/UUID keys the
 practical risk is low (both are accent-insensitive, case-insensitive over
 ASCII), but "low" is not "measured", and the repository's identity guarantees
 rest on these keys being distinct.
 
 ### What the live probe must assert
 
-1. `SHOW CREATE TABLE` for all four `wp_duo_*` tables on **both** engines,
+1. `SHOW CREATE TABLE` for all four `wp_wprism_*` tables on **both** engines,
    saved to `sandbox/tmp/`, and diffed. The diff — charset, collation, index
    definitions, storage engine — is the record.
 2. `SELECT @@character_set_database, @@collation_database` on the pair's
@@ -313,7 +313,7 @@ question is reachable — the WordPress containers simply cannot connect.
 ### What the live probe must assert (run FIRST, before any suite)
 
 1. `SELECT user, host, plugin FROM mysql.user WHERE user='wordpress'` on
-   `duo-shared-mysql` — record which auth plugin the account actually got.
+   `wprism-shared-mysql` — record which auth plugin the account actually got.
 2. From a throwaway pair's `cli1` container: `wp db check`. A success proves
    mysqlnd completed the handshake; a failure must be captured verbatim,
    because it is what would justify adding an engine-conditional

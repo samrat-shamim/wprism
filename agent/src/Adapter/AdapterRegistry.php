@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Policy/ManifestDispositions.php';
@@ -8,7 +8,7 @@ require_once __DIR__ . '/TargetProbe.php';
 
 /**
  * Adapter provenance and capability-readiness resolution, extracted from
- * Policy (DUO-3348 slice 4): the source view of which pinned adapters are
+ * Policy (issue #3348 slice 4): the source view of which pinned adapters are
  * usable, and the provider-negotiation view of which selected actions can
  * actually run, over the manifests and dispositions a Policy has already
  * resolved.
@@ -35,26 +35,26 @@ require_once __DIR__ . '/TargetProbe.php';
  * here is either the constructor's own type hint or an instance method call
  * on the $policy this class was handed — never a `Policy::` static call —
  * so, like ConvergenceVerifier's identical relationship to its own $policy
- * field (DUO-3347/DUO-3441), no fresh-process load of this file alone can
+ * field (issue #3347/issue #3441), no fresh-process load of this file alone can
  * reach a Policy-class-not-found fatal through it. The four requires above
  * are every class this file names statically on its own — Canon, Manifest
  * Dispositions, `AdapterSources::SHIPPED`, `TargetProbe::probe_target()` —
  * each stated here rather than inherited through some other file's require,
  * because an unstated dependency is exactly the standalone-load gap
- * DUO-3440/DUO-3441/DUO-3442 each fixed one file at a time.
+ * issue #3440/issue #3441/issue #3442 each fixed one file at a time.
  */
 final class AdapterRegistry {
     /**
      * The capability report's own wire version.
      *
-     * A new string rather than the retired `duo-capability-registry/v2`: the
+     * A new string rather than the retired `wprism-capability-registry/v2`: the
      * document is now projected from the reviewed dispositions alone, so no
      * row carries a generated adapter digest, a subject certification record,
      * or a bound evidence status. A consumer pinned to the old version string
      * would otherwise read those absences as data loss in a document it
      * believed was the same shape.
      */
-    public const REPORT_FORMAT = 'duo-capability-report/v1';
+    public const REPORT_FORMAT = 'wprism-capability-report/v1';
 
     public function __construct(
         private readonly Policy $policy,
@@ -116,7 +116,7 @@ final class AdapterRegistry {
      * capability_claim() above and report() below both land here — which is
      * why the per-entry rules are asserted at this line. Since WP-1.2 the
      * pinned-subset check in Policy::load() no longer speaks for the LIBRARY
-     * view: `wp duo capabilities --all` reads entry() for manifests nobody
+     * view: `wp wprism capabilities --all` reads entry() for manifests nobody
      * pinned, and an entry tampered after review (evidence deleted, an
      * invented entity_section, a version range the manifest does not declare)
      * projected `certified`/`verified` from here with no validator between the
@@ -318,12 +318,12 @@ final class AdapterRegistry {
      * dispositions and per-adapter provenance.
      *
      * Static, and taking its inputs rather than reading them off a Policy,
-     * because `wp duo capabilities --all` reports the whole shipped library
+     * because `wp wprism capabilities --all` reports the whole shipped library
      * with no site repository to load. One implementation serves both: the
      * library view and the pinned-set view disagreeing about a verdict would
      * be worse than either being wrong.
      *
-     * $sources (DUO-3314) carries AdapterSources::diagnostics() — where each
+     * $sources (issue #3314) carries AdapterSources::diagnostics() — where each
      * manifest was installed from, the trust tier it reaches, and its
      * certification state. $target is TargetProbe::probe_target(), or null
      * where there is no live target to evaluate against: with no target facts
@@ -351,11 +351,11 @@ final class AdapterRegistry {
             $name = (string) ($manifest['name'] ?? '?');
             // `registry` stays right here where AdapterSources::diagnostics()
             // now answers `null` for a shipped row in a library with no
-            // dispositions document (DUO-3486): this method cannot be reached
+            // dispositions document (issue #3486): this method cannot be reached
             // by such a library at all. Every caller holds a non-null
             // ManifestDispositions before it calls — certification_readiness_
             // blockers() and capability_report() return early without one, `wp
-            // duo capabilities --all` refuses, and AdapterCatalog only enters
+            // wprism capabilities --all` refuses, and AdapterCatalog only enters
             // its block when one loaded. So the library HAS a reviewed
             // registry, this default describes a row whose diagnostics entry is
             // merely ABSENT (an empty $sources, or a manifest the scan did not
@@ -375,14 +375,14 @@ final class AdapterRegistry {
             $explicitPin = ($external['explicit_pin'] ?? false) === true;
             if ($externalClaim !== null && !$outOfTree) {
                 throw new \RuntimeException(
-                    "duo: external capability context for shipped adapter '$name' would replace its registry claim"
+                    "wprism: external capability context for shipped adapter '$name' would replace its registry claim"
                 );
             }
             // An out-of-tree adapter answers with its own (external, signed)
             // claim or with none — never with the reviewed disposition for the
             // same NAME. That name-keyed fallback is exactly how an uncertified
             // site copy of a SHIPPED adapter (T6 §3.3's override) read `Ready`
-            // beside `Uncertified` in `duo assess`: the shipped woocommerce
+            // beside `Uncertified` in `wprism assess`: the shipped woocommerce
             // claim was borrowed for a manifest nobody had reviewed.
             $disposition = $outOfTree ? null : $dispositions->entry($name);
             $claim = $externalClaim ?? ($disposition === null
@@ -462,7 +462,7 @@ final class AdapterRegistry {
             // Source, trust tier, and certification state ride on every row and
             // every blocker: the doctrine requires certified, uncertified, and
             // missing capabilities to stay visibly different wherever they are
-            // reported, and `duo status` renders blockers without the rows.
+            // reported, and `wprism status` renders blockers without the rows.
             $row['source'] = $source;
             $row['verdict'] = ['status' => $verdict, 'reasons' => $reasons];
             $rows[] = $row;
@@ -490,13 +490,13 @@ final class AdapterRegistry {
         // Topology is a whole-target fact, so it is reported ONCE, at report
         // level, under `name: 'platform'` -- never as a per-surface reason.
         // `ready` below is `$blockers === []`, so this is the entire mechanism
-        // that stops `wp duo capabilities` reporting a network as ready; every
+        // that stops `wp wprism capabilities` reporting a network as ready; every
         // `verdict.reasons` stays untouched, so the code never reaches
         // `ProjectionVocabulary::project()` (which reads
         // `report()['manifests'][]['verdict']['reasons']` through
         // `SurfaceCatalog::registryFacts()`, not this list) and the retirement
         // recorded at cli/src/Contract/ProjectionVocabulary.php:219-235 stands.
-        // `duo-capability-report/v1` gains only a row in an existing list of
+        // `wprism-capability-report/v1` gains only a row in an existing list of
         // open-vocabulary blocker objects, so the change is additive.
         if (($target['multisite'] ?? false) === true) {
             $blockers[] = [

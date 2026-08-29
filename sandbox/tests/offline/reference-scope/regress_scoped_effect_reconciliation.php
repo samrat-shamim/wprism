@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Offline DUO-3344 regression for operation-bound scoped effects.
+ * Offline issue #3344 regression for operation-bound scoped effects.
  *
  * The production boundary writes only canonical hashes to a provider-namespaced
  * target option. This harness supplies just enough WordPress option/cache
@@ -19,7 +19,7 @@ if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }
 
-final class DuoScopedEffectFakeWpdb {
+final class WPrismScopedEffectFakeWpdb {
     public string $options = 'wp_options';
     public string $last_error = '';
     /** @var array<string,string> */
@@ -60,12 +60,12 @@ final class DuoScopedEffectFakeWpdb {
     }
 }
 
-$GLOBALS['wpdb'] = new DuoScopedEffectFakeWpdb();
-$GLOBALS['duo_scoped_effect_cache'] = ['transient' => []];
-$GLOBALS['duo_scoped_effect_deletes'] = 0;
-$GLOBALS['duo_scoped_effect_filters'] = [];
-$GLOBALS['duo_scoped_rewrite_child_flushes'] = 0;
-$GLOBALS['duo_scoped_rewrite_cache_deletes'] = [];
+$GLOBALS['wpdb'] = new WPrismScopedEffectFakeWpdb();
+$GLOBALS['wprism_scoped_effect_cache'] = ['transient' => []];
+$GLOBALS['wprism_scoped_effect_deletes'] = 0;
+$GLOBALS['wprism_scoped_effect_filters'] = [];
+$GLOBALS['wprism_scoped_rewrite_child_flushes'] = 0;
+$GLOBALS['wprism_scoped_rewrite_cache_deletes'] = [];
 
 function add_option(string $name, mixed $value, mixed $deprecated = '', mixed $autoload = 'yes'): bool {
     global $wpdb;
@@ -110,14 +110,14 @@ function did_action(string $hook): int {
 }
 
 function add_filter(string $hook, callable $callback, int $priority = 10): bool {
-    $GLOBALS['duo_scoped_effect_filters'][$hook][$priority][] = $callback;
+    $GLOBALS['wprism_scoped_effect_filters'][$hook][$priority][] = $callback;
     return true;
 }
 
 function remove_filter(string $hook, callable $callback, int $priority = 10): bool {
-    foreach (($GLOBALS['duo_scoped_effect_filters'][$hook][$priority] ?? []) as $index => $candidate) {
+    foreach (($GLOBALS['wprism_scoped_effect_filters'][$hook][$priority] ?? []) as $index => $candidate) {
         if ($candidate === $callback) {
-            unset($GLOBALS['duo_scoped_effect_filters'][$hook][$priority][$index]);
+            unset($GLOBALS['wprism_scoped_effect_filters'][$hook][$priority][$index]);
             return true;
         }
     }
@@ -125,27 +125,27 @@ function remove_filter(string $hook, callable $callback, int $priority = 10): bo
 }
 
 function wp_cache_get(string $key, string $group = '', bool $force = false, mixed &$found = null): mixed {
-    $found = array_key_exists($key, $GLOBALS['duo_scoped_effect_cache'][$group] ?? []);
-    return $found ? $GLOBALS['duo_scoped_effect_cache'][$group][$key] : false;
+    $found = array_key_exists($key, $GLOBALS['wprism_scoped_effect_cache'][$group] ?? []);
+    return $found ? $GLOBALS['wprism_scoped_effect_cache'][$group][$key] : false;
 }
 
 function wp_cache_delete(int|string $key, string $group = ''): bool {
-    $GLOBALS['duo_scoped_rewrite_cache_deletes'][] = [(string) $key, $group];
-    $present = array_key_exists((string) $key, $GLOBALS['duo_scoped_effect_cache'][$group] ?? []);
-    unset($GLOBALS['duo_scoped_effect_cache'][$group][(string) $key]);
+    $GLOBALS['wprism_scoped_rewrite_cache_deletes'][] = [(string) $key, $group];
+    $present = array_key_exists((string) $key, $GLOBALS['wprism_scoped_effect_cache'][$group] ?? []);
+    unset($GLOBALS['wprism_scoped_effect_cache'][$group][(string) $key]);
     return $present;
 }
 
 function delete_transient(string $name): bool {
     global $wpdb;
-    $GLOBALS['duo_scoped_effect_deletes']++;
+    $GLOBALS['wprism_scoped_effect_deletes']++;
     unset($wpdb->optionRows['_transient_' . $name]);
     unset($wpdb->optionRows['_transient_timeout_' . $name]);
-    unset($GLOBALS['duo_scoped_effect_cache']['transient'][$name]);
+    unset($GLOBALS['wprism_scoped_effect_cache']['transient'][$name]);
     return true;
 }
 
-final class DuoScopedRewriteRuntime {
+final class WPrismScopedRewriteRuntime {
     public string|false $permalink_structure = '/old/%post_id%/';
     /** @var array<string,string> */
     public array $rules = ['^old/([0-9]+)/?$' => 'index.php?p=$matches[1]'];
@@ -174,7 +174,7 @@ final class DuoScopedRewriteRuntime {
 require_once $root . '/sandbox/tests/support/wp_cli_child_process_fake.php';
 
 final class WP_CLI {
-    use \DuoTest\WpCliChildRuntime;
+    use \WPrismTest\WpCliChildRuntime;
 
     /** @param array<string,mixed> $args */
     public static function runcommand(string $command, array $args): object {
@@ -184,14 +184,14 @@ final class WP_CLI {
             throw new RuntimeException('unexpected scoped rewrite child command');
         }
         $parentRuntime = $wp_rewrite;
-        $freshRuntime = new DuoScopedRewriteRuntime();
+        $freshRuntime = new WPrismScopedRewriteRuntime();
         $freshRuntime->permalink_structure = get_option('permalink_structure', false);
         $wp_rewrite = $freshRuntime;
         try {
-            $method = new ReflectionMethod(Duo\NativeActions::class, 'flush_rewrite_in_fresh_process');
+            $method = new ReflectionMethod(WPrism\NativeActions::class, 'flush_rewrite_in_fresh_process');
             $receipt = $method->invoke(null);
             $report = [
-                'format' => 'duo-rewrite-flush-fresh/v1',
+                'format' => 'wprism-rewrite-flush-fresh/v1',
                 'after' => $receipt['after'],
             ];
             return (object) [
@@ -206,7 +206,7 @@ final class WP_CLI {
                 'stderr' => $failure->getMessage(),
             ];
         } finally {
-            $GLOBALS['duo_scoped_rewrite_child_flushes'] += $freshRuntime->flushes;
+            $GLOBALS['wprism_scoped_rewrite_child_flushes'] += $freshRuntime->flushes;
             $wp_rewrite = $parentRuntime;
         }
     }
@@ -217,8 +217,8 @@ require $root . '/agent/src/Kernel/Secrets.php';
 require $root . '/agent/src/Policy/Policy.php';
 require $root . '/agent/src/Adapter/Providers.php';
 
-use Duo\NativeActions;
-use Duo\Providers;
+use WPrism\NativeActions;
+use WPrism\Providers;
 
 $failures = 0;
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -241,7 +241,7 @@ $throws = static function (callable $fn, string $needle, string $message) use (&
     }
 };
 
-class DuoScopedProbeProvider {
+class WPrismScopedProbeProvider {
     public int $invocations = 0;
     public int $reconciliations = 0;
     public int $state = 0;
@@ -285,7 +285,7 @@ class DuoScopedProbeProvider {
     }
 }
 
-final class DuoScopedSecretProvider extends DuoScopedProbeProvider {
+final class WPrismScopedSecretProvider extends WPrismScopedProbeProvider {
     public function invoke_scoped(string $capability, array $args, array $operation): array {
         $this->invocations++;
         return [
@@ -308,7 +308,7 @@ $operation = static function (string $inputHash, string $id): array {
     ];
 };
 
-$provider = new DuoScopedProbeProvider();
+$provider = new WPrismScopedProbeProvider();
 $action = ['kind' => 'provider', 'provider' => 'scoped-probe', 'capability' => 'repair', 'args' => []];
 $decl = $provider->capabilities()['repair'];
 $op = $operation(Providers::scoped_input_hash($action, $decl), 'operation.0001');
@@ -394,7 +394,7 @@ $throws(
 );
 $check($provider->invocations === 1, 'an intent-only operation did not reinvoke the provider');
 
-$secret = new DuoScopedSecretProvider();
+$secret = new WPrismScopedSecretProvider();
 $secretAction = ['kind' => 'provider', 'provider' => 'scoped-probe', 'capability' => 'repair', 'args' => []];
 $secretDecl = $secret->capabilities()['repair'];
 $secretOp = $operation(Providers::scoped_input_hash($secretAction, $secretDecl), 'operation.0003');
@@ -413,12 +413,12 @@ $nativeArgs = ['name' => 'scoped_native'];
 $nativeOp = $operation(NativeActions::scoped_input_hash('transient.delete', $nativeArgs), 'operation.0004');
 $nativeNotStarted = NativeActions::reconcile_scoped('transient.delete', $nativeArgs, $nativeOp);
 $check(
-    $nativeNotStarted['status'] === 'not_started' && $GLOBALS['duo_scoped_effect_deletes'] === 0,
+    $nativeNotStarted['status'] === 'not_started' && $GLOBALS['wprism_scoped_effect_deletes'] === 0,
     'native reconciliation does not infer execution from transient absence without a durable receipt'
 );
 $GLOBALS['wpdb']->optionRows['_transient_scoped_native'] = 'stale';
 $GLOBALS['wpdb']->optionRows['_transient_timeout_scoped_native'] = '123';
-$GLOBALS['duo_scoped_effect_cache']['transient']['scoped_native'] = false;
+$GLOBALS['wprism_scoped_effect_cache']['transient']['scoped_native'] = false;
 $nativeReceipt = NativeActions::invoke_scoped('transient.delete', $nativeArgs, $nativeOp);
 $nativeRecovered = NativeActions::reconcile_scoped('transient.delete', $nativeArgs, $nativeOp);
 $check(
@@ -426,7 +426,7 @@ $check(
         && $nativeRecovered['status'] === 'verified'
         && $nativeRecovered['after_hash'] === $nativeReceipt['after_hash']
         && $nativeReceipt['capability_digest'] === NativeActions::scoped_action_digest('transient.delete')
-        && $GLOBALS['duo_scoped_effect_deletes'] === 1,
+        && $GLOBALS['wprism_scoped_effect_deletes'] === 1,
     'native recovery reads the transient postcondition and never deletes a second time'
 );
 
@@ -442,11 +442,11 @@ $GLOBALS['wpdb']->optionRows['permalink_structure'] = '/scoped/%postname%/';
 $GLOBALS['wpdb']->optionRows['rewrite_rules'] = serialize([
     '^old/([0-9]+)/?$' => 'index.php?p=$matches[1]',
 ]);
-$GLOBALS['wp_rewrite'] = new DuoScopedRewriteRuntime();
+$GLOBALS['wp_rewrite'] = new WPrismScopedRewriteRuntime();
 $rewriteOp = $operation(NativeActions::scoped_input_hash('rewrite.flush', []), 'operation.0005');
 $rewriteNotStarted = NativeActions::reconcile_scoped('rewrite.flush', [], $rewriteOp);
 $check(
-    $rewriteNotStarted['status'] === 'not_started' && $GLOBALS['duo_scoped_rewrite_child_flushes'] === 0,
+    $rewriteNotStarted['status'] === 'not_started' && $GLOBALS['wprism_scoped_rewrite_child_flushes'] === 0,
     'scoped rewrite reconciliation requires a durable receipt and never infers execution from target state'
 );
 $rewriteReceipt = NativeActions::invoke_scoped('rewrite.flush', [], $rewriteOp);
@@ -456,8 +456,8 @@ $check(
         && $rewriteRecovered['status'] === 'verified'
         && $rewriteRecovered['after_hash'] === $rewriteReceipt['after_hash']
         && $rewriteReceipt['capability_digest'] === NativeActions::scoped_action_digest('rewrite.flush')
-        && $GLOBALS['duo_scoped_rewrite_child_flushes'] === 1
-        && $GLOBALS['duo_scoped_rewrite_cache_deletes'] === [
+        && $GLOBALS['wprism_scoped_rewrite_child_flushes'] === 1
+        && $GLOBALS['wprism_scoped_rewrite_cache_deletes'] === [
             ['rewrite_rules', 'options'],
             ['tribe_last_generate_rewrite_rules', 'options'],
             ['tribe_last_updated_option', 'options'],
@@ -476,7 +476,7 @@ $throws(
     'scoped rewrite recovery refuses post-receipt rule drift instead of reinvoking the flush'
 );
 $check(
-    $GLOBALS['duo_scoped_rewrite_child_flushes'] === 1,
+    $GLOBALS['wprism_scoped_rewrite_child_flushes'] === 1,
     'a mismatched scoped rewrite readback never invokes the filesystem-or-database effect again'
 );
 

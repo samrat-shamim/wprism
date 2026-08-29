@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Apply/ApplyPlanner.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
@@ -47,7 +47,7 @@ final class ScopedApplyCoordinator {
             $identity = (string) ($row['uuid'] ?? '');
             $entity = $compiled->tree()[$identity] ?? null;
             if (!is_array($entity)) {
-                throw new \RuntimeException('duo: scoped work identity disappeared from frozen artifact');
+                throw new \RuntimeException('wprism: scoped work identity disappeared from frozen artifact');
             }
             if ($identity === 'options/core' && ScopedApply::has_record_scoped_options($scopeContract)) {
                 $document = ScopedApply::selected_option_document($entity['data'], $scopeContract, $row);
@@ -101,7 +101,7 @@ final class ScopedApplyCoordinator {
         $capabilities = (array) ($negotiation['scoped_capabilities'] ?? []);
         if ($selectedActions !== [] && !method_exists(Providers::class, 'negotiate_scoped')) {
             throw new \RuntimeException(
-                'duo: scoped apply requires operation-bound action reconciliation before target mutation'
+                'wprism: scoped apply requires operation-bound action reconciliation before target mutation'
             );
         }
         $ledgerMapIdentityHashes = self::observation_ledger_map_identity_hashes($observation);
@@ -195,14 +195,14 @@ final class ScopedApplyCoordinator {
     /** @return list<string> */
     public static function assert_ledger_map_identity_hashes(mixed $hashes, string $source): array {
         if (!is_array($hashes) || !array_is_list($hashes)) {
-            throw new \RuntimeException("duo: scoped ledger-map $source has no canonical opaque identity hashes");
+            throw new \RuntimeException("wprism: scoped ledger-map $source has no canonical opaque identity hashes");
         }
         $previous = null;
         foreach ($hashes as $identityHash) {
             if (!is_string($identityHash)
                 || preg_match('/^[a-f0-9]{64}$/D', $identityHash) !== 1
                 || ($previous !== null && strcmp($previous, $identityHash) >= 0)) {
-                throw new \RuntimeException("duo: scoped ledger-map $source has invalid opaque identity hashes");
+                throw new \RuntimeException("wprism: scoped ledger-map $source has invalid opaque identity hashes");
             }
             $previous = $identityHash;
         }
@@ -258,7 +258,7 @@ final class ScopedApplyCoordinator {
                 hash('sha256', Canon::encode((array) ($negotiation['scoped_capabilities'] ?? [])))
             )) {
             throw new \RuntimeException(
-                'duo: scoped apply recovery action/capability evidence changed; opaque effects were not replayed'
+                'wprism: scoped apply recovery action/capability evidence changed; opaque effects were not replayed'
             );
         }
     }
@@ -328,7 +328,7 @@ final class ScopedApplyCoordinator {
             || !hash_equals($capabilityDigest, (string) ($result['capability_digest'] ?? ''))
             || preg_match('/^[a-f0-9]{64}$/D', (string) ($result['before_hash'] ?? '')) !== 1
             || preg_match('/^[a-f0-9]{64}$/D', (string) ($result['after_hash'] ?? '')) !== 1) {
-            throw new \RuntimeException('duo: scoped effect returned an invalid reviewed receipt');
+            throw new \RuntimeException('wprism: scoped effect returned an invalid reviewed receipt');
         }
     }
 
@@ -341,7 +341,7 @@ final class ScopedApplyCoordinator {
         string $status = 'verified'
     ): array {
         if ($receipt === null) {
-            throw new \RuntimeException('duo: scoped action has no durable outer receipt');
+            throw new \RuntimeException('wprism: scoped action has no durable outer receipt');
         }
         return [
             'format' => Providers::SCOPED_RECEIPT_FORMAT,
@@ -399,7 +399,7 @@ final class ScopedApplyCoordinator {
             ), ARRAY_A);
             if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
                 throw new \RuntimeException(
-                    'duo: scoped engine-effect taxonomy-count readback failed; recovery_required'
+                    'wprism: scoped engine-effect taxonomy-count readback failed; recovery_required'
                 );
             }
             foreach ($rows as $row) {

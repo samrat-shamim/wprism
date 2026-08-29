@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 /**
  * Runs wp-cli inside a compose service.
@@ -9,7 +9,7 @@ namespace Duo\Orchestrator;
  * Default (`mode` absent, or `"run"`): `docker compose -f … run --rm -T
  * <service> wp …` — a fresh container per call.
  *
- * DUO-3513 opt-in (`mode: "exec"`): `docker compose -f … exec -T <service>
+ * issue #3513 opt-in (`mode: "exec"`): `docker compose -f … exec -T <service>
  * wp …` against an already-running container. Measured on this host:
  * `exec -T` floors at ~0.14s versus `run --rm`'s ~0.40s container create +
  * ~0.51s dependency resolution (the legacy docker-compose.yml estate only —
@@ -42,9 +42,9 @@ final class DockerTransport extends Transport {
     private $controlPlaneCapture;
 
     /**
-     * Cached per DockerTransport instance. cli/duo builds exactly one
-     * Transport per `duo` invocation and reuses it for the whole dispatch
-     * (see cli/duo's `$transport = Transport::make(...)` call site plus the
+     * Cached per DockerTransport instance. cli/wprism builds exactly one
+     * Transport per `wprism` invocation and reuses it for the whole dispatch
+     * (see cli/wprism's `$transport = Transport::make(...)` call site plus the
      * verb-dispatch match arm), so an instance property already gives the
      * "probe once per process" contract the issue asks for without any
      * global/static state.
@@ -109,7 +109,7 @@ final class DockerTransport extends Transport {
     public function describe(): string {
         $profile = $this->profile !== null ? " profile={$this->profile}" : '';
         // Appended only when non-default so `describe()` — and therefore
-        // `duo envs` — stays byte-identical for every environment that
+        // `wprism envs` — stays byte-identical for every environment that
         // never opted in (rule 8).
         $mode = $this->mode !== 'run' ? " mode={$this->mode}" : '';
         $envFile = $this->composeEnvFile !== null ? " compose_env_file={$this->composeEnvFile}" : '';
@@ -123,11 +123,11 @@ final class DockerTransport extends Transport {
      * ## Why the transport owns this and not the caller
      *
      * A docker environment's defining property is that its repository IS on
-     * this filesystem — the bind mount is how `pair.sh` and `duo deploy` from
+     * this filesystem — the bind mount is how `pair.sh` and `wprism deploy` from
      * inside a checkout already work. But only the compose file knows WHERE:
      * `repo_path` is the CONTAINER path (`/siterepo` for both sides of a
      * pair), so two environments of one pair are indistinguishable by config
-     * alone. Before DUO-3526 the host guessed with
+     * alone. Before issue #3526 the host guessed with
      * `CodeResolver::locateSiteRepo(getcwd())`, which answers for the
      * directory the operator happens to stand in — the SOURCE repository
      * during a rehearse, not the target — so a resolve could report success

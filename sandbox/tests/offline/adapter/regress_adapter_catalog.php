@@ -1,17 +1,17 @@
 <?php
 /**
- * Offline (no docker, no WordPress bootstrap) regression harness for DUO-3339:
- * the installed-adapter catalog — `duo adapter list|inspect|doctor` — and the
+ * Offline (no docker, no WordPress bootstrap) regression harness for issue #3339:
+ * the installed-adapter catalog — `wprism adapter list|inspect|doctor` — and the
  * reporting half of the source scan it is built on
  * (`AdapterSources::survey()`).
  *
  * Nothing is faked. Every CLI check below runs the REAL host command as a
- * subprocess (`php cli/duo adapter …`) against the REAL shipped manifest
+ * subprocess (`php cli/wprism adapter …`) against the REAL shipped manifest
  * library and against REAL site-repository fixtures this test writes to
  * scratch directories, and reads the real exit code and the real
  * stdout/stderr. The command is WordPress-free by construction, so the honest
  * way to test it is to run it. Same idiom as
- * sandbox/tests/offline/policy/regress_manifest_validate.sh's harness (DUO-3327).
+ * sandbox/tests/offline/policy/regress_manifest_validate.sh's harness (issue #3327).
  *
  * The suite also loads the engine IN-PROCESS, for one claim a subprocess
  * cannot make: that a refusal ROW carries `AdapterSources::discover()`'s own
@@ -28,7 +28,7 @@
  * declared plugin or theme is installed/active/in range, whether provider code
  * answers under its declared identity, and whether a certification claim holds
  * for one environment's WordPress/PHP/database. Those belong to
- * regress_provider_contract_live.sh and `duo capabilities <env>`; this suite
+ * regress_provider_contract_live.sh and `wprism capabilities <env>`; this suite
  * proves the command SAYS it did not do them, on every run.
  *
  * Exit 0 and "ALL PASSED" on success; any failed check prints "FAIL: ..." and
@@ -37,28 +37,28 @@
 
 $repo = dirname(__DIR__, 4);
 
-// Resolved from agent/duo.php's own source, the header
+// Resolved from agent/wprism.php's own source, the header
 // scripts/capability-registry.php established and cli/src/*.php's boot()
 // methods reuse: fixtures must declare the spec version the engine actually
 // supports, or every fixture would fail for a reason about this file.
-if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", (string) file_get_contents($repo . '/agent/duo.php'), $m) !== 1) {
-    fwrite(STDERR, "could not resolve DUO_SPEC_VERSION from agent/duo.php\n");
+if (preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", (string) file_get_contents($repo . '/agent/wprism.php'), $m) !== 1) {
+    fwrite(STDERR, "could not resolve WPRISM_SPEC_VERSION from agent/wprism.php\n");
     exit(1);
 }
-define('DUO_SPEC_VERSION', (int) $m[1]);
-if (preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", (string) file_get_contents($repo . '/agent/duo.php'), $m) !== 1) {
-    fwrite(STDERR, "could not resolve DUO_AGENT_VERSION from agent/duo.php\n");
+define('WPRISM_SPEC_VERSION', (int) $m[1]);
+if (preg_match("/define\('WPRISM_AGENT_VERSION', '([^']+)'\)/", (string) file_get_contents($repo . '/agent/wprism.php'), $m) !== 1) {
+    fwrite(STDERR, "could not resolve WPRISM_AGENT_VERSION from agent/wprism.php\n");
     exit(1);
 }
-define('DUO_AGENT_VERSION', $m[1]);
+define('WPRISM_AGENT_VERSION', $m[1]);
 
 // Policy::assert_single_site() is function_exists()-guarded precisely so the
 // offline validators run outside WordPress; the in-process half below reaches
 // Policy::load(), so the same switchable stub regress_adapter_sources.php uses
 // keeps the REAL single-site gate live rather than skipped.
-$GLOBALS['duo_test_is_multisite'] = false;
+$GLOBALS['wprism_test_is_multisite'] = false;
 function is_multisite(): bool {
-    return (bool) $GLOBALS['duo_test_is_multisite'];
+    return (bool) $GLOBALS['wprism_test_is_multisite'];
 }
 
 require $repo . '/agent/src/Kernel/Canon.php';
@@ -67,7 +67,7 @@ require $repo . '/agent/src/Policy/ManifestDispositions.php';
 require $repo . '/agent/src/Adapter/AdapterRegistry.php';
 require $repo . '/agent/src/Policy/Policy.php';
 // The catalog class itself, for the two pure renderers asserted directly at
-// the end of this suite. Everything else here drives `php cli/duo` as a
+// the end of this suite. Everything else here drives `php cli/wprism` as a
 // subprocess on purpose — that is what proves the verb is wired — but a
 // renderer branch that only fires on a row the AGENT half does not emit yet
 // has no subprocess path to reach it, and asserting it through Reflection is
@@ -75,10 +75,10 @@ require $repo . '/agent/src/Policy/Policy.php';
 require $repo . '/cli/src/Adapter/AdapterCatalog.php';
 require_once __DIR__ . '/certification_fixture.php';
 
-use Duo\AdapterSources;
-use Duo\AdapterLibrary;
-use Duo\Canon;
-use Duo\Policy;
+use WPrism\AdapterSources;
+use WPrism\AdapterLibrary;
+use WPrism\Canon;
+use WPrism\Policy;
 
 $failures = 0;
 function check(bool $cond, string $msg): void {
@@ -101,9 +101,9 @@ function check(bool $cond, string $msg): void {
  * @param list<string> $args
  * @return array{exit:int, stdout:string, stderr:string}
  */
-function duo(array $args, ?string $adapterLibraryOverride = null): array {
+function wprism(array $args, ?string $adapterLibraryOverride = null): array {
     global $repo;
-    $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($repo . '/cli/duo') . ' adapter';
+    $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($repo . '/cli/wprism') . ' adapter';
     foreach ($args as $arg) {
         $cmd .= ' ' . escapeshellarg($arg);
     }
@@ -163,7 +163,7 @@ function copy_tree(string $source, string $destination): void {
 }
 
 function scratch(string $label): string {
-    $root = sys_get_temp_dir() . "/duo_regress_adapter_catalog_{$label}_" . bin2hex(random_bytes(4));
+    $root = sys_get_temp_dir() . "/wprism_regress_adapter_catalog_{$label}_" . bin2hex(random_bytes(4));
     mkdir($root, 0777, true);
     register_shutdown_function(fn() => rm_rf($root));
     return (string) realpath($root);
@@ -176,10 +176,10 @@ function scratch(string $label): string {
  */
 function site_repo(array $pins, array $adapters = [], array $extra = [], array $links = []): string {
     $root = scratch('repo');
-    Canon::write_file("$root/site.duo.json", Canon::encode([
+    Canon::write_file("$root/site.wprism.json", Canon::encode([
         'manifests' => $pins,
         'policy' => new \stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]));
     foreach ($adapters as $name => $content) {
         $file = "$root/adapters/$name.json";
@@ -230,7 +230,7 @@ function site_repo(array $pins, array $adapters = [], array $extra = [], array $
 function site_adapter(string $name, array $extra = []): array {
     return $extra + [
         'name' => $name,
-        'spec_version' => DUO_SPEC_VERSION - 1,
+        'spec_version' => WPRISM_SPEC_VERSION - 1,
         'option_autoload' => 'preserve',
         'options' => ['acme_widget_layout' => ['class' => 'authored']],
     ];
@@ -267,17 +267,17 @@ $manifestDir = $adapterLibrary->root();
 // ======================================================================
 echo "\n== the real shipped library rows up, every adapter, with its derived tier ==\n";
 // ======================================================================
-$list = duo(['list', '--format=json']);
+$list = wprism(['list', '--format=json']);
 $listReport = report($list);
-check($list['exit'] === 0, 'duo adapter list over the shipped library exits 0');
+check($list['exit'] === 0, 'wprism adapter list over the shipped library exits 0');
 check($list['stderr'] === '', 'a clean run writes nothing to stderr (message: ' . trim($list['stderr']) . ')');
 check(
-    is_array($listReport) && ($listReport['format'] ?? null) === 'duo-adapter-catalog/v2'
+    is_array($listReport) && ($listReport['format'] ?? null) === 'wprism-adapter-catalog/v2'
     && ($listReport['command'] ?? null) === 'list'
-    && ($listReport['spec_version'] ?? null) === DUO_SPEC_VERSION,
-    'the JSON report parses and carries the duo-adapter-catalog/v2 envelope'
+    && ($listReport['spec_version'] ?? null) === WPRISM_SPEC_VERSION,
+    'the JSON report parses and carries the wprism-adapter-catalog/v2 envelope'
 );
-// DUO-3339/B2: v2 is not a courtesy bump. A consumer written against v1 that
+// issue #3339/B2: v2 is not a courtesy bump. A consumer written against v1 that
 // read a v2 report would believe it had seen every installed adapter while an
 // entire SOURCE was missing from its world, so the two new top-level keys are
 // asserted as part of the envelope rather than as a nice-to-have.
@@ -307,7 +307,7 @@ check(
 );
 
 $shippedFiles = array_map(
-    static fn(\Duo\AdapterPackage $package): string => $package->name(),
+    static fn(\WPrism\AdapterPackage $package): string => $package->name(),
     $adapterLibrary->packages()
 );
 sort($shippedFiles, SORT_STRING);
@@ -379,7 +379,7 @@ check(
             'woocommerce-lifecycle-migrations',
         ],
     'all six of its manifest-shipped providers are listed as executable code — including the lookup repair '
-    . 'DUO-3342 moved out of the regenerator channel, which the row below confirms is no longer a regenerator'
+    . 'issue #3342 moved out of the regenerator channel, which the row below confirms is no longer a regenerator'
 );
 check(
     is_array($woo) && ($woo['executable_surfaces']['regenerators'] ?? null) === [],
@@ -392,7 +392,7 @@ check(
     && $core['tier_basis'] === 'actions[0] kind "native" (action \'rewrite.flush\')',
     'the core adapter reports its native-action tier and the exact declaration that grants it executable authority'
 );
-$agency = row_named($listReport, 'duo-agency-cpt');
+$agency = row_named($listReport, 'wprism-agency-cpt');
 check(
     is_array($agency) && $agency['trust_tier'] === 'plugin_provider'
     && str_contains((string) $agency['tier_basis'], "source 'plugin'"),
@@ -436,16 +436,16 @@ check($emptyBasis === [], 'and no adapter reports a tier with no stated basis');
 // ======================================================================
 echo "\n== inspect merges every source that already knew something about one adapter ==\n";
 // ======================================================================
-$inspect = report(duo(['inspect', 'woocommerce', '--format=json']));
+$inspect = report(wprism(['inspect', 'woocommerce', '--format=json']));
 $adapter = is_array($inspect) ? ($inspect['adapter'] ?? null) : null;
 check(
     is_array($adapter) && ($inspect['command'] ?? null) === 'inspect',
-    'duo adapter inspect emits one adapter under the same envelope'
+    'wprism adapter inspect emits one adapter under the same envelope'
 );
 // Asserted as EQUALITY with the survey's own row rather than against a
 // literal: "merged from the survey" is the property, and pinning the basis
 // string here a second time only records which declaration happened to be
-// first today (DUO-3342 moved it from the regenerator to providers[0]).
+// first today (issue #3342 moved it from the regenerator to providers[0]).
 check(
     is_array($adapter) && is_array($woo)
     && (string) $adapter['tier_basis'] === (string) $woo['tier_basis']
@@ -467,7 +467,7 @@ check(
 // No `adapter_digest` on a claim, and none derivable here. Adapter identity is
 // ArtifactPolicyIdentity::manifest_rows() hashed against a LOADED policy — the
 // site's own pin set — and this command loads the shipped library with no site
-// policy, so any digest it printed would not be the pin `duo adapter certify
+// policy, so any digest it printed would not be the pin `wprism adapter certify
 // --pin` resolves. The assertion is that the key is absent rather than
 // present-and-wrong: a plausible 64-hex string beside a claim reads as the pin.
 check(
@@ -495,7 +495,7 @@ check(
 // be the command vouching for itself.
 check(
     is_array($adapter)
-    && $adapter['verification']['bundle_schema'] === 'duo-subject-certification-bundle/v1',
+    && $adapter['verification']['bundle_schema'] === 'wprism-subject-certification-bundle/v1',
     'VERIFICATION STRENGTH is the cited bundle schema, not a minted scale (found: '
     . (is_array($adapter) ? var_export($adapter['verification']['bundle_schema'] ?? null, true) : '?') . ')'
 );
@@ -519,7 +519,7 @@ check(
     'MERGED FROM THE MANIFEST: the required providers block is the same one list reports'
 );
 
-$unknown = duo(['inspect', 'no-such-adapter', '--format=json']);
+$unknown = wprism(['inspect', 'no-such-adapter', '--format=json']);
 check(
     $unknown['exit'] === 2 && str_contains($unknown['stderr'], 'no-such-adapter')
     && str_contains($unknown['stderr'], 'pass --repo=<site-repo>'),
@@ -530,7 +530,7 @@ check(
 echo "\n== a site repository's own adapters/ source joins the catalog ==\n";
 // ======================================================================
 $overlayRepo = site_repo(['core', 'acme-widget'], ['acme-widget' => site_adapter('acme-widget')]);
-$overlay = duo(['list', '--repo=' . $overlayRepo, '--format=json']);
+$overlay = wprism(['list', '--repo=' . $overlayRepo, '--format=json']);
 $overlayReport = report($overlay);
 $siteRow = row_named($overlayReport, 'acme-widget');
 check($overlay['exit'] === 0, 'a healthy overlay lists clean (exit 0)');
@@ -574,7 +574,7 @@ $refusalCases = [
         'mislabeled' => site_adapter('something-else'),
         'keeper' => site_adapter('keeper'),
     ]),
-    // DUO-3314's signed-certification pass made one canonical lowercase-ASCII
+    // issue #3314's signed-certification pass made one canonical lowercase-ASCII
     // slug the identity grammar for file names, pins, key ids, and frozen
     // records, so a case-variant name is now refused as a non-canonical
     // IDENTITY before the case-fold comparison it used to reach. The
@@ -595,7 +595,7 @@ $refusalCases = [
         'keeper' => site_adapter('keeper'),
         'broken' => "{ this is not json\n",
     ]),
-    // The three conditions DUO-3314 added to the same scan, each in its own
+    // The three conditions issue #3314 added to the same scan, each in its own
     // fixture so the byte-comparison below covers them individually rather
     // than only in the combined probe further down.
     'out_of_tree_privilege' => site_repo(['keeper'], [
@@ -613,7 +613,7 @@ $refusalCases = [
     ]),
 ];
 foreach ($refusalCases as $code => $fixture) {
-    $result = duo(['list', '--repo=' . $fixture, '--format=json']);
+    $result = wprism(['list', '--repo=' . $fixture, '--format=json']);
     $parsed = report($result);
     $rows = refusals_of($parsed);
     $matching = array_values(array_filter($rows, static fn(array $r): bool => $r['code'] === $code));
@@ -634,7 +634,7 @@ foreach ($refusalCases as $code => $fixture) {
         . 'used to be reported twice, the second time as an ambiguous identity nobody claimed (rows: '
         . implode(', ', array_column($rows, 'code')) . ')'
     );
-    // DUO-3339/B2: every row states which source it is about and how far it
+    // issue #3339/B2: every row states which source it is about and how far it
     // reaches. Both are load-bearing rather than decoration — grammar_verdict()
     // stops judging site adapters on `scope: source`, and
     // AdapterCatalog::blockers() attributes a pin-set failure from `source`
@@ -701,7 +701,7 @@ foreach ($refusalCases as $code => $fixture) {
     // malformed_manifest is the one deliberate message delta (see the two
     // stated deltas at AdapterSources::scan()): discover() used to propagate
     // Canon's bare exception, and the row wraps it so it names the file as a
-    // site adapter. Every other code — including the three DUO-3314 added —
+    // site adapter. Every other code — including the three issue #3314 added —
     // is a refusal discover() owns verbatim, so the byte-comparison covers it.
     if ($code === 'malformed_manifest') {
         continue;
@@ -714,8 +714,8 @@ foreach ($refusalCases as $code => $fixture) {
 }
 
 $symlinkRepo = site_repo(['keeper'], ['keeper' => site_adapter('keeper')]);
-symlink($symlinkRepo . '/site.duo.json', $symlinkRepo . '/adapters/linked.json');
-$symlinkResult = duo(['list', '--repo=' . $symlinkRepo, '--format=json']);
+symlink($symlinkRepo . '/site.wprism.json', $symlinkRepo . '/adapters/linked.json');
+$symlinkResult = wprism(['list', '--repo=' . $symlinkRepo, '--format=json']);
 $symlinkRows = refusals_of(report($symlinkResult));
 $symlinkMatch = array_values(array_filter($symlinkRows, static fn(array $r): bool => $r['code'] === 'symlink_source'));
 check(
@@ -733,7 +733,7 @@ rm_rf($linkedSourceRepo . '/adapters');
 $elsewhere = scratch('elsewhere');
 Canon::write_file("$elsewhere/keeper.json", Canon::encode(site_adapter('keeper')));
 symlink($elsewhere, $linkedSourceRepo . '/adapters');
-$linkedResult = duo(['list', '--repo=' . $linkedSourceRepo, '--format=json']);
+$linkedResult = wprism(['list', '--repo=' . $linkedSourceRepo, '--format=json']);
 $linkedReport = report($linkedResult);
 $linkedRows = refusals_of($linkedReport);
 check(
@@ -753,7 +753,7 @@ check(
 // ======================================================================
 echo "\n== doctor: the readiness verdict, the refusals, and the deferred list ==\n";
 // ======================================================================
-$healthyDoctor = duo(['doctor', '--format=json']);
+$healthyDoctor = wprism(['doctor', '--format=json']);
 $healthyReport = report($healthyDoctor);
 check(
     $healthyDoctor['exit'] === 0 && ($healthyReport['status'] ?? null) === 'ok',
@@ -765,7 +765,7 @@ check(
 );
 
 $blockedRepo = site_repo(['core', 'acme-widget'], ['acme-widget' => site_adapter('acme-widget')]);
-$blockedDoctor = duo(['doctor', '--repo=' . $blockedRepo, '--format=json']);
+$blockedDoctor = wprism(['doctor', '--repo=' . $blockedRepo, '--format=json']);
 $blockedReport = report($blockedDoctor);
 $sourceBlockers = array_values(array_filter(
     $blockedReport['blockers'] ?? [],
@@ -777,7 +777,7 @@ check(
     && $sourceBlockers[0]['source'] === 'site'
     && $sourceBlockers[0]['trust_tier'] === 'declarative_manifest'
     && trim((string) $sourceBlockers[0]['remediation']) !== '',
-    'and its blocker row carries source, trust tier, and remediation — the same row `duo status` renders'
+    'and its blocker row carries source, trust tier, and remediation — the same row `wprism status` renders'
 );
 // The property is NON-CONTAGION: an uncertified site adapter must not make the
 // certified shipped adapter beside it look blocked. The `evidence_not_current`
@@ -809,10 +809,10 @@ check(
 // registry and no evidence record there is nothing to neutralize, so the Woo
 // row reaches the missing-provider blocker on the untouched copy.
 $missingProviderLibrary = scratch('missing-provider-library');
-$missingProviderLibrary = duo_cert_project_library($adapterLibrary, $missingProviderLibrary);
+$missingProviderLibrary = wprism_cert_project_library($adapterLibrary, $missingProviderLibrary);
 unlink($missingProviderLibrary . '/providers/woocommerce-cache.php');
 $missingProviderRepo = site_repo(['woocommerce']);
-$missingProviderDoctor = duo(
+$missingProviderDoctor = wprism(
     ['doctor', '--repo=' . $missingProviderRepo, '--format=json'],
     $missingProviderLibrary
 );
@@ -827,7 +827,7 @@ check(
     . 'stderr: ' . trim($missingProviderDoctor['stderr']) . ')'
 );
 
-$brokenList = report(duo(['list', '--repo=' . $refusalCases['shadows_shipped'], '--format=json']));
+$brokenList = report(wprism(['list', '--repo=' . $refusalCases['shadows_shipped'], '--format=json']));
 $brokenShippedGrammar = array_values(array_unique(array_column(
     array_column(array_filter(
         $brokenList['adapters'] ?? [],
@@ -842,7 +842,7 @@ check(
     . implode(', ', $brokenShippedGrammar) . ')'
 );
 
-$brokenInspect = duo(['inspect', 'keeper', '--repo=' . $refusalCases['shadows_shipped'], '--format=json']);
+$brokenInspect = wprism(['inspect', 'keeper', '--repo=' . $refusalCases['shadows_shipped'], '--format=json']);
 $brokenInspectReport = report($brokenInspect);
 check(
     is_array($brokenInspectReport) && ($brokenInspectReport['adapter']['name'] ?? null) === 'keeper'
@@ -857,7 +857,7 @@ check(
     . "the neighbouring file's message reprinted as this adapter's verdict"
 );
 
-$shadowDoctor = duo(['doctor', '--repo=' . $refusalCases['shadows_shipped'], '--format=json']);
+$shadowDoctor = wprism(['doctor', '--repo=' . $refusalCases['shadows_shipped'], '--format=json']);
 $shadowReport = report($shadowDoctor);
 check(
     $shadowDoctor['exit'] === 1 && refusals_of($shadowReport) !== [],
@@ -870,7 +870,7 @@ check(
 
 foreach ([
     'list (passing)' => $listReport,
-    'list (failing)' => report(duo(['list', '--repo=' . $refusalCases['shadows_shipped'], '--format=json'])),
+    'list (failing)' => report(wprism(['list', '--repo=' . $refusalCases['shadows_shipped'], '--format=json'])),
     'inspect' => $inspect,
     'doctor (passing)' => $healthyReport,
     'doctor (failing)' => $shadowReport,
@@ -887,22 +887,22 @@ $deferredSurfaces = implode("\n", array_map(
 ));
 check(
     str_contains($deferredSurfaces, 'AdapterRegistry::report()')
-    && str_contains($deferredSurfaces, 'duo capabilities <env>'),
+    && str_contains($deferredSurfaces, 'wprism capabilities <env>'),
     'doctor is offline-honest about certification: it names the live evaluation it did NOT perform, and where to get it'
 );
 check(
-    str_contains($deferredSurfaces, 'Providers::diagnose()') && str_contains($deferredSurfaces, 'duo plan <env>'),
+    str_contains($deferredSurfaces, 'Providers::diagnose()') && str_contains($deferredSurfaces, 'wprism plan <env>'),
     'and about provider negotiation, pointing at the plan rows that answer it'
 );
 check(
-    str_contains($deferredSurfaces, 'never loaded') && str_contains($deferredSurfaces, 'duo manifest-validate'),
+    str_contains($deferredSurfaces, 'never loaded') && str_contains($deferredSurfaces, 'wprism manifest-validate'),
     'and states that the manifest-shipped PHP it REPORTS is deliberately not loaded here'
 );
 check(
     str_contains($deferredSurfaces, 'the pinned SET'),
     'and that each grammar verdict is an isolated load, so a pin set is a different question'
 );
-// DUO-3339/B2 replaced this row's claim outright. It used to say the engine
+// issue #3339/B2 replaced this row's claim outright. It used to say the engine
 // had "exactly two adapter sources" and that a plugin-bundled manifest "is
 // discovered by nothing" — both true when it was written and both false the
 // moment the plugin source landed. The replacement is rendered FROM
@@ -916,8 +916,8 @@ check(
 );
 check(
     str_contains($deferredSurfaces, 'THREE adapter sources')
-    && str_contains($deferredSurfaces, 'duo-adapter.json')
-    && str_contains($deferredSurfaces, 'wp duo adapter-survey'),
+    && str_contains($deferredSurfaces, 'wprism-adapter.json')
+    && str_contains($deferredSurfaces, 'wp wprism adapter-survey'),
     'it names the third source, its conventional file, and the command that reports it on the target'
 );
 check(
@@ -931,7 +931,7 @@ check(
 );
 
 // ======================================================================
-echo "\n== the signed-certification conditions DUO-3314 added to the same scan ==\n";
+echo "\n== the signed-certification conditions issue #3314 added to the same scan ==\n";
 // ======================================================================
 // Those conditions were written as THROWS, against the pre-split file. Each
 // one has to work identically in throw mode and report a row in collect mode,
@@ -943,7 +943,7 @@ $certRepo = site_repo(['keeper'], [
     'adapters/certifications/keeper.json' => "not a certificate\n",
     'adapters/certifications/README' => "notes\n",
 ]);
-$certResult = duo(['list', '--repo=' . $certRepo, '--format=json']);
+$certResult = wprism(['list', '--repo=' . $certRepo, '--format=json']);
 $certReport = report($certResult);
 $certCodes = array_column(refusals_of($certReport), 'code');
 sort($certCodes, SORT_STRING);
@@ -981,7 +981,7 @@ foreach (['certification_source', 'certificate_invalid', 'out_of_tree_privilege'
     break;
 }
 
-// The certification WORD is DUO-3314's, drawn from DUO-3314's own two
+// The certification WORD is issue #3314's, drawn from issue #3314's own two
 // predicates. A real Ed25519 fixture is regress_site_adapter_certification's
 // subject and is not rebuilt here; what this suite owns is that the catalog
 // reads the same state rather than inventing a parallel vocabulary.
@@ -992,7 +992,7 @@ check(
     && str_contains($surveySource, ": 'third_party_signed';")
     && str_contains($surveySource, '$sources->is_certified($name)'),
     "survey() derives a site row's certification from is_certified(), the explicit-pin state and the verified "
-    . 'trust root — the same three facts diagnostics() uses for `wp duo capabilities`, so the two surfaces '
+    . 'trust root — the same three facts diagnostics() uses for `wp wprism capabilities`, so the two surfaces '
     . 'cannot disagree about whether an adapter is signed or about which root vouched'
 );
 check(
@@ -1023,7 +1023,7 @@ check(
 $unjudgedRepo = site_repo(['keeper'], ['keeper' => site_adapter('keeper')], [
     'adapters/certifications/README' => "notes\n",
 ]);
-$unjudgedReport = report(duo(['list', '--repo=' . $unjudgedRepo, '--format=json']));
+$unjudgedReport = report(wprism(['list', '--repo=' . $unjudgedRepo, '--format=json']));
 $unjudgedRow = row_named($unjudgedReport, 'keeper');
 check(
     is_array($unjudgedRow) && $unjudgedRow['certification'] === 'certification_unjudged',
@@ -1040,7 +1040,7 @@ check(
 echo "\n== a broken source is never reported as a healthy one ==\n";
 // ======================================================================
 // `inspect` reports ONE adapter, but exit 0 is a claim about the whole run.
-$inspectInBrokenSource = duo(['inspect', 'core', '--repo=' . $refusalCases['shadows_shipped'], '--format=json']);
+$inspectInBrokenSource = wprism(['inspect', 'core', '--repo=' . $refusalCases['shadows_shipped'], '--format=json']);
 $inspectBrokenReport = report($inspectInBrokenSource);
 check(
     $inspectInBrokenSource['exit'] === 1 && ($inspectBrokenReport['status'] ?? null) === 'error',
@@ -1060,19 +1060,19 @@ check(
     'and inspect carries the refusal rows too, so the report says WHY it is non-zero'
 );
 
-// A site.duo.json that is not JSON: every grammar verdict loads that file, so
+// A site.wprism.json that is not JSON: every grammar verdict loads that file, so
 // the failure has exactly one cause and must be reported exactly once.
 $badPolicyRepo = site_repo(['core'], ['acme-widget' => site_adapter('acme-widget')]);
-file_put_contents($badPolicyRepo . '/site.duo.json', "{ \"manifests\": [\"core\",\n");
-$badPolicy = duo(['list', '--repo=' . $badPolicyRepo, '--format=json']);
+file_put_contents($badPolicyRepo . '/site.wprism.json', "{ \"manifests\": [\"core\",\n");
+$badPolicy = wprism(['list', '--repo=' . $badPolicyRepo, '--format=json']);
 $badPolicyReport = report($badPolicy);
 $policyRefusals = array_values(array_filter(
     refusals_of($badPolicyReport),
     static fn(array $r): bool => $r['code'] === 'site_policy_unreadable'
 ));
 check(
-    count($policyRefusals) === 1 && str_contains((string) $policyRefusals[0]['paths'][0], 'site.duo.json'),
-    'an unparseable site.duo.json is ONE refusal row naming that file (rows: '
+    count($policyRefusals) === 1 && str_contains((string) $policyRefusals[0]['paths'][0], 'site.wprism.json'),
+    'an unparseable site.wprism.json is ONE refusal row naming that file (rows: '
     . implode(', ', array_column(refusals_of($badPolicyReport), 'code')) . ')'
 );
 $badPolicyShipped = array_values(array_unique(array_column(
@@ -1112,10 +1112,10 @@ check(
     . ', unjudged: ' . var_export($badPolicyReport['summary']['grammar_unjudged'] ?? null, true) . ')'
 );
 
-$badPolicyDeferred = implode("\n", array_column(report(duo(['list', '--repo=' . $badPolicyRepo, '--format=json']))['deferred'], 'why'));
+$badPolicyDeferred = implode("\n", array_column(report(wprism(['list', '--repo=' . $badPolicyRepo, '--format=json']))['deferred'], 'why'));
 check(
     str_contains($badPolicyDeferred, 'produced with no site policy after all'),
-    'and the deferred list stops claiming the verdicts were produced against this site.duo.json, because they '
+    'and the deferred list stops claiming the verdicts were produced against this site.wprism.json, because they '
     . 'were not'
 );
 check(
@@ -1125,7 +1125,7 @@ check(
 
 // pin_set_unloadable used to hardcode source=shipped, sending an operator
 // whose SITE adapter broke the pin set to the wrong directory.
-$shadowBlockers = report(duo(['doctor', '--repo=' . $refusalCases['shadows_shipped'], '--format=json']))['blockers'];
+$shadowBlockers = report(wprism(['doctor', '--repo=' . $refusalCases['shadows_shipped'], '--format=json']))['blockers'];
 check(
     array_column($shadowBlockers, 'code') === ['pin_set_unloadable']
     && ($shadowBlockers[0]['source'] ?? null) === 'site',
@@ -1135,7 +1135,7 @@ check(
 
 // R-4: "not installed" and "installed but refused" are different answers, and
 // only one of them is a usage error.
-$refusedInspect = duo(['inspect', 'signed', '--repo=' . $refusalCases['certificate_invalid'], '--format=json']);
+$refusedInspect = wprism(['inspect', 'signed', '--repo=' . $refusalCases['certificate_invalid'], '--format=json']);
 $refusedInspectReport = report($refusedInspect);
 check(
     $refusedInspect['exit'] === 1 && $refusedInspect['stderr'] === '',
@@ -1148,10 +1148,10 @@ check(
     'and the report names the refusal standing against it'
 );
 check(
-    duo(['inspect', 'genuinely-absent', '--repo=' . $refusalCases['certificate_invalid']])['exit'] === 2,
+    wprism(['inspect', 'genuinely-absent', '--repo=' . $refusalCases['certificate_invalid']])['exit'] === 2,
     'while a name nothing installs is still the usage refusal it always was'
 );
-$refusedText = duo(['inspect', 'signed', '--repo=' . $refusalCases['certificate_invalid']]);
+$refusedText = wprism(['inspect', 'signed', '--repo=' . $refusalCases['certificate_invalid']]);
 check(
     str_contains($refusedText['stdout'], 'INSTALLED, AND REFUSED')
     && str_contains($refusedText['stdout'], 'certificate_invalid'),
@@ -1161,13 +1161,13 @@ check(
 // ======================================================================
 echo "\n== a manifest library that is not this repository's ==\n";
 // ======================================================================
-$plainLibrary = duo_cert_project_library($adapterLibrary, scratch('library'));
+$plainLibrary = wprism_cert_project_library($adapterLibrary, scratch('library'));
 // An explicit historical-flat library remains accepted only through the
 // strict archive reader. A non-object document is an input refusal before a
 // catalog report: the closed library can never silently omit it and carry on.
 file_put_contents("$plainLibrary/scalar.json", '123');
 file_put_contents("$plainLibrary/listy.json", '[1,2,3]');
-$plainResult = duo(['list', '--format=json'], $plainLibrary);
+$plainResult = wprism(['list', '--format=json'], $plainLibrary);
 $plainReport = report($plainResult);
 check(
     $plainResult['exit'] === 2 && $plainResult['stdout'] === '' && $plainReport === null,
@@ -1179,7 +1179,7 @@ check(
     'the strict refusal names the first invalid archive member and its missing string identity'
 );
 check(
-    !str_contains($plainResult['stderr'], 'DUO_MANIFESTS_DIR'),
+    !str_contains($plainResult['stderr'], 'WPRISM_MANIFESTS_DIR'),
     'the refusal names the explicit input, never a process-global selection mechanism'
 );
 check(
@@ -1187,33 +1187,33 @@ check(
     'the input refusal identifies the archive library member on disk'
 );
 $brokenLibraryRepo = site_repo(['listy'], []);
-$brokenDoctor = duo(['doctor', '--repo=' . $brokenLibraryRepo, '--format=json'], $plainLibrary);
+$brokenDoctor = wprism(['doctor', '--repo=' . $brokenLibraryRepo, '--format=json'], $plainLibrary);
 check(
     $brokenDoctor['exit'] === 2 && $brokenDoctor['stdout'] === ''
     && $brokenDoctor['stderr'] === $plainResult['stderr'],
     'doctor and list reject the same invalid library before repository pins can change the answer'
 );
-$defaultAfterInvalid = report(duo(['list', '--format=json']));
+$defaultAfterInvalid = report(wprism(['list', '--format=json']));
 check(
     is_array($defaultAfterInvalid) && ($defaultAfterInvalid['status'] ?? null) === 'ok',
     'an invalid explicit library does not mutate the production library selected by the next invocation'
 );
-// R-2: the last DUO-3314 assertion reachable from collect mode that was still
+// R-2: the last issue #3314 assertion reachable from collect mode that was still
 // unguarded. declared_names() is reached ONLY when a site source exists, so an
 // unguarded throw there made the catalog answer two different ways about one
 // library — which is the single thing an inventory may never do.
-$twoAnswers = duo_cert_project_library($adapterLibrary, scratch('two-answers'));
+$twoAnswers = wprism_cert_project_library($adapterLibrary, scratch('two-answers'));
 file_put_contents("$twoAnswers/legal-file-name.json", json_encode([
     // The FILE name is a canonical slug; the DECLARED name is not.
     'name' => 'Illegal Declared Name',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'option_autoload' => 'preserve',
     'options' => ['solo_layout' => ['class' => 'authored']],
 ]));
-$withoutRepo = duo(['list', '--format=json'], $twoAnswers);
+$withoutRepo = wprism(['list', '--format=json'], $twoAnswers);
 // The site source must be non-empty: declared_names() is reached ONLY when
 // one exists, which is exactly why the two runs used to disagree.
-$withRepo = duo(
+$withRepo = wprism(
     ['list', '--repo=' . site_repo([], ['keeper' => site_adapter('keeper')]), '--format=json'],
     $twoAnswers
 );
@@ -1222,7 +1222,7 @@ check(
     'the strict archive reader refuses an invalid declared name before either run can survey it '
     . "(without --repo: {$withoutRepo['exit']}, with --repo: {$withRepo['exit']})"
 );
-// DUO-3371 closed the last of that asymmetry from the other end. This library's
+// issue #3371 closed the last of that asymmetry from the other end. This library's
 // declared name is not the file's name either, and the per-adapter grammar
 // verdict — an isolated Policy::load(), which BOTH runs perform — now refuses
 // exactly that. So the two runs no longer disagree about whether this library
@@ -1248,7 +1248,7 @@ check(
     'the input refusal names the invalid declaration and its canonical-slug contract'
 );
 
-$plainText = duo(['inspect', 'solo'], $plainLibrary);
+$plainText = wprism(['inspect', 'solo'], $plainLibrary);
 check(
     $plainText['exit'] === 2 && $plainText['stdout'] === ''
     && str_contains($plainText['stderr'], 'adapter manifest has no string name'),
@@ -1268,12 +1268,12 @@ foreach ([
     [['list', '--repo=' . $overlayRepo, '--repo=' . $overlayRepo], "duplicate flag '--repo'"],
     [['list', '--repo='], '--repo needs the path'],
     [['list', '--repo=/definitely/not/here'], 'is not a directory'],
-    [['list', '--repo=' . $noSiteFile], 'has no site.duo.json'],
+    [['list', '--repo=' . $noSiteFile], 'has no site.wprism.json'],
 ] as [$args, $needle]) {
-    $result = duo($args);
+    $result = wprism($args);
     check(
         $result['exit'] === 2 && str_contains($result['stderr'], $needle),
-        'usage refusal (exit 2) for `duo adapter ' . implode(' ', $args) . "`: $needle"
+        'usage refusal (exit 2) for `wprism adapter ' . implode(' ', $args) . "`: $needle"
     );
     check($result['stdout'] === '', 'and it writes no report to stdout, so a consumer cannot half-parse it');
 }
@@ -1291,8 +1291,8 @@ $escapeName = "evil\x1b[2J\x1b[1;1Hok: everything is certified";
 $escapeRepo = site_repo(['keeper'], ['keeper' => site_adapter('keeper')]);
 file_put_contents("$escapeRepo/adapters/$escapeName.json", "{}\n");
 if (in_array("$escapeName.json", scandir("$escapeRepo/adapters") ?: [], true)) {
-    $escapeText = duo(['doctor', '--repo=' . $escapeRepo]);
-    $escapeJson = report(duo(['doctor', '--repo=' . $escapeRepo, '--format=json']));
+    $escapeText = wprism(['doctor', '--repo=' . $escapeRepo]);
+    $escapeJson = report(wprism(['doctor', '--repo=' . $escapeRepo, '--format=json']));
     check(
         strcspn($escapeText['stdout'], "\x1b\x00\x07") === strlen($escapeText['stdout'])
         && str_contains($escapeText['stdout'], 'hex '),
@@ -1316,7 +1316,7 @@ if (in_array("$escapeName.json", scandir("$escapeRepo/adapters") ?: [], true)) {
 // rows come from the plugin source, which needs WP_PLUGIN_DIR. So its
 // protection is asserted against the SOURCE — the wiring precedent
 // regress_provider_contract.php:1082-1090 sets for a branch that cannot be
-// reached from here — while `wp duo adapter-survey` drives it for real in
+// reached from here — while `wp wprism adapter-survey` drives it for real in
 // regress_plugin_adapter_source.php.
 $catalogSource = (string) file_get_contents(dirname(__DIR__, 4) . '/cli/src/Adapter/AdapterCatalog.php');
 check(
@@ -1338,7 +1338,7 @@ check(
 // ======================================================================
 echo "\n== the human renderer says the same things the document does ==\n";
 // ======================================================================
-$text = duo(['list', '--repo=' . $refusalCases['shadows_shipped']]);
+$text = wprism(['list', '--repo=' . $refusalCases['shadows_shipped']]);
 check(
     str_contains($text['stdout'], '[shadows_shipped]')
     && str_contains($text['stdout'], 'remediation: ')
@@ -1357,7 +1357,7 @@ check(
 // signed state into the literal word `unreviewed`, which is the one word that
 // is not true of an adapter carrying a valid certificate under a trusted key —
 // on the command an operator runs precisely to find out why promotion refuses.
-$overlayText = duo(['list', '--repo=' . $overlayRepo]);
+$overlayText = wprism(['list', '--repo=' . $overlayRepo]);
 check(
     preg_match('/\bacme-widget\s+site\s+\S+\s+uncertified\b/', $overlayText['stdout']) === 1,
     'an uncertified site adapter prints its certification word, not a disposition status it has none of'
@@ -1375,7 +1375,7 @@ check(
 // The two T6 additions the agent half puts on every catalog row. Asserted
 // through the renderer with a synthesized row, so the CLI's half is provable
 // before the agent's lands and cannot silently drop them afterwards.
-$renderRow = new ReflectionMethod(\Duo\Orchestrator\AdapterCatalog::class, 'certification_detail');
+$renderRow = new ReflectionMethod(\WPrism\Orchestrator\AdapterCatalog::class, 'certification_detail');
 $detail = $renderRow->invoke(null, [
     'certification' => 'site_signed',
     'principal' => 'site-1a2b3c4d5e6f',
@@ -1393,11 +1393,11 @@ check(
 // T6 §3.3's shadowed shipped adapter is deliberately NOT an adapters[] row —
 // it is not loaded, and a row for a definition nothing loads would contradict
 // what that section means. render_not_installed() carries it.
-$notInstalled = new ReflectionMethod(\Duo\Orchestrator\AdapterCatalog::class, 'render_not_installed');
+$notInstalled = new ReflectionMethod(\WPrism\Orchestrator\AdapterCatalog::class, 'render_not_installed');
 ob_start();
 $notInstalled->invoke(null, [[
     'name' => 'woocommerce', 'path' => 'manifests/woocommerce.json', 'plugin' => null,
-    'reason_code' => \Duo\AdapterSources::CERTIFICATION_SHADOWED_BY_SITE, 'source' => 'shipped',
+    'reason_code' => \WPrism\AdapterSources::CERTIFICATION_SHADOWED_BY_SITE, 'source' => 'shipped',
     'winner' => ['path' => 'adapters/woocommerce.json', 'source' => 'site'],
     'message' => 'the repository explicitly pins the site copy for that name',
 ]]);
@@ -1408,7 +1408,7 @@ check(
     'a site override prints the shipped copy as installed-but-not-loaded, naming the winner (got: '
     . trim($shadowedText) . ')'
 );
-$cellMethod = new ReflectionMethod(\Duo\Orchestrator\AdapterCatalog::class, 'certification_cell');
+$cellMethod = new ReflectionMethod(\WPrism\Orchestrator\AdapterCatalog::class, 'certification_cell');
 foreach (['site_signed', 'third_party_signed', 'signed_unpinned', 'uncertified'] as $word) {
     check(
         $cellMethod->invoke(null, ['certification' => $word, 'disposition_status' => null]) === $word,
@@ -1416,7 +1416,7 @@ foreach (['site_signed', 'third_party_signed', 'signed_unpinned', 'uncertified']
     );
 }
 
-$inspectText = duo(['inspect', 'acf']);
+$inspectText = wprism(['inspect', 'acf']);
 check(
     str_contains($inspectText['stdout'], 'ADAPTER acf')
     && str_contains($inspectText['stdout'], 'tier_basis:')
@@ -1437,11 +1437,11 @@ echo "\n== WP-1.3: a bigger library changes what a row COSTS, never what it says
 // original row must come back byte-identical. Counting the SAVING is
 // regress_adapter_survey_scale.php's job (it can instrument the loader);
 // this surface can only see the answer, which is the half rule 8 governs.
-$sizedLibrary = duo_cert_project_library(
-    \Duo\AdapterLibrary::fromSourceTree($repo),
+$sizedLibrary = wprism_cert_project_library(
+    \WPrism\AdapterLibrary::fromSourceTree($repo),
     scratch('sized-library')
 );
-$smallRun = report(duo(['list', '--format=json'], $sizedLibrary));
+$smallRun = report(wprism(['list', '--format=json'], $sizedLibrary));
 $smallRows = [];
 foreach ($smallRun['adapters'] ?? [] as $row) {
     $smallRows[(string) $row['name']] = json_encode($row);
@@ -1450,12 +1450,12 @@ for ($i = 0; $i < 60; $i++) {
     $filler = sprintf('zz-filler-%03d', $i);
     file_put_contents("$sizedLibrary/$filler.json", json_encode([
         'name' => $filler,
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
         'option_autoload' => 'preserve',
         'options' => [str_replace('-', '_', $filler) . '_layout' => ['class' => 'authored']],
     ]));
 }
-$largeResult = duo(['list', '--format=json'], $sizedLibrary);
+$largeResult = wprism(['list', '--format=json'], $sizedLibrary);
 $largeRun = report($largeResult);
 $largeRows = [];
 foreach ($largeRun['adapters'] ?? [] as $row) {

@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
-use Duo\Tooling\ActiveShellSource;
+use WPrism\Tooling\ActiveShellSource;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
@@ -34,8 +34,8 @@ SH;
     {
         $source = <<<'SH'
 never_runs() {
-DUO_CERTIFICATION_MANIFESTS_JSON='["acf"]'
-require_observed_nonempty "owned assertion" "$out" # duo-premise-owner: acf
+WPRISM_CERTIFICATION_MANIFESTS_JSON='["acf"]'
+require_observed_nonempty "owned assertion" "$out" # wprism-premise-owner: acf
 }
 SH;
 
@@ -49,9 +49,9 @@ SH;
     public function testTopLevelParticipantAndLoopPremiseRemainActive(): void
     {
         $source = <<<'SH'
-DUO_CERTIFICATION_MANIFESTS_JSON='["acf"]'
+WPRISM_CERTIFICATION_MANIFESTS_JSON='["acf"]'
 for value in one; do
-  require_observed_nonempty "owned assertion" "$value" # duo-premise-owner: acf
+  require_observed_nonempty "owned assertion" "$value" # wprism-premise-owner: acf
 done
 SH;
 

@@ -1,5 +1,5 @@
 {
-    "format": "duo-adapter-integration-scenario/v1",
+    "format": "wprism-adapter-integration-scenario/v1",
     "participants": [
         "polylang",
         "the-events-calendar",

@@ -8,12 +8,12 @@ read -r -d '' SEED_PHP <<'PHPEOF' || true
 <?php
 wp_set_current_user(1);
 
-$login = sanitize_title_with_dashes('Duo Login');
-$redirect = sanitize_title_with_dashes('Duo Missing');
-$unicode = sanitize_title_with_dashes("Duo Login 東京 🚀");
+$login = sanitize_title_with_dashes('WPrism Login');
+$redirect = sanitize_title_with_dashes('WPrism Missing');
+$unicode = sanitize_title_with_dashes("WPrism Login 東京 🚀");
 $long = sanitize_title_with_dashes(str_repeat('A', 240));
-if ($login !== 'duo-login' || $redirect !== 'duo-missing'
-    || $unicode !== 'duo-login-%e6%9d%b1%e4%ba%ac-%f0%9f%9a%80'
+if ($login !== 'wprism-login' || $redirect !== 'wprism-missing'
+    || $unicode !== 'wprism-login-%e6%9d%b1%e4%ba%ac-%f0%9f%9a%80'
     || strlen($long) !== 200
     || sanitize_title_with_dashes('../login') !== 'login'
     || sanitize_title_with_dashes('login/foo') !== 'loginfoo'
@@ -58,8 +58,8 @@ SEED_OUT=$(wp_conf1 eval-file /siterepo/.tmp-wps-hide-login-seed.php)
 require_observed_nonempty "WPS Hide Login source seed" "$SEED_OUT"
 SEED_JSON=$(printf '%s\n' "$SEED_OUT" | awk 'NF { line=$0 } END { print line }')
 printf '%s\n' "$SEED_JSON" | jq -e '
-  .control > 0 and .login == "duo-login" and .redirect == "duo-missing" and
-  (.login_url | endswith("/duo-login/")) and
+  .control > 0 and .login == "wprism-login" and .redirect == "wprism-missing" and
+  (.login_url | endswith("/wprism-login/")) and
   (.rewrite_hash | test("^[0-9a-f]{64}$"))
 ' >/dev/null || fail "WPS Hide Login source settings or rewrite premise did not land: $SEED_JSON"
 rm -f "$SEED_FILE"

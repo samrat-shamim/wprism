@@ -1,10 +1,10 @@
 <?php
 /**
- * Offline characterization for `wp duo assess-inventory` / \Duo\AssessInventory.
+ * Offline characterization for `wp wprism assess-inventory` / \WPrism\AssessInventory.
  *
  * WHAT CAN DRIFT, AND WHY IT MATTERS
  * ----------------------------------
- * `duo-assess-inventory/v1` is the ONE document `duo assess` reads off a
+ * `wprism-assess-inventory/v1` is the ONE document `wprism assess` reads off a
  * target (round-3 MUP §2.1/§4.5). Two properties of it are load-bearing and
  * neither is visible by reading the class:
  *
@@ -43,17 +43,17 @@ $repoRoot = dirname(__DIR__, 4);
 
 // The agent binds both constants at load; read them from the drop-in rather
 // than restating them, so a version bump does not need this file edited.
-$bootstrap = (string) file_get_contents($repoRoot . '/agent/duo.php');
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', preg_match("/define\('DUO_SPEC_VERSION',\s*(\d+)\)/", $bootstrap, $m) === 1
+$bootstrap = (string) file_get_contents($repoRoot . '/agent/wprism.php');
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', preg_match("/define\('WPRISM_SPEC_VERSION',\s*(\d+)\)/", $bootstrap, $m) === 1
         ? (int) $m[1] : 2);
 }
-if (!defined('DUO_AGENT_VERSION')) {
-    define('DUO_AGENT_VERSION', preg_match("/define\('DUO_AGENT_VERSION',\s*'([^']+)'\)/", $bootstrap, $m) === 1
+if (!defined('WPRISM_AGENT_VERSION')) {
+    define('WPRISM_AGENT_VERSION', preg_match("/define\('WPRISM_AGENT_VERSION',\s*'([^']+)'\)/", $bootstrap, $m) === 1
         ? $m[1] : '0.0.0');
 }
 
-// The drop-in loads its whole class graph from agent/duo.php before any
+// The drop-in loads its whole class graph from agent/wprism.php before any
 // command runs. Offline, only what is required transitively is present,
 // and Policy guards its reviewed registries with class_exists() -- so
 // without this the pinned-adapter rows would silently report a null
@@ -62,12 +62,12 @@ if (!defined('DUO_AGENT_VERSION')) {
 require_once $repoRoot . '/agent/src/Policy/ManifestDispositions.php';
 require_once $repoRoot . '/agent/src/Assess/AssessInventory.php';
 
-use Duo\AssessInventory;
-use Duo\Canon;
-use Duo\Coverage;
-use Duo\Policy;
-use DuoTest\FakeWpdb;
-use DuoTest\WpStore;
+use WPrism\AssessInventory;
+use WPrism\Canon;
+use WPrism\Coverage;
+use WPrism\Policy;
+use WPrismTest\FakeWpdb;
+use WPrismTest\WpStore;
 
 // ---------------------------------------------------------------------------
 // Stubs the shared lib does not carry yet. Every one is function_exists()
@@ -75,7 +75,7 @@ use DuoTest\WpStore;
 // upstreaming rather than written into lib/ here, because another change is
 // editing that directory.
 // ---------------------------------------------------------------------------
-if (!class_exists('DuoTest\\FakeTheme')) {
+if (!class_exists('WPrismTest\\FakeTheme')) {
     /** The two accessors `wp_get_theme()` consumers actually call. */
     final class FakeTheme {
         /** @param array<string,string> $headers */
@@ -85,22 +85,22 @@ if (!class_exists('DuoTest\\FakeTheme')) {
             return $this->headers[$header] ?? '';
         }
     }
-    class_alias(FakeTheme::class, 'DuoTest\\FakeTheme');
+    class_alias(FakeTheme::class, 'WPrismTest\\FakeTheme');
 }
 
 // basename => plugin header array, as get_plugins() returns it.
-$GLOBALS['duo_test_plugins'] = [];
+$GLOBALS['wprism_test_plugins'] = [];
 // stylesheet => FakeTheme, as wp_get_themes() returns it.
-$GLOBALS['duo_test_themes'] = [];
+$GLOBALS['wprism_test_themes'] = [];
 
 if (!function_exists('get_plugins')) {
     function get_plugins(string $plugin_folder = ''): array {
-        return $GLOBALS['duo_test_plugins'];
+        return $GLOBALS['wprism_test_plugins'];
     }
 }
 if (!function_exists('wp_get_themes')) {
     function wp_get_themes(array $args = []): array {
-        return $GLOBALS['duo_test_themes'];
+        return $GLOBALS['wprism_test_themes'];
     }
 }
 if (!function_exists('home_url')) {
@@ -117,10 +117,10 @@ if (!function_exists('site_url')) {
 // ---------------------------------------------------------------------------
 // Fixture site
 // ---------------------------------------------------------------------------
-$scratch = sys_get_temp_dir() . '/duo_regress_assess_inventory_' . getmypid() . '_' . bin2hex(random_bytes(4));
+$scratch = sys_get_temp_dir() . '/wprism_regress_assess_inventory_' . getmypid() . '_' . bin2hex(random_bytes(4));
 mkdir($scratch . '/repo', 0777, true);
 register_shutdown_function(static function () use ($scratch): void {
-    foreach (['/repo/site.duo.json'] as $file) {
+    foreach (['/repo/site.wprism.json'] as $file) {
         @unlink($scratch . $file);
     }
     @rmdir($scratch . '/repo');
@@ -131,14 +131,14 @@ $repo = $scratch . '/repo';
 // The real shipped library: Policy resolves one closed source/embedded object,
 // so the pinned adapter row, its digest and its reviewed status are the real
 // registry's answers rather than a fixture's idea of them.
-file_put_contents($repo . '/site.duo.json', json_encode([
+file_put_contents($repo . '/site.wprism.json', json_encode([
     'manifests' => ['core'],
     'policy' => new stdClass(),
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
 
 // A value no redaction bug could produce by coincidence.
-const SENTINEL = 'duo-sentinel-8f3ac1e0-never-in-output';
+const SENTINEL = 'wprism-sentinel-8f3ac1e0-never-in-output';
 
 $store = WpStore::reset();
 $store->version = '7.0.3';
@@ -150,11 +150,11 @@ $store->seedOptions([
     'siteurl' => 'https://shop.example.test/wp',
 ]);
 
-$GLOBALS['duo_test_plugins'] = [
+$GLOBALS['wprism_test_plugins'] = [
     'zeta-tools/zeta-tools.php' => ['Name' => 'Zeta Tools', 'Version' => '0.9.1'],
     'acme-storefront/acme-storefront.php' => ['Name' => 'Acme Storefront', 'Version' => '4.2.0'],
 ];
-$GLOBALS['duo_test_themes'] = [
+$GLOBALS['wprism_test_themes'] = [
     'fixture-parent' => new FakeTheme(['Name' => 'Fixture Parent', 'Version' => '2.0.0']),
     'fixture-child' => new FakeTheme(['Name' => 'Fixture Child', 'Version' => '2.0.1']),
     'fixture-unused' => new FakeTheme(['Name' => 'Fixture Unused', 'Version' => '1.0.0']),
@@ -232,11 +232,11 @@ $survey = [
 ];
 
 $coverage = Coverage::report($repo);
-duo_check(
+wprism_check(
     $coverage['options']['total'] === 4,
     'the real Coverage projection read all four seeded option rows (' . $coverage['options']['total'] . ')'
 );
-// DUO-3505, at the composition boundary the defect was actually observed at:
+// issue #3505, at the composition boundary the defect was actually observed at:
 // of the four rows above, `blogname` is core.json authored (captured),
 // `siteurl` is core.json env and `_transient_acme_cache` matches core.json's
 // own ^_transient_ pattern (both declared and excluded), leaving
@@ -245,7 +245,7 @@ duo_check(
 // three into the `classify` next-action count -- so an assessment told an
 // operator to classify two names the pinned adapter already declares, in the
 // same document whose policy.surface_groups[] listed them as declared.
-duo_check(
+wprism_check(
     $coverage['options']['invisible_total'] === 1,
     'only the genuinely undeclared name is invisible; the declared env/derived rows are not ('
     . $coverage['options']['invisible_total'] . ')'
@@ -265,14 +265,14 @@ $encoded = Canon::encode($document);
 // ---------------------------------------------------------------------------
 echo "\n== the document's own contract ==\n";
 // ---------------------------------------------------------------------------
-duo_check_same('duo-assess-inventory/v1', $document['format'], 'the document names its own versioned format');
-duo_check_same(AssessInventory::FORMAT, $document['format'], 'the constant and the emitted format agree');
-duo_check_same(DUO_SPEC_VERSION, $document['spec_version'], 'the document binds the agent spec version');
-duo_check_same(DUO_AGENT_VERSION, $document['agent_version'], 'the document binds the agent version');
+wprism_check_same('wprism-assess-inventory/v1', $document['format'], 'the document names its own versioned format');
+wprism_check_same(AssessInventory::FORMAT, $document['format'], 'the constant and the emitted format agree');
+wprism_check_same(WPRISM_SPEC_VERSION, $document['spec_version'], 'the document binds the agent spec version');
+wprism_check_same(WPRISM_AGENT_VERSION, $document['agent_version'], 'the document binds the agent version');
 
 $topLevel = array_keys($document);
 sort($topLevel, SORT_STRING);
-duo_check_same(
+wprism_check_same(
     ['adapter_survey', 'agent_version', 'coverage', 'format', 'media', 'pending', 'plugins',
         'plugins_without_adapter', 'policy', 'spec_version', 'target', 'themes'],
     $topLevel,
@@ -285,30 +285,30 @@ echo "\n== target: the stack, from the probe the registry already runs ==\n";
 $target = $document['target'];
 $targetKeys = array_keys($target);
 sort($targetKeys, SORT_STRING);
-duo_check_same(
+wprism_check_same(
     ['database', 'home', 'php', 'site_mode', 'siteurl', 'wordpress'],
     $targetKeys,
     'target carries exactly its contract keys'
 );
-duo_check_same('7.0.3', $target['wordpress'], 'target names the probed WordPress version');
-duo_check_same('8.3.33', $target['php'], 'target names the probed PHP version');
-duo_check_same('MariaDB', $target['database']['engine'], 'a MariaDB banner projects the MariaDB engine');
-duo_check_same('11.8.8', $target['database']['version'], 'the server banner reduces to its dotted numeric version');
-duo_check_same('single-site', $target['site_mode'], 'a non-multisite probe projects single-site');
-duo_check(
+wprism_check_same('7.0.3', $target['wordpress'], 'target names the probed WordPress version');
+wprism_check_same('8.3.33', $target['php'], 'target names the probed PHP version');
+wprism_check_same('MariaDB', $target['database']['engine'], 'a MariaDB banner projects the MariaDB engine');
+wprism_check_same('11.8.8', $target['database']['version'], 'the server banner reduces to its dotted numeric version');
+wprism_check_same('single-site', $target['site_mode'], 'a non-multisite probe projects single-site');
+wprism_check(
     in_array($target['site_mode'], AssessInventory::SITE_MODES, true)
         && in_array($target['database']['engine'], AssessInventory::DATABASE_ENGINES, true),
     'site_mode and database engine come from their closed vocabularies'
 );
-duo_check_same('https://shop.example.test', $target['home'], 'home comes from the WordPress URL API');
-duo_check_same('https://shop.example.test/wp', $target['siteurl'], 'siteurl comes from the WordPress URL API');
+wprism_check_same('https://shop.example.test', $target['home'], 'home comes from the WordPress URL API');
+wprism_check_same('https://shop.example.test/wp', $target['siteurl'], 'siteurl comes from the WordPress URL API');
 
 $mysql = AssessInventory::from_facts($policy, ['probe' => ['database' => ['server' => '8.0.36']] + $probe] + $facts);
-duo_check_same('MySQL', $mysql['target']['database']['engine'], 'a banner without MariaDB in it projects MySQL');
-duo_check_same('8.0.36', $mysql['target']['database']['version'], 'a bare numeric banner survives version reduction');
+wprism_check_same('MySQL', $mysql['target']['database']['engine'], 'a banner without MariaDB in it projects MySQL');
+wprism_check_same('8.0.36', $mysql['target']['database']['version'], 'a bare numeric banner survives version reduction');
 
 $multisite = AssessInventory::from_facts($policy, ['probe' => ['multisite' => true] + $probe] + $facts);
-duo_check_same(
+wprism_check_same(
     'multisite',
     $multisite['target']['site_mode'],
     'assess-inventory REPORTS an unsupported topology instead of refusing to describe it'
@@ -317,19 +317,19 @@ duo_check_same(
 // ---------------------------------------------------------------------------
 echo "\n== installed code: every plugin and theme, ordered, with activation ==\n";
 // ---------------------------------------------------------------------------
-duo_check_same(
+wprism_check_same(
     ['acme-storefront/acme-storefront.php', 'zeta-tools/zeta-tools.php'],
     array_column($document['plugins'], 'basename'),
     'plugins are ordered by basename, inactive ones included'
 );
-duo_check_same([true, false], array_column($document['plugins'], 'active'), 'only the probe-active plugin is active');
-duo_check_same(['4.2.0', '0.9.1'], array_column($document['plugins'], 'version'), 'plugin versions come from the header');
-duo_check_same(
+wprism_check_same([true, false], array_column($document['plugins'], 'active'), 'only the probe-active plugin is active');
+wprism_check_same(['4.2.0', '0.9.1'], array_column($document['plugins'], 'version'), 'plugin versions come from the header');
+wprism_check_same(
     ['fixture-child', 'fixture-parent', 'fixture-unused'],
     array_column($document['themes'], 'stylesheet'),
     'themes are ordered by stylesheet, uninstalled-but-present ones included'
 );
-duo_check_same(
+wprism_check_same(
     [true, true, false],
     array_column($document['themes'], 'active'),
     'a child theme makes BOTH stylesheet and template active; the third theme is not'
@@ -342,7 +342,7 @@ echo "\n== the active plugins no pinned adapter declares ==\n";
 // plugin is unmanaged. Without this list the host has no bounded, name-only
 // source for the `plugin:<slug>` assess surface (round-3 T6 §3.6) and has to
 // re-derive plugin ownership from manifest bytes it does not hold.
-duo_check_same(
+wprism_check_same(
     [[
         'basename' => 'acme-storefront/acme-storefront.php',
         'file' => 'acme-storefront.php',
@@ -352,7 +352,7 @@ duo_check_same(
     'the one active plugin no pinned adapter declares is published with all three parts of its identity, '
     . 'so the host splits nothing: basename (the same key the plugins rows use), file, and slug'
 );
-duo_check(
+wprism_check(
     !in_array(
         'zeta-tools/zeta-tools.php',
         array_column($document['plugins_without_adapter'], 'basename'),
@@ -364,7 +364,7 @@ $singleFile = AssessInventory::from_facts(
     $policy,
     ['probe' => ['active_plugins' => ['hello.php', 'acme-storefront/acme-storefront.php']] + $probe] + $facts
 );
-duo_check_same(
+wprism_check_same(
     [
         ['basename' => 'acme-storefront/acme-storefront.php', 'file' => 'acme-storefront.php',
             'slug' => 'acme-storefront'],
@@ -374,23 +374,23 @@ duo_check_same(
     'a single-file plugin has no directory, so its slug is the file name without .php; rows sort by basename'
 );
 
-duo_check_same(2, $document['media']['count'], 'media counts the attachment rows and nothing else');
-duo_check_same(null, $document['media']['bytes'], 'stored bytes are declared unknown rather than guessed');
+wprism_check_same(2, $document['media']['count'], 'media counts the attachment rows and nothing else');
+wprism_check_same(null, $document['media']['bytes'], 'stored bytes are declared unknown rather than guessed');
 
 // ---------------------------------------------------------------------------
 echo "\n== policy: the pinned adapters and the surface groups ==\n";
 // ---------------------------------------------------------------------------
-duo_check_same(['core'], array_column($document['policy']['manifests'], 'name'), 'the pinned adapter set is reported');
+wprism_check_same(['core'], array_column($document['policy']['manifests'], 'name'), 'the pinned adapter set is reported');
 $manifestRow = $document['policy']['manifests'][0];
-duo_check_same(
+wprism_check_same(
     ['adapter_digest', 'name', 'source', 'status'],
     (static function (array $r): array { $k = array_keys($r);
     sort($k, SORT_STRING);
     return $k; })($manifestRow),
     'each manifest row carries exactly its contract keys'
 );
-duo_check_same('shipped', $manifestRow['source'], 'the shipped library reports the shipped source');
-duo_check(
+wprism_check_same('shipped', $manifestRow['source'], 'the shipped library reports the shipped source');
+wprism_check(
     preg_match('/^[0-9a-f]{64}$/D', (string) $manifestRow['adapter_digest']) === 1,
     'adapter_digest is a bare hex digest, never a decorated string'
 );
@@ -399,20 +399,20 @@ duo_check(
 // is one derivation now: the resolved identity row, hashed. Compared against
 // the compiler's own answer rather than a re-walk of the fold rules here,
 // which would re-create exactly the second implementation the deletion removed.
-duo_check_same(
-    (string) (\Duo\RepositoryCompiler::resolved_adapters($policy)[0]['digest'] ?? ''),
+wprism_check_same(
+    (string) (\WPrism\RepositoryCompiler::resolved_adapters($policy)[0]['digest'] ?? ''),
     $manifestRow['adapter_digest'],
     'the reported digest IS the resolved content digest for a shipped adapter, from the one derivation of adapter '
     . 'identity'
 );
 // A SITE adapter has no registry claim to read a digest from, and a
 // site-certified claim is projected before its final digest exists — so the
-// row's digest is the resolved content digest for every source, or `duo
+// row's digest is the resolved content digest for every source, or `wprism
 // assess` refuses assess_report_unbuildable on exactly the repositories T6
 // exists for (grind_adapter_walk.sh S2).
 $siteRepo = $scratch . '/siterepo';
 mkdir($siteRepo . '/adapters', 0777, true);
-// DUO-3504: this adapter now declares one of every shape whose PROVENANCE
+// issue #3504: this adapter now declares one of every shape whose PROVENANCE
 // used to be lost, so the surface-group assertions below are about the three
 // distinct mechanisms rather than one lucky case:
 //   acme_product  — classed, and shadowed by the site scope rule `certify
@@ -431,56 +431,56 @@ Canon::write_file($siteRepo . '/adapters/acme-storefront.json', Canon::encode([
     'options' => ['acme_storefront_layout' => ['class' => 'authored']],
     'plugin' => 'acme-storefront/acme-storefront.php',
     'post_types' => ['acme_note' => new stdClass(), 'acme_product' => ['class' => 'authored']],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'taxonomies' => ['acme_brand' => new stdClass()],
     'version_range' => ['max' => '5.0.0', 'min' => '4.0.0'],
 ]));
-Canon::write_file($siteRepo . '/site.duo.json', Canon::encode([
+Canon::write_file($siteRepo . '/site.wprism.json', Canon::encode([
     'manifests' => ['core', 'acme-storefront'],
-    // Exactly the bytes `duo adapter certify --pin` writes for the two types
+    // Exactly the bytes `wprism adapter certify --pin` writes for the two types
     // this adapter declares. They are the site's own whole-type decision and
     // they must keep winning the CLASSIFICATION (asserted below, and pinned
-    // as DUO-3495's contract at offline/adapter/regress_adapter_certify.php
-    // :985-990) — the point of the DUO-3504 assertions is that winning the
+    // as issue #3495's contract at offline/adapter/regress_adapter_certify.php
+    // :985-990) — the point of the issue #3504 assertions is that winning the
     // class does not transfer the CREDIT for declaring the surface.
     'policy' => ['scope' => [
         'post_type' => ['acme_product' => ['class' => 'authored']],
         'taxonomy' => ['acme_brand' => ['class' => 'authored']],
     ]],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ]));
 register_shutdown_function(static function () use ($siteRepo): void {
     @unlink($siteRepo . '/adapters/acme-storefront.json');
-    @unlink($siteRepo . '/site.duo.json');
+    @unlink($siteRepo . '/site.wprism.json');
     @rmdir($siteRepo . '/adapters');
     @rmdir($siteRepo);
 });
 $sitePolicy = Policy::load($siteRepo);
 $siteDocument = AssessInventory::from_facts($sitePolicy, $facts);
 $siteRows = array_column($siteDocument['policy']['manifests'], null, 'name');
-$resolvedSite = array_column(\Duo\RepositoryCompiler::resolved_adapters($sitePolicy), 'digest', 'name');
-duo_check_same(
+$resolvedSite = array_column(\WPrism\RepositoryCompiler::resolved_adapters($sitePolicy), 'digest', 'name');
+wprism_check_same(
     ['acme-storefront', 'core'],
     array_keys($siteRows),
     'a repository pinning a site adapter reports both rows'
 );
-duo_check_same('site', $siteRows['acme-storefront']['source'] ?? null, 'the site adapter row names its source');
-duo_check(
+wprism_check_same('site', $siteRows['acme-storefront']['source'] ?? null, 'the site adapter row names its source');
+wprism_check(
     is_string($siteRows['acme-storefront']['adapter_digest'] ?? null)
         && preg_match('/^[0-9a-f]{64}$/D', (string) $siteRows['acme-storefront']['adapter_digest']) === 1
         && $siteRows['acme-storefront']['adapter_digest'] === ($resolvedSite['acme-storefront'] ?? null),
     'and carries the RESOLVED content digest (a site adapter has no registry claim to read one from) — got '
     . var_export($siteRows['acme-storefront']['adapter_digest'] ?? null, true)
 );
-duo_check_same('uncertified', $siteRows['acme-storefront']['status'] ?? null, 'its status is the site source\'s own word');
+wprism_check_same('uncertified', $siteRows['acme-storefront']['status'] ?? null, 'its status is the site source\'s own word');
 
 // ---------------------------------------------------------------------------
-// DUO-3504: WHO DECLARED THIS SURFACE, versus WHOSE RULE CLASSIFIED IT.
+// issue #3504: WHO DECLARED THIS SURFACE, versus WHOSE RULE CLASSIFIED IT.
 //
-// `duo adapter certify --pin` adopts a certified adapter's declared types by
-// writing `policy.scope.<kind>.<name>` into site.duo.json (DUO-3495). That
+// `wprism adapter certify --pin` adopts a certified adapter's declared types by
+// writing `policy.scope.<kind>.<name>` into site.wprism.json (issue #3495). That
 // rule then wins `post_type_rule_details()`:1841 — correctly; site policy
-// always wins — and `source` reads `site.duo.json`. `declarant()` used to map
+// always wins — and `source` reads `site.wprism.json`. `declarant()` used to map
 // every non-manifest source onto `core`, so the adapter the operator had just
 // certified vanished from `declared_by`, and the host printed
 // "Platform-certified" (ProjectionVocabulary::projectProvenance():788-822)
@@ -489,19 +489,19 @@ duo_check_same('uncertified', $siteRows['acme-storefront']['status'] ?? null, 'i
 // fact, not the winning rule's byproduct.
 // ---------------------------------------------------------------------------
 $siteGroups = array_column($siteDocument['policy']['surface_groups'], null, 'id');
-duo_check_same(
+wprism_check_same(
     ['class' => 'authored', 'declared_by' => 'acme-storefront'],
     ['class' => $siteGroups['post_type:acme_product']['class'] ?? null,
         'declared_by' => $siteGroups['post_type:acme_product']['declared_by'] ?? null],
     'a site scope rule adopting a declared post type keeps the ADAPTER as its declarant — the site decided the '
     . 'class, it did not declare the type'
 );
-duo_check_same(
-    'site.duo.json',
+wprism_check_same(
+    'site.wprism.json',
     $sitePolicy->post_type_rule_details('acme_product')['source'],
-    'and the engine still answers site.duo.json for that same type: the classification precedence is untouched'
+    'and the engine still answers site.wprism.json for that same type: the classification precedence is untouched'
 );
-duo_check_same(
+wprism_check_same(
     ['class' => 'authored', 'declared_by' => 'acme-storefront'],
     ['class' => $siteGroups['taxonomy:acme_brand']['class'] ?? null,
         'declared_by' => $siteGroups['taxonomy:acme_brand']['declared_by'] ?? null],
@@ -514,18 +514,18 @@ duo_check_same(
 // the type read as core's — while taxonomy_rule_details():1861-1866 defaults
 // the same shape to authored and names the manifest. declaring_manifest()
 // asks whether the adapter NAMES the surface, which both shapes answer.
-duo_check_same(
+wprism_check_same(
     ['source' => null, 'declared_by' => 'acme-storefront'],
     ['source' => $sitePolicy->post_type_rule_details('acme_note')['source'],
         'declared_by' => $siteGroups['post_type:acme_note']['declared_by'] ?? null],
     'a STRUCTURAL `{}` post type is credited to its adapter even though no rule of any kind resolved for it'
 );
-duo_check_same(
+wprism_check_same(
     'acme-storefront',
     $sitePolicy->declaring_manifest('post_types', 'acme_product'),
     'Policy::declaring_manifest() is the one accessor behind that, and it names the declaring adapter directly'
 );
-duo_check_same(
+wprism_check_same(
     null,
     $sitePolicy->declaring_manifest('post_types', 'post'),
     'and answers null for a core surface no adapter declares — `core` is AssessInventory\'s word, not Policy\'s'
@@ -535,7 +535,7 @@ duo_check_same(
 // surface was invisible — never grouped here, and never pending either,
 // because a pattern-classified option IS classified
 // (PolicyRuleResolver::details():89-103).
-duo_check(
+wprism_check(
     isset($siteGroups['option_group:acme-storefront:runtime']),
     'a pattern-declared option class mints its own option_group row — got '
     . implode(', ', array_values(array_filter(
@@ -543,7 +543,7 @@ duo_check(
         static fn(string $id): bool => str_starts_with($id, 'option_group:')
     )))
 );
-duo_check_same(
+wprism_check_same(
     ['class' => 'runtime', 'count' => null, 'declared_by' => 'acme-storefront',
         'id' => 'option_group:acme-storefront:runtime', 'kind' => 'option_group'],
     (static function (array $g): array { ksort($g, SORT_STRING);
@@ -564,26 +564,26 @@ $adoptionFact = [
     'advisories' => [], 'unsupported' => [], 'ready' => true,
 ];
 $seedDocument = AssessInventory::from_facts($policy, $facts + ['adoption' => $adoptionFact]);
-duo_check_same($adoptionFact, $seedDocument['adoption'] ?? null, 'an adoption fact is carried verbatim as the document\'s adoption block');
-duo_check(!array_key_exists('adoption', $document), 'without the fact the document carries no adoption key (the healthy contract key set)');
+wprism_check_same($adoptionFact, $seedDocument['adoption'] ?? null, 'an adoption fact is carried verbatim as the document\'s adoption block');
+wprism_check(!array_key_exists('adoption', $document), 'without the fact the document carries no adoption key (the healthy contract key set)');
 $adoptionSeedRepo = $scratch . '/seedrepo';
 mkdir($adoptionSeedRepo, 0777, true);
-Canon::write_file($adoptionSeedRepo . '/site.duo.json', Canon::encode([
+Canon::write_file($adoptionSeedRepo . '/site.wprism.json', Canon::encode([
     'manifests' => ['core'],
     'policy' => ['options' => new stdClass(), 'post_meta' => new stdClass(), 'term_meta' => new stdClass(),
         'post_types' => ['post', 'page', 'attachment'], 'taxonomies' => ['category', 'post_tag']],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ]));
 register_shutdown_function(static function () use ($adoptionSeedRepo): void {
-    @unlink($adoptionSeedRepo . '/site.duo.json');
+    @unlink($adoptionSeedRepo . '/site.wprism.json');
     @rmdir($adoptionSeedRepo);
 });
-duo_check(\Duo\InitPlanner::is_adoption_seed($adoptionSeedRepo), 'the adoption seed (manifests [core], core policy scope) reads as an adoption seed');
-duo_check(!\Duo\InitPlanner::is_adoption_seed($repo), 'the scratch repository with an empty policy object is not the seed');
-duo_check(!\Duo\InitPlanner::is_adoption_seed($siteRepo), 'a repository pinning a site adapter by name is not the seed');
+wprism_check(\WPrism\InitPlanner::is_adoption_seed($adoptionSeedRepo), 'the adoption seed (manifests [core], core policy scope) reads as an adoption seed');
+wprism_check(!\WPrism\InitPlanner::is_adoption_seed($repo), 'the scratch repository with an empty policy object is not the seed');
+wprism_check(!\WPrism\InitPlanner::is_adoption_seed($siteRepo), 'a repository pinning a site adapter by name is not the seed');
 [$seedPolicy, $seedAdoption] = AssessInventory::policy_for_assessment($siteRepo);
-duo_check($seedAdoption === null && $seedPolicy instanceof Policy, 'policy_for_assessment() on an init-owned repository returns its own policy and no adoption block');
-duo_check_same(
+wprism_check($seedAdoption === null && $seedPolicy instanceof Policy, 'policy_for_assessment() on an init-owned repository returns its own policy and no adoption block');
+wprism_check_same(
     (string) (json_decode(
         (string) file_get_contents($repoRoot . '/platform/adapter-library/core/disposition.json'),
         true
@@ -596,56 +596,56 @@ $groups = $document['policy']['surface_groups'];
 $ids = array_column($groups, 'id');
 $sortedIds = $ids;
 sort($sortedIds, SORT_STRING);
-duo_check_same($sortedIds, $ids, 'surface groups are emitted in a stable id order');
-duo_check_same(count($ids), count(array_unique($ids)), 'no surface group id is emitted twice');
+wprism_check_same($sortedIds, $ids, 'surface groups are emitted in a stable id order');
+wprism_check_same(count($ids), count(array_unique($ids)), 'no surface group id is emitted twice');
 
 $badKind = array_values(array_filter($groups, static fn(array $g): bool => !in_array($g['kind'], AssessInventory::SURFACE_KINDS, true)));
-duo_check_same([], $badKind, 'every surface kind comes from the closed set');
+wprism_check_same([], $badKind, 'every surface kind comes from the closed set');
 $badClass = array_values(array_filter($groups, static fn(array $g): bool => !in_array($g['class'], Policy::CLASSES, true)));
-duo_check_same([], $badClass, 'every surface class comes from Policy::CLASSES');
+wprism_check_same([], $badClass, 'every surface class comes from Policy::CLASSES');
 $declarants = array_unique(array_column($groups, 'declared_by'));
 sort($declarants, SORT_STRING);
-duo_check_same(['core'], $declarants, 'with only core pinned, every group is declared by core');
+wprism_check_same(['core'], $declarants, 'with only core pinned, every group is declared by core');
 $badCount = array_values(array_filter(
     $groups,
     static fn(array $g): bool => $g['count'] !== null && !is_int($g['count'])
 ));
-duo_check_same([], $badCount, 'count is an int or null, never a string from the text protocol');
+wprism_check_same([], $badCount, 'count is an int or null, never a string from the text protocol');
 
 $byId = [];
 foreach ($groups as $group) {
     $byId[$group['id']] = $group;
 }
-duo_check_same(
+wprism_check_same(
     ['class' => 'authored', 'count' => 1, 'declared_by' => 'core', 'id' => 'post_type:post', 'kind' => 'post_type'],
     (static function (array $g): array { ksort($g, SORT_STRING);
     return $g; })($byId['post_type:post'] ?? []),
     'a site-scoped post type is an authored surface group counted live'
 );
-duo_check_same(2, $byId['post_type:attachment']['count'] ?? null, 'the attachment post type carries the live count');
-duo_check_same(2, $byId['media:attachment']['count'] ?? null, 'media repeats that count under the surface an operator names');
-duo_check_same(2, $byId['taxonomy:post_tag']['count'] ?? null, 'a taxonomy group counts its term_taxonomy rows');
-duo_check_same('runtime', $byId['table:comments']['class'] ?? null, "core's own table declaration classifies comments runtime");
-duo_check_same(1, $byId['table:comments']['count'] ?? null, 'a declared table present on this install carries its row count');
-duo_check_same(0, $byId['table:commentmeta']['count'] ?? null, 'an empty declared table counts 0, not null');
-duo_check(!isset($byId['table:acme_log']), 'an UNDECLARED live table is coverage\'s finding, not a declared surface group');
-duo_check_same('authored', $byId['menu:locations']['class'] ?? null, 'the declared menu field is an authored surface');
-duo_check(
+wprism_check_same(2, $byId['post_type:attachment']['count'] ?? null, 'the attachment post type carries the live count');
+wprism_check_same(2, $byId['media:attachment']['count'] ?? null, 'media repeats that count under the surface an operator names');
+wprism_check_same(2, $byId['taxonomy:post_tag']['count'] ?? null, 'a taxonomy group counts its term_taxonomy rows');
+wprism_check_same('runtime', $byId['table:comments']['class'] ?? null, "core's own table declaration classifies comments runtime");
+wprism_check_same(1, $byId['table:comments']['count'] ?? null, 'a declared table present on this install carries its row count');
+wprism_check_same(0, $byId['table:commentmeta']['count'] ?? null, 'an empty declared table counts 0, not null');
+wprism_check(!isset($byId['table:acme_log']), 'an UNDECLARED live table is coverage\'s finding, not a declared surface group');
+wprism_check_same('authored', $byId['menu:locations']['class'] ?? null, 'the declared menu field is an authored surface');
+wprism_check(
     array_key_exists('count', $byId['menu:locations'] ?? []) && $byId['menu:locations']['count'] === null,
     'a menu group carries an explicit null count: no bounded live oracle exists for it'
 );
-duo_check(isset($byId['widget:nav_menu']), 'each declared widget type is its own surface group');
-duo_check_same('authored', $byId['widget:nav_menu']['class'] ?? null, 'a widget whose settings agree reports that class');
-duo_check(isset($byId['option_group:core:authored']), 'options are grouped by declarant and class, never listed per name');
-duo_check(isset($byId['option_group:core:env']), 'an env-classified option group is visible as its own row');
-duo_check(isset($byId['option_group:core:managed']), 'a managed lifecycle option group is visible as its own row');
-duo_check(
+wprism_check(isset($byId['widget:nav_menu']), 'each declared widget type is its own surface group');
+wprism_check_same('authored', $byId['widget:nav_menu']['class'] ?? null, 'a widget whose settings agree reports that class');
+wprism_check(isset($byId['option_group:core:authored']), 'options are grouped by declarant and class, never listed per name');
+wprism_check(isset($byId['option_group:core:env']), 'an env-classified option group is visible as its own row');
+wprism_check(isset($byId['option_group:core:managed']), 'a managed lifecycle option group is visible as its own row');
+wprism_check(
     array_key_exists('count', $byId['option_group:core:authored'] ?? [])
         && $byId['option_group:core:authored']['count'] === null,
     'an option group carries an explicit null count: the live number would mean re-reading the options table'
 );
 $optionGroupIds = array_values(array_filter($ids, static fn(string $id): bool => str_starts_with($id, 'option_group:')));
-duo_check(
+wprism_check(
     count($optionGroupIds) <= count(Policy::CLASSES) * count($document['policy']['manifests']),
     'option groups are bounded by declarants x classes, never by the site (' . count($optionGroupIds) . ')'
 );
@@ -653,26 +653,26 @@ duo_check(
 // ---------------------------------------------------------------------------
 echo "\n== quoted projections, and the bound on the one that is site-sized ==\n";
 // ---------------------------------------------------------------------------
-duo_check_same($coverage, $document['coverage'], 'the coverage report is quoted verbatim, not re-shaped');
-duo_check_same(52, $document['pending']['count'], 'pending reports the TRUE count, not the truncated one');
-duo_check_same(50, count($document['pending']['rows']), 'pending truncates at the §4.6 bound');
-duo_check_same(AssessInventory::PENDING_ROW_LIMIT, count($document['pending']['rows']), 'that bound is the published constant');
-duo_check_same(true, $document['pending']['truncated'], 'truncation is declared, never silent');
-duo_check_same($pendingRows[0], $document['pending']['rows'][0], 'pending rows keep the shape scan() produced');
+wprism_check_same($coverage, $document['coverage'], 'the coverage report is quoted verbatim, not re-shaped');
+wprism_check_same(52, $document['pending']['count'], 'pending reports the TRUE count, not the truncated one');
+wprism_check_same(50, count($document['pending']['rows']), 'pending truncates at the §4.6 bound');
+wprism_check_same(AssessInventory::PENDING_ROW_LIMIT, count($document['pending']['rows']), 'that bound is the published constant');
+wprism_check_same(true, $document['pending']['truncated'], 'truncation is declared, never silent');
+wprism_check_same($pendingRows[0], $document['pending']['rows'][0], 'pending rows keep the shape scan() produced');
 
 $short = AssessInventory::from_facts($policy, ['pending' => array_slice($pendingRows, 0, 3)] + $facts);
-duo_check_same(false, $short['pending']['truncated'], 'a queue inside the bound is not marked truncated');
-duo_check_same(3, count($short['pending']['rows']), 'a short queue is passed through whole');
+wprism_check_same(false, $short['pending']['truncated'], 'a queue inside the bound is not marked truncated');
+wprism_check_same(3, count($short['pending']['rows']), 'a short queue is passed through whole');
 
-duo_check_same($survey, $document['adapter_survey'], 'the adapter survey block is quoted verbatim');
+wprism_check_same($survey, $document['adapter_survey'], 'the adapter survey block is quoted verbatim');
 $noSurvey = AssessInventory::from_facts($policy, ['adapter_survey' => null, 'adapter_survey_reason' => 'adapter_survey_unreadable'] + $facts);
-duo_check_same(null, $noSurvey['adapter_survey'], 'an unavailable survey is null, per the shared contract');
-duo_check_same(
+wprism_check_same(null, $noSurvey['adapter_survey'], 'an unavailable survey is null, per the shared contract');
+wprism_check_same(
     'adapter_survey_unreadable',
     $noSurvey['adapter_survey_reason'] ?? null,
     'a null survey says WHY, so it cannot be read as "this target has no adapters"'
 );
-duo_check(
+wprism_check(
     !array_key_exists('adapter_survey_reason', $document),
     'the reason key is absent from a healthy document, so the contract key set is exact'
 );
@@ -680,15 +680,15 @@ duo_check(
 // ---------------------------------------------------------------------------
 echo "\n== redaction: names and counts only ==\n";
 // ---------------------------------------------------------------------------
-duo_check(
+wprism_check(
     !str_contains($encoded, SENTINEL),
     'no seeded option VALUE reaches the document, though Coverage read every one of them to classify it'
 );
-duo_check(
+wprism_check(
     !str_contains($encoded, 'Hello') && !str_contains($encoded, 'Undeclared'),
     'no wp_posts row CONTENT reaches the document'
 );
-duo_check(
+wprism_check(
     str_contains($encoded, 'acme_storefront'),
     "the invisible option's own NAME prefix is still reported -- redaction is of values, not of the inventory"
 );
@@ -696,12 +696,12 @@ duo_check(
 // ---------------------------------------------------------------------------
 echo "\n== determinism ==\n";
 // ---------------------------------------------------------------------------
-duo_check_same(
+wprism_check_same(
     $encoded,
     Canon::encode(AssessInventory::from_facts($policy, $facts)),
     'two runs over identical facts produce byte-identical canonical JSON'
 );
-duo_check_same(
+wprism_check_same(
     $encoded,
     Canon::encode(Canon::decode($encoded)),
     'the document survives a canonical round trip unchanged'
@@ -710,44 +710,44 @@ duo_check_same(
 // ---------------------------------------------------------------------------
 echo "\n== refusals ==\n";
 // ---------------------------------------------------------------------------
-duo_check_refuses(
+wprism_check_refuses(
     static fn() => AssessInventory::from_facts($policy, ['probe' => null] + $facts),
     'assess_inventory_unavailable',
     'a target that cannot be probed is refused, never described from defaults'
 );
-duo_check_refuses(
+wprism_check_refuses(
     static fn() => AssessInventory::report($policy, []),
     'invalid_arguments',
     'report() refuses without --repo rather than assessing an unnamed repository'
 );
 
 // ---------------------------------------------------------------------------
-echo "\n== the wp duo surface ==\n";
+echo "\n== the wp wprism surface ==\n";
 // ---------------------------------------------------------------------------
 $reportMethod = new ReflectionMethod(AssessInventory::class, 'report');
-duo_check(
+wprism_check(
     $reportMethod->isStatic() && $reportMethod->isPublic(),
     'report() is the public static entry point the command calls'
 );
-duo_check_same(
-    ['Duo\\Policy', 'array'],
+wprism_check_same(
+    ['WPrism\\Policy', 'array'],
     array_map(static fn(ReflectionParameter $p): string => (string) $p->getType(), $reportMethod->getParameters()),
     'report(Policy, array) is the signature the command binds'
 );
 
 $cli = (string) file_get_contents($repoRoot . '/agent/src/Command/Cli.php');
-duo_check(str_contains($cli, '@subcommand assess-inventory'), 'the verb is declared as wp duo assess-inventory');
-duo_check(
+wprism_check(str_contains($cli, '@subcommand assess-inventory'), 'the verb is declared as wp wprism assess-inventory');
+wprism_check(
     str_contains($cli, "self::halt_json_failure(\$t, \$assoc, 'assess-inventory')"),
-    'the verb routes its refusals through the shared duo-command-refusal/v1 envelope'
+    'the verb routes its refusals through the shared wprism-command-refusal/v1 envelope'
 );
-duo_check(
+wprism_check(
     str_contains($cli, '[--manifests=<dir>]')
         && str_contains($cli, 'AdapterLibrary::fromLegacyFlatDirectory($dir)')
-        && !str_contains($cli, "putenv('DUO_MANIFESTS_DIR')"),
+        && !str_contains($cli, "putenv('WPRISM_MANIFESTS_DIR')"),
     'the verb accepts an explicit legacy library object without repointing process-global runtime state'
 );
-duo_check(
+wprism_check(
     substr_count($cli, 'public function assess_inventory(') === 1,
     'exactly one handler was added to the command surface'
 );
@@ -775,14 +775,14 @@ foreach (Policy::shipped_adapter_library()->packages() as $package) {
         $forbidden[$manifest['theme']] = true;
     }
 }
-duo_check(count($forbidden) >= 8, 'the forbidden set was derived from the real manifest library (' . count($forbidden) . ')');
+wprism_check(count($forbidden) >= 8, 'the forbidden set was derived from the real manifest library (' . count($forbidden) . ')');
 
 $boundaryDirs = array_values(array_filter([
     $repoRoot . '/agent/src/Assess',
     $repoRoot . '/cli/src/Assess',
     $repoRoot . '/cli/src/Contract',
 ], 'is_dir'));
-duo_check(in_array($repoRoot . '/agent/src/Assess', $boundaryDirs, true), 'the agent Assess module exists and is scanned');
+wprism_check(in_array($repoRoot . '/agent/src/Assess', $boundaryDirs, true), 'the agent Assess module exists and is scanned');
 $leaks = [];
 foreach ($boundaryDirs as $dir) {
     foreach (glob($dir . '/*.php') ?: [] as $file) {
@@ -794,6 +794,6 @@ foreach ($boundaryDirs as $dir) {
         }
     }
 }
-duo_check_same([], $leaks, 'no plugin slug, adapter name or theme appears in the assess/contract modules');
+wprism_check_same([], $leaks, 'no plugin slug, adapter name or theme appears in the assess/contract modules');
 
-duo_check_summary('assess-inventory');
+wprism_check_summary('assess-inventory');

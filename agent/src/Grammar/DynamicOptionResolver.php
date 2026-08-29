@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Pure resolution of manifest-declared dynamic option names.
@@ -79,7 +79,7 @@ final class DynamicOptionResolver {
             $resolvedValue = $resolvedValues[$declaration['resolver']] ?? null;
             if ($resolvedValue === null) {
                 throw new \RuntimeException(
-                    "duo: dynamic_options.$key declares resolver '{$declaration['resolver']}' but this caller supplied no "
+                    "wprism: dynamic_options.$key declares resolver '{$declaration['resolver']}' but this caller supplied no "
                     . 'value for it (supplied: ' . (($resolvedValues === []) ? 'none' : implode(', ', array_keys($resolvedValues)))
                     . ') — the resolver vocabulary is engine-owned and every declared resolver must be resolved by the '
                     . 'engine call site, not skipped'

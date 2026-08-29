@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Per-environment ledger: typed identity map (uuid, entity_type, id_kind) -> local id,
@@ -12,14 +12,14 @@ final class Ledger {
     public const KIND_TT   = 'term_taxonomy';
 
     /**
-     * DUO-3246: entity_type shipped as VARCHAR(32). A table-row entity's own
+     * issue #3246: entity_type shipped as VARCHAR(32). A table-row entity's own
      * 'type' IS its declared table name (Snapshot.php's own docblock/
      * row_tables()) — not a short, freely-chosen abbreviation the way
      * id_kind is — so it must fit whatever WooCommerce/PMPro/etc. actually
      * named their table, not the other way around. Two shipped tables
      * already exceed 32 (woocommerce_shipping_zone_locations, 35;
      * woocommerce_shipping_zone_methods, 33), silently truncated by MySQL
-     * on insert — harmless-latent until DUO-3209's identity-contradiction
+     * on insert — harmless-latent until issue #3209's identity-contradiction
      * guard started strictly comparing stored-vs-computed entity_type on
      * every Ledger::set(), refusing the truncated-vs-full mismatch on the
      * very next recapture. See Snapshot::MAX_ENTITY_TYPE_LEN (the mirrored,
@@ -46,7 +46,7 @@ final class Ledger {
         $wpdb->last_error = '';
         $value = $wpdb->get_var($sql);
         if ($value === false || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException("duo: ledger read failed: $context");
+            throw new \RuntimeException("wprism: ledger read failed: $context");
         }
         return $value;
     }
@@ -56,7 +56,7 @@ final class Ledger {
         $wpdb->last_error = '';
         $row = $wpdb->get_row($sql, ARRAY_A);
         if (($row !== null && !is_array($row)) || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException("duo: ledger read failed: $context");
+            throw new \RuntimeException("wprism: ledger read failed: $context");
         }
         return $row;
     }
@@ -67,7 +67,7 @@ final class Ledger {
         $wpdb->last_error = '';
         $rows = $wpdb->get_results($sql, ARRAY_A);
         if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException("duo: ledger read failed: $context");
+            throw new \RuntimeException("wprism: ledger read failed: $context");
         }
         return $rows;
     }
@@ -79,26 +79,26 @@ final class Ledger {
         $w = self::ENTITY_TYPE_WIDTH;
         $kw = self::ID_KIND_WIDTH;
         $tw = self::TABLE_IDENTIFIER_WIDTH;
-        Db::query("CREATE TABLE IF NOT EXISTS {$p}duo_map (
+        Db::query("CREATE TABLE IF NOT EXISTS {$p}wprism_map (
             uuid CHAR(36) NOT NULL,
             entity_type VARCHAR($w) NOT NULL,
             id_kind VARCHAR($kw) NOT NULL,
             local_id BIGINT UNSIGNED NOT NULL,
             PRIMARY KEY (uuid, id_kind),
             UNIQUE KEY kind_local (id_kind, local_id)
-        ) $charset", 'ledger schema create duo_map');
-        Db::query("CREATE TABLE IF NOT EXISTS {$p}duo_state (
+        ) $charset", 'ledger schema create wprism_map');
+        Db::query("CREATE TABLE IF NOT EXISTS {$p}wprism_state (
             uuid VARCHAR(64) NOT NULL,
             entity_type VARCHAR($w) NOT NULL,
             content_hash CHAR(64) NOT NULL,
             PRIMARY KEY (uuid)
-        ) $charset", 'ledger schema create duo_state');
-        Db::query("CREATE TABLE IF NOT EXISTS {$p}duo_kv (
+        ) $charset", 'ledger schema create wprism_state');
+        Db::query("CREATE TABLE IF NOT EXISTS {$p}wprism_kv (
             k VARCHAR(191) NOT NULL,
             v LONGTEXT NULL,
             PRIMARY KEY (k)
-        ) $charset", 'ledger schema create duo_kv');
-        Db::query("CREATE TABLE IF NOT EXISTS {$p}duo_journal (
+        ) $charset", 'ledger schema create wprism_kv');
+        Db::query("CREATE TABLE IF NOT EXISTS {$p}wprism_journal (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             t DATETIME NOT NULL,
             op VARCHAR(8) NOT NULL,
@@ -111,7 +111,7 @@ final class Ledger {
             proposal VARCHAR(16) NOT NULL,
             PRIMARY KEY (id),
             KEY tbl_item (tbl, item)
-        ) $charset", 'ledger schema create duo_journal');
+        ) $charset", 'ledger schema create wprism_journal');
         self::migrate_widen_entity_type();
         self::migrate_widen_id_kind();
     }
@@ -130,20 +130,20 @@ final class Ledger {
     /**
      * The agent's own tables, unprefixed. Every schema statement in this file
      * creates exactly these; anything that enumerates "tables no adapter
-     * declares" (Coverage) must skip them, because they are Duo's ledger, not
-     * site state — the T6 adapter walk read `table:duo_journal … unclassified`
+     * declares" (Coverage) must skip them, because they are WPrism's ledger, not
+     * site state — the T6 adapter walk read `table:wprism_journal … unclassified`
      * in its own assessment before this list existed.
      *
      * @var list<string>
      */
-    public const OWN_TABLES = ['duo_journal', 'duo_kv', 'duo_map', 'duo_state'];
+    public const OWN_TABLES = ['wprism_journal', 'wprism_kv', 'wprism_map', 'wprism_state'];
 
     public static function assert_read_only_schema(): void {
         global $wpdb;
         $tables = [
-            $wpdb->prefix . 'duo_map',
-            $wpdb->prefix . 'duo_state',
-            $wpdb->prefix . 'duo_kv',
+            $wpdb->prefix . 'wprism_map',
+            $wpdb->prefix . 'wprism_state',
+            $wpdb->prefix . 'wprism_kv',
         ];
         $placeholders = implode(',', array_fill(0, count($tables), '%s'));
         $columns = self::checked_get_results($wpdb->prepare(
@@ -158,26 +158,26 @@ final class Ledger {
             $byTable[(string) $column['TABLE_NAME']][(string) $column['COLUMN_NAME']] = $column;
         }
         $need = [
-            $wpdb->prefix . 'duo_map' => ['uuid' => 36, 'entity_type' => self::ENTITY_TYPE_WIDTH, 'id_kind' => self::ID_KIND_WIDTH, 'local_id' => 0],
-            $wpdb->prefix . 'duo_state' => ['uuid' => 64, 'entity_type' => self::ENTITY_TYPE_WIDTH, 'content_hash' => 64],
-            $wpdb->prefix . 'duo_kv' => ['k' => 191, 'v' => 1],
+            $wpdb->prefix . 'wprism_map' => ['uuid' => 36, 'entity_type' => self::ENTITY_TYPE_WIDTH, 'id_kind' => self::ID_KIND_WIDTH, 'local_id' => 0],
+            $wpdb->prefix . 'wprism_state' => ['uuid' => 64, 'entity_type' => self::ENTITY_TYPE_WIDTH, 'content_hash' => 64],
+            $wpdb->prefix . 'wprism_kv' => ['k' => 191, 'v' => 1],
         ];
         foreach ($need as $table => $fields) {
             foreach ($fields as $field => $minimum) {
                 $row = $byTable[$table][$field] ?? null;
                 if (!is_array($row)) {
-                    throw new \RuntimeException("duo: refresh export refused — required ledger table/column '$table.$field' is missing; run the existing capture gate to provision or repair it");
+                    throw new \RuntimeException("wprism: refresh export refused — required ledger table/column '$table.$field' is missing; run the existing capture gate to provision or repair it");
                 }
                 if ($field === 'local_id') {
                     $type = strtolower((string) ($row['COLUMN_TYPE'] ?? ''));
                     if (!str_contains($type, 'bigint') || !str_contains($type, 'unsigned')) {
-                        throw new \RuntimeException("duo: refresh export refused — ledger column '$table.$field' is not an unsigned BIGINT identity");
+                        throw new \RuntimeException("wprism: refresh export refused — ledger column '$table.$field' is not an unsigned BIGINT identity");
                     }
                     continue;
                 }
                 $length = (int) ($row['CHARACTER_MAXIMUM_LENGTH'] ?? 0);
                 if ($length < $minimum) {
-                    throw new \RuntimeException("duo: refresh export refused — ledger column '$table.$field' is narrower than the supported durable identity schema");
+                    throw new \RuntimeException("wprism: refresh export refused — ledger column '$table.$field' is narrower than the supported durable identity schema");
                 }
             }
         }
@@ -193,10 +193,10 @@ final class Ledger {
             $byIndex[(string) $index['TABLE_NAME']][(string) $index['INDEX_NAME']][] = $index;
         }
         foreach ([
-            [$wpdb->prefix . 'duo_map', ['uuid', 'id_kind']],
-            [$wpdb->prefix . 'duo_map', ['id_kind', 'local_id']],
-            [$wpdb->prefix . 'duo_state', ['uuid']],
-            [$wpdb->prefix . 'duo_kv', ['k']],
+            [$wpdb->prefix . 'wprism_map', ['uuid', 'id_kind']],
+            [$wpdb->prefix . 'wprism_map', ['id_kind', 'local_id']],
+            [$wpdb->prefix . 'wprism_state', ['uuid']],
+            [$wpdb->prefix . 'wprism_kv', ['k']],
         ] as [$table, $fields]) {
             $found = false;
             foreach ($byIndex[$table] ?? [] as $rows) {
@@ -210,7 +210,7 @@ final class Ledger {
             }
             if (!$found) {
                 throw new \RuntimeException(
-                    "duo: refresh export refused — ledger table '$table' lacks the required unique identity index ("
+                    "wprism: refresh export refused — ledger table '$table' lacks the required unique identity index ("
                     . implode(', ', $fields) . ')'
                 );
             }
@@ -235,20 +235,20 @@ final class Ledger {
         string $where
     ): void {
         if (!Uuid::is($uuid) || $entityType === '' || $kind === '' || $localId <= 0) {
-            throw new \RuntimeException("duo: refresh export refused — invalid durable identity at $where");
+            throw new \RuntimeException("wprism: refresh export refused — invalid durable identity at $where");
         }
         global $wpdb;
         $byUuid = self::checked_get_row($wpdb->prepare(
-            "SELECT entity_type, local_id FROM {$wpdb->prefix}duo_map WHERE uuid = %s AND id_kind = %s",
+            "SELECT entity_type, local_id FROM {$wpdb->prefix}wprism_map WHERE uuid = %s AND id_kind = %s",
             $uuid, $kind
         ), 'read-only identity lookup by UUID');
         $byLocal = self::checked_get_row($wpdb->prepare(
-            "SELECT uuid, entity_type FROM {$wpdb->prefix}duo_map WHERE id_kind = %s AND local_id = %d",
+            "SELECT uuid, entity_type FROM {$wpdb->prefix}wprism_map WHERE id_kind = %s AND local_id = %d",
             $kind, $localId
         ), 'read-only identity lookup by local id');
         if ($byUuid === null || $byLocal === null) {
             throw new \RuntimeException(
-                "duo: refresh export refused — durable identity is missing for $where ($kind:$localId); "
+                "wprism: refresh export refused — durable identity is missing for $where ($kind:$localId); "
                 . 'run the existing capture/identity recovery gate before exporting production'
             );
         }
@@ -257,7 +257,7 @@ final class Ledger {
             || (string) $byLocal['uuid'] !== $uuid
             || (string) $byLocal['entity_type'] !== $entityType) {
             throw new \RuntimeException(
-                "duo: refresh export refused — durable identity contradicts live $where ($uuid, $kind:$localId)"
+                "wprism: refresh export refused — durable identity contradicts live $where ($uuid, $kind:$localId)"
             );
         }
     }
@@ -273,12 +273,12 @@ final class Ledger {
             $local = (int) $row['local_id'];
             if (!Uuid::is($uuid) || $kind === '' || strlen($kind) > self::ID_KIND_WIDTH
                 || $type === '' || strlen($type) > self::ENTITY_TYPE_WIDTH || $local <= 0) {
-                throw new \RuntimeException('duo: refresh export refused — ledger map contains an invalid durable identity tuple');
+                throw new \RuntimeException('wprism: refresh export refused — ledger map contains an invalid durable identity tuple');
             }
             $uuidKey = "$uuid|$kind";
             $localKey = "$kind|$local";
             if (isset($uuidKinds[$uuidKey]) || isset($locals[$localKey])) {
-                throw new \RuntimeException('duo: refresh export refused — ledger map contains duplicate durable identities');
+                throw new \RuntimeException('wprism: refresh export refused — ledger map contains duplicate durable identities');
             }
             $uuidKinds[$uuidKey] = true;
             $locals[$localKey] = true;
@@ -287,24 +287,24 @@ final class Ledger {
 
     private static function migrate_widen_id_kind(): void {
         global $wpdb;
-        $table = $wpdb->prefix . 'duo_map';
+        $table = $wpdb->prefix . 'wprism_map';
         $width = self::ID_KIND_WIDTH;
         $len = self::checked_get_var($wpdb->prepare(
             'SELECT CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS '
             . "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'id_kind'",
             $table
-        ), 'schema width lookup for duo_map.id_kind');
+        ), 'schema width lookup for wprism_map.id_kind');
         if ($len !== null && (int) $len < $width) {
             Db::query(
                 "ALTER TABLE `$table` MODIFY COLUMN id_kind VARCHAR($width) NOT NULL",
-                'ledger migrate widen duo_map.id_kind'
+                'ledger migrate widen wprism_map.id_kind'
             );
         }
     }
 
     /**
-     * DUO-3246: CREATE TABLE IF NOT EXISTS above never widens a table that
-     * already exists — any environment that created duo_map/duo_state
+     * issue #3246: CREATE TABLE IF NOT EXISTS above never widens a table that
+     * already exists — any environment that created wprism_map/wprism_state
      * before this fix shipped stays at the old VARCHAR(32) forever without
      * this. Idempotent by construction: checked via information_schema
      * before ever issuing an ALTER, so an already-migrated environment
@@ -315,7 +315,7 @@ final class Ledger {
         global $wpdb;
         $p = $wpdb->prefix;
         $w = self::ENTITY_TYPE_WIDTH;
-        foreach (['duo_map', 'duo_state'] as $table) {
+        foreach (['wprism_map', 'wprism_state'] as $table) {
             $len = self::checked_get_var($wpdb->prepare(
                 'SELECT CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS '
                 . "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'entity_type'",
@@ -333,7 +333,7 @@ final class Ledger {
     public static function id_for(string $uuid, string $kind): ?int {
         global $wpdb;
         $id = self::checked_get_var($wpdb->prepare(
-            "SELECT local_id FROM {$wpdb->prefix}duo_map WHERE uuid = %s AND id_kind = %s",
+            "SELECT local_id FROM {$wpdb->prefix}wprism_map WHERE uuid = %s AND id_kind = %s",
             $uuid, $kind
         ), 'identity lookup by UUID');
         return $id === null ? null : (int) $id;
@@ -342,7 +342,7 @@ final class Ledger {
     public static function uuid_for(int $localId, string $kind): ?string {
         global $wpdb;
         $uuid = self::checked_get_var($wpdb->prepare(
-            "SELECT uuid FROM {$wpdb->prefix}duo_map WHERE id_kind = %s AND local_id = %d",
+            "SELECT uuid FROM {$wpdb->prefix}wprism_map WHERE id_kind = %s AND local_id = %d",
             $kind, $localId
         ), 'identity lookup by local id');
         return $uuid ?: null;
@@ -351,42 +351,42 @@ final class Ledger {
     public static function set(string $uuid, string $entityType, string $kind, int $localId): void {
         global $wpdb;
         if (!Uuid::is($uuid) || $localId <= 0) {
-            throw new \RuntimeException("duo: invalid ledger identity '$uuid' ($kind:$localId)");
+            throw new \RuntimeException("wprism: invalid ledger identity '$uuid' ($kind:$localId)");
         }
         $byUuid = self::checked_get_row($wpdb->prepare(
-            "SELECT entity_type, local_id FROM {$wpdb->prefix}duo_map WHERE uuid = %s AND id_kind = %s",
+            "SELECT entity_type, local_id FROM {$wpdb->prefix}wprism_map WHERE uuid = %s AND id_kind = %s",
             $uuid, $kind
         ), 'identity contradiction check by UUID');
         if ($byUuid !== null && (int) $byUuid['local_id'] !== $localId) {
             throw new \RuntimeException(
-                "duo: identity contradiction: $uuid ($kind) is already bound to local id {$byUuid['local_id']}; "
+                "wprism: identity contradiction: $uuid ($kind) is already bound to local id {$byUuid['local_id']}; "
                 . "refusing to rebind it to $localId"
             );
         }
         if ($byUuid !== null && (string) $byUuid['entity_type'] !== $entityType) {
             throw new \RuntimeException(
-                "duo: identity contradiction: $uuid ($kind:$localId) is already typed {$byUuid['entity_type']}; "
+                "wprism: identity contradiction: $uuid ($kind:$localId) is already typed {$byUuid['entity_type']}; "
                 . "refusing to retype it as $entityType"
             );
         }
         $byLocal = self::checked_get_row($wpdb->prepare(
-            "SELECT uuid, entity_type FROM {$wpdb->prefix}duo_map WHERE id_kind = %s AND local_id = %d",
+            "SELECT uuid, entity_type FROM {$wpdb->prefix}wprism_map WHERE id_kind = %s AND local_id = %d",
             $kind, $localId
         ), 'identity contradiction check by local id');
         if ($byLocal !== null && $byLocal['uuid'] !== $uuid) {
             throw new \RuntimeException(
-                "duo: identity contradiction: local $kind id $localId is already bound to {$byLocal['uuid']}; "
+                "wprism: identity contradiction: local $kind id $localId is already bound to {$byLocal['uuid']}; "
                 . "refusing to replace it with $uuid"
             );
         }
         if ($byLocal !== null && (string) $byLocal['entity_type'] !== $entityType) {
             throw new \RuntimeException(
-                "duo: identity contradiction: local $kind id $localId is already typed {$byLocal['entity_type']}; "
+                "wprism: identity contradiction: local $kind id $localId is already typed {$byLocal['entity_type']}; "
                 . "refusing to retype it as $entityType"
             );
         }
         Db::query($wpdb->prepare(
-            "INSERT INTO {$wpdb->prefix}duo_map (uuid, entity_type, id_kind, local_id)
+            "INSERT INTO {$wpdb->prefix}wprism_map (uuid, entity_type, id_kind, local_id)
              VALUES (%s, %s, %s, %d)
              ON DUPLICATE KEY UPDATE entity_type = VALUES(entity_type)",
             $uuid, $entityType, $kind, $localId
@@ -396,24 +396,24 @@ final class Ledger {
     public static function forget(string $uuid): void {
         global $wpdb;
         Db::query($wpdb->prepare(
-            "DELETE FROM {$wpdb->prefix}duo_map WHERE uuid = %s", $uuid
+            "DELETE FROM {$wpdb->prefix}wprism_map WHERE uuid = %s", $uuid
         ), 'ledger forget identity');
         Db::query($wpdb->prepare(
-            "DELETE FROM {$wpdb->prefix}duo_state WHERE uuid = %s", $uuid
+            "DELETE FROM {$wpdb->prefix}wprism_state WHERE uuid = %s", $uuid
         ), 'ledger forget state hash');
     }
 
     public static function state_hash(string $uuid): ?string {
         global $wpdb;
         return self::checked_get_var($wpdb->prepare(
-            "SELECT content_hash FROM {$wpdb->prefix}duo_state WHERE uuid = %s", $uuid
+            "SELECT content_hash FROM {$wpdb->prefix}wprism_state WHERE uuid = %s", $uuid
         ), 'state hash lookup') ?: null;
     }
 
     public static function set_state_hash(string $uuid, string $entityType, string $hash): void {
         global $wpdb;
         Db::query($wpdb->prepare(
-            "INSERT INTO {$wpdb->prefix}duo_state (uuid, entity_type, content_hash)
+            "INSERT INTO {$wpdb->prefix}wprism_state (uuid, entity_type, content_hash)
              VALUES (%s, %s, %s)
              ON DUPLICATE KEY UPDATE entity_type = VALUES(entity_type), content_hash = VALUES(content_hash)",
             $uuid, $entityType, $hash
@@ -424,7 +424,7 @@ final class Ledger {
     public static function all_state(): array {
         global $wpdb;
         $rows = self::checked_get_results(
-            "SELECT uuid, entity_type, content_hash FROM {$wpdb->prefix}duo_state",
+            "SELECT uuid, entity_type, content_hash FROM {$wpdb->prefix}wprism_state",
             'state hash inventory'
         );
         $out = [];
@@ -438,7 +438,7 @@ final class Ledger {
     public static function all_map(): array {
         global $wpdb;
         $rows = self::checked_get_results(
-            "SELECT uuid, entity_type, id_kind, local_id FROM {$wpdb->prefix}duo_map "
+            "SELECT uuid, entity_type, id_kind, local_id FROM {$wpdb->prefix}wprism_map "
             . 'ORDER BY id_kind ASC, local_id ASC, uuid ASC',
             'identity inventory'
         );
@@ -456,7 +456,7 @@ final class Ledger {
         foreach (self::all_state() as $uuid => $_) {
             if (!isset($keep[$uuid])) {
                 Db::query($wpdb->prepare(
-                    "DELETE FROM {$wpdb->prefix}duo_state WHERE uuid = %s", $uuid
+                    "DELETE FROM {$wpdb->prefix}wprism_state WHERE uuid = %s", $uuid
                 ), 'ledger prune state hash');
             }
         }
@@ -464,7 +464,7 @@ final class Ledger {
 
     /**
      * Drop identity rows whose local row no longer exists. Deletes made
-     * outside duo (wp-admin, wp-cli) never touch the ledger, and a stale
+     * outside wprism (wp-admin, wp-cli) never touch the ledger, and a stale
      * uuid↔id row makes dangling references resolve asymmetrically between
      * environments (one captures a token, the other the raw id) and turns
      * re-apply-after-local-delete into a silent no-op (the create path sees
@@ -475,17 +475,17 @@ final class Ledger {
         global $wpdb;
         $p = $wpdb->prefix;
         Db::query(
-            "DELETE m FROM {$p}duo_map m LEFT JOIN {$wpdb->posts} po ON po.ID = m.local_id
+            "DELETE m FROM {$p}wprism_map m LEFT JOIN {$wpdb->posts} po ON po.ID = m.local_id
              WHERE m.id_kind = '" . self::KIND_POST . "' AND po.ID IS NULL",
             'ledger prune dead post identities'
         );
         Db::query(
-            "DELETE m FROM {$p}duo_map m LEFT JOIN {$wpdb->terms} t ON t.term_id = m.local_id
+            "DELETE m FROM {$p}wprism_map m LEFT JOIN {$wpdb->terms} t ON t.term_id = m.local_id
              WHERE m.id_kind = '" . self::KIND_TERM . "' AND t.term_id IS NULL",
             'ledger prune dead term identities'
         );
         Db::query(
-            "DELETE m FROM {$p}duo_map m LEFT JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = m.local_id
+            "DELETE m FROM {$p}wprism_map m LEFT JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = m.local_id
              WHERE m.id_kind = '" . self::KIND_TT . "' AND tt.term_taxonomy_id IS NULL",
             'ledger prune dead term-taxonomy identities'
         );
@@ -501,7 +501,7 @@ final class Ledger {
      * supplies it instead of this method assuming a fixed roster.
      *
      * A declared table's rows carry NO identity of their own outside this
-     * ledger (no _duo_uuid-equivalent column — see Snapshot.php's docblock),
+     * ledger (no _wprism_uuid-equivalent column — see Snapshot.php's docblock),
      * so this is the ONLY reconciliation mechanism dead map rows for these
      * id_kinds ever get; skipping it would let a deleted row's uuid linger
      * forever, silently colliding with a future row that reuses the same
@@ -543,7 +543,7 @@ final class Ledger {
                 ? ' AND m.local_id NOT IN (' . implode(',', array_keys($keep)) . ')'
                 : '';
             Db::query($wpdb->prepare(
-                "DELETE m FROM {$p}duo_map m LEFT JOIN `{$p}{$table}` src ON src.`{$pk}` = m.local_id
+                "DELETE m FROM {$p}wprism_map m LEFT JOIN `{$p}{$table}` src ON src.`{$pk}` = m.local_id
                  WHERE m.id_kind = %s AND src.`{$pk}` IS NULL$keepClause",
                 $idKind
             ), "ledger prune dead $table identities");
@@ -564,7 +564,7 @@ final class Ledger {
     public static function prune_dead_composite_table_map(array $tables, int $componentBits): void {
         global $wpdb;
         if ($componentBits <= 0 || $componentBits > 31) {
-            throw new \RuntimeException('duo: invalid composite identity component width for ledger pruning');
+            throw new \RuntimeException('wprism: invalid composite identity component width for ledger pruning');
         }
         $componentMask = (1 << $componentBits) - 1;
         $p = $wpdb->prefix;
@@ -575,7 +575,7 @@ final class Ledger {
                 || !is_array($rawColumns) || count($rawColumns) !== 2
                 || !is_string($rawColumns[0] ?? null) || !is_string($rawColumns[1] ?? null)) {
                 throw new \RuntimeException(
-                    "duo: invalid composite identity table declaration for ledger pruning ($idKind)"
+                    "wprism: invalid composite identity table declaration for ledger pruning ($idKind)"
                 );
             }
             $table = preg_replace('/[^A-Za-z0-9_]/', '', $rawTable);
@@ -587,7 +587,7 @@ final class Ledger {
             if ($table === '' || $table !== $rawTable || $columns !== $rawColumns
                 || $columns[0] === '' || $columns[1] === '') {
                 throw new \RuntimeException(
-                    "duo: invalid composite identity table declaration for ledger pruning ($idKind)"
+                    "wprism: invalid composite identity table declaration for ledger pruning ($idKind)"
                 );
             }
             if (!self::checked_get_var(
@@ -597,7 +597,7 @@ final class Ledger {
                 continue;
             }
             Db::query($wpdb->prepare(
-                "DELETE m FROM {$p}duo_map m LEFT JOIN `{$p}{$table}` src
+                "DELETE m FROM {$p}wprism_map m LEFT JOIN `{$p}{$table}` src
                  ON src.`{$columns[0]}` = (m.local_id >> $componentBits)
                  AND src.`{$columns[1]}` = (m.local_id & $componentMask)
                  WHERE m.id_kind = %s AND src.`{$columns[0]}` IS NULL",
@@ -609,14 +609,14 @@ final class Ledger {
     public static function kv_get(string $k): ?string {
         global $wpdb;
         return self::checked_get_var($wpdb->prepare(
-            "SELECT v FROM {$wpdb->prefix}duo_kv WHERE k = %s", $k
+            "SELECT v FROM {$wpdb->prefix}wprism_kv WHERE k = %s", $k
         ), 'key/value lookup');
     }
 
     public static function kv_set(string $k, string $v): void {
         global $wpdb;
         Db::query($wpdb->prepare(
-            "INSERT INTO {$wpdb->prefix}duo_kv (k, v) VALUES (%s, %s)
+            "INSERT INTO {$wpdb->prefix}wprism_kv (k, v) VALUES (%s, %s)
              ON DUPLICATE KEY UPDATE v = VALUES(v)",
             $k, $v
         ), 'ledger upsert key/value');
@@ -625,16 +625,16 @@ final class Ledger {
     public static function kv_delete(string $k): void {
         global $wpdb;
         Db::query($wpdb->prepare(
-            "DELETE FROM {$wpdb->prefix}duo_kv WHERE k = %s",
+            "DELETE FROM {$wpdb->prefix}wprism_kv WHERE k = %s",
             $k
         ), 'ledger delete key/value');
     }
 
     /**
-     * All duo_kv rows whose key starts with $prefix (DUO-3234's
+     * All wprism_kv rows whose key starts with $prefix (issue #3234's
      * regen_pending: markers — see Apply::regen_dependencies()). A plain
      * SELECT + PHP-side str_starts_with(), not a SQL LIKE, deliberately:
-     * duo_kv is tiny (applied_revision plus however many regen_pending:
+     * wprism_kv is tiny (applied_revision plus however many regen_pending:
      * rows are currently outstanding — never a real "many rows" table), so
      * there is no performance case for a LIKE query, and this sidesteps
      * needing $wpdb->esc_like() correctness at every call site for what is,
@@ -645,7 +645,7 @@ final class Ledger {
     public static function kv_prefix(string $prefix): array {
         global $wpdb;
         $rows = self::checked_get_results(
-            "SELECT k, v FROM {$wpdb->prefix}duo_kv",
+            "SELECT k, v FROM {$wpdb->prefix}wprism_kv",
             'key/value prefix inventory'
         );
         $out = [];

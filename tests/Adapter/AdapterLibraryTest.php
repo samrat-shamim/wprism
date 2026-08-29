@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Adapter;
+namespace WPrism\Tests\Adapter;
 
-use Duo\AdapterCertification;
-use Duo\AdapterLibrary;
-use Duo\ManifestDispositions;
-use Duo\Policy;
-use Duo\Orchestrator\ContractAttestation;
+use WPrism\AdapterCertification;
+use WPrism\AdapterLibrary;
+use WPrism\ManifestDispositions;
+use WPrism\Policy;
+use WPrism\Orchestrator\ContractAttestation;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
@@ -100,14 +100,14 @@ final class AdapterLibraryTest extends TestCase
     public function testProductionSelectionIgnoresTheRetiredProcessGlobalFlatPath(): void
     {
         $legacy = $this->fixture();
-        $previous = getenv('DUO_MANIFESTS_DIR');
-        putenv('DUO_MANIFESTS_DIR=' . $legacy);
+        $previous = getenv('WPRISM_MANIFESTS_DIR');
+        putenv('WPRISM_MANIFESTS_DIR=' . $legacy);
         try {
             $library = Policy::adapter_library_context();
         } finally {
             $previous === false
-                ? putenv('DUO_MANIFESTS_DIR')
-                : putenv('DUO_MANIFESTS_DIR=' . $previous);
+                ? putenv('WPRISM_MANIFESTS_DIR')
+                : putenv('WPRISM_MANIFESTS_DIR=' . $previous);
         }
 
         $this->assertInstanceOf(AdapterLibrary::class, $library);
@@ -115,7 +115,7 @@ final class AdapterLibraryTest extends TestCase
         $this->assertFalse(method_exists(Policy::class, 'manifests_dir'));
         $this->assertFalse(method_exists(AdapterLibrary::class, 'fromDirectory'));
         $policySource = (string) file_get_contents(dirname(__DIR__, 2) . '/agent/src/Policy/Policy.php');
-        $this->assertStringNotContainsString('DUO_MANIFESTS_DIR', $policySource);
+        $this->assertStringNotContainsString('WPRISM_MANIFESTS_DIR', $policySource);
         $this->assertStringNotContainsString('fromLegacyFlatDirectory', $policySource);
     }
 
@@ -278,7 +278,7 @@ final class AdapterLibraryTest extends TestCase
         $this->assertNotContains(realpath($brokenSibling . '/manifest.json'), $library->scanFiles());
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('duo: invalid JSON');
+        $this->expectExceptionMessage('wprism: invalid JSON');
         AdapterLibrary::fromSourceTree($root);
     }
 
@@ -471,7 +471,7 @@ final class AdapterLibraryTest extends TestCase
             } catch (RuntimeException $exception) {
                 $id = basename($runtimeMember, '.php');
                 $this->assertSame(
-                    "duo: adapter runtime $kind $id is declared by both alpha and beta",
+                    "wprism: adapter runtime $kind $id is declared by both alpha and beta",
                     $exception->getMessage()
                 );
             }
@@ -485,7 +485,7 @@ final class AdapterLibraryTest extends TestCase
         mkdir($agentRoot);
         file_put_contents(
             $agentRoot . '/adapter-library.deployed',
-            "duo-embedded-adapter-library-assembly/v1\n"
+            "wprism-embedded-adapter-library-assembly/v1\n"
         );
 
         $resolver = new \ReflectionMethod(Policy::class, 'shipped_adapter_library_at');
@@ -574,7 +574,7 @@ final class AdapterLibraryTest extends TestCase
 
     private function scratch(string $label): string
     {
-        $root = sys_get_temp_dir() . '/duo-adapter-library-' . $label . '-' . bin2hex(random_bytes(6));
+        $root = sys_get_temp_dir() . '/wprism-adapter-library-' . $label . '-' . bin2hex(random_bytes(6));
         $this->scratchRoots[] = $root;
         mkdir($root, 0o777, true);
         return $root;

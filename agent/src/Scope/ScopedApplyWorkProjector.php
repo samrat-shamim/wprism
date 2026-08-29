@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 if (!class_exists(CompiledRepository::class, false)) {
     require_once __DIR__ . '/../Repository/CompiledArtifact.php';
@@ -51,7 +51,7 @@ final class ScopedApplyWorkProjector {
         foreach ((array) ($selection['work_items'] ?? []) as $item) {
             $resolved = $treeByHash[(string) ($item['identity_hash'] ?? '')] ?? null;
             if (!is_array($resolved)) {
-                throw new \RuntimeException('duo: scoped recovery work identity is absent from the frozen artifact');
+                throw new \RuntimeException('wprism: scoped recovery work identity is absent from the frozen artifact');
             }
             [$identity, $entity] = $resolved;
             $isOptionRecord = count($resolved) === 4;
@@ -61,7 +61,7 @@ final class ScopedApplyWorkProjector {
             $type = $isOptionRecord ? 'option' : (string) ($entity['type'] ?? '');
             if (!hash_equals((string) ($item['type'] ?? ''), $type)
                 || !hash_equals((string) ($item['desired_hash'] ?? ''), $desiredHash)) {
-                throw new \RuntimeException('duo: scoped recovery work identity no longer matches its authority');
+                throw new \RuntimeException('wprism: scoped recovery work identity no longer matches its authority');
             }
             if ($isOptionRecord) {
                 $optionRecoveryNames[] = substr((string) $resolved[2], strlen('option:'));
@@ -100,14 +100,14 @@ final class ScopedApplyWorkProjector {
         foreach ((array) ($selection['deletion_items'] ?? []) as $item) {
             $resolved = $deletionsByHash[(string) ($item['identity_hash'] ?? '')] ?? null;
             if (!is_array($resolved)) {
-                throw new \RuntimeException('duo: scoped recovery deletion identity is absent from the frozen artifact');
+                throw new \RuntimeException('wprism: scoped recovery deletion identity is absent from the frozen artifact');
             }
             [$identity, $deletion] = $resolved;
             $data = (array) ($deletion['data'] ?? []);
             if (!hash_equals((string) ($item['receipt_hash'] ?? ''), (string) ($deletion['hash'] ?? ''))
                 || !hash_equals((string) ($item['deletion_kind'] ?? ''), (string) ($data['kind'] ?? ''))
                 || !hash_equals((string) ($item['deletion_type'] ?? ''), (string) ($data['type'] ?? ''))) {
-                throw new \RuntimeException('duo: scoped recovery deletion no longer matches its authority');
+                throw new \RuntimeException('wprism: scoped recovery deletion no longer matches its authority');
             }
             $deleteWork[] = $deletionPlanRows[$identity] ?? [
                 'uuid' => $identity,

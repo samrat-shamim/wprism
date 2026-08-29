@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline (no docker, no WordPress bootstrap) regression harness for
- * DUO-3213: capture's atomic tree publication.
+ * issue #3213: capture's atomic tree publication.
  *
  * agent/src/Publication/Publish.php is the filesystem half of this issue's fix and was
  * deliberately written with ZERO WordPress/$wpdb dependency (see its own
@@ -13,15 +13,15 @@
  * private check_transient_db_error() compatibility facade, backed by the
  * extracted CaptureTransaction service (its only piece needing a DB stub).
  *
- * The DB-side half of DUO-3213 (the consistent-snapshot transaction, the
+ * The DB-side half of issue #3213 (the consistent-snapshot transaction, the
  * InnoDB engine check, and the deadlock/lock-wait-timeout retry actually
  * firing against real contention) is NOT exercised here — that needs a
  * live MySQL/MariaDB and is covered by the sandbox pair test instead (see
- * the DUO-3213 PR body for that evidence). This file's job is the
+ * the issue #3213 PR body for that evidence). This file's job is the
  * filesystem guarantee: a crash/disk-full/kill at any point before the
  * final swap must never touch the previously-published tree.
  *
- * DUO-3236 addendum (P8 below): agent/src/Repository/RepositoryCompiler.php's own
+ * issue #3236 addendum (P8 below): agent/src/Repository/RepositoryCompiler.php's own
  * docblock confirms it too is target-DB-free, so the new staged-candidate
  * compile gate Capture::run() now performs before Publish::swap() is
  * provable here as well — no docker, no WordPress bootstrap needed for it
@@ -33,17 +33,17 @@
  * and the script exits 1.
  */
 
-// DUO-3442: Capture owns a direct Canary dependency. Keep this probe in a
+// issue #3442: Capture owns a direct Canary dependency. Keep this probe in a
 // fresh PHP process so the parent harness cannot accidentally preload Canary
-// through duo.php or another fixture. The call deliberately stops at the
+// through wprism.php or another fixture. The call deliberately stops at the
 // next legitimate dependency wall in this WordPress-free harness; the
 // regression is that Canary must not be the first failure.
 $captureStandalone = __DIR__ . '/../../../../agent/src/Capture/Capture.php';
 $probeCode = 'require_once ' . var_export($captureStandalone, true) . ';'
-    . 'if (!class_exists("Duo\\\\Canary", false)) {'
-    . ' fwrite(STDERR, "Capture.php did not load Duo\\\\Canary\\n"); exit(2);'
+    . 'if (!class_exists("WPrism\\\\Canary", false)) {'
+    . ' fwrite(STDERR, "Capture.php did not load WPrism\\\\Canary\\n"); exit(2);'
     . '}'
-    . 'try { Duo\\Capture::snapshot("/tmp/duo-capture-canary-probe"); }'
+    . 'try { WPrism\\Capture::snapshot("/tmp/wprism-capture-canary-probe"); }'
     . ' catch (Throwable $e) {'
     . ' if (strpos($e->getMessage(), "Canary") !== false) {'
     . '  fwrite(STDERR, "Capture reached a Canary class failure: " . $e->getMessage() . "\\n"); exit(3);'
@@ -72,7 +72,7 @@ fwrite(STDOUT, "ok: Capture standalone load reaches its next dependency wall wit
 
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
-require_once __DIR__ . '/../../fixtures/duo-publish-stale-is-file.php';
+require_once __DIR__ . '/../../fixtures/wprism-publish-stale-is-file.php';
 require_once __DIR__ . '/../../../../agent/src/Publication/Publish.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
 // Capture is intentionally standalone-loadable. Its direct scoped overlay
@@ -80,7 +80,7 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
 // harness support list must be idempotent rather than depending on a former
 // bootstrap order.
 require_once __DIR__ . '/../../../../agent/src/Capture/Capture.php';
-// DUO-3236 (P8 below): RepositoryCompiler::compile_staged() is the new gate
+// issue #3236 (P8 below): RepositoryCompiler::compile_staged() is the new gate
 // Capture.php now runs against the staged candidate before Publish::swap().
 // Confirmed target-DB-free (agent/src/Repository/RepositoryCompiler.php's own
 // docblock: "no $wpdb, no get_plugins()/wp_get_theme() calls anywhere in
@@ -101,19 +101,19 @@ require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php
 // support load idempotent so the capture/publish harness remains valid both
 // before and after the compiler parser boundary is loaded transitively.
 require_once __DIR__ . '/../../../../agent/src/Repository/SidebarState.php';
-// agent/duo.php's own values, READ from it rather than retyped — this suite
-// cannot require duo.php (its ABSPATH/WP_CLI bootstrap guard) but does reach
+// agent/wprism.php's own values, READ from it rather than retyped — this suite
+// cannot require wprism.php (its ABSPATH/WP_CLI bootstrap guard) but does reach
 // the shipped platform.json, which restates them (WP-4.12).
 require_once __DIR__ . '/../../lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 
-use Duo\Canon;
-use Duo\CommandRefusalException;
-use Duo\OptionState;
-use Duo\Policy;
-use Duo\Publish;
-use Duo\RepositoryCompilationException;
-use Duo\RepositoryCompiler;
+use WPrism\Canon;
+use WPrism\CommandRefusalException;
+use WPrism\OptionState;
+use WPrism\Policy;
+use WPrism\Publish;
+use WPrism\RepositoryCompilationException;
+use WPrism\RepositoryCompiler;
 
 $failures = 0;
 function check(bool $cond, string $msg): void {
@@ -132,7 +132,7 @@ function rrmdir_test(string $dir): void {
 
 /** Fresh scratch root for one test group; auto-removed at process exit. */
 function fresh_root(string $label): string {
-    $root = sys_get_temp_dir() . '/duo_regress_capture_publish_' . $label . '_' . bin2hex(random_bytes(4));
+    $root = sys_get_temp_dir() . '/wprism_regress_capture_publish_' . $label . '_' . bin2hex(random_bytes(4));
     mkdir($root, 0777, true);
     register_shutdown_function(fn() => rrmdir_test($root));
     return $root;
@@ -191,7 +191,7 @@ function p8_options_document(): array {
     ] as $name) {
         $records[$name] = OptionState::absent();
     }
-    $records['blogname'] = OptionState::present('Duo P8', 'yes');
+    $records['blogname'] = OptionState::present('WPrism P8', 'yes');
     return OptionState::document($records);
 }
 
@@ -351,7 +351,7 @@ echo "\n== P3: Publish::write_entities() ==\n";
     check($threw3 instanceof \RuntimeException && str_contains($threw3->getMessage(), 'simulated disk-full'), 'P3c: the injected failure propagates out of write_entities()');
     check(
         read_tree($stateDir2) === ['keep.json' => "PUBLISHED-BEFORE-THE-CRASH\n"],
-        'P3d: the PUBLISHED tree is byte-for-byte untouched by a failure during staging (the core DUO-3213 guarantee)'
+        'P3d: the PUBLISHED tree is byte-for-byte untouched by a failure during staging (the core issue #3213 guarantee)'
     );
     // Clean up per P2b's already-proven contract before this scratch root's
     // own shutdown handler runs, just to leave the fixture tidy.
@@ -525,7 +525,7 @@ echo "\n== P7: Capture::check_transient_db_error() (Reflection, stub \$wpdb) ==\
     // No setAccessible() call: a no-op since PHP 8.1 (private methods are
     // directly ->invoke()-able via Reflection since then) and deprecated
     // outright in 8.5 — this repo's target runtimes span both.
-    $method = new ReflectionMethod(\Duo\Capture::class, 'check_transient_db_error');
+    $method = new ReflectionMethod(\WPrism\Capture::class, 'check_transient_db_error');
 
     $wpdb = new stdClass();
     $wpdb->last_error = '';
@@ -542,11 +542,11 @@ echo "\n== P7: Capture::check_transient_db_error() (Reflection, stub \$wpdb) ==\
     $GLOBALS['wpdb']->last_error = "WordPress database error Deadlock found when trying to get lock; try restarting transaction for query INSERT ...";
     $threw = null;
     try {
-        $method->invoke(null, 'mint _duo_uuid for post 5');
+        $method->invoke(null, 'mint _wprism_uuid for post 5');
     } catch (\Throwable $t) {
         $threw = $t;
     }
-    check($threw instanceof \Duo\TransientDbException, 'P7b: a real MySQL deadlock message -> TransientDbException (retryable)');
+    check($threw instanceof \WPrism\TransientDbException, 'P7b: a real MySQL deadlock message -> TransientDbException (retryable)');
 
     $GLOBALS['wpdb']->last_error = "WordPress database error Lock wait timeout exceeded; try restarting transaction for query INSERT ...";
     $threw = null;
@@ -555,7 +555,7 @@ echo "\n== P7: Capture::check_transient_db_error() (Reflection, stub \$wpdb) ==\
     } catch (\Throwable $t) {
         $threw = $t;
     }
-    check($threw instanceof \Duo\TransientDbException, 'P7c: a real MySQL lock-wait-timeout message -> TransientDbException (retryable)');
+    check($threw instanceof \WPrism\TransientDbException, 'P7c: a real MySQL lock-wait-timeout message -> TransientDbException (retryable)');
 
     $GLOBALS['wpdb']->last_error = "WordPress database error You have an error in your SQL syntax; ...";
     $threw = null;
@@ -565,20 +565,20 @@ echo "\n== P7: Capture::check_transient_db_error() (Reflection, stub \$wpdb) ==\
         $threw = $t;
     }
     check(
-        $threw instanceof \RuntimeException && !($threw instanceof \Duo\TransientDbException),
+        $threw instanceof \RuntimeException && !($threw instanceof \WPrism\TransientDbException),
         'P7d: a DIFFERENT SQL error -> plain RuntimeException, NOT retried (a real error must never be silently retried into a false green)'
     );
 }
 
 // ======================================================================
-// P8 — DUO-3236: RepositoryCompiler::compile_staged() gates a staged
+// P8 — issue #3236: RepositoryCompiler::compile_staged() gates a staged
 // candidate before Publish::swap() ever runs. This exercises the actual
 // sequence agent/src/Capture/Capture.php's run() now performs around its own
 // write_entities() -> [media copy] -> compile_staged() -> swap() steps
 // (P1-P6 above cover Publish.php's primitives in isolation; this covers
 // the new integration between them).
 // ======================================================================
-echo "\n== P8: staged-candidate compile gate (DUO-3236) ==\n";
+echo "\n== P8: staged-candidate compile gate (issue #3236) ==\n";
 {
     // ---- P8a: a VALID candidate, including a brand-new media reference,
     // passes the gate and swap() promotes it normally -- proving the
@@ -587,7 +587,7 @@ echo "\n== P8: staged-candidate compile gate (DUO-3236) ==\n";
     $root = fresh_root('p8_valid');
     $repo = "$root/repo";
     mkdir($repo, 0777, true);
-    Canon::write_file("$repo/site.duo.json", p8_site_json());
+    Canon::write_file("$repo/site.wprism.json", p8_site_json());
     $stateDir = "$repo/state";
     $pageId = '00000000-0000-4000-9000-000000000001';
     $staging = Publish::stage_dir($stateDir);
@@ -598,7 +598,7 @@ echo "\n== P8: staged-candidate compile gate (DUO-3236) ==\n";
             'content' => Canon::post_file(p8_post_front($pageId, 'page', 'home'), '<!-- wp:paragraph --><p>Home</p><!-- /wp:paragraph -->'),
         ],
     ]);
-    // Simulate Capture::run()'s own DUO-3236 ordering: the media blob this
+    // Simulate Capture::run()'s own issue #3236 ordering: the media blob this
     // run discovered is copied to the REAL media/ root BEFORE the gate
     // runs (agent/src/Capture/Capture.php's relocated foreach), never staged
     // itself (Publish.php's own class docblock).
@@ -609,7 +609,7 @@ echo "\n== P8: staged-candidate compile gate (DUO-3236) ==\n";
 
     $policy = Policy::load($repo);
     $compiled = RepositoryCompiler::compile_staged($staging, $repo, $policy);
-    check($compiled instanceof \Duo\CompiledRepository, 'P8a: a valid staged candidate (with its media already copied) compiles cleanly through the new gate');
+    check($compiled instanceof \WPrism\CompiledRepository, 'P8a: a valid staged candidate (with its media already copied) compiles cleanly through the new gate');
     Publish::swap($stateDir);
     check(
         read_tree($stateDir) === [
@@ -657,13 +657,13 @@ echo "\n== P8: staged-candidate compile gate (DUO-3236) ==\n";
     // proving why Capture.php's own copy-media-BEFORE-the-gate reordering
     // (P8a's setup) is load-bearing, not cosmetic: getting that ordering
     // backwards (media copied only AFTER a successful gate+swap, which is
-    // what agent/src/Capture/Capture.php did before DUO-3236) would make EVERY
+    // what agent/src/Capture/Capture.php did before issue #3236) would make EVERY
     // capture containing a brand-new media reference fail this gate
     // spuriously, every time.
     $root2 = fresh_root('p8_missing_media');
     $repo2 = "$root2/repo";
     mkdir($repo2, 0777, true);
-    Canon::write_file("$repo2/site.duo.json", p8_site_json());
+    Canon::write_file("$repo2/site.wprism.json", p8_site_json());
     $attachId = '00000000-0000-4000-9000-000000000003';
     $newMediaBytes = "never copied\n";
     $newMediaHash = hash('sha256', $newMediaBytes);
@@ -675,7 +675,7 @@ echo "\n== P8: staged-candidate compile gate (DUO-3236) ==\n";
         ['path' => "posts/attachment/$attachId--photo.md", 'content' => Canon::post_file($attachFront, '')],
     ]);
     // Deliberately NOT copying $newMediaHash.txt to $repo2/media -- this is
-    // the exact bug shape the pre-DUO-3236 ordering would have hit for any
+    // the exact bug shape the pre-issue #3236 ordering would have hit for any
     // real capture with new media, reproduced here on purpose.
     check(!is_file("$repo2/media/$newMediaHash.txt"), 'P8c precondition: the referenced media blob genuinely does not exist in the real media root yet');
     $threwP8c = null;
@@ -750,11 +750,11 @@ echo "\n== P9: transaction-bound capture publication recovery ==\n";
     $stateDir = "$root/state";
     $firstIntent = $publishCandidate($stateDir, ['revision.txt' => "one\n"]);
     $firstReceipt = Publish::write_receipt($stateDir, $firstIntent);
-    putenv('DUO_TEST_STALE_IS_FILE_PATH=' . Publish::intent_path($stateDir));
+    putenv('WPRISM_TEST_STALE_IS_FILE_PATH=' . Publish::intent_path($stateDir));
     try {
         Publish::cleanup_committed($stateDir, $firstReceipt);
     } finally {
-        putenv('DUO_TEST_STALE_IS_FILE_PATH');
+        putenv('WPRISM_TEST_STALE_IS_FILE_PATH');
     }
     check(
         !is_dir(Publish::backup_dir($stateDir)) && !is_file(Publish::intent_path($stateDir)),
@@ -906,8 +906,8 @@ echo "\n== P12: generic intent transition crash recovery ==\n";
 
             $pid = pcntl_fork();
             if ($pid === 0) {
-                putenv('DUO_TEST_MODE=1');
-                putenv("DUO_TEST_PUBLISH_KILL_PHASE=$phase");
+                putenv('WPRISM_TEST_MODE=1');
+                putenv("WPRISM_TEST_PUBLISH_KILL_PHASE=$phase");
                 Publish::mark_swapped($stateDir, $intent);
                 exit(97);
             }
@@ -920,8 +920,8 @@ echo "\n== P12: generic intent transition crash recovery ==\n";
             if ($phase === 'record-transition-previous') {
                 $recoveryPid = pcntl_fork();
                 if ($recoveryPid === 0) {
-                    putenv('DUO_TEST_MODE=1');
-                    putenv('DUO_TEST_PUBLISH_KILL_PHASE=record-transition-recover-prior');
+                    putenv('WPRISM_TEST_MODE=1');
+                    putenv('WPRISM_TEST_PUBLISH_KILL_PHASE=record-transition-recover-prior');
                     Publish::recover($stateDir, static fn(array $found): bool => false);
                     exit(98);
                 }
@@ -964,8 +964,8 @@ echo "\n== P12: generic intent transition crash recovery ==\n";
         Canon::write_file("$staging/revision.txt", "candidate\n");
         $pid = pcntl_fork();
         if ($pid === 0) {
-            putenv('DUO_TEST_MODE=1');
-            putenv('DUO_TEST_PUBLISH_KILL_PHASE=record-create-next');
+            putenv('WPRISM_TEST_MODE=1');
+            putenv('WPRISM_TEST_PUBLISH_KILL_PHASE=record-create-next');
             Publish::begin_intent($stateDir, $staging);
             exit(99);
         }
@@ -981,11 +981,11 @@ echo "\n== P12: generic intent transition crash recovery ==\n";
             is_file($nextPath) && count(glob($intentPath . '.tmp.*')) === 1,
             'P12g-next-cache: interrupted create retains one regular next slot and its matching temp hard link'
         );
-        putenv("DUO_TEST_STALE_IS_FILE_PATH=$nextPath");
+        putenv("WPRISM_TEST_STALE_IS_FILE_PATH=$nextPath");
         try {
             $notes = Publish::recover($stateDir, static fn(array $found): bool => false);
         } finally {
-            putenv('DUO_TEST_STALE_IS_FILE_PATH');
+            putenv('WPRISM_TEST_STALE_IS_FILE_PATH');
         }
         check(
             str_contains(implode("\n", $notes), 'unpublished')
@@ -1006,21 +1006,21 @@ echo "\n== P12: generic intent transition crash recovery ==\n";
         $staging = Publish::stage_dir($stateDir);
         write_tree($staging, ['revision.txt' => "candidate\n"]);
         $intentPath = Publish::intent_path($stateDir);
-        putenv('DUO_TEST_STALE_IS_FILE_PREFIX=' . $intentPath . '.tmp.');
+        putenv('WPRISM_TEST_STALE_IS_FILE_PREFIX=' . $intentPath . '.tmp.');
         try {
             $intent = Publish::begin_intent($stateDir, $staging);
         } finally {
-            putenv('DUO_TEST_STALE_IS_FILE_PREFIX');
+            putenv('WPRISM_TEST_STALE_IS_FILE_PREFIX');
         }
         check(
             glob($intentPath . '.tmp.*') === [],
             'P12g-cache: stale temp-path metadata cannot strand the owned record hard link'
         );
-        putenv("DUO_TEST_STALE_IS_FILE_PATH=$intentPath");
+        putenv("WPRISM_TEST_STALE_IS_FILE_PATH=$intentPath");
         try {
             $readback = Publish::intent_record($stateDir);
         } finally {
-            putenv('DUO_TEST_STALE_IS_FILE_PATH');
+            putenv('WPRISM_TEST_STALE_IS_FILE_PATH');
         }
         check(
             ($readback['id'] ?? null) === ($intent['id'] ?? null),
@@ -1113,8 +1113,8 @@ echo "\n== P12: generic intent transition crash recovery ==\n";
 
             $pid = pcntl_fork();
             if ($pid === 0) {
-                putenv('DUO_TEST_MODE=1');
-                putenv("DUO_TEST_PUBLISH_KILL_PHASE=$phase");
+                putenv('WPRISM_TEST_MODE=1');
+                putenv("WPRISM_TEST_PUBLISH_KILL_PHASE=$phase");
                 Publish::cleanup_committed($stateDir, $receipt);
                 exit(99);
             }
@@ -1168,16 +1168,16 @@ echo "\n== P13: recovery intent readback remains fail-closed ==\n";
     $stateDir = "$root/state";
     $intent = $publishCandidate($stateDir);
     [$notes, $error, $consumed] = [null, null, false];
-    putenv('DUO_TEST_MODE=1');
-    putenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE=recover-intent');
+    putenv('WPRISM_TEST_MODE=1');
+    putenv('WPRISM_TEST_PUBLISH_READBACK_MISS_ONCE=recover-intent');
     try {
         $notes = Publish::recover($stateDir, static fn(array $found): bool => false);
     } catch (Throwable $t) {
         $error = $t;
     }
-    $consumed = getenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE') === false;
-    putenv('DUO_TEST_PUBLISH_READBACK_MISS_ONCE');
-    putenv('DUO_TEST_MODE');
+    $consumed = getenv('WPRISM_TEST_PUBLISH_READBACK_MISS_ONCE') === false;
+    putenv('WPRISM_TEST_PUBLISH_READBACK_MISS_ONCE');
+    putenv('WPRISM_TEST_MODE');
     check(
         $error === null && $consumed && is_array($notes)
             && str_contains(implode("\n", $notes), 'before COMMIT was attempted')
@@ -1383,7 +1383,7 @@ echo "\n== P11: strict first-publication ownership ==\n";
         $mediaFailure = $t;
     }
     check($mediaFailure instanceof RuntimeException, 'P11d: replacement media root refuses before writing a blob');
-    check(!file_exists("$media/blob") && file_get_contents("$media/sentinel") === "must-survive\n", 'P11d: replacement media root receives no Duo bytes');
+    check(!file_exists("$media/blob") && file_get_contents("$media/sentinel") === "must-survive\n", 'P11d: replacement media root receives no WPrism bytes');
 
     $root = fresh_root('initial_state_swap');
     $stateDir = "$root/state";
@@ -1437,16 +1437,16 @@ echo "\n== P11: strict first-publication ownership ==\n";
 
     $root = fresh_root('initial_lock_acquire_failure');
     $stateDir = "$root/state";
-    putenv('DUO_TEST_MODE=1');
-    putenv('DUO_TEST_INIT_FAIL_PHASE=lock-acquire-after-create');
+    putenv('WPRISM_TEST_MODE=1');
+    putenv('WPRISM_TEST_INIT_FAIL_PHASE=lock-acquire-after-create');
     $lockCreateFailure = null;
     try {
         Publish::lock_new($stateDir);
     } catch (Throwable $t) {
         $lockCreateFailure = $t;
     } finally {
-        putenv('DUO_TEST_INIT_FAIL_PHASE');
-        putenv('DUO_TEST_MODE');
+        putenv('WPRISM_TEST_INIT_FAIL_PHASE');
+        putenv('WPRISM_TEST_MODE');
     }
     check(
         $lockCreateFailure instanceof RuntimeException,

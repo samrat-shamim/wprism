@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline harness for DUO-3344 — scope resolution over declared edges.
+ * Offline harness for issue #3344 — scope resolution over declared edges.
  *
  * Runs on real fixture repositories under sys_get_temp_dir() with an explicit
  * scratch adapter library, driving the REAL, unmodified
@@ -14,15 +14,15 @@
  */
 
 $root = $argv[1] ?? dirname(__DIR__, 4);
-define('DUO_SPEC_VERSION', 2);
-$duoAgentClassmap = require $root . '/agent/duo-classmap.php';
-if (!is_array($duoAgentClassmap)) {
-    throw new \RuntimeException('regress_scope_closure: agent/duo-classmap.php did not return a map');
+define('WPRISM_SPEC_VERSION', 2);
+$wprismAgentClassmap = require $root . '/agent/wprism-classmap.php';
+if (!is_array($wprismAgentClassmap)) {
+    throw new \RuntimeException('regress_scope_closure: agent/wprism-classmap.php did not return a map');
 }
 require_once __DIR__ . '/../policy/manifest_fixtures.php';
-$duoAgentFiles = [];
-foreach ($duoAgentClassmap as $duoAgentPath) {
-    $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
+$wprismAgentFiles = [];
+foreach ($wprismAgentClassmap as $wprismAgentPath) {
+    $wprismAgentFiles[basename((string) $wprismAgentPath, '.php')] = (string) $wprismAgentPath;
 }
 foreach ([
     'Uuid', 'OrderPreserved', 'Canon', 'OptionState', 'UserMetaState', 'Db', 'Secrets',
@@ -32,25 +32,25 @@ foreach ([
     'RepositoryAuthorization', 'CodeCompatibility', 'Code', 'CodeStateContract',
     'ReferenceGraph', 'RepositoryCompiler', 'ScopeClosure', 'ScopeContract',
 ] as $file) {
-    $duoAgentFile = $duoAgentFiles[$file] ?? null;
-    if (!is_string($duoAgentFile)) {
-        throw new \RuntimeException('regress_scope_closure: agent source ' . $file . '.php is absent from agent/duo-classmap.php');
+    $wprismAgentFile = $wprismAgentFiles[$file] ?? null;
+    if (!is_string($wprismAgentFile)) {
+        throw new \RuntimeException('regress_scope_closure: agent source ' . $file . '.php is absent from agent/wprism-classmap.php');
     }
-    require_once $root . '/agent/' . $duoAgentFile;
+    require_once $root . '/agent/' . $wprismAgentFile;
 }
 
 function get_option($name) { throw new RuntimeException("TARGET CONTACT: get_option($name)"); }
 function wp_upload_dir(...$args) { throw new RuntimeException('TARGET CONTACT: wp_upload_dir'); }
 
-use Duo\AdapterLibrary;
-use Duo\Canon;
-use Duo\OptionState;
-use Duo\Policy;
-use Duo\ReferenceGraph;
-use Duo\RepositoryCompilationException;
-use Duo\RepositoryCompiler;
-use Duo\ScopeClosure;
-use Duo\ScopeContract;
+use WPrism\AdapterLibrary;
+use WPrism\Canon;
+use WPrism\OptionState;
+use WPrism\Policy;
+use WPrism\ReferenceGraph;
+use WPrism\RepositoryCompilationException;
+use WPrism\RepositoryCompiler;
+use WPrism\ScopeClosure;
+use WPrism\ScopeContract;
 
 $failures = [];
 function check(bool $ok, string $message): void {
@@ -63,7 +63,7 @@ function check(bool $ok, string $message): void {
     echo "FAIL: $message\n";
 }
 
-$tmp = sys_get_temp_dir() . '/duo-3344-' . bin2hex(random_bytes(6));
+$tmp = sys_get_temp_dir() . '/scoped-apply-' . bin2hex(random_bytes(6));
 mkdir($tmp, 0777, true);
 register_shutdown_function(static function () use ($tmp): void {
     $it = new RecursiveIteratorIterator(
@@ -110,9 +110,9 @@ function option_records(array $overrides): string {
 }
 
 // A scratch manifest directory: the real core.json plus one fixture adapter
-// that declares a parent/child post-type relation in DUO-3315's grammar. The
+// that declares a parent/child post-type relation in issue #3315's grammar. The
 // point of the fixture is that the engine has never heard of these types —
-// if closure descends into duo_child it can only be because it read the
+// if closure descends into wprism_child it can only be because it read the
 // declaration.
 $manifestDir = "$tmp/manifests";
 mkdir($manifestDir, 0777, true);
@@ -122,25 +122,25 @@ if ($corePackage === null) {
     throw new RuntimeException('regress_scope_closure: source adapter library has no core package');
 }
 copy($corePackage->manifestPath(), "$manifestDir/core.json");
-// Both fixture adapters carry the name their file already carries: DUO-3371
+// Both fixture adapters carry the name their file already carries: issue #3371
 // refuses a manifest whose declared name is not its file basename, and a
 // nameless manifest is that refusal's degenerate case.
-put("$manifestDir/duo-scope-fixture.json", Canon::encode([
-    'name' => 'duo-scope-fixture',
+put("$manifestDir/wprism-scope-fixture.json", Canon::encode([
+    'name' => 'wprism-scope-fixture',
     'post_types' => [
-        'duo_parent' => ['class' => 'authored', 'children' => ['duo_child']],
-        'duo_child' => ['class' => 'authored'],
+        'wprism_parent' => ['class' => 'authored', 'children' => ['wprism_child']],
+        'wprism_child' => ['class' => 'authored'],
     ],
     'spec_version' => 2,
 ]));
-// A term-keyspace relationship taxonomy (DUO-3316) so term -> term
+// A term-keyspace relationship taxonomy (issue #3316) so term -> term
 // `relationships` is a real closure edge here rather than an untested branch.
 // Kept in its OWN manifest so the unpinning experiment below can drop the
 // parent/child declaration while the tree it compiles stays byte-identical.
-put("$manifestDir/duo-scope-taxonomy.json", Canon::encode([
-    'name' => 'duo-scope-taxonomy',
+put("$manifestDir/wprism-scope-taxonomy.json", Canon::encode([
+    'name' => 'wprism-scope-taxonomy',
     'taxonomies' => [
-        'duo_link' => ['object_keyspace' => 'term'],
+        'wprism_link' => ['object_keyspace' => 'term'],
     ],
     'spec_version' => 2,
 ]));
@@ -165,12 +165,12 @@ $repeatedPostMeta = [
         ],
     ],
 ];
-put("$repo/site.duo.json", Canon::encode([
-    'manifests' => ['core', 'duo-scope-taxonomy', 'duo-scope-fixture'],
+put("$repo/site.wprism.json", Canon::encode([
+    'manifests' => ['core', 'wprism-scope-taxonomy', 'wprism-scope-fixture'],
     'policy' => [
         'options' => (object) [], 'post_meta' => $repeatedPostMeta, 'term_meta' => (object) [],
-        'post_types' => ['post', 'page', 'attachment', 'duo_parent', 'duo_child'],
-        'taxonomies' => ['category', 'post_tag', 'duo_link'],
+        'post_types' => ['post', 'page', 'attachment', 'wprism_parent', 'wprism_child'],
+        'taxonomies' => ['category', 'post_tag', 'wprism_link'],
     ],
     'spec_version' => 2,
 ]));
@@ -183,7 +183,7 @@ put("$repo/state/terms/category/{$ids['topics']}--topics.json", Canon::encode([
 ]));
 put("$repo/state/terms/category/{$ids['news']}--news.json", Canon::encode([
     'description' => '', 'meta' => (object) [], 'name' => 'News', 'parent' => $ids['topics'],
-    'relationships' => (object) ['duo_link' => [$ids['linked']]],
+    'relationships' => (object) ['wprism_link' => [$ids['linked']]],
     'slug' => 'news', 'taxonomy' => 'category', 'uuid' => $ids['news'],
 ]));
 put("$repo/state/terms/category/{$ids['linked']}--linked.json", Canon::encode([
@@ -191,7 +191,7 @@ put("$repo/state/terms/category/{$ids['linked']}--linked.json", Canon::encode([
     'relationships' => (object) [], 'slug' => 'linked', 'taxonomy' => 'category', 'uuid' => $ids['linked'],
 ]));
 
-$mediaBytes = "duo-scope-media\n";
+$mediaBytes = "wprism-scope-media\n";
 $mediaHash = hash('sha256', $mediaBytes);
 put("$repo/media/$mediaHash.txt", $mediaBytes);
 $photo = post_front($ids['photo'], 'attachment', 'photo');
@@ -215,11 +215,11 @@ put("$repo/state/posts/page/{$ids['contact']}--contact.md", Canon::post_file(
     ''
 ));
 
-$parentDoc = post_front($ids['parentDoc'], 'duo_parent', 'parent-doc');
-put("$repo/state/posts/duo_parent/{$ids['parentDoc']}--parent-doc.md", Canon::post_file($parentDoc, ''));
-$childDoc = post_front($ids['childDoc'], 'duo_child', 'child-doc');
+$parentDoc = post_front($ids['parentDoc'], 'wprism_parent', 'parent-doc');
+put("$repo/state/posts/wprism_parent/{$ids['parentDoc']}--parent-doc.md", Canon::post_file($parentDoc, ''));
+$childDoc = post_front($ids['childDoc'], 'wprism_child', 'child-doc');
 $childDoc['parent'] = '{{post:' . $ids['parentDoc'] . '}}';
-put("$repo/state/posts/duo_child/{$ids['childDoc']}--child-doc.md", Canon::post_file($childDoc, ''));
+put("$repo/state/posts/wprism_child/{$ids['childDoc']}--child-doc.md", Canon::post_file($childDoc, ''));
 
 put("$repo/state/menus/main.json", Canon::encode([
     'items' => [[
@@ -236,7 +236,7 @@ put("$repo/state/sidebars/sidebar-1.json", Canon::encode([
     ]],
 ]));
 put("$repo/state/options/core.json", option_records([
-    'blogname' => OptionState::present('Duo', 'yes'),
+    'blogname' => OptionState::present('WPrism', 'yes'),
     'default_category' => OptionState::present('{{term:' . $ids['news'] . '}}', 'yes'),
     'page_on_front' => OptionState::present('{{post:' . $ids['about'] . '}}', 'yes'),
     'show_on_front' => OptionState::present('page', 'yes'),
@@ -252,7 +252,7 @@ $includedPaths = array_column($report['included'], 'path');
 $reasonByPath = array_column($report['included'], 'reason', 'path');
 $fromByPath = array_column($report['included'], 'locator', 'path');
 
-check($report['format'] === 'duo-scope/v1', 'report carries its own versioned format field');
+check($report['format'] === 'wprism-scope/v1', 'report carries its own versioned format field');
 check(
     in_array("posts/page/{$ids['about']}--about.md", $includedPaths, true)
     && $reasonByPath["posts/page/{$ids['about']}--about.md"] === 'root',
@@ -276,8 +276,8 @@ check(
 check(
     in_array("terms/category/{$ids['linked']}--linked.json", $includedPaths, true)
     && $reasonByPath["terms/category/{$ids['linked']}--linked.json"] === 'relationship'
-    && $fromByPath["terms/category/{$ids['linked']}--linked.json"] === 'relationships.duo_link[0]',
-    'a declared term-keyspace relationship (DUO-3316) is a closure edge with its own provenance'
+    && $fromByPath["terms/category/{$ids['linked']}--linked.json"] === 'relationships.wprism_link[0]',
+    'a declared term-keyspace relationship (issue #3316) is a closure edge with its own provenance'
 );
 check(
     in_array("posts/attachment/{$ids['photo']}--photo.md", $includedPaths, true)
@@ -292,7 +292,7 @@ check(
 );
 check($report['media'] === ["$mediaHash.txt"], 'the media blob owned by an included attachment is named');
 check(
-    !in_array("posts/duo_parent/{$ids['parentDoc']}--parent-doc.md", $includedPaths, true),
+    !in_array("posts/wprism_parent/{$ids['parentDoc']}--parent-doc.md", $includedPaths, true),
     'unrelated state stays out of the scope'
 );
 check(
@@ -323,30 +323,30 @@ check(
     'excluded state is broken down by entity type (the two unrelated fixture docs)'
 );
 
-// ------------------------------------------- DUO-3315 declared child descent
+// ------------------------------------------- issue #3315 declared child descent
 
 $parentScope = ScopeClosure::resolve($compiled, $policy, ['post:' . $ids['parentDoc']]);
 $parentPaths = array_column($parentScope['included'], 'path');
 $parentReasons = array_column($parentScope['included'], 'reason', 'path');
 check(
-    in_array("posts/duo_child/{$ids['childDoc']}--child-doc.md", $parentPaths, true)
-    && $parentReasons["posts/duo_child/{$ids['childDoc']}--child-doc.md"] === 'declared_child',
-    'a declared child post type descends from its parent root (DUO-3315 grammar, no engine branch)'
+    in_array("posts/wprism_child/{$ids['childDoc']}--child-doc.md", $parentPaths, true)
+    && $parentReasons["posts/wprism_child/{$ids['childDoc']}--child-doc.md"] === 'declared_child',
+    'a declared child post type descends from its parent root (issue #3315 grammar, no engine branch)'
 );
 $childScope = ScopeClosure::resolve($compiled, $policy, ['post:' . $ids['childDoc']]);
 check(
-    in_array("posts/duo_parent/{$ids['parentDoc']}--parent-doc.md", array_column($childScope['included'], 'path'), true),
+    in_array("posts/wprism_parent/{$ids['parentDoc']}--parent-doc.md", array_column($childScope['included'], 'path'), true),
     'a child root still carries its parent, which it references and cannot stand without'
 );
 
 // The engine must learn the relation only from the manifest. With the
 // fixture adapter unpinned, the identical tree must NOT descend.
-put("$repo/site.duo.json", Canon::encode([
-    'manifests' => ['core', 'duo-scope-taxonomy'],
+put("$repo/site.wprism.json", Canon::encode([
+    'manifests' => ['core', 'wprism-scope-taxonomy'],
     'policy' => [
         'options' => (object) [], 'post_meta' => $repeatedPostMeta, 'term_meta' => (object) [],
-        'post_types' => ['post', 'page', 'attachment', 'duo_parent', 'duo_child'],
-        'taxonomies' => ['category', 'post_tag', 'duo_link'],
+        'post_types' => ['post', 'page', 'attachment', 'wprism_parent', 'wprism_child'],
+        'taxonomies' => ['category', 'post_tag', 'wprism_link'],
     ],
     'spec_version' => 2,
 ]));
@@ -357,7 +357,7 @@ $unpinned = ScopeClosure::resolve(
     ['post:' . $ids['parentDoc']]
 );
 check(
-    !in_array("posts/duo_child/{$ids['childDoc']}--child-doc.md", array_column($unpinned['included'], 'path'), true),
+    !in_array("posts/wprism_child/{$ids['childDoc']}--child-doc.md", array_column($unpinned['included'], 'path'), true),
     'without the manifest declaration the same tree does not descend — the edge is declared data, never inferred'
 );
 
@@ -415,7 +415,7 @@ check(
 );
 check($all['inbound'] === [], 'nothing is inbound to a scope that contains everything');
 
-// ------------------------------------------------- DUO-3344: option:<name> roots
+// ------------------------------------------------- issue #3344: option:<name> roots
 
 // default_category references the news term; page_on_front references the
 // about page. Selecting one by name must close over exactly its OWN
@@ -495,8 +495,8 @@ $ambiguousRepo = "$tmp/ambiguous-option-names";
 $ambiguousManifestDir = "$ambiguousRepo/manifests";
 mkdir($ambiguousManifestDir, 0777, true);
 copy($corePackage->manifestPath(), "$ambiguousManifestDir/core.json");
-put("$ambiguousManifestDir/duo-ambiguous-fixture.json", Canon::encode([
-    'name' => 'duo-ambiguous-fixture',
+put("$ambiguousManifestDir/wprism-ambiguous-fixture.json", Canon::encode([
+    'name' => 'wprism-ambiguous-fixture',
     'options' => [
         'n' => ['class' => 'authored', 'autoload' => 'yes'],
         'n.value' => ['class' => 'authored', 'autoload' => 'yes'],
@@ -505,8 +505,8 @@ put("$ambiguousManifestDir/duo-ambiguous-fixture.json", Canon::encode([
     'spec_version' => 2,
 ]));
 $ambiguousLibrary = manifest_fixture_adapter_library($ambiguousManifestDir);
-put("$ambiguousRepo/site.duo.json", Canon::encode([
-    'manifests' => ['core', 'duo-ambiguous-fixture'],
+put("$ambiguousRepo/site.wprism.json", Canon::encode([
+    'manifests' => ['core', 'wprism-ambiguous-fixture'],
     'policy' => [
         'options' => (object) [], 'post_meta' => (object) [], 'term_meta' => (object) [],
         'post_types' => ['post', 'page', 'attachment'], 'taxonomies' => ['category', 'post_tag'],
@@ -595,7 +595,7 @@ function cycle_repo(string $repo, bool $withTerms): void {
     $term = uuid(1);
     $a = uuid(2);
     $b = uuid(3);
-    put("$repo/site.duo.json", Canon::encode([
+    put("$repo/site.wprism.json", Canon::encode([
         'manifests' => ['core'],
         'policy' => [
             'options' => (object) [], 'post_meta' => (object) [], 'term_meta' => (object) [],

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/Transport.php';
 require_once __DIR__ . '/CodePushTransport.php';
@@ -56,8 +56,8 @@ final class SshTransport extends Transport implements AdoptionTransport, CodePus
 
     /**
      * Adoption provisions the rollback authority runtime on every SSH target
-     * (cli/src/Onboarding/Adopt.php), and `duo status` has printed its
-     * authority line for every SSH environment since DUO-3293 whether or not
+     * (cli/src/Onboarding/Adopt.php), and `wprism status` has printed its
+     * authority line for every SSH environment since issue #3293 whether or not
      * this controller holds a signing key. Answering unconditionally is what
      * keeps that output byte-identical now that the predicate exists.
      */
@@ -114,15 +114,15 @@ final class SshTransport extends Transport implements AdoptionTransport, CodePus
     /**
      * The remote handoff path, named exactly as RollbackAuthority named it
      * before the seam existed: an offline fixture's fake `scp` matches
-     * `/tmp/duo-rollback-request-*.json` by name
-     * (sandbox/tests/fixtures/duo3344-scoped-promote-unit.php:364), so the
+     * `/tmp/wprism-rollback-request-*.json` by name
+     * (sandbox/tests/fixtures/scoped-promote-unit.php:364), so the
      * label is wire, not decoration.
      */
     public function allocateControlInput(string $label): string {
         if (preg_match('/^[a-z][a-z0-9-]*$/D', $label) !== 1) {
-            throw new \RuntimeException('duo rollback: invalid control handoff label');
+            throw new \RuntimeException('wprism rollback: invalid control handoff label');
         }
-        return '/tmp/duo-rollback-' . $label . '-' . bin2hex(random_bytes(16)) . '.json';
+        return '/tmp/wprism-rollback-' . $label . '-' . bin2hex(random_bytes(16)) . '.json';
     }
 
     /** @return array{exit:int, stdout:string, stderr:string} */
@@ -136,20 +136,20 @@ final class SshTransport extends Transport implements AdoptionTransport, CodePus
     }
 
     /**
-     * The code-push archive path (DUO-3514), named with the same shape and
+     * The code-push archive path (issue #3514), named with the same shape and
      * the same label validation as the rollback handoff above.
      *
-     * A distinct `duo-code-push-` prefix rather than a shared one, for the
+     * A distinct `wprism-code-push-` prefix rather than a shared one, for the
      * reason the `input`/`request` split already established: the live ssh
      * fixture asserts that a run which transfers nothing leaves no
-     * `/tmp/duo-code-push-*` behind, and a prefix shared with the rollback
+     * `/tmp/wprism-code-push-*` behind, and a prefix shared with the rollback
      * handoff would make that assertion answer for two protocols.
      */
     public function allocateCodePushInput(string $label): string {
         if (preg_match('/^[a-z][a-z0-9-]*$/D', $label) !== 1) {
-            throw new \RuntimeException('duo code-resolve: invalid code push label');
+            throw new \RuntimeException('wprism code-resolve: invalid code push label');
         }
-        return '/tmp/duo-code-push-' . $label . '-' . bin2hex(random_bytes(16)) . '.tar';
+        return '/tmp/wprism-code-push-' . $label . '-' . bin2hex(random_bytes(16)) . '.tar';
     }
 
     /** @return array{exit:int, stdout:string, stderr:string} */
@@ -189,7 +189,7 @@ final class SshTransport extends Transport implements AdoptionTransport, CodePus
     }
 
     private function sshPrefix(): string {
-        // Duo commands are non-interactive protocol calls. Explicitly disable
+        // WPrism commands are non-interactive protocol calls. Explicitly disable
         // PTY allocation so a user's RequestTTY=force SSH configuration
         // cannot turn piped env-set input back into terminal-visible bytes.
         return 'ssh -T' . ($this->configFile !== null ? ' -F ' . self::esc($this->configFile) : '');

@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline product-command regression for DUO-3345's stable JSON refusal
+ * Offline product-command regression for issue #3345's stable JSON refusal
  * surface.  Backend stubs do only one thing: make the real Cli handlers
  * cross their catch boundary with a chosen Throwable.  Formatting, command
  * routing, redaction, exit behavior, and preservation of typed compiler
@@ -34,7 +34,7 @@ namespace {
 
         /**
          * WP_CLI::error()'s real second parameter. It was elided while every
-         * caller exited; DUO-3489 added one that does not (verify-canonical
+         * caller exited; issue #3489 added one that does not (verify-canonical
          * writes its operator sentence to STDERR and then still halts through
          * the envelope), and a stub that ignores $exit would report that as a
          * command which never reaches its own envelope at all.
@@ -53,7 +53,7 @@ namespace {
     }
 }
 
-namespace Duo {
+namespace WPrism {
     final class Capture {
         public static ?\Throwable $failure = null;
 
@@ -66,13 +66,13 @@ namespace Duo {
     }
 
     /**
-     * DUO-3522: enough of Init to drive Cli::init() down its refusal path.
+     * issue #3522: enough of Init to drive Cli::init() down its refusal path.
      * $onCall runs BEFORE the throw, which is how the suite reproduces the
-     * shape that mattered -- an init that publishes site.duo.json and only then
-     * fails, so the directory becomes a Duo repository mid-command.
+     * shape that mattered -- an init that publishes site.wprism.json and only then
+     * fails, so the directory becomes a WPrism repository mid-command.
      */
     final class Init {
-        public const FORMAT = 'duo-init-plan/v1';
+        public const FORMAT = 'wprism-init-plan/v1';
         public static ?\Throwable $failure = null;
         /** @var ?callable */
         public static $onCall = null;
@@ -149,7 +149,7 @@ namespace Duo {
     }
 
     /**
-     * DUO-3397: refresh-export and scope reach their catch boundaries through
+     * issue #3397: refresh-export and scope reach their catch boundaries through
      * their own real backends, so both stubs do exactly what the others do —
      * throw the chosen Throwable and nothing else.
      */
@@ -186,7 +186,7 @@ namespace Duo {
     }
 
     /**
-     * DUO-3399: journal-report is the one newly enveloped command with no
+     * issue #3399: journal-report is the one newly enveloped command with no
      * required argument at all, so its catch boundary can only be reached
      * through its backend.  Everything else in this file's per-command loop
      * refuses at a gate before any backend is touched.
@@ -248,7 +248,7 @@ namespace Duo {
     }
 
     /**
-     * DUO-3421: the one refusal CLASS halt_json_failure() publishes on its own
+     * issue #3421: the one refusal CLASS halt_json_failure() publishes on its own
      * audited vocabulary, independent of the command allowlist. Declared here
      * like every other collaborator this suite stubs -- requiring the real
      * agent/src/Publication/Publish.php would drag in unrelated publication
@@ -276,9 +276,9 @@ namespace {
     // topology section below flips one global. Same name as
     // sandbox/tests/offline/policy/regress_topology_gate.php, which explains in
     // its header why it is a third name beside the two pre-existing ones.
-    $GLOBALS['duo_topology_multisite'] = false;
+    $GLOBALS['wprism_topology_multisite'] = false;
     function is_multisite(): bool {
-        return (bool) $GLOBALS['duo_topology_multisite'];
+        return (bool) $GLOBALS['wprism_topology_multisite'];
     }
 
     // This suite certifies public failure output. A PHP warning is itself an
@@ -302,7 +302,7 @@ namespace {
     }
 
     /**
-     * @param bool $operatorSentenceOnStderr DUO-3489: verify-canonical is the
+     * @param bool $operatorSentenceOnStderr issue #3489: verify-canonical is the
      *        one command whose only --format=json caller is this same product
      *        — apply's in-process convergence gate reads the diagnosis from
      *        STDERR — so its operator sentence is deliberately written there
@@ -333,7 +333,7 @@ namespace {
         return is_array($decoded) ? $decoded : [];
     }
 
-    $cli = new \Duo\Cli();
+    $cli = new \WPrism\Cli();
 
     echo "\n== every primary JSON command owns a stable missing-argument refusal ==\n";
     $commands = [
@@ -349,12 +349,12 @@ namespace {
         'explain' => 'explain',
         'apply' => 'apply',
         'deploy' => 'deploy',
-        // DUO-3397: refresh-export used a private JSON catch path and scope
+        // issue #3397: refresh-export used a private JSON catch path and scope
         // refused its selectors before its boundary; both now answer a
         // machine caller with the same envelope every other command does.
         'refresh_export' => 'refresh-export',
         'scope' => 'scope',
-        // DUO-3399: the remaining eleven commands that advertise
+        // issue #3399: the remaining eleven commands that advertise
         // --format=json all caught \Throwable straight into WP_CLI::error(),
         // and most gated their arguments outside the try as well, so a
         // machine caller got human stderr and ZERO records.  With these the
@@ -380,7 +380,7 @@ namespace {
             static fn() => $cli->$method([], ['format' => 'json']),
             $command === 'verify-canonical'
         );
-        check(($payload['format'] ?? null) === 'duo-command-refusal/v1', "$command refusal names the versioned format");
+        check(($payload['format'] ?? null) === 'wprism-command-refusal/v1', "$command refusal names the versioned format");
         check(($payload['ok'] ?? null) === false, "$command refusal is unambiguously not ok");
         check(($payload['command'] ?? null) === $command, "$command refusal names the public command");
         check(($payload['error'] ?? null) === 'invalid_arguments', "$command refusal has a stable argument error code");
@@ -419,8 +419,8 @@ namespace {
         'direct agent plan typed-refuses scoped view flags before decoding or echoing scope evidence'
     );
 
-    \Duo\Apply::$planResult = ['plan_view' => [
-        'format' => 'duo-plan-view/v2',
+    \WPrism\Apply::$planResult = ['plan_view' => [
+        'format' => 'wprism-plan-view/v2',
         'page' => ['next_cursor' => null, 'has_more' => false],
         'rows' => [],
     ]];
@@ -434,13 +434,13 @@ namespace {
     ]);
     $viewOnly = json_decode(WP_CLI::$lines[0] ?? '', true);
     check(
-        ($viewOnly['format'] ?? null) === 'duo-plan-view/v2'
+        ($viewOnly['format'] ?? null) === 'wprism-plan-view/v2'
             && array_keys($viewOnly) === ['format', 'page', 'rows']
-            && array_key_exists('cursor', \Duo\Apply::$lastPlanOptions['plan_view'] ?? [])
-            && \Duo\Apply::$lastPlanOptions['plan_view']['cursor'] === null,
+            && array_key_exists('cursor', \WPrism\Apply::$lastPlanOptions['plan_view'] ?? [])
+            && \WPrism\Apply::$lastPlanOptions['plan_view']['cursor'] === null,
         'plan --view-only emits only the bounded page while Apply still builds it through the real view request path'
     );
-    $priorPlanOptions = \Duo\Apply::$lastPlanOptions;
+    $priorPlanOptions = \WPrism\Apply::$lastPlanOptions;
     $missingView = invoke_json(static fn() => $cli->plan([], [
         'repo' => '/fixture',
         'view-only' => true,
@@ -448,23 +448,23 @@ namespace {
     ]));
     check(
         ($missingView['reason_code'] ?? null) === 'invalid_arguments'
-            && \Duo\Apply::$lastPlanOptions === $priorPlanOptions,
+            && \WPrism\Apply::$lastPlanOptions === $priorPlanOptions,
         'plan --view-only without a view selector refuses before plan execution'
     );
-    \Duo\Apply::$planResult = [];
+    \WPrism\Apply::$planResult = [];
 
     echo "\n== deliberately public gates keep stable diagnostics ==\n";
-    \Duo\Capture::$failure = new \Duo\CommandRefusalException(
+    \WPrism\Capture::$failure = new \WPrism\CommandRefusalException(
         'incomplete_state_discovery',
         'capture found state that has no reviewed classification',
-        'review it with duo pending, then classify or exclude it before another capture',
+        'review it with wprism pending, then classify or exclude it before another capture',
         [[
             'code' => 'unclassified_state',
             'surface' => 'options:acme_widget_color',
             'message' => 'state surface has no reviewed classification',
-            'remediation' => 'review it with duo pending, then classify or exclude it explicitly',
+            'remediation' => 'review it with wprism pending, then classify or exclude it explicitly',
         ]],
-        'duo: operator-only path /private/repo contains unclassified option acme_widget_color'
+        'wprism: operator-only path /private/repo contains unclassified option acme_widget_color'
     );
     $capture = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'json' => true]));
     check(($capture['error'] ?? null) === 'incomplete_state_discovery', 'capture retains the source-owned refusal code');
@@ -475,11 +475,11 @@ namespace {
     );
     check(!str_contains((string) json_encode($capture), '/private/repo'), 'operator-only typed evidence is absent from JSON');
 
-    $unsupportedDeletionFactory = new ReflectionMethod(\Duo\Deletion::class, 'unsupported_capability_refusal');
-    \Duo\Capture::$failure = $unsupportedDeletionFactory->invoke(null, 'table:nf3_forms');
+    $unsupportedDeletionFactory = new ReflectionMethod(\WPrism\Deletion::class, 'unsupported_capability_refusal');
+    \WPrism\Capture::$failure = $unsupportedDeletionFactory->invoke(null, 'table:nf3_forms');
     $unsupportedDeletion = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
     check(
-        ($unsupportedDeletion['format'] ?? null) === 'duo-command-refusal/v1'
+        ($unsupportedDeletion['format'] ?? null) === 'wprism-command-refusal/v1'
             && ($unsupportedDeletion['ok'] ?? null) === false
             && ($unsupportedDeletion['command'] ?? null) === 'capture',
         'unsupported deletion uses the primary capture refusal envelope'
@@ -500,7 +500,7 @@ namespace {
         'safe selector evidence stays public while richer operator prose stays private'
     );
 
-    \Duo\Capture::$failure = new \Duo\CommandRefusalException(
+    \WPrism\Capture::$failure = new \WPrism\CommandRefusalException(
         'policy_refused',
         'policy rejected a reviewed field',
         'review the policy diagnostic',
@@ -510,7 +510,7 @@ namespace {
             'message' => 'policy rejected this field',
             'remediation' => 'review it privately',
         ]],
-        'duo: operator may inspect the private policy refusal'
+        'wprism: operator may inspect the private policy refusal'
     );
     $structuredRedaction = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
     check(($structuredRedaction['reason_code'] ?? null) === 'policy_refused', 'structured redaction retains the stable source reason');
@@ -522,7 +522,7 @@ namespace {
         'AWS session token' => 'https://example.test/object?X-Amz-Security-Token=MUSTNOTLEAK',
         'Google signature' => 'https://example.test/object?X-Goog-Signature=MUSTNOTLEAK',
         'generic signature' => 'https://example.test/object?sig=MUSTNOTLEAK',
-        'Postgres userinfo' => 'postgres://duo:MUSTNOTLEAK@localhost/wordpress',
+        'Postgres userinfo' => 'postgres://wprism:MUSTNOTLEAK@localhost/wordpress',
         'MySQL userinfo' => 'mysql://root:MUSTNOTLEAK@db:3306/wordpress',
         'SSH userinfo' => 'ssh://deploy:MUSTNOTLEAK@host/repository',
         'OAuth client secret' => 'https://example.test/callback?client_secret=MUSTNOTLEAK',
@@ -531,7 +531,7 @@ namespace {
         'OAuth authorization code' => 'https://example.test/callback?code=MUSTNOTLEAK',
         'native-app OAuth query' => 'com.example.app:/oauth2redirect?code=MUSTNOTLEAK',
         'custom-scheme OAuth fragment' => 'myapp:/oauth/callback#code=MUSTNOTLEAK',
-        'opaque absolute URI' => 'urn:duo:callback?code=MUSTNOTLEAK',
+        'opaque absolute URI' => 'urn:wprism:callback?code=MUSTNOTLEAK',
         'macOS private home' => '/Users/private-customer/MUSTNOTLEAK',
         'Linux private home' => '/home/private-customer/MUSTNOTLEAK',
         'Windows private home' => 'C:\\Users\\private-customer\\MUSTNOTLEAK',
@@ -545,7 +545,7 @@ namespace {
         'carriage-return control byte' => "reviewed\rMUSTNOTLEAK",
     ];
     foreach ($signedQueryShapes as $shape => $signedUrl) {
-        \Duo\Capture::$failure = new \Duo\CommandRefusalException(
+        \WPrism\Capture::$failure = new \WPrism\CommandRefusalException(
             'provider_refused',
             'provider returned reviewed evidence',
             'inspect the provider diagnostic',
@@ -560,23 +560,23 @@ namespace {
         check(!str_contains((string) json_encode($signedRedaction), 'MUSTNOTLEAK'), "$shape value is absent from structured JSON");
     }
 
-    // DUO-3404 closes the prefix-as-authority hole globally. A raw Throwable
+    // issue #3404 closes the prefix-as-authority hole globally. A raw Throwable
     // remains unreviewed operator evidence even when its message begins with
-    // the human-facing `duo: ` convention. Public machine evidence must come
+    // the human-facing `wprism: ` convention. Public machine evidence must come
     // from CommandRefusalException (or one of the established typed compiler
     // diagnostics), never from punctuation in arbitrary caught prose.
-    \Duo\Apply::$planFailure = new RuntimeException('duo: target drift requires a fresh capture');
+    \WPrism\Apply::$planFailure = new RuntimeException('wprism: target drift requires a fresh capture');
     $plan = invoke_json(static fn() => $cli->plan([], ['repo' => '/fixture', 'format' => 'json']));
-    check(($plan['error'] ?? null) === 'plan_failed', 'plan keeps a raw duo:-prefixed Throwable on the unclassified code');
+    check(($plan['error'] ?? null) === 'plan_failed', 'plan keeps a raw wprism:-prefixed Throwable on the unclassified code');
     check(
         ($plan['details_redacted'] ?? null) === true
             && ($plan['message'] ?? null) === 'plan refused at an unclassified safety gate'
             && !str_contains((string) json_encode($plan), 'target drift requires'),
-        'a duo:-prefixed raw Throwable publishes none of its prose'
+        'a wprism:-prefixed raw Throwable publishes none of its prose'
     );
 
-    \Duo\Capture::$failure = new RuntimeException(
-        'duo: deletion intent for table:nf3_forms is unsupported — no pinned adapter declares its reverse-reference checks and cascade effects'
+    \WPrism\Capture::$failure = new RuntimeException(
+        'wprism: deletion intent for table:nf3_forms is unsupported — no pinned adapter declares its reverse-reference checks and cascade effects'
     );
     $captureRefusal = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
     check(
@@ -592,25 +592,25 @@ namespace {
         'an unclassified capture refusal carries only the reviewed generic remediation'
     );
 
-    \Duo\Capture::$failure = new RuntimeException(
-        'duo: refusing capture — option sk_live_1234567890ABCDEFGHIJ looks like a live secret'
+    \WPrism\Capture::$failure = new RuntimeException(
+        'wprism: refusing capture — option sk_live_1234567890ABCDEFGHIJ looks like a live secret'
     );
     $secretRefusal = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
     check(
         ($secretRefusal['error'] ?? null) === 'capture_failed'
             && ($secretRefusal['details_redacted'] ?? null) === true
             && !str_contains((string) json_encode($secretRefusal), 'sk_live_1234567890ABCDEFGHIJ'),
-        'a duo:-prefixed refusal embedding a secret-shaped value stays on the same generic redacted shape'
+        'a wprism:-prefixed refusal embedding a secret-shaped value stays on the same generic redacted shape'
     );
 
-    // The `duo: ` prefix is not proof of authorship: three wrapper families
+    // The `wprism: ` prefix is not proof of authorship: three wrapper families
     // re-prefix text the engine does not write. Each must stay redacted.
     foreach ([
-        'duo: required manifest action \'provider:probe/x\' failed — exit 1: PHP Warning with a payload tail',
-        'duo: batch regenerator \'woocommerce-product-lookups\' failed: wpdb said something with an option value in it',
-        'duo: deletion guard lock refused for post 7: guard query failed for wp_posts : Deadlock found MUSTNOTLEAK',
+        'wprism: required manifest action \'provider:probe/x\' failed — exit 1: PHP Warning with a payload tail',
+        'wprism: batch regenerator \'woocommerce-product-lookups\' failed: wpdb said something with an option value in it',
+        'wprism: deletion guard lock refused for post 7: guard query failed for wp_posts : Deadlock found MUSTNOTLEAK',
     ] as $wrapped) {
-        \Duo\Capture::$failure = new RuntimeException($wrapped);
+        \WPrism\Capture::$failure = new RuntimeException($wrapped);
         $wrappedRefusal = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
         check(
             ($wrappedRefusal['error'] ?? null) === 'capture_failed'
@@ -621,8 +621,8 @@ namespace {
         );
     }
 
-    \Duo\Capture::$failure = new RuntimeException(
-        "duo: user-meta exact login 'privateperson' disappeared after preflight; transaction rolled back"
+    \WPrism\Capture::$failure = new RuntimeException(
+        "wprism: user-meta exact login 'privateperson' disappeared after preflight; transaction rolled back"
     );
     $loginRefusal = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
     check(
@@ -631,8 +631,8 @@ namespace {
         'a refusal naming an exact login stays redacted — logins are in the redaction contract by name'
     );
 
-    \Duo\Capture::$failure = new RuntimeException(
-        'duo: canonical state at /var/www/site/state is not writable'
+    \WPrism\Capture::$failure = new RuntimeException(
+        'wprism: canonical state at /var/www/site/state is not writable'
     );
     $pathRefusal = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
     check(
@@ -641,7 +641,7 @@ namespace {
         'a refusal embedding an absolute filesystem path stays redacted'
     );
 
-    \Duo\Capture::$failure = new RuntimeException('TypeError-shaped accident with no refusal prefix');
+    \WPrism\Capture::$failure = new RuntimeException('TypeError-shaped accident with no refusal prefix');
     $accident = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
     check(
         ($accident['error'] ?? null) === 'capture_failed'
@@ -650,10 +650,10 @@ namespace {
         'an unprefixed Throwable stays fully redacted under the same catch-all rule'
     );
 
-    \Duo\Apply::$applyFailure = \Duo\CommandRefusalException::applyRefused(
+    \WPrism\Apply::$applyFailure = \WPrism\CommandRefusalException::applyRefused(
         'scoped apply selected live tombstones but --with-deletes was not supplied; no scoped session or authored target mutation was created',
         'review the selected tombstones and rerun scoped apply with --with-deletes to authorize their removal',
-        'duo: scoped apply selected live tombstones but --with-deletes was not supplied; no scoped session or authored target mutation was created'
+        'wprism: scoped apply selected live tombstones but --with-deletes was not supplied; no scoped session or authored target mutation was created'
     );
     $scopedApplyRefusal = invoke_json(static fn() => $cli->apply([], ['repo' => '/fixture', 'format' => 'json']));
     check(
@@ -664,15 +664,15 @@ namespace {
     );
 
     $forcedEntityHash = hash('sha256', 'private-option-or-user-identity');
-    \Duo\Apply::$applyFailure = new \Duo\CommandRefusalException(
+    \WPrism\Apply::$applyFailure = new \WPrism\CommandRefusalException(
         'apply_forced_override_failed',
         'apply failed after explicit plan conflict overrides were authorized',
         'inspect private operator evidence and apply recovery state; reconcile the failed gate before another attempt and do not assume the authorized override committed',
         [],
-        'Warning: FORCED conflict private-option-or-user-identity\nduo: later provider detail stays operator-only',
-        new RuntimeException('duo: later provider detail stays operator-only'),
+        'Warning: FORCED conflict private-option-or-user-identity\nwprism: later provider detail stays operator-only',
+        new RuntimeException('wprism: later provider detail stays operator-only'),
         [[
-            'format' => 'duo-forced-plan-override/v1',
+            'format' => 'wprism-forced-plan-override/v1',
             'plan_bucket' => 'conflict',
             'entity_identity_sha256' => $forcedEntityHash,
             'conflict_kind' => 'concurrent_change',
@@ -696,12 +696,12 @@ namespace {
             && !str_contains((string) json_encode($forcedApply), 'provider detail'),
         'forced apply failure JSON omits raw entity and later runtime details'
     );
-    \Duo\Apply::$applyFailure = new \Duo\CommandRefusalException(
+    \WPrism\Apply::$applyFailure = new \WPrism\CommandRefusalException(
         'apply_forced_override_failed',
         'apply failed after explicit plan conflict overrides were authorized',
         'inspect private operator evidence before another attempt',
         [],
-        'duo: private operator detail',
+        'wprism: private operator detail',
         null,
         [['entity_identity_sha256' => 'sk_live_1234567890FORCEDLEAK']]
     );
@@ -710,8 +710,8 @@ namespace {
     check(!array_key_exists('forced_overrides', $forcedRedaction), 'sensitive forced override evidence is omitted as a whole');
     check(!str_contains((string) json_encode($forcedRedaction), 'FORCEDLEAK'), 'sensitive forced override bytes are absent from JSON');
 
-    \Duo\Capture::$failure = \Duo\CommandRefusalException::ambiguousCaptureRecovery(
-        'duo: operator-only malformed database commit marker detail'
+    \WPrism\Capture::$failure = \WPrism\CommandRefusalException::ambiguousCaptureRecovery(
+        'wprism: operator-only malformed database commit marker detail'
     );
     $recovery = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
     check(($recovery['error'] ?? null) === 'capture_recovery_ambiguous', 'known capture recovery ambiguity retains its stable source code');
@@ -719,7 +719,7 @@ namespace {
     check(!str_contains((string) json_encode($recovery), 'malformed database commit marker'), 'capture recovery JSON omits operator-only marker evidence');
 
     echo "\n== typed diagnostics remain intact inside the common envelope ==\n";
-    \Duo\Apply::$planFailure = new \Duo\RepositoryCompilationException([[
+    \WPrism\Apply::$planFailure = new \WPrism\RepositoryCompilationException([[
         'severity' => 'error',
         'code' => 'conflict_marker',
         'path' => 'state/posts/page/example.md',
@@ -740,7 +740,7 @@ namespace {
         'AWS signed query' => 'https://example.test/object?X-Amz-Security-Token=TYPEDLEAK',
         'Google signed query' => 'https://example.test/object?X-Goog-Signature=TYPEDLEAK',
         'generic signed query' => 'https://example.test/object?sig=TYPEDLEAK',
-        'Postgres credential URL' => 'postgres://duo:TYPEDLEAK@localhost/wordpress',
+        'Postgres credential URL' => 'postgres://wprism:TYPEDLEAK@localhost/wordpress',
         'MySQL credential URL' => 'mysql://root:TYPEDLEAK@db:3306/wordpress',
         'SSH credential URL' => 'ssh://deploy:TYPEDLEAK@host/repository',
         'OAuth client secret' => 'https://example.test/callback?client_secret=TYPEDLEAK',
@@ -749,7 +749,7 @@ namespace {
         'OAuth authorization code' => 'https://example.test/callback?code=TYPEDLEAK',
         'native-app OAuth query' => 'com.example.app:/oauth2redirect?code=TYPEDLEAK',
         'custom-scheme OAuth fragment' => 'myapp:/oauth/callback#code=TYPEDLEAK',
-        'opaque absolute URI' => 'urn:duo:callback?code=TYPEDLEAK',
+        'opaque absolute URI' => 'urn:wprism:callback?code=TYPEDLEAK',
         'macOS private home' => '/Users/private-customer/TYPEDLEAK',
         'Linux private home' => '/home/private-customer/TYPEDLEAK',
         'Windows private home' => 'C:\\Users\\private-customer\\TYPEDLEAK',
@@ -763,7 +763,7 @@ namespace {
         'carriage-return control byte' => "reviewed\rTYPEDLEAK",
     ];
     foreach ($typedSensitiveShapes as $shape => $diagnosticMessage) {
-        \Duo\Apply::$planFailure = new \Duo\RepositoryCompilationException([[
+        \WPrism\Apply::$planFailure = new \WPrism\RepositoryCompilationException([[
             'severity' => 'error',
             'code' => 'malformed_reference',
             'path' => 'state/options/core.json',
@@ -785,7 +785,7 @@ namespace {
         'personal login and path' => 'failure for admin@example.test at /Users/private-customer/site',
     ];
     foreach ($secretMessages as $shape => $secretMessage) {
-        \Duo\Capture::$failure = new RuntimeException($secretMessage);
+        \WPrism\Capture::$failure = new RuntimeException($secretMessage);
         $redacted = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
         $redactedBytes = json_encode($redacted, JSON_UNESCAPED_SLASHES);
         check(($redacted['details_redacted'] ?? null) === true, "$shape failure records an explicit redaction witness");
@@ -793,24 +793,24 @@ namespace {
         check(($redacted['message'] ?? null) === 'capture refused at an unclassified safety gate', "$shape gets the constant safe message");
     }
 
-    echo "\n== a redacted refusal writes its sentence privately under <repo>/.duo/refusals/ ==\n";
+    echo "\n== a redacted refusal writes its sentence privately under <repo>/.wprism/refusals/ ==\n";
     // "inspect private operator evidence" has to point somewhere: the host
     // runs the agent in --format=json for a rehearsal's promotion apply, so
     // the operator never had a human-mode sentence to reread (grind_adoption
     // A6 lost two rehearsals to a bare `apply_failed`). The envelope stays
     // byte-identical; the record lives beside the promotion checkpoints.
-    $evidenceRepo = sys_get_temp_dir() . '/duo-cli-json-refusal-evidence-' . bin2hex(random_bytes(6));
+    $evidenceRepo = sys_get_temp_dir() . '/wprism-cli-json-refusal-evidence-' . bin2hex(random_bytes(6));
     mkdir($evidenceRepo, 0700, true);
-    // DUO-3516: the record goes to a directory that is ALREADY a Duo
+    // issue #3516: the record goes to a directory that is ALREADY a WPrism
     // repository. It used to be written into whatever the raw --repo string
-    // named, creating .duo/ on the way -- which, after an identity-gate
-    // refusal, planted Duo state in an unrelated operator directory (and
+    // named, creating .wprism/ on the way -- which, after an identity-gate
+    // refusal, planted WPrism state in an unrelated operator directory (and
     // through a swapped-in symlink, outside the repository entirely). This
     // fixture therefore carries the marker a real repository has.
-    file_put_contents($evidenceRepo . '/site.duo.json', "{}\n");
+    file_put_contents($evidenceRepo . '/site.wprism.json', "{}\n");
     $evidenceCause = new RuntimeException('provider capability failed: X-Amz-Signature=EVIDENCECAUSE');
-    \Duo\Capture::$failure = new RuntimeException(
-        'duo: required manifest action failed with sk_live_EVIDENCESENTENCE',
+    \WPrism\Capture::$failure = new RuntimeException(
+        'wprism: required manifest action failed with sk_live_EVIDENCESENTENCE',
         0,
         $evidenceCause
     );
@@ -818,70 +818,70 @@ namespace {
     check(($withEvidence['details_redacted'] ?? null) === true, 'the redacted envelope is unchanged by evidence recording');
     check(!str_contains((string) json_encode($withEvidence), 'EVIDENCE'), 'evidence recording publishes nothing new in the envelope');
     check(!array_key_exists('private_evidence', $withEvidence), 'the envelope carries no evidence path (byte-identical contract)');
-    $evidenceFiles = glob($evidenceRepo . '/.duo/refusals/*-capture-*.json') ?: [];
-    check(count($evidenceFiles) === 1, 'exactly one private evidence record is written under <repo>/.duo/refusals/');
+    $evidenceFiles = glob($evidenceRepo . '/.wprism/refusals/*-capture-*.json') ?: [];
+    check(count($evidenceFiles) === 1, 'exactly one private evidence record is written under <repo>/.wprism/refusals/');
     $evidenceRecord = json_decode((string) file_get_contents($evidenceFiles[0] ?? ''), true);
-    check(($evidenceRecord['format'] ?? null) === 'duo-private-refusal-evidence/v1', 'the record names its private format');
+    check(($evidenceRecord['format'] ?? null) === 'wprism-private-refusal-evidence/v1', 'the record names its private format');
     check(($evidenceRecord['command'] ?? null) === 'capture' && ($evidenceRecord['reason_code'] ?? null) === 'capture_failed', 'the record binds command and reason code');
-    check(($evidenceRecord['throwable'][0]['message'] ?? null) === 'duo: required manifest action failed with sk_live_EVIDENCESENTENCE', 'the record carries the primary sentence verbatim');
+    check(($evidenceRecord['throwable'][0]['message'] ?? null) === 'wprism: required manifest action failed with sk_live_EVIDENCESENTENCE', 'the record carries the primary sentence verbatim');
     check(($evidenceRecord['throwable'][1]['message'] ?? null) === 'provider capability failed: X-Amz-Signature=EVIDENCECAUSE', 'the record carries the cause chain');
     check(($evidenceRecord['throwable'][0]['class'] ?? null) === 'RuntimeException' && is_int($evidenceRecord['throwable'][0]['line'] ?? null), 'the record names class and origin line');
-    check((fileperms($evidenceFiles[0]) & 0777) === 0600, 'the record is private (0600) like every other .duo/ artifact');
+    check((fileperms($evidenceFiles[0]) & 0777) === 0600, 'the record is private (0600) like every other .wprism/ artifact');
     // The typed-diagnostic redaction and the final defense pass are the same
     // contract: any details_redacted envelope leaves a record.
-    \Duo\Apply::$planFailure = new \Duo\RepositoryCompilationException([[
+    \WPrism\Apply::$planFailure = new \WPrism\RepositoryCompilationException([[
         'severity' => 'error', 'code' => 'malformed_reference', 'path' => 'state/options/core.json',
         'locator' => 'records.fixture', 'message' => "reviewed\tTYPEDEVIDENCE",
     ]]);
     invoke_json(static fn() => $cli->plan([], ['repo' => $evidenceRepo, 'format' => 'json']));
-    check(count(glob($evidenceRepo . '/.duo/refusals/*-plan-*.json') ?: []) === 1, 'a redacted typed-diagnostic refusal also leaves a private record');
+    check(count(glob($evidenceRepo . '/.wprism/refusals/*-plan-*.json') ?: []) === 1, 'a redacted typed-diagnostic refusal also leaves a private record');
     // No repository, no record — and never a second failure.
-    \Duo\Capture::$failure = new RuntimeException('duo: refused with sk_live_NOREPO');
+    \WPrism\Capture::$failure = new RuntimeException('wprism: refused with sk_live_NOREPO');
     $withoutRepo = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture-does-not-exist', 'format' => 'json']));
     check(($withoutRepo['details_redacted'] ?? null) === true, 'a missing repository still yields the redacted envelope');
     check(!is_dir('/fixture-does-not-exist'), 'no repository is conjured to hold evidence');
 
-    // DUO-3516: an ordinary directory that is NOT a Duo repository gets
+    // issue #3516: an ordinary directory that is NOT a WPrism repository gets
     // nothing — the negative case the live swap-directory failure was.
-    $strangerDir = sys_get_temp_dir() . '/duo-cli-json-refusal-stranger-' . bin2hex(random_bytes(6));
+    $strangerDir = sys_get_temp_dir() . '/wprism-cli-json-refusal-stranger-' . bin2hex(random_bytes(6));
     mkdir($strangerDir, 0700, true);
-    \Duo\Capture::$failure = new RuntimeException('duo: refused with sk_live_STRANGER');
+    \WPrism\Capture::$failure = new RuntimeException('wprism: refused with sk_live_STRANGER');
     $inStranger = invoke_json(static fn() => $cli->capture([], ['repo' => $strangerDir, 'format' => 'json']));
     check(($inStranger['details_redacted'] ?? null) === true, 'a non-repository directory still yields the redacted envelope');
-    check(!is_dir($strangerDir . '/.duo'), 'and no .duo/ is created inside a directory that is not a Duo repository');
+    check(!is_dir($strangerDir . '/.wprism'), 'and no .wprism/ is created inside a directory that is not a WPrism repository');
     check(scandir($strangerDir) === ['.', '..'], 'the stranger directory is left exactly as it was found');
     @rmdir($strangerDir);
 
-    // A real `.duo/` alone qualifies it, beside the promotion checkpoints the
-    // record was always meant to sit next to — no site.duo.json required.
-    $checkpointRepo = sys_get_temp_dir() . '/duo-cli-json-refusal-checkpoints-' . bin2hex(random_bytes(6));
-    mkdir($checkpointRepo . '/.duo/checkpoints', 0700, true);
-    \Duo\Capture::$failure = new RuntimeException('duo: refused with sk_live_CHECKPOINTS');
+    // A real `.wprism/` alone qualifies it, beside the promotion checkpoints the
+    // record was always meant to sit next to — no site.wprism.json required.
+    $checkpointRepo = sys_get_temp_dir() . '/wprism-cli-json-refusal-checkpoints-' . bin2hex(random_bytes(6));
+    mkdir($checkpointRepo . '/.wprism/checkpoints', 0700, true);
+    \WPrism\Capture::$failure = new RuntimeException('wprism: refused with sk_live_CHECKPOINTS');
     invoke_json(static fn() => $cli->capture([], ['repo' => $checkpointRepo, 'format' => 'json']));
     check(
-        count(glob($checkpointRepo . '/.duo/refusals/*-capture-*.json') ?: []) === 1,
-        'an existing .duo/ qualifies a repository even with no site.duo.json'
+        count(glob($checkpointRepo . '/.wprism/refusals/*-capture-*.json') ?: []) === 1,
+        'an existing .wprism/ qualifies a repository even with no site.wprism.json'
     );
 
     // A symlinked repository root is never followed, whatever sits behind it —
     // the live symlink swap case, where the target even carried a poisoned
-    // site.duo.json.
-    $linkTarget = sys_get_temp_dir() . '/duo-cli-json-refusal-external-' . bin2hex(random_bytes(6));
+    // site.wprism.json.
+    $linkTarget = sys_get_temp_dir() . '/wprism-cli-json-refusal-external-' . bin2hex(random_bytes(6));
     mkdir($linkTarget, 0700, true);
-    file_put_contents($linkTarget . '/site.duo.json', "{poisoned\n");
-    $linkPath = sys_get_temp_dir() . '/duo-cli-json-refusal-link-' . bin2hex(random_bytes(6));
+    file_put_contents($linkTarget . '/site.wprism.json', "{poisoned\n");
+    $linkPath = sys_get_temp_dir() . '/wprism-cli-json-refusal-link-' . bin2hex(random_bytes(6));
     symlink($linkTarget, $linkPath);
-    \Duo\Capture::$failure = new RuntimeException('duo: refused with sk_live_SYMLINK');
+    \WPrism\Capture::$failure = new RuntimeException('wprism: refused with sk_live_SYMLINK');
     invoke_json(static fn() => $cli->capture([], ['repo' => $linkPath, 'format' => 'json']));
-    check(!is_dir($linkTarget . '/.duo'), 'a symlinked repository root is not followed, even to a directory holding a site.duo.json');
+    check(!is_dir($linkTarget . '/.wprism'), 'a symlinked repository root is not followed, even to a directory holding a site.wprism.json');
 
     // init is held to one extra condition: the directory must STILL be the one
     // it started against. That is the live failure's exact shape -- the root is
     // replaced between the lease and the refusal -- so it is asserted against
     // the predicate directly rather than through a stubbed init transaction.
-    $gate = new ReflectionMethod(\Duo\Cli::class, 'refusal_evidence_repository');
-    $snapshot = new ReflectionProperty(\Duo\Cli::class, 'initRepositoryIdentityAtEntry');
-    $identityOf = new ReflectionMethod(\Duo\Cli::class, 'directory_identity');
+    $gate = new ReflectionMethod(\WPrism\Cli::class, 'refusal_evidence_repository');
+    $snapshot = new ReflectionProperty(\WPrism\Cli::class, 'initRepositoryIdentityAtEntry');
+    $identityOf = new ReflectionMethod(\WPrism\Cli::class, 'directory_identity');
 
     $snapshot->setValue(null, null);
     check(
@@ -890,96 +890,96 @@ namespace {
     );
     check(
         $gate->invoke(null, $evidenceRepo, 'capture') === true,
-        'while every other command still records into the same Duo repository'
+        'while every other command still records into the same WPrism repository'
     );
 
     $snapshot->setValue(null, $identityOf->invoke(null, $evidenceRepo));
-    (new ReflectionProperty(\Duo\Cli::class, 'initRepositoryWasDuoAtEntry'))->setValue(null, true);
+    (new ReflectionProperty(\WPrism\Cli::class, 'initRepositoryWasWPrismAtEntry'))->setValue(null, true);
     check(
         $gate->invoke(null, $evidenceRepo, 'init') === true,
         'init records while the directory it started against is still the one at that path'
     );
 
-    // DUO-3522: the moment the "already a Duo repository?" question is asked.
+    // issue #3522: the moment the "already a WPrism repository?" question is asked.
     // init is the command that CREATES that marker, so asking at refusal time
     // let a half-published init answer its own question: it published
-    // site.duo.json, failed during capture, recorded `.duo/refusals`, and left
-    // it behind -- the rollback has no deletion authority over `.duo`, so the
+    // site.wprism.json, failed during capture, recorded `.wprism/refusals`, and left
+    // it behind -- the rollback has no deletion authority over `.wprism`, so the
     // repository was not byte-empty after a recovery that correctly reported it
     // restored. Both facts are therefore snapshotted at ENTRY.
     // Driven through Cli::init() itself, not through the predicate: the whole
     // defect was WHEN the question gets asked, and only the real entry point
     // takes the entry-time snapshots.
-    $freshRepo = sys_get_temp_dir() . '/duo-cli-json-refusal-fresh-init-' . bin2hex(random_bytes(6));
+    $freshRepo = sys_get_temp_dir() . '/wprism-cli-json-refusal-fresh-init-' . bin2hex(random_bytes(6));
     mkdir($freshRepo, 0700, true);
-    \Duo\Init::$onCall = static function () use ($freshRepo): void {
+    \WPrism\Init::$onCall = static function () use ($freshRepo): void {
         // The half-published init: the marker exists by the time it fails.
-        file_put_contents($freshRepo . '/site.duo.json', "{}\n");
+        file_put_contents($freshRepo . '/site.wprism.json', "{}\n");
     };
-    \Duo\Init::$failure = new RuntimeException('duo: init refused with sk_live_FRESHINIT');
+    \WPrism\Init::$failure = new RuntimeException('wprism: init refused with sk_live_FRESHINIT');
     $freshInit = invoke_json(static fn() => $cli->init([], ['repo' => $freshRepo, 'format' => 'json']));
     check(($freshInit['details_redacted'] ?? null) === true, 'the half-published init still yields the redacted envelope');
     check(
-        !is_dir($freshRepo . '/.duo'),
-        'a fresh init records nothing even after it has published site.duo.json mid-command'
+        !is_dir($freshRepo . '/.wprism'),
+        'a fresh init records nothing even after it has published site.wprism.json mid-command'
     );
     check(
-        is_file($freshRepo . '/site.duo.json'),
+        is_file($freshRepo . '/site.wprism.json'),
         'and the marker it published is left alone -- the recorder skips, it does not clean up after init'
     );
 
     // Entered against a repository that was ALREADY real: still records, which
     // is the interrupted-attempt refusal actually worth reading.
-    \Duo\Init::$onCall = null;
-    \Duo\Init::$failure = new RuntimeException('duo: init refused with sk_live_EXISTINGINIT');
+    \WPrism\Init::$onCall = null;
+    \WPrism\Init::$failure = new RuntimeException('wprism: init refused with sk_live_EXISTINGINIT');
     invoke_json(static fn() => $cli->init([], ['repo' => $freshRepo, 'format' => 'json']));
     check(
-        count(glob($freshRepo . '/.duo/refusals/*-init-*.json') ?: []) === 1,
-        'an init entered against an existing Duo repository still records'
+        count(glob($freshRepo . '/.wprism/refusals/*-init-*.json') ?: []) === 1,
+        'an init entered against an existing WPrism repository still records'
     );
-    \Duo\Init::$failure = null;
-    foreach (glob($freshRepo . '/.duo/refusals/*') ?: [] as $f) unlink($f);
-    @rmdir($freshRepo . '/.duo/refusals'); @rmdir($freshRepo . '/.duo');
-    @unlink($freshRepo . '/site.duo.json'); @rmdir($freshRepo);
+    \WPrism\Init::$failure = null;
+    foreach (glob($freshRepo . '/.wprism/refusals/*') ?: [] as $f) unlink($f);
+    @rmdir($freshRepo . '/.wprism/refusals'); @rmdir($freshRepo . '/.wprism');
+    @unlink($freshRepo . '/site.wprism.json'); @rmdir($freshRepo);
 
     // The live case: same path, different inode.
-    $swapped = sys_get_temp_dir() . '/duo-cli-json-refusal-swapped-' . bin2hex(random_bytes(6));
+    $swapped = sys_get_temp_dir() . '/wprism-cli-json-refusal-swapped-' . bin2hex(random_bytes(6));
     $reviewed = $swapped . '-reviewed';
     mkdir($swapped, 0700, true);
-    file_put_contents($swapped . '/site.duo.json', "{}\n");
+    file_put_contents($swapped . '/site.wprism.json', "{}\n");
     $snapshot->setValue(null, $identityOf->invoke(null, $swapped));
     rename($swapped, $reviewed);
     mkdir($swapped, 0700, true);
-    file_put_contents($swapped . '/site.duo.json', "{}\n");
+    file_put_contents($swapped . '/site.wprism.json', "{}\n");
     check(
         $gate->invoke(null, $swapped, 'init') === false,
-        'and refuses once that path names a different directory, even one that is itself a Duo repository'
+        'and refuses once that path names a different directory, even one that is itself a WPrism repository'
     );
     $snapshot->setValue(null, null);
-    @unlink($swapped . '/site.duo.json'); @rmdir($swapped);
-    @unlink($reviewed . '/site.duo.json'); @rmdir($reviewed);
+    @unlink($swapped . '/site.wprism.json'); @rmdir($swapped);
+    @unlink($reviewed . '/site.wprism.json'); @rmdir($reviewed);
 
-    foreach (glob($evidenceRepo . '/.duo/refusals/*') ?: [] as $f) unlink($f);
-    @rmdir($evidenceRepo . '/.duo/refusals'); @rmdir($evidenceRepo . '/.duo');
-    @unlink($evidenceRepo . '/site.duo.json'); @rmdir($evidenceRepo);
-    foreach (glob($checkpointRepo . '/.duo/refusals/*') ?: [] as $f) unlink($f);
-    @rmdir($checkpointRepo . '/.duo/refusals'); @rmdir($checkpointRepo . '/.duo/checkpoints');
-    @rmdir($checkpointRepo . '/.duo'); @rmdir($checkpointRepo);
-    @unlink($linkPath); @unlink($linkTarget . '/site.duo.json'); @rmdir($linkTarget);
+    foreach (glob($evidenceRepo . '/.wprism/refusals/*') ?: [] as $f) unlink($f);
+    @rmdir($evidenceRepo . '/.wprism/refusals'); @rmdir($evidenceRepo . '/.wprism');
+    @unlink($evidenceRepo . '/site.wprism.json'); @rmdir($evidenceRepo);
+    foreach (glob($checkpointRepo . '/.wprism/refusals/*') ?: [] as $f) unlink($f);
+    @rmdir($checkpointRepo . '/.wprism/refusals'); @rmdir($checkpointRepo . '/.wprism/checkpoints');
+    @rmdir($checkpointRepo . '/.wprism'); @rmdir($checkpointRepo);
+    @unlink($linkPath); @unlink($linkTarget . '/site.wprism.json'); @rmdir($linkTarget);
 
-    echo "\n== DUO-3397: refresh-export and scope answer machines with the same envelope ==\n";
+    echo "\n== issue #3397: refresh-export and scope answer machines with the same envelope ==\n";
     $productLeakShapes = [
         'hard token' => 'sk_live_1234567890PRODUCTLEAK',
         'credential URL' => 'https://user:SECRETPASS@db.example/production',
-        'private path' => '/Users/private-customer/sites/production/site.duo.json',
+        'private path' => '/Users/private-customer/sites/production/site.wprism.json',
         'distinctive operator token' => 'PRODUCTLEAK-0f9c2d41',
     ];
     foreach ($productLeakShapes as $shape => $token) {
-        $refreshOperator = "duo: refresh export refused while observing production $token";
-        \Duo\RefreshExport::$failure = new RuntimeException($refreshOperator);
+        $refreshOperator = "wprism: refresh export refused while observing production $token";
+        \WPrism\RefreshExport::$failure = new RuntimeException($refreshOperator);
         $refresh = invoke_json(static fn() => $cli->refresh_export([], ['repo' => '/fixture', 'format' => 'json']));
         $refreshBytes = (string) json_encode($refresh, JSON_UNESCAPED_SLASHES);
-        check(($refresh['format'] ?? null) === 'duo-command-refusal/v1', "refresh-export $shape refusal names the versioned format");
+        check(($refresh['format'] ?? null) === 'wprism-command-refusal/v1', "refresh-export $shape refusal names the versioned format");
         check(($refresh['ok'] ?? null) === false, "refresh-export $shape refusal is unambiguously not ok");
         check(($refresh['command'] ?? null) === 'refresh-export', "refresh-export $shape refusal names the public command");
         check(
@@ -1001,11 +1001,11 @@ namespace {
             "refresh-export $shape bytes are absent from machine output"
         );
 
-        $scopeOperator = "duo: scope refused while compiling $token";
-        \Duo\Policy::$failure = new RuntimeException($scopeOperator);
+        $scopeOperator = "wprism: scope refused while compiling $token";
+        \WPrism\Policy::$failure = new RuntimeException($scopeOperator);
         $scope = invoke_json(static fn() => $cli->scope([], ['repo' => '/fixture', 'roots' => 'all', 'format' => 'json']));
         $scopeBytes = (string) json_encode($scope, JSON_UNESCAPED_SLASHES);
-        check(($scope['format'] ?? null) === 'duo-command-refusal/v1', "scope $shape refusal names the versioned format");
+        check(($scope['format'] ?? null) === 'wprism-command-refusal/v1', "scope $shape refusal names the versioned format");
         check(($scope['command'] ?? null) === 'scope', "scope $shape refusal names the public command");
         check(
             ($scope['error'] ?? null) === 'scope_failed' && ($scope['reason_code'] ?? null) === 'scope_failed',
@@ -1022,32 +1022,32 @@ namespace {
     // (its catch: "never forwards exception text ... merely because JSON was
     // not requested") — the allowlist keeps its JSON channel no more
     // revealing than its human one.
-    \Duo\Apply::$planFailure = new RuntimeException('duo: explain refused — plan unavailable');
+    \WPrism\Apply::$planFailure = new RuntimeException('wprism: explain refused — plan unavailable');
     $explainRefusal = invoke_json(static fn() => $cli->explain(['post:x'], ['repo' => '/fixture', 'format' => 'json']));
-    \Duo\Apply::$planFailure = null;
+    \WPrism\Apply::$planFailure = null;
     check(
         ($explainRefusal['details_redacted'] ?? null) === true
             && !str_contains((string) json_encode($explainRefusal), 'plan unavailable'),
-        'explain\'s duo: refusal stays redacted — a command absent from the allowlist publishes nothing'
+        'explain\'s wprism: refusal stays redacted — a command absent from the allowlist publishes nothing'
     );
 
     // The observation-command exclusion is the reason, not the token
-    // patterns: a VALUE-FREE duo:-prefixed refresh-export refusal must also
+    // patterns: a VALUE-FREE wprism:-prefixed refresh-export refusal must also
     // stay redacted, or the exclusion is decorative and the next value-free-
     // looking production identifier leaks.
-    \Duo\RefreshExport::$failure = new RuntimeException('duo: refresh export refused — an apply is in progress');
+    \WPrism\RefreshExport::$failure = new RuntimeException('wprism: refresh export refused — an apply is in progress');
     $valueFree = invoke_json(static fn() => $cli->refresh_export([], ['repo' => '/fixture', 'format' => 'json']));
     check(
         ($valueFree['error'] ?? null) === 'refresh_export_failed'
             && ($valueFree['details_redacted'] ?? null) === true
             && !str_contains((string) json_encode($valueFree), 'apply is in progress'),
-        'a value-free duo: refusal from an OBSERVATION command stays redacted — the command exclusion is load-bearing, not the patterns'
+        'a value-free wprism: refusal from an OBSERVATION command stays redacted — the command exclusion is load-bearing, not the patterns'
     );
 
     // wp-cli rewrites a bare --json into format=json, but refresh-export
     // derives its own $format from both spellings, so both must reach the
     // same formatter rather than only the one the dispatcher happens to use.
-    \Duo\RefreshExport::$failure = new RuntimeException('duo: refresh export refused with sk_live_1234567890BARELEAK');
+    \WPrism\RefreshExport::$failure = new RuntimeException('wprism: refresh export refused with sk_live_1234567890BARELEAK');
     $bareJson = invoke_json(static fn() => $cli->refresh_export([], ['repo' => '/fixture', 'json' => true]));
     check(($bareJson['reason_code'] ?? null) === 'refresh_export_failed', 'refresh-export --json spelling reaches the common formatter');
     check(!str_contains((string) json_encode($bareJson), 'BARELEAK'), 'refresh-export --json spelling redacts the same bytes');
@@ -1055,22 +1055,22 @@ namespace {
     // refresh-export runs the real capture builder, so its reviewed typed
     // refusals must survive the change instead of flattening to the
     // unclassified code.
-    \Duo\RefreshExport::$failure = new \Duo\CommandRefusalException(
+    \WPrism\RefreshExport::$failure = new \WPrism\CommandRefusalException(
         'incomplete_state_discovery',
         'refresh export found state that has no reviewed classification',
-        'review it with duo pending, then classify or exclude it before observing production again',
+        'review it with wprism pending, then classify or exclude it before observing production again',
         [[
             'code' => 'unclassified_state',
             'surface' => 'options:acme_widget_color',
             'message' => 'state surface has no reviewed classification',
-            'remediation' => 'review it with duo pending, then classify or exclude it explicitly',
+            'remediation' => 'review it with wprism pending, then classify or exclude it explicitly',
         ]],
-        'duo: operator-only path /Users/private-customer/site holds unclassified option acme_widget_color'
+        'wprism: operator-only path /Users/private-customer/site holds unclassified option acme_widget_color'
     );
     $typedRefresh = invoke_json(static fn() => $cli->refresh_export([], ['repo' => '/fixture', 'format' => 'json']));
     check(($typedRefresh['error'] ?? null) === 'incomplete_state_discovery', 'known typed refresh-export refusal retains its reviewed reason code');
     check(
-        ($typedRefresh['remediation'] ?? null) === 'review it with duo pending, then classify or exclude it before observing production again',
+        ($typedRefresh['remediation'] ?? null) === 'review it with wprism pending, then classify or exclude it before observing production again',
         'known typed refresh-export refusal retains its reviewed remediation'
     );
     check(
@@ -1078,11 +1078,11 @@ namespace {
         'known typed refresh-export refusal keeps its reviewed diagnostic'
     );
     check(!str_contains((string) json_encode($typedRefresh), 'private-customer'), 'known typed refresh-export refusal omits operator-only evidence');
-    \Duo\RefreshExport::$failure = null;
+    \WPrism\RefreshExport::$failure = null;
 
     // The selector gates themselves: scope refused --roots before its catch
     // boundary, so a machine caller got human stderr and no record at all.
-    \Duo\Policy::$failure = null;
+    \WPrism\Policy::$failure = null;
     $missingRoots = invoke_json(static fn() => $cli->scope([], ['repo' => '/fixture', 'format' => 'json']));
     check(($missingRoots['command'] ?? null) === 'scope', 'scope missing --roots refusal names the public command');
     check(($missingRoots['error'] ?? null) === 'invalid_arguments', 'scope missing --roots has the stable argument error code');
@@ -1095,7 +1095,7 @@ namespace {
     // scope's unclassified remediation must be its reviewed arm, not the
     // default "correct the named $command blocker" — details are redacted on
     // this path, so nothing IS named and the default contradicts itself.
-    \Duo\Policy::$failure = new RuntimeException('duo: scope refused while compiling /Users/private-customer/site');
+    \WPrism\Policy::$failure = new RuntimeException('wprism: scope refused while compiling /Users/private-customer/site');
     $scopeArm = invoke_json(static fn() => $cli->scope([], ['repo' => '/fixture', 'roots' => 'all', 'format' => 'json']));
     check(
         ($scopeArm['remediation'] ?? null) === 'inspect private operator evidence, then compile the revision or correct the root selectors before resolving scope again',
@@ -1105,12 +1105,12 @@ namespace {
     // --contract is scope's machine-evidence mode and the mode whose gate
     // ordering moved the most; its JSON failure must reach the same formatter.
     $contractScope = invoke_json(static fn() => $cli->scope([], ['repo' => '/fixture', 'roots' => 'all', 'contract' => true, 'format' => 'json']));
-    check(($contractScope['format'] ?? null) === 'duo-command-refusal/v1', 'scope --contract JSON failure names the versioned format');
+    check(($contractScope['format'] ?? null) === 'wprism-command-refusal/v1', 'scope --contract JSON failure names the versioned format');
     check(($contractScope['command'] ?? null) === 'scope', 'scope --contract JSON failure names the public command');
     check(!str_contains((string) json_encode($contractScope, JSON_UNESCAPED_SLASHES), 'private-customer'), 'scope --contract JSON failure redacts operator bytes');
-    \Duo\Policy::$failure = null;
+    \WPrism\Policy::$failure = null;
 
-    echo "\n== DUO-3399: the envelope set is closed over every --format=json command ==\n";
+    echo "\n== issue #3399: the envelope set is closed over every --format=json command ==\n";
     // The contract sentence in spec/repo-format.md and cli/README.md stopped
     // enumerating commands and now says "every command that advertises
     // --format=json".  That is only true while it is structurally true, so
@@ -1127,7 +1127,7 @@ namespace {
         // Resolve the name exactly as WP-CLI does -- the @subcommand tag, else
         // the RAW method name. This used to hyphenate the fallback, which let a
         // handler whose envelope names `code-inventory` pass while WP-CLI had
-        // registered it as `code_inventory` (DUO-3517).
+        // registered it as `code_inventory` (issue #3517).
         $command = preg_match('/@subcommand\s+(\S+)/', $doc, $sub) === 1
             ? $sub[1]
             : $method;
@@ -1141,11 +1141,11 @@ namespace {
     // envelope fails the per-command check above, and DROPPING an
     // advertisement (or a handler) fails this count instead of silently
     // shrinking the set the contract sentence claims is closed.
-    // 27 with DUO-3326's `code-preflight` plus scoped promotion's two
+    // 27 with issue #3326's `code-preflight` plus scoped promotion's two
     // orchestrator-only handoff commands; 28 with round-3 MUP §4.5's
-    // `assess-inventory`; 29 with DUO-3499's read-only `code-inventory`, which
-    // reports one repository's lockable code components for `duo code-classify`;
-    // 30 with `adapter-probe`, the read-only live-schema half `duo adapter-draft
+    // `assess-inventory`; 29 with issue #3499's read-only `code-inventory`, which
+    // reports one repository's lockable code components for `wprism code-classify`;
+    // 30 with `adapter-probe`, the read-only live-schema half `wprism adapter-draft
     // --evidence=` consumes; 31 with WP-3.2's report-only `effect-coverage`,
     // whose only refusals are the journal prerequisite and manifest resolution
     // — a scoring verdict is never one, which is the point of that command;
@@ -1161,7 +1161,7 @@ namespace {
     // default arm promises to "correct the named blocker" on exactly the path
     // that redacts every name.  A command silently falling back to it is the
     // regression this closes.
-    $armed = new ReflectionMethod(\Duo\Cli::class, 'refusal_remediation');
+    $armed = new ReflectionMethod(\WPrism\Cli::class, 'refusal_remediation');
     foreach ([
         'code-preflight', 'promotion-begin', 'promotion-abort', 'promotion-begin-scoped',
         'promotion-complete-scoped', 'env-set', 'orphans', 'verify-canonical',
@@ -1174,11 +1174,11 @@ namespace {
         );
     }
 
-    echo "\n== DUO-3404: no command inherits prefix-based publication authority ==\n";
+    echo "\n== issue #3404: no command inherits prefix-based publication authority ==\n";
     // The allowlist and its message-shape helper no longer exist. Typed
     // refusals above retain their public contract; every raw Throwable takes
     // the same redacted catch-all path regardless of command or prose.
-    $cliReflection = new ReflectionClass(\Duo\Cli::class);
+    $cliReflection = new ReflectionClass(\WPrism\Cli::class);
     check(
         !$cliReflection->hasConstant('PUBLIC_REFUSAL_COMMANDS')
             && !$cliReflection->hasMethod('publishable_refusal'),
@@ -1199,24 +1199,24 @@ namespace {
     );
     // Live coverage on two additional command paths proves the rule is not a
     // plan/capture special case. The message is deliberately value-free and
-    // `duo: `-prefixed, so only the absence of prefix authority keeps it out.
+    // `wprism: `-prefixed, so only the absence of prefix authority keeps it out.
     foreach (['lint' => 'lint', 'capabilities' => 'capabilities'] as $method => $command) {
-        $valueFree = "duo: $command refused for a perfectly value-free reason";
-        \Duo\Policy::$failure = new RuntimeException($valueFree);
+        $valueFree = "wprism: $command refused for a perfectly value-free reason";
+        \WPrism\Policy::$failure = new RuntimeException($valueFree);
         $unpublished = invoke_json(static fn() => $cli->$method([], ['repo' => '/fixture', 'format' => 'json']));
         check(
             ($unpublished['error'] ?? null) === str_replace('-', '_', $command) . '_failed',
-            "$command keeps the redacted _failed code for a value-free duo: refusal"
+            "$command keeps the redacted _failed code for a value-free wprism: refusal"
         );
-        check(($unpublished['details_redacted'] ?? null) === true, "$command records redaction for a value-free duo: refusal");
+        check(($unpublished['details_redacted'] ?? null) === true, "$command records redaction for a value-free wprism: refusal");
         check(
             !str_contains((string) json_encode($unpublished), 'value-free reason'),
-            "$command publishes none of a value-free duo: refusal's prose"
+            "$command publishes none of a value-free wprism: refusal's prose"
         );
     }
-    \Duo\Policy::$failure = null;
+    \WPrism\Policy::$failure = null;
 
-    echo "\n== DUO-3421: publication by reviewed CLASS, on the same #180 terms ==\n";
+    echo "\n== issue #3421: publication by reviewed CLASS, on the same #180 terms ==\n";
     // #180's rule, one axis over. halt_json_failure() also admits a refusal
     // whose CLASS has a closed, audited message vocabulary, independent of the
     // command or its prose — because the class, not the command, is what
@@ -1233,10 +1233,10 @@ namespace {
     // (so the class is doing the work, not the wording), and that the
     // sensitivity screen still governs an admitted class — a boundary refusal
     // carrying an absolute path goes back to the redacted envelope.
-    $publicRefusalClasses = (new ReflectionClass(\Duo\Cli::class))
+    $publicRefusalClasses = (new ReflectionClass(\WPrism\Cli::class))
         ->getConstant('PUBLIC_REFUSAL_CLASSES');
     check(
-        $publicRefusalClasses === [\Duo\InitialStateBoundaryException::class],
+        $publicRefusalClasses === [\WPrism\InitialStateBoundaryException::class],
         'the publication class allowlist is readable and holds exactly the one audited class'
     );
     // The stub above stands in for the engine's class; this is what keeps that
@@ -1250,8 +1250,8 @@ namespace {
         'the admitted class is the one agent/src/Publication/Publish.php declares'
     );
     foreach (['lint' => 'lint', 'capabilities' => 'capabilities'] as $method => $command) {
-        $boundary = 'duo: initial ' . $command . ' staging file refused at its inode-bound parent: copy source digest changed';
-        \Duo\Policy::$failure = new \Duo\InitialStateBoundaryException($boundary);
+        $boundary = 'wprism: initial ' . $command . ' staging file refused at its inode-bound parent: copy source digest changed';
+        \WPrism\Policy::$failure = new \WPrism\InitialStateBoundaryException($boundary);
         $published = invoke_json(static fn() => $cli->$method([], ['repo' => '/fixture', 'format' => 'json']));
         check(
             ($published['error'] ?? null) === 'initial_state_boundary'
@@ -1261,7 +1261,7 @@ namespace {
         );
         // Same sentence, ordinary class: still redacted. The class admission
         // is the only difference between these two answers.
-        \Duo\Policy::$failure = new RuntimeException($boundary);
+        \WPrism\Policy::$failure = new RuntimeException($boundary);
         $stillRedacted = invoke_json(static fn() => $cli->$method([], ['repo' => '/fixture', 'format' => 'json']));
         check(
             ($stillRedacted['error'] ?? null) === str_replace('-', '_', $command) . '_failed'
@@ -1272,8 +1272,8 @@ namespace {
         // The planted path: the bound helper's reason is its own STDERR, so a
         // diagnostic from inside it could arrive carrying a path. Admission by
         // class must not exempt it from the screen.
-        \Duo\Policy::$failure = new \Duo\InitialStateBoundaryException(
-            'duo: initial staging file refused at its inode-bound parent: copy failed for /srv/private/tenant-42/wp-content/secret.php'
+        \WPrism\Policy::$failure = new \WPrism\InitialStateBoundaryException(
+            'wprism: initial staging file refused at its inode-bound parent: copy failed for /srv/private/tenant-42/wp-content/secret.php'
         );
         $planted = invoke_json(static fn() => $cli->$method([], ['repo' => '/fixture', 'format' => 'json']));
         check(
@@ -1283,9 +1283,9 @@ namespace {
             "$command sends an admitted-class refusal carrying an absolute path back to the redacted envelope"
         );
     }
-    \Duo\Policy::$failure = null;
+    \WPrism\Policy::$failure = null;
 
-    echo "\n== DUO-3399: gates behind the first one refuse through the same envelope ==\n";
+    echo "\n== issue #3399: gates behind the first one refuse through the same envelope ==\n";
     // The per-command loop above only ever reaches each command's FIRST gate.
     // These are the ones behind it, including the two contradictory-argument
     // gates that are not "missing" anything at all.
@@ -1417,7 +1417,7 @@ namespace {
     ];
     foreach ($laterGates as $case => [$run, $expectedMessage, $remediationHint]) {
         $gate = invoke_json($run, str_starts_with($case, 'verify-canonical '));
-        check(($gate['format'] ?? null) === 'duo-command-refusal/v1', "$case names the versioned format");
+        check(($gate['format'] ?? null) === 'wprism-command-refusal/v1', "$case names the versioned format");
         check(($gate['error'] ?? null) === 'invalid_arguments', "$case has the stable argument error code");
         check(($gate['message'] ?? null) === $expectedMessage, "$case states exactly which argument contract it refused");
         if ($remediationHint !== null) {
@@ -1435,10 +1435,10 @@ namespace {
         'capabilities missing --repo keeps the --all alternative in machine remediation'
     );
 
-    echo "\n== DUO-3399: journal-report's only refusal path is its backend ==\n";
+    echo "\n== issue #3399: journal-report's only refusal path is its backend ==\n";
     // No required argument means no argument gate, so this command's catch
     // boundary is the whole of its machine contract.
-    \Duo\Journal::$failure = new RuntimeException('duo: journal report refused at /Users/private-customer/site with sk_live_1234567890JOURNALLEAK');
+    \WPrism\Journal::$failure = new RuntimeException('wprism: journal report refused at /Users/private-customer/site with sk_live_1234567890JOURNALLEAK');
     $journal = invoke_json(static fn() => $cli->journal_report([], ['format' => 'json']));
     check(($journal['command'] ?? null) === 'journal-report', 'journal-report refusal names the public command');
     check(
@@ -1456,9 +1456,9 @@ namespace {
     $journalBare = invoke_json(static fn() => $cli->journal_report([], ['json' => true]));
     check(($journalBare['reason_code'] ?? null) === 'journal_report_failed', 'journal-report --json spelling reaches the common formatter');
     check(!str_contains((string) json_encode($journalBare), 'JOURNALLEAK'), 'journal-report --json spelling redacts the same bytes');
-    \Duo\Journal::$failure = null;
+    \WPrism\Journal::$failure = null;
 
-    echo "\n== DUO-3399: planted operator bytes stay out of a sample of the new machine paths ==\n";
+    echo "\n== issue #3399: planted operator bytes stay out of a sample of the new machine paths ==\n";
     // Deliberately a SAMPLE, not 4 shapes x 11 commands.  Redaction lives
     // entirely in halt_json_failure()/containsSensitivePublicDetail(), which
     // the shape matrix above already exercises exhaustively through capture
@@ -1469,11 +1469,11 @@ namespace {
     // (whose refusal and whose findings-bearing success share exit 1) and
     // capabilities (the external ratification surface a reviewer polls).
     foreach ($productLeakShapes as $shape => $token) {
-        $lintOperator = "duo: lint refused reading the captured tree $token";
-        \Duo\Policy::$failure = new RuntimeException($lintOperator);
+        $lintOperator = "wprism: lint refused reading the captured tree $token";
+        \WPrism\Policy::$failure = new RuntimeException($lintOperator);
         $lint = invoke_json(static fn() => $cli->lint([], ['repo' => '/fixture', 'format' => 'json']));
         $lintBytes = (string) json_encode($lint, JSON_UNESCAPED_SLASHES);
-        check(($lint['format'] ?? null) === 'duo-command-refusal/v1', "lint $shape refusal names the versioned format");
+        check(($lint['format'] ?? null) === 'wprism-command-refusal/v1', "lint $shape refusal names the versioned format");
         check(($lint['command'] ?? null) === 'lint', "lint $shape refusal names the public command");
         check(
             ($lint['error'] ?? null) === 'lint_failed' && ($lint['reason_code'] ?? null) === 'lint_failed',
@@ -1489,11 +1489,11 @@ namespace {
             "lint $shape bytes are absent from machine output"
         );
 
-        $capabilitiesOperator = "duo: capability registry refused $token";
-        \Duo\Policy::$failure = new RuntimeException($capabilitiesOperator);
+        $capabilitiesOperator = "wprism: capability registry refused $token";
+        \WPrism\Policy::$failure = new RuntimeException($capabilitiesOperator);
         $capabilities = invoke_json(static fn() => $cli->capabilities([], ['repo' => '/fixture', 'format' => 'json']));
         $capabilitiesBytes = (string) json_encode($capabilities, JSON_UNESCAPED_SLASHES);
-        check(($capabilities['format'] ?? null) === 'duo-command-refusal/v1', "capabilities $shape refusal names the versioned format");
+        check(($capabilities['format'] ?? null) === 'wprism-command-refusal/v1', "capabilities $shape refusal names the versioned format");
         check(($capabilities['command'] ?? null) === 'capabilities', "capabilities $shape refusal names the public command");
         check(
             ($capabilities['error'] ?? null) === 'capabilities_failed' && ($capabilities['reason_code'] ?? null) === 'capabilities_failed',
@@ -1520,7 +1520,7 @@ namespace {
         'lint' => ['lint', 'captured state tree'],
         'capabilities' => ['capabilities', 'platform boundary'],
     ] as $method => [$command, $armFragment]) {
-        \Duo\Policy::$failure = new RuntimeException("duo: $command refused at /Users/private-customer/site");
+        \WPrism\Policy::$failure = new RuntimeException("wprism: $command refused at /Users/private-customer/site");
         $armRecord = invoke_json(static fn() => $cli->$method([], ['repo' => '/fixture', 'format' => 'json']));
         check(
             ($armRecord['details_redacted'] ?? null) === true
@@ -1532,11 +1532,11 @@ namespace {
             "$command unclassified refusal carries its reviewed remediation arm"
         );
     }
-    \Duo\Policy::$failure = null;
+    \WPrism\Policy::$failure = null;
 
     // A typed refusal raised by one of these backends must still pass through
     // with its own reviewed code, not flatten to the unclassified one.
-    \Duo\Policy::$failure = new \Duo\CommandRefusalException(
+    \WPrism\Policy::$failure = new \WPrism\CommandRefusalException(
         'adapter_certification_missing',
         'an adapter claims a capability with no named conformance evidence',
         'certify the adapter bundle or drop the claim, then report capabilities again',
@@ -1546,7 +1546,7 @@ namespace {
             'message' => 'claimed capability has no reviewed evidence bundle',
             'remediation' => 'certify the adapter bundle before claiming the capability',
         ]],
-        'duo: /Users/private-customer/site adapter claims promote without evidence'
+        'wprism: /Users/private-customer/site adapter claims promote without evidence'
     );
     $typedCapabilities = invoke_json(static fn() => $cli->capabilities([], ['repo' => '/fixture', 'format' => 'json']));
     check(($typedCapabilities['error'] ?? null) === 'adapter_certification_missing', 'typed capabilities refusal retains its reviewed reason code');
@@ -1555,10 +1555,10 @@ namespace {
         'typed capabilities refusal keeps its reviewed diagnostic'
     );
     check(!str_contains((string) json_encode($typedCapabilities), 'private-customer'), 'typed capabilities refusal omits operator-only evidence');
-    \Duo\Policy::$failure = null;
+    \WPrism\Policy::$failure = null;
 
     echo "\n== serialization failure still emits exactly one valid JSON value ==\n";
-    \Duo\Apply::$planFailure = new \Duo\RepositoryCompilationException([[
+    \WPrism\Apply::$planFailure = new \WPrism\RepositoryCompilationException([[
         'severity' => 'error',
         'code' => 'non_finite_fixture',
         'path' => 'state/options/core.json',
@@ -1574,21 +1574,21 @@ namespace {
     // answered a machine caller with `<command>_failed` /
     // "refused at an unclassified safety gate" / `details_redacted: true` --
     // the word "multisite" never reached JSON at all.
-    $topologySentence = 'duo: multisite is unsupported by the certified v1 contract; '
+    $topologySentence = 'wprism: multisite is unsupported by the certified v1 contract; '
         . 'this command is single-site only and refuses before loading policy or mutating state';
-    $GLOBALS['duo_topology_multisite'] = true;
+    $GLOBALS['wprism_topology_multisite'] = true;
     // capture builds a Policy, which is stubbed here, so its gate is reached
     // the way every other backend refusal in this suite is: by making the real
     // handler cross its catch boundary with the REAL refusal object the Kernel
     // gate throws.
     try {
-        \Duo\SiteTopology::assert_single_site();
+        \WPrism\SiteTopology::assert_single_site();
         $topologyRefusal = null;
-    } catch (\Duo\CommandRefusalException $refusal) {
+    } catch (\WPrism\CommandRefusalException $refusal) {
         $topologyRefusal = $refusal;
     }
     check($topologyRefusal !== null, 'the Kernel topology gate throws a CommandRefusalException on a network');
-    \Duo\Capture::$failure = $topologyRefusal;
+    \WPrism\Capture::$failure = $topologyRefusal;
 
     $topologyCases = [
         // command       => handler invocation
@@ -1598,7 +1598,7 @@ namespace {
         'journal-reset' => static fn() => $cli->journal_reset([], ['format' => 'json']),
         // Deliberately invoked with BOTH required selectors present: the gate
         // has to precede the argument checks AND Ledger::ensure(). Neither
-        // \Duo\Ledger nor \Duo\PromotionLock is stubbed in this process, so a
+        // \WPrism\Ledger nor \WPrism\PromotionLock is stubbed in this process, so a
         // gate that ran late would surface as an Error and a
         // `promotion_begin_failed` envelope instead of the code asserted below.
         'promotion-begin' => static fn() => $cli->promotion_begin([], [
@@ -1609,7 +1609,7 @@ namespace {
     ];
     foreach ($topologyCases as $command => $invoke) {
         $payload = invoke_json($invoke);
-        check(($payload['format'] ?? null) === 'duo-command-refusal/v1', "$command topology refusal names the versioned format");
+        check(($payload['format'] ?? null) === 'wprism-command-refusal/v1', "$command topology refusal names the versioned format");
         check(($payload['command'] ?? null) === $command, "$command topology refusal names the public command");
         check(
             ($payload['error'] ?? null) === 'multisite_unsupported'
@@ -1626,8 +1626,8 @@ namespace {
             "$command topology refusal states the boundary in its public message"
         );
         check(
-            !str_starts_with((string) ($payload['message'] ?? ''), 'duo: '),
-            "$command topology refusal keeps the `duo: ` human convention out of the machine record"
+            !str_starts_with((string) ($payload['message'] ?? ''), 'wprism: '),
+            "$command topology refusal keeps the `wprism: ` human convention out of the machine record"
         );
         check(
             is_string($payload['remediation'] ?? null) && str_contains((string) $payload['remediation'], 'single-site'),
@@ -1656,20 +1656,20 @@ namespace {
         }
         check(WP_CLI::$lines === [], "$command human topology refusal emits no JSON record");
     }
-    $GLOBALS['duo_topology_multisite'] = false;
-    \Duo\Capture::$failure = null;
+    $GLOBALS['wprism_topology_multisite'] = false;
+    \WPrism\Capture::$failure = null;
 
     echo "\n== human mode remains human and unchanged ==\n";
     WP_CLI::reset();
-    \Duo\Capture::$failure = new RuntimeException('duo: human refusal stays human');
+    \WPrism\Capture::$failure = new RuntimeException('wprism: human refusal stays human');
     try {
         $cli->capture([], ['repo' => '/fixture']);
         check(false, 'human refusal exits through WP_CLI::error');
     } catch (CliJsonHumanError $e) {
-        check($e->getMessage() === 'duo: human refusal stays human', 'human refusal preserves the original actionable message');
+        check($e->getMessage() === 'wprism: human refusal stays human', 'human refusal preserves the original actionable message');
     }
     check(WP_CLI::$lines === [], 'human refusal emits no JSON record');
-    check(WP_CLI::$errors === ['duo: human refusal stays human'], 'human refusal reaches WP_CLI::error exactly once');
+    check(WP_CLI::$errors === ['wprism: human refusal stays human'], 'human refusal reaches WP_CLI::error exactly once');
 
     WP_CLI::reset();
     try {
@@ -1682,29 +1682,29 @@ namespace {
 
     WP_CLI::reset();
     $explainSecret = 'provider failed with sk_live_1234567890EXPLAINHUMANMUSTNOTLEAK at /Users/private-customer/site';
-    \Duo\Apply::$planFailure = new RuntimeException($explainSecret);
+    \WPrism\Apply::$planFailure = new RuntimeException($explainSecret);
     try {
         $cli->explain(['update:sha256:' . str_repeat('a', 64)], ['repo' => '/fixture']);
         check(false, 'human explain failure exits through WP_CLI::error');
     } catch (CliJsonHumanError $e) {
         check(
-            $e->getMessage() === 'duo: explain refused at a private safety gate; run plan or capture for operator diagnosis, then rerun explain',
+            $e->getMessage() === 'wprism: explain refused at a private safety gate; run plan or capture for operator diagnosis, then rerun explain',
             'human explain uses constant safe failure guidance'
         );
         check(!str_contains($e->getMessage(), $explainSecret), 'human explain never forwards private exception detail');
     }
     check(WP_CLI::$lines === [], 'human explain failure emits no JSON record');
-    // DUO-3397: the operator evidence these two commands print is the whole
+    // issue #3397: the operator evidence these two commands print is the whole
     // point of keeping the raw message private, so assert it byte for byte.
     $humanCases = [
         'refresh-export backend refusal' => [
             static function () use ($cli): void {
-                \Duo\RefreshExport::$failure = new RuntimeException(
-                    'duo: refresh export refused — apply_in_progress is present; recover or complete the interrupted apply before observing production'
+                \WPrism\RefreshExport::$failure = new RuntimeException(
+                    'wprism: refresh export refused — apply_in_progress is present; recover or complete the interrupted apply before observing production'
                 );
                 $cli->refresh_export([], ['repo' => '/Users/private-customer/site']);
             },
-            'duo: refresh export refused — apply_in_progress is present; recover or complete the interrupted apply before observing production',
+            'wprism: refresh export refused — apply_in_progress is present; recover or complete the interrupted apply before observing production',
         ],
         'refresh-export missing --repo' => [
             static function () use ($cli): void {
@@ -1720,10 +1720,10 @@ namespace {
         ],
         'scope backend refusal' => [
             static function () use ($cli): void {
-                \Duo\Policy::$failure = new RuntimeException('duo: scope refused — /Users/private-customer/site has no revision');
+                \WPrism\Policy::$failure = new RuntimeException('wprism: scope refused — /Users/private-customer/site has no revision');
                 $cli->scope([], ['repo' => '/Users/private-customer/site', 'roots' => 'all']);
             },
-            'duo: scope refused — /Users/private-customer/site has no revision',
+            'wprism: scope refused — /Users/private-customer/site has no revision',
         ],
         'scope missing --repo' => [
             static function () use ($cli): void {
@@ -1737,7 +1737,7 @@ namespace {
             },
             '--roots required (or --roots=all for the whole revision)',
         ],
-        // DUO-3399: every gate moved into a try below became a typed refusal,
+        // issue #3399: every gate moved into a try below became a typed refusal,
         // and a typed refusal carries a SEPARATE operator message from its
         // public one.  Human mode still prints the operator message, so these
         // assert the pre-change prose byte for byte — sampled on lint and
@@ -1746,10 +1746,10 @@ namespace {
         // reword an operator's evidence.
         'lint backend refusal' => [
             static function () use ($cli): void {
-                \Duo\Policy::$failure = new RuntimeException('duo: state dir not found: /Users/private-customer/site/state (nothing captured yet?)');
+                \WPrism\Policy::$failure = new RuntimeException('wprism: state dir not found: /Users/private-customer/site/state (nothing captured yet?)');
                 $cli->lint([], ['repo' => '/Users/private-customer/site']);
             },
-            'duo: state dir not found: /Users/private-customer/site/state (nothing captured yet?)',
+            'wprism: state dir not found: /Users/private-customer/site/state (nothing captured yet?)',
         ],
         'lint missing --repo' => [
             static fn() => $cli->lint([], []),
@@ -1757,10 +1757,10 @@ namespace {
         ],
         'capabilities backend refusal' => [
             static function () use ($cli): void {
-                \Duo\Policy::$failure = new RuntimeException('duo: /Users/private-customer/site has no generated capability registry');
+                \WPrism\Policy::$failure = new RuntimeException('wprism: /Users/private-customer/site has no generated capability registry');
                 $cli->capabilities([], ['repo' => '/Users/private-customer/site']);
             },
-            'duo: /Users/private-customer/site has no generated capability registry',
+            'wprism: /Users/private-customer/site has no generated capability registry',
         ],
         'capabilities missing --repo' => [
             static fn() => $cli->capabilities([], []),
@@ -1890,17 +1890,17 @@ namespace {
         ],
         'journal-report backend refusal' => [
             static function () use ($cli): void {
-                \Duo\Journal::$failure = new RuntimeException('duo: journal report refused — core manifest is not installed');
+                \WPrism\Journal::$failure = new RuntimeException('wprism: journal report refused — core manifest is not installed');
                 $cli->journal_report([], []);
             },
-            'duo: journal report refused — core manifest is not installed',
+            'wprism: journal report refused — core manifest is not installed',
         ],
     ];
     foreach ($humanCases as $case => [$run, $expected]) {
         WP_CLI::reset();
-        \Duo\RefreshExport::$failure = null;
-        \Duo\Policy::$failure = null;
-        \Duo\Journal::$failure = null;
+        \WPrism\RefreshExport::$failure = null;
+        \WPrism\Policy::$failure = null;
+        \WPrism\Journal::$failure = null;
         try {
             $run();
             check(false, "human $case exits through WP_CLI::error");
@@ -1912,16 +1912,16 @@ namespace {
         check(WP_CLI::$errors === [$expected], "human $case reaches WP_CLI::error exactly once");
         check(WP_CLI::$lines === [], "human $case emits no JSON record");
     }
-    \Duo\RefreshExport::$failure = null;
-    \Duo\Policy::$failure = null;
-    \Duo\Journal::$failure = null;
+    \WPrism\RefreshExport::$failure = null;
+    \WPrism\Policy::$failure = null;
+    \WPrism\Journal::$failure = null;
 
     echo "\n== host preflight mirrors the same one-value contract ==\n";
-    $tmp = sys_get_temp_dir() . '/duo-cli-json-refusal-' . bin2hex(random_bytes(6));
+    $tmp = sys_get_temp_dir() . '/wprism-cli-json-refusal-' . bin2hex(random_bytes(6));
     check(mkdir($tmp, 0700), 'host fixture directory is created');
     $registry = $tmp . '/envs.json';
     file_put_contents($registry, json_encode(['envs' => new stdClass()], JSON_UNESCAPED_SLASHES));
-    $host = realpath(__DIR__ . '/../../../../cli/duo');
+    $host = realpath(__DIR__ . '/../../../../cli/wprism');
     $root = realpath(__DIR__ . '/../../../..');
     $runHost = static function (array $arguments, ?string $pathPrefix = null) use ($host, $root): array {
         $spec = [
@@ -1981,7 +1981,7 @@ namespace {
     check($refreshArgument['status'] === 1 && $refreshArgument['stderr'] === '',
         'refresh missing-environment JSON refusal is machine-only');
     check(is_array($refreshArgumentPayload)
-        && ($refreshArgumentPayload['format'] ?? null) === 'duo-command-refusal/v1'
+        && ($refreshArgumentPayload['format'] ?? null) === 'wprism-command-refusal/v1'
         && ($refreshArgumentPayload['command'] ?? null) === 'refresh'
         && ($refreshArgumentPayload['reason_code'] ?? null) === 'invalid_arguments',
         'refresh joins the established host JSON-refusal envelope before driver creation');
@@ -1992,7 +1992,7 @@ namespace {
 
     $fakeWp = $tmp . '/wp';
     $statusRefusal = [
-        'format' => 'duo-command-refusal/v1',
+        'format' => 'wprism-command-refusal/v1',
         'ok' => false,
         'command' => 'plan',
         'error' => 'plan_failed',
@@ -2019,7 +2019,7 @@ namespace {
     check($refreshScope['status'] === 1 && $refreshScope['stderr'] === '',
         'scoped field-diff JSON refusal emits no human stderr');
     check(is_array($refreshScopePayload)
-        && ($refreshScopePayload['format'] ?? null) === 'duo-command-refusal/v1'
+        && ($refreshScopePayload['format'] ?? null) === 'wprism-command-refusal/v1'
         && ($refreshScopePayload['command'] ?? null) === 'refresh'
         && ($refreshScopePayload['reason_code'] ?? null) === 'scoped_unsupported'
         && str_contains((string) ($refreshScopePayload['remediation'] ?? ''), 'legacy whole-record resolver'),
@@ -2092,7 +2092,7 @@ namespace {
         && !str_contains($rebaseNonTty['stderr'], 'PRIVATE-INTERACTIVE-PRODUCTION-OMITTED')
         && !str_contains($rebaseNonTty['stderr'], 'PRIVATE-INTERACTIVE-BRANCH-OMITTED')
         && !file_exists($interactiveTargetTouch)
-        && !is_dir($tmp . '/.git/duo-refresh/worktrees'),
+        && !is_dir($tmp . '/.git/wprism-refresh/worktrees'),
         'non-TTY interactive rebase refuses before production target access or candidate work');
     file_put_contents($fakeWp, "#!/bin/sh\nprintf '%s\\n' '" . json_encode($statusRefusal, JSON_UNESCAPED_SLASHES) . "'\nexit 1\n");
     chmod($fakeWp, 0700);
@@ -2119,14 +2119,14 @@ namespace {
     check(str_contains($hostStatus['stderr'], '[plan_failed] plan refused'), 'human status renders the refusal code and message');
     check(!str_contains($hostStatus['stderr'], '"format"'), 'human status never dumps the raw JSON envelope');
 
-    // DUO-3399: `duo pending`'s human table is fed by fetch_pending(), which
+    // issue #3399: `wprism pending`'s human table is fed by fetch_pending(), which
     // reads the agent's --format=json channel. Now that a pending refusal
     // answers there with the envelope, its stderr-else-stdout fallback dumped
     // raw JSON at the operator — the exact thing render_command_refusal_human()
     // exists to prevent. Driven the same way cmd_status's case is: a fake wp on
     // PATH that prints one envelope and exits 1.
     $pendingRefusal = [
-        'format' => 'duo-command-refusal/v1',
+        'format' => 'wprism-command-refusal/v1',
         'ok' => false,
         'command' => 'pending',
         'error' => 'pending_failed',

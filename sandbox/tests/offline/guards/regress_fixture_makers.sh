@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression — DUO-3483: every generated-fixture maker must reproduce, byte for
+# Regression — issue #3483: every generated-fixture maker must reproduce, byte for
 # byte, the fixtures committed beside it.
 #
 # WHY THIS EXISTS
@@ -90,7 +90,7 @@ MAKERS=(
   'mup|tests/fixtures/mup/make-fixtures.php'
 )
 
-SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/duo-fixture-makers.XXXXXX")"
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/wprism-fixture-makers.XXXXXX")"
 trap 'rm -rf -- "$SCRATCH"' EXIT INT TERM
 
 # reproduces <label> <maker-script> <expected-dir> <out-dir>

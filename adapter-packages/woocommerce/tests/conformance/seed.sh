@@ -71,7 +71,7 @@ EOF
 THUMB_ID=$($COMPOSE run --rm -T cli1 bash -c \
   "wp eval-file /siterepo/.tmp-make-woo-category-image.php >/dev/null && wp media import /tmp/conf-woo-category.png --title='Woo Category Thumbnail' --porcelain")
 rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-make-woo-category-image.php
-# DUO-3381: assert the premise before anything consumes it. `term meta update
+# issue #3381: assert the premise before anything consumes it. `term meta update
 # <id> thumbnail_id ""` succeeds silently, so an empty capture from a
 # load-starved `docker compose run` (see the shared conformance/asserts.sh's require_fixture_ids) would
 # author a termmeta ref that points nowhere — and checks/woocommerce.sh would
@@ -207,7 +207,7 @@ wp_conf1 eval "
 \$attribute->set_visible(true);
 \$attribute->set_variation(false);
 \$download = new WC_Product_Download();
-\$download->set_id(md5('duo-woocommerce-portable-download'));
+\$download->set_id(md5('wprism-woocommerce-portable-download'));
 \$download->set_enabled(true);
 \$download->set_name('Portable catalog 日本語 🚀.png');
 \$download->set_file(wp_get_attachment_url($THUMB_ID) . '?download=1&label=' . rawurlencode('東京 🚀'));
@@ -306,7 +306,7 @@ update_post_meta($COUPON_ID, 'exclude_product_brands', [$BRAND_EXCLUDED_ID]);
 # The EXIT trap is deliberately installed before the switch: a failed
 # attribute/API call under this script's `set -e` must not leave the source
 # in a block-theme state, and the postcondition makes a failed restore loud.
-# DUO_THEME_SCOPE_BEGIN
+# WPRISM_THEME_SCOPE_BEGIN
 ORIGINAL_THEME=$(wp_conf1 theme list --status=active --field=name --format=csv)
 [ -n "$ORIGINAL_THEME" ] || { echo 'WooCommerce conformance could not identify the active source theme' >&2; exit 1; }
 THEME_SWITCHED=1
@@ -339,7 +339,7 @@ SIZE_ATTR_ID=$(wp_conf1 wc product_attribute create --name="Conf Size" --slug="c
 COLOR_ATTR_ID=$(wp_conf1 wc product_attribute create --name="Conf Color" --slug="conf-color" --type=wc-visual --order_by=menu_order --has_archives=false --porcelain --user=admin)
 trap - EXIT
 restore_conformance_theme 0
-# DUO_THEME_SCOPE_END
+# WPRISM_THEME_SCOPE_END
 require_fixture_ids COUPON_ID SIZE_ATTR_ID COLOR_ATTR_ID
 wp_conf1 wc product_attribute_term create "$SIZE_ATTR_ID" --name=Small --user=admin >/dev/null
 wp_conf1 wc product_attribute_term create "$SIZE_ATTR_ID" --name=Large --user=admin >/dev/null
@@ -495,17 +495,17 @@ SOURCE_REVIEW_ID=$(wp_conf1 comment create --comment_post_ID="$PID" \
 # runtime-sovereignty assertions ("source order propagated", "Woo runtime
 # sovereignty failed for reviews, sessions, or queues"): a row this seed
 # never created would make those pass VACUOUSLY rather than fail, which is
-# the quieter half of the same fixture-manufacture blind spot (DUO-3381).
+# the quieter half of the same fixture-manufacture blind spot (issue #3381).
 require_fixture_ids TAX_ID SOURCE_ORDER_ID SOURCE_REVIEW_ID
 wp_conf1 comment meta update "$SOURCE_REVIEW_ID" rating 5 >/dev/null
 wp_conf1 eval '
 global $wpdb;
 $wpdb->replace($wpdb->prefix . "woocommerce_sessions", [
-  "session_key" => "duo-source-runtime-session",
+  "session_key" => "wprism-source-runtime-session",
   "session_value" => "a:1:{s:5:\"probe\";s:6:\"source\";}",
   "session_expiry" => time() + 7200,
 ], ["%s", "%s", "%d"]);
-as_schedule_single_action(time() + 7200, "duo_woo_source_runtime_probe", [], "duo-woo-runtime");
+as_schedule_single_action(time() + 7200, "wprism_woo_source_runtime_probe", [], "wprism-woo-runtime");
 ' >/dev/null
 
 wp_conf1 eval "

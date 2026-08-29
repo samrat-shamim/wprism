@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-use Duo\Tooling\AdapterPackageTestRunner;
-use Duo\Tooling\AdapterIntegrationScenarios;
-use Duo\Tooling\OfflineScenarioDelegation;
+use WPrism\Tooling\AdapterPackageTestRunner;
+use WPrism\Tooling\AdapterIntegrationScenarios;
+use WPrism\Tooling\OfflineScenarioDelegation;
 
 require_once __DIR__ . '/../../../../tools/src/AdapterPackageTestRunner.php';
 require_once __DIR__ . '/../../../../tools/src/AdapterIntegrationScenarios.php';

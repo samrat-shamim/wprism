@@ -61,21 +61,21 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../lib/check.php';
 
-$duoRoot = dirname(__DIR__, 4);
+$wprismRoot = dirname(__DIR__, 4);
 
 // PHP strips `#!…` only from the ENTRY script, never from an include, so a
 // plain require of an executable tool prints its shebang into this suite's
 // stdout — the same reason regress_adapter_test_kit.php:55-61 wraps its own.
 // The file is otherwise side-effect free: `grade_main()` sits behind a
 // SCRIPT_FILENAME guard, and the `$repo` it defines at include scope is this
-// repository root (deliberately not read below; `$duoRoot` is this suite's).
+// repository root (deliberately not read below; `$wprismRoot` is this suite's).
 ob_start();
-require_once $duoRoot . '/tools/adapter-grade.php';
+require_once $wprismRoot . '/tools/adapter-grade.php';
 ob_end_clean();
 
-use Duo\AdapterLibrary;
-use Duo\ManifestDispositions;
-use Duo\Tooling\AdapterProductionReadiness;
+use WPrism\AdapterLibrary;
+use WPrism\ManifestDispositions;
+use WPrism\Tooling\AdapterProductionReadiness;
 
 /** @return array<string,mixed> */
 $readJson = static function (string $path): array {
@@ -86,14 +86,14 @@ $readJson = static function (string $path): array {
     return $decoded;
 };
 
-$adapterLibrary = AdapterLibrary::fromSourceTree($duoRoot);
+$adapterLibrary = AdapterLibrary::fromSourceTree($wprismRoot);
 $platformDocument = $readJson($adapterLibrary->platformBoundaryPath());
 $boundary = $platformDocument['platform'];
-$shippedLedger = AdapterProductionReadiness::load($duoRoot);
+$shippedLedger = AdapterProductionReadiness::load($wprismRoot);
 $families = array_map('strval', $shippedLedger['scenario_families']);
-$gradesRender = grade_build($duoRoot);
+$gradesRender = grade_build($wprismRoot);
 
-duo_check_same(12, count($families), 'the readiness ledger still declares the 12 reviewed scenario families the breadth axis counts against');
+wprism_check_same(12, count($families), 'the readiness ledger still declares the 12 reviewed scenario families the breadth axis counts against');
 
 /**
  * A readiness ledger holding one synthetic subject, with every family placed
@@ -128,28 +128,28 @@ $mixedLedger = $ledgerFor(
 echo "PART 1 — the three axes are COMPUTED, and each names its own input\n";
 
 $breadth = grade_coverage_breadth($mixedLedger, 'acme');
-duo_check_same('partial', $breadth['state'], 'coverage breadth over a mixed ledger row is partial');
-duo_check_same(5, count($breadth['exercised']), '...5 families carry evidence files');
-duo_check_same(6, count($breadth['outstanding']), '...6 are outstanding, which is `gaps` and `blocked` together: both mean the evidence is not there yet');
-duo_check_same(1, count($breadth['excluded']), '...and the 1 family reviewed `not_applicable` leaves BOTH counts rather than scoring as a gap — penalising an adapter for a family its surface cannot contain would make the axis measure adapter SHAPE instead of evidence');
+wprism_check_same('partial', $breadth['state'], 'coverage breadth over a mixed ledger row is partial');
+wprism_check_same(5, count($breadth['exercised']), '...5 families carry evidence files');
+wprism_check_same(6, count($breadth['outstanding']), '...6 are outstanding, which is `gaps` and `blocked` together: both mean the evidence is not there yet');
+wprism_check_same(1, count($breadth['excluded']), '...and the 1 family reviewed `not_applicable` leaves BOTH counts rather than scoring as a gap — penalising an adapter for a family its surface cannot contain would make the axis measure adapter SHAPE instead of evidence');
 
 $bundleProof = [
     'digest' => str_repeat('a', 64),
     'exercised' => true,
     'force_hatches' => [],
     'git_revision' => str_repeat('b', 40),
-    'schema' => 'duo-subject-certification-bundle/v1',
+    'schema' => 'wprism-subject-certification-bundle/v1',
     'signed_at' => '2026-08-24T00:00:00+00:00',
     'tests' => ['t-alpha', 't-beta', 't-gamma'],
 ];
 $depth = grade_exercise_depth($bundleProof, 'acme');
-duo_check_same('complete', $depth['state'], 'exercise depth over a bundle proof that recorded three named passing tests is complete');
-duo_check_same(['t-alpha', 't-beta', 't-gamma'], $depth['exercised'], '...naming the tests, because the COUNT is the discriminating fact `certified` cannot carry: three cited tests and forty are two different claims');
+wprism_check_same('complete', $depth['state'], 'exercise depth over a bundle proof that recorded three named passing tests is complete');
+wprism_check_same(['t-alpha', 't-beta', 't-gamma'], $depth['exercised'], '...naming the tests, because the COUNT is the discriminating fact `certified` cannot carry: three cited tests and forty are two different claims');
 
 $unexercisedProof = ['digest' => str_repeat('c', 64), 'exercised' => false, 'tests' => []];
 $depthNone = grade_exercise_depth($unexercisedProof, 'acme');
-duo_check_same('none', $depthNone['state'], 'a bundle that recorded `exercised: false` grades NONE — a record that says nothing was done, which is not the same fact as no record at all');
-duo_check_same(null, grade_exercise_depth(null, 'acme'), '...and a subject with no `provenance.proof.bundle` at all is SILENT (null), the distinction AdapterSources::certification_evidence() draws between `[]` and `null`');
+wprism_check_same('none', $depthNone['state'], 'a bundle that recorded `exercised: false` grades NONE — a record that says nothing was done, which is not the same fact as no record at all');
+wprism_check_same(null, grade_exercise_depth(null, 'acme'), '...and a subject with no `provenance.proof.bundle` at all is SILENT (null), the distinction AdapterSources::certification_evidence() draws between `[]` and `null`');
 
 // § v3.5 narrowing is CALLED, never reimplemented: this is the same projection
 // AdapterCertification::signStatement() binds as a certificate's exercised
@@ -157,13 +157,13 @@ duo_check_same(null, grade_exercise_depth(null, 'acme'), '...and a subject with 
 // not make.
 $statedWide = ManifestDispositions::narrowed_environment(['name' => 'acme', 'spec_version' => 3], $boundary);
 $reachWide = grade_platform_reach($statedWide, $boundary);
-duo_check_same('complete', $reachWide['state'], 'platform reach for a claim that narrows nothing is complete');
-duo_check_same(
+wprism_check_same('complete', $reachWide['state'], 'platform reach for a claim that narrows nothing is complete');
+wprism_check_same(
     ['php:8.3', 'php:8.4', 'wordpress:6.9', 'wordpress:7.0', 'wordpress:7.1'],
     $reachWide['exercised'],
     '...over exactly the boundary cells that publish a per-cell exercise witness'
 );
-duo_check_same(
+wprism_check_same(
     ['database', 'filesystem', 'process'],
     $reachWide['excluded'],
     '...while the three axes that publish no `verified` series are EXCLUDED and named — the boundary document says the database axis omits one deliberately, so scoring it as unwitnessed would be this projection contradicting the document it reads'
@@ -174,9 +174,9 @@ $statedNarrow = ManifestDispositions::narrowed_environment(
     $boundary
 );
 $reachNarrow = grade_platform_reach($statedNarrow, $boundary);
-duo_check_same('partial', $reachNarrow['state'], 'an adapter that NARROWS under § v3.5 reaches fewer cells');
-duo_check_same(['php:8.3', 'wordpress:7.1'], $reachNarrow['exercised'], '...exactly the cells it declared');
-duo_check_same(['php:8.4', 'wordpress:6.9', 'wordpress:7.0'], $reachNarrow['outstanding'], '...and reach is EXTENT, not a promise-keeping ratio: narrowing is honest, and it still reads as less reach');
+wprism_check_same('partial', $reachNarrow['state'], 'an adapter that NARROWS under § v3.5 reaches fewer cells');
+wprism_check_same(['php:8.3', 'wordpress:7.1'], $reachNarrow['exercised'], '...exactly the cells it declared');
+wprism_check_same(['php:8.4', 'wordpress:6.9', 'wordpress:7.0'], $reachNarrow['outstanding'], '...and reach is EXTENT, not a promise-keeping ratio: narrowing is honest, and it still reads as less reach');
 
 // The one boundary/claim disagreement reach REFUSES instead of absorbing. A
 // capability claim states exactly narrowed_environment()'s four members, so a
@@ -185,7 +185,7 @@ duo_check_same(['php:8.4', 'wordpress:6.9', 'wordpress:7.0'], $reachNarrow['outs
 // platform.json edit and report it as if the adapters had lost evidence.
 $boundaryWithUnstatableSeries = $boundary;
 $boundaryWithUnstatableSeries['compatibility']['filesystem']['verified'] = ['posix' => 'local-posix/v1'];
-duo_check_throws(
+wprism_check_throws(
     static fn() => grade_platform_reach($statedWide, $boundaryWithUnstatableSeries),
     RuntimeException::class,
     'a boundary axis publishing an exercise series a claim cannot state is REFUSED, naming the axis and the two remedies — the decision goes in front of a reader rather than into every adapter\'s denominator',
@@ -206,7 +206,7 @@ foreach ([
         'token' => 'platform/adapter-library/capabilities/platform.json',
     ],
 ] as $axis => $case) {
-    duo_check(
+    wprism_check(
         str_contains($case['record']['basis'], $case['token']),
         "the $axis axis names its own input in its `basis` (`{$case['token']}`), so the number is readable back to the document it came from"
     );
@@ -215,9 +215,9 @@ foreach ([
 echo "\nPART 2 — the grade MOVES when the evidence moves, and is re-derived on every call\n";
 
 $before = grade_of('acme', $mixedLedger, $bundleProof, $statedWide, $boundary);
-duo_check_same('partial', $before['state'], 'the combined grade over the mixed ledger is partial');
-duo_check_same(13, $before['exercised'], '...13 units exercised (5 families + 3 tests + 5 cells)');
-duo_check_same(19, $before['declared'], '...of 19 counted (11 families + 3 tests + 5 cells)');
+wprism_check_same('partial', $before['state'], 'the combined grade over the mixed ledger is partial');
+wprism_check_same(13, $before['exercised'], '...13 units exercised (5 families + 3 tests + 5 cells)');
+wprism_check_same(19, $before['declared'], '...of 19 counted (11 families + 3 tests + 5 cells)');
 
 // MOVE THE EVIDENCE: promote one gap family to covered, exactly as a reviewer
 // landing a conformance file does.
@@ -226,55 +226,55 @@ $promoted = $families[5];
 $movedLedger['adapters']['acme']['covered'][$promoted] = ['sandbox/conformance/checks/acme.sh'];
 unset($movedLedger['adapters']['acme']['gaps'][$promoted]);
 $after = grade_of('acme', $movedLedger, $bundleProof, $statedWide, $boundary);
-duo_check_same($before['exercised'] + 1, $after['exercised'], 'ONE new evidence file moves the grade by exactly one unit — the number is arithmetic over the documents, not a verdict beside them');
-duo_check_same($before['declared'], $after['declared'], '...with the denominator unmoved, because the family was already counted');
+wprism_check_same($before['exercised'] + 1, $after['exercised'], 'ONE new evidence file moves the grade by exactly one unit — the number is arithmetic over the documents, not a verdict beside them');
+wprism_check_same($before['declared'], $after['declared'], '...with the denominator unmoved, because the family was already counted');
 
 // AND BACK. A memo, a cache or a stored verdict would answer the SECOND value
 // here; there is none, so the third call re-derives from the input it is
 // handed.
 $again = grade_of('acme', $mixedLedger, $bundleProof, $statedWide, $boundary);
-duo_check_same($before, $again, 'the same inputs answer the same grade on a later call in the SAME process, and the moved inputs did not stick — nothing is memoised, so a grade cannot be read back from anywhere');
+wprism_check_same($before, $again, 'the same inputs answer the same grade on a later call in the SAME process, and the moved inputs did not stick — nothing is memoised, so a grade cannot be read back from anywhere');
 
 // The full sweep: every axis complete makes the grade complete, and one axis
 // falling makes it fall.
 $allCovered = $ledgerFor($families, [], [], []);
 $complete = grade_of('acme', $allCovered, $bundleProof, $statedWide, $boundary);
-duo_check_same('complete', $complete['state'], 'every counted unit exercised grades COMPLETE');
-duo_check_same(20, $complete['exercised'], '...20 of 20 (12 families + 3 tests + 5 cells)');
+wprism_check_same('complete', $complete['state'], 'every counted unit exercised grades COMPLETE');
+wprism_check_same(20, $complete['exercised'], '...20 of 20 (12 families + 3 tests + 5 cells)');
 $fallen = grade_of('acme', $allCovered, $unexercisedProof, $statedWide, $boundary);
-duo_check_same('none', $fallen['state'], '...and the identical library with an UNEXERCISED bundle grades none: the evidence moved, so the grade moved');
+wprism_check_same('none', $fallen['state'], '...and the identical library with an UNEXERCISED bundle grades none: the evidence moved, so the grade moved');
 
 echo "\nPART 3 — no evidence, no grade\n";
 
-duo_check_same(
+wprism_check_same(
     null,
     grade_of('acme', null, null, $statedWide, $boundary),
     'platform reach alone mints NO grade: it describes what a claim covers, not what anyone did, and a subject nobody exercised must read as ungraded rather than as a low grade'
 );
 $emptyLedger = ['format' => $shippedLedger['format'], 'scenario_families' => $shippedLedger['scenario_families'], 'adapters' => []];
-duo_check_same(
+wprism_check_same(
     null,
     grade_of('acme', $emptyLedger, null, $statedWide, $boundary),
     '...and a ledger that reviews no row for the subject is SILENT rather than zero, so it mints nothing either'
 );
-duo_check_same(
+wprism_check_same(
     null,
     grade_of('acme', null, null, null, $boundary),
     '...a subject with nothing at all carries no grade'
 );
 $noEvidence = grade_of('acme', $ledgerFor([], array_slice($families, 0, 6), array_slice($families, 6, 6), []), null, $statedWide, $boundary);
-duo_check_same('none', $noEvidence['state'], 'a REVIEWED row that finds nothing covered is a different answer: `none` is a measurement, `no grade` is the absence of one');
+wprism_check_same('none', $noEvidence['state'], 'a REVIEWED row that finds nothing covered is a different answer: `none` is a measurement, `no grade` is the absence of one');
 
 // The shipped library carries the real case, and it reads the honest way.
-duo_check(
-    str_contains($gradesRender, '| [duo-agency-cpt](#duo-agency-cpt) | excluded | no grade — no exercise evidence |'),
-    'the current render carries the live example: duo-agency-cpt is reviewed `excluded`, the readiness ledger holds no row for it, and its grade cell says NO GRADE rather than a zero'
+wprism_check(
+    str_contains($gradesRender, '| [wprism-agency-cpt](#wprism-agency-cpt) | excluded | no grade — no exercise evidence |'),
+    'the current render carries the live example: wprism-agency-cpt is reviewed `excluded`, the readiness ledger holds no row for it, and its grade cell says NO GRADE rather than a zero'
 );
 
 echo "\nPART 4 — a grade may never be AUTHORED: refused BY NAME, in every input\n";
 
 $authored = static fn(array $document): array => $document + ['grade' => 'A+'];
-duo_check_throws(
+wprism_check_throws(
     static fn() => grade_coverage_breadth(
         ['format' => $shippedLedger['format'], 'scenario_families' => $shippedLedger['scenario_families'], 'adapters' => ['acme' => $authored($mixedLedger['adapters']['acme'])]],
         'acme'
@@ -283,13 +283,13 @@ duo_check_throws(
     'a readiness ledger ROW carrying an authored `grade` is refused',
     'authored `grade` member'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn() => grade_exercise_depth($authored($bundleProof), 'acme'),
     RuntimeException::class,
     '...so is a bundle proof carrying one',
     'derived from evidence on every call'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn() => grade_platform_reach($authored($statedWide), $boundary),
     RuntimeException::class,
     '...so is a stated environment carrying one',
@@ -298,23 +298,23 @@ duo_check_throws(
 // The other half of "never authored": there is nowhere for an authored grade
 // to come FROM either. `grade_build()` returns prose; it does not name or write
 // a destination a later reader could mistake for a source of truth.
-duo_check(
+wprism_check(
     str_starts_with($gradesRender, "# Adapter evidence grades\n"),
     'grade_build() returns the aggregate prose in memory'
 );
-duo_check_same(
+wprism_check_same(
     $gradesRender,
-    grade_build($duoRoot),
+    grade_build($wprismRoot),
     '...rendered twice in one process from the same tree, byte for byte: the projection is a pure function of its inputs, so re-deriving it can never be the thing that changes it'
 );
 
 echo "\nPART 5 — the grade is its WEAKEST axis, never an average\n";
 
 $lopsided = grade_of('acme', $ledgerFor([], $families, [], []), $bundleProof, $statedWide, $boundary);
-duo_check_same('none', $lopsided['state'], 'coverage none + depth complete + reach complete grades NONE');
-duo_check_same(8, $lopsided['exercised'], '...even though 8 of 20 units are exercised, which an average would have reported as a respectable fraction');
-duo_check_same(20, $lopsided['declared'], '...out of 20');
-duo_check(
+wprism_check_same('none', $lopsided['state'], 'coverage none + depth complete + reach complete grades NONE');
+wprism_check_same(8, $lopsided['exercised'], '...even though 8 of 20 units are exercised, which an average would have reported as a respectable fraction');
+wprism_check_same(20, $lopsided['declared'], '...out of 20');
+wprism_check(
     $lopsided['axes']['exercise_depth']['state'] === 'complete'
         && $lopsided['axes']['platform_reach']['state'] === 'complete',
     '...and the two complete axes are still printed complete: the weakest axis decides the headline, it does not erase what the others measured'
@@ -327,7 +327,7 @@ foreach ($adapterLibrary->packages() as $package) {
     $manifests[] = $readJson($package->manifestPath());
 }
 $dispositions = ManifestDispositions::load_library($adapterLibrary);
-duo_check(is_object($dispositions), 'the shipped disposition library still loads through the product path');
+wprism_check(is_object($dispositions), 'the shipped disposition library still loads through the product path');
 $report = $dispositions->report($manifests);
 
 $statuses = [];
@@ -340,7 +340,7 @@ ksort($statuses, SORT_STRING);
 // three -- a change in what the shipped library SAYS, never in what the
 // projector can say (ManifestDispositions.php:959 still accepts exactly
 // certified/experimental/excluded, and the next line measures that).
-duo_check_same(
+wprism_check_same(
     ['certified' => 16, 'excluded' => 1],
     (static function (array $words): array {
         $counts = array_count_values($words);
@@ -349,15 +349,15 @@ duo_check_same(
     })(array_values($statuses)),
     'ManifestDispositions::report() still projects the reviewed word verbatim over 17 subjects — the binary read this rider deliberately did NOT change'
 );
-duo_check(
+wprism_check(
     str_contains(
-        (string) file_get_contents($duoRoot . '/agent/src/Policy/ManifestDispositions.php'),
+        (string) file_get_contents($wprismRoot . '/agent/src/Policy/ManifestDispositions.php'),
         "in_array(\$status, ['certified', 'experimental', 'excluded'], true)"
     ),
     '...and `experimental` is still a word the engine accepts, so the census above records that the shipped '
         . 'library has none left — not that the third status was retired with TEC\'s promotion'
 );
-duo_check_same('certified', $statuses['acf'], '...`certified` still means `certified`');
+wprism_check_same('certified', $statuses['acf'], '...`certified` still means `certified`');
 
 $findGrade = static function (mixed $node) use (&$findGrade): bool {
     if (!is_array($node)) {
@@ -370,7 +370,7 @@ $findGrade = static function (mixed $node) use (&$findGrade): bool {
     }
     return false;
 };
-duo_check(!$findGrade($report), 'and no `grade` member appears anywhere in the reviewed report: the grade sits BESIDE the word in an on-demand projection, never inside the claim');
+wprism_check(!$findGrade($report), 'and no `grade` member appears anywhere in the reviewed report: the grade sits BESIDE the word in an on-demand projection, never inside the claim');
 
 // The whole model reaches no shipped byte. This is the strongest form of "the
 // certification word is unchanged": there is nothing under the drop-in, the
@@ -378,20 +378,20 @@ duo_check(!$findGrade($report), 'and no `grade` member appears anywhere in the r
 // changed it (AGENTS.md rule 2 — package payload bytes are adapter identity).
 $shippedMentions = [];
 foreach (['agent', 'cli', 'recovery', 'adapter-packages', 'platform'] as $tree) {
-    $walk = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($duoRoot . '/' . $tree, FilesystemIterator::SKIP_DOTS));
+    $walk = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($wprismRoot . '/' . $tree, FilesystemIterator::SKIP_DOTS));
     foreach ($walk as $file) {
         if (!$file->isFile()) {
             continue;
         }
         $body = (string) file_get_contents($file->getPathname());
-        foreach (['adapter-grade.php', 'adapter-grades.md', 'duo-adapter-grade'] as $token) {
+        foreach (['adapter-grade.php', 'adapter-grades.md', 'wprism-adapter-grade'] as $token) {
             if (str_contains($body, $token)) {
-                $shippedMentions[] = str_replace($duoRoot . '/', '', $file->getPathname()) . ': ' . $token;
+                $shippedMentions[] = str_replace($wprismRoot . '/', '', $file->getPathname()) . ': ' . $token;
             }
         }
     }
 }
-duo_check_same([], $shippedMentions, 'no shipped file names the grade model at all — it ships nothing, so no adapter digest, no pin and no refusal message moved');
+wprism_check_same([], $shippedMentions, 'no shipped file names the grade model at all — it ships nothing, so no adapter digest, no pin and no refusal message moved');
 
 // Every grade the render prints stands beside the disposition's OWN status,
 // verbatim. A projection that re-spelled the reviewed word would be replacing
@@ -406,8 +406,8 @@ foreach ($dispositionStatuses as $name => $status) {
         $rowMismatches[] = $name;
     }
 }
-duo_check_same([], $rowMismatches, 'every row of the rendered aggregate prints the reviewed status verbatim in its own column, for all ' . count($dispositionStatuses) . ' subjects');
-duo_check(
+wprism_check_same([], $rowMismatches, 'every row of the rendered aggregate prints the reviewed status verbatim in its own column, for all ' . count($dispositionStatuses) . ' subjects');
+wprism_check(
     str_contains($gradesRender, '**A grade is computed; a status is reviewed. They are different claims and neither replaces the other.**'),
     '...and the render says so in its first sentence, because a reader who mistakes one for the other is the whole risk this rider carries'
 );
@@ -415,20 +415,20 @@ duo_check(
 // BESIDE means reachable from where the word is. The capability guide is where
 // an operator reads the status, so it carries the render command and stable
 // model pointer as fixed prose, never a grade VALUE or aggregate inventory.
-$capabilities = (string) file_get_contents($duoRoot . '/docs/capabilities.md');
-duo_check(
+$capabilities = (string) file_get_contents($wprismRoot . '/docs/capabilities.md');
+wprism_check(
     str_contains($capabilities, '`php tools/adapter-grade.php render`')
         && str_contains($capabilities, '[adapter-grades.md](adapter-grades.md)'),
     'the capability guide — where the reviewed word is actually read — points at the on-demand computed grade and its stable definition'
 );
-duo_check(
+wprism_check(
     !str_contains($capabilities, 'complete · ') && !str_contains($capabilities, 'partial · '),
     '...and carries no grade VALUE or central aggregate, so a package edit cannot make this guide stale'
 );
 
 // The graded axis discriminates where the word cannot — the measurement that
 // motivated the rider, taken on the shipped library rather than asserted.
-duo_check(
+wprism_check(
     str_contains($gradesRender, '| [acf](#acf) | certified | complete · 16/16 units')
         && str_contains($gradesRender, '| [polylang](#polylang) | certified | complete · 17/17 units'),
     'TWO ADAPTERS, ONE WORD, DIFFERENT EVIDENCE: acf and polylang are both `certified` and both grade complete, but over 16/16 versus 17/17 units — the difference an operator could not see before, now visible without widening what `certified` means'
@@ -450,16 +450,16 @@ $run = static function (array $argv): array {
     return ['exit' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr];
 };
 
-$shipped = $run([PHP_BINARY, $duoRoot . '/tools/adapter-grade.php', '--check']);
-duo_check_same(0, $shipped['exit'], '`php tools/adapter-grade.php --check` — a make release-gate step — passes on the shipped tree');
+$shipped = $run([PHP_BINARY, $wprismRoot . '/tools/adapter-grade.php', '--check']);
+wprism_check_same(0, $shipped['exit'], '`php tools/adapter-grade.php --check` — a make release-gate step — passes on the shipped tree');
 
-$makefile = (string) file_get_contents($duoRoot . '/Makefile');
-duo_check(
+$makefile = (string) file_get_contents($wprismRoot . '/Makefile');
+wprism_check(
     preg_match('/^release-gate:\n(?:\t.*\n)*\tphp tools\/adapter-grade\.php --check\n/m', $makefile) === 1,
     'and the release-gate recipe actually runs it, so every release recomputes and validates the package-owned evidence'
 );
 
-$gateRoot = rtrim(sys_get_temp_dir(), '/') . '/duo_regress_graded_claim_' . getmypid() . '_' . bin2hex(random_bytes(4));
+$gateRoot = rtrim(sys_get_temp_dir(), '/') . '/wprism_regress_graded_claim_' . getmypid() . '_' . bin2hex(random_bytes(4));
 $copyTree = static function (string $from, string $to) use (&$copyTree): void {
     if (!is_dir($to) && !mkdir($to, 0o700, true) && !is_dir($to)) {
         throw new RuntimeException('cannot create ' . $to);
@@ -472,19 +472,19 @@ $copyTree = static function (string $from, string $to) use (&$copyTree): void {
         is_dir($source) ? $copyTree($source, $to . '/' . $entry) : copy($source, $to . '/' . $entry);
     }
 };
-$place = static function (string $relative) use ($duoRoot, $gateRoot): void {
+$place = static function (string $relative) use ($wprismRoot, $gateRoot): void {
     $target = $gateRoot . '/' . $relative;
     if (!is_dir(dirname($target)) && !mkdir(dirname($target), 0o700, true) && !is_dir(dirname($target))) {
         throw new RuntimeException('cannot create ' . dirname($target));
     }
-    copy($duoRoot . '/' . $relative, $target);
+    copy($wprismRoot . '/' . $relative, $target);
 };
 
 // Everything the tool opens, and nothing else: the agent readers and their
 // dependencies, the manifest library, package-owned readiness records and the
 // tool. There is deliberately no docs/ tree or aggregate projection to check.
-$copyTree($duoRoot . '/adapter-packages', $gateRoot . '/adapter-packages');
-$copyTree($duoRoot . '/platform', $gateRoot . '/platform');
+$copyTree($wprismRoot . '/adapter-packages', $gateRoot . '/adapter-packages');
+$copyTree($wprismRoot . '/platform', $gateRoot . '/platform');
 $place('agent/src/Kernel/Canon.php');
 $place('agent/src/Policy/AdapterLibrary.php');
 $place('agent/src/Policy/AdapterPackage.php');
@@ -518,30 +518,30 @@ $gate = [PHP_BINARY, $gateRoot . '/tools/adapter-grade.php', '--check'];
 $renderCommand = [PHP_BINARY, $gateRoot . '/tools/adapter-grade.php', 'render'];
 $beforeCommands = $snapshotTree($gateRoot);
 $baseline = $run($gate);
-duo_check_same(0, $baseline['exit'], 'the unmutated copy passes, so every refusal below is the mutation and not the copy');
-duo_check_same(
+wprism_check_same(0, $baseline['exit'], 'the unmutated copy passes, so every refusal below is the mutation and not the copy');
+wprism_check_same(
     "adapter grade check: package-owned evidence and computed grade inputs agree\n",
     $baseline['stdout'],
     '`--check` reports source validation rather than comparing a stored aggregate'
 );
 $baselineRender = $run($renderCommand);
-duo_check_same(0, $baselineRender['exit'], '`render` succeeds against the same source-only tree');
-duo_check(
+wprism_check_same(0, $baselineRender['exit'], '`render` succeeds against the same source-only tree');
+wprism_check(
     str_starts_with($baselineRender['stdout'], "# Adapter evidence grades\n")
         && str_contains($baselineRender['stdout'], '| [acf](#acf) | certified | complete · 16/16 units'),
     '`render` emits the current aggregate to stdout'
 );
-duo_check_same(
+wprism_check_same(
     grade_build($gateRoot),
     $baselineRender['stdout'],
     'the CLI render is byte-identical to the in-process model over the same source tree'
 );
-duo_check_same(
+wprism_check_same(
     $beforeCommands,
     $snapshotTree($gateRoot),
     '`--check` and `render` write no source or projection file'
 );
-duo_check(
+wprism_check(
     !file_exists($gateRoot . '/docs/adapter-grades.md') && !is_dir($gateRoot . '/docs'),
     'neither command requires or creates a central adapter-grade projection'
 );
@@ -557,20 +557,20 @@ $mutatedLedger['readiness'] = 'unready';
 file_put_contents($ledgerPath, json_encode($mutatedLedger, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 $editedSource = $snapshotTree($gateRoot);
 $movedEvidenceCheck = $run($gate);
-duo_check_same(0, $movedEvidenceCheck['exit'], 'a valid edit to one package-owned readiness record needs no central projection update');
+wprism_check_same(0, $movedEvidenceCheck['exit'], 'a valid edit to one package-owned readiness record needs no central projection update');
 $movedEvidenceRender = $run($renderCommand);
-duo_check_same(0, $movedEvidenceRender['exit'], 'the valid package edit remains renderable');
-duo_check(
+wprism_check_same(0, $movedEvidenceRender['exit'], 'the valid package edit remains renderable');
+wprism_check(
     str_contains($movedEvidenceRender['stdout'], '| [acf](#acf) | certified | partial · 15/16 units')
         && !str_contains($movedEvidenceRender['stdout'], '| [acf](#acf) | certified | complete · 16/16 units'),
     'the on-demand render re-derives the moved ACF grade directly from its package evidence'
 );
-duo_check_same(
+wprism_check_same(
     $editedSource,
     $snapshotTree($gateRoot),
     'checking and rendering the package edit writes nothing else'
 );
-duo_check(
+wprism_check(
     !file_exists($gateRoot . '/docs/adapter-grades.md'),
     'the package evidence edit requires no central projection file'
 );
@@ -581,13 +581,13 @@ $invalidLedger = json_decode($ledgerBytes, true, 512, JSON_THROW_ON_ERROR);
 unset($invalidLedger['covered']['deletion']);
 file_put_contents($ledgerPath, json_encode($invalidLedger, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 $invalidEvidenceCheck = $run($gate);
-duo_check($invalidEvidenceCheck['exit'] !== 0, 'THE GATE BITES ON INVALID SOURCE: an unaccounted evidence family is refused');
-duo_check(
+wprism_check($invalidEvidenceCheck['exit'] !== 0, 'THE GATE BITES ON INVALID SOURCE: an unaccounted evidence family is refused');
+wprism_check(
     str_contains($invalidEvidenceCheck['stderr'], "readiness record 'acf' does not account for every scenario family"),
     '...naming the package record and broken accounting rule rather than a central document'
 );
 $invalidEvidenceRender = $run($renderCommand);
-duo_check(
+wprism_check(
     $invalidEvidenceRender['exit'] !== 0
         && str_contains($invalidEvidenceRender['stderr'], "readiness record 'acf' does not account for every scenario family"),
     '`render` validates the same source before emitting a grade'
@@ -600,8 +600,8 @@ $authoredDisposition = json_decode($acfDispositionBytes, true, 512, JSON_THROW_O
 $authoredDisposition['grade'] = 'complete';
 file_put_contents($acfDispositionPath, json_encode($authoredDisposition, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 $authoredRun = $run($gate);
-duo_check($authoredRun['exit'] !== 0, 'THE GATE BITES ON AN AUTHORED GRADE: a disposition carrying a `grade` member is refused rather than obeyed');
-duo_check(
+wprism_check($authoredRun['exit'] !== 0, 'THE GATE BITES ON AN AUTHORED GRADE: a disposition carrying a `grade` member is refused rather than obeyed');
+wprism_check(
     str_contains($authoredRun['stderr'], 'may not be authored')
         && str_contains($authoredRun['stderr'], "the disposition for 'acf'"),
     '...naming the member and the document that carries it, so whoever wrote it is told why it cannot exist'
@@ -612,8 +612,8 @@ $misboundRecord = json_decode($ledgerBytes, true, 512, JSON_THROW_ON_ERROR);
 $misboundRecord['adapter'] = 'acme-not-reviewed';
 file_put_contents($ledgerPath, json_encode($misboundRecord, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 $misboundRun = $run($gate);
-duo_check($misboundRun['exit'] !== 0, 'and a package readiness record bound to another subject is refused: one capsule cannot author a grade row for another');
-duo_check(
+wprism_check($misboundRun['exit'] !== 0, 'and a package readiness record bound to another subject is refused: one capsule cannot author a grade row for another');
+wprism_check(
     str_contains($misboundRun['stderr'], "identity does not match 'acf'"),
     '...naming the capsule whose record identity disagrees'
 );
@@ -629,6 +629,6 @@ $rmTree = static function (string $dir) use (&$rmTree): void {
     @rmdir($dir);
 };
 $rmTree($gateRoot);
-duo_check(!is_dir($gateRoot), 'the scratch gate root is removed');
+wprism_check(!is_dir($gateRoot), 'the scratch gate root is removed');
 
-duo_check_summary('regress_graded_claim');
+wprism_check_summary('regress_graded_claim');

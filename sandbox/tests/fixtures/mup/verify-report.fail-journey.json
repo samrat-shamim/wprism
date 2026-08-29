@@ -7,11 +7,11 @@
     },
     "disclosures": [],
     "environment": "mup2",
-    "format": "duo-verify-report/v1",
+    "format": "wprism-verify-report/v1",
     "journeys": [
         {
             "detail": "",
-            "expect_contains": "Duo Ceramic Mug",
+            "expect_contains": "WPrism Ceramic Mug",
             "expect_status": 200,
             "http_status": 200,
             "id": "shop-index",
@@ -21,7 +21,7 @@
         },
         {
             "detail": "expected HTTP 200, got 404",
-            "expect_contains": "Duo grind landing page",
+            "expect_contains": "WPrism grind landing page",
             "expect_status": 200,
             "http_status": 404,
             "id": "landing-page",
@@ -30,7 +30,7 @@
             "url": "/?page_id=1"
         }
     ],
-    "plan_digest": "sha256:001745ed23e639e89dd704d93947c96986ead1c863c126c12342437832c00257",
+    "plan_digest": "sha256:ce5a87ead1888e4244f388201e1d598624f31b4f958d80095273f9bf5870e590",
     "uncovered_surfaces": [],
     "verdict": "fail"
 }

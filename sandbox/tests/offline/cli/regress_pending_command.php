@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../../cli/src/Command/PendingCommand.php';
 
-use Duo\Orchestrator\DriverCapabilityReport;
-use Duo\Orchestrator\EnvironmentDriver;
-use Duo\Orchestrator\PendingCommand;
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\EnvironmentDriver;
+use WPrism\Orchestrator\PendingCommand;
 
 function fail_pending_command(string $message): never {
     fwrite(STDERR, "FAIL: $message\n");

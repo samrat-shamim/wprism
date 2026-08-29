@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Recovery;
+namespace WPrism\Recovery;
 
 /**
  * Bounded argv-only provider execution shared by recovery bundles.
@@ -23,8 +23,8 @@ final class ProviderClient {
         string $outputLimitMessage,
         string $failureMessage,
         bool $includeFailureDetail = false,
-        string $malformedMessage = 'duo recovery: provider returned malformed JSON',
-        string $nonCanonicalMessage = 'duo recovery: provider returned noncanonical evidence',
+        string $malformedMessage = 'wprism recovery: provider returned malformed JSON',
+        string $nonCanonicalMessage = 'wprism recovery: provider returned noncanonical evidence',
         string $writeMessage = ''
     ): array {
         if ($command === []) {

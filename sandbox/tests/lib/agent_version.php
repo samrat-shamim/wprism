@@ -1,11 +1,11 @@
 <?php
 /**
- * The two agent defines, taken from `agent/duo.php` rather than retyped.
+ * The two agent defines, taken from `agent/wprism.php` rather than retyped.
  *
  * WHY THIS FILE EXISTS (WP-4.12 — THE FLIP)
  * -----------------------------------------
- * An offline suite that never loads `agent/duo.php` still has to satisfy the
- * files that read `DUO_AGENT_VERSION` / `DUO_SPEC_VERSION`, so ~69 suites open
+ * An offline suite that never loads `agent/wprism.php` still has to satisfy the
+ * files that read `WPRISM_AGENT_VERSION` / `WPRISM_SPEC_VERSION`, so ~69 suites open
  * with a `if (!defined(...)) define(..., 2)` guard. Every one of those literals
  * is a private copy of a number AGENTS.md rule 8 says moves in exactly one
  * commit, together with `platform/adapter-library/capabilities/platform.json`.
@@ -35,9 +35,9 @@
  */
 declare(strict_types=1);
 
-if (!function_exists('duo_test_define_agent_versions')) {
+if (!function_exists('wprism_test_define_agent_versions')) {
     /**
-     * Define `DUO_AGENT_VERSION` and `DUO_SPEC_VERSION` from `agent/duo.php`
+     * Define `WPRISM_AGENT_VERSION` and `WPRISM_SPEC_VERSION` from `agent/wprism.php`
      * unless the caller already defined them.
      *
      * Refuses loudly rather than falling back to a literal: a suite that
@@ -46,28 +46,28 @@ if (!function_exists('duo_test_define_agent_versions')) {
      *
      * @return array{0:string,1:int} the pair now in force, derived or inherited
      */
-    function duo_test_define_agent_versions(): array {
+    function wprism_test_define_agent_versions(): array {
         static $derived = null;
         if ($derived === null) {
-            $duo = dirname(__DIR__, 3) . '/agent/duo.php';
-            $source = @file_get_contents($duo);
+            $wprism = dirname(__DIR__, 3) . '/agent/wprism.php';
+            $source = @file_get_contents($wprism);
             if (!is_string($source)) {
-                throw new RuntimeException("duo test harness: cannot read $duo for the agent defines");
+                throw new RuntimeException("wprism test harness: cannot read $wprism for the agent defines");
             }
-            if (preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $source, $agent) !== 1
-                || preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $source, $spec) !== 1) {
+            if (preg_match("/define\('WPRISM_AGENT_VERSION', '([^']+)'\)/", $source, $agent) !== 1
+                || preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", $source, $spec) !== 1) {
                 throw new RuntimeException(
-                    "duo test harness: $duo no longer declares both agent defines in the form this helper reads"
+                    "wprism test harness: $wprism no longer declares both agent defines in the form this helper reads"
                 );
             }
             $derived = [$agent[1], (int) $spec[1]];
         }
-        if (!defined('DUO_AGENT_VERSION')) {
-            define('DUO_AGENT_VERSION', $derived[0]);
+        if (!defined('WPRISM_AGENT_VERSION')) {
+            define('WPRISM_AGENT_VERSION', $derived[0]);
         }
-        if (!defined('DUO_SPEC_VERSION')) {
-            define('DUO_SPEC_VERSION', $derived[1]);
+        if (!defined('WPRISM_SPEC_VERSION')) {
+            define('WPRISM_SPEC_VERSION', $derived[1]);
         }
-        return [(string) DUO_AGENT_VERSION, (int) DUO_SPEC_VERSION];
+        return [(string) WPRISM_AGENT_VERSION, (int) WPRISM_SPEC_VERSION];
     }
 }

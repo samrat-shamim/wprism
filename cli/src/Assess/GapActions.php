@@ -1,15 +1,15 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once dirname(__DIR__) . '/Contract/ProjectionVocabulary.php';
 
-use Duo\CommandRefusalException;
+use WPrism\CommandRefusalException;
 
 /**
- * Section 4 of `duo assess` — the smallest safe next action per gap, drawn
+ * Section 4 of `wprism assess` — the smallest safe next action per gap, drawn
  * from a closed set (round-3 MUP §2.1 item 4, §4.1).
  *
  * The set itself is `ProjectionVocabulary::GAP_ACTIONS` and the per-row
@@ -131,7 +131,7 @@ final class GapActions {
     /**
      * The next action for one unknown-section finding.
      *
-     * A `pending` name is already in the agent's review queue, so `duo
+     * A `pending` name is already in the agent's review queue, so `wprism
      * classify <env>` is its literal remedy. An `invisible_option` is the
      * opposite: no installed adapter owns its namespace, so it cannot appear
      * in that queue. Its executable path is the same adapter-draft/install
@@ -139,13 +139,13 @@ final class GapActions {
      *
      * An undeclared table is different in kind and T6 §3.6 changed its
      * answer. MUP printed `qualify in rehearsal`, which rehearsal cannot do.
-     * `classify` would be no better: `duo classify` works on the option/meta
+     * `classify` would be no better: `wprism classify` works on the option/meta
      * queue and has no table in it, so it would send an operator to a command
      * whose output never mentions their table. What is actually true of an
      * undeclared table is its defining property: no installed adapter models
      * it, which is why coverage had to find it by looking at the database
      * instead. The remedy is an adapter that declares it, authored by the
-     * operator if nobody ships one — `duo adapter-draft --seed` now proposes
+     * operator if nobody ships one — `wprism adapter-draft --seed` now proposes
      * exactly this table from exactly this finding.
      */
     public static function forUnknown(string $kind): string {

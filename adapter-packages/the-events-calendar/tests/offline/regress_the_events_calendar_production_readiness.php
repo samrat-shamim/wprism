@@ -208,7 +208,7 @@ namespace TEC\Events\QR {
     }
 }
 
-namespace Duo\Interpreters {
+namespace WPrism\Interpreters {
     function microtime(bool $asFloat = false): float|string {
         $plan = &$GLOBALS['tec_readiness_interpreter_time_plan'];
         $value = is_array($plan) && $plan !== [] ? array_shift($plan) : \microtime(true);
@@ -787,8 +787,8 @@ function tec_readiness_native_boundary(string $boundary): void {
 
 /** Exact TEC 6.17.2/6.17.3 schema, identity, and refusal boundary. */
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 3);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 3);
 }
 
 $root = dirname(__DIR__, 4);
@@ -816,17 +816,17 @@ require_once dirname(__DIR__, 2) . '/package/runtime/interpreters/the-events-cal
 require_once dirname(__DIR__, 2) . '/package/runtime/providers/the-events-calendar-category-colors.php';
 require_once dirname(__DIR__, 2) . '/package/runtime/regenerators/the-events-calendar.php';
 
-use Duo\Interpreters\TheEventsCalendar;
-use Duo\Blocks;
-use Duo\CaptureCandidateBuilder;
-use Duo\Deploy;
-use Duo\EntityMetaCapture;
-use Duo\Policy;
-use Duo\Tokens;
-use Duo\Providers\TheEventsCalendarCategoryColors;
-use Duo\Regenerators\TheEventsCalendar as TheEventsCalendarRegenerator;
-use DuoTest\FakeWpdb;
-use DuoTest\LockingFakeWpdb;
+use WPrism\Interpreters\TheEventsCalendar;
+use WPrism\Blocks;
+use WPrism\CaptureCandidateBuilder;
+use WPrism\Deploy;
+use WPrism\EntityMetaCapture;
+use WPrism\Policy;
+use WPrism\Tokens;
+use WPrism\Providers\TheEventsCalendarCategoryColors;
+use WPrism\Regenerators\TheEventsCalendar as TheEventsCalendarRegenerator;
+use WPrismTest\FakeWpdb;
+use WPrismTest\LockingFakeWpdb;
 
 const TEC_EVENT_UUID = '11111111-1111-4111-8111-111111111111';
 const TEC_VENUE_UUID = '22222222-2222-4222-8222-222222222222';
@@ -1822,7 +1822,7 @@ function tec_readiness_messages(TheEventsCalendar $interpreter, array $tree): ar
 }
 
 function tec_readiness_refuses(TheEventsCalendar $interpreter, array $tree, string $needle, string $message): void {
-    duo_check(
+    wprism_check(
         str_contains(implode(' | ', tec_readiness_messages($interpreter, $tree)), $needle),
         $message
     );
@@ -1834,7 +1834,7 @@ $manifest = json_decode(
     flags: JSON_THROW_ON_ERROR
 );
 require_once $root . '/tools/src/ArtifactLibrary.php';
-$artifacts = \Duo\Tooling\ArtifactLibrary::loadPackage($root, 'the-events-calendar')['plugins']['the-events-calendar'];
+$artifacts = \WPrism\Tooling\ArtifactLibrary::loadPackage($root, 'the-events-calendar')['plugins']['the-events-calendar'];
 // The reviewed claim source is one document per subject since WP-4.4
 // (spec/repo-format.md § v3.4); the monolith this suite was authored against
 // is gone, and ManifestDispositions::load() refuses a library that still
@@ -1852,28 +1852,28 @@ $readiness = json_decode(
     flags: JSON_THROW_ON_ERROR
 );
 
-duo_check_same(
+wprism_check_same(
     ['min' => '6.17.2', 'max' => '6.17.4'],
     $manifest['version_range'],
     'the exclusive range admits the reviewed 6.17.2/6.17.3 artifact family without admitting 6.17.4'
 );
-duo_check_same(
+wprism_check_same(
     ['6.17.1', '6.17.2', '6.17.3'],
     array_keys($artifacts),
     'the artifact lock carries one real adjacent refusal and both exact boundaries'
 );
-duo_check_same('refusal-fixture', $artifacts['6.17.1']['role'], '6.17.1 is an adjacent refusal artifact');
-duo_check_same('certified-boundary', $artifacts['6.17.2']['role'], '6.17.2 is the certified lower boundary');
-duo_check_same('certified-boundary', $artifacts['6.17.3']['role'], '6.17.3 is the certified upper exercised artifact');
-duo_check_same('certified', $disposition['status'] ?? null, 'the reviewed TEC disposition is certified');
-duo_check_same('ready', $readiness['readiness'] ?? null, 'the TEC production-readiness ledger is closed');
-duo_check_same([], $readiness['gaps'] ?? null, 'the certified TEC ledger retains no applicable gap');
-duo_check_same(
+wprism_check_same('refusal-fixture', $artifacts['6.17.1']['role'], '6.17.1 is an adjacent refusal artifact');
+wprism_check_same('certified-boundary', $artifacts['6.17.2']['role'], '6.17.2 is the certified lower boundary');
+wprism_check_same('certified-boundary', $artifacts['6.17.3']['role'], '6.17.3 is the certified upper exercised artifact');
+wprism_check_same('certified', $disposition['status'] ?? null, 'the reviewed TEC disposition is certified');
+wprism_check_same('ready', $readiness['readiness'] ?? null, 'the TEC production-readiness ledger is closed');
+wprism_check_same([], $readiness['gaps'] ?? null, 'the certified TEC ledger retains no applicable gap');
+wprism_check_same(
     '2db436c929797bfc5311be942158c474716e61c2f289f7d05c3a08d29b2ad687',
     $artifacts['6.17.3']['sha256'],
     'the upper-bound official ZIP digest is immutable review input'
 );
-duo_check_same(
+wprism_check_same(
     ['post:tribe_events', 'post:tribe_organizer', 'post:tribe_venue', 'term:tribe_events_cat'],
     $disposition['capabilities']['deletion_semantics']['unsupported'] ?? null,
     'the reviewed claim names every free TEC entity whose native deletion effects remain unsupported'
@@ -1882,17 +1882,17 @@ duo_check_same(
 $policy = Policy::load(
     null,
     ['the-events-calendar'],
-    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($root, 'the-events-calendar')
+    adapterLibrary: \WPrism\AdapterLibrary::fromSourcePackage($root, 'the-events-calendar')
 );
 $interpreter = $policy->interpreters()['the-events-calendar'];
-duo_check($interpreter instanceof TheEventsCalendar, 'the manifest resolves its digest-bound TEC interpreter');
+wprism_check($interpreter instanceof TheEventsCalendar, 'the manifest resolves its digest-bound TEC interpreter');
 $savedVersionPlugins = $GLOBALS['tec_readiness_plugins'] ?? null;
 $savedVersionOptions = $GLOBALS['tec_readiness_options'] ?? null;
 $tecPlugin = 'the-events-calendar/the-events-calendar.php';
 $GLOBALS['tec_readiness_options']['active_plugins'] = [$tecPlugin];
 foreach (['6.17.2', '6.17.3'] as $inRangeVersion) {
     $GLOBALS['tec_readiness_plugins'] = [$tecPlugin => ['Version' => $inRangeVersion]];
-    duo_check_same(
+    wprism_check_same(
         [],
         Deploy::code_mismatch($policy, ['active_plugins' => [$tecPlugin]]),
         "the real lifecycle planner admits exact TEC $inRangeVersion"
@@ -1905,8 +1905,8 @@ foreach (['6.17.1', '6.17.4'] as $outOfRangeVersion) {
         $GLOBALS['tec_readiness_options'],
     ]);
     $versionRows = Deploy::code_mismatch($policy, ['active_plugins' => [$tecPlugin]]);
-    duo_check_same(1, count($versionRows), "TEC $outOfRangeVersion produces one lifecycle refusal");
-    duo_check_same(
+    wprism_check_same(1, count($versionRows), "TEC $outOfRangeVersion produces one lifecycle refusal");
+    wprism_check_same(
         [
             'issue' => 'outside_version_range',
             'kind' => 'plugin',
@@ -1925,7 +1925,7 @@ foreach (['6.17.1', '6.17.4'] as $outOfRangeVersion) {
         ])),
         "TEC $outOfRangeVersion refusal binds the exact basename, installed header and exclusive range"
     );
-    duo_check_same(
+    wprism_check_same(
         $beforeVersionRefusal,
         serialize([$GLOBALS['tec_readiness_plugins'], $GLOBALS['tec_readiness_options']]),
         "TEC $outOfRangeVersion range diagnosis is read-only before lifecycle mutation"
@@ -1941,12 +1941,12 @@ if ($savedVersionOptions === null) {
 } else {
     $GLOBALS['tec_readiness_options'] = $savedVersionOptions;
 }
-duo_check_same(
+wprism_check_same(
     [['kind' => 'post', 'path' => 'organizer', 'type' => 'int']],
     $policy->block_attr_rules()['tribe/event-organizer'] ?? null,
     'the shipped TEC policy declares the registered scalar organizer block reference exactly'
 );
-duo_check_same(
+wprism_check_same(
     [],
     $interpreter->repository_diagnostics(tec_readiness_tree()),
     'a classic-editor long UTF-8 timed event graph without organizer blocks remains schema-clean'
@@ -1954,11 +1954,11 @@ duo_check_same(
 
 $unlinked = tec_readiness_meta();
 unset($unlinked['_EventVenueID'], $unlinked['_EventOrganizerID']);
-duo_check_same([], $interpreter->repository_diagnostics(tec_readiness_tree($unlinked)), 'legitimately absent venue and organizer references stay clean');
+wprism_check_same([], $interpreter->repository_diagnostics(tec_readiness_tree($unlinked)), 'legitimately absent venue and organizer references stay clean');
 
 $singleOrganizer = tec_readiness_meta();
 $singleOrganizer['_EventOrganizerID'] = ['{{post:' . TEC_ORGANIZER_UUID . '}}'];
-duo_check_same(
+wprism_check_same(
     [],
     $interpreter->repository_diagnostics(tec_readiness_tree(
         $singleOrganizer,
@@ -1970,7 +1970,7 @@ duo_check_same(
 );
 $reorderedOrganizers = tec_readiness_meta();
 $reorderedOrganizers['_EventOrganizerID'] = array_reverse($reorderedOrganizers['_EventOrganizerID']);
-duo_check_same(
+wprism_check_same(
     [],
     $interpreter->repository_diagnostics(tec_readiness_tree(
         $reorderedOrganizers,
@@ -1982,7 +1982,7 @@ duo_check_same(
 );
 $emptyOrganizerMeta = tec_readiness_meta();
 unset($emptyOrganizerMeta['_EventOrganizerID']);
-duo_check_same(
+wprism_check_same(
     [],
     $interpreter->repository_diagnostics(tec_readiness_tree(
         $emptyOrganizerMeta,
@@ -1999,7 +1999,7 @@ foreach ([
     '<!-- wp:tribe/event-organizer-preview {"organizer":7000000001} /-->',
     '<!-- wp:block {"ref":"{{post:' . TEC_ORGANIZER_UUID . '}}"} /-->',
 ] as $nonOrganizerBody) {
-    duo_check_same(
+    wprism_check_same(
         [],
         $interpreter->repository_diagnostics(tec_readiness_tree(null, null, null, $nonOrganizerBody)),
         'literal/code, prefix-named, and reusable blocks are not mistaken for exact TEC organizer blocks'
@@ -2008,7 +2008,7 @@ foreach ([
 $nestedOrganizerBody = '<!-- wp:group --><div class="wp-block-group">'
     . tec_readiness_organizer_blocks(tec_readiness_meta()['_EventOrganizerID'])
     . '</div><!-- /wp:group -->';
-duo_check_same(
+wprism_check_same(
     [],
     $interpreter->repository_diagnostics(tec_readiness_tree(null, null, null, $nestedOrganizerBody)),
     'nested organizer blocks remain coherent because their attributes and authoritative repeated rows agree despite the native top-level-only supplemental reorder scan'
@@ -2028,7 +2028,7 @@ $markerFlood = str_repeat('<!-- wp:tribe/event-organizer /-->', $markerFloodCoun
     . str_repeat('x', 1024 * 1024);
 $oldBacktrackLimit = ini_set('pcre.backtrack_limit', '1');
 try {
-    duo_check_same(
+    wprism_check_same(
         $markerFloodCount,
         $markerCounter->invoke($interpreter, $markerFlood),
         'the exact linear marker counter handles many complete comments and a huge incomplete tail independently of PCRE limits'
@@ -2040,7 +2040,7 @@ try {
 }
 $manyEmptyMeta = tec_readiness_meta();
 unset($manyEmptyMeta['_EventOrganizerID']);
-duo_check_same(
+wprism_check_same(
     [],
     $interpreter->repository_diagnostics(tec_readiness_tree(
         $manyEmptyMeta,
@@ -2056,7 +2056,7 @@ $manyMalformed = $interpreter->repository_diagnostics(tec_readiness_tree(
     null,
     str_repeat('<!-- wp:tribe/event-organizer ??? -->', 512)
 ));
-duo_check(
+wprism_check(
     count($manyMalformed) === 1
         && strlen((string) ($manyMalformed[0]['message'] ?? '')) < 160,
     'a hostile flood of malformed exact comments produces one bounded schema diagnostic'
@@ -2072,7 +2072,7 @@ $hostileNestedDiagnostics = $interpreter->repository_diagnostics(tec_readiness_t
     null,
     $hostileNestedBody
 ));
-duo_check(
+wprism_check(
     $hostileNestedDiagnostics !== []
         && !str_contains(json_encode($hostileNestedDiagnostics, JSON_THROW_ON_ERROR), $hostileParent)
         && strlen((string) ($hostileNestedDiagnostics[0]['locator'] ?? '')) < 128,
@@ -2185,7 +2185,7 @@ foreach ([
     $statusMeta = tec_readiness_meta();
     $statusMeta['_tribe_events_status'] = $status;
     $statusMeta['_tribe_events_status_reason'] = $reason;
-    duo_check_same(
+    wprism_check_same(
         [],
         $interpreter->repository_diagnostics(tec_readiness_tree($statusMeta)),
         "$status status accepts its native paired arbitrary-string reason shape"
@@ -2193,7 +2193,7 @@ foreach ([
 }
 $statusDeleted = tec_readiness_meta();
 unset($statusDeleted['_tribe_events_status'], $statusDeleted['_tribe_events_status_reason']);
-duo_check_same(
+wprism_check_same(
     [],
     $interpreter->repository_diagnostics(tec_readiness_tree($statusDeleted)),
     'scheduled status and explicit status deletion both use native absence of both rows'
@@ -2205,7 +2205,7 @@ unset(
     $optionalEditorMetaAbsent['_EventDateTimeSeparator'],
     $optionalEditorMetaAbsent['_EventTimeRangeSeparator']
 );
-duo_check_same(
+wprism_check_same(
     [],
     $interpreter->repository_diagnostics(tec_readiness_tree($optionalEditorMetaAbsent)),
     'absent or deleted optional Gutenberg-authored event metadata stays clean'
@@ -2214,7 +2214,7 @@ $optionalEditorMetaUpdated = tec_readiness_meta();
 $optionalEditorMetaUpdated['_EventCostDescription'] = 'Updated plain description বাংলা';
 $optionalEditorMetaUpdated['_EventDateTimeSeparator'] = "\nthrough\t";
 $optionalEditorMetaUpdated['_EventTimeRangeSeparator'] = ' & through & ';
-duo_check_same(
+wprism_check_same(
     [],
     $interpreter->repository_diagnostics(tec_readiness_tree($optionalEditorMetaUpdated)),
     'native-sanitized Gutenberg metadata accepts updates and separator whitespace'
@@ -2222,12 +2222,12 @@ duo_check_same(
 $nativeFalseEvent = tec_readiness_meta();
 $nativeFalseEvent['_EventShowMap'] = '';
 $nativeFalseEvent['_EventShowMapLink'] = '';
-duo_check_same(
+wprism_check_same(
     [],
     $interpreter->repository_diagnostics(tec_readiness_tree($nativeFalseEvent)),
     'event repository false uses exact empty postmeta values'
 );
-duo_check_same(
+wprism_check_same(
     [],
     $interpreter->repository_diagnostics(tec_readiness_tree(null, null, [
         '_VenueShowMap' => '',
@@ -2235,7 +2235,7 @@ duo_check_same(
     ])),
     'venue repository empty/1 map values and absent legacy mirrors stay clean'
 );
-duo_check_same(
+wprism_check_same(
     [],
     $interpreter->repository_diagnostics(tec_readiness_tree(null, null, [])),
     'repository venue map rows may be absent when the owning API does not write them'
@@ -2248,11 +2248,11 @@ $allDay['_EventEndDate'] = '2026-09-05 23:59:59';
 $allDay['_EventStartDateUTC'] = '2026-09-04 18:15:00';
 $allDay['_EventEndDateUTC'] = '2026-09-05 18:14:59';
 $allDay['_EventDuration'] = '86399';
-duo_check_same([], $interpreter->repository_diagnostics(tec_readiness_tree($allDay)), 'the exact all-day yes wire shape and day bounds are clean');
+wprism_check_same([], $interpreter->repository_diagnostics(tec_readiness_tree($allDay)), 'the exact all-day yes wire shape and day bounds are clean');
 
 $registeredAllDay = $allDay;
 $registeredAllDay['_EventAllDay'] = '1';
-duo_check_same(
+wprism_check_same(
     [],
     $interpreter->repository_diagnostics(tec_readiness_tree($registeredAllDay)),
     'the registered Gutenberg all-day true wire is clean'
@@ -2260,7 +2260,7 @@ duo_check_same(
 foreach (['', 'no'] as $falseWire) {
     $timed = tec_readiness_meta();
     $timed['_EventAllDay'] = $falseWire;
-    duo_check_same(
+    wprism_check_same(
         [],
         $interpreter->repository_diagnostics(tec_readiness_tree($timed)),
         "the native all-day false wire '$falseWire' is clean"
@@ -2269,7 +2269,7 @@ foreach (['', 'no'] as $falseWire) {
 foreach (['', '1', 'yes'] as $hideWire) {
     $hidden = tec_readiness_meta();
     $hidden['_EventHideFromUpcoming'] = $hideWire;
-    duo_check_same(
+    wprism_check_same(
         [],
         $interpreter->repository_diagnostics(tec_readiness_tree($hidden)),
         "the native hide-from-upcoming wire '$hideWire' is clean"
@@ -2490,12 +2490,12 @@ $eventMetaKeys = [
     '_tribe_events_status_reason', '_tribe_featured',
 ];
 foreach ($eventMetaKeys as $key) {
-    duo_check_same('authored', $policy->post_meta_rule($key)['class'] ?? null, "$key is reviewed authored TEC state");
+    wprism_check_same('authored', $policy->post_meta_rule($key)['class'] ?? null, "$key is reviewed authored TEC state");
 }
 foreach (['_preview_organizers', '_preview_venues', '_tribe_events_errors', '_tribe_modified_fields'] as $key) {
-    duo_check_same('runtime', $policy->post_meta_rule($key)['class'] ?? null, "$key remains target-runtime state");
+    wprism_check_same('runtime', $policy->post_meta_rule($key)['class'] ?? null, "$key remains target-runtime state");
 }
-duo_check_same(
+wprism_check_same(
     [
         'cardinality' => 'one_or_more',
         'duplicates' => 'forbid',
@@ -2504,7 +2504,7 @@ duo_check_same(
     $policy->post_meta_rule('_EventOrganizerID')['repeated_rows'] ?? null,
     'organizer storage declares the exact reviewed ordered unique physical-row grammar'
 );
-duo_check_same(
+wprism_check_same(
     'string',
     $policy->post_meta_rule('_EventOrganizerID')['cast'] ?? null,
     'organizer row refs restore TEC native digit-string postmeta bytes'
@@ -2535,7 +2535,7 @@ $organizerSourceDb->seedTable($organizerSourceDb->postmeta, [
         'meta_value' => serialize($sourceOrganizerIds),
     ],
 ]);
-$organizerSourceDb->seedTable($organizerSourceDb->prefix . 'duo_map', [
+$organizerSourceDb->seedTable($organizerSourceDb->prefix . 'wprism_map', [
     [
         'uuid' => TEC_ORGANIZER_UUID,
         'entity_type' => 'post',
@@ -2573,8 +2573,8 @@ $sourceOrganizerFlat = array_map(
     'TEC source event',
     'post_meta'
 );
-duo_check_same(true, $storeOrganizerRows, 'TEC capture stores the declared repeated organizer row set');
-duo_check_same(
+wprism_check_same(true, $storeOrganizerRows, 'TEC capture stores the declared repeated organizer row set');
+wprism_check_same(
     [
         '{{post:' . TEC_ORGANIZER_UUID . '}}',
         '{{post:' . TEC_ORGANIZER_TWO_UUID . '}}',
@@ -2582,7 +2582,7 @@ duo_check_same(
     $capturedOrganizerRows,
     'TEC capture tokenizes divergent large organizer IDs in exact physical order'
 );
-duo_check_same(
+wprism_check_same(
     3,
     $organizerCaptureCheckpoints,
     'TEC repeated-row capture checkpoints bounded size, hash and value reads independently'
@@ -2619,7 +2619,7 @@ $organizerTargetInner->seedTable($organizerTargetInner->postmeta, [
         'meta_value' => "runtime\0preview",
     ],
 ]);
-$organizerTargetInner->seedTable($organizerTargetInner->prefix . 'duo_map', [
+$organizerTargetInner->seedTable($organizerTargetInner->prefix . 'wprism_map', [
     [
         'uuid' => TEC_ORGANIZER_UUID,
         'entity_type' => 'post',
@@ -2643,7 +2643,7 @@ $applyOrganizerRows = static function (
 ): ?Throwable {
     $savedDb = $GLOBALS['wpdb'] ?? null;
     $GLOBALS['wpdb'] = $database;
-    $materializer = new \Duo\ApplyFieldMaterializer(
+    $materializer = new \WPrism\ApplyFieldMaterializer(
         $policy,
         new Tokens('https://target.example', 'https://target.example/uploads')
     );
@@ -2651,24 +2651,24 @@ $applyOrganizerRows = static function (
     $cacheStarted = false;
     $failure = null;
     try {
-        \Duo\Db::start_repeatable_read('TEC organizer repeated-row product fixture');
+        \WPrism\Db::start_repeatable_read('TEC organizer repeated-row product fixture');
         $transactionStarted = true;
         $materializer->begin_authored_transaction();
-        \Duo\CacheInvalidationTransaction::begin();
+        \WPrism\CacheInvalidationTransaction::begin();
         $cacheStarted = true;
         $materializer->reconcile_authored_meta($eventId, $desired, "TEC event $eventId");
-        \Duo\Db::commit('TEC organizer repeated-row product fixture commit');
+        \WPrism\Db::commit('TEC organizer repeated-row product fixture commit');
         $transactionStarted = false;
-        \Duo\CacheInvalidationTransaction::finish();
+        \WPrism\CacheInvalidationTransaction::finish();
     } catch (Throwable $caught) {
         $failure = $caught;
         if ($transactionStarted) {
-            \Duo\Db::rollback('TEC organizer repeated-row product fixture rollback');
+            \WPrism\Db::rollback('TEC organizer repeated-row product fixture rollback');
             $transactionStarted = false;
         }
         if ($cacheStarted) {
             try {
-                \Duo\CacheInvalidationTransaction::finish();
+                \WPrism\CacheInvalidationTransaction::finish();
             } catch (Throwable $cacheFailure) {
                 $failure = $cacheFailure;
             }
@@ -2676,7 +2676,7 @@ $applyOrganizerRows = static function (
     } finally {
         $materializer->end_authored_transaction();
         if ($cacheStarted) {
-            \Duo\CacheInvalidationTransaction::end();
+            \WPrism\CacheInvalidationTransaction::end();
         }
         $GLOBALS['wpdb'] = $savedDb;
     }
@@ -2701,13 +2701,13 @@ $organizerApplyFailure = $applyOrganizerRows(
     $organizerSourceId,
     ['_EventOrganizerID' => $capturedOrganizerRows]
 );
-duo_check_same(null, $organizerApplyFailure, 'TEC repeated organizer rows apply through the shared locked product path');
-duo_check_same(
+wprism_check_same(null, $organizerApplyFailure, 'TEC repeated organizer rows apply through the shared locked product path');
+wprism_check_same(
     array_map('strval', $targetOrganizerIds),
     $organizerPhysicalValues($organizerTargetInner, $organizerSourceId),
     'TEC apply replaces stale organizer rows with rebased target IDs in exact canonical order'
 );
-duo_check_same(
+wprism_check_same(
     "runtime\0preview",
     array_values(array_filter(
         $organizerTargetInner->rows($organizerTargetInner->postmeta),
@@ -2715,17 +2715,17 @@ duo_check_same(
     ))[0]['meta_value'] ?? null,
     'TEC repeated organizer replacement preserves byte-exact editor-runtime metadata'
 );
-duo_check(
+wprism_check(
     !array_key_exists($organizerSourceId, $GLOBALS['tec_readiness_wp_cache']['post_meta'] ?? []),
     'TEC repeated organizer materialization purges stale same-process post-meta cache bytes'
 );
-duo_check(
+wprism_check(
     $GLOBALS['tec_readiness_wp_cache_deletes'] > 0,
     'TEC repeated organizer materialization reaches the checked shared cache-delete primitive'
 );
 
 $rowsAfterFirstOrganizerApply = $organizerTargetInner->rows($organizerTargetInner->postmeta);
-duo_check_same(
+wprism_check_same(
     null,
     $applyOrganizerRows(
         $organizerTargetDb,
@@ -2735,7 +2735,7 @@ duo_check_same(
     ),
     'an exact TEC organizer retry succeeds idempotently'
 );
-duo_check_same(
+wprism_check_same(
     $rowsAfterFirstOrganizerApply,
     $organizerTargetInner->rows($organizerTargetInner->postmeta),
     'an exact TEC organizer retry performs no physical row churn'
@@ -2762,8 +2762,8 @@ $targetOrganizerFlat = array_map(
     'post_meta'
 );
 $GLOBALS['wpdb'] = $savedOrganizerDb;
-duo_check_same(true, $recaptureOrganizerRows, 'TEC target recapture retains its repeated organizer set');
-duo_check_same(
+wprism_check_same(true, $recaptureOrganizerRows, 'TEC target recapture retains its repeated organizer set');
+wprism_check_same(
     $capturedOrganizerRows,
     $recapturedOrganizerTokens,
     'TEC target recapture is canonical-byte coherent across divergent physical organizer IDs'
@@ -2780,11 +2780,11 @@ foreach ([
         $organizerSourceId,
         ['_EventOrganizerID' => $invalidOrganizerRows]
     );
-    duo_check(
+    wprism_check(
         $invalidOrganizerFailure instanceof RuntimeException,
         "a TEC organizer $label refuses through the shared repeated-row product grammar"
     );
-    duo_check_same(
+    wprism_check_same(
         $beforeInvalidOrganizerRows,
         $organizerTargetInner->rows($organizerTargetInner->postmeta),
         "the refused TEC organizer $label preserves exact target physical rows"
@@ -2804,16 +2804,16 @@ $organizerInsertFailure = $applyOrganizerRows(
     $organizerSourceId,
     ['_EventOrganizerID' => $reversedOrganizerTokens]
 );
-duo_check(
-    $organizerInsertFailure instanceof \Duo\DatabaseMutationException,
+wprism_check(
+    $organizerInsertFailure instanceof \WPrism\DatabaseMutationException,
     'an injected TEC organizer row insertion failure is loud and bounded'
 );
-duo_check_same(
+wprism_check_same(
     $beforeOrganizerInsertFailure,
     $organizerTargetInner->rows($organizerTargetInner->postmeta),
     'TEC organizer insertion failure rolls every physical row back atomically'
 );
-duo_check_same(
+wprism_check_same(
     null,
     $applyOrganizerRows(
         $organizerTargetDb,
@@ -2823,7 +2823,7 @@ duo_check_same(
     ),
     'same-process retry converges after the organizer insertion failure'
 );
-duo_check_same(
+wprism_check_same(
     array_map('strval', array_reverse($targetOrganizerIds)),
     $organizerPhysicalValues($organizerTargetInner, $organizerSourceId),
     'the organizer retry materializes a reorder-only change exactly'
@@ -2870,17 +2870,17 @@ $organizerDriftFailure = $applyOrganizerRows(
     $organizerSourceId,
     ['_EventOrganizerID' => $capturedOrganizerRows]
 );
-duo_check(
+wprism_check(
     $organizerDriftFailure instanceof RuntimeException
         && str_contains($organizerDriftFailure->getMessage(), 'failed exact locked readback'),
     'same-count same-length organizer drift after replacement refuses from terminal physical readback'
 );
-duo_check_same(
+wprism_check_same(
     $beforeOrganizerDrift,
     $organizerTargetInner->rows($organizerTargetInner->postmeta),
     'terminal organizer drift rolls the complete owner-range mutation back'
 );
-duo_check_same(
+wprism_check_same(
     null,
     $applyOrganizerRows(
         $organizerTargetDb,
@@ -2891,17 +2891,17 @@ duo_check_same(
     'same-process retry converges after terminal organizer drift stops'
 );
 
-duo_check_same(
+wprism_check_same(
     null,
     $applyOrganizerRows($organizerTargetDb, $policy, $organizerSourceId, []),
     'omitting TEC organizer metadata deletes every owned physical organizer row'
 );
-duo_check_same(
+wprism_check_same(
     [],
     $organizerPhysicalValues($organizerTargetInner, $organizerSourceId),
     'TEC organizer omission has an exact zero-row postcondition'
 );
-duo_check_same(
+wprism_check_same(
     null,
     $applyOrganizerRows(
         $organizerTargetDb,
@@ -2911,7 +2911,7 @@ duo_check_same(
     ),
     'a one-organizer TEC event materializes after the zero-row state'
 );
-duo_check_same(
+wprism_check_same(
     [(string) $targetOrganizerIds[0]],
     $organizerPhysicalValues($organizerTargetInner, $organizerSourceId),
     'the one-organizer product path writes exactly one rebased physical row'
@@ -2933,10 +2933,10 @@ foreach (['_preview_organizers', '_preview_venues'] as $key) {
         'post preview draft',
         'post_meta'
     );
-    duo_check_same(false, $storePreview, "$key is excluded before canonical state can retain local preview ids");
+    wprism_check_same(false, $storePreview, "$key is excluded before canonical state can retain local preview ids");
 }
 foreach (['_VenueURL', '_VenueProvince', '_VenueShowMap', '_VenueShowMapLink', '_OrganizerWebsite'] as $key) {
-    duo_check_same('authored', $policy->post_meta_rule($key)['class'] ?? null, "$key closes the free venue/organizer API surface");
+    wprism_check_same('authored', $policy->post_meta_rule($key)['class'] ?? null, "$key closes the free venue/organizer API surface");
 }
 foreach ([
     '_EventAllDay',
@@ -2948,22 +2948,22 @@ foreach ([
     '_VenueShowMap',
     '_VenueShowMapLink',
 ] as $key) {
-    duo_check_same(
+    wprism_check_same(
         true,
         $policy->post_meta_rule($key)['lint_ok'] ?? null,
         "$key is an explicitly reviewed non-reference scalar rather than a coincidental local post reference"
     );
 }
 foreach (['_VenueLat', '_VenueLng'] as $key) {
-    duo_check_same(null, $policy->post_meta_rule($key), "$key remains outside the free-plugin manifest contract");
+    wprism_check_same(null, $policy->post_meta_rule($key), "$key remains outside the free-plugin manifest contract");
 }
 
 $options = $policy->option_rule('tribe_events_calendar_options');
-duo_check_same('env', $options['class'] ?? null, 'the mixed TEC option remains target-owned as a whole');
-duo_check_same('preserve', $options['autoload'] ?? null, 'the mixed TEC option preserves live autoload semantics');
-duo_check_same(true, $options['closed_sub_keys'] ?? null, 'the exact main settings sibling registry is closed');
+wprism_check_same('env', $options['class'] ?? null, 'the mixed TEC option remains target-owned as a whole');
+wprism_check_same('preserve', $options['autoload'] ?? null, 'the mixed TEC option preserves live autoload semantics');
+wprism_check_same(true, $options['closed_sub_keys'] ?? null, 'the exact main settings sibling registry is closed');
 foreach (['eventsSlug', 'tribeEnableViews', 'category-color-enable-frontend', 'tec_seo_out_of_range_behavior'] as $key) {
-    duo_check_same('authored', $options['sub_keys'][$key]['class'] ?? null, "$key is one reviewed portable setting sub-key");
+    wprism_check_same('authored', $options['sub_keys'][$key]['class'] ?? null, "$key is one reviewed portable setting sub-key");
 }
 $tecScalarLintRoster = [
     'category-color-enable-frontend',
@@ -2986,20 +2986,20 @@ $tecScalarLintRoster = [
     'tribe_events_timezones_show_zone',
 ];
 foreach ($tecScalarLintRoster as $key) {
-    duo_check_same(
+    wprism_check_same(
         true,
         $options['sub_keys'][$key]['lint_ok'] ?? null,
         "$key is an exact reviewed numeric/boolean setting rather than a target-local entity reference"
     );
 }
 foreach (['tec-events-cat-colors-priority', 'tec-events-cat-colors-hidden'] as $key) {
-    duo_check_same(
+    wprism_check_same(
         true,
         $policy->term_meta_rule($key)['lint_ok'] ?? null,
         "$key is an exact reviewed Category Colors scalar rather than a target-local entity reference"
     );
 }
-duo_check_same(
+wprism_check_same(
     null,
     $options['sub_keys']['category-color-custom-css']['lint_ok'] ?? null,
     'arbitrary Category Colors CSS remains visible to suspicious-reference lint instead of inheriting a scalar exemption'
@@ -3142,19 +3142,19 @@ foreach ((array) ($options['sub_keys'] ?? []) as $key => $rule) {
 foreach ($expectedMainOptionClasses as $class => &$keys) {
     sort($keys, SORT_STRING);
     sort($actualMainOptionClasses[$class], SORT_STRING);
-    duo_check_same(
+    wprism_check_same(
         $keys,
         $actualMainOptionClasses[$class],
         "the exact 6.17.2/6.17.3 main-option $class inventory is closed and source-auditable"
     );
 }
 unset($keys);
-duo_check_same(
+wprism_check_same(
     'env',
     $options['sub_keys']['multiDayCutoff']['class'] ?? null,
     'the unsafe native all-day cutoff effect remains target-owned rather than hollow authored state'
 );
-duo_check(
+wprism_check(
     in_array(
         'option:tribe_events_calendar_options.multiDayCutoff',
         array_column($disposition['unsupported'] ?? [], 'surface'),
@@ -3162,7 +3162,7 @@ duo_check(
     ),
     'the reviewed disposition names the target-owned all-day cutoff boundary explicitly'
 );
-duo_check_same(
+wprism_check_same(
     null,
     $options['sub_keys']['tribe_aggregator_default_webcal_post_status'] ?? null,
     'a filter-added Event Aggregator origin is not silently blessed as one of the seven free-core origins'
@@ -3180,28 +3180,28 @@ foreach ([
     'schema-version',
     'trash-past-events',
 ] as $key) {
-    duo_check_same(
+    wprism_check_same(
         'env',
         $options['sub_keys'][$key]['class'] ?? null,
         "$key is explicitly classified and preserved as target operational/integration state"
     );
 }
 foreach (['earliest_date', 'latest_date', 'earliest_date_markers', 'latest_date_markers'] as $key) {
-    duo_check_same('derived', $options['sub_keys'][$key]['class'] ?? null, "$key is exact target-derived date state");
+    wprism_check_same('derived', $options['sub_keys'][$key]['class'] ?? null, "$key is exact target-derived date state");
 }
 foreach (['posts_per_page', 'stylesheetOption'] as $key) {
-    duo_check_same('authored', $options['sub_keys'][$key]['class'] ?? null, "$key preserves upgraded alias precedence");
+    wprism_check_same('authored', $options['sub_keys'][$key]['class'] ?? null, "$key preserves upgraded alias precedence");
 }
 foreach (['allow_duplicate_venues', 'custom-fields', 'eventsDefaultOrganizerID', 'eventsDefaultVenueID', 'geoloc_default_unit', 'liveFiltersUpdate', 'tribeEventsCountries'] as $key) {
-    duo_check_same(
+    wprism_check_same(
         'env',
         $options['sub_keys'][$key]['class'] ?? null,
         "$key is a target-owned extension or legacy input with no exact free-plugin authoring path"
     );
-    duo_check_same(null, $options['sub_keys'][$key]['ref'] ?? null, "$key does not claim a free-plugin reference grammar");
-    duo_check_same(null, $options['sub_keys'][$key]['plain_data'] ?? null, "$key does not claim an unbounded portable data grammar");
+    wprism_check_same(null, $options['sub_keys'][$key]['ref'] ?? null, "$key does not claim a free-plugin reference grammar");
+    wprism_check_same(null, $options['sub_keys'][$key]['plain_data'] ?? null, "$key does not claim an unbounded portable data grammar");
 }
-duo_check_same(
+wprism_check_same(
     'runtime',
     $options['sub_keys']['front_page_event_archive']['class'] ?? null,
     'the TEC homepage flag remains the target-owned runtime half of the core page_on_front pair'
@@ -3278,13 +3278,13 @@ foreach ((array) ($manifest['options'] ?? []) as $key => $rule) {
 foreach ($expectedTopLevelOptionClasses as $class => $keys) {
     sort($keys, SORT_STRING);
     sort($actualTopLevelOptionClasses[$class], SORT_STRING);
-    duo_check_same(
+    wprism_check_same(
         $keys,
         $actualTopLevelOptionClasses[$class],
         "the exact free/Common top-level $class option inventory is explicit without claiming shared extension state"
     );
 }
-duo_check_same(
+wprism_check_same(
     [
         '^_tec_power_automate_endpoint_details_',
         '^_tec_zapier_endpoint_details_',
@@ -3295,7 +3295,7 @@ duo_check_same(
     array_column((array) ($manifest['option_namespaces'] ?? []), 'match'),
     'only exact computed option families receive namespace ownership and hostile suffixes remain visible'
 );
-duo_check_same(
+wprism_check_same(
     [
         '^_tec_power_automate_endpoint_details_(?:attendees|canceled_events|checkin|create_events|new_events|orders|refunded_orders|updated_attendees|updated_events)$',
         '^_tec_zapier_endpoint_details_(?:attendees|authorize|canceled_events|checkin|create_events|find_attendees|find_events|find_tickets|new_events|orders|refunded_orders|update_events|updated_attendees|updated_events)$',
@@ -3313,7 +3313,7 @@ foreach ([
     'tec_power_automate_connection_' . str_repeat('a', 64) => 'env',
     'tec_zapier_api_key_' . str_repeat('f', 64) => 'env',
 ] as $name => $class) {
-    duo_check_same(
+    wprism_check_same(
         $class,
         $interpreter->option_rule($name, [])['class'] ?? null,
         "$name matches one exact source-derived computed option classification"
@@ -3334,7 +3334,7 @@ foreach ([
     } catch (RuntimeException $e) {
         $computedRefusal = $e->getMessage();
     }
-    duo_check(
+    wprism_check(
         str_contains($computedRefusal, 'computed-name registry is closed')
             && str_contains($computedRefusal, 'string:' . strlen($hostileName) . ':')
             && strlen($computedRefusal) < 300
@@ -3344,13 +3344,13 @@ foreach ([
         'unknown computed option names refuse with one bounded UTF-8-safe fingerprint and no authored/secret bytes'
     );
 }
-duo_check_same(
+wprism_check_same(
     'derived',
     $policy->option_rule('tec_events_category_color_css')['class'] ?? null,
     'native Category Colors CSS is regenerated rather than captured as authored state'
 );
 $rewriteActions = $policy->actions_for(['option:tribe_events_calendar_options']);
-duo_check_same(2, count($rewriteActions), 'changing portable TEC settings selects rewrite and dropdown-cache repairs');
+wprism_check_same(2, count($rewriteActions), 'changing portable TEC settings selects rewrite and dropdown-cache repairs');
 $nativeRewriteActions = array_values(array_filter(
     $rewriteActions,
     static fn(array $action): bool => ($action['kind'] ?? null) === 'native'
@@ -3359,9 +3359,9 @@ $optionColorActions = array_values(array_filter(
     $rewriteActions,
     static fn(array $action): bool => ($action['kind'] ?? null) === 'provider'
 ));
-duo_check_same(1, count($nativeRewriteActions), 'portable TEC settings select exactly one native rewrite action');
-duo_check_same('rewrite.flush', $nativeRewriteActions[0]['action'] ?? null, 'TEC uses the closed engine-owned soft rewrite flush');
-duo_check_same(
+wprism_check_same(1, count($nativeRewriteActions), 'portable TEC settings select exactly one native rewrite action');
+wprism_check_same('rewrite.flush', $nativeRewriteActions[0]['action'] ?? null, 'TEC uses the closed engine-owned soft rewrite flush');
+wprism_check_same(
     [
         'tec-rewrite-rules',
         'tec-last-generate-rewrite-rules',
@@ -3401,23 +3401,23 @@ duo_check_same(
     array_column($nativeRewriteActions[0]['effects'] ?? [], 'id'),
     'TEC checkpoints every rewrite and CacheListener option/cache effect before the fresh child'
 );
-duo_check_same(1, count($optionColorActions), 'portable TEC settings select exactly one Category Colors cache repair');
-duo_check_same(
+wprism_check_same(1, count($optionColorActions), 'portable TEC settings select exactly one Category Colors cache repair');
+wprism_check_same(
     'the-events-calendar-category-colors',
     $optionColorActions[0]['provider'] ?? null,
     'the portable show-hidden setting cannot leave the native dropdown cache stale'
 );
-duo_check_same([], $policy->actions_for(['post:tribe_events']), 'event-only writes do not trigger an unrelated global rewrite flush');
+wprism_check_same([], $policy->actions_for(['post:tribe_events']), 'event-only writes do not trigger an unrelated global rewrite flush');
 $colorActions = $policy->actions_for(['term:tribe_events_cat']);
-duo_check_same(1, count($colorActions), 'an event-category write selects one bounded native CSS repair');
-duo_check_same('provider', $colorActions[0]['kind'] ?? null, 'Category Colors repair uses a structured provider action');
-duo_check_same(
+wprism_check_same(1, count($colorActions), 'an event-category write selects one bounded native CSS repair');
+wprism_check_same('provider', $colorActions[0]['kind'] ?? null, 'Category Colors repair uses a structured provider action');
+wprism_check_same(
     'the-events-calendar-category-colors',
     $colorActions[0]['provider'] ?? null,
     'the Category Colors action binds the digest-owned provider identity'
 );
-duo_check_same('regenerate_css', $colorActions[0]['capability'] ?? null, 'the action selects only native CSS regeneration');
-duo_check_same(
+wprism_check_same('regenerate_css', $colorActions[0]['capability'] ?? null, 'the action selects only native CSS regeneration');
+wprism_check_same(
     [
         ['id' => 'tec-category-colors-css', 'kind' => 'database', 'mode' => 'restorable', 'selector' => [
             'scope' => 'database_checkpoint', 'type' => 'option', 'value' => 'tec_events_category_color_css',
@@ -3433,7 +3433,7 @@ duo_check_same(
 
 $providerDeclarations = $policy->provider_declarations();
 $colorDeclaration = $providerDeclarations['the-events-calendar-category-colors'] ?? null;
-duo_check_same(
+wprism_check_same(
     [
         'functions' => [
             'apply_filters',
@@ -3465,7 +3465,7 @@ $colorProviderSource = (string) file_get_contents(
 );
 $nativeGenerateOffset = strpos($colorProviderSource, '$generator->generate_and_save_css();');
 $nativeBustOffset = strpos($colorProviderSource, '$dropdown->bust_dropdown_categories_cache();');
-duo_check(
+wprism_check(
     is_int($nativeGenerateOffset)
         && is_int($nativeBustOffset)
         && $nativeGenerateOffset < $nativeBustOffset
@@ -3474,7 +3474,7 @@ duo_check(
 );
 
 $widgetDb = FakeWpdb::install();
-$widgetMapTable = $widgetDb->prefix . 'duo_map';
+$widgetMapTable = $widgetDb->prefix . 'wprism_map';
 $widgetDb
     ->setUniqueKey($widgetMapTable, ['uuid', 'id_kind'])
     ->setUniqueKey($widgetMapTable, ['id_kind', 'local_id']);
@@ -3564,7 +3564,7 @@ $storedListAttrs = parse_blocks($canonicalStoredList)[0]['attrs'] ?? [];
 $storedQrAttrs = parse_blocks($canonicalStoredQr)[0]['attrs'] ?? [];
 $embeddedListAttrs = parse_blocks($canonicalEmbeddedList)[0]['attrs'] ?? [];
 $embeddedQrAttrs = parse_blocks($canonicalEmbeddedQr)[0]['attrs'] ?? [];
-duo_check_same(
+wprism_check_same(
     [
         'id' => '{{widget:' . TEC_LIST_WIDGET_UUID . '}}',
         'idBase' => 'tribe-widget-events-list',
@@ -3572,7 +3572,7 @@ duo_check_same(
     $storedListAttrs,
     'stored TEC list blocks capture through SidebarState identity instead of retaining a local widget counter'
 );
-duo_check_same(
+wprism_check_same(
     [
         'id' => '{{widget:' . TEC_QR_WIDGET_UUID . '}}',
         'idBase' => 'tribe-widget-events-qr-code',
@@ -3580,12 +3580,12 @@ duo_check_same(
     $storedQrAttrs,
     'stored TEC QR blocks bind their longer exact widget id_kind without truncation'
 );
-duo_check_same(
+wprism_check_same(
     'the-events-calendar/v1',
-    $embeddedListAttrs['instance']['duo'] ?? null,
+    $embeddedListAttrs['instance']['wprism'] ?? null,
     'embedded TEC widget capture replaces raw encoded bytes with the manifest-bound codec marker'
 );
-duo_check_same(
+wprism_check_same(
     [
         'title' => 'Calendar {{home}}/events and {{uploads}}/banner.png',
         'limit' => '10',
@@ -3597,17 +3597,17 @@ duo_check_same(
     $embeddedListAttrs['instance']['settings'] ?? null,
     'embedded list settings use closed native types and portable URL tokens without retaining source payload bytes'
 );
-duo_check_same(
+wprism_check_same(
     '{{post:' . TEC_EVENT_UUID . '}}',
     $embeddedQrAttrs['instance']['settings']['event_id'] ?? null,
     'embedded QR event selection becomes one portable post token'
 );
-duo_check(
+wprism_check(
     array_key_exists('series_id', $embeddedQrAttrs['instance']['settings'] ?? [])
         && $embeddedQrAttrs['instance']['settings']['series_id'] === 0,
     'the free QR widget preserves the exact native zero wire while refusing licensed series IDs'
 );
-duo_check(
+wprism_check(
     !str_contains($canonicalEmbeddedList, base64_encode(serialize($sourceEmbeddedListSettings)))
         && !str_contains($canonicalEmbeddedList, wp_hash(serialize($sourceEmbeddedListSettings))),
     'canonical embedded widgets retain neither source serialized payload nor source salt receipt'
@@ -3624,12 +3624,12 @@ $targetStoredList = Blocks::apply_rewrite($canonicalStoredList, $policy, $target
 $targetStoredQr = Blocks::apply_rewrite($canonicalStoredQr, $policy, $targetWidgetTokens);
 $targetEmbeddedList = Blocks::apply_rewrite($canonicalEmbeddedList, $policy, $targetWidgetTokens);
 $targetEmbeddedQr = Blocks::apply_rewrite($canonicalEmbeddedQr, $policy, $targetWidgetTokens);
-duo_check_same(
+wprism_check_same(
     ['id' => 'tribe-widget-events-list-8000000001'],
     parse_blocks($targetStoredList)[0]['attrs'] ?? null,
     'stored list apply resolves the exact target-local widget counter and emits no authored codec metadata'
 );
-duo_check_same(
+wprism_check_same(
     ['id' => 'tribe-widget-events-qr-code-8000000002'],
     parse_blocks($targetStoredQr)[0]['attrs'] ?? null,
     'stored QR apply resolves a divergent large target-local widget counter'
@@ -3638,12 +3638,12 @@ $targetListPhysical = parse_blocks($targetEmbeddedList)[0]['attrs']['instance'] 
 $targetQrPhysical = parse_blocks($targetEmbeddedQr)[0]['attrs']['instance'] ?? [];
 $targetListSerialized = base64_decode((string) ($targetListPhysical['encoded'] ?? ''), true);
 $targetQrSerialized = base64_decode((string) ($targetQrPhysical['encoded'] ?? ''), true);
-duo_check(
+wprism_check(
     is_string($targetListSerialized)
         && hash_equals(wp_hash($targetListSerialized), (string) ($targetListPhysical['hash'] ?? '')),
     'embedded list apply emits one target-salted WordPress receipt over exact generated bytes'
 );
-duo_check_same(
+wprism_check_same(
     [
         'title' => 'Calendar https://target.example/events and https://target.example/media/banner.png',
         'limit' => '10',
@@ -3655,12 +3655,12 @@ duo_check_same(
     is_string($targetListSerialized) ? unserialize($targetListSerialized, ['allowed_classes' => false]) : null,
     'embedded list apply reconstructs only the reviewed native settings in fixed order for the target'
 );
-duo_check(
+wprism_check(
     is_string($targetQrSerialized)
         && hash_equals(wp_hash($targetQrSerialized), (string) ($targetQrPhysical['hash'] ?? '')),
     'embedded QR apply discards the source receipt and re-signs against the target salt'
 );
-duo_check_same(
+wprism_check_same(
     [
         'widget_title' => 'Event QR',
         'qr_code_size' => '28',
@@ -3672,17 +3672,17 @@ duo_check_same(
     'embedded QR apply resolves its event to a divergent large target post ID and preserves native scalar wires'
 );
 $targetWidgetTokens->policy = $policy;
-duo_check_same(
+wprism_check_same(
     $canonicalStoredList,
     Blocks::capture_rewrite($targetStoredList, $policy, $targetWidgetTokens),
     'stored widget capture-apply-recapture is a byte-exact canonical fixed point'
 );
-duo_check_same(
+wprism_check_same(
     $canonicalEmbeddedList,
     Blocks::capture_rewrite($targetEmbeddedList, $policy, $targetWidgetTokens),
     'embedded list capture-apply-recapture is a byte-exact canonical fixed point across salts and URLs'
 );
-duo_check_same(
+wprism_check_same(
     $canonicalEmbeddedQr,
     Blocks::capture_rewrite($targetEmbeddedQr, $policy, $targetWidgetTokens),
     'embedded QR capture-apply-recapture is a byte-exact canonical fixed point across divergent event IDs'
@@ -3741,7 +3741,7 @@ $widgetDb->seedTable($widgetDb->options, [
         'autoload' => 'yes',
     ],
 ]);
-duo_check_same(
+wprism_check_same(
     'the-events-calendar',
     $policy->block_attr_rule_details('core/legacy-widget')['source'] ?? null,
     'stored-widget discovery binds the effective whole-block codec owner'
@@ -3749,10 +3749,10 @@ duo_check_same(
 $coreTecPolicy = Policy::load(
     null,
     ['core', 'the-events-calendar'],
-    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($root, 'the-events-calendar')
+    adapterLibrary: \WPrism\AdapterLibrary::fromSourcePackage($root, 'the-events-calendar')
 );
 $ownerMismatchDb = FakeWpdb::install();
-$ownerMismatchMapTable = $ownerMismatchDb->prefix . 'duo_map';
+$ownerMismatchMapTable = $ownerMismatchDb->prefix . 'wprism_map';
 $ownerMismatchDb
     ->setUniqueKey($ownerMismatchMapTable, ['uuid', 'id_kind'])
     ->setUniqueKey($ownerMismatchMapTable, ['id_kind', 'local_id']);
@@ -3813,7 +3813,7 @@ $unrelatedTecWidgetPost = (object) [
 $scopedPostUuids = [7001 => TEC_EVENT_UUID, 7002 => TEC_VENUE_UUID];
 $scopedWidgetMapPreimage = $ownerMismatchDb->rows($ownerMismatchMapTable);
 foreach ([$unrelatedCoreWidgetPost, $unrelatedTecWidgetPost] as $unrelatedPost) {
-    duo_check_same(
+    wprism_check_same(
         ['references' => [], 'selected_post_uuids' => [TEC_EVENT_UUID]],
         $scopedWidgetScanner->invoke(
             $scopedWidgetBuilder,
@@ -3824,7 +3824,7 @@ foreach ([$unrelatedCoreWidgetPost, $unrelatedTecWidgetPost] as $unrelatedPost) 
         'scoped stored-widget discovery observes only the contract-selected post closure'
     );
 }
-duo_check_throws(
+wprism_check_throws(
     static fn(): array => $scopedWidgetScanner->invoke(
         $scopedWidgetBuilder,
         [$selectedWidgetPost, $unrelatedCoreWidgetPost],
@@ -3835,19 +3835,19 @@ duo_check_throws(
     'the same foreign core widget refuses when its owning post is actually selected',
     'belongs to a different manifest owner'
 );
-duo_check_same(
+wprism_check_same(
     $scopedWidgetMapPreimage,
     $ownerMismatchDb->rows($ownerMismatchMapTable),
     'selected-post pre-scan filtering neither observes nor mints identity for an excluded post'
 );
 foreach (['text' => 8000000077, 'block' => 8000000088] as $coreType => $coreLocalId) {
-    duo_check_same(
+    wprism_check_same(
         'core',
         $coreTecPolicy->widget_type_rule_details($coreType)['source'] ?? null,
         "the merged $coreType widget grammar remains owned by core rather than TEC"
     );
     $mapPreimage = $ownerMismatchDb->rows($ownerMismatchMapTable);
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => Blocks::capture_widget_instance_references(
             tec_readiness_legacy_widget_block(['id' => "$coreType-$coreLocalId"]),
             $coreTecPolicy
@@ -3856,15 +3856,15 @@ foreach (['text' => 8000000077, 'block' => 8000000088] as $coreType => $coreLoca
         "the TEC whole-block codec cannot pre-authorize an inactive core $coreType widget",
         'belongs to a different manifest owner'
     );
-    duo_check_same(
+    wprism_check_same(
         $mapPreimage,
         $ownerMismatchDb->rows($ownerMismatchMapTable),
-        "owner-mismatched inactive core $coreType discovery cannot mint or alter duo_map"
+        "owner-mismatched inactive core $coreType discovery cannot mint or alter wprism_map"
     );
 }
 $ownerMismatchTokens = new Tokens('https://target.example', 'https://target.example/media');
 $ownerMismatchTokens->policy = $coreTecPolicy;
-$ownerMismatchSidebarCapture = \Duo\SidebarState::capture(
+$ownerMismatchSidebarCapture = \WPrism\SidebarState::capture(
     $coreTecPolicy,
     $ownerMismatchTokens,
     true,
@@ -3872,12 +3872,12 @@ $ownerMismatchSidebarCapture = \Duo\SidebarState::capture(
     false,
     null
 );
-duo_check_same(
+wprism_check_same(
     [],
     $ownerMismatchSidebarCapture['entities'] ?? null,
     'core inactive text/block rows without same-owner block references remain outside canonical SidebarState'
 );
-duo_check(
+wprism_check(
     $ownerMismatchDb->rows($ownerMismatchMapTable) === $ownerMismatchMap
         && $ownerMismatchDb->rows($ownerMismatchDb->options) === $ownerMismatchOptionPreimage,
     'the product SidebarState boundary neither maps nor mutates unrelated inactive core widget state'
@@ -3887,7 +3887,7 @@ $storedWidgetReferences = Blocks::capture_widget_instance_references(
     $targetStoredList . $targetStoredQr . $targetStoredList,
     $policy
 );
-duo_check_same(
+wprism_check_same(
     [
         ['type' => 'tribe-widget-events-list', 'local_id' => 8000000001],
         ['type' => 'tribe-widget-events-qr-code', 'local_id' => 8000000002],
@@ -3895,7 +3895,7 @@ duo_check_same(
     $storedWidgetReferences,
     'the manifest-bound pre-capture scan deduplicates only exact stored TEC widget references'
 );
-duo_check_same(
+wprism_check_same(
     [],
     Blocks::capture_widget_instance_references($targetEmbeddedList . $targetEmbeddedQr, $policy),
     'embedded TEC widget blocks carry no SidebarState assignment reference'
@@ -3910,7 +3910,7 @@ foreach ([
         'futureAuthority' => true,
     ]),
 ] as $label => $malformedBlock) {
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => Blocks::capture_widget_instance_references($malformedBlock, $policy),
         RuntimeException::class,
         "the engine-owned stored-widget scanner rejects a $label",
@@ -3922,9 +3922,9 @@ foreach ([
 $coreOnlyPolicy = Policy::load(
     null,
     ['core'],
-    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($root, 'the-events-calendar')
+    adapterLibrary: \WPrism\AdapterLibrary::fromSourcePackage($root, 'the-events-calendar')
 );
-duo_check_same(
+wprism_check_same(
     [],
     Blocks::capture_widget_instance_references($targetStoredList, $coreOnlyPolicy),
     'an unsupported core block rule and an undeclared adapter codec cannot silently join stored-widget discovery'
@@ -3941,19 +3941,19 @@ $futureCodec = new class {
 $hostileRoster = $canonicalInterpreterRoster;
 $hostileRoster['future-codec'] = $futureCodec;
 $interpreterInstances->setValue($policy, $hostileRoster);
-duo_check_same(
+wprism_check_same(
     $storedWidgetReferences,
     Blocks::capture_widget_instance_references($targetStoredList . $targetStoredQr, $policy),
     'an undeclared future interpreter cannot join the engine-owned stored-widget authority roster'
 );
-duo_check_same(0, $futureCodec->calls, 'stored-widget discovery never probes an optional interpreter method');
+wprism_check_same(0, $futureCodec->calls, 'stored-widget discovery never probes an optional interpreter method');
 $interpreterInstances->setValue($policy, $canonicalInterpreterRoster);
 
 // Source capture starts with no widget ledger history in the product path.
 // The reference-selected inactive overlay must mint only the two referenced
 // identities; the unrelated parked instance is neither captured nor mapped.
 $widgetDb->seedTable($widgetMapTable, [$targetWidgetRows[2]]);
-$noInactiveAuthority = \Duo\SidebarState::capture(
+$noInactiveAuthority = \WPrism\SidebarState::capture(
     $policy,
     $targetWidgetTokens,
     true,
@@ -3961,12 +3961,12 @@ $noInactiveAuthority = \Duo\SidebarState::capture(
     false,
     []
 );
-duo_check_same(
+wprism_check_same(
     [],
     $noInactiveAuthority['entities'] ?? null,
     'zero selected stored-widget references emit no empty wp_inactive_widgets pseudo entity'
 );
-$mintedInactive = \Duo\SidebarState::capture(
+$mintedInactive = \WPrism\SidebarState::capture(
     $policy,
     $targetWidgetTokens,
     true,
@@ -3978,19 +3978,19 @@ $mintedWidgetMaps = array_values(array_filter(
     $widgetDb->rows($widgetMapTable),
     static fn(array $row): bool => str_starts_with((string) ($row['id_kind'] ?? ''), 'widget_')
 ));
-duo_check_same(
+wprism_check_same(
     [8000000001, 8000000002],
     array_column($mintedWidgetMaps, 'local_id'),
     'empty-ledger capture mints only reference-selected inactive widget instances'
 );
-duo_check(
+wprism_check(
     !in_array(8000000099, array_column($mintedWidgetMaps, 'local_id'), true)
         && count($mintedInactive['entities'] ?? []) === 1,
     'empty-ledger capture never maps or emits an unrelated inactive target/theme widget'
 );
 
 $widgetDb->seedTable($widgetMapTable, $targetWidgetRows);
-$capturedTecSidebars = \Duo\SidebarState::capture(
+$capturedTecSidebars = \WPrism\SidebarState::capture(
     $policy,
     $targetWidgetTokens,
     false,
@@ -4000,34 +4000,34 @@ $capturedTecSidebars = \Duo\SidebarState::capture(
 );
 $capturedTecWidgets = $capturedTecSidebars['entities'][0]['content'] ?? '';
 $capturedTecSidebarData = json_decode((string) $capturedTecWidgets, true, 32, JSON_THROW_ON_ERROR);
-duo_check_same(
+wprism_check_same(
     'sidebars/wp_inactive_widgets.json',
     $capturedTecSidebars['entities'][0]['path'] ?? null,
     'stored TEC block references own one exact inactive overlay instead of a synthetic sidebar'
 );
-duo_check_same(
+wprism_check_same(
     [TEC_LIST_WIDGET_UUID, TEC_QR_WIDGET_UUID],
     array_column($capturedTecSidebarData['widgets'] ?? [], 'uuid'),
     'SidebarState captures both exact TEC physical widget kinds with durable ledger identities'
 );
-duo_check_same(
+wprism_check_same(
     '{{post:' . TEC_EVENT_UUID . '}}',
     $capturedTecSidebarData['widgets'][1]['settings']['event_id'] ?? null,
     'SidebarState captures the QR event selection through the declared post-reference grammar'
 );
-duo_check_same(
+wprism_check_same(
     'Calendar {{home}}/events',
     $capturedTecSidebarData['widgets'][0]['settings']['title'] ?? null,
     'SidebarState tokenizes TEC widget authored text independently of the embedded block codec'
 );
-duo_check(
+wprism_check(
     !in_array(8000000099, array_column($capturedTecSidebarData['widgets'] ?? [], 'local_id'), true)
         && count($capturedTecSidebars['warnings'] ?? []) === 1
         && str_contains($capturedTecSidebars['warnings'][0], 'target-owned'),
     'unreferenced inactive widgets remain target-owned and are noted without entering canonical state'
 );
 $blocksSource = (string) file_get_contents($root . '/agent/src/Grammar/Blocks.php');
-duo_check(
+wprism_check(
     str_contains($blocksSource, "block_attr_rule_details('core/legacy-widget')")
         && str_contains($blocksSource, "isset(\$paths['id'])")
         && str_contains($blocksSource, '$policy->widget_types()')
@@ -4035,9 +4035,9 @@ duo_check(
         && !str_contains($blocksSource, 'capture_block_widget_instance_reference'),
     'stored-widget discovery is engine-owned by the declared whole-block id path and closed widget grammar, never an optional codec method'
 );
-duo_check_same(
+wprism_check_same(
     $capturedTecWidgets,
-    \Duo\SidebarState::capture(
+    \WPrism\SidebarState::capture(
         $policy,
         $targetWidgetTokens,
         false,
@@ -4056,8 +4056,8 @@ $widgetDb->update(
     ['option_value' => serialize($missingSettings)],
     ['option_name' => 'widget_tribe-widget-events-list']
 );
-duo_check_throws(
-    static fn(): array => \Duo\SidebarState::capture(
+wprism_check_throws(
+    static fn(): array => \WPrism\SidebarState::capture(
         $policy,
         $targetWidgetTokens,
         false,
@@ -4078,8 +4078,8 @@ $widgetDb->update(
     ['option_value' => serialize($duplicateAssignments)],
     ['option_name' => 'sidebars_widgets']
 );
-duo_check_throws(
-    static fn(): array => \Duo\SidebarState::capture(
+wprism_check_throws(
+    static fn(): array => \WPrism\SidebarState::capture(
         $policy,
         $targetWidgetTokens,
         false,
@@ -4096,8 +4096,8 @@ $widgetDb->seedTable($widgetDb->options, $widgetOptionsPreimage);
 $contradictoryWidgetMaps = $widgetMapsPreimage;
 $contradictoryWidgetMaps[0]['entity_type'] = 'post';
 $widgetDb->seedTable($widgetMapTable, $contradictoryWidgetMaps);
-duo_check_throws(
-    static fn(): array => \Duo\SidebarState::capture(
+wprism_check_throws(
+    static fn(): array => \WPrism\SidebarState::capture(
         $policy,
         $targetWidgetTokens,
         false,
@@ -4110,8 +4110,8 @@ duo_check_throws(
     'durable identity contradicts live widget'
 );
 $widgetDb->seedTable($widgetMapTable, $widgetMapsPreimage);
-duo_check_throws(
-    static fn(): array => \Duo\SidebarState::capture(
+wprism_check_throws(
+    static fn(): array => \WPrism\SidebarState::capture(
         $policy,
         $targetWidgetTokens,
         false,
@@ -4123,8 +4123,8 @@ duo_check_throws(
     'a stale stored-widget id refuses before canonical publication',
     'stale or absent from sidebars_widgets'
 );
-duo_check_throws(
-    static fn(): array => \Duo\SidebarState::capture(
+wprism_check_throws(
+    static fn(): array => \WPrism\SidebarState::capture(
         $policy,
         $targetWidgetTokens,
         false,
@@ -4136,12 +4136,12 @@ duo_check_throws(
     'a malformed codec reference roster refuses before widget option materialization',
     'reference at position 0 is malformed'
 );
-duo_check_same(
+wprism_check_same(
     '<!-- wp:legacy-widget /-->',
     Blocks::capture_rewrite('<!-- wp:legacy-widget /-->', $policy, $targetWidgetTokens),
     'the registered completely empty legacy-widget placeholder remains a byte-exact no-op'
 );
-duo_check_same(
+wprism_check_same(
     ['idBase' => 'tribe-widget-events-list'],
     parse_blocks(Blocks::capture_rewrite(
         tec_readiness_legacy_widget_block(['idBase' => 'tribe-widget-events-list']),
@@ -4150,7 +4150,7 @@ duo_check_same(
     ))[0]['attrs'] ?? null,
     'an embedded widget with no instance uses the exact registered idBase-only form'
 );
-duo_check_same(
+wprism_check_same(
     ['idBase' => 'tribe-widget-events-list'],
     parse_blocks(Blocks::capture_rewrite(
         tec_readiness_legacy_widget_block(['idBase' => 'tribe-widget-events-list', 'instance' => null]),
@@ -4159,7 +4159,7 @@ duo_check_same(
     ))[0]['attrs'] ?? null,
     'an explicit registered null instance canonicalizes to the same idBase-only form'
 );
-duo_check_same(
+wprism_check_same(
     [],
     parse_blocks(Blocks::capture_rewrite(
         tec_readiness_legacy_widget_block([
@@ -4203,7 +4203,7 @@ foreach ([
     [['idBase' => 'tribe-widget-events-list', 'instance' => []], 'closed attribute object', 'an embedded instance cannot omit encoded/hash receipts'],
     [['idBase' => 'tribe-widget-events-list', 'instance' => ['encoded' => '***', 'hash' => str_repeat('0', 32)]], 'canonical base64', 'invalid base64 refuses before native decode'],
 ] as [$attrs, $needle, $message]) {
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): string => $capturePhysicalWidget($attrs),
         RuntimeException::class,
         $message,
@@ -4212,7 +4212,7 @@ foreach ([
 }
 
 $validListSerialized = serialize(['title' => 'Safe', 'limit' => 5]);
-duo_check_throws(
+wprism_check_throws(
     static fn(): string => $capturePhysicalWidget($rawEmbeddedWidget(
         'tribe-widget-events-list',
         $validListSerialized,
@@ -4222,7 +4222,7 @@ duo_check_throws(
     'a stale or foreign source salt refuses before decoded settings can be trusted',
     'source hash is missing or invalid'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn(): string => $capturePhysicalWidget($rawEmbeddedWidget(
         'tribe-widget-events-list',
         $validListSerialized,
@@ -4232,7 +4232,7 @@ duo_check_throws(
     'uppercase hash aliases refuse instead of weakening the exact receipt grammar',
     'source hash is missing or invalid'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn(): string => $capturePhysicalWidget($rawEmbeddedWidget(
         'tribe-widget-events-list',
         $validListSerialized . 'trailing'
@@ -4241,7 +4241,7 @@ duo_check_throws(
     'a valid serialized prefix with trailing payload refuses',
     'trailing or noncanonical'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn(): string => $capturePhysicalWidget($rawEmbeddedWidget(
         'tribe-widget-events-list',
         serialize('scalar')
@@ -4252,7 +4252,7 @@ duo_check_throws(
 );
 $GLOBALS['tec_readiness_widget_wakeups'] = 0;
 $objectSerialized = serialize(['title' => new TecReadinessWidgetWakeupProbe()]);
-duo_check_throws(
+wprism_check_throws(
     static fn(): string => $capturePhysicalWidget($rawEmbeddedWidget(
         'tribe-widget-events-list',
         $objectSerialized
@@ -4261,14 +4261,14 @@ duo_check_throws(
     'nested objects refuse under both TEC artifact contracts',
     'PHP object'
 );
-duo_check_same(
+wprism_check_same(
     0,
     $GLOBALS['tec_readiness_widget_wakeups'],
     'the codec disables classes before inspecting a 6.17.2-compatible hostile object payload'
 );
 $referencedTitle = 'shared';
 $referencedSettings = ['title' => &$referencedTitle, 'limit' => &$referencedTitle];
-duo_check_throws(
+wprism_check_throws(
     static fn(): string => $capturePhysicalWidget($rawEmbeddedWidget(
         'tribe-widget-events-list',
         serialize($referencedSettings)
@@ -4279,7 +4279,7 @@ duo_check_throws(
 );
 $recursiveSettings = [];
 $recursiveSettings['title'] = &$recursiveSettings;
-duo_check_throws(
+wprism_check_throws(
     static fn(): string => $capturePhysicalWidget($rawEmbeddedWidget(
         'tribe-widget-events-list',
         serialize($recursiveSettings)
@@ -4292,7 +4292,7 @@ $deepWidgetValue = 'leaf';
 for ($widgetDepth = 0; $widgetDepth < 8; ++$widgetDepth) {
     $deepWidgetValue = ['nested' => $deepWidgetValue];
 }
-duo_check_throws(
+wprism_check_throws(
     static fn(): string => $capturePhysicalWidget($rawEmbeddedWidget(
         'tribe-widget-events-list',
         serialize(['title' => $deepWidgetValue])
@@ -4302,7 +4302,7 @@ duo_check_throws(
     'depth or node budget'
 );
 $oversizedWidgetSerialized = serialize(['title' => str_repeat('x', 17000)]);
-duo_check_throws(
+wprism_check_throws(
     static fn(): string => $capturePhysicalWidget($rawEmbeddedWidget(
         'tribe-widget-events-list',
         $oversizedWidgetSerialized
@@ -4321,7 +4321,7 @@ foreach ([
     [['title' => 'x', 'limit' => 5, 'jsonld_enable' => 1], 'native boolean', 'list boolean aliases refuse'],
     [['title' => 'x', 'limit' => 5, 'filter_added' => true], 'undeclared setting', 'filter-added list settings remain a loud extension boundary'],
 ] as [$settings, $needle, $message]) {
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): string => $capturePhysicalWidget([
             'idBase' => 'tribe-widget-events-list',
             'instance' => tec_readiness_embedded_widget($settings),
@@ -4340,7 +4340,7 @@ foreach ([
     [['widget_title' => 'x', 'redirection' => 'current', 'event_id' => 9999999999], 'not managed', 'QR event references outside the repository refuse'],
     [['widget_title' => 'x', 'redirection' => 'current', 'foreign' => 'value'], 'undeclared setting', 'filter-added QR settings remain a loud extension boundary'],
 ] as [$settings, $needle, $message]) {
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): string => $capturePhysicalWidget([
             'idBase' => 'tribe-widget-events-qr-code',
             'instance' => tec_readiness_embedded_widget($settings),
@@ -4365,7 +4365,7 @@ foreach ([
     } catch (Throwable $failure) {
         $hostileWidgetRefusal = $failure->getMessage();
     }
-    duo_check(
+    wprism_check(
         $hostileWidgetRefusal !== ''
             && strlen($hostileWidgetRefusal) < 220
             && !str_contains($hostileWidgetRefusal, $hostileWidgetTitle)
@@ -4378,7 +4378,7 @@ $malformedCanonicalWidget = tec_readiness_legacy_widget_block([
     'idBase' => 'tribe-widget-events-list',
     'instance' => tec_readiness_embedded_widget(['title' => 'raw physical bytes', 'limit' => 5]),
 ]);
-duo_check_throws(
+wprism_check_throws(
     static fn(): string => Blocks::apply_rewrite($malformedCanonicalWidget, $policy, $targetWidgetTokens),
     RuntimeException::class,
     'apply refuses hand-authored physical encoded/hash bytes in canonical state',
@@ -4386,9 +4386,9 @@ duo_check_throws(
 );
 $wrongCodecWidget = tec_readiness_legacy_widget_block([
     'idBase' => 'tribe-widget-events-list',
-    'instance' => ['duo' => 'foreign/v1', 'settings' => []],
+    'instance' => ['wprism' => 'foreign/v1', 'settings' => []],
 ]);
-duo_check_throws(
+wprism_check_throws(
     static fn(): string => Blocks::apply_rewrite($wrongCodecWidget, $policy, $targetWidgetTokens),
     RuntimeException::class,
     'apply refuses a foreign canonical widget codec marker',
@@ -4399,7 +4399,7 @@ $unboundWidgetRows = array_values(array_filter(
     static fn(array $row): bool => $row['uuid'] !== TEC_LIST_WIDGET_UUID
 ));
 $widgetDb->seedTable($widgetMapTable, $unboundWidgetRows);
-duo_check_throws(
+wprism_check_throws(
     static fn(): string => Blocks::apply_rewrite($canonicalStoredList, $policy, $targetWidgetTokens),
     RuntimeException::class,
     'stored widget apply refuses when the target SidebarState identity disappeared',
@@ -4444,7 +4444,7 @@ $widgetRepositoryTree[] = [
         ],
     ],
 ];
-duo_check_same(
+wprism_check_same(
     [],
     $interpreter->repository_diagnostics($widgetRepositoryTree),
     'repository compilation binds stored widget tokens to exact SidebarState owners and QR tokens to tribe_events'
@@ -4563,7 +4563,7 @@ tec_readiness_sync_color_db();
 $colorProvider = new TheEventsCalendarCategoryColors(
     $policy->provider_declarations()['the-events-calendar-category-colors']
 );
-duo_check_same(
+wprism_check_same(
     [
         'id' => 'the-events-calendar-category-colors',
         'plugin' => 'the-events-calendar/the-events-calendar.php',
@@ -4573,15 +4573,15 @@ duo_check_same(
     'the executable provider identity matches the manifest declaration exactly'
 );
 $colorCapability = $colorProvider->capabilities()['regenerate_css'] ?? null;
-duo_check_same('site', $colorCapability['scope'] ?? null, 'native CSS regeneration is honestly site-scoped');
-duo_check_same(true, $colorCapability['idempotent'] ?? null, 'native CSS regeneration declares idempotence');
-duo_check_same(120, $colorCapability['timeout_seconds'] ?? null, 'the native CSS/category scan has a bounded large-taxonomy timeout claim');
-duo_check_same(
+wprism_check_same('site', $colorCapability['scope'] ?? null, 'native CSS regeneration is honestly site-scoped');
+wprism_check_same(true, $colorCapability['idempotent'] ?? null, 'native CSS regeneration declares idempotence');
+wprism_check_same(120, $colorCapability['timeout_seconds'] ?? null, 'the native CSS/category scan has a bounded large-taxonomy timeout claim');
+wprism_check_same(
     ['option:tec_events_category_color_css', 'entity:tec-category-colors-dropdown-cache'],
     $colorCapability['writes'] ?? null,
     'capability negotiation declares both the durable CSS row and exact native object-cache entity'
 );
-duo_check_same(
+wprism_check_same(
     [
         'term:tribe_events_cat',
         'option:tec_events_category_color_css',
@@ -4591,23 +4591,23 @@ duo_check_same(
     $colorCapability['reads'] ?? null,
     'capability negotiation declares the transient cache observation as well as every durable input'
 );
-$colorCapabilityDigest = \Duo\Providers::scoped_capability_digest(
+$colorCapabilityDigest = \WPrism\Providers::scoped_capability_digest(
     'the-events-calendar-category-colors',
     'regenerate_css',
     $colorCapability
 );
-duo_check_same(
-    '4b0ae552a157dcccd1856b3111bce6109db3273fa0730735f7fc57ae44b1c862',
+wprism_check_same(
+    '281169aafc2a6b701b437522f4b42f8278a2589d7a804eec47973f8d73f09724',
     $colorCapabilityDigest,
     'the provider capability digest binds both declared native effects'
 );
 $cssOnlyCapability = $colorCapability;
 $cssOnlyCapability['writes'] = ['option:tec_events_category_color_css'];
-duo_check(
+wprism_check(
     preg_match('/^[a-f0-9]{64}$/D', $colorCapabilityDigest) === 1
         && !hash_equals(
             $colorCapabilityDigest,
-            \Duo\Providers::scoped_capability_digest(
+            \WPrism\Providers::scoped_capability_digest(
                 'the-events-calendar-category-colors',
                 'regenerate_css',
                 $cssOnlyCapability
@@ -4621,7 +4621,7 @@ $exactCache = $GLOBALS['tec_readiness_category_color_cache'];
 $serviceRefusalControllerCalls = $GLOBALS['tec_readiness_color_controller_calls'];
 $serviceRefusalCacheBusts = $GLOBALS['tec_readiness_cache_busts'];
 $GLOBALS['tec_readiness_category_color_generator'] = new stdClass();
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->invoke('regenerate_css', []),
     RuntimeException::class,
     'a controller-container override cannot substitute an unreviewed native CSS generator',
@@ -4630,7 +4630,7 @@ duo_check_throws(
 $GLOBALS['tec_readiness_category_color_generator'] = $exactGenerator;
 $generatorState = new ReflectionProperty($exactGenerator, 'option_key');
 $generatorState->setValue($exactGenerator, 'foreign_same_class_option');
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->invoke('regenerate_css', []),
     RuntimeException::class,
     'a same-class generator with mutated native state refuses before CSS or cache mutation',
@@ -4638,7 +4638,7 @@ duo_check_throws(
 );
 $generatorState->setValue($exactGenerator, 'tec_events_category_color_css');
 $GLOBALS['tec_readiness_category_color_dropdown'] = new stdClass();
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->invoke('regenerate_css', []),
     RuntimeException::class,
     'a container override cannot substitute an unreviewed callable for the exact native dropdown provider',
@@ -4646,7 +4646,7 @@ duo_check_throws(
 );
 $GLOBALS['tec_readiness_category_color_dropdown'] = $exactDropdown;
 $GLOBALS['tec_readiness_category_color_cache'] = new stdClass();
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->invoke('regenerate_css', []),
     RuntimeException::class,
     'an overridden TEC cache service refuses before native CSS or cache mutation',
@@ -4654,19 +4654,19 @@ duo_check_throws(
 );
 $GLOBALS['tec_readiness_category_color_cache'] = $exactCache;
 $GLOBALS['tec_readiness_external_object_cache'] = true;
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->invoke('regenerate_css', []),
     RuntimeException::class,
     'an external object-cache topology refuses before an unfenced irreversible cache mutation',
     'does not admit an external object-cache topology'
 );
 $GLOBALS['tec_readiness_external_object_cache'] = false;
-duo_check_same(
+wprism_check_same(
     $serviceRefusalControllerCalls,
     $GLOBALS['tec_readiness_color_controller_calls'],
     'all native service and cache-topology refusals happen before generator execution'
 );
-duo_check_same(
+wprism_check_same(
     $serviceRefusalCacheBusts,
     $GLOBALS['tec_readiness_cache_busts'],
     'all native service and cache-topology refusals happen before dropdown-cache mutation'
@@ -4682,30 +4682,30 @@ $colorNeutralRows = array_values(array_filter(
 $colorNeutralVars = $GLOBALS['tec_readiness_tribe_vars'];
 $colorNeutralTransientDeletes = $GLOBALS['tec_readiness_expired_transient_deletes'];
 $firstColorReceipt = $colorProvider->invoke('regenerate_css', []);
-duo_check_same(true, $firstColorReceipt['verified'] ?? null, 'native CSS regeneration returns a verified structured receipt');
-duo_check_same(
+wprism_check_same(true, $firstColorReceipt['verified'] ?? null, 'native CSS regeneration returns a verified structured receipt');
+wprism_check_same(
     $generatorResolutions + 1,
     $GLOBALS['tec_readiness_category_color_generator_resolution_calls'],
     'one invocation resolves the exact Generator value service only once'
 );
-duo_check_same(
+wprism_check_same(
     $dropdownResolutions + 1,
     $GLOBALS['tec_readiness_category_color_dropdown_resolution_calls'],
     'one invocation resolves the exact Dropdown value service only once'
 );
-duo_check_same(
+wprism_check_same(
     1,
     count($GLOBALS['tec_readiness_category_color_generator_sequence']),
     'a hostile second Generator resolution remains unreachable after the reviewed value is held'
 );
-duo_check_same(
+wprism_check_same(
     1,
     count($GLOBALS['tec_readiness_category_color_dropdown_sequence']),
     'a hostile second Dropdown resolution remains unreachable after the reviewed value is held'
 );
 $GLOBALS['tec_readiness_category_color_generator_sequence'] = [];
 $GLOBALS['tec_readiness_category_color_dropdown_sequence'] = [];
-duo_check_same(
+wprism_check_same(
     $colorNeutralRows,
     array_values(array_filter(
         $colorDb->rows($colorDb->options),
@@ -4713,17 +4713,17 @@ duo_check_same(
     )),
     'the exact updated_option callbacks leave every marker and unrelated option row byte-identical'
 );
-duo_check_same(
+wprism_check_same(
     $colorNeutralVars,
     $GLOBALS['tec_readiness_tribe_vars'],
     'the exact Category Colors updated_option callbacks leave request-local TEC state unchanged'
 );
-duo_check_same(
+wprism_check_same(
     $colorNeutralTransientDeletes,
     $GLOBALS['tec_readiness_expired_transient_deletes'],
     'the exact Category Colors updated_option callbacks schedule or delete no transients'
 );
-duo_check_same(1, $GLOBALS['tec_readiness_cache_busts'], 'the provider invokes TEC native controller semantics including cache busting');
+wprism_check_same(1, $GLOBALS['tec_readiness_cache_busts'], 'the provider invokes TEC native controller semantics including cache busting');
 $optionHookFixture = json_decode(
     (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/the-events-calendar-wordpress-option-hooks.json'),
     true,
@@ -4743,17 +4743,17 @@ $exactTecInnerHooks = [
     'deprecated_function_run',
     'deprecated_function_trigger_error',
 ];
-duo_check_same(
+wprism_check_same(
     [],
     array_values(array_diff($exactTecInnerHooks, $optionHookFixture['rewrite_generation']['exact_hooks'] ?? [])),
     'every package-owned TEC inner hook belongs to the shared exact rewrite frontier'
 );
-duo_check_same(
+wprism_check_same(
     ['6.9.2', '7.0.3', '7.1'],
     array_keys($optionHookFixture['source_files'] ?? []),
     'the CSS option topology is source-bound to every exact admitted WordPress core artifact'
 );
-duo_check_same(
+wprism_check_same(
     [
         'admitted_signal_values' => [null, false],
         'cache_class' => 'WP_Object_Cache',
@@ -4763,7 +4763,7 @@ duo_check_same(
     $optionHookFixture['local_object_cache_boundary'] ?? null,
     'the reviewed WordPress source fixture closes the exact nullable local-cache topology'
 );
-duo_check_same(
+wprism_check_same(
     [
         'hook' => 'wp_default_autoload_value',
         'callback' => 'wp_filter_default_autoload_value_via_option_size',
@@ -4775,13 +4775,13 @@ duo_check_same(
     $optionHookFixture['marker_default_autoload_callback'] ?? null,
     'the reviewed WordPress source fixture closes the native marker default-autoload callback'
 );
-duo_check_same(
+wprism_check_same(
     'php adapter-packages/the-events-calendar/fixtures/verify-tec-wordpress-option-hooks.php '
         . '--wordpress-root=/usr/src/wordpress --version=<version>',
     $optionHookFixture['reproduce'] ?? null,
     'the reviewed WordPress option topology carries its deterministic exact-source verifier command'
 );
-duo_check_same(
+wprism_check_same(
     'php adapter-packages/the-events-calendar/fixtures/verify-tec-wordpress-option-hooks.php '
         . '--wordpress-root=/usr/src/wordpress --version=<wp-version> '
         . '--tec-root=/path/to/the-events-calendar --tec-version=<tec-version>',
@@ -4792,14 +4792,14 @@ $optionHookVerifier = (string) file_get_contents(
     dirname(__DIR__, 2) . '/fixtures/verify-tec-wordpress-option-hooks.php'
 );
 foreach (['get_option', 'wp_load_alloptions', 'update_option', 'add_option', 'sanitize_option'] as $function) {
-    duo_check(
+    wprism_check(
         str_contains($optionHookVerifier, "tec_option_function_body(\$option, '$function')")
             || str_contains($optionHookVerifier, "tec_option_function_body(\$formatting, '$function')"),
         "the exact-source verifier derives hook topology from WordPress function $function"
     );
 }
 foreach (['wp_using_ext_object_cache', 'wp_start_object_cache'] as $function) {
-    duo_check(
+    wprism_check(
         str_contains($optionHookVerifier, "tec_option_function_body(\n    \$sources['wp-includes/load.php'],\n    '$function'"),
         "the exact-source verifier derives the nullable local-cache boundary from WordPress $function"
     );
@@ -4811,7 +4811,7 @@ foreach ([
     'src/Tribe/Main.php' => 'native version constant',
     'src/Tribe/Views/V2/Widgets/Service_Provider.php' => 'state-bearing widget provider',
 ] as $versionSpecificPath => $versionSpecificLabel) {
-    duo_check(
+    wprism_check(
         is_array($tecServiceSources172)
             && is_array($tecServiceSources173)
             && ($tecServiceSources172[$versionSpecificPath] ?? null)
@@ -4820,12 +4820,12 @@ foreach ([
     );
     unset($tecServiceSources172[$versionSpecificPath], $tecServiceSources173[$versionSpecificPath]);
 }
-duo_check_same(
+wprism_check_same(
     $tecServiceSources172,
     $tecServiceSources173,
     'every other source in the reviewed TEC state-service and lifecycle union is byte-identical across both pins'
 );
-duo_check_same(
+wprism_check_same(
     [
         'the-events-calendar.php',
         'uninstall.php',
@@ -4937,14 +4937,14 @@ foreach ([
     'WP_UNINSTALL_PLUGIN guard only; no state mutation',
     'source-derived TEC lifecycle boundary',
 ] as $serviceVerifierEvidence) {
-    duo_check(
+    wprism_check(
         str_contains($optionHookVerifier, $serviceVerifierEvidence),
         "the exact-source verifier binds native service evidence $serviceVerifierEvidence"
     );
 }
 $lifecycleBoundary = $optionHookFixture['lifecycle_boundary'] ?? null;
-duo_check(is_array($lifecycleBoundary), 'the exact fixture carries the TEC lifecycle boundary');
-duo_check_same(
+wprism_check(is_array($lifecycleBoundary), 'the exact fixture carries the TEC lifecycle boundary');
+wprism_check_same(
     [
         '_tribe_events_delayed_flush_rewrite_rules' => [
             'ownership' => 'runtime/request-consumed',
@@ -4967,7 +4967,7 @@ duo_check_same(
 $lifecyclePolicy = Policy::load(
     null,
     ['core', 'the-events-calendar'],
-    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($root, 'the-events-calendar')
+    adapterLibrary: \WPrism\AdapterLibrary::fromSourcePackage($root, 'the-events-calendar')
 );
 foreach ([
     '_transient__tribe_events_delayed_flush_rewrite_rules',
@@ -4975,13 +4975,13 @@ foreach ([
     '_transient__tribe_events_activation_redirect',
     '_transient_timeout__tribe_events_activation_redirect',
 ] as $activationTransientRow) {
-    duo_check_same(
+    wprism_check_same(
         'derived',
         $lifecyclePolicy->option_rule($activationTransientRow)['class'] ?? null,
         "$activationTransientRow remains excluded by the core transient policy"
     );
 }
-duo_check_same(
+wprism_check_same(
     [
         'tribe_schedule_transient_purge',
         'tribe_trash_event_cron',
@@ -4991,22 +4991,22 @@ duo_check_same(
     $lifecycleBoundary['deactivation']['clears_cron_hooks'] ?? null,
     'deactivation classifies every exact native recurring cron cleanup'
 );
-duo_check_same(
+wprism_check_same(
     ['tribe_aggregator_single_process_insert_records'],
     $lifecycleBoundary['deactivation']['retains_cron_hooks'] ?? null,
     'the native one-shot Aggregator queue is explicit target-owned deactivation residue'
 );
-duo_check_same(
+wprism_check_same(
     '5.16.0',
     $lifecycleBoundary['deactivation']['schema_version_reset'] ?? null,
     'deactivation records the exact env-owned mixed-option schema-version transition'
 );
-duo_check_same(
+wprism_check_same(
     false,
     $lifecycleBoundary['deactivation']['custom_table_clean_registered'] ?? null,
     'native deactivation leaves the derived custom tables intact instead of invoking the dormant clean method'
 );
-duo_check_same(
+wprism_check_same(
     [
         'bytes' => 60,
         'sha256' => '767dc6e504b10dc655a44396e7e91c9726379edd302621eacd439c446e5e183d',
@@ -5015,29 +5015,29 @@ duo_check_same(
     $lifecycleBoundary['uninstall'] ?? null,
     'both exact artifacts bind the identical guard-only uninstall surface'
 );
-duo_check_same(
+wprism_check_same(
     $optionHookFixture['tec_service_sources']['6.17.2']['uninstall.php'] ?? null,
     $optionHookFixture['tec_service_sources']['6.17.3']['uninstall.php'] ?? null,
     'the two exact uninstall files are byte-identical'
 );
 $legacyWidgetBoundary = $optionHookFixture['legacy_widget_boundary'] ?? null;
-duo_check(is_array($legacyWidgetBoundary), 'the exact fixture carries the TEC legacy-widget state boundary');
-duo_check_same(
+wprism_check(is_array($legacyWidgetBoundary), 'the exact fixture carries the TEC legacy-widget state boundary');
+wprism_check_same(
     ['id', 'idBase', 'instance'],
     $legacyWidgetBoundary['attributes'] ?? null,
     'the exact WordPress schema exposes both stored-id and embedded-instance legacy-widget forms'
 );
-duo_check_same(
+wprism_check_same(
     ['sidebars_widgets', 'widget_<idBase>'],
     $legacyWidgetBoundary['stored_id_form']['storage'] ?? null,
     'the stored-id form is explicitly bound to SidebarState physical storage'
 );
-duo_check_same(
+wprism_check_same(
     'wp_inactive_widgets',
     $legacyWidgetBoundary['stored_id_form']['portable_bucket'] ?? null,
     'the stored-id product fixture uses the core-owned renderable inactive-widget bucket'
 );
-duo_check_same(
+wprism_check_same(
     [
         'finder' => 'wp_find_widgets_sidebar',
         'renderer' => 'wp_render_widget',
@@ -5046,12 +5046,12 @@ duo_check_same(
     $legacyWidgetBoundary['stored_id_form']['render_contract'] ?? null,
     'the exact core renderer admits the inactive bucket without a theme-owned sidebar registration'
 );
-duo_check_same(
+wprism_check_same(
     ['tribe-widget-events-list', 'tribe-widget-events-qr-code'],
     $legacyWidgetBoundary['embedded_form']['id_bases'] ?? null,
     'the exact free plugin registers only the two reviewed legacy widget id bases'
 );
-duo_check_same(
+wprism_check_same(
     [
         'serialized_bytes' => 16384,
         'encoded_bytes' => 21848,
@@ -5062,7 +5062,7 @@ duo_check_same(
     $legacyWidgetBoundary['embedded_form']['limits'] ?? null,
     'the embedded codec frontier is bounded independently of PHP and request memory limits'
 );
-duo_check_same(
+wprism_check_same(
     [
         'tribe-widget-events-list' => [
             'settings' => ['title', 'limit', 'no_upcoming_events', 'featured_events_only', 'jsonld_enable', 'tribe_is_list_widget'],
@@ -5080,7 +5080,7 @@ duo_check_same(
     $legacyWidgetBoundary['widget_types'] ?? null,
     'the source fixture closes both free TEC widget setting grammars and licensed-series boundary'
 );
-duo_check_same(
+wprism_check_same(
     [
         'rest_pre_dispatch' => 'enable_widget_copy_paste',
         'rest_dispatch_request' => 'enable_saving_widget_copied',
@@ -5089,7 +5089,7 @@ duo_check_same(
     $legacyWidgetBoundary['callbacks'] ?? null,
     'the state-bearing copy/save/render callback topology is closed'
 );
-duo_check_same(
+wprism_check_same(
     [
         'arguments' => ['parsed_block', 'source_block', 'parent_block'],
         'top_level_parent' => null,
@@ -5107,9 +5107,9 @@ duo_check_same(
     $legacyWidgetBoundary['render_filter_contract'] ?? null,
     'the widget product probe crosses the exact core three-argument filter and native TEC callback roster'
 );
-duo_check_same(
+wprism_check_same(
     true,
-    $legacyWidgetBoundary['duo_status']['portable'] ?? null,
+    $legacyWidgetBoundary['wprism_status']['portable'] ?? null,
     'the source audit promotes legacy-widget only with the shipped bounded target-rebinding codec'
 );
 $coreManifest = json_decode(
@@ -5119,7 +5119,7 @@ $coreManifest = json_decode(
     JSON_THROW_ON_ERROR
 );
 $legacyWidgetRules = $coreManifest['block_attrs']['core/legacy-widget'] ?? [];
-duo_check(
+wprism_check(
     array_column($legacyWidgetRules, 'path') === ['id', 'idBase', 'instance']
         && count(array_filter(
             $legacyWidgetRules,
@@ -5129,7 +5129,7 @@ duo_check(
     'the core-only grammar still loudly refuses all three legacy-widget attributes outside the TEC adapter'
 );
 $activeLegacyWidgetRules = $policy->block_attr_rules()['core/legacy-widget'] ?? [];
-duo_check_same(
+wprism_check_same(
     [
         ['codec' => 'the-events-calendar', 'path' => 'id'],
         ['codec' => 'the-events-calendar', 'path' => 'idBase'],
@@ -5138,7 +5138,7 @@ duo_check_same(
     $activeLegacyWidgetRules,
     'the active TEC policy assigns the three interdependent legacy-widget attributes to one manifest-bound codec'
 );
-duo_check_same(
+wprism_check_same(
     [
         'tribe-widget-events-list' => [
             'settings' => [
@@ -5186,7 +5186,7 @@ $expectedCustomizerFallback = [
         'canonical_absent_legacy_absent' => 'empty',
     ],
 ];
-duo_check_same(
+wprism_check_same(
     $expectedCustomizerFallback,
     $optionHookFixture['customizer_fallback'] ?? null,
     'the exact source fixture binds the canonical Customizer row, legacy compatibility input, callback, filters, and precedence'
@@ -5210,21 +5210,21 @@ foreach ([
     'absent canonical reads legacy' => [false, null, true, ['global_elements' => ['background_color_choice' => 'custom']], ['global_elements' => ['background_color_choice' => 'custom']]],
     'both absent resolve to empty' => [false, null, false, null, []],
 ] as $label => [$canonicalPresent, $canonical, $legacyPresent, $legacy, $expected]) {
-    duo_check_same(
+    wprism_check_same(
         $expected,
         $effectiveCustomizer($canonicalPresent, $canonical, $legacyPresent, $legacy),
         "exact Customizer fallback semantics preserve $label"
     );
 }
 $customizerSourceDigest = $optionHookFixture['tec_service_sources']['6.17.3']['common/src/Tribe/Customizer.php'] ?? null;
-duo_check_same(
+wprism_check_same(
     '83ba4277bb122d476daf5782cd0c2bfc643ad1f875747aa39beba2782aa014c1',
     $customizerSourceDigest,
     'both admitted artifacts bind the exact native Customizer callback source bytes'
 );
 $customizerSections = $optionHookFixture['customizer_sections'] ?? null;
-duo_check(is_array($customizerSections), 'the exact source fixture carries a Customizer section registry');
-duo_check_same(
+wprism_check(is_array($customizerSections), 'the exact source fixture carries a Customizer section registry');
+wprism_check_same(
     [
         'events.views.v2.customizer.global-elements',
         'events.views.v2.customizer.month-view',
@@ -5234,12 +5234,12 @@ duo_check_same(
     array_keys($customizerSections['sections'] ?? []),
     'the exact free service topology exposes only the four reviewed Views V2 Customizer sections'
 );
-duo_check_same(
+wprism_check_same(
     ['sanitize_callback', 'sanitize_js_callback', 'transport'],
     $customizerSections['setting_tuple'] ?? null,
     'the source fixture preserves every native setting callback/transport field'
 );
-duo_check_same(
+wprism_check_same(
     [
         'canonical_option' => 'tribe_customizer',
         'defaults' => 'read-time-only',
@@ -5259,13 +5259,13 @@ foreach (($customizerSections['sections'] ?? []) as $service => $section) {
     $settingKeys = array_keys($settings);
     sort($defaultKeys, SORT_STRING);
     sort($settingKeys, SORT_STRING);
-    duo_check_same(
+    wprism_check_same(
         $defaultKeys,
         $settingKeys,
         "the exact $service defaults and server-side setting registry have one closed keyset"
     );
     foreach ($settings as $setting => $tuple) {
-        duo_check(
+        wprism_check(
             is_array($tuple)
                 && count($tuple) === 3
                 && in_array($tuple[0] ?? null, ['sanitize_key', 'sanitize_hex_color'], true)
@@ -5276,8 +5276,8 @@ foreach (($customizerSections['sections'] ?? []) as $service => $section) {
     }
     $customizerSettingCount += count($settings);
 }
-duo_check_same(31, $customizerSettingCount, 'the four exact free sections register 31 server-owned settings');
-duo_check_same(
+wprism_check_same(31, $customizerSettingCount, 'the four exact free sections register 31 server-owned settings');
+wprism_check_same(
     [
         'tec_events_bar' => [
             'view_selector_background_color',
@@ -5296,14 +5296,14 @@ foreach (($customizerSections['sections'] ?? []) as $section) {
     ];
 }
 $customizerRule = $policy->option_rule('tribe_customizer');
-duo_check_same('env', $customizerRule['class'] ?? null, 'the canonical Customizer parent stays mixed/target-owned');
-duo_check_same(true, $customizerRule['closed_sub_keys'] ?? null, 'the four-section Customizer registry is closed');
-duo_check_same(
+wprism_check_same('env', $customizerRule['class'] ?? null, 'the canonical Customizer parent stays mixed/target-owned');
+wprism_check_same(true, $customizerRule['closed_sub_keys'] ?? null, 'the four-section Customizer registry is closed');
+wprism_check_same(
     'auto-on',
     $customizerRule['absent_autoload'] ?? null,
     'an absent canonical row uses the exact pinned-core first-save autoload wire'
 );
-duo_check_same(
+wprism_check_same(
     $customizerDeclaredSubKeys,
     $customizerRule['sub_keys'] ?? null,
     'the manifest and exact source fixture declare the same four Customizer section carriers'
@@ -5332,7 +5332,7 @@ foreach (($customizerSections['sections'] ?? []) as $service => $section) {
             ? 'value'
             : '#A1b2C3';
     }
-    duo_check_same(
+    wprism_check_same(
         [$sectionId => $expectedSettings],
         $normalizeCustomizerSparseMap([$sectionId => $rawSettings]),
         "the shipped interpreter implements every exact native sanitizer in $service"
@@ -5342,7 +5342,7 @@ $legacyCustomizer = [
     'global_elements' => ['background_color_choice' => 'CUSTOM !!'],
     'single_event' => ['post_title_color' => '#A1b2C3'],
 ];
-duo_check_same(
+wprism_check_same(
     [
         'global_elements' => ['background_color_choice' => 'custom'],
         'single_event' => ['post_title_color' => '#A1b2C3'],
@@ -5356,7 +5356,7 @@ duo_check_same(
     'an absent canonical row captures the exact legacy compatibility map through the same raw snapshot'
 );
 $canonicalCustomizer = ['month_view' => ['grid_lines_color' => '#445566']];
-duo_check_same(
+wprism_check_same(
     $canonicalCustomizer,
     $interpreter->normalize_captured_option_sub_keys(
         'tribe_customizer',
@@ -5369,7 +5369,7 @@ duo_check_same(
     ),
     'a populated canonical Customizer row wins over conflicting legacy compatibility bytes'
 );
-duo_check_same(
+wprism_check_same(
     [],
     $interpreter->normalize_captured_option_sub_keys(
         'tribe_customizer',
@@ -5382,7 +5382,7 @@ duo_check_same(
     ),
     'a persisted empty canonical Customizer row wins over populated legacy compatibility storage'
 );
-duo_check_same(
+wprism_check_same(
     [],
     $interpreter->normalize_captured_option_sub_keys(
         'tribe_customizer',
@@ -5392,7 +5392,7 @@ duo_check_same(
     ),
     'absent canonical and legacy Customizer rows remain one sparse empty map without manufactured defaults'
 );
-duo_check_same(
+wprism_check_same(
     ['toggle_blocks_editor' => '1'],
     $interpreter->normalize_captured_option_sub_keys(
         'tribe_events_calendar_options',
@@ -5412,7 +5412,7 @@ foreach ([
         [],
     ],
 ] as $label => [$rawAuthored, $snapshot]) {
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $interpreter->normalize_captured_option_sub_keys(
             'tribe_customizer',
             $rawAuthored,
@@ -5439,7 +5439,7 @@ foreach ([
         ['month_view' => ['class' => 'env', 'plain_data' => true]]
     ),
 ] as $label => $declaration) {
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $interpreter->normalize_captured_option_sub_keys(
             'tribe_customizer',
             [],
@@ -5479,7 +5479,7 @@ foreach ([
         ['tec_events_bar' => ['events_bar_text_color' => '#123456']],
     ],
 ] as $label => [$raw, $expected]) {
-    duo_check_same(
+    wprism_check_same(
         $expected,
         $normalizeCustomizerSparseMap($raw),
         "the reviewed sparse Customizer grammar preserves $label"
@@ -5499,7 +5499,7 @@ foreach ([
     'invalid UTF-8 setting' => ['global_elements' => ['font_family' => "\xC3\x28"]],
     'oversized setting' => ['global_elements' => ['font_family' => str_repeat('a', 4097)]],
 ] as $label => $raw) {
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $normalizeCustomizerSparseMap($raw),
         RuntimeException::class,
         "the reviewed sparse Customizer grammar refuses $label",
@@ -5511,9 +5511,9 @@ try {
     $normalizeCustomizerSparseMap([
         'global_elements' => ['font_family' => $customizerCredential],
     ]);
-    duo_check(false, 'a credential-shaped Customizer setting refuses before native sanitizer normalization');
+    wprism_check(false, 'a credential-shaped Customizer setting refuses before native sanitizer normalization');
 } catch (RuntimeException $e) {
-    duo_check(
+    wprism_check(
         str_contains($e->getMessage(), 'credential-shaped')
             && !str_contains($e->getMessage(), $customizerCredential)
             && strlen($e->getMessage()) < 256,
@@ -5536,7 +5536,7 @@ foreach ([
     'serialized shared reference payload' => serialize($referencedCustomizer),
     'oversized raw row' => str_repeat('x', 65537),
 ] as $label => $rawStorage) {
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $interpreter->normalize_captured_option_sub_keys(
             'tribe_customizer',
             [],
@@ -5548,7 +5548,7 @@ foreach ([
         'Customizer'
     );
 }
-duo_check_throws(
+wprism_check_throws(
     static fn(): array => $interpreter->normalize_captured_option_sub_keys(
         'tribe_customizer',
         [],
@@ -5566,7 +5566,7 @@ foreach (($customizerSections['sections'] ?? []) as $section) {
         $oversizedCustomizer[$sectionId][(string) $setting] = str_repeat('a', 4096);
     }
 }
-duo_check_throws(
+wprism_check_throws(
     static fn(): array => $normalizeCustomizerSparseMap($oversizedCustomizer),
     RuntimeException::class,
     'the reviewed sparse Customizer grammar refuses its bounded raw or aggregate option frontier before sanitizer dispatch',
@@ -5582,7 +5582,7 @@ foreach (($optionHookFixture['last_save_paths'] ?? []) as $pathHooks) {
     }
 }
 foreach ($lastSaveHookTopology as $lastSaveHook) {
-    duo_check(
+    wprism_check(
         str_contains($tecRegeneratorSource, "'$lastSaveHook'"),
         "the derived-state regenerator preflights native marker hook $lastSaveHook"
     );
@@ -5598,7 +5598,7 @@ foreach ([
     foreach ($lastSaveHookTopology as $lastSaveHook) {
         $markerHook = str_replace('tribe_last_save_post', $markerName, $lastSaveHook);
         $dynamicPrefix = str_replace($markerName, '', $markerHook);
-        duo_check(
+        wprism_check(
             str_contains($nativeRewriteEffectSource, "'$markerHook'")
                 || ($dynamicPrefix !== $markerHook
                     && str_contains($nativeRewriteEffectSource, "'$dynamicPrefix'"))
@@ -5634,17 +5634,17 @@ foreach (($coreManifest['actions'][0]['effects'] ?? []) as $effect) {
         break;
     }
 }
-duo_check_same(
+wprism_check_same(
     $optionHookFixture['rewrite_generation']['exact_hooks'] ?? null,
     $rewriteEffect['selector']['members']['exact'] ?? null,
     'the irreversible rewrite aggregate names every exact pinned core and shipped-plugin generation hook'
 );
-duo_check_same(
+wprism_check_same(
     $rewriteEffect['selector'] ?? null,
     $coreRewriteEffect['selector'] ?? null,
     'core and TEC bind the same closed cross-adapter rewrite interpreter'
 );
-duo_check_same(
+wprism_check_same(
     [$optionHookFixture['rewrite_generation']['dynamic_hook_template'] ?? null],
     $rewriteEffect['selector']['members']['templates'] ?? null,
     'the rewrite aggregate admits only the bounded registered-permastruct hook template'
@@ -5657,13 +5657,13 @@ foreach (($manifest['actions'][0]['effects'] ?? []) as $effect) {
 }
 foreach ($lastSaveHookTopology as $lastSaveHook) {
     $rewriteHook = str_replace('tribe_last_save_post', 'rewrite_rules', $lastSaveHook);
-    duo_check(
+    wprism_check(
         isset($declaredRewriteHooks[$rewriteHook]),
         "the native action inventory includes the pinned rewrite_rules branch hook $rewriteHook"
     );
 }
 foreach (($optionHookFixture['rewrite_generation']['soft_flush_excludes'] ?? []) as $hardHook) {
-    duo_check(
+    wprism_check(
         !isset($declaredRewriteHooks[$hardHook]),
         "the soft native action does not claim unreachable hard-flush hook $hardHook"
     );
@@ -5676,13 +5676,13 @@ foreach (($optionHookFixture['shared_paths'] ?? []) as $pathHooks) {
 }
 $cssOptionHookTopology = array_values($cssOptionHookTopology);
 foreach ($cssOptionHookTopology as $cssOptionHook) {
-    duo_check(
+    wprism_check(
         in_array($cssOptionHook, $GLOBALS['tec_readiness_has_filter_calls'], true),
         "the provider preflights exact WordPress CSS option hook $cssOptionHook"
     );
 }
 foreach (($optionHookFixture['proved_absent'] ?? []) as $absentOptionHook) {
-    duo_check(
+    wprism_check(
         !in_array($absentOptionHook, $GLOBALS['tec_readiness_has_filter_calls'], true),
         "the exact pinned-core fixture does not invent unreachable CSS option hook $absentOptionHook"
     );
@@ -5702,7 +5702,7 @@ foreach (['existing update row' => true, 'absent add row' => false] as $optionBr
         } else {
             $GLOBALS['tec_readiness_filters'] = [$cssOptionHook];
         }
-        duo_check_throws(
+        wprism_check_throws(
             static fn() => $colorProvider->invoke('regenerate_css', []),
             RuntimeException::class,
             "an active CSS option hook $cssOptionHook refuses on the $optionBranch before side effects",
@@ -5720,7 +5720,7 @@ $GLOBALS['tec_readiness_filters'] = [];
 tec_readiness_seed_color_options();
 $viewsOptionHooks = $GLOBALS['tec_readiness_views_hooks'];
 remove_filter('tribe_get_option', [$viewsOptionHooks, 'filter_date_escaping'], 10);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->invoke('regenerate_css', []),
     RuntimeException::class,
     'a missing canonical tribe_get_option callback refuses before native Category Colors effects',
@@ -5730,7 +5730,7 @@ add_filter('tribe_get_option', [$viewsOptionHooks, 'filter_date_escaping'], 10, 
 $foreignViewsOptionHooks = clone $viewsOptionHooks;
 remove_filter('tribe_get_option', [$viewsOptionHooks, 'filter_date_escaping'], 10);
 add_filter('tribe_get_option', [$foreignViewsOptionHooks, 'filter_date_escaping'], 10, 2);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->invoke('regenerate_css', []),
     RuntimeException::class,
     'a same-class non-container tribe_get_option callback refuses before native effects',
@@ -5740,7 +5740,7 @@ remove_filter('tribe_get_option', [$foreignViewsOptionHooks, 'filter_date_escapi
 add_filter('tribe_get_option', [$viewsOptionHooks, 'filter_date_escaping'], 10, 2);
 $foreignOptionFilter = static fn(mixed $value): mixed => $value;
 add_filter('tribe_get_option', $foreignOptionFilter, 999, 2);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->invoke('regenerate_css', []),
     RuntimeException::class,
     'an extra semantically neutral tribe_get_option callback remains outside the exact contract',
@@ -5750,7 +5750,7 @@ remove_filter('tribe_get_option', $foreignOptionFilter, 999);
 $settingsOptionListener = $GLOBALS['tec_readiness_settings_manager'];
 $canonicalUpdatedOptionCallbacks = $GLOBALS['wp_filter']['updated_option']->callbacks;
 remove_filter('updated_option', [$settingsOptionListener, 'update_options_cache'], 10);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->invoke('regenerate_css', []),
     RuntimeException::class,
     'a missing canonical updated_option callback refuses before native Category Colors effects',
@@ -5760,7 +5760,7 @@ add_filter('updated_option', [$settingsOptionListener, 'update_options_cache'], 
 $foreignSettingsOptionListener = clone $settingsOptionListener;
 remove_filter('updated_option', [$settingsOptionListener, 'update_options_cache'], 10);
 add_filter('updated_option', [$foreignSettingsOptionListener, 'update_options_cache'], 10, 3);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->invoke('regenerate_css', []),
     RuntimeException::class,
     'a same-class non-singleton updated_option callback refuses before native Category Colors effects',
@@ -5774,7 +5774,7 @@ foreach ([
     'tribe_cache_last_occurrence_option_triggers:save_post',
 ] as $triggerHook) {
     add_filter($triggerHook, $foreignOptionFilter, 999, 1);
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $colorProvider->invoke('regenerate_css', []),
         RuntimeException::class,
         "an extended CacheListener trigger $triggerHook refuses before CSS or marker mutation",
@@ -5782,50 +5782,50 @@ foreach ([
     );
     remove_filter($triggerHook, $foreignOptionFilter, 999);
 }
-duo_check_same(
+wprism_check_same(
     $hookRefusalControllerCalls,
     $GLOBALS['tec_readiness_color_controller_calls'],
     'every CSS option and normal-boot hook topology refusal happens before native controller execution'
 );
-duo_check_same(
+wprism_check_same(
     $hookRefusalCacheBusts,
     $GLOBALS['tec_readiness_cache_busts'],
     'removing every hostile hook permits same-process retry without a prior dropdown-cache mutation'
 );
-duo_check_same(0, $firstColorReceipt['after']['css_selector_mismatch_count'] ?? null, 'readback rejects missing or orphan native selectors');
-duo_check_same(0, $firstColorReceipt['after']['css_value_mismatch_count'] ?? null, 'readback carries every native selector color value');
-duo_check_same(
+wprism_check_same(0, $firstColorReceipt['after']['css_selector_mismatch_count'] ?? null, 'readback rejects missing or orphan native selectors');
+wprism_check_same(0, $firstColorReceipt['after']['css_value_mismatch_count'] ?? null, 'readback carries every native selector color value');
+wprism_check_same(
     false,
     $firstColorReceipt['after']['dropdown_cache_present'] ?? null,
     'the immediate native postcondition is an absent dropdown cache after the reviewed bust'
 );
-duo_check_same(
+wprism_check_same(
     1,
     $firstColorReceipt['after']['dropdown_expected_count'] ?? null,
     'the durable receipt binds the canonical future dropdown projection without populating it'
 );
-duo_check_same(
+wprism_check_same(
     0,
     $GLOBALS['tec_readiness_dropdown_get_calls'],
     'verification never calls the cache-populating native dropdown getter'
 );
-duo_check_same(
+wprism_check_same(
     0,
     $GLOBALS['tec_readiness_cache_sets'],
     'verification never publishes a dropdown cache value of its own'
 );
-duo_check_same(1, $firstColorReceipt['after']['colored_category_count'] ?? null, 'the receipt is bounded to counts and digests, not authored payload');
-duo_check(
+wprism_check_same(1, $firstColorReceipt['after']['colored_category_count'] ?? null, 'the receipt is bounded to counts and digests, not authored payload');
+wprism_check(
     !str_contains(json_encode($firstColorReceipt, JSON_UNESCAPED_SLASHES), 'readiness')
         && !str_contains(json_encode($firstColorReceipt, JSON_UNESCAPED_SLASHES), '#123'),
     'the provider receipt contains no authored slug or color payload'
 );
-duo_check(
+wprism_check(
     ($firstColorReceipt['before']['css_sha256'] ?? null) !== ($firstColorReceipt['after']['css_sha256'] ?? null),
     'a hostile stale generated option visibly converges in the receipt'
 );
 $secondColorReceipt = $colorProvider->invoke('regenerate_css', []);
-duo_check_same(
+wprism_check_same(
     $firstColorReceipt['after']['css_sha256'] ?? null,
     $secondColorReceipt['after']['css_sha256'] ?? null,
     'a retry is idempotent at the generated CSS projection'
@@ -5840,23 +5840,23 @@ $GLOBALS['tec_readiness_dropdown_rows'] = [[
     'hidden' => false,
 ]];
 $GLOBALS['tec_readiness_color_controller_mode'] = 'throw_after_css';
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->invoke('regenerate_css', []),
     RuntimeException::class,
     'a failure after the native CSS option write surfaces without certifying the stale dropdown cache',
     'injected native Category Colors failure after CSS write'
 );
-duo_check_same(
+wprism_check_same(
     $GLOBALS['tec_readiness_generated_css'],
     get_option('tec_events_category_color_css'),
     'the first native failure witness contains the completed CSS write'
 );
-duo_check_same(
+wprism_check_same(
     '#000000',
     $GLOBALS['tec_readiness_dropdown_rows'][0]['primary'] ?? null,
     'the first native failure witness retains the stale pre-bust dropdown cache'
 );
-duo_check_same(
+wprism_check_same(
     2,
     $GLOBALS['tec_readiness_cache_busts'],
     'a failure before the native dropdown-cache bust does not claim that effect'
@@ -5865,39 +5865,39 @@ $crashCacheWitness = hash('sha256', serialize($GLOBALS['tec_readiness_dropdown_r
 $crashDropdownGets = $GLOBALS['tec_readiness_dropdown_get_calls'];
 $crashCacheSets = $GLOBALS['tec_readiness_cache_sets'];
 $crashGeneratorCalls = $GLOBALS['tec_readiness_color_controller_calls'];
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->reconcile_scoped(
         'regenerate_css',
         [],
-        ['format' => 'duo-provider-operation/v1', 'id' => 'tec-crash-between-services']
+        ['format' => 'wprism-provider-operation/v1', 'id' => 'tec-crash-between-services']
     ),
     RuntimeException::class,
     'recovery refuses a stale populated dropdown cache after a crash between the two native services',
     'dropdown cache readback is stale or malformed'
 );
-duo_check_same(
+wprism_check_same(
     $crashCacheWitness,
     hash('sha256', serialize($GLOBALS['tec_readiness_dropdown_rows'])),
     'crash recovery observes the stale cache without mutating it'
 );
-duo_check_same(
+wprism_check_same(
     $crashDropdownGets,
     $GLOBALS['tec_readiness_dropdown_get_calls'],
     'crash recovery never invokes the cache-populating dropdown getter'
 );
-duo_check_same(
+wprism_check_same(
     $crashCacheSets,
     $GLOBALS['tec_readiness_cache_sets'],
     'crash recovery never publishes cache bytes'
 );
-duo_check_same(
+wprism_check_same(
     $crashGeneratorCalls,
     $GLOBALS['tec_readiness_color_controller_calls'],
     'crash recovery never replays the native CSS generator'
 );
 $afterCssRetry = $colorProvider->invoke('regenerate_css', []);
-duo_check_same(true, $afterCssRetry['verified'] ?? null, 'same-process retry after the partial CSS write converges');
-duo_check_same(
+wprism_check_same(true, $afterCssRetry['verified'] ?? null, 'same-process retry after the partial CSS write converges');
+wprism_check_same(
     false,
     $GLOBALS['tec_readiness_dropdown_rows'],
     'same-process retry after the partial CSS write completes the native dropdown-cache bust'
@@ -5912,24 +5912,24 @@ $GLOBALS['tec_readiness_dropdown_rows'] = [[
     'hidden' => false,
 ]];
 $GLOBALS['tec_readiness_color_controller_mode'] = 'throw_after_cache_bust';
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->invoke('regenerate_css', []),
     RuntimeException::class,
-    'a failure after both native writes surfaces before Duo can issue a verified receipt',
+    'a failure after both native writes surfaces before WPrism can issue a verified receipt',
     'injected native Category Colors failure after cache bust'
 );
-duo_check_same(
+wprism_check_same(
     $GLOBALS['tec_readiness_generated_css'],
     get_option('tec_events_category_color_css'),
     'the second native failure witness contains the completed CSS write'
 );
-duo_check_same(
+wprism_check_same(
     false,
     $GLOBALS['tec_readiness_dropdown_rows'],
     'the second native failure witness contains the completed dropdown-cache bust'
 );
 $afterCacheBustRetry = $colorProvider->invoke('regenerate_css', []);
-duo_check_same(true, $afterCacheBustRetry['verified'] ?? null, 'same-process retry after both native writes remains idempotent');
+wprism_check_same(true, $afterCacheBustRetry['verified'] ?? null, 'same-process retry after both native writes remains idempotent');
 $GLOBALS['tec_readiness_dropdown_rows'] = [[
     'slug' => 'readiness',
     'name' => 'Readiness',
@@ -5938,31 +5938,31 @@ $GLOBALS['tec_readiness_dropdown_rows'] = [[
     'hidden' => false,
 ]];
 $GLOBALS['tec_readiness_color_controller_mode'] = 'cache_delete_noop';
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->invoke('regenerate_css', []),
     RuntimeException::class,
     'a native cache delete no-op cannot earn a verified provider receipt',
     'cache remains populated after the native bust'
 );
-duo_check_same(
+wprism_check_same(
     '#000000',
     $GLOBALS['tec_readiness_dropdown_rows'][0]['primary'] ?? null,
     'the cache-delete failure retains one exact stale-cache witness'
 );
 $afterCacheDeleteRetry = $colorProvider->invoke('regenerate_css', []);
-duo_check_same(
+wprism_check_same(
     false,
     $afterCacheDeleteRetry['after']['dropdown_cache_present'] ?? null,
     'same-process retry after cache-delete failure proves the native key absent'
 );
 $cacheBustsAfterPartialRetries = $GLOBALS['tec_readiness_cache_busts'];
-duo_check_same(7, $cacheBustsAfterPartialRetries, 'every attempted native cache bust is counted across all partial failures and retries');
-duo_check_same(8, $GLOBALS['tec_readiness_color_controller_calls'], 'all partial attempts and retries crossed the exact native generator boundary');
+wprism_check_same(7, $cacheBustsAfterPartialRetries, 'every attempted native cache bust is counted across all partial failures and retries');
+wprism_check_same(8, $GLOBALS['tec_readiness_color_controller_calls'], 'all partial attempts and retries crossed the exact native generator boundary');
 
-$operation = ['format' => 'duo-provider-operation/v1', 'id' => 'tec-offline-reconcile'];
+$operation = ['format' => 'wprism-provider-operation/v1', 'id' => 'tec-offline-reconcile'];
 $reconciled = $colorProvider->reconcile_scoped('regenerate_css', [], $operation);
-duo_check_same($operation, $reconciled['operation'] ?? null, 'reconciliation binds its caller-supplied operation envelope');
-duo_check_same(true, $reconciled['verified'] ?? null, 'reconciliation verifies without replaying the native write');
+wprism_check_same($operation, $reconciled['operation'] ?? null, 'reconciliation binds its caller-supplied operation envelope');
+wprism_check_same(true, $reconciled['verified'] ?? null, 'reconciliation verifies without replaying the native write');
 $settingsOptionRow = static fn(int $id, string $name, string $value): array => [
     'option_id' => $id,
     'option_name' => $name,
@@ -5974,7 +5974,7 @@ tec_readiness_seed_color_options([
         'category-color-show-hidden-categories' => false,
     ])),
 ]);
-duo_check_same(
+wprism_check_same(
     true,
     $colorProvider->reconcile_scoped('regenerate_css', [], $operation)['verified'] ?? null,
     'the exact bounded serialized main settings row agrees with native show-hidden behavior'
@@ -5983,7 +5983,7 @@ tec_readiness_seed_color_options([
     $settingsOptionRow(2, 'tribe_events_calendar_options', serialize([])),
     $settingsOptionRow(3, 'tribe_events_calendar_options', serialize([])),
 ]);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'a duplicate physical main settings identity refuses before native category traversal',
@@ -5996,7 +5996,7 @@ $colorDb->returnNextGetResultsAs([[
     'value_bytes' => '6',
     'value_prefix' => 'a:0:{}',
 ]]);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'a collation-equivalent but byte-aliased main settings identity refuses',
@@ -6015,7 +6015,7 @@ try {
 } catch (RuntimeException $e) {
     $malformedSettingsRefusal = $e->getMessage();
 }
-duo_check(
+wprism_check(
     str_contains($malformedSettingsRefusal, 'must be canonical PHP-serialized plain data')
         && !str_contains($malformedSettingsRefusal, 'AKIA')
         && strlen($malformedSettingsRefusal) < 300,
@@ -6024,7 +6024,7 @@ duo_check(
 tec_readiness_seed_color_options([
     $settingsOptionRow(2, 'tribe_events_calendar_options', str_repeat('x', 1048577)),
 ]);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'an oversized main settings blob refuses after only a bounded prefix transfer',
@@ -6035,7 +6035,7 @@ tec_readiness_seed_color_options([
         'category-color-show-hidden-categories' => '1',
     ])),
 ]);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'a non-boolean stored show-hidden setting refuses before native truthiness can drift',
@@ -6046,7 +6046,7 @@ tec_readiness_seed_color_options([
         'category-color-show-hidden-categories' => true,
     ])),
 ]);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'a stale native settings cache refuses even when the bounded raw row is valid',
@@ -6054,7 +6054,7 @@ duo_check_throws(
 );
 tec_readiness_seed_color_options();
 $colorDb->returnNextGetResultsAs(false);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'a false main settings read from a non-core compatible driver refuses before native traversal',
@@ -6062,13 +6062,13 @@ duo_check_throws(
 );
 $cacheBustsBeforeFilterRefusal = $GLOBALS['tec_readiness_cache_busts'];
 $GLOBALS['tec_readiness_filters'] = ['tec_events_category_color_generator_final_css'];
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->invoke('regenerate_css', []),
     RuntimeException::class,
     'a native final-CSS output filter refuses before controller or dropdown-cache mutation',
     'hook topology is malformed'
 );
-duo_check_same(
+wprism_check_same(
     $cacheBustsBeforeFilterRefusal,
     $GLOBALS['tec_readiness_cache_busts'],
     'output-filter refusal happens before every native Category Colors side effect'
@@ -6076,7 +6076,7 @@ duo_check_same(
 $GLOBALS['tec_readiness_filters'] = [];
 tec_readiness_seed_color_options();
 tec_readiness_set_css('.tribe_events_cat-readiness{--tec-color-category-primary:#123abc}');
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'reconciliation refuses stale partial native CSS rather than certifying an ambiguous effect',
@@ -6085,7 +6085,7 @@ duo_check_throws(
 $GLOBALS['tec_readiness_term_meta'][71]['tec-events-cat-colors-secondary'] = '';
 tec_readiness_sync_color_db();
 tec_readiness_set_css($GLOBALS['tec_readiness_generated_css']);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'reconciliation refuses a stale recognized property removed from live category metadata',
@@ -6098,7 +6098,7 @@ tec_readiness_set_css(str_replace(
     '--tec-color-category-primary:#123abc;--tec-color-category-secondary:',
     $GLOBALS['tec_readiness_generated_css']
 ));
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'reconciliation refuses a duplicate recognized property even when both values are current',
@@ -6109,14 +6109,14 @@ tec_readiness_set_css(str_replace(
     ';background-color:transparent}',
     $GLOBALS['tec_readiness_generated_css']
 ));
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'reconciliation refuses a filter-injected declaration outside the exact native CSS bytes',
     'exact-byte grammar mismatch'
 );
 tec_readiness_set_css('/* injected */' . $GLOBALS['tec_readiness_generated_css']);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'reconciliation refuses a filter-injected CSS comment before the native selector stream',
@@ -6126,7 +6126,7 @@ tec_readiness_set_css(
     $GLOBALS['tec_readiness_generated_css']
         . '.foreign-selector{display:block}'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'reconciliation refuses an arbitrary extra selector outside the native output grammar',
@@ -6138,7 +6138,7 @@ tec_readiness_set_css(
         . '--tec-color-category-primary:#123abc;'
         . '--tec-color-category-text:#ffffff}'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'reconciliation refuses reordered properties that the exact native generator cannot emit',
@@ -6148,14 +6148,14 @@ tec_readiness_set_css(
     $GLOBALS['tec_readiness_generated_css']
         . '.tribe_events_cat-orphan{--tec-color-category-primary:#111111}'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'reconciliation refuses an orphan generated CSS selector',
     'selector-set mismatch'
 );
 tec_readiness_set_css(str_repeat('x', 8388609));
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'an oversized CSS option refuses after a bounded single-statement prefix read',
@@ -6182,7 +6182,7 @@ tec_readiness_set_css(
     $GLOBALS['tec_readiness_generated_css']
         . '.tribe_events_cat-plain-category{--tec-color-category-primary:#abcdef}'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'reconciliation refuses selectors emitted against native ascending priority order',
@@ -6192,7 +6192,7 @@ tec_readiness_set_css(
     '.tribe_events_cat-plain-category{--tec-color-category-primary:#abcdef}'
         . $GLOBALS['tec_readiness_generated_css']
 );
-duo_check_same(
+wprism_check_same(
     true,
     $colorProvider->reconcile_scoped('regenerate_css', [], $operation)['verified'] ?? null,
     'multiple selectors verify only in native priority and per-property byte order'
@@ -6204,17 +6204,17 @@ $GLOBALS['tec_readiness_dropdown_rows'] = false;
 $nativeDropdownGetsBeforePopulate = $GLOBALS['tec_readiness_dropdown_get_calls'];
 $nativeCacheSetsBeforePopulate = $GLOBALS['tec_readiness_cache_sets'];
 $nativeRepopulatedCache = $GLOBALS['tec_readiness_category_color_dropdown']->get_dropdown_categories();
-duo_check_same(
+wprism_check_same(
     $GLOBALS['tec_readiness_generated_dropdown_rows'],
     $nativeRepopulatedCache,
     'the exact fake native getter demonstrates that a cache miss deliberately repopulates the dropdown entry'
 );
-duo_check_same(
+wprism_check_same(
     $nativeDropdownGetsBeforePopulate + 1,
     $GLOBALS['tec_readiness_dropdown_get_calls'],
     'the native cache-miss fixture crosses the dropdown getter exactly once'
 );
-duo_check_same(
+wprism_check_same(
     $nativeCacheSetsBeforePopulate + 1,
     $GLOBALS['tec_readiness_cache_sets'],
     'the native cache-miss fixture publishes exactly one dropdown entry before reconciliation'
@@ -6231,17 +6231,17 @@ foreach ([
     $cacheStateHash = hash('sha256', serialize($cacheState));
     $firstReconcile = $colorProvider->reconcile_scoped('regenerate_css', [], $operation);
     $secondReconcile = $colorProvider->reconcile_scoped('regenerate_css', [], $operation);
-    duo_check_same(
+    wprism_check_same(
         $reconciled['after'] ?? null,
         $firstReconcile['after'] ?? null,
         "read-only reconciliation accepts $cacheStateLabel while binding durable CSS and dropdown semantics"
     );
-    duo_check_same(
+    wprism_check_same(
         $firstReconcile['after'] ?? null,
         $secondReconcile['after'] ?? null,
         "repeated reconciliation remains idempotent across $cacheStateLabel"
     );
-    duo_check_same(
+    wprism_check_same(
         $cacheStateHash,
         hash('sha256', serialize($GLOBALS['tec_readiness_dropdown_rows'])),
         "reconciliation does not mutate $cacheStateLabel"
@@ -6272,7 +6272,7 @@ foreach ([
 ] as $cacheStateLabel => $cacheState) {
     $GLOBALS['tec_readiness_dropdown_rows'] = $cacheState;
     $cacheStateHash = hash('sha256', serialize($cacheState));
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
         RuntimeException::class,
         "read-only reconciliation refuses $cacheStateLabel rather than certifying an incomplete cache effect",
@@ -6280,7 +6280,7 @@ foreach ([
             ? 'exceeds the bounded row frontier'
             : 'dropdown cache readback is stale or malformed'
     );
-    duo_check_same(
+    wprism_check_same(
         $cacheStateHash,
         hash('sha256', serialize($GLOBALS['tec_readiness_dropdown_rows'])),
         "cache refusal does not mutate $cacheStateLabel"
@@ -6295,32 +6295,32 @@ try {
 } catch (RuntimeException $e) {
     $cacheReadFailure = $e->getMessage();
 }
-duo_check(
+wprism_check(
     str_contains($cacheReadFailure, 'dropdown cache is unreadable')
         && !str_contains($cacheReadFailure, 'AKIA')
         && strlen($cacheReadFailure) < 300,
     'a native cache read failure refuses with a bounded secret-safe recovery diagnostic'
 );
-duo_check_same(
+wprism_check_same(
     $cacheReadFailureWitness,
     hash('sha256', serialize($GLOBALS['tec_readiness_dropdown_rows'])),
     'a native cache read failure cannot mutate the previously populated cache'
 );
-duo_check(
+wprism_check(
     $GLOBALS['tec_readiness_cache_reads'] > $reconcileCacheReads,
     'reconciliation uses only the exact read-only Tribe cache observation seam'
 );
-duo_check_same(
+wprism_check_same(
     $reconcileDropdownGets,
     $GLOBALS['tec_readiness_dropdown_get_calls'],
     'reconciliation never calls the native cache-populating dropdown provider'
 );
-duo_check_same(
+wprism_check_same(
     $reconcileCacheSets,
     $GLOBALS['tec_readiness_cache_sets'],
     'reconciliation never publishes a new dropdown cache value'
 );
-duo_check_same(
+wprism_check_same(
     $reconcileGeneratorCalls,
     $GLOBALS['tec_readiness_color_controller_calls'],
     'reconciliation never calls the native CSS generator'
@@ -6332,29 +6332,29 @@ $GLOBALS['tec_readiness_dropdown_rows'] = array_fill(
 );
 $cacheFrontierGeneratorCalls = $GLOBALS['tec_readiness_color_controller_calls'];
 $cacheFrontierBusts = $GLOBALS['tec_readiness_cache_busts'];
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->invoke('regenerate_css', []),
     RuntimeException::class,
     'an oversized preexisting dropdown cache refuses at its hard row frontier before native mutation',
     'exceeds the bounded row frontier'
 );
-duo_check_same(
+wprism_check_same(
     $cacheFrontierGeneratorCalls,
     $GLOBALS['tec_readiness_color_controller_calls'],
     'the oversized cache refusal happens before the native generator'
 );
-duo_check_same(
+wprism_check_same(
     $cacheFrontierBusts,
     $GLOBALS['tec_readiness_cache_busts'],
     'the oversized cache refusal happens before the native cache bust'
 );
 $GLOBALS['tec_readiness_dropdown_rows'] = false;
-duo_check_same(
+wprism_check_same(
     $cacheBustsAfterPartialRetries,
     $GLOBALS['tec_readiness_cache_busts'],
     'reconciliation probes never replay the native mutation'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->invoke('invented_capability', []),
     RuntimeException::class,
     'the provider capability surface is closed',
@@ -6363,7 +6363,7 @@ duo_check_throws(
 
 $GLOBALS['tec_readiness_term_meta'][71]['tec-events-cat-colors-primary'] = str_repeat('a', 1025);
 tec_readiness_sync_color_db();
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'an oversized relevant term-meta value refuses after a bounded prefix witness',
@@ -6376,7 +6376,7 @@ $colorDb->insert($colorDb->termmeta, [
     'meta_key' => 'tec-events-cat-colors-primary',
     'meta_value' => '#123ABC',
 ]);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'duplicate physical category-color metadata refuses before last-row-wins native behavior',
@@ -6393,7 +6393,7 @@ try {
 } catch (RuntimeException $e) {
     $categoryReadRefusal = $e->getMessage();
 }
-duo_check(
+wprism_check(
     str_contains($categoryReadRefusal, 'taxonomy identities is unreadable')
         && !str_contains($categoryReadRefusal, 'AKIA')
         && strlen($categoryReadRefusal) < 300,
@@ -6411,7 +6411,7 @@ $colorDb->seedTable($colorDb->term_taxonomy, $taxonomyFlood);
 $colorDb->seedTable($colorDb->terms, []);
 $colorDb->seedTable($colorDb->termmeta, []);
 tec_readiness_seed_color_options();
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'a hostile category taxonomy refuses before native get_terms or metadata traversal',
@@ -6444,18 +6444,18 @@ $GLOBALS['tec_readiness_dropdown_rows'] = false;
 tec_readiness_sync_color_db();
 $generatorFrontierCalls = $GLOBALS['tec_readiness_color_controller_calls'];
 $generatorFrontierBusts = $GLOBALS['tec_readiness_cache_busts'];
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->invoke('regenerate_css', []),
     RuntimeException::class,
     '501 relevant native category-meta rows refuse before the unordered Generator enters a second populated page',
     'safe one-page metadata frontier'
 );
-duo_check_same(
+wprism_check_same(
     $generatorFrontierCalls,
     $GLOBALS['tec_readiness_color_controller_calls'],
     'the unsafe second-page refusal happens before native CSS generation'
 );
-duo_check_same(
+wprism_check_same(
     $generatorFrontierBusts,
     $GLOBALS['tec_readiness_cache_busts'],
     'the unsafe second-page refusal happens before native cache mutation'
@@ -6487,7 +6487,7 @@ $colorDb->onQuery(static function (string $sql, string $method, FakeWpdb $db) us
     $db->seedTable($db->termmeta, $rows);
     return null;
 });
-duo_check_throws(
+wprism_check_throws(
     static fn() => $colorProvider->reconcile_scoped('regenerate_css', [], $operation),
     RuntimeException::class,
     'a concurrent category-color change between fresh witnesses refuses instead of blessing mixed generations',
@@ -6517,19 +6517,19 @@ $GLOBALS['tec_readiness_generated_dropdown_rows'] = [
     $plainCategoryDropdown,
 ];
 tec_readiness_sync_color_db();
-$equalPriorityOperation = ['format' => 'duo-provider-operation/v1', 'id' => 'tec-equal-priority'];
+$equalPriorityOperation = ['format' => 'wprism-provider-operation/v1', 'id' => 'tec-equal-priority'];
 $equalPriorityFirst = $colorProvider->invoke_scoped(
     'regenerate_css',
     [],
     $equalPriorityOperation
 );
 $equalPriorityFirstRaw = get_option('tec_events_category_color_css');
-duo_check_same(
+wprism_check_same(
     true,
     $equalPriorityFirst['verified'] ?? null,
     'the first native equal-priority generation produces a verified semantic scoped receipt'
 );
-duo_check(
+wprism_check(
     !array_key_exists('css_sha256', $equalPriorityFirst['before'] ?? [])
         && !array_key_exists('css_sha256', $equalPriorityFirst['after'] ?? []),
     'scoped recovery evidence excludes order-unstable raw CSS bytes while retaining canonical projections'
@@ -6545,18 +6545,18 @@ $equalPrioritySecond = $colorProvider->invoke_scoped(
     $equalPriorityOperation
 );
 $equalPrioritySecondRaw = get_option('tec_events_category_color_css');
-duo_check(
+wprism_check(
     is_string($equalPriorityFirstRaw)
         && is_string($equalPrioritySecondRaw)
         && !hash_equals($equalPriorityFirstRaw, $equalPrioritySecondRaw),
     'the fake native boundary exercises both byte permutations inside one equal-priority bucket'
 );
-duo_check_same(
+wprism_check_same(
     $equalPriorityFirst['after'] ?? null,
     $equalPrioritySecond['after'] ?? null,
     'equal-priority native byte permutations retain one exact semantic scoped postcondition'
 );
-duo_check_same(
+wprism_check_same(
     $equalPrioritySecond['after'] ?? null,
     $colorProvider->reconcile_scoped(
         'regenerate_css',
@@ -6566,7 +6566,7 @@ duo_check_same(
     'read-only recovery recognizes the second equal-priority native permutation without replaying it'
 );
 $cacheBustsAfterEqualPriority = $GLOBALS['tec_readiness_cache_busts'];
-duo_check_same(
+wprism_check_same(
     $cacheBustsAfterPartialRetries + 2,
     $cacheBustsAfterEqualPriority,
     'only the two explicit equal-priority invocations crossed the native mutation boundary'
@@ -6592,11 +6592,11 @@ $GLOBALS['tec_readiness_generated_css'] = '';
 $GLOBALS['tec_readiness_generated_dropdown_rows'] = [];
 tec_readiness_sync_color_db();
 $emptyColorReceipt = $colorProvider->invoke('regenerate_css', []);
-duo_check_same(true, $emptyColorReceipt['verified'] ?? null, 'zero event categories converge through the native empty CSS/dropdown path');
-duo_check_same(0, $emptyColorReceipt['after']['colored_category_count'] ?? null, 'zero-category receipt stays bounded at zero colored categories');
-duo_check_same(0, $emptyColorReceipt['after']['css_selector_count'] ?? null, 'zero categories store TEC native empty CSS without a synthetic selector');
-duo_check_same(false, $emptyColorReceipt['after']['dropdown_cache_present'] ?? null, 'zero categories finish with the native dropdown cache absent');
-duo_check_same(
+wprism_check_same(true, $emptyColorReceipt['verified'] ?? null, 'zero event categories converge through the native empty CSS/dropdown path');
+wprism_check_same(0, $emptyColorReceipt['after']['colored_category_count'] ?? null, 'zero-category receipt stays bounded at zero colored categories');
+wprism_check_same(0, $emptyColorReceipt['after']['css_selector_count'] ?? null, 'zero categories store TEC native empty CSS without a synthetic selector');
+wprism_check_same(false, $emptyColorReceipt['after']['dropdown_cache_present'] ?? null, 'zero categories finish with the native dropdown cache absent');
+wprism_check_same(
     true,
     $colorProvider->reconcile_scoped('regenerate_css', [], $operation)['verified'] ?? null,
     'zero-category reconciliation verifies the native empty state without mutation'
@@ -6606,10 +6606,10 @@ $GLOBALS['tec_readiness_terms'] = [(object) ['term_id' => 72, 'slug' => 'plain-c
 $GLOBALS['tec_readiness_term_meta'] = [72 => []];
 tec_readiness_sync_color_db();
 $plainColorReceipt = $colorProvider->invoke('regenerate_css', []);
-duo_check_same(true, $plainColorReceipt['verified'] ?? null, 'categories with no color metadata converge through native empty generated state');
-duo_check_same(0, $plainColorReceipt['after']['colored_category_count'] ?? null, 'an uncolored native category is not invented as a colored selector');
-duo_check_same(false, $plainColorReceipt['after']['dropdown_cache_present'] ?? null, 'an uncolored native category finishes with the dropdown cache absent');
-duo_check_same(
+wprism_check_same(true, $plainColorReceipt['verified'] ?? null, 'categories with no color metadata converge through native empty generated state');
+wprism_check_same(0, $plainColorReceipt['after']['colored_category_count'] ?? null, 'an uncolored native category is not invented as a colored selector');
+wprism_check_same(false, $plainColorReceipt['after']['dropdown_cache_present'] ?? null, 'an uncolored native category finishes with the dropdown cache absent');
+wprism_check_same(
     $cacheBustsAfterEqualPriority + 2,
     $GLOBALS['tec_readiness_cache_busts'],
     'only explicit provider invocations replayed native cache mutation'
@@ -6652,9 +6652,9 @@ function tec_readiness_capture_customizer_record(
     $db->seedTable($db->options, $rows);
     $transactionStarted = false;
     try {
-        \Duo\Db::start_read_only_consistent_snapshot('TEC Customizer capture fixture');
+        \WPrism\Db::start_read_only_consistent_snapshot('TEC Customizer capture fixture');
         $transactionStarted = true;
-        $capture = new \Duo\OptionsCapture(
+        $capture = new \WPrism\OptionsCapture(
             $policy,
             new Tokens('https://source.example', 'https://source.example/uploads'),
             static function (): void {},
@@ -6662,7 +6662,7 @@ function tec_readiness_capture_customizer_record(
             static fn(): bool => false
         );
         $rule = $policy->sub_keyed_options()['tribe_customizer'] ?? null;
-        duo_check(is_array($rule), 'the product capture fixture resolves the declared Customizer mixed-option rule');
+        wprism_check(is_array($rule), 'the product capture fixture resolves the declared Customizer mixed-option rule');
         $details = $policy->option_rule_details('tribe_customizer');
         $source = is_string($details['source'] ?? null) ? $details['source'] : null;
         $liveCanonicalNames = [];
@@ -6686,7 +6686,7 @@ function tec_readiness_capture_customizer_record(
         return $out['tribe_customizer'] ?? null;
     } finally {
         if ($transactionStarted) {
-            \Duo\Db::rollback('TEC Customizer capture fixture rollback');
+            \WPrism\Db::rollback('TEC Customizer capture fixture rollback');
         }
         $GLOBALS['wpdb'] = $savedDb;
     }
@@ -6781,33 +6781,33 @@ function tec_readiness_materialize_mixed_option(
     $GLOBALS['tec_readiness_wp_cache_delete_mode'] = $cacheDeleteMode;
     $GLOBALS['tec_readiness_wp_cache_deletes'] = $savedCacheDeletes;
     $tokens = new Tokens('https://target.example', 'https://target.example/uploads');
-    $fieldMaterializer = new \Duo\ApplyFieldMaterializer($policy, $tokens);
-    $optionsMaterializer = new \Duo\OptionsMaterializer($policy, $tokens, $fieldMaterializer);
+    $fieldMaterializer = new \WPrism\ApplyFieldMaterializer($policy, $tokens);
+    $optionsMaterializer = new \WPrism\OptionsMaterializer($policy, $tokens, $fieldMaterializer);
     $transactionStarted = false;
     $participantsStarted = false;
     $cacheStarted = false;
     $failure = null;
     $warnings = [];
     try {
-        \Duo\Db::start_repeatable_read('TEC mixed-option fixture apply');
+        \WPrism\Db::start_repeatable_read('TEC mixed-option fixture apply');
         $transactionStarted = true;
         $fieldMaterializer->begin_authored_transaction();
         $optionsMaterializer->begin_authored_transaction();
         $participantsStarted = true;
-        \Duo\CacheInvalidationTransaction::begin();
+        \WPrism\CacheInvalidationTransaction::begin();
         $cacheStarted = true;
         $desiredRecord = $desiredPresent
-            ? \Duo\OptionState::present($desired, $desiredAutoload)
-            : \Duo\OptionState::absent();
+            ? \WPrism\OptionState::present($desired, $desiredAutoload)
+            : \WPrism\OptionState::absent();
         $optionsMaterializer->apply_options(
-            \Duo\OptionState::document([$name => $desiredRecord]),
+            \WPrism\OptionState::document([$name => $desiredRecord]),
             false,
             $warnings
         );
-        \Duo\Db::commit('TEC mixed-option fixture commit');
+        \WPrism\Db::commit('TEC mixed-option fixture commit');
         $transactionStarted = false;
         $optionsMaterializer->commit_authored_transaction();
-        \Duo\CacheInvalidationTransaction::finish();
+        \WPrism\CacheInvalidationTransaction::finish();
     } catch (Throwable $caught) {
         $failure = $caught;
         if ($transactionStarted) {
@@ -6820,10 +6820,10 @@ function tec_readiness_materialize_mixed_option(
                     }
                 }
             } finally {
-                \Duo\Db::rollback('TEC mixed-option fixture rollback');
+                \WPrism\Db::rollback('TEC mixed-option fixture rollback');
                 $transactionStarted = false;
                 if ($cacheStarted) {
-                    \Duo\CacheInvalidationTransaction::finish();
+                    \WPrism\CacheInvalidationTransaction::finish();
                 }
             }
         }
@@ -6858,7 +6858,7 @@ function tec_readiness_materialize_mixed_option(
         $fieldMaterializer->end_authored_transaction();
     }
     if ($cacheStarted) {
-        \Duo\CacheInvalidationTransaction::end();
+        \WPrism\CacheInvalidationTransaction::end();
     }
     $GLOBALS['wpdb'] = $savedDb;
     $GLOBALS['tec_readiness_tribe_vars'] = $savedTribeVars;
@@ -6890,14 +6890,14 @@ function tec_readiness_materialize_mixed_option(
 /** @return array<string,mixed> */
 $decodeMixedRow = static function (array $result): array {
     $wire = $result['row']['option_value'] ?? null;
-    duo_check(is_string($wire), 'the native mixed-option fixture retained one string storage row');
-    $decoded = is_string($wire) ? \Duo\PlainData::decode($wire, 'TEC mixed-option fixture') : null;
-    duo_check(is_array($decoded), 'the native mixed-option fixture retained one array-shaped storage value');
+    wprism_check(is_string($wire), 'the native mixed-option fixture retained one string storage row');
+    $decoded = is_string($wire) ? \WPrism\PlainData::decode($wire, 'TEC mixed-option fixture') : null;
+    wprism_check(is_array($decoded), 'the native mixed-option fixture retained one array-shaped storage value');
     return is_array($decoded) ? $decoded : [];
 };
 
 $legacyFallback = ['global_elements' => ['background_color_choice' => 'CUSTOM !!']];
-duo_check_same(
+wprism_check_same(
     [
         'state' => 'present',
         'autoload' => 'auto-on',
@@ -6906,17 +6906,17 @@ duo_check_same(
     tec_readiness_capture_customizer_record($policy, false, [], true, $legacyFallback),
     'the product capture path canonicalizes a legacy-only Customizer row into the current record'
 );
-duo_check_same(
+wprism_check_same(
     ['state' => 'present', 'autoload' => 'off', 'value' => []],
     tec_readiness_capture_customizer_record($policy, true, [], true, $legacyFallback, 'off'),
     'the product capture path gives a persisted empty current row precedence over populated legacy bytes'
 );
-duo_check_same(
+wprism_check_same(
     null,
     tec_readiness_capture_customizer_record($policy, false, [], false, []),
     'the product capture path preserves canonical absence when both current and legacy rows are absent'
 );
-duo_check_same(
+wprism_check_same(
     null,
     tec_readiness_capture_customizer_record($policy, false, [], true, []),
     'an empty legacy-only row remains canonical absence because its target-owned fallback is behaviorally empty'
@@ -6927,9 +6927,9 @@ $decodeLegacyCompanion = static function (array $result): ?array {
     if ($wire === null) {
         return null;
     }
-    duo_check(is_string($wire), 'the legacy Customizer companion retains one string storage row');
-    $decoded = is_string($wire) ? \Duo\PlainData::decode($wire, 'TEC legacy Customizer companion') : null;
-    duo_check(is_array($decoded), 'the legacy Customizer companion remains array-shaped');
+    wprism_check(is_string($wire), 'the legacy Customizer companion retains one string storage row');
+    $decoded = is_string($wire) ? \WPrism\PlainData::decode($wire, 'TEC legacy Customizer companion') : null;
+    wprism_check(is_array($decoded), 'the legacy Customizer companion remains array-shaped');
     return is_array($decoded) ? $decoded : null;
 };
 
@@ -6956,9 +6956,9 @@ $absentAgainstLegacy = tec_readiness_materialize_mixed_option(
     targetLegacy: $targetLegacy,
     desiredPresent: false
 );
-duo_check_same(null, $absentAgainstLegacy['failure'], 'absent canonical intent performs no Customizer write');
-duo_check_same(null, $absentAgainstLegacy['row'], 'absent source intent does not shadow a target legacy fallback');
-duo_check_same(
+wprism_check_same(null, $absentAgainstLegacy['failure'], 'absent canonical intent performs no Customizer write');
+wprism_check_same(null, $absentAgainstLegacy['row'], 'absent source intent does not shadow a target legacy fallback');
+wprism_check_same(
     $targetLegacy,
     $decodeLegacyCompanion($absentAgainstLegacy),
     'absent source intent preserves the exact target-owned legacy fallback row'
@@ -6971,20 +6971,20 @@ $explicitEmptyAgainstLegacy = tec_readiness_materialize_mixed_option(
     target: null,
     targetLegacy: $targetLegacy
 );
-duo_check_same(
+wprism_check_same(
     null,
     $explicitEmptyAgainstLegacy['failure'],
     'explicit canonical empty intent safely shadows a populated target legacy fallback'
 );
-duo_check_same([], $decodeMixedRow($explicitEmptyAgainstLegacy), 'explicit empty intent persists a canonical empty row');
-duo_check_same(
+wprism_check_same([], $decodeMixedRow($explicitEmptyAgainstLegacy), 'explicit empty intent persists a canonical empty row');
+wprism_check_same(
     $targetLegacy,
     $decodeLegacyCompanion($explicitEmptyAgainstLegacy),
     'explicit canonical empty intent does not mutate the target-owned legacy companion'
 );
 
 $legacySourceRecord = tec_readiness_capture_customizer_record($policy, false, [], true, $legacyFallback);
-duo_check(is_array($legacySourceRecord), 'legacy-only capture emits one canonical present record');
+wprism_check(is_array($legacySourceRecord), 'legacy-only capture emits one canonical present record');
 $legacyOnlyApply = tec_readiness_materialize_mixed_option(
     policy: $policy,
     name: 'tribe_customizer',
@@ -6993,13 +6993,13 @@ $legacyOnlyApply = tec_readiness_materialize_mixed_option(
     desiredAutoload: (string) ($legacySourceRecord['autoload'] ?? 'auto-on'),
     targetLegacy: $targetLegacy
 );
-duo_check_same(null, $legacyOnlyApply['failure'], 'legacy-only source state canonicalizes on apply');
-duo_check_same(
+wprism_check_same(null, $legacyOnlyApply['failure'], 'legacy-only source state canonicalizes on apply');
+wprism_check_same(
     ['global_elements' => ['background_color_choice' => 'custom']],
     $decodeMixedRow($legacyOnlyApply),
     'legacy-only source state becomes the exact effective canonical value'
 );
-duo_check_same(
+wprism_check_same(
     $targetLegacy,
     $decodeLegacyCompanion($legacyOnlyApply),
     'legacy-only source canonicalization preserves divergent target legacy residue'
@@ -7014,7 +7014,7 @@ $canonicalPrecedenceRecord = tec_readiness_capture_customizer_record(
     $legacyFallback,
     'on'
 );
-duo_check_same(
+wprism_check_same(
     ['state' => 'present', 'autoload' => 'on', 'value' => ['single_event' => ['post_title_color_choice' => 'custom']]],
     $canonicalPrecedenceRecord,
     'a populated canonical source row wins over a conflicting populated legacy row'
@@ -7027,13 +7027,13 @@ $canonicalPrecedenceApply = tec_readiness_materialize_mixed_option(
     desiredAutoload: 'on',
     targetLegacy: $targetLegacy
 );
-duo_check_same(null, $canonicalPrecedenceApply['failure'], 'canonical source precedence applies transactionally');
-duo_check_same(
+wprism_check_same(null, $canonicalPrecedenceApply['failure'], 'canonical source precedence applies transactionally');
+wprism_check_same(
     ['single_event' => ['post_title_color_choice' => 'custom']],
     $decodeMixedRow($canonicalPrecedenceApply),
     'canonical source precedence replaces a conflicting target canonical value'
 );
-duo_check_same(
+wprism_check_same(
     $targetLegacy,
     $decodeLegacyCompanion($canonicalPrecedenceApply),
     'canonical source precedence leaves its target legacy companion byte-exact'
@@ -7077,12 +7077,12 @@ $customizerCases = [
 $customizerResults = [];
 foreach ($customizerCases as $label => [$desired, $target, $expected]) {
     $result = tec_readiness_materialize_mixed_option($policy, 'tribe_customizer', $desired, $target);
-    duo_check_same(null, $result['failure'], "Customizer $label succeeds through the native product materializer");
-    duo_check_same([], $result['warnings'], "Customizer $label emits no generic absent-target fallback warning");
-    duo_check_same($expected, $decodeMixedRow($result), "Customizer $label persists the exact sparse carrier semantics");
+    wprism_check_same(null, $result['failure'], "Customizer $label succeeds through the native product materializer");
+    wprism_check_same([], $result['warnings'], "Customizer $label emits no generic absent-target fallback warning");
+    wprism_check_same($expected, $decodeMixedRow($result), "Customizer $label persists the exact sparse carrier semantics");
     $customizerResults[$label] = $result;
 }
-duo_check_same(
+wprism_check_same(
     $customizerResults['absent desired with target residue carrier']['row']['option_value'] ?? null,
     $customizerResults['explicit empty desired with the same residue carrier']['row']['option_value'] ?? null,
     'identical physical residue bytes verify as absent or explicit-empty only through the engine-owned desired-key roster'
@@ -7123,13 +7123,13 @@ $legacyDrift = tec_readiness_materialize_mixed_option(
         });
     }
 );
-duo_check(
+wprism_check(
     $legacyDrift['failure'] instanceof RuntimeException
         && str_contains($legacyDrift['failure']->getMessage(), 'changed a locked companion option'),
     'same-length legacy companion drift between initial lock and post-hook verification refuses the apply'
 );
-duo_check_same(null, $legacyDrift['row'], 'legacy companion drift rolls canonical insertion back to exact absence');
-duo_check_same(
+wprism_check_same(null, $legacyDrift['row'], 'legacy companion drift rolls canonical insertion back to exact absence');
+wprism_check_same(
     $driftingLegacy,
     $decodeLegacyCompanion($legacyDrift),
     'legacy companion drift rollback restores its exact transaction preimage'
@@ -7141,8 +7141,8 @@ $legacyDriftRetry = tec_readiness_materialize_mixed_option(
     target: null,
     targetLegacy: $driftingLegacy
 );
-duo_check_same(null, $legacyDriftRetry['failure'], 'same-process retry converges after legacy companion drift stops');
-duo_check_same(
+wprism_check_same(null, $legacyDriftRetry['failure'], 'same-process retry converges after legacy companion drift stops');
+wprism_check_same(
     $driftingLegacy,
     $decodeLegacyCompanion($legacyDriftRetry),
     'the converged retry preserves the exact target legacy companion'
@@ -7166,7 +7166,7 @@ foreach ([
         $malformedProjectionRefused = str_contains($failure->getMessage(), 'desired-section roster')
             || str_contains($failure->getMessage(), 'malformed desired section');
     }
-    duo_check(
+    wprism_check(
         $malformedProjectionRefused,
         "the Customizer projection refuses a $label outside the engine-generated desired-key contract"
     );
@@ -7179,12 +7179,12 @@ $unknownCustomizer = tec_readiness_materialize_mixed_option(
     ['tec_events_bar' => ['events_bar_text_color' => '#123456']],
     $unknownCustomizerTarget
 );
-duo_check(
+wprism_check(
     $unknownCustomizer['failure'] instanceof RuntimeException
         && str_contains($unknownCustomizer['failure']->getMessage(), 'undeclared setting'),
     'an unknown nested Customizer setting refuses through the product materializer before replacement'
 );
-duo_check_same(
+wprism_check_same(
     $unknownCustomizerTarget,
     $decodeMixedRow($unknownCustomizer),
     'unknown nested Customizer refusal preserves exact target bytes for same-process repair'
@@ -7195,7 +7195,7 @@ $unknownCustomizerRetry = tec_readiness_materialize_mixed_option(
     ['tec_events_bar' => ['events_bar_text_color' => '#123456']],
     $residueCarrier
 );
-duo_check_same(null, $unknownCustomizerRetry['failure'], 'same-process retry after removing an unknown setting converges');
+wprism_check_same(null, $unknownCustomizerRetry['failure'], 'same-process retry after removing an unknown setting converges');
 
 $hostileCustomizerFilter = static fn(mixed $value): mixed => $value;
 add_filter('tribe_customizer_get_option', $hostileCustomizerFilter);
@@ -7207,12 +7207,12 @@ $hookRefusal = tec_readiness_materialize_mixed_option(
     $hookRefusalTarget
 );
 remove_filter('tribe_customizer_get_option', $hostileCustomizerFilter);
-duo_check(
+wprism_check(
     $hookRefusal['failure'] instanceof RuntimeException
         && str_contains($hookRefusal['failure']->getMessage(), 'hook topology is extended'),
     'an unsupported Customizer value callback refuses before adapter storage mutation'
 );
-duo_check_same(
+wprism_check_same(
     $hookRefusalTarget,
     $decodeMixedRow($hookRefusal),
     'unsupported Customizer callback refusal preserves the exact dirty target row'
@@ -7244,15 +7244,15 @@ foreach ($optionMutationHooks as $label => [$hookName, $target]) {
         $target
     );
     remove_filter($hookName, $hostileOptionMutationCallback, 999);
-    duo_check(
+    wprism_check(
         $mutationHookRefusal['failure'] instanceof RuntimeException
             && str_contains($mutationHookRefusal['failure']->getMessage(), 'option mutation hook topology'),
         "a $label refuses before the raw Customizer writer can bypass it"
     );
     if ($target === null) {
-        duo_check_same(null, $mutationHookRefusal['row'], "$label refusal preserves exact target absence");
+        wprism_check_same(null, $mutationHookRefusal['row'], "$label refusal preserves exact target absence");
     } else {
-        duo_check_same($target, $decodeMixedRow($mutationHookRefusal), "$label refusal preserves exact target bytes");
+        wprism_check_same($target, $decodeMixedRow($mutationHookRefusal), "$label refusal preserves exact target bytes");
     }
     $mutationHookRetry = tec_readiness_materialize_mixed_option(
         $policy,
@@ -7260,7 +7260,7 @@ foreach ($optionMutationHooks as $label => [$hookName, $target]) {
         ['month_view' => ['grid_lines_color' => '#112233']],
         $target
     );
-    duo_check_same(null, $mutationHookRetry['failure'], "$label removal permits a same-process retry");
+    wprism_check_same(null, $mutationHookRetry['failure'], "$label removal permits a same-process retry");
 }
 
 $substitutedSettingsManager = new Tribe__Settings_Manager();
@@ -7271,12 +7271,12 @@ $substitutedManagerRefusal = tec_readiness_materialize_mixed_option(
     $hookRefusalTarget
 );
 remove_filter('updated_option', [$substitutedSettingsManager, 'update_options_cache'], 10);
-duo_check(
+wprism_check(
     $substitutedManagerRefusal['failure'] instanceof RuntimeException
         && str_contains($substitutedManagerRefusal['failure']->getMessage(), 'option mutation hook topology'),
     'a same-class non-singleton Settings Manager callback refuses before Customizer storage mutation'
 );
-duo_check_same(
+wprism_check_same(
     $hookRefusalTarget,
     $decodeMixedRow($substitutedManagerRefusal),
     'same-class callback substitution preserves the exact Customizer preimage'
@@ -7292,7 +7292,7 @@ foreach (['update_last_updated_option', 'update_last_save_post'] as $method) {
         $hookRefusalTarget
     );
     remove_action('updated_option', [$foreignListener, $method], 10);
-    duo_check(
+    wprism_check(
         $foreignListenerRefusal['failure'] instanceof RuntimeException
             && str_contains($foreignListenerRefusal['failure']->getMessage(), 'option mutation hook topology'),
         "a same-class non-singleton CacheListener::$method callback refuses before storage"
@@ -7308,7 +7308,7 @@ $foreignAggregatorRefusal = tec_readiness_materialize_mixed_option(
     $hookRefusalTarget
 );
 remove_action('updated_option', [$foreignAggregator, 'action_purge_transients'], 10);
-duo_check(
+wprism_check(
     $foreignAggregatorRefusal['failure'] instanceof RuntimeException
         && str_contains($foreignAggregatorRefusal['failure']->getMessage(), 'option mutation hook topology'),
     'a same-class non-singleton Aggregator callback refuses before storage'
@@ -7324,7 +7324,7 @@ $foreignViewsRefusal = tec_readiness_materialize_mixed_option(
 remove_action('updated_option', [$foreignViews, 'action_save_wplang'], 10);
 remove_action('tribe_events_pre_rewrite', [$foreignViews, 'on_tribe_events_pre_rewrite'], 10);
 remove_filter('tribe_events_rewrite_i18n_slugs_raw', [$foreignViews, 'filter_rewrite_i18n_slugs_raw'], 50);
-duo_check(
+wprism_check(
     $foreignViewsRefusal['failure'] instanceof RuntimeException
         && str_contains($foreignViewsRefusal['failure']->getMessage(), 'option mutation hook topology'),
     'a same-class non-container Views callback refuses before storage'
@@ -7357,7 +7357,7 @@ remove_filter(
     'wp_filter_default_autoload_value_via_option_size',
     5
 );
-duo_check_same(
+wprism_check_same(
     null,
     $coreAutoloadTopology['failure'],
     'the exact pinned WordPress default-autoload callback remains admitted on canonical insertion'
@@ -7375,16 +7375,16 @@ $rollbackCustomizer = tec_readiness_materialize_mixed_option(
     null,
     'one_throw'
 );
-duo_check($rollbackCustomizer['failure'] instanceof RuntimeException, 'an injected post-write cache failure aborts Customizer apply');
-duo_check_same($rollbackTarget, $decodeMixedRow($rollbackCustomizer), 'Customizer rollback restores exact raw target bytes');
-duo_check_same('off', $rollbackCustomizer['row']['autoload'] ?? null, 'Customizer rollback restores exact target autoload');
+wprism_check($rollbackCustomizer['failure'] instanceof RuntimeException, 'an injected post-write cache failure aborts Customizer apply');
+wprism_check_same($rollbackTarget, $decodeMixedRow($rollbackCustomizer), 'Customizer rollback restores exact raw target bytes');
+wprism_check_same('off', $rollbackCustomizer['row']['autoload'] ?? null, 'Customizer rollback restores exact target autoload');
 $rollbackCustomizerRetry = tec_readiness_materialize_mixed_option(
     $policy,
     'tribe_customizer',
     ['tec_events_bar' => ['events_bar_text_color' => '#123456']],
     $rollbackTarget
 );
-duo_check_same(null, $rollbackCustomizerRetry['failure'], 'same-process Customizer retry converges after rollback');
+wprism_check_same(null, $rollbackCustomizerRetry['failure'], 'same-process Customizer retry converges after rollback');
 
 $mainTarget = ['eventsSlug' => 'dirty-events', 'debugEvents' => true];
 $mainSettings = tec_readiness_materialize_mixed_option(
@@ -7398,24 +7398,24 @@ $mainSettings = tec_readiness_materialize_mixed_option(
     ['eventsSlug' => 'stale-cache'],
     timePlan: [1000.125, 1000.875]
 );
-duo_check_same(null, $mainSettings['failure'], 'the closed main settings blob materializes through the exact interpreter owner');
-duo_check_same(
+wprism_check_same(null, $mainSettings['failure'], 'the closed main settings blob materializes through the exact interpreter owner');
+wprism_check_same(
     ['debugEvents' => true, 'eventsSlug' => 'portable-events'],
     $decodeMixedRow($mainSettings),
     'main settings replace authored siblings and preserve target-owned operational state'
 );
-duo_check_same(true, $mainSettings['settings_cache_present'], 'successful main-settings update publishes the native request cache');
-duo_check_same(
+wprism_check_same(true, $mainSettings['settings_cache_present'], 'successful main-settings update publishes the native request cache');
+wprism_check_same(
     ['debugEvents' => true, 'eventsSlug' => 'portable-events'],
     $mainSettings['settings_cache'],
     'the native Settings Manager effect caches the exact newly stored main option value'
 );
-duo_check_same(
+wprism_check_same(
     ['tribe_last_updated_option', 'tribe_last_save_post'],
     array_keys($mainSettings['runtime_rows']),
     'the two CacheListener effects persist in their actual same-priority registration order'
 );
-duo_check_same(
+wprism_check_same(
     ['option_value' => '1000.125', 'autoload' => 'auto-on'],
     array_intersect_key(
         $mainSettings['runtime_rows']['tribe_last_updated_option'] ?? [],
@@ -7423,7 +7423,7 @@ duo_check_same(
     ),
     'the first exact microtime call creates the updated-option marker with pinned default autoload'
 );
-duo_check_same(
+wprism_check_same(
     ['option_value' => '1000.875', 'autoload' => 'auto-on'],
     array_intersect_key(
         $mainSettings['runtime_rows']['tribe_last_save_post'] ?? [],
@@ -7431,8 +7431,8 @@ duo_check_same(
     ),
     'the second exact microtime call creates the save-post marker independently'
 );
-duo_check_same(true, $mainSettings['purge_flag_present'], 'successful marker writes publish the native purge flag');
-duo_check_same(true, $mainSettings['purge_flag'], 'the native transient-purge intent is the exact boolean true');
+wprism_check_same(true, $mainSettings['purge_flag_present'], 'successful marker writes publish the native purge flag');
+wprism_check_same(true, $mainSettings['purge_flag'], 'the native transient-purge intent is the exact boolean true');
 
 $allDayPreimage = [
     ['meta_id' => 1, 'post_id' => 9001, 'meta_key' => '_EventAllDay', 'meta_value' => 'yes'],
@@ -7440,7 +7440,7 @@ $allDayPreimage = [
     ['meta_id' => 3, 'post_id' => 9001, 'meta_key' => '_EventEndDate', 'meta_value' => '2020-02-03 04:03:04'],
     ['meta_id' => 4, 'post_id' => 9001, 'meta_key' => '_EventDuration', 'meta_value' => '7200'],
     // Native joins are unsafe even around hostile duplicates. Since both
-    // trigger values are target-owned and unchanged, Duo must not inspect or
+    // trigger values are target-owned and unchanged, WPrism must not inspect or
     // normalize this unrelated target-local state at all.
     ['meta_id' => 5, 'post_id' => 9002, 'meta_key' => '_EventAllDay', 'meta_value' => 'yes'],
     ['meta_id' => 6, 'post_id' => 9002, 'meta_key' => '_EventStartDate', 'meta_value' => 'malformed'],
@@ -7463,13 +7463,13 @@ $noOpEffects = tec_readiness_materialize_mixed_option(
     },
     timePlan: [1001.125, 1001.875]
 );
-duo_check_same(null, $noOpEffects['failure'], 'the exact two native settings callbacks are admitted only as proved no-ops');
+wprism_check_same(null, $noOpEffects['failure'], 'the exact two native settings callbacks are admitted only as proved no-ops');
 $noOpStorage = $decodeMixedRow($noOpEffects);
-duo_check_same('07:00', $noOpStorage['multiDayCutoff'] ?? null, 'target-owned cutoff survives an unrelated authored update');
-duo_check_same(24, $noOpStorage['delete-past-events'] ?? null, 'target-owned cleaner schedule survives an unrelated authored update');
-duo_check_same($allDayPreimage, $noOpEffects['postmeta_rows'], 'no-op callback bypass preserves malformed/duplicate target-local all-day rows byte-exact');
-duo_check_same($cutoffCallsBefore, $GLOBALS['tec_readiness_cutoff_effect_calls'], 'Duo never executes the unchecked all-day postmeta callback');
-duo_check_same($cleanerCallsBefore, $GLOBALS['tec_readiness_cleaner_effect_calls'], 'Duo never executes the permanent event-cleaner callback');
+wprism_check_same('07:00', $noOpStorage['multiDayCutoff'] ?? null, 'target-owned cutoff survives an unrelated authored update');
+wprism_check_same(24, $noOpStorage['delete-past-events'] ?? null, 'target-owned cleaner schedule survives an unrelated authored update');
+wprism_check_same($allDayPreimage, $noOpEffects['postmeta_rows'], 'no-op callback bypass preserves malformed/duplicate target-local all-day rows byte-exact');
+wprism_check_same($cutoffCallsBefore, $GLOBALS['tec_readiness_cutoff_effect_calls'], 'WPrism never executes the unchecked all-day postmeta callback');
+wprism_check_same($cleanerCallsBefore, $GLOBALS['tec_readiness_cleaner_effect_calls'], 'WPrism never executes the permanent event-cleaner callback');
 
 $effectGuard = new ReflectionMethod($interpreter, 'assert_calendar_option_update_callbacks_are_noop');
 foreach ([
@@ -7482,7 +7482,7 @@ foreach ([
         ['multiDayCutoff' => '07:00', 'delete-past-events' => 6],
     ],
 ] as $label => [$oldEffectValue, $newEffectValue]) {
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $effectGuard->invoke($interpreter, $oldEffectValue, $newEffectValue),
         RuntimeException::class,
         "the pre-storage no-op proof refuses $label before a broad native effect could be skipped",
@@ -7499,19 +7499,19 @@ $extendedMainTopology = tec_readiness_materialize_mixed_option(
     $effectTarget
 );
 remove_action('update_option_tribe_events_calendar_options', $hostileMainSpecific, 999);
-duo_check(
+wprism_check(
     $extendedMainTopology['failure'] instanceof RuntimeException
         && str_contains($extendedMainTopology['failure']->getMessage(), 'settings-effect callback topology'),
     'an extension callback on the exact main-option hook refuses before storage'
 );
-duo_check_same($effectTarget, $decodeMixedRow($extendedMainTopology), 'extended settings topology preserves the exact target row');
+wprism_check_same($effectTarget, $decodeMixedRow($extendedMainTopology), 'extended settings topology preserves the exact target row');
 $extendedMainRetry = tec_readiness_materialize_mixed_option(
     $policy,
     'tribe_events_calendar_options',
     ['eventsSlug' => 'portable-events'],
     $effectTarget
 );
-duo_check_same(null, $extendedMainRetry['failure'], 'removing the main-option extension callback permits same-process retry');
+wprism_check_same(null, $extendedMainRetry['failure'], 'removing the main-option extension callback permits same-process retry');
 
 $mainSingleton = Tribe__Events__Main::instance();
 $foreignMain = (new ReflectionClass(Tribe__Events__Main::class))->newInstanceWithoutConstructor();
@@ -7528,7 +7528,7 @@ remove_action('update_option_tribe_events_calendar_options', $cleanerCallback, 1
 remove_action('update_option_tribe_events_calendar_options', [$foreignMain, 'fix_all_day_events'], 10);
 add_action('update_option_tribe_events_calendar_options', [$mainSingleton, 'fix_all_day_events'], 10, 2);
 add_action('update_option_tribe_events_calendar_options', $cleanerCallback, 10, 2);
-duo_check(
+wprism_check(
     $substitutedMainEffect['failure'] instanceof RuntimeException
         && str_contains($substitutedMainEffect['failure']->getMessage(), 'extended or substituted'),
     'a same-class non-singleton all-day callback refuses before storage'
@@ -7545,7 +7545,7 @@ $substitutedCleanerEffect = tec_readiness_materialize_mixed_option(
 );
 remove_action('update_option_tribe_events_calendar_options', $foreignCleanerCallback, 10);
 add_action('update_option_tribe_events_calendar_options', $cleanerCallback, 10, 2);
-duo_check(
+wprism_check(
     $substitutedCleanerEffect['failure'] instanceof RuntimeException
         && str_contains($substitutedCleanerEffect['failure']->getMessage(), 'extended or substituted'),
     'a closure substituted for the container-cached event-cleaner callback refuses before storage'
@@ -7556,7 +7556,7 @@ $substitutedEffectRetry = tec_readiness_materialize_mixed_option(
     ['eventsSlug' => 'portable-events'],
     $effectTarget
 );
-duo_check_same(null, $substitutedEffectRetry['failure'], 'restoring exact native callback identities permits same-process retry');
+wprism_check_same(null, $substitutedEffectRetry['failure'], 'restoring exact native callback identities permits same-process retry');
 
 $mainInsert = tec_readiness_materialize_mixed_option(
     policy: $policy,
@@ -7569,14 +7569,14 @@ $mainInsert = tec_readiness_materialize_mixed_option(
     purgeFlag: false,
     timePlan: [1100.1, 1100.2]
 );
-duo_check_same(null, $mainInsert['failure'], 'an absent main option follows the native add branch');
-duo_check_same([], $mainInsert['runtime_rows'], 'the add branch fires no updated_option CacheListener effects');
-duo_check_same(
+wprism_check_same(null, $mainInsert['failure'], 'an absent main option follows the native add branch');
+wprism_check_same([], $mainInsert['runtime_rows'], 'the add branch fires no updated_option CacheListener effects');
+wprism_check_same(
     ['eventsSlug' => 'target-local-cache'],
     $mainInsert['settings_cache'],
     'the add branch does not invent a Settings Manager updated_option cache effect'
 );
-duo_check_same(false, $mainInsert['purge_flag'], 'the add branch preserves a preexisting false purge-flag value');
+wprism_check_same(false, $mainInsert['purge_flag'], 'the add branch preserves a preexisting false purge-flag value');
 
 $mainNoopRuntime = [
     'tribe_last_updated_option' => ['option_value' => 'old-updated', 'autoload' => 'yes'],
@@ -7592,13 +7592,13 @@ $mainNoop = tec_readiness_materialize_mixed_option(
     targetRuntimeRows: $mainNoopRuntime,
     timePlan: [1200.1, 1200.2]
 );
-duo_check_same(null, $mainNoop['failure'], 'an unchanged main value materializes without native update callbacks');
-duo_check_same(
+wprism_check_same(null, $mainNoop['failure'], 'an unchanged main value materializes without native update callbacks');
+wprism_check_same(
     ['eventsSlug' => 'same-cache'],
     $mainNoop['settings_cache'],
     'an unchanged main value preserves the existing Settings Manager cache preimage'
 );
-duo_check_same(
+wprism_check_same(
     $mainNoopRuntime,
     array_map(
         static fn(array $row): array => array_intersect_key($row, ['option_value' => true, 'autoload' => true]),
@@ -7606,7 +7606,7 @@ duo_check_same(
     ),
     'an unchanged main value leaves both native marker bytes and autoloads exact'
 );
-duo_check_same(false, $mainNoop['purge_flag_present'], 'an unchanged main value does not create purge intent');
+wprism_check_same(false, $mainNoop['purge_flag_present'], 'an unchanged main value does not create purge intent');
 
 $mainAutoloadEffects = tec_readiness_materialize_mixed_option(
     policy: $policy,
@@ -7621,18 +7621,18 @@ $mainAutoloadEffects = tec_readiness_materialize_mixed_option(
     purgeFlag: false,
     timePlan: [1300.1, 1300.2]
 );
-duo_check_same(null, $mainAutoloadEffects['failure'], 'existing fixed/computed marker rows update transactionally');
-duo_check_same(
+wprism_check_same(null, $mainAutoloadEffects['failure'], 'existing fixed/computed marker rows update transactionally');
+wprism_check_same(
     'yes',
     $mainAutoloadEffects['runtime_rows']['tribe_last_updated_option']['autoload'] ?? null,
     'a fixed native marker autoload spelling is preserved'
 );
-duo_check_same(
+wprism_check_same(
     'auto-on',
     $mainAutoloadEffects['runtime_rows']['tribe_last_save_post']['autoload'] ?? null,
     'a computed native marker autoload is recalculated through the pinned short-value outcome'
 );
-duo_check_same(true, $mainAutoloadEffects['purge_flag'], 'a successful update replaces false purge intent with true');
+wprism_check_same(true, $mainAutoloadEffects['purge_flag'], 'a successful update replaces false purge intent with true');
 
 $mainPreexistingPurge = tec_readiness_materialize_mixed_option(
     policy: $policy,
@@ -7644,8 +7644,8 @@ $mainPreexistingPurge = tec_readiness_materialize_mixed_option(
     purgeFlag: true,
     timePlan: [1350.1, 1350.2]
 );
-duo_check_same(null, $mainPreexistingPurge['failure'], 'a main-settings update admits preexisting purge intent');
-duo_check_same(true, $mainPreexistingPurge['purge_flag'], 'successful marker effects preserve an independently preexisting true purge flag');
+wprism_check_same(null, $mainPreexistingPurge['failure'], 'a main-settings update admits preexisting purge intent');
+wprism_check_same(true, $mainPreexistingPurge['purge_flag'], 'successful marker effects preserve an independently preexisting true purge flag');
 
 $equalMarkerRows = [
     'tribe_last_updated_option' => ['option_value' => '1400.1', 'autoload' => 'on'],
@@ -7661,8 +7661,8 @@ $equalMarkerEffects = tec_readiness_materialize_mixed_option(
     purgeFlag: false,
     timePlan: [1400.1, 1400.2]
 );
-duo_check_same(null, $equalMarkerEffects['failure'], 'equal generated marker values follow the native no-op path');
-duo_check_same(
+wprism_check_same(null, $equalMarkerEffects['failure'], 'equal generated marker values follow the native no-op path');
+wprism_check_same(
     $equalMarkerRows,
     array_map(
         static fn(array $row): array => array_intersect_key($row, ['option_value' => true, 'autoload' => true]),
@@ -7670,7 +7670,7 @@ duo_check_same(
     ),
     'equal generated marker values preserve exact storage/autoload without a raw writer call'
 );
-duo_check_same(false, $equalMarkerEffects['purge_flag'], 'two no-op marker updates preserve an existing false purge intent');
+wprism_check_same(false, $equalMarkerEffects['purge_flag'], 'two no-op marker updates preserve an existing false purge intent');
 
 $listenerCacheProperty = new ReflectionProperty(Tribe__Cache_Listener::class, 'cache');
 $nativeListenerCache = $listenerCacheProperty->getValue($GLOBALS['tec_readiness_cache_listener']);
@@ -7687,7 +7687,7 @@ $aliasedListenerCacheRefusal = tec_readiness_materialize_mixed_option(
     timePlan: [1450.1, 1450.2]
 );
 $listenerCacheProperty->setValue($GLOBALS['tec_readiness_cache_listener'], $nativeListenerCache);
-duo_check(
+wprism_check(
     $aliasedListenerCacheRefusal['failure'] instanceof RuntimeException
         && str_contains($aliasedListenerCacheRefusal['failure']->getMessage(), 'cache-listener/global cache identities'),
     'an aliased CacheListener/global cache service refuses before primary mutation'
@@ -7704,7 +7704,7 @@ $substitutedGlobalCacheRefusal = tec_readiness_materialize_mixed_option(
     timePlan: [1460.1, 1460.2]
 );
 $GLOBALS['tec_readiness_category_color_cache'] = $nativeGlobalCache;
-duo_check(
+wprism_check(
     $substitutedGlobalCacheRefusal['failure'] instanceof RuntimeException
         && str_contains($substitutedGlobalCacheRefusal['failure']->getMessage(), 'cache-listener/global cache identities'),
     'a same-class global cache substitution refuses against the exact container singleton'
@@ -7729,7 +7729,7 @@ remove_filter(
     [$GLOBALS['tec_readiness_harbor_pue'], 'filter_pre_get_option'],
     10
 );
-duo_check_same(
+wprism_check_same(
     null,
     $nativeHarborTopology['failure'],
     'the exact request-conditional Harbor pre_option singleton remains admitted'
@@ -7746,7 +7746,7 @@ $foreignHarborRefusal = tec_readiness_materialize_mixed_option(
     timePlan: [1480.1, 1480.2]
 );
 remove_filter('pre_option', [$foreignHarbor, 'filter_pre_get_option'], 10);
-duo_check(
+wprism_check(
     $foreignHarborRefusal['failure'] instanceof RuntimeException
         && str_contains($foreignHarborRefusal['failure']->getMessage(), 'option mutation hook topology'),
     'a same-class non-container Harbor pre_option callback refuses before storage'
@@ -7757,7 +7757,7 @@ $settingsCacheWrites = array_values(array_filter(
     static fn(array $write): bool => ($write[0] ?? null) === 'set'
         && ($write[1] ?? null) === 'Tribe__Settings_Manager:option_cache'
 ));
-duo_check_same(
+wprism_check_same(
     1,
     count($settingsCacheWrites),
     'recursive last-occurrence marker effects never update the main Settings Manager cache'
@@ -7778,17 +7778,17 @@ foreach ([
         timePlan: [1500.1, 1500.2]
     );
     remove_filter($hookName, $hostileOptionMutationCallback, 999);
-    duo_check(
+    wprism_check(
         $listenerFilterRefusal['failure'] instanceof RuntimeException
             && str_contains($listenerFilterRefusal['failure']->getMessage(), 'cache-listener trigger topology'),
         "a $label extension refuses before primary or marker storage mutation"
     );
-    duo_check_same(
+    wprism_check_same(
         ['eventsSlug' => 'old-events'],
         $decodeMixedRow($listenerFilterRefusal),
         "$label refusal preserves the exact main target preimage"
     );
-    duo_check_same(
+    wprism_check_same(
         $mainNoopRuntime,
         array_map(
             static fn(array $row): array => array_intersect_key($row, ['option_value' => true, 'autoload' => true]),
@@ -7822,12 +7822,12 @@ foreach ($nestedMarkerHookCases as $label => [$hookName, $existing]) {
         timePlan: [1600.1, 1600.2]
     );
     remove_filter($hookName, $hostileOptionMutationCallback, 999);
-    duo_check(
+    wprism_check(
         $nestedHookRefusal['failure'] instanceof RuntimeException
             && str_contains($nestedHookRefusal['failure']->getMessage(), 'option mutation hook topology'),
         "a $label refuses before the raw nested update_option effect"
     );
-    duo_check_same(
+    wprism_check_same(
         ['eventsSlug' => 'old-events'],
         $decodeMixedRow($nestedHookRefusal),
         "$label refusal preserves primary storage"
@@ -7857,22 +7857,22 @@ foreach ([
             });
         }
     );
-    duo_check(
+    wprism_check(
         $markerWriteFailure['failure'] instanceof RuntimeException,
         "an injected $label failure aborts the authored transaction"
     );
-    duo_check_same(
+    wprism_check_same(
         ['eventsSlug' => 'old-events'],
         $decodeMixedRow($markerWriteFailure),
         "$label failure restores exact primary storage"
     );
-    duo_check_same([], $markerWriteFailure['runtime_rows'], "$label failure restores both initially absent marker gaps");
-    duo_check_same(
+    wprism_check_same([], $markerWriteFailure['runtime_rows'], "$label failure restores both initially absent marker gaps");
+    wprism_check_same(
         ['eventsSlug' => 'cache-preimage'],
         $markerWriteFailure['settings_cache'],
         "$label failure restores the exact Settings Manager cache preimage"
     );
-    duo_check_same(false, $markerWriteFailure['purge_flag'], "$label failure restores the false purge-flag preimage");
+    wprism_check_same(false, $markerWriteFailure['purge_flag'], "$label failure restores the false purge-flag preimage");
 }
 
 $settingsEffectFailure = tec_readiness_materialize_mixed_option(
@@ -7889,10 +7889,10 @@ $settingsEffectFailure = tec_readiness_materialize_mixed_option(
     ],
     timePlan: [1800.1, 1800.2]
 );
-duo_check($settingsEffectFailure['failure'] instanceof RuntimeException, 'an injected Settings Manager cache-set failure aborts apply');
-duo_check_same(['eventsSlug' => 'old-events'], $decodeMixedRow($settingsEffectFailure), 'settings-cache failure restores primary bytes');
-duo_check_same([], $settingsEffectFailure['runtime_rows'], 'settings-cache failure occurs before either marker effect');
-duo_check_same(
+wprism_check($settingsEffectFailure['failure'] instanceof RuntimeException, 'an injected Settings Manager cache-set failure aborts apply');
+wprism_check_same(['eventsSlug' => 'old-events'], $decodeMixedRow($settingsEffectFailure), 'settings-cache failure restores primary bytes');
+wprism_check_same([], $settingsEffectFailure['runtime_rows'], 'settings-cache failure occurs before either marker effect');
+wprism_check_same(
     ['eventsSlug' => 'cache-preimage'],
     $settingsEffectFailure['settings_cache'],
     'settings-cache failure restores its exact request-local preimage'
@@ -7912,10 +7912,10 @@ $purgeEffectFailure = tec_readiness_materialize_mixed_option(
     ],
     timePlan: [1900.1, 1900.2]
 );
-duo_check($purgeEffectFailure['failure'] instanceof RuntimeException, 'an injected purge-flag failure aborts after the first marker write');
-duo_check_same(['eventsSlug' => 'old-events'], $decodeMixedRow($purgeEffectFailure), 'purge-flag failure restores primary bytes');
-duo_check_same([], $purgeEffectFailure['runtime_rows'], 'purge-flag failure removes the partially inserted marker');
-duo_check_same(false, $purgeEffectFailure['purge_flag_present'], 'purge-flag failure restores exact prior absence');
+wprism_check($purgeEffectFailure['failure'] instanceof RuntimeException, 'an injected purge-flag failure aborts after the first marker write');
+wprism_check_same(['eventsSlug' => 'old-events'], $decodeMixedRow($purgeEffectFailure), 'purge-flag failure restores primary bytes');
+wprism_check_same([], $purgeEffectFailure['runtime_rows'], 'purge-flag failure removes the partially inserted marker');
+wprism_check_same(false, $purgeEffectFailure['purge_flag_present'], 'purge-flag failure restores exact prior absence');
 
 $preexistingPurgeRollback = tec_readiness_materialize_mixed_option(
     policy: $policy,
@@ -7936,11 +7936,11 @@ $preexistingPurgeRollback = tec_readiness_materialize_mixed_option(
         });
     }
 );
-duo_check(
+wprism_check(
     $preexistingPurgeRollback['failure'] instanceof RuntimeException,
     'a second-marker failure aborts after observing preexisting purge intent'
 );
-duo_check_same(
+wprism_check_same(
     true,
     $preexistingPurgeRollback['purge_flag'],
     'rollback preserves an independently preexisting true purge flag'
@@ -7959,16 +7959,16 @@ foreach ([
         'on'
     );
     remove_filter($hookName, $hostileOptionMutationCallback, 999);
-    duo_check(
+    wprism_check(
         $mainMutationRefusal['failure'] instanceof RuntimeException
             && (str_contains($mainMutationRefusal['failure']->getMessage(), 'option mutation hook topology')
                 || str_contains($mainMutationRefusal['failure']->getMessage(), 'settings-effect callback topology')),
         "$label refuses before raw main-settings storage"
     );
     if ($target === null) {
-        duo_check_same(null, $mainMutationRefusal['row'], "$label preserves exact target absence");
+        wprism_check_same(null, $mainMutationRefusal['row'], "$label preserves exact target absence");
     } else {
-        duo_check_same($target, $decodeMixedRow($mainMutationRefusal), "$label preserves exact target bytes");
+        wprism_check_same($target, $decodeMixedRow($mainMutationRefusal), "$label preserves exact target bytes");
     }
     $mainMutationRetry = tec_readiness_materialize_mixed_option(
         $policy,
@@ -7977,7 +7977,7 @@ foreach ([
         $target,
         'on'
     );
-    duo_check_same(null, $mainMutationRetry['failure'], "$label removal permits a same-process retry");
+    wprism_check_same(null, $mainMutationRetry['failure'], "$label removal permits a same-process retry");
 }
 
 $mainRollback = tec_readiness_materialize_mixed_option(
@@ -7991,17 +7991,17 @@ $mainRollback = tec_readiness_materialize_mixed_option(
     ['eventsSlug' => 'exact-preimage'],
     'one_throw'
 );
-duo_check($mainRollback['failure'] instanceof RuntimeException, 'an injected main-settings cache failure aborts apply');
-duo_check_same($mainTarget, $decodeMixedRow($mainRollback), 'main-settings rollback restores exact raw storage');
-duo_check_same('off', $mainRollback['row']['autoload'] ?? null, 'main-settings rollback restores exact autoload');
-duo_check_same(true, $mainRollback['settings_cache_present'], 'main-settings rollback restores cache presence');
-duo_check_same(
+wprism_check($mainRollback['failure'] instanceof RuntimeException, 'an injected main-settings cache failure aborts apply');
+wprism_check_same($mainTarget, $decodeMixedRow($mainRollback), 'main-settings rollback restores exact raw storage');
+wprism_check_same('off', $mainRollback['row']['autoload'] ?? null, 'main-settings rollback restores exact autoload');
+wprism_check_same(true, $mainRollback['settings_cache_present'], 'main-settings rollback restores cache presence');
+wprism_check_same(
     ['eventsSlug' => 'exact-preimage'],
     $mainRollback['settings_cache'],
     'main-settings rollback restores the exact process-local cache value'
 );
-duo_check_same([], $mainRollback['runtime_rows'], 'main-settings cache rollback removes both partially inserted marker rows');
-duo_check_same(false, $mainRollback['purge_flag_present'], 'main-settings cache rollback restores absent purge intent');
+wprism_check_same([], $mainRollback['runtime_rows'], 'main-settings cache rollback removes both partially inserted marker rows');
+wprism_check_same(false, $mainRollback['purge_flag_present'], 'main-settings cache rollback restores absent purge intent');
 $mainRollbackRetry = tec_readiness_materialize_mixed_option(
     policy: $policy,
     name: 'tribe_events_calendar_options',
@@ -8011,8 +8011,8 @@ $mainRollbackRetry = tec_readiness_materialize_mixed_option(
     settingsCache: ['eventsSlug' => 'exact-preimage'],
     timePlan: [2000.1, 2000.2]
 );
-duo_check_same(null, $mainRollbackRetry['failure'], 'retry after full main/cache/marker rollback converges');
-duo_check_same(
+wprism_check_same(null, $mainRollbackRetry['failure'], 'retry after full main/cache/marker rollback converges');
+wprism_check_same(
     ['tribe_last_updated_option', 'tribe_last_save_post'],
     array_keys($mainRollbackRetry['runtime_rows']),
     'the retry creates both exact CacheListener markers once'
@@ -8055,13 +8055,13 @@ $restoreFailureMessages = [];
 for ($failure = $mainRestoreFailure['failure']; $failure instanceof Throwable; $failure = $failure->getPrevious()) {
     $restoreFailureMessages[] = $failure->getMessage();
 }
-duo_check(
+wprism_check(
     str_contains(implode(' | ', $restoreFailureMessages), 'runtime=')
         && str_contains(implode(' | ', $restoreFailureMessages), 'settings=')
         && str_contains(implode(' | ', $restoreFailureMessages), 'purge='),
     'both local runtime restoration failures are aggregated and retained by the participant failure'
 );
-duo_check_same(
+wprism_check_same(
     $mainNoopRuntime,
     array_map(
         static fn(array $row): array => array_intersect_key($row, ['option_value' => true, 'autoload' => true]),
@@ -8069,24 +8069,24 @@ duo_check_same(
     ),
     'a failed local cache restore still attempts and completes both marker restorations'
 );
-duo_check_same(true, $mainRestoreFailure['purge_flag'], 'the injected purge restoration failure leaves its mutated value observable');
-duo_check(
+wprism_check_same(true, $mainRestoreFailure['purge_flag'], 'the injected purge restoration failure leaves its mutated value observable');
+wprism_check(
     in_array(['unset', 'should_delete_expired_transients', null], $mainRestoreFailure['tribe_var_writes'], true),
     'a failed settings-cache restoration does not skip the independent purge restoration attempt'
 );
 
-duo_check(in_array('tribe_events', $policy->declared_post_types(), true), 'events are in adapter post scope');
-duo_check(in_array('tribe_venue', $policy->declared_post_types(), true), 'venues are in adapter post scope');
-duo_check(in_array('tribe_organizer', $policy->declared_post_types(), true), 'organizers are in adapter post scope');
-duo_check_same('authored', $policy->taxonomy_rule_details('tribe_events_cat')['rule']['class'] ?? null, 'event categories are authored taxonomy state');
+wprism_check(in_array('tribe_events', $policy->declared_post_types(), true), 'events are in adapter post scope');
+wprism_check(in_array('tribe_venue', $policy->declared_post_types(), true), 'venues are in adapter post scope');
+wprism_check(in_array('tribe_organizer', $policy->declared_post_types(), true), 'organizers are in adapter post scope');
+wprism_check_same('authored', $policy->taxonomy_rule_details('tribe_events_cat')['rule']['class'] ?? null, 'event categories are authored taxonomy state');
 foreach (['primary', 'secondary', 'text', 'priority', 'hidden'] as $suffix) {
-    duo_check_same('authored', $policy->term_meta_rule('tec-events-cat-colors-' . $suffix)['class'] ?? null, "category color $suffix is authored term metadata");
+    wprism_check_same('authored', $policy->term_meta_rule('tec-events-cat-colors-' . $suffix)['class'] ?? null, "category color $suffix is authored term metadata");
 }
-duo_check_same('derived', $policy->table_rule('tec_events')['class'] ?? null, 'tec_events is derived rather than duplicated authored state');
-duo_check_same('derived', $policy->table_rule('tec_occurrences')['class'] ?? null, 'tec_occurrences is derived and regenerated');
-duo_check_same('runtime', $policy->table_rule('tec_kv_cache')['class'] ?? null, 'tec_kv_cache remains target-runtime state');
+wprism_check_same('derived', $policy->table_rule('tec_events')['class'] ?? null, 'tec_events is derived rather than duplicated authored state');
+wprism_check_same('derived', $policy->table_rule('tec_occurrences')['class'] ?? null, 'tec_occurrences is derived and regenerated');
+wprism_check_same('runtime', $policy->table_rule('tec_kv_cache')['class'] ?? null, 'tec_kv_cache remains target-runtime state');
 foreach (['post:tribe_events', 'post:tribe_venue', 'post:tribe_organizer', 'term:tribe_events_cat'] as $selector) {
-    duo_check_same(
+    wprism_check_same(
         null,
         $policy->deletion_capability($selector),
         "$selector has no inferred deletion authority before its native cascades and reverse references are closed"
@@ -8097,7 +8097,7 @@ $deletionPostdeploy = (string) file_get_contents(dirname(__DIR__) . '/conformanc
 $sentinelPostapply = (string) file_get_contents(dirname(__DIR__) . '/conformance/postapply.sh');
 $deletionCheck = (string) file_get_contents(dirname(__DIR__) . '/conformance/check.sh');
 $schemaProbeAt = strpos($deletionCheck, 'SCHEMA_BACKUP=');
-duo_check(
+wprism_check(
     $schemaProbeAt !== false
         && !str_contains(substr($deletionCheck, $schemaProbeAt), 'wp_update_post(')
         && str_contains(
@@ -8113,9 +8113,9 @@ $wrongOwnerCaptureAt = strpos(
 );
 $wrongOwnerCompileAt = strpos(
     $deletionCheck,
-    'wp_conf1 duo compile --repo=/siterepo/.tmp-tec-organizer-block-owner'
+    'wp_conf1 wprism compile --repo=/siterepo/.tmp-tec-organizer-block-owner'
 );
-duo_check(
+wprism_check(
     $wrongOwnerMutationAt !== false
         && $wrongOwnerCaptureAt !== false
         && $wrongOwnerCompileAt !== false
@@ -8130,17 +8130,17 @@ foreach ([
     "tec_compile_refusal structured-cost 'TEC structured cost' 'one scalar string' \\",
     'structured-event-cost',
     '$front["meta"]["_EventCost"]=["future"=>"schema"]',
-    '$mutated=\\Duo\\Canon::post_file($front,$body)',
-    'capture_out=$(wp_conf1 duo capture --repo=/siterepo --out="$repo/state"',
-    'compile_out=$(wp_conf1 duo compile --repo="$repo"',
+    '$mutated=\\WPrism\\Canon::post_file($front,$body)',
+    'capture_out=$(wp_conf1 wprism capture --repo=/siterepo --out="$repo/state"',
+    'compile_out=$(wp_conf1 wprism compile --repo="$repo"',
 ] as $interpreterFixtureEvidence) {
-    duo_check(
+    wprism_check(
         str_contains($deletionCheck, $interpreterFixtureEvidence),
         "TEC malformed authored fixture crosses isolated capture then compilation: $interpreterFixtureEvidence"
     );
 }
 foreach ([$deletionSeed, $deletionPostdeploy, $deletionCheck] as $widgetFixtureSource) {
-    duo_check(
+    wprism_check(
         str_contains($widgetFixtureSource, 'wp_inactive_widgets')
             && !str_contains($widgetFixtureSource, 'tec-readiness-sidebar'),
         'the exact stored-widget fixture never depends on an unregistered synthetic sidebar'
@@ -8155,7 +8155,7 @@ foreach ([
     '.widget_surface.list.residue == [{',
     '.widget_surface.qr.residue == [{',
 ] as $inactiveResidueEvidence) {
-    duo_check(
+    wprism_check(
         str_contains($deletionCheck, $inactiveResidueEvidence),
         "the exact TEC observer binds selected ownership and target-only inactive residue: $inactiveResidueEvidence"
     );
@@ -8166,27 +8166,27 @@ foreach ([
     'tribe-widget-events-list-1',
     'tribe-widget-events-qr-code-1',
 ] as $inactiveResidueFixture) {
-    duo_check(
+    wprism_check(
         str_contains($deletionPostdeploy, $inactiveResidueFixture)
             && str_contains($deletionCheck, $inactiveResidueFixture),
         "the exact TEC pair proves target-owned inactive residue survives selected widget projection: $inactiveResidueFixture"
     );
 }
-duo_check(
+wprism_check(
     !str_contains($deletionCheck, "count(\$sidebars['wp_inactive_widgets']) !== 2")
         && str_contains($deletionCheck, 'inactive widget assignments lack one exact selected identity'),
     'the native observer validates exact selected widget identities without claiming the shared inactive bucket wholesale'
 );
-foreach (['duo_source_only_secret', 'duo_target_only_runtime'] as $undeclaredFixtureKey) {
-    duo_check(
+foreach (['wprism_source_only_secret', 'wprism_target_only_runtime'] as $undeclaredFixtureKey) {
+    wprism_check(
         !str_contains($deletionSeed, $undeclaredFixtureKey)
             && !str_contains($deletionPostdeploy, $undeclaredFixtureKey)
             && !str_contains($deletionCheck, $undeclaredFixtureKey),
         "the exact live fixture never bypasses the closed main-option registry with synthetic sibling $undeclaredFixtureKey"
     );
 }
-foreach (['Duo Unsupported Delete Venue', 'Duo Map Metadata Absent Venue'] as $unlinkedVenueTitle) {
-    duo_check(
+foreach (['WPrism Unsupported Delete Venue', 'WPrism Map Metadata Absent Venue'] as $unlinkedVenueTitle) {
+    wprism_check(
         preg_match(
             "/'venue' => '" . preg_quote($unlinkedVenueTitle, '/') . "',\\s*'status' => 'publish'/",
             $deletionSeed
@@ -8194,32 +8194,32 @@ foreach (['Duo Unsupported Delete Venue', 'Duo Map Metadata Absent Venue'] as $u
         "the unlinked native venue fixture $unlinkedVenueTitle has a unique published slug before capture"
     );
 }
-duo_check(
+wprism_check(
     str_contains($deletionSeed, "'google_maps_js_api_key' => 'source-maps-key-must-not-copy'")
         && str_contains($deletionPostdeploy, "'google_maps_js_api_key' => 'target-maps-key-preserved'"),
     'the exact live fixture proves source exclusion and target preservation through a declared env sibling'
 );
 foreach ([
-    'Duo Unsupported Delete Probe',
-    'Duo Unsupported Delete Venue',
-    'Duo Unsupported Delete Organizer',
-    'duo-unsupported-delete-category',
+    'WPrism Unsupported Delete Probe',
+    'WPrism Unsupported Delete Venue',
+    'WPrism Unsupported Delete Organizer',
+    'wprism-unsupported-delete-category',
 ] as $fixtureIdentity) {
-    duo_check(
+    wprism_check(
         str_contains($deletionSeed, $fixtureIdentity),
         "the exact live seed carries independent unreferenced deletion fixture $fixtureIdentity"
     );
 }
 foreach ([
-    "tec_refuse_post_deletion tribe_events 'Duo Unsupported Delete Probe' post:tribe_events",
-    "tec_refuse_post_deletion tribe_venue 'Duo Unsupported Delete Venue' post:tribe_venue",
-    "tec_refuse_post_deletion tribe_organizer 'Duo Unsupported Delete Organizer' post:tribe_organizer",
-    'tec_refuse_term_deletion tribe_events_cat duo-unsupported-delete-category term:tribe_events_cat',
+    "tec_refuse_post_deletion tribe_events 'WPrism Unsupported Delete Probe' post:tribe_events",
+    "tec_refuse_post_deletion tribe_venue 'WPrism Unsupported Delete Venue' post:tribe_venue",
+    "tec_refuse_post_deletion tribe_organizer 'WPrism Unsupported Delete Organizer' post:tribe_organizer",
+    'tec_refuse_term_deletion tribe_events_cat wprism-unsupported-delete-category term:tribe_events_cat',
 ] as $probe) {
-    duo_check(str_contains($deletionCheck, $probe), "the exact live matrix executes $probe");
+    wprism_check(str_contains($deletionCheck, $probe), "the exact live matrix executes $probe");
 }
 foreach (['postmeta', 'termmeta', 'term_relationships', 'tec_events', 'tec_occurrences', 'category_css'] as $witness) {
-    duo_check(
+    wprism_check(
         str_contains($deletionCheck, '"' . $witness . '"=>'),
         "deletion refusal fingerprints $witness before and after capture"
     );
@@ -8228,7 +8228,7 @@ $linkedUpdateCalls = preg_match_all(
     '/^tec_update_event_preserving_links conf[12] /m',
     $deletionCheck
 );
-duo_check_same(
+wprism_check_same(
     5,
     $linkedUpdateCalls,
     'every late TEC conflict/recovery/concurrency mutation crosses the native link-preserving update helper'
@@ -8242,7 +8242,7 @@ foreach ([
     '$afterVenue!==$venue||$afterOrganizers!==$organizers',
     'TEC repository update replaced a linked entity',
 ] as $linkedUpdateEvidence) {
-    duo_check(
+    wprism_check(
         str_contains($deletionCheck, $linkedUpdateEvidence),
         "late TEC repository updates retain and verify their complete linked preimage: $linkedUpdateEvidence"
     );
@@ -8254,13 +8254,13 @@ foreach ([
     'event-data filter refusal advanced applied_revision',
     'successful event-data filter retry retained its batch marker',
 ] as $filterRecoveryEvidence) {
-    duo_check(
+    wprism_check(
         str_contains($deletionCheck, $filterRecoveryEvidence),
         "the exact live matrix binds event-data filter recovery evidence $filterRecoveryEvidence"
     );
 }
 foreach ([
-    'duo-equal-priority-alpha',
+    'wprism-equal-priority-alpha',
     'repeated reconciliation repopulated a naturally absent dropdown cache',
     'native_one_page_rows',
     '$onePageCount === 500',
@@ -8270,7 +8270,7 @@ foreach ([
     'stale_between_services_refused',
     'recovery certified or mutated a stale cache after the exact first native service',
 ] as $categoryColorsBoundaryEvidence) {
-    duo_check(
+    wprism_check(
         str_contains($deletionCheck, $categoryColorsBoundaryEvidence),
         "the exact live matrix binds Category Colors boundary evidence $categoryColorsBoundaryEvidence"
     );
@@ -8283,30 +8283,30 @@ foreach ([
     'transport: "docker", compose_file: $compose, service: "cli1", repo_path: $widgetRepo',
     'tec_scope_contract_json() {',
     "jq -ce -s 'if length == 1 then .[0] else error(\"TEC scope expected exactly one JSON document\") end'",
-    'capture_duo_json_success TEC_WIDGET_SCOPE_ONE_OUT',
+    'capture_wprism_json_success TEC_WIDGET_SCOPE_ONE_OUT',
     'tec_scope_contract_json tec-widget-source',
-    'capture_duo_json_success TEC_WIDGET_SCOPE_TWO_OUT',
+    'capture_wprism_json_success TEC_WIDGET_SCOPE_TWO_OUT',
     'tec_scope_contract_json tec-source',
     '[ -z "${TEC_SCOPE_ENVS:-}" ] || rm -f -- "$TEC_SCOPE_ENVS"',
 ] as $scopedWidgetDiagnostic) {
-    duo_check(
+    wprism_check(
         str_contains($deletionCheck, $scopedWidgetDiagnostic),
         "the exact scoped inactive-widget path emits diagnostic evidence for $scopedWidgetDiagnostic"
     );
 }
-duo_check_same(
+wprism_check_same(
     0,
-    substr_count($deletionCheck, 'wp_conf1 duo scope'),
+    substr_count($deletionCheck, 'wp_conf1 wprism scope'),
     'exact scoped evidence never bypasses the isolated host control plane through ordinary WP-CLI'
 );
-$overflowCreateAt = strpos($deletionCheck, "\$createCategory('duo-second-page-refusal'");
+$overflowCreateAt = strpos($deletionCheck, "\$createCategory('wprism-second-page-refusal'");
 $overflowCachePrimeAt = strpos(
     $deletionCheck,
     '$dropdown->get_dropdown_categories();',
     is_int($overflowCreateAt) ? $overflowCreateAt : 0
 );
 $overflowPreimageAt = strpos($deletionCheck, '$cssBeforeOverflow = $rawCss();');
-duo_check(
+wprism_check(
     is_int($overflowCreateAt)
         && is_int($overflowCachePrimeAt)
         && is_int($overflowPreimageAt)
@@ -8321,26 +8321,26 @@ duo_check(
 foreach ([
     'tec_category_scope "$TEC_COLOR_PRECOMMIT_SCOPE" "$TEC_COLOR_UUID"',
     '--scope-contract=/siterepo/.tmp-tec-category-colors-precommit.scope.json',
-    'duo_tec_fail_scoped_receipt',
+    'wprism_tec_fail_scoped_receipt',
     'v NOT LIKE "%\"phase\": \"authored_committed\"%"',
     '.phase == "authoring" and .recovery_from == null',
     '.intent_count == 1 and .receipt_count == 0',
     '$authorActionHash=$record["intents"][0]["action_hash"]??null',
     '"author_action_hash"=>$authorActionHash',
-    'hash_equals(hash("sha256","duo-scoped-authored-transaction/v2"),$authorActionHash)',
+    'hash_equals(hash("sha256","wprism-scoped-authored-transaction/v2"),$authorActionHash)',
     '.author_action_hash == "a0b8cb4c1ee6649aa089e3f21cc64471337f0b4d389837ba1219c77479b573c0"',
     '.author_action_matches == true',
     'tec_category_scope "$TEC_COLOR_SCOPE" "$TEC_COLOR_UUID"',
     '--scope-contract=/siterepo/.tmp-tec-category-colors-provider.scope.json',
-    'duo_tec_fail_scoped_effect_receipt',
+    'wprism_tec_fail_scoped_effect_receipt',
     'JSON_LENGTH(JSON_EXTRACT(v, "$.receipts"))',
     'scoped apply session update CAS',
-    '$session=\\Duo\\ScopedApplySession::open(new \\Duo\\LedgerScopedApplySessionStorage())',
-    '$current=\\Duo\\ScopedApplyCoordinator::authored_ledger_map_hash($roots)',
+    '$session=\\WPrism\\ScopedApplySession::open(new \\WPrism\\LedgerScopedApplySessionStorage())',
+    '$current=\\WPrism\\ScopedApplyCoordinator::authored_ledger_map_hash($roots)',
     'UPDATE wp_terms SET term_id=${COLOR_ABA_NEW_ID}',
     'UPDATE wp_term_taxonomy SET term_id=${COLOR_ABA_NEW_ID}',
     'UPDATE wp_termmeta SET term_id=${COLOR_ABA_NEW_ID}',
-    'UPDATE wp_duo_map SET local_id=${COLOR_ABA_NEW_ID}',
+    'UPDATE wp_wprism_map SET local_id=${COLOR_ABA_NEW_ID}',
     '.author_receipt_after != .current_author_after',
     'scoped apply recovery author receipt does not match selected state and identity map',
     'TEC selected-map ABA refusal replayed the Category Colors CSS effect',
@@ -8348,22 +8348,22 @@ foreach ([
     '.author_matches == true',
     'trap cleanup_tec_scoped_color_faults EXIT',
     'restore_tec_scoped_color_faults',
-    'DROP CONSTRAINT IF EXISTS duo_tec_fail_scoped_receipt',
-    'DROP CONSTRAINT IF EXISTS duo_tec_fail_scoped_effect_receipt',
+    'DROP CONSTRAINT IF EXISTS wprism_tec_fail_scoped_receipt',
+    'DROP CONSTRAINT IF EXISTS wprism_tec_fail_scoped_effect_receipt',
     'TEC_COLOR_ABA_MAY_BE_REKEYED=1',
     'TEC_COLOR_ABA_MAY_BE_REKEYED=0',
 ] as $scopedCategoryRecoveryEvidence) {
-    duo_check(
+    wprism_check(
         str_contains($deletionCheck, $scopedCategoryRecoveryEvidence),
         "the exact live matrix binds scoped Category Colors recovery evidence $scopedCategoryRecoveryEvidence"
     );
 }
 $colorCleanupAt = strpos($deletionCheck, 'trap cleanup_tec_scoped_color_faults EXIT');
-$colorFirstConstraintAt = strpos($deletionCheck, 'ADD CONSTRAINT duo_tec_fail_scoped_receipt');
+$colorFirstConstraintAt = strpos($deletionCheck, 'ADD CONSTRAINT wprism_tec_fail_scoped_receipt');
 $colorAbaAt = strpos($deletionCheck, 'UPDATE wp_terms SET term_id=${COLOR_ABA_NEW_ID}');
 $colorCleanupRestoreAt = strrpos($deletionCheck, 'restore_tec_scoped_color_faults');
 $colorCleanupDisarmAt = strpos($deletionCheck, 'trap - EXIT', $colorCleanupRestoreAt ?: 0);
-duo_check(
+wprism_check(
     $colorCleanupAt !== false
         && $colorCleanupAt < $colorFirstConstraintAt
         && $colorFirstConstraintAt < $colorAbaAt
@@ -8372,12 +8372,12 @@ duo_check(
     'the exact TEC scoped fault cleanup arms before mutation and restores every reversible fault before disarming'
 );
 $atomicColorBeforeAt = strpos($deletionCheck, 'COLOR_ATOMIC_BEFORE=$(tec_scoped_color_storage_hash');
-$atomicColorConstraintAt = strpos($deletionCheck, 'ADD CONSTRAINT duo_tec_fail_scoped_receipt');
-$atomicColorApplyAt = strpos($deletionCheck, 'COLOR_ATOMIC_OUT=$(wp_conf2 duo apply');
+$atomicColorConstraintAt = strpos($deletionCheck, 'ADD CONSTRAINT wprism_tec_fail_scoped_receipt');
+$atomicColorApplyAt = strpos($deletionCheck, 'COLOR_ATOMIC_OUT=$(wp_conf2 wprism apply');
 $atomicColorRollbackAt = strpos($deletionCheck, 'did not roll target, map, state, and CSS bytes back');
 $atomicColorSessionAt = strpos($deletionCheck, 'COLOR_ATOMIC_SESSION=$(tec_scoped_session_evidence)');
-$atomicColorRetryAt = strpos($deletionCheck, 'COLOR_ATOMIC_RETRY=$(wp_conf2 duo apply');
-duo_check(
+$atomicColorRetryAt = strpos($deletionCheck, 'COLOR_ATOMIC_RETRY=$(wp_conf2 wprism apply');
+wprism_check(
     $atomicColorBeforeAt !== false
         && $atomicColorBeforeAt < $atomicColorConstraintAt
         && $atomicColorConstraintAt < $atomicColorApplyAt
@@ -8386,16 +8386,16 @@ duo_check(
         && $atomicColorSessionAt < $atomicColorRetryAt,
     'the exact TEC product fault orders preimage, atomic CAS failure, rollback proof, session proof, then retry'
 );
-$colorProviderFailureAt = strpos($deletionCheck, 'COLOR_FAULT_OUT=$(wp_conf2 duo apply');
+$colorProviderFailureAt = strpos($deletionCheck, 'COLOR_FAULT_OUT=$(wp_conf2 wprism apply');
 $colorProviderSessionAt = strpos($deletionCheck, 'COLOR_FAULT_SESSION=$(tec_scoped_session_evidence)');
 $colorAbaWriteAt = strpos($deletionCheck, 'UPDATE wp_terms SET term_id=${COLOR_ABA_NEW_ID}');
 $colorAbaWitnessAt = strpos($deletionCheck, 'COLOR_ABA_SESSION_DRIFT=$(tec_scoped_session_evidence)');
-$colorAbaRefusalAt = strpos($deletionCheck, 'COLOR_ABA_OUT=$(wp_conf2 duo apply');
+$colorAbaRefusalAt = strpos($deletionCheck, 'COLOR_ABA_OUT=$(wp_conf2 wprism apply');
 $colorAbaNoEffectAt = strpos($deletionCheck, 'TEC selected-map ABA refusal replayed the Category Colors CSS effect');
-$colorAbaInverseAt = strrpos($deletionCheck, 'UPDATE wp_duo_map SET local_id=${COLOR_ABA_OLD_ID}');
+$colorAbaInverseAt = strrpos($deletionCheck, 'UPDATE wp_wprism_map SET local_id=${COLOR_ABA_OLD_ID}');
 $colorAbaRestoredAt = strpos($deletionCheck, 'COLOR_ABA_SESSION_RESTORED=$(tec_scoped_session_evidence)');
-$colorProviderRetryAt = strpos($deletionCheck, 'COLOR_RETRY=$(wp_conf2 duo apply');
-duo_check(
+$colorProviderRetryAt = strpos($deletionCheck, 'COLOR_RETRY=$(wp_conf2 wprism apply');
+wprism_check(
     $colorProviderFailureAt !== false
         && $colorProviderFailureAt < $colorProviderSessionAt
         && $colorProviderSessionAt < $colorAbaWriteAt
@@ -8407,12 +8407,12 @@ duo_check(
         && $colorAbaRestoredAt < $colorProviderRetryAt,
     'the exact TEC product fault orders post-author failure, selected-map ABA, pre-effect refusal, inverse, then recovery'
 );
-duo_check(
-    strpos($deletionCheck, 'duo-equal-priority-alpha')
+wprism_check(
+    strpos($deletionCheck, 'wprism-equal-priority-alpha')
         < strpos($deletionCheck, 'if [ "${TEC_BOUNDARY_ONLY:-0}" = 1 ]'),
     'both exact TEC boundary artifacts execute Category Colors equal-priority/cache/pagination evidence'
 );
-duo_check(
+wprism_check(
     str_contains($deletionCheck, '$policy->adapter_runtime_path(')
         && str_contains(
             $deletionCheck,
@@ -8420,16 +8420,16 @@ duo_check(
         )
         && str_contains(
             $deletionCheck,
-            'class_exists(\\Duo\\Providers\\TheEventsCalendarCategoryColors::class, false)'
+            'class_exists(\\WPrism\\Providers\\TheEventsCalendarCategoryColors::class, false)'
         )
         && strpos($deletionCheck, 'require_once $providerPath;')
-            < strpos($deletionCheck, '$provider = new \\Duo\\Providers\\TheEventsCalendarCategoryColors('),
+            < strpos($deletionCheck, '$provider = new \\WPrism\\Providers\\TheEventsCalendarCategoryColors('),
     'the raw exact Category Colors boundary loads the shipped provider from the selected adapter package before construction'
 );
 $tecBoundaryReturnAt = strpos($deletionCheck, 'if [ "${TEC_BOUNDARY_ONLY:-0}" = 1 ]');
 $widgetScopedCaptureAt = strpos($deletionCheck, 'TEC_WIDGET_SCOPE_HOST=');
 $categoryScopedCaptureAt = strpos($deletionCheck, 'tec_category_uuid()');
-duo_check(
+wprism_check(
     $tecBoundaryReturnAt !== false
         && $tecBoundaryReturnAt < $widgetScopedCaptureAt
         && $widgetScopedCaptureAt < $categoryScopedCaptureAt,
@@ -8438,14 +8438,14 @@ duo_check(
 foreach ([
     'git clone -q --no-hardlinks "$TEC_WIDGET_SCOPE_BASE" "$TEC_WIDGET_SCOPE_HOST"',
     'TEC_WIDGET_SCOPE_CLONE_HEAD=$(git -C "$TEC_WIDGET_SCOPE_HOST" rev-parse --verify HEAD)',
-    'cmp -s "$TEC_WIDGET_SCOPE_BASE/site.duo.json" "$TEC_WIDGET_SCOPE_HOST/site.duo.json"',
+    'cmp -s "$TEC_WIDGET_SCOPE_BASE/site.wprism.json" "$TEC_WIDGET_SCOPE_HOST/site.wprism.json"',
     '--roots="post:$TEC_WIDGET_PAGE_UUID"',
     'any(.live.closure[]; .entity == "sidebar/wp_inactive_widgets")',
     '$stored !== 2 || $embedded !== 2',
     '--scope-contract="$TEC_WIDGET_SCOPE_REPO/.first.scope.json"',
     '.scope.scope_hash == $hash and .counts.deletion == 0',
     '[ ! -e "$TEC_WIDGET_SCOPE_HOST/state/sidebars/wp_inactive_widgets.json" ]',
-    'duo-inactive-overlay-deauthorization/v1',
+    'wprism-inactive-overlay-deauthorization/v1',
     'sidebar/wp_inactive_widgets',
     'TEC_WIDGET_PHYSICAL_MUTATED',
     'TEC_WIDGET_LEDGER_MUTATED',
@@ -8454,7 +8454,7 @@ foreach ([
     'journal_sha256',
     'TEC_WIDGET_EXPECTED_STATE_HASH',
     'tec_widget_scope_expected_page "$TEC_SOURCE_WIDGET_STATE" >"$TEC_WIDGET_EXPECTED_PAGE"',
-    'capture exceeded its exact selected duo_state bookkeeping row',
+    'capture exceeded its exact selected wprism_state bookkeeping row',
     'cmp -s "$TEC_WIDGET_EXPECTED_PAGE" "$TEC_WIDGET_SCOPE_STATE"',
     'capture changed non-widget canonical page bytes',
     'TEC_WIDGET_CANONICAL_FIRST',
@@ -8469,11 +8469,11 @@ foreach ([
     'TEC_WIDGET_LEDGER_SECOND',
     'TEC_WIDGET_CANONICAL_SECOND',
     'tec_widget_scope_restore_physical_preimage',
-    'cleanup did not restore exact target and Duo ledger bytes',
+    'cleanup did not restore exact target and WPrism ledger bytes',
     'trap cleanup_tec_widget_scope EXIT',
     'trap - EXIT',
 ] as $widgetScopedCaptureEvidence) {
-    duo_check(
+    wprism_check(
         str_contains($deletionCheck, $widgetScopedCaptureEvidence),
         "the exact live workflow binds scoped inactive-widget evidence $widgetScopedCaptureEvidence"
     );
@@ -8486,22 +8486,22 @@ $widgetMutationWriteAt = strpos(
     '$wpdb->update($wpdb->posts, ["post_content" => $content], ["ID" => $id], ["%s"], ["%d"]) !== 1',
     (int) $widgetMutationAt
 );
-$widgetFirstCaptureAt = strpos($deletionCheck, 'TEC_WIDGET_CAPTURE_ONE=$(wp_conf1 duo capture');
-$widgetSecondCaptureAt = strpos($deletionCheck, 'TEC_WIDGET_CAPTURE_TWO=$(wp_conf1 duo capture');
+$widgetFirstCaptureAt = strpos($deletionCheck, 'TEC_WIDGET_CAPTURE_ONE=$(wp_conf1 wprism capture');
+$widgetSecondCaptureAt = strpos($deletionCheck, 'TEC_WIDGET_CAPTURE_TWO=$(wp_conf1 wprism capture');
 $widgetRestoreAt = strrpos(
     substr($deletionCheck, 0, (int) $categoryScopedCaptureAt),
     'tec_widget_scope_restore_physical_preimage'
 );
 $widgetRestoreHashAt = strrpos(
     substr($deletionCheck, 0, (int) $categoryScopedCaptureAt),
-    'cleanup did not restore exact target and Duo ledger bytes'
+    'cleanup did not restore exact target and WPrism ledger bytes'
 );
 $widgetMutationDisarmAt = strrpos(
     substr($deletionCheck, 0, (int) $categoryScopedCaptureAt),
     'TEC_WIDGET_SCOPE_MUTATED=0'
 );
 $widgetCleanupDisarmAt = strpos($deletionCheck, 'trap - EXIT', (int) $widgetSecondCaptureAt);
-duo_check(
+wprism_check(
     $widgetCleanupTrapAt !== false
         && $widgetCleanupTrapAt < $widgetBackupAt
         && $widgetBackupAt < $widgetMutationAt
@@ -8515,7 +8515,7 @@ duo_check(
         && $widgetMutationDisarmAt < $widgetCleanupDisarmAt,
     'scoped inactive-widget cleanup backs up before arming, arms before physical mutation, and disarms only after exact target/ledger restore'
 );
-duo_check(
+wprism_check(
     str_contains(
         $deletionCheck,
         '&& tec_widget_scope_restore_physical_preimage >/dev/null 2>&1'
@@ -8534,33 +8534,33 @@ duo_check(
         ),
     'scoped inactive-widget EXIT cleanup retains its backup unless both physical and ledger preimages are restored exactly'
 );
-duo_check_same(
+wprism_check_same(
     2,
     substr_count($deletionCheck, 'cmp -s "$TEC_WIDGET_EXPECTED_PAGE" "$TEC_WIDGET_SCOPE_STATE"'),
     'both scoped publications byte-compare the full canonical page to the exact stored-id-free source projection'
 );
-duo_check(
+wprism_check(
     str_contains($deletionCheck, '$after.selected_state[0].content_hash == $expected')
         && str_contains($deletionCheck, '--arg expected "$TEC_WIDGET_EXPECTED_STATE_HASH"')
         && str_contains($deletionCheck, 'first(.live.roots[] | select(.entity == $uuid and .type == "post") | .entity_hash)'),
-    'the only admitted duo_state publication delta is the compiler-proved selected post hash basis'
+    'the only admitted wprism_state publication delta is the compiler-proved selected post hash basis'
 );
-duo_check_same(
+wprism_check_same(
     4,
     substr_count($deletionCheck, 'require $argv[1];'),
     'all four host-side canonical block/page inspections load Canon from an explicit argv path'
 );
-duo_check_same(
+wprism_check_same(
     4,
-    substr_count($deletionCheck, '"$DUO_SOURCE_ROOT/agent/src/Kernel/Canon.php"'),
+    substr_count($deletionCheck, '"$WPRISM_SOURCE_ROOT/agent/src/Kernel/Canon.php"'),
     'all four host-side canonical block/page inspections are independent of the matrix caller working directory'
 );
-duo_check_same(
+wprism_check_same(
     4,
-    substr_count($deletionCheck, '"$DUO_SOURCE_ROOT/sandbox/tests/support/wp-block-parser-stub.php"'),
+    substr_count($deletionCheck, '"$WPRISM_SOURCE_ROOT/sandbox/tests/support/wp-block-parser-stub.php"'),
     'all four host-side block/page parser fixtures are independent of the matrix caller working directory'
 );
-duo_check(
+wprism_check(
     !str_contains($deletionCheck, 'require "agent/src/Kernel/Canon.php";')
         && !str_contains($deletionCheck, 'require "sandbox/tests/support/wp-block-parser-stub.php";'),
     'the exact TEC check has no caller-relative host-PHP dependency'
@@ -8574,39 +8574,39 @@ foreach ([
     'target-local cutoff sentinel cleanup retained durable owner rows',
     'TEC removed the test-owned cutoff sentinel before canonical recapture',
 ] as $sentinelCleanupEvidence) {
-    duo_check(
+    wprism_check(
         str_contains($sentinelPostapply, $sentinelCleanupEvidence),
         "the target-local cutoff witness cleanup retains evidence $sentinelCleanupEvidence"
     );
 }
-duo_check(
+wprism_check(
     !str_contains($sentinelPostapply, 'get_posts(')
-        && !str_contains($sentinelPostapply, '"title" => "Duo Target Local All Day Cutoff Sentinel"'),
+        && !str_contains($sentinelPostapply, '"title" => "WPrism Target Local All Day Cutoff Sentinel"'),
     'the exact post-apply witness reads its sealed target ID instead of entering TEC filtered event discovery'
 );
-duo_check(
+wprism_check(
     strpos($sentinelPostapply, 'TEC hook-bypassing settings apply mutated or deleted the target-local all-day sentinel')
         < strpos($sentinelPostapply, 'wp_delete_post($id, true)'),
     'the exact post-apply hook removes its target-local sentinel only after its byte-preservation proof'
 );
-duo_check(
+wprism_check(
     !str_contains($deletionCheck, 'tec_postapply_cutoff_sentinel')
         && str_contains($sentinelPostapply, 'tec_postapply_cutoff_sentinel'),
     'the render check cannot run the target-local sentinel proof after generic canonical recapture'
 );
-duo_check(
+wprism_check(
     str_contains($deletionCheck, "grep -Fq 'non-plain serialized data (PHP object)'")
         && !str_contains($deletionCheck, "grep -Fq 'contains a PHP object'"),
     'the exact live object-graph probe matches the canonical PlainData refusal without weakening no-publication'
 );
-duo_check(
+wprism_check(
     str_contains($deletionCheck, '"post_modified"=>$pages[0]->post_modified')
         && str_contains($deletionCheck, '$restored=$wpdb->update(')
         && str_contains($deletionCheck, '$restoredPost->post_modified!==$backup["post_modified"]')
         && str_contains($deletionCheck, 'substr($source, 0, $frontEnd + 5) . serialize_blocks($kept)'),
     'the hostile widget probe restores timestamp bytes and the scoped expectation preserves exact front-matter object shapes'
 );
-duo_check_same(
+wprism_check_same(
     1,
     substr_count(
         $deletionCheck,
@@ -8639,7 +8639,7 @@ foreach ([
     '../adapter-packages/the-events-calendar/package/runtime/providers/the-events-calendar-category-colors.php' => 'the manifest-bound provider',
     '../adapter-packages/the-events-calendar/package/runtime/regenerators/the-events-calendar.php' => 'the manifest-bound regenerator',
 ] as $regenFixtureEvidence => $regenFixtureLabel) {
-    duo_check(
+    wprism_check(
         str_contains($tecRegenLive, $regenFixtureEvidence),
         "the private TEC regenerator fixture retains $regenFixtureLabel"
     );
@@ -8650,20 +8650,20 @@ foreach ([
     'only optional env value(s) missing — safe to promote' => 'the positive promotion decision',
     'REGEN_PENDING and adapter-disposition blockers cleared; certified TEC status is safe to promote' => 'the certified recovery result',
 ] as $regenStatusEvidence => $regenStatusLabel) {
-    duo_check(
+    wprism_check(
         str_contains($tecRegenLive, $regenStatusEvidence),
         "the exact TEC regenerator status proof retains $regenStatusLabel"
     );
 }
-duo_check(
+wprism_check(
     !str_contains($tecRegenLive, "[ \"\$STATUS_CLEAN_RC\" -ne 0 ]")
         && !str_contains($tecRegenLive, '[authored_state_not_certified]'),
     'the exact TEC regenerator status proof cannot retain its pre-certification expectation'
 );
 $tecRegenRestoreManifest = strpos($tecRegenLive, 'cp "$SHIPPED_MANIFEST" "$MANIFEST"', strpos($tecRegenLive, 'say "(6d)'));
-$tecRegenDropFaultColumn = strpos($tecRegenLive, 'ALTER TABLE wp_tec_occurrences DROP COLUMN duo_regress_never_matches');
-$tecRegenRetryPlan = strpos($tecRegenLive, 'PLAN3=$(wp2_fault duo plan');
-duo_check(
+$tecRegenDropFaultColumn = strpos($tecRegenLive, 'ALTER TABLE wp_tec_occurrences DROP COLUMN wprism_regress_never_matches');
+$tecRegenRetryPlan = strpos($tecRegenLive, 'PLAN3=$(wp2_fault wprism plan');
+wprism_check(
     $tecRegenRestoreManifest !== false
         && $tecRegenDropFaultColumn !== false
         && $tecRegenRetryPlan !== false
@@ -8677,7 +8677,7 @@ duo_check(
 // definition — a tighter bound than #561 had, over the same function body.
 $tecMatrixWrapperStart = strpos($tecMatrixHelpers, 'check_the_events_calendar_boundary_content() {');
 $tecMatrixWrapperEnd = strpos($tecMatrixHelpers, 'postapply_the_events_calendar_content() {', (int) $tecMatrixWrapperStart);
-duo_check(
+wprism_check(
     $tecMatrixWrapperStart !== false && $tecMatrixWrapperEnd !== false,
     'the exact TEC matrix check wrapper has bounded source markers'
 );
@@ -8690,7 +8690,7 @@ foreach ([
     'unset -f wp_conf1 wp_conf2 wp_env' => 'the scoped helper cleanup',
     'local TEC_PRESERVE_ID_FIXTURES=1' => 'matrix ownership of repeated-check identity fixtures',
 ] as $matrixWrapperEvidence => $matrixWrapperLabel) {
-    duo_check(
+    wprism_check(
         str_contains($tecMatrixWrapper, $matrixWrapperEvidence),
         "the exact TEC matrix check wrapper retains $matrixWrapperLabel"
     );
@@ -8702,7 +8702,7 @@ foreach ([
     'postapply_the_events_calendar_content() {' => 'target-local post-apply helper',
     'for TEC_VERSION in 6.17.2 6.17.3; do' => 'exact supported-artifact loop',
 ] as $matrixNeedle => $matrixLabel) {
-    duo_check_same(
+    wprism_check_same(
         1,
         substr_count($versionMatrix, $matrixNeedle),
         "the exact matrix has one unshadowed TEC $matrixLabel"
@@ -8714,21 +8714,21 @@ foreach ([
     'if [ "$TEC_EXPECTED_VERSION" != 6.17.2 ]; then',
     '. "$(dirname "${BASH_SOURCE[0]}")/../conformance/postapply.sh"',
     '"taxonomies": ["category", "post_tag", "tribe_events_cat"]',
-    'TEC_UPGRADE_DEPLOY_OUT=$(wp2 duo deploy --repo=/siterepo 2>&1)',
-    'wp2 duo deploy --repo=/siterepo --force-code-drift',
+    'TEC_UPGRADE_DEPLOY_OUT=$(wp2 wprism deploy --repo=/siterepo 2>&1)',
+    'wp2 wprism deploy --repo=/siterepo --force-code-drift',
     'TEC_POST_UPGRADE_ONLY=1 TEC_VERSION=6.17.3 check_the_events_calendar_boundary_content',
     'TEC_OUT_OF_RANGE_ARTIFACT=$(fetch_artifact the-events-calendar 6.17.1 cli1)',
 ] as $matrixEvidence) {
-    duo_check(
+    wprism_check(
         str_contains($versionMatrix, $matrixEvidence),
         "the single exact TEC matrix retains evidence $matrixEvidence"
     );
 }
 $tecMatrixCaseStart = strpos($tecMatrixHelpers, 'version_matrix_workflow() {');
-duo_check($tecMatrixCaseStart !== false, 'the exact TEC matrix case has a package-owned source marker');
+wprism_check($tecMatrixCaseStart !== false, 'the exact TEC matrix case has a package-owned source marker');
 $tecMatrixCase = substr($tecMatrixHelpers, (int) $tecMatrixCaseStart);
-duo_check(
-    strpos($tecMatrixCase, 'wp2 duo apply --repo=/siterepo')
+wprism_check(
+    strpos($tecMatrixCase, 'wp2 wprism apply --repo=/siterepo')
         < strpos($tecMatrixCase, 'postapply_the_events_calendar_content')
         && strpos($tecMatrixCase, 'postapply_the_events_calendar_content')
             < strpos($tecMatrixCase, 'check_the_events_calendar_boundary_content'),
@@ -8743,7 +8743,7 @@ $tecMatrixIdentityCleanup = strpos(
     $tecMatrixCase,
     'rm -f "siterepo/${PAIR}1/.tmp-tec-source-ids.json" "siterepo/${PAIR}2/.tmp-tec-target-ids.json"'
 );
-duo_check(
+wprism_check(
     $tecMatrixFirstCheck !== false
         && $tecMatrixUpgradeCheck !== false
         && $tecMatrixIdentityCleanup !== false
@@ -8763,7 +8763,7 @@ $tecLifecycleBoundary = strpos(
     $deletionCheck,
     'tec_deactivate_reactivate_cycle "${TEC_EXPECTED_VERSION:-6.17.3}"'
 );
-duo_check(
+wprism_check(
     $tecFreshSeedGuard !== false
         && $tecFreshSeedSource !== false
         && $tecFreshSeedRender !== false
@@ -8775,9 +8775,9 @@ duo_check(
         && $tecCategoryBoundary < $tecLifecycleBoundary,
     'the populated-upgrade path skips only stale seed-shaped assertions before exact native services and lifecycle evidence'
 );
-$tecUpgradeForce = strpos($tecMatrixCase, 'wp2 duo deploy --repo=/siterepo --force-code-drift');
-$tecUpgradeSourceCapture = strpos($tecMatrixCase, 'wp1 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-upgrade-source');
-duo_check(
+$tecUpgradeForce = strpos($tecMatrixCase, 'wp2 wprism deploy --repo=/siterepo --force-code-drift');
+$tecUpgradeSourceCapture = strpos($tecMatrixCase, 'wp1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-tec-upgrade-source');
+wprism_check(
     $tecUpgradeForce !== false
         && $tecMatrixUpgradeCheck !== false
         && $tecUpgradeSourceCapture !== false
@@ -8785,14 +8785,14 @@ duo_check(
         && $tecMatrixUpgradeCheck < $tecUpgradeSourceCapture,
     'the populated-upgrade check runs after explicit code-baseline authority and before byte-identity capture'
 );
-duo_check_same(
+wprism_check_same(
     1,
     substr_count($tecMatrixCase, 'TEC_POST_UPGRADE_ONLY=1'),
     'only the populated TEC upgrade check suppresses stale seed-shaped assertions'
 );
-duo_check_same(
+wprism_check_same(
     1,
-    substr_count($tecMatrixCase, "\n  check_the_events_calendar_boundary_content\n\n  wp2 duo capture"),
+    substr_count($tecMatrixCase, "\n  check_the_events_calendar_boundary_content\n\n  wp2 wprism capture"),
     'the fresh exact-artifact TEC boundary remains a full seed, graph, and render check'
 );
 
@@ -8800,8 +8800,8 @@ foreach ([
     'tec_deactivate_reactivate_cycle "${TEC_EXPECTED_VERSION:-6.17.3}"',
     'schema_version == "5.16.0"',
     'tribe_aggregator_single_process_insert_records',
-    'duo_tec_lifecycle_neighbor_cron',
-    '__duo_env_schema_version__',
+    'wprism_tec_lifecycle_neighbor_cron',
+    '__wprism_env_schema_version__',
     'LIFECYCLE_BEFORE=$(tec_target_storage_fingerprint)',
     'TEC deactivation mutated authored, derived, Customizer, settings, or Category Colors rows',
     'TEC deactivation did not write the exact env-owned schema-version transition',
@@ -8821,19 +8821,19 @@ foreach ([
     'if [ "${TEC_PRESERVE_ID_FIXTURES:-0}" != 1 ]; then',
     'rm -f "$SOURCE_IDS_FILE" "$TARGET_IDS_FILE"',
 ] as $lifecycleEvidence) {
-    duo_check(
+    wprism_check(
         str_contains($deletionCheck, $lifecycleEvidence),
         "the standalone TEC lifecycle retains physical/canonical evidence $lifecycleEvidence"
     );
 }
-duo_check(
+wprism_check(
     !str_contains($deletionCheck, 'TEC_SHA=2db436c929797bfc5311be942158c474716e61c2f289f7d05c3a08d29b2ad687')
         && !str_contains($deletionCheck, 'plugin-the-events-calendar-6.17.3-${TEC_SHA}.zip')
         && !str_contains($deletionCheck, '.schema_version == "6.17.3"')
         && !str_contains($deletionCheck, '.version == "6.17.3" and .event.content'),
     'TEC lifecycle reinstall derives its artifact and native-state assertions from the exact version under test'
 );
-duo_check(
+wprism_check(
     str_contains($deletionCheck, '"tribe_events_pro_customizer"')
         && !str_contains($deletionCheck, '"tribe_events_customizer"'),
     'lifecycle retention fingerprints the exact legacy Customizer fallback row and no nonexistent alias'
@@ -8858,12 +8858,12 @@ foreach ([
     '246ad3241459d2208681900b6a39d032dc9daec306ed60bcd9ec404e4a4db493',
     '91736c6fb3dab5b87b1dc0d354469d0d4cf8c31ca9780cadf527a781f7652f83',
 ] as $customizerLiveEvidence) {
-    duo_check(
+    wprism_check(
         str_contains($deletionCheck, $customizerLiveEvidence),
         "both exact artifacts retain native Customizer callback evidence $customizerLiveEvidence"
     );
 }
-duo_check(
+wprism_check(
     str_contains($versionMatrix, 'local TEC_BOUNDARY_ONLY=0')
         && str_contains($versionMatrix, 'if [ "$TEC_EXPECTED_VERSION" != 6.17.2 ]; then')
         && strpos($deletionCheck, 'if [ "${TEC_BOUNDARY_ONLY:-0}" = 1 ]')
@@ -8873,15 +8873,15 @@ duo_check(
 $multisiteRefusal = (string) file_get_contents(
     $root . '/sandbox/tests/live/regress_multisite_refusal.sh'
 );
-duo_check(
+wprism_check(
     str_contains($multisiteRefusal, 'wp1 core multisite-convert')
-        && str_contains($multisiteRefusal, 'wp1 duo capture --repo=/siterepo')
-        && str_contains($multisiteRefusal, 'duo_multisite_refusal_canary'),
+        && str_contains($multisiteRefusal, 'wp1 wprism capture --repo=/siterepo')
+        && str_contains($multisiteRefusal, 'wprism_multisite_refusal_canary'),
     'the adapter-independent platform proof reaches a real network capture and checks zero authored mutation'
 );
-duo_check(
+wprism_check(
     in_array(
-        'Duo v1 refuses multisite; TEC network/global behavior is outside this single-site adapter.',
+        'WPrism v1 refuses multisite; TEC network/global behavior is outside this single-site adapter.',
         array_column($disposition['unsupported'] ?? [], 'reason'),
         true
     ),
@@ -8890,13 +8890,13 @@ duo_check(
 $tecMultisiteRefusal = (string) file_get_contents(
     dirname(__DIR__) . '/live/regress_the_events_calendar_multisite_refusal.sh'
 );
-duo_check_same(
+wprism_check_same(
     1,
     substr_count($tecMultisiteRefusal, 'for version in 6.17.2 6.17.3; do'),
     'the candidate-bound TEC network fixture has one exact dual-artifact loop'
 );
 foreach ([
-    'DUO_EXPECTED_SOURCE_SHA must bind the exact lowercase 40-character candidate SHA',
+    'WPRISM_EXPECTED_SOURCE_SHA must bind the exact lowercase 40-character candidate SHA',
     '. "$(dirname "${BASH_SOURCE[0]}")/../conformance/seed.sh"',
     'wp1 core multisite-convert',
     'tec_storage_fingerprint',
@@ -8908,19 +8908,19 @@ foreach ([
     'SELECT * FROM {$wpdb->prefix}tec_events ORDER BY event_id',
     'SELECT * FROM {$wpdb->prefix}tec_occurrences ORDER BY occurrence_id',
 ] as $tecMultisiteEvidence) {
-    duo_check(
+    wprism_check(
         str_contains($tecMultisiteRefusal, $tecMultisiteEvidence),
         "the exact TEC network fixture retains populated refusal evidence $tecMultisiteEvidence"
     );
 }
 foreach (['capture', 'plan', 'deploy', 'apply'] as $command) {
-    duo_check(
+    wprism_check(
         str_contains($tecMultisiteRefusal, 'for command in capture plan deploy apply; do')
-            && str_contains($tecMultisiteRefusal, 'wp1 duo "$command" --repo=/siterepo --format=json'),
+            && str_contains($tecMultisiteRefusal, 'wp1 wprism "$command" --repo=/siterepo --format=json'),
         "the exact TEC network fixture drives the typed $command refusal through the product command path"
     );
 }
-duo_check(
+wprism_check(
     str_contains($tecMultisiteRefusal, '[ "$(tec_storage_fingerprint)" = "$baseline" ]')
         && str_contains($tecMultisiteRefusal, '[ ! -e "$CONF_REPO1/state" ]')
         && str_contains($tecMultisiteRefusal, 'wp1 plugin is-active the-events-calendar'),
@@ -8935,7 +8935,7 @@ add_filter(
 );
 $regenerator = new TheEventsCalendarRegenerator($policy);
 $GLOBALS['tec_readiness_settings_manager'] = Tribe__Settings_Manager::instance();
-duo_check_throws(
+wprism_check_throws(
     static fn() => $regenerator->regenerate_batch([], [[
         'identity' => 'post:' . TEC_EVENT_UUID,
         'local_id' => 77,
@@ -8996,7 +8996,7 @@ $GLOBALS['tec_readiness_wp_cache_sets'] = 0;
 $GLOBALS['tec_readiness_wp_cache_deletes'] = 0;
 $GLOBALS['tec_readiness_wp_cache'] = [];
 $GLOBALS['wp_rewrite'] = new TecReadinessRewriteRuntime();
-$nativeRewriteChild = new ReflectionMethod(\Duo\NativeActions::class, 'flush_rewrite_in_fresh_process');
+$nativeRewriteChild = new ReflectionMethod(\WPrism\NativeActions::class, 'flush_rewrite_in_fresh_process');
 $rewriteRefusalState = static function () use ($tecDb, $optionsTable): array {
     $rows = array_values(array_filter(
         $tecDb->rows($optionsTable),
@@ -9023,7 +9023,7 @@ $rewriteRefusalState = static function () use ($tecDb, $optionsTable): array {
         'purge_value' => $purgePresent ? tribe_get_var('should_delete_expired_transients') : null,
     ];
 };
-duo_check_same(
+wprism_check_same(
     false,
     has_filter('tribe_pre_rewrite'),
     'the exact free-plugin normal boot leaves the predecessor rewrite hook empty'
@@ -9036,7 +9036,7 @@ try {
 } catch (Throwable $failure) {
     $deprecationFailure = $failure;
 }
-duo_check(
+wprism_check(
     $deprecationFailure instanceof RuntimeException
         && str_contains(
             $deprecationFailure->getMessage(),
@@ -9044,7 +9044,7 @@ duo_check(
         ),
     'resolving the opt-in TEC deprecation singleton refuses before native rewrite generation'
 );
-duo_check_same(
+wprism_check_same(
     $deprecationPreimage,
     $rewriteRefusalState(),
     'the opt-in deprecation callback refusal preserves durable rows, runtime rules, and purge state'
@@ -9064,17 +9064,17 @@ try {
     $lazyRewriteFailure = $failure;
 }
 unset($GLOBALS['tec_readiness_views_rewrite_resolution_failure']);
-duo_check(
+wprism_check(
     $lazyRewriteFailure instanceof RuntimeException
         && str_contains($lazyRewriteFailure->getMessage(), 'could not resolve a lazy TEC rewrite service'),
     'a failed normal lazy Views Rewrite resolution refuses before native generation'
 );
-duo_check_same(
+wprism_check_same(
     $lazyRewritePreimage,
     $rewriteRefusalState(),
     'the failed lazy Views Rewrite resolution preserves durable rows, runtime rules, and purge state'
 );
-duo_check_same(
+wprism_check_same(
     1,
     $GLOBALS['tec_readiness_views_rewrite_resolution_calls'],
     'a failed first lazy Views Rewrite resolution never reaches re-resolution'
@@ -9090,17 +9090,17 @@ try {
     $substitutedViewsRewriteFailure = $failure;
 }
 unset($GLOBALS['tec_readiness_views_rewrite_override']);
-duo_check(
+wprism_check(
     $substitutedViewsRewriteFailure instanceof RuntimeException
         && str_contains($substitutedViewsRewriteFailure->getMessage(), 'substituted lazy TEC rewrite service'),
     'a container-substituted lazy Views Rewrite service refuses before native generation'
 );
-duo_check_same(
+wprism_check_same(
     $substitutedViewsRewritePreimage,
     $rewriteRefusalState(),
     'the substituted lazy Views Rewrite service preserves durable rows, runtime rules, and purge state'
 );
-duo_check_same(
+wprism_check_same(
     1,
     $GLOBALS['tec_readiness_views_rewrite_resolution_calls'],
     'a substituted first lazy Views Rewrite resolution never invokes the container twice'
@@ -9121,7 +9121,7 @@ try {
     $driftedViewsRewriteFailure = $failure;
 }
 unset($GLOBALS['tec_readiness_views_rewrite_resolution_sequence']);
-duo_check(
+wprism_check(
     $driftedViewsRewriteFailure instanceof RuntimeException
         && str_contains(
             $driftedViewsRewriteFailure->getMessage(),
@@ -9129,12 +9129,12 @@ duo_check(
         ),
     'same-class stateful lazy Views Rewrite re-resolution refuses before native generation'
 );
-duo_check_same(
+wprism_check_same(
     $driftedViewsRewritePreimage,
     $rewriteRefusalState(),
     'the stateful lazy Views Rewrite service preserves durable rows, runtime rules, and purge state'
 );
-duo_check_same(
+wprism_check_same(
     2,
     $GLOBALS['tec_readiness_views_rewrite_resolution_calls'],
     'same-class stateful lazy Views Rewrite is detected by exactly one independent re-resolution'
@@ -9147,7 +9147,7 @@ try {
 } catch (Throwable $failure) {
     $missingRawSlugFailure = $failure;
 }
-duo_check(
+wprism_check(
     $missingRawSlugFailure instanceof RuntimeException
         && str_contains(
             $missingRawSlugFailure->getMessage(),
@@ -9155,7 +9155,7 @@ duo_check(
         ),
     'a missing canonical Views V2 raw-slug callback refuses before native rewrite generation'
 );
-duo_check_same(
+wprism_check_same(
     $missingRawSlugPreimage,
     $rewriteRefusalState(),
     'the missing raw-slug callback refusal preserves durable rows, runtime rules, and purge state'
@@ -9171,7 +9171,7 @@ try {
 } catch (Throwable $failure) {
     $substitutedRawSlugFailure = $failure;
 }
-duo_check(
+wprism_check(
     $substitutedRawSlugFailure instanceof RuntimeException
         && str_contains(
             $substitutedRawSlugFailure->getMessage(),
@@ -9179,7 +9179,7 @@ duo_check(
         ),
     'a same-class non-container Views V2 raw-slug callback refuses before native generation'
 );
-duo_check_same(
+wprism_check_same(
     $substitutedRawSlugPreimage,
     $rewriteRefusalState(),
     'the substituted raw-slug callback refusal preserves durable rows, runtime rules, and purge state'
@@ -9205,7 +9205,7 @@ try {
     $extendedRawSlugFailure = $failure;
 }
 remove_filter('tribe_events_rewrite_i18n_slugs_raw', $extendedRawSlug, 999);
-duo_check(
+wprism_check(
     $extendedRawSlugFailure instanceof RuntimeException
         && str_contains(
             $extendedRawSlugFailure->getMessage(),
@@ -9213,26 +9213,26 @@ duo_check(
         ),
     'an extra Views V2 raw-slug callback refuses before native rewrite generation'
 );
-duo_check_same(0, $extendedRawSlugCalls, 'the refused extra raw-slug callback never executes');
-duo_check_same(
+wprism_check_same(0, $extendedRawSlugCalls, 'the refused extra raw-slug callback never executes');
+wprism_check_same(
     $extendedRawSlugPreimage,
     $rewriteRefusalState(),
     'the extra raw-slug callback refusal preserves durable rows, runtime rules, and purge state'
 );
 $nativeRewriteReceipt = $nativeRewriteChild->invoke(null);
-duo_check_same(
+wprism_check_same(
     true,
     $nativeRewriteReceipt['verified'] ?? null,
     'restoring canonical lazy Views Rewrite and hook topology permits same-process checked retry'
 );
-duo_check(
+wprism_check(
     is_array($GLOBALS['wp_rewrite']->rules)
         && ($GLOBALS['wp_rewrite']->rules['^%C3%A9v%C3%A9nements/?$'] ?? null)
             === 'index.php?post_type=tribe_events&tec_view=v2',
     'the canonical raw-slug callback output is bound into the checked generated-rule receipt'
 );
-duo_check_same(1, $GLOBALS['wp_rewrite']->flushCalls, 'TEC-active native rewrite invokes the fresh soft flush exactly once');
-duo_check(
+wprism_check_same(1, $GLOBALS['wp_rewrite']->flushCalls, 'TEC-active native rewrite invokes the fresh soft flush exactly once');
+wprism_check(
     in_array(
         ['Tribe\\Events\\Views\\V2\\Kitchen_Sink::generate_rules', 'kitchen-sink'],
         $GLOBALS['tec_readiness_rewrite_calls'],
@@ -9251,7 +9251,7 @@ foreach ($tecDb->rows($optionsTable) as $row) {
         $nativeMarkerRows[(string) $name] = $row;
     }
 }
-duo_check_same(
+wprism_check_same(
     ['tribe_last_generate_rewrite_rules', 'tribe_last_save_post', 'tribe_last_updated_option'],
     array_keys(array_replace(array_fill_keys([
         'tribe_last_generate_rewrite_rules',
@@ -9260,9 +9260,9 @@ duo_check_same(
     ], null), $nativeMarkerRows)),
     'the exact generate/update/save CacheListener marker roster is physically observable'
 );
-duo_check_same(false, tribe_isset_var('should_delete_expired_transients'), 'native rewrite restores an initially absent transient-purge flag before child shutdown');
+wprism_check_same(false, tribe_isset_var('should_delete_expired_transients'), 'native rewrite restores an initially absent transient-purge flag before child shutdown');
 tribe_cache()->maybe_delete_expired_transients();
-duo_check_same(0, $GLOBALS['tec_readiness_expired_transient_deletes'], 'a Duo-created marker never schedules an unreceipted shutdown transient purge');
+wprism_check_same(0, $GLOBALS['tec_readiness_expired_transient_deletes'], 'a WPrism-created marker never schedules an unreceipted shutdown transient purge');
 
 $beforeFailedRewrite = array_values(array_filter(
     $tecDb->rows($optionsTable),
@@ -9280,13 +9280,13 @@ try {
 } catch (Throwable $failure) {
     $failedRewrite = $failure;
 }
-duo_check(
+wprism_check(
     $failedRewrite instanceof RuntimeException
         && str_contains($failedRewrite->getMessage(), 'did not generate a valid rewrite runtime'),
     'a failure after generate+marker writes refuses the TEC-active rewrite receipt'
 );
-duo_check_same(false, tribe_isset_var('should_delete_expired_transients'), 'post-marker failure restores the local purge-flag preimage');
-duo_check(
+wprism_check_same(false, tribe_isset_var('should_delete_expired_transients'), 'post-marker failure restores the local purge-flag preimage');
+wprism_check(
     $beforeFailedRewrite !== array_values(array_filter(
         $tecDb->rows($optionsTable),
         static fn(array $row): bool => in_array($row['option_name'] ?? null, [
@@ -9300,8 +9300,8 @@ duo_check(
 );
 $GLOBALS['wp_rewrite']->malformedAfterGenerate = false;
 $retryRewrite = $nativeRewriteChild->invoke(null);
-duo_check_same(true, $retryRewrite['verified'] ?? null, 'same-process retry after a partial TEC marker effect converges');
-duo_check_same(false, tribe_isset_var('should_delete_expired_transients'), 'retry also restores the exact absent shutdown-flag preimage');
+wprism_check_same(true, $retryRewrite['verified'] ?? null, 'same-process retry after a partial TEC marker effect converges');
+wprism_check_same(false, tribe_isset_var('should_delete_expired_transients'), 'retry also restores the exact absent shutdown-flag preimage');
 
 $foreignPredecessorCalls = 0;
 $foreignPredecessor = static function (mixed $rewrite = null) use (&$foreignPredecessorCalls): mixed {
@@ -9317,7 +9317,7 @@ try {
     $foreignPredecessorFailure = $failure;
 }
 remove_action('tribe_pre_rewrite', $foreignPredecessor, 10);
-duo_check(
+wprism_check(
     $foreignPredecessorFailure instanceof RuntimeException
         && str_contains(
             $foreignPredecessorFailure->getMessage(),
@@ -9325,14 +9325,14 @@ duo_check(
         ),
     'a foreign predecessor-hook callback refuses before native rewrite generation'
 );
-duo_check_same(0, $foreignPredecessorCalls, 'the refused predecessor-hook callback never executes');
-duo_check_same(
+wprism_check_same(0, $foreignPredecessorCalls, 'the refused predecessor-hook callback never executes');
+wprism_check_same(
     $foreignPredecessorPreimage,
     $rewriteRefusalState(),
     'the foreign predecessor-hook refusal preserves durable rows, runtime rules, and purge state'
 );
 $foreignPredecessorRetry = $nativeRewriteChild->invoke(null);
-duo_check_same(
+wprism_check_same(
     true,
     $foreignPredecessorRetry['verified'] ?? null,
     'removing the foreign predecessor-hook callback permits same-process retry'
@@ -9348,14 +9348,14 @@ try {
     $hostileMarkerFailure = $failure;
 }
 remove_filter('update_option_tribe_last_generate_rewrite_rules', $hostileMarkerCallback, 999);
-duo_check(
+wprism_check(
     $hostileMarkerFailure instanceof RuntimeException
         && str_contains($hostileMarkerFailure->getMessage(), 'extended marker option topology'),
     'a hostile marker-specific update callback refuses before native rewrite mutation'
 );
-duo_check_same($flushesBeforeHostileMarker, $GLOBALS['wp_rewrite']->flushCalls, 'marker-hook refusal executes no rewrite callback');
+wprism_check_same($flushesBeforeHostileMarker, $GLOBALS['wp_rewrite']->flushCalls, 'marker-hook refusal executes no rewrite callback');
 $postHookRetry = $nativeRewriteChild->invoke(null);
-duo_check_same(true, $postHookRetry['verified'] ?? null, 'removing the hostile marker callback permits exact retry');
+wprism_check_same(true, $postHookRetry['verified'] ?? null, 'removing the hostile marker callback permits exact retry');
 
 $triggerCallback = static fn(array $triggers): array => $triggers;
 add_filter('tribe_cache_last_occurrence_option_triggers', $triggerCallback, 999, 3);
@@ -9367,12 +9367,12 @@ try {
     $triggerFailure = $failure;
 }
 remove_filter('tribe_cache_last_occurrence_option_triggers', $triggerCallback, 999);
-duo_check(
+wprism_check(
     $triggerFailure instanceof RuntimeException
         && str_contains($triggerFailure->getMessage(), 'cache-listener trigger filters'),
     'an extension of TEC recursive trigger filters refuses before rewrite mutation'
 );
-duo_check_same($flushesBeforeTrigger, $GLOBALS['wp_rewrite']->flushCalls, 'trigger-filter refusal executes no native callback');
+wprism_check_same($flushesBeforeTrigger, $GLOBALS['wp_rewrite']->flushCalls, 'trigger-filter refusal executes no native callback');
 
 // Load Woo only at this product boundary: PHP cannot unload functions/classes,
 // and the earlier TEC-only cells intentionally prove the supported absent-
@@ -9388,61 +9388,61 @@ $yoastOptionClasses = [
     'wpseo_llmstxt' => 'WPSEO_Option_Llmstxt',
     'wpseo_tracking_only' => 'WPSEO_Option_Tracking_Only',
 ];
-duo_check_same(
+wprism_check_same(
     array_values($yoastOptionClasses),
     array_map('get_class', array_values($wooServices['yoast_options'])),
     'the exact Yoast 28.3 option singleton roster is installed'
 );
-duo_check_same(
+wprism_check_same(
     6,
     (int) ($GLOBALS['tec_readiness_yoast_constructs'] ?? 0),
     'the exact Yoast option singleton roster is constructed once before admission'
 );
 $yoastRewrite = $wooServices['yoast_rewrite'];
-duo_check_same(
+wprism_check_same(
     'WPSEO_Rewrite',
     get_class($yoastRewrite),
     'the exact Yoast category rewrite service has the normal class identity'
 );
-duo_check_same(
+wprism_check_same(
     $yoastRewrite,
     $GLOBALS['wpseo_rewrite'] ?? null,
     'the exact Yoast category rewrite global is the canonical service object'
 );
-duo_check_same(
+wprism_check_same(
     [],
     (new ReflectionClass($yoastRewrite))->getProperties(),
     'the exact Yoast category rewrite service is stateless'
 );
-duo_check_same(
+wprism_check_same(
     false,
     WPSEO_Options::get('stripcategorybase'),
     'the exact Yoast category rewrite policy is primed from the cached false value'
 );
-duo_check_same(
+wprism_check_same(
     10,
     has_filter('category_rewrite_rules', [$yoastRewrite, 'category_rewrite_rules_wrapper']),
     'Yoast binds its exact stateless category wrapper at category_rewrite_rules 10/1'
 );
 foreach ($wooServices['yoast_options'] as $name => $service) {
-    duo_check(
+    wprism_check(
         has_filter('pre_update_option', [$service, 'add_default_filters_if_not_changed']) === PHP_INT_MAX,
         "Yoast $name binds add_default_filters_if_not_changed at PHP_INT_MAX/3"
     );
-    duo_check(
+    wprism_check(
         has_action('update_option', [$service, 'add_default_filters_if_same_option']) === 10,
         "Yoast $name binds update_option add_default_filters_if_same_option at 10/1"
     );
-    duo_check(
+    wprism_check(
         has_action('add_option', [$service, 'add_default_filters_if_same_option']) === 10,
         "Yoast $name binds add_option add_default_filters_if_same_option at 10/1"
     );
 }
-duo_check(
+wprism_check(
     has_action('update_option', ['WPSEO_Sitemaps_Cache', 'clear_on_option_update']) === 10,
     'Yoast binds its exact static sitemap-cache invalidator at update_option 10/1'
 );
-duo_check(
+wprism_check(
     ($GLOBALS['wpseo_sitemaps'] ?? null) === $wooServices['yoast_sitemaps']
         && get_class($wooServices['yoast_sitemaps']) === 'WPSEO_Sitemaps'
         && $wooServices['yoast_sitemaps']->cache === $wooServices['yoast_sitemaps_cache']
@@ -9456,7 +9456,7 @@ $yoastSitemapCacheState = static function (): array {
         'clear_types' => (new ReflectionProperty('WPSEO_Sitemaps_Cache', 'clear_types'))->getValue(),
     ];
 };
-duo_check(
+wprism_check(
     in_array('attachment', $wooServices['polylang_types'], true)
         && has_filter(
             'attachment_rewrite_rules',
@@ -9476,12 +9476,12 @@ $wooCustomizerMaterialization = tec_readiness_materialize_mixed_option(
     ['month_view' => ['grid_lines_color' => '#112233']],
     ['month_view' => ['grid_lines_color' => '#445566']]
 );
-duo_check_same(
+wprism_check_same(
     null,
     $wooCustomizerMaterialization['failure'],
     'the exact normal Woo callback union permits an existing TEC Customizer option replacement'
 );
-duo_check_same(
+wprism_check_same(
     ['month_view' => ['grid_lines_color' => '#112233']],
     $decodeMixedRow($wooCustomizerMaterialization),
     'the Woo co-install does not alter the exact materialized Customizer value'
@@ -9492,37 +9492,37 @@ $wooMainInsertion = tec_readiness_materialize_mixed_option(
     ['eventsSlug' => 'woo-events'],
     null
 );
-duo_check_same(
+wprism_check_same(
     null,
     $wooMainInsertion['failure'],
     'the exact normal Woo callback union permits an absent TEC main-option insertion'
 );
-duo_check_same(
+wprism_check_same(
     ['eventsSlug' => 'woo-events'],
     $decodeMixedRow($wooMainInsertion),
     'the Woo co-install does not alter the exact materialized TEC main option'
 );
-duo_check_same(
+wprism_check_same(
     $wooCallsBeforeOptionUnion,
     $GLOBALS['tec_readiness_woo_calls'] ?? [],
     'the admitted Woo option union is proven but never executed by the checked TEC writer'
 );
-duo_check_same(
+wprism_check_same(
     $yoastCallsBeforeOptionUnion,
     $GLOBALS['tec_readiness_yoast_calls'] ?? [],
     'the admitted Yoast option and sitemap union is proven but never executed by the checked TEC writer'
 );
-duo_check_same(
+wprism_check_same(
     $yoastConstructsBeforeOptionUnion,
     (int) ($GLOBALS['tec_readiness_yoast_constructs'] ?? 0),
     'TEC option admission reads existing Yoast services without constructing a replacement'
 );
-duo_check_same(
+wprism_check_same(
     $wooContainerGetsBeforeOptionUnion,
     (int) ($GLOBALS['tec_readiness_woo_container_get_calls'] ?? 0),
     'TEC option admission reads Woo runtime cache identity without calling Container::get'
 );
-duo_check_same(
+wprism_check_same(
     $wooContainerConstructsBeforeOptionUnion,
     (int) ($GLOBALS['tec_readiness_woo_container_constructs'] ?? 0),
     'TEC option admission cannot construct a Woo service from a runtime-cache miss'
@@ -9547,27 +9547,27 @@ $partialWooCacheMaterialization = tec_readiness_materialize_mixed_option(
     ['month_view' => ['grid_lines_color' => '#445566']]
 );
 $wooResolvedCache->setValue($wooRuntime, $wooResolvedCachePreimage);
-duo_check(
+wprism_check(
     $partialWooCacheMaterialization['failure'] instanceof RuntimeException
         && str_contains($partialWooCacheMaterialization['failure']->getMessage(), 'substituted WooCommerce services'),
     'a partial Woo resolved cache refuses an existing TEC option before storage'
 );
-duo_check_same(
+wprism_check_same(
     ['month_view' => ['grid_lines_color' => '#445566']],
     $decodeMixedRow($partialWooCacheMaterialization),
     'the partial Woo resolved-cache refusal preserves exact existing TEC option bytes'
 );
-duo_check_same(
+wprism_check_same(
     $wooGetsBeforePartialCache,
     (int) ($GLOBALS['tec_readiness_woo_container_get_calls'] ?? 0),
     'the partial Woo resolved-cache refusal never calls Container::get'
 );
-duo_check_same(
+wprism_check_same(
     $wooConstructsBeforePartialCache,
     (int) ($GLOBALS['tec_readiness_woo_container_constructs'] ?? 0),
     'the partial Woo resolved-cache refusal cannot construct its missing service'
 );
-duo_check_same(
+wprism_check_same(
     true,
     tec_readiness_materialize_mixed_option(
         $policy,
@@ -9587,17 +9587,17 @@ $missingYoastPreMaterialization = tec_readiness_materialize_mixed_option(
     ['month_view' => ['grid_lines_color' => '#445566']]
 );
 add_filter('pre_update_option', [$missingYoastPre, 'add_default_filters_if_not_changed'], PHP_INT_MAX, 3);
-duo_check(
+wprism_check(
     $missingYoastPreMaterialization['failure'] instanceof RuntimeException
         && str_contains($missingYoastPreMaterialization['failure']->getMessage(), 'incomplete Yoast SEO pre_update_option callbacks'),
     'a missing canonical Yoast pre-update callback refuses an existing TEC option before storage'
 );
-duo_check_same(
+wprism_check_same(
     ['month_view' => ['grid_lines_color' => '#445566']],
     $decodeMixedRow($missingYoastPreMaterialization),
     'the missing Yoast pre-update callback preserves exact existing TEC option bytes'
 );
-duo_check_same(
+wprism_check_same(
     true,
     tec_readiness_materialize_mixed_option(
         $policy,
@@ -9619,17 +9619,17 @@ $foreignYoastUpdateMaterialization = tec_readiness_materialize_mixed_option(
 );
 remove_action('update_option', [$foreignYoastUpdate, 'add_default_filters_if_same_option'], 10);
 add_action('update_option', [$wooServices['yoast_options']['wpseo'], 'add_default_filters_if_same_option'], 10, 1);
-duo_check(
+wprism_check(
     $foreignYoastUpdateMaterialization['failure'] instanceof RuntimeException
         && str_contains($foreignYoastUpdateMaterialization['failure']->getMessage(), 'extended/substituted Yoast SEO update_option callbacks'),
     'a same-class foreign Yoast update callback refuses an existing TEC option before storage'
 );
-duo_check_same(
+wprism_check_same(
     ['month_view' => ['grid_lines_color' => '#445566']],
     $decodeMixedRow($foreignYoastUpdateMaterialization),
     'the foreign Yoast update callback preserves exact existing TEC option bytes'
 );
-duo_check_same(
+wprism_check_same(
     true,
     tec_readiness_materialize_mixed_option(
         $policy,
@@ -9648,13 +9648,13 @@ $missingYoastAddMaterialization = tec_readiness_materialize_mixed_option(
     null
 );
 add_action('add_option', [$wooServices['yoast_options']['wpseo'], 'add_default_filters_if_same_option'], 10, 1);
-duo_check(
+wprism_check(
     $missingYoastAddMaterialization['failure'] instanceof RuntimeException
         && str_contains($missingYoastAddMaterialization['failure']->getMessage(), 'incomplete Yoast SEO add_option callbacks'),
     'a missing canonical Yoast add callback refuses an absent TEC option before insertion'
 );
-duo_check_same(null, $missingYoastAddMaterialization['row'], 'the missing Yoast add callback preserves TEC option absence');
-duo_check_same(
+wprism_check_same(null, $missingYoastAddMaterialization['row'], 'the missing Yoast add callback preserves TEC option absence');
+wprism_check_same(
     true,
     tec_readiness_materialize_mixed_option(
         $policy,
@@ -9674,13 +9674,13 @@ $extraYoastAddMaterialization = tec_readiness_materialize_mixed_option(
     null
 );
 remove_action('add_option', $extraYoastAdd, 999);
-duo_check(
+wprism_check(
     $extraYoastAddMaterialization['failure'] instanceof RuntimeException
         && str_contains($extraYoastAddMaterialization['failure']->getMessage(), 'extended/substituted external add_option callbacks'),
     'an extra generic add callback refuses an absent TEC option before insertion'
 );
-duo_check_same(null, $extraYoastAddMaterialization['row'], 'the extra add callback preserves TEC option absence');
-duo_check_same(
+wprism_check_same(null, $extraYoastAddMaterialization['row'], 'the extra add callback preserves TEC option absence');
+wprism_check_same(
     true,
     tec_readiness_materialize_mixed_option(
         $policy,
@@ -9699,17 +9699,17 @@ $partialYoastSingletonMaterialization = tec_readiness_materialize_mixed_option(
     ['month_view' => ['grid_lines_color' => '#445566']]
 );
 WPSEO_Options::register_option('wpseo_social', $missingYoastPre);
-duo_check(
+wprism_check(
     $partialYoastSingletonMaterialization['failure'] instanceof RuntimeException
         && str_contains($partialYoastSingletonMaterialization['failure']->getMessage(), 'incomplete Yoast SEO option singletons'),
     'a partial Yoast singleton roster refuses an existing TEC option before storage'
 );
-duo_check_same(
+wprism_check_same(
     ['month_view' => ['grid_lines_color' => '#445566']],
     $decodeMixedRow($partialYoastSingletonMaterialization),
     'the partial Yoast singleton refusal preserves exact existing TEC option bytes'
 );
-duo_check_same(
+wprism_check_same(
     true,
     tec_readiness_materialize_mixed_option(
         $policy,
@@ -9730,13 +9730,13 @@ $markerSitemapMaterialization = tec_readiness_materialize_mixed_option(
     null
 );
 $yoastCacheClear->setValue(null, $yoastCacheClearPreimage);
-duo_check(
+wprism_check(
     $markerSitemapMaterialization['failure'] instanceof RuntimeException
         && str_contains($markerSitemapMaterialization['failure']->getMessage(), 'TEC marker registered for Yoast SEO sitemap cache invalidation'),
     'a Yoast sitemap registration for a TEC marker refuses before option insertion'
 );
-duo_check_same(null, $markerSitemapMaterialization['row'], 'the hostile Yoast sitemap registration preserves TEC option absence');
-duo_check_same(
+wprism_check_same(null, $markerSitemapMaterialization['row'], 'the hostile Yoast sitemap registration preserves TEC option absence');
+wprism_check_same(
     true,
     tec_readiness_materialize_mixed_option(
         $policy,
@@ -9769,7 +9769,7 @@ foreach ([
         $targetOption
     );
     $yoastCacheClear->setValue(null, $yoastCacheClearPreimage);
-    duo_check(
+    wprism_check(
         $hostileCurrentOptionMaterialization['failure'] instanceof RuntimeException
             && str_contains(
                 $hostileCurrentOptionMaterialization['failure']->getMessage(),
@@ -9778,19 +9778,19 @@ foreach ([
         "a Yoast sitemap registration for current option '$hostileOption' refuses before mutation"
     );
     if ($expectedPreimage === null) {
-        duo_check_same(
+        wprism_check_same(
             null,
             $hostileCurrentOptionMaterialization['row'],
             "the hostile current-option sitemap registration preserves $preimageLabel"
         );
     } else {
-        duo_check_same(
+        wprism_check_same(
             $expectedPreimage,
             $decodeMixedRow($hostileCurrentOptionMaterialization),
             "the hostile current-option sitemap registration preserves $preimageLabel"
         );
     }
-    duo_check_same(
+    wprism_check_same(
         true,
         tec_readiness_materialize_mixed_option($policy, $hostileOption, $desiredOption, $targetOption)['failure'] === null,
         "restoring the sitemap map permits '$hostileOption' exact retry"
@@ -9808,12 +9808,12 @@ $foreignOptionService = tec_readiness_materialize_mixed_option(
 );
 remove_action('updated_option', [$foreignOptionFeatures, 'process_updated_option'], 999);
 add_action('updated_option', [$wooServices['features'], 'process_updated_option'], 999, 3);
-duo_check(
+wprism_check(
     $foreignOptionService['failure'] instanceof RuntimeException
         && str_contains($foreignOptionService['failure']->getMessage(), 'extended/substituted updated callback'),
     'a same-class foreign Woo service refuses the TEC option writer before storage'
 );
-duo_check_same(
+wprism_check_same(
     ['month_view' => ['grid_lines_color' => '#445566']],
     $decodeMixedRow($foreignOptionService),
     'the foreign Woo service refusal preserves the exact target Customizer bytes'
@@ -9829,12 +9829,12 @@ $missingWooAddTopology = tec_readiness_materialize_mixed_option(
 );
 add_action('added_option', [$wooServices['features'], 'process_added_option'], 999, 3);
 add_action('added_option', [$wooServices['synchronizer'], 'process_added_option'], 999, 2);
-duo_check(
+wprism_check(
     $missingWooAddTopology['failure'] instanceof RuntimeException
         && str_contains($missingWooAddTopology['failure']->getMessage(), 'incomplete WooCommerce added_option callbacks'),
     'missing Woo add callbacks refuse an absent TEC option before insertion'
 );
-duo_check_same(null, $missingWooAddTopology['row'], 'the incomplete Woo add topology preserves target absence');
+wprism_check_same(null, $missingWooAddTopology['row'], 'the incomplete Woo add topology preserves target absence');
 
 foreach ([
     [$wooServices['features'], 'process_updated_option', 999],
@@ -9860,12 +9860,12 @@ add_action('updated_option', [$wooServices['custom_orders'], 'process_updated_op
 add_filter('pre_update_option', [$wooServices['custom_orders'], 'process_pre_update_option'], 999, 3);
 add_action('added_option', [$wooServices['features'], 'process_added_option'], 999, 3);
 add_action('added_option', [$wooServices['synchronizer'], 'process_added_option'], 999, 2);
-duo_check(
+wprism_check(
     $missingWooRuntimeTopology['failure'] instanceof RuntimeException
         && str_contains($missingWooRuntimeTopology['failure']->getMessage(), 'incomplete WooCommerce'),
     'a loaded Woo runtime with every option callback removed refuses instead of masquerading as absence'
 );
-duo_check_same(
+wprism_check_same(
     ['month_view' => ['grid_lines_color' => '#445566']],
     $decodeMixedRow($missingWooRuntimeTopology),
     'the callback-free loaded Woo runtime preserves the exact target Customizer bytes'
@@ -9880,12 +9880,12 @@ $yoastConstructsBeforeAdmission = (int) ($GLOBALS['tec_readiness_yoast_construct
 $yoastReadsBeforeAdmission = count($GLOBALS['tec_readiness_yoast_option_reads'] ?? []);
 $yoastSitemapStateBeforeAdmission = $yoastSitemapCacheState();
 $wooUpdatedReceipt = $nativeRewriteChild->invoke(null);
-duo_check_same(
+wprism_check_same(
     true,
     $wooUpdatedReceipt['verified'] ?? null,
     'the exact normal Woo callback union permits the TEC rewrite product path'
 );
-duo_check(
+wprism_check(
     in_array(
         ['WPSEO_Rewrite::category_rewrite_rules_wrapper', 'category'],
         $GLOBALS['tec_readiness_rewrite_calls'] ?? [],
@@ -9893,7 +9893,7 @@ duo_check(
     ),
     'the exact normal Yoast category wrapper executes and records its no-op callback'
 );
-duo_check(
+wprism_check(
     in_array(
         'stripcategorybase',
         $GLOBALS['tec_readiness_yoast_policy_reads'] ?? [],
@@ -9901,7 +9901,7 @@ duo_check(
     ),
     'the normal Yoast category wrapper reads its cached policy through WPSEO_Options::get'
 );
-duo_check_same(
+wprism_check_same(
     [],
     array_values(array_filter(
         $GLOBALS['tec_readiness_yoast_calls'] ?? [],
@@ -9910,17 +9910,17 @@ duo_check_same(
     )),
     'Yoast sitemap invalidation remains a source-faithful no-op for every TEC marker option'
 );
-duo_check_same(
+wprism_check_same(
     $yoastSitemapStateBeforeAdmission,
     $yoastSitemapCacheState(),
     'all three TEC marker writes preserve Yoast sitemap registration and queued-purge state exactly'
 );
-duo_check_same(
+wprism_check_same(
     $yoastConstructsBeforeAdmission,
     (int) ($GLOBALS['tec_readiness_yoast_constructs'] ?? 0),
     'Yoast admission resolves existing option singletons without constructing replacements'
 );
-duo_check_same(
+wprism_check_same(
     array_keys($yoastOptionClasses),
     array_values(array_unique(array_slice(
         $GLOBALS['tec_readiness_yoast_option_reads'] ?? [],
@@ -9943,18 +9943,18 @@ foreach ([
     } catch (Throwable $failure) {
         $categoryPolicyFailure = $failure;
     }
-    duo_check(
+    wprism_check(
         $categoryPolicyFailure instanceof RuntimeException
             && str_contains($categoryPolicyFailure->getMessage(), 'Yoast category'),
         "$label refuses before native rewrite mutation"
     );
-    duo_check_same(
+    wprism_check_same(
         $categoryPolicyPreimage,
         $rewriteRefusalState(),
         "$label refusal preserves the exact rewrite preimage"
     );
     WPSEO_Options::set_option_values(['stripcategorybase' => false]);
-    duo_check_same(
+    wprism_check_same(
         true,
         $nativeRewriteChild->invoke(null)['verified'] ?? null,
         "restoring the exact false Yoast category policy permits same-process retry after $label"
@@ -9973,17 +9973,17 @@ try {
 }
 remove_filter('category_rewrite_rules', [$foreignYoastRewrite, 'category_rewrite_rules_wrapper'], 10);
 add_filter('category_rewrite_rules', $categoryCallback, 10, 1);
-duo_check(
+wprism_check(
     $foreignCategoryFailure instanceof RuntimeException
         && str_contains($foreignCategoryFailure->getMessage(), 'substituted Yoast category rewrite service'),
     'a same-class foreign Yoast category callback refuses before native rewrite mutation'
 );
-duo_check_same(
+wprism_check_same(
     $foreignCategoryPreimage,
     $rewriteRefusalState(),
     'the same-class foreign Yoast category callback preserves the exact rewrite preimage'
 );
-duo_check_same(
+wprism_check_same(
     true,
     $nativeRewriteChild->invoke(null)['verified'] ?? null,
     'restoring the canonical Yoast category callback permits same-process retry'
@@ -9999,17 +9999,17 @@ try {
     $foreignCategoryGlobalFailure = $failure;
 }
 $GLOBALS['wpseo_rewrite'] = $yoastRewrite;
-duo_check(
+wprism_check(
     $foreignCategoryGlobalFailure instanceof RuntimeException
         && str_contains($foreignCategoryGlobalFailure->getMessage(), 'substituted Yoast category rewrite service'),
     'a same-class foreign Yoast category global refuses before native rewrite mutation'
 );
-duo_check_same(
+wprism_check_same(
     $foreignCategoryGlobalPreimage,
     $rewriteRefusalState(),
     'the same-class foreign Yoast category global preserves the exact rewrite preimage'
 );
-duo_check_same(
+wprism_check_same(
     true,
     $nativeRewriteChild->invoke(null)['verified'] ?? null,
     'restoring the canonical Yoast category global permits same-process retry'
@@ -10024,17 +10024,17 @@ try {
     $missingCategoryFailure = $failure;
 }
 add_filter('category_rewrite_rules', $categoryCallback, 10, 1);
-duo_check(
+wprism_check(
     $missingCategoryFailure instanceof RuntimeException
         && str_contains($missingCategoryFailure->getMessage(), 'incomplete or substituted plugin callbacks'),
     'a missing Yoast category callback refuses before native rewrite mutation'
 );
-duo_check_same(
+wprism_check_same(
     $missingCategoryPreimage,
     $rewriteRefusalState(),
     'the missing Yoast category callback preserves the exact rewrite preimage'
 );
-duo_check_same(
+wprism_check_same(
     true,
     $nativeRewriteChild->invoke(null)['verified'] ?? null,
     'restoring the missing Yoast category callback permits same-process retry'
@@ -10059,17 +10059,17 @@ remove_filter(
     [$mixedCategoryForeign, 'category_rewrite_rules_wrapper'],
     10
 );
-duo_check(
+wprism_check(
     $mixedCategoryFailure instanceof RuntimeException
         && str_contains($mixedCategoryFailure->getMessage(), 'incomplete or substituted plugin callbacks'),
     'a mixed Yoast category callback topology refuses before native rewrite mutation'
 );
-duo_check_same(
+wprism_check_same(
     $mixedCategoryPreimage,
     $rewriteRefusalState(),
     'the mixed Yoast category callback topology preserves the exact rewrite preimage'
 );
-duo_check_same(
+wprism_check_same(
     true,
     $nativeRewriteChild->invoke(null)['verified'] ?? null,
     'restoring the exact Yoast category callback topology permits same-process retry'
@@ -10084,12 +10084,12 @@ try {
 }
 $GLOBALS['wpseo_rewrite'] = $yoastRewrite;
 unset($GLOBALS['tec_readiness_yoast_rewrite_drift']);
-duo_check(
+wprism_check(
     $yoastCategoryDriftFailure instanceof RuntimeException
         && str_contains($yoastCategoryDriftFailure->getMessage(), 'could not restore the proven shipped-plugin runtime'),
     'Yoast category global drift during native execution fails exact cleanup'
 );
-duo_check_same(
+wprism_check_same(
     true,
     $nativeRewriteChild->invoke(null)['verified'] ?? null,
     'restoring the Yoast category global after execution drift permits retry'
@@ -10101,7 +10101,7 @@ $activeYoastSitemaps = $GLOBALS['wpseo_sitemaps'];
 remove_action('update_option', ['WPSEO_Sitemaps_Cache', 'clear_on_option_update'], 10);
 unset($GLOBALS['wpseo_sitemaps']);
 $inactiveSitemapReceipt = $nativeRewriteChild->invoke(null);
-duo_check_same(
+wprism_check_same(
     true,
     $inactiveSitemapReceipt['verified'] ?? null,
     'normal Yoast boot with XML sitemaps disabled admits the exact absent global/callback topology'
@@ -10115,7 +10115,7 @@ try {
     $inactiveYoastMarkerFailure = $failure;
 }
 $cacheClearProperty->setValue(null, $cacheClearPreimage);
-duo_check(
+wprism_check(
     $inactiveYoastMarkerFailure instanceof RuntimeException
         && str_contains(
             $inactiveYoastMarkerFailure->getMessage(),
@@ -10123,12 +10123,12 @@ duo_check(
         ),
     'an inactive but loaded Yoast sitemap cache still refuses a hostile TEC marker registration'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeInactiveYoastMarker,
     $GLOBALS['wp_rewrite']->flushCalls,
     'an inactive hostile Yoast sitemap registration performs no native rewrite mutation'
 );
-duo_check_same(
+wprism_check_same(
     true,
     $nativeRewriteChild->invoke(null)['verified'] ?? null,
     'restoring the inactive Yoast sitemap registration map permits exact retry'
@@ -10142,7 +10142,7 @@ try {
     $mixedYoastSitemapsFailure = $failure;
 }
 remove_action('update_option', ['WPSEO_Sitemaps_Cache', 'clear_on_option_update'], 10);
-duo_check(
+wprism_check(
     $mixedYoastSitemapsFailure instanceof RuntimeException
         && str_contains(
             $mixedYoastSitemapsFailure->getMessage(),
@@ -10150,14 +10150,14 @@ duo_check(
         ),
     'a Yoast sitemap callback without its normal-boot global refuses before rewrite mutation'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeMixedYoastSitemaps,
     $GLOBALS['wp_rewrite']->flushCalls,
     'a callback-present/global-absent Yoast topology performs no native rewrite mutation'
 );
 $GLOBALS['wpseo_sitemaps'] = $activeYoastSitemaps;
 add_action('update_option', ['WPSEO_Sitemaps_Cache', 'clear_on_option_update'], 10, 1);
-duo_check_same(
+wprism_check_same(
     true,
     $nativeRewriteChild->invoke(null)['verified'] ?? null,
     'restoring active Yoast sitemaps rebinds the same global/cache objects'
@@ -10172,7 +10172,7 @@ try {
     $missingSitemapCacheFailure = $failure;
 }
 add_action('update_option', ['WPSEO_Sitemaps_Cache', 'clear_on_option_update'], 10, 1);
-duo_check(
+wprism_check(
     $missingSitemapCacheFailure instanceof RuntimeException
         && str_contains(
             $missingSitemapCacheFailure->getMessage(),
@@ -10180,12 +10180,12 @@ duo_check(
         ),
     'a missing Yoast sitemap-cache callback refuses before TEC rewrite mutation'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeMissingSitemapCache,
     $GLOBALS['wp_rewrite']->flushCalls,
     'a missing Yoast sitemap-cache callback performs no native rewrite mutation'
 );
-duo_check_same(
+wprism_check_same(
     true,
     $nativeRewriteChild->invoke(null)['verified'] ?? null,
     'restoring the exact Yoast sitemap-cache callback permits retry'
@@ -10203,7 +10203,7 @@ try {
     $yoastMarkerRegistrationFailure = $failure;
 }
 $cacheClearProperty->setValue(null, $cacheClearPreimage);
-duo_check(
+wprism_check(
     $yoastMarkerRegistrationFailure instanceof RuntimeException
         && str_contains(
             $yoastMarkerRegistrationFailure->getMessage(),
@@ -10211,17 +10211,17 @@ duo_check(
         ),
     'a Yoast extension registration for a TEC marker refuses before rewrite mutation'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeYoastMarkerRegistration,
     $GLOBALS['wp_rewrite']->flushCalls,
     'a hostile Yoast sitemap registration cannot queue purge state through a TEC marker write'
 );
-duo_check_same(
+wprism_check_same(
     $yoastSitemapStateBeforeAdmission,
     $yoastSitemapCacheState(),
     'the refused Yoast marker registration leaves exact normal cache registration and queue state'
 );
-duo_check_same(
+wprism_check_same(
     true,
     $nativeRewriteChild->invoke(null)['verified'] ?? null,
     'removing the hostile Yoast marker registration permits exact retry'
@@ -10236,7 +10236,7 @@ try {
     $malformedYoastMapFailure = $failure;
 }
 $cacheClearProperty->setValue(null, $cacheClearPreimage);
-duo_check(
+wprism_check(
     $malformedYoastMapFailure instanceof RuntimeException
         && str_contains(
             $malformedYoastMapFailure->getMessage(),
@@ -10244,12 +10244,12 @@ duo_check(
         ),
     'a malformed Yoast sitemap registration map refuses before rewrite mutation'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeMalformedYoastMap,
     $GLOBALS['wp_rewrite']->flushCalls,
     'a malformed Yoast sitemap registration map performs no native rewrite mutation'
 );
-duo_check_same(
+wprism_check_same(
     true,
     $nativeRewriteChild->invoke(null)['verified'] ?? null,
     'restoring the exact Yoast sitemap registration map permits retry'
@@ -10274,17 +10274,17 @@ add_filter(
     PHP_INT_MAX,
     3
 );
-duo_check(
+wprism_check(
     $missingYoastOptionFailure instanceof RuntimeException
         && str_contains($missingYoastOptionFailure->getMessage(), 'incomplete Yoast SEO pre_update_option callbacks'),
     'a missing Yoast option callback refuses before TEC rewrite mutation'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeMissingYoastOption,
     $GLOBALS['wp_rewrite']->flushCalls,
     'a missing Yoast option callback performs no native rewrite mutation'
 );
-duo_check_same(true, $nativeRewriteChild->invoke(null)['verified'] ?? null, 'restoring a missing Yoast callback permits retry');
+wprism_check_same(true, $nativeRewriteChild->invoke(null)['verified'] ?? null, 'restoring a missing Yoast callback permits retry');
 
 $extraYoastOptionCallback = static function (string $name): void {};
 add_action('update_option', $extraYoastOptionCallback, 999, 1);
@@ -10296,13 +10296,13 @@ try {
     $extraYoastOptionFailure = $failure;
 }
 remove_action('update_option', $extraYoastOptionCallback, 999);
-duo_check(
+wprism_check(
     $extraYoastOptionFailure instanceof RuntimeException
         && str_contains($extraYoastOptionFailure->getMessage(), 'extended marker option topology'),
     'an unrelated extra option callback retains the pre-existing marker-topology refusal before mutation'
 );
-duo_check_same($flushesBeforeExtraYoastOption, $GLOBALS['wp_rewrite']->flushCalls, 'an extra Yoast callback performs no native rewrite mutation');
-duo_check_same(true, $nativeRewriteChild->invoke(null)['verified'] ?? null, 'removing an extra Yoast callback permits retry');
+wprism_check_same($flushesBeforeExtraYoastOption, $GLOBALS['wp_rewrite']->flushCalls, 'an extra Yoast callback performs no native rewrite mutation');
+wprism_check_same(true, $nativeRewriteChild->invoke(null)['verified'] ?? null, 'removing an extra Yoast callback permits retry');
 
 $foreignYoastOption = (new ReflectionClass(WPSEO_Option_Wpseo::class))->newInstanceWithoutConstructor();
 remove_action(
@@ -10325,13 +10325,13 @@ add_action(
     10,
     1
 );
-duo_check(
+wprism_check(
     $foreignYoastOptionFailure instanceof RuntimeException
         && str_contains($foreignYoastOptionFailure->getMessage(), 'extended or substituted Yoast SEO add_option callbacks'),
     'a same-class foreign Yoast option callback refuses before TEC rewrite mutation'
 );
-duo_check_same($flushesBeforeForeignYoastOption, $GLOBALS['wp_rewrite']->flushCalls, 'a same-class foreign Yoast callback performs no native rewrite mutation');
-duo_check_same(true, $nativeRewriteChild->invoke(null)['verified'] ?? null, 'restoring a same-class Yoast callback permits retry');
+wprism_check_same($flushesBeforeForeignYoastOption, $GLOBALS['wp_rewrite']->flushCalls, 'a same-class foreign Yoast callback performs no native rewrite mutation');
+wprism_check_same(true, $nativeRewriteChild->invoke(null)['verified'] ?? null, 'restoring a same-class Yoast callback permits retry');
 
 WPSEO_Options::unregister_option('wpseo_social');
 $flushesBeforeMissingYoastSingleton = $GLOBALS['wp_rewrite']->flushCalls;
@@ -10342,13 +10342,13 @@ try {
     $missingYoastSingletonFailure = $failure;
 }
 WPSEO_Options::register_option('wpseo_social', $missingYoastOption);
-duo_check(
+wprism_check(
     $missingYoastSingletonFailure instanceof RuntimeException
         && str_contains($missingYoastSingletonFailure->getMessage(), 'incomplete or substituted Yoast SEO option singletons'),
     'a missing Yoast option singleton refuses before TEC rewrite mutation'
 );
-duo_check_same($flushesBeforeMissingYoastSingleton, $GLOBALS['wp_rewrite']->flushCalls, 'a missing Yoast singleton performs no native rewrite mutation');
-duo_check_same(true, $nativeRewriteChild->invoke(null)['verified'] ?? null, 'restoring a missing Yoast singleton permits retry');
+wprism_check_same($flushesBeforeMissingYoastSingleton, $GLOBALS['wp_rewrite']->flushCalls, 'a missing Yoast singleton performs no native rewrite mutation');
+wprism_check_same(true, $nativeRewriteChild->invoke(null)['verified'] ?? null, 'restoring a missing Yoast singleton permits retry');
 foreach ([
     'wc_fix_rewrite_rules',
     'Yoast_Dynamic_Rewrites::sanitize_rewrite_rules_option',
@@ -10359,7 +10359,7 @@ foreach ([
     'Tribe__Events__Rewrite::filter_generate',
     'Tribe__Events__Rewrite::filter_rewrite_rules_array',
 ] as $rewriteMethod) {
-    duo_check(
+    wprism_check(
         array_filter(
             $GLOBALS['tec_readiness_rewrite_calls'],
             static fn(array $call): bool => ($call[0] ?? null) === $rewriteMethod
@@ -10367,7 +10367,7 @@ foreach ([
         "the exact normal co-install executes source-bound rewrite callback $rewriteMethod"
     );
 }
-duo_check(
+wprism_check(
     ($wooUpdatedReceipt['after']['rules_hash'] ?? null)
         !== ($wooUpdatedReceipt['after']['runtime_rules_hash'] ?? null),
     'Yoast dynamic rules remain absent from durable storage while the exact effective projection is receipted'
@@ -10387,18 +10387,18 @@ try {
     $hostilePllFailure = $failure;
 }
 remove_filter('pll_modify_rewrite_rule', $hostilePllModify, 999);
-duo_check(
+wprism_check(
     $hostilePllFailure instanceof RuntimeException
         && str_contains($hostilePllFailure->getMessage(), 'unsupported open Polylang rewrite filter'),
     'a third-party pll_modify_rewrite_rule callback refuses before rewrite generation'
 );
-duo_check_same(0, $hostilePllCalls, 'the refused open Polylang callback never executes');
-duo_check_same(
+wprism_check_same(0, $hostilePllCalls, 'the refused open Polylang callback never executes');
+wprism_check_same(
     $flushesBeforeHostilePll,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the open Polylang callback refusal performs no native mutation'
 );
-duo_check_same(
+wprism_check_same(
     true,
     $nativeRewriteChild->invoke(null)['verified'] ?? null,
     'removing the third-party Polylang callback permits exact retry'
@@ -10418,13 +10418,13 @@ try {
     $hostileRosterFailure = $failure;
 }
 remove_filter('pll_rewrite_rules', $hostilePllRoster, 999);
-duo_check(
+wprism_check(
     $hostileRosterFailure instanceof RuntimeException
         && str_contains($hostileRosterFailure->getMessage(), 'unsupported open Polylang rewrite filter'),
     'a third-party pll_rewrite_rules type extension refuses before roster evaluation'
 );
-duo_check_same(0, $hostileRosterCalls, 'the refused Polylang roster callback never executes');
-duo_check_same(
+wprism_check_same(0, $hostileRosterCalls, 'the refused Polylang roster callback never executes');
+wprism_check_same(
     $flushesBeforeHostileRoster,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the open type-roster refusal performs no native mutation'
@@ -10444,7 +10444,7 @@ try {
     $customRuleFailure = $failure;
 }
 remove_filter('tribe_events_rewrite_rules_custom', $hostileCustomRule, 999);
-duo_check(
+wprism_check(
     $customRuleFailure instanceof RuntimeException
         && str_contains(
             $customRuleFailure->getMessage(),
@@ -10452,8 +10452,8 @@ duo_check(
         ),
     'an extension of TEC custom rewrite rules refuses before native generation'
 );
-duo_check_same(0, $customRuleCalls, 'the refused TEC custom-rule callback never executes');
-duo_check_same(
+wprism_check_same(0, $customRuleCalls, 'the refused TEC custom-rule callback never executes');
+wprism_check_same(
     $flushesBeforeCustomRule,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the TEC custom-rule refusal performs no native mutation'
@@ -10474,12 +10474,12 @@ try {
 }
 remove_action('tribe_events_pre_rewrite', [$extensionView, 'filter_add_routes'], 5);
 $GLOBALS['tec_readiness_views_manager']->unregister_view('extension-view');
-duo_check(
+wprism_check(
     $extensionViewFailure instanceof RuntimeException
         && str_contains($extensionViewFailure->getMessage(), 'extended TEC view registry'),
     'an add-on TEC view registration refuses before native rewrite generation'
 );
-duo_check_same(
+wprism_check_same(
     $viewRouteCallsBefore,
     count(array_filter(
         $GLOBALS['tec_readiness_rewrite_calls'],
@@ -10488,7 +10488,7 @@ duo_check_same(
     )),
     'the refused add-on view route callback never executes'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeExtensionView,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the add-on view refusal performs no native mutation'
@@ -10509,13 +10509,13 @@ foreach ($exactTecInnerHooks as $innerHook) {
         $innerFailure = $failure;
     }
     remove_filter($innerHook, $hostileInner, 999);
-    duo_check(
+    wprism_check(
         $innerFailure instanceof RuntimeException
             && str_contains($innerFailure->getMessage(), "'$innerHook'"),
         "an extension on nested TEC rewrite hook $innerHook refuses before native generation"
     );
-    duo_check_same(0, $innerCalls, "the refused nested $innerHook callback never executes");
-    duo_check_same(
+    wprism_check_same(0, $innerCalls, "the refused nested $innerHook callback never executes");
+    wprism_check_same(
         $flushesBeforeInner,
         $GLOBALS['wp_rewrite']->flushCalls,
         "the nested $innerHook refusal performs no native mutation"
@@ -10532,17 +10532,17 @@ try {
     $kitchenSinkFailure = $failure;
 }
 $GLOBALS['tec_readiness_kitchen_sink'] = $originalKitchenSink;
-duo_check(
+wprism_check(
     $kitchenSinkFailure instanceof RuntimeException
         && str_contains($kitchenSinkFailure->getMessage(), 'substituted TEC rewrite service'),
     'a container-substituted Kitchen Sink refuses before its same-output route generator can execute'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeKitchenSink,
     $GLOBALS['wp_rewrite']->flushCalls,
     'Kitchen Sink substitution performs no native rewrite mutation'
 );
-duo_check_same(
+wprism_check_same(
     true,
     $nativeRewriteChild->invoke(null)['verified'] ?? null,
     'restoring the exact Kitchen Sink singleton permits same-process retry'
@@ -10559,12 +10559,12 @@ try {
     $qrStateFailure = $failure;
 }
 $qrBaseProperty->setValue($GLOBALS['tec_readiness_qr_routes'], $originalQrBase);
-duo_check(
+wprism_check(
     $qrStateFailure instanceof RuntimeException
         && str_contains($qrStateFailure->getMessage(), 'substituted TEC QR route state'),
     'a previously filtered non-default QR route refuses before rewrite generation'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeQrState,
     $GLOBALS['wp_rewrite']->flushCalls,
     'non-default cached QR route state performs no native mutation'
@@ -10584,13 +10584,13 @@ try {
     $coreRuleFailure = $failure;
 }
 remove_filter('post_rewrite_rules', $hostileCoreRule, 999);
-duo_check(
+wprism_check(
     $coreRuleFailure instanceof RuntimeException
         && str_contains($coreRuleFailure->getMessage(), "'post_rewrite_rules'"),
     'an unreviewed fixed WordPress rewrite callback refuses before generation'
 );
-duo_check_same(0, $hostileCoreRuleCalls, 'the refused fixed rewrite callback never executes');
-duo_check_same(
+wprism_check_same(0, $hostileCoreRuleCalls, 'the refused fixed rewrite callback never executes');
+wprism_check_same(
     $flushesBeforeCoreRule,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the fixed rewrite callback refusal performs no native mutation'
@@ -10613,13 +10613,13 @@ try {
 }
 remove_filter('foreign_rewrite_rules', $hostileDynamicRule, 999);
 $GLOBALS['wp_rewrite']->extra_permastructs = $originalPermastructs;
-duo_check(
+wprism_check(
     $dynamicRuleFailure instanceof RuntimeException
         && str_contains($dynamicRuleFailure->getMessage(), "'foreign_rewrite_rules'"),
     'an unreviewed callback on a bounded runtime permastruct refuses before generation'
 );
-duo_check_same(0, $dynamicRuleCalls, 'the refused dynamic permastruct callback never executes');
-duo_check_same(
+wprism_check_same(0, $dynamicRuleCalls, 'the refused dynamic permastruct callback never executes');
+wprism_check_same(
     $flushesBeforeDynamicRule,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the dynamic permastruct callback refusal performs no native mutation'
@@ -10633,7 +10633,7 @@ try {
     $malformedPermastructFailure = $failure;
 }
 $GLOBALS['wp_rewrite']->extra_permastructs = $originalPermastructs;
-duo_check(
+wprism_check(
     $malformedPermastructFailure instanceof RuntimeException
         && str_contains($malformedPermastructFailure->getMessage(), 'malformed permastruct roster'),
     'a nested or executable permastruct definition refuses before native generation'
@@ -10649,14 +10649,14 @@ try {
     $permastructDriftFailure = $failure;
 }
 $GLOBALS['wp_rewrite']->extra_permastructs = $originalPermastructs;
-duo_check(
+wprism_check(
     $permastructDriftFailure instanceof RuntimeException
         && str_contains($permastructDriftFailure->getMessage(), 'could not restore the proven shipped-plugin runtime')
         && $permastructDriftFailure->getPrevious() instanceof RuntimeException
         && str_contains($permastructDriftFailure->getPrevious()->getMessage(), 'service drift'),
     'same-roster permastruct value drift during native callbacks refuses the receipt'
 );
-duo_check_same(
+wprism_check_same(
     true,
     $nativeRewriteChild->invoke(null)['verified'] ?? null,
     'restoring the exact permastruct state permits same-process retry'
@@ -10672,17 +10672,17 @@ try {
     $frontendRuntimeFailure = $failure;
 }
 $GLOBALS['polylang'] = $canonicalPolylangRuntime;
-duo_check(
+wprism_check(
     $frontendRuntimeFailure instanceof RuntimeException
         && str_contains($frontendRuntimeFailure->getMessage(), 'substituted Polylang runtime'),
     'an HTTP-only Polylang frontend runtime is not admitted in the fresh WP-CLI rewrite process'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeFrontendRuntime,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the wrong Polylang process topology refuses before rewrite generation'
 );
-duo_check_same(
+wprism_check_same(
     true,
     $nativeRewriteChild->invoke(null)['verified'] ?? null,
     'restoring the canonical Polylang admin runtime permits checked retry'
@@ -10697,22 +10697,22 @@ foreach ($wooServices['polylang_types'] as $polylangType) {
 unset($canonicalPolylangRuntime->sitemaps);
 $rosterReadsBeforeInert = (int) ($GLOBALS['tec_readiness_polylang_roster_reads'] ?? 0);
 $rewriteCallsBeforeInert = count($GLOBALS['tec_readiness_rewrite_calls']);
-duo_check_same(
+wprism_check_same(
     10,
     has_filter('pll_prepare_rewrite_rules', [$wooServices['polylang_links'], 'prepare_rewrite_rules']),
     'the inert Polylang fixture retains its exact non-effectful deferred setup callback'
 );
-duo_check_same(
+wprism_check_same(
     true,
     $nativeRewriteChild->invoke(null)['verified'] ?? null,
     'a pre-language Polylang runtime admits the exact fully inert deferred rewrite topology'
 );
-duo_check_same(
+wprism_check_same(
     $rosterReadsBeforeInert,
     (int) ($GLOBALS['tec_readiness_polylang_roster_reads'] ?? 0),
     'the fully inert Polylang phase executes no filtered dynamic type-roster method'
 );
-duo_check_same(
+wprism_check_same(
     [],
     array_values(array_filter(
         array_slice($GLOBALS['tec_readiness_rewrite_calls'], $rewriteCallsBeforeInert),
@@ -10736,13 +10736,13 @@ try {
     $hostileInertRosterFailure = $failure;
 }
 remove_filter('pll_rewrite_rules', $hostileInertRoster, 999);
-duo_check(
+wprism_check(
     $hostileInertRosterFailure instanceof RuntimeException
         && str_contains($hostileInertRosterFailure->getMessage(), 'unsupported open Polylang rewrite filter'),
     'an open Polylang type-roster filter refuses even while the native rewrite phase is otherwise inert'
 );
-duo_check_same(0, $hostileInertRosterCalls, 'the inert-phase open roster filter is detected without execution');
-duo_check_same(
+wprism_check_same(0, $hostileInertRosterCalls, 'the inert-phase open roster filter is detected without execution');
+wprism_check_same(
     $flushesBeforeHostileInertRoster,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the inert-phase open roster refusal performs no native mutation'
@@ -10757,12 +10757,12 @@ try {
     $orphanedDynamicCallbackFailure = $failure;
 }
 remove_filter('attachment_rewrite_rules', [$wooServices['polylang_links'], 'rewrite_rules'], 10);
-duo_check(
+wprism_check(
     $orphanedDynamicCallbackFailure instanceof RuntimeException
         && str_contains($orphanedDynamicCallbackFailure->getMessage(), 'incomplete Polylang rewrite runtime'),
     'one registered-but-unreachable Polylang type callback prevents an inert-runtime classification'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeOrphanedDynamicCallback,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the orphaned Polylang type callback performs no native mutation'
@@ -10777,12 +10777,12 @@ try {
     $linksOnlyFailure = $failure;
 }
 remove_filter('rewrite_rules_array', [$wooServices['polylang_links'], 'rewrite_rules'], 10);
-duo_check(
+wprism_check(
     $linksOnlyFailure instanceof RuntimeException
         && str_contains($linksOnlyFailure->getMessage(), 'incomplete Polylang sitemap runtime'),
     'a Polylang top-level links callback without the active sitemap graph refuses before rewrite generation'
 );
-duo_check_same($flushesBeforeLinksOnly, $GLOBALS['wp_rewrite']->flushCalls, 'the links-only fragment performs no native mutation');
+wprism_check_same($flushesBeforeLinksOnly, $GLOBALS['wp_rewrite']->flushCalls, 'the links-only fragment performs no native mutation');
 
 add_filter('rewrite_rules_array', [$canonicalPolylangSitemaps, 'rewrite_rules'], 10, 1);
 $flushesBeforeOrphanedSitemap = $GLOBALS['wp_rewrite']->flushCalls;
@@ -10793,12 +10793,12 @@ try {
     $orphanedSitemapFailure = $failure;
 }
 remove_filter('rewrite_rules_array', [$canonicalPolylangSitemaps, 'rewrite_rules'], 10);
-duo_check(
+wprism_check(
     $orphanedSitemapFailure instanceof RuntimeException
         && str_contains($orphanedSitemapFailure->getMessage(), 'incomplete Polylang rewrite runtime'),
     'a sitemap callback without its runtime-owned service refuses before rewrite generation'
 );
-duo_check_same($flushesBeforeOrphanedSitemap, $GLOBALS['wp_rewrite']->flushCalls, 'the callback-only sitemap fragment performs no native mutation');
+wprism_check_same($flushesBeforeOrphanedSitemap, $GLOBALS['wp_rewrite']->flushCalls, 'the callback-only sitemap fragment performs no native mutation');
 
 $canonicalPolylangRuntime->sitemaps = $canonicalPolylangSitemaps;
 $flushesBeforeSitemapPropertyOnly = $GLOBALS['wp_rewrite']->flushCalls;
@@ -10808,12 +10808,12 @@ try {
 } catch (Throwable $failure) {
     $sitemapPropertyOnlyFailure = $failure;
 }
-duo_check(
+wprism_check(
     $sitemapPropertyOnlyFailure instanceof RuntimeException
         && str_contains($sitemapPropertyOnlyFailure->getMessage(), 'incomplete Polylang rewrite runtime'),
     'a runtime-owned sitemap service without any deferred callbacks refuses before rewrite generation'
 );
-duo_check_same($flushesBeforeSitemapPropertyOnly, $GLOBALS['wp_rewrite']->flushCalls, 'the property-only sitemap fragment performs no native mutation');
+wprism_check_same($flushesBeforeSitemapPropertyOnly, $GLOBALS['wp_rewrite']->flushCalls, 'the property-only sitemap fragment performs no native mutation');
 
 $canonicalPolylangRuntime->sitemaps = new stdClass();
 $flushesBeforeSubstitutedSitemap = $GLOBALS['wp_rewrite']->flushCalls;
@@ -10823,12 +10823,12 @@ try {
 } catch (Throwable $failure) {
     $substitutedSitemapFailure = $failure;
 }
-duo_check(
+wprism_check(
     $substitutedSitemapFailure instanceof RuntimeException
         && str_contains($substitutedSitemapFailure->getMessage(), 'substituted Polylang sitemap service'),
     'a wrong-class runtime-owned sitemap service refuses before rewrite generation'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeSubstitutedSitemap,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the substituted Polylang sitemap service performs no native mutation'
@@ -10839,7 +10839,7 @@ add_filter('rewrite_rules_array', [$wooServices['polylang_links'], 'rewrite_rule
 foreach ($wooServices['polylang_types'] as $polylangType) {
     add_filter($polylangType . '_rewrite_rules', [$wooServices['polylang_links'], 'rewrite_rules'], 10, 1);
 }
-duo_check_same(
+wprism_check_same(
     true,
     $nativeRewriteChild->invoke(null)['verified'] ?? null,
     'restoring the exact paired Polylang sitemap service and callback permits checked retry'
@@ -10856,12 +10856,12 @@ try {
     $malformedRosterFailure = $failure;
 }
 $polylangTypesProperty->setValue($wooServices['polylang_links'], $originalPolylangTypes);
-duo_check(
+wprism_check(
     $malformedRosterFailure instanceof RuntimeException
         && str_contains($malformedRosterFailure->getMessage(), 'malformed Polylang rewrite type roster'),
     'a malformed target-derived Polylang type refuses before generation'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeMalformedRoster,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the malformed Polylang roster performs no native mutation'
@@ -10875,12 +10875,12 @@ try {
     $duplicateRosterFailure = $failure;
 }
 $polylangTypesProperty->setValue($wooServices['polylang_links'], $originalPolylangTypes);
-duo_check(
+wprism_check(
     $duplicateRosterFailure instanceof RuntimeException
         && str_contains($duplicateRosterFailure->getMessage(), 'duplicate Polylang rewrite type'),
     'a duplicate target-derived Polylang type refuses before generation'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeDuplicateRoster,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the duplicate Polylang roster performs no native mutation'
@@ -10897,17 +10897,17 @@ try {
     $malformedYoastFailure = $failure;
 }
 $yoastTopProperty->setValue($wooServices['yoast'], $originalYoastTop);
-duo_check(
+wprism_check(
     $malformedYoastFailure instanceof RuntimeException
         && str_contains($malformedYoastFailure->getMessage(), 'malformed Yoast rewrite state'),
     'an oversized individual Yoast rewrite value refuses before generation'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeMalformedYoast,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the malformed Yoast state performs no native mutation'
 );
-duo_check_same(
+wprism_check_same(
     true,
     $nativeRewriteChild->invoke(null)['verified'] ?? null,
     'restoring exact TEC, Polylang and Yoast rewrite state permits bounded retry'
@@ -10925,12 +10925,12 @@ try {
 }
 remove_filter('rewrite_rules_array', [$foreignLinks, 'rewrite_rules'], 10);
 add_filter('rewrite_rules_array', [$wooServices['polylang_links'], 'rewrite_rules'], 10, 1);
-duo_check(
+wprism_check(
     $foreignLinksFailure instanceof RuntimeException
         && str_contains($foreignLinksFailure->getMessage(), "extended or substituted 'rewrite_rules_array'"),
     'a same-class foreign Polylang links callback refuses before rewrite generation'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeForeignLinks,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the substituted Polylang links callback performs no native mutation'
@@ -10948,12 +10948,12 @@ try {
 }
 remove_filter('rewrite_rules_array', [$foreignSitemaps, 'rewrite_rules'], 10);
 add_filter('rewrite_rules_array', [$wooServices['polylang_sitemaps'], 'rewrite_rules'], 10, 1);
-duo_check(
+wprism_check(
     $foreignSitemapsFailure instanceof RuntimeException
         && str_contains($foreignSitemapsFailure->getMessage(), "extended or substituted 'rewrite_rules_array'"),
     'a same-class foreign Polylang sitemap callback refuses before rewrite generation'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeForeignSitemaps,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the substituted Polylang sitemap callback performs no native mutation'
@@ -10973,7 +10973,7 @@ try {
     $foreignUnreachablePolylangFailure = $failure;
 }
 remove_filter('attachment_rewrite_rules', $foreignUnreachablePolylang, 999);
-duo_check(
+wprism_check(
     $foreignUnreachablePolylangFailure instanceof RuntimeException
         && str_contains(
             $foreignUnreachablePolylangFailure->getMessage(),
@@ -10981,12 +10981,12 @@ duo_check(
         ),
     'an extension of Polylang’s registered-but-unreachable callback still refuses before generation'
 );
-duo_check_same(
+wprism_check_same(
     0,
     $unreachablePolylangCalls,
     'the refused unreachable Polylang extension never executes'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeForeignUnreachablePolylang,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the unreachable Polylang extension performs no native mutation'
@@ -11002,12 +11002,12 @@ try {
     $missingTypeFailure = $failure;
 }
 add_filter($missingType . '_rewrite_rules', [$wooServices['polylang_links'], 'rewrite_rules'], 10, 1);
-duo_check(
+wprism_check(
     $missingTypeFailure instanceof RuntimeException
         && str_contains($missingTypeFailure->getMessage(), "incomplete '$missingType" . "_rewrite_rules'"),
     'a missing target-derived Polylang hook refuses before rewrite generation'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeMissingType,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the incomplete dynamic hook roster performs no native mutation'
@@ -11026,12 +11026,12 @@ try {
 }
 remove_filter('option_rewrite_rules', [$foreignYoast, 'filter_rewrite_rules_option'], 10);
 add_filter('option_rewrite_rules', [$wooServices['yoast'], 'filter_rewrite_rules_option'], 10, 1);
-duo_check(
+wprism_check(
     $foreignYoastFailure instanceof RuntimeException
         && str_contains($foreignYoastFailure->getMessage(), 'substituted Yoast rewrite services'),
     'a same-class foreign Yoast option callback refuses before rewrite generation'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeForeignYoast,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the substituted Yoast callback performs no native mutation'
@@ -11049,17 +11049,17 @@ try {
 }
 remove_filter('generate_rewrite_rules', [$foreignTecRewrite, 'filter_generate'], 10);
 add_filter('generate_rewrite_rules', [$GLOBALS['tec_readiness_events_rewrite'], 'filter_generate'], 10, 1);
-duo_check(
+wprism_check(
     $foreignTecFailure instanceof RuntimeException
         && str_contains($foreignTecFailure->getMessage(), 'substituted plugin rewrite service'),
     'a same-class foreign TEC rewrite singleton callback refuses before generation'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeForeignTec,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the substituted TEC rewrite singleton performs no native mutation'
 );
-duo_check_same(
+wprism_check_same(
     true,
     $nativeRewriteChild->invoke(null)['verified'] ?? null,
     'restoring every exact co-install rewrite callback permits a same-process retry'
@@ -11081,13 +11081,13 @@ $wooUpdatedMethods = [
 ];
 foreach ($wooUpdatedMethods as $method) {
     foreach ($wooMarkerNames as $markerName) {
-        duo_check(
+        wprism_check(
             in_array([$method, $markerName], $GLOBALS['tec_readiness_woo_calls'], true),
             "the exact normal Woo callback $method executes its source-proven no-op for $markerName"
         );
     }
 }
-duo_check_same(
+wprism_check_same(
     false,
     tribe_isset_var('should_delete_expired_transients'),
     'the accepted Woo co-install does not weaken TEC local purge-flag restoration'
@@ -11103,7 +11103,7 @@ $tecDb->update(
 );
 $GLOBALS['tec_readiness_woo_calls'] = [];
 $wooAddedReceipt = $nativeRewriteChild->invoke(null);
-duo_check_same(true, $wooAddedReceipt['verified'] ?? null, 'the Woo co-install permits absent marker add paths');
+wprism_check_same(true, $wooAddedReceipt['verified'] ?? null, 'the Woo co-install permits absent marker add paths');
 foreach ([
     \Automattic\WooCommerce\Internal\Features\FeaturesController::class
         . '::process_added_option',
@@ -11111,7 +11111,7 @@ foreach ([
         . '::process_added_option',
 ] as $method) {
     foreach ($wooMarkerNames as $markerName) {
-        duo_check(
+        wprism_check(
             in_array([$method, $markerName], $GLOBALS['tec_readiness_woo_calls'], true),
             "the exact normal Woo add callback $method executes its source-proven no-op for $markerName"
         );
@@ -11130,12 +11130,12 @@ try {
 }
 remove_action('updated_option', [$foreignFeatures, 'process_updated_option'], 999);
 add_action('updated_option', [$wooServices['features'], 'process_updated_option'], 999, 3);
-duo_check(
+wprism_check(
     $foreignWooFailure instanceof RuntimeException
         && str_contains($foreignWooFailure->getMessage(), 'extended or substituted updated-option callbacks'),
     'a same-class foreign Woo callback refuses before TEC rewrite mutation'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeForeignWoo,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the same-class Woo callback refusal executes no native rewrite callback'
@@ -11150,12 +11150,12 @@ try {
     $missingWooFailure = $failure;
 }
 add_action('added_option', [$wooServices['synchronizer'], 'process_added_option'], 999, 2);
-duo_check(
+wprism_check(
     $missingWooFailure instanceof RuntimeException
         && str_contains($missingWooFailure->getMessage(), 'incomplete WooCommerce added_option callbacks'),
     'an incomplete normal Woo add-option topology refuses before native mutation'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeMissingWoo,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the incomplete Woo topology does not start rewrite generation'
@@ -11171,18 +11171,18 @@ try {
     $trackingFailure = $failure;
 }
 remove_action('update_option', [$settingsTracker, 'track_setting_change'], 10);
-duo_check(
+wprism_check(
     $trackingFailure instanceof RuntimeException
         && str_contains($trackingFailure->getMessage(), 'extended marker option topology'),
     'request-conditional Woo settings tracking remains unsupported and refuses before mutation'
 );
-duo_check_same(
+wprism_check_same(
     $flushesBeforeTracking,
     $GLOBALS['wp_rewrite']->flushCalls,
     'the request-conditional settings callback cannot execute rewrite or marker effects'
 );
 $trackingRetry = $nativeRewriteChild->invoke(null);
-duo_check_same(true, $trackingRetry['verified'] ?? null, 'removing request-conditional tracking permits retry');
+wprism_check_same(true, $trackingRetry['verified'] ?? null, 'removing request-conditional tracking permits retry');
 
 $canonicalWooContainer = $wooServices['container'];
 $GLOBALS['tec_readiness_rewrite_drift_woo_container'] = new \Automattic\WooCommerce\Container(
@@ -11199,13 +11199,13 @@ try {
     $wooDriftFailure = $failure;
 }
 $GLOBALS['wc_container'] = $canonicalWooContainer;
-duo_check(
+wprism_check(
     $wooDriftFailure instanceof RuntimeException
         && str_contains($wooDriftFailure->getMessage(), 'could not restore the proven shipped-plugin runtime'),
     'Woo container drift after prepare refuses the post-effect receipt during exact restoration'
 );
 $wooDriftRetry = $nativeRewriteChild->invoke(null);
-duo_check_same(true, $wooDriftRetry['verified'] ?? null, 'restoring the exact Woo container permits retry');
+wprism_check_same(true, $wooDriftRetry['verified'] ?? null, 'restoring the exact Woo container permits retry');
 
 tec_readiness_remove_woo_option_callbacks($wooServices);
 
@@ -11520,7 +11520,7 @@ $tecFailure = static function (callable $call): string {
     } catch (RuntimeException $e) {
         return $e->getMessage();
     }
-    duo_check(false, 'expected TEC regenerator failure did not occur');
+    wprism_check(false, 'expected TEC regenerator failure did not occur');
     return '';
 };
 $setTecSourceMeta = static function (string $key, string $value) use (
@@ -11529,7 +11529,7 @@ $setTecSourceMeta = static function (string $key, string $value) use (
     $tecEventId
 ): void {
     $GLOBALS['tec_readiness_post_meta'][$tecEventId][$key] = $value;
-    duo_check_same(
+    wprism_check_same(
         1,
         $tecDb->update(
             $postMetaTable,
@@ -11574,17 +11574,17 @@ $assertTecSchemaRefusal = static function (
     $mutateSchema();
     $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
     $tecDb->prefix = 'wp_';
-    duo_check(
+    wprism_check(
         str_contains($failure, $expectedMessage) && strlen($failure) < 300,
         "$label refuses with a bounded schema diagnostic"
     );
-    duo_check_same(
+    wprism_check_same(
         $before,
         [$tecDb->rows($eventTable), $tecDb->rows($occurrenceTable)],
         "$label refuses without changing either native custom table"
     );
-    duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], "$label refuses before native event data reads");
-    duo_check_same([], $GLOBALS['tec_readiness_regen_calls'], "$label refuses before the native upsert boundary");
+    wprism_check_same([], $GLOBALS['tec_readiness_event_data_calls'], "$label refuses before native event data reads");
+    wprism_check_same([], $GLOBALS['tec_readiness_regen_calls'], "$label refuses before the native upsert boundary");
     $configureTecSchema();
 };
 
@@ -11728,7 +11728,7 @@ $resetTecDerived();
 $tecDb->last_error = 'handled stale schema error';
 $tecDb->setTableEngine('wp_tecXevents', 'MyISAM');
 $regenerator->regenerate($tecEventId);
-duo_check_same(
+wprism_check_same(
     '',
     $tecDb->last_error,
     'schema probes clear stale errors and escape LIKE wildcards away from alias table identities'
@@ -11737,17 +11737,17 @@ duo_check_same(
 $resetTecDerived();
 $beforeFilteredRegeneration = [$tecDb->rows($eventTable), $tecDb->rows($occurrenceTable)];
 $GLOBALS['tec_readiness_filters'] = ['tec_events_custom_tables_v1_event_data_from_post'];
-duo_check_same(
-    'duo: TEC free-plugin derived-state contract does not admit the event-data filter',
+wprism_check_same(
+    'wprism: TEC free-plugin derived-state contract does not admit the event-data filter',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'the exact native event-data filter topology refuses before any derived write'
 );
-duo_check_same(
+wprism_check_same(
     $beforeFilteredRegeneration,
     [$tecDb->rows($eventTable), $tecDb->rows($occurrenceTable)],
     'a malicious same-shape event-data filter cannot mutate either custom table before refusal'
 );
-duo_check_same([], $GLOBALS['tec_readiness_regen_calls'], 'event-data filter refusal never crosses the native upsert boundary');
+wprism_check_same([], $GLOBALS['tec_readiness_regen_calls'], 'event-data filter refusal never crosses the native upsert boundary');
 $GLOBALS['tec_readiness_filters'] = [];
 
 foreach ([
@@ -11758,16 +11758,16 @@ foreach ([
     $beforeMetadataFilter = [$tecDb->rows($eventTable), $tecDb->rows($occurrenceTable)];
     add_filter('get_post_metadata', $metadataCallback, $label === 'same physical value' ? 1 : 999, 5);
     $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
-    duo_check(
+    wprism_check(
         str_contains($failure, 'does not admit callback hook get_post_metadata'),
         "a $label get_post_metadata callback refuses before cache-backed native source reads"
     );
-    duo_check_same(
+    wprism_check_same(
         $beforeMetadataFilter,
         [$tecDb->rows($eventTable), $tecDb->rows($occurrenceTable)],
         "the $label metadata callback cannot produce environment-dependent derived rows"
     );
-    duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], "$label metadata refusal precedes plugin code");
+    wprism_check_same([], $GLOBALS['tec_readiness_event_data_calls'], "$label metadata refusal precedes plugin code");
     remove_filter('get_post_metadata', $metadataCallback, $label === 'same physical value' ? 1 : 999);
 }
 
@@ -11787,34 +11787,34 @@ foreach ([
     $priority = [1, 10, 999][$position % 3];
     add_filter($nativeHook, $nativeHookProbe, $priority, 5);
     $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
-    duo_check(
+    wprism_check(
         str_contains($failure, "does not admit callback hook $nativeHook"),
         "the whole-registry preflight refuses an injected $nativeHook callback at priority $priority"
     );
-    duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], "$nativeHook refuses before native mutation");
+    wprism_check_same([], $GLOBALS['tec_readiness_event_data_calls'], "$nativeHook refuses before native mutation");
     remove_filter($nativeHook, $nativeHookProbe, $priority);
 }
 
 $resetTecDerived();
 $unknownOptionCallback = static function (): void {};
 add_action('updated_option', $unknownOptionCallback, 999, 3);
-duo_check_same(
-    'duo: TEC derived-state option hook updated_option contains an unreviewed callback',
+wprism_check_same(
+    'wprism: TEC derived-state option hook updated_option contains an unreviewed callback',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'an unknown generic option callback refuses before the native cache marker can invoke it'
 );
-duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'option-hook refusal precedes plugin code');
+wprism_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'option-hook refusal precedes plugin code');
 remove_action('updated_option', $unknownOptionCallback, 999);
 
 $resetTecDerived();
 $defaultAutoloadCallback = static fn(mixed $autoload): mixed => $autoload;
 add_filter('wp_default_autoload_value', $defaultAutoloadCallback, 1, 3);
-duo_check_same(
-    'duo: TEC derived-state regeneration requires the exact WordPress default-autoload callback',
+wprism_check_same(
+    'wprism: TEC derived-state regeneration requires the exact WordPress default-autoload callback',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'the implicit native marker autoload path refuses an extension callback before mutation'
 );
-duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'default-autoload hook refusal precedes plugin code');
+wprism_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'default-autoload hook refusal precedes plugin code');
 remove_filter('wp_default_autoload_value', $defaultAutoloadCallback, 1);
 
 $resetTecDerived();
@@ -11823,20 +11823,20 @@ remove_filter(
     'wp_filter_default_autoload_value_via_option_size',
     5
 );
-duo_check_same(
-    'duo: TEC derived-state regeneration requires the exact WordPress default-autoload callback',
+wprism_check_same(
+    'wprism: TEC derived-state regeneration requires the exact WordPress default-autoload callback',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a partial boot missing the source-proven WordPress callback refuses before native option mutation'
 );
-duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'missing default-autoload callback precedes plugin code');
+wprism_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'missing default-autoload callback precedes plugin code');
 $substitutedDefaultAutoload = static fn(mixed $autoload): mixed => $autoload;
 add_filter('wp_default_autoload_value', $substitutedDefaultAutoload, 5, 4);
-duo_check_same(
-    'duo: TEC derived-state regeneration requires the exact WordPress default-autoload callback',
+wprism_check_same(
+    'wprism: TEC derived-state regeneration requires the exact WordPress default-autoload callback',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a same-priority same-arity substitute cannot impersonate the WordPress callback'
 );
-duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'substituted default-autoload callback precedes plugin code');
+wprism_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'substituted default-autoload callback precedes plugin code');
 remove_filter('wp_default_autoload_value', $substitutedDefaultAutoload, 5);
 add_filter(
     'wp_default_autoload_value',
@@ -11845,45 +11845,45 @@ add_filter(
     4
 );
 $regenerator->regenerate($tecEventId);
-duo_check(
+wprism_check(
     count($GLOBALS['tec_readiness_event_data_calls']) > 0,
     'the exact normal-boot WordPress callback permits native marker add/update and derived regeneration'
 );
 
 $resetTecDerived();
 $GLOBALS['tec_readiness_external_object_cache'] = ['malformed'];
-duo_check_same(
-    'duo: TEC derived-state regeneration rejected a malformed external object-cache signal',
+wprism_check_same(
+    'wprism: TEC derived-state regeneration rejected a malformed external object-cache signal',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a non-boolean external object-cache signal refuses before transaction or native service use'
 );
-duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'malformed object-cache topology precedes plugin code');
+wprism_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'malformed object-cache topology precedes plugin code');
 
 $resetTecDerived();
 $GLOBALS['tec_readiness_external_object_cache'] = null;
 $regenerator->regenerate($tecEventId);
-duo_check(
+wprism_check(
     count($GLOBALS['tec_readiness_event_data_calls']) > 0,
     'stock WordPress null cache signal plus the exact local cache topology reaches every native boundary'
 );
 
 $resetTecDerived();
 $GLOBALS['tec_readiness_external_object_cache'] = true;
-duo_check_same(
-    'duo: TEC derived-state regeneration does not admit an external object-cache topology',
+wprism_check_same(
+    'wprism: TEC derived-state regeneration does not admit an external object-cache topology',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'an explicit external-cache signal refuses before transaction or native service use'
 );
-duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'external cache refusal precedes plugin code');
+wprism_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'external cache refusal precedes plugin code');
 
 $resetTecDerived();
 $GLOBALS['wp_object_cache'] = new TecReadinessForeignObjectCache();
-duo_check_same(
-    'duo: TEC derived-state regeneration requires the exact local WordPress object-cache topology',
+wprism_check_same(
+    'wprism: TEC derived-state regeneration requires the exact local WordPress object-cache topology',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a same-API foreign object-cache implementation refuses before transaction or native service use'
 );
-duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'substituted local cache refusal precedes plugin code');
+wprism_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'substituted local cache refusal precedes plugin code');
 
 $resetTecDerived();
 if (!is_dir(WP_CONTENT_DIR) && !mkdir(WP_CONTENT_DIR, 0777, true) && !is_dir(WP_CONTENT_DIR)) {
@@ -11894,17 +11894,17 @@ if (file_put_contents($objectCacheDropIn, "<?php\n// deterministic hostile drop-
     throw new RuntimeException('TEC object-cache drop-in fixture could not be created');
 }
 try {
-    duo_check_same(
-        'duo: TEC derived-state regeneration requires the exact local WordPress object-cache topology',
+    wprism_check_same(
+        'wprism: TEC derived-state regeneration requires the exact local WordPress object-cache topology',
         $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
         'a populated object-cache drop-in path refuses even when the signal claims local cache'
     );
-    duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'drop-in cache refusal precedes plugin code');
+    wprism_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'drop-in cache refusal precedes plugin code');
 } finally {
     @unlink($objectCacheDropIn);
 }
 $regenerator->regenerate($tecEventId);
-duo_check(
+wprism_check(
     count($GLOBALS['tec_readiness_event_data_calls']) > 0,
     'removing the hostile cache drop-in permits same-process retry'
 );
@@ -11913,7 +11913,7 @@ $resetTecDerived();
 $nativeListener = Tribe__Cache_Listener::instance();
 $listenerCacheProperty = new ReflectionProperty(Tribe__Cache_Listener::class, 'cache');
 $nativeListenerCache = $listenerCacheProperty->getValue($nativeListener);
-duo_check(
+wprism_check(
     $nativeListenerCache instanceof Tribe__Cache
         && $nativeListenerCache !== $GLOBALS['tec_readiness_category_color_cache'],
     'the exact source-pinned listener cache is a distinct second Tribe__Cache instance'
@@ -11921,7 +11921,7 @@ duo_check(
 $resetTecDerived();
 $foreignListener = (new ReflectionClass(Tribe__Cache_Listener::class))
     ->newInstanceWithoutConstructor();
-duo_check(
+wprism_check(
     remove_action(
         'updated_option',
         [$nativeListener, 'update_last_save_post'],
@@ -11935,12 +11935,12 @@ add_action(
     10,
     3
 );
-duo_check_same(
-    'duo: TEC derived-state regeneration rejected required native hook updated_option',
+wprism_check_same(
+    'wprism: TEC derived-state regeneration rejected required native hook updated_option',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a same-class foreign listener callback refuses before its private state can execute'
 );
-duo_check_same(
+wprism_check_same(
     [],
     $GLOBALS['tec_readiness_event_data_calls'],
     'same-class callback substitution refuses before native event reads'
@@ -11958,7 +11958,7 @@ add_action(
 );
 $resetTecDerived();
 $nativeSettingsManager = Tribe__Settings_Manager::instance();
-duo_check(
+wprism_check(
     remove_action(
         'updated_option',
         [$nativeSettingsManager, 'update_options_cache'],
@@ -11967,12 +11967,12 @@ duo_check(
     'the allowed-callback identity fixture removes the exact settings singleton'
 );
 $foreignSettingsManager = new Tribe__Settings_Manager();
-duo_check_same(
-    'duo: TEC derived-state option hook updated_option contains an unreviewed callback',
+wprism_check_same(
+    'wprism: TEC derived-state option hook updated_option contains an unreviewed callback',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a same-class foreign allowed option callback refuses before update_option can execute it'
 );
-duo_check_same(
+wprism_check_same(
     [],
     $GLOBALS['tec_readiness_event_data_calls'],
     'foreign allowed callback identity refuses before native event reads'
@@ -12001,12 +12001,12 @@ $GLOBALS['tec_readiness_native_disruption'] = [
     'action' => 'cache_registry_mutate',
 ];
 $GLOBALS['tec_readiness_regen_mode'] = 'save_throw';
-duo_check_same(
+wprism_check_same(
     'injected native occurrence save failure',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a later native failure executes after both exact cache registries acquire independent drift'
 );
-duo_check_same(
+wprism_check_same(
     [$globalCacheKeys, $listenerCacheKeys],
     [
         $cacheKeysProperty->getValue($GLOBALS['tec_readiness_category_color_cache']),
@@ -12016,7 +12016,7 @@ duo_check_same(
 );
 $GLOBALS['tec_readiness_regen_mode'] = 'ok';
 $regenerator->regenerate($tecEventId);
-duo_check_same(
+wprism_check_same(
     [$globalCacheKeys, $listenerCacheKeys],
     [
         $cacheKeysProperty->getValue($GLOBALS['tec_readiness_category_color_cache']),
@@ -12031,12 +12031,12 @@ foreach ([
 ] as $overriddenNativeService) {
     $resetTecDerived();
     $GLOBALS['tec_readiness_container_bindings'][$overriddenNativeService] = new stdClass();
-    duo_check_same(
-        'duo: TEC derived-state regeneration rejected an overridden native service binding',
+    wprism_check_same(
+        'wprism: TEC derived-state regeneration rejected an overridden native service binding',
         $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
         "$overriddenNativeService container substitution refuses before native code"
     );
-    duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], "$overriddenNativeService refusal precedes source reads");
+    wprism_check_same([], $GLOBALS['tec_readiness_event_data_calls'], "$overriddenNativeService refusal precedes source reads");
     unset($GLOBALS['tec_readiness_container_bindings'][$overriddenNativeService]);
 }
 
@@ -12044,31 +12044,31 @@ $resetTecDerived();
 $GLOBALS['tec_readiness_container_binding_signals'][
     \TEC\Events\Custom_Tables\V1\Events\Occurrences\Occurrences_Generator::class
 ] = 'malformed';
-duo_check_same(
-    'duo: TEC derived-state regeneration rejected an overridden native service binding',
+wprism_check_same(
+    'wprism: TEC derived-state regeneration rejected an overridden native service binding',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a non-boolean container binding signal refuses before service construction'
 );
 
 $resetTecDerived();
 $GLOBALS['tec_readiness_configuration']['TEC_NO_MEMOIZE_CT1_MODELS'] = true;
-duo_check_same(
-    'duo: TEC derived-state regeneration rejected a non-default model memoization configuration',
+wprism_check_same(
+    'wprism: TEC derived-state regeneration rejected a non-default model memoization configuration',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a Pro-style or environment-supplied custom-table memoization branch refuses before native lookup'
 );
-duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'non-default model configuration precedes source reads');
+wprism_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'non-default model configuration precedes source reads');
 
 $resetTecDerived();
 $unknownLogger = static function (): void {};
 add_action('tribe_log', $unknownLogger, 1, 3);
-duo_check_same(
-    'duo: TEC derived-state regeneration requires one exact free-plugin failure logger',
+wprism_check_same(
+    'wprism: TEC derived-state regeneration requires one exact free-plugin failure logger',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'an injected failure logger refuses before it can receive authored model working data'
 );
 remove_action('tribe_log', $unknownLogger, 1);
-duo_check_same(
+wprism_check_same(
     10,
     has_filter('tribe_log', [$GLOBALS['tec_readiness_log_provider'], 'dispatch_log']),
     'failure preflight leaves the exact built-in logger registered once'
@@ -12080,12 +12080,12 @@ $tecDb->returnNextGetResultsAs([[
     'meta_key_bytes' => '19',
     'meta_value_bytes' => '16777217',
 ]], 'SELECT meta_id, OCTET_LENGTH(meta_key)');
-duo_check_same(
-    'duo: TEC derived-state source metadata row 0 is unordered, malformed, or oversized',
+wprism_check_same(
+    'wprism: TEC derived-state source metadata row 0 is unordered, malformed, or oversized',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'one oversized physical metadata value refuses from the locked length roster'
 );
-duo_check(
+wprism_check(
     count(array_filter(
         $tecDb->queries(),
         static fn(string $sql): bool => str_contains($sql, 'SHA2(BINARY meta_')
@@ -12107,12 +12107,12 @@ $tecDb->returnNextGetResultsAs(
     'SELECT meta_id, OCTET_LENGTH(meta_key)'
 );
 unset($aggregateOverflowRoster);
-duo_check_same(
-    'duo: TEC derived-state source metadata exceeds the bounded owner-byte frontier',
+wprism_check_same(
+    'wprism: TEC derived-state source metadata exceeds the bounded owner-byte frontier',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'many individually bounded metadata rows refuse at the aggregate owner-byte frontier'
 );
-duo_check(
+wprism_check(
     count(array_filter(
         $tecDb->queries(),
         static fn(string $sql): bool => str_contains($sql, 'SHA2(BINARY meta_')
@@ -12129,12 +12129,12 @@ $duplicateRequiredMeta[] = [
     'meta_value' => 'Asia/Kathmandu',
 ];
 $tecDb->seedTable($postMetaTable, $duplicateRequiredMeta);
-duo_check_same(
-    'duo: TEC derived-state source locking requires one physical row for every required event key',
+wprism_check_same(
+    'wprism: TEC derived-state source locking requires one physical row for every required event key',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a duplicate required _Event row refuses before get_post_meta(single) can pick nondeterministically'
 );
-duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'duplicate required metadata refuses before native source reads');
+wprism_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'duplicate required metadata refuses before native source reads');
 
 $resetTecDerived();
 $aliasedRequiredMeta = $tecDb->rows($postMetaTable);
@@ -12148,12 +12148,12 @@ foreach ($aliasedRequiredMeta as &$row) {
 }
 unset($row);
 $tecDb->seedTable($postMetaTable, $aliasedRequiredMeta);
-duo_check_same(
-    'duo: TEC derived-state source locking requires one physical row for every required event key',
+wprism_check_same(
+    'wprism: TEC derived-state source locking requires one physical row for every required event key',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a same-count same-length required-key alias swap refuses from physical key hashes'
 );
-duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'same-length key alias refusal precedes plugin code');
+wprism_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'same-length key alias refusal precedes plugin code');
 
 $resetTecDerived();
 $tecDb->delete($optionsTable, ['option_name' => 'tribe_last_save_post']);
@@ -12167,7 +12167,7 @@ $absentMarkerRows = array_values(array_filter(
     $tecDb->rows($optionsTable),
     static fn(array $row): bool => ($row['option_name'] ?? null) === 'tribe_last_save_post'
 ));
-duo_check(
+wprism_check(
     count($absentMarkerRows) === 1
         && in_array(
             $absentMarkerRows[0]['autoload'] ?? null,
@@ -12176,7 +12176,7 @@ duo_check(
         ),
     'an absent native marker gap is locked and converges through WordPress add_option semantics'
 );
-duo_check(
+wprism_check(
     !isset($GLOBALS['tec_readiness_wp_cache']['options']['tribe_last_save_post'])
         && !isset($GLOBALS['tec_readiness_wp_cache']['options']['alloptions'])
         && !isset($GLOBALS['tec_readiness_wp_cache']['options']['notoptions']),
@@ -12189,12 +12189,12 @@ $tecDb->update(
     ['option_value' => 'not-a-native-marker'],
     ['option_name' => 'tribe_last_save_post']
 );
-duo_check_same(
-    'duo: TEC derived-state native save-post cache marker is malformed or oversized',
+wprism_check_same(
+    'wprism: TEC derived-state native save-post cache marker is malformed or oversized',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a malformed target marker refuses before update_option can deserialize or normalize it'
 );
-duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'malformed marker refusal precedes plugin code');
+wprism_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'malformed marker refusal precedes plugin code');
 
 $resetTecDerived();
 $tecDb->update(
@@ -12202,8 +12202,8 @@ $tecDb->update(
     ['option_value' => str_repeat('9', 257)],
     ['option_name' => 'tribe_last_save_post']
 );
-duo_check_same(
-    'duo: TEC derived-state native save-post cache marker is malformed or oversized',
+wprism_check_same(
+    'wprism: TEC derived-state native save-post cache marker is malformed or oversized',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'an oversized target marker refuses from a bounded LEFT witness before native option reads'
 );
@@ -12217,8 +12217,8 @@ $duplicateMarkerRows[] = [
     'autoload' => 'no',
 ];
 $tecDb->seedTable($optionsTable, $duplicateMarkerRows);
-duo_check_same(
-    'duo: TEC derived-state native save-post cache marker returned a malformed row',
+wprism_check_same(
+    'wprism: TEC derived-state native save-post cache marker returned a malformed row',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a duplicate native marker row refuses despite the expected unique-index contract'
 );
@@ -12229,16 +12229,16 @@ $tecDb->failNextQuery(
     'SELECT option_id, option_name, LEFT(option_value, 257)'
 );
 $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
-duo_check(
+wprism_check(
     str_contains($failure, 'could not read native save-post cache marker')
         && !str_contains($failure, 'AKIA'),
     'a native marker query failure is explicit, bounded, and secret-safe'
 );
-duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'option read failure precedes plugin code');
+wprism_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'option read failure precedes plugin code');
 
 $resetTecDerived();
 $tecDb->query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
-duo_check_same(
+wprism_check_same(
     ['session' => 'REPEATABLE-READ', 'next' => 'READ-COMMITTED', 'active' => null],
     $tecDb->transactionIsolationState(),
     'the isolation fixture begins with a hidden one-shot READ COMMITTED override'
@@ -12261,18 +12261,18 @@ $overridePosition = array_search(
     true
 );
 $startPosition = array_search('START TRANSACTION', $isolationQueries, true);
-duo_check(
+wprism_check(
     is_int($overridePosition)
         && is_int($startPosition)
         && $overridePosition < $startPosition,
     'regeneration replaces a hidden one-shot isolation override immediately before START'
 );
-duo_check_same(
+wprism_check_same(
     'REPEATABLE-READ',
     $observedOwnerLockIsolation,
     'the first physical owner-range lock runs under the regenerator-owned isolation'
 );
-duo_check_same(
+wprism_check_same(
     ['session' => 'REPEATABLE-READ', 'next' => null, 'active' => null],
     $tecDb->transactionIsolationState(),
     'a committed regeneration leaves no one-shot or active isolation state behind'
@@ -12283,26 +12283,26 @@ foreach (['before_false', 'before_throw', 'after_false', 'after_throw'] as $star
     $beforeStartFailure = $tecPhysicalState();
     $tecDb->injectTransactionOutcome('START', $startOutcome);
     $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
-    duo_check(
+    wprism_check(
         str_contains($failure, 'transaction start')
             && str_contains($failure, 'recovery_required')
             && strlen($failure) < 300,
         "START $startOutcome refuses with one bounded transaction diagnostic"
     );
-    duo_check_same(
+    wprism_check_same(
         $beforeStartFailure,
         $tecPhysicalState(),
         "START $startOutcome leaves exact event, occurrence, option, and autoload preimages"
     );
-    duo_check_same('0', $tecDb->get_var('SELECT @@in_transaction'), "START $startOutcome leaves no transaction owner");
-    duo_check_same(
+    wprism_check_same('0', $tecDb->get_var('SELECT @@in_transaction'), "START $startOutcome leaves no transaction owner");
+    wprism_check_same(
         ['session' => 'REPEATABLE-READ', 'next' => null, 'active' => null],
         $tecDb->transactionIsolationState(),
         "START $startOutcome consumes every attempted one-shot isolation override"
     );
-    duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], "START $startOutcome precedes native reads");
+    wprism_check_same([], $GLOBALS['tec_readiness_event_data_calls'], "START $startOutcome precedes native reads");
     $regenerator->regenerate($tecEventId);
-    duo_check_same(
+    wprism_check_same(
         '2026-11-02 15:15:00',
         $tecDb->get_var($tecDb->prepare("SELECT end_date_utc FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
         "same-process retry converges after START $startOutcome"
@@ -12313,14 +12313,14 @@ $resetTecDerived();
 $beforeStartReconnect = $tecPhysicalState();
 $tecDb->injectTransactionOutcome('START', 'after_reconnect');
 $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
-duo_check(
+wprism_check(
     str_contains($failure, 'rollback/runtime cleanup requires recovery')
         && str_contains($failure, 'rollback')
         && strlen($failure) < 300,
     'a reconnect during START is recovery-required rather than accepted as rollback proof'
 );
-duo_check_same($beforeStartReconnect, $tecPhysicalState(), 'START reconnect drops and restores the uncommitted preimage');
-duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'START reconnect precedes native reads');
+wprism_check_same($beforeStartReconnect, $tecPhysicalState(), 'START reconnect drops and restores the uncommitted preimage');
+wprism_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'START reconnect precedes native reads');
 
 foreach ([
     'before_false',
@@ -12332,19 +12332,19 @@ foreach ([
     $resetTecDerived();
     $beforeCommitFailure = $tecPhysicalState();
     $tecDb->injectTransactionOutcome('COMMIT', $commitPreimageOutcome);
-    duo_check_same(
-        'duo: TEC derived-state transaction commit failed without server apply',
+    wprism_check_same(
+        'wprism: TEC derived-state transaction commit failed without server apply',
         $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
         "COMMIT $commitPreimageOutcome is classified as the exact inactive preimage"
     );
-    duo_check_same(
+    wprism_check_same(
         $beforeCommitFailure,
         $tecPhysicalState(),
         "COMMIT $commitPreimageOutcome restores exact derived, marker, autoload, and neighbor bytes"
     );
-    duo_check_same('0', $tecDb->get_var('SELECT @@in_transaction'), "COMMIT $commitPreimageOutcome releases every lock");
+    wprism_check_same('0', $tecDb->get_var('SELECT @@in_transaction'), "COMMIT $commitPreimageOutcome releases every lock");
     if ($commitPreimageOutcome === 'before_false') {
-        duo_check_same(
+        wprism_check_same(
             2,
             count(array_filter(
                 $tecDb->queries(),
@@ -12355,7 +12355,7 @@ foreach ([
         );
     }
     $regenerator->regenerate($tecEventId);
-    duo_check_same(
+    wprism_check_same(
         '2026-11-02 15:15:00',
         $tecDb->get_var($tecDb->prepare("SELECT end_date_utc FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
         "same-process retry converges after COMMIT $commitPreimageOutcome"
@@ -12367,13 +12367,13 @@ $beforeBetweenProbeReconnect = $tecPhysicalState();
 $tecDb->injectTransactionOutcome('COMMIT', 'success_no_apply_reconnect_before_state');
 $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
 $betweenProbeQueries = $tecDb->queries();
-duo_check(
+wprism_check(
     str_contains($failure, 'recovery_required')
         && str_contains($failure, 'rollback')
         && strlen($failure) < 300,
     'a reconnect before the post-COMMIT state witness cannot bless a truthy no-apply response'
 );
-duo_check_same(
+wprism_check_same(
     $beforeBetweenProbeReconnect,
     $tecPhysicalState(),
     'the reconnect-before-state case retains the exact transaction preimage'
@@ -12382,7 +12382,7 @@ $transactionStateQueries = array_values(array_filter(
     $betweenProbeQueries,
     static fn(string $sql): bool => str_contains(strtolower($sql), 'in_transaction')
 ));
-duo_check(
+wprism_check(
     $transactionStateQueries !== []
         && count(array_filter(
             $transactionStateQueries,
@@ -12400,29 +12400,29 @@ foreach (['after_false', 'after_throw', 'success_probe_error'] as $commitApplied
         "SELECT option_value, autoload FROM `$optionsTable` WHERE option_name = 'tribe_last_save_post'",
         ARRAY_A
     );
-    duo_check(
+    wprism_check(
         ($appliedMarker['option_value'] ?? null) !== '1700000000.1234'
             && ($appliedMarker['autoload'] ?? null) === 'yes',
         "COMMIT $commitAppliedOutcome is accepted only after exact marker advancement and autoload proof"
     );
-    duo_check_same(
+    wprism_check_same(
         '2026-11-02 15:15:00',
         $tecDb->get_var($tecDb->prepare("SELECT end_date_utc FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
         "COMMIT $commitAppliedOutcome retains the exact durable derived postcondition"
     );
-    duo_check_same('0', $tecDb->get_var('SELECT @@in_transaction'), "COMMIT $commitAppliedOutcome releases verification locks");
+    wprism_check_same('0', $tecDb->get_var('SELECT @@in_transaction'), "COMMIT $commitAppliedOutcome releases verification locks");
 }
 
 $resetTecDerived();
 $tecDb->injectTransactionOutcome('COMMIT', 'after_reconnect');
 $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
-duo_check(
+wprism_check(
     str_contains($failure, 'rollback/runtime cleanup requires recovery')
         && str_contains($failure, 'derived_rows')
         && strlen($failure) < 300,
     'a truthy reconnect after server-applied COMMIT remains ambiguous and recovery-required'
 );
-duo_check_same(
+wprism_check_same(
     '2026-11-02 15:15:00',
     $tecDb->get_var($tecDb->prepare("SELECT end_date_utc FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
     'COMMIT reconnect cannot misreport the exact durable derived bytes as rolled back'
@@ -12433,20 +12433,20 @@ foreach (['before_false', 'before_throw', 'after_false', 'after_throw'] as $roll
     $beforeRollbackFailure = $tecPhysicalState();
     $GLOBALS['tec_readiness_regen_mode'] = 'upsert_throw_after_write';
     $tecDb->injectTransactionOutcome('ROLLBACK', $rollbackOutcome);
-    duo_check_same(
+    wprism_check_same(
         'injected native event upsert failure after derived write',
         $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
         "ROLLBACK $rollbackOutcome is state-probed instead of trusting the driver response"
     );
-    duo_check_same(
+    wprism_check_same(
         $beforeRollbackFailure,
         $tecPhysicalState(),
         "ROLLBACK $rollbackOutcome restores exact derived, marker, autoload, and neighbor bytes"
     );
-    duo_check_same('0', $tecDb->get_var('SELECT @@in_transaction'), "ROLLBACK $rollbackOutcome releases every lock");
+    wprism_check_same('0', $tecDb->get_var('SELECT @@in_transaction'), "ROLLBACK $rollbackOutcome releases every lock");
     $GLOBALS['tec_readiness_regen_mode'] = 'ok';
     $regenerator->regenerate($tecEventId);
-    duo_check_same(
+    wprism_check_same(
         '2026-11-02 15:15:00',
         $tecDb->get_var($tecDb->prepare("SELECT end_date_utc FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
         "same-process retry converges after ROLLBACK $rollbackOutcome"
@@ -12458,13 +12458,13 @@ $beforeRollbackReconnect = $tecPhysicalState();
 $GLOBALS['tec_readiness_regen_mode'] = 'upsert_throw_after_write';
 $tecDb->injectTransactionOutcome('ROLLBACK', 'after_reconnect');
 $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
-duo_check(
+wprism_check(
     str_contains($failure, 'rollback/runtime cleanup requires recovery')
         && str_contains($failure, 'rollback')
         && strlen($failure) < 300,
     'a reconnect after server-applied ROLLBACK preserves the preimage but requires recovery'
 );
-duo_check_same(
+wprism_check_same(
     $beforeRollbackReconnect,
     $tecPhysicalState(),
     'ROLLBACK reconnect restores exact derived, marker, autoload, and neighbor bytes'
@@ -12487,18 +12487,18 @@ foreach (['commit', 'rollback', 'reconnect'] as $nativeTransactionAction) {
             'action' => $nativeTransactionAction,
         ];
         $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
-        duo_check(
+        wprism_check(
             str_contains($failure, 'recovery_required')
                 && strlen($failure) < 300,
             "native $nativeTransactionAction at $nativeTransactionBoundary refuses with bounded recovery authority"
         );
-        duo_check_same(
+        wprism_check_same(
             '0',
             $tecDb->get_var('SELECT @@in_transaction'),
             "native $nativeTransactionAction at $nativeTransactionBoundary cannot leave a transaction owner"
         );
         if ($nativeTransactionAction !== 'commit') {
-            duo_check_same(
+            wprism_check_same(
                 $beforeNativeTransactionBreak,
                 $tecPhysicalState(),
                 "native $nativeTransactionAction at $nativeTransactionBoundary restores the exact physical preimage"
@@ -12520,13 +12520,13 @@ foreach ([
             'action' => $cacheDriftAction,
         ];
         $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
-        duo_check(
+        wprism_check(
             str_contains($failure, 'local object-cache topology changed during')
                 && str_contains($failure, 'recovery_required')
                 && strlen($failure) < 300,
             "$cacheDriftLabel drift at $cacheDriftBoundary refuses from the repeated composite proof"
         );
-        duo_check_same(
+        wprism_check_same(
             $beforeCacheDrift,
             $tecPhysicalState(),
             "$cacheDriftLabel drift at $cacheDriftBoundary rolls back exact source, derived, option, and autoload bytes"
@@ -12542,13 +12542,13 @@ foreach ($nativeTransactionBoundaries as $sourceDriftBoundary) {
         'action' => 'source_same_length',
     ];
     $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
-    duo_check(
+    wprism_check(
         str_contains($failure, 'source rows changed during')
             && str_contains($failure, 'recovery_required')
             && strlen($failure) < 300,
         "same-length source drift at $sourceDriftBoundary refuses from the aggregate physical witness"
     );
-    duo_check_same(
+    wprism_check_same(
         $beforeSourceDrift,
         $tecPhysicalState(),
         "same-length source drift at $sourceDriftBoundary rolls back source, derived, option, and autoload bytes"
@@ -12566,14 +12566,14 @@ foreach (['source_insert', 'source_delete', 'source_id_swap'] as $sourceAbaActio
     $sourceAbaDiagnostic = $sourceAbaAction === 'source_delete'
         ? 'requires one physical row for every required event key'
         : 'source rows changed during Event::occurrences()';
-    duo_check(
+    wprism_check(
         str_contains($failure, $sourceAbaDiagnostic)
             && ($sourceAbaAction === 'source_delete'
                 || str_contains($failure, 'recovery_required'))
             && strlen($failure) < 300,
         "$sourceAbaAction refuses from row count, content hash, and physical-id ordering"
     );
-    duo_check_same(
+    wprism_check_same(
         $beforeSourceAba,
         $tecPhysicalState(),
         "$sourceAbaAction rolls the full source and derived transaction back"
@@ -12587,14 +12587,14 @@ $GLOBALS['tec_readiness_native_disruption'] = [
     'action' => 'listener_cache_substitute',
 ];
 $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
-duo_check(
+wprism_check(
     str_contains($failure, 'runtime cleanup requires recovery')
         && str_contains($failure, 'cache_service')
         && strlen($failure) < 300,
     'same-class listener cache substitution at a native boundary is recovery-required'
 );
 $listenerCacheProperty->setValue($nativeListener, $nativeListenerCache);
-duo_check_same(
+wprism_check_same(
     $beforeListenerSubstitution,
     $tecPhysicalState(),
     'listener cache substitution rolls exact derived, marker, and autoload bytes back'
@@ -12607,7 +12607,7 @@ $GLOBALS['tec_readiness_native_disruption'] = [
     'action' => 'generator_binding',
 ];
 $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
-duo_check(
+wprism_check(
     str_contains($failure, 'runtime cleanup requires recovery')
         && str_contains($failure, 'container_service')
         && strlen($failure) < 300,
@@ -12616,7 +12616,7 @@ duo_check(
 unset($GLOBALS['tec_readiness_container_bindings'][
     \TEC\Events\Custom_Tables\V1\Events\Occurrences\Occurrences_Generator::class
 ]);
-duo_check_same(
+wprism_check_same(
     $beforeGeneratorSubstitution,
     $tecPhysicalState(),
     'foreign occurrence-generator substitution rolls exact derived and runtime option bytes back'
@@ -12624,12 +12624,12 @@ duo_check_same(
 
 $resetTecDerived();
 $GLOBALS['tec_readiness_wp_cache_group_support'] = 'malformed';
-duo_check_same(
-    'duo: TEC derived-state regeneration requires exact local object-cache group flushing',
+wprism_check_same(
+    'wprism: TEC derived-state regeneration requires exact local object-cache group flushing',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a non-boolean cache capability response refuses before transaction or native mutation'
 );
-duo_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'malformed cache capability precedes plugin code');
+wprism_check_same([], $GLOBALS['tec_readiness_event_data_calls'], 'malformed cache capability precedes plugin code');
 
 foreach ([
     'one failed key deletion' => ['delete' => 'one_failure', 'get' => '', 'group' => ''],
@@ -12646,17 +12646,17 @@ foreach ([
     $GLOBALS['tec_readiness_wp_cache_get_mode'] = $cacheFailureModes['get'];
     $GLOBALS['tec_readiness_wp_cache_group_flush_mode'] = $cacheFailureModes['group'];
     $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
-    duo_check(
+    wprism_check(
         str_contains($failure, 'native cache effects could not be purged')
             || str_contains($failure, 'runtime cleanup requires recovery'),
         "$cacheFailureLabel refuses instead of trusting an ambiguous cache primitive outcome"
     );
-    duo_check_same(
+    wprism_check_same(
         $beforeCacheFailure,
         $tecPhysicalState(),
         "$cacheFailureLabel leaves exact database preimages before native mutation"
     );
-    duo_check(
+    wprism_check(
         $GLOBALS['tec_readiness_wp_cache_deletes'] >= 14
             && $GLOBALS['tec_readiness_wp_cache_group_flushes'] >= 4,
         "$cacheFailureLabel still visits every declared key and cache group on failure and rollback cleanup"
@@ -12672,18 +12672,18 @@ $GLOBALS['tec_readiness_native_disruption'] = [
     'boundary' => 'occurrences',
     'action' => 'cache_delete_throw',
 ];
-duo_check_same(
+wprism_check_same(
     'injected local object-cache delete failure',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'the exact native occurrence-match cache deletion failure aborts the derived transaction'
 );
-duo_check_same(
+wprism_check_same(
     $beforeOccurrenceCacheFailure,
     $tecPhysicalState(),
     'occurrence-match cache failure rolls event, occurrence, marker, and autoload bytes back atomically'
 );
 $regenerator->regenerate($tecEventId);
-duo_check_same(
+wprism_check_same(
     '2026-11-02 15:15:00',
     $tecDb->get_var($tecDb->prepare("SELECT end_date_utc FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
     'same-process retry after occurrence-match cache failure converges the exact derived rows'
@@ -12693,29 +12693,29 @@ $resetTecDerived();
 $tecDb->delete($optionsTable, ['option_name' => 'tribe_last_save_post']);
 $beforeAbsentMarkerFailure = $tecDb->rows($optionsTable);
 $GLOBALS['tec_readiness_regen_mode'] = 'upsert_throw_after_write';
-duo_check_same(
+wprism_check_same(
     'injected native event upsert failure after derived write',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'an absent marker created by a partial native upsert remains inside the derived transaction'
 );
-duo_check_same(
+wprism_check_same(
     $beforeAbsentMarkerFailure,
     $tecDb->rows($optionsTable),
     'rollback of the absent-row path removes the uncommitted marker and preserves its neighbor'
 );
-duo_check_same(false, tribe_isset_var('should_delete_expired_transients'), 'absent-row rollback restores the initially absent global purge flag');
+wprism_check_same(false, tribe_isset_var('should_delete_expired_transients'), 'absent-row rollback restores the initially absent global purge flag');
 $GLOBALS['tec_readiness_regen_mode'] = 'ok';
 $regenerator->regenerate($tecEventId);
 $absentRetryMarkers = array_values(array_filter(
     $tecDb->rows($optionsTable),
     static fn(array $row): bool => ($row['option_name'] ?? null) === 'tribe_last_save_post'
 ));
-duo_check_same(
+wprism_check_same(
     1,
     count($absentRetryMarkers),
     'same-process retry after absent-row rollback creates exactly one durable native marker'
 );
-duo_check_same(
+wprism_check_same(
     'auto',
     $absentRetryMarkers[0]['autoload'] ?? null,
     'the absent tiny marker uses WordPress core nullable-callback autoload state exactly'
@@ -12731,7 +12731,7 @@ foreach ([
     'auto-off' => 'auto',
 ] as $initialAutoload => $expectedAutoload) {
     $resetTecDerived();
-    duo_check_same(
+    wprism_check_same(
         $initialAutoload === 'yes' ? 0 : 1,
         $tecDb->update(
             $optionsTable,
@@ -12745,7 +12745,7 @@ foreach ([
         $tecDb->rows($optionsTable),
         static fn(array $row): bool => ($row['option_name'] ?? null) === 'tribe_last_save_post'
     ));
-    duo_check_same(
+    wprism_check_same(
         $expectedAutoload,
         $autoloadRows[0]['autoload'] ?? null,
         "the pinned WordPress update path maps $initialAutoload to exact $expectedAutoload autoload state"
@@ -12753,7 +12753,7 @@ foreach ([
 }
 
 $resetTecDerived();
-duo_check_same(
+wprism_check_same(
     1,
     $tecDb->update(
         $optionsTable,
@@ -12764,12 +12764,12 @@ duo_check_same(
 );
 $beforeComputedAutoloadRollback = $tecDb->rows($optionsTable);
 $GLOBALS['tec_readiness_regen_mode'] = 'save_throw';
-duo_check_same(
+wprism_check_same(
     'injected native occurrence save failure',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'the computed-autoload rollback fixture fails after both native marker writes'
 );
-duo_check_same(
+wprism_check_same(
     $beforeComputedAutoloadRollback,
     $tecDb->rows($optionsTable),
     'rollback restores the exact legacy computed autoload spelling rather than its recomputed successor'
@@ -12778,16 +12778,16 @@ duo_check_same(
 $resetTecDerived();
 tribe_set_var('should_delete_expired_transients', true);
 $GLOBALS['tec_readiness_regen_mode'] = 'save_throw';
-duo_check_same(
+wprism_check_same(
     'injected native occurrence save failure',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a later native occurrence failure still crosses both marker writes before rollback'
 );
-duo_check_same(true, tribe_get_var('should_delete_expired_transients'), 'rollback preserves an independently preexisting true transient-purge flag');
-duo_check_same(0, $GLOBALS['tec_readiness_expired_transient_deletes'], 'adapter cleanup never consumes a preexisting transient-purge intent');
+wprism_check_same(true, tribe_get_var('should_delete_expired_transients'), 'rollback preserves an independently preexisting true transient-purge flag');
+wprism_check_same(0, $GLOBALS['tec_readiness_expired_transient_deletes'], 'adapter cleanup never consumes a preexisting transient-purge intent');
 $GLOBALS['tec_readiness_regen_mode'] = 'ok';
 $regenerator->regenerate($tecEventId);
-duo_check_same(true, tribe_get_var('should_delete_expired_transients'), 'commit also preserves an independently preexisting true transient-purge flag');
+wprism_check_same(true, tribe_get_var('should_delete_expired_transients'), 'commit also preserves an independently preexisting true transient-purge flag');
 
 $resetTecDerived();
 $regenerator->regenerate($tecEventId);
@@ -12795,7 +12795,7 @@ $lastSaveRows = array_values(array_filter(
     $tecDb->rows($optionsTable),
     static fn(array $row): bool => ($row['option_name'] ?? null) === 'tribe_last_save_post'
 ));
-duo_check(
+wprism_check(
     count($lastSaveRows) === 1
         && preg_match(
             '/^[1-9][0-9]*(?:\.[0-9]+)?(?:E[+-]?[0-9]+)?$/Di',
@@ -12804,21 +12804,21 @@ duo_check(
         && ($lastSaveRows[0]['option_value'] ?? null) !== '1700000000.1234',
     'successful native regeneration advances exactly one bounded save-post marker row'
 );
-duo_check_same('yes', $lastSaveRows[0]['autoload'] ?? null, 'an existing native marker preserves its exact autoload bytes');
-duo_check_same(
+wprism_check_same('yes', $lastSaveRows[0]['autoload'] ?? null, 'an existing native marker preserves its exact autoload bytes');
+wprism_check_same(
     'preserve-me',
     $tecDb->get_var("SELECT option_value FROM `$optionsTable` WHERE option_name = 'target_runtime_neighbor'"),
     'the locked native marker update preserves an unrelated target-runtime option'
 );
-duo_check_same(false, tribe_isset_var('should_delete_expired_transients'), 'commit restores an initially absent transient-purge flag');
-duo_check_same(0, $GLOBALS['tec_readiness_expired_transient_deletes'], 'regeneration never runs the site-wide transient purge');
-duo_check_same(0, $GLOBALS['tec_readiness_log_dispatches'], 'normal native regeneration emits no authored model payload to the logger');
-duo_check_same(
+wprism_check_same(false, tribe_isset_var('should_delete_expired_transients'), 'commit restores an initially absent transient-purge flag');
+wprism_check_same(0, $GLOBALS['tec_readiness_expired_transient_deletes'], 'regeneration never runs the site-wide transient purge');
+wprism_check_same(0, $GLOBALS['tec_readiness_log_dispatches'], 'normal native regeneration emits no authored model payload to the logger');
+wprism_check_same(
     10,
     has_filter('tribe_log', [$GLOBALS['tec_readiness_log_provider'], 'dispatch_log']),
     'the exact built-in logger is restored after a committed regeneration'
 );
-duo_check(
+wprism_check(
     ($GLOBALS['tec_readiness_wp_cache']['tribe-events'] ?? []) === []
         && ($GLOBALS['tec_readiness_wp_cache']['tribe-events-non-persistent'] ?? []) === []
         && ($GLOBALS['tec_readiness_wp_cache']['tec_occurrence_matches'] ?? []) === []
@@ -12827,7 +12827,7 @@ duo_check(
         && !isset($GLOBALS['tec_readiness_wp_cache']['options']['notoptions']),
     'commit purges every exact native model, occurrence, and option-cache effect'
 );
-duo_check(
+wprism_check(
     count(array_filter(
         $tecDb->queries(),
         static fn(string $sql): bool => str_contains($sql, 'FORCE INDEX (`option_name`)')
@@ -12839,7 +12839,7 @@ $boundedVerificationQueries = array_values(array_filter(
     $tecDb->queries(),
     static fn(string $sql): bool => str_contains($sql, 'WHERE post_id = 6100000001 OR event_id = 7000000001')
 ));
-duo_check(
+wprism_check(
     count($boundedVerificationQueries) === 2
         && str_ends_with($boundedVerificationQueries[0], 'ORDER BY event_id LIMIT 3')
         && str_ends_with($boundedVerificationQueries[1], 'ORDER BY occurrence_id LIMIT 3'),
@@ -12858,7 +12858,7 @@ $nativeEventRow = $tecDb->get_row($tecDb->prepare(
     . "FROM `$eventTable` WHERE post_id = %d",
     $tecEventId
 ), ARRAY_A);
-duo_check_same([
+wprism_check_same([
     'event_id' => '7000000001',
     'post_id' => (string) $tecEventId,
     'start_date' => '2026-11-02 18:30:00',
@@ -12874,7 +12874,7 @@ $nativeOccurrenceRow = $tecDb->get_row($tecDb->prepare(
     . "FROM `$occurrenceTable` WHERE post_id = %d",
     $tecEventId
 ), ARRAY_A);
-duo_check_same([
+wprism_check_same([
     'event_id' => '7000000001',
     'post_id' => (string) $tecEventId,
     'start_date' => '2026-11-02 18:30:00',
@@ -12884,12 +12884,12 @@ duo_check_same([
     'duration' => '9000',
     'hash' => $expectedOccurrenceHash,
 ], $nativeOccurrenceRow, 'regeneration verifies every deterministic occurrence field and event linkage');
-duo_check_same(
+wprism_check_same(
     'target-runtime-event',
     $tecDb->get_var("SELECT hash FROM `$eventTable` WHERE post_id = 6100000099"),
     'event regeneration preserves unrelated target-derived rows'
 );
-duo_check_same(
+wprism_check_same(
     'target-runtime-occurrence',
     $tecDb->get_var("SELECT hash FROM `$occurrenceTable` WHERE post_id = 6100000099"),
     'occurrence regeneration preserves unrelated target-derived rows'
@@ -12908,7 +12908,7 @@ $afterRetry = [
         $tecEventId
     ), ARRAY_A),
 ];
-duo_check_same($beforeRetry, $afterRetry, 'a repeated native regeneration is idempotent at every deterministic field');
+wprism_check_same($beforeRetry, $afterRetry, 'a repeated native regeneration is idempotent at every deterministic field');
 $heartbeats = 0;
 $regenerator->regenerate_batch(
     [$tecEventId, 0, $tecEventId, -1],
@@ -12917,13 +12917,13 @@ $regenerator->regenerate_batch(
         ++$heartbeats;
     }
 );
-duo_check_same(1, $heartbeats, 'batch regeneration deduplicates live IDs before heartbeat and native mutation');
-duo_check_same([$tecEventId, $tecEventId, $tecEventId], $GLOBALS['tec_readiness_regen_calls'], 'batch retry invokes only the one canonical positive live ID');
+wprism_check_same(1, $heartbeats, 'batch regeneration deduplicates live IDs before heartbeat and native mutation');
+wprism_check_same([$tecEventId, $tecEventId, $tecEventId], $GLOBALS['tec_readiness_regen_calls'], 'batch retry invokes only the one canonical positive live ID');
 
 $resetTecDerived();
 $setTecSourceMeta('_EventDuration', '');
 $regenerator->regenerate($tecEventId);
-duo_check_same(
+wprism_check_same(
     ['9000', '9000'],
     [
         $tecDb->get_var($tecDb->prepare("SELECT duration FROM `$eventTable` WHERE post_id = %d", $tecEventId)),
@@ -12936,36 +12936,36 @@ $setTecSourceMeta('_EventDuration', '9000');
 $resetTecDerived();
 $GLOBALS['tec_readiness_regen_mode'] = 'stale_driver_error';
 $regenerator->regenerate($tecEventId);
-duo_check_same('', $tecDb->last_error, 'handled stale native model errors cannot poison either exact verification read');
+wprism_check_same('', $tecDb->last_error, 'handled stale native model errors cannot poison either exact verification read');
 
 $resetTecDerived();
 $GLOBALS['tec_readiness_regen_mode'] = 'non_array_data';
 $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
-duo_check(str_contains($failure, 'non-array') && !str_contains($failure, 'AKIA'), 'filtered non-array event data refuses with a bounded redacted diagnostic');
+wprism_check(str_contains($failure, 'non-array') && !str_contains($failure, 'AKIA'), 'filtered non-array event data refuses with a bounded redacted diagnostic');
 
 $resetTecDerived();
 $GLOBALS['tec_readiness_regen_mode'] = 'upsert_false';
 $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
-duo_check(str_contains($failure, '2 model error(s)') && strlen($failure) < 200 && !str_contains($failure, 'AKIA'), 'native upsert errors are counted without leaking hostile plugin payloads');
+wprism_check(str_contains($failure, '2 model error(s)') && strlen($failure) < 200 && !str_contains($failure, 'AKIA'), 'native upsert errors are counted without leaking hostile plugin payloads');
 
 $resetTecDerived();
 $GLOBALS['tec_readiness_regen_mode'] = 'find_missing';
-duo_check(
+wprism_check(
     str_contains($tecFailure(static fn() => $regenerator->regenerate($tecEventId)), 'could not locate'),
     'a partial upsert whose native model cannot be read back refuses'
 );
 
 $resetTecDerived();
 $GLOBALS['tec_readiness_regen_mode'] = 'invalid_event_id';
-duo_check(
+wprism_check(
     str_contains($tecFailure(static fn() => $regenerator->regenerate($tecEventId)), 'positive integer event_id'),
     'a native model with a non-integer generated identity refuses before occurrence mutation'
 );
 
 $resetTecDerived();
 $GLOBALS['tec_readiness_regen_mode'] = 'malformed_event_timezone';
-duo_check_same(
-    'duo: TEC Event::data_from_post() returned a malformed timezone',
+wprism_check_same(
+    'wprism: TEC Event::data_from_post() returned a malformed timezone',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a malformed native event timezone refuses by fixed field name without authored values'
 );
@@ -12973,40 +12973,40 @@ duo_check_same(
 $resetTecDerived();
 $GLOBALS['tec_readiness_regen_mode'] = 'unexpected_event_field';
 $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
-duo_check(
-    $failure === 'duo: TEC Event::data_from_post() returned an unexpected field set'
+wprism_check(
+    $failure === 'wprism: TEC Event::data_from_post() returned an unexpected field set'
         && !str_contains($failure, 'AKIA'),
     'an unexpected native event-data field refuses without leaking its key or value'
 );
 
 $resetTecDerived();
 $GLOBALS['tec_readiness_regen_mode'] = 'invalid_event_updated_at';
-duo_check_same(
-    'duo: TEC derived-state verification failed for tec_events fields: updated_at',
+wprism_check_same(
+    'wprism: TEC derived-state verification failed for tec_events fields: updated_at',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'an invalid generated event update timestamp refuses without treating it as authored state'
 );
 
 $resetTecDerived();
 $GLOBALS['tec_readiness_regen_mode'] = 'invalid_occurrence_id';
-duo_check_same(
-    'duo: TEC derived-state verification failed for tec_occurrences fields: occurrence_id',
+wprism_check_same(
+    'wprism: TEC derived-state verification failed for tec_occurrences fields: occurrence_id',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'an occurrence without one positive generated identity refuses'
 );
 
 $resetTecDerived();
 $GLOBALS['tec_readiness_regen_mode'] = 'oversized_occurrence_id';
-duo_check_same(
-    'duo: TEC derived-state verification failed for tec_occurrences fields: occurrence_id',
+wprism_check_same(
+    'wprism: TEC derived-state verification failed for tec_occurrences fields: occurrence_id',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'an occurrence identity above the exact unsigned bigint frontier refuses'
 );
 
 $resetTecDerived();
 $GLOBALS['tec_readiness_regen_mode'] = 'invalid_occurrence_updated_at';
-duo_check_same(
-    'duo: TEC derived-state verification failed for tec_occurrences fields: updated_at',
+wprism_check_same(
+    'wprism: TEC derived-state verification failed for tec_occurrences fields: updated_at',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'an invalid generated occurrence update timestamp refuses without copying it'
 );
@@ -13025,16 +13025,16 @@ $validEventDriverRow = [
 ];
 $resetTecDerived();
 $tecDb->returnNextGetResultsAs(null, 'SELECT event_id, post_id, start_date');
-duo_check_same(
-    'duo: TEC derived-state verification query returned a non-array for tec_events',
+wprism_check_same(
+    'wprism: TEC derived-state verification query returned a non-array for tec_events',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a null event read from a non-core wpdb-compatible driver refuses explicitly'
 );
 
 $resetTecDerived();
 $tecDb->returnNextGetResultsAs([7 => $validEventDriverRow], 'SELECT event_id, post_id, start_date');
-duo_check_same(
-    'duo: TEC derived-state verification query returned a non-list for tec_events',
+wprism_check_same(
+    'wprism: TEC derived-state verification query returned a non-list for tec_events',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'an associative compatible-driver result refuses before event value verification'
 );
@@ -13044,8 +13044,8 @@ $tecDb->returnNextGetResultsAs(
     [array_diff_key($validEventDriverRow, ['hash' => true])],
     'SELECT event_id, post_id, start_date'
 );
-duo_check_same(
-    'duo: TEC derived-state verification query returned a malformed driver row for tec_events',
+wprism_check_same(
+    'wprism: TEC derived-state verification query returned a malformed driver row for tec_events',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'an incomplete event driver row refuses before missing fields can be conflated with empty values'
 );
@@ -13054,16 +13054,16 @@ $resetTecDerived();
 $nonStringEventDriverRow = $validEventDriverRow;
 $nonStringEventDriverRow['event_id'] = 7000000001;
 $tecDb->returnNextGetResultsAs([$nonStringEventDriverRow], 'SELECT event_id, post_id, start_date');
-duo_check_same(
-    'duo: TEC derived-state verification query returned a non-string driver value for tec_events',
+wprism_check_same(
+    'wprism: TEC derived-state verification query returned a non-string driver value for tec_events',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a native-integer compatible-driver value refuses outside mysqli text-protocol evidence'
 );
 
 $resetTecDerived();
 $tecDb->returnNextGetResultsAs(false, 'SELECT occurrence_id, event_id, post_id, start_date');
-duo_check_same(
-    'duo: TEC derived-state verification query returned a non-array for tec_occurrences',
+wprism_check_same(
+    'wprism: TEC derived-state verification query returned a non-array for tec_occurrences',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a false occurrence read from a non-core wpdb-compatible driver refuses explicitly'
 );
@@ -13083,8 +13083,8 @@ $tecDb->returnNextGetResultsAs([
         'hash' => $expectedOccurrenceHash,
     ],
 ], 'SELECT occurrence_id, event_id, post_id, start_date');
-duo_check_same(
-    'duo: TEC derived-state verification query returned a non-list for tec_occurrences',
+wprism_check_same(
+    'wprism: TEC derived-state verification query returned a non-list for tec_occurrences',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'an associative occurrence result refuses before generated-row verification'
 );
@@ -13092,7 +13092,7 @@ duo_check_same(
 $resetTecDerived();
 $tecDb->failNextQuery('credential SQL failure AKIAABCDEFGHIJKLMNOP', 'SELECT event_id, post_id, start_date');
 $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
-duo_check_same('duo: TEC derived-state verification query failed for tec_events', $failure, 'event verification query failure is explicit and redacted');
+wprism_check_same('wprism: TEC derived-state verification query failed for tec_events', $failure, 'event verification query failure is explicit and redacted');
 
 $resetTecDerived();
 $tecDb->failNextQuery(
@@ -13100,7 +13100,7 @@ $tecDb->failNextQuery(
     'SELECT occurrence_id, event_id, post_id, start_date'
 );
 $failure = $tecFailure(static fn() => $regenerator->regenerate($tecEventId));
-duo_check_same('duo: TEC derived-state verification query failed for tec_occurrences', $failure, 'occurrence verification query failure is explicit and redacted');
+wprism_check_same('wprism: TEC derived-state verification query failed for tec_occurrences', $failure, 'occurrence verification query failure is explicit and redacted');
 
 $resetTecDerived();
 $beforeFailedNativeOptions = $tecDb->rows($optionsTable);
@@ -13113,29 +13113,29 @@ $GLOBALS['tec_readiness_wp_cache']['tribe-events'] = ['stale-model' => 'stale'];
 $GLOBALS['tec_readiness_wp_cache']['tribe-events-non-persistent'] = ['stale-query' => 'stale'];
 $GLOBALS['tec_readiness_wp_cache']['tec_occurrence_matches'][$tecEventId] = 'stale-occurrence';
 $GLOBALS['tec_readiness_regen_mode'] = 'upsert_throw_after_write';
-duo_check_same(
+wprism_check_same(
     'injected native event upsert failure after derived write',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a native exception after the tec_events upsert surfaces before occurrence synthesis'
 );
-duo_check_same(
+wprism_check_same(
     'stale-event-hash',
     $tecDb->get_var($tecDb->prepare("SELECT hash FROM `$eventTable` WHERE post_id = %d", $tecEventId)),
     'the event-upsert failure rolls its completed first derived write back atomically'
 );
-duo_check_same(
+wprism_check_same(
     'stale-occurrence-hash',
     $tecDb->get_var($tecDb->prepare("SELECT hash FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
     'the event-upsert failure witness leaves the second derived row untouched'
 );
-duo_check_same(
+wprism_check_same(
     $beforeFailedNativeOptions,
     $tecDb->rows($optionsTable),
     'rollback restores exact native marker value, autoload, identity, and neighboring option bytes'
 );
-duo_check_same(false, tribe_isset_var('should_delete_expired_transients'), 'rollback removes a transient-purge flag introduced only by the failed native call');
-duo_check_same(0, $GLOBALS['tec_readiness_expired_transient_deletes'], 'rollback never schedules or runs the site-wide transient purge');
-duo_check(
+wprism_check_same(false, tribe_isset_var('should_delete_expired_transients'), 'rollback removes a transient-purge flag introduced only by the failed native call');
+wprism_check_same(0, $GLOBALS['tec_readiness_expired_transient_deletes'], 'rollback never schedules or runs the site-wide transient purge');
+wprism_check(
     ($GLOBALS['tec_readiness_wp_cache']['tribe-events'] ?? []) === []
         && ($GLOBALS['tec_readiness_wp_cache']['tribe-events-non-persistent'] ?? []) === []
         && ($GLOBALS['tec_readiness_wp_cache']['tec_occurrence_matches'] ?? []) === []
@@ -13144,20 +13144,20 @@ duo_check(
         && !isset($GLOBALS['tec_readiness_wp_cache']['options']['notoptions']),
     'rollback purges stale and uncommitted native cache publications exhaustively'
 );
-duo_check_same(0, $GLOBALS['tec_readiness_log_dispatches'], 'a failed upsert cannot log authored working_data while the exact logger is suppressed');
-duo_check_same(
+wprism_check_same(0, $GLOBALS['tec_readiness_log_dispatches'], 'a failed upsert cannot log authored working_data while the exact logger is suppressed');
+wprism_check_same(
     10,
     has_filter('tribe_log', [$GLOBALS['tec_readiness_log_provider'], 'dispatch_log']),
     'rollback restores the exact built-in logger for same-process retry'
 );
 $GLOBALS['tec_readiness_regen_mode'] = 'ok';
 $regenerator->regenerate($tecEventId);
-duo_check_same(
+wprism_check_same(
     $expectedOccurrenceHash,
     $tecDb->get_var($tecDb->prepare("SELECT hash FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
     'same-process retry after the partial event upsert converges both native rows'
 );
-duo_check_same(
+wprism_check_same(
     ['target-runtime-event', 'target-runtime-occurrence'],
     [
         $tecDb->get_var("SELECT hash FROM `$eventTable` WHERE post_id = 6100000099"),
@@ -13168,19 +13168,19 @@ duo_check_same(
 
 $resetTecDerived();
 $GLOBALS['tec_readiness_regen_mode'] = 'partial_occurrence';
-duo_check_same(
-    'duo: TEC derived-state verification failed for tec_occurrences fields: end_date_utc',
+wprism_check_same(
+    'wprism: TEC derived-state verification failed for tec_occurrences fields: end_date_utc',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a partially written occurrence refuses on its missing deterministic postcondition'
 );
-duo_check_same(
+wprism_check_same(
     '1999-01-01 00:30:00',
     $tecDb->get_var($tecDb->prepare("SELECT end_date_utc FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
     'the failed value-level verification rolls the partial occurrence back atomically'
 );
 $GLOBALS['tec_readiness_regen_mode'] = 'ok';
 $regenerator->regenerate($tecEventId);
-duo_check_same(
+wprism_check_same(
     '2026-11-02 15:15:00',
     $tecDb->get_var($tecDb->prepare("SELECT end_date_utc FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
     'same-process retry after a value-level verification failure repairs the exact occurrence field'
@@ -13188,8 +13188,8 @@ duo_check_same(
 
 $resetTecDerived();
 $GLOBALS['tec_readiness_regen_mode'] = 'wrong_event_link';
-duo_check_same(
-    'duo: TEC derived-state verification failed for tec_occurrences fields: event_id',
+wprism_check_same(
+    'wprism: TEC derived-state verification failed for tec_occurrences fields: event_id',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'an occurrence linked to the wrong native event row refuses'
 );
@@ -13206,12 +13206,12 @@ for ($index = 0; $index < 1000; ++$index) {
 }
 $tecDb->seedTable($occurrenceTable, $occurrenceFlood);
 unset($occurrenceFlood, $occurrencePrototype, $extraOccurrence);
-duo_check_same(
-    'duo: TEC derived-state locking rejected a cross-linked occurrence row',
+wprism_check_same(
+    'wprism: TEC derived-state locking rejected a cross-linked occurrence row',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a hostile cross-linked occurrence flood refuses during the bounded owner-range lock'
 );
-duo_check(
+wprism_check(
     count(array_filter(
         $tecDb->queries(),
         static fn(string $sql): bool => str_contains($sql, 'FORCE INDEX (`event_id`)')
@@ -13222,27 +13222,27 @@ duo_check(
 
 $resetTecDerived();
 $GLOBALS['tec_readiness_regen_mode'] = 'orphan_extra';
-duo_check_same(
-    'duo: TEC derived-state verification failed for tec_occurrences fields: row_count',
+wprism_check_same(
+    'wprism: TEC derived-state verification failed for tec_occurrences fields: row_count',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'an orphan occurrence sharing the native event identity refuses rather than earning success'
 );
 
 $resetTecDerived();
 $GLOBALS['tec_readiness_regen_mode'] = 'save_throw';
-duo_check_same(
+wprism_check_same(
     'injected native occurrence save failure',
     $tecFailure(static fn() => $regenerator->regenerate($tecEventId)),
     'a native occurrence exception surfaces and leaves retry authority to the engine'
 );
-duo_check_same(
+wprism_check_same(
     '1999-01-01 00:30:00',
     $tecDb->get_var($tecDb->prepare("SELECT end_date_utc FROM `$occurrenceTable` WHERE post_id = %d", $tecEventId)),
     'the native occurrence exception rolls the second derived write back atomically'
 );
 $GLOBALS['tec_readiness_regen_mode'] = 'ok';
 $regenerator->regenerate($tecEventId);
-duo_check_same(
+wprism_check_same(
     $expectedOccurrenceHash,
     $tecDb->get_var($tecDb->prepare(
         "SELECT hash FROM `$occurrenceTable` WHERE post_id = %d",
@@ -13251,5 +13251,5 @@ duo_check_same(
     'retry after a partial native occurrence failure converges to the exact deterministic row'
 );
 
-duo_check_summary('The Events Calendar production-readiness contract');
+wprism_check_summary('The Events Calendar production-readiness contract');
 }

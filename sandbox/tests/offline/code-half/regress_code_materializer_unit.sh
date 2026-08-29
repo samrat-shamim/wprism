@@ -4,17 +4,17 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 
-DUO_ROOT="$ROOT" php -d display_errors=1 <<'PHP'
+WPRISM_ROOT="$ROOT" php -d display_errors=1 <<'PHP'
 <?php
-$root = getenv('DUO_ROOT');
-$target = sys_get_temp_dir() . '/duo-code-target-' . bin2hex(random_bytes(6));
+$root = getenv('WPRISM_ROOT');
+$target = sys_get_temp_dir() . '/wprism-code-target-' . bin2hex(random_bytes(6));
 define('WP_CONTENT_DIR', $target);
 define('WP_PLUGIN_DIR', $target . '/custom-plugins');
 require_once "$root/agent/src/Kernel/Canon.php";
 require_once "$root/agent/src/Code/Code.php";
 
-use Duo\Code;
-use Duo\CodeMaterializer;
+use WPrism\Code;
+use WPrism\CodeMaterializer;
 
 function fail_materializer(string $message): never { throw new RuntimeException("FAIL: $message"); }
 function put_materializer(string $path, string $bytes): void {
@@ -41,7 +41,7 @@ function file_descriptor_materializer(string $source, string $component, string 
 }
 
 mkdir($target, 0777, true);
-$tmp = sys_get_temp_dir() . '/duo-code-source-' . bin2hex(random_bytes(6));
+$tmp = sys_get_temp_dir() . '/wprism-code-source-' . bin2hex(random_bytes(6));
 mkdir($tmp . '/a', 0777, true);
 mkdir($tmp . '/b', 0777, true);
 register_shutdown_function(static function () use ($tmp, $target): void {

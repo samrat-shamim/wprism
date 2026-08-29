@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
-use Duo\Canon;
+use WPrism\Canon;
 
 /**
  * Host boundary for the target-owned, redacted adapter observation document.
@@ -15,8 +15,8 @@ use Duo\Canon;
  * local --repo path, and it never treats the evidence as adapter authority.
  */
 final class AdapterObservation {
-    public const FORMAT = 'duo-adapter-observation/v1';
-    private const CATALOG_FORMAT = 'duo-adapter-sources/v2';
+    public const FORMAT = 'wprism-adapter-observation/v1';
+    private const CATALOG_FORMAT = 'wprism-adapter-sources/v2';
     private const SOURCES = ['plugin', 'shipped', 'site'];
     private const TRUST_TIERS = [
         'compatibility_shim', 'declarative_manifest', 'native_action', 'plugin_provider', 'unknown',
@@ -55,7 +55,7 @@ final class AdapterObservation {
      * correctly instead of refusing it.
      *
      * Restated rather than read from `AdapterSources` for the reason the
-     * vocabulary is restated at all: cli/duo requires this file at bootstrap
+     * vocabulary is restated at all: cli/wprism requires this file at bootstrap
      * (:68) and loads agent classes lazily, so the validator for an untrusted
      * target document may not depend on an agent class being resident.
      * `sandbox/tests/offline/adapter/regress_v3_reservations.php` asserts this
@@ -92,7 +92,7 @@ final class AdapterObservation {
 
         try {
             $result = $driver->captureWp([
-                'duo',
+                'wprism',
                 'adapter-observe',
                 '--repo=' . $driver->repoPath(),
                 '--format=json',
@@ -233,7 +233,7 @@ final class AdapterObservation {
         // link itself is the no-clobber atomic primitive for a same-directory
         // temporary file, so a race can only become a refusal.
         self::assert_output_destination($out);
-        $temporary = @tempnam(dirname($out), '.duo-adapter-observation-');
+        $temporary = @tempnam(dirname($out), '.wprism-adapter-observation-');
         if (!is_string($temporary) || $temporary === '') {
             throw new \RuntimeException('temporary output failed');
         }
@@ -487,7 +487,7 @@ final class AdapterObservation {
             ['status' => 'deferred', 'statement' => 'this report does not prove certification', 'subject' => 'certification'],
             [
                 'status' => 'deferred',
-                'statement' => 'normal plugin/provider registration and capability negotiation remain enabled; third-party callbacks may have side effects before or during evidence collection; Duo invokes no provider action and performs no explicit mutation after observer entry',
+                'statement' => 'normal plugin/provider registration and capability negotiation remain enabled; third-party callbacks may have side effects before or during evidence collection; WPrism invokes no provider action and performs no explicit mutation after observer entry',
                 'subject' => 'bootstrap_effects',
             ],
         ];
@@ -585,7 +585,7 @@ final class AdapterObservation {
 
     /** A source may never smuggle a credential-looking literal through a safe grammar field. */
     private static function sensitive_literal(string $value): bool {
-        return \Duo\Secrets::hard_match($value) !== null
+        return \WPrism\Secrets::hard_match($value) !== null
             || preg_match('/[\x00-\x1F\x7F]/', $value) === 1
             || preg_match('~/(?:Users|home)/~i', str_replace('\\', '/', $value)) === 1;
     }
@@ -605,7 +605,7 @@ final class AdapterObservation {
     private static function refusal(bool $json, string $reason, string $message, string $remediation): int {
         if ($json) {
             $payload = [
-                'format' => 'duo-command-refusal/v1',
+                'format' => 'wprism-command-refusal/v1',
                 'ok' => false,
                 'command' => 'adapter-observe',
                 'error' => $reason,
@@ -617,7 +617,7 @@ final class AdapterObservation {
             echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
             return 1;
         }
-        fwrite(STDERR, 'duo: adapter-observe: ' . $message . '; ' . $remediation . "\n");
+        fwrite(STDERR, 'wprism: adapter-observe: ' . $message . '; ' . $remediation . "\n");
         return 1;
     }
 }

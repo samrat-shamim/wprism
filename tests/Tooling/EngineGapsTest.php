@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -45,7 +45,7 @@ final class EngineGapsTest extends TestCase
 {
     private static function repoRoot(): string
     {
-        $env = getenv('DUO_REPO_ROOT');
+        $env = getenv('WPRISM_REPO_ROOT');
         return is_string($env) && $env !== '' ? $env : dirname(__DIR__, 2);
     }
 

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../Plan/PlanView.php';
@@ -30,16 +30,16 @@ final class StatusCommand {
             $renderAuthority($driver);
             return 1;
         }
-        $planArgs = ['duo', 'plan', '--repo=' . $driver->repoPath()];
+        $planArgs = ['wprism', 'plan', '--repo=' . $driver->repoPath()];
         if ($viewRequest !== null) {
             $planArgs = array_merge($planArgs, PlanView::agentArgs($viewRequest));
         }
         $planArgs[] = '--format=json';
         $result = $driver->captureWp($planArgs);
         if ($result['exit'] !== 0) {
-            fwrite(STDERR, "duo: status: failed to fetch plan for '{$driver->name()}' (exit {$result['exit']})\n");
+            fwrite(STDERR, "wprism: status: failed to fetch plan for '{$driver->name()}' (exit {$result['exit']})\n");
             $refusal = json_decode(trim($result['stdout']), true);
-            if (is_array($refusal) && ($refusal['format'] ?? null) === 'duo-command-refusal/v1') {
+            if (is_array($refusal) && ($refusal['format'] ?? null) === 'wprism-command-refusal/v1') {
                 $renderCommandRefusal($refusal);
             } else {
                 $message = trim($result['stderr'] !== '' ? $result['stderr'] : $result['stdout']);
@@ -52,14 +52,14 @@ final class StatusCommand {
         }
         $plan = json_decode(trim($result['stdout']), true);
         if (!is_array($plan)) {
-            fwrite(STDERR, "duo: status: could not parse plan JSON for '{$driver->name()}'\n");
+            fwrite(STDERR, "wprism: status: could not parse plan JSON for '{$driver->name()}'\n");
             $renderAuthority($driver);
             return 1;
         }
         try {
             $plan = PlanContract::requireComplete($plan, 'status');
         } catch (\Throwable) {
-            fwrite(STDERR, "duo: status: agent plan envelope is incomplete or malformed; refusing readiness\n");
+            fwrite(STDERR, "wprism: status: agent plan envelope is incomplete or malformed; refusing readiness\n");
             $renderAuthority($driver);
             return 1;
         }

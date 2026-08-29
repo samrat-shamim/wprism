@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * DUO-3354: characterize the extracted manifest-declared shortcode scanner
+ * issue #3354: characterize the extracted manifest-declared shortcode scanner
  * without loading Policy, Ledger, a database, or a WordPress runtime. The
  * three shortcode parsing primitives are deliberate syntax-only test stubs;
  * the real product-path coverage remains regress_shortcode_refs.php.
@@ -21,10 +21,10 @@ require __DIR__ . '/../../../../agent/src/Review/Pending.php';
 require __DIR__ . '/../../../../agent/src/Review/LintFinding.php';
 require __DIR__ . '/../../../../agent/src/Review/ShortcodeReferenceScanner.php';
 
-use Duo\ShortcodeReferenceScanner;
+use WPrism\ShortcodeReferenceScanner;
 
-check(!class_exists(\Duo\Policy::class, false), 'shortcode scanner standalone load does not load Policy');
-check(!class_exists(\Duo\Ledger::class, false), 'shortcode scanner standalone load does not load Ledger');
+check(!class_exists(\WPrism\Policy::class, false), 'shortcode scanner standalone load does not load Policy');
+check(!class_exists(\WPrism\Ledger::class, false), 'shortcode scanner standalone load does not load Ledger');
 check(!function_exists('get_option'), 'shortcode scanner standalone load does not need WordPress runtime helpers');
 
 $rules = [

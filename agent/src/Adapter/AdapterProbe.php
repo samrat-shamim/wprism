@@ -1,15 +1,15 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 
 /**
- * Live SCHEMA facts about one target's candidate tables (`duo-adapter-probe/v1`).
+ * Live SCHEMA facts about one target's candidate tables (`wprism-adapter-probe/v1`).
  *
- * `duo adapter-draft` is WordPress-free by construction, so every fact that
+ * `wprism adapter-draft` is WordPress-free by construction, so every fact that
  * needs a live server — a column's MySQL type, the real PRIMARY KEY,
  * whether a delete guard's predicate column is covered by an index, whether
  * a natural key is unique across the whole keyspace — leaves that generator
@@ -43,10 +43,10 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
  *      reduced to its base word by normalized_type().
  *   3. NO REPAIR and no write. Every statement here is a read; the caller
  *      (`Cli::adapter_probe()`) additionally suspends the provenance journal,
- *      so asking a target what its schema is cannot become a Duo INSERT.
+ *      so asking a target what its schema is cannot become a WPrism INSERT.
  */
 final class AdapterProbe {
-    public const FORMAT = 'duo-adapter-probe/v1';
+    public const FORMAT = 'wprism-adapter-probe/v1';
 
     /** Same word `AdapterObservation` publishes: values never enter the document. */
     public const REDACTION = 'values_omitted';
@@ -72,14 +72,14 @@ final class AdapterProbe {
      * @param array<string,string> $naturalKeys logical table => the ONE column
      *   whose keyspace-wide uniqueness to measure (the column adapter-draft's
      *   `natural_key_uniqueness` question names)
-     * @return array<string,mixed> a `duo-adapter-probe/v1` document
+     * @return array<string,mixed> a `wprism-adapter-probe/v1` document
      */
     public static function report(array $tables, array $naturalKeys = []): array {
         global $wpdb;
         if (!is_object($wpdb) || !method_exists($wpdb, 'get_results')) {
             // There is no target outside a loaded WordPress, and a document
             // full of defaults would be indistinguishable from a real one.
-            throw new \RuntimeException('duo: adapter probe needs a live target; $wpdb is unavailable');
+            throw new \RuntimeException('wprism: adapter probe needs a live target; $wpdb is unavailable');
         }
 
         $requested = [];
@@ -201,7 +201,7 @@ final class AdapterProbe {
         $rows = $wpdb->get_results("SHOW COLUMNS FROM `$prefixed`", ARRAY_A);
         self::assert_read_ok('column shape');
         if (!is_array($rows) || $rows === []) {
-            throw new \RuntimeException("duo: adapter probe read no columns for '$prefixed'; refusing to infer an empty schema");
+            throw new \RuntimeException("wprism: adapter probe read no columns for '$prefixed'; refusing to infer an empty schema");
         }
         foreach ($rows as $row) {
             self::assert_identifier((string) ($row['Field'] ?? ''), 'column');
@@ -243,7 +243,7 @@ final class AdapterProbe {
         $rows = $wpdb->get_results("SHOW INDEX FROM `$prefixed`", ARRAY_A);
         self::assert_read_ok('index inventory');
         if (!is_array($rows)) {
-            throw new \RuntimeException("duo: adapter probe could not read the index inventory for '$prefixed'");
+            throw new \RuntimeException("wprism: adapter probe could not read the index inventory for '$prefixed'");
         }
 
         $indexes = [];
@@ -257,7 +257,7 @@ final class AdapterProbe {
             self::assert_identifier($name, 'index');
             $seq = (int) ($row['Seq_in_index'] ?? 0);
             if ($seq <= 0) {
-                throw new \RuntimeException("duo: adapter probe read a malformed index ordinal on '$prefixed'");
+                throw new \RuntimeException("wprism: adapter probe read a malformed index ordinal on '$prefixed'");
             }
             $column = (string) ($row['Column_name'] ?? '');
             self::assert_identifier($column, 'column');
@@ -320,7 +320,7 @@ final class AdapterProbe {
         ), ARRAY_A);
         self::assert_read_ok('foreign key inventory');
         if (!is_array($rows)) {
-            throw new \RuntimeException("duo: adapter probe could not read the foreign keys of '$prefixed'");
+            throw new \RuntimeException("wprism: adapter probe could not read the foreign keys of '$prefixed'");
         }
         $out = [];
         foreach ($rows as $row) {
@@ -445,7 +445,7 @@ final class AdapterProbe {
         );
         self::assert_read_ok('natural key uniqueness');
         if (!is_array($rows) || !isset($rows[0]['row_count'], $rows[0]['distinct_count'])) {
-            throw new \RuntimeException("duo: adapter probe could not count '$prefixed.$column'");
+            throw new \RuntimeException("wprism: adapter probe could not count '$prefixed.$column'");
         }
         $total = (int) $rows[0]['row_count'];
         $distinct = (int) $rows[0]['distinct_count'];
@@ -493,7 +493,7 @@ final class AdapterProbe {
         if (preg_match(self::IDENTIFIER, $value) !== 1) {
             // The value itself is never echoed: an unsafe identifier is the
             // one string in this document nothing has vetted.
-            throw new \RuntimeException("duo: adapter probe refused a $kind name outside the portable identifier grammar");
+            throw new \RuntimeException("wprism: adapter probe refused a $kind name outside the portable identifier grammar");
         }
     }
 
@@ -533,7 +533,7 @@ final class AdapterProbe {
             $publicMessage,
             $remediation,
             [],
-            'duo: ' . $publicMessage
+            'wprism: ' . $publicMessage
         );
     }
 
@@ -546,7 +546,7 @@ final class AdapterProbe {
     private static function assert_read_ok(string $what): void {
         global $wpdb;
         if (trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: adapter probe could not read the $what; refusing to infer it");
+            throw new \RuntimeException("wprism: adapter probe could not read the $what; refusing to infer it");
         }
     }
 
@@ -566,10 +566,10 @@ final class AdapterProbe {
     }
 
     private static function agent_version(): string {
-        return defined('DUO_AGENT_VERSION') ? (string) DUO_AGENT_VERSION : 'unknown';
+        return defined('WPRISM_AGENT_VERSION') ? (string) WPRISM_AGENT_VERSION : 'unknown';
     }
 
     private static function spec_version(): int {
-        return defined('DUO_SPEC_VERSION') ? (int) DUO_SPEC_VERSION : 0;
+        return defined('WPRISM_SPEC_VERSION') ? (int) WPRISM_SPEC_VERSION : 0;
     }
 }

@@ -1,11 +1,11 @@
 <?php
 /**
- * Offline regression for `duo census --baseline=` — the cohort re-baseline
- * (`duo-cohort-rebaseline/v1`) over two `duo-fleet-census/v1` documents.
+ * Offline regression for `wprism census --baseline=` — the cohort re-baseline
+ * (`wprism-cohort-rebaseline/v1`) over two `wprism-fleet-census/v1` documents.
  *
  * WHAT FAILS WITHOUT THE CHANGE
  * -----------------------------
- * `duo census` published one moment. WP-6.3 is not graded on a moment: its
+ * `wprism census` published one moment. WP-6.3 is not graded on a moment: its
  * exit criterion is MOVEMENT — "a re-measured fleet coverage ratio and
  * adoption funnel against the Phase-0 baseline, published with the residual
  * named. A cohort that ships every adapter but does not move the ratio is a
@@ -15,7 +15,7 @@
  * place to be reported.
  *
  * Against the pre-change tree the very first call refuses —
- * `{"format":"duo-command-refusal/v1",…,"reason_code":"invalid_arguments",
+ * `{"format":"wprism-command-refusal/v1",…,"reason_code":"invalid_arguments",
  * "message":"unsupported or empty flag '--baseline=…'"}`, exit 2 — and 103 of
  * this suite's 134 assertions fail (measured by re-running this file against a
  * `git archive` of the parent commit with only these fixtures added).
@@ -48,15 +48,15 @@
  *     because the program this verb was built for crosses a spec flag day
  *     between its two measurements.
  *  5. THE REAL RE-BASELINE OF THE CORE ESTATE. The committed baseline is a
- *     genuine `duo-fleet-census/v1` document produced by the engine of its own
+ *     genuine `wprism-fleet-census/v1` document produced by the engine of its own
  *     day (spec_version 2, agent_version 0.5.0) at commit f99f6712 — the
- *     commit that first shipped `duo census`, which is the earliest moment
+ *     commit that first shipped `wprism census`, which is the earliest moment
  *     this program could measure itself at all. The claim is checkable rather
  *     than asserted: extract that tree and re-run the same fold, and the bytes
  *     come back identical.
  *
  *         git archive f99f6712 | tar -x -C <tmp>
- *         php <tmp>/cli/duo census --dir=sandbox/tests/fixtures/census/core-estate \
+ *         php <tmp>/cli/wprism census --dir=sandbox/tests/fixtures/census/core-estate \
  *             --format=json | diff - sandbox/tests/fixtures/census/g0-baseline.census.json
  *
  *     That reproduction is not run here — this suite does not check out
@@ -98,7 +98,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../lib/check.php';
 
 $repoRoot = dirname(__DIR__, 4);
-$duo = $repoRoot . '/cli/duo';
+$wprism = $repoRoot . '/cli/wprism';
 $censusFixtures = $repoRoot . '/sandbox/tests/fixtures/census';
 // The estate directory holds ONLY inventories: `--dir` labels every *.json in
 // it by its stem through FleetCensus::LABEL_PATTERN, so a census document
@@ -139,15 +139,15 @@ function cr_write(string $path, array $document): string {
 }
 
 /**
- * Run the real `duo` executable.
+ * Run the real `wprism` executable.
  *
  * @param list<string> $args
  * @return array{exit:int,stdout:string,stderr:string}
  */
-function cr_run(string $duo, string $cwd, array $args): array {
+function cr_run(string $wprism, string $cwd, array $args): array {
     $pipes = [];
     $process = proc_open(
-        array_merge([PHP_BINARY, $duo], $args),
+        array_merge([PHP_BINARY, $wprism], $args),
         [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
         $pipes,
         $cwd,
@@ -155,7 +155,7 @@ function cr_run(string $duo, string $cwd, array $args): array {
         ['bypass_shell' => true]
     );
     if (!is_resource($process)) {
-        throw new RuntimeException('could not start the duo executable');
+        throw new RuntimeException('could not start the wprism executable');
     }
     fclose($pipes[0]);
     $stdout = (string) stream_get_contents($pipes[1]);
@@ -172,7 +172,7 @@ function cr_json(string $raw): ?array {
 }
 
 /**
- * One synthetic `duo-fleet-census/v1` document, built from the few blocks the
+ * One synthetic `wprism-fleet-census/v1` document, built from the few blocks the
  * re-baseline reads. Every field the projector whitelists is present; nothing
  * else is, which is the point — a re-baseline that needed a key not listed
  * here would be reading past its own whitelist.
@@ -219,7 +219,7 @@ function cr_census(
     }
 
     return [
-        'format' => 'duo-fleet-census/v1',
+        'format' => 'wprism-fleet-census/v1',
         'spec_version' => $specVersion,
         'agent_version' => $agentVersion,
         'library' => [
@@ -254,13 +254,13 @@ function cr_census(
 }
 
 /**
- * `duo census --baseline=<a> --current=<b> --format=json`, decoded.
+ * `wprism census --baseline=<a> --current=<b> --format=json`, decoded.
  *
  * @param list<string> $extra
  * @return array{exit:int,stdout:string,stderr:string,document:array<string,mixed>}
  */
-function cr_rebaseline(string $duo, string $cwd, string $baseline, string $current, array $extra = []): array {
-    $run = cr_run($duo, $cwd, array_merge(
+function cr_rebaseline(string $wprism, string $cwd, string $baseline, string $current, array $extra = []): array {
+    $run = cr_run($wprism, $cwd, array_merge(
         ['census', '--baseline=' . $baseline, '--current=' . $current, '--format=json'],
         $extra
     ));
@@ -324,30 +324,30 @@ $movedAfter = cr_write($scratch . '/moved-after.json', cr_census(
     500,
     CR_ORACLE_B
 ));
-$moved = cr_rebaseline($duo, $repoRoot, $movedBefore, $movedAfter);
-duo_check_same(0, $moved['exit'], 'a re-baseline over two census documents exits 0');
-duo_check_same('', $moved['stderr'], 'the JSON path writes nothing to stderr');
-duo_check_same(
-    'duo-cohort-rebaseline/v1',
+$moved = cr_rebaseline($wprism, $repoRoot, $movedBefore, $movedAfter);
+wprism_check_same(0, $moved['exit'], 'a re-baseline over two census documents exits 0');
+wprism_check_same('', $moved['stderr'], 'the JSON path writes nothing to stderr');
+wprism_check_same(
+    'wprism-cohort-rebaseline/v1',
     $moved['document']['format'] ?? null,
     'the re-baseline names its own versioned format'
 );
-duo_check_same(
+wprism_check_same(
     'coverage_moved',
     (string) (((array) ($moved['document']['cohort'] ?? []))['verdict'] ?? ''),
     'a cohort that ships AND moves the ratio reads coverage_moved'
 );
-duo_check_same(
+wprism_check_same(
     null,
     ((array) ($moved['document']['cohort'] ?? []))['finding'],
     'and carries no finding'
 );
-duo_check_same(
+wprism_check_same(
     100000,
     (int) (((array) ($moved['document']['cohort'] ?? []))['coverage_delta_ppm'] ?? -1),
     'the coverage delta is the ppm difference of the two fleet ratios (40.0% -> 50.0%)'
 );
-duo_check_same(
+wprism_check_same(
     ['synth-alpha'],
     (array) (((array) ($moved['document']['cohort'] ?? []))['adapters_added'] ?? []),
     'the cohort names the adapter that newly covers a slug'
@@ -385,62 +385,62 @@ $stallAfter = cr_write($scratch . '/stall-after.json', cr_census(
     900,
     CR_ORACLE_B
 ));
-$stall = cr_rebaseline($duo, $repoRoot, $stallBefore, $stallAfter);
-duo_check_same(0, $stall['exit'], 'the ships-but-does-not-move case is an ANSWER, exit 0');
+$stall = cr_rebaseline($wprism, $repoRoot, $stallBefore, $stallAfter);
+wprism_check_same(0, $stall['exit'], 'the ships-but-does-not-move case is an ANSWER, exit 0');
 $stallCohort = (array) ($stall['document']['cohort'] ?? []);
-duo_check_same(
+wprism_check_same(
     'shipped_without_movement',
     (string) ($stallCohort['verdict'] ?? ''),
     'a cohort that ships every adapter and moves no ratio reads shipped_without_movement'
 );
-duo_check_same(true, $stallCohort['shipped'] ?? null, 'the document records that a cohort DID ship');
-duo_check_same(
+wprism_check_same(true, $stallCohort['shipped'] ?? null, 'the document records that a cohort DID ship');
+wprism_check_same(
     0,
     (int) ($stallCohort['coverage_delta_ppm'] ?? -1),
     'beside a coverage delta of exactly zero — the two halves of the finding'
 );
-duo_check_same(
+wprism_check_same(
     ['synth-beta', 'synth-gamma'],
     (array) ($stallCohort['adapters_added'] ?? []),
     'both shipped adapters are named'
 );
-duo_check_same(
+wprism_check_same(
     0,
     (int) ($stallCohort['surfaces_claimed'] ?? -1),
     'and not one surface moved out of demand: the adapters exist, no site pins them'
 );
 $finding = (array) ($stallCohort['finding'] ?? []);
-duo_check_same(
+wprism_check_same(
     'cohort_shipped_without_movement',
     (string) ($finding['code'] ?? ''),
     'the finding carries its own code rather than being inferred from two numbers'
 );
-duo_check(
+wprism_check(
     str_contains((string) ($finding['statement'] ?? ''), 're-opens G0'),
     'and states in as many words that this re-opens G0 rather than being a success'
 );
-duo_check(
+wprism_check(
     str_contains((string) ($finding['remedy'] ?? ''), 'adapter_unpinned'),
     'the remedy points at the funnel stage that explains it — an unpinned adapter covers nothing'
 );
-duo_check_same(
+wprism_check_same(
     2,
     (int) ((array) ((array) ($stall['document']['funnel'] ?? []))['adapter_unpinned'] ?? [])['delta']['plugins'] ?? -1,
     'the funnel movement shows both plugins arriving in adapter_unpinned'
 );
 
 // The finding must survive the human view, and it must be the LAST thing said.
-$stallHuman = cr_run($duo, $repoRoot, ['census', '--baseline=' . $stallBefore, '--current=' . $stallAfter]);
-duo_check_same(0, $stallHuman['exit'], 'the human re-baseline view exits 0');
-duo_check(
+$stallHuman = cr_run($wprism, $repoRoot, ['census', '--baseline=' . $stallBefore, '--current=' . $stallAfter]);
+wprism_check_same(0, $stallHuman['exit'], 'the human re-baseline view exits 0');
+wprism_check(
     str_contains($stallHuman['stdout'], 'FINDING cohort_shipped_without_movement:'),
     'the human view prints the finding rather than only the verdict word'
 );
-duo_check(
+wprism_check(
     str_contains($stallHuman['stdout'], 'verdict: shipped_without_movement'),
     'and the verdict line beside it'
 );
-duo_check_same(
+wprism_check_same(
     '',
     $stallHuman['stderr'],
     'the finding is an answer, not a diagnostic: nothing goes to stderr'
@@ -450,20 +450,20 @@ duo_check_same(
 // shortened view must never drop is the one that says the cohort failed, so
 // this asserts both halves: the listing is cut and says how much it cut, and
 // the verdict and the finding still print underneath.
-$stallBounded = cr_run($duo, $repoRoot, [
+$stallBounded = cr_run($wprism, $repoRoot, [
     'census', '--baseline=' . $stallBefore, '--current=' . $stallAfter, '--limit=1',
 ]);
-duo_check_same(0, $stallBounded['exit'], 'a bounded human re-baseline exits 0');
-duo_check_same(
+wprism_check_same(0, $stallBounded['exit'], 'a bounded human re-baseline exits 0');
+wprism_check_same(
     1,
     substr_count($stallBounded['stdout'], "\nmoved synth-"),
     '--limit=1 prints one attribution row'
 );
-duo_check(
+wprism_check(
     str_contains($stallBounded['stdout'], 'moved: 1 further row(s) in --format=json'),
     'and says how many rows it did not print rather than truncating silently'
 );
-duo_check(
+wprism_check(
     str_contains($stallBounded['stdout'], 'FINDING cohort_shipped_without_movement:')
         && str_contains($stallBounded['stdout'], 'verdict: shipped_without_movement'),
     'while the verdict and the finding survive the bound: --limit never hides the failure'
@@ -492,19 +492,19 @@ $adoptAfter = cr_write($scratch . '/adopt-after.json', cr_census(
     450,
     CR_ORACLE_A
 ));
-$adopt = cr_rebaseline($duo, $repoRoot, $adoptBefore, $adoptAfter);
+$adopt = cr_rebaseline($wprism, $repoRoot, $adoptBefore, $adoptAfter);
 $adoptCohort = (array) ($adopt['document']['cohort'] ?? []);
-duo_check_same(
+wprism_check_same(
     'adoption_only',
     (string) ($adoptCohort['verdict'] ?? ''),
     'a ratio that moved with no adapter added reads adoption_only — the pins moved it, not a cohort'
 );
-duo_check_same(
+wprism_check_same(
     ['synth-delta'],
     (array) ($adoptCohort['slugs_newly_pinned'] ?? []),
     'and the slug whose pin count rose is named'
 );
-duo_check_same(
+wprism_check_same(
     [],
     (array) ($adoptCohort['adapters_added'] ?? []),
     'with no adapter claimed as added, because none was'
@@ -533,19 +533,19 @@ $regressAfter = cr_write($scratch . '/regress-after.json', cr_census(
     450,
     CR_ORACLE_B
 ));
-$regress = cr_rebaseline($duo, $repoRoot, $regressBefore, $regressAfter);
+$regress = cr_rebaseline($wprism, $repoRoot, $regressBefore, $regressAfter);
 $regressCohort = (array) ($regress['document']['cohort'] ?? []);
-duo_check_same(
+wprism_check_same(
     'coverage_regressed',
     (string) ($regressCohort['verdict'] ?? ''),
     'a ratio that fell reads coverage_regressed, whatever else shipped alongside it'
 );
-duo_check_same(
+wprism_check_same(
     1,
     (int) ($regressCohort['surfaces_regressed'] ?? -1),
     'and the surface that lost its claim is counted'
 );
-duo_check_same(
+wprism_check_same(
     'cohort_coverage_regressed',
     (string) ((array) ($regressCohort['finding'] ?? []))['code'] ?? '',
     'a regression carries a finding too — a narrowed claim is not a rounding error'
@@ -559,18 +559,18 @@ $flatBefore = cr_write($scratch . '/flat-before.json', cr_census(
     400,
     CR_ORACLE_A
 ));
-$flat = cr_rebaseline($duo, $repoRoot, $flatBefore, $flatBefore);
-duo_check_same(
+$flat = cr_rebaseline($wprism, $repoRoot, $flatBefore, $flatBefore);
+wprism_check_same(
     'no_cohort',
     (string) (((array) ($flat['document']['cohort'] ?? []))['verdict'] ?? ''),
     'two identical censuses read no_cohort — nothing shipped and nothing moved'
 );
-duo_check_same(
+wprism_check_same(
     1,
     (int) (((array) ($flat['document']['attribution'] ?? []))['unchanged'] ?? -1),
     'the unchanged population is a count, so "nothing moved" arrives as a number'
 );
-duo_check_same(
+wprism_check_same(
     [],
     (array) (((array) ($flat['document']['attribution'] ?? []))['moved'] ?? ['x']),
     'and the moved listing is empty rather than absent'
@@ -579,13 +579,13 @@ duo_check_same(
 // --- unmeasured: a side that measured no surfaces has no ratio, and
 // subtracting from nothing is not zero.
 $emptyDoc = cr_write($scratch . '/empty.json', cr_census(['s1'], [], 0, 0, CR_ORACLE_A));
-$unmeasured = cr_rebaseline($duo, $repoRoot, $emptyDoc, $flatBefore);
-duo_check_same(
+$unmeasured = cr_rebaseline($wprism, $repoRoot, $emptyDoc, $flatBefore);
+wprism_check_same(
     'unmeasured',
     (string) (((array) ($unmeasured['document']['cohort'] ?? []))['verdict'] ?? ''),
     'a side with no measured surfaces reads unmeasured, never a 0% collapse'
 );
-duo_check_same(
+wprism_check_same(
     null,
     ((array) ($unmeasured['document']['cohort'] ?? []))['coverage_delta_ppm'],
     'and the delta is null rather than an invented integer'
@@ -632,57 +632,57 @@ $attribAfter = cr_write($scratch . '/attrib-after.json', cr_census(
     520,
     CR_ORACLE_B
 ));
-$attrib = cr_rebaseline($duo, $repoRoot, $attribBefore, $attribAfter);
-duo_check_same(0, $attrib['exit'], 'the attribution fixture exits 0');
+$attrib = cr_rebaseline($wprism, $repoRoot, $attribBefore, $attribAfter);
+wprism_check_same(0, $attrib['exit'], 'the attribution fixture exits 0');
 
 $eta = cr_moved($attrib['document'], 'synth-eta') ?? [];
-duo_check_same(
+wprism_check_same(
     ['options:synth_eta'],
     (array) ($eta['surfaces_claimed'] ?? []),
     'a surface that crossed from uncovered to claimed is attributed to the adapter that claimed it'
 );
-duo_check_same('synth-eta', (string) ($eta['adapter_current'] ?? ''), 'and that adapter is named');
-duo_check_same(null, $eta['adapter_baseline'], 'beside the absence it replaced');
-duo_check_same('adapter_added', (string) ($eta['adapter_change'] ?? ''), 'classified as adapter_added');
+wprism_check_same('synth-eta', (string) ($eta['adapter_current'] ?? ''), 'and that adapter is named');
+wprism_check_same(null, $eta['adapter_baseline'], 'beside the absence it replaced');
+wprism_check_same('adapter_added', (string) ($eta['adapter_change'] ?? ''), 'classified as adapter_added');
 
 $theta = cr_moved($attrib['document'], 'synth-theta') ?? [];
-duo_check_same(
+wprism_check_same(
     ['tables:synth_theta_log'],
     (array) ($theta['surfaces_regressed'] ?? []),
     'a surface that lost its credit is reported with equal weight, not netted away'
 );
-duo_check_same(
+wprism_check_same(
     [],
     (array) ($theta['surfaces_claimed'] ?? ['x']),
     'and is not double-counted as a claim'
 );
 
 $iota = cr_moved($attrib['document'], 'synth-iota') ?? [];
-duo_check_same(
+wprism_check_same(
     ['options:synth_iota'],
     (array) ($iota['surfaces_resolved'] ?? []),
     'a residual that left the estate entirely is `resolved` — never credited to an adapter'
 );
-duo_check_same(
+wprism_check_same(
     'baseline-only',
     (string) ($iota['present'] ?? ''),
     'and the row says which side it was present on'
 );
 
 $lambda = cr_moved($attrib['document'], 'synth-lambda') ?? [];
-duo_check_same(
+wprism_check_same(
     ['tables:synth_lambda_cache'],
     (array) ($lambda['surfaces_appeared'] ?? []),
     'a residual that appeared is `appeared` — new demand, not a regression'
 );
-duo_check_same('current-only', (string) ($lambda['present'] ?? ''), 'present on the current side only');
+wprism_check_same('current-only', (string) ($lambda['present'] ?? ''), 'present on the current side only');
 
-duo_check_same(
+wprism_check_same(
     null,
     cr_moved($attrib['document'], 'synth-kappa'),
     'a slug whose adapter, stage, credit and pins are all unchanged gets no row at all'
 );
-duo_check_same(
+wprism_check_same(
     1,
     (int) (((array) ($attrib['document']['attribution'] ?? []))['unchanged'] ?? -1),
     'it is counted instead — the count is the signal'
@@ -698,8 +698,8 @@ $reordered = cr_census(
     CR_ORACLE_B
 );
 $reorderedPath = cr_write($scratch . '/attrib-after-reordered.json', $reordered);
-$reorderedRun = cr_rebaseline($duo, $repoRoot, $attribBefore, $reorderedPath);
-duo_check_same(
+$reorderedRun = cr_rebaseline($wprism, $repoRoot, $attribBefore, $reorderedPath);
+wprism_check_same(
     $attrib['stdout'],
     $reorderedRun['stdout'],
     'reversing the current census\'s demand order is byte-identical: the delta is a function of the SET'
@@ -707,12 +707,12 @@ duo_check_same(
 
 // ================================================== 3. comparability classes
 
-duo_check_same(
+wprism_check_same(
     'same-estate',
     (string) (((array) ($attrib['document']['comparability'] ?? []))['class'] ?? ''),
     'two censuses over the same labels are same-estate'
 );
-duo_check_same(
+wprism_check_same(
     true,
     ((array) ($attrib['document']['cohort'] ?? []))['attributable'] ?? null,
     'and only then is the delta attributable to a cohort'
@@ -725,24 +725,24 @@ $grownAfter = cr_write($scratch . '/grown-after.json', cr_census(
     700,
     CR_ORACLE_A
 ));
-$grown = cr_rebaseline($duo, $repoRoot, $flatBefore, $grownAfter);
+$grown = cr_rebaseline($wprism, $repoRoot, $flatBefore, $grownAfter);
 $grownComparability = (array) ($grown['document']['comparability'] ?? []);
-duo_check_same(
+wprism_check_same(
     'population-changed',
     (string) ($grownComparability['class'] ?? ''),
     'an estate that gained sites is population-changed'
 );
-duo_check_same(
+wprism_check_same(
     ['s2', 's3'],
     (array) ((array) ($grownComparability['sites'] ?? []))['added'] ?? [],
     'and the added labels are named, not merely counted'
 );
-duo_check_same(
+wprism_check_same(
     false,
     ((array) ($grown['document']['cohort'] ?? []))['attributable'] ?? null,
     'a ratio delta across a changed population is NOT attributable to a cohort'
 );
-duo_check(
+wprism_check(
     str_contains((string) (((array) ($grown['document']['cohort'] ?? []))['disclosure'] ?? ''), 'not attributable'),
     'and the cohort block says so in prose beside the number'
 );
@@ -754,13 +754,13 @@ $disjointAfter = cr_write($scratch . '/disjoint-after.json', cr_census(
     600,
     CR_ORACLE_A
 ));
-$disjoint = cr_rebaseline($duo, $repoRoot, $flatBefore, $disjointAfter);
-duo_check_same(
+$disjoint = cr_rebaseline($wprism, $repoRoot, $flatBefore, $disjointAfter);
+wprism_check_same(
     'disjoint-estate',
     (string) (((array) ($disjoint['document']['comparability'] ?? []))['class'] ?? ''),
     'two censuses sharing no label at all are disjoint-estate'
 );
-duo_check(
+wprism_check(
     str_contains(
         (string) (((array) ($disjoint['document']['comparability'] ?? []))['disclosure'] ?? ''),
         'two different estates'
@@ -782,9 +782,9 @@ $otherBoundary = cr_write($scratch . '/other-boundary.json', cr_census(
     '0.6.0',
     'multisite'
 ));
-$boundary = cr_rebaseline($duo, $repoRoot, $flatBefore, $otherBoundary);
-duo_check_same(1, $boundary['exit'], 'a platform-boundary move between the two censuses refuses');
-duo_check_same(
+$boundary = cr_rebaseline($wprism, $repoRoot, $flatBefore, $otherBoundary);
+wprism_check_same(1, $boundary['exit'], 'a platform-boundary move between the two censuses refuses');
+wprism_check_same(
     'rebaseline_boundary_mismatch',
     (string) (($boundary['document']['reason_code'] ?? '')),
     'with its own reason code in the machine envelope'
@@ -801,19 +801,19 @@ $oldEngine = cr_write($scratch . '/old-engine.json', cr_census(
     2,
     '0.5.0'
 ));
-$acrossFlip = cr_rebaseline($duo, $repoRoot, $oldEngine, $flatBefore);
-duo_check_same(0, $acrossFlip['exit'], 'a re-baseline ACROSS a spec flag day is answered, not refused');
+$acrossFlip = cr_rebaseline($wprism, $repoRoot, $oldEngine, $flatBefore);
+wprism_check_same(0, $acrossFlip['exit'], 'a re-baseline ACROSS a spec flag day is answered, not refused');
 $engineBlock = (array) ((array) ($acrossFlip['document']['comparability'] ?? []))['engine'] ?? [];
-duo_check_same(true, $engineBlock['moved'] ?? null, 'the engine move is recorded');
-duo_check_same(2, (int) ((array) ($engineBlock['baseline'] ?? []))['spec_version'] ?? -1,
+wprism_check_same(true, $engineBlock['moved'] ?? null, 'the engine move is recorded');
+wprism_check_same(2, (int) ((array) ($engineBlock['baseline'] ?? []))['spec_version'] ?? -1,
     'naming the baseline spec version');
-duo_check_same(3, (int) ((array) ($engineBlock['current'] ?? []))['spec_version'] ?? -1,
+wprism_check_same(3, (int) ((array) ($engineBlock['current'] ?? []))['spec_version'] ?? -1,
     'and the current one');
 
-$notACensus = cr_write($scratch . '/not-a-census.json', ['format' => 'duo-assess-inventory/v1']);
-$wrongFormat = cr_rebaseline($duo, $repoRoot, $notACensus, $flatBefore);
-duo_check_same(1, $wrongFormat['exit'], 'a baseline that is not a census refuses');
-duo_check_same(
+$notACensus = cr_write($scratch . '/not-a-census.json', ['format' => 'wprism-assess-inventory/v1']);
+$wrongFormat = cr_rebaseline($wprism, $repoRoot, $notACensus, $flatBefore);
+wprism_check_same(1, $wrongFormat['exit'], 'a baseline that is not a census refuses');
+wprism_check_same(
     'rebaseline_document_unsupported',
     (string) ($wrongFormat['document']['reason_code'] ?? ''),
     'naming the format it needed'
@@ -822,17 +822,17 @@ duo_check_same(
 $truncated = cr_json((string) file_get_contents($flatBefore)) ?? [];
 unset($truncated['funnel']);
 $truncatedPath = cr_write($scratch . '/truncated.json', $truncated);
-$incomplete = cr_rebaseline($duo, $repoRoot, $truncatedPath, $flatBefore);
-duo_check_same(1, $incomplete['exit'], 'a census missing a block the delta reads refuses');
-duo_check_same(
+$incomplete = cr_rebaseline($wprism, $repoRoot, $truncatedPath, $flatBefore);
+wprism_check_same(1, $incomplete['exit'], 'a census missing a block the delta reads refuses');
+wprism_check_same(
     'rebaseline_document_incomplete',
     (string) ($incomplete['document']['reason_code'] ?? ''),
     'rather than folding an absent block into a zero'
 );
 
-$missing = cr_rebaseline($duo, $repoRoot, $scratch . '/does-not-exist.json', $flatBefore);
-duo_check_same(1, $missing['exit'], 'an unreadable baseline refuses');
-duo_check_same(
+$missing = cr_rebaseline($wprism, $repoRoot, $scratch . '/does-not-exist.json', $flatBefore);
+wprism_check_same(1, $missing['exit'], 'an unreadable baseline refuses');
+wprism_check_same(
     'rebaseline_document_unreadable',
     (string) ($missing['document']['reason_code'] ?? ''),
     'with the reason code that names WHICH document could not be read'
@@ -840,29 +840,29 @@ duo_check_same(
 
 // ------------------------------------------------------ the flag contract
 
-$currentAlone = cr_run($duo, $repoRoot, ['census', '--current=' . $flatBefore, '--format=json']);
-duo_check_same(2, $currentAlone['exit'], '--current without --baseline is a usage error: a re-baseline is a comparison');
-$bothSources = cr_run($duo, $repoRoot, [
+$currentAlone = cr_run($wprism, $repoRoot, ['census', '--current=' . $flatBefore, '--format=json']);
+wprism_check_same(2, $currentAlone['exit'], '--current without --baseline is a usage error: a re-baseline is a comparison');
+$bothSources = cr_run($wprism, $repoRoot, [
     'census', '--baseline=' . $flatBefore, '--current=' . $flatBefore,
     '--site=alpha=' . $flatBefore, '--format=json',
 ]);
-duo_check_same(2, $bothSources['exit'], '--current and --site both name the current side: exactly one is allowed');
-$healthWithCurrent = cr_run($duo, $repoRoot, [
+wprism_check_same(2, $bothSources['exit'], '--current and --site both name the current side: exactly one is allowed');
+$healthWithCurrent = cr_run($wprism, $repoRoot, [
     'census', '--baseline=' . $flatBefore, '--current=' . $flatBefore,
     '--health=' . $flatBefore, '--format=json',
 ]);
-duo_check_same(2, $healthWithCurrent['exit'], '--health ranks a census this run does not measure: refused rather than ignored');
-$duplicate = cr_run($duo, $repoRoot, [
+wprism_check_same(2, $healthWithCurrent['exit'], '--health ranks a census this run does not measure: refused rather than ignored');
+$duplicate = cr_run($wprism, $repoRoot, [
     'census', '--baseline=' . $flatBefore, '--baseline=' . $flatBefore, '--format=json',
 ]);
-duo_check_same(2, $duplicate['exit'], 'a duplicate --baseline refuses rather than last-wins');
+wprism_check_same(2, $duplicate['exit'], 'a duplicate --baseline refuses rather than last-wins');
 
 // The ordinary census is untouched by any of this: no --baseline, no
 // re-baseline document, and the same format it always emitted.
-$plain = cr_run($duo, $repoRoot, ['census', '--dir=' . $coreEstate, '--format=json']);
-duo_check_same(0, $plain['exit'], 'the plain census still exits 0');
-duo_check_same(
-    'duo-fleet-census/v1',
+$plain = cr_run($wprism, $repoRoot, ['census', '--dir=' . $coreEstate, '--format=json']);
+wprism_check_same(0, $plain['exit'], 'the plain census still exits 0');
+wprism_check_same(
+    'wprism-fleet-census/v1',
     (cr_json($plain['stdout']) ?? [])['format'] ?? null,
     'and still emits a census, not a re-baseline'
 );
@@ -870,46 +870,46 @@ duo_check_same(
 // ======================================= 5. the real re-baseline of the core estate
 //
 // The committed baseline was produced by the engine of its own day at commit
-// f99f6712 — the commit that first shipped `duo census`, and therefore the
+// f99f6712 — the commit that first shipped `wprism census`, and therefore the
 // earliest moment this program could measure itself. The current side is
 // measured HERE, now, against the library this checkout ships.
 
 $baselineDocument = cr_json((string) file_get_contents($g0Baseline)) ?? [];
-duo_check_same(
-    'duo-fleet-census/v1',
+wprism_check_same(
+    'wprism-fleet-census/v1',
     $baselineDocument['format'] ?? null,
     'the committed core-estate baseline is a real census document'
 );
-duo_check_same(
+wprism_check_same(
     2,
     (int) ($baselineDocument['spec_version'] ?? -1),
     'measured before the flag day (spec_version 2)'
 );
-duo_check_same(
+wprism_check_same(
     '0.5.0',
     (string) ($baselineDocument['agent_version'] ?? ''),
     'by the agent of its own day (0.5.0), which is what makes it a baseline and not a re-print'
 );
 
-$real = cr_run($duo, $repoRoot, [
+$real = cr_run($wprism, $repoRoot, [
     'census',
     '--dir=' . $coreEstate,
     '--baseline=' . $g0Baseline,
     '--format=json',
 ]);
-duo_check_same(0, $real['exit'], 'the core-estate re-baseline exits 0');
-duo_check_same('', $real['stderr'], 'and writes nothing to stderr');
+wprism_check_same(0, $real['exit'], 'the core-estate re-baseline exits 0');
+wprism_check_same('', $real['stderr'], 'and writes nothing to stderr');
 $realDocument = cr_json($real['stdout']) ?? [];
 $realComparability = (array) ($realDocument['comparability'] ?? []);
 $realCohort = (array) ($realDocument['cohort'] ?? []);
 $realCoverage = (array) ($realDocument['coverage'] ?? []);
 
-duo_check_same(
+wprism_check_same(
     'same-estate',
     (string) ($realComparability['class'] ?? ''),
     'the estate is held byte-constant across both measurements, so the delta is a delta of the LIBRARY'
 );
-duo_check_same(
+wprism_check_same(
     true,
     ((array) ($realComparability['engine'] ?? []))['moved'] ?? null,
     'the two measurements sit on opposite sides of the spec flag day'
@@ -928,30 +928,30 @@ duo_check_same(
 // oracle moved and the measured coverage delta is still exactly zero, because
 // TEC's surfaces were already claimed against this estate. A moved oracle is
 // therefore not evidence of moved coverage, and this pair is what says so.
-duo_check_same(
+wprism_check_same(
     true,
     ((array) ($realComparability['library'] ?? []))['moved'] ?? null,
     'and the coverage ORACLE moved exactly once across it: #561 rewrote the-events-calendar\'s reviewed '
         . 'claim, so one adapter derives a different surface set'
 );
-duo_check_same(
+wprism_check_same(
     0,
     (int) (((array) ($realCoverage['delta'] ?? []))['covered_ppm'] ?? -1),
     'so the adapter-coverage delta of this program is EXACTLY ZERO — the honest result of a program that '
         . 'built grammar and trust machinery rather than adapters (re-measure and record a new result if a '
         . 'later change moves a shipped claim; never loosen this)'
 );
-duo_check_same(
+wprism_check_same(
     'no_cohort',
     (string) ($realCohort['verdict'] ?? ''),
     'and the verdict is no_cohort: no adapter shipped, so this is not a cohort that failed — it is not a cohort'
 );
-duo_check_same(
+wprism_check_same(
     [],
     (array) ($realCohort['adapters_added'] ?? ['x']),
     'nothing is claimed as added'
 );
-duo_check_same(
+wprism_check_same(
     [],
     (array) (((array) ($realDocument['attribution'] ?? []))['moved'] ?? ['x']),
     'and no adapter is credited with moving a surface it did not move'
@@ -961,26 +961,26 @@ duo_check_same(
 // on the page: the top demand row of the core estate is a plugin no adapter in
 // the shipped library covers, and this program did not change that.
 $currentCensus = cr_json(
-    cr_run($duo, $repoRoot, ['census', '--dir=' . $coreEstate, '--format=json'])['stdout']
+    cr_run($wprism, $repoRoot, ['census', '--dir=' . $coreEstate, '--format=json'])['stdout']
 ) ?? [];
 $topDemand = (array) (((array) ($currentCensus['demand'] ?? []))[0] ?? []);
-duo_check_same(
+wprism_check_same(
     'wp-rocket',
     (string) ($topDemand['slug'] ?? ''),
     'the residual this program did not close is still the top demand row of the core estate'
 );
-duo_check_same(
+wprism_check_same(
     null,
     $topDemand['covering_adapter'],
     'with no covering adapter, before the program and after it'
 );
-duo_check_same(
+wprism_check_same(
     'no_adapter',
     (string) ($topDemand['funnel_stage'] ?? ''),
     'at funnel stage no_adapter — this is demand, and naming it is what makes the zero delta honest'
 );
 $baselineTop = (array) (((array) ($baselineDocument['demand'] ?? []))[0] ?? []);
-duo_check_same(
+wprism_check_same(
     (string) ($baselineTop['slug'] ?? ''),
     (string) ($topDemand['slug'] ?? ''),
     'and it was the top row at the baseline too — the rank did not move either'
@@ -990,31 +990,31 @@ duo_check_same(
 // that is the sentence a reader needs in order to read the zero correctly —
 // and since #561 the honest sentence is that the oracle MOVED while the
 // coverage delta did not.
-$realHuman = cr_run($duo, $repoRoot, [
+$realHuman = cr_run($wprism, $repoRoot, [
     'census', '--dir=' . $coreEstate, '--baseline=' . $g0Baseline,
 ]);
-duo_check_same(0, $realHuman['exit'], 'the human core-estate re-baseline exits 0');
-duo_check(
+wprism_check_same(0, $realHuman['exit'], 'the human core-estate re-baseline exits 0');
+wprism_check(
     str_contains($realHuman['stdout'], 'coverage oracle MOVED'),
     'and says in words that the coverage oracle moved, rather than leaving a reader to compare two hashes'
 );
-duo_check(
+wprism_check(
     str_contains($realHuman['stdout'], 'verdict: no_cohort'),
     'beside the verdict'
 );
-duo_check(
+wprism_check(
     !str_contains($realHuman['stdout'], 'FINDING'),
     'and prints no finding, because a program that shipped no cohort did not fail to move one'
 );
 
 // ------------------------------------------------- the verb contract itself
 
-$shell = (string) file_get_contents($duo);
-duo_check(
-    str_contains($shell, 'duo census --baseline=<census.json>'),
+$shell = (string) file_get_contents($wprism);
+wprism_check(
+    str_contains($shell, 'wprism census --baseline=<census.json>'),
     'the re-baseline mode appears in the public usage text'
 );
-duo_check(
+wprism_check(
     is_file($repoRoot . '/cli/src/Assess/CohortRebaseline.php'),
     'the projector is its own file in cli:Assess rather than a branch inside the census'
 );
@@ -1023,7 +1023,7 @@ duo_check(
 // left to the composition suite's directory walk to notice later.
 $projector = strtolower((string) file_get_contents($repoRoot . '/cli/src/Assess/CohortRebaseline.php'));
 foreach (['woocommerce', 'elementor', 'polylang', 'ninja-forms'] as $slug) {
-    duo_check(
+    wprism_check(
         !str_contains($projector, $slug),
         "the re-baseline projector names no plugin slug ('$slug')"
     );
@@ -1039,7 +1039,7 @@ foreach (['woocommerce', 'elementor', 'polylang', 'ninja-forms'] as $slug) {
 // line, and the guide is the side that has to move.
 
 $guide = $repoRoot . '/docs/guides/coverage-cohort.md';
-duo_check(is_file($guide), 'the cohort runbook exists at docs/guides/coverage-cohort.md');
+wprism_check(is_file($guide), 'the cohort runbook exists at docs/guides/coverage-cohort.md');
 $runbook = (string) file_get_contents($guide);
 
 // Every rendered line of the real re-baseline, except the two the guide
@@ -1052,16 +1052,16 @@ foreach (explode("\n", trim($realHuman['stdout'])) as $line) {
     if (!in_array($prefix, ['rebaseline', 'library', 'coverage', 'funnel', 'attribution', 'cohort'], true)) {
         continue;
     }
-    duo_check(
+    wprism_check(
         str_contains($runbook, $line),
         "the runbook publishes the measured '$prefix' line verbatim: " . $line
     );
 }
-duo_check(
+wprism_check(
     str_contains($runbook, 'verdict: no_cohort'),
     'and the verdict word the run actually produced'
 );
-duo_check(
+wprism_check(
     str_contains($runbook, 'The adapter-coverage delta of this program is exactly zero'),
     'stated in prose beside it, because a reader skimming for the result should not have to parse a ppm'
 );
@@ -1070,33 +1070,33 @@ duo_check(
 // this estate, and the guide has to carry the sentence the census itself
 // prints — not a paraphrase that could survive the bound moving.
 $caveat = (string) (((array) ($currentCensus['basis'] ?? []))['caveat'] ?? '');
-duo_check(
+wprism_check(
     $caveat !== '' && str_contains($runbook, "read the rank as one estate's demand, not a fleet's"),
     'the runbook carries the census\'s own narrow-sample label — G0\'s recorded limitation, verbatim'
 );
-duo_check(
+wprism_check(
     str_contains($runbook, 'narrow'),
     'and names the sample class that produces it'
 );
-duo_check(
+wprism_check(
     str_contains($runbook, 'wp-rocket'),
     'the residual this program did not close is named in the runbook too, not only in the suite'
 );
-duo_check(
+wprism_check(
     str_contains($runbook, 'not a managed fleet'),
     'and the estate is stated for what it is rather than described as a fleet'
 );
 
 // The warning is the reason the runbook exists at all.
-duo_check(
+wprism_check(
     str_contains($runbook, '**finding**, not a success'),
     'the runbook states the plan\'s own warning: shipping a cohort that moves no ratio is a finding'
 );
-duo_check(
+wprism_check(
     str_contains($runbook, 're-opens G0'),
     'in the words that say which decision it re-opens'
 );
-duo_check(
+wprism_check(
     str_contains($runbook, 'cohort_shipped_without_movement'),
     'naming the finding code an operator will actually see'
 );
@@ -1105,7 +1105,7 @@ duo_check(
 // how the sixth becomes a surprise in production.
 foreach (['coverage_moved', 'adoption_only', 'shipped_without_movement',
           'coverage_regressed', 'no_cohort', 'unmeasured'] as $verdict) {
-    duo_check(
+    wprism_check(
         str_contains($runbook, $verdict),
         "the runbook documents the '$verdict' verdict"
     );
@@ -1116,17 +1116,17 @@ foreach (['coverage_moved', 'adoption_only', 'shipped_without_movement',
 // resolve; this proves the RUNBOOK still describes the whole loop rather than
 // silently losing a step.
 foreach ([
-    'duo census',
-    'wp duo adapter-probe',
-    'duo adapter-draft',
-    'duo adapter boundary',
+    'wprism census',
+    'wp wprism adapter-probe',
+    'wprism adapter-draft',
+    'wprism adapter boundary',
     'CONF_RECORD_VECTOR',
     'tools/adapter-kit.php',
-    'duo adapter certify',
-    'duo adapter adopt-scope',
-    'duo census --baseline=',
+    'wprism adapter certify',
+    'wprism adapter adopt-scope',
+    'wprism census --baseline=',
 ] as $step) {
-    duo_check(
+    wprism_check(
         str_contains($runbook, $step),
         "the runbook's loop still names '$step'"
     );
@@ -1134,9 +1134,9 @@ foreach ([
 
 // And it is reachable: an unlinked guide is a guide nobody reads.
 $guidesIndex = (string) file_get_contents($repoRoot . '/docs/guides/README.md');
-duo_check(
+wprism_check(
     str_contains($guidesIndex, '[coverage-cohort.md](coverage-cohort.md)'),
     'the runbook is linked from the guides index'
 );
 
-duo_check_summary('regress_cohort_rebaseline');
+wprism_check_summary('regress_cohort_rebaseline');

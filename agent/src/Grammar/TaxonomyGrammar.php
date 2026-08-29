@@ -1,9 +1,9 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * The pure taxonomy declaration grammar extracted from `Policy.php`
- * (DUO-3348 slice 9). `object_keyspace` is a structural taxonomy claim, not
+ * (issue #3348 slice 9). `object_keyspace` is a structural taxonomy claim, not
  * a runtime hint: malformed values must be refused while the manifest loads,
  * before any capture/lint/apply path can reinterpret a relationship row's
  * shared numeric object_id. Dynamic taxonomy patterns use the same declaration
@@ -34,7 +34,7 @@ final class TaxonomyGrammar {
             self::validate_taxonomy_registration_declaration($rule, "manifest '$name' taxonomies.$tax");
             if (array_key_exists('term_group', $rule) && $rule['term_group'] !== 'authored') {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' taxonomies.$tax.term_group must be the literal 'authored'"
+                    "wprism: manifest '$name' taxonomies.$tax.term_group must be the literal 'authored'"
                 );
             }
             if (!array_key_exists('object_keyspace', $rule)) {
@@ -51,16 +51,16 @@ final class TaxonomyGrammar {
         }
         $patterns = $manifest['taxonomy_patterns'];
         if (!is_array($patterns) || !array_is_list($patterns)) {
-            throw new \RuntimeException("duo: manifest '$name' declares taxonomy_patterns that is not a list");
+            throw new \RuntimeException("wprism: manifest '$name' declares taxonomy_patterns that is not a list");
         }
         foreach ($patterns as $i => $pattern) {
             if (!is_array($pattern) || array_is_list($pattern)) {
-                throw new \RuntimeException("duo: manifest '$name' declares taxonomy_patterns[$i] that is not an object");
+                throw new \RuntimeException("wprism: manifest '$name' declares taxonomy_patterns[$i] that is not an object");
             }
             $match = $pattern['match'] ?? null;
             if (!is_string($match) || $match === '' || @preg_match('/' . $match . '/', '') === false) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' declares taxonomy_patterns[$i].match with an invalid or empty regex"
+                    "wprism: manifest '$name' declares taxonomy_patterns[$i].match with an invalid or empty regex"
                 );
             }
             if (array_key_exists('object_keyspace', $pattern)) {
@@ -71,14 +71,14 @@ final class TaxonomyGrammar {
             }
             if (array_key_exists('term_group', $pattern)) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' taxonomy_patterns[$i].term_group is unsupported; "
+                    "wprism: manifest '$name' taxonomy_patterns[$i].term_group is unsupported; "
                     . 'term ordering authority requires an exact taxonomy declaration'
                 );
             }
             if (array_key_exists('hierarchical', $pattern)) {
                 if (!array_key_exists('object_type', $pattern) || !is_bool($pattern['hierarchical'])) {
                     throw new \RuntimeException(
-                        "duo: manifest '$name' taxonomy_patterns[$i].hierarchical requires object_type and a boolean value"
+                        "wprism: manifest '$name' taxonomy_patterns[$i].hierarchical requires object_type and a boolean value"
                     );
                 }
             }
@@ -102,7 +102,7 @@ final class TaxonomyGrammar {
             }
             if (!is_array($decl) || $decl === []) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' declares taxonomies.$tax.object_type_from_option that is not "
+                    "wprism: manifest '$name' declares taxonomies.$tax.object_type_from_option that is not "
                     . 'a declaration object or non-empty declaration list'
                 );
             }
@@ -114,35 +114,35 @@ final class TaxonomyGrammar {
                     || !is_string($entry['option'] ?? null) || $entry['option'] === ''
                     || !is_string($entry['sub_key'] ?? null) || $entry['sub_key'] === '') {
                     throw new \RuntimeException(
-                        "duo: manifest '$name' declares $where without both a non-empty string `option` and `sub_key`"
+                        "wprism: manifest '$name' declares $where without both a non-empty string `option` and `sub_key`"
                     );
                 }
                 $allowedKeys = ['option', 'sub_key', 'object_types_when_truthy'];
                 $unknownKeys = array_values(array_diff(array_keys($entry), $allowedKeys));
                 if ($unknownKeys !== []) {
                     throw new \RuntimeException(
-                        "duo: manifest '$name' declares $where with unsupported key '" . $unknownKeys[0] . "'"
+                        "wprism: manifest '$name' declares $where with unsupported key '" . $unknownKeys[0] . "'"
                     );
                 }
                 if (array_key_exists('object_types_when_truthy', $entry)) {
                     $types = $entry['object_types_when_truthy'];
                     if (!is_array($types) || !array_is_list($types) || $types === []) {
                         throw new \RuntimeException(
-                            "duo: manifest '$name' declares $where.object_types_when_truthy without a "
+                            "wprism: manifest '$name' declares $where.object_types_when_truthy without a "
                             . 'non-empty list of object type names'
                         );
                     }
                     foreach ($types as $type) {
                         if (!is_string($type) || $type === '') {
                             throw new \RuntimeException(
-                                "duo: manifest '$name' declares $where.object_types_when_truthy with a "
+                                "wprism: manifest '$name' declares $where.object_types_when_truthy with a "
                                 . 'non-string or empty object type name'
                             );
                         }
                     }
                     if (count(array_unique($types)) !== count($types)) {
                         throw new \RuntimeException(
-                            "duo: manifest '$name' declares $where.object_types_when_truthy with duplicate object types"
+                            "wprism: manifest '$name' declares $where.object_types_when_truthy with duplicate object types"
                         );
                     }
                 }
@@ -151,14 +151,14 @@ final class TaxonomyGrammar {
                     $subRule = $ownSubKeys[$entry['sub_key']] ?? null;
                     if ($subRule === null) {
                         throw new \RuntimeException(
-                            "duo: manifest '$name' declares $where.sub_key="
+                            "wprism: manifest '$name' declares $where.sub_key="
                             . var_export($entry['sub_key'], true) . " but options.{$entry['option']}.sub_keys never "
                             . 'declares that key'
                         );
                     }
                     if (!empty($subRule['json_refs']) || !empty($subRule['key_refs'])) {
                         throw new \RuntimeException(
-                            "duo: manifest '$name' declares $where pointing at "
+                            "wprism: manifest '$name' declares $where pointing at "
                             . "options.{$entry['option']}.sub_keys.{$entry['sub_key']}, but that sub-key declares "
                             . 'json_refs/key_refs — object_type_from_option only supports plain, non-ref-typed '
                             . 'sub-key values (post-type/taxonomy slugs or boolean gates, never ids)'
@@ -184,28 +184,28 @@ final class TaxonomyGrammar {
         if ($hasObjectType) {
             $types = $rule['object_type'];
             if (!is_array($types) || !array_is_list($types) || $types === []) {
-                throw new \RuntimeException("duo: $where.object_type must be a non-empty list of object type names");
+                throw new \RuntimeException("wprism: $where.object_type must be a non-empty list of object type names");
             }
             foreach ($types as $type) {
                 if (!is_string($type) || $type === '') {
-                    throw new \RuntimeException("duo: $where.object_type must contain only non-empty strings");
+                    throw new \RuntimeException("wprism: $where.object_type must contain only non-empty strings");
                 }
             }
         }
         if (array_key_exists('update_count_callback', $rule)) {
             if (!$hasObjectType) {
                 throw new \RuntimeException(
-                    "duo: $where.update_count_callback requires an object_type declaration beside it"
+                    "wprism: $where.update_count_callback requires an object_type declaration beside it"
                 );
             }
             $callback = $rule['update_count_callback'];
             if (!is_string($callback) || $callback === '') {
-                throw new \RuntimeException("duo: $where.update_count_callback must be a non-empty callback name");
+                throw new \RuntimeException("wprism: $where.update_count_callback must be a non-empty callback name");
             }
         }
         if (array_key_exists('hierarchical', $rule)) {
             if (!$hasObjectType || !is_bool($rule['hierarchical'])) {
-                throw new \RuntimeException("duo: $where.hierarchical requires object_type and a boolean value");
+                throw new \RuntimeException("wprism: $where.hierarchical requires object_type and a boolean value");
             }
         }
     }
@@ -213,7 +213,7 @@ final class TaxonomyGrammar {
     private static function validate_taxonomy_object_keyspace_value(mixed $value, string $where): void {
         if (!is_string($value) || !in_array($value, self::TAXONOMY_RELATIONSHIP_OBJECTS, true)) {
             throw new \RuntimeException(
-                "duo: $where must be one of " . implode('|', self::TAXONOMY_RELATIONSHIP_OBJECTS)
+                "wprism: $where must be one of " . implode('|', self::TAXONOMY_RELATIONSHIP_OBJECTS)
                 . '; no other relationship object keyspace is supported'
             );
         }

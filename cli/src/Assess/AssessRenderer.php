@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once dirname(__DIR__) . '/Plan/HumanViewLimit.php';
@@ -11,10 +11,10 @@ require_once __DIR__ . '/GapActions.php';
 // class states its own dependency (AGENTS.md non-negotiable 1).
 require_once dirname(__DIR__) . '/Contract/ProjectionVocabulary.php';
 
-use Duo\CommandRefusalException;
+use WPrism\CommandRefusalException;
 
 /**
- * The human projection of `duo-assess-report/v1` — the five sections MUP
+ * The human projection of `wprism-assess-report/v1` — the five sections MUP
  * §2.1 prints, bounded per MUP §4.6 (round-3 MUP §2.1, §4.1, §4.6).
  *
  * The human view is a *projection of the same document* `--format=json`
@@ -26,7 +26,7 @@ use Duo\CommandRefusalException;
  * ## The bound
  *
  * `DEFAULT_LIMIT` rows per section, `--limit=1..200` (the same closed
- * grammar `PlanView` already parses for `duo status`, deliberately spelled
+ * grammar `PlanView` already parses for `wprism status`, deliberately spelled
  * the same way so an operator learns one rule), and a
  * `N more (use --format=json)` tail whenever a section was cut. No new
  * command may print an unbounded list, and the counts printed beside a
@@ -41,12 +41,12 @@ use Duo\CommandRefusalException;
  * **Internal identifiers.** MUP §5.2's rule is that a human view prints an
  * internal identifier only when a documented command consumes it. Surface
  * ids qualify — they are the keys of the contract's `surface_labels` map
- * and the subjects of `duo contract <env> accept` — so they print. Adapter
+ * and the subjects of `wprism contract <env> accept` — so they print. Adapter
  * digests, bundle digests, registry hashes and the assess digest do not:
  * they are in `--format=json`, which is named on every line that hides one.
  */
 final class AssessRenderer {
-    /** MUP §4.6: default rows per section. One source (DUO-3521). */
+    /** MUP §4.6: default rows per section. One source (issue #3521). */
     public const DEFAULT_LIMIT = HumanViewLimit::DEFAULT_LIMIT;
 
     /** MUP §4.6: the same closed ceiling every human view publishes. */
@@ -81,7 +81,7 @@ final class AssessRenderer {
     /**
      * Render the whole assessment.
      *
-     * @param array<string,mixed> $report a `duo-assess-report/v1` document
+     * @param array<string,mixed> $report a `wprism-assess-report/v1` document
      * @param array<string,mixed> $context `proposal_path` (the path written,
      *        relative to the site repository), `contract_present` (bool),
      *        `operation` (the operation whose projection the table's columns
@@ -156,12 +156,12 @@ final class AssessRenderer {
             . ($failed === [] ? '' : ' · failed: ' . implode(', ', array_map(self::safe(...), $failed)))
             . ($advisory === [] ? '' : ' · advisory: ' . implode(', ', array_map(self::safe(...), $advisory)));
 
-        // An adoption seed is assessed as `duo init` would propose it, and the
+        // An adoption seed is assessed as `wprism init` would propose it, and the
         // human view says so on its own line — before any surface row, so
         // "Ready / Platform-certified" under it reads as a preview of adoption
         // rather than a repository in force. The adapters and the types left
         // local are named; the proposal's own advisories and unsupported rows
-        // are counted (they are what `duo init` will print in full).
+        // are counted (they are what `wprism init` will print in full).
         $adoption = is_array($authority['adoption'] ?? null) ? $authority['adoption'] : null;
         if ($adoption !== null) {
             $adapters = is_array($adoption['adapters'] ?? null) ? $adoption['adapters'] : [];
@@ -170,7 +170,7 @@ final class AssessRenderer {
             $advisories = is_array($adoption['advisories'] ?? null) ? $adoption['advisories'] : [];
             $unsupported = is_array($adoption['unsupported'] ?? null) ? $adoption['unsupported'] : [];
             if (($adoption['preview'] ?? null) === 'init-proposal') {
-                $lines[] = 'adoption: this repository is an adoption seed — assessed as duo init would propose it: '
+                $lines[] = 'adoption: this repository is an adoption seed — assessed as wprism init would propose it: '
                     . 'adapters ' . ($adapters === [] ? '(none)' : implode(', ', array_map(self::safe(...), $adapters)))
                     . ($leftLocal === [] ? '' : ' · left local: ' . implode(', ', array_map(self::safe(...), $leftLocal)))
                     . ' · init advisories: ' . count($advisories)
@@ -326,13 +326,13 @@ final class AssessRenderer {
         // T6 §3.7 item 2: the third finding MUP §2.1 item 3 always named and
         // this block never printed. On a site with an unmanaged plugin it is
         // usually the largest of the three, and its absence here was the
-        // difference between an operator seeing "Duo cannot see this part of
+        // difference between an operator seeing "WPrism cannot see this part of
         // your database" and seeing nothing.
         $tables = (int) ($unknown['undeclared_tables_count'] ?? 0);
 
         $lines = [];
         $lines[] = 'unknown: ' . $invisible . ' option name(s) invisible to every installed adapter';
-        $lines[] = '         ' . $pending . ' pending classification(s) (duo pending ' . $environment . ')';
+        $lines[] = '         ' . $pending . ' pending classification(s) (wprism pending ' . $environment . ')';
         $lines[] = '         ' . $tables . ' undeclared table(s) (no installed adapter declares them)';
         $shown = array_slice($sample, 0, $limit);
         foreach ($shown as $name) {
@@ -418,7 +418,7 @@ final class AssessRenderer {
      *
      * There is one pin to state, not a count of certification subjects: a
      * claim's evidence is the citation its reviewed disposition carries
-     * verbatim, so what a contract pins — and what `duo assess` re-observes —
+     * verbatim, so what a contract pins — and what `wprism assess` re-observes —
      * is the content address of the reviewed document itself. The hash is
      * printed short because its only operator use is comparing it with the one
      * in `contract.json`, and the full 64 characters are in the JSON view.
@@ -442,7 +442,7 @@ final class AssessRenderer {
     }
 
     /**
-     * DUO-3484's mismatch surface, printed where "what backs these claims" is
+     * issue #3484's mismatch surface, printed where "what backs these claims" is
      * already answered.
      *
      * Nothing is printed when the two agree — the existing one-line evidence
@@ -565,7 +565,7 @@ final class AssessRenderer {
         // answer separately is a renderer that can print a line the run did
         // not do. This is the same discipline as every other word here — the
         // human view is a projection of the report, never a second
-        // computation (DUO-3484).
+        // computation (issue #3484).
         $mismatch = self::mismatchLines($report) !== [];
         $lines = [$mismatch
             ? 'no proposed contract written: ' . self::safe($path)
@@ -573,7 +573,7 @@ final class AssessRenderer {
                 . ' — re-adopt ' . $environment . ' from this checkout,'
                 . ' or check out the revision it was adopted from'
             : 'proposed contract written: ' . self::safe($path)
-                . ' (accept with duo contract ' . $environment . ' accept)'];
+                . ' (accept with wprism contract ' . $environment . ' accept)'];
         if (($context['contract_present'] ?? false) === true) {
             $lines[] = 'projection regenerated from the accepted contract';
         }

@@ -138,7 +138,6 @@ regress-offline-corpus: code-half-unit \
 	regress-doctor-command \
 	regress-doctor-env-values \
 	regress-driver-capabilities-command \
-	regress-duo3316-contract \
 	regress-dynamic-options-policy \
 	regress-ecommerce-developer-matrix \
 	regress-ecommerce-developer-static \
@@ -258,6 +257,7 @@ regress-offline-corpus: code-half-unit \
 	regress-recovery-executor \
 	regress-recovery-protocol \
 	regress-recovery-transport \
+	regress-reference-contract \
 	regress-reference-keyspace-grammar \
 	regress-reference-kind-grammar \
 	regress-reference-scope-classifier \

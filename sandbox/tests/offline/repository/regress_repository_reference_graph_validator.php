@@ -1,12 +1,12 @@
 <?php
 /**
- * Offline characterization for RepositoryReferenceGraphValidator (DUO-3348
+ * Offline characterization for RepositoryReferenceGraphValidator (issue #3348
  * slice 41). The validator consumes ReferenceGraph rather than re-walking
  * canonical data, and reports through the compiler's aggregate callback.
  */
 declare(strict_types=1);
 
-namespace Duo {
+namespace WPrism {
     final class Policy {
         /** @var array<string,array<string,mixed>> */
         public array $widgets = [];
@@ -60,7 +60,7 @@ namespace {
     };
 
     $child = proc_open(
-        [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\Duo\\RepositoryReferenceGraphValidator::class, false) && class_exists(\\Duo\\Policy::class, false) && class_exists(\\Duo\\Snapshot::class, false) && class_exists(\\Duo\\SidebarState::class, false) && class_exists(\\Duo\\ReferenceGraph::class, false) && class_exists(\\Duo\\RepositoryIdentityRegistry::class, false) && !class_exists(\\Duo\\RepositoryCompiler::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $validatorPath],
+        [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\WPrism\\RepositoryReferenceGraphValidator::class, false) && class_exists(\\WPrism\\Policy::class, false) && class_exists(\\WPrism\\Snapshot::class, false) && class_exists(\\WPrism\\SidebarState::class, false) && class_exists(\\WPrism\\ReferenceGraph::class, false) && class_exists(\\WPrism\\RepositoryIdentityRegistry::class, false) && !class_exists(\\WPrism\\RepositoryCompiler::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $validatorPath],
         [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
         $pipes
     );
@@ -81,9 +81,9 @@ namespace {
     require_once $graphPath;
     require_once $validatorPath;
 
-    use Duo\Policy;
-    use Duo\RepositoryIdentityRegistry;
-    use Duo\RepositoryReferenceGraphValidator;
+    use WPrism\Policy;
+    use WPrism\RepositoryIdentityRegistry;
+    use WPrism\RepositoryReferenceGraphValidator;
 
     $uuid = static fn(int $n): string => sprintf('00000000-0000-4000-8000-%012d', $n);
     $post = $uuid(1);
@@ -95,7 +95,7 @@ namespace {
     $missing = $uuid(7);
     $booking = $uuid(8);
     $rawMalformed = $uuid(9);
-    \Duo\Snapshot::$rows = [
+    \WPrism\Snapshot::$rows = [
         'booking' => ['id_kind' => 'booking'],
     ];
     $rows = [
@@ -153,7 +153,7 @@ namespace {
         ],
     ], []);
     $check(
-        $codecDiagnostics === [] && !isset(\Duo\ReferenceGraph::kind_types($codecPolicy)['widget']),
+        $codecDiagnostics === [] && !isset(\WPrism\ReferenceGraph::kind_types($codecPolicy)['widget']),
         'a manifest-bound codec may resolve its owned widget token without registering widget as a global token kind'
     );
 

@@ -1,16 +1,16 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * The pure, offline-checkable-from-manifest-bytes-alone grammar half of
- * declared `tables.<name>` and `widgets.<type>` sections (DUO-3318's split,
- * first extracted seam of DUO-3348/DUO-3335's "ManifestValidator with
+ * declared `tables.<name>` and `widgets.<type>` sections (issue #3318's split,
+ * first extracted seam of issue #3348/issue #3335's "ManifestValidator with
  * grammar-specific validators" decomposition target).
  *
  * Named `ManifestGrammar` rather than the issue's literal "ManifestValidator"
  * to stay unambiguous beside the pre-existing, unrelated
- * `Duo\Orchestrator\ManifestValidate` (cli/src/Adapter/ManifestValidate.php, the
- * `duo manifest-validate` adapter-draft CLI command) — same decomposition
+ * `WPrism\Orchestrator\ManifestValidate` (cli/src/Adapter/ManifestValidate.php, the
+ * `wprism manifest-validate` adapter-draft CLI command) — same decomposition
  * intent, distinct class, distinct namespace, easily confused by name alone.
  *
  * `Policy` keeps `assert_table_grammar()`, `natural_key_columns()`, and
@@ -29,7 +29,7 @@ namespace Duo;
  */
 final class ManifestGrammar {
     /**
-     * The closed `tables.<name>.class` vocabulary (DUO-3318).
+     * The closed `tables.<name>.class` vocabulary (issue #3318).
      *
      * Exactly two values carry engine behavior: Snapshot.php selects
      * `authored_snapshot` (a row table with identity of its own) and
@@ -40,7 +40,7 @@ final class ManifestGrammar {
      * and runtime/derived/env record a reviewed decision that a table's
      * contents are target-local
      * (`platform/adapter-library/core/manifest.json` alone classifies 44
-     * tables that way, which is exactly what keeps them out of `duo pending`'s
+     * tables that way, which is exactly what keeps them out of `wprism pending`'s
      * unknown queue). The two literals repeat Snapshot::CLASS_ROW/CLASS_META rather
      * than referencing them: this file must stay loadable with no other
      * engine class present (RepositoryCompiler validates a revision in a
@@ -137,12 +137,12 @@ final class ManifestGrammar {
     }
 
     /**
-     * Loud, load-time guard for every declared table (DUO-3318), for
-     * manifests AND for site.duo.json's own policy.tables overrides. The
+     * Loud, load-time guard for every declared table (issue #3318), for
+     * manifests AND for site.wprism.json's own policy.tables overrides. The
      * caller supplies the label so the exact same pure enumeration can retain
      * Policy's live/frozen diagnostic context.
      *
-     * $site marks the `site.duo.json` caller, and it is load-bearing rather
+     * $site marks the `site.wprism.json` caller, and it is load-bearing rather
      * than cosmetic (WP-6.2): `engine_features` is a MANIFEST section, so a
      * repository's `policy` object may not declare one. Without the flag a
      * `policy.engine_features` list would look exactly like a manifest's and
@@ -156,7 +156,7 @@ final class ManifestGrammar {
     public static function validate_tables(array $source, string $label, bool $site = false): void {
         $tables = $source['tables'] ?? [];
         if (!is_array($tables) || (array_is_list($tables) && $tables !== [])) {
-            throw new \RuntimeException("duo: $label tables must be an object keyed by unprefixed table name");
+            throw new \RuntimeException("wprism: $label tables must be an object keyed by unprefixed table name");
         }
         // The one place the DECLARING DOCUMENT is in hand, which is why WP-6.2's
         // feature gate is asked here and not inside the per-declaration grammar
@@ -170,7 +170,7 @@ final class ManifestGrammar {
     }
 
     /**
-     * Loud, load-time guard for the widget registry (DUO-3318).
+     * Loud, load-time guard for the widget registry (issue #3318).
      *
      * SidebarState::assert_declared_types() has always checked this shape,
      * but only once a sidebar is actually captured or applied, which needs a
@@ -192,7 +192,7 @@ final class ManifestGrammar {
         $name = (string) ($manifest['name'] ?? '?');
         $widgets = $manifest['widgets'] ?? [];
         if (!is_array($widgets) || (array_is_list($widgets) && $widgets !== [])) {
-            throw new \RuntimeException("duo: manifest '$name' widgets must be an object keyed by widget type");
+            throw new \RuntimeException("wprism: manifest '$name' widgets must be an object keyed by widget type");
         }
         foreach ($widgets as $type => $decl) {
             self::assert_widget_grammar((string) $type, $decl, "manifest '$name'");
@@ -201,7 +201,7 @@ final class ManifestGrammar {
 
     /**
      * The natural-key identity components of one table declaration, in the
-     * exact order the manifest declared them (DUO-3318).
+     * exact order the manifest declared them (issue #3318).
      *
      * `{"column": "<col>"}` is the original single-column spelling and stays
      * valid as the 1-component case; `{"columns": [...]}` is the parent-scoped
@@ -228,7 +228,7 @@ final class ManifestGrammar {
     }
 
     /**
-     * The pure-grammar half of a `tables.<name>` declaration (DUO-3318).
+     * The pure-grammar half of a `tables.<name>` declaration (issue #3318).
      *
      * Everything checkable from the manifest bytes alone lives here, and this
      * is the only implementation of it: Policy::load()/from_snapshot() run it
@@ -241,20 +241,20 @@ final class ManifestGrammar {
      *
      * The split is exactly "does answering this need the database": every
      * check below reads only $decl. The two facts that stay in Snapshot are
-     * the ledger COLUMN WIDTHS (duo_map.id_kind, duo_map.entity_type), which
+     * the ledger COLUMN WIDTHS (wprism_map.id_kind, wprism_map.entity_type), which
      * are Ledger's schema rather than the manifest's grammar — and, decisively,
      * naming Ledger here would drag a second engine class into a file whose
      * whole point is that it loads alone.
      *
      * $source names the declaring manifest when one is known. It is appended,
      * never interpolated into the existing sentences, so Snapshot's long-
-     * standing "duo: table '<t>' …" wordings stay byte-identical for the
+     * standing "wprism: table '<t>' …" wordings stay byte-identical for the
      * capture-time caller that has no manifest name to report.
      */
     public static function assert_table_grammar(string $table, mixed $decl, ?string $source = null): void {
         $where = $source === null ? '' : " (declared by $source)";
         // `mixed`, not `array`, so a scalar or list declaration produces this
-        // engine's ordinary "duo: " refusal rather than a PHP TypeError at the
+        // engine's ordinary "wprism: " refusal rather than a PHP TypeError at the
         // call site — a promise assert_table_section_shapes() below now keeps
         // for the declaration's INNER sections too, which used to reach
         // array_column()/array_keys() as scalars and raise a TypeError. An
@@ -263,13 +263,13 @@ final class ManifestGrammar {
         // class=NULL" says far more than "not an object".
         if (!is_array($decl) || (array_is_list($decl) && $decl !== [])) {
             throw new \RuntimeException(
-                "duo: table '$table'$where must be declared as an object of table rules, got " . gettype($decl)
+                "wprism: table '$table'$where must be declared as an object of table rules, got " . gettype($decl)
             );
         }
         $class = $decl['class'] ?? null;
         if (!in_array($class, self::TABLE_CLASSES, true)) {
             throw new \RuntimeException(
-                "duo: table '$table'$where declares class=" . var_export($class, true)
+                "wprism: table '$table'$where declares class=" . var_export($class, true)
                 . ' but the table class vocabulary is closed (' . implode(', ', self::TABLE_CLASSES)
                 . ') — it is engine-owned, because only the engine can act on a class; a new one is an engine '
                 . 'change with a spec bump, not a manifest declaration'
@@ -282,7 +282,7 @@ final class ManifestGrammar {
             // owns the sidecar and through which column.
             $attachCol = (string) ($decl['attached_to']['column'] ?? '');
             if ((string) ($decl['attached_to']['table'] ?? '') === '' || $attachCol === '') {
-                throw new \RuntimeException("duo: table '$table'$where declares authored_snapshot_meta with no attached_to.{table,column}");
+                throw new \RuntimeException("wprism: table '$table'$where declares authored_snapshot_meta with no attached_to.{table,column}");
             }
             return;
         }
@@ -294,9 +294,9 @@ final class ManifestGrammar {
         $mode = $decl['identity']['mode'] ?? 'mapped';
         if (!in_array($mode, self::IDENTITY_MODES, true)) {
             throw new \RuntimeException(
-                "duo: table '$table'$where declares unknown identity.mode " . var_export($mode, true)
+                "wprism: table '$table'$where declares unknown identity.mode " . var_export($mode, true)
                 . ' — the identity vocabulary is closed and engine-owned: "mapped" (default; a surrogate primary '
-                . 'key with no portable key of its own, identity minted into duo_map), "natural_key" (a stable '
+                . 'key with no portable key of its own, identity minted into wprism_map), "natural_key" (a stable '
                 . 'authored column, or an ordered tuple of them, identity derived from the value), "composite_ref" '
                 . '(a pure join table with no primary key, identity derived from the referenced rows\' own uuids). '
                 . 'Each serves a different table SHAPE; a new mode is an engine change with a spec bump'
@@ -307,7 +307,7 @@ final class ManifestGrammar {
         $overlap = array_intersect($colKeys, $refCols);
         if ($overlap) {
             throw new \RuntimeException(
-                "duo: table '$table'$where declares column(s) in BOTH columns and refs: " . implode(', ', $overlap)
+                "wprism: table '$table'$where declares column(s) in BOTH columns and refs: " . implode(', ', $overlap)
             );
         }
         if ($mode === 'composite_ref') {
@@ -317,7 +317,7 @@ final class ManifestGrammar {
 
         $pk = (string) ($decl['pk'] ?? '');
         if ($pk === '') {
-            throw new \RuntimeException("duo: table '$table'$where declares authored_snapshot with no 'pk'");
+            throw new \RuntimeException("wprism: table '$table'$where declares authored_snapshot with no 'pk'");
         }
         if ($mode === 'natural_key') {
             self::assert_natural_key_grammar($table, $decl, $pk, $refCols, $colKeys, $where);
@@ -329,7 +329,7 @@ final class ManifestGrammar {
                 : null;
             if (!is_array($slugRule) || ($slugRule['class'] ?? null) !== 'authored') {
                 throw new \RuntimeException(
-                    "duo: table '$table'$where slug_column must name a non-empty authored columns entry — "
+                    "wprism: table '$table'$where slug_column must name a non-empty authored columns entry — "
                     . 'primary keys, refs, runtime, derived, and env columns are environment-local and cannot name canonical files'
                 );
             }
@@ -339,7 +339,7 @@ final class ManifestGrammar {
 
     /**
      * The SHAPE of an authored_snapshot declaration's four structural
-     * sections, checked before anything reads them (DUO-3318 review, S1).
+     * sections, checked before anything reads them (issue #3318 review, S1).
      *
      * Every check here closes a case where PHP's own coercion answered a
      * malformed declaration instead of this engine doing so:
@@ -354,7 +354,7 @@ final class ManifestGrammar {
      *     treated as an ordinary scalar and its raw local id reaches
      *     canonical state; a scalar `refs` or `columns` reached array_column()
      *     /array_keys() and raised a PHP TypeError instead of this engine's
-     *     "duo: " refusal (the docblock above already promised otherwise).
+     *     "wprism: " refusal (the docblock above already promised otherwise).
      *   - `"pk": ["id"]` casts to the string "Array" (a Warning, not an
      *     error), which is non-empty and therefore passed the pk check, then
      *     named a column no table has.
@@ -365,14 +365,14 @@ final class ManifestGrammar {
     private static function assert_table_section_shapes(string $table, array $decl, string $where): void {
         if (array_key_exists('pk', $decl) && (!is_string($decl['pk']) || $decl['pk'] === '')) {
             throw new \RuntimeException(
-                "duo: table '$table'$where declares pk=" . var_export($decl['pk'], true)
+                "wprism: table '$table'$where declares pk=" . var_export($decl['pk'], true)
                 . ' — pk must be a non-empty string naming this table\'s own primary key column'
             );
         }
         $refs = $decl['refs'] ?? [];
         if (!is_array($refs) || !array_is_list($refs)) {
             throw new \RuntimeException(
-                "duo: table '$table'$where declares refs=" . var_export($refs, true)
+                "wprism: table '$table'$where declares refs=" . var_export($refs, true)
                 . ' — refs must be a LIST of {"column": "<col>", "kind": "<ref kind>"} objects (an empty list when '
                 . 'the table references nothing); a ref that is not declared in this shape is captured as an '
                 . 'ordinary scalar, which puts an environment-local id into canonical state'
@@ -381,14 +381,14 @@ final class ManifestGrammar {
         foreach ($refs as $i => $ref) {
             if (!is_array($ref) || (array_is_list($ref) && $ref !== [])) {
                 throw new \RuntimeException(
-                    "duo: table '$table'$where declares refs[$i]=" . var_export($ref, true)
+                    "wprism: table '$table'$where declares refs[$i]=" . var_export($ref, true)
                     . ' — every refs[] entry must be an object declaring both `column` and `kind`'
                 );
             }
             foreach (['column', 'kind'] as $key) {
                 if (!is_string($ref[$key] ?? null) || $ref[$key] === '') {
                     throw new \RuntimeException(
-                        "duo: table '$table'$where declares refs[$i].$key=" . var_export($ref[$key] ?? null, true)
+                        "wprism: table '$table'$where declares refs[$i].$key=" . var_export($ref[$key] ?? null, true)
                         . ' — every refs[] entry needs a non-empty string `column` (the column holding the id) and '
                         . '`kind` (the keyspace it points into)'
                     );
@@ -398,14 +398,14 @@ final class ManifestGrammar {
         $columns = $decl['columns'] ?? [];
         if (!is_array($columns) || (array_is_list($columns) && $columns !== [])) {
             throw new \RuntimeException(
-                "duo: table '$table'$where declares columns=" . var_export($columns, true)
+                "wprism: table '$table'$where declares columns=" . var_export($columns, true)
                 . ' — columns must be an object keyed by column name, each value a rule declaring its `class`'
             );
         }
         $identity = $decl['identity'] ?? [];
         if (!is_array($identity) || (array_is_list($identity) && $identity !== [])) {
             throw new \RuntimeException(
-                "duo: table '$table'$where declares identity=" . var_export($identity, true)
+                "wprism: table '$table'$where declares identity=" . var_export($identity, true)
                 . ' — identity must be an OBJECT naming the mode, e.g. {"mode": "natural_key", "column": "<col>"}; '
                 . 'a bare string is read as no identity declaration at all, which silently means '
                 . 'identity.mode=mapped (surrogate, environment-local identity)'
@@ -414,7 +414,7 @@ final class ManifestGrammar {
         if (array_key_exists('column', $identity)
             && (!is_string($identity['column']) || $identity['column'] === '')) {
             throw new \RuntimeException(
-                "duo: table '$table'$where declares identity.column=" . var_export($identity['column'], true)
+                "wprism: table '$table'$where declares identity.column=" . var_export($identity['column'], true)
                 . ' — identity.column is the SINGLE-component spelling and must be one non-empty column name; the '
                 . 'ordered multi-component form is identity.columns: ["<col>", ...]'
             );
@@ -427,7 +427,7 @@ final class ManifestGrammar {
             }
             if (!$ok) {
                 throw new \RuntimeException(
-                    "duo: table '$table'$where declares identity.columns=" . var_export($idCols, true)
+                    "wprism: table '$table'$where declares identity.columns=" . var_export($idCols, true)
                     . ' — identity.columns is the ordered LIST spelling and must be a non-empty list of column '
                     . 'names; the one-component case is spelled identity.column: "<col>" instead, and exactly one '
                     . 'of the two may be declared'
@@ -448,13 +448,13 @@ final class ManifestGrammar {
     private static function assert_composite_ref_grammar(string $table, array $decl, array $refCols, string $where): void {
         if (isset($decl['pk'])) {
             throw new \RuntimeException(
-                "duo: table '$table'$where declares identity.mode=composite_ref AND a 'pk' — "
+                "wprism: table '$table'$where declares identity.mode=composite_ref AND a 'pk' — "
                 . "composite_ref tables have no scalar primary key; remove 'pk'"
             );
         }
         if (!empty($decl['invalidate'])) {
             throw new \RuntimeException(
-                "duo: table '$table'$where declares identity.mode=composite_ref with 'invalidate' — "
+                "wprism: table '$table'$where declares identity.mode=composite_ref with 'invalidate' — "
                 . "run_invalidate()'s {id} substitution assumes a single scalar local id, which this mode has no "
                 . 'equivalent of; unsupported, not silently ignored (no composite_ref fixture has needed it — see docblock)'
             );
@@ -462,7 +462,7 @@ final class ManifestGrammar {
         $idCols = $decl['identity']['columns'] ?? null;
         if (!is_array($idCols) || count($idCols) !== 2) {
             throw new \RuntimeException(
-                "duo: table '$table'$where declares identity.mode=composite_ref with identity.columns != exactly 2 entries "
+                "wprism: table '$table'$where declares identity.mode=composite_ref with identity.columns != exactly 2 entries "
                 . '— this is the only shape this engine has proven (see assert_composite_row_schema()\'s docblock)'
             );
         }
@@ -472,7 +472,7 @@ final class ManifestGrammar {
         sort($sortedRefCols);
         if ($sortedIdCols !== $sortedRefCols) {
             throw new \RuntimeException(
-                "duo: table '$table'$where identity.columns [" . implode(', ', $idCols)
+                "wprism: table '$table'$where identity.columns [" . implode(', ', $idCols)
                 . '] must be EXACTLY its refs[] columns [' . implode(', ', $refCols)
                 . '] — composite_ref is only for pure join tables: every identity column is a ref, every ref is an identity column'
             );
@@ -480,7 +480,7 @@ final class ManifestGrammar {
     }
 
     /**
-     * natural_key's grammar half, including DUO-3318's parent-scoped
+     * natural_key's grammar half, including issue #3318's parent-scoped
      * multi-column form.
      *
      * Every component must be a declared ref column or a declared `columns{}`
@@ -513,14 +513,14 @@ final class ManifestGrammar {
         $identity = $decl['identity'];
         if (array_key_exists('column', $identity) && array_key_exists('columns', $identity)) {
             throw new \RuntimeException(
-                "duo: table '$table'$where declares identity.mode=natural_key with BOTH 'column' and 'columns' — "
+                "wprism: table '$table'$where declares identity.mode=natural_key with BOTH 'column' and 'columns' — "
                 . "these are one vocabulary with two spellings ('column' is the 1-component case); declare exactly one"
             );
         }
         $columns = self::natural_key_columns($decl);
         if ($columns === []) {
             throw new \RuntimeException(
-                "duo: table '$table'$where declares identity.mode=natural_key with no 'column' and no non-empty "
+                "wprism: table '$table'$where declares identity.mode=natural_key with no 'column' and no non-empty "
                 . "'columns' — a derived identity needs at least one authored component to derive from"
             );
         }
@@ -528,19 +528,19 @@ final class ManifestGrammar {
         foreach ($columns as $column) {
             if ($column === '') {
                 throw new \RuntimeException(
-                    "duo: table '$table'$where declares an empty identity column name for identity.mode=natural_key"
+                    "wprism: table '$table'$where declares an empty identity column name for identity.mode=natural_key"
                 );
             }
             if (isset($seen[$column])) {
                 throw new \RuntimeException(
-                    "duo: table '$table'$where repeats identity column '$column' — a repeated component adds no "
+                    "wprism: table '$table'$where repeats identity column '$column' — a repeated component adds no "
                     . 'distinguishing power and makes the declared order ambiguous'
                 );
             }
             $seen[$column] = true;
             if ($column === $pk) {
                 throw new \RuntimeException(
-                    "duo: table '$table'$where names its primary key '$pk' as a natural_key identity column — a "
+                    "wprism: table '$table'$where names its primary key '$pk' as a natural_key identity column — a "
                     . 'surrogate primary key is an environment-local auto-increment value, so deriving identity '
                     . 'from it would mint a different uuid per environment for the same authored fact; use '
                     . 'identity.mode=mapped when a table has no portable key of its own'
@@ -548,7 +548,7 @@ final class ManifestGrammar {
             }
             if (!in_array($column, $refCols, true) && !in_array($column, $colKeys, true)) {
                 throw new \RuntimeException(
-                    "duo: table '$table'$where names identity column '$column', which is neither a declared "
+                    "wprism: table '$table'$where names identity column '$column', which is neither a declared "
                     . 'refs[] column nor a declared columns{} entry — an identity component must be a column this '
                     . 'manifest actually classifies, or capture has nothing portable to derive from'
                 );
@@ -556,7 +556,7 @@ final class ManifestGrammar {
         }
         if (count($columns) > 1 && (string) ($decl['slug_column'] ?? '') === '') {
             throw new \RuntimeException(
-                "duo: table '$table'$where declares a multi-column natural_key (" . implode(', ', $columns)
+                "wprism: table '$table'$where declares a multi-column natural_key (" . implode(', ', $columns)
                 . ") without 'slug_column' — a tuple has no portable one-line filename spelling (a resolved ref "
                 . 'component is an environment-local id), so the declaration must name the authored column that '
                 . 'supplies the human-readable half of the path'
@@ -565,7 +565,7 @@ final class ManifestGrammar {
     }
 
     /**
-     * `invalidate[]` grammar (DUO-3318; third verb WP-6.2): each entry is
+     * `invalidate[]` grammar (issue #3318; third verb WP-6.2): each entry is
      * exactly one targeted row delete `{table, column}`, one named option
      * `{option_pattern}`, or one object-cache entry `{cache_group, cache_key}`.
      *
@@ -626,11 +626,11 @@ final class ManifestGrammar {
         }
         $entries = $decl['invalidate'];
         if (!is_array($entries) || !array_is_list($entries) || $entries === []) {
-            throw new \RuntimeException("duo: table '$table'$where invalidate must be a non-empty list");
+            throw new \RuntimeException("wprism: table '$table'$where invalidate must be a non-empty list");
         }
         foreach ($entries as $i => $entry) {
             if (!is_array($entry) || array_is_list($entry)) {
-                throw new \RuntimeException("duo: table '$table'$where invalidate[$i] must be an object");
+                throw new \RuntimeException("wprism: table '$table'$where invalidate[$i] must be an object");
             }
             $keys = array_keys($entry);
             sort($keys, SORT_STRING);
@@ -638,7 +638,7 @@ final class ManifestGrammar {
                 foreach (['table', 'column'] as $key) {
                     if (!is_string($entry[$key]) || $entry[$key] === '') {
                         throw new \RuntimeException(
-                            "duo: table '$table'$where invalidate[$i].$key must be a non-empty string"
+                            "wprism: table '$table'$where invalidate[$i].$key must be a non-empty string"
                         );
                     }
                 }
@@ -647,7 +647,7 @@ final class ManifestGrammar {
             if ($keys === ['option_pattern']) {
                 if (!is_string($entry['option_pattern']) || !str_contains($entry['option_pattern'], '{id}')) {
                     throw new \RuntimeException(
-                        "duo: table '$table'$where invalidate[$i].option_pattern must be a string containing the "
+                        "wprism: table '$table'$where invalidate[$i].option_pattern must be a string containing the "
                         . '{id} substitution point — without it every row of this table would name the same one '
                         . 'option row'
                     );
@@ -659,7 +659,7 @@ final class ManifestGrammar {
                 continue;
             }
             throw new \RuntimeException(
-                "duo: table '$table'$where invalidate[$i] declares [" . implode(', ', $keys)
+                "wprism: table '$table'$where invalidate[$i] declares [" . implode(', ', $keys)
                 . '] but the invalidation vocabulary is closed and engine-owned: exactly {table, column} for a '
                 . 'targeted row delete, exactly {option_pattern} for a named option, or exactly {cache_group, '
                 . 'cache_key} for one object-cache entry. Anything a plugin owns beyond those three generic '
@@ -696,12 +696,12 @@ final class ManifestGrammar {
             $value = $entry[$key];
             if (!is_string($value) || $value === '') {
                 throw new \RuntimeException(
-                    "duo: table '$table'$where invalidate[$i].$key must be a non-empty string"
+                    "wprism: table '$table'$where invalidate[$i].$key must be a non-empty string"
                 );
             }
             if (strlen($value) > self::INVALIDATE_CACHE_NAME_BYTES) {
                 throw new \RuntimeException(
-                    "duo: table '$table'$where invalidate[$i].$key is " . strlen($value) . ' bytes, over the '
+                    "wprism: table '$table'$where invalidate[$i].$key is " . strlen($value) . ' bytes, over the '
                     . self::INVALIDATE_CACHE_NAME_BYTES . '-byte budget — a 20-digit local id substituted for '
                     . '{id} must still fit the 191-byte cache-name bound the apply-time transaction enforces'
                 );
@@ -709,7 +709,7 @@ final class ManifestGrammar {
             $literal = str_replace('{id}', '', $value);
             if (preg_match('/^[A-Za-z0-9_.:-]*$/D', $literal) !== 1) {
                 throw new \RuntimeException(
-                    "duo: table '$table'$where invalidate[$i].$key must be [A-Za-z0-9_.:-] outside its {id} "
+                    "wprism: table '$table'$where invalidate[$i].$key must be [A-Za-z0-9_.:-] outside its {id} "
                     . 'substitution points — a cache name carrying whitespace, a control byte, or a second kind '
                     . 'of brace is refused at load rather than at apply time on one row'
                 );
@@ -718,7 +718,7 @@ final class ManifestGrammar {
         }
         if (!$substituted) {
             throw new \RuntimeException(
-                "duo: table '$table'$where invalidate[$i] declares neither cache_group nor cache_key with the "
+                "wprism: table '$table'$where invalidate[$i] declares neither cache_group nor cache_key with the "
                 . '{id} substitution point — without it every row of this table would name the same one cache '
                 . 'entry. A cache entry SHARED by a table\'s rows is the blanket case, which belongs in the '
                 . 'top-level actions channel or a provider capability, not in this per-row verb'
@@ -741,7 +741,7 @@ final class ManifestGrammar {
      * So the gate is asked ONCE, where the declaring document is in hand, by
      * validate_tables() — which is the single funnel BOTH carriers pass
      * through: `ManifestValidator::validate_manifest():73` for a manifest and
-     * `SitePolicyValidator::validate():61` for `site.duo.json`'s own
+     * `SitePolicyValidator::validate():61` for `site.wprism.json`'s own
      * `policy.tables` overrides.
      *
      * $site is why that second caller is safe. `engine_features` is a MANIFEST
@@ -758,7 +758,7 @@ final class ManifestGrammar {
      * cache is still a reach, and `validate_adapter_contract()` orders its own
      * feature channel ahead of its value checks on the same argument (:298-306).
      *
-     * @param array<string,mixed> $source a manifest, or `site.duo.json`'s `policy`
+     * @param array<string,mixed> $source a manifest, or `site.wprism.json`'s `policy`
      */
     private static function assert_invalidate_feature_gate(array $source, string $label, bool $site): void {
         $declared = [];
@@ -783,7 +783,7 @@ final class ManifestGrammar {
                         continue;
                     }
                     throw new \RuntimeException(
-                        "duo: $label table '" . (string) $table . "' invalidate[" . (string) $i . "] declares '"
+                        "wprism: $label table '" . (string) $table . "' invalidate[" . (string) $i . "] declares '"
                         . $key . "', which the engine feature '" . self::INVALIDATE_VOCABULARY_FEATURE
                         . "' gates — declare it in this manifest's top-level \"engine_features\" list (which "
                         . 'itself requires spec_version 3, spec/repo-format.md § v3.2). An engine that does not '
@@ -798,7 +798,7 @@ final class ManifestGrammar {
     /**
      * The pure-grammar half of ONE `widgets.<type>` declaration — the exact
      * mirror of assert_table_grammar() above, and for the same reason
-     * (DUO-3318 review, S4).
+     * (issue #3318 review, S4).
      *
      * This is the only implementation of these rules: validate_widgets() runs
      * it for every declared type at load, and SidebarState::assert_policy()
@@ -806,7 +806,7 @@ final class ManifestGrammar {
      * a pure function of already-loaded bytes costs nothing, and keeps a
      * directly-constructed Policy — the shape several offline harnesses build —
      * covered by the same rules). SidebarState keeps exactly one check of its
-     * own, the one that is genuinely its own: the duo_map.id_kind width budget
+     * own, the one that is genuinely its own: the wprism_map.id_kind width budget
      * its DERIVED `widget_<type>` kind has to fit, which is Ledger's schema
      * rather than the manifest's grammar.
      *
@@ -832,14 +832,14 @@ final class ManifestGrammar {
         $where = ($source === null ? '' : "$source ") . "widgets.$type";
         if (!preg_match('/^[a-z0-9_-]+$/', $type)) {
             throw new \RuntimeException(
-                "duo: $where names an invalid widget type — a type is WordPress's own id_base "
+                "wprism: $where names an invalid widget type — a type is WordPress's own id_base "
                 . '(the widget_<type> option name), matching ^[a-z0-9_-]+$'
             );
         }
         $settings = is_array($decl) ? ($decl['settings'] ?? null) : null;
         if (!is_array($settings) || $settings === [] || array_is_list($settings)) {
             throw new \RuntimeException(
-                "duo: $where must declare a non-empty `settings` object — capture refuses any live setting "
+                "wprism: $where must declare a non-empty `settings` object — capture refuses any live setting "
                 . 'this map does not name, so an absent map makes every instance of the type uncapturable'
             );
         }
@@ -847,27 +847,27 @@ final class ManifestGrammar {
             if (!is_string($setting) || $setting === '' || !is_array($rule)
                 || ($rule['class'] ?? null) !== 'authored') {
                 throw new \RuntimeException(
-                    "duo: $where.settings.$setting must declare class=authored — a widget settings map is an "
+                    "wprism: $where.settings.$setting must declare class=authored — a widget settings map is an "
                     . 'allowlist of portable fields, so a non-authored entry has nothing to mean (leave the '
                     . 'field out to exclude it)'
                 );
             }
             if (array_key_exists('codec', $rule) && !in_array($rule['codec'], self::WIDGET_SETTING_CODECS, true)) {
                 throw new \RuntimeException(
-                    "duo: $where.settings.$setting declares codec=" . var_export($rule['codec'], true)
+                    "wprism: $where.settings.$setting declares codec=" . var_export($rule['codec'], true)
                     . ' but the widget settings codec vocabulary is closed and engine-owned (blocks)'
                 );
             }
             if (array_key_exists('ref', $rule) && !in_array($rule['ref'], self::WIDGET_SETTING_REFS, true)) {
                 throw new \RuntimeException(
-                    "duo: $where.settings.$setting declares ref=" . var_export($rule['ref'], true)
+                    "wprism: $where.settings.$setting declares ref=" . var_export($rule['ref'], true)
                     . ' but the widget settings ref vocabulary is closed and engine-owned ('
                     . implode(', ', self::WIDGET_SETTING_REFS) . ')'
                 );
             }
             if (array_key_exists('codec', $rule) && array_key_exists('ref', $rule)) {
                 throw new \RuntimeException(
-                    "duo: $where.settings.$setting cannot declare codec and ref — a setting value is either a "
+                    "wprism: $where.settings.$setting cannot declare codec and ref — a setting value is either a "
                     . 'structured document the engine decodes or a single entity reference it resolves'
                 );
             }

@@ -1,5 +1,5 @@
 {
-    "format": "duo-coverage-report/v1",
+    "format": "wprism-coverage-report/v1",
     "options": {
         "captured": 214,
         "invisible_groups": [

@@ -5,11 +5,12 @@
  * WHAT THIS SUITE HOLDS
  * ---------------------
  * `ManifestDispositions::claim_from_disposition()` used to copy
- * `environment_assumptions` verbatim out of the single global
- * `manifests/capabilities/platform.json` into every claim, so all 16 shipped
- * claims were byte-identical and no adapter could state which boundary cells it
- * actually ran on (`regress_spec_v3_dry_run.php`, rule V3-AXIS, measures that
- * starting point). A `spec_version: 3` adapter may now declare
+ * `environment_assumptions` verbatim out of the former
+ * `manifests/capabilities/platform.json` (now
+ * `platform/adapter-library/capabilities/platform.json`) into every claim, so
+ * the then-shipped 16 claims were byte-identical and no adapter could state
+ * which boundary cells it actually ran on (`regress_spec_v3_dry_run.php`, rule
+ * V3-AXIS, measures that starting point). A `spec_version: 3` adapter may now declare
  * `"environment": {"php": ["8.3"], …}` — a per-axis list of exercised cells,
  * the same subset shape `unsupported[]` already uses for surfaces — and the
  * claim states that subset instead of the whole matrix.
@@ -17,11 +18,11 @@
  * The four properties, each asserted below rather than argued:
  *
  *   1. an adapter declaring nothing binds the whole current boundary BYTE FOR
- *      BYTE. All 16 shipped claims are re-projected here and compared against
+ *      BYTE. All 17 current shipped claims are re-projected here and compared against
  *      the pre-WP-4.6 formula, recomputed independently from platform.json — so
  *      this suite fails if the shipped claims move by one byte;
  *   2. a NARROWER declaration is honoured and reported, through the same funnel
- *      `wp duo capabilities` reads (`AdapterRegistry::shipped_claim()`);
+ *      `wp wprism capabilities` reads (`AdapterRegistry::shipped_claim()`);
  *   3. a WIDER declaration refuses BY NAME — the axis and the offending cell,
  *      on every one of the four narrowable axes, plus an axis no claim states;
  *   4. narrowing relaxes NO load-time assertion.
@@ -34,14 +35,14 @@
  *
  * WHY THE CHANNEL IS INERT AT v2, AND WHY THAT IS NOT SILENCE
  * ----------------------------------------------------------
- * `DUO_SPEC_VERSION` is 2 and stays 2 (the flip is WP-4.12), and
- * `AdapterContractGrammar` accepts exactly that one version, so no v3 manifest
- * loads through `Policy::load()` yet. A v2 manifest that declares the key is
- * therefore INERT — byte-identical to one that declares nothing — exactly as
- * `engine_features` is inert under § v3.2. Refusing a v3-only section inside a
- * v2 manifest BY NAME needs the acceptance window (§ v3.1, WP-4.2); doing it
- * here would mean refusing the manifest wholesale, which is the failure the
- * window exists to prevent. Both halves are pinned below.
+ * At the historical pre-flip baseline, `WPRISM_SPEC_VERSION` was 2 and
+ * `AdapterContractGrammar` accepted exactly that one version, so no v3 manifest
+ * loaded through `Policy::load()` yet. A v2 manifest that declared the key was
+ * therefore INERT — byte-identical to one that declared nothing — exactly as
+ * `engine_features` was inert under § v3.2. The current engine is v3; refusing
+ * a v3-only section inside a v2 manifest BY NAME now uses the acceptance window
+ * (§ v3.1, WP-4.2), rather than refusing the manifest wholesale. Both halves
+ * are pinned below.
  */
 declare(strict_types=1);
 
@@ -51,7 +52,7 @@ require_once __DIR__ . '/../../lib/check.php';
 $root = dirname(__DIR__, 4);
 
 require_once __DIR__ . '/../../lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 
 // The platform gate probes WordPress and the database before it compares
 // anything, so the injected-facts path still needs these two to exist.
@@ -70,13 +71,13 @@ require_once $root . '/agent/src/Policy/PlatformCompatibility.php';
 require_once $root . '/agent/src/Adapter/AdapterRegistry.php';
 require_once $root . '/agent/src/Adapter/AdapterCertification.php';
 
-use Duo\AdapterCertification;
-use Duo\AdapterLibrary;
-use Duo\AdapterRegistry;
-use Duo\Canon;
-use Duo\CommandRefusalException;
-use Duo\ManifestDispositions;
-use Duo\PlatformCompatibility;
+use WPrism\AdapterCertification;
+use WPrism\AdapterLibrary;
+use WPrism\AdapterRegistry;
+use WPrism\Canon;
+use WPrism\CommandRefusalException;
+use WPrism\ManifestDispositions;
+use WPrism\PlatformCompatibility;
 
 /**
  * The declared top-level manifest key, spelled out here rather than read back
@@ -88,7 +89,7 @@ use Duo\PlatformCompatibility;
  * manifest that declares it — a rename fails here, loudly, instead of passing
  * against a moved definition.
  */
-const DUO_ENVIRONMENT_CHANNEL = 'environment';
+const WPRISM_ENVIRONMENT_CHANNEL = 'environment';
 
 /** One indented report row (indented so the offline diagnostics guard cannot read it as a PHP notice). */
 $report = static function (string $line): void {
@@ -98,7 +99,7 @@ $report = static function (string $line): void {
 $adapterLibrary = AdapterLibrary::fromSourceTree($root);
 $platform = ManifestDispositions::platform_boundary_library($adapterLibrary);
 $registry = ManifestDispositions::load_library($adapterLibrary);
-duo_check($registry !== null, 'the shipped disposition registry loads');
+wprism_check($registry !== null, 'the shipped disposition registry loads');
 $dispositions = $registry?->data()['manifests'] ?? [];
 
 /** Every shipped manifest, by name. @var array<string,array<string,mixed>> $shipped */
@@ -113,7 +114,7 @@ ksort($shipped, SORT_STRING);
  * The claim, projected through the ONE funnel every shipped claim passes
  * through: `AdapterRegistry::shipped_claim()` runs `assert_entry()` and then
  * `claim_from_disposition()`, and `capability_claim()`/`report()` — so
- * `wp duo capabilities` and the adapter catalog — both land on it. Private
+ * `wp wprism capabilities` and the adapter catalog — both land on it. Private
  * because it is an internal projection; reached by Reflection so this suite
  * measures the product path rather than a re-implementation of it.
  */
@@ -152,7 +153,7 @@ $wholeBoundary = Canon::encode([
 $declaringShipped = [];
 $movedClaims = [];
 foreach ($shipped as $name => $manifest) {
-    if (array_key_exists(DUO_ENVIRONMENT_CHANNEL, $manifest)) {
+    if (array_key_exists(WPRISM_ENVIRONMENT_CHANNEL, $manifest)) {
         $declaringShipped[] = $name;
     }
     $projected = $claim($manifest, (array) $dispositions[$name]);
@@ -160,12 +161,12 @@ foreach ($shipped as $name => $manifest) {
         $movedClaims[] = $name;
     }
 }
-duo_check_same(17, count($shipped), 'the shipped library is the 17 adapters this claim is measured over');
-duo_check_same([], $declaringShipped, 'no shipped adapter declares the narrowing channel, so WP-4.6 moves no shipped manifest byte and no adapter digest');
-duo_check_same(
+wprism_check_same(17, count($shipped), 'the shipped library is the 17 adapters this claim is measured over');
+wprism_check_same([], $declaringShipped, 'no shipped adapter declares the narrowing channel, so WP-4.6 moves no shipped manifest byte and no adapter digest');
+wprism_check_same(
     [],
     $movedClaims,
-    'all 16 shipped claims still carry the WHOLE boundary in `environment_assumptions`, byte-identical to the pre-WP-4.6 projection'
+    'all 17 current shipped claims still carry the WHOLE boundary in `environment_assumptions`, byte-identical to the pre-WP-4.6 projection'
 );
 $report('shipped claims re-projected: ' . count($shipped) . '; environment_assumptions bytes: ' . strlen($wholeBoundary));
 
@@ -180,7 +181,7 @@ $subjectDisposition = (array) $dispositions['classic-editor'];
 $phpSeries = array_map('strval', array_keys($platform['compatibility']['php']['verified']));
 $coreSeries = array_map('strval', array_keys($platform['compatibility']['wordpress']['verified']));
 $engines = array_map('strval', array_keys($platform['compatibility']['database']['engines']));
-duo_check(
+wprism_check(
     count($phpSeries) >= 2 && count($coreSeries) >= 2 && count($engines) >= 2,
     'the boundary carries more than one cell on the php, wordpress and database axes, so a subset is a real narrowing ('
         . implode('/', $phpSeries) . ' | ' . implode('/', $coreSeries) . ' | ' . implode('/', $engines) . ')'
@@ -188,7 +189,7 @@ duo_check(
 
 $narrowing = $subject;
 $narrowing['spec_version'] = 3;
-$narrowing[DUO_ENVIRONMENT_CHANNEL] = [
+$narrowing[WPRISM_ENVIRONMENT_CHANNEL] = [
     'database' => [$engines[0]],
     'php' => [$phpSeries[0]],
     'site_mode' => [(string) $platform['site_mode']],
@@ -196,22 +197,22 @@ $narrowing[DUO_ENVIRONMENT_CHANNEL] = [
 ];
 $narrowed = $claim($narrowing, $subjectDisposition)['environment_assumptions'];
 
-duo_check_same(
+wprism_check_same(
     [$phpSeries[0] => $platform['compatibility']['php']['verified'][$phpSeries[0]]],
     $narrowed['php']['verified'],
     'the php axis reports exactly the exercised series the adapter declared'
 );
-duo_check_same(
+wprism_check_same(
     [$coreSeries[0] => $platform['compatibility']['wordpress']['verified'][$coreSeries[0]]],
     $narrowed['wordpress']['verified'],
     'the wordpress axis reports exactly the exercised core series the adapter declared'
 );
-duo_check_same(
+wprism_check_same(
     [$engines[0] => $platform['compatibility']['database']['engines'][$engines[0]]],
     $narrowed['database']['engines'],
     'the database axis reports exactly the engine the adapter declared'
 );
-duo_check_same(
+wprism_check_same(
     $platform['site_mode'],
     $narrowed['site_mode'],
     'site_mode is a one-value axis: a subset of it can only ever restate it'
@@ -220,19 +221,19 @@ duo_check_same(
 // `verified` (PlatformCompatibility::valid_wordpress_axis()). A narrowed map
 // behind the boundary's own scalar would publish a claim whose newest exercised
 // core is not in its own exercised set.
-duo_check_same(
+wprism_check_same(
     $platform['compatibility']['wordpress']['verified'][$coreSeries[0]],
     $narrowed['wordpress']['last_verified'],
     'and the narrowed wordpress axis recomputes last_verified into its own exercised set'
 );
-duo_check(
+wprism_check(
     Canon::encode($narrowed) !== $wholeBoundary,
     'the narrowed claim is not the whole boundary — the projection actually moved'
 );
 // Reported, not merely computed: the narrowing survives the canonical encode a
 // capability report and every content pin are taken over.
 $roundTrip = Canon::decode(Canon::encode($narrowed));
-duo_check_same(
+wprism_check_same(
     [$phpSeries[0]],
     array_map('strval', array_keys($roundTrip['php']['verified'])),
     'the narrowed claim round-trips through Canon unchanged, so a report and a pin see the same subset'
@@ -245,14 +246,14 @@ $report('narrowed claim: php=' . implode(',', array_keys($narrowed['php']['verif
 // adapter that only says which PHP it ran on has said nothing about the others.
 $partial = $subject;
 $partial['spec_version'] = 3;
-$partial[DUO_ENVIRONMENT_CHANNEL] = ['php' => [$phpSeries[0]]];
+$partial[WPRISM_ENVIRONMENT_CHANNEL] = ['php' => [$phpSeries[0]]];
 $partialClaim = $claim($partial, $subjectDisposition)['environment_assumptions'];
-duo_check_same(
+wprism_check_same(
     Canon::encode($platform['compatibility']['wordpress']),
     Canon::encode($partialClaim['wordpress']),
     'an axis the declaration omits keeps the whole boundary, so narrowing is opt-in per axis'
 );
-duo_check_same(
+wprism_check_same(
     [$phpSeries[0]],
     array_map('strval', array_keys($partialClaim['php']['verified'])),
     '...while the declared axis narrows'
@@ -273,10 +274,10 @@ $widerCases = [
 foreach ($widerCases as $axis => $declaration) {
     $wider = $subject;
     $wider['spec_version'] = 3;
-    $wider[DUO_ENVIRONMENT_CHANNEL] = $declaration;
+    $wider[WPRISM_ENVIRONMENT_CHANNEL] = $declaration;
     $cell = (string) $declaration[$axis][0];
     $message = $refusal(static fn() => $claim($wider, $subjectDisposition));
-    duo_check(
+    wprism_check(
         is_string($message)
             && str_contains($message, "manifest 'classic-editor'")
             && str_contains($message, "environment axis '$axis'")
@@ -284,7 +285,7 @@ foreach ($widerCases as $axis => $declaration) {
             && str_contains($message, 'never widen it'),
         "a wider $axis claim ('$cell') refuses naming the manifest, the axis and the cell"
     );
-    duo_check_detail("wider $axis: " . (string) $message);
+    wprism_check_detail("wider $axis: " . (string) $message);
 }
 
 // `multisite` is the sharpest of the four: the reviewed boundary is
@@ -292,8 +293,8 @@ foreach ($widerCases as $axis => $declaration) {
 // this channel cannot be used to claim otherwise.
 $multisite = $subject;
 $multisite['spec_version'] = 3;
-$multisite[DUO_ENVIRONMENT_CHANNEL] = ['site_mode' => ['single-site', 'multisite']];
-duo_check(
+$multisite[WPRISM_ENVIRONMENT_CHANNEL] = ['site_mode' => ['single-site', 'multisite']];
+wprism_check(
     str_contains((string) $refusal(static fn() => $claim($multisite, $subjectDisposition)), 'multisite'),
     'a declaration that ADDS multisite beside the reviewed single-site value is still a widening and still refuses'
 );
@@ -306,19 +307,19 @@ duo_check(
 foreach (['filesystem', 'process', 'compatibility'] as $absentAxis) {
     $invented = $subject;
     $invented['spec_version'] = 3;
-    $invented[DUO_ENVIRONMENT_CHANNEL] = [$absentAxis => ['whatever']];
+    $invented[WPRISM_ENVIRONMENT_CHANNEL] = [$absentAxis => ['whatever']];
     $message = $refusal(static fn() => $claim($invented, $subjectDisposition));
-    duo_check(
+    wprism_check(
         is_string($message)
             && str_contains($message, "environment axis '$absentAxis'")
             && str_contains($message, 'narrowable axes are database, php, site_mode, wordpress'),
         "an axis no claim states ('$absentAxis') refuses by name and lists the four that are narrowable"
     );
 }
-duo_check_detail('absent axis: ' . (string) $refusal(static function () use ($subject, $subjectDisposition, $claim) {
+wprism_check_detail('absent axis: ' . (string) $refusal(static function () use ($subject, $subjectDisposition, $claim) {
     $invented = $subject;
     $invented['spec_version'] = 3;
-    $invented[DUO_ENVIRONMENT_CHANNEL] = ['filesystem' => ['local-posix-atomic-rename-flock-fsync/v1']];
+    $invented[WPRISM_ENVIRONMENT_CHANNEL] = ['filesystem' => ['local-posix-atomic-rename-flock-fsync/v1']];
     return $claim($invented, $subjectDisposition);
 }));
 
@@ -335,9 +336,9 @@ $malformed = [
 foreach ($malformed as $label => $declaration) {
     $broken = $subject;
     $broken['spec_version'] = 3;
-    $broken[DUO_ENVIRONMENT_CHANNEL] = $declaration;
+    $broken[WPRISM_ENVIRONMENT_CHANNEL] = $declaration;
     $message = $refusal(static fn() => $claim($broken, $subjectDisposition));
-    duo_check(
+    wprism_check(
         is_string($message) && str_contains($message, "manifest 'classic-editor'") && str_contains($message, 'environment'),
         "a malformed declaration ($label) refuses by name rather than being coerced"
     );
@@ -346,17 +347,17 @@ foreach ($malformed as $label => $declaration) {
 echo "\nPART 4 — the channel is INERT at spec_version 2, byte for byte\n";
 
 $inert = $subject;
-$inert[DUO_ENVIRONMENT_CHANNEL] = [
+$inert[WPRISM_ENVIRONMENT_CHANNEL] = [
     'php' => [$phpSeries[0]],
     'site_mode' => ['multisite'],
 ];
-duo_check_same(2, $subject['spec_version'], 'the shipped subject is stamped spec_version 2, like every shipped manifest');
-duo_check_same(
+wprism_check_same(2, $subject['spec_version'], 'the shipped subject is stamped spec_version 2, exercising the retained compatibility path');
+wprism_check_same(
     $wholeBoundary,
     Canon::encode($claim($inert, $subjectDisposition)['environment_assumptions']),
     'a v2 manifest declaring the channel projects the WHOLE boundary — identical to declaring nothing, including the widening it names'
 );
-// WP-4.12 flipped this. The assertion was "DUO_SPEC_VERSION is still 2",
+// WP-4.12 flipped this. The assertion was "WPRISM_SPEC_VERSION is still 2",
 // which pinned WP-4.6's own claim: it landed the ENFORCEMENT ahead of the
 // bump. That claim was about a moment, and the moment passed. What survives
 // the flip is the property the moment existed to protect, and it is the one
@@ -364,13 +365,13 @@ duo_check_same(
 // and the shipped subject is still stamped one below it, so PART 4 above is
 // still measuring the inert arm on a manifest inside the window — not an arm
 // that stopped existing.
-duo_check_same(
+wprism_check_same(
     3,
-    DUO_SPEC_VERSION,
-    'DUO_SPEC_VERSION is 3: the flip landed (WP-4.12), and the narrowing channel WP-4.6 shipped ahead of it is now the engine\'s own version'
+    WPRISM_SPEC_VERSION,
+    'WPRISM_SPEC_VERSION is 3: the flip landed (WP-4.12), and the narrowing channel WP-4.6 shipped ahead of it is now the engine\'s own version'
 );
-duo_check(
-    $subject['spec_version'] === DUO_SPEC_VERSION - 1,
+wprism_check(
+    $subject['spec_version'] === WPRISM_SPEC_VERSION - 1,
     'and the shipped subject sits at N-1 inside the window, which is what keeps PART 4\'s inert arm reachable after the flip rather than dead code'
 );
 
@@ -378,13 +379,13 @@ echo "\nPART 5 — narrowing relaxes NO load-time assertion\n";
 
 // Structural first: the gate cannot be reached by a declaration it never reads.
 $gateSource = (string) file_get_contents($root . '/agent/src/Policy/PlatformCompatibility.php');
-duo_check(
+wprism_check(
     !str_contains($gateSource, 'ManifestDispositions')
-        && !str_contains($gateSource, "'" . DUO_ENVIRONMENT_CHANNEL . "'")
+        && !str_contains($gateSource, "'" . WPRISM_ENVIRONMENT_CHANNEL . "'")
         && !str_contains($gateSource, 'environment_assumptions'),
     'PlatformCompatibility names neither the disposition projection nor the narrowing channel — a claim cannot reach the runtime gate'
 );
-duo_check(
+wprism_check(
     !str_contains($gateSource, '$manifest'),
     '...and it takes no manifest at all: its inputs are the boundary and the observed facts'
 );
@@ -442,16 +443,16 @@ $codes = static function (array $observed) use ($platform): array {
 // the runtime answers must be identical to a tree where nobody declared
 // anything, and each case is a cell the narrowed claim does not name.
 $narrowedTwice = $claim($narrowing, $subjectDisposition);
-duo_check_same(
+wprism_check_same(
     [$phpSeries[0]],
     array_map('strval', array_keys($narrowedTwice['environment_assumptions']['php']['verified'])),
     'the narrowed claim is in hand before the load-time gate runs'
 );
 
-duo_check_same([], $codes($facts()), 'the exercised facts are still accepted with a narrowing adapter in the library');
+wprism_check_same([], $codes($facts()), 'the exercised facts are still accepted with a narrowing adapter in the library');
 foreach ($phpSeries as $series) {
     $patch = (string) $platform['compatibility']['php']['verified'][$series];
-    duo_check_same(
+    wprism_check_same(
         [],
         $codes($facts(php: $patch)),
         "PHP $patch is still accepted even though the narrowed claim names only " . $phpSeries[0]
@@ -460,7 +461,7 @@ foreach ($phpSeries as $series) {
 }
 foreach ($engines as $engine) {
     $range = $platform['compatibility']['database']['engines'][$engine];
-    duo_check_same(
+    wprism_check_same(
         [],
         $codes($facts(engine: $engine, database: (string) $range['min'])),
         "the $engine engine is still accepted even though the narrowed claim names only " . $engines[0]
@@ -495,7 +496,7 @@ foreach ([
     'process shell path' => ['facts' => $facts(shellPath: '/bin/dash'), 'code' => 'platform_process_shell_unsupported'],
     'process shell missing' => ['facts' => $facts(shellExecutable: false), 'code' => 'platform_process_shell_unavailable'],
 ] as $label => $case) {
-    duo_check(
+    wprism_check(
         in_array($case['code'], $codes($case['facts']), true),
         "the $label load-time refusal still fires ({$case['code']}) with a narrowing adapter projected"
     );
@@ -515,7 +516,7 @@ $everything = $codes($facts(
     osFamily: 'Windows',
     processOsFamily: 'Windows'
 ));
-duo_check_same(
+wprism_check_same(
     [
         'platform_database_version_unsupported',
         'platform_filesystem_os_unsupported',
@@ -536,25 +537,25 @@ echo "\nPART 6 — the signer classifies the channel, so a narrowing adapter sta
 // channel nobody can certify would be a feature only uncertified adapters could
 // use, so the key joins the non-surface arm in the same change.
 $partition = AdapterCertification::topLevelKeyPartition();
-duo_check(
-    in_array(DUO_ENVIRONMENT_CHANNEL, $partition['non_surface_keys'], true)
-        && !in_array(DUO_ENVIRONMENT_CHANNEL, $partition['entity_sections'], true)
-        && !in_array(DUO_ENVIRONMENT_CHANNEL, $partition['field_sections'], true),
+wprism_check(
+    in_array(WPRISM_ENVIRONMENT_CHANNEL, $partition['non_surface_keys'], true)
+        && !in_array(WPRISM_ENVIRONMENT_CHANNEL, $partition['entity_sections'], true)
+        && !in_array(WPRISM_ENVIRONMENT_CHANNEL, $partition['field_sections'], true),
     'the narrowing channel is a NON-SURFACE key: it covers no branchable state, so no certificate surface is derived from it'
 );
 $ratify = new ReflectionMethod(AdapterCertification::class, 'siteRatification');
 $ratification = (array) $ratify->invoke(null, 'classic-editor', $narrowing, 'WP-4.6 narrowing suite');
 $ratified = (array) $ratification['manifests']['classic-editor']['capabilities'];
-duo_check(
-    !in_array(DUO_ENVIRONMENT_CHANNEL, (array) $ratified['entity_sections'], true)
-        && !in_array(DUO_ENVIRONMENT_CHANNEL, (array) $ratified['field_sections'], true),
+wprism_check(
+    !in_array(WPRISM_ENVIRONMENT_CHANNEL, (array) $ratified['entity_sections'], true)
+        && !in_array(WPRISM_ENVIRONMENT_CHANNEL, (array) $ratified['field_sections'], true),
     'a narrowing manifest ratifies without the channel appearing among its covered surfaces'
 );
 // The refusal this rides ahead of, proven live rather than assumed: the SAME
 // manifest carrying a key in no arm is still unsignable by name.
 $unclassified = $narrowing;
 $unclassified['totally_made_up_section'] = ['acme_thing' => ['class' => 'authored']];
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => $ratify->invoke(null, 'classic-editor', $unclassified, 'WP-4.6 narrowing suite')),
         'which this signer cannot classify'
@@ -564,4 +565,4 @@ duo_check(
 $report('signer partition: ' . count($partition['entity_sections']) . ' entity + '
     . count($partition['field_sections']) . ' field + ' . count($partition['non_surface_keys']) . ' non-surface');
 
-duo_check_summary('adapter environment narrowing');
+wprism_check_summary('adapter environment narrowing');

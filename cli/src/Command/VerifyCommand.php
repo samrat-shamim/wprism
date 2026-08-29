@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../Plan/PlanContract.php';
@@ -11,10 +11,10 @@ require_once __DIR__ . '/../Release/JourneyOracle.php';
 require_once __DIR__ . '/AssessCommand.php';
 require_once __DIR__ . '/CommandOutput.php';
 
-use Duo\CommandRefusalException;
+use WPrism\CommandRefusalException;
 
 /**
- * `duo verify <env>` — post-release verification (round-3 MUP §2.4).
+ * `wprism verify <env>` — post-release verification (round-3 MUP §2.4).
  *
  * Two independent parts, BOTH required for a pass, exactly as §2.4 states:
  * a convergence re-read and the contract-declared affected-journey oracles.
@@ -23,15 +23,15 @@ use Duo\CommandRefusalException;
  *
  * ## The convergence half, and one deliberate deviation
  *
- * §2.4 names "the existing internal `wp duo verify-canonical` path
- * (`\Duo\ConvergenceVerifier`)". That command is reachable from a target, but
+ * §2.4 names "the existing internal `wp wprism verify-canonical` path
+ * (`\WPrism\ConvergenceVerifier`)". That command is reachable from a target, but
  * it is not reachable from a HOST: `agent/src/Command/Cli.php::verify_canonical()`
  * requires `--expected-artifact`, `--compiled` and `--policy-snapshot`, and
  * `agent/src/Apply/ConvergenceVerifier.php:91-114` shows where the last two
  * come from — two `tempnam()` files that the MUTATING apply process writes
  * from its own in-memory `CompiledRepository` and frozen `Policy`, and
- * deletes in a `finally`. No shipped `wp duo` subcommand exports a
- * `duo-policy-snapshot/v6` (`agent/src/Policy/Policy.php:183`; the v5
+ * deletes in a `finally`. No shipped `wp wprism` subcommand exports a
+ * `wprism-policy-snapshot/v6` (`agent/src/Policy/Policy.php:183`; the v5
  * generation this line used to name froze a generated capability registry and
  * is now refused outright), so a host cannot supply that input, and MUP §2.4
  * forbids adding an agent command to make one ("Host-side only; no new agent
@@ -39,7 +39,7 @@ use Duo\CommandRefusalException;
  *
  * So the host uses the other positive re-read the agent already publishes and
  * that the promotion path itself already treats as convergence proof: one
- * read-only `wp duo plan --format=json`. `cli/duo`'s
+ * read-only `wp wprism plan --format=json`. `cli/wprism`'s
  * `frozen_promotion_reconcile()` states the rule in its own words — "a clean
  * exact plan proves the prior apply converged" — because `plan` recaptures
  * owned state from the live site and compares it with the compiled tree. It
@@ -48,7 +48,7 @@ use Duo\CommandRefusalException;
  *
  * The report says so rather than hiding it: the convergence block carries
  * `verifier: "plan-reconciliation/v1"`, never `canonical-recapture/v1`.
- * `\Duo\ConvergenceVerifier`'s byte-level recapture still runs — inside the
+ * `\WPrism\ConvergenceVerifier`'s byte-level recapture still runs — inside the
  * apply that the release performed, where it fails closed — and that is
  * stated in the disclosure line, so an operator is never told this command
  * ran a verifier it did not run.
@@ -119,7 +119,7 @@ final class VerifyCommand {
     }
 
     /**
-     * Produce the `duo-verify-report/v1` document.
+     * Produce the `wprism-verify-report/v1` document.
      *
      * Shared with `ReleaseCommand`, which calls it as MUP §2.3 step 5 with
      * the contract and scope it already holds rather than re-reading them —
@@ -146,7 +146,7 @@ final class VerifyCommand {
                 throw new CommandRefusalException(
                     'verify_plan_unknown',
                     'no frozen authorization plan with that digest exists in this site repository',
-                    'run duo verify without --plan, or restore .duo/releases from the commit that recorded '
+                    'run wprism verify without --plan, or restore .wprism/releases from the commit that recorded '
                         . 'this release'
                 );
             }
@@ -161,8 +161,8 @@ final class VerifyCommand {
             throw new CommandRefusalException(
                 'contract_missing',
                 'this site repository has no accepted application contract, so no journey is declared to verify',
-                'run duo contract ' . self::token($driver->name())
-                    . ' propose, review the proposal, then duo contract '
+                'run wprism contract ' . self::token($driver->name())
+                    . ' propose, review the proposal, then wprism contract '
                     . self::token($driver->name()) . ' accept'
             );
         }
@@ -249,8 +249,8 @@ final class VerifyCommand {
             'verify_contract_moved',
             'the accepted application contract has changed since this release was authorized, so its declared '
                 . 'journeys are not the journeys that release was verified against',
-            'check out the commit whose contract this release cited and re-run duo verify --plan with the same '
-                . 'digest, or run duo verify without --plan to verify against the contract as it is now'
+            'check out the commit whose contract this release cited and re-run wprism verify --plan with the same '
+                . 'digest, or run wprism verify without --plan to verify against the contract as it is now'
         );
     }
 
@@ -295,7 +295,7 @@ final class VerifyCommand {
      */
     private static function baseUrl(EnvironmentDriver $driver): string {
         $result = $driver->captureWp([
-            'duo', 'assess-inventory', '--repo=' . $driver->repoPath(), '--format=json',
+            'wprism', 'assess-inventory', '--repo=' . $driver->repoPath(), '--format=json',
         ]);
         $inventory = ($result['exit'] ?? 1) === 0
             ? json_decode(trim((string) ($result['stdout'] ?? '')), true)
@@ -303,7 +303,7 @@ final class VerifyCommand {
         $url = null;
         if (is_array($inventory)) {
             foreach (['home', 'siteurl'] as $key) {
-                // `duo-assess-inventory/v1` carries both under `target`
+                // `wprism-assess-inventory/v1` carries both under `target`
                 // (agent/src/Assess/AssessInventory.php); `home` first
                 // because that is the URL WordPress serves pages at.
                 $candidate = $inventory['target'][$key] ?? null;
@@ -317,7 +317,7 @@ final class VerifyCommand {
             throw new CommandRefusalException(
                 'journey_base_url_missing',
                 'the target did not report the URL it serves, so a declared journey cannot be probed',
-                'confirm the target agent answers wp duo assess-inventory, then re-run duo verify'
+                'confirm the target agent answers wp wprism assess-inventory, then re-run wprism verify'
             );
         }
 
@@ -330,12 +330,12 @@ final class VerifyCommand {
      * @return array<string,mixed>
      */
     private static function targetPlan(EnvironmentDriver $driver): array {
-        $result = $driver->captureWp(['duo', 'plan', '--repo=' . $driver->repoPath(), '--format=json']);
+        $result = $driver->captureWp(['wprism', 'plan', '--repo=' . $driver->repoPath(), '--format=json']);
         if (($result['exit'] ?? 1) !== 0) {
             throw new CommandRefusalException(
                 'verify_plan_unavailable',
                 'the target could not produce the plan this verification re-reads, so convergence is unproven',
-                'run duo status ' . self::token($driver->name()) . ', repair the target, then re-run duo verify'
+                'run wprism status ' . self::token($driver->name()) . ', repair the target, then re-run wprism verify'
             );
         }
         $decoded = json_decode(trim((string) ($result['stdout'] ?? '')), true);
@@ -343,17 +343,17 @@ final class VerifyCommand {
             throw new CommandRefusalException(
                 'verify_plan_unavailable',
                 'the target returned plan output this build could not parse as JSON',
-                'upgrade the target agent, then re-run duo verify'
+                'upgrade the target agent, then re-run wprism verify'
             );
         }
 
         try {
-            return PlanContract::requireComplete($decoded, 'duo verify');
+            return PlanContract::requireComplete($decoded, 'wprism verify');
         } catch (\Throwable $incomplete) {
             throw new CommandRefusalException(
                 'verify_plan_incomplete',
                 'the target plan envelope is incomplete, so its emptiness cannot be read as convergence',
-                'upgrade the target agent to a build that emits the complete plan envelope, then re-run duo verify',
+                'upgrade the target agent to a build that emits the complete plan envelope, then re-run wprism verify',
                 [['detail' => 'plan envelope incomplete']],
                 $incomplete->getMessage()
             );
@@ -407,7 +407,7 @@ final class VerifyCommand {
         return new CommandRefusalException(
             'invalid_arguments',
             $message,
-            'duo verify <env> accepts --plan=<digest>, --limit=<1..200> and --format=json'
+            'wprism verify <env> accepts --plan=<digest>, --limit=<1..200> and --format=json'
         );
     }
 

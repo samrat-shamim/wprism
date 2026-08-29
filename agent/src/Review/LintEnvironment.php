@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/Pending.php';
@@ -9,7 +9,7 @@ require_once __DIR__ . '/../Repository/StateTreeWalker.php';
 
 /**
  * Every input `Lint::scan_tree()` reads from the ENVIRONMENT rather than from
- * the state tree, as one recordable, replayable value (`duo-lint-environment/v1`).
+ * the state tree, as one recordable, replayable value (`wprism-lint-environment/v1`).
  *
  * WP-2.4's premise was that `scan_tree()` is pure over (stateDir, Policy)
  * "except one `get_option('home')` read — the state tree records the value".
@@ -32,7 +32,7 @@ require_once __DIR__ . '/../Repository/StateTreeWalker.php';
  *   3. `parse_blocks()`, `get_shortcode_regex()`, `shortcode_parse_atts()` —
  *      WordPress's own parsing primitives (`Lint::scan_post_file()` and
  *      `scan_widget_blocks()`; `ShortcodeReferenceScanner::scan()`), which a
- *      host process does not have. `duo adapter-draft` already states this
+ *      host process does not have. `wprism adapter-draft` already states this
  *      boundary for itself (`cli/src/Adapter/AdapterDraft.php`,
  *      propose_block_shortcode_paths(): "unavailable in this pure process")
  *      and scans block markup by delimiter regex instead.
@@ -52,7 +52,7 @@ require_once __DIR__ . '/../Repository/StateTreeWalker.php';
  * `function_exists()` — and a scan that skips a class because the process
  * cannot perform it records the skip through `defer()`. A caller that prints
  * those deferrals cannot let silence read as "the tree is clean", the same
- * reason `duo manifest-validate` emits its deferred list on every run,
+ * reason `wprism manifest-validate` emits its deferred list on every run,
  * passing or failing (`cli/src/Adapter/ManifestValidate.php:26-31`).
  *
  * Two refusals keep a replay from being quietly SMALLER than the scan it
@@ -62,10 +62,10 @@ require_once __DIR__ . '/../Repository/StateTreeWalker.php';
  * bytes are not the ones the transcript was recorded over.
  */
 final class LintEnvironment {
-    public const FORMAT = 'duo-lint-environment/v1';
+    public const FORMAT = 'wprism-lint-environment/v1';
 
-    /** The `duo-adapter-probe/v1` envelope this class reads column types out of. */
-    public const PROBE_FORMAT = 'duo-adapter-probe/v1';
+    /** The `wprism-adapter-probe/v1` envelope this class reads column types out of. */
+    public const PROBE_FORMAT = 'wprism-adapter-probe/v1';
 
     /**
      * Live MySQL types whose value space is bounded tightly enough that a
@@ -146,8 +146,8 @@ final class LintEnvironment {
     /**
      * The live environment: WordPress answers, and every answer is kept.
      *
-     * `$probe` is an optional `duo-adapter-probe/v1` document
-     * (`wp duo adapter-probe --format=json`). It is read on BOTH sides — live
+     * `$probe` is an optional `wprism-adapter-probe/v1` document
+     * (`wp wprism adapter-probe --format=json`). It is read on BOTH sides — live
      * and host — rather than having the live side read `SHOW COLUMNS` itself,
      * because a live-only type source would make the two verbs' findings
      * differ for a reason that has nothing to do with the state tree.
@@ -179,30 +179,30 @@ final class LintEnvironment {
     public static function recorded(array $document): self {
         if (($document['format'] ?? null) !== self::FORMAT) {
             throw new \RuntimeException(
-                'duo: lint environment must be a ' . self::FORMAT . ' document (wp duo lint --emit-environment=<file>)'
+                'wprism: lint environment must be a ' . self::FORMAT . ' document (wp wprism lint --emit-environment=<file>)'
             );
         }
         if (!is_string($document['home'] ?? null)) {
-            throw new \RuntimeException('duo: lint environment has no recorded home URL');
+            throw new \RuntimeException('wprism: lint environment has no recorded home URL');
         }
         $entities = [];
         foreach ((array) ($document['entities'] ?? []) as $row) {
             if (!is_array($row) || !is_int($row['id'] ?? null) || (int) $row['id'] <= 0
                 || !array_key_exists('resolved', $row)) {
                 throw new \RuntimeException(
-                    'duo: lint environment entity rows must be {id:<positive int>, resolved:<match|null>}'
+                    'wprism: lint environment entity rows must be {id:<positive int>, resolved:<match|null>}'
                 );
             }
             $resolved = $row['resolved'];
             if ($resolved !== null) {
                 if (!is_array($resolved)) {
-                    throw new \RuntimeException("duo: lint environment entity {$row['id']} has a non-object resolution");
+                    throw new \RuntimeException("wprism: lint environment entity {$row['id']} has a non-object resolution");
                 }
                 $fields = array_keys($resolved);
                 sort($fields, SORT_STRING);
                 if ($fields !== ['id', 'kind', 'post_type', 'title']) {
                     throw new \RuntimeException(
-                        "duo: lint environment entity {$row['id']} carries a resolution outside the "
+                        "wprism: lint environment entity {$row['id']} carries a resolution outside the "
                         . 'Pending::resolve_id() shape (kind, id, title, post_type)'
                     );
                 }
@@ -226,12 +226,12 @@ final class LintEnvironment {
         $columnTypes = [];
         foreach ((array) ($document['column_types'] ?? []) as $table => $columns) {
             if (!is_string($table) || !is_array($columns)) {
-                throw new \RuntimeException('duo: lint environment column_types must be table => column => type');
+                throw new \RuntimeException('wprism: lint environment column_types must be table => column => type');
             }
             foreach ($columns as $column => $type) {
                 if (!is_string($column) || !is_string($type)) {
                     throw new \RuntimeException(
-                        "duo: lint environment column_types['$table'] must map column names to live type strings"
+                        "wprism: lint environment column_types['$table'] must map column names to live type strings"
                     );
                 }
                 $columnTypes[$table][$column] = $type;
@@ -240,18 +240,18 @@ final class LintEnvironment {
         $scanned = (array) ($document['scanned'] ?? []);
         if (!is_bool($scanned['blocks'] ?? null) || !is_bool($scanned['shortcodes'] ?? null)) {
             throw new \RuntimeException(
-                'duo: lint environment must record scanned.blocks and scanned.shortcodes — a replay that cannot '
+                'wprism: lint environment must record scanned.blocks and scanned.shortcodes — a replay that cannot '
                 . 'say whether the recording process parsed blocks cannot say what its finding set omits'
             );
         }
         $probeHash = $document['probe_hash'] ?? null;
         if ($probeHash !== null && !is_string($probeHash)) {
-            throw new \RuntimeException('duo: lint environment probe_hash must be a string or null');
+            throw new \RuntimeException('wprism: lint environment probe_hash must be a string or null');
         }
         $stateHash = $document['state_hash'] ?? null;
         if (!is_string($stateHash) || preg_match('/^sha256:[0-9a-f]{64}$/D', $stateHash) !== 1) {
             throw new \RuntimeException(
-                'duo: lint environment has no canonical state_hash, so nothing could check that this transcript '
+                'wprism: lint environment has no canonical state_hash, so nothing could check that this transcript '
                 . 'describes the tree being scanned'
             );
         }
@@ -290,9 +290,9 @@ final class LintEnvironment {
         }
         if (!$this->live) {
             throw new \RuntimeException(
-                "duo: lint environment has no recorded answer for id $id — this transcript was recorded under a "
+                "wprism: lint environment has no recorded answer for id $id — this transcript was recorded under a "
                 . 'different policy, so the scan is asking a question the recording never asked. Re-run '
-                . '`wp duo lint --repo=<repo> --emit-environment=<file>` against the same tree; guessing null here '
+                . '`wp wprism lint --repo=<repo> --emit-environment=<file>` against the same tree; guessing null here '
                 . 'would report FEWER findings than the live scan'
             );
         }
@@ -379,9 +379,9 @@ final class LintEnvironment {
         $actual = self::state_hash($stateDir);
         if (!hash_equals($this->stateHash, $actual)) {
             throw new \RuntimeException(
-                'duo: this lint environment was recorded over a different state tree (' . $this->stateHash
+                'wprism: this lint environment was recorded over a different state tree (' . $this->stateHash
                 . ' recorded, ' . $actual . ' on disk). Findings replayed against other bytes are not the findings '
-                . 'the live scan produced — re-run `wp duo lint --repo=<repo> --emit-environment=<file>`'
+                . 'the live scan produced — re-run `wp wprism lint --repo=<repo> --emit-environment=<file>`'
             );
         }
     }
@@ -397,7 +397,7 @@ final class LintEnvironment {
         foreach (StateTreeWalker::files($stateDir) as $file) {
             $digest = hash_file('sha256', $stateDir . '/' . $file['path']);
             if ($digest === false) {
-                throw new \RuntimeException('duo: lint could not read ' . $file['path'] . ' to digest the state tree');
+                throw new \RuntimeException('wprism: lint could not read ' . $file['path'] . ' to digest the state tree');
             }
             $files[$file['path']] = $digest;
         }
@@ -432,7 +432,7 @@ final class LintEnvironment {
     }
 
     /**
-     * `tables.<t>.columns.<c>.type` out of a `duo-adapter-probe/v1` document.
+     * `tables.<t>.columns.<c>.type` out of a `wprism-adapter-probe/v1` document.
      *
      * The self-hash is re-checked here against the same basis
      * `AdapterProbe::hash_document()` defines — canonical bytes of the document
@@ -453,25 +453,25 @@ final class LintEnvironment {
     public static function column_types_from_probe(array $probe): array {
         if (($probe['format'] ?? null) !== self::PROBE_FORMAT) {
             throw new \RuntimeException(
-                'duo: lint --evidence expects a ' . self::PROBE_FORMAT
-                . ' document (`wp duo adapter-probe --format=json`)'
+                'wprism: lint --evidence expects a ' . self::PROBE_FORMAT
+                . ' document (`wp wprism adapter-probe --format=json`)'
             );
         }
         if (($probe['authority'] ?? null) !== false) {
             throw new \RuntimeException(
-                'duo: lint --evidence document must declare authority:false; a probe reports live facts and '
+                'wprism: lint --evidence document must declare authority:false; a probe reports live facts and '
                 . 'ratifies nothing'
             );
         }
         $hash = $probe['probe_hash'] ?? null;
         if (!is_string($hash) || preg_match('/^sha256:[0-9a-f]{64}$/D', $hash) !== 1) {
-            throw new \RuntimeException('duo: lint --evidence document has no canonical probe_hash');
+            throw new \RuntimeException('wprism: lint --evidence document has no canonical probe_hash');
         }
         $basis = $probe;
         unset($basis['probe_hash']);
         if (!hash_equals($hash, 'sha256:' . hash('sha256', Canon::encode($basis)))) {
             throw new \RuntimeException(
-                'duo: lint --evidence probe_hash does not describe the document; re-run `wp duo adapter-probe` '
+                'wprism: lint --evidence probe_hash does not describe the document; re-run `wp wprism adapter-probe` '
                 . 'rather than editing a probe by hand'
             );
         }

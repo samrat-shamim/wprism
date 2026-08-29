@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/Canon.php';
 
@@ -23,7 +23,7 @@ final class DurableFilesystem {
         clearstatcache(true, $path);
         $stat = @lstat($path);
         if (!is_array($stat) || !isset($stat['dev'], $stat['ino'])) {
-            throw new InitialStateBoundaryException('duo: initial publication path identity is unavailable');
+            throw new InitialStateBoundaryException('wprism: initial publication path identity is unavailable');
         }
         $identity = [
             'type' => $type,
@@ -32,16 +32,16 @@ final class DurableFilesystem {
         ];
         if ($type === 'file') {
             if (is_link($path) || !is_file($path)) {
-                throw new InitialStateBoundaryException('duo: initial publication regular file changed type');
+                throw new InitialStateBoundaryException('wprism: initial publication regular file changed type');
             }
             $digest = @hash_file('sha256', $path);
             if (!is_string($digest)) {
-                throw new InitialStateBoundaryException('duo: initial publication regular file could not be hashed');
+                throw new InitialStateBoundaryException('wprism: initial publication regular file could not be hashed');
             }
             $identity['sha256'] = $digest;
         } elseif ($type === 'link') {
             if (!is_link($path)) {
-                throw new InitialStateBoundaryException('duo: initial publication link changed type');
+                throw new InitialStateBoundaryException('wprism: initial publication link changed type');
             }
         }
         return $identity;
@@ -57,7 +57,7 @@ final class DurableFilesystem {
         $stat = @lstat($probe);
         $mode = is_array($stat) ? (int) ($stat['mode'] ?? 0) : 0;
         if (is_array($stat) && ($mode & 0170000) === 0120000) {
-            throw new \RuntimeException("duo: refusing to operate on symlinked $label root $path");
+            throw new \RuntimeException("wprism: refusing to operate on symlinked $label root $path");
         }
     }
 
@@ -65,7 +65,7 @@ final class DurableFilesystem {
     public static function treeDigest(string $directory): string {
         self::assertRoot($directory, 'capture tree');
         if (!is_dir($directory)) {
-            throw new \RuntimeException("duo: cannot hash missing tree $directory");
+            throw new \RuntimeException("wprism: cannot hash missing tree $directory");
         }
         $files = [];
         $iterator = new \RecursiveIteratorIterator(
@@ -74,7 +74,7 @@ final class DurableFilesystem {
         foreach ($iterator as $file) {
             if ($file->isLink()) {
                 throw new \RuntimeException(
-                    "duo: refusing to hash symlink in capture tree: {$file->getPathname()}"
+                    "wprism: refusing to hash symlink in capture tree: {$file->getPathname()}"
                 );
             }
             if ($file->isFile()) {
@@ -122,16 +122,16 @@ final class DurableFilesystem {
     /** @param array{root:array<string,string>,entries:list<array<string,mixed>>} $manifest */
     public static function assertOwned(string $path, array $manifest, string $label): void {
         if (Canon::encode(self::ownershipManifest($path)) !== Canon::encode($manifest)) {
-            throw new InitialStateBoundaryException("duo: $label changed after Duo created it; preserving it");
+            throw new InitialStateBoundaryException("wprism: $label changed after WPrism created it; preserving it");
         }
     }
 
     /** @param array{root:array<string,string>,entries:list<array<string,mixed>>} $manifest */
     public static function removeOwned(string $path, array $manifest, string $label): void {
         self::assertOwned($path, $manifest, $label);
-        $claim = dirname($path) . '/.' . basename($path) . '.duo-claim-' . bin2hex(random_bytes(8));
+        $claim = dirname($path) . '/.' . basename($path) . '.wprism-claim-' . bin2hex(random_bytes(8));
         if (!@rename($path, $claim)) {
-            throw new InitialStateBoundaryException("duo: could not claim $label for compensation");
+            throw new InitialStateBoundaryException("wprism: could not claim $label for compensation");
         }
         try {
             self::assertOwned($claim, $manifest, $label);
@@ -168,18 +168,18 @@ final class DurableFilesystem {
 
     private static function syncHandle(string $path, int $expectedType, string $label): void {
         if (!function_exists('fsync')) {
-            throw new \RuntimeException("duo: durable $label sync is unavailable on this platform");
+            throw new \RuntimeException("wprism: durable $label sync is unavailable on this platform");
         }
         clearstatcache(true, $path);
         $named = @lstat($path);
         if (!is_array($named)
             || is_link($path)
             || (((int) ($named['mode'] ?? 0)) & 0170000) !== $expectedType) {
-            throw new \RuntimeException("duo: durable $label sync target is missing or changed type");
+            throw new \RuntimeException("wprism: durable $label sync target is missing or changed type");
         }
         $handle = @fopen($path, 'rb');
         if (!is_resource($handle)) {
-            throw new \RuntimeException("duo: durable $label sync target could not be opened");
+            throw new \RuntimeException("wprism: durable $label sync target could not be opened");
         }
         try {
             $opened = @fstat($handle);
@@ -187,7 +187,7 @@ final class DurableFilesystem {
                 || (string) ($opened['dev'] ?? '') !== (string) ($named['dev'] ?? '')
                 || (string) ($opened['ino'] ?? '') !== (string) ($named['ino'] ?? '')
                 || @fsync($handle) !== true) {
-                throw new \RuntimeException("duo: durable $label sync did not complete on the witnessed inode");
+                throw new \RuntimeException("wprism: durable $label sync did not complete on the witnessed inode");
             }
         } finally {
             fclose($handle);

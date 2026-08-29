@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-// DUO-3295: offline certification for encrypted checkpoint preparation,
+// issue #3295: offline certification for encrypted checkpoint preparation,
 // exact database restore ordering, prior verification, and retention.
 
 require dirname(__DIR__, 4) . '/recovery/rollback-control.php';
@@ -11,14 +11,14 @@ require dirname(__DIR__, 4) . '/cli/src/Transport/SshTransport.php';
 require dirname(__DIR__, 4) . '/cli/src/Recovery/RollbackAuthority.php';
 require dirname(__DIR__, 4) . '/cli/src/Recovery/ScopedRollbackProfile.php';
 
-use Duo\Orchestrator\RollbackAuthority;
-use Duo\Orchestrator\ScopedRollbackProfile;
-use Duo\Orchestrator\SshTransport;
-use Duo\Recovery\CheckpointBundle;
-use Duo\Recovery\RecoveryExecutor;
-use Duo\Recovery\RollbackControl;
+use WPrism\Orchestrator\RollbackAuthority;
+use WPrism\Orchestrator\ScopedRollbackProfile;
+use WPrism\Orchestrator\SshTransport;
+use WPrism\Recovery\CheckpointBundle;
+use WPrism\Recovery\RecoveryExecutor;
+use WPrism\Recovery\RollbackControl;
 
-$tmp = sys_get_temp_dir() . '/duo-checkpoint-regress-' . bin2hex(random_bytes(8));
+$tmp = sys_get_temp_dir() . '/wprism-checkpoint-regress-' . bin2hex(random_bytes(8));
 $keyId = 'checkpoint-test-key';
 $keypair = sodium_crypto_sign_keypair();
 $secret = sodium_crypto_sign_secretkey($keypair);
@@ -42,14 +42,14 @@ function checkpoint_write(string $path, string $bytes, int $mode = 0600): void {
 }
 /** @return array<string,mixed> */
 function checkpoint_signed_submit(string $root, array $payload, string $keyId, string $secret): array {
-    $path = tempnam(sys_get_temp_dir(), 'duo-checkpoint-request-');
+    $path = tempnam(sys_get_temp_dir(), 'wprism-checkpoint-request-');
     if ($path === false) checkpoint_fail('could not allocate checkpoint request');
     checkpoint_write($path, RollbackControl::canonical(RollbackControl::sign($payload, $keyId, $secret)) . "\n");
     try { return CheckpointBundle::handleRequest($root, $path); } finally { @unlink($path); }
 }
 /** @return array<string,mixed> */
 function checkpoint_exclusion_submit(string $root, array $payload, string $keyId, string $secret): array {
-    $path = tempnam(sys_get_temp_dir(), 'duo-exclusion-request-');
+    $path = tempnam(sys_get_temp_dir(), 'wprism-exclusion-request-');
     if ($path === false) checkpoint_fail('could not allocate exclusion request');
     checkpoint_write($path, RollbackControl::canonical(RollbackControl::sign($payload, $keyId, $secret)) . "\n");
     try { return RecoveryExecutor::handleExclusionRequest($root, $path); } finally { @unlink($path); }
@@ -57,7 +57,7 @@ function checkpoint_exclusion_submit(string $root, array $payload, string $keyId
 /** @return array<string,mixed> */
 function checkpoint_authority_submit(string $root, array $event, ?array $receipt, string $keyId, string $secret): array {
     $request = ['action' => $receipt === null ? 'append' : 'claim', 'event' => RollbackControl::sign($event, $keyId, $secret), 'receipt' => $receipt === null ? null : RollbackControl::sign($receipt, $keyId, $secret)];
-    $path = tempnam(sys_get_temp_dir(), 'duo-authority-request-');
+    $path = tempnam(sys_get_temp_dir(), 'wprism-authority-request-');
     if ($path === false) checkpoint_fail('could not allocate authority request');
     checkpoint_write($path, RollbackControl::canonical($request) . "\n");
     try { return RollbackControl::handleRequest($root, $path); } finally { @unlink($path); }
@@ -83,7 +83,7 @@ function checkpoint_request(array $identity, string $action, string $timestamp):
     return [
         'action' => $action, 'artifact_hash' => $identity['artifact_hash'],
         'claim_epoch' => 1, 'claimant' => 'worker-a',
-        'encryption_key_id' => 'kms-fixture-key', 'format' => 'duo-checkpoint-request/v1',
+        'encryption_key_id' => 'kms-fixture-key', 'format' => 'wprism-checkpoint-request/v1',
         'generation' => 1, 'owner' => 'controller:test',
         'receipt_id' => str_repeat('c', 48), 'retention_until' => '2020-01-02T00:00:00Z',
         'target_id' => $identity['target_id'], 'timestamp' => $timestamp,
@@ -94,10 +94,10 @@ function checkpoint_scoped_plan(string $artifactHash, string $scopeHash, string 
     $hash = static fn(string $value): string => hash('sha256', $seed . ':' . $value);
     return [
         'artifact_hash' => $artifactHash,
-        'format' => 'duo-scoped-plan/v1',
+        'format' => 'wprism-scoped-plan/v1',
         'resolved_adapters' => [['name' => 'fixture-db', 'version' => '1.0.0']],
         'scope' => [
-            'format' => 'duo-scope-contract/v1',
+            'format' => 'wprism-scope-contract/v1',
             'scope_hash' => $scopeHash,
             'source_artifact_hash' => $artifactHash,
         ],
@@ -127,7 +127,7 @@ function checkpoint_scoped_terminal(string $seed): array {
         'selected_ledger_map_hash' => $hash('selected-map'),
         'session_id' => 'scoped-session-' . $seed,
     ];
-    $terminal['terminal_hash'] = hash('sha256', \Duo\Canon::encode($terminal));
+    $terminal['terminal_hash'] = hash('sha256', \WPrism\Canon::encode($terminal));
     return $terminal;
 }
 
@@ -136,16 +136,16 @@ $exclusionSource = <<<'PHP'
 <?php
 declare(strict_types=1);
 function ec(array $v): string { ksort($v,SORT_STRING); foreach($v as $k=>$x) if(is_array($x)) $v[$k]=json_decode(ec($x),true); return json_encode($v,JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR); }
-$r=json_decode((string)stream_get_contents(STDIN),true,512,JSON_THROW_ON_ERROR); if(($r['format']??'')!=='duo-exclusion-provider-request/v2')exit(42); $p=$argv[1]; $a=$r['action']; $s=is_file($p)?json_decode((string)file_get_contents($p),true):null;
+$r=json_decode((string)stream_get_contents(STDIN),true,512,JSON_THROW_ON_ERROR); if(($r['format']??'')!=='wprism-exclusion-provider-request/v2')exit(42); $p=$argv[1]; $a=$r['action']; $s=is_file($p)?json_decode((string)file_get_contents($p),true):null;
 if($a==='probe'){ $token=null;$state='ready'; } elseif($a==='acquire'){ $token=$s['token']??('held-'.hash('sha256',ec($r)));$state='held';file_put_contents($p,ec(['state'=>'held','token'=>$token])."\n"); } else { if(!is_array($s)||$s['state']!=='held'||$s['token']!==$r['token'])exit(41);$token=$s['token'];$state=$a==='release'?'released':'held'; }
-echo ec(['available'=>true,'disconnect_behavior'=>'remain_excluded','format'=>'duo-exclusion-provider-response/v2','provider_id'=>'checkpoint-exclusion','provider_version'=>'1.0.0','scopes'=>['background_jobs'=>true,'database_writers'=>true,'filesystem_writers'=>true,'package_updates'=>true,'public_traffic'=>true],'state'=>$state,'target_id'=>$r['target_id'],'token'=>$token])."\n";
+echo ec(['available'=>true,'disconnect_behavior'=>'remain_excluded','format'=>'wprism-exclusion-provider-response/v2','provider_id'=>'checkpoint-exclusion','provider_version'=>'1.0.0','scopes'=>['background_jobs'=>true,'database_writers'=>true,'filesystem_writers'=>true,'package_updates'=>true,'public_traffic'=>true],'state'=>$state,'target_id'=>$r['target_id'],'token'=>$token])."\n";
 PHP;
 
 $adapterSource = <<<'PHP'
 #!/usr/bin/env php
 <?php
 declare(strict_types=1);
-$r=json_decode((string)stream_get_contents(STDIN),true,512,JSON_THROW_ON_ERROR);$o=['adapter'=>$r['adapter'],'adapter_version'=>'1.0.0','available'=>true,'format'=>'duo-recovery-adapter-response/v1','input_sha256'=>$r['input_sha256'],'loads_site_code'=>false,'result_sha256'=>null,'status'=>'ready'];ksort($o);echo json_encode($o,JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR)."\n";
+$r=json_decode((string)stream_get_contents(STDIN),true,512,JSON_THROW_ON_ERROR);$o=['adapter'=>$r['adapter'],'adapter_version'=>'1.0.0','available'=>true,'format'=>'wprism-recovery-adapter-response/v1','input_sha256'=>$r['input_sha256'],'loads_site_code'=>false,'result_sha256'=>null,'status'=>'ready'];ksort($o);echo json_encode($o,JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR)."\n";
 PHP;
 
 try {
@@ -159,14 +159,14 @@ try {
     checkpoint_write($exclusion, $exclusionSource . "\n", 0700); checkpoint_write($adapter, $adapterSource . "\n", 0700);
     checkpoint_write($dbSource, "CREATE TABLE prior_state (id INT);\nINSERT INTO prior_state VALUES (7);\n");
     checkpoint_write($kmsKey, base64_encode(random_bytes(SODIUM_CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES)) . "\n");
-    $root = $tmp . '/host/.duo/control'; $initial = RollbackControl::initialize($root); RollbackControl::installPublicKey($root, $keyId, base64_encode($public));
+    $root = $tmp . '/host/.wprism/control'; $initial = RollbackControl::initialize($root); RollbackControl::installPublicKey($root, $keyId, base64_encode($public));
     $commands=[]; foreach(['code_restore','database_restore','prior_verify','storage_restore'] as $name)$commands[$name]=[PHP_BINARY,$adapter];
-    $config=['adapters'=>$commands,'checkpoint_provider'=>[PHP_BINARY,$provider,$providerState,$dbSource,$kmsKey],'exclusion_provider'=>[PHP_BINARY,$exclusion,$tmp.'/exclusion-state.json'],'format'=>'duo-recovery-config/v1','timeout_seconds'=>3];
+    $config=['adapters'=>$commands,'checkpoint_provider'=>[PHP_BINARY,$provider,$providerState,$dbSource,$kmsKey],'exclusion_provider'=>[PHP_BINARY,$exclusion,$tmp.'/exclusion-state.json'],'format'=>'wprism-recovery-config/v1','timeout_seconds'=>3];
     $configPath=$tmp.'/config.json';checkpoint_write($configPath,RollbackControl::canonical($config)."\n");RecoveryExecutor::configureFromFile($root,$configPath);
     $probe=RecoveryExecutor::probe($root);checkpoint_ok(($probe['checkpoint']['streaming_authenticated_encryption']??false)===true,'preflight requires streaming authenticated encryption and no durable plaintext');
 
     $artifactHash=hash('sha256','new-artifact');$baseIdentity=['artifact_hash'=>$artifactHash,'target_id'=>$initial['target_id']];
-    $exclusionPayload=['action'=>'acquire','artifact_hash'=>$artifactHash,'claim_epoch'=>1,'claimant'=>'worker-a','format'=>'duo-exclusion-request/v1','generation'=>1,'owner'=>'controller:test','receipt_id'=>str_repeat('c',48),'target_id'=>$initial['target_id'],'timestamp'=>'2020-01-01T00:00:00Z'];
+    $exclusionPayload=['action'=>'acquire','artifact_hash'=>$artifactHash,'claim_epoch'=>1,'claimant'=>'worker-a','format'=>'wprism-exclusion-request/v1','generation'=>1,'owner'=>'controller:test','receipt_id'=>str_repeat('c',48),'target_id'=>$initial['target_id'],'timestamp'=>'2020-01-01T00:00:00Z'];
     checkpoint_exclusion_submit($root,$exclusionPayload,$keyId,$secret);
     $wrong=checkpoint_request($baseIdentity,'prepare','2020-01-01T00:00:00Z');$wrong['target_id']=str_repeat('f',32);
     checkpoint_refuses(fn()=>checkpoint_signed_submit($root,$wrong,$keyId,$secret),'wrong target checkpoint preparation refuses before export');
@@ -211,7 +211,7 @@ try {
     $tombstone=(string)file_get_contents(dirname($root).'/rollback/'.str_repeat('c',48).'/checkpoint-tombstone.json');checkpoint_ok(!str_contains($tombstone,'CREATE TABLE')&&!str_contains($tombstone,trim((string)file_get_contents($kmsKey))),'audit tombstone is hash-only and contains no plaintext/key material');
     checkpoint_ok(str_contains($tombstone,'logical-delete-provider-limited'),'tombstone reports provider physical-erasure limits honestly');
 
-    $controllerRoot=$tmp.'/controller-host/.duo/control';RollbackControl::initialize($controllerRoot);RollbackControl::installPublicKey($controllerRoot,$keyId,base64_encode($public));$installedRuntime=$controllerRoot.'/recovery-runtime';mkdir($installedRuntime,0700);foreach(['CanonicalJson.php','AtomicStore.php','ProtocolLock.php','ProviderClient.php','rollback-control.php','RecoveryExecutor.php','CheckpointBundle.php','CodeRelease.php','UploadBundle.php','EffectBundle.php'] as $runtimeFile)copy(dirname(__DIR__,4).'/recovery/'.$runtimeFile,$installedRuntime.'/'.$runtimeFile);
+    $controllerRoot=$tmp.'/controller-host/.wprism/control';RollbackControl::initialize($controllerRoot);RollbackControl::installPublicKey($controllerRoot,$keyId,base64_encode($public));$installedRuntime=$controllerRoot.'/recovery-runtime';mkdir($installedRuntime,0700);foreach(['CanonicalJson.php','AtomicStore.php','ProtocolLock.php','ProviderClient.php','rollback-control.php','RecoveryExecutor.php','CheckpointBundle.php','CodeRelease.php','UploadBundle.php','EffectBundle.php'] as $runtimeFile)copy(dirname(__DIR__,4).'/recovery/'.$runtimeFile,$installedRuntime.'/'.$runtimeFile);
     $controllerConfig=$config;$controllerConfig['checkpoint_provider']=[PHP_BINARY,$provider,$tmp.'/controller-provider-state',$dbSource,$kmsKey];$controllerConfig['exclusion_provider']=[PHP_BINARY,$exclusion,$tmp.'/controller-exclusion.json'];$controllerConfigPath=$tmp.'/controller-config.json';checkpoint_write($controllerConfigPath,RollbackControl::canonical($controllerConfig)."\n");RecoveryExecutor::configureFromFile($controllerRoot,$controllerConfigPath);
     $signingPath=$tmp.'/controller-signing.key';checkpoint_write($signingPath,base64_encode($secret)."\n");$fakeBin=$tmp.'/fake-bin';mkdir($fakeBin,0700);checkpoint_write($fakeBin.'/ssh',"#!/bin/sh\n[ \"\$1\" = -T ] && shift\nshift\nexec /bin/sh -c \"\$1\"\n",0700);checkpoint_write($fakeBin.'/scp',"#!/bin/sh\nsrc=\$1\ndest=\$2\ntarget=\${dest#*:}\ncp \"\$src\" \"\$target\"\n",0700);putenv('PATH='.$fakeBin.':'.getenv('PATH'));
     $transport=new SshTransport('checkpoint-controller',['transport'=>'ssh','host'=>'fixture-host','wp_path'=>$tmp.'/unused-wordpress','repo_path'=>$tmp.'/controller-host','rollback_key_id'=>$keyId,'rollback_signing_key'=>$signingPath,'rollback_recovery'=>['adapters'=>$commands,'checkpoint_provider'=>[PHP_BINARY,$provider,$tmp.'/controller-provider-state',$dbSource,$kmsKey],'exclusion_provider'=>[PHP_BINARY,$exclusion,$tmp.'/controller-exclusion.json'],'timeout_seconds'=>3]]);
@@ -233,13 +233,13 @@ try {
     $verifiedController=$authority->runOperation('verifying_prior','prior_verify',1,$controllerVerify,'2020-02-01T00:00:06Z','2020-02-01T00:00:07Z');
     checkpoint_ok(($verifiedController['execution']['ok']??false)===true,'fresh SSH controller executes and completes exact prior-world verification');
     $authority->append('rolled_back','state_transition','controller-rolled-back',1,'controller-worker',$hash('controller-rolled-back'),str_repeat('0',64),'2020-02-01T00:00:08Z');
-    $controllerDeleted=$authority->deleteCheckpoint('2020-02-03T00:00:00Z');checkpoint_ok(($controllerDeleted['ok']??false)===true&&($controllerDeleted['format']??'')==='duo-checkpoint-tombstone/v1','controller signs terminal retention deletion and receives the exact tombstone');
+    $controllerDeleted=$authority->deleteCheckpoint('2020-02-03T00:00:00Z');checkpoint_ok(($controllerDeleted['ok']??false)===true&&($controllerDeleted['format']??'')==='wprism-checkpoint-tombstone/v1','controller signs terminal retention deletion and receives the exact tombstone');
 
-    // DUO-3344: checkpoint-only scoped promotion deliberately configures no
+    // issue #3344: checkpoint-only scoped promotion deliberately configures no
     // code/upload/effect provider.  The independent receipt remains fully
     // recoverable across controller response loss and target-plan drift.
     $scopedHost = $tmp . '/scoped-controller-host';
-    $scopedRoot = $scopedHost . '/.duo/control';
+    $scopedRoot = $scopedHost . '/.wprism/control';
     RollbackControl::initialize($scopedRoot);
     RollbackControl::installPublicKey($scopedRoot, $keyId, base64_encode($public));
     $scopedRuntime = $scopedRoot . '/recovery-runtime';
@@ -333,7 +333,7 @@ try {
     checkpoint_ok(($scopedProfile->startPromotion()['state'] ?? '') === 'promoting',
         'scoped promotion start is state-idempotent');
     $promotingWitness = RecoveryExecutor::scopedPromotionWitness($scopedRoot);
-    checkpoint_ok(($promotingWitness['format'] ?? '') === 'duo-scoped-promotion-witness/v1'
+    checkpoint_ok(($promotingWitness['format'] ?? '') === 'wprism-scoped-promotion-witness/v1'
         && ($promotingWitness['state'] ?? '') === 'promoting'
         && ($promotingWitness['terminal'] ?? null) === false
         && ($promotingWitness['allow_deletes'] ?? null) === false
@@ -429,7 +429,7 @@ try {
         'artifact_hash' => (string) $sealedTarget['artifact_hash'],
         'claim_epoch' => (int) $sealedTarget['claim_epoch'],
         'claimant' => (string) $sealedTarget['claimant'],
-        'format' => 'duo-exclusion-request/v1',
+        'format' => 'wprism-exclusion-request/v1',
         'generation' => (int) $sealedTarget['generation'],
         'owner' => (string) $sealedTarget['owner'],
         'receipt_id' => (string) $sealedTarget['receipt_id'],
@@ -456,7 +456,7 @@ try {
     // An independently prepared operation is never enough to seal success.
     // This separate root remains intentionally nonterminal after the refusal.
     $openHost = $tmp . '/scoped-open-controller-host';
-    $openRoot = $openHost . '/.duo/control';
+    $openRoot = $openHost . '/.wprism/control';
     RollbackControl::initialize($openRoot);
     RollbackControl::installPublicKey($openRoot, $keyId, base64_encode($public));
     $openRuntime = $openRoot . '/recovery-runtime';
@@ -488,7 +488,7 @@ try {
     $openProfile->claim($scopedPlan, $scopeHash, $scopedOwner, $scopedClaimant, '2020-03-03T00:00:00Z');
     $openProfile->startPromotion();
     $openAuthority = new RollbackAuthority($openTransport);
-    $openAuthority->prepareScopedOperation('promoting', 'scoped_apply', 1, ['format' => 'duo-open-scoped-apply/v1']);
+    $openAuthority->prepareScopedOperation('promoting', 'scoped_apply', 1, ['format' => 'wprism-open-scoped-apply/v1']);
     checkpoint_refuses(fn() => $openProfile->sealCommit(),
         'profile commit seal refuses an open scoped_apply operation without state mutation');
     checkpoint_ok(($openProfile->status()['state'] ?? '') === 'promoting'

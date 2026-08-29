@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for CodeOwnershipPruner (DUO-3350 slice 5: the removal-
+ * Offline regression for CodeOwnershipPruner (issue #3350 slice 5: the removal-
  * authority collaborator extracted from Code). Deliberately narrow, the same
  * wiring/shape idiom the earlier slices in this issue established: this file
  * does not re-implement or re-assert removal/pruning behavior in depth --
@@ -74,7 +74,7 @@ check(
 // own existing (path, roots) contract since slice 1, rather than reaching
 // back into Code::ROOTS.
 require_once $root . '/agent/src/Code/CodeOwnershipPruner.php';
-$pruner = new ReflectionClass(\Duo\CodeOwnershipPruner::class);
+$pruner = new ReflectionClass(\WPrism\CodeOwnershipPruner::class);
 check(
     array_map(static fn(ReflectionParameter $p): string => $p->getName(), $pruner->getMethod('remove_old_owned_files')->getParameters())
         === ['previous', 'staged', 'history', 'current', 'roots'],
@@ -106,7 +106,7 @@ foreach ([
 // established as safe/cheap in this offline suite), calling
 // CodeOwnershipPruner directly -- not through Code -- so this is a genuine
 // proof the class works independently, not merely correct on paper.
-$tmp = sys_get_temp_dir() . '/duo-code-ownership-pruner-' . bin2hex(random_bytes(6));
+$tmp = sys_get_temp_dir() . '/wprism-code-ownership-pruner-' . bin2hex(random_bytes(6));
 mkdir($tmp, 0777, true);
 define('WP_CONTENT_DIR', $tmp);
 mkdir(WP_CONTENT_DIR . '/plugins/kept', 0777, true);
@@ -128,16 +128,16 @@ $current = [
         ['path' => 'plugins/kept/kept.php', 'sha256' => hash_file('sha256', WP_CONTENT_DIR . '/plugins/kept/kept.php')],
     ],
 ];
-$removed = \Duo\CodeOwnershipPruner::remove_old_owned_files($previous, null, [], $current, $roots);
+$removed = \WPrism\CodeOwnershipPruner::remove_old_owned_files($previous, null, [], $current, $roots);
 check($removed === ['plugins/stale/stale.php'], 'remove_old_owned_files() removes only the file the current descriptor dropped: got ' . json_encode($removed));
 check(!file_exists(WP_CONTENT_DIR . '/plugins/stale'), 'remove_old_owned_files() removes the now-empty stale directory too');
 check(file_exists(WP_CONTENT_DIR . '/plugins/kept/kept.php'), 'remove_old_owned_files() never touches a still-owned file');
 
-$extras = \Duo\CodeOwnershipPruner::owned_extra_files($current);
+$extras = \WPrism\CodeOwnershipPruner::owned_extra_files($current);
 check($extras === [], 'owned_extra_files() finds nothing unrecorded once the stale file is gone: got ' . json_encode($extras));
 
 file_put_contents(WP_CONTENT_DIR . '/plugins/kept/untracked.php', '<?php // never recorded');
-$extrasAfter = \Duo\CodeOwnershipPruner::owned_extra_files($current);
+$extrasAfter = \WPrism\CodeOwnershipPruner::owned_extra_files($current);
 check($extrasAfter === ['plugins/kept/untracked.php'], 'owned_extra_files() reports a real unrecorded file inside an owned root: got ' . json_encode($extrasAfter));
 
 array_map('unlink', glob(WP_CONTENT_DIR . '/plugins/kept/*'));

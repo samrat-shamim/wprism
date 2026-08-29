@@ -4,7 +4,7 @@
 # never existed) from UNSCOPED (the target row genuinely exists, but its
 # post_type/taxonomy was never added to policy scope, so it was never
 # minted a uuid). Before this task, BOTH cases warn-and-dropped the whole
-# option silently (`duo capture` exited 0) — the exact
+# option silently (`wprism capture` exited 0) — the exact
 # elementor_active_kit-out-of-scope shape grind round R1-C
 # escalated (task #73). Only UNSCOPED is fixed here: it's a policy gap a human can
 # actually close, so it now aborts capture by default (same posture as the
@@ -19,11 +19,11 @@
 # wp_page_for_privacy_policy ({"class":"authored","ref":"post"}) and
 # sticky_posts ({"class":"authored","ref":"post[]"}) rules — no plugin,
 # no manifest change. Runs against the existing r1b1 environment (already
-# up for Grind R1-B) but touches NEITHER its real site.duo.json/git
+# up for Grind R1-B) but touches NEITHER its real site.wprism.json/git
 # history nor its ledger: every capture below targets a throwaway scratch
 # repo directory inside the same bind mount (`--repo=/siterepo/.tmp-*`,
 # `--out=.../state-out`, which Capture::run() documents as skipping ledger
-# updates) with its own minimal site.duo.json (policy.post_types has no
+# updates) with its own minimal site.wprism.json (policy.post_types has no
 # 'page' at all, so a real page can be deliberately out of scope without
 # touching r1b1's actual shop scope). One throwaway page is created and
 # deleted; wp_page_for_privacy_policy/sticky_posts are restored to their
@@ -48,7 +48,7 @@ ORIG_PRIVACY=$(wp1 option get wp_page_for_privacy_policy 2>/dev/null | tr -d '\r
 ORIG_STICKY=$(wp1 eval 'echo json_encode(get_option("sticky_posts", []));' 2>/dev/null | tail -1 | tr -d '\r')
 echo "original wp_page_for_privacy_policy=$ORIG_PRIVACY sticky_posts=$ORIG_STICKY (restored at the end)"
 
-PAGE_ID=$(wp1 post create --post_type=page --post_title='Duo R73 Scope Test Page' --post_status=publish --porcelain 2>/dev/null | tail -1 | tr -d '\r')
+PAGE_ID=$(wp1 post create --post_type=page --post_title='WPrism R73 Scope Test Page' --post_status=publish --porcelain 2>/dev/null | tail -1 | tr -d '\r')
 [ -n "$PAGE_ID" ] && [ "$PAGE_ID" -gt 0 ] 2>/dev/null || fail "failed to create the throwaway page (got: $PAGE_ID)"
 echo "throwaway page id: $PAGE_ID"
 
@@ -71,7 +71,7 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$HOST_REPO"
-cat > "$HOST_REPO/site.duo.json" <<'EOF'
+cat > "$HOST_REPO/site.wprism.json" <<'EOF'
 {
   "spec_version": 2,
   "manifests": ["core"],
@@ -121,11 +121,11 @@ pass "scratch repo ready at $HOST_REPO (policy.post_types has no 'page' — any 
 say "(1) UNSCOPED: wp_page_for_privacy_policy -> a REAL page whose post_type isn't in policy scope"
 wp1 option update wp_page_for_privacy_policy "$PAGE_ID" >/dev/null
 set +e
-OUT1=$(wp1 duo capture --repo="$REPO" --out="$OUT" 2>&1)
+OUT1=$(wp1 wprism capture --repo="$REPO" --out="$OUT" 2>&1)
 RC1=$?
 set -e
 echo "$OUT1"
-[ "$RC1" -ne 0 ] || fail "expected duo capture to ABORT (unscoped ref-typed option) — got exit 0"
+[ "$RC1" -ne 0 ] || fail "expected wprism capture to ABORT (unscoped ref-typed option) — got exit 0"
 grep -q "wp_page_for_privacy_policy" <<<"$OUT1" || fail "abort message doesn't name the option (got: $OUT1)"
 grep -q "$PAGE_ID" <<<"$OUT1" || fail "abort message doesn't name the raw unresolved id (got: $OUT1)"
 grep -qi "page" <<<"$OUT1" || fail "abort message doesn't name the missing post type (got: $OUT1)"
@@ -133,7 +133,7 @@ grep -q "force-unresolved-refs" <<<"$OUT1" || fail "abort message doesn't mentio
 pass "capture aborted loudly, naming the option, the raw id, the missing post type, and the escape hatch"
 
 say "(1b) same case, escape hatch: --force-unresolved-refs proceeds, drops it like a dangling ref"
-OUT1B=$(wp1 duo capture --repo="$REPO" --out="$OUT" --force-unresolved-refs 2>&1)
+OUT1B=$(wp1 wprism capture --repo="$REPO" --out="$OUT" --force-unresolved-refs 2>&1)
 echo "$OUT1B"
 grep -qi "success" <<<"$OUT1B" || fail "expected --force-unresolved-refs to let capture succeed (got: $OUT1B)"
 # NOT has()|not: wp_page_for_privacy_policy is policy-declared authored
@@ -153,7 +153,7 @@ pass "forced capture succeeded; option correctly recorded as absent (never a raw
 
 say "(2) DANGLING (regression, must be UNCHANGED): wp_page_for_privacy_policy -> an id that exists NOWHERE"
 wp1 option update wp_page_for_privacy_policy 999999999 >/dev/null
-OUT2=$(wp1 duo capture --repo="$REPO" --out="$OUT" 2>&1)
+OUT2=$(wp1 wprism capture --repo="$REPO" --out="$OUT" 2>&1)
 echo "$OUT2"
 grep -qi "success" <<<"$OUT2" || fail "expected a genuinely dangling ref to still warn-and-drop, not abort (got: $OUT2)"
 grep -q "999999999" <<<"$OUT2" || fail "expected the ordinary dangling warning naming the id (got: $OUT2)"
@@ -169,17 +169,17 @@ say "(3) UNSCOPED, array ref: sticky_posts -> [that same real, out-of-scope page
 wp1 eval "update_option('sticky_posts', [$PAGE_ID]);" >/dev/null
 wp1 option update wp_page_for_privacy_policy 0 >/dev/null
 set +e
-OUT3=$(wp1 duo capture --repo="$REPO" --out="$OUT" 2>&1)
+OUT3=$(wp1 wprism capture --repo="$REPO" --out="$OUT" 2>&1)
 RC3=$?
 set -e
 echo "$OUT3"
-[ "$RC3" -ne 0 ] || fail "expected duo capture to ABORT (unscoped ref-typed ARRAY option) — got exit 0"
+[ "$RC3" -ne 0 ] || fail "expected wprism capture to ABORT (unscoped ref-typed ARRAY option) — got exit 0"
 grep -q "sticky_posts" <<<"$OUT3" || fail "abort message doesn't name sticky_posts (got: $OUT3)"
 pass "array-ref option gets the identical loud-and-blocking treatment as the scalar case (acceptance criterion 3)"
 
 say "(3b) same array case, DANGLING element (regression, must be UNCHANGED)"
 wp1 eval "update_option('sticky_posts', [888888888]);" >/dev/null
-OUT3B=$(wp1 duo capture --repo="$REPO" --out="$OUT" 2>&1)
+OUT3B=$(wp1 wprism capture --repo="$REPO" --out="$OUT" 2>&1)
 echo "$OUT3B"
 grep -qi "success" <<<"$OUT3B" || fail "expected a dangling array element to still warn-and-drop (got: $OUT3B)"
 # Sweep note (unlike (1b)/(2) above, this one does NOT need the {state:
@@ -195,7 +195,7 @@ jq -e '.records.sticky_posts.value == []' "$HOST_OUT/options/core.json" >/dev/nu
 pass "dangling array element still drops just that element and exits 0 — unaffected by this fix"
 
 say "(4) NOT unscoped: a real, CORRECTLY-scoped target that this build simply hasn't minted a uuid for yet (Capture::snapshot()'s non-minting mode — plan/apply's drift check against a fresh target before its first capture). This is the exact false positive the core-manifest conformance sweep caught empirically (default_category on a never-captured env) — id_to_token() failing here is a MINTING fact, not a POLICY fact, and must not be read as unscoped."
-cat > "$HOST_REPO/site.duo.json" <<'EOF'
+cat > "$HOST_REPO/site.wprism.json" <<'EOF'
 {
   "spec_version": 2,
   "manifests": ["core"],
@@ -230,7 +230,7 @@ wp1 option update wp_page_for_privacy_policy "$PAGE_ID" >/dev/null
 # been minted a uuid — exactly the "in scope, not yet identified" case.
 #
 # Third aged layer (team-lead's v2 live run): unlike run() (steps 1-3b
-# above, via ordinary `wp duo capture --out=...`), whose own $previous
+# above, via ordinary `wp wprism capture --out=...`), whose own $previous
 # computation gates RepositoryCompiler::compile() behind
 # `is_dir($c->repo.'/state')` -- confirmed by reading Capture.php:130
 # directly, deliberately tolerant of "first capture, no prior state" --
@@ -264,11 +264,11 @@ wp1 option update wp_page_for_privacy_policy "$PAGE_ID" >/dev/null
 #
 # Sweep for the same exposure elsewhere in this script (team-lead's ask):
 # this is the ONLY step that evaluates snapshot()/plan/apply directly --
-# steps 1-3b all go through run() via the ordinary `wp duo capture` CLI
+# steps 1-3b all go through run() via the ordinary `wp wprism capture` CLI
 # path, gated as above. Step (4) is also the LAST step in the file (see
 # the closing pass() below) -- there is no step 5+ to sweep.
 mkdir -p "$HOST_REPO/state"
-SNAP_OUT=$(wp1 eval "try { \Duo\Capture::snapshot('$REPO'); echo 'OK'; } catch (\Throwable \$e) { echo 'THROWN: ' . \$e->getMessage(); }" 2>&1 | tail -1)
+SNAP_OUT=$(wp1 eval "try { \WPrism\Capture::snapshot('$REPO'); echo 'OK'; } catch (\Throwable \$e) { echo 'THROWN: ' . \$e->getMessage(); }" 2>&1 | tail -1)
 echo "$SNAP_OUT"
 grep -q '^OK' <<<"$SNAP_OUT" || fail "Capture::snapshot() (non-minting) incorrectly treated an in-scope-but-unminted page as UNSCOPED (got: $SNAP_OUT)"
 pass "non-minting snapshot correctly leaves an in-scope, not-yet-minted entity alone — scope is decided by policy membership, never by minting state"

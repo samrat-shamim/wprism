@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Pure safety grammar for user-meta rules.
@@ -25,7 +25,7 @@ final class UserMetaGrammar {
     ): void {
         foreach ((array) ($source['user_meta'] ?? []) as $key => $rule) {
             if (!is_array($rule)) {
-                throw new \RuntimeException("duo: $label user_meta.$key must be a rule object");
+                throw new \RuntimeException("wprism: $label user_meta.$key must be a rule object");
             }
             self::validate_user_meta_rule($rule, "$label user_meta.$key", $classes, $missingUserModes);
         }
@@ -48,26 +48,26 @@ final class UserMetaGrammar {
         $class = $rule['class'] ?? null;
         if (!in_array($class, $classes, true)) {
             throw new \RuntimeException(
-                "duo: $where has an invalid or missing class (expected " . implode('|', $classes) . ')'
+                "wprism: $where has an invalid or missing class (expected " . implode('|', $classes) . ')'
             );
         }
         if (isset($rule['allow_pii']) && !is_bool($rule['allow_pii'])) {
-            throw new \RuntimeException("duo: $where allow_pii must be a boolean");
+            throw new \RuntimeException("wprism: $where allow_pii must be a boolean");
         }
         if (isset($rule['allow_secret']) && !is_bool($rule['allow_secret'])) {
-            throw new \RuntimeException("duo: $where allow_secret must be a boolean");
+            throw new \RuntimeException("wprism: $where allow_secret must be a boolean");
         }
         if ($class !== 'authored' && (!empty($rule['allow_pii']) || !empty($rule['allow_secret']))) {
             throw new \RuntimeException(
-                "duo: $where PII/secret capture exceptions are valid only for class=authored"
+                "wprism: $where PII/secret capture exceptions are valid only for class=authored"
             );
         }
         if (isset($rule['missing_user'])) {
             if ($class !== 'authored') {
-                throw new \RuntimeException("duo: $where missing_user is valid only for class=authored");
+                throw new \RuntimeException("wprism: $where missing_user is valid only for class=authored");
             }
             if (!in_array($rule['missing_user'], $missingUserModes, true)) {
-                throw new \RuntimeException("duo: $where missing_user must be block or warn");
+                throw new \RuntimeException("wprism: $where missing_user must be block or warn");
             }
         }
     }

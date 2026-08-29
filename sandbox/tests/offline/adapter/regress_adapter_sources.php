@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline (no docker, no WordPress bootstrap) regression harness for
- * DUO-3314: out-of-tree adapter sources, overlay identity, the data-only
+ * issue #3314: out-of-tree adapter sources, overlay identity, the data-only
  * privilege boundary, and loud uncertified support.
  *
  * Everything under test is pure: AdapterSources::discover() is filesystem +
@@ -20,7 +20,7 @@
  * manifest directory with no dispositions and no capability registry cannot
  * demonstrate at all.
  *
- * What it does NOT depend on (DUO-3379) is where the repository happens to
+ * What it does NOT depend on (issue #3379) is where the repository happens to
  * sit in its certification cycle. Those real bytes are served from a scratch
  * copy whose certification evidence certified_library() re-seals against the
  * working tree, because the checked-in attestation legitimately expires on
@@ -39,9 +39,9 @@
 // WordPress supplies this in production. The offline harness exposes the same
 // switchable equivalent regress_adapter_contract.php uses, so Policy::load()'s
 // real v1 single-site gate runs without bootstrapping WordPress.
-$GLOBALS['duo_test_is_multisite'] = false;
+$GLOBALS['wprism_test_is_multisite'] = false;
 function is_multisite(): bool {
-    return (bool) $GLOBALS['duo_test_is_multisite'];
+    return (bool) $GLOBALS['wprism_test_is_multisite'];
 }
 
 require __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
@@ -56,15 +56,15 @@ require __DIR__ . '/../../../../agent/src/Repository/RepositoryAuthorization.php
 require __DIR__ . '/../../../../agent/src/Promotion/Deploy.php';
 require __DIR__ . '/../../../../cli/src/Plan/PlanSummary.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/ArtifactPolicyIdentity.php';
-// The shared hermetic-library fixture (extracted by DUO-3421 so
-// sandbox/tests/live/regress_duo_init.sh can mount the identical library into a
+// The shared hermetic-library fixture (extracted by issue #3421 so
+// sandbox/tests/live/regress_wprism_init.sh can mount the identical library into a
 // live pair). shipped_library() below is this suite's scratch-root wrapper.
 require __DIR__ . '/certification_fixture.php';
 
-use Duo\AdapterSources;
-use Duo\AdapterLibrary;
-use Duo\Canon;
-use Duo\RepositoryCompiler;
+use WPrism\AdapterSources;
+use WPrism\AdapterLibrary;
+use WPrism\Canon;
+use WPrism\RepositoryCompiler;
 
 /** Keep every legacy call site explicit without a process-global selector. */
 final class Policy {
@@ -73,7 +73,7 @@ final class Policy {
         ?array $manifestNames = null,
         bool $allowUnsupportedSiteForReadOnlyCapabilities = false,
         ?string $adapterRepo = null
-    ): \Duo\Policy {
+    ): \WPrism\Policy {
         return test_policy_load(
             $repo,
             $manifestNames,
@@ -85,12 +85,12 @@ final class Policy {
     public static function from_snapshot(
         array $snapshot,
         ?AdapterLibrary $adapterLibrary = null
-    ): \Duo\Policy {
+    ): \WPrism\Policy {
         return test_policy_from_snapshot($snapshot, $adapterLibrary);
     }
 
     public static function closed_vocabularies(): array {
-        return \Duo\Policy::closed_vocabularies();
+        return \WPrism\Policy::closed_vocabularies();
     }
 }
 
@@ -127,7 +127,7 @@ require __DIR__ . '/../../../../agent/src/Command/Cli.php';
 // The real shipped registry binds these exact platform values; the harness
 // must present the same agent it claims to be or every claim reads as stale.
 require_once __DIR__ . '/../../lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 
 $failures = 0;
 function check(bool $cond, string $msg): void {
@@ -174,7 +174,7 @@ function rm_rf(string $path): void {
 }
 
 function scratch(string $label): string {
-    $root = sys_get_temp_dir() . "/duo_regress_adapter_sources_{$label}_" . bin2hex(random_bytes(4));
+    $root = sys_get_temp_dir() . "/wprism_regress_adapter_sources_{$label}_" . bin2hex(random_bytes(4));
     mkdir($root, 0777, true);
     register_shutdown_function(fn() => rm_rf($root));
     return $root;
@@ -186,10 +186,10 @@ function scratch(string $label): string {
  */
 function fresh_site(array $pins, array $adapters = [], array $extraFiles = []): string {
     $root = scratch('repo');
-    Canon::write_file("$root/site.duo.json", Canon::encode([
+    Canon::write_file("$root/site.wprism.json", Canon::encode([
         'manifests' => $pins,
         'policy' => new \stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]));
     foreach ($adapters as $name => $content) {
         Canon::write_file(
@@ -211,14 +211,14 @@ function fresh_site(array $pins, array $adapters = [], array $extraFiles = []): 
 function site_adapter(string $name, array $extra = []): array {
     return $extra + [
         'name' => $name,
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
         'option_autoload' => 'preserve',
         'options' => ['acme_widget_layout' => ['class' => 'authored']],
     ];
 }
 
 function copy_tree(string $from, string $to): void {
-    duo_cert_copy_tree($from, $to);
+    wprism_cert_copy_tree($from, $to);
 }
 
 /**
@@ -227,7 +227,7 @@ function copy_tree(string $from, string $to): void {
  * trust root, byte for byte — under a scratch directory this suite owns.
  * Returns the manifest directory.
  *
- * Why a copy at all, now that there is nothing to re-derive. DUO-3379 built
+ * Why a copy at all, now that there is nothing to re-derive. issue #3379 built
  * this to re-seal certification evidence, because the checked-in attestation
  * bound the exact bytes of every certification-bound repository input and was
  * therefore EXPIRED on any branch that edited one — which put
@@ -252,31 +252,31 @@ function shipped_library(): string {
     if ($manifestDir !== null) {
         return $manifestDir;
     }
-    return $manifestDir = duo_cert_hermetic_library(dirname(__DIR__, 4), scratch('shipped-library'));
+    return $manifestDir = wprism_cert_hermetic_library(dirname(__DIR__, 4), scratch('shipped-library'));
 }
 
 /** Explicit legacy fixture readers, keyed by root. */
-$GLOBALS['duo_test_adapter_libraries'] = [];
-$GLOBALS['duo_test_adapter_library'] = null;
-$GLOBALS['duo_test_loose_library'] = false;
+$GLOBALS['wprism_test_adapter_libraries'] = [];
+$GLOBALS['wprism_test_adapter_library'] = null;
+$GLOBALS['wprism_test_loose_library'] = false;
 
 /** Select one test-owned library without changing process-global runtime state. */
 function select_test_library(string|AdapterLibrary $library, bool $loose = false): void {
     if ($library instanceof AdapterLibrary) {
-        $GLOBALS['duo_test_adapter_libraries'][$library->root()] = $library;
-        $GLOBALS['duo_test_adapter_library'] = $library;
+        $GLOBALS['wprism_test_adapter_libraries'][$library->root()] = $library;
+        $GLOBALS['wprism_test_adapter_library'] = $library;
     } else {
         $root = rtrim($library, '/');
-        $GLOBALS['duo_test_adapter_library'] = $loose
+        $GLOBALS['wprism_test_adapter_library'] = $loose
             ? $root
-            : ($GLOBALS['duo_test_adapter_libraries'][$root]
+            : ($GLOBALS['wprism_test_adapter_libraries'][$root]
                 ?? AdapterLibrary::fromLegacyFlatDirectory($root));
     }
-    $GLOBALS['duo_test_loose_library'] = $loose;
+    $GLOBALS['wprism_test_loose_library'] = $loose;
 }
 
 function selected_test_library(): AdapterLibrary {
-    $selected = $GLOBALS['duo_test_adapter_library'] ?? null;
+    $selected = $GLOBALS['wprism_test_adapter_library'] ?? null;
     if (!$selected instanceof AdapterLibrary) {
         throw new RuntimeException('adapter source fixture has no selected closed library');
     }
@@ -289,30 +289,30 @@ function test_policy_load(
     ?array $manifestNames = null,
     bool $allowUnsupportedSiteForReadOnlyCapabilities = false,
     ?string $adapterRepo = null
-): \Duo\Policy {
-    $selected = $GLOBALS['duo_test_adapter_library'] ?? null;
-    if (($GLOBALS['duo_test_loose_library'] ?? false) === true && is_string($selected)) {
+): \WPrism\Policy {
+    $selected = $GLOBALS['wprism_test_adapter_library'] ?? null;
+    if (($GLOBALS['wprism_test_loose_library'] ?? false) === true && is_string($selected)) {
         $pins = $manifestNames;
         if ($pins === null) {
             $pins = $repo === null
                 ? ['core']
-                : (array) (Canon::decode(Canon::read_file(rtrim($repo, '/') . '/site.duo.json'))['manifests'] ?? ['core']);
+                : (array) (Canon::decode(Canon::read_file(rtrim($repo, '/') . '/site.wprism.json'))['manifests'] ?? ['core']);
         }
-        $closed = $GLOBALS['duo_test_adapter_libraries'][$selected] ?? null;
+        $closed = $GLOBALS['wprism_test_adapter_libraries'][$selected] ?? null;
         if (!$closed instanceof AdapterLibrary) {
             $closed = clone AdapterLibrary::fromLegacyFlatDirectory(shipped_library());
             $root = new ReflectionProperty(AdapterLibrary::class, 'root');
             $root->setValue($closed, realpath($selected) ?: $selected);
         }
         $looseDir = $closed->root();
-        return \Duo\Policy::load_from_scan([
+        return \WPrism\Policy::load_from_scan([
             'adapter_library' => $closed,
             'dir' => $looseDir,
-            'dispositions' => \Duo\ManifestDispositions::load($looseDir),
+            'dispositions' => \WPrism\ManifestDispositions::load($looseDir),
             'sources' => AdapterSources::discover($looseDir, $repo),
         ], $repo, $pins);
     }
-    return \Duo\Policy::load(
+    return \WPrism\Policy::load(
         $repo,
         $manifestNames,
         $allowUnsupportedSiteForReadOnlyCapabilities,
@@ -322,8 +322,8 @@ function test_policy_load(
 }
 
 /** Frozen load against the exact library selected by this case. */
-function test_policy_from_snapshot(array $snapshot, ?AdapterLibrary $library = null): \Duo\Policy {
-    return \Duo\Policy::from_snapshot($snapshot, $library ?? selected_test_library());
+function test_policy_from_snapshot(array $snapshot, ?AdapterLibrary $library = null): \WPrism\Policy {
+    return \WPrism\Policy::from_snapshot($snapshot, $library ?? selected_test_library());
 }
 
 function test_adapter_survey(?string $repo): array {
@@ -334,7 +334,7 @@ function test_adapter_survey(?string $repo): array {
 function library_variant(callable $mutate): string {
     $root = scratch('library-variant');
     copy_tree(shipped_library(), "$root/manifests");
-    $GLOBALS['duo_test_adapter_libraries']["$root/manifests"] =
+    $GLOBALS['wprism_test_adapter_libraries']["$root/manifests"] =
         AdapterLibrary::fromLegacyFlatDirectory("$root/manifests");
     $mutate("$root/manifests");
     return "$root/manifests";
@@ -372,9 +372,9 @@ echo "\n== the fixture library IS the shipped library, whole ==\n";
 // — and the check had to exclude the one directory it could not vouch for.
 // Nothing is derived any more, so the strongest available statement is also
 // the true one: not a byte differs anywhere.
-$fixtureBytes = duo_cert_library_bytes($shippedDir);
+$fixtureBytes = wprism_cert_library_bytes($shippedDir);
 check(
-    $fixtureBytes === duo_cert_projected_bytes($sourceLibrary) && $fixtureBytes !== [],
+    $fixtureBytes === wprism_cert_projected_bytes($sourceLibrary) && $fixtureBytes !== [],
     'every manifest, disposition, interpreter, provider, regenerator, the platform boundary and the shipped trust '
     . 'root under test is the shipped file byte for byte (' . count($fixtureBytes) . ' files)'
 );
@@ -397,8 +397,8 @@ check(
 // number a host contract pins. Both readings of one file must agree; a second
 // definition of "which review decided this" is the whole failure the retired
 // generated registry was.
-$fixtureDispositions = \Duo\ManifestDispositions::load($shippedDir);
-$shippedRegistry = ['format' => \Duo\ManifestDispositions::FORMAT, 'manifests' => [], 'profiles' => []];
+$fixtureDispositions = \WPrism\ManifestDispositions::load($shippedDir);
+$shippedRegistry = ['format' => \WPrism\ManifestDispositions::FORMAT, 'manifests' => [], 'profiles' => []];
 foreach ($sourceLibrary->packages() as $package) {
     $shippedRegistry['manifests'][$package->name()] = Canon::decode(Canon::read_file($package->dispositionPath()));
 }
@@ -463,7 +463,7 @@ check(
 // ======================================================================
 echo "\n== the motivating refusal: a site adapter no longer takes down the shipped library ==\n";
 // ======================================================================
-// Before DUO-3314 there was exactly one adapter source, so an extra adapter
+// Before issue #3314 there was exactly one adapter source, so an extra adapter
 // could only be installed by dropping it into the shipped manifest directory
 // — where ManifestDispositions::load()'s one-for-one coverage check refused
 // it AND every unrelated shipped adapter along with it. Both halves are
@@ -507,7 +507,7 @@ check(
 );
 check(
     message_of(fn() => Policy::load(fresh_site(['core', 'acme-widget'])))
-        === 'duo: manifest disposition coverage mismatch; missing=[acme-widget], extra=[]',
+        === 'wprism: manifest disposition coverage mismatch; missing=[acme-widget], extra=[]',
     'and PINNING it still refuses, in the sentence the whole-directory check emitted, byte for byte — replacing or '
     . 'extending the reviewed manifest set cannot silently discard shipped claims'
 );
@@ -530,7 +530,7 @@ check(
 // digest the compiler binds, and that a shipped row's disposition slot really
 // does carry the reviewed entry rather than a provenance record.
 $coreIdentityRow = null;
-foreach (\Duo\ArtifactPolicyIdentity::manifest_rows($overlay) as $identityRow) {
+foreach (\WPrism\ArtifactPolicyIdentity::manifest_rows($overlay) as $identityRow) {
     if ($identityRow['name'] === 'core') {
         $coreIdentityRow = $identityRow;
     }
@@ -634,7 +634,7 @@ check(
 );
 // WP-6.6: the remediation's WORDS, not merely its presence. It used to promise
 // "plan and apply remain available", and the wpforms exercise measured that
-// false end to end: `duo init` requires `code.management: managed-baseline`
+// false end to end: `wprism init` requires `code.management: managed-baseline`
 // (cli/src/Onboarding/Init.php:580-590), so every repository it creates pins a
 // compiled code revision, `LifecyclePlanner::code_revision_mismatch()` raises
 // `code_revision_stale` on any environment that has not deployed, and
@@ -644,13 +644,13 @@ check(
 // thing an uncertified row exists to save them.
 $uncertifiedRemediation = (string) ($siteBlocker['remediation'] ?? '');
 check(
-    str_contains($uncertifiedRemediation, '`duo plan` remains available')
+    str_contains($uncertifiedRemediation, '`wprism plan` remains available')
     && !str_contains($uncertifiedRemediation, 'plan and apply remain available'),
     'the uncertified remediation promises PLAN, and no longer promises apply beside it'
 );
 check(
-    str_contains($uncertifiedRemediation, 'every repository `duo init` created')
-    && str_contains($uncertifiedRemediation, 'refuses code_revision_stale until `duo deploy <env>` has run')
+    str_contains($uncertifiedRemediation, 'every repository `wprism init` created')
+    && str_contains($uncertifiedRemediation, 'refuses code_revision_stale until `wprism deploy <env>` has run')
     && str_contains($uncertifiedRemediation, 'non-forceable'),
     'and it names WHY apply is blocked with them — the pinned code revision, the exact refusal, and that no flag overrides it'
 );
@@ -659,19 +659,19 @@ check(
     'the shipped adapter contributes no blocker — one uncertified site adapter does not make the certified set unready'
 );
 
-// `duo status` and `wp duo plan` must give one answer; both renderers get the
+// `wprism status` and `wp wprism plan` must give one answer; both renderers get the
 // same blocker rows, so both are asserted on the same fixture data.
-$status = \Duo\Orchestrator\PlanSummary::render(['adapter_dispositions' => $blockers]);
+$status = \WPrism\Orchestrator\PlanSummary::render(['adapter_dispositions' => $blockers]);
 $statusText = implode("\n", $status['lines']);
 check(
     str_contains($statusText, 'source=site') && str_contains($statusText, 'tier=declarative_manifest')
     && str_contains($statusText, 'remediation:'),
-    'duo status renders the out-of-tree source, trust tier, and remediation'
+    'wprism status renders the out-of-tree source, trust tier, and remediation'
 );
-check($status['ok'] === false, 'duo status refuses to call an environment with a pinned uncertified adapter clean');
+check($status['ok'] === false, 'wprism status refuses to call an environment with a pinned uncertified adapter clean');
 
 WP_CLI::$lines = [];
-(new \Duo\Cli())->capabilities([], ['repo' => $overlayRepo]);
+(new \WPrism\Cli())->capabilities([], ['repo' => $overlayRepo]);
 $capabilityText = implode("\n", WP_CLI::$lines);
 check(
     str_contains($capabilityText, 'CAPABILITY acme-widget BLOCKED')
@@ -679,7 +679,7 @@ check(
     && str_contains($capabilityText, '  trust_tier: declarative_manifest')
     && str_contains($capabilityText, '  certification: uncertified')
     && str_contains($capabilityText, '    remediation: '),
-    'duo capabilities shows source, trust tier, certification state, and remediation for an out-of-tree adapter'
+    'wprism capabilities shows source, trust tier, certification state, and remediation for an out-of-tree adapter'
 );
 check(
     str_contains($capabilityText, 'CAPABILITY core CERTIFIED')
@@ -750,7 +750,7 @@ expect_throw(
 // answer about itself.
 $variant = library_variant(function (string $dir): void {
     edit_json("$dir/dispositions/core.json", function (array $entry): array {
-        $entry['status'] = \Duo\ManifestDispositions::STATUS_UNCOVERED;
+        $entry['status'] = \WPrism\ManifestDispositions::STATUS_UNCOVERED;
         return $entry;
     });
 });
@@ -788,14 +788,14 @@ expect_throw(
     . 'nobody is running is worse than no claim'
 );
 
-// The coupling DUO-3379 built the re-seal to remove, asserted from the other
+// The coupling issue #3379 built the re-seal to remove, asserted from the other
 // side now that it is gone: editing a shipped manifest no longer refuses
 // anything, because no generated document was pinned to its bytes. The edit is
 // still not invisible — it moves the adapter digest, which is what a content
 // pin binds.
 $editedLibrary = library_variant(function (string $dir): void {
     edit_json("$dir/core.json", function (array $manifest): array {
-        $manifest['options']['duo_regress_bound_input_marker'] = ['class' => 'authored'];
+        $manifest['options']['wprism_regress_bound_input_marker'] = ['class' => 'authored'];
         return $manifest;
     });
 });
@@ -826,7 +826,7 @@ expect_throw(
     'shadows the shipped adapter',
     'shadowing is refused for any shipped adapter, not just the one this repository pins'
 );
-// DUO-3314 checked the cross-source collision on DECLARED names rather than
+// issue #3314 checked the cross-source collision on DECLARED names rather than
 // file names because the shipped side was not yet held to the rule the site
 // side was: a shipped file could declare a name that was not its own, and the
 // site source could then reach that name from a differently-named file. That
@@ -842,7 +842,7 @@ expect_throw(
     'already declared by the shipped manifest',
     'a site adapter is refused when a shipped manifest DECLARES that name under a different file name — two adapters cannot answer to one name'
 );
-// DUO-3387: #167 collapsed the DUO-3153 two-branch (site-vs-site / site-vs-
+// issue #3387: #167 collapsed the issue #3153 two-branch (site-vs-site / site-vs-
 // shipped) collision into this single site-vs-shipped check, so "shipped" is
 // now structurally always correct rather than a fallible hardcoded word. What
 // still needs pinning is that the refusal names the ACTUAL colliding file,
@@ -1046,16 +1046,16 @@ $brokenPolicyRepo = fresh_site(
     [['name' => 'core'], ['name' => 'woocommerce', 'source' => 'site']],
     ['woocommerce' => site_adapter('woocommerce')]
 );
-file_put_contents($brokenPolicyRepo . '/site.duo.json', '{ not json');
+file_put_contents($brokenPolicyRepo . '/site.wprism.json', '{ not json');
 expect_throw(
     fn() => Policy::load($brokenPolicyRepo),
     'invalid JSON',
-    'an unreadable site.duo.json yields NO overrides — the override reader fails closed, so a broken policy '
+    'an unreadable site.wprism.json yields NO overrides — the override reader fails closed, so a broken policy '
     . 'file can never silently swap which definition is in force'
 );
 
-// DUO-3371: PINNING that same shipped manifest is now itself a refusal. Until
-// this issue the shipped side kept the freedom DUO-3314 removed from the site
+// issue #3371: PINNING that same shipped manifest is now itself a refusal. Until
+// this issue the shipped side kept the freedom issue #3314 removed from the site
 // side, so one adapter answered to its file name in the disposition registry's
 // coverage and to its declared name in every digest, disposition lookup, and
 // capability claim. Both sources now speak one sentence, so the pair of checks
@@ -1065,7 +1065,7 @@ $shippedIdentity = message_of(fn() => Policy::load(fresh_site(['renamed-file']))
 check(
     str_contains(
         $shippedIdentity,
-        "duo: shipped adapter '" . (realpath($oddShipped) ?: $oddShipped) . "/renamed-file.json' declares name"
+        "wprism: shipped adapter '" . (realpath($oddShipped) ?: $oddShipped) . "/renamed-file.json' declares name"
     ),
     "a shipped manifest whose declared name disagrees with its file name is refused at load, naming the file ($shippedIdentity)"
 );
@@ -1097,7 +1097,7 @@ expect_throw(
     fn() => Policy::load(fresh_site(
         ['core'],
         ['acme-widget' => site_adapter('acme-widget')],
-        ['adapters/dispositions.json' => ['format' => 'duo-manifest-dispositions/v1']]
+        ['adapters/dispositions.json' => ['format' => 'wprism-manifest-dispositions/v1']]
     )),
     'cannot supply certification data for itself',
     'a site adapter source shipping its own dispositions.json is refused — an adapter cannot certify itself'
@@ -1386,7 +1386,7 @@ check(
 // exactly what a shipped adapter carrying no reviewed entry would hash. The
 // out-of-tree row fills that slot with its provenance record instead, which is
 // the mechanism under test — so the two digests must differ.
-$provenanceRow = \Duo\ArtifactPolicyIdentity::manifest_rows($provenancePolicy)[0];
+$provenanceRow = \WPrism\ArtifactPolicyIdentity::manifest_rows($provenancePolicy)[0];
 $withoutProvenance = $provenanceRow;
 $withoutProvenance['disposition'] = null;
 check(
@@ -1427,12 +1427,12 @@ expect_throw(
 expect_throw(
     fn() => Policy::load(fresh_site([['name' => 'core', 'source' => 'vendor']])),
     'the installed adapter sources are "shipped", "site", and "plugin"',
-    'an unknown pin source is refused and ALL THREE real sources are named (DUO-3339/B2 added the third; a pin '
+    'an unknown pin source is refused and ALL THREE real sources are named (issue #3339/B2 added the third; a pin '
     . 'vocabulary that lagged the scan would refuse a source the engine actually installs from)'
 );
 // The pin source vocabulary is a PHP literal inside
 // PinResolver::normalize_manifest_pins(), never published data — which is why
-// DUO-3339/B2 added a third source word without moving one shipped manifest
+// issue #3339/B2 added a third source word without moving one shipped manifest
 // byte or one release-gate byte comparison. Asserted rather than assumed,
 // because the day it IS published, adding a source becomes a shipped-artifact
 // change and this suite is where that has to be noticed.
@@ -1508,7 +1508,7 @@ $defaultFrozenSources = AdapterSources::from_snapshot(
 check(
     $defaultFrozenSources->export() === $snapshot['adapter_sources']
         && realpath((string) $defaultFrozenSources->path('core'))
-            === \Duo\Policy::shipped_adapter_library()->package('core')?->manifestPath(),
+            === \WPrism\Policy::shipped_adapter_library()->package('core')?->manifestPath(),
     'default frozen reconstruction selects the shipped AdapterLibrary object rather than a guessed manifest path'
 );
 
@@ -1529,21 +1529,21 @@ expect_throw(
     'a frozen adapter-source map rejects a numeric-only key instead of accepting PHP\'s coerced integer key'
 );
 
-// The v1 wire is retired along with duo-policy-snapshot/v4, the only envelope
+// The v1 wire is retired along with wprism-policy-snapshot/v4, the only envelope
 // that ever carried it. This block used to prove v1 reconstructed with its own
 // wire generation; that behaviour is what went, and for a reason this suite is
 // the right place to record: under v1 a manifest absent from `out_of_tree` took
 // SHIPPED authority with no proof, which is the fail-open half of the very
 // laundering the `$laundered` case below pins v2 as closing.
 $legacySnapshot = $snapshot;
-$legacySnapshot['format'] = 'duo-policy-snapshot/v4';
-$legacySnapshot['adapter_sources']['format'] = 'duo-adapter-sources/v1';
+$legacySnapshot['format'] = 'wprism-policy-snapshot/v4';
+$legacySnapshot['adapter_sources']['format'] = 'wprism-adapter-sources/v1';
 unset($legacySnapshot['adapter_sources']['certificates']);
 $legacySnapshot['adapter_sources']['out_of_tree']['acme-widget']['provenance']['format'] =
-    'duo-adapter-sources/v1';
+    'wprism-adapter-sources/v1';
 expect_throw(
     fn() => Policy::from_snapshot($legacySnapshot),
-    'duo-policy-snapshot/v4 is retired and is no longer read',
+    'wprism-policy-snapshot/v4 is retired and is no longer read',
     'a legacy v1 unsigned adapter-source snapshot is refused by name rather than reconstructed'
 );
 // And a v1 record has no reader left of its own: Policy::from_snapshot() is the
@@ -1551,7 +1551,7 @@ expect_throw(
 // with a CURRENT envelope is refused too. There is no remaining route onto the
 // fail-open path — not through the old envelope, not through the new one.
 $legacyRecordInCurrentEnvelope = $snapshot;
-$legacyRecordInCurrentEnvelope['adapter_sources']['format'] = 'duo-adapter-sources/v1';
+$legacyRecordInCurrentEnvelope['adapter_sources']['format'] = 'wprism-adapter-sources/v1';
 expect_throw(
     fn() => Policy::from_snapshot($legacyRecordInCurrentEnvelope),
     'disagrees with its adapter source record format',
@@ -1576,14 +1576,14 @@ $legacyLaundered = $legacySnapshot;
 unset($legacyLaundered['adapter_sources']['out_of_tree']['acme-widget']);
 expect_throw(
     fn() => Policy::from_snapshot($legacyLaundered),
-    'duo-policy-snapshot/v4 is retired and is no longer read',
+    'wprism-policy-snapshot/v4 is retired and is no longer read',
     'dropping a v1 out-of-tree record is refused at the envelope now, not left to the reviewed shipped coverage'
 );
 $legacyCustom = $legacyLaundered;
 $legacyCustom['dispositions'] = null;
 expect_throw(
     fn() => Policy::from_snapshot($legacyCustom),
-    'duo-policy-snapshot/v4 is retired and is no longer read',
+    'wprism-policy-snapshot/v4 is retired and is no longer read',
     'and the registry-free variant — the one v1 actually ACCEPTED, laundering a site adapter into a shipped one — '
     . 'is refused with it'
 );
@@ -1659,12 +1659,12 @@ check(
 );
 
 // ======================================================================
-echo "\n== a frozen PLUGIN-BUNDLED record re-derives its path from the manifest (DUO-3339/B2) ==\n";
+echo "\n== a frozen PLUGIN-BUNDLED record re-derives its path from the manifest (issue #3339/B2) ==\n";
 // ======================================================================
 // This process has no WP_PLUGIN_DIR and never will, which is exactly the
 // point: a verification process reconstructs a bundled adapter WITHOUT
 // reopening the plugin directory it came from. It can only do that because the
-// anchor rule makes `plugin` mandatory, so `plugins/<dir>/duo-adapter.json` is
+// anchor rule makes `plugin` mandatory, so `plugins/<dir>/wprism-adapter.json` is
 // a function of a claim the frozen manifest already carries — which is why
 // B2 needed no new wire key and no snapshot format bump.
 $bundledManifest = site_adapter('acme-widget', [
@@ -1677,12 +1677,12 @@ $bundledSnapshot['adapter_sources']['out_of_tree']['acme-widget'] = [
     'certification' => 'uncertified',
     'provenance' => [
         'format' => AdapterSources::FORMAT,
-        'path' => 'plugins/acme/duo-adapter.json',
+        'path' => 'plugins/acme/wprism-adapter.json',
         'sha256' => hash('sha256', Canon::encode($bundledManifest)),
         'source' => AdapterSources::PLUGIN,
     ],
     'reason' => "adapter 'acme-widget' is bundled by the active plugin 'acme/acme.php' "
-        . '(plugins/acme/duo-adapter.json) and carries no reviewed certification evidence; a bundled adapter '
+        . '(plugins/acme/wprism-adapter.json) and carries no reviewed certification evidence; a bundled adapter '
         . 'cannot be certified in place — certification is a repository-scoped signed companion at '
         . 'adapters/certifications/acme-widget.json.',
     'status' => 'uncertified',
@@ -1691,7 +1691,7 @@ $bundledSnapshot['adapter_sources']['out_of_tree']['acme-widget'] = [
 $bundledFrozen = Policy::from_snapshot($bundledSnapshot);
 check(
     $bundledFrozen->adapter_sources()->source('acme-widget') === AdapterSources::PLUGIN
-    && $bundledFrozen->adapter_sources()->path('acme-widget') === 'plugins/acme/duo-adapter.json'
+    && $bundledFrozen->adapter_sources()->path('acme-widget') === 'plugins/acme/wprism-adapter.json'
     && $bundledFrozen->adapter_sources()->is_out_of_tree('acme-widget'),
     'a frozen plugin-bundled record reconstructs with its own source and path in a process with no plugin directory at all'
 );
@@ -1703,7 +1703,7 @@ check(
 );
 $bundledTamper = $bundledSnapshot;
 $bundledTamper['adapter_sources']['out_of_tree']['acme-widget']['provenance']['path'] =
-    'plugins/other/duo-adapter.json';
+    'plugins/other/wprism-adapter.json';
 expect_throw(
     fn() => Policy::from_snapshot($bundledTamper),
     'the only path this record can describe',
@@ -1755,28 +1755,28 @@ expect_throw(
 // The privilege boundary is the SAME check for both out-of-tree sources, and
 // only its noun changes. That noun is not cosmetic: it is the directory an
 // operator is being sent to go fix, and "site adapter
-// 'plugins/acme/duo-adapter.json'" names one that does not hold the file.
+// 'plugins/acme/wprism-adapter.json'" names one that does not hold the file.
 $bundledInterpreter = $bundledSnapshot;
 $bundledInterpreter['manifests'][1]['interpreter'] = 'acf';
 $bundledInterpreter['adapter_sources']['out_of_tree']['acme-widget']['provenance']['sha256'] =
     hash('sha256', Canon::encode($bundledInterpreter['manifests'][1]));
 expect_throw(
     fn() => Policy::from_snapshot($bundledInterpreter),
-    "duo: plugin adapter 'plugins/acme/duo-adapter.json' declares interpreter",
+    "wprism: plugin adapter 'plugins/acme/wprism-adapter.json' declares interpreter",
     'a frozen bundled record reaching for executable privilege is refused by the SAME contract the site source '
     . 'uses, and the message names the PLUGIN adapter and its bundled path rather than a site directory that does '
     . 'not hold the file'
 );
 
 $bundledLegacy = $bundledSnapshot;
-$bundledLegacy['format'] = 'duo-policy-snapshot/v4';
-$bundledLegacy['adapter_sources']['format'] = 'duo-adapter-sources/v1';
+$bundledLegacy['format'] = 'wprism-policy-snapshot/v4';
+$bundledLegacy['adapter_sources']['format'] = 'wprism-adapter-sources/v1';
 unset($bundledLegacy['adapter_sources']['certificates']);
 $bundledLegacy['adapter_sources']['out_of_tree']['acme-widget']['provenance']['format'] =
-    'duo-adapter-sources/v1';
+    'wprism-adapter-sources/v1';
 expect_throw(
     fn() => Policy::from_snapshot($bundledLegacy),
-    'duo-policy-snapshot/v4 is retired and is no longer read',
+    'wprism-policy-snapshot/v4 is retired and is no longer read',
     'a legacy v1 snapshot carrying a bundled record is refused with the rest of v4 — it was already a document no '
     . 'version of this engine ever wrote (v1 predates the plugin source), and the retirement makes that answer '
     . 'uniform instead of routing it through a per-field malformed check'
@@ -1876,9 +1876,9 @@ check(
 // A provenance record is shaped so that pasting it into the reviewed registry
 // is itself a refusal — 'uncertified' is not in the ratified vocabulary.
 expect_throw(
-    fn() => \Duo\ManifestDispositions::from_snapshot(
+    fn() => \WPrism\ManifestDispositions::from_snapshot(
         [
-            'format' => 'duo-manifest-dispositions/v1',
+            'format' => 'wprism-manifest-dispositions/v1',
             'manifests' => ['acme-widget' => $snapshot['adapter_sources']['out_of_tree']['acme-widget']],
             'profiles' => [],
         ],
@@ -1936,14 +1936,14 @@ check(
 );
 
 // ======================================================================
-echo "\n== the shipped library view reports its own tiers, from the same scan (DUO-3339) ==\n";
+echo "\n== the shipped library view reports its own tiers, from the same scan (issue #3339) ==\n";
 // ======================================================================
-// `wp duo capabilities --all` used to hand report() NO $sources, so every row
+// `wp wprism capabilities --all` used to hand report() NO $sources, so every row
 // fell through to the absent-sources default. The default derived the same
 // tier — but by a second path, and it could not name the file a row came from
 // at all. Two code paths agreeing today is not one code path.
 WP_CLI::$lines = [];
-(new \Duo\Cli())->capabilities([], ['all' => true]);
+(new \WPrism\Cli())->capabilities([], ['all' => true]);
 $allText = implode("\n", WP_CLI::$lines);
 check(
     str_contains($allText, 'CAPABILITY acf ')
@@ -2013,8 +2013,8 @@ check(
     && $unreviewedSurvey['core']['disposition_status'] === null,
     'and the surveyed shipped row reports a NULL certification state rather than naming a review nobody wrote'
 );
-// DUO-3486: the OTHER projection of that same fact. diagnostics() answers
-// `wp duo capabilities` where survey() answers `wp duo adapter list`, and it
+// issue #3486: the OTHER projection of that same fact. diagnostics() answers
+// `wp wprism capabilities` where survey() answers `wp wprism adapter list`, and it
 // used to hardcode `registry` for every shipped row — so one library described
 // one adapter two ways, and the word that named a review nobody wrote was the
 // one an operator chasing a promotion refusal would read.
@@ -2049,7 +2049,7 @@ $brokenProviderDir = library_variant(function (string $dir): void {
 select_test_library($brokenProviderDir, true);
 $brokenPolicy = Policy::load(fresh_site(['core', 'woocommerce']));
 $brokenBlockers = $brokenPolicy->adapter_readiness_blockers();
-$brokenLines = \Duo\Orchestrator\PlanSummary::render(
+$brokenLines = \WPrism\Orchestrator\PlanSummary::render(
     ['adapter_dispositions' => $brokenBlockers]
 )['lines'];
 $brokenWords = array_values(array_unique(array_column($brokenBlockers, 'certification')));
@@ -2109,12 +2109,12 @@ check(
 $handleDir = library_variant(function (string $dir): void {});
 select_test_library($handleDir);
 $handleLibrary = AdapterLibrary::fromLegacyFlatDirectory($handleDir);
-$handle = \Duo\AdapterScan::open_library($handleLibrary, null);
+$handle = \WPrism\AdapterScan::open_library($handleLibrary, null);
 $firstLoad = $handle->load('core');
 $secondLoad = $handle->load('classic-editor');
 check(
-    $firstLoad instanceof \Duo\Policy
-    && $secondLoad instanceof \Duo\Policy
+    $firstLoad instanceof \WPrism\Policy
+    && $secondLoad instanceof \WPrism\Policy
     && $firstLoad->adapter_sources() !== $secondLoad->adapter_sources()
     && array_column($firstLoad->manifests, 'name') === ['core']
     && array_column($secondLoad->manifests, 'name') === ['classic-editor'],
@@ -2127,18 +2127,18 @@ check(
 // existed, and refuses TYPED so `--format=json` can name it.
 file_put_contents(
     "$handleDir/zz-late-arrival.json",
-    Canon::encode(['name' => 'zz-late-arrival', 'spec_version' => DUO_SPEC_VERSION])
+    Canon::encode(['name' => 'zz-late-arrival', 'spec_version' => WPRISM_SPEC_VERSION])
 );
 $movedRefusal = null;
 try {
     $handle->load('core');
-} catch (\Duo\CommandRefusalException $refusal) {
+} catch (\WPrism\CommandRefusalException $refusal) {
     $movedRefusal = $refusal;
 }
 check(
-    $movedRefusal instanceof \Duo\CommandRefusalException
-    && $movedRefusal->reasonCode === \Duo\AdapterScan::REFUSAL_MOVED
-    && $movedRefusal->payload()['error'] === \Duo\AdapterScan::REFUSAL_MOVED
+    $movedRefusal instanceof \WPrism\CommandRefusalException
+    && $movedRefusal->reasonCode === \WPrism\AdapterScan::REFUSAL_MOVED
+    && $movedRefusal->payload()['error'] === \WPrism\AdapterScan::REFUSAL_MOVED
     && $movedRefusal->detailsRedacted === false
     && str_contains($movedRefusal->getMessage(), 'moved mid-survey'),
     'a manifest that appears under an open handle REFUSES the reuse — typed, publishable, and named '
@@ -2153,7 +2153,7 @@ check(
 $settleDir = library_variant(function (string $dir): void {});
 select_test_library($settleDir);
 $settleLibrary = AdapterLibrary::fromLegacyFlatDirectory($settleDir);
-$settleHandle = \Duo\AdapterScan::open_library($settleLibrary, null);
+$settleHandle = \WPrism\AdapterScan::open_library($settleLibrary, null);
 $settleHandle->load('core');
 $rewritten = "$settleDir/classic-editor.json";
 $rewrittenBefore = (string) file_get_contents($rewritten);
@@ -2168,13 +2168,13 @@ try {
 $settleRefusal = null;
 try {
     $settleHandle->settle();
-} catch (\Duo\CommandRefusalException $refusal) {
+} catch (\WPrism\CommandRefusalException $refusal) {
     $settleRefusal = $refusal;
 }
 check(
     $survivedShape
-    && $settleRefusal instanceof \Duo\CommandRefusalException
-    && $settleRefusal->reasonCode === \Duo\AdapterScan::REFUSAL_MOVED
+    && $settleRefusal instanceof \WPrism\CommandRefusalException
+    && $settleRefusal->reasonCode === \WPrism\AdapterScan::REFUSAL_MOVED
     && str_contains($settleRefusal->getMessage(), 'file content change'),
     'a manifest rewritten IN PLACE passes the per-row directory witness and is caught by the content witness at '
     . 'settle() — the survey refuses instead of publishing rows taken across two libraries '

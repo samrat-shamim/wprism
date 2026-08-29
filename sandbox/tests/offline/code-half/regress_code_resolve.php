@@ -1,8 +1,8 @@
 <?php
 /**
- * Offline characterization for `duo code-resolve` (DUO-3500).
+ * Offline characterization for `wprism code-resolve` (issue #3500).
  *
- * DUO-3499 shipped a lock that a repository can DECLARE and a compile gate
+ * issue #3499 shipped a lock that a repository can DECLARE and a compile gate
  * that refuses when the declared bytes are absent; it deliberately shipped no
  * resolver, so putting the bytes back was an operator build step. This suite
  * pins the resolver that closes that loop, and the properties it pins are the
@@ -23,7 +23,7 @@
  *      digest matched — the two digests are not redundant;
  *   G. `imported-archive` origins get the identical verification from the
  *      host's imported store, with no network — and a store that does not
- *      hold the archive refuses by name, because Duo never fetches from a
+ *      hold the archive refuses by name, because WPrism never fetches from a
  *      vendor and the repository deliberately carries no copy;
  *   H. a component present at any OTHER digest refuses rather than
  *      overwriting bytes Git does not carry;
@@ -32,7 +32,7 @@
  *      byte-identical to the same tree compiled with no lock at all;
  *   K. the transport arms: local and docker materialize on the host; a driver
  *      that exposes NEITHER a host-side repository NOR a push capability
- *      refuses with `code_resolve_transport_unsupported`, naming DUO-3514,
+ *      refuses with `code_resolve_transport_unsupported`, naming issue #3514,
  *      unless the target already hashes correctly; and a repository with no
  *      lock produces NO phase output whatsoever;
  *   L. deploy/promote compilation resolves only inside a disposable,
@@ -40,7 +40,7 @@
  *      compile failure leave the canonical repository unresolved and remove
  *      every staged byte.
  *
- * K3 and K4 changed MEANING, not bytes, when DUO-3514 landed the host→target
+ * K3 and K4 changed MEANING, not bytes, when issue #3514 landed the host→target
  * push. `ResolveFixtureTransport` is not a `CodePushTransport`, so it is
  * exactly the un-pushable driver those refusals are still correct for; the ssh
  * transport that CAN be pushed to is pinned end to end in
@@ -48,7 +48,7 @@
  * target-side digest gate and the drift refusal.
  *
  * The registry is a local `file://` fixture and every archive is built in this
- * process: the offline corpus contacts no network. `DUO_CODE_ARTIFACT_BASE`
+ * process: the offline corpus contacts no network. `WPRISM_CODE_ARTIFACT_BASE`
  * moves only WHERE bytes are fetched from; the url in the lock stays the
  * canonical wp.org one, because a release's identity is its canonical url plus
  * its archive digest, never the host that served it.
@@ -67,24 +67,24 @@ require_once __DIR__ . '/../../../../cli/src/Code/ImportedArchives.php';
 require_once __DIR__ . '/../../../../cli/src/Command/CodeResolveCommand.php';
 require_once __DIR__ . '/../../../../cli/src/Transport/Transport.php';
 
-use Duo\CodeCompilationException;
-use Duo\CodeDescriptorCompiler;
-use Duo\CodeSourceLock;
-use Duo\CommandRefusalException;
-use Duo\Orchestrator\CodeResolveCommand;
-use Duo\Orchestrator\CodeResolver;
-use Duo\Orchestrator\ImportedArchives;
-use Duo\Orchestrator\WpOrgReleases;
+use WPrism\CodeCompilationException;
+use WPrism\CodeDescriptorCompiler;
+use WPrism\CodeSourceLock;
+use WPrism\CommandRefusalException;
+use WPrism\Orchestrator\CodeResolveCommand;
+use WPrism\Orchestrator\CodeResolver;
+use WPrism\Orchestrator\ImportedArchives;
+use WPrism\Orchestrator\WpOrgReleases;
 
 const RESOLVE_FORMAT_1 = ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content'];
 const RESOLVE_FORMAT_2 = [
     'format' => 2,
     'layout' => 'wp-content',
-    'lock' => 'code/duo-code.lock.json',
+    'lock' => 'code/wprism-code.lock.json',
     'source' => 'code/wp-content',
 ];
 
-$scratch = sys_get_temp_dir() . '/duo_regress_code_resolve_' . bin2hex(random_bytes(6));
+$scratch = sys_get_temp_dir() . '/wprism_regress_code_resolve_' . bin2hex(random_bytes(6));
 $registry = $scratch . '/registry';
 mkdir($registry . '/plugin', 0775, true);
 mkdir($registry . '/theme', 0775, true);
@@ -146,7 +146,7 @@ function resolve_tree_digest(string $scratch, array $files): string {
 }
 
 /**
- * A split repository: `site.duo.json` at code format 2, the root-anchored
+ * A split repository: `site.wprism.json` at code format 2, the root-anchored
  * ignore lines, and only the components named in `$present` materialized.
  * Every present component the lock does not declare is declared first-party
  * in the same lock: that is the only shape a carried component may take.
@@ -159,8 +159,8 @@ function resolve_make_repo(string $scratch, int &$seq, array $lockRows, array $p
     mkdir($repo . '/code/wp-content/plugins', 0775, true);
     mkdir($repo . '/code/wp-content/themes', 0775, true);
     file_put_contents(
-        $repo . '/site.duo.json',
-        \Duo\Canon::encode(['code' => RESOLVE_FORMAT_2, 'format' => 1, 'site' => 'fixture'])
+        $repo . '/site.wprism.json',
+        \WPrism\Canon::encode(['code' => RESOLVE_FORMAT_2, 'format' => 1, 'site' => 'fixture'])
     );
     $locked = [];
     foreach ($lockRows as $row) {
@@ -168,7 +168,7 @@ function resolve_make_repo(string $scratch, int &$seq, array $lockRows, array $p
     }
     $firstParty = array_values(array_filter(array_keys($present), static fn(string $key): bool => !isset($locked[$key])));
     file_put_contents($repo . '/' . CodeSourceLock::PATH, CodeSourceLock::encode($lockRows, $firstParty));
-    $ignore = "/.duo/\n";
+    $ignore = "/.wprism/\n";
     foreach (CodeSourceLock::sort_components($lockRows) as $row) {
         $ignore .= CodeSourceLock::gitignore_line((string) $row['root'], (string) $row['component']) . "\n";
     }
@@ -204,24 +204,24 @@ function resolve_check_refuses(callable $fn, string $reasonCode, string $message
         $fn();
     } catch (CommandRefusalException $refusal) {
         if ($refusal->reasonCode !== $reasonCode) {
-            duo_check(false, $message);
-            duo_check_detail('expected ' . $reasonCode . ', got ' . $refusal->reasonCode);
-            duo_check_detail('message:  ' . $refusal->getMessage());
+            wprism_check(false, $message);
+            wprism_check_detail('expected ' . $reasonCode . ', got ' . $refusal->reasonCode);
+            wprism_check_detail('message:  ' . $refusal->getMessage());
             return $refusal;
         }
-        duo_check(true, $message);
-        duo_check(
+        wprism_check(true, $message);
+        wprism_check(
             !$refusal->detailsRedacted,
             "the $reasonCode refusal keeps its reviewed public message and remedy (nothing was redacted)"
         );
         return $refusal;
     } catch (Throwable $other) {
-        duo_check(false, $message);
-        duo_check_detail('expected a CommandRefusalException, got ' . get_class($other) . ': ' . $other->getMessage());
+        wprism_check(false, $message);
+        wprism_check_detail('expected a CommandRefusalException, got ' . get_class($other) . ': ' . $other->getMessage());
         return null;
     }
-    duo_check(false, $message);
-    duo_check_detail('expected refusal ' . $reasonCode . ', nothing was thrown');
+    wprism_check(false, $message);
+    wprism_check_detail('expected refusal ' . $reasonCode . ', nothing was thrown');
     return null;
 }
 
@@ -233,14 +233,14 @@ if (!class_exists(ZipArchive::class)) {
     // Not a skip. Without ZipArchive the host cannot verify a release at all,
     // and the one claim this suite can still pin is that it says so loudly and
     // names the remedy rather than materializing something it never verified.
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => (new WpOrgReleases($scratch . '/cache'))->unpack($registry . '/absent.zip', $scratch . '/out'),
         RuntimeException::class,
         'without ZipArchive the host refuses loudly and names the remedy instead of guessing',
         'install the php-zip extension'
     );
     resolve_remove_tree($scratch);
-    duo_check_summary('regress_code_resolve');
+    wprism_check_summary('regress_code_resolve');
 }
 
 $wooFiles = [
@@ -251,7 +251,7 @@ $themeFiles = ['style.css' => "/*\nTheme Name: Storefront\nVersion: 4.6.0\n*/\n"
 $premiumFiles = [
     'premium.php' => "<?php\n/**\n * Plugin Name: Premium\n * Version: 1.2.0\n */\n",
 ];
-$agencyFiles = ['duo-agency.php' => "<?php\n/**\n * Plugin Name: Duo Agency\n * Version: 1.0.0\n */\n"];
+$agencyFiles = ['wprism-agency.php' => "<?php\n/**\n * Plugin Name: WPrism Agency\n * Version: 1.0.0\n */\n"];
 
 resolve_write_archive($registry . '/plugin/woocommerce.11.0.0.zip', 'woocommerce', $wooFiles);
 resolve_write_archive($registry . '/theme/storefront.4.6.0.zip', 'storefront', $themeFiles);
@@ -279,9 +279,9 @@ $lockRows = [
         'tree_sha256' => $themeTreeDigest,
     ],
 ];
-// `duo-agency` is the first-party control: it is in Git by declaration, is NOT
+// `wprism-agency` is the first-party control: it is in Git by declaration, is NOT
 // a locked component, and must be untouched by every resolution below.
-$vendored = ['plugins/duo-agency' => $agencyFiles];
+$vendored = ['plugins/wprism-agency' => $agencyFiles];
 
 // ---------------------------------------------------------------------------
 // A. Cache miss: fetch, verify both digests, materialize atomically.
@@ -290,44 +290,44 @@ $vendored = ['plugins/duo-agency' => $agencyFiles];
 $repo = resolve_make_repo($scratch, $repoSeq, $lockRows, $vendored);
 $cache = resolve_cache($scratch, $cacheSeq);
 $lock = CodeResolver::declaredLock($repo);
-duo_check_same(CodeSourceLock::PATH, $lock['path'], 'the declared lock path is read from site.duo.json, never assumed');
-duo_check_same(2, count($lock['components']), 'both declared components are read from the lock');
+wprism_check_same(CodeSourceLock::PATH, $lock['path'], 'the declared lock path is read from site.wprism.json, never assumed');
+wprism_check_same(2, count($lock['components']), 'both declared components are read from the lock');
 
 $rows = resolve_resolver($cache, $registry)->resolve($repo, $lock['components'], false);
-duo_check_same(
+wprism_check_same(
     ['resolved', 'resolved'],
     array_column($rows, 'state'),
     'a cache miss fetches, verifies and materializes every declared component'
 );
-duo_check_same(
+wprism_check_same(
     ['plugins/woocommerce', 'themes/storefront'],
     array_map(static fn(array $r): string => $r['root'] . '/' . $r['component'], $rows),
     'the report is in lock order, which is already sorted by (root, component)'
 );
-duo_check_same(
+wprism_check_same(
     $wooTreeDigest,
     WpOrgReleases::treeDigest($repo . '/code/wp-content/plugins/woocommerce'),
     'the materialized plugin hashes to exactly the tree digest the lock declares'
 );
-duo_check_same(
+wprism_check_same(
     $themeTreeDigest,
     WpOrgReleases::treeDigest($repo . '/code/wp-content/themes/storefront'),
     'and so does the materialized theme'
 );
-duo_check(
+wprism_check(
     is_file($repo . '/code/wp-content/plugins/woocommerce/includes/class-wc.php'),
     'a nested archive entry lands at its nested path, not flattened'
 );
-duo_check_same(
-    $agencyFiles['duo-agency.php'],
-    (string) file_get_contents($repo . '/code/wp-content/plugins/duo-agency/duo-agency.php'),
+wprism_check_same(
+    $agencyFiles['wprism-agency.php'],
+    (string) file_get_contents($repo . '/code/wp-content/plugins/wprism-agency/wprism-agency.php'),
     'the first-party component is not touched'
 );
-duo_check(
+wprism_check(
     !is_dir($repo . '/' . CodeResolver::STAGING) || scandir($repo . '/' . CodeResolver::STAGING) === ['.', '..'],
     'no staging directory survives a successful resolve: a leftover under plugins/ would be inventoried as a component'
 );
-duo_check(
+wprism_check(
     is_file((new WpOrgReleases($cache, false, 'file://' . $registry))->cachePath($wooUrl)),
     'the verified archive is published into the content-addressed host cache'
 );
@@ -343,12 +343,12 @@ unlink($registry . '/plugin/woocommerce.11.0.0.zip');
 
 $inode = (array) stat($repo . '/code/wp-content/plugins/woocommerce/woocommerce.php');
 $rows = resolve_resolver($cache, $registry)->resolve($repo, $lock['components'], false);
-duo_check_same(
+wprism_check_same(
     ['unchanged', 'unchanged'],
     array_column($rows, 'state'),
     'a component already present at its locked digest is reported unchanged'
 );
-duo_check_same(
+wprism_check_same(
     $inode['ino'],
     ((array) stat($repo . '/code/wp-content/plugins/woocommerce/woocommerce.php'))['ino'],
     'and is not rewritten: the file on disk is the same inode, not a fresh copy of identical bytes'
@@ -356,16 +356,16 @@ duo_check_same(
 
 resolve_remove_tree($repo . '/code/wp-content/plugins/woocommerce');
 $rows = resolve_resolver($cache, $registry)->resolve($repo, $lock['components'], false);
-duo_check_same(
+wprism_check_same(
     ['resolved', 'unchanged'],
     array_column($rows, 'state'),
     'only the absent component is resolved; the present one is left alone'
 );
-duo_check(
+wprism_check(
     str_contains($rows[0]['detail'], 'cache'),
     'and it came from the cache — the registry no longer holds that archive at all'
 );
-duo_check_same(
+wprism_check_same(
     $wooTreeDigest,
     WpOrgReleases::treeDigest($repo . '/code/wp-content/plugins/woocommerce'),
     'a cache hit is re-verified before it is unpacked, not trusted because it is cached'
@@ -383,16 +383,16 @@ resolve_check_refuses(
     WpOrgReleases::REASON_CACHE_CORRUPT,
     'a cached archive that no longer matches its digest refuses instead of re-fetching'
 );
-duo_check_same(
+wprism_check_same(
     'corrupted',
     (string) file_get_contents($cachedPath),
     'and the corrupted bytes are still there: they are evidence of a tampered cache, not a transient to overwrite'
 );
-duo_check(
+wprism_check(
     !is_dir($repo . '/code/wp-content/plugins/woocommerce'),
     'nothing was materialized for the refused component'
 );
-duo_check(
+wprism_check(
     is_dir($repo . '/code/wp-content/themes/storefront'),
     'and the component resolved before the refusal is left exactly as it was'
 );
@@ -416,11 +416,11 @@ resolve_check_refuses(
     WpOrgReleases::REASON_ARCHIVE_DIGEST_MISMATCH,
     'a download whose digest disagrees with the lock refuses before anything is unpacked'
 );
-duo_check(
+wprism_check(
     !is_file((new WpOrgReleases($mismatchCache, false, 'file://' . $registry))->cachePath($wooUrl)),
     'and nothing was published into the cache'
 );
-duo_check_same(
+wprism_check_same(
     [],
     array_values(array_filter(
         (array) scandir($mismatchCache),
@@ -428,7 +428,7 @@ duo_check_same(
     )),
     'only the partial file this attempt created was removed, and it left no residue'
 );
-duo_check(
+wprism_check(
     !is_dir($repo . '/code/wp-content/plugins/woocommerce'),
     'a refused download materializes nothing'
 );
@@ -445,7 +445,7 @@ resolve_check_refuses(
     WpOrgReleases::REASON_OFFLINE_MISS,
     '--offline refuses every fetch on a cache miss rather than falling back to anything'
 );
-duo_check(
+wprism_check(
     !is_dir($repo . '/code/wp-content/plugins/woocommerce'),
     'and materializes nothing'
 );
@@ -455,7 +455,7 @@ duo_check(
 resolve_resolver($cache, $registry)->resolve($repo, $lock['components'], false);
 resolve_remove_tree($repo . '/code/wp-content/plugins/woocommerce');
 $rows = resolve_resolver($cache, $registry, true)->resolve($repo, $lock['components'], false);
-duo_check_same(
+wprism_check_same(
     ['resolved', 'unchanged'],
     array_column($rows, 'state'),
     '--offline resolves happily from a warm cache: the flag forbids the network, not resolution'
@@ -476,11 +476,11 @@ resolve_check_refuses(
     CodeResolver::REASON_TREE_DIGEST_MISMATCH,
     'an archive whose digest matched still refuses when the unpacked tree is not the declared tree'
 );
-duo_check(
+wprism_check(
     !is_dir($staleRepo . '/code/wp-content/plugins/woocommerce'),
     'the verification happens in staging, so a tree-digest refusal never half-writes the component'
 );
-duo_check(
+wprism_check(
     !is_dir($staleRepo . '/' . CodeResolver::STAGING)
         || scandir($staleRepo . '/' . CodeResolver::STAGING) === ['.', '..'],
     'and the staging directory is removed even on the refusing path'
@@ -498,7 +498,7 @@ $importCache = resolve_cache($scratch, $cacheSeq);
 // The operator imports the vendor's archive on this host; the lock will
 // record only the digest the import printed — no url, no path.
 $import = ImportedArchives::forReleases(new WpOrgReleases($importCache, true))->import($vendorZip, null, 'plugins');
-duo_check_same($premiumTreeDigest, $import['tree_sha256'], 'the import computes the same tree digest the lock will demand');
+wprism_check_same($premiumTreeDigest, $import['tree_sha256'], 'the import computes the same tree digest the lock will demand');
 $importedRows = [[
     'root' => 'plugins',
     'component' => 'premium',
@@ -513,18 +513,18 @@ $importedLock = CodeResolver::declaredLock($importedRepo);
 // it, and the cache it resolves from is the imported store alone.
 $rows = resolve_resolver($importCache, $scratch . '/no-registry')
     ->resolve($importedRepo, $importedLock['components'], false);
-duo_check_same(['resolved'], array_column($rows, 'state'), 'an imported-archive origin resolves from the host\'s imported store');
-duo_check(str_contains($rows[0]['detail'], 'imported archive'), 'and says where it came from');
-duo_check_same(
+wprism_check_same(['resolved'], array_column($rows, 'state'), 'an imported-archive origin resolves from the host\'s imported store');
+wprism_check(str_contains($rows[0]['detail'], 'imported archive'), 'and says where it came from');
+wprism_check_same(
     $premiumTreeDigest,
     WpOrgReleases::treeDigest($importedRepo . '/code/wp-content/plugins/premium'),
     'and is verified against the same tree digest a wp.org release would be'
 );
-duo_check(
+wprism_check(
     !is_dir($scratch . '/no-registry'),
     'the registry is never reached for an imported archive'
 );
-duo_check(
+wprism_check(
     !is_file($importedRepo . '/code/archives/premium-1.2.0.zip') && !is_dir($importedRepo . '/code/archives'),
     'and the repository carries no copy of the archive: the bytes live in the host store only'
 );
@@ -537,7 +537,7 @@ resolve_check_refuses(
     WpOrgReleases::REASON_CACHE_CORRUPT,
     'an imported archive that no longer hashes to its digest refuses as a corrupted cache entry, never silently re-imported over'
 );
-duo_check_same('not the imported archive', (string) file_get_contents($import['path']), 'and the corrupted bytes survive as evidence');
+wprism_check_same('not the imported archive', (string) file_get_contents($import['path']), 'and the corrupted bytes survive as evidence');
 unlink($import['path']);
 $missing = resolve_check_refuses(
     static fn() => resolve_resolver($importCache, $scratch . '/no-registry')
@@ -545,9 +545,9 @@ $missing = resolve_check_refuses(
     CodeResolver::REASON_ARCHIVE_MISSING,
     'an imported archive this host\'s store does not hold is named, not silently skipped'
 );
-duo_check(
-    $missing !== null && str_contains($missing->remediation, 'duo code-import <archive.zip>')
-        && str_contains($missing->remediation, 'Duo never fetches from a vendor'),
+wprism_check(
+    $missing !== null && str_contains($missing->remediation, 'wprism code-import <archive.zip>')
+        && str_contains($missing->remediation, 'WPrism never fetches from a vendor'),
     'and the remedy is the one thing that can be done about it: import the vendor archive on this host'
 );
 $freshCache = resolve_cache($scratch, $cacheSeq);
@@ -558,7 +558,7 @@ resolve_check_refuses(
     'a host that never imported the archive refuses the same way, whatever its registry holds: a clone resolves premium code only where the operator imported it'
 );
 $rows = resolve_resolver($importCache, $scratch . '/no-registry')->resolve($importedRepo, $importedLock['components'], true);
-duo_check(
+wprism_check(
     str_contains($rows[0]['detail'], 'imported archive ' . $import['archive_sha256']),
     '--dry-run names the imported archive it would unpack, by digest'
 );
@@ -599,14 +599,14 @@ $repackedRows = [[
 $repackedRepo = resolve_make_repo($scratch, $repoSeq, $repackedRows, $vendored);
 $rows = resolve_resolver($importCache, $scratch . '/no-registry')
     ->resolve($repackedRepo, CodeResolver::declaredLock($repackedRepo)['components'], false);
-duo_check_same(['resolved'], array_column($rows, 'state'), 'a declared archive_root resolves the directory the lock names');
-duo_check(
+wprism_check_same(['resolved'], array_column($rows, 'state'), 'a declared archive_root resolves the directory the lock names');
+wprism_check(
     is_file($repackedRepo . '/code/wp-content/plugins/premium/premium.php')
         && !is_file($repackedRepo . '/code/wp-content/plugins/premium/readme.txt'),
     'and not the same-named decoy directory detection alone would have picked'
 );
 $repackedRows[0]['origin']['archive_root'] = 'no-such-directory';
-file_put_contents($repackedRepo . '/' . CodeSourceLock::PATH, CodeSourceLock::encode($repackedRows, ['plugins/duo-agency']));
+file_put_contents($repackedRepo . '/' . CodeSourceLock::PATH, CodeSourceLock::encode($repackedRows, ['plugins/wprism-agency']));
 resolve_remove_tree($repackedRepo . '/code/wp-content/plugins/premium');
 resolve_check_refuses(
     static fn() => resolve_resolver($importCache, $scratch . '/no-registry')
@@ -628,12 +628,12 @@ $refusal = resolve_check_refuses(
     CodeResolver::REASON_DRIFTED,
     'a locked component present at any OTHER digest refuses rather than re-materializing over it'
 );
-duo_check(
+wprism_check(
     is_file($driftRepo . '/code/wp-content/plugins/woocommerce/hotfix.php'),
     'and the local bytes survive: the tree is gitignored, so overwriting it would destroy the only copy'
 );
-duo_check(
-    $refusal !== null && str_contains($refusal->remediation, 'duo code-classify'),
+wprism_check(
+    $refusal !== null && str_contains($refusal->remediation, 'wprism code-classify'),
     'the remedy names both ways out — remove and re-resolve, or re-lock the bytes you actually have'
 );
 
@@ -645,25 +645,25 @@ duo_check(
 $dryRepo = resolve_make_repo($scratch, $repoSeq, $lockRows, $vendored);
 $dryCache = $scratch . '/dry-cache';
 $rows = resolve_resolver($dryCache, $registry)->resolve($dryRepo, CodeResolver::declaredLock($dryRepo)['components'], true);
-duo_check_same(
+wprism_check_same(
     ['would-resolve', 'would-resolve'],
     array_column($rows, 'state'),
     '--dry-run reports what it would resolve'
 );
-duo_check(
+wprism_check(
     !is_dir($dryRepo . '/code/wp-content/plugins/woocommerce')
         && !is_dir($dryRepo . '/code/wp-content/themes/storefront'),
     'and writes nothing into code/wp-content'
 );
-duo_check(!is_dir($dryCache), 'and fetches nothing: a dry run does not even warm the cache');
-duo_check(
+wprism_check(!is_dir($dryCache), 'and fetches nothing: a dry run does not even warm the cache');
+wprism_check(
     str_contains($rows[0]['detail'], $wooUrl),
     'the dry-run report names the exact release it would fetch, so the operator can review it'
 );
 // The control: the identical call without --dry-run does resolve, so the
 // assertions above are about the flag and not about a broken fixture.
 $rows = resolve_resolver($cache, $registry)->resolve($dryRepo, CodeResolver::declaredLock($dryRepo)['components'], false);
-duo_check_same(
+wprism_check_same(
     ['resolved', 'resolved'],
     array_column($rows, 'state'),
     'and the same repository resolves normally when the flag is dropped'
@@ -681,28 +681,28 @@ resolve_resolver($cache, $registry)->resolve($resolved, CodeResolver::declaredLo
 $reference = $scratch . '/reference';
 mkdir($reference . '/code/wp-content/plugins', 0775, true);
 resolve_write_tree($reference . '/code/wp-content/plugins/woocommerce', $wooFiles);
-resolve_write_tree($reference . '/code/wp-content/plugins/duo-agency', $agencyFiles);
+resolve_write_tree($reference . '/code/wp-content/plugins/wprism-agency', $agencyFiles);
 resolve_write_tree($reference . '/code/wp-content/themes/storefront', $themeFiles);
 $referenceDescriptor = CodeDescriptorCompiler::compile($reference, RESOLVE_FORMAT_1);
 
 $resolvedDescriptor = CodeDescriptorCompiler::compile($resolved, RESOLVE_FORMAT_2);
-duo_check(is_array($resolvedDescriptor), 'the compile gate accepts a resolved split repository');
-duo_check_same(
+wprism_check(is_array($resolvedDescriptor), 'the compile gate accepts a resolved split repository');
+wprism_check_same(
     $referenceDescriptor['code_revision'],
     $resolvedDescriptor['code_revision'],
     'and its code_revision equals the vendored tree: resolution restores bytes, it does not rewrite them'
 );
-duo_check_same(
-    \Duo\Canon::encode($referenceDescriptor),
-    \Duo\Canon::encode($resolvedDescriptor),
+wprism_check_same(
+    \WPrism\Canon::encode($referenceDescriptor),
+    \WPrism\Canon::encode($resolvedDescriptor),
     'the whole descriptor matches, so artifact_hash and every ownership root match too'
 );
 
 $unresolved = resolve_make_repo($scratch, $repoSeq, $lockRows, $vendored);
-duo_check_throws(
+wprism_check_throws(
     static fn() => CodeDescriptorCompiler::compile($unresolved, RESOLVE_FORMAT_2),
     CodeCompilationException::class,
-    'the same repository before resolution is exactly what the DUO-3499 gate refuses'
+    'the same repository before resolution is exactly what the issue #3499 gate refuses'
 );
 
 // ---------------------------------------------------------------------------
@@ -719,13 +719,13 @@ $root = dirname(__DIR__, 4);
 $fixtureFile = $scratch . '/resolve_fixture.php';
 $runnerFile = $scratch . '/resolve_runner.php';
 file_put_contents($fixtureFile, str_replace(
-    '__DUO_ROOT__',
+    '__WPRISM_ROOT__',
     var_export($root, true),
     <<<'PHP_FIXTURE'
 <?php
 declare(strict_types=1);
-require_once __DUO_ROOT__ . '/cli/src/Transport/Transport.php';
-require_once __DUO_ROOT__ . '/cli/src/Command/CodeResolveCommand.php';
+require_once __WPRISM_ROOT__ . '/cli/src/Transport/Transport.php';
+require_once __WPRISM_ROOT__ . '/cli/src/Command/CodeResolveCommand.php';
 
 /**
  * A transport whose driver id, repo path and scripted target answers the suite
@@ -733,7 +733,7 @@ require_once __DUO_ROOT__ . '/cli/src/Command/CodeResolveCommand.php';
  * registry's `transport` key (cli/src/Transport/Transport.php:58-59), which is
  * exactly the closed vocabulary the resolver dispatches on.
  */
-final class ResolveFixtureTransport extends \Duo\Orchestrator\Transport {
+final class ResolveFixtureTransport extends \WPrism\Orchestrator\Transport {
     /** @var list<string> */
     public array $raw = [];
     /** @var list<array<int,string>> */
@@ -750,7 +750,7 @@ final class ResolveFixtureTransport extends \Duo\Orchestrator\Transport {
     }
 
     /**
-     * What the REAL driver of this transport would answer (DUO-3526).
+     * What the REAL driver of this transport would answer (issue #3526).
      *
      * LocalTransport returns its repo_path; DockerTransport derives the host
      * side of its bind mount from `docker compose config`; SshTransport, and
@@ -791,12 +791,12 @@ final class ResolveFixtureTransport extends \Duo\Orchestrator\Transport {
 PHP_FIXTURE
 ));
 file_put_contents($runnerFile, str_replace(
-    '__DUO_FIXTURE__',
+    '__WPRISM_FIXTURE__',
     var_export($fixtureFile, true),
     <<<'PHP_RUNNER'
 <?php
 declare(strict_types=1);
-require_once __DUO_FIXTURE__;
+require_once __WPRISM_FIXTURE__;
 
 $spec = json_decode((string) $argv[1], true);
 $driver = new ResolveFixtureTransport(
@@ -808,9 +808,9 @@ $driver = new ResolveFixtureTransport(
 );
 $phase = null;
 if (($spec['mode'] ?? 'verb') === 'verb') {
-    $exit = \Duo\Orchestrator\CodeResolveCommand::run($driver, (array) ($spec['extra'] ?? []));
+    $exit = \WPrism\Orchestrator\CodeResolveCommand::run($driver, (array) ($spec['extra'] ?? []));
 } else {
-    $phase = \Duo\Orchestrator\CodeResolveCommand::deployPhase($driver, (string) ($spec['verb'] ?? 'deploy'));
+    $phase = \WPrism\Orchestrator\CodeResolveCommand::deployPhase($driver, (string) ($spec['verb'] ?? 'deploy'));
     $exit = $phase ?? 0;
 }
 // Written to a side channel, never to stdout: one assertion below is that an
@@ -827,7 +827,7 @@ PHP_RUNNER
 /**
  * Run one command boundary in a child process.
  *
- * The child's environment always pins `DUO_CODE_ARTIFACT_BASE` at the local
+ * The child's environment always pins `WPRISM_CODE_ARTIFACT_BASE` at the local
  * `file://` fixture. The command boundary constructs its own WpOrgReleases and
  * therefore takes the canonical downloads.wordpress.org base unless that
  * variable moves it — so without this line a cold cache in one of the cases
@@ -846,7 +846,7 @@ function resolve_run(string $runnerFile, string $scratch, array $spec, ?string $
         $descriptors,
         $pipes,
         $cwd,
-        array_merge((array) getenv(), ['DUO_CODE_ARTIFACT_BASE' => 'file://' . $registry], $env)
+        array_merge((array) getenv(), ['WPRISM_CODE_ARTIFACT_BASE' => 'file://' . $registry], $env)
     );
     if (!is_resource($process)) {
         throw new RuntimeException('could not start the code-resolve runner');
@@ -876,20 +876,20 @@ $result = resolve_run($runnerFile, $scratch, [
     'repo_path' => $localRepo,
     'extra' => ['--cache-dir=' . $cache],
 ]);
-duo_check_same(0, $result['exit'], 'duo code-resolve succeeds on a local environment');
-duo_check(
+wprism_check_same(0, $result['exit'], 'wprism code-resolve succeeds on a local environment');
+wprism_check(
     is_dir($localRepo . '/code/wp-content/plugins/woocommerce'),
     'and materializes into the repo_path the local environment names'
 );
-duo_check(
+wprism_check(
     str_contains($result['stdout'], 'RESOLVED plugins/woocommerce 11.0.0'),
     'the report names each component and its locked version'
 );
-duo_check_same(0, $result['raw'] + $result['wp'], 'and reaches the target zero times: resolution is host work');
+wprism_check_same(0, $result['raw'] + $result['wp'], 'and reaches the target zero times: resolution is host work');
 
 // K2. docker: the host side is THIS environment's bind mount, derived from
 // the compose service — not the checkout the CLI happens to stand in
-// (DUO-3526). `repo_path` stays a container path and is never treated as one
+// (issue #3526). `repo_path` stays a container path and is never treated as one
 // on the host.
 $dockerRepo = resolve_make_repo($scratch, $repoSeq, $lockRows, $vendored);
 $dockerElsewhere = resolve_make_repo($scratch, $repoSeq, $lockRows, $vendored);
@@ -900,18 +900,18 @@ $result = resolve_run($runnerFile, $scratch, [
     'host_repo' => $dockerRepo,
     'extra' => ['--cache-dir=' . $cache],
 ], $dockerElsewhere . '/code');
-duo_check_same(0, $result['exit'], 'duo code-resolve succeeds on a docker environment');
-duo_check(
+wprism_check_same(0, $result['exit'], 'wprism code-resolve succeeds on a docker environment');
+wprism_check(
     is_dir($dockerRepo . '/code/wp-content/plugins/woocommerce'),
     'and materializes into the host side of the environment\'s OWN bind mount'
 );
-duo_check(
+wprism_check(
     !is_dir($dockerElsewhere . '/code/wp-content/plugins/woocommerce'),
     'THE HAZARD, pinned: the working directory is inside a DIFFERENT site repository and that one is left '
-    . 'untouched — before DUO-3526 cwd chose the repository, so a rehearse resolved the source and reported '
+    . 'untouched — before issue #3526 cwd chose the repository, so a rehearse resolved the source and reported '
     . 'success while the target the compile reads stayed empty'
 );
-duo_check(
+wprism_check(
     !is_dir('/var/www/site-repo'),
     'never treating the container-side repo_path as a host path'
 );
@@ -924,15 +924,15 @@ $namedVolume = resolve_run($runnerFile, $scratch, [
     'repo_path' => '/siterepo',
     'extra' => ['--cache-dir=' . $cache],
 ], $dockerElsewhere . '/code');
-duo_check_same(1, $namedVolume['exit'], 'a docker environment with no writable bind at its repo_path refuses, with the same exit code every host-side resolve refusal uses');
-duo_check(
+wprism_check_same(1, $namedVolume['exit'], 'a docker environment with no writable bind at its repo_path refuses, with the same exit code every host-side resolve refusal uses');
+wprism_check(
     str_contains($namedVolume['stdout'] . $namedVolume['stderr'], 'does not bind its repo_path to a writable host directory'),
     'and the refusal names the condition rather than the old "run from inside the checkout" remedy, which this '
     . 'change made inert'
 );
 
 // K3. A driver with no host repository AND no push capability: the verb
-// refuses and names the DUO-3514 runbook. Since DUO-3514 that is a claim about
+// refuses and names the issue #3514 runbook. Since issue #3514 that is a claim about
 // the CAPABILITY, not about the word "ssh" — a real SshTransport implements
 // CodePushTransport and resolves-then-pushes (regress_code_resolve_push.php).
 // The bytes below are unchanged precisely because this fixture does not.
@@ -941,20 +941,20 @@ $result = resolve_run($runnerFile, $scratch, [
     'transport' => 'ssh',
     'repo_path' => '/srv/site-repo',
 ]);
-duo_check_same(1, $result['exit'], 'duo code-resolve refuses on a driver that can neither write nor push');
-duo_check(
+wprism_check_same(1, $result['exit'], 'wprism code-resolve refuses on a driver that can neither write nor push');
+wprism_check(
     str_contains($result['stderr'], '[' . CodeResolveCommand::REASON_TRANSPORT_UNSUPPORTED . ']'),
     'with the reason code the docs and the deploy phase both name'
 );
-duo_check(
-    str_contains($result['stderr'], 'DUO-3514'),
+wprism_check(
+    str_contains($result['stderr'], 'issue #3514'),
     'and it names the tracked host-to-target push work rather than inventing a workaround'
 );
-duo_check(
+wprism_check(
     str_contains($result['stderr'], 'docs/guides/code-updates.md'),
     'and points at the runbook for materializing on the target by hand'
 );
-duo_check_same(0, $result['raw'] + $result['wp'], 'the verb refuses before contacting the target at all');
+wprism_check_same(0, $result['raw'] + $result['wp'], 'the verb refuses before contacting the target at all');
 
 // K4. The deploy phase on an un-pushable driver: proceeds only when the target
 // already hashes correctly, and refuses by name when it does not. (A pushable
@@ -962,7 +962,7 @@ duo_check_same(0, $result['raw'] + $result['wp'], 'the verb refuses before conta
 $targetSite = json_encode(['code' => RESOLVE_FORMAT_2, 'format' => 1], JSON_UNESCAPED_SLASHES);
 $targetLock = CodeSourceLock::encode($lockRows);
 $targetRaw = [
-    'site.duo.json' => ['exit' => 0, 'stdout' => $targetSite, 'stderr' => ''],
+    'site.wprism.json' => ['exit' => 0, 'stdout' => $targetSite, 'stderr' => ''],
     CodeSourceLock::PATH => ['exit' => 0, 'stdout' => $targetLock, 'stderr' => ''],
 ];
 $inventoryRow = static fn(string $root, string $component, string $version, string $digest): array => [
@@ -976,7 +976,7 @@ $result = resolve_run($runnerFile, $scratch, [
     'repo_path' => '/srv/site-repo',
     'raw' => $targetRaw,
     'inventory' => ['exit' => 0, 'stdout' => json_encode([
-        'format' => 'duo-code-inventory/v1',
+        'format' => 'wprism-code-inventory/v1',
         'source' => CodeSourceLock::SOURCE,
         'components' => [
             $inventoryRow('plugins', 'woocommerce', '11.0.0', $wooTreeDigest),
@@ -984,12 +984,12 @@ $result = resolve_run($runnerFile, $scratch, [
         ],
     ], JSON_UNESCAPED_SLASHES), 'stderr' => ''],
 ]);
-duo_check_same('continue', $result['phase'], 'deploy proceeds when every locked component already hashes correctly on the target');
-duo_check(
+wprism_check_same('continue', $result['phase'], 'deploy proceeds when every locked component already hashes correctly on the target');
+wprism_check(
     str_contains($result['stdout'], "deploy phase: code-resolve\n"),
     'and says so with its own phase line'
 );
-duo_check(
+wprism_check(
     str_contains($result['stdout'], 'UNCHANGED plugins/woocommerce'),
     'reporting each locked component as already present on the target'
 );
@@ -1001,26 +1001,26 @@ $result = resolve_run($runnerFile, $scratch, [
     'repo_path' => '/srv/site-repo',
     'raw' => $targetRaw,
     'inventory' => ['exit' => 0, 'stdout' => json_encode([
-        'format' => 'duo-code-inventory/v1',
+        'format' => 'wprism-code-inventory/v1',
         'source' => CodeSourceLock::SOURCE,
         'components' => [$inventoryRow('plugins', 'woocommerce', '11.0.0', $wooTreeDigest)],
     ], JSON_UNESCAPED_SLASHES), 'stderr' => ''],
 ]);
-duo_check_same(1, $result['exit'], 'deploy refuses on an un-pushable driver when a locked component is not already correct on the target');
-duo_check(
+wprism_check_same(1, $result['exit'], 'deploy refuses on an un-pushable driver when a locked component is not already correct on the target');
+wprism_check(
     str_contains($result['stderr'], '[' . CodeResolveCommand::REASON_TRANSPORT_UNSUPPORTED . ']'),
     'with the same reason code the verb raises'
 );
-duo_check(
+wprism_check(
     str_contains($result['stderr'], 'themes/storefront'),
     'naming the component that is missing rather than the whole repository'
 );
-duo_check(
+wprism_check(
     str_contains($result['stderr'], 'refusing before compile'),
     'and stating that it stopped before compile, so no lease and no checkpoint exist to compensate'
 );
 
-// K4b. The deploy phase on DOCKER (DUO-3526): the host materializes into the
+// K4b. The deploy phase on DOCKER (issue #3526): the host materializes into the
 // derived bind source, and then PROVES through the target that the bytes
 // landed where the target reads. That proof is what makes a derived path safe
 // to act on — a stale compose file or an edited mount would otherwise resolve
@@ -1034,7 +1034,7 @@ $dockerPhase = resolve_run($runnerFile, $scratch, [
     'repo_path' => '/siterepo',
     'host_repo' => $dockerPhaseRepo,
     'inventory' => ['exit' => 0, 'stdout' => json_encode([
-        'format' => 'duo-code-inventory/v1',
+        'format' => 'wprism-code-inventory/v1',
         'source' => CodeSourceLock::SOURCE,
         'components' => [
             $inventoryRow('plugins', 'woocommerce', '11.0.0', $wooTreeDigest),
@@ -1044,16 +1044,16 @@ $dockerPhase = resolve_run($runnerFile, $scratch, [
 // deployPhase() passes no --cache-dir (an unattended phase has no flags), so
 // the child needs a writable XDG cache of its own rather than the developer's.
 ], null, ['XDG_CACHE_HOME' => $scratch . '/xdg']);
-duo_check_same('continue', $dockerPhase['phase'], 'the docker phase proceeds once the host has resolved and the target confirms the digests');
-duo_check(
+wprism_check_same('continue', $dockerPhase['phase'], 'the docker phase proceeds once the host has resolved and the target confirms the digests');
+wprism_check(
     is_dir($dockerPhaseRepo . '/code/wp-content/plugins/woocommerce')
         && is_dir($dockerPhaseRepo . '/code/wp-content/themes/storefront'),
     'and the components are on disk in the host side of the target\'s bind mount, before anything is compiled'
 );
-duo_check(
+wprism_check(
     str_contains($dockerPhase['stdout'], "env materialize phase: code-resolve\n")
         && str_contains($dockerPhase['stdout'], 'env materialize: 2 materialized, 0 unchanged.'),
-    'reported with the verb it ran under, in the vocabulary duo code-resolve already prints'
+    'reported with the verb it ran under, in the vocabulary wprism code-resolve already prints'
 );
 
 // The same resolve, but the target does not report the digests: the host wrote
@@ -1067,13 +1067,13 @@ $dockerStray = resolve_run($runnerFile, $scratch, [
     'repo_path' => '/siterepo',
     'host_repo' => $dockerStrayRepo,
     'inventory' => ['exit' => 0, 'stdout' => json_encode([
-        'format' => 'duo-code-inventory/v1',
+        'format' => 'wprism-code-inventory/v1',
         'source' => CodeSourceLock::SOURCE,
         'components' => [],
     ], JSON_UNESCAPED_SLASHES), 'stderr' => ''],
 ], null, ['XDG_CACHE_HOME' => $scratch . '/xdg']);
-duo_check_same(1, $dockerStray['phase'], 'a derived path the target does not read refuses the phase');
-duo_check(
+wprism_check_same(1, $dockerStray['phase'], 'a derived path the target does not read refuses the phase');
+wprism_check(
     str_contains($dockerStray['stdout'] . $dockerStray['stderr'], 'the target does not report them at the locked digest')
         && str_contains($dockerStray['stdout'] . $dockerStray['stderr'], 'plugins/woocommerce 11.0.0 (absent)'),
     'naming every component the target still lacks, with a typed reason code, before any compile happens'
@@ -1086,8 +1086,8 @@ duo_check(
 $plainRepo = $scratch . '/plain-repo';
 mkdir($plainRepo . '/code/wp-content/plugins', 0775, true);
 file_put_contents(
-    $plainRepo . '/site.duo.json',
-    \Duo\Canon::encode(['code' => RESOLVE_FORMAT_1, 'format' => 1, 'site' => 'fixture'])
+    $plainRepo . '/site.wprism.json',
+    \WPrism\Canon::encode(['code' => RESOLVE_FORMAT_1, 'format' => 1, 'site' => 'fixture'])
 );
 $result = resolve_run($runnerFile, $scratch, [
     'mode' => 'phase',
@@ -1095,10 +1095,10 @@ $result = resolve_run($runnerFile, $scratch, [
     'transport' => 'local',
     'repo_path' => $plainRepo,
 ]);
-duo_check_same('continue', $result['phase'], 'a format-1 repository has nothing to resolve');
-duo_check_same('', $result['stdout'], 'and the phase prints nothing at all, so existing deploy output is byte-identical');
-duo_check_same('', $result['stderr'], 'on either stream');
-duo_check_same(0, $result['raw'] + $result['wp'], 'and it costs no target round trip');
+wprism_check_same('continue', $result['phase'], 'a format-1 repository has nothing to resolve');
+wprism_check_same('', $result['stdout'], 'and the phase prints nothing at all, so existing deploy output is byte-identical');
+wprism_check_same('', $result['stderr'], 'on either stream');
+wprism_check_same(0, $result['raw'] + $result['wp'], 'and it costs no target round trip');
 
 // K6. A driver outside the closed transport vocabulary is left alone: it owns
 // no site repository this host can reach, and the compile gate below still
@@ -1109,9 +1109,9 @@ $result = resolve_run($runnerFile, $scratch, [
     'transport' => 'fixture-only',
     'repo_path' => '/fixture/repo',
 ]);
-duo_check_same('continue', $result['phase'], 'a driver that is not one of the three shipped transports is left to the compile gate');
-duo_check_same('', $result['stdout'] . $result['stderr'], 'and prints nothing');
-duo_check_same(0, $result['raw'] + $result['wp'], 'and contacts nothing');
+wprism_check_same('continue', $result['phase'], 'a driver that is not one of the three shipped transports is left to the compile gate');
+wprism_check_same('', $result['stdout'] . $result['stderr'], 'and prints nothing');
+wprism_check_same(0, $result['raw'] + $result['wp'], 'and contacts nothing');
 
 // K7. The automatic phase resolves through the same code path as the verb, and
 // uses the default XDG cache: an unattended deploy has no --cache-dir to pass.
@@ -1123,14 +1123,14 @@ $result = resolve_run(
     null,
     ['XDG_CACHE_HOME' => $scratch . '/xdg']
 );
-duo_check_same('continue', $result['phase'], 'the promote phase resolves and lets promotion continue');
-duo_check(str_contains($result['stdout'], "promote phase: code-resolve\n"), 'and labels itself with the verb it is running under');
-duo_check(
+wprism_check_same('continue', $result['phase'], 'the promote phase resolves and lets promotion continue');
+wprism_check(str_contains($result['stdout'], "promote phase: code-resolve\n"), 'and labels itself with the verb it is running under');
+wprism_check(
     is_dir($phaseRepo . '/code/wp-content/plugins/woocommerce'),
     'materializing into the host checkout before anything is compiled'
 );
-duo_check(
-    is_dir($scratch . '/xdg/duo/code-artifacts'),
+wprism_check(
+    is_dir($scratch . '/xdg/wprism/code-artifacts'),
     'through the default XDG cache, because an unattended deploy passes no --cache-dir'
 );
 
@@ -1141,8 +1141,8 @@ $result = resolve_run($runnerFile, $scratch, [
     'repo_path' => $localRepo,
     'extra' => ['--force'],
 ]);
-duo_check_same(1, $result['exit'], 'an unsupported flag refuses');
-duo_check(
+wprism_check_same(1, $result['exit'], 'an unsupported flag refuses');
+wprism_check(
     str_contains($result['stderr'], "unsupported argument '--force'"),
     'naming the argument rather than printing usage'
 );
@@ -1152,7 +1152,7 @@ $result = resolve_run($runnerFile, $scratch, [
     'repo_path' => $localRepo,
     'extra' => ['--cache-dir=relative/path'],
 ]);
-duo_check_same(1, $result['exit'], 'a relative --cache-dir refuses: the cache is shared across checkouts');
+wprism_check_same(1, $result['exit'], 'a relative --cache-dir refuses: the cache is shared across checkouts');
 
 // ---------------------------------------------------------------------------
 // A malformed declaration is missing information, not absent information.
@@ -1165,14 +1165,14 @@ resolve_check_refuses(
     CodeResolver::REASON_LOCK_UNREADABLE,
     'code format 2 with no lock file on disk refuses rather than resolving nothing'
 );
-file_put_contents($brokenRepo . '/' . CodeSourceLock::PATH, '{"format":"duo-code-lock/v0","components":[]}');
+file_put_contents($brokenRepo . '/' . CodeSourceLock::PATH, '{"format":"wprism-code-lock/v0","components":[]}');
 resolve_check_refuses(
     static fn() => CodeResolver::declaredLock($brokenRepo),
     CodeResolver::REASON_LOCK_UNREADABLE,
     'and a lock the grammar rejects is refused too, not partially honoured'
 );
 file_put_contents($brokenRepo . '/' . CodeSourceLock::PATH, json_encode([
-    'format' => 'duo-code-lock/v1',
+    'format' => 'wprism-code-lock/v1',
     'components' => [[
         'root' => 'plugins', 'component' => 'premium', 'version' => '1.2.0',
         'origin' => ['kind' => 'vendored-archive', 'path' => 'code/archives/premium.zip', 'archive_sha256' => str_repeat('0', 64)],
@@ -1184,8 +1184,8 @@ $retired = resolve_check_refuses(
     CodeResolver::REASON_LOCK_UNREADABLE,
     'a legacy lock naming the retired vendored-archive origin is refused at the reader, so nothing ever resolves a ZIP committed inside the repository again'
 );
-duo_check(
-    $retired !== null && str_contains($retired->getMessage(), '`duo code-import <archive.zip>`'),
+wprism_check(
+    $retired !== null && str_contains($retired->getMessage(), '`wprism code-import <archive.zip>`'),
     'and the refusal carries the remedy: import the archive on the host and re-lock'
 );
 
@@ -1195,7 +1195,7 @@ duo_check(
 // the repository; deploy/promote must not.
 // ---------------------------------------------------------------------------
 
-final class ReleaseCompileFixtureTransport extends \Duo\Orchestrator\Transport {
+final class ReleaseCompileFixtureTransport extends \WPrism\Orchestrator\Transport {
     public function __construct(string $repo) {
         parent::__construct('release-compile-fixture', [
             'repo_path' => $repo,
@@ -1241,7 +1241,7 @@ final class ReleaseCompileFixtureTransport extends \Duo\Orchestrator\Transport {
         return [
             'exit' => 0,
             'stdout' => json_encode([
-                'format' => 'duo-code-inventory/v1',
+                'format' => 'wprism-code-inventory/v1',
                 'source' => CodeSourceLock::SOURCE,
                 'components' => $rows,
             ], JSON_UNESCAPED_SLASHES),
@@ -1265,25 +1265,25 @@ final class ReleaseCompileFixtureTransport extends \Duo\Orchestrator\Transport {
 
 $releaseRepo = resolve_make_repo($scratch, $repoSeq, $lockRows, []);
 $releaseDriver = new ReleaseCompileFixtureTransport($releaseRepo);
-$priorBase = getenv('DUO_CODE_ARTIFACT_BASE');
+$priorBase = getenv('WPRISM_CODE_ARTIFACT_BASE');
 $priorXdg = getenv('XDG_CACHE_HOME');
-putenv('DUO_CODE_ARTIFACT_BASE=file://' . $registry);
+putenv('WPRISM_CODE_ARTIFACT_BASE=file://' . $registry);
 putenv('XDG_CACHE_HOME=' . $scratch . '/release-xdg');
 try {
     $preparedPath = CodeResolveCommand::releaseCompile(
         $releaseDriver,
         'deploy',
         static function (string $prepared) use ($releaseRepo): string {
-            duo_check(
+            wprism_check(
                 str_contains($prepared, '/' . CodeResolveCommand::RELEASE_STAGING . '/'),
                 'release compilation receives a target-visible repository with a minted staging identity'
             );
-            duo_check(
+            wprism_check(
                 is_dir($prepared . '/code/wp-content/plugins/woocommerce')
                     && is_dir($prepared . '/code/wp-content/themes/storefront'),
                 'the disposable repository carries every locked component at compile time'
             );
-            duo_check(
+            wprism_check(
                 !is_dir($releaseRepo . '/code/wp-content/plugins/woocommerce')
                     && !is_dir($releaseRepo . '/code/wp-content/themes/storefront'),
                 'THE boundary: automatic resolution has not materialized the canonical repository before compile'
@@ -1291,9 +1291,9 @@ try {
             return $prepared;
         }
     );
-    duo_check(is_string($preparedPath), 'the product compile callback result is returned unchanged');
-    duo_check(!is_dir((string) $preparedPath), 'the isolated repository is removed after successful compile');
-    duo_check(
+    wprism_check(is_string($preparedPath), 'the product compile callback result is returned unchanged');
+    wprism_check(!is_dir((string) $preparedPath), 'the isolated repository is removed after successful compile');
+    wprism_check(
         !is_dir($releaseRepo . '/code/wp-content/plugins/woocommerce')
             && !is_dir($releaseRepo . '/code/wp-content/themes/storefront'),
         'successful preparation leaves the canonical repository byte-identical too'
@@ -1303,26 +1303,26 @@ try {
         $releaseDriver,
         'promote',
         static function (string $prepared): never {
-            duo_check(is_dir($prepared), 'the refusal fixture reaches the real prepared repository');
+            wprism_check(is_dir($prepared), 'the refusal fixture reaches the real prepared repository');
             throw new RuntimeException('synthetic compile refusal after resolution');
         }
     );
-    duo_check_same(1, $failed, 'a compile exception is a closed release preparation refusal');
-    duo_check_same(
+    wprism_check_same(1, $failed, 'a compile exception is a closed release preparation refusal');
+    wprism_check_same(
         [],
         array_values((array) glob($releaseRepo . '/' . CodeResolveCommand::RELEASE_STAGING . '/*')),
         'the finally removes every target-side prepared repository after the refusal'
     );
-    duo_check(
+    wprism_check(
         !is_dir($releaseRepo . '/code/wp-content/plugins/woocommerce')
             && !is_dir($releaseRepo . '/code/wp-content/themes/storefront'),
         'and a failed release leaves no resolved dependency bytes for an operator to clean up'
     );
 } finally {
-    $priorBase === false ? putenv('DUO_CODE_ARTIFACT_BASE') : putenv('DUO_CODE_ARTIFACT_BASE=' . $priorBase);
+    $priorBase === false ? putenv('WPRISM_CODE_ARTIFACT_BASE') : putenv('WPRISM_CODE_ARTIFACT_BASE=' . $priorBase);
     $priorXdg === false ? putenv('XDG_CACHE_HOME') : putenv('XDG_CACHE_HOME=' . $priorXdg);
 }
 
 resolve_remove_tree($scratch);
 
-duo_check_summary('regress_code_resolve');
+wprism_check_summary('regress_code_resolve');

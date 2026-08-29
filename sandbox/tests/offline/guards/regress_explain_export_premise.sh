@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression — DUO-3413: the core sweep's strict-explain post-conditions must
+# Regression — issue #3413: the core sweep's strict-explain post-conditions must
 # name infrastructure, not the engine, when a load-starved `docker compose run`
 # returns EMPTY at exit 0. An empty `wp db export` hashes to the empty-string
 # digest e3b0c442… and the before/after equality check then reports "strict
@@ -72,32 +72,32 @@ if grep -qE 'EXPLAIN_DB_(BEFORE|AFTER)=\$\(wp_conf2 db export .*shasum' "$CORE";
 fi
 pass "core.sh premise-guards both exports and pastes evidence into the strict-explain post-condition accusations"
 
-# DUO-3424: the durable mutation-tooth is removed immediately after its
+# issue #3424: the durable mutation-tooth is removed immediately after its
 # after-export bytes are captured, before the non-empty premise can abort. A
 # separate EXIT cleanup covers a command that returns non-zero after writing.
 TOOTH_CAPTURE_LINE=$(grep -n 'EXPLAIN_TOOTH_AFTER_SQL=$(wp_conf2 db export' "$CORE" | cut -d: -f1)
-TOOTH_DELETE_LINE=$(awk -v capture="$TOOTH_CAPTURE_LINE" 'NR > capture && /wp_conf2 option delete duo_explain_mutation_tooth/ { print NR; exit }' "$CORE")
+TOOTH_DELETE_LINE=$(awk -v capture="$TOOTH_CAPTURE_LINE" 'NR > capture && /wp_conf2 option delete wprism_explain_mutation_tooth/ { print NR; exit }' "$CORE")
 TOOTH_PREMISE_LINE=$(grep -n 'require_observed_nonempty "conf2 db export (mutation-tooth after)"' "$CORE" | cut -d: -f1)
 [ -n "$TOOTH_CAPTURE_LINE" ] && [ -n "$TOOTH_DELETE_LINE" ] && [ -n "$TOOTH_PREMISE_LINE" ] \
-  || fail "DUO-3424 strict-explain tooth cleanup/premise anchors are missing"
+  || fail "issue #3424 strict-explain tooth cleanup/premise anchors are missing"
 [ "$TOOTH_CAPTURE_LINE" -lt "$TOOTH_DELETE_LINE" ] && [ "$TOOTH_DELETE_LINE" -lt "$TOOTH_PREMISE_LINE" ] \
-  || fail "DUO-3424 tooth option is not removed between after-export capture and its premise guard"
+  || fail "issue #3424 tooth option is not removed between after-export capture and its premise guard"
 grep -Fq 'EXPLAIN_TOOTH_OPTION_MAY_EXIST=1' "$CORE" \
-  || fail "DUO-3424 does not mark the durable tooth as cleanup-owned before its write"
-grep -Fq 'EXPLAIN_TOOTH_DELETE_OUT=$(wp_conf2 option delete duo_explain_mutation_tooth' "$CORE" \
-  || fail "DUO-3424 does not capture a non-empty answer from tooth cleanup before clearing ownership"
+  || fail "issue #3424 does not mark the durable tooth as cleanup-owned before its write"
+grep -Fq 'EXPLAIN_TOOTH_DELETE_OUT=$(wp_conf2 option delete wprism_explain_mutation_tooth' "$CORE" \
+  || fail "issue #3424 does not capture a non-empty answer from tooth cleanup before clearing ownership"
 grep -Fq 'cleanup_strict_explain()' "$CORE" \
-  || fail "DUO-3424 does not retain a best-effort EXIT cleanup for a partial tooth write"
+  || fail "issue #3424 does not retain a best-effort EXIT cleanup for a partial tooth write"
 grep -Fq 'EXPLAIN_MU_MAY_EXIST=1' "$CORE" \
-  || fail "DUO-3424 does not mark the persistent MU files as cleanup-owned before installation"
+  || fail "issue #3424 does not mark the persistent MU files as cleanup-owned before installation"
 MU_FLAG_LINE=$(grep -n 'EXPLAIN_MU_MAY_EXIST=1' "$CORE" | head -n1 | cut -d: -f1)
-MU_INSTALL_LINE=$(grep -n 'DUO_EXPLAIN_OFFLOAD_HOOK_WAS_INVOKED' "$CORE" | head -n1 | cut -d: -f1)
+MU_INSTALL_LINE=$(grep -n 'WPRISM_EXPLAIN_OFFLOAD_HOOK_WAS_INVOKED' "$CORE" | head -n1 | cut -d: -f1)
 [ -n "$MU_FLAG_LINE" ] && [ -n "$MU_INSTALL_LINE" ] && [ "$MU_FLAG_LINE" -lt "$MU_INSTALL_LINE" ] \
-  || fail "DUO-3424 does not mark MU cleanup ownership before the first offload-guard write"
+  || fail "issue #3424 does not mark MU cleanup ownership before the first offload-guard write"
 grep -Fq '$COMPOSE run --rm -T --no-deps --user root wp2' "$CORE" \
-  || fail "DUO-3424 has no dependency-free root fallback for MU cleanup when exec cannot answer"
+  || fail "issue #3424 has no dependency-free root fallback for MU cleanup when exec cannot answer"
 grep -Fq 'pair destroy (not pair reset)' "$CORE" \
-  || fail "DUO-3424 MU cleanup rationale still misstates pair reset's webroot-volume behavior"
-pass "DUO-3424 removes the tooth before premise failure and retains an EXIT cleanup for partial writes"
+  || fail "issue #3424 MU cleanup rationale still misstates pair reset's webroot-volume behavior"
+pass "issue #3424 removes the tooth before premise failure and retains an EXIT cleanup for partial writes"
 
 echo "REGRESS_EXPLAIN_EXPORT_PREMISE PASSED"

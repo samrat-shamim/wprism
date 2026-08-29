@@ -31,7 +31,7 @@ printf 'PASS: every Polylang live fixture defines fail() before sourcing shared 
 
 # Keep the ordering check mutation-sensitive: if either adjacent declaration is
 # reverted, this temp copy must be rejected without sourcing the live harness.
-TMP=$(mktemp -d "${TMPDIR:-/tmp}/duo-polylang-live-guard.XXXXXX")
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/wprism-polylang-live-guard.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 for file in "${LIVE_FILES[@]}"; do
   mutated="$TMP/$(basename "$file")"
@@ -102,7 +102,7 @@ for needle in \
   'wp_get_nav_menu_object("Polylang Principal Français")' \
   'Polylang French projection source graph is incoherent' \
   'injected Polylang native-catalog verification child failure' \
-  'duo identity-export --repo=/siterepo --out=/siterepo/.tmp-polylang-remove-all-identity.json' \
+  'wprism identity-export --repo=/siterepo --out=/siterepo/.tmp-polylang-remove-all-identity.json' \
   'widget identity history is missing' \
   'identity sidecar witness mismatch' \
   'db export /siterepo/.tmp-polylang-remove-all.sql --add-drop-table' \

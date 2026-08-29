@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 require_once __DIR__ . '/../Kernel/MetaRows.php';
@@ -40,7 +40,7 @@ final class MetaOwnerRangeLock {
         DeleteGuardEvaluator::assert_table_identifiers([$table], $purpose);
         foreach ([$ownerColumn, $index] as $identifier) {
             if (preg_match('/^[A-Za-z0-9_]{1,64}$/D', $identifier) !== 1) {
-                throw new \RuntimeException("duo: $purpose received an unsafe proven lock descriptor");
+                throw new \RuntimeException("wprism: $purpose received an unsafe proven lock descriptor");
             }
         }
         return new self($table, $ownerColumn, $index, $purpose);
@@ -67,7 +67,7 @@ final class MetaOwnerRangeLock {
      * Return rows whose key is byte-exact after proving that the database's
      * collation-equality set contains no aliases. WordPress metadata columns
      * are normally case/accent insensitive, so filtering the already-read
-     * PHP strings alone cannot tell whether `_DUO_UUID` (or another collation
+     * PHP strings alone cannot tell whether `_WPRISM_UUID` (or another collation
      * alias) could win a later ordinary `meta_key = %s` lookup.
      *
      * @return list<array{meta_id:string,meta_key:string,meta_value:?string}>
@@ -82,7 +82,7 @@ final class MetaOwnerRangeLock {
             || $characters > MetaRows::MAX_META_KEY_CHARACTERS
             || preg_match('/[\x00-\x1F\x7F]/', $key) === 1
             || preg_match('/^[A-Za-z0-9_]{1,64}$/D', $idColumn) !== 1) {
-            throw new \RuntimeException("duo: {$this->purpose} requested a malformed exact metadata key read");
+            throw new \RuntimeException("wprism: {$this->purpose} requested a malformed exact metadata key read");
         }
 
         $all = $this->read($ownerId, $idColumn);
@@ -100,7 +100,7 @@ final class MetaOwnerRangeLock {
             || !array_is_list($rows)
             || trim((string) ($wpdb->last_error ?? '')) !== ''
             || count($rows) > MetaRows::MAX_OWNER_ROWS) {
-            throw new \RuntimeException("duo: {$this->purpose} exact metadata key equality read failed or exceeded its bound");
+            throw new \RuntimeException("wprism: {$this->purpose} exact metadata key equality read failed or exceeded its bound");
         }
 
         $allById = [];
@@ -123,20 +123,20 @@ final class MetaOwnerRangeLock {
                 || isset($seen[$id])
                 || !isset($allById[(string) $id])) {
                 throw new \RuntimeException(
-                    "duo: {$this->purpose} exact metadata key equality returned a malformed row at bounded position $position"
+                    "wprism: {$this->purpose} exact metadata key equality returned a malformed row at bounded position $position"
                 );
             }
             $seen[$id] = true;
             if (!hash_equals($key, $rowKey)) {
                 throw new \RuntimeException(
-                    "duo: {$this->purpose} found a collation-equal non-byte-exact metadata key alias"
+                    "wprism: {$this->purpose} found a collation-equal non-byte-exact metadata key alias"
                 );
             }
             $exact[] = $allById[(string) $id];
         }
         if (array_keys($seen) !== array_map('intval', array_keys($expectedExactIds))) {
             throw new \RuntimeException(
-                "duo: {$this->purpose} exact metadata key equality disagrees with its locked owner-range witness"
+                "wprism: {$this->purpose} exact metadata key equality disagrees with its locked owner-range witness"
             );
         }
         return $exact;

@@ -1,5 +1,5 @@
 {
-  "format": "duo-application-contract/v2",
+  "format": "wprism-application-contract/v2",
   "site": {"name": "example-shop", "spec_version": 2},
   "declarations": {
     "stack": {
@@ -27,7 +27,7 @@
       {"id": "code-lifecycle-window", "surfaces": ["plugins/themes"],
        "containment": "live",
        "effect_recovery_semantics": "provider-state restorable", "restored_by": "code release",
-       "reason": "activation and deactivation hooks run with normal WordPress semantics and Duo enforces no egress control in this profile; reviewed for this site's installed set",
+       "reason": "activation and deactivation hooks run with normal WordPress semantics and WPrism enforces no egress control in this profile; reviewed for this site's installed set",
        "decided_by": "operator", "decided_at": "2026-08-17T09:02:11Z"}
     ],
     "journeys": [
@@ -51,16 +51,16 @@
     }
   },
   "attestation": {
-    "format": "duo-contract-attestation/v1",
+    "format": "wprism-contract-attestation/v1",
     "state": "unsigned",
     "reason": "the certification gate is deferred for the minimum usable platform",
     "approving_principal": null, "policy_version": null, "signature": null, "expires_at": null
   },
   "environment_bindings": {
     "required": [
-      {"name": "siteurl", "class": "env", "bound_in": ".duo-env-values.json"},
+      {"name": "siteurl", "class": "env", "bound_in": ".wprism-env-values.json"},
       {"name": "payment_gateway_secret", "class": "env", "sensitivity": "secret",
-       "bound_in": ".duo-env-values.json"}
+       "bound_in": ".wprism-env-values.json"}
     ]
   }
 }

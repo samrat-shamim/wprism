@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // Direct production loads need the real collaborators, while CLI refusal
 // fixtures intentionally preload Canon/Policy stubs. Preserve both closed

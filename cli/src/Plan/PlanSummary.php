@@ -1,33 +1,33 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/PlanContract.php';
 
 /**
- * Turns the JSON from `wp duo plan --format=json` (agent/src/Apply/Apply.php
+ * Turns the JSON from `wp wprism plan --format=json` (agent/src/Apply/Apply.php
  * build_plan(): keys create/update/unchanged/drift/conflict/adopt/
  * collision/delete/delete_conflict/deleted, each a list of
  * {uuid,type,path?,title?,blocked?,env_id?,reason?,conflict_view?}) into
- * `duo status`'s human summary.
+ * `wprism status`'s human summary.
  * `conflict_view`, when present on conflict/delete_conflict, is the versioned
  * hash-only base/repository/target evidence and bounded choice model from
  * spec/repo-format.md; renderers must never invent raw values from hashes.
  *
  * More top-level keys live outside BUCKETS and get their own handling
  * below, mirroring agent/src/Command/Cli.php's plan() rendering deliberately (a
- * human reading `duo status` and one reading `wp duo plan` directly must
+ * human reading `wprism status` and one reading `wp wprism plan` directly must
  * never see different advice for the same plan):
  *   - code_mismatch (agent/src/Promotion/Deploy.php::code_mismatch(),
  *     docs/code-half.md §3.2): a DIFFERENT row shape —
  *     {issue,kind,plugin|theme,message,...}, no uuid/path — so label()
  *     below does not apply to it. `code_revision_stale` is the one
  *     non-forceable member: it names an unfinalized code payload and must
- *     direct the operator to the host `duo deploy <env>` workflow.
+ *     direct the operator to the host `wprism deploy <env>` workflow.
  *   - code_drift (agent/src/Promotion/Deploy.php::code_drift()): a similarly shaped
  *     plugin/theme finding, but it means an otherwise-compatible installed
- *     version changed after Duo's last trusted observation. Apply refuses it
+ *     version changed after WPrism's last trusted observation. Apply refuses it
  *     unless explicitly forced, so status must count, render, and block it.
  *   - warnings: a plain list<string> (only Apply::plan()'s entry point
  *     attaches this to the returned array — see its own comment).
@@ -36,13 +36,13 @@ require_once __DIR__ . '/PlanContract.php';
  *   - incomplete_lifecycle: a durable pre-hook receipt means a lifecycle API
  *     may have committed canonical state before throwing. It is non-forceable
  *     and requires the exact pre-lifecycle checkpoint recovery sequence.
- *   - regen_context (DUO-3342): an outstanding pre-delete inventory or
+ *   - regen_context (issue #3342): an outstanding pre-delete inventory or
  *     pre-move receipt whose derived-state repair no consumer has verified.
  *     Same "known correctness gap, not an apply-refuse case" footing as
- *     regen_pending below, and surfaced for the same reason: DUO-3342 made
+ *     regen_pending below, and surfaced for the same reason: issue #3342 made
  *     those markers survive a failed apply instead of being swept, so one can
  *     now stand between a failure and its retry where an operator can see it.
- *   - regen_pending (DUO-3234's Apply::build_plan(), design review addition
+ *   - regen_pending (issue #3234's Apply::build_plan(), design review addition
  *     1): a derived table with a hard per-entity availability dependency
  *     (e.g. TEC's tec_occurrences) whose verification failed on a PRIOR
  *     apply and has not yet been resolved by a later one. Row shape
@@ -54,18 +54,18 @@ require_once __DIR__ . '/PlanContract.php';
  *     vs. one entity's derived-state gap) and regen_pending resolves
  *     through a path incomplete_apply cannot reach at all (no apply needs
  *     to have failed — see Apply::regen_dependencies()'s own docblock,
- *     "RESOLVED (DUO-3245)", for the full reasoning and the live proof).
- *   - env_missing (DUO-3232's Apply::build_plan()): a manifest-declared
+ *     "RESOLVED (issue #3245)", for the full reasoning and the live proof).
+ *   - env_missing (issue #3232's Apply::build_plan()): a manifest-declared
  *     `class: "env"` option that is unset (row absent or empty string) on
  *     THIS environment. Row shape {name, required} — no uuid/path/type at
  *     all (label() does not apply), and never a value: env_missing exists
  *     to checklist WHICH values still need provisioning, never to leak
  *     what they should contain.
- *   - adapter_dispositions (stable wire key; DUO-3224/DUO-3227): selected
+ *   - adapter_dispositions (stable wire key; issue #3224/issue #3227): selected
  *     manifests whose generated capability verdict is blocked. Row shape
  *     {name,status,code,reason}; host promotion consumes the same compiled
  *     claim before lease/checkpoint/mutation.
- *   - provider_problems (DUO-3339's Apply::plan(), closing spec/repo-format.md
+ *   - provider_problems (issue #3339's Apply::plan(), closing spec/repo-format.md
  *     bound (4)): the rows `Providers::diagnose()` produces for every provider
  *     capability the PINNED manifests declare — missing plugin, inactive
  *     plugin, out-of-range version, absent provider, contract or identity
@@ -106,13 +106,13 @@ final class PlanSummary {
      *   through a different auto-discovered registry.
      * @param array<string,string> $surfaceLabels The reviewed contract's
      *   `declarations.surface_labels` map (round-3 MUP §2.7). Empty — every
-     *   caller that has no accepted contract, which includes `duo status`
+     *   caller that has no accepted contract, which includes `wprism status`
      *   today — renders byte-identically to every prior release: the label
      *   line is emitted only when the map resolves the row's own surface.
      * @param bool $deletionAuthorityOwnedByCaller For the one caller that runs
      *   its own reviewed deletion-authorization gate over this same plan:
-     *   `duo release` refuses a pending deletion with
-     *   `release_deletes_not_authorized` and the remedy "re-run duo release
+     *   `wprism release` refuses a pending deletion with
+     *   `release_deletes_not_authorized` and the remedy "re-run wprism release
      *   --with-deletes" (cli/src/Release/AuthorizationPlan.php:613-625),
      *   deliberately carrying NO gap action because an authorization flag is
      *   not an assessment gap. Counting the `delete` bucket in `ok` for that
@@ -123,7 +123,7 @@ final class PlanSummary {
      *   remedy line with it — and nothing else: a guard-blocked row still
      *   counts through `$blocked`, `delete_conflict` still counts, and the
      *   rows stay itemized so the caller's own refusal is still printed over
-     *   a complete picture. `duo status` never passes it: for an ordinary
+     *   a complete picture. `wprism status` never passes it: for an ordinary
      *   promote the pending deletion IS the readiness answer.
      * @return array{lines: list<string>, ok: bool}
      */
@@ -154,7 +154,7 @@ final class PlanSummary {
         // subtracted from `ok` below. It arrives inside code_mismatch because
         // it IS the same finding, answered — so it must stay counted in the
         // `N code_mismatch` summary line and visible in JSON, while the
-        // CODE_MISMATCH block's own remedy sentence ("duo apply will refuse
+        // CODE_MISMATCH block's own remedy sentence ("wprism apply will refuse
         // until resolved") would be false about it.
         $graduatedVersionRange = array_values(array_filter(
             $codeMismatch,
@@ -195,7 +195,7 @@ final class PlanSummary {
         $summary .= ', ' . count($providerProblems) . ' provider_problems';
         $lines[] = $summary;
 
-        // DUO-3345 slice 5: render only the optional, strictly validated
+        // issue #3345 slice 5: render only the optional, strictly validated
         // projection. Older agents omit it; the host cannot reconstruct
         // attachment provenance, selected actions, or blocker origin from
         // detailed rows alone, so it leaves category lines out.
@@ -248,7 +248,7 @@ final class PlanSummary {
             $lines[] = 'environment drift detected — capture-first workflow recommended';
         }
 
-        // DUO-3502: the `delete` bucket is a plan row an ordinary promote
+        // issue #3502: the `delete` bucket is a plan row an ordinary promote
         // does NOT converge. It was counted in the summary line above and
         // itemized only when a referential guard also blocked it, so the one
         // state that needs an extra flag looked identical to the states that
@@ -312,9 +312,9 @@ final class PlanSummary {
             foreach ($codeRevisionStale as $r) {
                 $revision = (string) ($r['expected_revision'] ?? '?');
                 $lines[] = '  - expected code revision ' . $revision . ': '
-                    . ($r['message'] ?? 'run the host duo deploy workflow');
+                    . ($r['message'] ?? 'run the host wprism deploy workflow');
             }
-            $lines[] = 'code revision is stale — run `duo deploy <env>`; this ordering invariant cannot be bypassed by force flags';
+            $lines[] = 'code revision is stale — run `wprism deploy <env>`; this ordering invariant cannot be bypassed by force flags';
         }
 
         if ($runtimeCompatibility) {
@@ -334,7 +334,7 @@ final class PlanSummary {
                 $lines[] = '  - ' . strtoupper((string) ($r['issue'] ?? '?')) . ' ' . $what . ': ' . ($r['message'] ?? '');
             }
             // Verbatim match of agent/src/Command/Cli.php's plan() warning.
-            $lines[] = 'code_mismatch findings — duo apply will refuse until resolved (or run with --force-code-mismatch)';
+            $lines[] = 'code_mismatch findings — wprism apply will refuse until resolved (or run with --force-code-mismatch)';
         }
 
         // WP-2.8: rendered as loudly as the block above and with the same row
@@ -351,13 +351,13 @@ final class PlanSummary {
         }
 
         if ($codeDrift) {
-            $lines[] = 'CODE_DRIFT (managed code changed outside Duo since its last trusted observation):';
+            $lines[] = 'CODE_DRIFT (managed code changed outside WPrism since its last trusted observation):';
             foreach ($codeDrift as $r) {
                 $what = $r['plugin'] ?? $r['theme'] ?? '?';
                 $lines[] = '  - ' . strtoupper((string) ($r['issue'] ?? 'code_drift')) . ' ' . $what
                     . ': ' . ($r['message'] ?? 'installed code differs from the recorded baseline');
             }
-            $lines[] = 'code_drift findings — duo apply will refuse until resolved (or run with --force-code-drift)';
+            $lines[] = 'code_drift findings — wprism apply will refuse until resolved (or run with --force-code-drift)';
         }
 
         foreach ($plan['warnings'] ?? [] as $w) {
@@ -393,7 +393,7 @@ final class PlanSummary {
             foreach ($regenPending as $r) {
                 $lines[] = '  - ' . self::label($r) . " (post type '" . ($r['post_type'] ?? '?') . "')";
             }
-            $lines[] = 'regeneration retry pending — the next duo apply will retry it automatically';
+            $lines[] = 'regeneration retry pending — the next wprism apply will retry it automatically';
         }
 
         if ($regenContext) {
@@ -402,7 +402,7 @@ final class PlanSummary {
                 $lines[] = '  - ' . self::label($r) . " (post type '" . ($r['post_type'] ?? '?') . "', "
                     . ($r['kind'] ?? '?') . ' receipt)';
             }
-            $lines[] = 'derived-state receipt outstanding — the next duo apply reaching that surface redelivers it to its declared consumer';
+            $lines[] = 'derived-state receipt outstanding — the next wprism apply reaching that surface redelivers it to its declared consumer';
         }
 
         if ($envMissing) {
@@ -422,7 +422,7 @@ final class PlanSummary {
                     } elseif ($registryArg === null) {
                         $line .= '; cannot render a safe command — correct the selected environment registry path';
                     } else {
-                        $line .= '; run: `duo' . ($registryArg === '' ? '' : ' ' . $registryArg)
+                        $line .= '; run: `wprism' . ($registryArg === '' ? '' : ' ' . $registryArg)
                             . ' env-set ' . $environmentArg . ' --name=' . $nameArg . ' --stdin`';
                     }
                 }
@@ -431,7 +431,7 @@ final class PlanSummary {
             if ($envMissingRequired) {
                 $lines[] = $environment !== null
                     ? 'required env value(s) missing — run each required item command above before promoting'
-                    : 'required env value(s) missing — pipe the value to `wp duo env-set --name=<name> --stdin` before promoting';
+                    : 'required env value(s) missing — pipe the value to `wp wprism env-set --name=<name> --stdin` before promoting';
             } else {
                 $lines[] = 'only optional env value(s) missing — safe to promote, listed for visibility';
             }
@@ -457,7 +457,7 @@ final class PlanSummary {
                 // Keep lockstep with agent/src/Command/Cli.php's plan renderer: an
                 // out-of-tree adapter must not read like a shipped adapter that
                 // failed review, so source and trust tier stay on the row and
-                // its remediation gets its own line (DUO-3314).
+                // its remediation gets its own line (issue #3314).
                 $lines[] = '  - ' . ($r['name'] ?? '?') . ' [' . ($r['status'] ?? 'unreviewed')
                     . '] [source=' . ($r['source'] ?? 'shipped') . ' tier=' . ($r['trust_tier'] ?? 'unknown')
                     . ' certification=' . ($r['certification'] ?? 'registry')
@@ -466,7 +466,7 @@ final class PlanSummary {
                     $lines[] = '    remediation: ' . $r['remediation'];
                 }
             }
-            // DUO-3485: "expired-evidence" left this list with the registry
+            // issue #3485: "expired-evidence" left this list with the registry
             // teardown — DESIGN.md:45 says *expired evidence* no longer exists
             // as a state, and no code AdapterRegistry can put on one of these
             // rows means it. `evidence_not_current` survives only host-side in
@@ -485,7 +485,7 @@ final class PlanSummary {
                 // Keep lockstep with agent/src/Command/Cli.php's plan renderer: the
                 // declaring manifest and the owning plugin stay on the row —
                 // an operator has to know which pin and which plugin to go fix
-                // — and the remediation gets its own line (DUO-3339).
+                // — and the remediation gets its own line (issue #3339).
                 $lines[] = '  - ' . ($r['provider'] ?? '?')
                     . ' [manifest=' . ($r['manifest'] ?? '?') . ' plugin=' . ($r['plugin'] ?? '?')
                     . '] [' . ($r['code'] ?? 'unknown') . ']: expected ' . ($r['expected'] ?? '?')
@@ -494,26 +494,26 @@ final class PlanSummary {
                     $lines[] = '    remediation: ' . $r['remediation'];
                 }
             }
-            $lines[] = 'duo apply refuses before target mutation on any of these its own selected work reaches';
+            $lines[] = 'wprism apply refuses before target mutation on any of these its own selected work reaches';
         }
 
-        // --- fail-closed exit semantics (DUO-3221) ---
+        // --- fail-closed exit semantics (issue #3221) ---
         //
-        // `duo status` answers "safe to promote?" for this environment, so
+        // `wprism status` answers "safe to promote?" for this environment, so
         // ok must be false whenever build_plan() found anything that means
-        // `duo apply` would refuse outright, PLUS one case apply itself
+        // `wprism apply` would refuse outright, PLUS one case apply itself
         // does not refuse on but status still must, because status is a
         // readiness probe, not merely an apply-will-refuse predictor:
         //   - conflict      : apply refuses without --force-theirs.
         //   - collision     : apply refuses without --adopt-by-slug=....
         //   - code_revision_stale: apply always refuses this ordering
-        //                     invariant until the host `duo deploy <env>`
+        //                     invariant until the host `wprism deploy <env>`
         //                     flow verifies/finalizes the descriptor; it is
         //                     deliberately not forceable.
         //   - code_mismatch : remaining lifecycle compatibility rows refuse
         //                     without --force-code-mismatch (Apply::run();
         //                     Deploy::run() has the same refuse-precondition
-        //                     for `duo deploy`).
+        //                     for `wprism deploy`).
         //   - code_drift    : apply refuses without --force-code-drift;
         //                     unlike ordinary content drift, this is a
         //                     version/provenance precondition for state
@@ -525,9 +525,9 @@ final class PlanSummary {
         //                     before failure. Only exact checkpoint recovery
         //                     clears its durable, non-forceable receipt.
         //   - regen_pending : a derived table with a hard per-entity
-        //                     availability dependency (DUO-3234, e.g. TEC's
+        //                     availability dependency (issue #3234, e.g. TEC's
         //                     tec_occurrences) failed its post-apply
-        //                     verification and has not yet resolved. `duo
+        //                     verification and has not yet resolved. `wprism
         //                     apply` does NOT refuse on this alone (the
         //                     originating apply already completed — the
         //                     NEXT apply is what retries and either clears
@@ -538,14 +538,14 @@ final class PlanSummary {
         //                     state all the same, and "safe to promote?"
         //                     must say no while it stands.
         //   - env_missing   : a manifest-declared `class: "env"` option
-        //                     (DUO-3232) unset on this environment. `duo
+        //                     (issue #3232) unset on this environment. `wprism
         //                     apply` never refuses on this — env values are
         //                     never captured/applied at all, so there is
         //                     nothing for apply's own preconditions to
         //                     check. But an unset REQUIRED value (e.g. a
         //                     payment gateway API key) means this
         //                     environment is running with a genuine gap an
-        //                     operator must fill by hand (`wp duo env-set`),
+        //                     operator must fill by hand (`wp wprism env-set`),
         //                     so status must say no until it's provisioned
         //                     — same "known gap, not an apply-refuse case"
         //                     shape as regen_pending/drift above. Optional
@@ -566,7 +566,7 @@ final class PlanSummary {
         //                     the executor skips its whole delete block
         //                     (AuthoredTransactionExecutor.php:222-253), and
         //                     the run still records applied_revision
-        //                     (ApplyLedgerFinalizer.php:94-99). DUO-3502
+        //                     (ApplyLedgerFinalizer.php:94-99). issue #3502
         //                     makes that skip loud on apply's warnings
         //                     channel, but the row stays pending on the
         //                     target until somebody passes the flag — so a
@@ -586,7 +586,7 @@ final class PlanSummary {
         //                     error). But drift means the ledger's "last
         //                     synced" baseline no longer matches this
         //                     environment, so the three-way comparison
-        //                     `duo plan`/`duo status` just ran is already
+        //                     `wprism plan`/`wprism status` just ran is already
         //                     measured against a stale base — not a "safe
         //                     to promote" state. Capture first (see the
         //                     rendered hint above).
@@ -649,9 +649,9 @@ final class PlanSummary {
         $registryArg = $envsFileOverride === null ? '' : self::shellArg('--envs-file=' . $envsFileOverride);
         if ($environmentArg === null || $registryArg === null) {
             return 'planned deletions are not authorized — an ordinary apply performs none of them; '
-                . 'rerun with `wp duo apply --with-deletes` once these are the deletions you intend';
+                . 'rerun with `wp wprism apply --with-deletes` once these are the deletions you intend';
         }
-        return 'planned deletions are not authorized — an ordinary promote performs none of them; rerun with `duo'
+        return 'planned deletions are not authorized — an ordinary promote performs none of them; rerun with `wprism'
             . ($registryArg === '' ? '' : ' ' . $registryArg)
             . " promote $environmentArg --with-deletes` once these are the deletions you intend";
     }
@@ -664,7 +664,7 @@ final class PlanSummary {
             }
             $name = $row['name'];
             $expected = "env_missing: option '$name' is required and not yet provisioned on "
-                . "this environment — see 'wp duo env-set --name=$name --stdin'";
+                . "this environment — see 'wp wprism env-set --name=$name --stdin'";
             if ($warning === $expected) {
                 return true;
             }
@@ -821,7 +821,7 @@ final class PlanSummary {
     }
 
     /**
-     * Keep the host summary aligned with the direct `wp duo plan` renderer:
+     * Keep the host summary aligned with the direct `wp wprism plan` renderer:
      * exact full hashes stay in JSON while the human view foregrounds roles,
      * intent, and safe resolution with only bounded hash prefixes.
      *
@@ -829,7 +829,7 @@ final class PlanSummary {
      */
     private static function conflictViewLines(array $row): array {
         $view = $row['conflict_view'] ?? null;
-        if (!is_array($view) || ($view['format'] ?? null) !== 'duo-plan-conflict/v1') {
+        if (!is_array($view) || ($view['format'] ?? null) !== 'wprism-plan-conflict/v1') {
             return [];
         }
         $base = (array) ($view['base'] ?? []);

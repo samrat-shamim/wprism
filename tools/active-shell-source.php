@@ -3,7 +3,7 @@
 
 declare(strict_types=1);
 
-use Duo\Tooling\ActiveShellSource;
+use WPrism\Tooling\ActiveShellSource;
 
 require_once __DIR__ . '/src/ActiveShellSource.php';
 

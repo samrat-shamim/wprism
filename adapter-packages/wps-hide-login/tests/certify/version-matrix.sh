@@ -20,20 +20,20 @@ check_wps_hide_login_boundary_content() { # <wp1|wp2> <port> <label>
   require_observed_nonempty "WPS Hide Login $label boundary APIs" "$out"
   out=$(printf '%s\n' "$out" | awk 'NF { line=$0 } END { print line }')
   printf '%s\n' "$out" | jq -e '
-    .login == "duo-login" and .redirect == "duo-missing" and
-    (.login_url | endswith("/duo-login/")) and
-    (.site_login_url | endswith("/duo-login/")) and
-    (.lostpassword_url | contains("/duo-login/"))
+    .login == "wprism-login" and .redirect == "wprism-missing" and
+    (.login_url | endswith("/wprism-login/")) and
+    (.site_login_url | endswith("/wprism-login/")) and
+    (.lostpassword_url | contains("/wprism-login/"))
   ' >/dev/null || fail "WPS Hide Login $label boundary APIs do not consume the exact settings: $out"
 
-  headers=$(mktemp "${TMPDIR:-/tmp}/duo-vmatrix-wps-headers.XXXXXX")
-  body=$(mktemp "${TMPDIR:-/tmp}/duo-vmatrix-wps-body.XXXXXX")
-  code=$(curl --path-as-is --max-time 20 -sS -D "$headers" -o "$body" -w '%{http_code}' "http://localhost:${port}/duo-login/")
+  headers=$(mktemp "${TMPDIR:-/tmp}/wprism-vmatrix-wps-headers.XXXXXX")
+  body=$(mktemp "${TMPDIR:-/tmp}/wprism-vmatrix-wps-body.XXXXXX")
+  code=$(curl --path-as-is --max-time 20 -sS -D "$headers" -o "$body" -w '%{http_code}' "http://localhost:${port}/wprism-login/")
   [ "$code" = 200 ] && grep -Fq 'id="loginform"' "$body" \
     || fail "WPS Hide Login $label custom GET did not serve login (status=$code)"
   code=$(curl --path-as-is --max-time 20 -sS -D "$headers" -o "$body" -w '%{http_code}' -X POST \
-    --data 'log=duo-no-such-user&pwd=wrong&wp-submit=Log+In&redirect_to=%2Fwp-admin%2F&testcookie=1' \
-    "http://localhost:${port}/duo-login/")
+    --data 'log=wprism-no-such-user&pwd=wrong&wp-submit=Log+In&redirect_to=%2Fwp-admin%2F&testcookie=1' \
+    "http://localhost:${port}/wprism-login/")
   [ "$code" = 200 ] && grep -Fq 'login_error' "$body" \
     || fail "WPS Hide Login $label custom POST did not execute WordPress login handling (status=$code)"
   code=$(curl --path-as-is --max-time 20 -sS -D "$headers" -o "$body" -w '%{http_code}' "http://localhost:${port}/wp-login%2Ephp")
@@ -41,7 +41,7 @@ check_wps_hide_login_boundary_content() { # <wp1|wp2> <port> <label>
     || fail "WPS Hide Login $label encoded old-login path bypassed hiding (status=$code)"
   code=$(curl --path-as-is --max-time 20 -sS -D "$headers" -o "$body" -w '%{http_code}' "http://localhost:${port}/wp-admin/")
   location=$(awk 'BEGIN { IGNORECASE=1 } /^Location:/ { sub(/\r$/, ""); print substr($0, 11) }' "$headers" | tail -1)
-  [ "$code" = 302 ] && [ "$location" = "http://localhost:${port}/duo-missing/" ] \
+  [ "$code" = 302 ] && [ "$location" = "http://localhost:${port}/wprism-missing/" ] \
     || fail "WPS Hide Login $label wp-admin redirect moved (status=$code location=${location:-<none>})"
   rm -f "$headers" "$body"
   pass "WPS Hide Login $label exact artifact drives APIs, custom GET/POST, encoded old-login refusal, and wp-admin redirect"
@@ -77,7 +77,7 @@ WPS_INSTALLED_1=$(wp1 plugin get wps-hide-login --field=version)
   || fail "side 1 installed version mismatch: expected $WPS_VERSION, got $WPS_INSTALLED_1"
 pass "side 1: wps-hide-login $WPS_VERSION installed from verified artifact, active"
 
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "wps-hide-login"],
   "policy": {
@@ -101,8 +101,8 @@ check_wps_hide_login_boundary_content wp1 "$PORT1" source
 # Real login requests can leave core's transient Customizer sentinel at -1;
 # remove it so exact recapture has no "unmanaged post id -1" warning.
 wp1 eval 'remove_theme_mod("custom_css_post_id");' >/dev/null
-wp1 duo capture --repo=/siterepo
-wp1 duo lint --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
+wp1 wprism lint --repo=/siterepo
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "capture: WPS Hide Login $WPS_VERSION routes"
 "${GIT1[@]}" push -q origin main
@@ -113,15 +113,15 @@ INSTALLED_2=$(wp2 plugin get wps-hide-login --field=version)
 require_fixture_values INSTALLED_2
 [ "$INSTALLED_2" = "$WPS_VERSION" ] \
   || fail "side 2 installed version mismatch: expected $WPS_VERSION, got $INSTALLED_2"
-wp2 duo deploy --repo=/siterepo
+wp2 wprism deploy --repo=/siterepo
 REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
 grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
   || fail "apply canary not clean at wps-hide-login $WPS_VERSION"
 check_wps_hide_login_boundary_content wp2 "$PORT2" target
 
 wp2 eval 'remove_theme_mod("custom_css_post_id");' >/dev/null
-wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
+wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-final
 WPS_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
 rm -rf "siterepo/${PAIR}2/.tmp-final"
 [ -z "$WPS_DIFF" ] \
@@ -138,7 +138,7 @@ NEGATIVE_INSTALLED=$(wp1 plugin get wps-hide-login --field=version)
 require_fixture_values NEGATIVE_INSTALLED
 [ "$NEGATIVE_INSTALLED" = "1.9.19" ] \
   || fail "negative control premise did not install exact wps-hide-login 1.9.19 bytes"
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "wps-hide-login"],
   "policy": {
@@ -157,7 +157,7 @@ cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 "${GIT1[@]}" commit -qm "policy: WPS Hide Login negative-control pin"
 "${GIT1[@]}" push -qu origin main
 seed_wps_hide_login_content
-wp1 duo capture --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "capture: valid WPS Hide Login state for negative control"
 "${GIT1[@]}" push -q origin main
@@ -172,7 +172,7 @@ INSTALLED_OOR=$(wp1 plugin get wps-hide-login --field=version)
 WPS_REFUSAL_BEFORE=$(wp1 eval 'echo hash("sha256", maybe_serialize([get_option("whl_page", null), get_option("whl_redirect_admin", null), get_option("rewrite_rules")]));')
 require_observed_nonempty "WPS Hide Login refusal state baseline" "$WPS_REFUSAL_BEFORE"
 set +e
-DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] \

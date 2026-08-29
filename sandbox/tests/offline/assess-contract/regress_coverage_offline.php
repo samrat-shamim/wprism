@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline (no docker, no WordPress bootstrap) regression harness for
- * DUO-3290's pure logic: prefix-grouping, the advisory attribution
+ * issue #3290's pure logic: prefix-grouping, the advisory attribution
  * heuristic, and transient-partitioning. Coverage::report()/options_report()/
  * tables_report() themselves need a real $wpdb (live queries against
  * wp_options/SHOW TABLES) and real WordPress functions (get_option(),
@@ -24,14 +24,14 @@ require __DIR__ . '/../../../../agent/src/Review/Coverage.php';
 
 // The product path below is Coverage::report(), which loads a real Policy and
 // therefore needs the two constants the drop-in binds at load. Read from
-// agent/duo.php rather than restated, so a version bump does not edit this file.
-$duo_coverage_bootstrap = (string) file_get_contents(__DIR__ . '/../../../../agent/duo.php');
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', preg_match("/define\('DUO_SPEC_VERSION',\s*(\d+)\)/", $duo_coverage_bootstrap, $m) === 1
+// agent/wprism.php rather than restated, so a version bump does not edit this file.
+$wprism_coverage_bootstrap = (string) file_get_contents(__DIR__ . '/../../../../agent/wprism.php');
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', preg_match("/define\('WPRISM_SPEC_VERSION',\s*(\d+)\)/", $wprism_coverage_bootstrap, $m) === 1
         ? (int) $m[1] : 2);
 }
-if (!defined('DUO_AGENT_VERSION')) {
-    define('DUO_AGENT_VERSION', preg_match("/define\('DUO_AGENT_VERSION',\s*'([^']+)'\)/", $duo_coverage_bootstrap, $m) === 1
+if (!defined('WPRISM_AGENT_VERSION')) {
+    define('WPRISM_AGENT_VERSION', preg_match("/define\('WPRISM_AGENT_VERSION',\s*'([^']+)'\)/", $wprism_coverage_bootstrap, $m) === 1
         ? $m[1] : '0.0.0');
 }
 require_once __DIR__ . '/../../../../agent/src/Policy/ManifestDispositions.php';
@@ -49,7 +49,7 @@ function check(bool $cond, string $msg): void {
 }
 
 function call_private(string $method, array $args) {
-    $ref = new ReflectionMethod(Duo\Coverage::class, $method);
+    $ref = new ReflectionMethod(WPrism\Coverage::class, $method);
     return $ref->invokeArgs(null, $args);
 }
 
@@ -115,7 +115,7 @@ check(call_private('attribute', ['wp_rocket_cache', ['wp-super-cache']]) === nul
     'a family token shorter than a name (wp) never attributes');
 check(call_private('attribute', ['wpcf7', $slugs]) === null,
     "CF7's own option prefix (wpcf7) does not match its slug (contact-form-7) under simple prefix matching -- "
-    . 'documenting this as a KNOWN heuristic limitation (DUO-3290\'s own design doc named this exact risk), not '
+    . 'documenting this as a KNOWN heuristic limitation (issue #3290\'s own design doc named this exact risk), not '
     . 'a bug: attribution is advisory and this is precisely the kind of miss it is allowed to make'
 );
 
@@ -147,7 +147,7 @@ check($groups[1]['probable_owner'] === null && $groups[2]['probable_owner'] === 
 //
 // This half used to exist only in the live pair suite (regress_coverage.sh),
 // which is why the published-row shape could drift unnoticed: the row is
-// consumed by `duo assess`, and both consumers
+// consumed by `wprism assess`, and both consumers
 // (cli/src/Assess/SurfaceCatalog.php:326 and AssessReport.php:156) SKIP any
 // undeclared-table row that carries no `logical_name`. The report built the
 // name, used it for attribution, and then dropped it, so the `table:` surface
@@ -157,22 +157,22 @@ check($groups[1]['probable_owner'] === null && $groups[2]['probable_owner'] === 
 // ======================================================================
 echo "\n== tables_report() published row shape (product path) ==\n";
 
-$coverageScratch = sys_get_temp_dir() . '/duo_regress_coverage_offline_' . getmypid() . '_' . bin2hex(random_bytes(4));
+$coverageScratch = sys_get_temp_dir() . '/wprism_regress_coverage_offline_' . getmypid() . '_' . bin2hex(random_bytes(4));
 mkdir($coverageScratch . '/repo', 0777, true);
 register_shutdown_function(static function () use ($coverageScratch): void {
-    @unlink($coverageScratch . '/repo/site.duo.json');
+    @unlink($coverageScratch . '/repo/site.wprism.json');
     @rmdir($coverageScratch . '/repo');
     @rmdir($coverageScratch);
 });
-file_put_contents($coverageScratch . '/repo/site.duo.json', json_encode([
+file_put_contents($coverageScratch . '/repo/site.wprism.json', json_encode([
     'manifests' => ['core'],
     'policy' => new stdClass(),
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
 
-$store = DuoTest\WpStore::reset();
+$store = WPrismTest\WpStore::reset();
 $store->seedOptions(['active_plugins' => ['acme-catalog/acme-catalog.php']]);
-$wpdb = DuoTest\FakeWpdb::install();
+$wpdb = WPrismTest\FakeWpdb::install();
 $wpdb->seedTable('wp_options', [
     ['option_id' => 1, 'option_name' => 'blogname', 'option_value' => 'Fixture', 'autoload' => 'yes'],
 ]);
@@ -185,15 +185,15 @@ $wpdb->seedTable('wp_acme_catalog_index', [
     ['id' => 1, 'label' => 'first'],
     ['id' => 2, 'label' => 'second'],
 ]);
-// Duo's own ledger tables are neither core nor adapter-declared; before T6 the
-// walk read `table:duo_journal … unclassified` in its own assessment. They are
+// WPrism's own ledger tables are neither core nor adapter-declared; before T6 the
+// walk read `table:wprism_journal … unclassified` in its own assessment. They are
 // Ledger::OWN_TABLES and must never be reported as undeclared.
-foreach (Duo\Ledger::OWN_TABLES as $own) {
+foreach (WPrism\Ledger::OWN_TABLES as $own) {
     $wpdb->seedTable('wp_' . $own, [['k' => 'x']]);
 }
 
-$report = Duo\Coverage::report($coverageScratch . '/repo');
-check($report['format'] === Duo\Coverage::FORMAT, 'the product path emits the versioned coverage format');
+$report = WPrism\Coverage::report($coverageScratch . '/repo');
+check($report['format'] === WPrism\Coverage::FORMAT, 'the product path emits the versioned coverage format');
 check(($report['tables']['undeclared_total'] ?? null) === 1,
     'exactly one undeclared table is counted (core tables are excluded) — got '
     . var_export($report['tables']['undeclared_total'] ?? null, true));
@@ -205,7 +205,7 @@ check($rowKeys === ['logical_name', 'probable_owner', 'registered', 'row_count',
     'a published undeclared-table row carries exactly table, logical_name, row_count, probable_owner, registered — got '
     . implode(',', $rowKeys));
 check(($undeclared[0]['logical_name'] ?? null) === 'acme_catalog_index',
-    'logical_name is the UNPREFIXED name `duo assess` builds `table:<name>` from — got '
+    'logical_name is the UNPREFIXED name `wprism assess` builds `table:<name>` from — got '
     . var_export($undeclared[0]['logical_name'] ?? null, true));
 check(($undeclared[0]['table'] ?? null) === 'wp_acme_catalog_index',
     'table stays the physical, prefixed name');
@@ -229,7 +229,7 @@ check(($report['tables']['core_total'] ?? null) === 3,
 //
 // Measured on a WPForms Lite 2.0.0.5 site (recon, 2026-08-25):
 // `$wpdb->tables('all', true)` returned SIXTEEN names and four of them were
-// `wp_actionscheduler_*`. `duo coverage` read `live=26 core=16 declared=2
+// `wp_actionscheduler_*`. `wprism coverage` read `live=26 core=16 declared=2
 // undeclared=6` — the six wpforms_* tables, and not one of the four Action
 // Scheduler tables the site actually writes rows to
 // (wp_actionscheduler_actions held `action_scheduler/migration_hook`).
@@ -242,8 +242,8 @@ check(($report['tables']['core_total'] ?? null) === 3,
 // the previous engine treated the whole composition as "what WordPress
 // considers core" (Coverage.php's comment at the old :269-273). So every
 // Action-Scheduler-bundling plugin — WPForms Lite, WooCommerce, WP Mail SMTP
-// — hid four tables from coverage, from `duo assess`'s `table:` surfaces, and
-// from `duo adapter-draft --seed`'s proposals.
+// — hid four tables from coverage, from `wprism assess`'s `table:` surfaces, and
+// from `wprism adapter-draft --seed`'s proposals.
 //
 // Reproduced below with the four measured names, registered the way the
 // library registers them. Against the prior engine every assertion in this
@@ -285,7 +285,7 @@ check(in_array('actionscheduler_actions', $liveTableNames, true)
     '$wpdb->tables(\'all\', true) now lists the registered name beside WordPress\'s own — got '
     . implode(',', $liveTableNames));
 
-$registeredReport = Duo\Coverage::report($coverageScratch . '/repo');
+$registeredReport = WPrism\Coverage::report($coverageScratch . '/repo');
 $rt = $registeredReport['tables'];
 check(($rt['registered_total'] ?? null) === 4,
     'the four registered tables are counted as registered, not core — got '
@@ -304,7 +304,7 @@ foreach ($asTables as $asTable) {
     check(isset($byTable['wp_' . $asTable]),
         "wp_$asTable reaches the undeclared listing (it was silently core before)");
     check(($byTable['wp_' . $asTable]['logical_name'] ?? null) === $asTable,
-        "wp_$asTable publishes the logical_name `duo assess` mints `table:$asTable` from");
+        "wp_$asTable publishes the logical_name `wprism assess` mints `table:$asTable` from");
     check(($byTable['wp_' . $asTable]['registered'] ?? null) === true,
         "wp_$asTable is marked `registered`, naming why it used to read as core");
 }
@@ -322,7 +322,7 @@ check(($byTable['wp_acme_catalog_index']['registered'] ?? null) === false,
 // ======================================================================
 // options_report() visibility, through the PUBLIC product path.
 //
-// DUO-3505: visibility used to be decided by two CLASS-FILTERED capture
+// issue #3505: visibility used to be decided by two CLASS-FILTERED capture
 // enumerators (authored_options() + sub_keyed_options()), so a name whose
 // winning rule was anything else -- env, runtime, derived, managed, an
 // option_patterns match, a dynamic_options row -- was reported "invisible to
@@ -337,16 +337,16 @@ check(($byTable['wp_acme_catalog_index']['registered'] ?? null) === false,
 // ======================================================================
 echo "\n== options_report() visibility (product path) ==\n";
 
-$visibilityScratch = sys_get_temp_dir() . '/duo_regress_coverage_visibility_' . getmypid() . '_' . bin2hex(random_bytes(4));
+$visibilityScratch = sys_get_temp_dir() . '/wprism_regress_coverage_visibility_' . getmypid() . '_' . bin2hex(random_bytes(4));
 mkdir($visibilityScratch . '/repo', 0777, true);
 register_shutdown_function(static function () use ($visibilityScratch): void {
-    @unlink($visibilityScratch . '/repo/site.duo.json');
+    @unlink($visibilityScratch . '/repo/site.wprism.json');
     @rmdir($visibilityScratch . '/repo');
     @rmdir($visibilityScratch);
 });
 // The four site-policy rules from the issue: an agency's own adapter
 // declaring its option family exactly, one name per class.
-file_put_contents($visibilityScratch . '/repo/site.duo.json', json_encode([
+file_put_contents($visibilityScratch . '/repo/site.wprism.json', json_encode([
     'manifests' => ['core'],
     'policy' => [
         'options' => [
@@ -359,10 +359,10 @@ file_put_contents($visibilityScratch . '/repo/site.duo.json', json_encode([
             'agency_cs_cache_stamp' => ['class' => 'runtime'],
         ],
     ],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
 
-$store = DuoTest\WpStore::reset();
+$store = WPrismTest\WpStore::reset();
 // stylesheet is read by options_report() itself to resolve core.json's
 // dynamic_options.theme_mods (resolver `active_stylesheet`).
 $store->seedOptions([
@@ -370,7 +370,7 @@ $store->seedOptions([
     'stylesheet' => 'fixture-child',
     'template' => 'fixture-parent',
 ]);
-$wpdb = DuoTest\FakeWpdb::install();
+$wpdb = WPrismTest\FakeWpdb::install();
 $optionRows = [
     // captured: site-policy authored
     'agency_cs_settings' => 'x',
@@ -389,7 +389,7 @@ $optionRows = [
     '_transient_foo' => 'x',
     '_wp_session_abc' => 'x',
     // core.json dynamic_options.theme_mods: the active theme's row is written,
-    // a former theme's row is residue WordPress keeps (DUO-3264)
+    // a former theme's row is residue WordPress keeps (issue #3264)
     'theme_mods_fixture-child' => 'a:0:{}',
     'theme_mods_fixture-parent' => 'a:0:{}',
     // the ONE name nothing declares
@@ -407,7 +407,7 @@ foreach ($optionRows as $optionName => $optionValue) {
 }
 $wpdb->seedTable('wp_options', $seeded);
 
-$o = Duo\Coverage::report($visibilityScratch . '/repo')['options'];
+$o = WPrism\Coverage::report($visibilityScratch . '/repo')['options'];
 
 // The published key set, asserted exactly like the undeclared-table row above,
 // so a future key drop is a failing suite rather than a silently empty section
@@ -426,7 +426,7 @@ check($o['total'] === count($optionRows),
 // whatever its class. Before the fix these were group `agency_cs` count 2.
 $invisiblePrefixes = array_column($o['invisible_groups'], 'prefix');
 check(!in_array('agency_cs', $invisiblePrefixes, true),
-    'site-policy env/derived/runtime rules are NOT reported invisible (before DUO-3505: prefix agency_cs, 2 rows) — got '
+    'site-policy env/derived/runtime rules are NOT reported invisible (before issue #3505: prefix agency_cs, 2 rows) — got '
     . json_encode($o['invisible_groups']));
 check($o['invisible_total'] === 1 && $invisiblePrefixes === ['genuinely_unknown'],
     'the ONE name no rule from any source matches is the whole invisible set — got '
@@ -435,7 +435,7 @@ check($o['invisible_transient'] === 0,
     'a transient is declared by core.json\'s own ^_transient_ pattern, so it never reaches the invisible set — got '
     . var_export($o['invisible_transient'], true));
 
-// captured means exactly "Duo writes this name into the artifact".
+// captured means exactly "WPrism writes this name into the artifact".
 // agency_cs_settings + active_plugins + template + stylesheet + blogname
 // + theme_mods_fixture-child = 6.
 check($o['captured'] === 6,

@@ -1,13 +1,13 @@
 {
-    "format": "duo-parity-canonical-json/v1",
+    "format": "wprism-parity-canonical-json/v1",
     "consumed_by": "sandbox/tests/offline/guards/regress_canonical_json_parity.php",
     "grammar": {
-        "$op": "wrap the value in \\Duo\\OrderPreserved (Canon::normalize_preserving_order())",
+        "$op": "wrap the value in \\WPrism\\OrderPreserved (Canon::normalize_preserving_order())",
         "$obj": "hydrate the value as a \\stdClass rather than a PHP array"
     },
     "fields": {
-        "canon": "F1 golden: \\Duo\\Canon::encode() bytes, trailing newline included",
-        "compact": "F2 golden: \\Duo\\Orchestrator\\EnvironmentLifecycleCanon::encode() bytes, no trailing newline",
+        "canon": "F1 golden: \\WPrism\\Canon::encode() bytes, trailing newline included",
+        "compact": "F2 golden: \\WPrism\\Orchestrator\\EnvironmentLifecycleCanon::encode() bytes, no trailing newline",
         "f2": "false when the value can never reach an F2 site (an OrderPreserved wrapper)",
         "f2_skip": "why F2 does not apply",
         "f2_object_order": "true when the value carries a \\stdClass: F1 sorts its properties, every F2 canonicalize() descends only into PHP arrays and leaves them authored",
@@ -241,7 +241,7 @@
         },
         {
             "name": "order-preserved-top-level",
-            "note": "OrderPreserved skips ksort() for the WHOLE subtree (DUO-3214(b) / _product_attributes)",
+            "note": "OrderPreserved skips ksort() for the WHOLE subtree (issue #3214(b) / _product_attributes)",
             "value": {
                 "$op": {
                     "pa_size": {

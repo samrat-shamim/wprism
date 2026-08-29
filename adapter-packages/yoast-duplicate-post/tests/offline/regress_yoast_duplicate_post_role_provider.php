@@ -5,16 +5,16 @@ namespace {
     require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
 
     $GLOBALS['ydp_multisite'] = false;
-    $GLOBALS['ydp_option'] = ['editor', 'duo_reviewer'];
+    $GLOBALS['ydp_option'] = ['editor', 'wprism_reviewer'];
     $GLOBALS['ydp_registry'] = [
         'administrator' => 'Administrator',
-        'duo_reviewer' => 'Duo Reviewer',
+        'wprism_reviewer' => 'WPrism Reviewer',
         'editor' => 'Editor',
         'subscriber' => 'Subscriber',
     ];
     $GLOBALS['ydp_caps'] = [
         'administrator' => ['copy_posts' => true],
-        'duo_reviewer' => [],
+        'wprism_reviewer' => [],
         'editor' => [],
         'subscriber' => ['copy_posts' => true],
     ];
@@ -61,11 +61,11 @@ namespace {
     }
 }
 
-namespace Duo {
+namespace WPrism {
     final class Policy {}
 
     final class Providers {
-        public const SCOPED_OPERATION_FORMAT = 'duo-scoped-effect-operation/v1';
+        public const SCOPED_OPERATION_FORMAT = 'wprism-scoped-effect-operation/v1';
     }
 }
 
@@ -83,15 +83,15 @@ namespace {
     require_once dirname(__DIR__, 4) . '/agent/src/Adapter/ManifestProviderRuntime.php';
     require_once dirname(__DIR__, 4) . '/adapter-packages/yoast-duplicate-post/package/runtime/providers/yoast-duplicate-post-role-capabilities.php';
 
-    use Duo\Providers\YoastDuplicatePostRoleCapabilities;
+    use WPrism\Providers\YoastDuplicatePostRoleCapabilities;
 
     /** @param callable():void $callback */
     function ydp_refuses(callable $callback, string $needle, string $message): void {
         try {
             $callback();
-            duo_check(false, "$message (expected refusal containing '$needle')");
+            wprism_check(false, "$message (expected refusal containing '$needle')");
         } catch (\RuntimeException $e) {
-            duo_check(
+            wprism_check(
                 str_contains($e->getMessage(), $needle),
                 "$message ({$e->getMessage()})"
             );
@@ -101,16 +101,16 @@ namespace {
     /** Restore one hostile but valid role projection. */
     function ydp_reset(): void {
         $GLOBALS['ydp_multisite'] = false;
-        $GLOBALS['ydp_option'] = ['editor', 'duo_reviewer'];
+        $GLOBALS['ydp_option'] = ['editor', 'wprism_reviewer'];
         $GLOBALS['ydp_registry'] = [
             'administrator' => 'Administrator',
-            'duo_reviewer' => 'Duo Reviewer',
+            'wprism_reviewer' => 'WPrism Reviewer',
             'editor' => 'Editor',
             'subscriber' => 'Subscriber',
         ];
         $GLOBALS['ydp_caps'] = [
             'administrator' => ['copy_posts' => true],
-            'duo_reviewer' => [],
+            'wprism_reviewer' => [],
             'editor' => [],
             'subscriber' => ['copy_posts' => true],
         ];
@@ -126,7 +126,7 @@ namespace {
         JSON_THROW_ON_ERROR
     );
     $provider = new YoastDuplicatePostRoleCapabilities($manifest['providers'][0]);
-    duo_check_same(
+    wprism_check_same(
         [
             'id' => 'yoast-duplicate-post-role-capabilities',
             'plugin' => 'duplicate-post/duplicate-post.php',
@@ -136,60 +136,60 @@ namespace {
         'provider identity is exact and manifest-negotiable'
     );
     $declaration = $provider->capabilities()['reconcile_role_capabilities'] ?? null;
-    duo_check_same('site', $declaration['scope'] ?? null, 'role repair is site-scoped, never entity-ambiguous');
-    duo_check_same(
+    wprism_check_same('site', $declaration['scope'] ?? null, 'role repair is site-scoped, never entity-ambiguous');
+    wprism_check_same(
         ['option:duplicate_post_roles'],
         $declaration['reads'] ?? null,
         'capability names the one authored input it reads'
     );
-    duo_check_same(
+    wprism_check_same(
         ['entity:yoast-duplicate-post-role-capabilities'],
         $declaration['writes'] ?? null,
         'capability bounds its write summary to the plugin-owned role projection'
     );
-    duo_check(($declaration['idempotent'] ?? false) === true, 'capability explicitly permits safe retry');
-    duo_check_same(
-        \Duo\Providers::SCOPED_OPERATION_FORMAT,
+    wprism_check(($declaration['idempotent'] ?? false) === true, 'capability explicitly permits safe retry');
+    wprism_check_same(
+        \WPrism\Providers::SCOPED_OPERATION_FORMAT,
         $declaration['scoped']['operation_envelope'] ?? null,
         'capability advertises scoped recovery reconciliation'
     );
 
     $receipt = $provider->invoke('reconcile_role_capabilities', []);
-    duo_check_same(
-        ['remove:administrator:copy_posts', 'add:duo_reviewer:copy_posts', 'add:editor:copy_posts', 'remove:subscriber:copy_posts'],
+    wprism_check_same(
+        ['remove:administrator:copy_posts', 'add:editor:copy_posts', 'remove:subscriber:copy_posts', 'add:wprism_reviewer:copy_posts'],
         $GLOBALS['ydp_writes'],
         'provider ports the plugin exact add/remove loop across every registered role'
     );
-    duo_check(
+    wprism_check(
         !empty($GLOBALS['ydp_caps']['editor']['copy_posts'])
-            && !empty($GLOBALS['ydp_caps']['duo_reviewer']['copy_posts'])
+            && !empty($GLOBALS['ydp_caps']['wprism_reviewer']['copy_posts'])
             && empty($GLOBALS['ydp_caps']['administrator']['copy_posts'])
             && empty($GLOBALS['ydp_caps']['subscriber']['copy_posts']),
         'hostile target capabilities converge exactly on duplicate_post_roles'
     );
-    duo_check(($receipt['verified'] ?? false) === true, 'provider reports success only after value-level readback');
-    duo_check_same(2, $receipt['after']['desired_role_count'] ?? null, 'receipt counts the desired role set');
-    duo_check_same(2, $receipt['after']['capability_role_count'] ?? null, 'receipt counts the verified capability set');
-    duo_check_same(
+    wprism_check(($receipt['verified'] ?? false) === true, 'provider reports success only after value-level readback');
+    wprism_check_same(2, $receipt['after']['desired_role_count'] ?? null, 'receipt counts the desired role set');
+    wprism_check_same(2, $receipt['after']['capability_role_count'] ?? null, 'receipt counts the verified capability set');
+    wprism_check_same(
         $receipt['after']['desired_roles_hash'] ?? null,
         $receipt['after']['capability_roles_hash'] ?? null,
         'receipt proves desired and observed role sets have the same digest'
     );
     $published = json_encode($receipt, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-    duo_check(
+    wprism_check(
         is_string($published)
-            && !str_contains($published, 'duo_reviewer')
+            && !str_contains($published, 'wprism_reviewer')
             && !str_contains($published, 'administrator'),
         'provider receipt publishes counts and hashes without role names'
     );
 
     $GLOBALS['ydp_writes'] = [];
     $again = $provider->invoke('reconcile_role_capabilities', []);
-    duo_check_same([], $GLOBALS['ydp_writes'], 'second invocation is a mutation-free idempotent verification');
-    duo_check_same($receipt['after'], $again['after'] ?? null, 'idempotent receipt is byte-stable');
+    wprism_check_same([], $GLOBALS['ydp_writes'], 'second invocation is a mutation-free idempotent verification');
+    wprism_check_same($receipt['after'], $again['after'] ?? null, 'idempotent receipt is byte-stable');
 
     $operation = [
-        'format' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
+        'format' => \WPrism\Providers::SCOPED_OPERATION_FORMAT,
         'authority_hash' => str_repeat('a', 64),
         'lease_session_id' => 'fixture-session',
         'operation_id' => 'fixture-operation',
@@ -197,9 +197,9 @@ namespace {
         'effect_hash' => str_repeat('c', 64),
     ];
     $scoped = $provider->invoke_scoped('reconcile_role_capabilities', [], $operation);
-    duo_check_same($operation, $scoped['operation'] ?? null, 'scoped receipt echoes the exact recovery authority envelope');
+    wprism_check_same($operation, $scoped['operation'] ?? null, 'scoped receipt echoes the exact recovery authority envelope');
     $reconciled = $provider->reconcile_scoped('reconcile_role_capabilities', [], $operation);
-    duo_check(
+    wprism_check(
         ($reconciled['verified'] ?? false) === true
             && ($reconciled['after']['desired_roles_hash'] ?? null) === ($reconciled['after']['capability_roles_hash'] ?? null),
         'recovery reconciliation independently re-verifies the durable role projection'
@@ -208,7 +208,7 @@ namespace {
     ydp_reset();
     $GLOBALS['ydp_option'] = [];
     $provider->invoke('reconcile_role_capabilities', []);
-    duo_check_same(
+    wprism_check_same(
         ['remove:administrator:copy_posts', 'remove:subscriber:copy_posts'],
         $GLOBALS['ydp_writes'],
         'the plugin-defined empty role list removes copy_posts from every registered role'
@@ -218,7 +218,7 @@ namespace {
         ydp_reset();
         $GLOBALS['ydp_option'] = $empty;
         $provider->invoke('reconcile_role_capabilities', []);
-        duo_check(
+        wprism_check(
             empty(array_filter($GLOBALS['ydp_caps'], static fn(array $caps): bool => !empty($caps['copy_posts']))),
             'every plugin-empty duplicate_post_roles representation converges on no capability roles ('
                 . get_debug_type($empty) . ')'
@@ -240,7 +240,7 @@ namespace {
             $shape === 'duplicate' ? 'repeats role' : ($shape === 'empty-slug' || $shape === 'non-string' ? 'invalid role slug' : 'ordered list'),
             "malformed $shape role policy refuses before mutation"
         );
-        duo_check_same($before, $GLOBALS['ydp_caps'], "malformed $shape role policy leaves capabilities untouched");
+        wprism_check_same($before, $GLOBALS['ydp_caps'], "malformed $shape role policy leaves capabilities untouched");
     }
 
     ydp_reset();
@@ -250,7 +250,7 @@ namespace {
         'is not registered on this target',
         'a selected source-only role refuses instead of silently weakening permissions'
     );
-    duo_check_same([], $GLOBALS['ydp_writes'], 'missing selected role refusal occurs before the first capability mutation');
+    wprism_check_same([], $GLOBALS['ydp_writes'], 'missing selected role refusal occurs before the first capability mutation');
 
     ydp_reset();
     $GLOBALS['ydp_inaccessible_role'] = 'subscriber';
@@ -259,7 +259,7 @@ namespace {
         "role 'subscriber' cannot expose or persist",
         'an inconsistent WordPress role registry refuses before projection'
     );
-    duo_check_same([], $GLOBALS['ydp_writes'], 'inaccessible role refuses before the first capability mutation');
+    wprism_check_same([], $GLOBALS['ydp_writes'], 'inaccessible role refuses before the first capability mutation');
 
     ydp_reset();
     $GLOBALS['ydp_drop_writes'] = true;
@@ -268,7 +268,7 @@ namespace {
         'did not converge',
         'silently dropped role writes fail the fresh postcondition'
     );
-    duo_check(count($GLOBALS['ydp_writes']) === 4, 'failed postcondition follows a real attempted projection for recovery coverage');
+    wprism_check(count($GLOBALS['ydp_writes']) === 4, 'failed postcondition follows a real attempted projection for recovery coverage');
 
     ydp_reset();
     $GLOBALS['ydp_multisite'] = true;
@@ -277,7 +277,7 @@ namespace {
         'single-site role state only',
         'multisite role state remains an explicit provider refusal'
     );
-    duo_check_same([], $GLOBALS['ydp_writes'], 'multisite refusal occurs before mutation');
+    wprism_check_same([], $GLOBALS['ydp_writes'], 'multisite refusal occurs before mutation');
 
     ydp_reset();
     ydp_refuses(
@@ -286,5 +286,5 @@ namespace {
         'closed capability vocabulary refuses unknown invocations'
     );
 
-    duo_check_summary('Yoast Duplicate Post role provider');
+    wprism_check_summary('Yoast Duplicate Post role provider');
 }

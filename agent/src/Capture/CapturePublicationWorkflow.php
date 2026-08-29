@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canary.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
@@ -41,9 +41,9 @@ require_once __DIR__ . '/../Repository/Snapshot.php';
  */
 final class CapturePublicationWorkflow {
     /**
-     * DUO-3507: appended to each code_drift row this capture declined to
+     * issue #3507: appended to each code_drift row this capture declined to
      * accept. The row's own message already names the three ways forward --
-     * accept with 'duo deploy', restore the recorded version, or pass
+     * accept with 'wprism deploy', restore the recorded version, or pass
      * --force-code-drift (LifecyclePlanner.php:400-401, :429-430) -- so this
      * adds only the part the row cannot know: that THIS verb saw the drift,
      * left the recorded baseline byte-identical, and therefore did not
@@ -51,9 +51,9 @@ final class CapturePublicationWorkflow {
      * opposite outcome is 'FORCED past code_drift: ' . $r['message']
      * (Deploy.php:221-224).
      */
-    private const CODE_DRIFT_OBSERVED = " — 'duo capture' observed this and did NOT accept it as the new baseline: "
+    private const CODE_DRIFT_OBSERVED = " — 'wprism capture' observed this and did NOT accept it as the new baseline: "
         . 'capture reports what it sees, it does not reconcile code. The recorded versions are unchanged, so this '
-        . "finding is still there on the next 'duo status'.";
+        . "finding is still there on the next 'wprism status'.";
 
     public static function run(
         string $repo,
@@ -73,7 +73,7 @@ final class CapturePublicationWorkflow {
         Canary::suppress_cron_spawn();
         // Policy's v1 single-site boundary must run before any destination
         // lock or Ledger work: an unsupported multisite request is a clean
-        // refusal, not a request that may initialize or rewrite Duo state
+        // refusal, not a request that may initialize or rewrite WPrism state
         // before eventually discovering it cannot be certified.
         $intoRepo = ($outDir === null);
         $repoPath = rtrim($repo, '/');
@@ -83,16 +83,16 @@ final class CapturePublicationWorkflow {
         $stateDir = $intoRepo ? $repoPath . '/state' : rtrim($outDir, '/');
         if ($scopeRequest !== null && !$intoRepo) {
             throw new \RuntimeException(
-                'duo: scoped capture publishes a bounded overlay into its associated repository; --out is unsupported'
+                'wprism: scoped capture publishes a bounded overlay into its associated repository; --out is unsupported'
             );
         }
-        // DUO-3427: this early check exists for exactly one reason — acquiring
+        // issue #3427: this early check exists for exactly one reason — acquiring
         // the destination lock CREATES its file, and no ordinary capture may
         // write into a repository that holds an interrupted init. When the
         // canonical lock already exists there is nothing to create, so the
         // early exit buys nothing and costs the truth: a LIVE init holds that
         // lock and has already written its journal, so this arm answered a
-        // running race with recovery advice — "run duo init to verify or roll
+        // running race with recovery advice — "run wprism init to verify or roll
         // back that interrupted attempt" — for an init that was not
         // interrupted, was mid-publication, and went on to succeed. Following
         // that advice means starting a second init against a live one.
@@ -109,14 +109,14 @@ final class CapturePublicationWorkflow {
             InitialCaptureBoundary::assertNoInterruptedInit($repoPath);
         }
         if ($initialBaseline) {
-            InitialCaptureBoundary::assertConfigIdentity($repoPath . '/site.duo.json', (string) $initialConfigIdentity);
+            InitialCaptureBoundary::assertConfigIdentity($repoPath . '/site.wprism.json', (string) $initialConfigIdentity);
         }
         $policy = Policy::load($repo, adapterLibrary: $adapterLibrary);
         if ($initialBaseline) {
-            InitialCaptureBoundary::assertConfigIdentity($repoPath . '/site.duo.json', (string) $initialConfigIdentity);
+            InitialCaptureBoundary::assertConfigIdentity($repoPath . '/site.wprism.json', (string) $initialConfigIdentity);
         }
 
-        // DUO-3213: a capture lock serializes concurrent publishers to this
+        // issue #3213: a capture lock serializes concurrent publishers to this
         // SAME destination (Publish::lock() fails cleanly, non-blocking, if
         // another capture already holds it — see its own docblock for why).
         // Held for the full remainder of this method, including the ledger
@@ -159,7 +159,7 @@ final class CapturePublicationWorkflow {
                 $publicationPhase['media_manifest'] = Publish::tree_ownership_manifest($repoPath . '/media');
                 $publicationPhase['state_manifest'] = Publish::tree_ownership_manifest($stateDir);
             }
-            // DUO-3217's promotion fence is target-wide because the ledger,
+            // issue #3217's promotion fence is target-wide because the ledger,
             // embedded identity, and plugin-visible state are shared even
             // when two captures publish into DIFFERENT directories. Claim it
             // before Ledger::ensure(): schema migration and every row
@@ -179,11 +179,11 @@ final class CapturePublicationWorkflow {
             $c = new CaptureCandidateBuilder($repo, $policy);
             CaptureTransaction::assert_engine_support($policy);
 
-            // DUO-3223 (concurrency-scenario harness): the SAME deterministic
-            // test-gate idiom DUO-3217 established for PromotionLock
-            // (agent/src/Apply/Apply.php's own DUO_TEST_MODE/DUO_TEST_PROMOTION_
+            // issue #3223 (concurrency-scenario harness): the SAME deterministic
+            // test-gate idiom issue #3217 established for PromotionLock
+            // (agent/src/Apply/Apply.php's own WPRISM_TEST_MODE/WPRISM_TEST_PROMOTION_
             // PAUSE_MS), applied to the capture lock instead — a live test
-            // driving two real `wp duo capture` processes against the same
+            // driving two real `wp wprism capture` processes against the same
             // destination needs a way to GUARANTEE the first one is still
             // holding the lock when the second one starts, rather than
             // gambling on wall-clock timing against however large the
@@ -193,28 +193,28 @@ final class CapturePublicationWorkflow {
             // the same reason PromotionLock's phase marker is DB-backed
             // rather than in-memory. No effect at all unless a caller
             // explicitly opts into a marker-reading seam; production capture
-            // is unchanged, and a DUO_TEST_MODE run requesting neither seam
+            // is unchanged, and a WPRISM_TEST_MODE run requesting neither seam
             // writes no marker (a SIGKILLed run must not leave a ledger row
-            // that the next init reads as an existing Duo ledger).
-            $pauseMs = (int) (getenv('DUO_TEST_CAPTURE_PAUSE_MS') ?: 0);
-            $waitForRelease = getenv('DUO_TEST_CAPTURE_WAIT_FOR_RELEASE') === '1';
-            if ($scopeRequest === null && getenv('DUO_TEST_MODE') === '1'
+            // that the next init reads as an existing WPrism ledger).
+            $pauseMs = (int) (getenv('WPRISM_TEST_CAPTURE_PAUSE_MS') ?: 0);
+            $waitForRelease = getenv('WPRISM_TEST_CAPTURE_WAIT_FOR_RELEASE') === '1';
+            if ($scopeRequest === null && getenv('WPRISM_TEST_MODE') === '1'
                 && (($pauseMs > 0 && $pauseMs <= 10000) || $waitForRelease)) {
                 // This marker is intentionally outside the consistent
                 // snapshot: a second process must be able to observe it
                 // while this process is paused inside the held flock(). It is
                 // test-only and is deleted in finally so a refused/failed
-                // capture cannot leave a duo_kv residue behind.
+                // capture cannot leave a wprism_kv residue behind.
                 //
-                // DUO-3427: scoped to the pause it exists FOR, not to test
+                // issue #3427: scoped to the pause it exists FOR, not to test
                 // mode at large. Its only reader (regress_capture_concurrency)
                 // always requests the pause, and the finally-delete keeps the
                 // no-residue promise on every ordinary failure — but not
                 // through a SIGKILL, and #151 later added init's SIGKILL fault
                 // seams to this same path. Every killed init therefore
-                // committed one wp_duo_kv row that nothing would ever read and
+                // committed one wp_wprism_kv row that nothing would ever read and
                 // no rollback would ever clear, and a non-pristine ledger is
-                // not inert: it is `existing_duo_ledger`, so the environment a
+                // not inert: it is `existing_wprism_ledger`, so the environment a
                 // rolled-back init is supposed to leave RETRYABLE refused the
                 // next init instead. Written only where it is observed, so the
                 // promise in the paragraph above is true for every path that
@@ -231,7 +231,7 @@ final class CapturePublicationWorkflow {
                         usleep(100000);
                     }
                     if (!$released) {
-                        throw new \RuntimeException('duo: test capture release marker was not received');
+                        throw new \RuntimeException('wprism: test capture release marker was not received');
                     }
                 } else {
                     usleep($pauseMs * 1000);
@@ -258,7 +258,7 @@ final class CapturePublicationWorkflow {
             }
             if ($scopeRequest !== null) {
                 if (!is_dir($repoPath . '/state')) {
-                    throw new \RuntimeException('duo: scoped capture requires an existing compiled state revision');
+                    throw new \RuntimeException('wprism: scoped capture requires an existing compiled state revision');
                 }
                 // Recovery above is governed solely by its durable old
                 // intent/marker/receipt. Only after it is reconciled may the
@@ -287,11 +287,11 @@ final class CapturePublicationWorkflow {
             // JSON, invalid record shapes, illegitimate tombstones — every
             // ordinary historical-integrity check in RepositoryCompiler).
             //
-            // DUO-3287: compile_for_diff(), not compile() — this revision
+            // issue #3287: compile_for_diff(), not compile() — this revision
             // was captured under whatever policy was active AT THAT TIME,
             // which the CURRENT policy may since have outgrown (a manifest
-            // added to site.duo.json after the last capture, the entire
-            // premise of DUO-3257's incremental adoption model). Demanding
+            // added to site.wprism.json after the last capture, the entire
+            // premise of issue #3257's incremental adoption model). Demanding
             // current-policy completeness from a historical revision isn't
             // corruption detection, it's refusing to read history that
             // predates a policy expansion — verified live: every
@@ -304,7 +304,7 @@ final class CapturePublicationWorkflow {
             // stay active. RepositoryCompiler.php's own
             // $completenessOptional docblock has the full reasoning.
             //
-            // DUO-3263: a FRESH Policy::load(), never the shared $policy
+            // issue #3263: a FRESH Policy::load(), never the shared $policy
             // build() below will use. RepositoryCompiler::compile[_for_diff]()
             // primes every schema-driven interpreter from THIS tree via
             // prime_interpreters_from_repository() (manifests/interpreters/
@@ -336,7 +336,7 @@ final class CapturePublicationWorkflow {
                 }
             }
             // The one consistent-snapshot transaction: every SELECT build()
-            // issues, plus dead-map pruning, the _duo_uuid/duo_map identity-
+            // issues, plus dead-map pruning, the _wprism_uuid/wprism_map identity-
             // minting writes, and deletion capability validation, see one
             // coherent point-in-time view. Retries on its own (see
             // run_in_consistent_snapshot()) if a concurrent WordPress write
@@ -487,7 +487,7 @@ final class CapturePublicationWorkflow {
                 $staging = Publish::stage_dir($stateDir);
                 if ($initialBaseline) {
                     InitialCaptureBoundary::assertConfigIdentity(
-                        $c->repo() . '/site.duo.json',
+                        $c->repo() . '/site.wprism.json',
                         (string) $initialConfigIdentity
                     );
                     Publish::assert_lock_path($lock, $stateDir);
@@ -601,7 +601,7 @@ final class CapturePublicationWorkflow {
                         ] as $sibling) {
                             if (file_exists($sibling) || is_link($sibling)) {
                                 throw new InitialStateBoundaryException(
-                                    'duo: initial capture protocol boundary changed before publication'
+                                    'wprism: initial capture protocol boundary changed before publication'
                                 );
                             }
                         }
@@ -626,7 +626,7 @@ final class CapturePublicationWorkflow {
                     if (!is_string($scopeSourceTreeSha256)
                         || !hash_equals($scopeSourceTreeSha256, Publish::tree_digest($repoPath . '/state'))) {
                         throw new \RuntimeException(
-                            'duo: scoped capture source revision changed after contract association; refusing publication'
+                            'wprism: scoped capture source revision changed after contract association; refusing publication'
                         );
                     }
                     $sourceExport = $previous->export();
@@ -698,15 +698,15 @@ final class CapturePublicationWorkflow {
                 }
                 if ($initialBaseline) {
                     InitialCaptureBoundary::assertConfigIdentity(
-                        $c->repo() . '/site.duo.json',
+                        $c->repo() . '/site.wprism.json',
                         (string) $initialConfigIdentity
                     );
                     InitialCaptureBoundary::assertStateReservation(
                         Publish::backup_dir($stateDir),
                         (string) $initialStateIdentity
                     );
-                    if (getenv('DUO_TEST_MODE') === '1'
-                        && getenv('DUO_TEST_INIT_FAIL_PHASE') === 'post-swap-unmanifested-empty') {
+                    if (getenv('WPRISM_TEST_MODE') === '1'
+                        && getenv('WPRISM_TEST_INIT_FAIL_PHASE') === 'post-swap-unmanifested-empty') {
                         @mkdir($stateDir . '/unmanifested-empty-directory', 0777);
                     }
                     Publish::assert_owned_tree(
@@ -737,7 +737,7 @@ final class CapturePublicationWorkflow {
                             }
                         }
                         if (!is_array($options)) {
-                            throw new \RuntimeException('duo: scoped capture lost its options carrier before ledger finalization');
+                            throw new \RuntimeException('wprism: scoped capture lost its options carrier before ledger finalization');
                         }
                         try {
                             $document = Canon::decode((string) ($options['content'] ?? ''));
@@ -745,7 +745,7 @@ final class CapturePublicationWorkflow {
                                 Ledger::set_state_hash($identity, 'option', $hash);
                             }
                         } catch (\Throwable $failure) {
-                            throw new \RuntimeException('duo: scoped capture options carrier is malformed before ledger finalization', 0, $failure);
+                            throw new \RuntimeException('wprism: scoped capture options carrier is malformed before ledger finalization', 0, $failure);
                         }
                     }
                     if ($scoped) {
@@ -761,7 +761,7 @@ final class CapturePublicationWorkflow {
                             array_column($candidate['entities'], 'uuid'),
                             array_column($candidate['deletions'], 'uuid')
                         ));
-                        // DUO-3507: capture observes code, it never accepts
+                        // issue #3507: capture observes code, it never accepts
                         // it. The unconditional re-baseline stays deploy's
                         // alone -- Deploy.php:464-472 reaches
                         // LifecyclePlanner::record_code_versions() only after
@@ -817,7 +817,7 @@ final class CapturePublicationWorkflow {
             if (isset($build['_publication_intent'])) {
                 if ($initialBaseline) {
                     InitialCaptureBoundary::assertConfigIdentity(
-                        $repoPath . '/site.duo.json',
+                        $repoPath . '/site.wprism.json',
                         (string) $initialConfigIdentity
                     );
                     Publish::assert_lock_path($lock, $stateDir);
@@ -906,7 +906,7 @@ final class CapturePublicationWorkflow {
                             || !is_array($publicationPhase['state_manifest'])
                             || !is_array($publicationPhase['staging_manifest'])) {
                             throw new InitialStateBoundaryException(
-                                'duo: initial publication recovery has no complete state manifests'
+                                'wprism: initial publication recovery has no complete state manifests'
                             );
                         }
                         Publish::recover_initial(
@@ -1005,7 +1005,7 @@ final class CapturePublicationWorkflow {
         $actual = $result['exit'] === 0 ? trim($result['stdout']) : '';
         if ($actual === '' || !hash_equals($expected, $actual)) {
             throw new \RuntimeException(
-                'duo: capture target branch does not match the orchestrator branch binding; '
+                'wprism: capture target branch does not match the orchestrator branch binding; '
                 . 'switch the target repository to the intended named branch and retry'
             );
         }
@@ -1039,7 +1039,7 @@ final class CapturePublicationWorkflow {
             ProcessFence::acquire();
         } catch (\Throwable $failure) {
             throw self::targetWriterRefusal(
-                'duo: capture refused because another live target process owns the target-writer fence',
+                'wprism: capture refused because another live target process owns the target-writer fence',
                 $failure
             );
         }
@@ -1055,28 +1055,28 @@ final class CapturePublicationWorkflow {
     private static function assertNoPromotionSession(): void {
         if (Ledger::kv_get('promotion_lock') !== null) {
             throw self::targetWriterRefusal(
-                'duo: capture refused because the target retains a promotion lock'
+                'wprism: capture refused because the target retains a promotion lock'
             );
         }
     }
 
     /**
      * Established targets must refuse before even idempotent schema repair;
-     * a first capture has no duo_kv table (and therefore cannot have a
+     * a first capture has no wprism_kv table (and therefore cannot have a
      * promotion session), so it proceeds to Ledger::ensure() and the
      * unconditional post-ensure check above.
      */
     private static function assertNoPromotionSessionIfLedgerExists(): void {
         global $wpdb;
         $wpdb->last_error = '';
-        $table = $wpdb->prefix . 'duo_kv';
+        $table = $wpdb->prefix . 'wprism_kv';
         $found = $wpdb->get_var($wpdb->prepare(
             'SELECT TABLE_NAME FROM information_schema.TABLES '
             . 'WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s',
             $table
         ));
         if ($found === false || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException('duo: capture could not inspect the target ledger boundary');
+            throw new \RuntimeException('wprism: capture could not inspect the target ledger boundary');
         }
         if (is_string($found) && hash_equals($table, $found)) {
             self::assertNoPromotionSession();
@@ -1089,7 +1089,7 @@ final class CapturePublicationWorkflow {
     ): CommandRefusalException {
         return new CommandRefusalException(
             'capture_target_writer_active',
-            'capture refused because another Duo target writer or promotion session is active',
+            'capture refused because another WPrism target writer or promotion session is active',
             'wait for the active writer to finish; if none is running, inspect and recover or abort the retained promotion session before retrying capture',
             [],
             $operatorMessage,
@@ -1116,13 +1116,13 @@ final class CapturePublicationWorkflow {
         $warning = $count . ' suspicious unrewritten ref(s) in captured state — ';
         if (!$intoRepo) {
             return $warning . 'the output-only candidate was scanned before publication; '
-                . '`duo lint` scans repository state, so no mismatched rescan command is shown. '
+                . '`wprism lint` scans repository state, so no mismatched rescan command is shown. '
                 . 'Rerun capture without `--out` before following its lint remediation';
         }
         if ($hostEnvironment !== null) {
             $environmentArg = self::shellArg($hostEnvironment);
             if ($environmentArg !== null) {
-                $warning .= 'run on the host: `duo lint ' . $environmentArg . '`; or ';
+                $warning .= 'run on the host: `wprism lint ' . $environmentArg . '`; or ';
             }
         }
         $repoArg = self::shellArg($repo);
@@ -1130,7 +1130,7 @@ final class CapturePublicationWorkflow {
             return $warning . 'run directly on the target with a control-free `--repo` path; '
                 . 'the configured repository path is unsafe to render';
         }
-        return $warning . 'run directly on the target: `wp duo lint --repo=' . $repoArg . '`';
+        return $warning . 'run directly on the target: `wp wprism lint --repo=' . $repoArg . '`';
     }
 
     public static function shellArg(string $value): ?string {

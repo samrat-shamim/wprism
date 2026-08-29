@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression — DUO-3235: LIVE, docker-based round-trip proof for BOTH halves
+# Regression — issue #3235: LIVE, docker-based round-trip proof for BOTH halves
 # of the typed-snapshot grammar extension, against the SHIPPED
 # adapter-packages/paid-memberships-pro/package/manifest.json (not a synthetic declaration —
 # proving the actual deliverable):
@@ -17,16 +17,16 @@
 # logic and every schema-assertion invariant in isolation). THIS script
 # proves what the offline harness structurally cannot (Apply.php is out of
 # its dependency boundary by design — see Snapshot.php's own docblock,
-# "Engine boundary"): a real round-trip through the actual `wp duo`
+# "Engine boundary"): a real round-trip through the actual `wp wprism`
 # CLI/plan/apply pipeline to a FRESH target, resolving both composite
 # columns to the target's OWN local ids (necessarily different numbers
 # from the source, on a real second WordPress+MySQL install), a real
-# byte-identical recapture, a real `wp duo lint` pass, and the "no update
+# byte-identical recapture, a real `wp wprism lint` pass, and the "no update
 # bucket, only create/delete" plan-bucket claim Snapshot.php's own docblock
 # defers to this file for.
 #
 # Also proves filename-determinism across environments (added after PR #13/
-# DUO-3239 found and fixed a real bug this file's own original methodology
+# issue #3239 found and fixed a real bug this file's own original methodology
 # structurally could not see: the composite_ref slug used to be built from
 # THIS environment's own local ids, which are never portable — every
 # cross-environment recapture produced a spurious filename divergence,
@@ -42,7 +42,7 @@
 # already destroyed before authoring this script).
 set -euo pipefail
 PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
-export DUO_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
+export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 cd "$(dirname "$0")/../../../../sandbox"
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
@@ -54,11 +54,11 @@ command -v jq >/dev/null || fail "jq required"
 PAIR=asnaprt
 PORT1=8932
 PORT2=8933
-export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2" DUO_CODEBIND_PLUGIN=""
+export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2" WPRISM_CODEBIND_PLUGIN=""
 
-wp1() { docker compose -p "duo-$PAIR" -f pair.yml run --rm -T cli1 wp "$@"; }
-wp2() { docker compose -p "duo-$PAIR" -f pair.yml run --rm -T cli2 wp "$@"; }
-GIT_1="git -C siterepo/${PAIR}1 -c user.name=duo-$PAIR -c user.email=$PAIR@example.test"
+wp1() { docker compose -p "wprism-$PAIR" -f pair.yml run --rm -T cli1 wp "$@"; }
+wp2() { docker compose -p "wprism-$PAIR" -f pair.yml run --rm -T cli2 wp "$@"; }
+GIT_1="git -C siterepo/${PAIR}1 -c user.name=wprism-$PAIR -c user.email=$PAIR@example.test"
 
 cleanup() {
   bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 || true
@@ -88,10 +88,10 @@ pass "paid-memberships-pro active on both sides"
 #     handler, adminpages/levels/save-level.php, itself just does this —
 #     there is no separate "public API" wrapper worth calling through).
 #   - update_pmpro_membership_level_meta() — PMPro's OWN real meta-write
-#     function (includes/functions.php) — the DUO-3235/task #126 proving
+#     function (includes/functions.php) — the issue #3235/task #126 proving
 #     value lives here, in pmpro_membership_levelmeta.
 #   - pmpro_update_post_level_restrictions() — the REAL function behind the
-#     wp-admin "Require Membership" meta box. The DUO-3235/task #125 proving
+#     wp-admin "Require Membership" meta box. The issue #3235/task #125 proving
 #     fact lives here, in pmpro_memberships_pages.
 say "(1) seed real content on side 1: PMPro system pages, one level, one meta key, a real page restriction"
 read -r -d '' SEED_PHP <<'PHPEOF' || true
@@ -121,7 +121,7 @@ echo "pmpro_generatePages(): " . count((array) $created) . " page(s) touched\n";
 
 $level_id = $wpdb->insert($wpdb->pmpro_membership_levels, [
     'name' => 'Composite Ref Test Level',
-    'description' => 'DUO-3235 regression fixture',
+    'description' => 'issue #3235 regression fixture',
     'confirmation' => 'Welcome to the composite_ref regression level.',
     'allow_signups' => 1,
     'initial_payment' => 19.99,
@@ -143,13 +143,13 @@ echo "level_id=$level_id\n";
 // task #126 proving value — a real, distinctive authored string in the
 // EXACT table (pmpro_membership_levelmeta) whose PK column (meta_id, not
 // id) is this issue's second half.
-update_pmpro_membership_level_meta($level_id, 'membership_account_message', 'DUO-3235 composite_ref regression marker');
+update_pmpro_membership_level_meta($level_id, 'membership_account_message', 'issue #3235 composite_ref regression marker');
 
 $page_id = wp_insert_post([
     'post_title' => 'Composite Ref Test Page',
     'post_status' => 'publish',
     'post_type' => 'page',
-    'post_content' => 'Restricted content for the DUO-3235 regression.',
+    'post_content' => 'Restricted content for the issue #3235 regression.',
 ]);
 if (!$page_id || is_wp_error($page_id)) {
     fwrite(STDERR, "failed to create test page\n");
@@ -181,7 +181,7 @@ PAGE_ID_1=$(wp1 db query "SELECT ID FROM wp_posts WHERE post_title='Composite Re
 pass "side 1 seeded: level_id=$LEVEL_ID_1 page_id=$PAGE_ID_1, restriction live, level meta key set"
 
 say "site repo: pin the SHIPPED paid-memberships-pro manifest (the actual deliverable, not a synthetic declaration)"
-rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1/.git" "siterepo/${PAIR}2" "siterepo/${PAIR}1/state" "siterepo/${PAIR}1/site.duo.json"
+rm -rf "siterepo/origin-$PAIR.git" "siterepo/${PAIR}1/.git" "siterepo/${PAIR}2" "siterepo/${PAIR}1/state" "siterepo/${PAIR}1/site.wprism.json"
 git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
 # Site-policy-neutralize core's ref-typed options that a stock WP install
 # always carries real (non-zero) values for but this test's narrow
@@ -192,15 +192,15 @@ git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
 # reason; this test isn't about core's category/post scoping at all.
 #
 # "post"/"category" added to post_types/taxonomies (this test originally
-# shipped without them): DUO-3229's fail-closed unscoped-entity-type gate
+# shipped without them): issue #3229's fail-closed unscoped-entity-type gate
 # landed after this fixture was first written — WordPress's own default
 # "Hello World" post and "Uncategorized" category are capturable entities
-# on every fresh install, and DUO-3229 correctly refuses to leave them
+# on every fresh install, and issue #3229 correctly refuses to leave them
 # silently out of policy scope. Reconfirmed live against a much-advanced
-# main (through DUO-3216/#22) that this is still required, not a stale
+# main (through issue #3216/#22) that this is still required, not a stale
 # assumption. Same mitigation already applied to
 # adapter-packages/the-events-calendar/tests/live/regress_tec_regen.sh for the identical reason.
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "paid-memberships-pro"],
   "policy": {
@@ -227,12 +227,12 @@ $GIT_1 push -qu origin main
 pass "site repo initialized, pinning the shipped manifest"
 
 say "(2) capture on side 1"
-wp1 duo capture --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
 LEVEL_FILE=$(ls "siterepo/${PAIR}1/state/tables/pmpro_membership_levels/"*.json)
 PAGES_FILE=$(ls "siterepo/${PAIR}1/state/tables/pmpro_memberships_pages/"*.json)
 [ -n "$LEVEL_FILE" ] || fail "expected a captured pmpro_membership_levels row"
 [ -n "$PAGES_FILE" ] || fail "expected a captured pmpro_memberships_pages row"
-jq -e '.meta.membership_account_message == "DUO-3235 composite_ref regression marker"' "$LEVEL_FILE" >/dev/null \
+jq -e '.meta.membership_account_message == "issue #3235 composite_ref regression marker"' "$LEVEL_FILE" >/dev/null \
   || fail "task #126: expected the levelmeta sidecar's authored key to be captured via the new id_column override (file: $(jq -c .meta "$LEVEL_FILE"))"
 pass "task #126 proven at capture: pmpro_membership_levelmeta round-tripped through the id_column=meta_id override cleanly"
 COLS=$(jq -c '.columns' "$PAGES_FILE")
@@ -250,10 +250,10 @@ $GIT_1 push -q origin main
 say "(3) clone into side 2 (a genuinely fresh, empty-of-this-content target), plan, apply"
 git clone -q "siterepo/origin-$PAIR.git" "siterepo/${PAIR}2"
 REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-PLAN1=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
+PLAN1=$(wp2 wprism plan --repo=/siterepo --format=json | tail -1)
 echo "$PLAN1"
 echo "$PLAN1" | jq -e '.create | length >= 2' >/dev/null || fail "expected at least 2 creates (level + restriction row) on a fresh target (plan: $PLAN1)"
-APPLY1=$(wp2 duo apply --repo=/siterepo --default-author=admin --revision="$REV" --with-deletes --adopt-by-slug=posts,terms,menus,tables --format=json | tail -1)
+APPLY1=$(wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$REV" --with-deletes --adopt-by-slug=posts,terms,menus,tables --format=json | tail -1)
 echo "$APPLY1"
 echo "$APPLY1" | jq -e '.canary == "clean"' >/dev/null || fail "expected a clean canary on the first apply"
 pass "applied to side 2, canary clean"
@@ -271,11 +271,11 @@ RESTRICTED_2=$(wp2 db query "SELECT COUNT(*) FROM wp_pmpro_memberships_pages WHE
 pass "task #125 proven live: the restriction row landed on side 2 resolved to side 2's OWN local ids on BOTH columns — the composite fact is genuinely portable, not a copied pair of stale numbers"
 
 MSG_2=$(wp2 db query "SELECT meta_value FROM wp_pmpro_membership_levelmeta WHERE pmpro_membership_level_id=$LEVEL_ID_2 AND meta_key='membership_account_message'" --skip-column-names 2>/dev/null | tr -d '\r')
-[ "$MSG_2" = "DUO-3235 composite_ref regression marker" ] || fail "task #126: authored levelmeta value did not land on side 2 (got '$MSG_2')"
+[ "$MSG_2" = "issue #3235 composite_ref regression marker" ] || fail "task #126: authored levelmeta value did not land on side 2 (got '$MSG_2')"
 pass "task #126 proven live: the levelmeta sidecar (real PK column meta_id) round-tripped its authored key to side 2 correctly"
 
 say "(5) byte-identical recapture on side 2"
-wp2 duo capture --repo=/siterepo
+wp2 wprism capture --repo=/siterepo
 LEVEL_FILE_2=$(ls "siterepo/${PAIR}2/state/tables/pmpro_membership_levels/"*.json)
 PAGES_FILE_2=$(ls "siterepo/${PAIR}2/state/tables/pmpro_memberships_pages/"*.json)
 diff -u "$LEVEL_FILE" "$LEVEL_FILE_2" >/dev/null || fail "pmpro_membership_levels file diverged between side 1 and recaptured side 2"
@@ -284,12 +284,12 @@ RECAPTURED_UUID=$(jq -r '.uuid' "$PAGES_FILE_2")
 [ "$RECAPTURED_UUID" = "$CAPTURED_UUID" ] || fail "recaptured uuid ($RECAPTURED_UUID) differs from the original ($CAPTURED_UUID) — the SAME two referenced entities must derive the SAME uuid regardless of environment"
 pass "byte-identical recapture, including the SAME uuid derived independently on side 2 from ITS OWN local ids — proves the uuid-over-referenced-tuple design, not just asserted"
 
-# FILENAME-DETERMINISM PROOF (PR #13/DUO-3239 finding, amerge): this test's
+# FILENAME-DETERMINISM PROOF (PR #13/issue #3239 finding, amerge): this test's
 # own file DISCOVERY (the `ls .../*.json` glob two lines above) finds
 # "whatever file is there" and was therefore structurally blind to a
 # spurious cross-environment FILENAME divergence — content-only `diff -u`
 # against two already-known paths can never notice the paths themselves
-# differ. That's exactly how a real bug shipped silently in DUO-3235's
+# differ. That's exactly how a real bug shipped silently in issue #3235's
 # original composite_ref slug (built from THIS environment's own local
 # ids, which are never portable and differ by construction on every
 # cross-environment round-trip) and went uncaught here, only surfacing
@@ -299,19 +299,19 @@ pass "byte-identical recapture, including the SAME uuid derived independently on
 # composite_ref entity must be byte-identical, not merely their contents.
 BASENAME_1=$(basename "$PAGES_FILE")
 BASENAME_2=$(basename "$PAGES_FILE_2")
-[ "$BASENAME_1" = "$BASENAME_2" ] || fail "cross-environment FILENAME divergence for the same composite_ref entity: side 1 captured '$BASENAME_1', recaptured side 2 produced '$BASENAME_2' — the slug is not portable (regression of the DUO-3239/PR #13 fix: capture_composite_table()'s slug must derive from the referenced entities' own portable uuids, never this environment's local ids)"
+[ "$BASENAME_1" = "$BASENAME_2" ] || fail "cross-environment FILENAME divergence for the same composite_ref entity: side 1 captured '$BASENAME_1', recaptured side 2 produced '$BASENAME_2' — the slug is not portable (regression of the issue #3239/PR #13 fix: capture_composite_table()'s slug must derive from the referenced entities' own portable uuids, never this environment's local ids)"
 pass "filename-determinism confirmed: side 1 and recaptured side 2 produced the IDENTICAL filename ($BASENAME_1) for the same composite_ref entity, despite genuinely different local ids underneath — a directory listing, not just file content, is now provably portable"
 
-say "(6) wp duo lint — hard gate, zero findings expected"
-LINT_OUT=$(wp2 duo lint --repo=/siterepo 2>&1)
+say "(6) wp wprism lint — hard gate, zero findings expected"
+LINT_OUT=$(wp2 wprism lint --repo=/siterepo 2>&1)
 LINT_RC=0
-wp2 duo lint --repo=/siterepo >/dev/null 2>&1 || LINT_RC=$?
+wp2 wprism lint --repo=/siterepo >/dev/null 2>&1 || LINT_RC=$?
 echo "$LINT_OUT"
-[ "$LINT_RC" -eq 0 ] || fail "wp duo lint found findings (exit $LINT_RC) — see output above"
+[ "$LINT_RC" -eq 0 ] || fail "wp wprism lint found findings (exit $LINT_RC) — see output above"
 pass "lint: zero findings"
 
 say "(7) plan-bucket proof: re-running plan against a fully-converged target shows NO update bucket for these entities (identity-is-the-fact, no separate update path — Snapshot.php's own docblock claim)"
-PLAN2=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
+PLAN2=$(wp2 wprism plan --repo=/siterepo --format=json | tail -1)
 echo "$PLAN2"
 echo "$PLAN2" | jq -e '.update | length == 0' >/dev/null || fail "expected update==0 on a fully-converged re-plan (plan: $PLAN2)"
 echo "$PLAN2" | jq -e '.unchanged | length >= 2' >/dev/null || fail "expected the level + restriction row to both show unchanged (plan: $PLAN2)"
@@ -337,7 +337,7 @@ PHPEOF
 printf '%s' "$RESTRICT_DIFFERENT_PAGE_PHP" > "siterepo/${PAIR}1/.tmp-swap.php"
 wp1 eval-file /siterepo/.tmp-swap.php
 rm -f "siterepo/${PAIR}1/.tmp-swap.php"
-wp1 duo capture --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
 NEW_PAGES_FILE=$(ls "siterepo/${PAIR}1/state/tables/pmpro_memberships_pages/"*.json)
 NEW_UUID=$(jq -r '.uuid' "$NEW_PAGES_FILE")
 [ "$NEW_UUID" != "$CAPTURED_UUID" ] || fail "restricting a DIFFERENT page produced the SAME uuid — identity-over-the-tuple is broken"
@@ -348,7 +348,7 @@ $GIT_1 commit -qm "capture: swap the restricted page"
 $GIT_1 push -q origin main
 git -C "siterepo/${PAIR}2" pull -q origin main
 REV2=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-PLAN3=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
+PLAN3=$(wp2 wprism plan --repo=/siterepo --format=json | tail -1)
 echo "$PLAN3"
 # 2 creates, not 1: the new page POST is also a fresh entity (never captured
 # before) alongside the new pmpro_memberships_pages tuple — both land in the
@@ -363,7 +363,7 @@ echo "$PLAN3" | jq -e '.delete | any(.type == "pmpro_memberships_pages")' >/dev/
 pass "plan confirms: the tuple swap is delete-old-uuid + create-new-uuid + zero updates — exactly the 'no update bucket' semantics, proven under a genuine identity change, not just a no-op"
 
 say "(9) apply the swap with --with-deletes; confirm side 2's DB reflects it exactly"
-APPLY2=$(wp2 duo apply --repo=/siterepo --default-author=admin --revision="$REV2" --with-deletes --format=json | tail -1)
+APPLY2=$(wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$REV2" --with-deletes --format=json | tail -1)
 echo "$APPLY2"
 echo "$APPLY2" | jq -e '.canary == "clean"' >/dev/null || fail "expected a clean canary on the swap apply"
 OLD_STILL_RESTRICTED=$(wp2 db query "SELECT COUNT(*) FROM wp_pmpro_memberships_pages WHERE membership_id=$LEVEL_ID_2 AND page_id=$PAGE_ID_2" --skip-column-names 2>/dev/null | tr -d '\r')
@@ -375,4 +375,4 @@ NEW_RESTRICTED_2=$(wp2 db query "SELECT COUNT(*) FROM wp_pmpro_memberships_pages
 pass "delete_row()'s unpack-and-delete proven live: old tuple gone, new tuple present, both keyed on side 2's OWN local ids"
 
 say "all proofs green"
-pass "DUO-3235 fully verified live: composite_ref identity mode (task #125) and the id_column sidecar override (task #126), both against the SHIPPED manifest, real PMPro 3.8.3, a genuinely independent second environment"
+pass "issue #3235 fully verified live: composite_ref identity mode (task #125) and the id_column sidecar override (task #126), both against the SHIPPED manifest, real PMPro 3.8.3, a genuinely independent second environment"

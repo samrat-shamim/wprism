@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Pure resolution of manifest-declared option names containing local ids.
@@ -44,12 +44,12 @@ final class OptionNameReferenceResolver {
                 if (preg_match($pattern, $realOptionName, $captured, PREG_OFFSET_CAPTURE) === 1) {
                     if (!isset($captured['id'][0], $captured['id'][1])) {
                         throw new \RuntimeException(
-                            "duo: option_name_refs rule for option '$realOptionName' did not expose its named id capture"
+                            "wprism: option_name_refs rule for option '$realOptionName' did not expose its named id capture"
                         );
                     }
                     if (self::strict_positive_local_id($captured['id'][0]) === null) {
                         throw new \RuntimeException(
-                            "duo: option '$realOptionName' captures an invalid local id in option_name_refs; "
+                            "wprism: option '$realOptionName' captures an invalid local id in option_name_refs; "
                             . 'leading-zero, zero, and overflow spellings are refused'
                         );
                     }
@@ -77,7 +77,7 @@ final class OptionNameReferenceResolver {
                 $malformed
             );
             throw new \RuntimeException(
-                "duo: option '$realOptionName' matches a malformed option_name_refs namespace "
+                "wprism: option '$realOptionName' matches a malformed option_name_refs namespace "
                 . '(invalid local id; refusing capture/apply) declared by ' . implode(', ', array_unique($owners))
             );
         }
@@ -87,7 +87,7 @@ final class OptionNameReferenceResolver {
                 $matches
             );
             throw new \RuntimeException(
-                "duo: option '$realOptionName' matches multiple option_name_refs rules (ambiguous ownership; "
+                "wprism: option '$realOptionName' matches multiple option_name_refs rules (ambiguous ownership; "
                 . 'refusing pin-order resolution): ' . implode(', ', $owners)
             );
         }
@@ -122,7 +122,7 @@ final class OptionNameReferenceResolver {
         }
         if ($tokenCount !== 1) {
             throw new \RuntimeException(
-                "duo: canonical option key '$name' contains multiple embedded identity tokens; refusing ambiguity"
+                "wprism: canonical option key '$name' contains multiple embedded identity tokens; refusing ambiguity"
             );
         }
         $token = $tokens[0][0] ?? '';
@@ -139,7 +139,7 @@ final class OptionNameReferenceResolver {
             }
             if ($knownKind) {
                 throw new \RuntimeException(
-                    "duo: canonical option token for id_kind '$tokenKind' is not owned by exactly one authored "
+                    "wprism: canonical option token for id_kind '$tokenKind' is not owned by exactly one authored "
                     . 'option_name_refs rule'
                 );
             }
@@ -148,7 +148,7 @@ final class OptionNameReferenceResolver {
         if ((string) ($details['rule']['id_kind'] ?? '') !== $tokenKind
             || ($details['rule']['class'] ?? '') !== 'authored') {
             throw new \RuntimeException(
-                "duo: canonical option key '$name' has an identity token whose id_kind does not match its "
+                "wprism: canonical option key '$name' has an identity token whose id_kind does not match its "
                 . 'sole authored option_name_refs owner'
             );
         }

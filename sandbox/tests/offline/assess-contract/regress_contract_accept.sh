@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Regression — round-3 MUP §2.6, §3.1, §3.4: the application contract's
-# propose -> review -> accept lifecycle through `duo contract <env>`.
+# propose -> review -> accept lifecycle through `wprism contract <env>`.
 #
 # Four properties, each of which is a way the contract could stop being a
 # reviewed statement about this site:
@@ -14,7 +14,7 @@
 #      unchanged site differ only by `generated_at`, and treating that as
 #      drift would make accept permanently impossible.
 #   3. `accept` refuses to overwrite a contract that MOVED under it. The
-#      review step is minutes long and `.duo/contract/` is a working tree two
+#      review step is minutes long and `.wprism/contract/` is a working tree two
 #      people can sit in; a lost reviewed declaration is exactly the kind of
 #      unknown §1.6 exists to keep out of production.
 #   4. Both documents land as canonical JSON and are STAGED, never committed.
@@ -24,7 +24,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo-contract-accept.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/wprism-contract-accept.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
 FAILURES=0
@@ -36,26 +36,26 @@ php "$ROOT/sandbox/tests/fixtures/assess/make-fixture.php" "$TMP/site" >/dev/nul
   || { echo "FAIL: could not build the assess fixture" >&2; exit 1; }
 
 SITE="$TMP/site/repo"
-CONTRACT_DIR="$SITE/.duo/contract"
-# The proposal is per environment (DUO-3503): `.duo/contract/<env>/`,
+CONTRACT_DIR="$SITE/.wprism/contract"
+# The proposal is per environment (issue #3503): `.wprism/contract/<env>/`,
 # beside the per-site contract.json and projection.json, never in place
 # of them. This suite drives the fixture's one env, `fixture`.
 PROPOSAL="$CONTRACT_DIR/fixture/proposed.json"
 # The boundary every product-initialized site repository carries
 # (InitRepositoryBoundary::ensure_gitignore(), sandbox/site-repo.gitignore.template):
-# Duo's whole private working area is ignored. accept must still stage the
+# WPrism's whole private working area is ignored. accept must still stage the
 # two review artifacts through it — the case grind_mup.sh step 4 hit live.
-printf '/.tmp*\n/.duo/\n' > "$SITE/.gitignore"
-export DUO_FIXTURES="$TMP/site/fixtures"
-export DUO_SITE_REPO="$SITE"
-export DUO_CALLS="$TMP/calls.txt"
+printf '/.tmp*\n/.wprism/\n' > "$SITE/.gitignore"
+export WPRISM_FIXTURES="$TMP/site/fixtures"
+export WPRISM_SITE_REPO="$SITE"
+export WPRISM_CALLS="$TMP/calls.txt"
 PATH="$TMP/site/bin:$PATH"
 export PATH
 
-# duo <stdout-file> [args...] -> exit code
-duo() {
+# wprism <stdout-file> [args...] -> exit code
+wprism() {
   local out="$1"; shift
-  ( cd "$SITE" && php "$ROOT/cli/duo" --envs-file="$TMP/site/envs.json" "$@" ) \
+  ( cd "$SITE" && php "$ROOT/cli/wprism" --envs-file="$TMP/site/envs.json" "$@" ) \
     > "$out" 2> "$out.err"
 }
 
@@ -98,10 +98,10 @@ file_put_contents($path, json_encode($proposal, JSON_PRETTY_PRINT | JSON_UNESCAP
 
 # ------------------------------------------------------------------- propose
 say 'propose'
-duo "$TMP/propose.txt" contract fixture propose
+wprism "$TMP/propose.txt" contract fixture propose
 STATUS=$?
 [ "$STATUS" = 0 ] && pass 'propose exits 0' || { fail "propose exited $STATUS"; cat "$TMP/propose.txt.err" >&2; }
-[ -f "$PROPOSAL" ] && pass 'propose writes .duo/contract/fixture/proposed.json' \
+[ -f "$PROPOSAL" ] && pass 'propose writes .wprism/contract/fixture/proposed.json' \
   || fail 'propose wrote no proposal'
 [ -f "$CONTRACT_DIR/contract.json" ] \
   && fail 'propose wrote an accepted contract, which is not its job' \
@@ -115,7 +115,7 @@ grep -Fq 'review required:' "$TMP/propose.txt" \
 
 # ------------------------------------------------- accepting unread refuses
 say 'an unreviewed proposal cannot become authority'
-duo "$TMP/accept-unread.txt" contract fixture accept
+wprism "$TMP/accept-unread.txt" contract fixture accept
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'accepting an unreviewed proposal refuses (exit 1)' \
   || fail "accepting an unreviewed proposal exited $STATUS"
@@ -129,7 +129,7 @@ grep -Fq 'external_effect_unreviewed' "$TMP/accept-unread.txt.err" \
 # ------------------------------------------------------------------- accept
 say 'accept'
 review_proposal "$PROPOSAL"
-duo "$TMP/accept.txt" contract fixture accept
+wprism "$TMP/accept.txt" contract fixture accept
 STATUS=$?
 [ "$STATUS" = 0 ] && pass 'a reviewed proposal is accepted' \
   || { fail "accept exited $STATUS"; cat "$TMP/accept.txt.err" >&2; }
@@ -143,7 +143,7 @@ foreach ([$argv[1], $argv[2]] as $path) {
     $raw = (string) file_get_contents($path);
     $document = json_decode($raw, true);
     if (!is_array($document)) { $fail("$path is not a JSON object"); }
-    if ($raw !== \Duo\Canon::encode($document)) { $fail(basename($path) . " is not canonical JSON on disk"); }
+    if ($raw !== \WPrism\Canon::encode($document)) { $fail(basename($path) . " is not canonical JSON on disk"); }
     if (str_contains($raw, "\r")) { $fail(basename($path) . " carries a CR"); }
 }
 $contract = json_decode((string) file_get_contents($argv[1]), true);
@@ -152,11 +152,11 @@ if (($contract["attestation"]["state"] ?? null) !== "unsigned") {
 }
 $stated = $contract["contract_digest"];
 unset($contract["contract_digest"]);
-if ($stated !== "sha256:" . hash("sha256", \Duo\Canon::encode($contract))) {
+if ($stated !== "sha256:" . hash("sha256", \WPrism\Canon::encode($contract))) {
     $fail("contract_digest does not bind its own bytes");
 }
 $projection = json_decode((string) file_get_contents($argv[2]), true);
-if (($projection["format"] ?? null) !== "duo-site-capability-projection/v1") { $fail("wrong projection format"); }
+if (($projection["format"] ?? null) !== "wprism-site-capability-projection/v1") { $fail("wrong projection format"); }
 if (($projection["contract_digest"] ?? null) !== $stated) {
     $fail("the projection does not cite the contract it was generated from");
 }
@@ -196,16 +196,16 @@ echo "ok: both documents are canonical, digest-bound, and consistent with each o
 # ------------------------------------------------------------------ staging
 say 'staged, never committed'
 STAGED=$( cd "$SITE" && git diff --cached --name-only )
-echo "$STAGED" | grep -Fq '.duo/contract/contract.json' \
+echo "$STAGED" | grep -Fq '.wprism/contract/contract.json' \
   && pass 'contract.json is staged for commit' || fail 'contract.json was not staged'
-echo "$STAGED" | grep -Fq '.duo/contract/projection.json' \
+echo "$STAGED" | grep -Fq '.wprism/contract/projection.json' \
   && pass 'projection.json is staged for commit' || fail 'projection.json was not staged'
-( cd "$SITE" && git check-ignore -q --no-index .duo/contract/contract.json ) \
-  && pass 'the site boundary still ignores .duo/ — accept staged through it deliberately, not by loosening it' \
-  || fail 'the fixture lost the /.duo/ boundary this case is about'
-echo "$STAGED" | grep -Ev '^\.duo/contract/(contract|projection)\.json$' | grep -q . \
+( cd "$SITE" && git check-ignore -q --no-index .wprism/contract/contract.json ) \
+  && pass 'the site boundary still ignores .wprism/ — accept staged through it deliberately, not by loosening it' \
+  || fail 'the fixture lost the /.wprism/ boundary this case is about'
+echo "$STAGED" | grep -Ev '^\.wprism/contract/(contract|projection)\.json$' | grep -q . \
   && fail "accept staged more than the two review artifacts: $STAGED" \
-  || pass 'nothing else under .duo/ was staged'
+  || pass 'nothing else under .wprism/ was staged'
 COMMITS=$( cd "$SITE" && git rev-list --count --all 2>/dev/null || echo 0 )
 [ "$COMMITS" = 0 ] && pass 'accept made no commit — the commit is the reviewer signature' \
   || fail "accept created $COMMITS commit(s)"
@@ -215,11 +215,11 @@ grep -Fq 'staged for commit' "$TMP/accept.txt" \
 
 # --------------------------------------------------------------------- show
 say 'show reads the repository, not the site'
-: > "$DUO_CALLS"
-duo "$TMP/show.txt" contract fixture show
+: > "$WPRISM_CALLS"
+wprism "$TMP/show.txt" contract fixture show
 STATUS=$?
 [ "$STATUS" = 0 ] && pass 'show exits 0' || { fail "show exited $STATUS"; cat "$TMP/show.txt.err" >&2; }
-[ -s "$DUO_CALLS" ] \
+[ -s "$WPRISM_CALLS" ] \
   && fail 'show contacted the target; committed review artifacts are a question about the repository' \
   || pass 'show contacts the target zero times'
 grep -Fq 'attestation: unsigned' "$TMP/show.txt" \
@@ -231,7 +231,7 @@ grep -Fq 'projection:' "$TMP/show.txt" \
 
 # ------------------------------------------------------------ stale proposal
 say 'a stale proposal refuses rather than reconciling'
-duo "$TMP/propose2.txt" contract fixture propose
+wprism "$TMP/propose2.txt" contract fixture propose
 review_proposal "$PROPOSAL"
 # The site moves under the review: one plugin version changes. Nothing else,
 # including the clock, may make accept refuse — and this must.
@@ -240,8 +240,8 @@ $path = $argv[1];
 $inventory = json_decode((string) file_get_contents($path), true);
 $inventory["plugins"][0]["version"] = "10.9.9";
 file_put_contents($path, json_encode($inventory, JSON_UNESCAPED_SLASHES));
-' "$DUO_FIXTURES/inventory.json"
-duo "$TMP/stale.txt" contract fixture accept
+' "$WPRISM_FIXTURES/inventory.json"
+wprism "$TMP/stale.txt" contract fixture accept
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'a proposal made against a different site refuses (exit 1)' \
   || fail "a stale proposal exited $STATUS"
@@ -259,14 +259,14 @@ $path = $argv[1];
 $inventory = json_decode((string) file_get_contents($path), true);
 $inventory["plugins"][0]["version"] = "10.4.2";
 file_put_contents($path, json_encode($inventory, JSON_UNESCAPED_SLASHES));
-' "$DUO_FIXTURES/inventory.json"
-duo "$TMP/reaccept.txt" contract fixture accept
+' "$WPRISM_FIXTURES/inventory.json"
+wprism "$TMP/reaccept.txt" contract fixture accept
 STATUS=$?
 [ "$STATUS" = 0 ] && pass 'the same proposal accepts once the site matches again — time alone is not drift' \
   || { fail "re-accept exited $STATUS"; cat "$TMP/reaccept.txt.err" >&2; }
 
 # ------------------------------------------------ a library that moved (3484)
-# The other half of DUO-3484. `duo assess` stays answerable while a checkout
+# The other half of issue #3484. `wprism assess` stays answerable while a checkout
 # is ahead of a site it has not re-adopted yet (regress_assess_composition.sh
 # holds that case); these two verbs are where the skew would be baked into a
 # committed review artifact, so these two refuse.
@@ -281,7 +281,7 @@ say 'proposing or accepting across two reviewed libraries refuses'
 PROPOSAL_BEFORE=$(cat "$PROPOSAL")
 CONTRACT_BEFORE=$(cat "$CONTRACT_DIR/contract.json")
 
-DUO_LIBRARY_SKEW=1 duo "$TMP/propose-skew.txt" contract fixture propose
+WPRISM_LIBRARY_SKEW=1 wprism "$TMP/propose-skew.txt" contract fixture propose
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'propose refuses when the target answers from another reviewed library (exit 1)' \
   || fail "propose under a library mismatch exited $STATUS"
@@ -296,7 +296,7 @@ grep -Fq 're-adopt this environment from this checkout, or check out the revisio
   && pass 'the refused propose left the existing proposal untouched' \
   || fail 'a refused propose still rewrote fixture/proposed.json'
 
-DUO_LIBRARY_SKEW=1 duo "$TMP/accept-skew.txt" contract fixture accept
+WPRISM_LIBRARY_SKEW=1 wprism "$TMP/accept-skew.txt" contract fixture accept
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'accept refuses the same way (exit 1)' \
   || fail "accept under a library mismatch exited $STATUS"
@@ -316,14 +316,14 @@ grep -Fq 'contract_proposal_stale' "$TMP/accept-skew.txt.err" \
 
 # And the same proposal still accepts once the two libraries agree again —
 # the gate is about the skew, and it closes when the skew does.
-duo "$TMP/accept-agreed.txt" contract fixture accept
+wprism "$TMP/accept-agreed.txt" contract fixture accept
 STATUS=$?
 [ "$STATUS" = 0 ] && pass 'the same proposal accepts once the site answers from this checkout library again' \
   || { fail "re-accept after the skew closed exited $STATUS"; cat "$TMP/accept-agreed.txt.err" >&2; }
 
 # ------------------------------------------------- a contract that moved
 say 'a contract that moved under the review refuses'
-duo "$TMP/propose3.txt" contract fixture propose
+wprism "$TMP/propose3.txt" contract fixture propose
 review_proposal "$PROPOSAL"
 # Build a VALID but different contract, and arm the fake `wp` to land it
 # during the capabilities call — i.e. inside accept's own read-modify-write
@@ -334,10 +334,10 @@ require $argv[2] . "/agent/src/Kernel/Canon.php";
 $contract = json_decode((string) file_get_contents($argv[1]), true);
 $contract["site"]["name"] = "landed-by-another-reviewer";
 unset($contract["contract_digest"]);
-$contract["contract_digest"] = "sha256:" . hash("sha256", \Duo\Canon::encode($contract));
-file_put_contents($argv[3], \Duo\Canon::encode($contract));
+$contract["contract_digest"] = "sha256:" . hash("sha256", \WPrism\Canon::encode($contract));
+file_put_contents($argv[3], \WPrism\Canon::encode($contract));
 ' "$CONTRACT_DIR/contract.json" "$ROOT" "$TMP/other-contract.json"
-DUO_MUTATE_CONTRACT="$TMP/other-contract.json" duo "$TMP/cas.txt" contract fixture accept
+WPRISM_MUTATE_CONTRACT="$TMP/other-contract.json" wprism "$TMP/cas.txt" contract fixture accept
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'accept refuses when the stored contract moved under it (exit 1)' \
   || fail "the compare-and-swap did not fire (exit $STATUS)"
@@ -350,29 +350,29 @@ grep -Fq 'landed-by-another-reviewer' "$CONTRACT_DIR/contract.json" \
 
 # ------------------------------------------------------- grammar and wiring
 say 'subcommand grammar'
-duo "$TMP/nosub.txt" contract fixture
+wprism "$TMP/nosub.txt" contract fixture
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'contract without a subcommand refuses' || fail "bare contract exited $STATUS"
-duo "$TMP/badsub.txt" contract fixture demolish
+wprism "$TMP/badsub.txt" contract fixture demolish
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'an unknown subcommand refuses' || fail "an unknown subcommand exited $STATUS"
-duo "$TMP/twosub.txt" contract fixture show propose
+wprism "$TMP/twosub.txt" contract fixture show propose
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'two subcommands refuse rather than last-wins' || fail "two subcommands exited $STATUS"
-duo "$TMP/badsubjson.json" contract fixture demolish --format=json
+wprism "$TMP/badsubjson.json" contract fixture demolish --format=json
 STATUS=$?
-if [ "$STATUS" = 1 ] && grep -Fq '"format":"duo-command-refusal/v1"' "$TMP/badsubjson.json"; then
+if [ "$STATUS" = 1 ] && grep -Fq '"format":"wprism-command-refusal/v1"' "$TMP/badsubjson.json"; then
   pass 'contract refusals use the common machine envelope under --format=json'
 else
   fail 'a contract usage refusal produced no typed JSON envelope'
 fi
 
-grep -Fq "'contract' => cmd_contract(\$transport, \$extra)" "$ROOT/cli/duo" \
+grep -Fq "'contract' => cmd_contract(\$transport, \$extra)" "$ROOT/cli/wprism" \
   && pass 'contract is registered in the dispatch match' \
-  || fail 'contract is not registered in cli/duo dispatch'
-grep -Fq 'duo contract <env> show|propose|accept' "$ROOT/cli/duo" \
+  || fail 'contract is not registered in cli/wprism dispatch'
+grep -Fq 'wprism contract <env> show|propose|accept' "$ROOT/cli/wprism" \
   && pass 'contract appears in the public usage text' \
-  || fail 'contract is missing from duo_usage()'
+  || fail 'contract is missing from wprism_usage()'
 
 printf '\n'
 if [ "$FAILURES" -ne 0 ]; then

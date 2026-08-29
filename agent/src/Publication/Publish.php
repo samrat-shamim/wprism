@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // Keep the historical declaration/load path stable for CLI refusal audits and
 // existing integrations while the implementation lives in PublicationJournal.

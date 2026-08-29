@@ -1,6 +1,6 @@
 # Authoring an adapter manifest
 
-A manifest is how Duo learns what one plugin's state *means*: which keys are
+A manifest is how WPrism learns what one plugin's state *means*: which keys are
 portable authored intent, which are environment-local noise, which hold entity
 references that must be rewritten across environments, and which tables it may
 touch at all. The engine holds no plugin names and no plugin logic — every
@@ -15,7 +15,7 @@ this page rather than instead of it.
 
 A manifest is `adapter-packages/<name>/package/manifest.json`, inside the
 adapter's source capsule, and is pinned by name from a site's
-[`site.duo.json`](../../spec/repo-format.md#siteduojson). It declares
+[`site.wprism.json`](../../spec/repo-format.md#sitewprismjson). It declares
 classification rules, reference shapes, deletion capability, derived-state
 repair actions, and a compatibility window.
 
@@ -33,9 +33,9 @@ adapter-packages/<name>/
     manifest.json                    # declared adapter policy
     disposition.json                 # reviewed support boundary; NOT a manifest
     runtime/
-      interpreters/<name>.php        # \Duo\Interpreters\<Name>
-      regenerators/<name>.php        # \Duo\Regenerators\<Name>
-      providers/<id>.php             # \Duo\Providers\<Id>
+      interpreters/<name>.php        # \WPrism\Interpreters\<Name>
+      regenerators/<name>.php        # \WPrism\Regenerators\<Name>
+      providers/<id>.php             # \WPrism\Providers\<Id>
   tests/                             # offline/live/certify/conformance evidence
   fixtures/
   evidence/
@@ -54,7 +54,7 @@ are hand-authored and reviewed, not generated.
 compatibility cells out of (§ v3.6), so it has exactly one on-disk
 representation; the agent refuses at load time if its
 `agent_version`/`spec_version` disagree with the running
-`DUO_AGENT_VERSION`/`DUO_SPEC_VERSION`.
+`WPRISM_AGENT_VERSION`/`WPRISM_SPEC_VERSION`.
 
 Four rules that will bite you if you learn them the hard way:
 
@@ -66,14 +66,14 @@ Four rules that will bite you if you learn them the hard way:
   name, with both values:
 
   ```
-  duo: shipped adapter '<path>' declares name 'y' but its file name is 'x' — a pin
+  wprism: shipped adapter '<path>' declares name 'y' but its file name is 'x' — a pin
   names the file while every downstream identity (dispositions, digests,
   diagnostics) keys off the declared name, so the two disagreeing is ambiguous
   identity. Make the declared name match the file name
   ```
 
   The same sentence refuses a site-installed adapter (see below), and
-  `duo manifest-validate <dir>` reports it per manifest offline, before any
+  `wprism manifest-validate <dir>` reports it per manifest offline, before any
   target is contacted.
 - **`package/disposition.json` is not part of the manifest.** It is reviewed
   data *about* that one declaration. Package validation requires exactly one
@@ -83,28 +83,28 @@ Four rules that will bite you if you learn them the hard way:
   it `"status": "excluded"` and the generated document prints it as shipping
   "for regression use only" and carrying no product claim; the projected claim
   reports `authored_state.status: unsupported` and
-  `plugin_execution.status: not-a-product-claim`. `duo-agency-cpt` is the one
+  `plugin_execution.status: not-a-product-claim`. `wprism-agency-cpt` is the one
   shipped example. A name prefix decides nothing — that rule is gone with the
   generator that read it.
 - **Interpreter, regenerator, and provider code ships with the manifest, not
   the engine.** A declared interpreter name resolves to
   `package/runtime/interpreters/<name>.php` inside the same capsule and must define
-  `\Duo\Interpreters\<CamelCase(name)>` with
+  `\WPrism\Interpreters\<CamelCase(name)>` with
   `post_meta_rule(string $key, array $allMeta): ?array`; it may additionally
   define `term_meta_rule()` and `user_meta_rule()` with the same signature and
   nullable-defer semantics. A regenerator, declared under a post type's
   `regen_dependency`, resolves to `package/runtime/regenerators/<name>.php` and must
-  define `\Duo\Regenerators\<CamelCase(name)>` with
+  define `\WPrism\Regenerators\<CamelCase(name)>` with
   `regenerate(int $localId): void`. A manifest-sourced provider resolves to
   `package/runtime/providers/<id>.php` and must define
-  `\Duo\Providers\<CamelCase(id)>` with `identity()`, `capabilities()`, and
+  `\WPrism\Providers\<CamelCase(id)>` with `identity()`, `capabilities()`, and
   `invoke()`. A missing file is a loud load-time error naming the exact path.
 
-That last one is worth stating without euphemism: **Duo loads PHP shipped from
+That last one is worth stating without euphemism: **WPrism loads PHP shipped from
 an adapter capsule's `package/runtime/`.** Adoption embeds that allowlisted
 package projection in `agent/adapter-library/`, so loading it is the same trust
 decision as running the installed agent. Content digests strengthen that: all three files —
-interpreter, manifest-sourced provider, and (since DUO-3360) regenerator — join
+interpreter, manifest-sourced provider, and (since issue #3360) regenerator — join
 the per-adapter content digest, so editing any of them is a *changed adapter*
 rather than invisible drift behind a stable manifest digest. Two
 implementations can no longer share one manifest revision's identity.
@@ -119,15 +119,15 @@ implementations can no longer share one manifest revision's identity.
 > `manifest_hash()` is sha256 over the canonical encoding of all those rows;
 > `resolved_adapters()` hashes each row *individually* into that adapter's
 > `digest`. It is the **same row** folded both ways, so a site repo's
-> per-manifest content pin, `adapter_digest`, the digest `duo assess` reports,
+> per-manifest content pin, `adapter_digest`, the digest `wprism assess` reports,
 > and the contract that pins it are all this one row hashed. Change a byte and
 > a deployed site with a compiled artifact refuses with
 > `compiled_artifact_manifest_mismatch` — *compiled manifest/interpreter set
-> does not match active pins* — and the `site.duo.json` content pin stops
+> does not match active pins* — and the `site.wprism.json` content pin stops
 > matching too.
 >
 > The remedy is recompile and re-pin: rebuild the artifact and update the
-> reviewed pin, which `wp duo manifest-pin --repo=<site-repo> --name=<name>`
+> reviewed pin, which `wp wprism manifest-pin --repo=<site-repo> --name=<name>`
 > emits as a copy-pasteable object. Updating a pin is an explicit review act
 > and is never automatic.
 >
@@ -155,19 +155,19 @@ as small as a real adapter gets. Stripped of its notes, it is six keys:
 ```
 
 - `spec_version` must be inside the engine's acceptance window — its own
-  `DUO_SPEC_VERSION` (**N**) or the one before it (**N-1**), and nothing deeper
+  `WPRISM_SPEC_VERSION` (**N**) or the one before it (**N-1**), and nothing deeper
   (`spec/repo-format.md` § v3.1). An integer outside the window refuses at load
   and names the window; an ABSENT or non-integer value is a different failure
   with its own message, because it is not a version at all. Declare N unless you
   are deliberately staging an older manifest across an engine move. Ask the
-  engine rather than guessing: `duo manifest-validate --emit-schema` prints the
+  engine rather than guessing: `wprism manifest-validate --emit-schema` prints the
   accepted set in `spec_window`, measured from the shipped refusal.
 - **Two defaults apply, and they are not the same number.** Every shipped
   manifest today declares `2` (`N-1`) — inspect
   `adapter-packages/*/package/manifest.json` and see zero
   exceptions — because AGENTS.md rule 2 makes editing a working manifest's
   bytes an adapter-identity move: nobody bumps the integer just to bump it, so
-  the library sits one behind `DUO_SPEC_VERSION` until an adapter has an actual
+  the library sits one behind `WPRISM_SPEC_VERSION` until an adapter has an actual
   reason to move. A **new out-of-tree manifest** should declare `3` if and only
   if it wants a post-v3 primitive (`engine_features` and the sections it
   claims — [see below](#the-grammar-document)). Every feature is load-bearing:
@@ -175,7 +175,7 @@ as small as a real adapter gets. Stripped of its notes, it is six keys:
   the same per-feature surface roster, so a recognised feature and its reviewed
   section can be signed; an unknown feature, an unrecognised top-level key, or
   a section no declared feature admits refuses by name. Run
-  `duo adapter inspect` before signing and `duo adapter certify … --pin`
+  `wprism adapter inspect` before signing and `wprism adapter certify … --pin`
   immediately after the final byte edit rather than treating version 3 as an
   automatically stronger manifest.
 - `plugin` is the plugin basename; `version_range` is `{min, max}` with min
@@ -193,18 +193,18 @@ as small as a real adapter gets. Stripped of its notes, it is six keys:
 ### Finding the two versions the range names
 
 The refusal above is permanent, so the cost it creates recurs forever: somebody
-has to establish which releases actually work. `duo adapter boundary` bisects
+has to establish which releases actually work. `wprism adapter boundary` bisects
 that in O(log releases) instead of by trying versions until one sticks.
 
 ```bash
-duo adapter boundary \
+wprism adapter boundary \
   --releases=adapter-packages/<slug>/fixtures/boundary/releases.json \
   --outcomes=adapter-packages/<slug>/fixtures/boundary/outcomes.json \
   --anchor=<a version you already believe works> \
   --manifest=<name> --format=json
 ```
 
-The candidate set is a **recorded** `duo-adapter-release-list/v1` document
+The candidate set is a **recorded** `wprism-adapter-release-list/v1` document
 carrying every release's exact URL and sha256 (see
 [`sandbox/conformance/boundary/README.md`](../../sandbox/conformance/boundary/README.md)).
 Nothing on this path reaches the network, and an unpinned candidate is refused
@@ -231,13 +231,13 @@ blocks the proposal rather than narrowing it by guess.
 
 ### Keeping the range true after upstream ships
 
-The range you found is a claim with an expiry date nobody writes down. `duo
+The range you found is a claim with an expiry date nobody writes down. `wprism
 adapter proposals` is the scheduled job that reads it out of the evidence
 instead:
 
 ```bash
-duo adapter proposals --ledger=adapter-packages/<slug>/fixtures/boundary --format=json > health.json
-duo census --dir=<inventories> --health=health.json
+wprism adapter proposals --ledger=adapter-packages/<slug>/fixtures/boundary --format=json > health.json
+wprism census --dir=<inventories> --health=health.json
 ```
 
 It re-runs the bisection above for **every** pinned plugin that has a recorded
@@ -261,21 +261,21 @@ probed green, the same shape
 **outside** `package/` on purpose — stored beside a manifest it
 would move every adapter digest on every re-verification — and it cannot be
 hand-asserted: a ledger document carrying its own `last_verified` is refused.
-`duo census --health=` ranks those rows beside the demand rank, by sites pinning
+`wprism census --health=` ranks those rows beside the demand rank, by sites pinning
 an adapter times releases it is behind.
 
 ### The caveat that catches everyone
 
 CF7's own notes carry it: `wpcf7_contact_form` **must** be in the site's
-`policy.post_types` in `site.duo.json` for any of these rules to take effect.
+`policy.post_types` in `site.wprism.json` for any of these rules to take effect.
 **A manifest classifies; the site scopes.** A manifest classifies keys within
 entities that are already in scope; the scope list itself is site-local policy.
-`duo init` proposes that scope for you — every `post_types`/`taxonomies` entry
+`wprism init` proposes that scope for you — every `post_types`/`taxonomies` entry
 of class `authored` in a selected adapter goes into the proposal — so on an
 init-owned repository a manifest with `"post_types": {"wpcf7_contact_form":
 {"class": "authored"}}` does carry its own scope. A hand-authored
-`site.duo.json`, or a scope you narrowed afterwards, still has to name the
-entity, and `duo classify` is how a type left local is re-decided later.
+`site.wprism.json`, or a scope you narrowed afterwards, still has to name the
+entity, and `wprism classify` is how a type left local is re-decided later.
 
 For an interpreter-shaped adapter, where meta semantics live in data rather
 than in a static key list,
@@ -284,10 +284,10 @@ the reference.
 
 ### Deleting what you author
 
-Authoring a post type does not make its rows deletable through Duo. A capture
+Authoring a post type does not make its rows deletable through WPrism. A capture
 that finds an authored row gone mints a *deletion intent*, and the engine
 refuses that intent — loudly, at capture — unless a pinned adapter declares the
-destructive effects the kind needs: `duo: deletion intent for post:<type> is
+destructive effects the kind needs: `wprism: deletion intent for post:<type> is
 unsupported — no pinned adapter declares its reverse-reference checks and
 cascade effects`. WordPress's own cascade behaviour is never inferred. Declare
 it:
@@ -330,7 +330,7 @@ routinely ship the reverse-reference column unindexed, so this is not a corner
 case; it is the first thing to check about a deletion contract you are about to
 write.
 
-`wp duo adapter-deletion-feasibility` runs that identical computation on the
+`wp wprism adapter-deletion-feasibility` runs that identical computation on the
 target, over a proposal nothing has declared yet:
 
 ```sh
@@ -340,7 +340,7 @@ cat > proposal.json <<'JSON'
   {"table": "nf3_fields",  "column": "parent_id", "id_kind": "nf3_form", "reason": "fields reference this form"}
 ]}}
 JSON
-wp duo adapter-deletion-feasibility --proposal=proposal.json
+wp wprism adapter-deletion-feasibility --proposal=proposal.json
 ```
 
 Each guard answers with the covering index name, or `null` plus the reason —
@@ -354,13 +354,13 @@ The proposal is deliberately *not* a manifest fragment. It carries no
 `authority: false`, because a covering index is a necessary condition for a
 deletion contract and never a sufficient one. The example above is Ninja Forms,
 and its shipped `parent_id` columns are unindexed: the honest conclusion is the
-one `adapter-packages/ninja-forms/package/manifest.json` records, that Duo does not advertise
+one `adapter-packages/ninja-forms/package/manifest.json` records, that WPrism does not advertise
 `table:nf3_forms` deletion. Deciding that is your job. The report only makes
 sure you are deciding it before an operator meets it.
 
 ## Precedence, in one sentence each
 
-- **Site policy always wins.** A rule in `site.duo.json`'s `policy` outranks
+- **Site policy always wins.** A rule in `site.wprism.json`'s `policy` outranks
   every manifest, for every section.
 - **A non-core manifest outranks `core`.** The loader keeps scanning past a
   `core` match specifically so a plugin's own declaration takes it — a
@@ -420,7 +420,7 @@ the version window the declarative half was certified for.
 `package/runtime/providers/<id>.php`, under
 the same trust boundary as interpreters, digest-bound into the adapter
 identity. `"source": "plugin"` is advertised by the installed plugin itself
-through the `duo_providers` filter and trusted as part of it; that file is
+through the `wprism_providers` filter and trusted as part of it; that file is
 deliberately *not* digest-bound, because the installed plugin — checked against
 `version_range` — is its identity anchor.
 
@@ -481,13 +481,13 @@ anything, rather than discovering it mid-write. The cost is one checked read per
 observable surface per pass, two passes per invocation, and exactly zero for a
 capability that declared none.
 
-Your `before`/`after` are **public output** — they reach `wp duo apply
+Your `before`/`after` are **public output** — they reach `wp wprism apply
 --format=json` — so the engine publishes a bounded projection of them rather
 than your bytes. A string over 512 bytes, one carrying control bytes or invalid
 UTF-8, one matching the shared secret grammar, a map key breaking the same
 rules, a container nested past 4 levels or holding over 128 entries, and a
 whole value still over 8 KiB after all of that are each replaced by
-`<duo:receipt-witness/v1:<reason>:sha256:<digest>>`. The digest is taken over
+`<wprism:receipt-witness/v1:<reason>:sha256:<digest>>`. The digest is taken over
 the raw value at every level, so **equal values still publish equal bytes and
 unequal ones still publish unequal bytes**: `before === after` stays decidable
 from the published receipt, which is the whole point of returning both. A
@@ -551,7 +551,7 @@ channel nobody consumed, when a run does reach the surface and no negotiated
 capability wants the channel, or when no pinned action claims it at all. Two
 consequences to plan for: a marker for a plugin you have pinned but deactivated
 persists rather than decaying, and every outstanding receipt is listed in
-`duo plan` / `duo status` (`regen_context`, which reports not-ok while one
+`wprism plan` / `wprism status` (`regen_context`, which reports not-ok while one
 stands) — visible debt rather than silent debt. Exactly one capability may
 consume a given channel on a given surface; a second one is refused at
 negotiation, because the clear is per-marker and the second consumer would lose
@@ -565,7 +565,7 @@ so a deleted id never reaches you as live work. This is where `idempotent: true`
 earns its keep: a retry re-delivers exactly the batch that failed.
 
 Those three marker prefixes are SHARED with the batch `regen_dependency`
-channel on purpose — one retry vocabulary, one `duo plan` / `duo status`
+channel on purpose — one retry vocabulary, one `wprism plan` / `wprism status`
 projection — so a post type may be claimed by only one of them. A capability
 declaring any channel while triggering on a post type that also declares an
 enabled batch `regen_dependency` is refused at negotiation, before any target
@@ -585,13 +585,13 @@ overrun is reported once, with its measured duration, instead of later as a lock
 loss nobody can attribute.
 
 A capability's own database reads are the read twin of the engine's mutation
-path (`\Duo\Db`), and share its discipline. WordPress's `wpdb` read methods
+path (`\WPrism\Db`), and share its discipline. WordPress's `wpdb` read methods
 return an empty-looking value on a failed query rather than throwing —
 `get_var()` returns `false`, and the `get_col`/`get_row`/`get_results` shape
 collapses to a non-array — so a capability that trusted the bare return could
 clear a `verified: true` receipt on a query that never ran. Route every
 decision-making read through
-`\Duo\ProviderSdk::checked_get_var|checked_get_col|checked_get_row|checked_get_results($sql, $context)`,
+`\WPrism\ProviderSdk::checked_get_var|checked_get_col|checked_get_row|checked_get_results($sql, $context)`,
 which clears `last_error`, runs the read, and fails on both the read's own
 failure shape *and* any driver error — never trust an empty result as
 convergence. Like `Db`, the `$context` is operation-level, never value-level:
@@ -604,23 +604,23 @@ declarative. Most should. For worked examples,
 [`adapter-packages/woocommerce/package/manifest.json`](../../adapter-packages/woocommerce/package/manifest.json) pairs a
 manifest-sourced provider with a triggered, effect-declaring native
 `transient.delete`, and the
-[`adapter-packages/duo-agency-cpt/package/manifest.json`](../../adapter-packages/duo-agency-cpt/package/manifest.json) fixture
+[`adapter-packages/wprism-agency-cpt/package/manifest.json`](../../adapter-packages/wprism-agency-cpt/package/manifest.json) fixture
 shows a plugin-advertised one.
 
 ## Checking the grammar offline
 
 Almost everything above is refusable without a WordPress anywhere: a manifest is
 data, and the validators that read it are the pure half of policy load, which
-runs before any target is contacted. `duo manifest-validate` is that half,
+runs before any target is contacted. `wprism manifest-validate` is that half,
 exposed on its own so you can iterate on a declaration in seconds instead of
 reinstalling an agent to find out you transposed a letter.
 
 ```sh
-duo manifest-validate .
-duo manifest-validate . --manifest=contact-form-7
-duo manifest-validate . --pins=core,woocommerce --format=json
-duo manifest-validate . --site=/path/to/site-repo
-duo manifest-validate ./untrusted-adapter-package --no-code
+wprism manifest-validate .
+wprism manifest-validate . --manifest=contact-form-7
+wprism manifest-validate . --pins=core,woocommerce --format=json
+wprism manifest-validate . --site=/path/to/site-repo
+wprism manifest-validate ./untrusted-adapter-package --no-code
 ```
 
 It needs no environment, no database, and no docker. The `.` above is the source
@@ -648,7 +648,7 @@ anything is not, and `2` for a usage or IO problem.
 Resolving a declared interpreter or regenerator means **loading that PHP**: the
 file's top level runs when it is `require`d, and its constructor runs when the
 class contract is checked. There is no way to answer "does this file define
-`\Duo\Interpreters\Acme` with the right method" without doing that. So this
+`\WPrism\Interpreters\Acme` with the right method" without doing that. So this
 command is exactly as safe as the library you point it at — which is the same
 trust decision running the agent itself makes about its embedded adapter
 library, no more and no less. Treat a source library as code, not as
@@ -659,7 +659,7 @@ out-of-tree package** — `--no-code` validates every declaration and skips the
 code half entirely:
 
 ```sh
-duo manifest-validate ./untrusted-adapter-package --no-code
+wprism manifest-validate ./untrusted-adapter-package --no-code
 ```
 
 Nothing is loaded and nothing is instantiated, so a hostile `interpreters/*.php`
@@ -674,7 +674,7 @@ the code, then re-run without the flag from a directory you trust.
 Three of the guards above are not functions of the manifests alone. They read
 the SITE half of policy as input:
 
-- a table declared in `site.duo.json`'s `policy.tables` extends the legal
+- a table declared in `site.wprism.json`'s `policy.tables` extends the legal
   ref/token/ledger **kind vocabulary** exactly as a manifest-declared one does,
   so `"ref": "my_site_thing"` is legal on that site and nowhere else;
 - a `policy.options.<name>` rule is the ratified **resolution** when two
@@ -684,25 +684,25 @@ the SITE half of policy as input:
   pinned manifests claim the same `plugin` (or the same `theme`) with different
   ranges (spec/repo-format.md § v3.13). It names which claim is IN FORCE; the
   displaced claimant's manifest still loads with every other declaration it
-  makes intact, and `duo plan` warns which claim was displaced on every run.
+  makes intact, and `wprism plan` warns which claim was displaced on every run.
   Without such a row the collision still refuses, exactly as it always did —
   the resolution is opt-in, and it resolves the claim it names and nothing
   else.
 
 Run without `--site`, this command loads with no site policy at all, so any of
 the three can refuse a manifest its real site accepts — and the option one's
-remediation ("add an explicit `site.duo.json` policy.options override") is
-advice to add something you may already have. Point `--site` at your duo site
-repo (the directory holding `site.duo.json`) and all three guards get their
+remediation ("add an explicit `site.wprism.json` policy.options override") is
+advice to add something you may already have. Point `--site` at your wprism site
+repo (the directory holding `site.wprism.json`) and all three guards get their
 real input:
 
 ```sh
-duo manifest-validate . --site=/path/to/site-repo
+wprism manifest-validate . --site=/path/to/site-repo
 ```
 
 Without it, a refusal from any of the three is **annotated**, never rewritten — the
 engine's message is printed exactly as it stands, followed by a note saying the
-refusal may be resolvable by a `site.duo.json` this run was not given. The
+refusal may be resolvable by a `site.wprism.json` this run was not given. The
 missing site half is also a permanent entry in the deferred list below, so it is
 stated on every run rather than only when it happens to bite.
 
@@ -723,16 +723,16 @@ server can consume directly:
 
 ```json
 {
-  "format": "duo-manifest-validation/v1",
+  "format": "wprism-manifest-validation/v1",
   "spec_version": 2,
-  "manifests_dir": "/path/to/duo-wp",
+  "manifests_dir": "/path/to/wprism",
   "site": null,
   "code": "resolved",
   "status": "ok",
-  "manifests": [{"name": "core", "file": "/path/to/duo-wp/platform/adapter-library/core/manifest.json",
+  "manifests": [{"name": "core", "file": "/path/to/wprism/platform/adapter-library/core/manifest.json",
                  "status": "ok", "message": null}],
   "pinned_set": {"names": ["core"],
-                 "files": {"core": "/path/to/duo-wp/platform/adapter-library/core/manifest.json"},
+                 "files": {"core": "/path/to/wprism/platform/adapter-library/core/manifest.json"},
                  "status": "ok", "message": null},
   "deferred": [{"status": "deferred", "surface": "tables",
                 "check": "Snapshot::assert_row_schema() …", "why": "…"}],
@@ -755,11 +755,11 @@ server can consume directly:
 ### The grammar document
 
 ```sh
-duo manifest-validate --emit-schema
+wprism manifest-validate --emit-schema
 ```
 
 prints the closed vocabularies, bounded patterns, and native-action argument
-schemas as one versioned JSON document (`duo-manifest-grammar/v2`) — the raw
+schemas as one versioned JSON document (`wprism-manifest-grammar/v2`) — the raw
 material for editor completion, a schema-aware linter, or a review checklist.
 
 v2 adds two blocks v1 could not answer, both derived the same way as the rest.
@@ -790,7 +790,7 @@ post/option bodies; `structured-evidence/v1` claims `declaration_evidence`
 `{"evidence": [{source, locator, observation}, …]}` and optionally
 `{"answered": [{question, answer}, …]}`, with every member a non-empty string
 and every target's HEAD a top-level key the same manifest declares; it is where
-a ratified `duo adapter-draft` proposal's evidence goes instead of being
+a ratified `wprism adapter-draft` proposal's evidence goes instead of being
 deleted with the `_draft` sidecar, and `notes` is unaffected and keeps whatever
 it already carries; `manifest-provider-runtime/v1` claims no key and moves
 manifest-owned identity, capability advertising, dispatch, scoped receipts,
@@ -829,7 +829,7 @@ hand-maintained copy would keep offering `verbatim` for a release after the
 engine stopped accepting it. Vocabularies whose legal values depend on which
 manifests are pinned — ref, token, and ledger kinds, which extend by *declaring
 a table* — publish the engine-owned base only, named as such; the declared half
-belongs to a pin set plus one `site.duo.json`, not to the engine.
+belongs to a pin set plus one `site.wprism.json`, not to the engine.
 
 The document also carries a `coverage` field stating what it does **not**
 publish, so a consumer never has to infer the boundary: `vocabularies` is VALUE
@@ -874,7 +874,7 @@ plugin faithfully.
    clears uploads with `wp site empty --uploads`, recreate and verify the
    ordinary WordPress uploads root through `wp_mkdir_p` before apply; apply is
    right to refuse a missing or symlinked production root.
-6. Trace the plugin hooks skipped by Duo's direct writes. Cache invalidation,
+6. Trace the plugin hooks skipped by WPrism's direct writes. Cache invalidation,
    generated files, rewrite flushes, index tables, and type registration need a
    bounded provider with value-level verification or an explicit unsupported
    disposition.
@@ -910,9 +910,9 @@ plugin faithfully.
 ### Getting the harness those tests need
 
 Adoption assembles package and platform sources into
-`agent/adapter-library/`, then sends exactly `agent recovery`; none of Duo's
+`agent/adapter-library/`, then sends exactly `agent recovery`; none of WPrism's
 test estate reaches the site. Rather than reinvent it, assemble
-the adapter test kit out of a Duo checkout:
+the adapter test kit out of a WPrism checkout:
 
 ```sh
 php tools/adapter-kit.php --assemble=/path/to/kit --adapter=my-forms
@@ -991,10 +991,10 @@ runtime/env or outside the disposition. Escalate only when progress needs new
 authority or information the repository and target cannot supply: a paid
 artifact or credential, permission to exercise an external server/CDN/service,
 destructive deletion authority, a production-only mutation, or two plausible
-product meanings whose choice changes what Duo will overwrite. “I have not
+product meanings whose choice changes what WPrism will overwrite. “I have not
 read enough plugin code yet” is not an escalation reason.
 
-**The target needs Git before step 1 runs.** `wp duo init` refuses
+**The target needs Git before step 1 runs.** `wp wprism init` refuses
 `unsupported: repository git — Git is unavailable on the target that owns the
 site repository` on a stock `wordpress:cli` image; that image has no Git
 installed, and nothing below tells you so until init already refused. Install
@@ -1002,35 +1002,35 @@ Git on the target first (`sandbox/tests/lib/grind_lib.sh:744`'s
 `init-cli.Dockerfile` build is a working reference for what the image needs).
 
 **These six steps are not the whole command sequence** — two verbs run
-*inside* the loop without a numbered step of their own. `wp duo adapter-probe`
+*inside* the loop without a numbered step of their own. `wp wprism adapter-probe`
 answers the live schema questions a draft's `questions` field names (see
 [Answering the draft's live questions](#answering-the-drafts-live-questions)
 below); it runs between Draft (§3/§4b) and Pin (§5), because a probe reads
-what a drafted table looks like on the live target. `duo adapter boundary`
+what a drafted table looks like on the live target. `wprism adapter boundary`
 bisects the `version_range` these steps write at Export/§4b (see [Finding the
 two versions the range names](#finding-the-two-versions-the-range-names)
 above); it has to run before that range is ratified, not after. Before
 authoring from nothing, it is also worth asking whether an adapter for this
-plugin already exists somewhere you can install from: `duo adapter discover`
+plugin already exists somewhere you can install from: `wprism adapter discover`
 reads a published index and tells you, without writing anything (see
 [Planned: what an adapter cannot express yet](#planned-what-an-adapter-cannot-express-yet)
 for `discover`/`install`/`update`). Running this loop across many adapters
 at once — ranking which plugin to write next, re-measuring whether it moved
 the fleet's coverage — is [coverage-cohort.md](coverage-cohort.md)'s job, not
-this page's; its 9-step loop is where probe, boundary, the kit and `duo
+this page's; its 9-step loop is where probe, boundary, the kit and `wprism
 census` all sit inside one ordered sequence.
 
-**A sequencing trap between init and Propose.** If you already ran `duo init
+**A sequencing trap between init and Propose.** If you already ran `wprism init
 --allow-unmanaged-plugins` (the S1 unmanaged-plugin posture — see [the caveat
 that catches everyone](#the-caveat-that-catches-everyone) above) before
 starting this loop, it already wrote
-`policy.scope.<kind>.<name> = {"class": "runtime"}` into `site.duo.json` for
+`policy.scope.<kind>.<name> = {"class": "runtime"}` into `site.wprism.json` for
 every unmanaged plugin's rowful post types and taxonomies. By the time you
-reach §2 below, `duo pending` shows **nothing** for those types: a surface
+reach §2 below, `wprism pending` shows **nothing** for those types: a surface
 with a recorded scope decision is no longer "no scope disposition", which is
-exactly the condition `duo pending` looks for. This is not a bug to work
+exactly the condition `wprism pending` looks for. This is not a bug to work
 around — it is init doing its job — but it means the review queue will not
-hand you the CPT or taxonomy you are writing the adapter *for*. Read `duo init
+hand you the CPT or taxonomy you are writing the adapter *for*. Read `wprism init
 --format=json`'s `unmanaged_scope_left_local` advisories (or the host
 renderer's `UNMANAGED SCOPE …` lines) for what init already decided instead.
 
@@ -1039,20 +1039,20 @@ renderer's `UNMANAGED SCOPE …` lines) for what init already decided instead.
 Exercise the plugin on a real environment — create the entities through the
 plugin's *own* admin code path, not by hand-writing postmeta, because the
 whole point is to learn what the plugin actually writes. The provenance journal
-records those writes; `wp duo journal-report --manifests=<names>` aggregates
+records those writes; `wp wprism journal-report --manifests=<names>` aggregates
 them and scores proposals against the manifests you already have.
-`wp duo journal-reset` truncates the journal when you want a clean observation
+`wp wprism journal-reset` truncates the journal when you want a clean observation
 window for one specific interaction. It warns with the number of rows it is
 about to destroy first: options no adapter declares are recorded nowhere else,
-so those rows leave `duo pending` permanently. It is not a prerequisite for
-`duo init` — observations are not ledger identity, and a site journalling from
+so those rows leave `wprism pending` permanently. It is not a prerequisite for
+`wprism init` — observations are not ledger identity, and a site journalling from
 first boot initializes with them intact.
 
 Note what the journal will *not* do: a bare authenticated write never proposes
 `authored`. Proposals come from evidence and are deliberately conservative.
 
 Journal rows are provenance, not live schema — they tell you what the plugin
-*wrote*, not what its tables *look like*. For the latter, `wp duo adapter-probe`
+*wrote*, not what its tables *look like*. For the latter, `wp wprism adapter-probe`
 (below) is the Observe-phase counterpart once you know which tables to ask
 about: it needs no `--repo` and reads the target's live `SHOW COLUMNS`/`SHOW
 INDEX` directly, so it is usable this early even though its answers are most
@@ -1061,7 +1061,7 @@ useful once a draft's `questions` name exactly what to probe.
 ### 2. Propose
 
 ```sh
-duo pending dev
+wprism pending dev
 ```
 
 The review queue shows unclassified meta on in-scope entities, entity types
@@ -1075,7 +1075,7 @@ decided.)
 ### 3. Draft
 
 ```sh
-duo classify dev
+wprism classify dev
 ```
 
 Interactive triage reads decisions from stdin, so it is pipe-testable. Under
@@ -1089,41 +1089,41 @@ wp-cli parsing traps that were confirmed empirically rather than assumed:
   `b`. Pass multiple rules as one semicolon-joined value:
   `--set='post_meta:foo=runtime;options:bar=authored,ref=post'`.
 
-Both apply whenever you drive `wp duo classify` directly. `duo classify` builds
+Both apply whenever you drive `wp wprism classify` directly. `wprism classify` builds
 the joined value for you.
 
 ### 4. Export the site-local rules into a manifest
 
 ```sh
-wp duo policy-to-manifest --repo=<path> --match='^wpcf7_' --name=contact-form-7
+wp wprism policy-to-manifest --repo=<path> --match='^wpcf7_' --name=contact-form-7
 ```
 
 `--match` is a PCRE body without delimiters, tested against each key; `--name`
 becomes the manifest's `name` field. This exports **only site-local policy
-rules** — the ones you just classified into `site.duo.json`. It is the
+rules** — the ones you just classified into `site.wprism.json`. It is the
 promotion path from "one site decided this" to "the library declares this",
 and it is deliberately one-directional: nothing reads a manifest back into site
 policy.
 
 Move the emitted JSON into `adapter-packages/<name>/package/manifest.json`, add `plugin`,
 `version_range`, and the evidence notes by hand, and drop the now-redundant
-site-local rules from `site.duo.json`. Run
+site-local rules from `site.wprism.json`. Run
 `php tools/adapter-package-validate.php --adapter=<name>` and
-`duo manifest-validate . --manifest=<name>` on the result before going
+`wprism manifest-validate . --manifest=<name>` on the result before going
 further — see [Checking the grammar offline](#checking-the-grammar-offline);
 the hand-added parts are exactly the ones no export path checked.
 
 ### 4b. Or start from a draft, when there are no site-local rules yet
 
 `policy-to-manifest` promotes rules you have *already classified*. For a plugin
-nothing knows about yet, there are none — so `duo adapter-draft` proposes them
+nothing knows about yet, there are none — so `wprism adapter-draft` proposes them
 instead, from the repository's captured `state/**` plus, with `--seed`, from
-what `duo coverage` saw on the live site:
+what `wprism coverage` saw on the live site:
 
 ```sh
-duo coverage prod --format=json > coverage.json
+wprism coverage prod --format=json > coverage.json
 mkdir -p <site-repo>/adapters
-duo adapter-draft <site-repo> --name=wpforms \
+wprism adapter-draft <site-repo> --name=wpforms \
   --match='^_?wpforms_' \
   --seed=coverage.json --out=<site-repo>/adapters/wpforms.json
 ```
@@ -1151,10 +1151,10 @@ coding agent to retry with `--force`, because regeneration preserves edited or
 ratified candidates.
 
 Why `--seed` earns its place: the offline proposers read `state/**`, so they
-can only see surfaces Duo **already captures** — and the surfaces you are
+can only see surfaces WPrism **already captures** — and the surfaces you are
 writing an adapter *for* are exactly the ones it does not. An option prefix
 invisible to every installed adapter, and a live table no manifest declares,
-are invisible to the draft generator and plainly visible to `duo coverage`.
+are invisible to the draft generator and plainly visible to `wprism coverage`.
 `--seed` turns each into a candidate with coverage's own observation quoted:
 
 | coverage finding | proposed as |
@@ -1163,8 +1163,8 @@ are invisible to the draft generator and plainly visible to `duo coverage`.
 | `tables.undeclared[]` | a `tables.<logical_name>` declaration |
 | a scope-gate-refused post type | a `post_types.<name>` declaration |
 
-The third one needs the richer seed: `duo coverage` reports options and tables
-and nothing else, so pass a `wp duo assess-inventory --format=json` document
+The third one needs the richer seed: `wprism coverage` reports options and tables
+and nothing else, so pass a `wp wprism assess-inventory --format=json` document
 instead when you want post types too. The draft records which families its seed
 actually supplied in `_draft.seed`, so a short draft is never a silent one.
 
@@ -1177,29 +1177,29 @@ so `--seed` stops proposing an `option_namespaces` claim plus a blanket
 thing a new adapter is for.
 
 **Every seeded candidate is `runtime`, and that is a default, not an
-observation.** An undeclared table is one Duo has never read a row of; calling
+observation.** An undeclared table is one WPrism has never read a row of; calling
 it `authored` on that evidence would put live operational rows into your
 repository. What `runtime` buys is honest: the surface becomes *declared and
 excluded* instead of reading `unclassified / block` in assess. Promote the
 parts that really are authored configuration by hand — and then their columns,
 primary key and identity are live facts an offline draft cannot supply, which
-is what each candidate's named `questions` say — and what `wp duo
+is what each candidate's named `questions` say — and what `wp wprism
 adapter-probe` answers, below.
 
 #### Answering the draft's live questions
 
 The questions a candidate carries are **named** — `[table_schema]`,
 `[natural_key_uniqueness]`, `[lock_index]`, `[foreign_keys]`, `[eav_twin]` —
-because one command can answer them. `wp duo adapter-probe` runs on the target
+because one command can answer them. `wp wprism adapter-probe` runs on the target
 and reports, per table, the real PRIMARY KEY, every column's MySQL type and
 nullability, unique keys, per-column index coverage in the deletion guard's own
 terms, declared foreign keys, an EAV twin, and natural-key uniqueness as one
 `COUNT(*)` vs `COUNT(DISTINCT …)`:
 
 ```sh
-wp duo adapter-probe --tables=wpforms_tasks_meta,wpforms_payments \
+wp wprism adapter-probe --tables=wpforms_tasks_meta,wpforms_payments \
   --natural-keys=wpforms_payments.transaction_id --format=json > probe.json
-duo adapter-draft <site-repo> --name=wpforms --evidence=probe.json \
+wprism adapter-draft <site-repo> --name=wpforms --evidence=probe.json \
   --out=<site-repo>/adapters/wpforms.json --force
 ```
 
@@ -1215,7 +1215,7 @@ measure yet`); exercise the plugin until the table holds real rows before you
 ratify anything from that line. `--tables=` never takes the site's table
 prefix, and a table reported `absent on this target` is a name, prefix or
 not-yet-activated question — never a "no rows yet" one. This verb also takes no
-`--repo`: unlike `wp duo coverage`, `pending`, `lint` and `adapter-observe`, it
+`--repo`: unlike `wp wprism coverage`, `pending`, `lint` and `adapter-observe`, it
 reads the target's live schema and owns no repository.
 
 Each fact lands as an `evidence[]` row at confidence 1.0 naming the question it
@@ -1253,12 +1253,12 @@ UUID derivation and target lookup disagree.
 
 Everything under `_draft` is inert: `Policy::load()` never applies a proposal,
 and the trigger keys are renamed so no validator mis-collects one. Ratify by
-hand, delete the rest, then `duo adapter inspect <name> --repo=<site-repo>`.
+hand, delete the rest, then `wprism adapter inspect <name> --repo=<site-repo>`.
 Deleting it is not tidiness. `_draft` is in no arm of the signer's top-level key
 partition, so a manifest still carrying it cannot be certified at any spec
 version, and at `spec_version: 3` it is refused at load by name with "strip the
 `_draft` key before install" (spec/repo-format.md § v3.3). Nothing is lost by
-removing it — `duo manifest-validate` reports the sidecar's facts, proposals and
+removing it — `wprism manifest-validate` reports the sidecar's facts, proposals and
 unsupported counts on every run.
 `--out` refuses to overwrite an existing draft without `--force`, because that
 file holds your ratifications; re-running with `--force` is safe, since human
@@ -1268,17 +1268,17 @@ edits in the prior draft are carried forward.
 
 ```sh
 # Shipped adapter:
-wp duo manifest-pin --name=contact-form-7
+wp wprism manifest-pin --name=contact-form-7
 
 # Site adapter, after keygen (sign, verify and pin atomically):
-duo adapter certify <site-repo> --name=<name> \
+wprism adapter certify <site-repo> --name=<name> \
   --secret-key-file=<organization-key> \
   --reason='<what was reviewed>' --pin
-duo adapter inspect <name> --repo=<site-repo>
+wprism adapter inspect <name> --repo=<site-repo>
 ```
 
 This prints the exact canonical `{"digest": …, "name": …, "source": …}` object
-to paste into `site.duo.json`'s `manifests` array (keys are canonical, so they
+to paste into `site.wprism.json`'s `manifests` array (keys are canonical, so they
 print in alphabetical order). `source` is always present and always the source
 the adapter actually resolved from — `shipped` here, `site` for one installed
 at `adapters/<name>.json`, `plugin` for one a plugin bundles — because a pin
@@ -1290,7 +1290,7 @@ including a declared interpreter's name and bytes, and load refuses a mismatch
 before any policy consumer or target contact.
 
 Without `--repo`, `manifest-pin` deliberately does **not** load
-`site.duo.json`; that is the shipped-library path. With `--repo=<site>`, it
+`site.wprism.json`; that is the shipped-library path. With `--repo=<site>`, it
 loads the repository's policy and site adapter source but overrides only the
 selected manifest pin, so a stale digest for that adapter cannot prevent you
 from computing its reviewed replacement. Unrelated repository errors still
@@ -1308,7 +1308,7 @@ different one.
 
 Re-run the loop on a clean environment: capture, apply to a second environment,
 recapture, and diff. A round-trip whose recaptured `state/` is byte-identical
-is the only evidence that the classification is right. `wp duo lint` is the
+is the only evidence that the classification is right. `wp wprism lint` is the
 companion check — it flags id-shaped values at undeclared paths, which is
 exactly the shape a missing `ref`/`json_refs` declaration takes. Its findings
 are plan-time signals, not proof of corruption; each carries its own caveat
@@ -1319,11 +1319,11 @@ ordering indexes.
 shipped or certified adapter every finding stays the advisory warning it always
 was; for an adapter installed out-of-tree that nothing has certified — including
 one whose certification was withdrawn, and one whose valid signature the
-repository has not yet pinned — `duo capture` refuses with
+repository has not yet pinned — `wprism capture` refuses with
 `uncertified_adapter_lint_findings` and names each locator and the adapter that
 declared it. Two ways forward, and no third: declare the reference so capture
 tokenizes it, or write the reviewed `lint_ok: true` on that declaration. A
-`proposed_lint_ok` finding (the type-derived proposal `wp duo lint
+`proposed_lint_ok` finding (the type-derived proposal `wp wprism lint
 --evidence=<probe.json>` emits) does **not** clear the gate on its own — it is
 the evidence for the review, and `lint_ok` is the review. Certifying the adapter
 returns its findings to advisory.
@@ -1349,7 +1349,7 @@ their own note strings.
 
 ## Dispositions: the reviewed claim source
 
-Each capsule's `package/disposition.json` (`duo-manifest-dispositions/v1`) is
+Each capsule's `package/disposition.json` (`wprism-manifest-dispositions/v1`) is
 separate from `package/manifest.json` **so that declaration cannot imply
 certification**. The document holds that adapter's entry verbatim;
 `platform/adapter-library/profiles.json` holds the profiles map. It is
@@ -1368,7 +1368,7 @@ every pinned shipped manifest must have a reviewed entry, or the load refuses,
 naming the pin:
 
 ```
-duo: manifest disposition coverage mismatch; missing=[<pinned manifest with no entry>], extra=[]
+wprism: manifest disposition coverage mismatch; missing=[<pinned manifest with no entry>], extra=[]
 ```
 
 At authoring time the question is about the **library**: `make release-gate`
@@ -1391,8 +1391,8 @@ file in the library is not grounds for refusing an unrelated, reviewed pin.
 | Status | What it says |
 |---|---|
 | `certified` | Declared by the manifest, reviewed by a human who wrote the `reason` down, and exercised by the conformance suites the entry's `evidence.tests` name. It does **not** mean a bundle digest seals the claim to a run or an artifact set. |
-| `experimental` | Reviewed, exercised only to the boundary its cited suite names, and deliberately not production-authorizing. A capture-plan suite may support capture/compile/plan/recapture while apply stays explicitly unsupported. The projection reads `Experimental`, which `duo release` refuses on before it freezes anything — including through a conditional path. |
-| `excluded` | Reviewed as carrying no product claim. The generated document prints these as shipping "for regression use only"; the claim reports `authored_state.status: unsupported`. `duo-agency-cpt` is the one shipped example. |
+| `experimental` | Reviewed, exercised only to the boundary its cited suite names, and deliberately not production-authorizing. A capture-plan suite may support capture/compile/plan/recapture while apply stays explicitly unsupported. The projection reads `Experimental`, which `wprism release` refuses on before it freezes anything — including through a conditional path. |
+| `excluded` | Reviewed as carrying no product claim. The generated document prints these as shipping "for regression use only"; the claim reports `authored_state.status: unsupported`. `wprism-agency-cpt` is the one shipped example. |
 | `uncovered` | **Runtime-synthesized only.** A disposition may never declare it — `validate_entry()` refuses that — and the agent emits it for a manifest with no reviewed entry, with the reason `no reviewed disposition entry — a manifest cannot certify itself merely by existing beside the agent`. It is a blocker, never a skip. |
 
 An entry names supported versions, entity and field sections, operations,
@@ -1400,7 +1400,7 @@ lifecycle phases, deletion semantics, explicit unsupported behavior, every
 table whose default keyspace is authored, and its `evidence` citation — the
 suite names a reviewer wrote down. That citation is reported verbatim wherever
 it surfaces; nothing re-derives a status from it, which is exactly why
-`duo adapter inspect` prints the cited test ids and no per-test verdict.
+`wprism adapter inspect` prints the cited test ids and no per-test verdict.
 
 Three cross-checks bind an entry to the manifest it describes, refusing rather
 than papering over: a disposition naming a plugin must agree with that
@@ -1422,7 +1422,7 @@ file.
 1. **Create the capsule and write its manifest** at
    `adapter-packages/<name>/package/manifest.json`. `php
    tools/adapter-package-validate.php --adapter=<name>` closes the package
-   convention and `php cli/duo manifest-validate . --manifest=<name>` runs the
+   convention and `php cli/wprism manifest-validate . --manifest=<name>` runs the
    engine's real validators offline, with no WordPress or environment.
 2. **Add the reviewed entry** at
    `adapter-packages/<name>/package/disposition.json`, with a
@@ -1476,10 +1476,10 @@ construction** and never acquires one. It is data-only, it lives at
 own key:
 
 ```sh
-duo adapter keygen --out=<secret-key-file> [--key-id=<id>]
-duo adapter certify <site-repo> --name=<n> --secret-key-file=<f> [--key-id=<id>] [--reason=<text>] [--ratification-file=<f>] [--pin [--adopt-scope]]
-duo adapter pin <site-repo> --name=<n> [--source=site|plugin] [--adopt-scope]
-duo adapter adopt-scope <site-repo>... --name=<n> [--dry-run]
+wprism adapter keygen --out=<secret-key-file> [--key-id=<id>]
+wprism adapter certify <site-repo> --name=<n> --secret-key-file=<f> [--key-id=<id>] [--reason=<text>] [--ratification-file=<f>] [--pin [--adopt-scope]]
+wprism adapter pin <site-repo> --name=<n> [--source=site|plugin] [--adopt-scope]
+wprism adapter adopt-scope <site-repo>... --name=<n> [--dry-run]
 ```
 
 `certify` binds the signed statement to the compatibility CELLS
@@ -1488,21 +1488,21 @@ per axis the exercised cell names plus a digest of what each admits (§ v3.6). I
 also RECORDS the shipped `agent_version` inside the signature without binding
 it, so an agent release that moves no exercised cell leaves the certificate
 valid. That binding is re-checked on every load, so a certificate whose cells
-the boundary has dropped or now states differently refuses by name: `duo: site
+the boundary has dropped or now states differently refuses by name: `wprism: site
 adapter '<name>' certification was exercised against '<axis>' cell '<cell>',
 which the agent-owned platform boundary no longer carries`. Re-sign with
-`duo adapter certify … --pin`, which mints the current wire generation.
+`wprism adapter certify … --pin`, which mints the current wire generation.
 
 **Be exact about what a site certificate attests.** It says two things, and the
 bundle records that rather than leaving it to be assumed: *this organization's
 key approves these exact adapter bytes*, and *the engine's own validators
 accept the manifest's grammar*. It does not attest that the adapter was
 exercised against a live site, that its deletion semantics were reviewed, or
-that Duo endorses it. That is why the bundle carries a single named test,
+that WPrism endorses it. That is why the bundle carries a single named test,
 `manifest-grammar`, whose result records `exercised: false` beside the grammar
 verdict and your stated reason — `evidence.tests: ["something"]` is otherwise
 indistinguishable downstream from a reviewed conformance run, and
-`exercised: false` exists to stop exactly that collapse. `duo adapter list`
+`exercised: false` exists to stop exactly that collapse. `wprism adapter list`
 reads `site_signed`; the projection reads `Site-certified`, never
 `Platform-certified`. The full mechanics are in
 [Site-installed adapters and external certification](#site-installed-adapters-and-external-certification)
@@ -1524,11 +1524,11 @@ negotiation/receipt contract—not the site manifest.
 
 Without a certificate the adapter loads, captures and plans, and is visibly
 `uncertified`; readiness and host promotion remain blocked. **Apply is blocked
-with them on any repository `duo init` created**, and that is worth reading
-twice because the uncertified row's remediation used to say otherwise: `duo
+with them on any repository `wprism init` created**, and that is worth reading
+twice because the uncertified row's remediation used to say otherwise: `wprism
 init` writes a managed-baseline code revision into the compiled artifact, so
-`wp duo apply` on a target refuses `code_revision_stale` until `duo deploy
-<env>` has run — and `duo deploy` is host promotion, which the same
+`wp wprism apply` on a target refuses `code_revision_stale` until `wprism deploy
+<env>` has run — and `wprism deploy` is host promotion, which the same
 `uncertified` state blocks. So an uncertified adapter is a **capture-and-plan**
 adapter, not a deployable one.
 
@@ -1537,7 +1537,7 @@ approval the certificate represents**.
 
 > **Which trust root do you need?** Everything on this page — including the
 > section right below — is the **site trust root**: `adapters/authorities.json`
-> lives inside *your own* site repository, `duo adapter certify` populates it,
+> lives inside *your own* site repository, `wprism adapter certify` populates it,
 > and it needs no gate, no vendor review and no key beyond one you mint
 > yourself. It is fully shipped and is almost certainly what you want if you
 > are authoring an adapter for your own site's plugin.
@@ -1549,23 +1549,23 @@ approval the certificate represents**.
 > party* to sign under the agent's own key; skip it entirely for your own
 > site's certificate, which the section below covers completely.
 
-### Your organization's own approval (`duo adapter certify`)
+### Your organization's own approval (`wprism adapter certify`)
 
 This is the path for an adapter you authored for your own site. The product
 spec calls the result *Site-certified*: "customer-organization approval through
-Duo's certification protocol, explicitly not a Duo endorsement". You hold the
+WPrism's certification protocol, explicitly not a WPrism endorsement". You hold the
 key, you sign your own adapters, and the projection names you.
 
 ```sh
 # 1. Mint the organization key. ONCE, and never inside a site repository —
 #    a site repo is committed and published, so a key in one is a published key.
-duo adapter keygen --out=~/.duo-keys/acme-org.key
+wprism adapter keygen --out=~/.wprism-keys/acme-org.key
 #    key-id:     site-1a2b3c4d5e6f
 #    public-key: <base64>
 
 # 2. Certify the installed adapter and write the pin in one step.
-duo adapter certify <site-repo> --name=<name> \
-  --secret-key-file=~/.duo-keys/acme-org.key \
+wprism adapter certify <site-repo> --name=<name> \
+  --secret-key-file=~/.wprism-keys/acme-org.key \
   --reason='Acme reviewed this adapter against its own catalog schema.' --pin
 ```
 
@@ -1573,7 +1573,7 @@ duo adapter certify <site-repo> --name=<name> \
 
 1. Registers the public key in the site's own
    `adapters/authorities.json` — the **site trust root**, in exactly the
-   shipped `duo-adapter-authorities/v1` grammar. Keys there are trusted only
+   shipped `wprism-adapter-authorities/v1` grammar. Keys there are trusted only
    for adapters in that repository. A key present in both the shipped file and
    the site file: the shipped record wins.
 2. Runs the engine's real manifest validators over the adapter. A manifest the
@@ -1584,31 +1584,31 @@ duo adapter certify <site-repo> --name=<name> \
    prove](#what-a-site-rooted-certificate-may-prove).
 4. Immediately verifies what it just wrote, through the live verifier.
 5. Prints the `{digest, name, source}` pin object; `--pin` writes it into
-   `site.duo.json`.
+   `site.wprism.json`.
 6. With `--pin`, opts the site into the post types and taxonomies the adapter
-   declares authored — the same reading `duo init` applies to an adapter
+   declares authored — the same reading `wprism init` applies to an adapter
    selected during init — and prints every rule it wrote:
 
    ```
-   scope: wrote 1 authored scope rule(s) for surface(s) this adapter declares and site.duo.json had not decided
+   scope: wrote 1 authored scope rule(s) for surface(s) this adapter declares and site.wprism.json had not decided
      + policy.scope.post_type.acme_item = {"class": "authored"}
    ```
 
-   It writes only where `site.duo.json` had decided nothing. A surface your
+   It writes only where `site.wprism.json` had decided nothing. A surface your
    `policy.scope` already records — including the `{"class": "runtime"}` that
-   `duo init --allow-unmanaged-plugins` writes for an unmanaged plugin's
+   `wprism init --allow-unmanaged-plugins` writes for an unmanaged plugin's
    rowful types — is a **site decision, and site policy always wins**, so the
    pin leaves it exactly as it is and says what that costs:
 
    ```
-   scope: 1 surface(s) this adapter declares stay LOCAL — site.duo.json already decided them, and a recorded site rule outranks every manifest
+   scope: 1 surface(s) this adapter declares stay LOCAL — site.wprism.json already decided them, and a recorded site rule outranks every manifest
      ! policy.scope.post_type.acme_item = {"class": "runtime"} — capture will skip post_type acme_item
-     to adopt them anyway: duo adapter pin <site-repo> --name=<name> --adopt-scope
-     to decide one on the site: wp duo classify --repo=<repo> --set='scope:post_type:acme_item=authored'
+     to adopt them anyway: wprism adapter pin <site-repo> --name=<name> --adopt-scope
+     to decide one on the site: wp wprism classify --repo=<repo> --set='scope:post_type:acme_item=authored'
    ```
 
-   `--adopt-scope` is deliberately a second, explicit act. `duo classify` and
-   `duo init --allow-unmanaged-plugins` write byte-identical rules and the
+   `--adopt-scope` is deliberately a second, explicit act. `wprism classify` and
+   `wprism init --allow-unmanaged-plugins` write byte-identical rules and the
    scope grammar carries no provenance key, so nothing can tell your own
    decision from init's record — and a command that guessed would silently
    re-manage a type you meant to keep local.
@@ -1621,7 +1621,7 @@ it onto the claim, so nobody downstream can read `certified` as "somebody ran
 it" — and it declares deletion semantics **unsupported**, because a validator
 run reviews none. Assess reads `Site-certified` for the surfaces it governs,
 prints `certified by <key-id> (site trust root); contract attestation unsigned`
-once, and `duo release`/`duo promote` admit the adapter through their existing
+once, and `wprism release`/`wprism promote` admit the adapter through their existing
 certified-and-exactly-pinned gate: a valid signature without the exact
 `{name, source: "site", digest}` pin stays `signed_unpinned` and blocked.
 
@@ -1631,11 +1631,11 @@ classification decision and it wins classification, exactly as "site policy
 always wins" says — but deciding a type's class does not un-declare it, so the
 adapter remains the surface's declarant. A type adopted by `--pin` and a type
 already on the site's flat `policy.post_types` list therefore assess
-identically (DUO-3504; before it, the first read `Platform-certified`).
+identically (issue #3504; before it, the first read `Platform-certified`).
 
 **The certificate binds bytes, so an edit breaks it.** Any change to
 `adapters/<name>.json` moves the digest; the pin then refuses and the claim
-drops back to uncertified. Re-run `duo adapter certify … --pin` after every
+drops back to uncertified. Re-run `wprism adapter certify … --pin` after every
 edit. That is the mechanism working, not a bug to route around.
 
 **An agent upgrade can withdraw the claim, and only the claim.** The signed
@@ -1645,7 +1645,7 @@ both move on an ordinary agent upgrade. When either no longer matches, that one
 adapter drops back to uncertified with a reason naming what moved — "its signed
 certification binds an agent platform boundary this agent no longer publishes"
 — and every other adapter the site pins, shipped ones included, keeps loading
-untouched. The remedy is the same one line: re-run `duo adapter certify …
+untouched. The remedy is the same one line: re-run `wprism adapter certify …
 --pin`, which is runnable in exactly that state. A companion that fails for any
 other reason — a bad signature, an authority this agent does not trust, a wrong
 binding, a file that is not a certificate — still refuses the whole
@@ -1683,8 +1683,8 @@ a file, and worth looking at the file.
 **The revocation channel is inert until a key is enrolled, and it says so.** The
 agent ships `platform/adapter-library/capabilities/adapter-authorities.json` as an empty
 registry, so on a stock agent no key exists that could have signed a revocation
-document. Installing one anyway is not fatal: the document is REPORTED — `duo
-adapter doctor` and `wp duo adapter-survey` print "the document is installed and
+document. Installing one anyway is not fatal: the document is REPORTED — `wprism
+adapter doctor` and `wp wprism adapter-survey` print "the document is installed and
 its entries do NOT apply: this channel is inert until a key that signs it is
 enrolled in the shipped trust root" and exit 1 — and nothing is revoked by it. A
 document whose signer IS enrolled and does not verify is a different thing
@@ -1701,7 +1701,7 @@ fingerprint. Revoking only the delegator will look like it worked everywhere you
 can see and will not have.
 
 **Re-adopting an agent preserves installed revocations.** Operator revocations
-live at `WPMU_PLUGIN_DIR/duo-control/adapter-revocations.json`, outside the
+live at `WPMU_PLUGIN_DIR/wprism-control/adapter-revocations.json`, outside the
 replaceable agent and its embedded adapter library. A legacy flat-library
 document must first be copied there byte-for-byte; adoption refuses the cutover
 when both paths do not prove equal. There is no runtime library override or
@@ -1716,12 +1716,12 @@ revocation workflow) is out of scope for this profile.
 
 The opt-in above rides on the pin, which is right for the site that *authored*
 the adapter and wrong for the fleet that consumes it: adding one adapter to N
-sites meant N hand edits of `site.duo.json`. `adopt-scope` is that same opt-in
+sites meant N hand edits of `site.wprism.json`. `adopt-scope` is that same opt-in
 over a repository **set**:
 
 ```sh
-duo adapter adopt-scope ~/sites/acme ~/sites/beta ~/sites/gamma --name=acme-catalog --dry-run
-duo adapter adopt-scope ~/sites/acme ~/sites/beta ~/sites/gamma --name=acme-catalog
+wprism adapter adopt-scope ~/sites/acme ~/sites/beta ~/sites/gamma --name=acme-catalog --dry-run
+wprism adapter adopt-scope ~/sites/acme ~/sites/beta ~/sites/gamma --name=acme-catalog
 ```
 
 ```
@@ -1735,12 +1735,12 @@ repos:      3
   ! policy.scope.post_type.acme_item = {"class": "runtime"} — capture will skip post_type acme_item
 
 /Users/you/sites/gamma
-  = every surface this adapter declares is already in site.duo.json's authored scope
+  = every surface this adapter declares is already in site.wprism.json's authored scope
 
 adopted:    1 repo(s), 1 authored scope rule(s)
 settled:    1 repo(s) had already decided every surface
 shadowed:   1 repo(s) record a decision this command never overwrites — a recorded site rule outranks every manifest
-  to override one, per site: duo adapter pin <site-repo> --name=acme-catalog --adopt-scope
+  to override one, per site: wprism adapter pin <site-repo> --name=acme-catalog --adopt-scope
 ```
 
 It writes the same `{"class":"authored"}` node through the same writer the pin
@@ -1749,14 +1749,14 @@ adopted. Four properties are worth knowing before you point it at a fleet:
 
 - **Scope follows the pin.** Every repository must already resolve the
   adapter; one that does not refuses the *whole* set, unwritten, naming the
-  repositories and the `duo adapter pin` that fixes each. Writing scope for an
+  repositories and the `wprism adapter pin` that fixes each. Writing scope for an
   adapter a site never pinned would opt it into types nothing can classify.
 - **Write-only-where-absent is unchanged.** A class a site recorded is
   printed and left alone. `--adopt-scope` is refused here on purpose:
   overriding a recorded decision is a per-site reviewed act, and one flag that
   flipped it across a fleet is exactly the multiplied consequence this verb
   exists to avoid.
-- **Per-repository atomic.** Each `site.duo.json` is written whole through the
+- **Per-repository atomic.** Each `site.wprism.json` is written whole through the
   same `tempnam`+`rename` the certificate and the pin use. A failure stops the
   walk and reports which repositories were adopted and which were untouched —
   every one of them is one or the other, never half-written.
@@ -1767,12 +1767,12 @@ adopted. Four properties are worth knowing before you point it at a fleet:
 
 ### Promoting a plugin-bundled adapter
 
-An adapter a plugin bundles (`<plugin>/duo-adapter.json`) can never be
+An adapter a plugin bundles (`<plugin>/wprism-adapter.json`) can never be
 certified where it lives: certification binds `adapters/<name>.json` inside the
 signed statement, so no certificate can name a bundled file at all. The
 promotion path is to install it as a repository package first — copy it to
-`adapters/<name>.json`, run `duo adapter pin <site-repo> --name=<n>`, then
-`duo adapter certify`. The site copy wins by precedence and the bundled copy
+`adapters/<name>.json`, run `wprism adapter pin <site-repo> --name=<n>`, then
+`wprism adapter certify`. The site copy wins by precedence and the bundled copy
 reports as not installed; the plugin stays active throughout and nothing breaks
 in between. (Replacing a *shipped* name is a different act with its own rules —
 see [Overriding a shipped adapter](#overriding-a-shipped-adapter).)
@@ -1783,7 +1783,7 @@ This is the original path and it is unchanged. It is for a reviewer who
 exercised the adapter and holds a key the *agent* trusts, and it produces a
 richer bundle — real tests, real artifacts, a real evidence repository:
 
-1. Produce a passing `duo-site-adapter-certification-bundle/v1` scoped exactly
+1. Produce a passing `wprism-site-adapter-certification-bundle/v1` scoped exactly
    to `{"kind":"site_adapter","name":"<name>"}` whose bound inputs contain
    exactly the raw `adapters/<name>.json` bytes and whose ratification contains
    exactly one certified disposition for that name.
@@ -1800,9 +1800,9 @@ richer bundle — real tests, real artifacts, a real evidence repository:
    - **the site's own `adapters/authorities.json`**, held by the customer
      organization. A certificate under one of its keys is `site_signed`, trust
      root `site` — the product's *Site-certified*, which is customer-
-     organization approval and explicitly **not** a Duo endorsement.
+     organization approval and explicitly **not** a WPrism endorsement.
 
-   The site record is a living registry: `duo adapter certify` appends each
+   The site record is a living registry: `wprism adapter certify` appends each
    newly certified name (and its tier) to the key's record. A certificate under
    the site root binds the key's *identity* — id, algorithm, public key,
    scope, status, fingerprint, trust root — and the record it was signed over;
@@ -1838,7 +1838,7 @@ richer bundle — real tests, real artifacts, a real evidence repository:
 4. Generate and commit the final source-and-digest pin:
 
    ```sh
-   wp duo manifest-pin --repo=<site-repo> --name=<name>
+   wp wprism manifest-pin --repo=<site-repo> --name=<name>
    ```
 
 ### Certifying under your own root
@@ -1854,7 +1854,7 @@ php scripts/adapter-certification.php sign-site \
   --reason='grammar verified by the site operator; not exercised'
 ```
 
-(`duo adapter certify` is the host verb over the same entry point.) It derives
+(`wprism adapter certify` is the host verb over the same entry point.) It derives
 the ratification from your manifest, runs the **real loader** for the grammar
 verdict — an adapter that does not load is refused with the loader's own
 message, because a certificate for bytes no command can use is the emptiest
@@ -1887,7 +1887,7 @@ document as one that reviewed nothing. Pass `--ratification-file=<file>` and
 `certify` signs the disposition **you** wrote — one entry, in the exact shape
 `adapter-packages/<name>/package/disposition.json` carries.
 
-> **The file is the BARE entry, not the `duo-manifest-dispositions/v1`
+> **The file is the BARE entry, not the `wprism-manifest-dispositions/v1`
 > envelope.** Write the object below at the file's top level — no `format`, no
 > `manifests`, no `profiles`. Those three are the signer's: it owns them so that
 > an authored document cannot ratify a second adapter or smuggle a profile
@@ -1909,7 +1909,7 @@ document as one that reviewed nothing. Pass `--ratification-file=<file>` and
   "default_authored_keyspaces": [
     {"table": "acme_ledger_index", "status": "justified", "reason": "<what your review checked, and against which versions>"}
   ],
-  "evidence": {"bundle_schema": "duo-site-adapter-certification-bundle/v1", "tests": []},
+  "evidence": {"bundle_schema": "wprism-site-adapter-certification-bundle/v1", "tests": []},
   "reason": "<what this organization reviewed, and how>",
   "status": "certified",
   "supported_versions": {"plugin": "acme-ledger/acme-ledger.php", "range": {"max": "3.0.0", "min": "1.0.0"}},
@@ -1932,10 +1932,10 @@ weigh — never by leaving a surface out, which no reader can see.
 
 What does not change: the bundle still records `exercised: false`, `tests` is
 still empty, and the claim still reads `Site-certified`. An authored entry is a
-stronger *argument*, never evidence of a run. And because `duo adapter recertify`
+stronger *argument*, never evidence of a run. And because `wprism adapter recertify`
 DERIVES, it reports an authored certificate as a `blocked` row rather than
 replacing your claim with the floor — re-sign that one with
-`duo adapter certify … --ratification-file=<your file>`, so keep the file beside
+`wprism adapter certify … --ratification-file=<your file>`, so keep the file beside
 the repository. The rider is
 [spec/repo-format.md § v3.17](../../spec/repo-format.md).
 
@@ -1950,7 +1950,7 @@ tampered, stale-platform, unknown-key, or revoked-key certificate is a policy
 load refusal; it never falls back to unsigned support. The final adapter digest
 binds the source manifest plus authority, signed statement, envelope, bundle,
 ratification, and platform proof facts, while unrelated shipped adapter
-digests and `duo capabilities --all` remain unchanged.
+digests and `wprism capabilities --all` remain unchanged.
 
 ## Overriding a shipped adapter
 
@@ -1967,12 +1967,12 @@ leaves the loaded set and is reported on every run as `not_installed` with
 reason code `shadowed_by_site`, naming the site copy that won; exactly one
 definition answers to the name, so the cross-manifest guards see no conflict.
 
-The host verb does both halves in one command: `duo adapter pin <site-repo>
+The host verb does both halves in one command: `wprism adapter pin <site-repo>
 --name=woocommerce --source=site` writes the `{name, source:"site"}` statement
-first (printing `override: site.duo.json now names the site copy of shipped
+first (printing `override: site.wprism.json now names the site copy of shipped
 adapter 'woocommerce'`), loads the repository with the site copy in force, and
 completes the pin with the digest — the same `{name,source:"site",digest}`
-object `wp duo manifest-pin --repo=<site-repo> --name=woocommerce` prints once
+object `wp wprism manifest-pin --repo=<site-repo> --name=woocommerce` prints once
 the override statement exists. Commit the object it writes.
 
 **An override inherits exactly the shipped executable grants.** The usual
@@ -1994,7 +1994,7 @@ Three things the override deliberately is not:
 
 - A **name-only** pin is not an override. Precedence stays
   `shipped > site > plugin` for every one of them, and the refusal stands.
-- An **unreadable** `site.duo.json` yields no overrides, so a broken policy
+- An **unreadable** `site.wprism.json` yields no overrides, so a broken policy
   file can never silently swap which definition is in force.
 - The site copy never inherits the shipped adapter's reviewed claim. It carries
   the site's own certification words; a signed override reads `Site-certified`,
@@ -2002,7 +2002,7 @@ Three things the override deliberately is not:
 
 ## Adapters a plugin bundles
 
-A plugin may ship an adapter of its own: exactly one `duo-adapter.json`, at the
+A plugin may ship an adapter of its own: exactly one `wprism-adapter.json`, at the
 root of its own directory. Only ACTIVE plugins are scanned — activating the
 plugin is the operator consent that installs the adapter — and a single-file
 plugin, having no directory, cannot bundle one.
@@ -2017,7 +2017,7 @@ bundling it — the file, not just its directory, since a directory can hold
 more than one plugin and only the one you name is what version and activation
 checks will ask about. That claim anchors the manifest to the code it ships with, exactly
 as a plugin-owned provider's class is anchored to its plugin directory, and it
-is what lets a frozen policy rebuild `plugins/<plugin-dir>/duo-adapter.json`
+is what lets a frozen policy rebuild `plugins/<plugin-dir>/wprism-adapter.json`
 without reopening the plugin. Because `plugin` is mandatory, the compatibility
 contract applies transitively: declare `version_range` too, or the adapter is
 refused as unbounded support.
@@ -2030,10 +2030,10 @@ is deactivated. (Two active plugins bundling one name have no such rule
 available: both are dropped and the pair draws one `source_collision`
 refusal.) Everything else in this source is refused per adapter rather than
 whole-directory: a malformed bundle, a bad name, an anchor mismatch, a
-`duo-adapter.json` that is a symlink or a directory instead of a real file, a
-plugin directory duo cannot list (make it readable, or the near-miss check
+`wprism-adapter.json` that is a symlink or a directory instead of a real file, a
+plugin directory wprism cannot list (make it readable, or the near-miss check
 cannot run and the adapter is refused rather than guessed at), a near-miss
-inside the reserved `duo-adapter*` namespace, or a reach for executable
+inside the reserved `wprism-adapter*` namespace, or a reach for executable
 privilege drops that one adapter and leaves every other plugin's alone. It becomes fatal only if a repository pins
 that name, which fails with the refusal's own message.
 
@@ -2047,30 +2047,30 @@ certify one, promote it:
 
 1. Install the same adapter as a repository package at `adapters/<name>.json`.
 2. Obtain a signed `adapters/certifications/<name>.json` (the section above).
-3. `wp duo manifest-pin --repo=<site-repo> --name=<name>`, and commit the
+3. `wp wprism manifest-pin --repo=<site-repo> --name=<name>`, and commit the
    emitted `{name,source:"site",digest}` pin.
 
 The site copy then wins by precedence and the bundled copy reports as not
 installed. The plugin stays active throughout; nothing has to be deactivated
-and no command breaks in between. Run `wp duo adapter-survey [--repo=<path>]`
-on the target to see all three sources, since the host-side `duo adapter`
+and no command breaks in between. Run `wp wprism adapter-survey [--repo=<path>]`
+on the target to see all three sources, since the host-side `wprism adapter`
 commands are WordPress-free and cannot reach the plugin directory.
 
-For redacted live proposal evidence, use `duo adapter-observe <env>
-[--out=<local-file>|--format=json]`; its target half is `wp duo
+For redacted live proposal evidence, use `wprism adapter-observe <env>
+[--out=<local-file>|--format=json]`; its target half is `wp wprism
 adapter-observe --repo=<target-site-repo> --format=json`. The host calls the
 configured target repository once and accepts only the canonical,
-hash-validated `duo-adapter-observation/v1` projection. It never exposes
+hash-validated `wprism-adapter-observation/v1` projection. It never exposes
 target values, IDs, titles, paths, messages, SQL, or credentials; `--out` is
 create-only. The embedded adapter-source rows are a bounded projection of
-`duo-adapter-sources/v2`, not a claim to preserve the full
-`duo-adapter-catalog/v2` catalog. This is proposal evidence, not authoritative
+`wprism-adapter-sources/v2`, not a claim to preserve the full
+`wprism-adapter-catalog/v2` catalog. This is proposal evidence, not authoritative
 `adapter-draft --evidence` input, and it does not certify an adapter or alter
 a capability claim.
 
 Normal plugin/provider registration and capability negotiation remain enabled
 so the target can report installed runtime facts. Third-party callbacks may
-have side effects before or during collection; Duo itself invokes no provider
+have side effects before or during collection; WPrism itself invokes no provider
 action and makes no explicit mutation after observer entry. The document
 defers table semantics, apply/rollback, version lifecycle, publication, and
 certification.
@@ -2091,8 +2091,8 @@ remains absent is any way for an out-of-tree adapter to introduce executable
 code outside an installed plugin; do not work around that boundary with
 manifest fields or copied PHP.
 
-**Remote discovery and distribution: what shipped, and what did not.** `duo
-adapter discover|install|update` reads a `duo-adapter-index/v1` document —
+**Remote discovery and distribution: what shipped, and what did not.** `wprism
+adapter discover|install|update` reads a `wprism-adapter-index/v1` document —
 `{adapters, format}`, each entry `{adapter_sha256, agent_versions,
 authority_fingerprint, certificate_sha256, certificate_url, url, version}` —
 and that is the mechanism that tells you an adapter you do not already have
@@ -2123,8 +2123,8 @@ gap to be filled in. `spec/repo-format.md` § v3.19 and `docs/wire-surface.md`
 R-30 carry both decisions and what would have to be true to reverse them.
 
 What ships for the adapters you already have is the **installed-adapter
-catalog**: `duo adapter list|inspect|doctor` reports the two host-reachable
-sources offline (and `wp duo adapter-survey` all three, on the target),
+catalog**: `wprism adapter list|inspect|doctor` reports the two host-reachable
+sources offline (and `wp wprism adapter-survey` all three, on the target),
 printing each adapter's derived trust tier — `declarative_manifest`,
 `native_action`, `plugin_provider`, or `compatibility_shim`, computed from the
 privileges its own declarations actually reach and never self-declared — next
@@ -2134,7 +2134,7 @@ reports the discovery conditions that make every other command refuse
 slug, a certificate that does not verify) as rows rather than dying on them,
 each row naming which source it is about and whether it refused that whole
 source or just one adapter.
-Separately, `duo plan` and `duo status` now carry `provider_problems` rows for
+Separately, `wprism plan` and `wprism status` now carry `provider_problems` rows for
 every declared provider capability an environment cannot supply, with
 remediation.
 

@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
@@ -13,13 +13,13 @@ final class CapturePublicationRecovery {
         $parent = realpath(dirname($stateDir));
         if ($parent === false) {
             throw new \RuntimeException(
-                'duo: cannot resolve capture publication destination parent: ' . dirname($stateDir)
+                'wprism: cannot resolve capture publication destination parent: ' . dirname($stateDir)
             );
         }
         return hash('sha256', rtrim($parent, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . basename($stateDir));
     }
 
-    /** Destination-scoped marker key stays below duo_kv.k's 191-byte limit. */
+    /** Destination-scoped marker key stays below wprism_kv.k's 191-byte limit. */
     public static function markerKey(string $stateDir): string {
         return 'capture_publication:' . self::destinationSha256($stateDir);
     }
@@ -27,7 +27,7 @@ final class CapturePublicationRecovery {
     /** Exact/self-hashed proof written as the transaction's final DML. */
     public static function marker(string $stateDir, array $intent): string {
         $record = [
-            'format' => 'duo-capture-commit-marker/v1',
+            'format' => 'wprism-capture-commit-marker/v1',
             'state_sha256' => self::destinationSha256($stateDir),
             'intent_id' => (string) ($intent['id'] ?? ''),
             'candidate_sha256' => (string) ($intent['candidate_sha256'] ?? ''),
@@ -51,13 +51,13 @@ final class CapturePublicationRecovery {
             $record = Canon::decode($raw);
         } catch (\Throwable $e) {
             throw CommandRefusalException::ambiguousCaptureRecovery(
-                'duo: capture recovery found a malformed database commit marker; refusing to retry or discard retained evidence',
+                'wprism: capture recovery found a malformed database commit marker; refusing to retry or discard retained evidence',
                 $e
             );
         }
         if (!is_array($record)) {
             throw CommandRefusalException::ambiguousCaptureRecovery(
-                'duo: capture recovery found a non-object database commit marker; refusing to retry or discard retained evidence'
+                'wprism: capture recovery found a non-object database commit marker; refusing to retry or discard retained evidence'
             );
         }
         $expectedKeys = [
@@ -72,9 +72,9 @@ final class CapturePublicationRecovery {
         sort($keys, SORT_STRING);
         $sortedExpected = $expectedKeys;
         sort($sortedExpected, SORT_STRING);
-        if ($keys !== $sortedExpected || ($record['format'] ?? null) !== 'duo-capture-commit-marker/v1') {
+        if ($keys !== $sortedExpected || ($record['format'] ?? null) !== 'wprism-capture-commit-marker/v1') {
             throw CommandRefusalException::ambiguousCaptureRecovery(
-                'duo: capture recovery found an unsupported database commit marker shape; refusing to retry or discard retained evidence'
+                'wprism: capture recovery found an unsupported database commit marker shape; refusing to retry or discard retained evidence'
             );
         }
         $seal = (string) $record['record_sha256'];
@@ -82,7 +82,7 @@ final class CapturePublicationRecovery {
         if (!preg_match('/^[a-f0-9]{64}$/', $seal)
             || !hash_equals($seal, hash('sha256', Canon::encode($record)))) {
             throw CommandRefusalException::ambiguousCaptureRecovery(
-                'duo: capture recovery found a tampered database commit marker; refusing to retry or discard retained evidence'
+                'wprism: capture recovery found a tampered database commit marker; refusing to retry or discard retained evidence'
             );
         }
         if (!is_string($record['state_sha256'] ?? null)
@@ -94,12 +94,12 @@ final class CapturePublicationRecovery {
             || !is_string($record['previous_sha256'] ?? null)
             || preg_match('/^[a-f0-9]{64}$/', $record['previous_sha256']) !== 1) {
             throw CommandRefusalException::ambiguousCaptureRecovery(
-                'duo: capture recovery found malformed database commit marker fields; refusing to retry or discard retained evidence'
+                'wprism: capture recovery found malformed database commit marker fields; refusing to retry or discard retained evidence'
             );
         }
         if (($record['state_sha256'] ?? null) !== self::destinationSha256($stateDir)) {
             throw CommandRefusalException::ambiguousCaptureRecovery(
-                'duo: capture recovery found a commit marker for a different destination; refusing to retry or discard retained evidence'
+                'wprism: capture recovery found a commit marker for a different destination; refusing to retry or discard retained evidence'
             );
         }
         if (($record['intent_id'] ?? null) !== ($intent['id'] ?? null)) {
@@ -108,7 +108,7 @@ final class CapturePublicationRecovery {
         if (($record['candidate_sha256'] ?? null) !== ($intent['candidate_sha256'] ?? null)
             || ($record['previous_sha256'] ?? null) !== ($intent['previous_sha256'] ?? null)) {
             throw CommandRefusalException::ambiguousCaptureRecovery(
-                'duo: capture recovery found a current-intent commit marker with mismatched digests; refusing to retry or discard retained evidence'
+                'wprism: capture recovery found a current-intent commit marker with mismatched digests; refusing to retry or discard retained evidence'
             );
         }
         return true;

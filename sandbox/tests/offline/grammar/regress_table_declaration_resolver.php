@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline characterization for pure effective table declaration resolution
- * (DUO-3348 slice 53).
+ * (issue #3348 slice 53).
  */
 declare(strict_types=1);
 
@@ -16,7 +16,7 @@ $check = static function (bool $ok, string $message) use (&$failures): void {
 };
 
 $child = proc_open(
-    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\Duo\\TableDeclarationResolver::class, false) && !class_exists(\\Duo\\Policy::class, false) && !class_exists(\\Duo\\RepositoryCompiler::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $resolverPath],
+    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\WPrism\\TableDeclarationResolver::class, false) && !class_exists(\\WPrism\\Policy::class, false) && !class_exists(\\WPrism\\RepositoryCompiler::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $resolverPath],
     [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
     $pipes
 );
@@ -36,7 +36,7 @@ $check(
 
 require_once $resolverPath;
 
-use Duo\TableDeclarationResolver;
+use WPrism\TableDeclarationResolver;
 
 $rowFirst = ['class' => 'authored_snapshot', 'identity' => ['columns' => ['uuid']]];
 $rowSecond = ['class' => 'authored_snapshot', 'identity' => ['columns' => ['slug']]];
@@ -51,7 +51,7 @@ $resolver = new TableDeclarationResolver($site, $manifests);
 $check(
     array_keys($resolver->tables()) === ['zeta_rows', 'acme_rows', 'acme_rows_meta', 'alpha_rows', 'site_rows']
         && $resolver->tables()['acme_rows'] === $siteRows
-        && $resolver->details('acme_rows') === ['rule' => $siteRows, 'source' => 'site.duo.json']
+        && $resolver->details('acme_rows') === ['rule' => $siteRows, 'source' => 'site.wprism.json']
         && $resolver->details('alpha_rows') === ['rule' => $rowFirst, 'source' => 'second']
         && $resolver->details('absent') === ['rule' => null, 'source' => null]
         && $resolver->attached_meta_table_for_owner('acme_rows') === ['name' => 'acme_rows_meta', 'rule' => $sidecar]
@@ -63,7 +63,7 @@ require_once "$root/agent/src/Kernel/Canon.php";
 require_once "$root/agent/src/Kernel/OptionState.php";
 require_once "$root/agent/src/Policy/Policy.php";
 
-$policy = new Duo\Policy();
+$policy = new WPrism\Policy();
 $policy->site = $site;
 $policy->manifests = $manifests;
 $check(
@@ -78,7 +78,7 @@ $policy->manifests[1]['tables']['acme_rows_meta_late'] = [
     'class' => 'authored_snapshot_meta', 'attached_to' => ['table' => 'acme_rows', 'column' => 'late_meta'],
 ];
 $check(
-    $policy->declared_table_details('acme_rows') === ['rule' => $rowSecond, 'source' => 'site.duo.json']
+    $policy->declared_table_details('acme_rows') === ['rule' => $rowSecond, 'source' => 'site.wprism.json']
         && $policy->attached_meta_table_for_owner('acme_rows') === ['name' => 'acme_rows_meta', 'rule' => $sidecar],
     'Policy builds a fresh resolver per call so mutable fixture declarations stay observable without changing first-sidecar order'
 );

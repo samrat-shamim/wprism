@@ -28,7 +28,7 @@
     },
     "default_authored_keyspaces": [],
     "evidence": {
-        "bundle_schema": "duo-subject-certification-bundle/v1",
+        "bundle_schema": "wprism-subject-certification-bundle/v1",
         "tests": [
             "conformance-yoast-duplicate-post",
             "exact-artifact-version-matrix"
@@ -51,12 +51,12 @@
         },
         {
             "operation": "delete",
-            "reason": "Duo can remove authored provenance and ordinary duplicated-post entities, but it does not invoke the plugin's republish/delete-copy workflow or synthesize cleanup for an active Rewrite & Republish session.",
+            "reason": "WPrism can remove authored provenance and ordinary duplicated-post entities, but it does not invoke the plugin's republish/delete-copy workflow or synthesize cleanup for an active Rewrite & Republish session.",
             "surface": "rewrite-and-republish"
         },
         {
             "operation": "all",
-            "reason": "Duo v1 and the role-capability provider refuse multisite; network role maps and network activation state are outside this adapter.",
+            "reason": "WPrism v1 and the role-capability provider refuse multisite; network role maps and network activation state are outside this adapter.",
             "surface": "multisite"
         }
     ]

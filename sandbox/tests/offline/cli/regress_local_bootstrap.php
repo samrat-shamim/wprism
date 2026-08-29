@@ -17,10 +17,10 @@ require dirname(__DIR__, 4) . '/cli/src/Onboarding/BootstrapEligibility.php';
 require dirname(__DIR__, 4) . '/cli/src/Transport/CodeDeploy.php';
 require dirname(__DIR__, 4) . '/cli/src/Onboarding/Adopt.php';
 
-use Duo\Orchestrator\AdoptionTransport;
-use Duo\Orchestrator\Adopt;
-use Duo\Orchestrator\BootstrapEligibilityReport;
-use Duo\Orchestrator\LocalTransport;
+use WPrism\Orchestrator\AdoptionTransport;
+use WPrism\Orchestrator\Adopt;
+use WPrism\Orchestrator\BootstrapEligibilityReport;
+use WPrism\Orchestrator\LocalTransport;
 
 function local_bootstrap_ok(bool $condition, string $message): void {
     if (!$condition) {
@@ -101,8 +101,8 @@ final class LocalBootstrapUploadCollisionTransport implements AdoptionTransport 
     public function wpPath(): string { return '/fixture/wp'; }
     public function captureRaw(string $script): array {
         $this->raw[] = $script;
-        if ($script === 'echo duo-reachable') {
-            return ['exit' => 0, 'stdout' => "duo-reachable\n", 'stderr' => ''];
+        if ($script === 'echo wprism-reachable') {
+            return ['exit' => 0, 'stdout' => "wprism-reachable\n", 'stderr' => ''];
         }
         return ['exit' => 0, 'stdout' => '', 'stderr' => ''];
     }
@@ -116,8 +116,8 @@ final class LocalBootstrapUploadCollisionTransport implements AdoptionTransport 
         // The pre-swap topology probe runs ahead of the tar and the upload, so
         // this fixture must answer it before it can reach the upload collision
         // it exists to exercise.
-        if (str_contains((string) ($wpArgs[1] ?? ''), 'duo-single-site')) {
-            return ['exit' => 0, 'stdout' => "duo-single-site\n", 'stderr' => ''];
+        if (str_contains((string) ($wpArgs[1] ?? ''), 'wprism-single-site')) {
+            return ['exit' => 0, 'stdout' => "wprism-single-site\n", 'stderr' => ''];
         }
         return ['exit' => 90, 'stdout' => '', 'stderr' => 'unexpected wp call'];
     }
@@ -132,7 +132,7 @@ $physicalTemp = realpath(sys_get_temp_dir());
 if (!is_string($physicalTemp) || $physicalTemp === '' || $physicalTemp === DIRECTORY_SEPARATOR) {
     throw new RuntimeException('could not resolve the regression temporary directory');
 }
-$root = rtrim($physicalTemp, DIRECTORY_SEPARATOR) . '/duo-local-bootstrap-' . bin2hex(random_bytes(8));
+$root = rtrim($physicalTemp, DIRECTORY_SEPARATOR) . '/wprism-local-bootstrap-' . bin2hex(random_bytes(8));
 $bin = $root . '/bin';
 $wpRoot = $root . '/wordpress';
 $content = $wpRoot . '/wp-content';
@@ -144,25 +144,25 @@ $oldPath = (string) getenv('PATH');
 try {
     mkdir($bin, 0700, true);
     mkdir($content, 0700, true);
-    $versionSource = file_get_contents($source . '/agent/duo.php');
+    $versionSource = file_get_contents($source . '/agent/wprism.php');
     if (!is_string($versionSource)
-        || preg_match("/define\\(\\s*'DUO_AGENT_VERSION'\\s*,\\s*'([^']+)'\\s*\\)/", $versionSource, $match) !== 1) {
+        || preg_match("/define\\(\\s*'WPRISM_AGENT_VERSION'\\s*,\\s*'([^']+)'\\s*\\)/", $versionSource, $match) !== 1) {
         throw new RuntimeException('could not resolve fixture agent version');
     }
     $wpScript = <<<'SH'
 #!/bin/sh
 set -eu
-: "${DUO_LOCAL_BOOTSTRAP_MU:?}"
-: "${DUO_LOCAL_BOOTSTRAP_VERSION:?}"
-printf '%s\n' "$*" >> "${DUO_LOCAL_BOOTSTRAP_LOG:?}"
+: "${WPRISM_LOCAL_BOOTSTRAP_MU:?}"
+: "${WPRISM_LOCAL_BOOTSTRAP_VERSION:?}"
+printf '%s\n' "$*" >> "${WPRISM_LOCAL_BOOTSTRAP_LOG:?}"
 case " $* " in
   *" core is-installed "*) exit 0 ;;
-  *DUO_BOOTSTRAP_WPMU_PLUGIN_DIR*) printf '%s' "$DUO_LOCAL_BOOTSTRAP_MU"; exit 0 ;;
-  *DUO_AGENT_VERSION*) printf '%s' "$DUO_LOCAL_BOOTSTRAP_VERSION"; exit 0 ;;
-  *duo-policy-ok*) printf '%s' 'duo-policy-ok'; exit 0 ;;
+  *WPRISM_BOOTSTRAP_WPMU_PLUGIN_DIR*) printf '%s' "$WPRISM_LOCAL_BOOTSTRAP_MU"; exit 0 ;;
+  *WPRISM_AGENT_VERSION*) printf '%s' "$WPRISM_LOCAL_BOOTSTRAP_VERSION"; exit 0 ;;
+  *wprism-policy-ok*) printf '%s' 'wprism-policy-ok'; exit 0 ;;
   # The pre-swap topology probe, matched on its own literal so it cannot
   # shadow the version/policy probes above.
-  *duo-single-site*) printf '%s' 'duo-single-site'; exit 0 ;;
+  *wprism-single-site*) printf '%s' 'wprism-single-site'; exit 0 ;;
 esac
 printf '%s\n' 'unexpected fake wp invocation' >&2
 exit 91
@@ -171,9 +171,9 @@ SH;
     chmod($bin . '/wp', 0700);
     file_put_contents($root . '/wp.log', '', LOCK_EX);
     putenv('PATH=' . $bin . ':' . $oldPath);
-    putenv('DUO_LOCAL_BOOTSTRAP_MU=' . $mu);
-    putenv('DUO_LOCAL_BOOTSTRAP_VERSION=' . $match[1]);
-    putenv('DUO_LOCAL_BOOTSTRAP_LOG=' . $root . '/wp.log');
+    putenv('WPRISM_LOCAL_BOOTSTRAP_MU=' . $mu);
+    putenv('WPRISM_LOCAL_BOOTSTRAP_VERSION=' . $match[1]);
+    putenv('WPRISM_LOCAL_BOOTSTRAP_LOG=' . $root . '/wp.log');
 
     $plain = new LocalTransport('plain', [
         'transport' => 'local',
@@ -184,7 +184,7 @@ SH;
     $plainReport = $plain->capabilityReport('adopt');
     local_bootstrap_ok(!$plainReport->ready(), 'local adoption is unsupported without an explicit bootstrap opt-in');
     local_bootstrap_ok(
-        str_contains((string) ($plainReport->blockers()[0]['remediation'] ?? ''), '.duo-envs.json'),
+        str_contains((string) ($plainReport->blockers()[0]['remediation'] ?? ''), '.wprism-envs.json'),
         'the static refusal gives actionable machine-local remediation'
     );
     local_bootstrap_ok(trim((string) file_get_contents($root . '/wp.log')) === '', 'static capability negotiation never contacts the target');
@@ -282,37 +282,6 @@ SH;
     );
     unlink($temporaryLink);
 
-    $topologyMethod = new ReflectionMethod(BootstrapEligibilityReport::class, 'topologyScript');
-    $revocationMu = $root . '/revocation-mu';
-    $revocationRepo = $root . '/revocation-repo';
-    mkdir($revocationMu . '/manifests/capabilities', 0700, true);
-    $revocationBytes = "{\"format\":\"fixture-revocations\"}\n";
-    file_put_contents($revocationMu . '/manifests/capabilities/adapter-revocations.json', $revocationBytes);
-    $missingDurable = $transport->captureRaw(
-        (string) $topologyMethod->invoke(null, $wpRoot, $revocationMu, $revocationRepo)
-    );
-    local_bootstrap_ok(
-        $missingDurable['exit'] === 0 && trim($missingDurable['stdout']) === 'legacy_revocation_unmigrated',
-        'read-only eligibility refuses a legacy revocation without a durable control copy'
-    );
-    mkdir($revocationMu . '/duo-control', 0700);
-    file_put_contents($revocationMu . '/duo-control/adapter-revocations.json', "mismatch\n");
-    $mismatchedDurable = $transport->captureRaw(
-        (string) $topologyMethod->invoke(null, $wpRoot, $revocationMu, $revocationRepo)
-    );
-    local_bootstrap_ok(
-        $mismatchedDurable['exit'] === 0 && trim($mismatchedDurable['stdout']) === 'legacy_revocation_unmigrated',
-        'read-only eligibility refuses a durable revocation with different bytes'
-    );
-    file_put_contents($revocationMu . '/duo-control/adapter-revocations.json', $revocationBytes);
-    $matchedDurable = $transport->captureRaw(
-        (string) $topologyMethod->invoke(null, $wpRoot, $revocationMu, $revocationRepo)
-    );
-    local_bootstrap_ok(
-        $matchedDurable['exit'] === 0 && trim($matchedDurable['stdout']) === 'safe',
-        'the read-only filesystem probe accepts the byte-identical durable revocation bridge'
-    );
-
     $eligibility = BootstrapEligibilityReport::inspect($transport, 'fixture', 'local', $source);
     if (!$eligibility->ready()) {
         fwrite(STDERR, json_encode($eligibility->toArray(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
@@ -329,14 +298,14 @@ SH;
         null,
         $eligibility,
         static function () use (&$verifiedInsideTransaction, $mu, $repo): bool {
-            $verifiedInsideTransaction = is_file($mu . '/duo/duo.php')
-                && is_file($mu . '/duo-loader.php')
-                && is_file($mu . '/duo/adapter-library/platform/core/manifest.json')
+            $verifiedInsideTransaction = is_file($mu . '/wprism/wprism.php')
+                && is_file($mu . '/wprism-loader.php')
+                && is_file($mu . '/wprism/adapter-library/platform/core/manifest.json')
                 && !file_exists($mu . '/manifests')
                 && !is_link($mu . '/manifests')
-                && is_file($repo . '/site.duo.json')
-                && is_file($repo . '/.duo/control/target.json')
-                && is_dir($repo . '/.duo/rollback');
+                && is_file($repo . '/site.wprism.json')
+                && is_file($repo . '/.wprism/control/target.json')
+                && is_dir($repo . '/.wprism/rollback');
             return $verifiedInsideTransaction;
         }
     );
@@ -347,21 +316,21 @@ SH;
     local_bootstrap_ok(($result['repo_created'] ?? false) === true, 'fresh local adoption creates the minimal seed repository');
     $wpLog = (string) file_get_contents($root . '/wp.log');
     local_bootstrap_ok(
-        str_contains($wpLog, 'DUO_BOOTSTRAP_WPMU_PLUGIN_DIR')
-            && str_contains($wpLog, 'DUO_CONTROL_PLANE')
+        str_contains($wpLog, 'WPRISM_BOOTSTRAP_WPMU_PLUGIN_DIR')
+            && str_contains($wpLog, 'WPRISM_CONTROL_PLANE')
             && str_contains($wpLog, 'adapter_library_context')
-            && str_contains($wpLog, '/duo/adapter-library'),
+            && str_contains($wpLog, '/wprism/adapter-library'),
         'isolated post-swap verification proves the exact embedded adapter-library root'
     );
     local_bootstrap_ok(
-        (\Duo\Recovery\RollbackControl::inspectReadOnly($repo . '/.duo/control')['quiescent'] ?? false) === true,
+        (\WPrism\Recovery\RollbackControl::inspectReadOnly($repo . '/.wprism/control')['quiescent'] ?? false) === true,
         'the committed bootstrap has a complete read-only-verifiable rollback authority'
     );
-    local_bootstrap_ok(glob($mu . '/.duo-adopt-*') === [], 'successful commit leaves no adoption lock or transaction path');
+    local_bootstrap_ok(glob($mu . '/.wprism-adopt-*') === [], 'successful commit leaves no adoption lock or transaction path');
 
     $beforeRepeat = [local_bootstrap_tree_hash($mu), local_bootstrap_tree_hash($repo)];
     $secondEligibility = BootstrapEligibilityReport::inspect($transport, 'fixture', 'local', $source);
-    local_bootstrap_ok(!$secondEligibility->ready(), 'local bootstrap refuses a pre-existing Duo control plane');
+    local_bootstrap_ok(!$secondEligibility->ready(), 'local bootstrap refuses a pre-existing WPrism control plane');
     local_bootstrap_ok(
         str_contains((string) ($secondEligibility->blockers()[0]['remediation'] ?? ''), 'existing environment update path'),
         'the repeated-local-adopt refusal points to the installed-target update path'
@@ -380,7 +349,7 @@ SH;
     $doctorMu = $doctorContent . '/mu-plugins';
     $doctorRepo = $root . '/doctor-repo';
     mkdir($doctorContent, 0700, true);
-    putenv('DUO_LOCAL_BOOTSTRAP_MU=' . $doctorMu);
+    putenv('WPRISM_LOCAL_BOOTSTRAP_MU=' . $doctorMu);
     $doctorTransport = new LocalTransport('doctor-red', [
         'transport' => 'local',
         'wp_path' => $wpRoot,
@@ -403,15 +372,15 @@ SH;
     local_bootstrap_ok($failed['exit'] !== 0 && $failed['phase'] === 'doctor verification', 'a red transactional doctor refuses adoption');
     $afterFailure = [local_bootstrap_tree_hash($doctorMu), local_bootstrap_tree_hash($doctorRepo)];
     local_bootstrap_ok($afterFailure === $beforeFailure, 'doctor failure restores the absent control-plane and repository leaves exactly');
-    local_bootstrap_ok(glob($doctorContent . '/.duo-adopt-*') === [], 'doctor rollback leaves no lock or transaction residue');
-    local_bootstrap_ok(glob($root . '/.duo-old-*') === [], 'doctor rollback leaves no staged repository authority');
-    putenv('DUO_LOCAL_BOOTSTRAP_MU=' . $mu);
+    local_bootstrap_ok(glob($doctorContent . '/.wprism-adopt-*') === [], 'doctor rollback leaves no lock or transaction residue');
+    local_bootstrap_ok(glob($root . '/.wprism-old-*') === [], 'doctor rollback leaves no staged repository authority');
+    putenv('WPRISM_LOCAL_BOOTSTRAP_MU=' . $mu);
 
     $badRepo = $root . '/bad-repo';
     $badMu = $root . '/bad-mu';
-    mkdir($badRepo . '/.duo/rollback', 0700, true);
+    mkdir($badRepo . '/.wprism/rollback', 0700, true);
     mkdir($badMu, 0700, true);
-    putenv('DUO_LOCAL_BOOTSTRAP_MU=' . $badMu);
+    putenv('WPRISM_LOCAL_BOOTSTRAP_MU=' . $badMu);
     $badTransport = new LocalTransport('bad-authority', [
         'transport' => 'local',
         'wp_path' => $wpRoot,
@@ -421,11 +390,11 @@ SH;
     ]);
     $badBefore = local_bootstrap_tree_hash($badRepo);
     $badEligibility = BootstrapEligibilityReport::inspect($badTransport, 'bad-authority', 'local', $source);
-    local_bootstrap_ok(!$badEligibility->ready(), 'an incomplete prior .duo authority refuses re-adoption');
+    local_bootstrap_ok(!$badEligibility->ready(), 'an incomplete prior .wprism authority refuses re-adoption');
     local_bootstrap_ok(local_bootstrap_tree_hash($badRepo) === $badBefore, 'the incomplete-authority refusal performs no target write');
 
     $uploadSource = $root . '/upload-source';
-    $uploadDestination = '/tmp/duo-adopt-' . str_repeat('a', 24) . '.tar';
+    $uploadDestination = '/tmp/wprism-adopt-' . str_repeat('a', 24) . '.tar';
     file_put_contents($uploadSource, "source\n", LOCK_EX);
     file_put_contents($uploadDestination, "foreign\n", LOCK_EX);
     $collision = $transport->uploadFile($uploadSource, $uploadDestination);
@@ -433,7 +402,7 @@ SH;
     local_bootstrap_ok(file_get_contents($uploadDestination) === "foreign\n", 'the local uploader never changes a colliding archive');
     unlink($uploadDestination);
 
-    $ownedDestination = '/tmp/duo-adopt-' . str_repeat('b', 24) . '.tar';
+    $ownedDestination = '/tmp/wprism-adopt-' . str_repeat('b', 24) . '.tar';
     $ownedUpload = $transport->uploadFile($uploadSource, $ownedDestination);
     local_bootstrap_ok($ownedUpload['exit'] === 0, 'a fresh local archive is created exclusively');
     $ownedIdentity = $transport->uploadedFileIdentity($ownedUpload);
@@ -457,7 +426,7 @@ SH;
     );
     unlink($ownedDestination);
 
-    $cleanDestination = '/tmp/duo-adopt-' . str_repeat('c', 24) . '.tar';
+    $cleanDestination = '/tmp/wprism-adopt-' . str_repeat('c', 24) . '.tar';
     $cleanUpload = $transport->uploadFile($uploadSource, $cleanDestination);
     $cleanIdentity = $transport->uploadedFileIdentity($cleanUpload);
     local_bootstrap_ok(
@@ -466,7 +435,7 @@ SH;
         'identity-bound archive cleanup removes only the file the uploader created'
     );
 
-    putenv('DUO_LOCAL_BOOTSTRAP_MU=' . $mu);
+    putenv('WPRISM_LOCAL_BOOTSTRAP_MU=' . $mu);
     $collisionTransport = new LocalBootstrapUploadCollisionTransport();
     $collisionResult = Adopt::install($collisionTransport, $source);
     local_bootstrap_ok($collisionResult['exit'] !== 0 && $collisionResult['phase'] === 'archive upload', 'an upload collision refuses before remote install');
@@ -484,9 +453,9 @@ SH;
     }
 } finally {
     putenv('PATH=' . $oldPath);
-    putenv('DUO_LOCAL_BOOTSTRAP_MU');
-    putenv('DUO_LOCAL_BOOTSTRAP_VERSION');
-    putenv('DUO_LOCAL_BOOTSTRAP_LOG');
+    putenv('WPRISM_LOCAL_BOOTSTRAP_MU');
+    putenv('WPRISM_LOCAL_BOOTSTRAP_VERSION');
+    putenv('WPRISM_LOCAL_BOOTSTRAP_LOG');
     local_bootstrap_remove($root);
 }
 

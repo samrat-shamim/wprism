@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Closed, value-redacted evidence export for the adapter authoring loop.
@@ -11,14 +11,14 @@ namespace Duo;
  * stacks, SQL, or exception prose.  The normal WordPress/plugin bootstrap is
  * intentionally still in force: plugin-bundled adapters and runtime provider
  * registrations are facts this command must be able to see.  Consequently the
- * guarantee is narrower and explicit in `deferred`: after observer entry Duo
+ * guarantee is narrower and explicit in `deferred`: after observer entry WPrism
  * performs no explicit mutation or provider action, but normal plugin/provider
  * registration and capability negotiation remain enabled, so third-party code
  * can have side effects before or during evidence collection. It does not
  * claim whole-process immutability.
  */
 final class AdapterObservation {
-    public const FORMAT = 'duo-adapter-observation/v1';
+    public const FORMAT = 'wprism-adapter-observation/v1';
     public const REDACTION = 'values_omitted';
 
     private const SOURCES = [AdapterSources::SHIPPED, AdapterSources::SITE, AdapterSources::PLUGIN];
@@ -82,7 +82,7 @@ final class AdapterObservation {
     public static function report(string $repo): array {
         self::assert_journal_prerequisite();
 
-        // `true` follows wp duo capabilities' own read-only capability path:
+        // `true` follows wp wprism capabilities' own read-only capability path:
         // compatibility evidence can be reported even where an ordinary
         // mutation command would later refuse. Pending's shared gate walk
         // retains its normal policy validation when it reads the same facts.
@@ -168,16 +168,16 @@ final class AdapterObservation {
     }
 
     private static function site_policy_sha256(string $repo): string {
-        $site = Canon::read_file(rtrim($repo, '/') . '/site.duo.json');
+        $site = Canon::read_file(rtrim($repo, '/') . '/site.wprism.json');
         return 'sha256:' . hash('sha256', $site);
     }
 
     private static function agent_version(): string {
-        return defined('DUO_AGENT_VERSION') ? (string) DUO_AGENT_VERSION : 'unknown';
+        return defined('WPRISM_AGENT_VERSION') ? (string) WPRISM_AGENT_VERSION : 'unknown';
     }
 
     private static function spec_version(): int {
-        return defined('DUO_SPEC_VERSION') ? (int) DUO_SPEC_VERSION : 0;
+        return defined('WPRISM_SPEC_VERSION') ? (int) WPRISM_SPEC_VERSION : 0;
     }
 
     /**
@@ -213,7 +213,7 @@ final class AdapterObservation {
                 'message' => 'the observer will not treat a failed journal read as an absent journal',
                 'remediation' => 'restore readable provenance state before collecting adapter observation evidence',
             ]],
-            'duo: adapter observation refused because the provenance journal prerequisite probe failed'
+            'wprism: adapter observation refused because the provenance journal prerequisite probe failed'
         );
     }
 
@@ -228,7 +228,7 @@ final class AdapterObservation {
                 'message' => 'the observer will not treat a failed journal read as an empty journal',
                 'remediation' => 'restore readable provenance state before collecting adapter observation evidence',
             ]],
-            'duo: adapter observation refused because the provenance journal SELECT failed',
+            'wprism: adapter observation refused because the provenance journal SELECT failed',
             $previous
         );
     }
@@ -243,7 +243,7 @@ final class AdapterObservation {
                 'message' => 'the observer will not create or repair provenance state',
                 'remediation' => 'restore the existing journal prerequisite before collecting proposal evidence',
             ]],
-            'duo: adapter observation refused because its provenance journal prerequisite is absent'
+            'wprism: adapter observation refused because its provenance journal prerequisite is absent'
         );
     }
 
@@ -257,7 +257,7 @@ final class AdapterObservation {
                 'message' => 'the observer will not treat a failed pending read as an empty review queue',
                 'remediation' => 'restore readable target evidence before collecting adapter observation evidence',
             ]],
-            'duo: adapter observation refused because a pending evidence SELECT failed',
+            'wprism: adapter observation refused because a pending evidence SELECT failed',
             $previous
         );
     }
@@ -542,7 +542,7 @@ final class AdapterObservation {
 
         return [
             // This names the surveyed source wire vocabulary that supplied
-            // these rows. It is deliberately not `duo-adapter-catalog/v2`:
+            // these rows. It is deliberately not `wprism-adapter-catalog/v2`:
             // this is a lossy, value-redacted AdapterSources projection, not
             // the host catalog's full offline report.
             'format' => AdapterSources::FORMAT,
@@ -661,7 +661,7 @@ final class AdapterObservation {
             ],
             [
                 'status' => 'deferred',
-                'statement' => 'normal plugin/provider registration and capability negotiation remain enabled; third-party callbacks may have side effects before or during evidence collection; Duo invokes no provider action and performs no explicit mutation after observer entry',
+                'statement' => 'normal plugin/provider registration and capability negotiation remain enabled; third-party callbacks may have side effects before or during evidence collection; WPrism invokes no provider action and performs no explicit mutation after observer entry',
                 'subject' => 'bootstrap_effects',
             ],
         ];
@@ -745,7 +745,7 @@ final class AdapterObservation {
                 'message' => 'an existing observation source did not match the closed redacted projection',
                 'remediation' => 'preserve the target state and inspect private evidence before another observation',
             ]],
-            'duo: adapter observation refused because an input fact cannot enter its closed redacted projection'
+            'wprism: adapter observation refused because an input fact cannot enter its closed redacted projection'
         );
     }
 }

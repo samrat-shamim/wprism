@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Read-only discovery of the live WordPress surfaces Capture may observe.
@@ -107,7 +107,7 @@ final class ScopeDiscovery {
         if ($rowCount > self::MAX_POSTS
             || $totalBytes > self::MAX_POST_BYTES
             || $maxRowBytes > self::MAX_ENTITY_ROW_BYTES) {
-            throw new \RuntimeException('duo: post discovery exceeds its bounded row/byte frontier');
+            throw new \RuntimeException('wprism: post discovery exceeds its bounded row/byte frontier');
         }
         self::assertAllocationFrontier($rowCount, $totalBytes, 'post discovery');
         $rows = $this->checkedRows(
@@ -118,7 +118,7 @@ final class ScopeDiscovery {
             'post discovery'
         );
         if (count($rows) !== $rowCount) {
-            throw new \RuntimeException('duo: post discovery changed after its bounded size preflight');
+            throw new \RuntimeException('wprism: post discovery changed after its bounded size preflight');
         }
         $seen = [];
         foreach ($rows as $position => $row) {
@@ -138,7 +138,7 @@ final class ScopeDiscovery {
                 || self::integer(is_object($row) ? ($row->menu_order ?? null) : null) === null
                 || !$validStrings
                 || isset($seen[$id])) {
-                throw new \RuntimeException("duo: post discovery returned a malformed/duplicate row at position $position");
+                throw new \RuntimeException("wprism: post discovery returned a malformed/duplicate row at position $position");
             }
             $seen[$id] = true;
         }
@@ -157,7 +157,7 @@ final class ScopeDiscovery {
      * (public:false, show_ui:false — its UI is a custom admin page), and the
      * T6 adapter walk found capture accepting a site with two forms in it and
      * no gap (grind_adapter_walk.sh S1). Whether a plugin type is authored is
-     * exactly what Duo does not know until a rule names it, so it is a gap
+     * exactly what WPrism does not know until a rule names it, so it is a gap
      * until one does; a manifest or site policy that classes it `runtime`
      * excludes it in one line. Core's own non-public types (revisions,
      * changesets, oembed caches…) are `_builtin` and stay out of the gate.
@@ -192,7 +192,7 @@ final class ScopeDiscovery {
             ARRAY_A
         );
         if (count($postCounts) > self::MAX_SCOPE_TYPES) {
-            throw new \RuntimeException('duo: post-type gap discovery exceeds the bounded type limit');
+            throw new \RuntimeException('wprism: post-type gap discovery exceeds the bounded type limit');
         }
 
         $out = [];
@@ -205,7 +205,7 @@ final class ScopeDiscovery {
                 || $entities === null
                 || isset($seenPostTypes[$name])) {
                 throw new \RuntimeException(
-                    "duo: post-type gap discovery returned a malformed/duplicate row at position $position"
+                    "wprism: post-type gap discovery returned a malformed/duplicate row at position $position"
                 );
             }
             $seenPostTypes[$name] = true;
@@ -242,7 +242,7 @@ final class ScopeDiscovery {
             ARRAY_A
         );
         if (count($taxCounts) > self::MAX_SCOPE_TYPES) {
-            throw new \RuntimeException('duo: taxonomy gap discovery exceeds the bounded type limit');
+            throw new \RuntimeException('wprism: taxonomy gap discovery exceeds the bounded type limit');
         }
         $seenTaxonomies = [];
         foreach ($taxCounts as $position => $row) {
@@ -253,7 +253,7 @@ final class ScopeDiscovery {
                 || $entities === null
                 || isset($seenTaxonomies[$name])) {
                 throw new \RuntimeException(
-                    "duo: taxonomy gap discovery returned a malformed/duplicate row at position $position"
+                    "wprism: taxonomy gap discovery returned a malformed/duplicate row at position $position"
                 );
             }
             $seenTaxonomies[$name] = true;
@@ -296,7 +296,7 @@ final class ScopeDiscovery {
         if ($rowCount > self::MAX_TERMS
             || $totalBytes > self::MAX_TERM_BYTES
             || $maxRowBytes > self::MAX_ENTITY_ROW_BYTES) {
-            throw new \RuntimeException('duo: term discovery exceeds its bounded row/byte frontier');
+            throw new \RuntimeException('wprism: term discovery exceeds its bounded row/byte frontier');
         }
         self::assertAllocationFrontier($rowCount, $totalBytes, 'term discovery');
         $rows = $this->checkedRows(
@@ -307,7 +307,7 @@ final class ScopeDiscovery {
             'term discovery'
         );
         if (count($rows) !== $rowCount) {
-            throw new \RuntimeException('duo: term discovery changed after its bounded size preflight');
+            throw new \RuntimeException('wprism: term discovery changed after its bounded size preflight');
         }
         $seen = [];
         foreach ($rows as $position => $row) {
@@ -322,7 +322,7 @@ final class ScopeDiscovery {
                 || !is_string($row->taxonomy ?? null)
                 || !is_string($row->description ?? null)
                 || isset($seen[$ttId])) {
-                throw new \RuntimeException("duo: term discovery returned a malformed/duplicate row at position $position");
+                throw new \RuntimeException("wprism: term discovery returned a malformed/duplicate row at position $position");
             }
             $seen[$ttId] = true;
         }
@@ -360,7 +360,7 @@ final class ScopeDiscovery {
             if ($objectTypes === null) {
                 if ($strictReadOnly) {
                     throw new \RuntimeException(
-                        "duo: refresh export refused — taxonomy '$taxonomy' is in policy scope but is not registered "
+                        "wprism: refresh export refused — taxonomy '$taxonomy' is in policy scope but is not registered "
                         . 'under the isolated control bootstrap, and no plugin-owned taxonomies.<name>.object_type '
                         . 'or taxonomy_patterns object_type declaration can prove which post or term relationships '
                         . 'belong to it; add that manifest/provider contract before refreshing production'
@@ -403,7 +403,7 @@ final class ScopeDiscovery {
         if (!is_array($rows)
             || !array_is_list($rows)
             || $queryError !== '') {
-            throw new \RuntimeException("duo: $purpose read failed");
+            throw new \RuntimeException("wprism: $purpose read failed");
         }
         return $rows;
     }
@@ -411,7 +411,7 @@ final class ScopeDiscovery {
     /** @return array{int,int,int} */
     private function statistics(array $rows, string $purpose): array {
         if (count($rows) !== 1 || !is_array($rows[0])) {
-            throw new \RuntimeException("duo: $purpose size preflight returned malformed statistics");
+            throw new \RuntimeException("wprism: $purpose size preflight returned malformed statistics");
         }
         $row = $rows[0];
         $count = self::nonnegativeInteger($row['row_count'] ?? null);
@@ -419,7 +419,7 @@ final class ScopeDiscovery {
         $max = self::nonnegativeInteger($row['max_row_bytes'] ?? null);
         if (array_keys($row) !== ['row_count', 'total_bytes', 'max_row_bytes']
             || $count === null || $total === null || $max === null) {
-            throw new \RuntimeException("duo: $purpose size preflight returned malformed statistics");
+            throw new \RuntimeException("wprism: $purpose size preflight returned malformed statistics");
         }
         return [$count, $total, $max];
     }
@@ -446,7 +446,7 @@ final class ScopeDiscovery {
     /** @return list<string> */
     private static function runtimeRoster(mixed $value, string $purpose, int $maxBytes): array {
         if (!is_array($value) || count($value) > self::MAX_SCOPE_TYPES) {
-            throw new \RuntimeException("duo: $purpose is malformed or exceeds the bounded type limit");
+            throw new \RuntimeException("wprism: $purpose is malformed or exceeds the bounded type limit");
         }
         $seen = [];
         foreach ($value as $position => $name) {
@@ -456,13 +456,13 @@ final class ScopeDiscovery {
             // aliased registry can never silently widen capture scope.
             if (!array_is_list($value)
                 && (!is_string($position) || !is_string($name) || !hash_equals($position, $name))) {
-                throw new \RuntimeException("duo: $purpose contains a malformed native name map");
+                throw new \RuntimeException("wprism: $purpose contains a malformed native name map");
             }
             if (!is_string($name)
                 || preg_match('/^[A-Za-z0-9_-]{1,' . $maxBytes . '}$/D', $name) !== 1
                 || isset($seen[$name])) {
                 throw new \RuntimeException(
-                    "duo: $purpose contains a malformed/duplicate name at position $position"
+                    "wprism: $purpose contains a malformed/duplicate name at position $position"
                 );
             }
             $seen[$name] = true;
@@ -483,7 +483,7 @@ final class ScopeDiscovery {
         if ($rowCount < 0 || $totalBytes < 0
             || $rowCount > intdiv(PHP_INT_MAX, self::ESTIMATED_ROW_OVERHEAD_BYTES)
             || $totalBytes > intdiv(PHP_INT_MAX, 2)) {
-            throw new \RuntimeException("duo: $purpose allocation frontier overflowed");
+            throw new \RuntimeException("wprism: $purpose allocation frontier overflowed");
         }
         $estimated = ($rowCount * self::ESTIMATED_ROW_OVERHEAD_BYTES) + ($totalBytes * 2);
         $budget = self::MAX_CAPTURE_ALLOCATION_BYTES;
@@ -493,7 +493,7 @@ final class ScopeDiscovery {
             $budget = min($budget, intdiv($available, 2));
         }
         if ($estimated > $budget) {
-            throw new \RuntimeException("duo: $purpose exceeds the bounded PHP allocation frontier");
+            throw new \RuntimeException("wprism: $purpose exceeds the bounded PHP allocation frontier");
         }
     }
 

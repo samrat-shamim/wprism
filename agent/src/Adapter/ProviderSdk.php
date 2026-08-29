@@ -1,8 +1,8 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
- * The read twin of \Duo\Db: the sanctioned path for a provider's
+ * The read twin of \WPrism\Db: the sanctioned path for a provider's
  * decision-making database reads, plugin-agnostic and shared by every
  * adapter rather than re-copied into each.
  *
@@ -16,14 +16,14 @@ namespace Duo;
  *
  * Like Db, the context is caller-supplied and OPERATION-level, never
  * value-level: wpdb's last_error and the rendered SQL can echo option/meta
- * payloads, including the secrets Duo is specifically responsible for keeping
+ * payloads, including the secrets WPrism is specifically responsible for keeping
  * out of diagnostics, so neither the SQL nor the driver text is ever placed
  * in the message — only the caller's operation context, which locates the
  * failure without carrying a value. "provider" names the caller generically
  * so no plugin identity leaks into the string either.
  *
  * The failure is a plain \RuntimeException — the same class the retired
- * per-adapter helpers threw — so \Duo\Providers::invoke()'s catch(\Throwable)
+ * per-adapter helpers threw — so \WPrism\Providers::invoke()'s catch(\Throwable)
  * redacts it into a provider/capability-only refusal exactly as before, and a
  * migrating adapter's calls are a pure substitution.
  *
@@ -38,7 +38,7 @@ final class ProviderSdk {
         $wpdb->last_error = '';
         $value = $wpdb->get_var($sql);
         if ($value === false || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException("duo: provider checked read failed: $context");
+            throw new \RuntimeException("wprism: provider checked read failed: $context");
         }
         return $value;
     }
@@ -49,7 +49,7 @@ final class ProviderSdk {
         $wpdb->last_error = '';
         $rows = $wpdb->get_col($sql);
         if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException("duo: provider checked read failed: $context");
+            throw new \RuntimeException("wprism: provider checked read failed: $context");
         }
         return $rows;
     }
@@ -60,7 +60,7 @@ final class ProviderSdk {
         $wpdb->last_error = '';
         $row = $wpdb->get_row($sql, ARRAY_A);
         if (($row !== null && !is_array($row)) || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException("duo: provider checked read failed: $context");
+            throw new \RuntimeException("wprism: provider checked read failed: $context");
         }
         return $row;
     }
@@ -76,7 +76,7 @@ final class ProviderSdk {
         $wpdb->last_error = '';
         $rows = $wpdb->get_results($sql, ARRAY_A);
         if (!is_array($rows) || !array_is_list($rows) || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException($failureMessage ?? "duo: provider checked read failed: $context");
+            throw new \RuntimeException($failureMessage ?? "wprism: provider checked read failed: $context");
         }
         return $rows;
     }

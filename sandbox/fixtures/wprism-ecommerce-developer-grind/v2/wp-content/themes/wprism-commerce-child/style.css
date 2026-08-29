@@ -1,0 +1,19 @@
+/*
+Theme Name: WPrism Commerce Child
+Description: The migrated storefront skin for the ecommerce grind.
+Template: wprism-commerce-parent
+Version: 2.0.0
+Requires PHP: 8.3
+Requires at least: 6.0
+*/
+
+.wprism-commerce-catalog {
+    border-top: 4px solid #1f9d55;
+    padding-top: 1rem;
+}
+
+.wprism-commerce-catalog::before {
+    content: "WPrism Commerce v2";
+    display: block;
+    font-weight: 700;
+}

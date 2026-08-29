@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Regression — round-3 MUP §4.6: no new renderer prints an unbounded list.
 #
-# `duo assess`'s human view bounds every section at 50 rows by default,
-# accepts a canonical `--limit=1..200` (the same closed grammar `duo status`
+# `wprism assess`'s human view bounds every section at 50 rows by default,
+# accepts a canonical `--limit=1..200` (the same closed grammar `wprism status`
 # already parses, so an operator learns one rule), prints an
 # `N more (use --format=json)` tail whenever it cut a section, and refuses a
 # malformed bound instead of silently falling back to the default.
@@ -18,7 +18,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo-assess-bounds.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/wprism-assess-bounds.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
 FAILURES=0
@@ -32,16 +32,16 @@ say()  { printf '\n== %s ==\n' "$*"; }
 php "$ROOT/sandbox/tests/fixtures/assess/make-fixture.php" "$TMP/site" --surfaces=60 --pending=70 >/dev/null \
   || { echo "FAIL: could not build the assess fixture" >&2; exit 1; }
 
-export DUO_FIXTURES="$TMP/site/fixtures"
-export DUO_SITE_REPO="$TMP/site/repo"
-export DUO_CALLS="$TMP/calls.txt"
+export WPRISM_FIXTURES="$TMP/site/fixtures"
+export WPRISM_SITE_REPO="$TMP/site/repo"
+export WPRISM_CALLS="$TMP/calls.txt"
 PATH="$TMP/site/bin:$PATH"
 export PATH
 
 # run <stdout-file> [args...] -> exit code
 run() {
   local out="$1"; shift
-  ( cd "$TMP/site/repo" && php "$ROOT/cli/duo" --envs-file="$TMP/site/envs.json" "$@" ) \
+  ( cd "$TMP/site/repo" && php "$ROOT/cli/wprism" --envs-file="$TMP/site/envs.json" "$@" ) \
     > "$out" 2> "$out.err"
 }
 

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-// DUO-3293: offline certification for the external rollback authority.
+// issue #3293: offline certification for the external rollback authority.
 // Exercises signed exact-match requests, generation/claim fencing, tamper
 // detection, and retry after every receipt/event/target publication boundary.
 
@@ -13,15 +13,15 @@ require dirname(__DIR__, 4) . '/cli/src/Transport/LocalTransport.php';
 require dirname(__DIR__, 4) . '/cli/src/Recovery/RollbackAuthority.php';
 require dirname(__DIR__, 4) . '/cli/src/Recovery/VerifiedRollbackProfile.php';
 
-use Duo\Canon;
-use Duo\Orchestrator\LocalTransport;
-use Duo\Orchestrator\RollbackAuthority;
-use Duo\Orchestrator\SshTransport;
-use Duo\Orchestrator\VerifiedRollbackProfile;
-use Duo\Recovery\RollbackControl;
+use WPrism\Canon;
+use WPrism\Orchestrator\LocalTransport;
+use WPrism\Orchestrator\RollbackAuthority;
+use WPrism\Orchestrator\SshTransport;
+use WPrism\Orchestrator\VerifiedRollbackProfile;
+use WPrism\Recovery\RollbackControl;
 
 $runtime = dirname(__DIR__, 4) . '/recovery/rollback-control.php';
-$tmp = sys_get_temp_dir() . '/duo-rollback-regress-' . bin2hex(random_bytes(8));
+$tmp = sys_get_temp_dir() . '/wprism-rollback-regress-' . bin2hex(random_bytes(8));
 $keyId = 'offline-key-1';
 $keypair = sodium_crypto_sign_keypair();
 $secret = sodium_crypto_sign_secretkey($keypair);
@@ -164,7 +164,7 @@ function signed_request(string $action, array $event, ?array $receipt, string $s
 
 /** @return array<string,mixed> */
 function submit(string $root, array $request): array {
-    $path = tempnam(sys_get_temp_dir(), 'duo-rollback-request-');
+    $path = tempnam(sys_get_temp_dir(), 'wprism-rollback-request-');
     if ($path === false) {
         fail_test('could not allocate request');
     }
@@ -217,13 +217,13 @@ function crash_request(
     string $hook,
     bool $certificationMode = true
 ): int {
-    $path = tempnam(sys_get_temp_dir(), 'duo-rollback-crash-');
+    $path = tempnam(sys_get_temp_dir(), 'wprism-rollback-crash-');
     if ($path === false) {
         fail_test('could not allocate crash request');
     }
     $marker = $root . '/.certification-crash-mode';
     if ($certificationMode) {
-        file_put_contents($marker, "duo-rollback-certification-crash-mode/v1\n");
+        file_put_contents($marker, "wprism-rollback-certification-crash-mode/v1\n");
         chmod($marker, 0600);
     }
     file_put_contents($path, RollbackControl::canonical($request) . "\n");
@@ -233,7 +233,7 @@ function crash_request(
         [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
         $pipes,
         null,
-        ['DUO_ROLLBACK_CRASH_AT' => $hook]
+        ['WPRISM_ROLLBACK_CRASH_AT' => $hook]
     );
     if (!is_resource($process)) {
         fail_test('could not start crash process');
@@ -331,7 +331,7 @@ try {
     append_event($root, $r2, $secret, 'rolled_back', 'state_transition', 'advance', 1, 'worker-e', 2, '2026-01-01T00:01:43Z');
     ok_test(RollbackControl::status($root)['state'] === 'rolled_back', 'completed current-epoch verification and declared restore proof admit rolled_back');
     $audit = RollbackControl::auditEvidence($root);
-    ok_test(($audit['format'] ?? '') === 'duo-rollback-audit/v1'
+    ok_test(($audit['format'] ?? '') === 'wprism-rollback-audit/v1'
         && ($audit['state'] ?? '') === 'rolled_back'
         && count($audit['events'] ?? []) === (int) RollbackControl::status($root)['sequence']
         && preg_match('/^[a-f0-9]{64}$/', (string) ($audit['receipt_sha256'] ?? '')) === 1
@@ -402,17 +402,16 @@ try {
     $legacyStatus = RollbackControl::initialize($legacyRoot);
     RollbackControl::installPublicKey($legacyRoot, $keyId, base64_encode($public));
     $legacyReceipt = receipt($legacyStatus, 1, str_repeat('b', 48), '2026-01-02T00:00:00Z');
-    $legacyReceipt['format'] = 'duo-rollback-receipt/v1';
+    $legacyReceipt['format'] = 'wprism-rollback-receipt/v1';
     unset($legacyReceipt['code_release_metadata_sha256']);
     $legacyEvent = event($legacyReceipt, 1, str_repeat('0', 64), 'prepared', 'state_transition', 'promotion-claim', 1, 'legacy-worker', 1, '2026-01-02T00:00:00Z');
-    $legacyClaim = submit($legacyRoot, signed_request('claim', $legacyEvent, $legacyReceipt, $secret));
-    ok_test($legacyClaim['state'] === 'prepared' && $legacyClaim['code_release_metadata_sha256'] === null, 'existing v1 receipts remain readable but carry no certified code-release metadata');
+    refuses(fn() => submit($legacyRoot, signed_request('claim', $legacyEvent, $legacyReceipt, $secret)), 'rollback receipt v1 is refused after the greenfield format cutover');
 
     $compiledUploads = [['attachment_uuid' => 'plan-upload-marker']];
     $compiledEffects = [['effect' => ['id' => 'plan-effect-marker']]];
     $compiledCode = [
         'files' => [['path' => 'plugins/acme/acme.php', 'sha256' => hash('sha256', 'plan-code')]],
-        'format' => 'duo-code/v1',
+        'format' => 'wprism-code/v1',
         'layout' => 'wp-content',
         'owned_roots' => ['plugins/acme'],
         'plugin_main_files' => [['basename' => 'acme/acme.php', 'path' => 'plugins/acme/acme.php', 'sha256' => hash('sha256', 'plan-code')]],
@@ -482,7 +481,7 @@ try {
         $selection['automatic'] === true,
         'automatic profile selection is capability-based when every provider and policy is ready'
     );
-    // DUO: the same seven-predicate selection off SSH. The profile is chosen
+    // WPRISM: the same seven-predicate selection off SSH. The profile is chosen
     // from declared capability, so a local environment carrying the identical
     // provider set and policy must reach the identical answer — that is the
     // whole claim of the RecoveryTransport seam.

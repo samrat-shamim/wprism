@@ -47,19 +47,19 @@ require_once __DIR__ . '/../../lib/FakeWpdb.php';
 
 $root = dirname(__DIR__, 4);
 
-// The engine's two version constants come from agent/duo.php's own source, the
+// The engine's two version constants come from agent/wprism.php's own source, the
 // way every offline host-verb harness resolves them — never a literal here.
-$agentSource = (string) file_get_contents($root . '/agent/duo.php');
-if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $agentSource, $m) !== 1) {
-    fwrite(STDERR, "FAIL: could not resolve DUO_SPEC_VERSION from agent/duo.php\n");
+$agentSource = (string) file_get_contents($root . '/agent/wprism.php');
+if (preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", $agentSource, $m) !== 1) {
+    fwrite(STDERR, "FAIL: could not resolve WPRISM_SPEC_VERSION from agent/wprism.php\n");
     exit(1);
 }
-define('DUO_SPEC_VERSION', (int) $m[1]);
-if (preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $agentSource, $m) !== 1) {
-    fwrite(STDERR, "FAIL: could not resolve DUO_AGENT_VERSION from agent/duo.php\n");
+define('WPRISM_SPEC_VERSION', (int) $m[1]);
+if (preg_match("/define\('WPRISM_AGENT_VERSION', '([^']+)'\)/", $agentSource, $m) !== 1) {
+    fwrite(STDERR, "FAIL: could not resolve WPRISM_AGENT_VERSION from agent/wprism.php\n");
     exit(1);
 }
-define('DUO_AGENT_VERSION', $m[1]);
+define('WPRISM_AGENT_VERSION', $m[1]);
 
 require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/agent/src/Kernel/OptionState.php';
@@ -68,18 +68,18 @@ require_once $root . '/agent/src/Review/Lint.php';
 require_once $root . '/agent/src/Adapter/AdapterProbe.php';
 require_once __DIR__ . '/../../lib/frozen_policy.php';
 
-use Duo\AdapterProbe;
-use Duo\Canon;
-use Duo\Lint;
-use Duo\LintEnvironment;
-use Duo\Policy;
-use DuoTest\FakeWpdb;
-use DuoTest\FrozenPolicy;
-use DuoTest\WpStore;
+use WPrism\AdapterProbe;
+use WPrism\Canon;
+use WPrism\Lint;
+use WPrism\LintEnvironment;
+use WPrism\Policy;
+use WPrismTest\FakeWpdb;
+use WPrismTest\FrozenPolicy;
+use WPrismTest\WpStore;
 
 // ---------------------------------------------------------------- fixtures
 
-$tmp = sys_get_temp_dir() . '/duo_lint_type_exemptions_' . bin2hex(random_bytes(6));
+$tmp = sys_get_temp_dir() . '/wprism_lint_type_exemptions_' . bin2hex(random_bytes(6));
 mkdir($tmp . '/state/tables/nf3_forms', 0777, true);
 mkdir($tmp . '/state/tables/nf3_fields', 0777, true);
 mkdir($tmp . '/state/tables/nf3_actions', 0777, true);
@@ -138,7 +138,7 @@ $wpdb->seedTable('wp_posts', [
  * @return array<string,mixed>
  */
 function nf_manifest(string $root, bool $stripLintOk): array {
-    $library = \Duo\AdapterLibrary::fromSourceTree($root);
+    $library = \WPrism\AdapterLibrary::fromSourceTree($root);
     $manifest = json_decode((string) file_get_contents($library->package('ninja-forms')->manifestPath()), true);
     if (!is_array($manifest)) {
         fwrite(STDERR, "FAIL: the ninja-forms package manifest did not decode\n");
@@ -160,7 +160,7 @@ function nf_policy(array $manifest): Policy {
 }
 
 /**
- * A `duo-adapter-probe/v1` document over the three NF tables, self-hashed on
+ * A `wprism-adapter-probe/v1` document over the three NF tables, self-hashed on
  * the emitter's own basis.
  *
  * @param array<string,array<string,string>> $tables table => column => type
@@ -182,7 +182,7 @@ function nf_probe(array $tables): array {
         'format' => AdapterProbe::FORMAT,
         'redaction' => AdapterProbe::REDACTION,
         'tables' => $facts,
-        'target' => ['agent_version' => DUO_AGENT_VERSION, 'spec_version' => DUO_SPEC_VERSION],
+        'target' => ['agent_version' => WPRISM_AGENT_VERSION, 'spec_version' => WPRISM_SPEC_VERSION],
     ];
     // The emitter's own hash function, not a re-spelling of it: this is half of
     // the pinning that keeps LintEnvironment's independent recomputation and
@@ -222,8 +222,8 @@ $policy = nf_policy($stripped);
 // ------------------------------------------- 1. the pre-review population
 
 $baseline = Lint::scan_tree($state, $policy, LintEnvironment::live());
-duo_check_same(8, count($baseline), 'without a probe the reviewer faces all eight findings, the state the manifest note records');
-duo_check_same(
+wprism_check_same(8, count($baseline), 'without a probe the reviewer faces all eight findings, the state the manifest note records');
+wprism_check_same(
     ['bare_id'],
     array_values(array_unique(array_column($baseline, 'class'))),
     'without a live column type every one of them is a plain bare_id — no type, no proposal'
@@ -251,13 +251,13 @@ $probe = nf_probe([
 ]);
 $proposed = Lint::scan_tree($state, $policy, LintEnvironment::live($probe));
 
-duo_check_same(
+wprism_check_same(
     count($baseline),
     count($proposed),
     'the probe changes no finding COUNT: a proposal is a re-class, and a tool that shrank the set here would be '
     . 'silencing findings rather than proposing exemptions'
 );
-duo_check_same(
+wprism_check_same(
     array_keys(classes_by_locator($baseline)),
     array_keys(classes_by_locator($proposed)),
     'every finding keeps its exact path and locator; only its class and note move'
@@ -269,18 +269,18 @@ foreach (classes_by_locator($baseline) as $key => $class) {
     $table = explode('/', $key)[1];
     $expectedClasses[$key] = in_array($column, NF_BIT_COLUMNS[$table] ?? [], true) ? 'proposed_lint_ok' : 'bare_id';
 }
-duo_check_same(
+wprism_check_same(
     $expectedClasses,
     classes_by_locator($proposed),
     'the six BIT(1) columns are proposed and nf3_actions.active + nf3_fields.order are left for review — the '
     . '6-of-8 split manifests/ninja-forms.json:24-25 records a human making by hand'
 );
-duo_check_same(
+wprism_check_same(
     6,
     count(array_filter($proposed, static fn(array $f): bool => $f['class'] === 'proposed_lint_ok')),
     'exactly six proposals'
 );
-duo_check_same(
+wprism_check_same(
     2,
     count(array_filter($proposed, static fn(array $f): bool => $f['class'] === 'bare_id')),
     'exactly two findings stay on the reviewer\'s desk'
@@ -289,25 +289,25 @@ duo_check_same(
 // ------------------------------------------- 3. the proposal carries its premise
 
 $bitNote = note_for($proposed, 'columns.show_title');
-duo_check(str_contains($bitNote, 'the live column type is bit(1)'), 'a proposal states the live type it rests on');
-duo_check(
+wprism_check(str_contains($bitNote, 'the live column type is bit(1)'), 'a proposal states the live type it rests on');
+wprism_check(
     str_contains($bitNote, 'BIT(1) holds one bit'),
     'a proposal states WHY that type is evidence, not merely that it is'
 );
-duo_check(
+wprism_check(
     str_contains($bitNote, 'tables.nf3_forms.columns.show_title = {"class": "authored", "lint_ok": true}'),
     'a proposal ends in the exact declaration a reviewer would write, addressed at the COLUMN'
 );
-duo_check(
+wprism_check(
     str_contains($bitNote, 'still reported and still counted'),
     'a proposal says out loud that it is not a silence'
 );
-duo_check(
+wprism_check(
     str_contains($bitNote, 'coincides with an existing post id (#1 "Hello world!", post)'),
     'a proposal states the collision FIRST and in full, exactly as bare_id does — the evidence against it is not '
     . 'dropped because a premise was found for it'
 );
-duo_check(
+wprism_check(
     str_contains(note_for($proposed, 'columns.active'), 'signal to investigate, not proof')
     && !str_contains(note_for($proposed, 'columns.active'), 'PROPOSED EXEMPTION'),
     'a column with no boolean-domain type keeps the unchanged bare_id note'
@@ -320,8 +320,8 @@ duo_check(
 $tinyProbe = nf_probe(['nf3_fields' => ['order' => 'tinyint(1)', 'personally_identifiable' => 'bit(1)', 'required' => 'bit(1)']]);
 $tinyFindings = Lint::scan_tree($state, $policy, LintEnvironment::live($tinyProbe));
 $tinyNote = note_for($tinyFindings, 'columns.order');
-duo_check(str_contains($tinyNote, 'PROPOSED EXEMPTION'), 'tinyint(1) is in the boolean domain and proposes');
-duo_check(
+wprism_check(str_contains($tinyNote, 'PROPOSED EXEMPTION'), 'tinyint(1) is in the boolean domain and proposes');
+wprism_check(
     str_contains($tinyNote, 'display width does NOT constrain the range')
     && str_contains($tinyNote, 'convention, not structure'),
     'the tinyint(1) proposal carries its own weaker premise verbatim, never bit(1)\'s'
@@ -331,7 +331,7 @@ duo_check(
 
 $enumProbe = nf_probe(['nf3_actions' => ['active' => 'enum']]);
 $enumFindings = Lint::scan_tree($state, $policy, LintEnvironment::live($enumProbe));
-duo_check_same(
+wprism_check_same(
     'bare_id',
     (string) (array_values(array_filter(
         $enumFindings,
@@ -340,17 +340,17 @@ duo_check_same(
     "an ENUM('0','1') column reaches lint as the bare word `enum` (AdapterProbe boundary 2 strips the members, "
     . 'which are site values) and therefore proposes nothing: the premise cannot be checked, so it is not made'
 );
-duo_check_same(
+wprism_check_same(
     null,
     LintEnvironment::boolean_domain_premise('enum'),
     'the boolean domain is closed over bit(1) and tinyint(1); `enum` is not a member'
 );
-duo_check_same(
+wprism_check_same(
     null,
     LintEnvironment::boolean_domain_premise(null),
     'no recorded type is not evidence for anything'
 );
-duo_check_same(
+wprism_check_same(
     LintEnvironment::boolean_domain_premise('bit(1)'),
     LintEnvironment::boolean_domain_premise('BIT(1)'),
     'the type comparison is case-insensitive, since a probe normalizes to lower case but a hand-read DESCRIBE '
@@ -361,7 +361,7 @@ duo_check_same(
 
 $tampered = $probe;
 $tampered['tables']['nf3_actions']['columns']['active']['type'] = 'bit(1)';
-duo_check_throws(
+wprism_check_throws(
     static fn() => LintEnvironment::live($tampered),
     RuntimeException::class,
     'a probe edited by hand to widen the exemption is refused, not honoured at face value',
@@ -370,17 +370,17 @@ duo_check_throws(
 $claiming = $probe;
 $claiming['authority'] = true;
 $claiming['probe_hash'] = AdapterProbe::hash_document($claiming);
-duo_check_throws(
+wprism_check_throws(
     static fn() => LintEnvironment::live($claiming),
     RuntimeException::class,
     'a document claiming authority is refused even when its own hash is consistent',
     'must declare authority:false'
 );
-duo_check_throws(
-    static fn() => LintEnvironment::live(['format' => 'duo-lint-environment/v1']),
+wprism_check_throws(
+    static fn() => LintEnvironment::live(['format' => 'wprism-lint-environment/v1']),
     RuntimeException::class,
     '--evidence names the probe envelope by name',
-    'duo-adapter-probe/v1'
+    'wprism-adapter-probe/v1'
 );
 
 // One document, two independent hash computations: AdapterProbe emits it and
@@ -388,7 +388,7 @@ duo_check_throws(
 // is `engine`, agent/src/Adapter is `adapter` — tools/modules.json). Two bases
 // that drifted apart would make every real probe unreadable here.
 $roundTripped = json_decode(json_encode($probe, JSON_UNESCAPED_SLASHES), true);
-duo_check_same(
+wprism_check_same(
     ['nf3_actions' => ['active' => 'int(11)']],
     array_intersect_key(LintEnvironment::column_types_from_probe($roundTripped), ['nf3_actions' => true]),
     'the types survive a JSON round trip and the two hash bases still agree over one document'
@@ -398,7 +398,7 @@ $absent = nf_probe(['nf3_forms' => ['show_title' => 'bit(1)']]);
 $absent['tables']['nf3_fields'] = ['present' => false];
 $absent['probe_hash'] = AdapterProbe::hash_document($absent);
 $absentTypes = LintEnvironment::column_types_from_probe($absent);
-duo_check_same(
+wprism_check_same(
     false,
     isset($absentTypes['nf3_fields']),
     'a `present:false` table is a real answer about a target that lacks it, and carries no column types to propose from'
@@ -407,7 +407,7 @@ duo_check_same(
 // ------------------------------------------- 6. the declaration is still the thing that silences
 
 $shipped = nf_policy(nf_manifest($root, false));
-duo_check_same(
+wprism_check_same(
     [],
     Lint::scan_tree($state, $shipped, LintEnvironment::live($probe)),
     'against the SHIPPED manifest — where a human already wrote all eight lint_ok declarations — the same tree is '
@@ -415,4 +415,4 @@ duo_check_same(
     . 'manifest byte, which is adapter identity (AGENTS.md rule 2)'
 );
 
-duo_check_summary('regress_lint_type_exemptions');
+wprism_check_summary('regress_lint_type_exemptions');

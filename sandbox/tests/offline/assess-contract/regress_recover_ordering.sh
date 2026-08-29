@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression — round-3 MUP §2.5: `duo recover` drives the recovery runtime in
+# Regression — round-3 MUP §2.5: `wprism recover` drives the recovery runtime in
 # an order that cannot be reordered by a caller, and refuses to start at all
 # until the one thing a database lock cannot provide has been asserted.
 #
@@ -7,7 +7,7 @@
 # reproduces rather than describes:
 #
 #   1. `--writers-excluded` is REQUIRED. The checkpoint contains its own
-#      temporary promotion lease row (`cli/duo`'s own recovery guidance says
+#      temporary promotion lease row (`cli/wprism`'s own recovery guidance says
 #      so), so a lock inside the database being imported cannot protect the
 #      recovery window. Without the assertion, nothing runs.
 #   2. CODE FIRST. A checkpoint taken around a code phase refuses a database
@@ -23,16 +23,16 @@
 # authorization plan for that checkpoint.
 #
 # And, round-3 T5: the RETAINED release checkpoints. Every operator-directed
-# promotion keeps `.duo/checkpoints/promote-<owner>.sql.enc` beside its compiled
-# artifact, on every transport; `duo recover` lists them and restores them
+# promotion keeps `.wprism/checkpoints/promote-<owner>.sql.enc` beside its compiled
+# artifact, on every transport; `wprism recover` lists them and restores them
 # through the SAME four ordered steps, on a transport that carries no rollback
 # authority runtime at all — so the operator-directed claim a frozen plan
 # prints on a local/docker target is a claim this verb honours (grind_mup.sh
 # step 11).
 #
-# A standalone `duo deploy` is the second writer, at
-# `.duo/checkpoints/deploy-<owner>.sql.enc`. The property this suite adds is that
-# the file-name prefix is the ONLY difference that reaches `duo recover`: the
+# A standalone `wprism deploy` is the second writer, at
+# `.wprism/checkpoints/deploy-<owner>.sql.enc`. The property this suite adds is that
+# the file-name prefix is the ONLY difference that reaches `wprism recover`: the
 # row lists under the same kind, --writers-excluded is required for it just the
 # same, the four ordered steps are the same steps under the lease identity read
 # from its own sibling artifact, and an absent one refuses the way an absent
@@ -42,7 +42,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo-recover-ordering.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/wprism-recover-ordering.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
 FAILURES=0
@@ -51,7 +51,7 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; FAILURES=$((FAILURES + 1)); }
 say()  { printf '\n== %s ==\n' "$*"; }
 
 printf '== syntax ==\n'
-for file in "$ROOT/cli/duo" \
+for file in "$ROOT/cli/wprism" \
   "$ROOT/cli/src/Command/RecoverCommand.php" \
   "$ROOT/cli/src/Recovery/CheckpointCatalog.php" \
   "$ROOT/cli/src/Recovery/RecoveryClaim.php" \
@@ -64,16 +64,16 @@ php "$ROOT/sandbox/tests/fixtures/release/make-recover-site.php" "$TMP/f" >/dev/
   || { echo "FAIL: could not build the recover fixture" >&2; exit 1; }
 
 SITE="$TMP/f/site"
-export DUO_RECOVERY_RUNTIME_SOURCE="$ROOT/recovery/rollback-control.php"
-export DUO_WP_CALLS="$TMP/wp-calls.txt"
+export WPRISM_RECOVERY_RUNTIME_SOURCE="$ROOT/recovery/rollback-control.php"
+export WPRISM_WP_CALLS="$TMP/wp-calls.txt"
 PATH="$TMP/f/bin:$PATH"
 export PATH
 
 # recover <name> [args...] -> exit code; stdout+stderr land in $TMP/<name>.txt
 recover() {
   local name="$1"; shift
-  : > "$DUO_WP_CALLS"
-  ( cd "$SITE" && php "$ROOT/cli/duo" --envs-file="$TMP/f/envs.json" recover fixture "$@" ) \
+  : > "$WPRISM_WP_CALLS"
+  ( cd "$SITE" && php "$ROOT/cli/wprism" --envs-file="$TMP/f/envs.json" recover fixture "$@" ) \
     > "$TMP/$name.txt" 2> "$TMP/$name.err"
   local status=$?
   cat "$TMP/$name.err" >> "$TMP/$name.txt"
@@ -83,8 +83,8 @@ recover() {
 # that carries no rollback authority runtime.
 recover_plain() {
   local name="$1"; shift
-  : > "$DUO_WP_CALLS"
-  ( cd "$SITE" && php "$ROOT/cli/duo" --envs-file="$TMP/f/envs.json" recover plain "$@" ) \
+  : > "$WPRISM_WP_CALLS"
+  ( cd "$SITE" && php "$ROOT/cli/wprism" --envs-file="$TMP/f/envs.json" recover plain "$@" ) \
     > "$TMP/$name.txt" 2> "$TMP/$name.err"
   local status=$?
   cat "$TMP/$name.err" >> "$TMP/$name.txt"
@@ -95,8 +95,8 @@ recover_plain() {
 # authority.
 recover_configured() {
   local name="$1"; shift
-  : > "$DUO_WP_CALLS"
-  ( cd "$SITE" && php "$ROOT/cli/duo" --envs-file="$TMP/f/envs.json" recover configured "$@" ) \
+  : > "$WPRISM_WP_CALLS"
+  ( cd "$SITE" && php "$ROOT/cli/wprism" --envs-file="$TMP/f/envs.json" recover configured "$@" ) \
     > "$TMP/$name.txt" 2> "$TMP/$name.err"
   local status=$?
   cat "$TMP/$name.err" >> "$TMP/$name.txt"
@@ -105,15 +105,15 @@ recover_configured() {
 
 # wp_steps -> the recovery steps the target actually received, in order
 wp_steps() {
-  sed -e 's/.*duo promotion-abort.*/abort/' \
-      -e 's/.*duo promotion-begin.*/begin/' \
-      -e 's/.*db import.*/import/' "$DUO_WP_CALLS" \
+  sed -e 's/.*wprism promotion-abort.*/abort/' \
+      -e 's/.*wprism promotion-begin.*/begin/' \
+      -e 's/.*db import.*/import/' "$WPRISM_WP_CALLS" \
     | grep -E '^(abort|begin|import)$' || true
 }
 
 # ------------------------------------------------------------------- the list
 say '--list'
-DUO_RECOVER_STATUS="$TMP/f/status/code.json" recover "list" --list
+WPRISM_RECOVER_STATUS="$TMP/f/status/code.json" recover "list" --list
 STATUS=$?
 [ "$STATUS" = 0 ] && pass '--list exits 0' || { fail "--list exited $STATUS"; sed -n '1,20p' "$TMP/list.txt" >&2; }
 grep -Fq 'receipt-recover-fixture' "$TMP/list.txt" \
@@ -122,9 +122,9 @@ grep -Fq 'receipt-recover-fixture' "$TMP/list.txt" \
 grep -Fq 'covers: database checkpoint, code release' "$TMP/list.txt" \
   && pass '--list prints the covered inventory, derived from the receipt evidence' \
   || fail '--list did not print the covered inventory'
-[ -s "$DUO_WP_CALLS" ] && fail '--list ran a recovery step' || pass '--list runs no recovery step at all'
+[ -s "$WPRISM_WP_CALLS" ] && fail '--list ran a recovery step' || pass '--list runs no recovery step at all'
 
-DUO_RECOVER_STATUS="$TMP/f/status/none.json" recover "listnone" --list
+WPRISM_RECOVER_STATUS="$TMP/f/status/none.json" recover "listnone" --list
 grep -Fq 'the rollback authority is available and holds no active receipt' "$TMP/listnone.txt" \
   && pass 'no active receipt says so rather than leaving the signed source implied' \
   || fail 'an inactive authority did not disclose that it holds nothing'
@@ -137,7 +137,7 @@ grep -Fq 'receipt-recover-fixture' "$TMP/listnone.txt" \
 
 # ------------------------------------------------- writer exclusion is required
 say '--writers-excluded is required'
-DUO_RECOVER_STATUS="$TMP/f/status/database-only.json" \
+WPRISM_RECOVER_STATUS="$TMP/f/status/database-only.json" \
   recover "noexclusion" --restore=receipt-recover-fixture
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'a restore without --writers-excluded refuses (exit 1)' \
@@ -148,19 +148,19 @@ grep -Fq 'writer_exclusion_required' "$TMP/noexclusion.txt" \
 grep -Fq 'lease row' "$TMP/noexclusion.txt" \
   && pass 'the refusal explains that the checkpoint contains its own lease row' \
   || fail 'the refusal does not explain why an internal lock cannot protect the window'
-[ -s "$DUO_WP_CALLS" ] \
+[ -s "$WPRISM_WP_CALLS" ] \
   && fail 'a refused restore still touched the target' \
   || pass 'a refused restore runs nothing at all — not even step 1'
 
 # ------------------------------------------------------------- topology first
-# `duo recover` is the most destructive verb in the product and was the only one
+# `wprism recover` is the most destructive verb in the product and was the only one
 # with no topology gate at any layer: step 3 is a stock `wp db import`
 # (CodeDeploy::recoveryDbImportArgs()), which on a network replaces every blog
 # plus wp_users/wp_blogs/wp_sitemeta. The refusal lands where this file's own
 # "Proved BEFORE step 1" doctrine puts every pre-condition: zero steps, no lease
 # touched.
 say 'a network refuses before step 1'
-DUO_RECOVER_STATUS="$TMP/f/status/database-only.json" DUO_TOPOLOGY=multisite \
+WPRISM_RECOVER_STATUS="$TMP/f/status/database-only.json" WPRISM_TOPOLOGY=multisite \
   recover "network" --restore=receipt-recover-fixture --writers-excluded --format=json
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'a multisite target refuses (exit 1)' \
@@ -172,7 +172,7 @@ if (!is_array($doc)) {
     exit(1);
 }
 $fail = [];
-if (($doc["format"] ?? null) !== "duo-command-refusal/v1") { $fail[] = "not a duo-command-refusal/v1 envelope"; }
+if (($doc["format"] ?? null) !== "wprism-command-refusal/v1") { $fail[] = "not a wprism-command-refusal/v1 envelope"; }
 if (($doc["reason_code"] ?? null) !== "recover_topology_unsupported") {
     $fail[] = "reason_code is " . var_export($doc["reason_code"] ?? null, true);
 }
@@ -183,7 +183,7 @@ if (!str_contains((string) ($doc["remediation"] ?? ""), "restores every blog and
     $fail[] = "the remediation does not say what a whole-database import does to a network";
 }
 if ($fail !== []) { fwrite(STDERR, "FAIL: " . implode(" | ", $fail) . "\n"); exit(1); }
-echo "ok: the multisite refusal is one duo-command-refusal/v1 naming recover_topology_unsupported\n";
+echo "ok: the multisite refusal is one wprism-command-refusal/v1 naming recover_topology_unsupported\n";
 ' "$TMP/network.txt" || fail 'the multisite refusal envelope is wrong'
 STEPS="$(wp_steps | tr '\n' ' ')"
 [ -z "${STEPS// /}" ] \
@@ -192,7 +192,7 @@ STEPS="$(wp_steps | tr '\n' ' ')"
 
 # Fail-closed, deliberately and with no override flag: a target too broken to
 # say whether it is a network is too broken to import a whole database into.
-DUO_RECOVER_STATUS="$TMP/f/status/database-only.json" DUO_TOPOLOGY_EXIT=17 \
+WPRISM_RECOVER_STATUS="$TMP/f/status/database-only.json" WPRISM_TOPOLOGY_EXIT=17 \
   recover "unknowntopology" --restore=receipt-recover-fixture --writers-excluded --format=json
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'an unreadable topology answer refuses (exit 1)' \
@@ -206,7 +206,7 @@ STEPS="$(wp_steps | tr '\n' ' ')"
   || fail "the unknown-topology refusal still ran steps: $STEPS"
 
 # --list is read-only, so it stays un-gated on a network.
-DUO_RECOVER_STATUS="$TMP/f/status/code.json" DUO_TOPOLOGY=multisite recover "networklist" --list
+WPRISM_RECOVER_STATUS="$TMP/f/status/code.json" WPRISM_TOPOLOGY=multisite recover "networklist" --list
 STATUS=$?
 [ "$STATUS" = 0 ] && pass '--list stays un-gated on a network: it is read-only' \
   || { fail "--list on a network exited $STATUS"; sed -n '1,20p' "$TMP/networklist.txt" >&2; }
@@ -216,7 +216,7 @@ grep -Fq 'receipt-recover-fixture' "$TMP/networklist.txt" \
 
 # --------------------------------------------------------------- code first
 say 'code-first ordering is enforced, not advised'
-DUO_RECOVER_STATUS="$TMP/f/status/code.json" \
+WPRISM_RECOVER_STATUS="$TMP/f/status/code.json" \
   recover "codefirst" --restore=receipt-recover-fixture --writers-excluded
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'a code-covering checkpoint refuses a database import (exit 1)' \
@@ -252,7 +252,7 @@ echo "ok: every does-not-restore line of the frozen plan claim is printed verbat
 
 # ------------------------------------------------- the ordered path, and step 4
 say 'the four ordered steps, and the mandatory final abort'
-DUO_RECOVER_STATUS="$TMP/f/status/database-only.json" \
+WPRISM_RECOVER_STATUS="$TMP/f/status/database-only.json" \
   recover "ordered" --restore=receipt-recover-fixture --writers-excluded
 STATUS=$?
 [ "$STATUS" = 0 ] && pass 'a database-only checkpoint recovers (exit 0)' \
@@ -263,7 +263,7 @@ ORDER="$(wp_steps | tr '\n' ' ')"
   || fail "the ordered path ran: $ORDER"
 
 # The one that matters: the final abort runs even when the import failed.
-DUO_RECOVER_STATUS="$TMP/f/status/database-only.json" DUO_IMPORT_EXIT=3 \
+WPRISM_RECOVER_STATUS="$TMP/f/status/database-only.json" WPRISM_IMPORT_EXIT=3 \
   recover "importfail" --restore=receipt-recover-fixture --writers-excluded
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'a failed import is reported as not recovered (exit 1)' \
@@ -281,7 +281,7 @@ grep -Fq 'the claim this recovery was performed under, unchanged' "$TMP/importfa
 
 # A failed step 1 stops before step 2: expiry lets a DIFFERENT promotion owner
 # recover the target; it does not authorize this restore.
-DUO_RECOVER_STATUS="$TMP/f/status/database-only.json" DUO_ABORT_EXIT=5 \
+WPRISM_RECOVER_STATUS="$TMP/f/status/database-only.json" WPRISM_ABORT_EXIT=5 \
   recover "leasefail" --restore=receipt-recover-fixture --writers-excluded
 ORDER="$(wp_steps | tr '\n' ' ')"
 [ "$ORDER" = "abort " ] \
@@ -297,17 +297,17 @@ grep -Eq '^ +(reason|remedy): ' "$TMP/leasefail.txt" \
   && fail 'an unclassified failure invented a reason code' \
   || pass 'an unclassified failure claims no reason code it was not given'
 
-# ------------------------------------------- the target's own refusal, DUO-3506
+# ------------------------------------------- the target's own refusal, issue #3506
 say 'a step-1 refusal the target classified'
 
 # The lease steps are asked in MACHINE mode so the target can answer with a
 # reason code at all. `CodeDeploy::abortArgs()`/`beginArgs()` deliberately stay
 # human for promote/deploy's compensating cleanup, which renders the target's
-# raw streams to a waiting operator (cli/duo:3094-3103); the recovery-only
+# raw streams to a waiting operator (cli/wprism:3094-3103); the recovery-only
 # variants are what carry --format=json.
 php -r '
 require_once $argv[1] . "/cli/src/Transport/CodeDeploy.php";
-$cd = "Duo\\Orchestrator\\CodeDeploy";
+$cd = "WPrism\\Orchestrator\\CodeDeploy";
 $owner = "promote-recover-fixture-owner";
 $hash = str_repeat("ab", 32);
 $fail = [];
@@ -334,18 +334,18 @@ echo "ok: only the recovery-path lease steps ask the target in machine mode\n";
 ' "$ROOT" || fail 'the recovery lease steps do not ask in machine mode'
 
 # Exactly what the agent puts on stdout when a --format=json abort is refused:
-# one `duo-command-refusal/v1` object, non-zero exit, nothing on stderr
+# one `wprism-command-refusal/v1` object, non-zero exit, nothing on stderr
 # (agent/src/Command/Cli.php:145-146). The reason code and the two reviewed
 # public fields are `PromotionLease::assert_abort_session()`'s own
 # (agent/src/Promotion/PromotionLease.php), which
 # offline/recovery/regress_promotion_abort_reason.php pins at the source.
 ENVELOPE="$TMP/superseded-envelope.json"
 cat > "$ENVELOPE" <<'JSON'
-{"format":"duo-command-refusal/v1","ok":false,"command":"promotion-abort","error":"promotion_abort_session_superseded","reason_code":"promotion_abort_session_superseded","message":"promotion abort refused: a newer promotion session superseded the one this abort names","remediation":"restore or recover the release that owns the latest begun promotion session; an obsolete checkpoint is not a safe recovery source, so recover this target through the provider that owns its backups instead"}
+{"format":"wprism-command-refusal/v1","ok":false,"command":"promotion-abort","error":"promotion_abort_session_superseded","reason_code":"promotion_abort_session_superseded","message":"promotion abort refused: a newer promotion session superseded the one this abort names","remediation":"restore or recover the release that owns the latest begun promotion session; an obsolete checkpoint is not a safe recovery source, so recover this target through the provider that owns its backups instead"}
 JSON
 
-DUO_RECOVER_STATUS="$TMP/f/status/database-only.json" DUO_ABORT_EXIT=1 \
-  DUO_ABORT_ENVELOPE="$ENVELOPE" \
+WPRISM_RECOVER_STATUS="$TMP/f/status/database-only.json" WPRISM_ABORT_EXIT=1 \
+  WPRISM_ABORT_ENVELOPE="$ENVELOPE" \
   recover "superseded" --restore=receipt-recover-fixture --writers-excluded
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'a refused step 1 is reported as not recovered (exit 1)' \
@@ -373,8 +373,8 @@ grep -Eq '[0-9a-f]{64}' "$TMP/superseded.txt" \
   || pass 'no artifact hash reaches the human view'
 
 # The same three facts, additively, in the machine document.
-DUO_RECOVER_STATUS="$TMP/f/status/database-only.json" DUO_ABORT_EXIT=1 \
-  DUO_ABORT_ENVELOPE="$ENVELOPE" \
+WPRISM_RECOVER_STATUS="$TMP/f/status/database-only.json" WPRISM_ABORT_EXIT=1 \
+  WPRISM_ABORT_ENVELOPE="$ENVELOPE" \
   recover "supersededjson" --restore=receipt-recover-fixture --writers-excluded --format=json
 php -r '
 $doc = json_decode((string) file_get_contents($argv[1]), true);
@@ -383,7 +383,7 @@ if (!is_array($doc)) {
     exit(1);
 }
 $fail = [];
-if (($doc["format"] ?? null) !== "duo-recovery-outcome/v1") {
+if (($doc["format"] ?? null) !== "wprism-recovery-outcome/v1") {
     $fail[] = "the outcome format moved";
 }
 $step = $doc["steps"][0] ?? [];
@@ -408,13 +408,13 @@ if ($fail !== []) {
     fwrite(STDERR, "FAIL: " . implode(" | ", $fail) . "\n");
     exit(1);
 }
-echo "ok: duo-recovery-outcome/v1 carries the reason code and remedy on the failed step\n";
+echo "ok: wprism-recovery-outcome/v1 carries the reason code and remedy on the failed step\n";
 ' "$TMP/supersededjson.txt" || fail 'the machine outcome did not carry the classified refusal'
 
 # ------------------------------------------------------ an absent checkpoint
 say 'an absent checkpoint'
-rm -f "$TMP/f/target/.duo/checkpoints/promote-recover-fixture-owner.sql.enc"
-DUO_RECOVER_STATUS="$TMP/f/status/database-only.json" \
+rm -f "$TMP/f/target/.wprism/checkpoints/promote-recover-fixture-owner.sql.enc"
+WPRISM_RECOVER_STATUS="$TMP/f/status/database-only.json" \
   recover "nockpt" --restore=receipt-recover-fixture --writers-excluded
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'an absent checkpoint refuses (exit 1)' || fail "an absent checkpoint exited $STATUS"
@@ -429,7 +429,7 @@ ORDER="$(wp_steps | tr '\n' ' ')"
 # ---------------------------------------------- retained release checkpoints
 say 'retained release checkpoints on a transport with no rollback authority'
 # The fixture deleted the receipt checkpoint above; put it back for this part.
-printf -- '-- fixture checkpoint\n' > "$TMP/f/target/.duo/checkpoints/promote-recover-fixture-owner.sql.enc"
+printf -- '-- fixture checkpoint\n' > "$TMP/f/target/.wprism/checkpoints/promote-recover-fixture-owner.sql.enc"
 
 recover_plain "plainlist" --list
 STATUS=$?
@@ -447,7 +447,7 @@ grep -Fq 'this transport carries no rollback authority runtime, so only the data
 grep -Fq 'retained release checkpoints are authenticated encrypted database checkpoints' "$TMP/plainlist.txt" \
   && pass 'the listing says what a retained checkpoint is and how it is restored' \
   || fail 'the listing did not disclose what a retained checkpoint is'
-# DUO-3506: the listing discloses the refusal an older checkpoint can meet at
+# issue #3506: the listing discloses the refusal an older checkpoint can meet at
 # step 1, WITHOUT claiming to know which row it applies to. `promotion_session`
 # is target-side state no host verb reads, and an older checkpoint is still
 # restorable when no later session was begun, so a per-row "not restorable"
@@ -470,7 +470,7 @@ grep -Fq 'receipt-recover-fixture' "$TMP/plainlist.txt" \
 grep -Fq 'generation' "$TMP/plainlist.txt" \
   && fail 'a retained checkpoint printed a signed generation it does not have' \
   || pass 'a retained checkpoint prints no generation'
-[ -s "$DUO_WP_CALLS" ] && fail '--list on a local transport ran a recovery step' || pass '--list on a local transport runs no recovery step'
+[ -s "$WPRISM_WP_CALLS" ] && fail '--list on a local transport ran a recovery step' || pass '--list on a local transport runs no recovery step'
 # Newest first: the code-phase checkpoint is dated 2023, the receipt one now.
 FIRST_ID="$(grep -E '^  promote-' "$TMP/plainlist.txt" | head -1 | awk '{print $1}')"
 [ "$FIRST_ID" = 'promote-recover-fixture-owner' ] \
@@ -488,13 +488,13 @@ ORDER="$(wp_steps | tr '\n' ' ')"
 [ "$ORDER" = "abort begin import abort " ] \
   && pass 'a retained checkpoint is restored through exactly abort -> begin -> import -> final abort' \
   || fail "the retained restore ran: $ORDER"
-grep -Fq -- '--promotion-owner=recover-fixture-owner' "$DUO_WP_CALLS" \
+grep -Fq -- '--promotion-owner=recover-fixture-owner' "$WPRISM_WP_CALLS" \
   && pass 'the recovery lease names the owner promote used (from the checkpoint file name)' \
   || fail 'the recovery lease did not carry the promote owner'
-grep -Fq -- '--artifact-hash=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1' "$DUO_WP_CALLS" \
+grep -Fq -- '--artifact-hash=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1' "$WPRISM_WP_CALLS" \
   && pass 'the recovery lease names the artifact hash promote used (from the retained compiled artifact)' \
   || fail 'the recovery lease did not carry the retained artifact hash'
-grep -Fq 'promote-recover-fixture-owner.sql.enc' "$DUO_WP_CALLS" \
+grep -Fq 'promote-recover-fixture-owner.sql.enc' "$WPRISM_WP_CALLS" \
   && pass 'the import reads exactly the retained checkpoint file' \
   || fail 'the import did not name the retained checkpoint file'
 grep -Fq 'recovery profile: operator-directed' "$TMP/plainrestore.txt" \
@@ -526,7 +526,7 @@ STATUS=$?
 grep -Fq 'writer_exclusion_required' "$TMP/plaindeploynoexcl.txt" \
   && pass 'the deploy checkpoint refusal names writer_exclusion_required too' \
   || fail 'the deploy checkpoint restore did not require writer exclusion'
-[ -s "$DUO_WP_CALLS" ] \
+[ -s "$WPRISM_WP_CALLS" ] \
   && fail 'a refused deploy checkpoint restore still touched the target' \
   || pass 'a refused deploy checkpoint restore runs nothing at all'
 
@@ -538,10 +538,10 @@ ORDER="$(wp_steps | tr '\n' ' ')"
 [ "$ORDER" = "abort begin import abort " ] \
   && pass 'a deploy checkpoint is restored through exactly abort -> begin -> import -> final abort' \
   || fail "the deploy checkpoint restore ran: $ORDER"
-grep -Fq 'deploy-recover-fixture-owner.sql.enc' "$DUO_WP_CALLS" \
-  && pass 'the import reads exactly the file duo deploy wrote' \
+grep -Fq 'deploy-recover-fixture-owner.sql.enc' "$WPRISM_WP_CALLS" \
+  && pass 'the import reads exactly the file wprism deploy wrote' \
   || fail 'the import did not name the deploy checkpoint file'
-grep -Fq -- '--artifact-hash=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1' "$DUO_WP_CALLS" \
+grep -Fq -- '--artifact-hash=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1' "$WPRISM_WP_CALLS" \
   && pass 'the deploy recovery lease names the hash from the sibling deploy-<owner>.json' \
   || fail 'the deploy recovery lease did not carry its own artifact hash'
 grep -Fq 'recovery profile: operator-directed' "$TMP/plaindeploy.txt" \
@@ -549,7 +549,7 @@ grep -Fq 'recovery profile: operator-directed' "$TMP/plaindeploy.txt" \
   || fail 'the deploy checkpoint restore did not print the claim'
 
 # The final abort is mandatory for a deploy checkpoint as well.
-DUO_IMPORT_EXIT=3 recover_plain "plaindeployimportfail" --restore=deploy-recover-fixture-owner --writers-excluded
+WPRISM_IMPORT_EXIT=3 recover_plain "plaindeployimportfail" --restore=deploy-recover-fixture-owner --writers-excluded
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'a failed deploy-checkpoint import is reported as not recovered (exit 1)' \
   || fail "a failed deploy-checkpoint import exited $STATUS"
@@ -564,7 +564,7 @@ ORDER="$(wp_steps | tr '\n' ' ')"
 # unrestorable row — which is why this is checkpoint_unknown and not the
 # checkpoint_unavailable a signed receipt gets above at the same emptiness. A
 # retained checkpoint has no source of truth other than the file.
-mv "$TMP/f/target/.duo/checkpoints/deploy-recover-fixture-owner.sql.enc" "$TMP/deploy-checkpoint.hold"
+mv "$TMP/f/target/.wprism/checkpoints/deploy-recover-fixture-owner.sql.enc" "$TMP/deploy-checkpoint.hold"
 recover_plain "plaindeploygone" --restore=deploy-recover-fixture-owner --writers-excluded
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'an absent deploy checkpoint refuses (exit 1)' \
@@ -576,7 +576,7 @@ STEPS="$(wp_steps | tr '\n' ' ')"
 [ -z "${STEPS// /}" ] \
   && pass 'an absent deploy checkpoint never reaches step 1' \
   || fail "an absent deploy checkpoint ran steps: $STEPS"
-mv "$TMP/deploy-checkpoint.hold" "$TMP/f/target/.duo/checkpoints/deploy-recover-fixture-owner.sql.enc"
+mv "$TMP/deploy-checkpoint.hold" "$TMP/f/target/.wprism/checkpoints/deploy-recover-fixture-owner.sql.enc"
 
 # Code first holds for a retained checkpoint too: the checkpoint file carries
 # no code evidence, so the question is asked of the frozen plan for that
@@ -597,7 +597,7 @@ STEPS="$(wp_steps | tr '\n' ' ')"
   || fail "the retained code-first refusal still ran steps: $STEPS"
 
 # The final abort is mandatory here as well.
-DUO_IMPORT_EXIT=3 recover_plain "plainimportfail" --restore=promote-recover-fixture-owner --writers-excluded
+WPRISM_IMPORT_EXIT=3 recover_plain "plainimportfail" --restore=promote-recover-fixture-owner --writers-excluded
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'a failed retained import is reported as not recovered (exit 1)' \
   || fail "a failed retained import exited $STATUS"
@@ -608,7 +608,7 @@ ORDER="$(wp_steps | tr '\n' ' ')"
 
 # No identity, no lease: a retained checkpoint whose artifact is gone is
 # listed (the absence is printed) and refuses to restore before step 1.
-rm -f "$TMP/f/target/.duo/artifacts/promote-recover-fixture-owner.json"
+rm -f "$TMP/f/target/.wprism/artifacts/promote-recover-fixture-owner.json"
 recover_plain "plainnoid" --list
 grep -Fq 'has no lease identity and cannot be restored by this command' "$TMP/plainnoid.txt" \
   && pass 'a retained checkpoint without its artifact is listed with the no-identity disclosure' \
@@ -638,7 +638,7 @@ grep -Fq 'this transport carries no rollback authority runtime, so only the data
   && pass 'the un-configured local environment still discloses that it has no authority to read' \
   || fail 'the un-configured disclosure disappeared'
 
-DUO_RECOVER_STATUS="$TMP/f/status/code.json" recover_configured "configuredlist" --list
+WPRISM_RECOVER_STATUS="$TMP/f/status/code.json" recover_configured "configuredlist" --list
 STATUS=$?
 [ "$STATUS" = 0 ] && pass 'a configured local transport lists (exit 0)' \
   || { fail "a configured local --list exited $STATUS"; sed -n '1,20p' "$TMP/configuredlist.txt" >&2; }
@@ -648,18 +648,18 @@ grep -Fq 'receipt-recover-fixture' "$TMP/configuredlist.txt" \
 grep -Fq 'this transport carries no rollback authority runtime' "$TMP/configuredlist.txt" \
   && fail 'a configured local transport still claimed it carries no authority runtime' \
   || pass 'the no-authority disclosure does not fire for a configured local transport'
-[ -s "$DUO_WP_CALLS" ] \
+[ -s "$WPRISM_WP_CALLS" ] \
   && fail '--list on a configured local transport ran a recovery step' \
   || pass '--list on a configured local transport runs no recovery step'
 
-# ------------------------------------------------------------- cli/duo wiring
-say 'cli/duo wiring'
-grep -Fq "'recover' => cmd_recover(\$transport, \$extra)" "$ROOT/cli/duo" \
+# ------------------------------------------------------------- cli/wprism wiring
+say 'cli/wprism wiring'
+grep -Fq "'recover' => cmd_recover(\$transport, \$extra)" "$ROOT/cli/wprism" \
   && pass 'recover is registered in the dispatch match' \
-  || fail 'recover is not registered in cli/duo dispatch'
-grep -Fq 'duo recover <env>' "$ROOT/cli/duo" \
+  || fail 'recover is not registered in cli/wprism dispatch'
+grep -Fq 'wprism recover <env>' "$ROOT/cli/wprism" \
   && pass 'recover appears in the public usage text' \
-  || fail 'recover is missing from duo_usage()'
+  || fail 'recover is missing from wprism_usage()'
 
 printf '\n'
 if [ "$FAILURES" -ne 0 ]; then

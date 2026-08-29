@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline characterization for DUO-3348 slices 12/14: the post-type
+ * Offline characterization for issue #3348 slices 12/14: the post-type
  * body/phase/children grammar now lives in PostTypeGrammar rather than
  * Policy.php.
  *
@@ -12,14 +12,14 @@
  */
 
 $repo = dirname(__DIR__, 4);
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 2);
 }
 require_once $repo . '/agent/src/Kernel/OptionState.php';
 require_once $repo . '/agent/src/Policy/Policy.php';
 
-use Duo\Policy;
-use Duo\PostTypeGrammar;
+use WPrism\Policy;
+use WPrism\PostTypeGrammar;
 
 $failures = 0;
 function post_type_check(bool $condition, string $message): void {

@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/PathSafety.php';
 
@@ -60,7 +60,7 @@ final class CodeMaterializer {
      * Materialize every descriptor row under the caller's lease and report
      * what it had to move.  Re-staging the same descriptor is the common
      * case, not the exception: a lifecycle retry, a state-only release and a
-     * repeated `duo deploy` of one artifact all re-enter this loop with a
+     * repeated `wprism deploy` of one artifact all re-enter this loop with a
      * target that already holds those exact bytes, and the loop used to
      * temp+rename all 8,918 files of a real payload every single time.
      *
@@ -68,7 +68,7 @@ final class CodeMaterializer {
      */
     public static function write_payload(string $repo, array $descriptor): array {
         if (!defined('WP_CONTENT_DIR') || !is_string(WP_CONTENT_DIR) || WP_CONTENT_DIR === '') {
-            throw new \RuntimeException('duo: code-stage requires WordPress WP_CONTENT_DIR');
+            throw new \RuntimeException('wprism: code-stage requires WordPress WP_CONTENT_DIR');
         }
         self::assert_target_layout($descriptor);
         $source = rtrim($repo, '/') . '/' . self::SOURCE;
@@ -79,14 +79,14 @@ final class CodeMaterializer {
             $src = self::safe_join($source, $relative);
             $dst = self::safe_join(WP_CONTENT_DIR, $relative);
             if (is_link($src) || !is_file($src)) {
-                throw new \RuntimeException("duo: code-stage source file disappeared or became a symlink '$relative'");
+                throw new \RuntimeException("wprism: code-stage source file disappeared or became a symlink '$relative'");
             }
             if (hash_file('sha256', $src) !== $row['sha256']) {
-                throw new \RuntimeException("duo: code-stage source hash changed for '$relative'");
+                throw new \RuntimeException("wprism: code-stage source hash changed for '$relative'");
             }
             self::ensure_target_parent(dirname($dst));
             if (is_link($dst) || (file_exists($dst) && !is_file($dst))) {
-                throw new \RuntimeException("duo: code-stage target path is not a regular file '$relative'");
+                throw new \RuntimeException("wprism: code-stage target path is not a regular file '$relative'");
             }
             // Every refusal this loop owns has already been re-checked for
             // this row above -- source present, not a symlink, still hashing
@@ -111,15 +111,15 @@ final class CodeMaterializer {
                 $unchanged++;
                 continue;
             }
-            $tmp = dirname($dst) . '/.' . basename($dst) . '.duo-stage-' . bin2hex(random_bytes(8));
+            $tmp = dirname($dst) . '/.' . basename($dst) . '.wprism-stage-' . bin2hex(random_bytes(8));
             try {
                 $bytes = file_get_contents($src);
                 if ($bytes === false || file_put_contents($tmp, $bytes, LOCK_EX) === false) {
-                    throw new \RuntimeException("duo: code-stage cannot write '$relative'");
+                    throw new \RuntimeException("wprism: code-stage cannot write '$relative'");
                 }
                 @chmod($tmp, fileperms($src) & 0777);
                 if (hash_file('sha256', $tmp) !== $row['sha256'] || !@rename($tmp, $dst)) {
-                    throw new \RuntimeException("duo: code-stage atomic publish failed for '$relative'");
+                    throw new \RuntimeException("wprism: code-stage atomic publish failed for '$relative'");
                 }
             } finally {
                 if (is_file($tmp) || is_link($tmp)) {
@@ -191,7 +191,7 @@ final class CodeMaterializer {
             if (is_link($absolute) || !is_file($absolute)
                 || !hash_equals((string) $row['sha256'], (string) hash_file('sha256', $absolute))) {
                 throw new \RuntimeException(
-                    "duo: code-stage recovery refuses changed abandoned staged MU file '$relative'"
+                    "wprism: code-stage recovery refuses changed abandoned staged MU file '$relative'"
                 );
             }
             $candidates[] = $row;
@@ -205,12 +205,12 @@ final class CodeMaterializer {
             if (!is_file($absolute) || is_link($absolute)
                 || !hash_equals((string) $row['sha256'], (string) hash_file('sha256', $absolute))) {
                 throw new \RuntimeException(
-                    "duo: code-stage recovery lost exact ownership of abandoned staged MU file '$relative'"
+                    "wprism: code-stage recovery lost exact ownership of abandoned staged MU file '$relative'"
                 );
             }
             if (!@unlink($absolute) || file_exists($absolute)) {
                 throw new \RuntimeException(
-                    "duo: code-stage recovery could not remove abandoned staged MU file '$relative'"
+                    "wprism: code-stage recovery could not remove abandoned staged MU file '$relative'"
                 );
             }
             $removed[] = $relative;
@@ -222,7 +222,7 @@ final class CodeMaterializer {
     /** Validate the complete desired path inventory without creating it. */
     public static function assert_payload_targets(array $descriptor): void {
         if (!defined('WP_CONTENT_DIR') || !is_string(WP_CONTENT_DIR) || WP_CONTENT_DIR === '') {
-            throw new \RuntimeException('duo: code-stage requires WordPress WP_CONTENT_DIR');
+            throw new \RuntimeException('wprism: code-stage requires WordPress WP_CONTENT_DIR');
         }
         $content = rtrim(WP_CONTENT_DIR, '/');
         foreach ($descriptor['files'] as $row) {
@@ -238,14 +238,14 @@ final class CodeMaterializer {
                 if (file_exists($cursor) && !is_dir($cursor)) {
                     $parent = implode('/', $walked);
                     throw new \RuntimeException(
-                        "duo: code-stage target parent is not a directory '$parent'"
+                        "wprism: code-stage target parent is not a directory '$parent'"
                     );
                 }
             }
             $target = self::safe_join($content, $relative);
             if (file_exists($target) && !is_file($target)) {
                 throw new \RuntimeException(
-                    "duo: code-stage target path is not a regular file '$relative'"
+                    "wprism: code-stage target path is not a regular file '$relative'"
                 );
             }
         }
@@ -253,7 +253,7 @@ final class CodeMaterializer {
 
     public static function verify_payload(array $descriptor): void {
         if (!defined('WP_CONTENT_DIR') || !is_string(WP_CONTENT_DIR) || WP_CONTENT_DIR === '') {
-            throw new \RuntimeException('duo: code-finalize requires WordPress WP_CONTENT_DIR');
+            throw new \RuntimeException('wprism: code-finalize requires WordPress WP_CONTENT_DIR');
         }
         self::assert_target_layout($descriptor);
         foreach ($descriptor['owned_roots'] as $root) {
@@ -263,7 +263,7 @@ final class CodeMaterializer {
             self::assert_no_symlinked_target_path($row['path'], false, 'code verification');
             $path = self::safe_join(WP_CONTENT_DIR, $row['path']);
             if (is_link($path) || !is_file($path) || hash_file('sha256', $path) !== $row['sha256']) {
-                throw new \RuntimeException("duo: code-finalize verification failed for '{$row['path']}'");
+                throw new \RuntimeException("wprism: code-finalize verification failed for '{$row['path']}'");
             }
         }
     }
@@ -271,7 +271,7 @@ final class CodeMaterializer {
     /** The v0 descriptor targets standard WordPress content roots only. */
     public static function assert_target_layout(?array $descriptor = null): void {
         if (!defined('WP_CONTENT_DIR') || !is_string(WP_CONTENT_DIR) || WP_CONTENT_DIR === '') {
-            throw new \RuntimeException('duo: code materialization requires WordPress WP_CONTENT_DIR');
+            throw new \RuntimeException('wprism: code materialization requires WordPress WP_CONTENT_DIR');
         }
         $content = rtrim(WP_CONTENT_DIR, '/');
         $managed = ['plugins' => true, 'mu-plugins' => true, 'themes' => true];
@@ -295,19 +295,19 @@ final class CodeMaterializer {
             }
             $actual = constant($constant);
             if ($constant === 'WPMU_PLUGIN_DIR'
-                && defined('DUO_CONTROL_PLANE') && DUO_CONTROL_PLANE === true) {
-                if (!defined('DUO_CONTROL_WPMU_PLUGIN_DIR')
-                    || !is_string(DUO_CONTROL_WPMU_PLUGIN_DIR)
-                    || DUO_CONTROL_WPMU_PLUGIN_DIR === '') {
+                && defined('WPRISM_CONTROL_PLANE') && WPRISM_CONTROL_PLANE === true) {
+                if (!defined('WPRISM_CONTROL_WPMU_PLUGIN_DIR')
+                    || !is_string(WPRISM_CONTROL_WPMU_PLUGIN_DIR)
+                    || WPRISM_CONTROL_WPMU_PLUGIN_DIR === '') {
                     throw new \RuntimeException(
-                        'duo: control-plane bootstrap did not preserve the real mu-plugins materialization root'
+                        'wprism: control-plane bootstrap did not preserve the real mu-plugins materialization root'
                     );
                 }
-                $actual = DUO_CONTROL_WPMU_PLUGIN_DIR;
+                $actual = WPRISM_CONTROL_WPMU_PLUGIN_DIR;
             }
             if (!is_string($actual) || !self::same_target_path($actual, $content . '/' . $relative)) {
                 throw new \RuntimeException(
-                    "duo: code materialization requires standard $relative root '$content/$relative'; "
+                    "wprism: code materialization requires standard $relative root '$content/$relative'; "
                     . "$constant is custom and this v0 payload cannot safely target it"
                 );
             }
@@ -316,7 +316,7 @@ final class CodeMaterializer {
             $actual = get_theme_root();
             if (!is_string($actual) || !self::same_target_path($actual, $content . '/themes')) {
                 throw new \RuntimeException(
-                    "duo: code materialization requires standard themes root '$content/themes'; active WordPress theme root is custom"
+                    "wprism: code materialization requires standard themes root '$content/themes'; active WordPress theme root is custom"
                 );
             }
         }
@@ -340,21 +340,21 @@ final class CodeMaterializer {
 
     private static function ensure_target_parent(string $dir): void {
         if (!defined('WP_CONTENT_DIR')) {
-            throw new \RuntimeException('duo: WP_CONTENT_DIR is not defined');
+            throw new \RuntimeException('wprism: WP_CONTENT_DIR is not defined');
         }
         $root = rtrim((string) WP_CONTENT_DIR, '/');
         $relative = ltrim(substr($dir, strlen($root)), '/');
         $cursor = $root;
         if ($relative !== '' && !PathSafety::safe_relative($relative)) {
-            throw new \RuntimeException("duo: unsafe target code parent '$dir'");
+            throw new \RuntimeException("wprism: unsafe target code parent '$dir'");
         }
         foreach ($relative === '' ? [] : explode('/', $relative) as $part) {
             $cursor .= '/' . $part;
             if (is_link($cursor)) {
-                throw new \RuntimeException("duo: code-stage target parent is a symbolic link '$cursor'");
+                throw new \RuntimeException("wprism: code-stage target parent is a symbolic link '$cursor'");
             }
             if (!is_dir($cursor) && !mkdir($cursor, 0777) && !is_dir($cursor)) {
-                throw new \RuntimeException("duo: cannot create code target directory '$cursor'");
+                throw new \RuntimeException("wprism: cannot create code target directory '$cursor'");
             }
         }
     }

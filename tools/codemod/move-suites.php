@@ -42,8 +42,8 @@ declare(strict_types=1);
  *  2. php-dir-literal — `__DIR__ . '<literal>'`, re-based for the new depth and
  *     FOLLOWING the map, so a reference to a sibling that also moved lands on
  *     its new home (`regress_init_contract.php:623` reads
- *     `__DIR__ . '/regress_duo_init.sh'`; the ratified map sends that script to
- *     `live/` and the reference becomes `'/../../live/regress_duo_init.sh'`).
+ *     `__DIR__ . '/regress_wprism_init.sh'`; the ratified map sends that script to
+ *     `live/` and the reference becomes `'/../../live/regress_wprism_init.sh'`).
  *     Two things follow from "following the map", and both are load-bearing:
  *
  *       * THE MAP DECIDES WHAT MOVES, not this file's prose. Only the four
@@ -123,7 +123,7 @@ declare(strict_types=1);
  *     such tokens over 12 files today. The rule, the collision measurement
  *     behind its disambiguation, and the reason it is stated once as prose
  *     rather than factored into a shared library are all in the block above
- *     `ms_sandbox_relative_tail()`. DUO-3482 is what W2 and W3 paid for its
+ *     `ms_sandbox_relative_tail()`. issue #3482 is what W2 and W3 paid for its
  *     absence: a green --plan and --prove over seven suites nobody had looked
  *     at, then 90 sites repaired by hand.
  *  7. move-modules-key — `tools/codemod/move-modules.php`'s `mm_scanner_fixes()`
@@ -147,7 +147,7 @@ declare(strict_types=1);
  * `ms_runtime_created_reason()` is the only thing that softens the prover, and
  * it is a classification carrying evidence rather than a list of paths that
  * were in the way: three runtime ROOTS (`sandbox/tmp/` and `sandbox/siterepo/`
- * from `.gitignore:3-4`, and `agent/duo/`, the deployed mu-plugin layout) and
+ * from `.gitignore:3-4`, and `agent/wprism/`, the deployed mu-plugin layout) and
  * three named files. Anything it does not match is a dangling reference and
  * fails, which is what stops a wrong `../` run from hiding in the same bucket.
  *
@@ -281,7 +281,7 @@ const MS_MOVE_MODULES_FILE = 'tools/codemod/move-modules.php';
 const MS_MOVE_MODULES_KEYS = [
     'sandbox/tests/regress_agent_src_requires.php',
     'sandbox/tests/regress_capture_refactor_boundaries.php',
-    'sandbox/tests/regress_duo3316_contract.php',
+    'sandbox/tests/regress_reference_contract.php',
     'sandbox/tests/regress_manifest_validate.php',
     'sandbox/tests/regress_manifest_validate.sh',
     'sandbox/tests/regress_woocommerce_contract.php',
@@ -311,11 +311,11 @@ function ms_runtime_created_prefixes(): array
         // `.gitignore:3`. `sandbox/bin/pair.sh` creates `siterepo/<pair><n>` per
         // pair; `git ls-files sandbox/siterepo` is empty.
         'sandbox/siterepo/' => 'gitignored pair estate (.gitignore:3); sandbox/bin/pair.sh creates siterepo/<pair><n> at runtime',
-        // The DEPLOYED drop-in layout, not the source one. `agent/duo-loader.php`
+        // The DEPLOYED drop-in layout, not the source one. `agent/wprism-loader.php`
         // is the mu-plugin shim that sits in `wp-content/mu-plugins/` on a
-        // managed site and requires `duo/duo.php` BESIDE IT THERE; in this tree
-        // the agent is `agent/duo.php` and `agent/duo/` has no tracked files.
-        'agent/duo/' => 'the deployed mu-plugin layout: agent/duo-loader.php:7 requires duo/duo.php beside itself on a managed site, never in this tree',
+        // managed site and requires `wprism/wprism.php` BESIDE IT THERE; in this tree
+        // the agent is `agent/wprism.php` and `agent/wprism/` has no tracked files.
+        'agent/wprism/' => 'the deployed mu-plugin layout: agent/wprism-loader.php:7 requires wprism/wprism.php beside itself on a managed site, never in this tree',
         // `cli/src/Onboarding/Adopt.php:104-118` assembles source capsules
         // into this embedded projection during deployment. The source tree
         // intentionally has adapter-packages/ + platform/ instead.
@@ -339,13 +339,13 @@ function ms_runtime_created_targets(): array
         // a secrets-grade operator drop-in looks like — never a repo file.
         'agent/scoped-promotion-control.json' => 'operator-installed on a managed site; ScopedPromotionAuthority::installed_config() asserts a 0600 regular file (agent/src/Promotion/ScopedPromotionAuthority.php:133-136)',
         // Machine-local php-cs-fixer result cache: `/.php-cs-fixer.cache` is
-        // gitignored (.gitignore:67, the DUO WP-4 dev-toolchain block) and
+        // gitignored (.gitignore:67, the WPRISM WP-4 dev-toolchain block) and
         // written only the first time php-cs-fixer actually runs
         // (.php-cs-fixer.dist.php:86 setCacheFile(__DIR__ . '/.php-cs-fixer.cache')).
         // A fresh clone or `git worktree add` has run php-cs-fixer zero times,
         // so the reference this tool's own class 2 finds while scanning
         // .php-cs-fixer.dist.php (an MS_SCAN_FILES member) resolves to nothing
-        // there — DUO-3494: MoveSuitesTest::
+        // there — issue #3494: MoveSuitesTest::
         // testEmptyMapAgainstTheRealRepositoryIsAQuietNoOp failed in exactly
         // that state, on the newcomer path CONTRIBUTING.md's first command
         // walks. The LEADING SLASH is not a typo: ms_rewrite_php() resolves
@@ -825,7 +825,7 @@ function ms_rewrite_php(string $source, string $oldRel, string $newRel, array $p
             if ($dot >= $count || $id($dot) !== '.') {
                 // A bare `__DIR__` still means "the directory this file lives
                 // in" after the move, which is what every such site here wants
-                // (`putenv('DUO_MANIFESTS_DIR=' . __DIR__)`). Nothing to do.
+                // (`putenv('WPRISM_MANIFESTS_DIR=' . __DIR__)`). Nothing to do.
                 continue;
             }
             $str = $next($dot);
@@ -1051,7 +1051,7 @@ function ms_php_root_vars(array $tokens, string $dirRel, int $delta): array
     // cli/src/Adapter/AdapterDraft.php binds `$repo = dirname(__DIR__, 3)` in
     // boot() at :390 and separately declares `read_prior_manifest(string $repo,
     // …)` at :435, where `$repo` is a MANAGED SITE's repository. Without this,
-    // `$repo . '/site.duo.json'` resolved against the duo repo root and was
+    // `$repo . '/site.wprism.json'` resolved against the wprism repo root and was
     // reported as a dangling reference to a file that only exists on a site.
     $ambiguous = ms_php_parameter_names($tokens);
     $n = count($significant);
@@ -1067,7 +1067,7 @@ function ms_php_root_vars(array $tokens, string $dirRel, int $delta): array
         // name, whichever order the two appear in.
         // `regress_actions_providers.php` binds `$root = dirname(__DIR__, 2)`
         // at :53 and then shadows it inside a helper with
-        // `$root = sys_get_temp_dir() . '/duo_regress_…'` at :114; without
+        // `$root = sys_get_temp_dir() . '/wprism_regress_…'` at :114; without
         // this, `$root . '/providers'` on the next line resolves against the
         // repo root and is reported as a dangling reference to a directory
         // that only ever exists in a temp tree.
@@ -1583,7 +1583,7 @@ function ms_literal_hits(string $line, string $path): int
 
 /*
  * ===================================================================
- * THE SANDBOX-RELATIVE SUITE-REFERENCE RULE — stated once, HERE (DUO-3482)
+ * THE SANDBOX-RELATIVE SUITE-REFERENCE RULE — stated once, HERE (issue #3482)
  * ===================================================================
  *
  * A corpus file has TWO legitimate spellings for the same suite, and every
@@ -1753,7 +1753,7 @@ function ms_is_text(string $bytes): bool
  * Type-aware, and that is the whole point. The first cut scanned every line for
  * any repo-tree name and produced 222 review items against a full 333-file
  * mapping, of which the overwhelming majority were prose inside strings:
- * `"php cli/duo --envs-file=<pair-envs> promote target"` in
+ * `"php cli/wprism --envs-file=<pair-envs> promote target"` in
  * grind_ecommerce_developer.matrix.json, `echo "… the REAL manifests/acf.json
  * …"`, `str_contains($e->getMessage(), 'spec/repo-format.md')`. A REVIEW bucket
  * that cries wolf gets skimmed, and skimming is exactly the failure it exists
@@ -1888,9 +1888,9 @@ function ms_compute(string $root, array $map): array
 
         // NOT gated on $moved. A file that stays put still needs re-pointing
         // when the file it NAMES moved, and a subset map makes that the common
-        // case rather than the exotic one: wave W2 moves regress_duo_init.sh
+        // case rather than the exotic one: wave W2 moves regress_wprism_init.sh
         // into live/ while regress_init_contract.php — a W3 file — stays flat
-        // holding `__DIR__ . '/regress_duo_init.sh'`. Class 6 cannot see that
+        // holding `__DIR__ . '/regress_wprism_init.sh'`. Class 6 cannot see that
         // literal (it is a bare sibling name, not a repo-relative path), so
         // gating this pass on $moved left two dangling references that only
         // --prove caught. With old == new the depth delta is zero, so the only

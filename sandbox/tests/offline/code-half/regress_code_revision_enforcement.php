@@ -8,7 +8,7 @@
  * payload materializer regression, where Code can re-hash a real target.
  */
 
-namespace Duo;
+namespace WPrism;
 
 final class CompiledRepository {
     public function __construct(private ?array $descriptor, private ?string $revision) {}
@@ -109,7 +109,7 @@ foreach ([
     } catch (\RuntimeException $e) {
         $blocked = true;
         $check(str_contains($e->getMessage(), 'code_revision_stale'), $case['label'] . ' must name stale code revision');
-        $check(str_contains($e->getMessage(), "duo deploy <env>"), $case['label'] . ' must direct host deploy recovery');
+        $check(str_contains($e->getMessage(), "wprism deploy <env>"), $case['label'] . ' must direct host deploy recovery');
         $check(str_contains($e->getMessage(), 'non-forceable'), $case['label'] . ' must explain non-forceable ordering');
     }
     $check($blocked, 'stale code revision must refuse ' . $case['label']);
@@ -150,7 +150,7 @@ $check(
     'ordinary standalone lifecycle deploy must remain supported'
 );
 
-// DUO-3490: retire/activate always run after code-stage and before
+// issue #3490: retire/activate always run after code-stage and before
 // code-finalize, so completed_code_mismatch() is non-null on every
 // code-enabled deploy's lifecycle phases -- and by the time
 // $stagedMaterialization is true, run() has already called

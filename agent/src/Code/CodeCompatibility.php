@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Pure source-side compatibility checks for the opt-in code payload.
@@ -66,7 +66,7 @@ final class CodeCompatibility {
             return '[' . $diagnostic['code'] . '] ' . $where . ' — ' . $diagnostic['message'];
         }, $diagnostics);
         throw new \RuntimeException(
-            'duo: code source compatibility failed (' . count($diagnostics)
+            'wprism: code source compatibility failed (' . count($diagnostics)
             . " blocking diagnostic(s)); no target code was staged:\n  - "
             . implode("\n  - ", $lines)
         );
@@ -184,7 +184,7 @@ final class CodeCompatibility {
                 <=> [$b['path'], $b['locator'], $b['code']];
         });
         return [
-            'format' => 'duo-code-runtime/v1',
+            'format' => 'wprism-code-runtime/v1',
             'compatible' => $diagnostics === [],
             'target' => $targetRecord,
             'requirements' => $requirements,

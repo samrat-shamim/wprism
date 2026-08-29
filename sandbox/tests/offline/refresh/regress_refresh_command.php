@@ -3,13 +3,13 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../../cli/src/Command/RefreshCommand.php';
 
-use Duo\Canon;
-use Duo\Orchestrator\CommandOutput;
-use Duo\Orchestrator\DriverCapabilityReport;
-use Duo\Orchestrator\EnvironmentDriver;
-use Duo\Orchestrator\Refresh;
-use Duo\Orchestrator\RefreshCommand;
-use Duo\ScopeContract;
+use WPrism\Canon;
+use WPrism\Orchestrator\CommandOutput;
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\EnvironmentDriver;
+use WPrism\Orchestrator\Refresh;
+use WPrism\Orchestrator\RefreshCommand;
+use WPrism\ScopeContract;
 
 function fail_refresh_command(string $message): never { fwrite(STDERR, "FAIL: $message\n"); exit(1); }
 function assert_refresh_command(bool $ok, string $message): void { if (!$ok) fail_refresh_command($message); }
@@ -83,17 +83,17 @@ $payload = json_decode($json, true);
 assert_refresh_command($jsonExit === 1, 'missing production ref preserves JSON refusal exit');
 assert_refresh_command($jsonDriver->rawCalls === 0 && $jsonDriver->wpCalls === 0, 'JSON argument refusal occurs before target contact');
 assert_refresh_command(is_array($payload)
-    && ($payload['format'] ?? null) === 'duo-command-refusal/v1'
+    && ($payload['format'] ?? null) === 'wprism-command-refusal/v1'
     && ($payload['command'] ?? null) === 'refresh'
     && ($payload['reason_code'] ?? null) === 'invalid_arguments'
     && ($payload['ok'] ?? null) === false,
     'refresh command owns the stable machine refusal envelope');
 
-// DUO merge-check slice, brief item (iii): `--format=json` WITHOUT
+// WPRISM merge-check slice, brief item (iii): `--format=json` WITHOUT
 // `--field-diff` used to be refused at the argument gate
 // (`($json && !$fieldDiff)`), so a CI job could never read the semantic plan
 // as a document at all. It now reaches Refresh::refresh() and publishes the
-// already-canonical duo-refresh-plan/v1. Against the prior defect this
+// already-canonical wprism-refresh-plan/v1. Against the prior defect this
 // envelope said `invalid_arguments` and the planner was never entered; the
 // reason code is the observable proof the gate moved.
 $planJsonDriver = new RefreshCommandDriver();
@@ -103,7 +103,7 @@ $planJson = (string) ob_get_clean();
 $planPayload = json_decode($planJson, true);
 assert_refresh_command($planJsonExit === 1, 'a refusal after the argument gate keeps the established JSON exit');
 assert_refresh_command(is_array($planPayload)
-    && ($planPayload['format'] ?? null) === 'duo-command-refusal/v1'
+    && ($planPayload['format'] ?? null) === 'wprism-command-refusal/v1'
     && ($planPayload['command'] ?? null) === 'refresh'
     && ($planPayload['reason_code'] ?? null) === 'plan_unavailable',
     '--format=json without --field-diff passes the argument gate and names the artifact that was unavailable');
@@ -128,11 +128,11 @@ $fieldJson = (string) ob_get_clean();
 assert_refresh_command((json_decode($fieldJson, true)['reason_code'] ?? null) === 'field_level_unavailable',
     '--field-diff --format=json still reports the field-level artifact, not the plan');
 
-$source = file_get_contents(__DIR__ . '/../../../../cli/duo');
+$source = file_get_contents(__DIR__ . '/../../../../cli/wprism');
 assert_refresh_command(is_string($source)
     && str_contains($source, 'return RefreshCommand::run($t, $extra);')
     && !str_contains($source, 'function refresh_field_diff_refusal('),
-    'cli/duo retains only the refresh compatibility facade');
+    'cli/wprism retains only the refresh compatibility facade');
 assert_refresh_command((new ReflectionMethod(RefreshCommand::class, 'run'))->isStatic(),
     'refresh handler exposes a standalone static boundary');
 assert_refresh_command(CommandOutput::wantsAgentRefusalJson('refresh', ['--format=json']),
@@ -188,7 +188,7 @@ assert_refresh_command(str_contains(
     'conflict option:opaque: semantic divergence'
 ), 'ordinary conflict rendering omits an unavailable label cleanly');
 
-// DUO-3494: the human field-diff renderer keeps its OWN closed vocabularies
+// issue #3494: the human field-diff renderer keeps its OWN closed vocabularies
 // on purpose -- it must never echo a label the projector did not declare -- so
 // a new field label that reaches the projector and not this list would silently
 // render as `record`, which is a different and wrong statement about what the

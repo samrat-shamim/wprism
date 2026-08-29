@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Signals that an init-owned artifact could not be safely compensated in the

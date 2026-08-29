@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline characterization for pure taxonomy relationship-keyspace
- * resolution (DUO-3348 slice 48).
+ * resolution (issue #3348 slice 48).
  */
 declare(strict_types=1);
 
@@ -25,7 +25,7 @@ $assertThrows = static function (callable $fn, string $needle, string $label) us
 };
 
 $child = proc_open(
-    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\Duo\\TaxonomyKeyspaceResolver::class, false) && class_exists(\\Duo\\TaxonomyPatternResolver::class, false) && !class_exists(\\Duo\\Policy::class, false) && !class_exists(\\Duo\\RepositoryCompiler::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $resolverPath],
+    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\WPrism\\TaxonomyKeyspaceResolver::class, false) && class_exists(\\WPrism\\TaxonomyPatternResolver::class, false) && !class_exists(\\WPrism\\Policy::class, false) && !class_exists(\\WPrism\\RepositoryCompiler::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $resolverPath],
     [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
     $pipes
 );
@@ -45,8 +45,8 @@ $check(
 
 require_once $resolverPath;
 
-use Duo\TaxonomyKeyspaceResolver;
-use Duo\TaxonomyPatternResolver;
+use WPrism\TaxonomyKeyspaceResolver;
+use WPrism\TaxonomyPatternResolver;
 
 $manifests = [
     [
@@ -112,7 +112,7 @@ require_once "$root/agent/src/Kernel/Canon.php";
 require_once "$root/agent/src/Kernel/OptionState.php";
 require_once "$root/agent/src/Policy/Policy.php";
 
-$policy = new Duo\Policy();
+$policy = new WPrism\Policy();
 $policy->manifests = $manifests;
 $check(
     $policy->taxonomy_object_keyspace('dynamic_taxonomy', ['product']) === 'term'

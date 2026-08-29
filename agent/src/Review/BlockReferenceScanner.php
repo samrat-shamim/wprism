@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/Pending.php';
 require_once __DIR__ . '/LintFinding.php';
@@ -91,7 +91,7 @@ final class BlockReferenceScanner {
                         // widget's item limit) after the codec already proved
                         // them.
                     } elseif (empty($rule['lint_ok']) && ($rule['tokenize'] ?? null) !== 'text') {
-                        // DUO-3212: a registered path is a REF rule by
+                        // issue #3212: a registered path is a REF rule by
                         // Blocks::resolve_kind()'s own contract (it throws
                         // unless a rule declares 'kind' or 'kind_from' once
                         // lint_ok/tokenize have been ruled out) — so a value

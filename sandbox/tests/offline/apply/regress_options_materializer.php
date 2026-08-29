@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for OptionsMaterializer (DUO-3347 slice 7: the options
+ * Offline regression for OptionsMaterializer (issue #3347 slice 7: the options
  * entity materializer extracted from Apply.php). Deliberately narrow, the
  * same wiring/shape idiom TermMaterializer/UserMetaMaterializer/
  * MenuMaterializer's own regressions already established: this file does not
@@ -20,8 +20,8 @@
  */
 declare(strict_types=1);
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 2);
 }
 if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
@@ -48,11 +48,11 @@ require_once __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/OptionsMaterializer.php';
 
-use Duo\ApplyFieldMaterializer;
-use Duo\CacheInvalidationTransaction;
-use Duo\OptionsMaterializer;
-use Duo\Policy;
-use Duo\Tokens;
+use WPrism\ApplyFieldMaterializer;
+use WPrism\CacheInvalidationTransaction;
+use WPrism\OptionsMaterializer;
+use WPrism\Policy;
+use WPrism\Tokens;
 
 final class OptionsMaterializerFakeWpdb {
     public string $prefix = 'wp_';
@@ -79,7 +79,7 @@ final class OptionsMaterializerFakeWpdb {
     public function get_var(string $query): mixed {
         if ($query === 'SELECT @@in_transaction') return '1';
         if ($query === 'SELECT 1 FROM `wp_options` LIMIT 1') return '1';
-        if (str_contains($query, 'SELECT local_id FROM wp_duo_map')) {
+        if (str_contains($query, 'SELECT local_id FROM wp_wprism_map')) {
             preg_match("/uuid = '((?:''|[^'])*)'/", $query, $uuidMatch);
             preg_match("/id_kind = '((?:''|[^'])*)'/", $query, $kindMatch);
             $uuid = str_replace("''", "'", (string) ($uuidMatch[1] ?? ''));
@@ -199,7 +199,7 @@ foreach (['option_apply_target', 'dynamic_option_rule_for_name', 'dynamic_option
 $constructorParams = (new ReflectionClass(OptionsMaterializer::class))->getConstructor()->getParameters();
 $check(
     array_map(static fn(ReflectionParameter $p): string => (string) $p->getType(), $constructorParams)
-        === ['Duo\\Policy', 'Duo\\Tokens', 'Duo\\ApplyFieldMaterializer'],
+        === ['WPrism\\Policy', 'WPrism\\Tokens', 'WPrism\\ApplyFieldMaterializer'],
     'constructor depends on exactly Policy, Tokens, and ApplyFieldMaterializer -- no Apply instance'
 );
 
@@ -265,12 +265,12 @@ $acfMaterializer = new OptionsMaterializer(
     $acfTokens,
     $acfFieldMaterializer
 );
-$acfFullDocument = \Duo\OptionState::document([
-    'options_scoped_tagline' => \Duo\OptionState::present('Scoped ACF tagline', 'yes'),
-    '_options_scoped_tagline' => \Duo\OptionState::present('field_scoped_tagline', 'yes'),
+$acfFullDocument = \WPrism\OptionState::document([
+    'options_scoped_tagline' => \WPrism\OptionState::present('Scoped ACF tagline', 'yes'),
+    '_options_scoped_tagline' => \WPrism\OptionState::present('field_scoped_tagline', 'yes'),
 ]);
-$acfSelectedDocument = \Duo\OptionState::document([
-    'options_scoped_tagline' => \Duo\OptionState::present('Scoped ACF tagline', 'yes'),
+$acfSelectedDocument = \WPrism\OptionState::document([
+    'options_scoped_tagline' => \WPrism\OptionState::present('Scoped ACF tagline', 'yes'),
 ]);
 $GLOBALS['wpdb'] = new OptionsMaterializerFakeWpdb();
 $acfWarnings = [];
@@ -331,8 +331,8 @@ $csvWarnings = [];
 $csvFieldMaterializer->begin_authored_transaction();
 $csvMaterializer->begin_authored_transaction();
 CacheInvalidationTransaction::begin();
-$csvMaterializer->apply_options(\Duo\OptionState::document([
-    'pmpro_level_order' => \Duo\OptionState::present([
+$csvMaterializer->apply_options(\WPrism\OptionState::document([
+    'pmpro_level_order' => \WPrism\OptionState::present([
         '{{pmpro_level:' . $firstLevelUuid . '}}',
         '{{pmpro_level:' . $secondLevelUuid . '}}',
     ], 'yes'),

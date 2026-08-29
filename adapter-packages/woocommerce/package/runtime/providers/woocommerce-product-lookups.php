@@ -1,28 +1,28 @@
 <?php
-namespace Duo\Providers;
+namespace WPrism\Providers;
 
-use Duo\ManifestProviderRuntime;
+use WPrism\ManifestProviderRuntime;
 
 /**
  * WooCommerce 11.x product lookup adapter.
  *
- * Duo writes product posts and postmeta with SQL, intentionally bypassing the
+ * WPrism writes product posts and postmeta with SQL, intentionally bypassing the
  * save hooks Woo normally uses to maintain derived product state. This
  * adapter is the manifest-owned boundary for the product-meta and product-
  * attribute lookups, price, sale-schedule, and mixed product/POS visibility
  * surfaces that have independent synchronous verification.
  * It deliberately does not call on_product_changed():
  * Woo's public hook-facing method schedules Action Scheduler work by default,
- * which would leave a successful Duo apply with a pending, non-deterministic
+ * which would leave a successful WPrism apply with a pending, non-deterministic
  * lookup update.  The public data-store methods used here are synchronous.
  *
- * Dispatch note (DUO-3342): this file is now reached through the DUO-3338
+ * Dispatch note (issue #3342): this file is now reached through the issue #3338
  * provider contract — identity binding, negotiation before the first target
  * mutation, a declared timeout budget, and a verified receipt — rather than
  * the engine's regenerator channel it was written against. The two things
- * that forced the older channel are both gone: DUO-3369 gave a capability
+ * that forced the older channel are both gone: issue #3369 gave a capability
  * structured arguments and the engine batch CHANNELS (`deletions`,
- * `reparents`, `retry`, `always_on_write`), and DUO-3342 made those channels
+ * `reparents`, `retry`, `always_on_write`), and issue #3342 made those channels
  * carry the pre-delete inventory and own their durable markers, so the
  * deletion and reparent context this adapter requires is expressible without
  * loss. Everything below invoke() is the regenerator code MOVED, not
@@ -138,7 +138,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
      * @return array{before:array, after:array, verified:true}
      */
     protected function invoke_rebuild_product_lookups(array $args): array {
-        $envelope = $args[\Duo\Providers::ENTITIES_ARG] ?? null;
+        $envelope = $args[\WPrism\Providers::ENTITIES_ARG] ?? null;
         if (!is_array($envelope) || !array_key_exists('entities', $envelope)
             || !array_key_exists('deletions', $envelope) || !array_key_exists('reparents', $envelope)) {
             // Unreachable through the engine, which assembles exactly the
@@ -146,7 +146,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             // empty batch and report it as done: a missing channel here would
             // mean this adapter silently stopped seeing tombstones.
             throw new \RuntimeException(
-                'duo: WooCommerce product lookup repair received no engine batch envelope; expected the '
+                'wprism: WooCommerce product lookup repair received no engine batch envelope; expected the '
                 . 'entities/deletions/reparents channels its capability declares'
             );
         }
@@ -222,10 +222,10 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
 
     /** @param array<string,mixed> $args @return list<int> */
     private function scoped_live_ids(array $args): array {
-        $envelope = $args[\Duo\Providers::ENTITIES_ARG] ?? null;
+        $envelope = $args[\WPrism\Providers::ENTITIES_ARG] ?? null;
         if (!is_array($envelope) || !is_array($envelope['entities'] ?? null)) {
             throw new \RuntimeException(
-                'duo: WooCommerce product lookup reconciliation received no engine live-entity batch'
+                'wprism: WooCommerce product lookup reconciliation received no engine live-entity batch'
             );
         }
         $ids = [];
@@ -242,11 +242,11 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
 
     /** @param array<string,mixed> $args @return list<int> */
     private function scoped_observed_ids(array $args): array {
-        $envelope = $args[\Duo\Providers::ENTITIES_ARG] ?? null;
+        $envelope = $args[\WPrism\Providers::ENTITIES_ARG] ?? null;
         if (!is_array($envelope) || !array_key_exists('entities', $envelope)
             || !array_key_exists('deletions', $envelope) || !array_key_exists('reparents', $envelope)) {
             throw new \RuntimeException(
-                'duo: WooCommerce product lookup reconciliation received no engine batch envelope; expected the '
+                'wprism: WooCommerce product lookup reconciliation received no engine batch envelope; expected the '
                 . 'entities/deletions/reparents channels its capability declares'
             );
         }
@@ -283,7 +283,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
      *
      * The deletions channel is a straight relabel — the engine row already
      * carries the captured `post_type`, `parent_id`, and `child_ids` this
-     * adapter's delete path reads (DUO-3342 is what put them there).
+     * adapter's delete path reads (issue #3342 is what put them there).
      *
      * The reparents channel needs regrouping, and that is the load-bearing
      * half. The engine delivers ONE ROW PER ROOT, which is how a chained
@@ -387,14 +387,14 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         foreach (array_chunk($ids, 200) as $chunk) {
             $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
             $limit = count($chunk) + 1;
-            $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+            $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
                 "SELECT $projection FROM `$table` "
                 . "WHERE product_id IN ($placeholders) ORDER BY product_id ASC LIMIT $limit",
                 ...$chunk
             ), 'product lookup receipt observation');
             if (count($rows) >= $limit) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce product lookup receipt read saturated its bounded owner scope'
+                    'wprism: WooCommerce product lookup receipt read saturated its bounded owner scope'
                 );
             }
             foreach ($rows as $row) {
@@ -404,32 +404,32 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 );
                 if (!in_array($productId, $chunk, true)) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce product lookup receipt read returned an out-of-scope owner'
+                        'wprism: WooCommerce product lookup receipt read returned an out-of-scope owner'
                     );
                 }
                 if (isset($rowsById[$productId])) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce product lookup receipt read returned multiple rows for product $productId"
+                        "wprism: WooCommerce product lookup receipt read returned multiple rows for product $productId"
                     );
                 }
                 $normalized = [];
                 $rowBytes = 0;
                 if (array_keys($row) !== $columns) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce product lookup receipt read returned an unexpected row shape for product $productId"
+                        "wprism: WooCommerce product lookup receipt read returned an unexpected row shape for product $productId"
                     );
                 }
                 foreach ($row as $column => $value) {
                     if (!is_string($column) || $column === '' || (!is_string($value) && $value !== null)) {
                         throw new \RuntimeException(
-                            "duo: WooCommerce product lookup receipt read returned non-scalar state for product $productId"
+                            "wprism: WooCommerce product lookup receipt read returned non-scalar state for product $productId"
                         );
                     }
                     if ($value !== null) {
                         $bytes = strlen($value);
                         if ($bytes > self::MAX_LOOKUP_SCALAR_BYTES) {
                             throw new \RuntimeException(
-                                "duo: WooCommerce product lookup receipt read returned an oversized scalar for product $productId"
+                                "wprism: WooCommerce product lookup receipt read returned an oversized scalar for product $productId"
                             );
                         }
                         $rowBytes += $bytes;
@@ -438,7 +438,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 }
                 if ($rowBytes > self::MAX_LOOKUP_ROW_BYTES) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce product lookup receipt read returned an oversized row for product $productId"
+                        "wprism: WooCommerce product lookup receipt read returned an oversized row for product $productId"
                     );
                 }
                 ksort($normalized, SORT_STRING);
@@ -487,7 +487,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         $rowCount = 0;
         foreach (array_chunk($scope, 200) as $chunk) {
             $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
-            $countValue = \Duo\ProviderSdk::checked_get_var($wpdb->prepare(
+            $countValue = \WPrism\ProviderSdk::checked_get_var($wpdb->prepare(
                 "SELECT COUNT(*) FROM `$table` "
                 . "WHERE product_or_parent_id IN ($placeholders)",
                 ...$chunk
@@ -499,7 +499,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             );
             if ($rowCount + $chunkCount > self::MAX_ATTRIBUTE_LOOKUP_ROWS) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce product attribute lookup receipt exceeds its aggregate row bound'
+                    'wprism: WooCommerce product attribute lookup receipt exceeds its aggregate row bound'
                 );
             }
             if ($chunkCount === 0) {
@@ -514,13 +514,13 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 . "is_variation_attribute ASC, in_stock ASC LIMIT $limit",
                 ...$chunk
             );
-            $chunkRows = \Duo\ProviderSdk::checked_get_results(
+            $chunkRows = \WPrism\ProviderSdk::checked_get_results(
                 $payloadQuery,
                 'product attribute lookup receipt observation'
             );
             if (count($chunkRows) !== $chunkCount) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce product attribute lookup receipt changed after its cardinality witness'
+                    'wprism: WooCommerce product attribute lookup receipt changed after its cardinality witness'
                 );
             }
             $chunkState = [];
@@ -529,18 +529,18 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 $key = implode("\0", $normalized);
                 if (isset($chunkState[$key]) || isset($rows[$key])) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce product attribute lookup receipt read returned duplicate scoped rows'
+                        'wprism: WooCommerce product attribute lookup receipt read returned duplicate scoped rows'
                     );
                 }
                 $chunkState[$key] = $normalized;
             }
-            $confirmedRows = \Duo\ProviderSdk::checked_get_results(
+            $confirmedRows = \WPrism\ProviderSdk::checked_get_results(
                 $payloadQuery,
                 'product attribute lookup receipt stability verification'
             );
             if (count($confirmedRows) !== $chunkCount) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce product attribute lookup receipt changed during bounded readback'
+                    'wprism: WooCommerce product attribute lookup receipt changed during bounded readback'
                 );
             }
             $confirmedState = [];
@@ -549,7 +549,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 $key = implode("\0", $normalized);
                 if (isset($confirmedState[$key])) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce product attribute lookup receipt read returned duplicate scoped rows'
+                        'wprism: WooCommerce product attribute lookup receipt read returned duplicate scoped rows'
                     );
                 }
                 $confirmedState[$key] = $normalized;
@@ -558,7 +558,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             ksort($confirmedState, SORT_STRING);
             if ($confirmedState !== $chunkState) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce product attribute lookup receipt changed during bounded readback'
+                    'wprism: WooCommerce product attribute lookup receipt changed during bounded readback'
                 );
             }
             $rows += $confirmedState;
@@ -596,14 +596,14 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         foreach (array_chunk(array_values($scope), 200) as $chunk) {
             $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
             $limit = count($chunk) + 1;
-            $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+            $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
                 "SELECT ID, post_parent FROM {$wpdb->posts} WHERE ID IN ($placeholders) "
                 . "ORDER BY ID ASC LIMIT $limit",
                 ...$chunk
             ), 'product attribute lookup owner expansion');
             if (count($rows) >= $limit) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce product attribute lookup owner expansion saturated its bounded read'
+                    'wprism: WooCommerce product attribute lookup owner expansion saturated its bounded read'
                 );
             }
             foreach ($rows as $row) {
@@ -614,14 +614,14 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 );
                 if (!isset($scope[$id])) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce product attribute lookup owner expansion returned an out-of-scope row'
+                        'wprism: WooCommerce product attribute lookup owner expansion returned an out-of-scope row'
                     );
                 }
                 if ($parent > 0) {
                     $scope[$parent] = $parent;
                     if (count($scope) > self::MAX_SCOPED_PRODUCTS) {
                         throw new \RuntimeException(
-                            'duo: WooCommerce product attribute lookup owner expansion exceeds its product bound'
+                            'wprism: WooCommerce product attribute lookup owner expansion exceeds its product bound'
                         );
                     }
                 }
@@ -639,13 +639,13 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         $termId = $this->strict_attribute_lookup_uint($row['term_id'] ?? null, 'term_id');
         if (!in_array($rootId, $scope, true)) {
             throw new \RuntimeException(
-                'duo: WooCommerce product attribute lookup receipt read returned an out-of-scope owner'
+                'wprism: WooCommerce product attribute lookup receipt read returned an out-of-scope owner'
             );
         }
         $taxonomy = $row['taxonomy'] ?? null;
         if (!is_string($taxonomy) || $taxonomy === '' || strlen($taxonomy) > 32) {
             throw new \RuntimeException(
-                'duo: WooCommerce product attribute lookup receipt read returned an invalid taxonomy identity'
+                'wprism: WooCommerce product attribute lookup receipt read returned an invalid taxonomy identity'
             );
         }
         $variation = $this->strict_attribute_lookup_flag($row['is_variation_attribute'] ?? null, 'is_variation_attribute');
@@ -665,7 +665,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             return $this->strict_positive_db_uint($value, "attribute lookup $column");
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                "duo: WooCommerce product attribute lookup receipt read returned invalid $column state",
+                "wprism: WooCommerce product attribute lookup receipt read returned invalid $column state",
                 0,
                 $failure
             );
@@ -675,7 +675,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
     private function strict_attribute_lookup_flag(mixed $value, string $column): int {
         if ((!is_int($value) && !is_string($value)) || !in_array((string) $value, ['0', '1'], true)) {
             throw new \RuntimeException(
-                "duo: WooCommerce product attribute lookup receipt read returned invalid $column state"
+                "wprism: WooCommerce product attribute lookup receipt read returned invalid $column state"
             );
         }
         return (int) $value;
@@ -732,14 +732,14 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             ], 'ids');
             if (!is_array($ids) || count($ids) > 2) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce sale schedule cardinality read failed for product $id ($hook)"
+                    "wprism: WooCommerce sale schedule cardinality read failed for product $id ($hook)"
                 );
             }
             foreach ($ids as $actionId) {
                 if ((!is_int($actionId) && !is_string($actionId))
                     || (int) $actionId <= 0 || (string) (int) $actionId !== (string) $actionId) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce sale schedule cardinality read returned an unusable identity for product $id ($hook)"
+                        "wprism: WooCommerce sale schedule cardinality read returned an unusable identity for product $id ($hook)"
                     );
                 }
             }
@@ -755,12 +755,12 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $nextState = 'timestamp:' . $next;
         } else {
             throw new \RuntimeException(
-                "duo: WooCommerce sale schedule receipt returned an unusable next state for product $id ($hook)"
+                "wprism: WooCommerce sale schedule receipt returned an unusable next state for product $id ($hook)"
             );
         }
         if (($count === 0) !== ($next === false)) {
             throw new \RuntimeException(
-                "duo: WooCommerce sale schedule APIs disagreed for product $id ($hook)"
+                "wprism: WooCommerce sale schedule APIs disagreed for product $id ($hook)"
             );
         }
         return ['count' => $count, 'next' => $nextState];
@@ -832,12 +832,12 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         sort($excluded, SORT_NUMERIC);
         if (array_intersect($requested, $excluded) !== []) {
             throw new \RuntimeException(
-                'duo: WooCommerce product visibility scope declares a live product as deleted'
+                'wprism: WooCommerce product visibility scope declares a live product as deleted'
             );
         }
         if (count($requested) > self::MAX_VISIBILITY_PRODUCTS) {
             throw new \RuntimeException(
-                'duo: WooCommerce product visibility scope exceeds the bounded product limit'
+                'wprism: WooCommerce product visibility scope exceeds the bounded product limit'
             );
         }
         $posts = $this->visibility_post_scope($requested, $excluded);
@@ -852,13 +852,13 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $product = $this->load_product($id);
             if (!is_object($product)) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce product visibility could not load scoped product $id"
+                    "wprism: WooCommerce product visibility could not load scoped product $id"
                 );
             }
             foreach (['get_type', 'get_parent_id', 'get_stock_status', 'get_downloadable'] as $method) {
                 if (!is_callable([$product, $method])) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce product $id lacks public $method() for visibility projection"
+                        "wprism: WooCommerce product $id lacks public $method() for visibility projection"
                     );
                 }
             }
@@ -871,7 +871,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 || ($post['post_type'] === 'product_variation') !== ($type === 'variation')
                 || $parentId !== $post['parent_id']) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce product $id returned incompatible native visibility inputs"
+                    "wprism: WooCommerce product $id returned incompatible native visibility inputs"
                 );
             }
             $native[$id] = [
@@ -886,7 +886,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             foreach (['get_featured', 'get_catalog_visibility', 'get_average_rating'] as $method) {
                 if (!is_callable([$product, $method])) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce product $id lacks public $method() for visibility projection"
+                        "wprism: WooCommerce product $id lacks public $method() for visibility projection"
                     );
                 }
             }
@@ -900,7 +900,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 || !is_finite((float) $average)
                 || (float) $average < 0.0 || (float) $average > 5.0) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce product $id returned invalid native visibility semantics"
+                    "wprism: WooCommerce product $id returned invalid native visibility semantics"
                 );
             }
             $native[$id]['featured'] = $featured;
@@ -1011,7 +1011,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         foreach ($requested as $id) {
             if (!isset($posts[$id])) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce visibility scope no longer contains live product $id"
+                    "wprism: WooCommerce visibility scope no longer contains live product $id"
                 );
             }
         }
@@ -1028,7 +1028,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         foreach ($parentIds as $parentId) {
             if (($posts[$parentId]['post_type'] ?? null) !== 'product') {
                 throw new \RuntimeException(
-                    'duo: WooCommerce product visibility scope contains an orphaned variation owner'
+                    'wprism: WooCommerce product visibility scope contains an orphaned variation owner'
                 );
             }
         }
@@ -1041,7 +1041,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         foreach (array_chunk(array_values($roots), 200) as $chunk) {
             $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
             $limit = self::MAX_VISIBILITY_PRODUCTS + 1;
-            $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+            $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
                 "SELECT ID, post_parent, post_type FROM {$wpdb->posts} "
                 . "WHERE post_parent IN ($placeholders) AND post_type = 'product_variation' "
                 . "ORDER BY ID ASC LIMIT $limit",
@@ -1053,7 +1053,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             // from the projection this receipt certifies.
             if (count($rows) >= $limit) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce product visibility child discovery saturated its bounded read'
+                    'wprism: WooCommerce product visibility child discovery saturated its bounded read'
                 );
             }
             $excludedSet = array_fill_keys($excluded, true);
@@ -1066,13 +1066,13 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 if (($row['post_type'] ?? null) !== 'product_variation'
                     || !in_array($parentId, $chunk, true)) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce product visibility child discovery returned malformed or out-of-scope state'
+                        'wprism: WooCommerce product visibility child discovery returned malformed or out-of-scope state'
                     );
                 }
                 $posts[$id] = ['post_type' => 'product_variation', 'parent_id' => $parentId];
                 if (count($posts) > self::MAX_VISIBILITY_PRODUCTS) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce product visibility root expands beyond the bounded product limit'
+                        'wprism: WooCommerce product visibility root expands beyond the bounded product limit'
                     );
                 }
             }
@@ -1088,14 +1088,14 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         foreach (array_chunk($ids, 200) as $chunk) {
             $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
             $limit = count($chunk) + 1;
-            $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+            $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
                 "SELECT ID, post_parent, post_type FROM {$wpdb->posts} WHERE ID IN ($placeholders) "
                 . "ORDER BY ID ASC LIMIT $limit",
                 ...$chunk
             ), 'WooCommerce product visibility owner discovery');
             if (count($rows) >= $limit) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce product visibility owner discovery saturated its bounded read'
+                    'wprism: WooCommerce product visibility owner discovery saturated its bounded read'
                 );
             }
             foreach ($rows as $row) {
@@ -1107,7 +1107,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                     || ($postType === 'product_variation' && $parent === 0)
                     || isset($posts[$id])) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce product visibility owner discovery returned malformed or duplicate state'
+                        'wprism: WooCommerce product visibility owner discovery returned malformed or duplicate state'
                     );
                 }
                 $posts[$id] = ['post_type' => $postType, 'parent_id' => $parent];
@@ -1133,7 +1133,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         foreach (array_chunk($ids, 200) as $chunk) {
             $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
             $limit = count($chunk) * 11 + 1;
-            $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+            $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
                 "SELECT tr.object_id, tr.term_taxonomy_id, tr.term_order, tt.term_id, tt.taxonomy, t.slug, t.name "
                 . "FROM {$wpdb->term_relationships} tr "
                 . "INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id "
@@ -1146,7 +1146,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             ), 'WooCommerce product visibility relationship observation');
             if (count($rows) >= $limit) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce product visibility relationship scope exceeds the exact core cardinality'
+                    'wprism: WooCommerce product visibility relationship scope exceeds the exact core cardinality'
                 );
             }
             foreach ($rows as $row) {
@@ -1165,13 +1165,13 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 if (!in_array($objectId, $chunk, true) || !is_string($slug) || !is_string($name)
                     || !in_array($slug, $allowed, true) || $name !== $slug || $order !== 0) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce product visibility relationship observation returned malformed or unsupported state'
+                        'wprism: WooCommerce product visibility relationship observation returned malformed or unsupported state'
                     );
                 }
                 foreach ($out[$objectId][$taxonomy] as $existing) {
                     if ($existing['slug'] === $slug || $existing['term_taxonomy_id'] === $ttId) {
                         throw new \RuntimeException(
-                            'duo: WooCommerce product visibility relationship observation returned duplicate state'
+                            'wprism: WooCommerce product visibility relationship observation returned duplicate state'
                         );
                     }
                 }
@@ -1236,13 +1236,13 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $merchant = $intent['merchant'][$id] ?? null;
             if (!is_array($merchant)) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce product $id has no captured merchant visibility intent"
+                    "wprism: WooCommerce product $id has no captured merchant visibility intent"
                 );
             }
             if (($native['featured'] ?? null) !== $merchant['featured']
                 || ($native['catalog_visibility'] ?? null) !== $merchant['catalog_visibility']) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce product $id visibility changed after intent capture; recovery_required"
+                    "wprism: WooCommerce product $id visibility changed after intent capture; recovery_required"
                 );
             }
             $terms = [];
@@ -1255,7 +1255,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $numberUtil = '\\Automattic\\WooCommerce\\Utilities\\NumberUtil';
             if (!class_exists($numberUtil) || !is_callable([$numberUtil, 'round'])) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce native NumberUtil::round() is unavailable for rating visibility projection'
+                    'wprism: WooCommerce native NumberUtil::round() is unavailable for rating visibility projection'
                 );
             }
             $rating = min(5, (int) $numberUtil::round((float) $native['average_rating'], 0));
@@ -1311,7 +1311,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         $this->assert_product_type_projection($snapshot, $terms);
         if (array_keys($expected) !== array_keys($snapshot['posts'])) {
             throw new \RuntimeException(
-                'duo: WooCommerce product visibility scope changed during projection; recovery_required'
+                'wprism: WooCommerce product visibility scope changed during projection; recovery_required'
             );
         }
         foreach ($expected as $id => $taxonomies) {
@@ -1325,7 +1325,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                     $terms
                 )) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce $taxonomy projection disagrees for product $id; recovery_required"
+                        "wprism: WooCommerce $taxonomy projection disagrees for product $id; recovery_required"
                     );
                 }
             }
@@ -1339,7 +1339,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                     || ($native['featured'] ?? null) !== $wantedFeatured
                     || ($native['catalog_visibility'] ?? null) !== $wantedCatalog) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce native featured/catalog visibility readback disagrees for product $id; recovery_required"
+                        "wprism: WooCommerce native featured/catalog visibility readback disagrees for product $id; recovery_required"
                     );
                 }
             }
@@ -1364,7 +1364,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             if (($post['post_type'] ?? null) === 'product') {
                 if (count($rows) !== 1) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce product $id must have exactly one native product_type relationship"
+                        "wprism: WooCommerce product $id must have exactly one native product_type relationship"
                     );
                 }
                 $slug = (string) ($rows[0]['slug'] ?? '');
@@ -1372,14 +1372,14 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                     || ($native['type'] ?? null) !== $slug
                     || !$this->visibility_relationship_matches($rows, [$slug], 'product_type', $terms)) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce product $id has inconsistent native product_type identity"
+                        "wprism: WooCommerce product $id has inconsistent native product_type identity"
                     );
                 }
                 continue;
             }
             if ($rows !== []) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce variation $id carries an impossible product_type relationship"
+                    "wprism: WooCommerce variation $id carries an impossible product_type relationship"
                 );
             }
             $parentId = (int) ($post['parent_id'] ?? 0);
@@ -1395,7 +1395,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                     $terms
                 )) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce variation $id requires one exact variable product_type parent"
+                    "wprism: WooCommerce variation $id requires one exact variable product_type parent"
                 );
             }
         }
@@ -1453,7 +1453,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             (string) $current['intent_sha256']
         )) {
             throw new \RuntimeException(
-                'duo: WooCommerce product visibility changed during provider execution; recovery_required'
+                'wprism: WooCommerce product visibility changed during provider execution; recovery_required'
             );
         }
         $projection = $current;
@@ -1495,7 +1495,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             (string) $after['intent_sha256']
         )) {
             throw new \RuntimeException(
-                'duo: WooCommerce product visibility intent changed during native repair; recovery_required'
+                'wprism: WooCommerce product visibility intent changed during native repair; recovery_required'
             );
         }
         // Recompute the projection and native term map from the final fresh
@@ -1542,7 +1542,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             sort($wantedMerchant, SORT_STRING);
             if ($currentMerchant !== $wantedMerchant) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce product_visibility merchant intent changed before repair for product $id; recovery_required"
+                    "wprism: WooCommerce product_visibility merchant intent changed before repair for product $id; recovery_required"
                 );
             }
             $mutable = self::DERIVED_VISIBILITY_TERMS;
@@ -1551,7 +1551,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 && ($native['downloadable'] ?? null) === false;
             if ($supported) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce supported-root POS merchant intent changed before repair for product $id; recovery_required"
+                    "wprism: WooCommerce supported-root POS merchant intent changed before repair for product $id; recovery_required"
                 );
             }
             // POS is not a merchant surface on downloadable or unsupported
@@ -1572,7 +1572,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $removed = \wp_remove_object_terms($id, $termIds, $taxonomy);
             if (is_wp_error($removed) || $removed !== true) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce $taxonomy native relationship write failed for product $id; recovery_required"
+                    "wprism: WooCommerce $taxonomy native relationship write failed for product $id; recovery_required"
                 );
             }
             $this->invalidate_product_caches($id);
@@ -1587,7 +1587,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $written = \wp_add_object_terms($id, $termIds, $taxonomy);
             if (is_wp_error($written) || !is_array($written)) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce $taxonomy native relationship write failed for product $id; recovery_required"
+                    "wprism: WooCommerce $taxonomy native relationship write failed for product $id; recovery_required"
                 );
             }
             $written = array_map('intval', $written);
@@ -1595,7 +1595,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             sort($expectedTt, SORT_NUMERIC);
             if ($written !== $expectedTt) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce $taxonomy native relationship write returned incomplete state for product $id; recovery_required"
+                    "wprism: WooCommerce $taxonomy native relationship write returned incomplete state for product $id; recovery_required"
                 );
             }
             $this->invalidate_product_caches($id);
@@ -1614,7 +1614,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $term = $terms[$taxonomy][$slug] ?? null;
             if (!is_array($term)) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce $taxonomy lacks a native term for scoped visibility repair"
+                    "wprism: WooCommerce $taxonomy lacks a native term for scoped visibility repair"
                 );
             }
             $ids[] = $term['term_id'];
@@ -1625,7 +1625,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
     /** @return array<string,array<string,array{term_id:int,term_taxonomy_id:int}>> */
     private function visibility_term_map(bool $requirePos): array {
         global $wpdb;
-        $rows = \Duo\ProviderSdk::checked_get_results(
+        $rows = \WPrism\ProviderSdk::checked_get_results(
             "SELECT t.term_id, t.name, t.slug, tt.term_taxonomy_id, tt.taxonomy "
             . "FROM {$wpdb->terms} t INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id "
             . "WHERE tt.taxonomy IN ('product_type', 'product_visibility', 'pos_product_visibility') "
@@ -1634,7 +1634,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         );
         if (count($rows) >= 15) {
             throw new \RuntimeException(
-                'duo: WooCommerce native visibility-term inventory exceeds exact core cardinality'
+                'wprism: WooCommerce native visibility-term inventory exceeds exact core cardinality'
             );
         }
         $out = ['product_type' => [], 'product_visibility' => [], 'pos_product_visibility' => []];
@@ -1651,7 +1651,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 || !in_array($slug, $allowed, true)
                 || isset($out[$taxonomy][$slug])) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce native visibility-term inventory is malformed or duplicated'
+                    'wprism: WooCommerce native visibility-term inventory is malformed or duplicated'
                 );
             }
             $out[$taxonomy][$slug] = [
@@ -1668,7 +1668,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         sort($expected, SORT_STRING);
         if ($actual !== $expected) {
             throw new \RuntimeException(
-                'duo: WooCommerce native product_visibility term inventory is incomplete'
+                'wprism: WooCommerce native product_visibility term inventory is incomplete'
             );
         }
         $actualProductTypes = array_keys($out['product_type']);
@@ -1677,12 +1677,12 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         sort($expectedProductTypes, SORT_STRING);
         if ($actualProductTypes !== $expectedProductTypes) {
             throw new \RuntimeException(
-                'duo: WooCommerce native product_type term inventory is incomplete'
+                'wprism: WooCommerce native product_type term inventory is incomplete'
             );
         }
         if ($requirePos && !isset($out['pos_product_visibility']['pos-hidden'])) {
             throw new \RuntimeException(
-                'duo: WooCommerce native pos-hidden term is absent for authored POS visibility'
+                'wprism: WooCommerce native pos-hidden term is absent for authored POS visibility'
             );
         }
         return $out;
@@ -1695,13 +1695,13 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             || strlen($raw) > strlen($maximum)
             || (strlen($raw) === strlen($maximum) && strcmp($raw, $maximum) > 0)) {
             throw new \RuntimeException(
-                "duo: WooCommerce product visibility returned noncanonical $field state"
+                "wprism: WooCommerce product visibility returned noncanonical $field state"
             );
         }
         $parsed = (int) $raw;
         if ((string) $parsed !== $raw || (!$allowZero && $parsed <= 0)) {
             throw new \RuntimeException(
-                "duo: WooCommerce product visibility returned noncanonical $field state"
+                "wprism: WooCommerce product visibility returned noncanonical $field state"
             );
         }
         return $parsed;
@@ -1749,7 +1749,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
 
         $class = '\\Automattic\\WooCommerce\\Internal\\CostOfGoodsSold\\CostOfGoodsSoldController';
         if (!class_exists($class) || !function_exists('wc_get_container')) {
-            throw new \RuntimeException('duo: WooCommerce Cost of Goods service is unavailable');
+            throw new \RuntimeException('wprism: WooCommerce Cost of Goods service is unavailable');
         }
         try {
             $container = \wc_get_container();
@@ -1762,7 +1762,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         foreach (['feature_is_enabled', 'product_meta_lookup_table_cogs_value_columns_exist'] as $method) {
             if (!is_object($controller) || !is_callable([$controller, $method])) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce Cost of Goods service lacks public $method(); "
+                    "wprism: WooCommerce Cost of Goods service lacks public $method(); "
                     . 'the installed WooCommerce version is outside the adapter contract'
                 );
             }
@@ -1770,7 +1770,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         $featureEnabled = $controller->feature_is_enabled();
         $lookupColumnPresent = $controller->product_meta_lookup_table_cogs_value_columns_exist();
         if (!is_bool($featureEnabled) || !is_bool($lookupColumnPresent)) {
-            throw new \RuntimeException('duo: WooCommerce Cost of Goods service returned an invalid feature/schema state');
+            throw new \RuntimeException('wprism: WooCommerce Cost of Goods service returned an invalid feature/schema state');
         }
 
         $fingerprint = hash_init('sha256');
@@ -1784,7 +1784,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
             $limit = count($chunk) * 2 + 1;
             $prefixBytes = self::MAX_COGS_VALUE_BYTES + 1;
-            $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+            $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
                 "SELECT post_id, meta_id, BINARY meta_key AS meta_key, "
                 . "LEFT(meta_value, $prefixBytes) AS meta_value, "
                 . "LENGTH(meta_value) AS meta_value_bytes FROM `{$wpdb->postmeta}` "
@@ -1795,7 +1795,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             ), 'Cost of Goods authored metadata observation');
             if (count($rows) >= $limit) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce Cost of Goods metadata observation saturated its bounded row read'
+                    'wprism: WooCommerce Cost of Goods metadata observation saturated its bounded row read'
                 );
             }
             foreach ($rows as $row) {
@@ -1814,25 +1814,25 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                     || !is_string($value)
                     || strlen($value) !== min($valueBytes, $prefixBytes)) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce Cost of Goods metadata observation returned malformed or out-of-scope state'
+                        'wprism: WooCommerce Cost of Goods metadata observation returned malformed or out-of-scope state'
                     );
                 }
                 if ($valueBytes > self::MAX_COGS_VALUE_BYTES) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce product $productId has oversized authored Cost of Goods metadata"
+                        "wprism: WooCommerce product $productId has oversized authored Cost of Goods metadata"
                     );
                 }
                 $identity = $productId . ':' . $key;
                 if (isset($seen[$identity])) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce product $productId has multiple $key rows; expected exactly one authored value"
+                        "wprism: WooCommerce product $productId has multiple $key rows; expected exactly one authored value"
                     );
                 }
                 $seen[$identity] = true;
                 if (($key === '_cogs_total_value' && !self::cogs_meta_value_supported($value))
                     || ($key === '_cogs_value_is_additive' && $value !== 'yes')) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce product $productId has malformed authored Cost of Goods metadata"
+                        "wprism: WooCommerce product $productId has malformed authored Cost of Goods metadata"
                     );
                 }
                 $this->fingerprint_part($fingerprint, $identity);
@@ -1844,13 +1844,13 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         $typedProducts = $this->assert_cogs_product_types($authoredByProduct, $fingerprint);
         if ($rowCount > 0 && !$featureEnabled) {
             throw new \RuntimeException(
-                "duo: WooCommerce Cost of Goods is disabled while $rowCount scoped authored row(s) require it; "
+                "wprism: WooCommerce Cost of Goods is disabled while $rowCount scoped authored row(s) require it; "
                 . 'recovery_required'
             );
         }
         if ($rowCount > 0 && !$lookupColumnPresent) {
             throw new \RuntimeException(
-                "duo: WooCommerce Cost of Goods lookup column is absent while $rowCount scoped authored row(s) require it; "
+                "wprism: WooCommerce Cost of Goods lookup column is absent while $rowCount scoped authored row(s) require it; "
                 . 'run the native WooCommerce COGS column tool and retry'
             );
         }
@@ -1907,14 +1907,14 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         foreach (array_chunk($ids, 200) as $chunk) {
             $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
             $limit = count($chunk) + 1;
-            $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+            $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
                 "SELECT ID, post_type FROM {$wpdb->posts} WHERE ID IN ($placeholders) "
                 . "ORDER BY ID ASC LIMIT $limit",
                 ...$chunk
             ), 'Cost of Goods product subtype observation');
             if (count($rows) >= $limit) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce Cost of Goods subtype observation saturated its bounded owner read'
+                    'wprism: WooCommerce Cost of Goods subtype observation saturated its bounded owner read'
                 );
             }
             foreach ($rows as $row) {
@@ -1924,7 +1924,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                     || !is_string($postType)
                     || !in_array($postType, ['product', 'product_variation'], true)) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce Cost of Goods subtype observation returned malformed or out-of-scope state'
+                        'wprism: WooCommerce Cost of Goods subtype observation returned malformed or out-of-scope state'
                     );
                 }
                 $postTypes[$id] = $postType;
@@ -1934,7 +1934,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $postType = $postTypes[$id] ?? null;
             if (!is_string($postType)) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce Cost of Goods owner $id is missing or is not a supported product subtype"
+                    "wprism: WooCommerce Cost of Goods owner $id is missing or is not a supported product subtype"
                 );
             }
             try {
@@ -1953,21 +1953,21 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 || preg_match('/^[a-z0-9_-]{1,64}$/D', $nativeType) !== 1
                 || (($postType === 'product_variation') !== ($nativeType === 'variation'))) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce Cost of Goods owner $id has an inconsistent native product subtype"
+                    "wprism: WooCommerce Cost of Goods owner $id has an inconsistent native product subtype"
                 );
             }
             $isVariation = $postType === 'product_variation';
             $meta = $authoredByProduct[$id];
             if (isset($meta['_cogs_value_is_additive']) && !$isVariation) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce product $id has variation-only additive Cost of Goods metadata"
+                    "wprism: WooCommerce product $id has variation-only additive Cost of Goods metadata"
                 );
             }
             if (isset($meta['_cogs_total_value'])
                 && (float) $meta['_cogs_total_value'] === 0.0
                 && !$isVariation) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce base product $id has a Cost of Goods zero that native storage deletes"
+                    "wprism: WooCommerce base product $id has a Cost of Goods zero that native storage deletes"
                 );
             }
             $this->fingerprint_part($fingerprint, "owner:$id");
@@ -2020,13 +2020,13 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 }
             } catch (\Throwable $failure) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce could not approve the target directory for product '
+                    'wprism: WooCommerce could not approve the target directory for product '
                     . $download['product_id'] . ' download ' . $this->download_label($download)
                 );
             }
             if (!$this->download_path_is_valid($register, $download)) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce approved-directory write did not make product '
+                    'wprism: WooCommerce approved-directory write did not make product '
                     . $download['product_id'] . ' download ' . $this->download_label($download)
                     . ' valid; recovery_required'
                 );
@@ -2035,7 +2035,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
     }
 
     /**
-     * Read the exact raw metadata Duo wrote, bypassing WordPress's potentially
+     * Read the exact raw metadata WPrism wrote, bypassing WordPress's potentially
      * stale post-meta cache. Repository diagnostics already reject malformed
      * rows, but the executable boundary repeats the small shape check so a
      * direct or corrupted artifact cannot turn a provider receipt into an
@@ -2075,20 +2075,20 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 $productId = $witness['product_id'];
                 if (isset($seenProducts[$productId])) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce product $productId has multiple _downloadable_files rows; "
+                        "wprism: WooCommerce product $productId has multiple _downloadable_files rows; "
                         . 'the adapter supports one authored value'
                     );
                 }
                 $seenProducts[$productId] = true;
                 if ($witness['bytes'] > self::MAX_DOWNLOAD_META_BYTES_PER_PRODUCT) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce product $productId has oversized downloadable-file metadata"
+                        "wprism: WooCommerce product $productId has oversized downloadable-file metadata"
                     );
                 }
                 $rawBytes += $witness['bytes'];
                 if ($rawBytes > self::MAX_DOWNLOAD_META_BYTES) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce downloadable-file metadata exceeds the aggregate byte bound'
+                        'wprism: WooCommerce downloadable-file metadata exceeds the aggregate byte bound'
                     );
                 }
             }
@@ -2111,7 +2111,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 );
             }
             $limit = count($witnesses) + 1;
-            $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+            $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
                 "SELECT post_id, meta_id, BINARY meta_key AS meta_key, meta_value, "
                 . "LENGTH(meta_value) AS meta_value_bytes, SHA2(meta_value, 256) AS meta_sha256 "
                 . "FROM `{$wpdb->postmeta}` "
@@ -2122,7 +2122,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             ), 'downloadable product bounded metadata read');
             if (count($rows) !== count($witnesses)) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce downloadable product metadata changed after its byte witness'
+                    'wprism: WooCommerce downloadable product metadata changed after its byte witness'
                 );
             }
             $payloadWitnesses = [];
@@ -2150,7 +2150,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                     || !is_string($value)
                     || strlen($value) !== $valueBytes) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce downloadable product metadata read returned an out-of-scope owner'
+                        'wprism: WooCommerce downloadable product metadata read returned an out-of-scope owner'
                     );
                 }
                 $payloadWitnesses[] = [
@@ -2162,17 +2162,17 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 $expectedWitness = $witnesses[count($payloadWitnesses) - 1] ?? null;
                 if ($payloadWitnesses[count($payloadWitnesses) - 1] !== $expectedWitness) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce downloadable product metadata identity changed after its byte witness'
+                        'wprism: WooCommerce downloadable product metadata identity changed after its byte witness'
                     );
                 }
-                $decoded = \Duo\PlainData::decode_serialized(
+                $decoded = \WPrism\PlainData::decode_serialized(
                     $value,
                     "WooCommerce product $productId downloadable-file metadata"
                 );
                 if (!is_array($decoded) || ($decoded !== [] && array_is_list($decoded))
                     || count($decoded) > self::MAX_DOWNLOADS_PER_PRODUCT) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce product $productId has malformed downloadable-file metadata"
+                        "wprism: WooCommerce product $productId has malformed downloadable-file metadata"
                     );
                 }
                 $productDownloadCount = 0;
@@ -2200,7 +2200,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                         || (array_key_exists('enabled', $value)
                             && (!is_bool($value['enabled']) || $value['enabled'] !== true))) {
                         throw new \RuntimeException(
-                            "duo: WooCommerce product $productId has an unsupported downloadable-file row"
+                            "wprism: WooCommerce product $productId has an unsupported downloadable-file row"
                         );
                     }
                     $productDownloadCount++;
@@ -2214,13 +2214,13 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                         || $downloadNameBytes > self::MAX_DOWNLOAD_NAME_BYTES_TOTAL
                         || $downloadFileBytes > self::MAX_DOWNLOAD_FILE_BYTES_TOTAL) {
                         throw new \RuntimeException(
-                            'duo: WooCommerce downloadable-file collection exceeds its aggregate decoded bound'
+                            'wprism: WooCommerce downloadable-file collection exceeds its aggregate decoded bound'
                         );
                     }
                     $file = $value['file'];
                     if (str_starts_with($file, '[') && str_ends_with($file, ']')) {
                         throw new \RuntimeException(
-                            "duo: WooCommerce product $productId uses a shortcode download locator; "
+                            "wprism: WooCommerce product $productId uses a shortcode download locator; "
                             . 'extension-executed locators are outside this adapter contract'
                         );
                     }
@@ -2235,7 +2235,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             }
             if ($this->downloadable_meta_witness($chunk) !== $witnesses) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce downloadable product metadata changed during bounded readback'
+                    'wprism: WooCommerce downloadable product metadata changed during bounded readback'
                 );
             }
         }
@@ -2258,7 +2258,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         }
         $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
         $limit = count($chunk) + 1;
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT post_id, meta_id, BINARY meta_key AS meta_key, "
             . "LENGTH(meta_value) AS meta_value_bytes, SHA2(meta_value, 256) AS meta_sha256 "
             . "FROM `{$wpdb->postmeta}` "
@@ -2287,14 +2287,14 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             );
             if (isset($owners[$productId])) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce product $productId has multiple _downloadable_files rows; "
+                    "wprism: WooCommerce product $productId has multiple _downloadable_files rows; "
                     . 'the adapter supports one authored value'
                 );
             }
             if (!in_array($productId, $chunk, true)
                 || ($row['meta_key'] ?? null) !== '_downloadable_files') {
                 throw new \RuntimeException(
-                    'duo: WooCommerce downloadable product metadata witness returned malformed or aliased state'
+                    'wprism: WooCommerce downloadable product metadata witness returned malformed or aliased state'
                 );
             }
             $owners[$productId] = true;
@@ -2307,7 +2307,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         }
         if (count($rows) >= $limit) {
             throw new \RuntimeException(
-                'duo: WooCommerce downloadable product metadata saturated its bounded owner read'
+                'wprism: WooCommerce downloadable product metadata saturated its bounded owner read'
             );
         }
         return $witnesses;
@@ -2318,18 +2318,18 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         $class = '\\Automattic\\WooCommerce\\Internal\\ProductDownloads\\ApprovedDirectories\\Register';
         if (!class_exists($class) || !function_exists('wc_get_container')) {
             throw new \RuntimeException(
-                'duo: WooCommerce approved-download-directory API is unavailable'
+                'wprism: WooCommerce approved-download-directory API is unavailable'
             );
         }
         try {
             $register = \wc_get_container()->get($class);
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('duo: WooCommerce approved-download-directory service could not load');
+            throw new \RuntimeException('wprism: WooCommerce approved-download-directory service could not load');
         }
         foreach (['get_mode', 'get_by_url', 'add_approved_directory', 'enable_by_id', 'is_valid_path'] as $method) {
             if (!is_object($register) || !is_callable([$register, $method])) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce approved-download-directory service lacks public $method(); "
+                    "wprism: WooCommerce approved-download-directory service lacks public $method(); "
                     . 'the installed version is outside this adapter contract'
                 );
             }
@@ -2341,7 +2341,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
     private function download_parent_url(array $download): string {
         $class = '\\Automattic\\WooCommerce\\Internal\\Utilities\\URL';
         if (!class_exists($class)) {
-            throw new \RuntimeException('duo: WooCommerce approved-download URL API is unavailable');
+            throw new \RuntimeException('wprism: WooCommerce approved-download URL API is unavailable');
         }
         try {
             $parent = (new $class($download['file']))->get_parent_url();
@@ -2350,7 +2350,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         }
         if (!is_string($parent) || $parent === '') {
             throw new \RuntimeException(
-                'duo: WooCommerce product ' . $download['product_id'] . ' download '
+                'wprism: WooCommerce product ' . $download['product_id'] . ' download '
                 . $this->download_label($download) . ' has no approvable parent directory'
             );
         }
@@ -2363,7 +2363,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             return $register->is_valid_path($download['file']) === true;
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: WooCommerce could not validate the target path for product '
+                'wprism: WooCommerce could not validate the target path for product '
                 . $download['product_id'] . ' download ' . $this->download_label($download)
             );
         }
@@ -2418,7 +2418,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         $registerClass = '\\Automattic\\WooCommerce\\Internal\\ProductDownloads\\ApprovedDirectories\\Register';
         if (!in_array($mode, [$registerClass::MODE_DISABLED, $registerClass::MODE_ENABLED], true)) {
             throw new \RuntimeException(
-                'duo: WooCommerce approved-download-directory mode is outside the adapter contract'
+                'wprism: WooCommerce approved-download-directory mode is outside the adapter contract'
             );
         }
         $directories = [];
@@ -2433,7 +2433,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         }
         if ($verifyNative && $usable !== count($downloads)) {
             throw new \RuntimeException(
-                'duo: WooCommerce approved-directory verification left one or more scoped downloads unusable; '
+                'wprism: WooCommerce approved-directory verification left one or more scoped downloads unusable; '
                 . 'recovery_required'
             );
         }
@@ -2465,18 +2465,18 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $product = \wc_get_product((int) $productId);
             if (!is_object($product) || !is_callable([$product, 'get_downloads'])) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce could not load product $productId for native download verification"
+                    "wprism: WooCommerce could not load product $productId for native download verification"
                 );
             }
             $native = $product->get_downloads();
             if (!is_array($native)) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce product $productId returned an unreadable native download collection"
+                    "wprism: WooCommerce product $productId returned an unreadable native download collection"
                 );
             }
             if (count($native) > self::MAX_DOWNLOADS_PER_PRODUCT) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce product $productId returned an oversized native download collection"
+                    "wprism: WooCommerce product $productId returned an oversized native download collection"
                 );
             }
             $expectedIds = array_keys($expected);
@@ -2484,13 +2484,13 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $nativeIds = array_keys($native);
             if (count(array_filter($nativeIds, 'is_string')) !== count($nativeIds)) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce product $productId returned non-string native download identities; recovery_required"
+                    "wprism: WooCommerce product $productId returned non-string native download identities; recovery_required"
                 );
             }
             sort($nativeIds, SORT_STRING);
             if ($nativeIds !== $expectedIds) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce native download cardinality or identity verification failed for product $productId; "
+                    "wprism: WooCommerce native download cardinality or identity verification failed for product $productId; "
                     . 'recovery_required'
                 );
             }
@@ -2511,7 +2511,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                     || !hash_equals($download['file'], (string) $value->get_file())
                     || $value->get_enabled() !== $download['enabled']) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce native download verification failed for product $productId download "
+                        "wprism: WooCommerce native download verification failed for product $productId download "
                         . $this->download_label($download) . '; recovery_required'
                     );
                 }
@@ -2530,7 +2530,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
      * @param array<int,int|string> $liveIds
      * @param array<int,array> $deletionContext
      * @param callable|null $heartbeat Lease-renewal callback. The provider
-     *   contract has no heartbeat parameter — \Duo\Providers::invoke() passes a
+     *   contract has no heartbeat parameter — \WPrism\Providers::invoke() passes a
      *   capability name and typed args and nothing else — so invoke() above
      *   supplies null and the engine brackets the whole call with a lease
      *   renewal instead (Apply::renew_provider_lease()). The parameter and
@@ -2562,7 +2562,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             (string) $currentVisibility['intent_sha256']
         )) {
             throw new \RuntimeException(
-                'duo: WooCommerce product visibility changed before native projection; recovery_required'
+                'wprism: WooCommerce product visibility changed before native projection; recovery_required'
             );
         }
         // Validate the bounded whole-taxonomy inventory before any lookup,
@@ -2590,7 +2590,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         sort($liveIds, SORT_NUMERIC);
 
         // WooCommerce 11 validates every hydrated downloadable file against
-        // a target-local approved-directory register. Duo has already
+        // a target-local approved-directory register. WPrism has already
         // rebound authored file URLs to this target, but raw postmeta writes
         // bypass the native admin save that adds the new parent directory.
         // Repair that finite, apply-selected set before the first product
@@ -2678,7 +2678,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $this->heartbeat($heartbeat);
             $product = $this->load_product($id);
             if (!$product) {
-                throw new \RuntimeException("duo: WooCommerce product lookup regeneration could not load live product $id");
+                throw new \RuntimeException("wprism: WooCommerce product lookup regeneration could not load live product $id");
             }
             $this->bind_product_scope_children($product, $id, $preflightScope);
             $products[$id] = $product;
@@ -2773,7 +2773,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         $groupedParentSnapshot = $preflightScope['grouped_parents'] ?? null;
         if (!is_array($groupedParentCandidates) || !is_string($groupedParentSnapshot)) {
             throw new \RuntimeException(
-                'duo: WooCommerce product lookup scope is missing its bounded grouped-parent witness'
+                'wprism: WooCommerce product lookup scope is missing its bounded grouped-parent witness'
             );
         }
         $groupedParentEdges = $this->grouped_parent_witness_edges($groupedParentSnapshot);
@@ -2797,7 +2797,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             if (!$this->sorted_id_contains($groupedParentCandidates, $childId)
                 || !$this->sorted_id_contains($groupedParentCandidates, $parentId)) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce grouped-parent witness contains an out-of-scope edge; recovery_required'
+                    'wprism: WooCommerce grouped-parent witness contains an out-of-scope edge; recovery_required'
                 );
             }
             if (isset($processedGroupedParents[$parentId])) {
@@ -2807,18 +2807,18 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $parent = $this->load_product($parentId);
             if (!$parent) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce grouped reverse-owner $parentId disappeared before native projection; recovery_required"
+                    "wprism: WooCommerce grouped reverse-owner $parentId disappeared before native projection; recovery_required"
                 );
             }
             if (!$this->is_grouped($parent)) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce grouped reverse-owner $parentId is no longer grouped; recovery_required"
+                    "wprism: WooCommerce grouped reverse-owner $parentId is no longer grouped; recovery_required"
                 );
             }
             $expectedChildren = $preflightScope['children'][$parentId] ?? null;
             if (!is_array($expectedChildren)) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce grouped reverse-owner $parentId lacks its bounded child witness; recovery_required"
+                    "wprism: WooCommerce grouped reverse-owner $parentId lacks its bounded child witness; recovery_required"
                 );
             }
             $actualChildren = $this->bounded_product_children(
@@ -2829,7 +2829,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $expectedChildren = array_values(array_map('intval', $expectedChildren));
             if ($actualChildren !== $expectedChildren || !in_array($childId, $actualChildren, true)) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce grouped reverse-owner $parentId child membership changed before native projection; recovery_required"
+                    "wprism: WooCommerce grouped reverse-owner $parentId child membership changed before native projection; recovery_required"
                 );
             }
             $this->bind_product_scope_children($parent, $parentId, $preflightScope);
@@ -2920,7 +2920,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $this->heartbeat($heartbeat);
             $product = $products[(int) $id] ?? $this->load_product((int) $id);
             if (!$product) {
-                throw new \RuntimeException("duo: WooCommerce could not load product $id for public price synthesis");
+                throw new \RuntimeException("wprism: WooCommerce could not load product $id for public price synthesis");
             }
             $this->sync_simple_price_from_woocommerce($product);
             $this->heartbeat($heartbeat);
@@ -2929,7 +2929,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         $variableStore = \WC_Data_Store::load('product-variable');
         if (!is_object($variableStore) || !$this->store_has($variableStore, 'sync_price')) {
             throw new \RuntimeException(
-                'duo: WooCommerce product-variable data store lacks public sync_price(); '
+                'wprism: WooCommerce product-variable data store lacks public sync_price(); '
                 . 'the installed WooCommerce version is outside the adapter contract'
             );
         }
@@ -2965,7 +2965,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $groupedStore = \WC_Data_Store::load('product-grouped');
             if (!is_object($groupedStore) || !$this->store_has($groupedStore, 'sync_price')) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce product-grouped data store lacks public sync_price(); '
+                    'wprism: WooCommerce product-grouped data store lacks public sync_price(); '
                     . 'the installed WooCommerce version is outside the adapter contract'
                 );
             }
@@ -2984,7 +2984,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         $productStore = \WC_Data_Store::load('product');
         if (!is_object($productStore) || !$this->store_has($productStore, 'refresh_product_lookup_table')) {
             throw new \RuntimeException(
-                'duo: WooCommerce product data store lacks public refresh_product_lookup_table(); '
+                'wprism: WooCommerce product data store lacks public refresh_product_lookup_table(); '
                 . 'the installed WooCommerce version is outside the adapter contract'
             );
         }
@@ -3053,14 +3053,14 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         $container = wc_get_container();
         if (!is_object($container) || !is_callable([$container, 'get'])) {
             throw new \RuntimeException(
-                'duo: WooCommerce dependency container is unavailable for product attribute lookup repair'
+                'wprism: WooCommerce dependency container is unavailable for product attribute lookup repair'
             );
         }
         $store = $container->get($class);
         foreach (['create_data_for_product', 'get_last_create_operation_failed'] as $method) {
             if (!is_object($store) || !is_callable([$store, $method])) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce product attribute lookup store lacks public $method(); "
+                    "wprism: WooCommerce product attribute lookup store lacks public $method(); "
                     . 'the installed WooCommerce version is outside the adapter contract'
                 );
             }
@@ -3071,14 +3071,14 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             if ($rootId <= 0 || !is_object($root) || !is_callable([$root, 'get_id'])
                 || (int) $root->get_id() !== $rootId) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce product attribute lookup repair received an invalid scoped root'
+                    'wprism: WooCommerce product attribute lookup repair received an invalid scoped root'
                 );
             }
             $this->heartbeat($heartbeat);
             $store->create_data_for_product($root, false);
             if ($store->get_last_create_operation_failed() !== false) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce product attribute lookup regeneration failed for product $rootId; recovery_required"
+                    "wprism: WooCommerce product attribute lookup regeneration failed for product $rootId; recovery_required"
                 );
             }
             $this->heartbeat($heartbeat);
@@ -3110,7 +3110,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             ));
             if ($result === false) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce product attribute lookup deletion failed for the bounded tombstone batch; '
+                    'wprism: WooCommerce product attribute lookup deletion failed for the bounded tombstone batch; '
                     . 'recovery_required'
                 );
             }
@@ -3143,7 +3143,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $freshRoot = $this->load_product($rootId);
             if (!$freshRoot || !$this->is_grouped($freshRoot)) {
                 throw new \RuntimeException(
-                    "duo: grouped product $rootId disappeared before public grouped price synchronization"
+                    "wprism: grouped product $rootId disappeared before public grouped price synchronization"
                 );
             }
             $this->bind_product_scope_children($freshRoot, $rootId, $preflightScope);
@@ -3204,7 +3204,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                     $cleared = \as_unschedule_all_actions($hook, ['product_id' => $id], 'woocommerce-sales');
                     if ($cleared === false) {
                         throw new \RuntimeException(
-                            "duo: WooCommerce sale-action cleanup failed for deleted product $id"
+                            "wprism: WooCommerce sale-action cleanup failed for deleted product $id"
                         );
                     }
                     $this->heartbeat($heartbeat);
@@ -3217,7 +3217,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             }
             if (!is_object($product)) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce sale scheduling could not load affected product $id"
+                    "wprism: WooCommerce sale scheduling could not load affected product $id"
                 );
             }
             \wc_maybe_schedule_product_sale_events($id, $product);
@@ -3258,7 +3258,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 if (!is_callable([$product, 'get_date_on_sale_from'])
                     || !is_callable([$product, 'get_date_on_sale_to'])) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce sale scheduling verification API is unavailable for product $id"
+                        "wprism: WooCommerce sale scheduling verification API is unavailable for product $id"
                     );
                 }
                 $expected['wc_product_start_scheduled_sale'] = $this->future_sale_timestamp(
@@ -3269,7 +3269,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 );
             } elseif (!isset($deletionIds[$id])) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce sale scheduling verification could not load affected product $id"
+                    "wprism: WooCommerce sale scheduling verification could not load affected product $id"
                 );
             }
 
@@ -3279,14 +3279,14 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 if ($timestamp === null) {
                     if ($actual['count'] !== 0 || $actual['next'] !== 'absent') {
                         throw new \RuntimeException(
-                            "duo: WooCommerce sale schedule verification found unexpected or duplicate $hook for product $id"
+                            "wprism: WooCommerce sale schedule verification found unexpected or duplicate $hook for product $id"
                         );
                     }
                     continue;
                 }
                 if ($actual['count'] !== 1 || $actual['next'] !== 'timestamp:' . $timestamp) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce sale schedule verification cardinality or timestamp mismatch for product $id ($hook)"
+                        "wprism: WooCommerce sale schedule verification cardinality or timestamp mismatch for product $id ($hook)"
                     );
                 }
             }
@@ -3366,23 +3366,23 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
     private function sync_parent_price_from_woocommerce(object $store, object $product): void {
         global $wpdb;
         $id = (int) $product->get_id();
-        $inTransaction = \Duo\ProviderSdk::checked_get_var(
+        $inTransaction = \WPrism\ProviderSdk::checked_get_var(
             'SELECT @@in_transaction',
             "transaction-state inspection for product $id"
         );
         if ($inTransaction === null) {
             throw new \RuntimeException(
-                "duo: transaction-state inspection returned no value for WooCommerce product $id"
+                "wprism: transaction-state inspection returned no value for WooCommerce product $id"
             );
         }
         if ((string) $inTransaction === '1') {
             throw new \RuntimeException(
-                "duo: cannot establish an atomic WooCommerce price sync boundary for product $id inside an active transaction"
+                "wprism: cannot establish an atomic WooCommerce price sync boundary for product $id inside an active transaction"
             );
         }
         if (!is_callable([$wpdb, 'query']) || $wpdb->query('START TRANSACTION') === false) {
             throw new \RuntimeException(
-                "duo: could not start an atomic WooCommerce price sync transaction for product $id"
+                "wprism: could not start an atomic WooCommerce price sync transaction for product $id"
             );
         }
         $transactionActive = true;
@@ -3404,7 +3404,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             remove_filter('delete_post_metadata', $preserveAuthoredParentPrice, PHP_INT_MAX);
             if ($wpdb->query('COMMIT') === false) {
                 throw new \RuntimeException(
-                    "duo: could not commit the atomic WooCommerce price sync transaction for product $id"
+                    "wprism: could not commit the atomic WooCommerce price sync transaction for product $id"
                 );
             }
             $transactionActive = false;
@@ -3412,7 +3412,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             remove_filter('delete_post_metadata', $preserveAuthoredParentPrice, PHP_INT_MAX);
             if ($transactionActive && $wpdb->query('ROLLBACK') === false) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce price sync failed and its transaction could not be rolled back for product $id",
+                    "wprism: WooCommerce price sync failed and its transaction could not be rolled back for product $id",
                     0,
                     $failure
                 );
@@ -3432,7 +3432,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
     /**
      * Make Woo's runtime taxonomy registry reflect definitions applied after
      * plugin init. WooCommerce itself registers pa_* taxonomies during init
-     * from wc_get_attribute_taxonomies(); Duo's typed-table apply can land a
+     * from wc_get_attribute_taxonomies(); WPrism's typed-table apply can land a
      * new definition later in the same request. The public cache invalidators
      * plus WooCommerce 11.0.x's own derived register_taxonomy() arguments and
      * filters restore the same product/cache/visibility contract for the
@@ -3444,7 +3444,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         delete_transient('wc_attribute_taxonomies');
         if (!is_callable(['\\WC_Cache_Helper', 'invalidate_cache_group'])) {
             throw new \RuntimeException(
-                'duo: WooCommerce cache helper lacks invalidate_cache_group(); cannot refresh attribute taxonomy registration'
+                'wprism: WooCommerce cache helper lacks invalidate_cache_group(); cannot refresh attribute taxonomy registration'
             );
         }
         \WC_Cache_Helper::invalidate_cache_group('woocommerce-attributes');
@@ -3545,7 +3545,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             );
             if (is_wp_error($registered) || !taxonomy_exists($taxonomy)) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce attribute taxonomy '$taxonomy' could not be registered for product-object reconciliation"
+                    "wprism: WooCommerce attribute taxonomy '$taxonomy' could not be registered for product-object reconciliation"
                 );
             }
             $registeredTaxonomies[$taxonomy] = $taxonomy;
@@ -3574,7 +3574,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
     private function delete_meta_lookup(object $store, int $id): void {
         if (!$this->store_has($store, 'delete_from_lookup_table')) {
             throw new \RuntimeException(
-                'duo: WooCommerce product data store lacks delete_from_lookup_table(); cannot clean deleted lookup rows'
+                'wprism: WooCommerce product data store lacks delete_from_lookup_table(); cannot clean deleted lookup rows'
             );
         }
         $store->delete_from_lookup_table($id, self::META_LOOKUP);
@@ -3610,11 +3610,11 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             try {
                 $productCache = \wc_get_container()->get($productCacheClass);
             } catch (\Throwable $t) {
-                throw new \RuntimeException('duo: failed to load WooCommerce ProductCache for lookup regeneration', 0, $t);
+                throw new \RuntimeException('wprism: failed to load WooCommerce ProductCache for lookup regeneration', 0, $t);
             }
             if (!is_object($productCache) || !is_callable([$productCache, 'remove'])) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce ProductCache lacks public remove(); cannot safely read product lookup inputs'
+                    'wprism: WooCommerce ProductCache lacks public remove(); cannot safely read product lookup inputs'
                 );
             }
             $productCache->remove($id);
@@ -3670,13 +3670,13 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         foreach ($ids as $candidateId) {
             if (!is_int($candidateId) && !is_string($candidateId)) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce grouped parent witness contains a malformed candidate'
+                    'wprism: WooCommerce grouped parent witness contains a malformed candidate'
                 );
             }
             $candidateId = (int) $candidateId;
             if ($candidateId <= $previousCandidate) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce grouped parent witness contains an unsorted candidate set'
+                    'wprism: WooCommerce grouped parent witness contains an unsorted candidate set'
                 );
             }
             $previousCandidate = $candidateId;
@@ -3694,7 +3694,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $remaining = self::MAX_GROUPED_REVERSE_RESULT_ROWS - $resultRows;
             if ($remaining < 1) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce grouped reverse ownership exceeds its bounded result scope'
+                    'wprism: WooCommerce grouped reverse ownership exceeds its bounded result scope'
                 );
             }
             $limit = $remaining + 1;
@@ -3715,14 +3715,14 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                     $stringNeedle
                 );
             }
-            $rows = \Duo\ProviderSdk::checked_get_results(
+            $rows = \WPrism\ProviderSdk::checked_get_results(
                 implode(' UNION ALL ', $branches)
                 . " ORDER BY child_id ASC, post_id ASC LIMIT {$limit}",
                 'grouped parent witness'
             );
             if (count($rows) > $remaining) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce grouped reverse ownership exceeds its bounded result scope'
+                    'wprism: WooCommerce grouped reverse ownership exceeds its bounded result scope'
                 );
             }
             $resultRows += count($rows);
@@ -3737,13 +3737,13 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 );
                 if (!$this->sorted_id_contains($ids, $childId)) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce grouped parent witness returned an out-of-scope child'
+                        'wprism: WooCommerce grouped parent witness returned an out-of-scope child'
                     );
                 }
                 $edge = $childId . ':' . $parentId . ';';
                 if ($edge === $lastEdge) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce grouped parent witness returned a duplicate owner'
+                        'wprism: WooCommerce grouped parent witness returned a duplicate owner'
                     );
                 }
                 $witness .= $edge;
@@ -3763,13 +3763,13 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $end = strpos($witness, ';', $offset);
             if ($end === false) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce grouped parent witness has malformed edge bytes'
+                    'wprism: WooCommerce grouped parent witness has malformed edge bytes'
                 );
             }
             $edge = substr($witness, $offset, $end - $offset);
             if (preg_match('/^([1-9][0-9]*):([1-9][0-9]*)$/D', $edge, $parts) !== 1) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce grouped parent witness has malformed edge identity'
+                    'wprism: WooCommerce grouped parent witness has malformed edge identity'
                 );
             }
             yield [
@@ -3794,7 +3794,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         }
         $integerNeedle = '%i:' . $childId . ';%';
         $stringNeedle = '%s:' . strlen((string) $childId) . ':"' . $childId . '";%';
-        $rows = \Duo\ProviderSdk::checked_get_col($wpdb->prepare(
+        $rows = \WPrism\ProviderSdk::checked_get_col($wpdb->prepare(
             "SELECT DISTINCT pm.post_id
              FROM {$wpdb->postmeta} pm
              INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
@@ -3808,7 +3808,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         ), 'grouped parent discovery');
         if (count($rows) > self::MAX_GROUPED_PARENTS) {
             throw new \RuntimeException(
-                'duo: WooCommerce grouped parent discovery exceeds its bounded owner scope'
+                'wprism: WooCommerce grouped parent discovery exceeds its bounded owner scope'
             );
         }
         $ids = [];
@@ -3816,7 +3816,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $id = $this->strict_positive_db_uint($row, 'grouped parent ID');
             if (isset($ids[$id])) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce grouped parent discovery returned a duplicate owner'
+                    'wprism: WooCommerce grouped parent discovery returned a duplicate owner'
                 );
             }
             $ids[$id] = $id;
@@ -3899,7 +3899,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         foreach (['is_on_sale', 'get_sale_price', 'get_regular_price'] as $method) {
             if (!is_callable([$product, $method])) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce product $id lacks public $method(); the installed version is outside the adapter contract"
+                    "wprism: WooCommerce product $id lacks public $method(); the installed version is outside the adapter contract"
                 );
             }
         }
@@ -3910,11 +3910,11 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         if (!delete_post_meta($id, '_price')) {
             $remaining = (array) get_post_meta($id, '_price', false);
             if ($remaining !== []) {
-                throw new \RuntimeException("duo: failed to clear stale WooCommerce _price meta for product $id");
+                throw new \RuntimeException("wprism: failed to clear stale WooCommerce _price meta for product $id");
             }
         }
         if ($price !== '' && !add_post_meta($id, '_price', $price, false)) {
-            throw new \RuntimeException("duo: failed to write WooCommerce-derived _price meta for product $id");
+            throw new \RuntimeException("wprism: failed to write WooCommerce-derived _price meta for product $id");
         }
         $this->invalidate_product_caches($id);
     }
@@ -3937,7 +3937,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         $table = $this->prefixed_table(self::META_LOOKUP);
         foreach ($deletionIds as $id) {
             $this->heartbeat($heartbeat);
-            $metaCountValue = \Duo\ProviderSdk::checked_get_var($wpdb->prepare(
+            $metaCountValue = \WPrism\ProviderSdk::checked_get_var($wpdb->prepare(
                 "SELECT COUNT(*) FROM `$table` WHERE product_id = %d",
                 (int) $id
             ), "product lookup deletion verification for product $id");
@@ -3948,7 +3948,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             );
             if ($metaCount !== 0) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce product lookup deletion verification failed for product $id "
+                    "wprism: WooCommerce product lookup deletion verification failed for product $id "
                     . "(meta rows=$metaCount)"
                 );
             }
@@ -4022,9 +4022,9 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
 
         $applied = $this->read_lookup_row($table, $id);
         if ($applied === null) {
-            throw new \RuntimeException("duo: WooCommerce product lookup row missing for product $id");
+            throw new \RuntimeException("wprism: WooCommerce product lookup row missing for product $id");
         }
-        $countValue = \Duo\ProviderSdk::checked_get_var($wpdb->prepare(
+        $countValue = \WPrism\ProviderSdk::checked_get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM `$table` WHERE product_id = %d",
             $id
         ), "product lookup cardinality verification for product $id");
@@ -4034,7 +4034,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             "product lookup cardinality for product $id"
         );
         if ($count !== 1) {
-            throw new \RuntimeException("duo: WooCommerce product lookup has $count rows for product $id; expected exactly one");
+            throw new \RuntimeException("wprism: WooCommerce product lookup has $count rows for product $id; expected exactly one");
         }
 
         $derived = $this->woo_republished_lookup_row($productStore, $id);
@@ -4042,7 +4042,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         $stored = $this->read_lookup_row($table, $id);
         if ($stored === null) {
             throw new \RuntimeException(
-                "duo: WooCommerce product lookup row for product $id disappeared during its own refresh"
+                "wprism: WooCommerce product lookup row for product $id disappeared during its own refresh"
             );
         }
 
@@ -4078,7 +4078,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             static fn(string $column): string => "`$column`",
             $this->lookup_read_columns($table)
         ));
-        $row = \Duo\ProviderSdk::checked_get_row($wpdb->prepare(
+        $row = \WPrism\ProviderSdk::checked_get_row($wpdb->prepare(
             "SELECT $projection FROM `$table` WHERE product_id = %d LIMIT 1",
             $id
         ), "product lookup verification for product $id");
@@ -4111,7 +4111,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         $this->invalidate_product_caches($id);
         if (wp_cache_get('lookup_table', 'object_' . $id) !== false) {
             throw new \RuntimeException(
-                "duo: WooCommerce's product lookup derivation cache survived invalidation for product $id; "
+                "wprism: WooCommerce's product lookup derivation cache survived invalidation for product $id; "
                 . 'the refresh would short-circuit and the verification below would prove nothing'
             );
         }
@@ -4119,7 +4119,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         $derived = wp_cache_get('lookup_table', 'object_' . $id);
         if (!is_array($derived) || $derived === []) {
             throw new \RuntimeException(
-                "duo: WooCommerce published no product lookup derivation for product $id after a public "
+                "wprism: WooCommerce published no product lookup derivation for product $id after a public "
                 . 'refresh with a cleared cache; the installed WooCommerce version is outside the adapter contract'
             );
         }
@@ -4169,12 +4169,12 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $column = (string) $column;
             if (preg_match('/^[a-z][a-z0-9_]{0,62}$/D', $column) !== 1) {
                 throw new \RuntimeException(
-                    "duo: unusable WooCommerce product lookup column name '$column' for product $id"
+                    "wprism: unusable WooCommerce product lookup column name '$column' for product $id"
                 );
             }
             if (!array_key_exists($column, $stored)) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce product lookup column '$column' for product $id is absent from $table; "
+                    "wprism: WooCommerce product lookup column '$column' for product $id is absent from $table; "
                     . 'the lookup schema and the installed WooCommerce disagree'
                 );
             }
@@ -4184,7 +4184,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             }
             if (!is_scalar($value)) {
                 throw new \RuntimeException(
-                    "duo: non-scalar WooCommerce product lookup value for product $id.$column"
+                    "wprism: non-scalar WooCommerce product lookup value for product $id.$column"
                 );
             }
             $cast = $columnCasts[$column] ?? '';
@@ -4195,7 +4195,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             // way in, so ints, floats and false reach MySQL identically here.
             $params[] = (string) $value;
         }
-        $matches = \Duo\ProviderSdk::checked_get_var($wpdb->prepare(
+        $matches = \WPrism\ProviderSdk::checked_get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM `$table` WHERE " . implode(' AND ', $conditions),
             ...$params
         ), "product lookup value verification for product $id");
@@ -4210,7 +4210,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         $columns = array_keys($expected);
         sort($columns, SORT_STRING);
         throw new \RuntimeException(
-            "duo: WooCommerce product lookup verification mismatch for product $id — $failure "
+            "wprism: WooCommerce product lookup verification mismatch for product $id — $failure "
             . '(columns=' . count($columns)
             . '; expected_sha256=' . $this->lookup_value_digest($expected, $columns)
             . '; stored_sha256=' . $this->lookup_value_digest($stored, $columns) . ')'
@@ -4259,9 +4259,9 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             return $this->lookupColumnCasts;
         }
         if (preg_match('/^[a-zA-Z0-9_]{1,64}$/D', $table) !== 1) {
-            throw new \RuntimeException('duo: unusable WooCommerce product lookup table name for schema verification');
+            throw new \RuntimeException('wprism: unusable WooCommerce product lookup table name for schema verification');
         }
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             'SELECT BINARY COLUMN_NAME AS Field, LOWER(COLUMN_TYPE) AS Type '
             . 'FROM information_schema.COLUMNS '
             . 'WHERE TABLE_SCHEMA = DATABASE() AND BINARY TABLE_NAME = BINARY %s '
@@ -4272,7 +4272,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         );
         if (count($rows) > self::MAX_TABLE_COLUMNS) {
             throw new \RuntimeException(
-                'duo: WooCommerce product lookup schema returned an oversized column inventory'
+                'wprism: WooCommerce product lookup schema returned an oversized column inventory'
             );
         }
         $casts = [];
@@ -4283,14 +4283,14 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             if (!is_string($column) || !is_string($rawType)
                 || preg_match('/^[a-z][a-z0-9_]{0,62}$/D', $column) !== 1
                 || isset($seen[$column]) || strlen($rawType) > 128) {
-                throw new \RuntimeException('duo: WooCommerce product lookup schema returned an unusable column name');
+                throw new \RuntimeException('wprism: WooCommerce product lookup schema returned an unusable column name');
             }
             $seen[$column] = true;
             $type = strtolower(trim($rawType));
             $coreType = self::LOOKUP_CORE_COLUMN_TYPES[$column] ?? null;
             if (is_string($coreType) && preg_match($coreType, $type) !== 1) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce product lookup core column '$column' has an incompatible type"
+                    "wprism: WooCommerce product lookup core column '$column' has an incompatible type"
                 );
             }
             if (preg_match('/^decimal\(([1-9][0-9]?),([0-9]{1,2})\)(?: unsigned)?$/D', $type, $matches) !== 1) {
@@ -4300,7 +4300,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $scale = (int) $matches[2];
             if ($precision > 65 || $scale > 30 || $scale > $precision) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce product lookup column '$column' has an unsupported DECIMAL declaration"
+                    "wprism: WooCommerce product lookup column '$column' has an unsupported DECIMAL declaration"
                 );
             }
             $casts[$column] = "DECIMAL($precision,$scale)";
@@ -4309,7 +4309,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         $required = array_values(array_diff($required, ['cogs_total_value']));
         if (array_diff($required, array_keys($seen)) !== []) {
             throw new \RuntimeException(
-                'duo: WooCommerce product lookup schema is missing one or more exact core columns'
+                'wprism: WooCommerce product lookup schema is missing one or more exact core columns'
             );
         }
         $readColumns = [];
@@ -4328,7 +4328,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         $this->lookup_column_casts($table);
         if (!is_array($this->lookupReadColumns) || $this->lookupReadColumns === []) {
             throw new \RuntimeException(
-                'duo: WooCommerce product lookup schema produced no bounded core read projection'
+                'wprism: WooCommerce product lookup schema produced no bounded core read projection'
             );
         }
         return $this->lookupReadColumns;
@@ -4340,7 +4340,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             ? $wpdb->prefix . $suffix
             : '';
         if (preg_match(self::TABLE_IDENTIFIER_PATTERN, $table) !== 1) {
-            throw new \RuntimeException('duo: unusable WooCommerce product lookup table name');
+            throw new \RuntimeException('wprism: unusable WooCommerce product lookup table name');
         }
         return $table;
     }
@@ -4385,7 +4385,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 $scope[$id] = true;
                 if (count($scope) > self::MAX_SCOPED_PRODUCTS) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce product lookup scope exceeds its bounded aggregate product count'
+                        'wprism: WooCommerce product lookup scope exceeds its bounded aggregate product count'
                     );
                 }
             }
@@ -4480,14 +4480,14 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             }
             if (!is_callable([$product, 'get_type'])) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce product lookup scope could not read the native product type'
+                    'wprism: WooCommerce product lookup scope could not read the native product type'
                 );
             }
             $type = (string) $product->get_type();
             if ($type === 'variation') {
                 if (!is_callable([$product, 'get_parent_id'])) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce variation lookup scope lacks the public parent boundary'
+                        'wprism: WooCommerce variation lookup scope lacks the public parent boundary'
                     );
                 }
                 $parentId = (int) $product->get_parent_id('edit');
@@ -4548,7 +4548,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             }
             if ($closureChanged && $closurePass >= self::MAX_GROUPED_REVERSE_CLOSURE_PASSES) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce grouped reverse ownership exceeds its bounded closure depth'
+                    'wprism: WooCommerce grouped reverse ownership exceeds its bounded closure depth'
                 );
             }
         } while ($closureChanged);
@@ -4585,7 +4585,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         if (!is_array($ids) || !is_array($children) || !is_array($visibleChildren)
             || !is_array($groupedParentCandidates) || !is_string($groupedParents)) {
             throw new \RuntimeException(
-                'duo: WooCommerce product lookup scope snapshot is missing its bounded child witness'
+                'wprism: WooCommerce product lookup scope snapshot is missing its bounded child witness'
             );
         }
         $previousCandidate = 0;
@@ -4593,7 +4593,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $candidateId = (int) $candidateId;
             if ($candidateId <= $previousCandidate) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce product lookup scope snapshot contains malformed grouped-parent state'
+                    'wprism: WooCommerce product lookup scope snapshot contains malformed grouped-parent state'
                 );
             }
             $previousCandidate = $candidateId;
@@ -4602,7 +4602,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         $this->heartbeat($heartbeat);
         if ($actualGroupedParents !== $groupedParents) {
             throw new \RuntimeException(
-                'duo: WooCommerce grouped-parent scope changed before native projection; recovery_required'
+                'wprism: WooCommerce grouped-parent scope changed before native projection; recovery_required'
             );
         }
         $sets = [array_keys($ids)];
@@ -4610,20 +4610,20 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $id = (int) $id;
             if ($id <= 0 || !isset($ids[$id]) || !is_array($expected)) {
                 throw new \RuntimeException(
-                    'duo: WooCommerce product lookup scope snapshot contains malformed child state'
+                    'wprism: WooCommerce product lookup scope snapshot contains malformed child state'
                 );
             }
             $this->heartbeat($heartbeat);
             $product = $this->load_product($id);
             if (!$product || (!$this->is_variable($product) && !$this->is_grouped($product))) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce composite product $id disappeared before bounded scope verification"
+                    "wprism: WooCommerce composite product $id disappeared before bounded scope verification"
                 );
             }
             $actual = $this->bounded_product_children($product, $id, 'product lookup scope verification');
             if ($actual !== array_values(array_map('intval', $expected))) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce product lookup child scope changed before native projection; recovery_required"
+                    "wprism: WooCommerce product lookup child scope changed before native projection; recovery_required"
                 );
             }
             $sets[] = $actual;
@@ -4631,7 +4631,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 $expectedVisible = $visibleChildren[$id] ?? null;
                 if (!is_array($expectedVisible)) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce variable product $id is missing its bounded visible-child witness"
+                        "wprism: WooCommerce variable product $id is missing its bounded visible-child witness"
                     );
                 }
                 $actualVisible = $this->bounded_visible_product_children(
@@ -4645,7 +4645,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 );
                 if ($actualVisible !== array_values(array_map('intval', $expectedVisible))) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce variable child visibility changed before native projection; recovery_required'
+                        'wprism: WooCommerce variable child visibility changed before native projection; recovery_required'
                     );
                 }
             }
@@ -4668,13 +4668,13 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         }
         if (!$this->is_grouped($product) || !is_callable([$product, 'get_children'])) {
             throw new \RuntimeException(
-                "duo: WooCommerce $context lacks the public child boundary for product $id"
+                "wprism: WooCommerce $context lacks the public child boundary for product $id"
             );
         }
         $raw = $this->bounded_grouped_children($id, $context);
         if (!is_array($raw) || count($raw) > self::MAX_SCOPED_PRODUCTS) {
             throw new \RuntimeException(
-                "duo: WooCommerce $context exceeds its bounded aggregate product count"
+                "wprism: WooCommerce $context exceeds its bounded aggregate product count"
             );
         }
         $children = [];
@@ -4686,7 +4686,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             $children[$childId] = $childId;
             if (count($children) > self::MAX_SCOPED_PRODUCTS) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce $context exceeds its bounded aggregate product count"
+                    "wprism: WooCommerce $context exceeds its bounded aggregate product count"
                 );
             }
         }
@@ -4710,7 +4710,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                      AND t.slug = 'outofstock'
                )";
         }
-        $rows = \Duo\ProviderSdk::checked_get_col($wpdb->prepare(
+        $rows = \WPrism\ProviderSdk::checked_get_col($wpdb->prepare(
             "SELECT ID FROM {$wpdb->posts}
              WHERE post_parent = %d
                AND post_type = 'product_variation'
@@ -4721,7 +4721,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         ), "$context variable child inventory for product $id");
         if (count($rows) > self::MAX_SCOPED_PRODUCTS) {
             throw new \RuntimeException(
-                "duo: WooCommerce $context exceeds its bounded aggregate product count"
+                "wprism: WooCommerce $context exceeds its bounded aggregate product count"
             );
         }
         $children = [];
@@ -4743,7 +4743,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         foreach ($visible as $childId) {
             if (!isset($allowed[$childId])) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce $context returned a visible child outside its all-child witness"
+                    "wprism: WooCommerce $context returned a visible child outside its all-child witness"
                 );
             }
         }
@@ -4752,7 +4752,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
     /** @return list<int> */
     private function bounded_grouped_children(int $id, string $context): array {
         global $wpdb;
-        $sizeRows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $sizeRows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT meta_id, LENGTH(meta_value) AS value_bytes FROM {$wpdb->postmeta}
              WHERE post_id = %d AND meta_key = '_children'
              ORDER BY meta_id ASC LIMIT 2",
@@ -4760,7 +4760,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         ), "$context grouped child inventory for product $id");
         if (count($sizeRows) > 1) {
             throw new \RuntimeException(
-                "duo: WooCommerce $context found duplicate _children rows for product $id"
+                "wprism: WooCommerce $context found duplicate _children rows for product $id"
             );
         }
         if ($sizeRows === []) {
@@ -4772,10 +4772,10 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         );
         if ($valueBytes > self::MAX_GROUPED_CHILD_BYTES) {
             throw new \RuntimeException(
-                "duo: WooCommerce $context returned an oversized _children payload for product $id"
+                "wprism: WooCommerce $context returned an oversized _children payload for product $id"
             );
         }
-        $rows = \Duo\ProviderSdk::checked_get_results($wpdb->prepare(
+        $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
             "SELECT meta_id, meta_value FROM {$wpdb->postmeta}
              WHERE post_id = %d AND meta_key = '_children'
                AND LENGTH(meta_value) <= " . self::MAX_GROUPED_CHILD_BYTES . "
@@ -4784,47 +4784,47 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         ), "$context grouped child payload for product $id");
         if (count($rows) > 1) {
             throw new \RuntimeException(
-                "duo: WooCommerce $context found duplicate _children rows for product $id"
+                "wprism: WooCommerce $context found duplicate _children rows for product $id"
             );
         }
         if ($rows === []) {
             throw new \RuntimeException(
-                "duo: WooCommerce $context lost its _children row after the bounded size witness"
+                "wprism: WooCommerce $context lost its _children row after the bounded size witness"
             );
         }
         $raw = $rows[0]['meta_value'] ?? null;
         if (!is_string($raw)) {
             throw new \RuntimeException(
-                "duo: WooCommerce $context returned malformed _children data for product $id"
+                "wprism: WooCommerce $context returned malformed _children data for product $id"
             );
         }
         if (strlen($raw) > self::MAX_GROUPED_CHILD_BYTES) {
             throw new \RuntimeException(
-                "duo: WooCommerce $context returned an oversized _children payload for product $id"
+                "wprism: WooCommerce $context returned an oversized _children payload for product $id"
             );
         }
         if (preg_match('/^a:([0-9]+):\{/', $raw, $match) !== 1) {
             throw new \RuntimeException(
-                "duo: WooCommerce $context returned non-array _children data for product $id"
+                "wprism: WooCommerce $context returned non-array _children data for product $id"
             );
         }
         $declared = (int) $match[1];
         if ($declared > self::MAX_SCOPED_PRODUCTS) {
             throw new \RuntimeException(
-                "duo: WooCommerce $context exceeds its bounded aggregate product count"
+                "wprism: WooCommerce $context exceeds its bounded aggregate product count"
             );
         }
         $decoded = @unserialize($raw, ['allowed_classes' => false]);
         if (!is_array($decoded)) {
             throw new \RuntimeException(
-                "duo: WooCommerce $context returned malformed _children data for product $id"
+                "wprism: WooCommerce $context returned malformed _children data for product $id"
             );
         }
         $children = [];
         foreach ($decoded as $childValue) {
             if (!is_int($childValue) && !is_string($childValue)) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce $context returned a non-scalar _children id for product $id"
+                    "wprism: WooCommerce $context returned a non-scalar _children id for product $id"
                 );
             }
             $childId = $this->strict_positive_db_uint($childValue, "$context child ID");
@@ -4841,7 +4841,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         }
         if (!is_callable([$product, 'set_children'])) {
             throw new \RuntimeException(
-                "duo: WooCommerce composite product $id lacks public set_children(); cannot bind its bounded child witness"
+                "wprism: WooCommerce composite product $id lacks public set_children(); cannot bind its bounded child witness"
             );
         }
         $product->set_children(array_values(array_map('intval', $children)));
@@ -4877,7 +4877,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
                 $scope[$id] = true;
                 if (count($scope) > self::MAX_SCOPED_PRODUCTS) {
                     throw new \RuntimeException(
-                        'duo: WooCommerce product lookup scope exceeds its bounded aggregate product count'
+                        'wprism: WooCommerce product lookup scope exceeds its bounded aggregate product count'
                     );
                 }
             }
@@ -4887,30 +4887,30 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
     /** @param list<int> $ids */
     private function assert_scoped_product_count(array $ids, string $context): void {
         if (count($ids) > self::MAX_SCOPED_PRODUCTS) {
-            throw new \RuntimeException("duo: WooCommerce $context exceeds its bounded product scope");
+            throw new \RuntimeException("wprism: WooCommerce $context exceeds its bounded product scope");
         }
     }
 
     private function strict_positive_db_uint(mixed $value, string $context): int {
         $number = $this->strict_nonnegative_db_uint($value, $context);
         if ($number < 1) {
-            throw new \RuntimeException("duo: WooCommerce $context is not a positive database integer");
+            throw new \RuntimeException("wprism: WooCommerce $context is not a positive database integer");
         }
         return $number;
     }
 
     private function strict_nonnegative_db_uint(mixed $value, string $context): int {
         if (!is_int($value) && !is_string($value)) {
-            throw new \RuntimeException("duo: WooCommerce $context is not a canonical database integer");
+            throw new \RuntimeException("wprism: WooCommerce $context is not a canonical database integer");
         }
         $raw = (string) $value;
         if (preg_match('/^(?:0|[1-9][0-9]*)$/D', $raw) !== 1
             || strlen($raw) > strlen((string) PHP_INT_MAX)) {
-            throw new \RuntimeException("duo: WooCommerce $context is not a canonical database integer");
+            throw new \RuntimeException("wprism: WooCommerce $context is not a canonical database integer");
         }
         $number = (int) $raw;
         if ($number < 0 || (string) $number !== $raw) {
-            throw new \RuntimeException("duo: WooCommerce $context exceeds the supported integer boundary");
+            throw new \RuntimeException("wprism: WooCommerce $context exceeds the supported integer boundary");
         }
         return $number;
     }
@@ -4918,14 +4918,14 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
     private function strict_bounded_db_count(mixed $value, int $maximum, string $context): int {
         $count = $this->strict_nonnegative_db_uint($value, $context);
         if ($count > $maximum) {
-            throw new \RuntimeException("duo: WooCommerce $context exceeds its bounded count");
+            throw new \RuntimeException("wprism: WooCommerce $context exceeds its bounded count");
         }
         return $count;
     }
 
     private function strict_db_sha256(mixed $value, string $context): string {
         if (!is_string($value) || preg_match('/^[a-fA-F0-9]{64}$/D', $value) !== 1) {
-            throw new \RuntimeException("duo: WooCommerce $context is not an exact SHA-256 witness");
+            throw new \RuntimeException("wprism: WooCommerce $context is not an exact SHA-256 witness");
         }
         return strtolower($value);
     }

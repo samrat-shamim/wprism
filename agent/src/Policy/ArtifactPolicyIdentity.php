@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // The compiler has established stubbed refusal loads for Canon/Policy. A
 // normal direct load must be complete, but the stubbed path cannot load the
@@ -67,7 +67,7 @@ final class ArtifactPolicyIdentity {
     /**
      * The per-manifest content row manifest_hash()/resolved_adapters() both
      * bind, and the sole definition of adapter identity: a repository pin's
-     * `adapter_digest`, `duo assess`'s reported digest, and the contract that
+     * `adapter_digest`, `wprism assess`'s reported digest, and the contract that
      * pins it are all this one row hashed.
      *
      * @return list<array{name:string, manifest:array, disposition:?array, interpreter?:array{name:string,sha256:?string}, providers?:list<array{id:string,sha256:?string}>, regenerators?:list<array{name:string,sha256:?string}>}>

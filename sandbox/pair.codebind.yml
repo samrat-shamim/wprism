@@ -4,8 +4,8 @@
 # pair.yml's --codebind <plugin-dir> mode; spike G's pattern —
 # docs/code-half.md §5 — generalized off that spike's one-off
 # g1/g2 compose profile). Layered in via `docker compose -f pair.yml
-# -f pair.codebind.yml ...` with DUO_CODEBIND_PLUGIN set to the plugin's
-# directory name (e.g. "duo-agency-cpt").
+# -f pair.codebind.yml ...` with WPRISM_CODEBIND_PLUGIN set to the plugin's
+# directory name (e.g. "wprism-agency-cpt").
 #
 # Compose merges `volumes` list entries by target path across layered
 # files, not by full replacement (confirmed via `docker compose config`
@@ -27,13 +27,13 @@
 services:
   wp1:
     volumes:
-      - ./siterepo/${DUO_PAIR}1/code/wp-content/plugins/${DUO_CODEBIND_PLUGIN}:/var/www/html/wp-content/plugins/${DUO_CODEBIND_PLUGIN}:ro
+      - ./siterepo/${WPRISM_PAIR}1/code/wp-content/plugins/${WPRISM_CODEBIND_PLUGIN}:/var/www/html/wp-content/plugins/${WPRISM_CODEBIND_PLUGIN}:ro
   cli1:
     volumes:
-      - ./siterepo/${DUO_PAIR}1/code/wp-content/plugins/${DUO_CODEBIND_PLUGIN}:/var/www/html/wp-content/plugins/${DUO_CODEBIND_PLUGIN}:ro
+      - ./siterepo/${WPRISM_PAIR}1/code/wp-content/plugins/${WPRISM_CODEBIND_PLUGIN}:/var/www/html/wp-content/plugins/${WPRISM_CODEBIND_PLUGIN}:ro
   wp2:
     volumes:
-      - ./siterepo/${DUO_PAIR}2/code/wp-content/plugins/${DUO_CODEBIND_PLUGIN}:/var/www/html/wp-content/plugins/${DUO_CODEBIND_PLUGIN}:ro
+      - ./siterepo/${WPRISM_PAIR}2/code/wp-content/plugins/${WPRISM_CODEBIND_PLUGIN}:/var/www/html/wp-content/plugins/${WPRISM_CODEBIND_PLUGIN}:ro
   cli2:
     volumes:
-      - ./siterepo/${DUO_PAIR}2/code/wp-content/plugins/${DUO_CODEBIND_PLUGIN}:/var/www/html/wp-content/plugins/${DUO_CODEBIND_PLUGIN}:ro
+      - ./siterepo/${WPRISM_PAIR}2/code/wp-content/plugins/${WPRISM_CODEBIND_PLUGIN}:/var/www/html/wp-content/plugins/${WPRISM_CODEBIND_PLUGIN}:ro

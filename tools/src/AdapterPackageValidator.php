@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tooling;
+namespace WPrism\Tooling;
 
-use Duo\AdapterLibrary;
-use Duo\ArtifactPolicyIdentity;
-use Duo\Canon;
-use Duo\ManifestDispositions;
-use Duo\Policy;
+use WPrism\AdapterLibrary;
+use WPrism\ArtifactPolicyIdentity;
+use WPrism\Canon;
+use WPrism\ManifestDispositions;
+use WPrism\Policy;
 use RuntimeException;
 
 require_once dirname(__DIR__, 2) . '/agent/src/Policy/AdapterLibrary.php';
@@ -21,10 +21,10 @@ require_once __DIR__ . '/ArtifactLibrary.php';
 /** Validate one adapter capsule without reading or executing a sibling adapter. */
 final class AdapterPackageValidator
 {
-    public const FORMAT = 'duo-adapter-package-validation/v1';
-    public const RUNTIME_SDK_FORMAT = 'duo-adapter-runtime-sdk/v1';
-    private const EXTERNAL_EVIDENCE_FORMAT = 'duo-adapter-external-evidence/v1';
-    private const INTEGRATION_SCENARIO_FORMAT = 'duo-adapter-integration-scenario/v1';
+    public const FORMAT = 'wprism-adapter-package-validation/v1';
+    public const RUNTIME_SDK_FORMAT = 'wprism-adapter-runtime-sdk/v1';
+    private const EXTERNAL_EVIDENCE_FORMAT = 'wprism-adapter-external-evidence/v1';
+    private const INTEGRATION_SCENARIO_FORMAT = 'wprism-adapter-integration-scenario/v1';
     private const PREMISE_EVIDENCE = 'target-observation-premises.tsv';
 
     /**
@@ -61,27 +61,27 @@ final class AdapterPackageValidator
      * Public engine symbols used by the current manifest-bound runtime.
      *
      * This closed set is the versioned adapter ABI. Adding a dependency is an
-     * engine SDK decision; merely importing another Duo class from a capsule is
+     * engine SDK decision; merely importing another WPrism class from a capsule is
      * not enough to make that internal class public.
      *
      * @var list<string>
      */
     private const RUNTIME_SDK_SYMBOLS = [
-        'Duo\\CacheInvalidationTransaction',
-        'Duo\\Canon',
-        'Duo\\IdentityTokenCodec',
-        'Duo\\Ledger',
-        'Duo\\ManifestProviderRuntime',
-        'Duo\\NativeActions',
-        'Duo\\NativeRewriteEffects',
-        'Duo\\PlainData',
-        'Duo\\Policy',
-        'Duo\\ProviderSdk',
-        'Duo\\Providers',
-        'Duo\\Secrets',
-        'Duo\\SidebarState',
-        'Duo\\Tokens',
-        'Duo\\WpCliChildProcess',
+        'WPrism\\CacheInvalidationTransaction',
+        'WPrism\\Canon',
+        'WPrism\\IdentityTokenCodec',
+        'WPrism\\Ledger',
+        'WPrism\\ManifestProviderRuntime',
+        'WPrism\\NativeActions',
+        'WPrism\\NativeRewriteEffects',
+        'WPrism\\PlainData',
+        'WPrism\\Policy',
+        'WPrism\\ProviderSdk',
+        'WPrism\\Providers',
+        'WPrism\\Secrets',
+        'WPrism\\SidebarState',
+        'WPrism\\Tokens',
+        'WPrism\\WpCliChildProcess',
     ];
 
     /** @return array{format:string,symbols:list<string>} */
@@ -668,7 +668,7 @@ final class AdapterPackageValidator
                         // Closure capture, not an import declaration.
                         $useStatement = null;
                     } elseif ($token === ';') {
-                        self::assertResolvableDuoImport($capsule, $path, $slug, $useStatement, $useLine);
+                        self::assertResolvableWPrismImport($capsule, $path, $slug, $useStatement, $useLine);
                         $import = self::exactClassImport($useStatement);
                         if ($import !== null) {
                             $imports[strtolower($import['alias'])] = $import['symbol'];
@@ -701,14 +701,14 @@ final class AdapterPackageValidator
             }
             if (in_array($kind, [T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED], true)) {
                 $symbol = ltrim($bytes, '\\');
-                if (strncasecmp($symbol, 'Duo\\', strlen('Duo\\')) === 0) {
+                if (strncasecmp($symbol, 'WPrism\\', strlen('WPrism\\')) === 0) {
                     self::assertRuntimeSdkSymbol($capsule, $path, $slug, $symbol, $line, $runtimeSymbols);
                 }
-            } elseif ($kind === T_NAME_RELATIVE && self::isDuoNamespace($namespace)) {
+            } elseif ($kind === T_NAME_RELATIVE && self::isWPrismNamespace($namespace)) {
                 $symbol = $namespace . '\\' . substr($bytes, strlen('namespace\\'));
                 self::assertRuntimeSdkSymbol($capsule, $path, $slug, $symbol, $line, $runtimeSymbols);
             } elseif ($kind === T_STRING
-                && self::isDuoNamespace($namespace)
+                && self::isWPrismNamespace($namespace)
                 && !in_array(strtolower($bytes), [
                     'array',
                     'bool',
@@ -730,7 +730,7 @@ final class AdapterPackageValidator
                 ], true)
                 && self::isUnqualifiedClassReference($tokens, $offset, $previous)) {
                 $symbol = $imports[strtolower($bytes)] ?? ($namespace . '\\' . $bytes);
-                if (!self::isDuoNamespace($symbol)) {
+                if (!self::isWPrismNamespace($symbol)) {
                     continue;
                 }
                 self::assertRuntimeSdkSymbol(
@@ -742,11 +742,11 @@ final class AdapterPackageValidator
                     $runtimeSymbols
                 );
             } elseif (in_array($kind, [T_CONSTANT_ENCAPSED_STRING, T_ENCAPSED_AND_WHITESPACE], true)) {
-                foreach (self::dynamicDuoSymbols($bytes, $kind === T_CONSTANT_ENCAPSED_STRING) as $symbol) {
+                foreach (self::dynamicWPrismSymbols($bytes, $kind === T_CONSTANT_ENCAPSED_STRING) as $symbol) {
                     self::assertRuntimeSdkSymbol($capsule, $path, $slug, $symbol, $line, $runtimeSymbols);
                 }
                 if ($kind === T_CONSTANT_ENCAPSED_STRING) {
-                    foreach (self::concatenatedDynamicDuoSymbols($tokens, $offset) as $symbol) {
+                    foreach (self::concatenatedDynamicWPrismSymbols($tokens, $offset) as $symbol) {
                         self::assertRuntimeSdkSymbol($capsule, $path, $slug, $symbol, $line, $runtimeSymbols);
                     }
                 }
@@ -755,7 +755,7 @@ final class AdapterPackageValidator
                 $previous = $kind;
             }
         }
-        foreach (self::computedDynamicDuoSymbols($tokens, $capsule, $path, $slug) as $reference) {
+        foreach (self::computedDynamicWPrismSymbols($tokens, $capsule, $path, $slug) as $reference) {
             self::assertRuntimeSdkSymbol(
                 $capsule,
                 $path,
@@ -788,9 +788,9 @@ final class AdapterPackageValidator
             $relative = substr($entry->getPathname(), strlen(rtrim($runtimeRoot, '/')) + 1);
             $kind = explode('/', $relative, 2)[0];
             $ownedNamespace = match ($kind) {
-                'interpreters' => 'Duo\\Interpreters',
-                'providers' => 'Duo\\Providers',
-                'regenerators' => 'Duo\\Regenerators',
+                'interpreters' => 'WPrism\\Interpreters',
+                'providers' => 'WPrism\\Providers',
+                'regenerators' => 'WPrism\\Regenerators',
                 default => throw new RuntimeException(
                     "Adapter runtime symbol is outside an owned runtime kind: $relative"
                 ),
@@ -992,7 +992,7 @@ final class AdapterPackageValidator
     }
 
     /** @return list<string> */
-    private static function dynamicDuoSymbols(string $bytes, bool $quoted): array
+    private static function dynamicWPrismSymbols(string $bytes, bool $quoted): array
     {
         if ($quoted && strlen($bytes) >= 2) {
             $quote = $bytes[0];
@@ -1004,7 +1004,7 @@ final class AdapterPackageValidator
             }
         }
         preg_match_all(
-            '/(?<![A-Za-z0-9_\\\\])\\\\?Duo\\\\[A-Za-z_][A-Za-z0-9_]*(?:\\\\[A-Za-z_][A-Za-z0-9_]*)*/i',
+            '/(?<![A-Za-z0-9_\\\\])\\\\?WPrism\\\\[A-Za-z_][A-Za-z0-9_]*(?:\\\\[A-Za-z_][A-Za-z0-9_]*)*/i',
             $bytes,
             $matches
         );
@@ -1018,10 +1018,10 @@ final class AdapterPackageValidator
     }
 
     /** @param list<array{0:int,1:string,2:int}|string> $tokens @return list<string> */
-    private static function concatenatedDynamicDuoSymbols(array $tokens, int $offset): array
+    private static function concatenatedDynamicWPrismSymbols(array $tokens, int $offset): array
     {
         $bytes = self::concatenatedPhpStringLiteral($tokens, $offset);
-        return $bytes === null ? [] : self::dynamicDuoSymbols($bytes, false);
+        return $bytes === null ? [] : self::dynamicWPrismSymbols($bytes, false);
     }
 
     /** @param list<array{0:int,1:string,2:int}|string> $tokens */
@@ -1057,7 +1057,7 @@ final class AdapterPackageValidator
      * @param list<array{0:int,1:string,2:int}|string> $tokens
      * @return list<array{symbol:string,line:int}>
      */
-    private static function computedDynamicDuoSymbols(
+    private static function computedDynamicWPrismSymbols(
         array $tokens,
         string $capsule,
         string $path,
@@ -1151,18 +1151,18 @@ final class AdapterPackageValidator
                         $next['offset'] + 1,
                         $variables
                     );
-                    $symbols = self::dynamicDuoSymbols($fragments, false);
+                    $symbols = self::dynamicWPrismSymbols($fragments, false);
                     foreach ($symbols as $symbol) {
                         $references[$symbol . ':' . $token[2]] = ['symbol' => $symbol, 'line' => $token[2]];
                     }
                     if ($symbols === []
                         && preg_match(
-                            '/(?:^|[^A-Za-z0-9_])\\\\?(?i:Duo)(?:\\\\|[A-Z]|$)/',
+                            '/(?:^|[^A-Za-z0-9_])\\\\?(?i:WPrism)(?:\\\\|[A-Z]|$)/',
                             $fragments
                         ) === 1) {
                         $relative = substr($path, strlen($capsule) + 1);
                         throw new RuntimeException(
-                            "Adapter package '$slug' depends on non-SDK Duo symbol constructed dynamically at "
+                            "Adapter package '$slug' depends on non-SDK WPrism symbol constructed dynamically at "
                             . "$relative:{$token[2]}"
                         );
                     }
@@ -1178,7 +1178,7 @@ final class AdapterPackageValidator
                 }
                 $variables[$token[1]] = $resolved['value'];
                 unset($unresolvedVariables[$token[1]], $objectVariables[$token[1]]);
-                foreach (self::dynamicDuoSymbols($resolved['value'], false) as $symbol) {
+                foreach (self::dynamicWPrismSymbols($resolved['value'], false) as $symbol) {
                     $references[$symbol . ':' . $token[2]] = ['symbol' => $symbol, 'line' => $token[2]];
                 }
                 continue;
@@ -1213,7 +1213,7 @@ final class AdapterPackageValidator
             if ($resolved === null || !$resolved['joined']) {
                 continue;
             }
-            foreach (self::dynamicDuoSymbols($resolved['value'], false) as $symbol) {
+            foreach (self::dynamicWPrismSymbols($resolved['value'], false) as $symbol) {
                 $references[$symbol . ':' . $token[2]] = ['symbol' => $symbol, 'line' => $token[2]];
             }
         }
@@ -1702,7 +1702,7 @@ final class AdapterPackageValidator
                 }
                 $class = self::decodePhpStringLiteral($candidate[1]);
                 if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*(?:\\\\[A-Za-z_][A-Za-z0-9_]*)*$/D', $class) !== 1
-                    || self::dynamicDuoSymbols($class, false) !== []) {
+                    || self::dynamicWPrismSymbols($class, false) !== []) {
                     $valid = false;
                     break;
                 }
@@ -1743,7 +1743,7 @@ final class AdapterPackageValidator
 
     /**
      * An adapter may construct plugin class names dynamically, but a partially
-     * resolvable Duo namespace is an ABI reference and must fail closed.
+     * resolvable WPrism namespace is an ABI reference and must fail closed.
      *
      * @param list<array{0:int,1:string,2:int}|string> $tokens
      * @param array<string,string> $variables
@@ -1854,13 +1854,13 @@ final class AdapterPackageValidator
         return stripcslashes($inner);
     }
 
-    private static function isDuoNamespace(string $namespace): bool
+    private static function isWPrismNamespace(string $namespace): bool
     {
-        return strcasecmp($namespace, 'Duo') === 0
-            || strncasecmp($namespace, 'Duo\\', strlen('Duo\\')) === 0;
+        return strcasecmp($namespace, 'WPrism') === 0
+            || strncasecmp($namespace, 'WPrism\\', strlen('WPrism\\')) === 0;
     }
 
-    private static function assertResolvableDuoImport(
+    private static function assertResolvableWPrismImport(
         string $capsule,
         string $path,
         string $slug,
@@ -1878,15 +1878,15 @@ final class AdapterPackageValidator
             }
         }
         $normalized = ltrim($normalized, '\\');
-        $grouped = str_starts_with($normalized, 'Duo\\{');
-        $rootAlias = $normalized === 'Duo'
-            || preg_match('/^Duoas[A-Za-z_][A-Za-z0-9_]*$/i', $normalized) === 1;
+        $grouped = str_starts_with($normalized, 'WPrism\\{');
+        $rootAlias = $normalized === 'WPrism'
+            || preg_match('/^WPrismas[A-Za-z_][A-Za-z0-9_]*$/i', $normalized) === 1;
         if (!$grouped && !$rootAlias) {
             return;
         }
         $relative = substr($path, strlen($capsule) + 1);
         throw new RuntimeException(
-            "Adapter package '$slug' uses an unresolved grouped or root Duo import at $relative:$line; "
+            "Adapter package '$slug' uses an unresolved grouped or root WPrism import at $relative:$line; "
             . 'runtime dependencies must name exact symbols from ' . self::RUNTIME_SDK_FORMAT
         );
     }
@@ -1906,7 +1906,7 @@ final class AdapterPackageValidator
         }
         $relative = substr($path, strlen($capsule) + 1);
         throw new RuntimeException(
-            "Adapter package '$slug' depends on non-SDK Duo symbol '$symbol' at $relative:$line; "
+            "Adapter package '$slug' depends on non-SDK WPrism symbol '$symbol' at $relative:$line; "
             . 'allowed surface is ' . self::RUNTIME_SDK_FORMAT
         );
     }
@@ -1920,21 +1920,21 @@ final class AdapterPackageValidator
     ): void {
         foreach (preg_split('/\R/', $source) ?: [] as $offset => $line) {
             $normalized = preg_replace(
-                '/DUO_[\'".\s]*MANIFESTS_DIR/',
-                'DUO_MANIFESTS_DIR',
+                '/WPRISM_[\'".\s]*MANIFESTS_DIR/',
+                'WPRISM_MANIFESTS_DIR',
                 $line
             );
-            if (!is_string($normalized) || !str_contains($normalized, 'DUO_MANIFESTS_DIR')) {
+            if (!is_string($normalized) || !str_contains($normalized, 'WPRISM_MANIFESTS_DIR')) {
                 continue;
             }
             if ($tests
-                && substr_count($normalized, 'DUO_MANIFESTS_DIR') === 1
-                && self::isNegativeTextAssertion($normalized, 'DUO_MANIFESTS_DIR')) {
+                && substr_count($normalized, 'WPRISM_MANIFESTS_DIR') === 1
+                && self::isNegativeTextAssertion($normalized, 'WPRISM_MANIFESTS_DIR')) {
                 continue;
             }
             $relative = substr($path, strlen($capsule) + 1);
             throw new RuntimeException(
-                "Adapter package '$slug' selects a manifest library through DUO_MANIFESTS_DIR at "
+                "Adapter package '$slug' selects a manifest library through WPRISM_MANIFESTS_DIR at "
                 . "$relative:" . ($offset + 1)
             );
         }
@@ -2041,7 +2041,7 @@ final class AdapterPackageValidator
                     throw new RuntimeException("Adapter package '$slug' cannot read premise source " . $entry->getPathname());
                 }
                 if (preg_match(
-                    '/\brequire_(?:observed_nonempty|duo_answered|fixture_ids|fixture_values)\b/',
+                    '/\brequire_(?:observed_nonempty|wprism_answered|fixture_ids|fixture_values)\b/',
                     ActiveShellSource::source($source)
                 ) === 1) {
                     $needsContract = true;
@@ -2090,9 +2090,9 @@ final class AdapterPackageValidator
         }
 
         $lines = explode("\n", $bytes);
-        if (($lines[0] ?? null) !== '# format duo-target-observation-premises/v1') {
+        if (($lines[0] ?? null) !== '# format wprism-target-observation-premises/v1') {
             throw new RuntimeException(
-                "Adapter package '$slug' premise contract is missing format duo-target-observation-premises/v1"
+                "Adapter package '$slug' premise contract is missing format wprism-target-observation-premises/v1"
             );
         }
         if (preg_match(
@@ -2204,14 +2204,14 @@ final class AdapterPackageValidator
             );
         }
         if (preg_match(
-            '/^duo-premise-owner: ([a-z][a-z0-9]*(?:-[a-z0-9]+)*)$/D',
+            '/^wprism-premise-owner: ([a-z][a-z0-9]*(?:-[a-z0-9]+)*)$/D',
             trim($premiseComment),
             $owner
         ) !== 1 || ($owner[1] ?? null) !== $slug) {
             $bound = is_string($owner[1] ?? null) ? "'$owner[1]'" : 'no participant';
             throw new RuntimeException(
                 "Adapter package '$slug' premise contract line $line cites certification premise in '$relative' "
-                . "bound to $bound; @repo premises require '# duo-premise-owner: $slug' on the active assertion"
+                . "bound to $bound; @repo premises require '# wprism-premise-owner: $slug' on the active assertion"
             );
         }
     }
@@ -2606,18 +2606,18 @@ final class AdapterPackageValidator
 
     private static function defineVersions(string $root): void
     {
-        $source = (string) file_get_contents($root . '/agent/duo.php');
-        if (!defined('DUO_AGENT_VERSION')) {
-            if (preg_match("/define\\('DUO_AGENT_VERSION', '([^']+)'\\)/D", $source, $match) !== 1) {
-                throw new RuntimeException('Could not resolve DUO_AGENT_VERSION for adapter validation');
+        $source = (string) file_get_contents($root . '/agent/wprism.php');
+        if (!defined('WPRISM_AGENT_VERSION')) {
+            if (preg_match("/define\\('WPRISM_AGENT_VERSION', '([^']+)'\\)/D", $source, $match) !== 1) {
+                throw new RuntimeException('Could not resolve WPRISM_AGENT_VERSION for adapter validation');
             }
-            define('DUO_AGENT_VERSION', $match[1]);
+            define('WPRISM_AGENT_VERSION', $match[1]);
         }
-        if (!defined('DUO_SPEC_VERSION')) {
-            if (preg_match("/define\\('DUO_SPEC_VERSION', ([0-9]+)\\)/D", $source, $match) !== 1) {
-                throw new RuntimeException('Could not resolve DUO_SPEC_VERSION for adapter validation');
+        if (!defined('WPRISM_SPEC_VERSION')) {
+            if (preg_match("/define\\('WPRISM_SPEC_VERSION', ([0-9]+)\\)/D", $source, $match) !== 1) {
+                throw new RuntimeException('Could not resolve WPRISM_SPEC_VERSION for adapter validation');
             }
-            define('DUO_SPEC_VERSION', (int) $match[1]);
+            define('WPRISM_SPEC_VERSION', (int) $match[1]);
         }
     }
 

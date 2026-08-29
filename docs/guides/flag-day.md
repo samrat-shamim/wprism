@@ -1,8 +1,8 @@
 # The v3 flag day — a cohorted rollout runbook
 
-**Read this when** you are moving a fleet from agent `0.5.0` / spec `2` to
-agent `0.6.0` / spec `3`, or when you are deciding whether you can still roll
-one back.
+**Read this when** you are moving spec `2` repositories or adapters into the
+current agent `0.7.0` / spec `3` lane, or when you are deciding whether a
+future agent/spec rollout can still be rolled back.
 
 This is the operator's half of [spec/repo-format.md § v3.12](../../spec/repo-format.md).
 The spec says what the flip changed; this page says what you run, in what
@@ -42,7 +42,7 @@ moves, because a resolved adapter row carries its capability claim and that
 claim embeds the platform boundary.
 
 Nothing in a site repository needs re-stamping. Both documents that carry the
-wire version — a manifest's `spec_version` and `site.duo.json`'s own — are
+wire version — a manifest's `spec_version` and `site.wprism.json`'s own — are
 judged against the acceptance window `{2, 3}`, so a repository and a library
 that declare `2` keep loading unchanged. **That is what makes the flag day
 reversible, and it is what gate G3 protects.**
@@ -76,7 +76,7 @@ together and to stop on together.
 ### 1. Preflight — before the bump, on the pre-bump agent
 
 ```
-duo adapter doctor --migration --repo=<site-repo> \
+wprism adapter doctor --migration --repo=<site-repo> \
     [--artifact=<artifact.json>] [--scope-contract=<scope-contract.json>] \
     [--snapshot=<snapshot.json>] --format=json
 ```
@@ -138,7 +138,7 @@ would hit it blind.
 ### 5. Recertify
 
 ```
-duo adapter recertify <site-repo> --secret-key-file=<f> [--format=json]
+wprism adapter recertify <site-repo> --secret-key-file=<f> [--format=json]
 ```
 
 One invocation per site re-signs **every** certified site adapter under the key
@@ -157,12 +157,12 @@ each certificate already names.
   a blocked row naming that key id, and the run is not green. Two keys means
   two invocations.
 - **It re-signs only claims it could have DERIVED.** A certificate carrying a
-  disposition the site wrote itself (`duo adapter certify --ratification-file`,
+  disposition the site wrote itself (`wprism adapter certify --ratification-file`,
   spec/repo-format.md § v3.17) is a blocked row too: re-deriving here would
   replace that site's own argument, per-refusal prose and all, with the canned
   floor — under the site's own key, and with nothing in the report saying a
   claim had changed. Re-sign those with
-  `duo adapter certify <site-repo> --name=<n> --secret-key-file=<f>
+  `wprism adapter certify <site-repo> --name=<n> --secret-key-file=<f>
   --ratification-file=<the document the site wrote>`.
 
 > **This step closes the rollback window for that site.** See gate G3 below.
@@ -170,14 +170,14 @@ each certificate already names.
 ### 6. Re-project what moved, per site
 
 ```
-duo release --spec-v3 <site-repo> [--artifact=<f>] [--scope-contract=<f>] \
+wprism release --spec-v3 <site-repo> [--artifact=<f>] [--scope-contract=<f>] \
     [--snapshot=<f>] [--format=json]
 ```
 
 It calls the same preflight, writes the site's **prior** pin objects into
-`.duo/migrations/` **before** emitting any new one, and prints the pin objects
-the post-flip library resolves. It writes nothing to `site.duo.json`: updating
-a pin stays an explicit review act (`duo adapter pin`).
+`.wprism/migrations/` **before** emitting any new one, and prints the pin objects
+the post-flip library resolves. It writes nothing to `site.wprism.json`: updating
+a pin stays an explicit review act (`wprism adapter pin`).
 
 Under digest neutrality the emitted objects **equal** the prior ones for every
 shipped adapter. A site holding a certified site adapter is where they differ,
@@ -193,7 +193,7 @@ must also:
 1. **Recompile and re-pin.** The held artifact is refusing with
    `compiled_artifact_manifest_mismatch`; that is rule 2's refusal working
    correctly, and recompile-and-re-pin is the only remedy — there is no
-   fallback and the architecture would refuse one. `duo adapter pin` emits the
+   fallback and the architecture would refuse one. `wprism adapter pin` emits the
    copy-pasteable object.
 2. **Re-project anything that pinned `artifact_hash`** — scope contracts,
    scoped mutation authorities, scoped rollback claims. This part applies to
@@ -230,7 +230,7 @@ line the engine already draws.
 **The withdrawal writes nothing.** Rolling back restores the claim untouched,
 because nothing on disk changed when the certificate went stale.
 
-**The remedy is step 5.** `duo adapter recertify <repo>`, per site.
+**The remedy is step 5.** `wprism adapter recertify <repo>`, per site.
 
 ---
 
@@ -293,9 +293,9 @@ migrated v3 adapters already owes the bundle-and-repin rollback described above.
    atomic swap. Never replace only part of `agent`: its assembled
    `adapter-library/` travels inside the same tree by design, and a mixed state
    refuses at load.
-3. Re-mint symmetrically: `duo adapter recertify <repo> --secret-key-file=<f>`
+3. Re-mint symmetrically: `wprism adapter recertify <repo> --secret-key-file=<f>`
    on every site where you ran step 5 going forward.
-4. Re-project: `duo release --spec-v3` is not the verb for this direction, but
+4. Re-project: `wprism release --spec-v3` is not the verb for this direction, but
    the same surfaces move back — read the preflight's movement rows and
    recompile the artifacts they name.
 

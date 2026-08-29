@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Live public-path regression for DUO-3365.
+# Live public-path regression for issue #3365.
 #
 # One disposable pair supplies an installed WordPress database and webroot
 # volume.  Its ordinary pair containers are then stopped and a controller
-# container mounts that webroot WITHOUT the repository's pre-bound Duo agent.
+# container mounts that webroot WITHOUT the repository's pre-bound WPrism agent.
 # The host CLI and target share that container's filesystem, which makes the
-# local transport real while preserving the required "WordPress without Duo"
+# local transport real while preserving the required "WordPress without WPrism"
 # starting point.  No plugin-specific fixture or semantics participate.
 set -euo pipefail
 
@@ -15,7 +15,7 @@ cd "$REPO_ROOT"
 PAIR="${LOCAL_BOOTSTRAP_PAIR:-codex3365local}"
 PORT1="${LOCAL_BOOTSTRAP_PORT1:-9180}"
 PORT2="${LOCAL_BOOTSTRAP_PORT2:-9181}"
-EXPECTED_SHA="${DUO_EXPECTED_SOURCE_SHA:-}"
+EXPECTED_SHA="${WPRISM_EXPECTED_SOURCE_SHA:-}"
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
@@ -29,20 +29,20 @@ done
 PORT1=$((10#$PORT1)); PORT2=$((10#$PORT2))
 (( PORT1 >= 8900 && PORT1 <= 65534 && PORT1 % 2 == 0 && PORT2 == PORT1 + 1 )) \
   || fail "LOCAL_BOOTSTRAP_PORT1 must be an even port >=8900 and PORT2 its successor"
-[[ "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || fail "DUO_EXPECTED_SOURCE_SHA must be the exact candidate SHA"
+[[ "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || fail "WPRISM_EXPECTED_SOURCE_SHA must be the exact candidate SHA"
 
 ACTUAL_SHA="$(git rev-parse --verify 'HEAD^{commit}')"
-[ "$EXPECTED_SHA" = "$ACTUAL_SHA" ] || fail "DUO_EXPECTED_SOURCE_SHA does not equal this checkout HEAD"
+[ "$EXPECTED_SHA" = "$ACTUAL_SHA" ] || fail "WPRISM_EXPECTED_SOURCE_SHA does not equal this checkout HEAD"
 [ -d "$REPO_ROOT/.git" ] || fail "live local-bootstrap evidence must run from a standalone clone"
 [ -z "$(git status --porcelain --untracked-files=all)" ] || fail "live local-bootstrap evidence requires a clean checkout"
-export DUO_EXPECTED_SOURCE_SHA="$ACTUAL_SHA"
+export WPRISM_EXPECTED_SOURCE_SHA="$ACTUAL_SHA"
 
 HOST_REPO1="$REPO_ROOT/sandbox/siterepo/${PAIR}1"
 HOST_REPO2="$REPO_ROOT/sandbox/siterepo/${PAIR}2"
 HOST_ORIGIN="$REPO_ROOT/sandbox/siterepo/origin-${PAIR}.git"
-WP_VOLUME="duo-${PAIR}_wp1"
-REPO_VOLUME="duo-${PAIR}-bootstrap-repo"
-IMAGE="duo-local-bootstrap-cli:${PAIR}"
+WP_VOLUME="wprism-${PAIR}_wp1"
+REPO_VOLUME="wprism-${PAIR}-bootstrap-repo"
+IMAGE="wprism-local-bootstrap-cli:${PAIR}"
 SCRATCH_ROOT=""
 ENVS_FILE=""
 EVIDENCE_LOG=""
@@ -54,8 +54,8 @@ GREEN=0
 if [ -e "$HOST_REPO1" ] || [ -e "$HOST_REPO2" ] || [ -e "$HOST_ORIGIN" ]; then
   fail "pair repository roots already exist; choose an unused LOCAL_BOOTSTRAP_PAIR"
 fi
-if [ -n "$(docker ps -a --filter "label=com.docker.compose.project=duo-${PAIR}" --format '{{.ID}}')" ]; then
-  fail "compose project duo-${PAIR} already has containers; choose an unused pair"
+if [ -n "$(docker ps -a --filter "label=com.docker.compose.project=wprism-${PAIR}" --format '{{.ID}}')" ]; then
+  fail "compose project wprism-${PAIR} already has containers; choose an unused pair"
 fi
 if docker volume inspect "$REPO_VOLUME" >/dev/null 2>&1; then
   fail "evidence volume $REPO_VOLUME already exists; inspect it or choose an unused pair"
@@ -75,7 +75,7 @@ cleanup_on_exit() {
     if ! bash "$REPO_ROOT/sandbox/bin/pair.sh" destroy "$PAIR" >>"$EVIDENCE_LOG" 2>&1; then
       printf 'FAIL: pair destroy failed; preserving all evidence and live resources for %s\n' "$PAIR" >&2
       cleanup_failed=1
-    elif ! remaining=$(docker ps -a --filter "label=com.docker.compose.project=duo-${PAIR}" --format '{{.ID}}'); then
+    elif ! remaining=$(docker ps -a --filter "label=com.docker.compose.project=wprism-${PAIR}" --format '{{.ID}}'); then
       printf 'FAIL: could not verify pair teardown; preserving evidence for %s\n' "$PAIR" >&2
       cleanup_failed=1
     elif [ -n "$remaining" ]; then
@@ -113,17 +113,17 @@ bash sandbox/bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless >>"$EVIDENCE_LO
 
 pair_compose() {
   (cd "$REPO_ROOT/sandbox" && \
-    DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2" \
-    docker compose -p "duo-${PAIR}" -f pair.yml "$@")
+    WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2" \
+    docker compose -p "wprism-${PAIR}" -f pair.yml "$@")
 }
 pair_compose stop wp1 wp2 cli1 cli2 >>"$EVIDENCE_LOG" 2>&1
 docker volume inspect "$WP_VOLUME" >/dev/null 2>&1 || fail "pair webroot volume $WP_VOLUME is missing"
-docker volume create --label "duo.live-regression=DUO-3365" "$REPO_VOLUME" >/dev/null
+docker volume create --label "wprism.live-regression=issue #3365" "$REPO_VOLUME" >/dev/null
 REPO_VOLUME_OWNED=1
 
 # The pair's bind destinations exist underneath its named volume.  With every
 # pair container stopped, remove only those test-owned mountpoint bytes so the
-# custom controller sees the required pre-Duo WordPress target.
+# custom controller sees the required pre-WPrism WordPress target.
 docker run --rm --user 0 \
   -v "$WP_VOLUME:/var/www/html" -v "$REPO_VOLUME:/siterepo" \
   --entrypoint sh "$IMAGE" -eu -c '
@@ -131,10 +131,10 @@ docker run --rm --user 0 \
     chown 33:33 /siterepo
     mkdir -p /var/www/html/wp-content/mu-plugins
     chown 33:33 /var/www/html/wp-content/mu-plugins
-    rm -rf /var/www/html/wp-content/mu-plugins/duo \
-      /var/www/html/wp-content/mu-plugins/duo-loader.php \
+    rm -rf /var/www/html/wp-content/mu-plugins/wprism \
+      /var/www/html/wp-content/mu-plugins/wprism-loader.php \
       /var/www/html/wp-content/mu-plugins/manifests \
-      /var/www/html/wp-content/mu-plugins/duo-control
+      /var/www/html/wp-content/mu-plugins/wprism-control
   '
 
 php -r '
@@ -144,7 +144,7 @@ $body = ["envs" => [
         "transport" => "local",
         "wp_path" => "/var/www/html",
         "repo_path" => "/siterepo/site",
-        "bootstrap" => ["format" => "duo-local-control-plane/v1"],
+        "bootstrap" => ["format" => "wprism-local-control-plane/v1"],
     ],
     "denied" => [
         "transport" => "local",
@@ -157,21 +157,21 @@ file_put_contents($argv[2], json_encode($body, JSON_PRETTY_PRINT | JSON_UNESCAPE
 chmod 0644 "$ENVS_FILE"
 
 DOCKER_COMMON=(
-  --rm --network duo-shared --user 33:33 --workdir /duo-source
-  -e WORDPRESS_DB_HOST=duo-shared-db
+  --rm --network wprism-shared --user 33:33 --workdir /wprism-source
+  -e WORDPRESS_DB_HOST=wprism-shared-db
   -e WORDPRESS_DB_USER=wordpress
   -e WORDPRESS_DB_PASSWORD=wordpress
   -e "WORDPRESS_DB_NAME=wp_${PAIR}1"
   -e 'WORDPRESS_CONFIG_EXTRA=define("WP_ENVIRONMENT_TYPE", "local");'
   -v "$WP_VOLUME:/var/www/html"
   -v "$REPO_VOLUME:/siterepo"
-  -v "$REPO_ROOT:/duo-source:ro"
+  -v "$REPO_ROOT:/wprism-source:ro"
   -v "$ENVS_FILE:/controller/envs.json:ro"
 )
 
 controller() {
   docker run "${DOCKER_COMMON[@]}" --entrypoint php "$IMAGE" \
-    /duo-source/cli/duo --envs-file=/controller/envs.json "$@"
+    /wprism-source/cli/wprism --envs-file=/controller/envs.json "$@"
 }
 target_wp() {
   docker run "${DOCKER_COMMON[@]}" --entrypoint wp "$IMAGE" --path=/var/www/html "$@"
@@ -213,58 +213,58 @@ target_digest() {
     done | sha256sum | cut -c1-64
   ' | tr -d '\r\n'
 }
-duo_table_count() {
-  target_wp db query "SHOW TABLES LIKE 'wp_duo_%'" --skip-column-names 2>/dev/null \
+wprism_table_count() {
+  target_wp db query "SHOW TABLES LIKE 'wp_wprism_%'" --skip-column-names 2>/dev/null \
     | awk 'NF { n++ } END { print n + 0 }'
 }
 assert_no_transaction_paths() {
   target_sh '
     test -z "$(find /var/www/html/wp-content/mu-plugins -maxdepth 1 \
-      \( -name ".duo-adopt-*" -o -name ".duo-new-*" -o -name ".duo-old-*" \
-         -o -name ".duo-loader-new-*" -o -name ".duo-loader-old-*" \
-         -o -name ".duo-manifests-new-*" -o -name ".duo-manifests-old-*" \) -print -quit)"
+      \( -name ".wprism-adopt-*" -o -name ".wprism-new-*" -o -name ".wprism-old-*" \
+         -o -name ".wprism-loader-new-*" -o -name ".wprism-loader-old-*" \
+         -o -name ".wprism-manifests-new-*" -o -name ".wprism-manifests-old-*" \) -print -quit)"
     test -z "$(find /siterepo -maxdepth 2 \
-      \( -name ".duo-new-*" -o -name ".duo-old-*" -o -name ".site.duo.new-*" \) -print -quit)"
+      \( -name ".wprism-new-*" -o -name ".wprism-old-*" -o -name ".site.wprism.new-*" \) -print -quit)"
   '
 }
 
-say "prove the fixture really is installed WordPress with no Duo control plane"
+say "prove the fixture really is installed WordPress with no WPrism control plane"
 target_wp core is-installed >/dev/null || fail "fixture WordPress is not installed"
-[ "$(target_wp eval 'echo class_exists("\\Duo\\Capture") ? "present" : "absent";' | tr -d '\r\n')" = absent ] \
-  || fail "Duo is already loaded before local adoption"
-target_sh 'test ! -e /var/www/html/wp-content/mu-plugins/duo; test ! -e /var/www/html/wp-content/mu-plugins/duo-loader.php; test ! -e /siterepo/site' \
+[ "$(target_wp eval 'echo class_exists("\\WPrism\\Capture") ? "present" : "absent";' | tr -d '\r\n')" = absent ] \
+  || fail "WPrism is already loaded before local adoption"
+target_sh 'test ! -e /var/www/html/wp-content/mu-plugins/wprism; test ! -e /var/www/html/wp-content/mu-plugins/wprism-loader.php; test ! -e /siterepo/site' \
   || fail "pre-adoption control plane or repository is already present"
-[ "$(duo_table_count)" -eq 0 ] || fail "fixture already contains Duo ledger tables"
+[ "$(wprism_table_count)" -eq 0 ] || fail "fixture already contains WPrism ledger tables"
 pass "public-path target starts with WordPress only"
 
 say "static authorization refusal is target-free and mutation-free"
 BEFORE="$(target_digest)"
 run_controller "unauthorized adopt" adopt denied
 [ "$CODE" -ne 0 ] || fail "local adopt succeeded without the machine-local bootstrap opt-in"
-grep -Fq '.duo-envs.json' <<<"$OUT" || fail "static refusal omitted actionable machine-local remediation"
+grep -Fq '.wprism-envs.json' <<<"$OUT" || fail "static refusal omitted actionable machine-local remediation"
 [ "$BEFORE" = "$(target_digest)" ] || fail "static authorization refusal changed target bytes"
-[ "$(duo_table_count)" -eq 0 ] || fail "static authorization refusal created Duo ledger tables"
+[ "$(wprism_table_count)" -eq 0 ] || fail "static authorization refusal created WPrism ledger tables"
 pass "missing local authority refuses before target mutation"
 
 say "incomplete prior authority refuses during read-only eligibility"
-target_sh 'mkdir -p /siterepo/site/.duo/rollback; printf "%s\n" incomplete > /siterepo/site/.duo/rollback/sentinel'
+target_sh 'mkdir -p /siterepo/site/.wprism/rollback; printf "%s\n" incomplete > /siterepo/site/.wprism/rollback/sentinel'
 BEFORE="$(target_digest)"
 run_controller "incomplete authority" adopt local
-[ "$CODE" -ne 0 ] || fail "adopt accepted an incomplete prior .duo authority"
+[ "$CODE" -ne 0 ] || fail "adopt accepted an incomplete prior .wprism authority"
 grep -Fq 'control_authority' <<<"$OUT" || fail "incomplete authority refusal omitted its named check"
 [ "$BEFORE" = "$(target_digest)" ] || fail "eligibility refusal changed the incomplete prior authority"
-[ "$(duo_table_count)" -eq 0 ] || fail "eligibility refusal created Duo ledger tables"
+[ "$(wprism_table_count)" -eq 0 ] || fail "eligibility refusal created WPrism ledger tables"
 target_sh 'rm -rf /siterepo/site'
 pass "malformed re-adoption state is blocked without writes"
 
 say "post-swap policy failure restores the exact preexisting target"
-target_sh 'mkdir /siterepo/site; printf "%s\n" "{invalid-local-bootstrap-policy" > /siterepo/site/site.duo.json'
+target_sh 'mkdir /siterepo/site; printf "%s\n" "{invalid-local-bootstrap-policy" > /siterepo/site/site.wprism.json'
 BEFORE="$(target_digest)"
 run_controller "policy rollback" adopt local
 [ "$CODE" -ne 0 ] || fail "adopt accepted an invalid preexisting site policy"
 grep -Fq 'policy verification' <<<"$OUT" || fail "post-swap refusal did not identify policy verification"
 [ "$BEFORE" = "$(target_digest)" ] || fail "post-swap failure did not restore target bytes and modes"
-[ "$(duo_table_count)" -eq 0 ] || fail "post-swap failure created Duo ledger tables"
+[ "$(wprism_table_count)" -eq 0 ] || fail "post-swap failure created WPrism ledger tables"
 assert_no_transaction_paths || fail "post-swap rollback left transaction paths"
 target_sh 'rm -rf /siterepo/site'
 pass "failed staged verification leaves no partial control plane, config, identity, or ledger"
@@ -274,16 +274,16 @@ run_controller "successful adoption" adopt local
 [ "$CODE" -eq 0 ] || fail "authorized local adoption failed"
 grep -Fq 'doctor (verified before commit)' <<<"$OUT" || fail "adoption did not report its transactional doctor"
 target_sh '
-  test -f /var/www/html/wp-content/mu-plugins/duo/duo.php
-  test -f /var/www/html/wp-content/mu-plugins/duo-loader.php
-  test -f /var/www/html/wp-content/mu-plugins/duo/adapter-library/platform/core/manifest.json
+  test -f /var/www/html/wp-content/mu-plugins/wprism/wprism.php
+  test -f /var/www/html/wp-content/mu-plugins/wprism-loader.php
+  test -f /var/www/html/wp-content/mu-plugins/wprism/adapter-library/platform/core/manifest.json
   test ! -e /var/www/html/wp-content/mu-plugins/manifests
-  test -f /siterepo/site/site.duo.json
-  test -f /siterepo/site/.duo/control/target.json
-  test -d /siterepo/site/.duo/rollback
+  test -f /siterepo/site/site.wprism.json
+  test -f /siterepo/site/.wprism/control/target.json
+  test -d /siterepo/site/.wprism/rollback
 ' || fail "successful adoption omitted a control-plane or authority artifact"
 assert_no_transaction_paths || fail "successful adoption left transaction paths"
-[ "$(duo_table_count)" -eq 0 ] || fail "control-plane adoption created canonical state/identity/ledger tables"
+[ "$(wprism_table_count)" -eq 0 ] || fail "control-plane adoption created canonical state/identity/ledger tables"
 pass "control-plane bootstrap is complete and remains separate from managed state"
 
 say "cancelled initialization is read-only, then explicit initialization succeeds"
@@ -292,7 +292,7 @@ run_controller "cancelled init" init local
 [ "$CODE" -ne 0 ] || fail "noninteractive init unexpectedly confirmed itself"
 grep -Fq 'Initialization cancelled' <<<"$OUT" || fail "init cancellation did not state its no-mutation boundary"
 [ "$BEFORE" = "$(target_digest)" ] || fail "cancelled init changed control-plane or repository bytes"
-[ "$(duo_table_count)" -eq 0 ] || fail "cancelled init created canonical state/identity/ledger tables"
+[ "$(wprism_table_count)" -eq 0 ] || fail "cancelled init created canonical state/identity/ledger tables"
 
 run_controller "confirmed init" init local --yes
 [ "$CODE" -eq 0 ] || fail "confirmed init failed after successful local adoption"
@@ -301,11 +301,11 @@ target_sh '
   test -d /siterepo/site/.git
   test -d /siterepo/site/state
   test -d /siterepo/site/code/wp-content
-  test ! -e /siterepo/site/code/wp-content/mu-plugins/duo
-  test ! -e /siterepo/site/code/wp-content/mu-plugins/duo-loader.php
-  test -f /var/www/html/wp-content/mu-plugins/duo/duo.php
+  test ! -e /siterepo/site/code/wp-content/mu-plugins/wprism
+  test ! -e /siterepo/site/code/wp-content/mu-plugins/wprism-loader.php
+  test -f /var/www/html/wp-content/mu-plugins/wprism/wprism.php
 ' || fail "init did not create its baseline or leaked the control plane into managed code"
-[ "$(duo_table_count)" -gt 0 ] || fail "explicit init did not create its canonical identity/ledger tables"
+[ "$(wprism_table_count)" -gt 0 ] || fail "explicit init did not create its canonical identity/ledger tables"
 run_controller "post-init status" status local
 [ "$CODE" -eq 0 ] || fail "post-init status is not clean"
 pass "public adopt -> init path reaches a clean managed baseline"

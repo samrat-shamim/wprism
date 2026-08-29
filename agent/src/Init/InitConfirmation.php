@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Capture/Capture.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
@@ -33,7 +33,7 @@ final class InitConfirmation {
      * whole digest protocol exists for.
      *
      * $lockPlan is the host's code classification and rides to both
-     * recomputations for exactly the same reason (DUO-3499,
+     * recomputations for exactly the same reason (issue #3499,
      * InitPlanner::CODE_LOCK_ARGUMENT): it is inside `code.split`, `code.split`
      * is inside the digest, so a confirmation carrying a different
      * classification recomputes a different proposal and is refused.
@@ -86,8 +86,8 @@ final class InitConfirmation {
         $stateReserved = false;
         $stateIdentity = null;
         try {
-            if (getenv('DUO_TEST_MODE') === '1') {
-                $pauseMs = (int) (getenv('DUO_TEST_INIT_PAUSE_MS') ?: 0);
+            if (getenv('WPRISM_TEST_MODE') === '1') {
+                $pauseMs = (int) (getenv('WPRISM_TEST_INIT_PAUSE_MS') ?: 0);
                 if ($pauseMs > 0 && $pauseMs <= 10000) {
                     usleep($pauseMs * 1000);
                 }
@@ -97,13 +97,13 @@ final class InitConfirmation {
             $previousCwd = $binding['previous_cwd'];
             $rootStat = $binding['stat'];
             $repo = '.';
-            $siteFile = './site.duo.json';
+            $siteFile = './site.wprism.json';
             InitRepositoryBoundary::assert_binding($logicalRepo, $rootStat);
             $reviewedIdentity = $proposal['state']['repository_identity'] ?? null;
             if (!is_string($reviewedIdentity)
                 || !hash_equals($reviewedIdentity, $binding['identity'])) {
                 throw new \RuntimeException(
-                    'duo: init repository identity changed after confirmation and before publication locking'
+                    'wprism: init repository identity changed after confirmation and before publication locking'
                 );
             }
             $stateDir = $repo . '/state';
@@ -148,7 +148,7 @@ final class InitConfirmation {
                         $finalGit = InitRepositoryBoundary::git_probe($repo);
                         $succeeded = true;
                         return [
-                            'format' => 'duo-init-result/v1',
+                            'format' => 'wprism-init-result/v1',
                             'proposal_digest' => $expectedDigest,
                             'recovery' => 'committed-finalized',
                             'baseline' => [
@@ -171,7 +171,7 @@ final class InitConfirmation {
                             'state' => [
                                 'git' => $finalGit['mode'],
                                 'repository' => $logicalRepo,
-                                'site_config' => $logicalRepo . '/site.duo.json',
+                                'site_config' => $logicalRepo . '/site.wprism.json',
                             ],
                             'unsupported' => [],
                         ];
@@ -196,7 +196,7 @@ final class InitConfirmation {
                     $retainPublicationLock = true;
                     throw $recoveryFailure;
                 }
-                // DUO-3421: this is a SUCCESSFUL outcome delivered as a
+                // issue #3421: this is a SUCCESSFUL outcome delivered as a
                 // non-zero exit -- the interrupted attempt was proven and
                 // rolled back, and the operator's next step is simply to
                 // rerun. As a bare RuntimeException on a command that is
@@ -204,14 +204,14 @@ final class InitConfirmation {
                 // reached JSON callers as "init refused at an unclassified
                 // safety gate" with details_redacted, sending the operator to
                 // private evidence for an answer that IS the public one -- the
-                // DUO-3398 shape again, on the recovery path this time. It has
-                // an entirely reviewable shape, so it gets one, per DUO-3399's
+                // issue #3398 shape again, on the recovery path this time. It has
+                // an entirely reviewable shape, so it gets one, per issue #3399's
                 // rule that the generic arm is only for failures that genuinely
                 // have none.
                 throw new CommandRefusalException(
                     'interrupted_init_rolled_back',
-                    'duo: interrupted pre-COMMIT init was safely rolled back; rerun duo init and confirm the fresh proposal',
-                    'rerun duo init and confirm the fresh proposal it prints'
+                    'wprism: interrupted pre-COMMIT init was safely rolled back; rerun wprism init and confirm the fresh proposal',
+                    'rerun wprism init and confirm the fresh proposal it prints'
                 );
             }
             $attemptRecord = [
@@ -272,7 +272,7 @@ final class InitConfirmation {
                     (string) $attemptPublication['published']
                 );
                 if (!mkdir($repo . '/.git', 0775)) {
-                    throw new \RuntimeException('duo: could not reserve the target Git metadata root');
+                    throw new \RuntimeException('wprism: could not reserve the target Git metadata root');
                 }
                 $gitCreated = true;
                 $gitRootIdentity = InitOwnedArtifacts::directory_inode_identity($repo . '/.git', 'Git metadata root');
@@ -291,10 +291,10 @@ final class InitConfirmation {
                 InitOwnedArtifacts::assert_directory_inode($repo . '/.git', $gitRootIdentity, 'Git metadata root');
                 InitRepositoryBoundary::initialize_git($repo);
                 InitOwnedArtifacts::assert_directory_inode($repo . '/.git', $gitRootIdentity, 'Git metadata root');
-                if (getenv('DUO_TEST_MODE') === '1'
-                    && getenv('DUO_TEST_INIT_FAIL_PHASE') === 'git-initialized-before-identity') {
+                if (getenv('WPRISM_TEST_MODE') === '1'
+                    && getenv('WPRISM_TEST_INIT_FAIL_PHASE') === 'git-initialized-before-identity') {
                     throw new \RuntimeException(
-                        'duo: injected failure after Git initialization and before its complete ownership manifest'
+                        'wprism: injected failure after Git initialization and before its complete ownership manifest'
                     );
                 }
             }
@@ -365,9 +365,9 @@ final class InitConfirmation {
                     $attemptRecord,
                     (string) $attemptPublication['published']
                 );
-                if (getenv('DUO_TEST_MODE') === '1'
-                    && getenv('DUO_TEST_INIT_FAIL_AFTER_GIT_CREATE') === '1') {
-                    throw new \RuntimeException('duo: injected init failure after Git metadata creation');
+                if (getenv('WPRISM_TEST_MODE') === '1'
+                    && getenv('WPRISM_TEST_INIT_FAIL_AFTER_GIT_CREATE') === '1') {
+                    throw new \RuntimeException('wprism: injected init failure after Git metadata creation');
                 }
             }
             $gitignorePath = $repo . '/.gitignore';
@@ -386,8 +386,8 @@ final class InitConfirmation {
             $gitignorePublication = InitRepositoryBoundary::ensure_gitignore(
                 $repo,
                 (string) ($proposal['state']['gitignore_identity'] ?? ''),
-                // DUO-3499: the locked components' root-anchored ignore lines
-                // are published in the SAME owned-file transaction as Duo's own
+                // issue #3499: the locked components' root-anchored ignore lines
+                // are published in the SAME owned-file transaction as WPrism's own
                 // local artifacts, so a repository never exists in a state where
                 // the lock declares a component Git is still tracking.
                 InitRepositoryBoundary::locked_component_ignore_lines(
@@ -446,7 +446,7 @@ final class InitConfirmation {
                 (string) $attemptPublication['published']
             );
             if (!mkdir($codeRoot, 0700)) {
-                throw new \RuntimeException('duo: could not reserve the code publication root');
+                throw new \RuntimeException('wprism: could not reserve the code publication root');
             }
             $codeRootCreated = true;
             $codeRootIdentity = InitOwnedArtifacts::directory_inode_identity($codeRoot, 'code publication root');
@@ -465,7 +465,7 @@ final class InitConfirmation {
                 (string) $stagedCodeIdentity,
                 InitOwnedArtifacts::directory_identity($stagedCode, 'code capture staging directory')
             )) {
-                throw new \RuntimeException('duo: verified code staging changed before publication');
+                throw new \RuntimeException('wprism: verified code staging changed before publication');
             }
             $attemptRecord['phase'] = 'code-publish-planned';
             $attemptPublication = InitAttemptJournal::write(
@@ -474,7 +474,7 @@ final class InitConfirmation {
                 (string) $attemptPublication['published']
             );
             if (!rename($stagedCode, $codeRoot . '/wp-content')) {
-                throw new \RuntimeException('duo: could not publish the verified code baseline into its reserved root');
+                throw new \RuntimeException('wprism: could not publish the verified code baseline into its reserved root');
             }
             $stagedCode = null;
             $stagedCodeIdentity = null;
@@ -483,9 +483,9 @@ final class InitConfirmation {
             InitOwnedArtifacts::assert_directory_inode($codeRoot, $codeRootIdentity, 'code publication root');
             $publishedDescriptor = Code::descriptor_from_source($codeRoot . '/wp-content');
             if (Canon::encode($publishedDescriptor) !== Canon::encode($descriptor)) {
-                throw new \RuntimeException('duo: published code baseline differs from its reviewed descriptor');
+                throw new \RuntimeException('wprism: published code baseline differs from its reviewed descriptor');
             }
-            // DUO-3499: the lock is published INSIDE the reserved code root and
+            // issue #3499: the lock is published INSIDE the reserved code root and
             // BEFORE code_identity is taken, so it needs no ownership
             // bookkeeping of its own: the identity recorded at `code-ready`
             // already covers it, the interrupted-attempt compensation that
@@ -513,9 +513,9 @@ final class InitConfirmation {
                 // transaction holds -- and is read again after the capture
                 // payload is staged, to prove the lock pathname still names the
                 // held inode. Reusing the name here pointed that gate at
-                // code/duo-code.lock.json and made it refuse every split init
+                // code/wprism-code.lock.json and made it refuse every split init
                 // with "capture lock pathname no longer names the held lock
-                // inode". Caught in review after DUO-3499 merged; the live
+                // inode". Caught in review after issue #3499 merged; the live
                 // split leg would have caught it too, one case later than the
                 // run that found it.
                 $codeLockPath = $codeRoot . '/' . basename(CodeSourceLock::PATH);
@@ -530,7 +530,7 @@ final class InitConfirmation {
                         'components' => CodeSourceLock::sort_components($lockRows),
                         'first_party' => CodeSourceLock::sort_first_party($firstParty),
                     ])) {
-                    throw new \RuntimeException('duo: published code lock differs from its reviewed classification');
+                    throw new \RuntimeException('wprism: published code lock differs from its reviewed classification');
                 }
                 $attemptRecord['phase'] = 'code-lock-written';
                 $attemptPublication = InitAttemptJournal::write(
@@ -565,8 +565,8 @@ final class InitConfirmation {
                 $attemptRecord,
                 (string) $attemptPublication['published']
             );
-            if (getenv('DUO_TEST_MODE') === '1') {
-                $pauseMs = (int) (getenv('DUO_TEST_INIT_CONFIG_PAUSE_MS') ?: 0);
+            if (getenv('WPRISM_TEST_MODE') === '1') {
+                $pauseMs = (int) (getenv('WPRISM_TEST_INIT_CONFIG_PAUSE_MS') ?: 0);
                 if ($pauseMs > 0 && $pauseMs <= 10000) {
                     usleep($pauseMs * 1000);
                 }
@@ -575,7 +575,7 @@ final class InitConfirmation {
                 $siteFile,
                 Canon::encode($proposal['state']['config']),
                 (string) ($proposal['state']['config_identity'] ?? ''),
-                'site.duo.json'
+                'site.wprism.json'
             );
             $attemptRecord['phase'] = 'config-ready';
             $attemptRecord['owned']['site_publication'] = $sitePublication;
@@ -596,7 +596,7 @@ final class InitConfirmation {
                 (string) $attemptPublication['published']
             );
             if (!mkdir($mediaDir, 0775)) {
-                throw new \RuntimeException("duo: could not create media publication root $mediaDir");
+                throw new \RuntimeException("wprism: could not create media publication root $mediaDir");
             }
             $mediaCreated = true;
             $mediaIdentity = InitOwnedArtifacts::directory_identity($mediaDir, 'media publication root');
@@ -612,12 +612,12 @@ final class InitConfirmation {
                 (string) $attemptPublication['published']
             );
             if (!mkdir($stateDir, 0775)) {
-                throw new \RuntimeException('duo: could not reserve the initial state publication root');
+                throw new \RuntimeException('wprism: could not reserve the initial state publication root');
             }
-            if (getenv('DUO_TEST_MODE') === '1'
-                && getenv('DUO_TEST_INIT_FAIL_PHASE') === 'state-reserved-before-identity') {
+            if (getenv('WPRISM_TEST_MODE') === '1'
+                && getenv('WPRISM_TEST_INIT_FAIL_PHASE') === 'state-reserved-before-identity') {
                 throw new \RuntimeException(
-                    'duo: injected failure after state reservation and before its complete ownership manifest'
+                    'wprism: injected failure after state reservation and before its complete ownership manifest'
                 );
             }
             $stateReserved = true;
@@ -631,8 +631,8 @@ final class InitConfirmation {
                 $attemptRecord,
                 (string) $attemptPublication['published']
             );
-            if (getenv('DUO_TEST_MODE') === '1') {
-                $pauseMs = (int) (getenv('DUO_TEST_INIT_PUBLICATION_PAUSE_MS') ?: 0);
+            if (getenv('WPRISM_TEST_MODE') === '1') {
+                $pauseMs = (int) (getenv('WPRISM_TEST_INIT_PUBLICATION_PAUSE_MS') ?: 0);
                 if ($pauseMs > 0 && $pauseMs <= 10000) {
                     usleep($pauseMs * 1000);
                 }
@@ -643,25 +643,25 @@ final class InitConfirmation {
                 (string) $lockPublication['published'],
                 InitOwnedArtifacts::regular_file_identity($lockPath, 'state.capture.lock')
             )) {
-                throw new \RuntimeException('duo: init capture lock pathname no longer names the held lock inode');
+                throw new \RuntimeException('wprism: init capture lock pathname no longer names the held lock inode');
             }
             if (!hash_equals(
                 (string) $sitePublication['published'],
-                InitOwnedArtifacts::regular_file_identity($siteFile, 'site.duo.json')
+                InitOwnedArtifacts::regular_file_identity($siteFile, 'site.wprism.json')
             )) {
-                throw new \RuntimeException('duo: init site.duo.json changed before initial capture');
+                throw new \RuntimeException('wprism: init site.wprism.json changed before initial capture');
             }
             if (is_array($gitignorePublication) && !hash_equals(
                 (string) $gitignorePublication['published'],
                 InitOwnedArtifacts::regular_file_identity($repo . '/.gitignore', '.gitignore')
             )) {
-                throw new \RuntimeException('duo: init .gitignore changed before initial capture');
+                throw new \RuntimeException('wprism: init .gitignore changed before initial capture');
             }
             if (is_array($gitattributesPublication) && !hash_equals(
                 (string) $gitattributesPublication['published'],
                 InitOwnedArtifacts::regular_file_identity($repo . '/.gitattributes', '.gitattributes')
             )) {
-                throw new \RuntimeException('duo: init .gitattributes changed before initial capture');
+                throw new \RuntimeException('wprism: init .gitattributes changed before initial capture');
             }
             $reviewedGitattributes = (string) ($proposal['state']['gitattributes_identity'] ?? '');
             if (!is_array($gitattributesPublication)
@@ -672,13 +672,13 @@ final class InitConfirmation {
                         '.gitattributes'
                     )
                 )) {
-                throw new \RuntimeException('duo: init .gitattributes changed before initial capture');
+                throw new \RuntimeException('wprism: init .gitattributes changed before initial capture');
             }
             if (is_array($lfsConfigPublication) && !$gitCreated && !hash_equals(
                 (string) $lfsConfigPublication['published'],
                 InitOwnedArtifacts::regular_file_identity($repo . '/.git/config', 'Git local config')
             )) {
-                throw new \RuntimeException('duo: init Git LFS configuration changed before initial capture');
+                throw new \RuntimeException('wprism: init Git LFS configuration changed before initial capture');
             }
             $reviewedGitignore = (string) ($proposal['state']['gitignore_identity'] ?? '');
             if (!is_array($gitignorePublication)
@@ -686,25 +686,25 @@ final class InitConfirmation {
                     $reviewedGitignore,
                     InitOwnedArtifacts::owned_file_boundary_identity($repo . '/.gitignore', '.gitignore')
                 )) {
-                throw new \RuntimeException('duo: init .gitignore changed before initial capture');
+                throw new \RuntimeException('wprism: init .gitignore changed before initial capture');
             }
             if (!hash_equals(
                 (string) $publishedCodeIdentity,
                 InitOwnedArtifacts::directory_identity($codeRoot, 'code publication root')
             )) {
-                throw new \RuntimeException('duo: init code root changed before initial capture');
+                throw new \RuntimeException('wprism: init code root changed before initial capture');
             }
             if (!hash_equals(
                 (string) $mediaIdentity,
                 InitOwnedArtifacts::directory_identity($mediaDir, 'media publication root')
             )) {
-                throw new \RuntimeException('duo: init media root changed before initial capture');
+                throw new \RuntimeException('wprism: init media root changed before initial capture');
             }
             if ($gitCreated && !hash_equals(
                 (string) $gitIdentity,
                 InitOwnedArtifacts::directory_identity($repo . '/.git', 'Git metadata root')
             )) {
-                throw new \RuntimeException('duo: init Git metadata changed before initial capture');
+                throw new \RuntimeException('wprism: init Git metadata changed before initial capture');
             }
             $capture = Capture::run_initial_baseline(
                 $repo,
@@ -729,7 +729,7 @@ final class InitConfirmation {
             $stateReserved = false;
             if (($capture['initial_publication_cleanup'] ?? null) !== 'clean') {
                 throw new \RuntimeException(
-                    'duo: init baseline committed but publication cleanup was retained; recover the durable receipt before declaring initialization complete'
+                    'wprism: init baseline committed but publication cleanup was retained; recover the durable receipt before declaring initialization complete'
                 );
             }
             $revisionHash = (string) ($capture['revision_hash'] ?? '');
@@ -742,12 +742,12 @@ final class InitConfirmation {
                     (string) ($descriptor['code_revision'] ?? ''),
                     (string) ($codeBaseline['code_revision'] ?? '')
                 )) {
-                throw new \RuntimeException('duo: init capture returned no completed transaction-bound baseline receipt');
+                throw new \RuntimeException('wprism: init capture returned no completed transaction-bound baseline receipt');
             }
             $finalGit = InitRepositoryBoundary::git_probe($repo);
             if ($finalGit['mode'] !== 'existing-worktree' || $finalGit['blockers'] !== []) {
                 throw new \RuntimeException(
-                    'duo: init baseline committed, but the target Git worktree changed before final verification'
+                    'wprism: init baseline committed, but the target Git worktree changed before final verification'
                 );
             }
             if (!hash_equals(
@@ -755,7 +755,7 @@ final class InitConfirmation {
                 InitOwnedArtifacts::directory_identity($codeRoot, 'code publication root')
             ) || Canon::encode(Code::descriptor_from_source($codeRoot . '/wp-content')) !== Canon::encode($descriptor)) {
                 throw new \RuntimeException(
-                    'duo: init baseline committed, but the code tree changed before final verification'
+                    'wprism: init baseline committed, but the code tree changed before final verification'
                 );
             }
             InitRepositoryBoundary::assert_binding($logicalRepo, $rootStat);
@@ -772,7 +772,7 @@ final class InitConfirmation {
             }
             $succeeded = true;
             return [
-                'format' => 'duo-init-result/v1',
+                'format' => 'wprism-init-result/v1',
                 'proposal_digest' => $expectedDigest,
                 'baseline' => [
                     'kind' => 'state-capture',
@@ -790,7 +790,7 @@ final class InitConfirmation {
                 'state' => [
                     'git' => $finalGit['mode'],
                     'repository' => $logicalRepo,
-                    'site_config' => $logicalRepo . '/site.duo.json',
+                    'site_config' => $logicalRepo . '/site.wprism.json',
                 ],
                 'unsupported' => [],
             ];
@@ -801,7 +801,7 @@ final class InitConfirmation {
             if ($error instanceof InitAttemptRetentionException) {
                 $retainPublicationLock = true;
                 throw new \RuntimeException(
-                    'duo: init retained its sealed recovery journal and capture lock because an owned staging artifact could not be safely compensated: '
+                    'wprism: init retained its sealed recovery journal and capture lock because an owned staging artifact could not be safely compensated: '
                     . $error->getMessage(),
                     0,
                     $error
@@ -838,7 +838,7 @@ final class InitConfirmation {
             if ($crossedPublication) {
                 $retainPublicationLock = true;
                 throw new \RuntimeException(
-                    'duo: init publication crossed its durable receipt boundary; retained config, code, state, and ledger together for recovery: '
+                    'wprism: init publication crossed its durable receipt boundary; retained config, code, state, and ledger together for recovery: '
                     . $error->getMessage(),
                     0,
                     $error
@@ -867,10 +867,10 @@ final class InitConfirmation {
                 }
                 if (is_array($sitePublication)) {
                     try {
-                        InitOwnedArtifacts::compensate_owned_file($siteFile, $sitePublication, 'site.duo.json');
+                        InitOwnedArtifacts::compensate_owned_file($siteFile, $sitePublication, 'site.wprism.json');
                     } catch (\Throwable $restoreError) {
                         throw new \RuntimeException(
-                            $error->getMessage() . "\nduo: init could not compensate its site.duo.json publication: " . $restoreError->getMessage(),
+                            $error->getMessage() . "\nwprism: init could not compensate its site.wprism.json publication: " . $restoreError->getMessage(),
                             0,
                             $error
                         );
@@ -901,7 +901,7 @@ final class InitConfirmation {
                 $retainPublicationLock = true;
                 throw new InitAttemptRetentionException(
                     $error->getMessage()
-                    . "\nduo: init retained its sealed recovery journal and capture lock because pre-COMMIT compensation could not safely complete: "
+                    . "\nwprism: init retained its sealed recovery journal and capture lock because pre-COMMIT compensation could not safely complete: "
                     . $cleanupFailure->getMessage(),
                     0,
                     $cleanupFailure
@@ -912,7 +912,7 @@ final class InitConfirmation {
                     $diskAttempt = InitAttemptJournal::read($repo);
                     if (!is_array($diskAttempt)) {
                         throw new \RuntimeException(
-                            'duo: init lost its sealed recovery journal before final compensation verification'
+                            'wprism: init lost its sealed recovery journal before final compensation verification'
                         );
                     }
                     $diskPublication = [
@@ -937,7 +937,7 @@ final class InitConfirmation {
                     );
                     if (($verifiedCleanup['outcome'] ?? null) !== 'precommit-rolled-back') {
                         throw new \RuntimeException(
-                            'duo: init compensation reached a durable committed publication and cannot discard its journal'
+                            'wprism: init compensation reached a durable committed publication and cannot discard its journal'
                         );
                     }
                     $attemptRecord = $diskAttempt;
@@ -946,7 +946,7 @@ final class InitConfirmation {
                     $retainPublicationLock = true;
                     throw new \RuntimeException(
                         $error->getMessage()
-                        . "\nduo: init retained its sealed journal because final compensation could not prove every planned artifact: "
+                        . "\nwprism: init retained its sealed journal because final compensation could not prove every planned artifact: "
                         . $verificationFailure->getMessage(),
                         0,
                         $error
@@ -989,7 +989,7 @@ final class InitConfirmation {
             }
             if ($previousCwd !== null && !@chdir($previousCwd)) {
                 self::release_init_lease($lease);
-                throw new \RuntimeException('duo: init could not restore its process working directory after confirmation');
+                throw new \RuntimeException('wprism: init could not restore its process working directory after confirmation');
             }
             self::release_init_lease($lease);
         }
@@ -997,13 +997,13 @@ final class InitConfirmation {
     /** Acquire one non-durable, connection-owned lease for this target/repo. */
     private static function acquire_init_lease(string $repo): string {
         global $wpdb;
-        $name = 'duo-init:' . substr(hash('sha256', (string) $wpdb->prefix . "\0" . $repo), 0, 48);
+        $name = 'wprism-init:' . substr(hash('sha256', (string) $wpdb->prefix . "\0" . $repo), 0, 48);
         $result = $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 0)', $name));
         if (!empty($wpdb->last_error)) {
-            throw new \RuntimeException('duo: init could not acquire its database advisory lease');
+            throw new \RuntimeException('wprism: init could not acquire its database advisory lease');
         }
         if ((string) $result !== '1') {
-            throw new \RuntimeException('duo: init refused — another initialization already holds the target lease');
+            throw new \RuntimeException('wprism: init refused — another initialization already holds the target lease');
         }
         return $name;
     }

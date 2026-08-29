@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for DUO-3347 slice 1: ConvergenceVerifier extracted
+ * Offline regression for issue #3347 slice 1: ConvergenceVerifier extracted
  * from Apply's post-apply convergence gate.
  *
  * The live success path (a real re-capture proving byte-semantic
@@ -22,11 +22,11 @@ require_once __DIR__ . '/../../../../agent/src/Scope/ScopedApplySession.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/ConvergenceVerifier.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/Apply.php';
 
-use Duo\Apply;
-use Duo\Canon;
-use Duo\ConvergenceVerifier;
-use Duo\Policy;
-use Duo\ScopedApplySession;
+use WPrism\Apply;
+use WPrism\Canon;
+use WPrism\ConvergenceVerifier;
+use WPrism\Policy;
+use WPrism\ScopedApplySession;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -159,7 +159,7 @@ $check($getVerifierProp('scopedSession') === $sessionSentinel, 'scopedSession mu
 // scenario the bugs are actually about.
 $isolatedProbeCheck = static function (string $requiredFile, string $probeBody, string $needle, string $label) use ($check): void {
     $absolutePath = realpath($requiredFile);
-    $probe = tempnam(sys_get_temp_dir(), 'duo-isolation-probe-');
+    $probe = tempnam(sys_get_temp_dir(), 'wprism-isolation-probe-');
     file_put_contents($probe, "<?php\nrequire " . var_export($absolutePath, true) . ";\n" . $probeBody);
     $output = [];
     $exit = null;
@@ -175,9 +175,9 @@ $isolatedProbeCheck = static function (string $requiredFile, string $probeBody, 
 $isolatedProbeCheck(
     __DIR__ . '/../../../../agent/src/Apply/ApplyRequestCoordinator.php',
     <<<'PHP'
-echo \Duo\ConvergenceVerifier::hash(['type' => 'post', 'hash' => 'duo-3440-isolation-probe']);
+echo \WPrism\ConvergenceVerifier::hash(['type' => 'post', 'hash' => 'convergence-isolation-isolation-probe']);
 PHP,
-    'duo-3440-isolation-probe',
+    'convergence-isolation-isolation-probe',
     'ApplyRequestCoordinator.php must carry its own ConvergenceVerifier dependency when required standalone'
 );
 
@@ -194,9 +194,9 @@ PHP,
 $isolatedProbeCheck(
     __DIR__ . '/../../../../agent/src/Apply/ConvergenceVerifier.php',
     <<<'PHP'
-echo \Duo\ConvergenceVerifier::hash(['type' => 'term', 'data' => ['name' => 'duo-3441-isolation-probe']]);
+echo \WPrism\ConvergenceVerifier::hash(['type' => 'term', 'data' => ['name' => 'convergence-order-isolation-probe']]);
 PHP,
-    hash('sha256', \Duo\Canon::encode(['name' => 'duo-3441-isolation-probe'])),
+    hash('sha256', \WPrism\Canon::encode(['name' => 'convergence-order-isolation-probe'])),
     'ConvergenceVerifier.php must carry its OWN Canon.php require when required standalone: a fresh '
         . 'process requiring only agent/src/Apply/ConvergenceVerifier.php must reach the non-post hash() path '
         . '(the only path that touches Canon) without a "Class ...Canon not found" fatal'

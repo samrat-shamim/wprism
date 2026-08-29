@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../Transport/CodeDeploy.php';
@@ -16,7 +16,7 @@ final class ScopeCommand {
     /** @param list<string> $extra */
     public static function run(EnvironmentDriver $driver, array $extra): int {
         return $driver->streamWp(CodeDeploy::controlArgs(array_merge(
-            ['duo', 'scope', '--repo=' . $driver->repoPath()],
+            ['wprism', 'scope', '--repo=' . $driver->repoPath()],
             $extra
         )));
     }

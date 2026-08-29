@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline contract for `duo adapter keygen | certify | pin` (round-3 T6 §3.5).
+ * Offline contract for `wprism adapter keygen | certify | pin` (round-3 T6 §3.5).
  *
  * Three things this suite is for, in the order they matter.
  *
@@ -22,11 +22,11 @@
  * **2. The three mutations refuse before they damage anything.** A private
  * key inside a repository that gets committed is a published key; an
  * overwritten key orphans every certificate it signed; a rewritten
- * `site.duo.json` that flattened `"policy": {}` into `[]` would produce a
+ * `site.wprism.json` that flattened `"policy": {}` into `[]` would produce a
  * file the engine refuses to load. Each is asserted rather than reasoned
  * about — the third was a real defect caught by the first smoke run of
- * `duo adapter pin`, and the ordering rule below by the first run of
- * `duo adapter certify`.
+ * `wprism adapter pin`, and the ordering rule below by the first run of
+ * `wprism adapter certify`.
  *
  * **3. A failed certify leaves the repository as it found it.** The
  * pre-flight grammar check runs BEFORE the key is registered, so an adapter
@@ -36,15 +36,15 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../lib/check.php';
 
-$duoRoot = dirname(__DIR__, 4);
-require_once $duoRoot . '/cli/src/Adapter/AdapterCertify.php';
+$wprismRoot = dirname(__DIR__, 4);
+require_once $wprismRoot . '/cli/src/Adapter/AdapterCertify.php';
 
-use Duo\AdapterCertification;
-use Duo\AdapterSources;
-use Duo\Canon;
-use Duo\Policy;
-use Duo\RepositoryCompiler;
-use Duo\Orchestrator\AdapterCertify;
+use WPrism\AdapterCertification;
+use WPrism\AdapterSources;
+use WPrism\Canon;
+use WPrism\Policy;
+use WPrism\RepositoryCompiler;
+use WPrism\Orchestrator\AdapterCertify;
 
 // -------------------------------------------------------------------- harness
 
@@ -74,12 +74,12 @@ function cert_rmtree(string $path): void {
     @rmdir($path);
 }
 
-$root = sys_get_temp_dir() . '/duo_adapter_certify_' . bin2hex(random_bytes(6));
+$root = sys_get_temp_dir() . '/wprism_adapter_certify_' . bin2hex(random_bytes(6));
 mkdir($root, 0755, true);
 register_shutdown_function(static fn() => cert_rmtree($root));
 
 /**
- * Run `duo adapter <args>` in-process and capture stdout.
+ * Run `wprism adapter <args>` in-process and capture stdout.
  *
  * In-process rather than through a subprocess because most cases below assert
  * the exit code, and a subprocess would add a PHP boot per case to a suite
@@ -110,16 +110,16 @@ function cert_run(array $args): array {
  * @return array{exit:int,out:string,err:string}
  */
 function cert_run_cli(array $args): array {
-    global $duoRoot;
+    global $wprismRoot;
     $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
     $pipes = [];
     $process = proc_open(
-        array_merge([PHP_BINARY, $duoRoot . '/cli/duo', 'adapter'], $args),
+        array_merge([PHP_BINARY, $wprismRoot . '/cli/wprism', 'adapter'], $args),
         $descriptors,
         $pipes
     );
     if (!is_resource($process)) {
-        return ['exit' => -1, 'out' => '', 'err' => 'cannot start duo'];
+        return ['exit' => -1, 'out' => '', 'err' => 'cannot start wprism'];
     }
     fclose($pipes[0]);
     $out = (string) stream_get_contents($pipes[1]);
@@ -136,13 +136,13 @@ function cert_site(string $root, string $label, array $manifest, array $pins = [
     mkdir($repo . '/adapters', 0755, true);
     $name = (string) $manifest['name'];
     Canon::write_file($repo . '/adapters/' . $name . '.json', Canon::encode($manifest));
-    Canon::write_file($repo . '/site.duo.json', Canon::encode([
+    Canon::write_file($repo . '/site.wprism.json', Canon::encode([
         'manifests' => $pins,
         // An EMPTY JSON object, deliberately: PHP erases {} vs [] on an
         // associative round trip, and a writer that did so would rewrite this
         // into a list the engine refuses. See the pin cases below.
         'policy' => new stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]));
 
     return $repo;
@@ -154,23 +154,23 @@ function cert_site(string $root, string $label, array $manifest, array $pins = [
  * @return array{dir:string,key_id:string,secret:string}
  */
 function cert_agent_library(string $root, string $label, array $adapterNames, array $tiers): array {
-    global $duoRoot;
+    global $wprismRoot;
     $dir = $root . '/' . $label;
     mkdir($dir . '/capabilities', 0755, true);
-    copy($duoRoot . '/platform/adapter-library/core/manifest.json', $dir . '/core.json');
+    copy($wprismRoot . '/platform/adapter-library/core/manifest.json', $dir . '/core.json');
     // Only `core` is copied, so only `core`'s reviewed document is: WP-4.4
     // addressed the reviewed source per subject (spec/repo-format.md § v3.4),
     // and a library carrying entries for manifests it does not hold is exactly
     // what `make release-gate`'s two-way comparison refuses.
     mkdir($dir . '/dispositions', 0755, true);
-    copy($duoRoot . '/platform/adapter-library/core/disposition.json', $dir . '/dispositions/core.json');
+    copy($wprismRoot . '/platform/adapter-library/core/disposition.json', $dir . '/dispositions/core.json');
 
     // The shipped platform boundary verbatim: the exercised compatibility cells
     // inside every signed statement are read out of these exact bytes
     // (spec/repo-format.md § v3.6), so a fixture that re-authored them would
     // sign against a platform no agent runs.
     copy(
-        $duoRoot . '/platform/adapter-library/capabilities/platform.json',
+        $wprismRoot . '/platform/adapter-library/capabilities/platform.json',
         $dir . '/capabilities/platform.json'
     );
 
@@ -201,12 +201,12 @@ $keyDir = $root . '/keys';
 mkdir($keyDir, 0755, true);
 
 $keygen = cert_run(['keygen', '--out=' . $keyDir . '/org.key']);
-duo_check_same(0, $keygen['exit'], 'keygen exits 0');
-duo_check(
+wprism_check_same(0, $keygen['exit'], 'keygen exits 0');
+wprism_check(
     is_file($keyDir . '/org.key'),
     'keygen writes the secret to the path the operator named'
 );
-duo_check_same(
+wprism_check_same(
     '0600',
     substr(sprintf('%o', fileperms($keyDir . '/org.key')), -4),
     'the secret key file is mode 0600 — a group/world-readable private key is not one'
@@ -215,26 +215,26 @@ $keygenKeyId = null;
 if (preg_match('/^key-id:\s+(\S+)$/m', $keygen['out'], $m) === 1) {
     $keygenKeyId = $m[1];
 }
-duo_check(
+wprism_check(
     is_string($keygenKeyId) && str_starts_with($keygenKeyId, 'site-'),
     'keygen prints the key id it derived (' . var_export($keygenKeyId, true) . ')'
 );
-duo_check(
+wprism_check(
     preg_match('/^public-key:\s+\S{40,}=*$/m', $keygen['out']) === 1,
     'keygen prints the public key, which is what goes in a trust root'
 );
-duo_check(
+wprism_check(
     !str_contains($keygen['out'], (string) file_get_contents($keyDir . '/org.key')),
     'keygen never prints the SECRET key to stdout'
 );
-duo_check(
-    str_contains($keygen['out'], 'not a Duo one'),
+wprism_check(
+    str_contains($keygen['out'], 'not a WPrism one'),
     'keygen states out loud that this is a customer-organization trust root'
 );
 
 $rerun = cert_run_cli(['keygen', '--out=' . $keyDir . '/org.key']);
-duo_check_same(2, $rerun['exit'], 'keygen refuses to overwrite an existing private key');
-duo_check(
+wprism_check_same(2, $rerun['exit'], 'keygen refuses to overwrite an existing private key');
+wprism_check(
     str_contains($rerun['err'], 'never overwrites a private key'),
     'and says why — every certificate that key signed would be orphaned'
 );
@@ -255,9 +255,9 @@ duo_check(
  * The suite's vendor-prefixed fixtures (`acme-catalog`, `acme-cases`) stay at
  * N, so both authoring eras are covered rather than one replaced by the other.
  */
-$preFlipSpec = DUO_SPEC_VERSION - 1;
+$preFlipSpec = WPRISM_SPEC_VERSION - 1;
 
-// T6 §3.1: "Private keys never live in the repository." `duo init`'s own next
+// T6 §3.1: "Private keys never live in the repository." `wprism init`'s own next
 // steps tell the operator to `git add .`, so a key anywhere under a site repo
 // is a key they are about to publish.
 $keyRepo = cert_site($root, 'keyrepo', [
@@ -269,22 +269,22 @@ $keyRepo = cert_site($root, 'keyrepo', [
 mkdir($keyRepo . '/secrets/deep', 0755, true);
 foreach (['org.key', 'secrets/deep/org.key'] as $inside) {
     $refusal = cert_run_cli(['keygen', '--out=' . $keyRepo . '/' . $inside]);
-    duo_check_same(2, $refusal['exit'], "keygen refuses a secret path inside a site repository ($inside)");
-    duo_check(
+    wprism_check_same(2, $refusal['exit'], "keygen refuses a secret path inside a site repository ($inside)");
+    wprism_check(
         str_contains($refusal['err'], '[secret_key_inside_repository]')
-            && str_contains($refusal['err'], 'inside the duo site repository'),
+            && str_contains($refusal['err'], 'inside the wprism site repository'),
         "and names the repository it found ($inside) under its typed reason code — the walk is up the ancestors, not one level"
     );
-    duo_check(!is_file($keyRepo . '/' . $inside), "and writes nothing ($inside)");
+    wprism_check(!is_file($keyRepo . '/' . $inside), "and writes nothing ($inside)");
 }
 
-duo_check_same(2, cert_run(['keygen'])['exit'], 'keygen without --out is a usage error');
-duo_check_same(
+wprism_check_same(2, cert_run(['keygen'])['exit'], 'keygen without --out is a usage error');
+wprism_check_same(
     2,
     cert_run(['keygen', '--out=' . $keyDir . '/a.key', '--out=' . $keyDir . '/b.key'])['exit'],
     'a repeated flag is refused rather than last-wins'
 );
-duo_check_same(
+wprism_check_same(
     2,
     cert_run(['keygen', '--out=' . $keyDir . '/c.key', '--nope=1'])['exit'],
     'an unsupported flag is refused'
@@ -307,7 +307,7 @@ $rich = [
     'plugin' => 'acme-catalog/acme-catalog.php',
     'post_meta' => ['_acme_catalog_ref' => ['class' => 'authored']],
     'post_types' => ['acme_item' => ['class' => 'authored']],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'tables' => [
         'acme_catalog_index' => [
             'class' => 'authored_snapshot',
@@ -358,7 +358,7 @@ $certificate = AdapterCertification::sign_site(
     $reason
 );
 $certificatePath = AdapterCertify::writeCertificate($signRepo, 'acme-catalog', $certificate);
-duo_check_same(
+wprism_check_same(
     // realpath: writeCertificate() resolves the repository root, and macOS
     // resolves /var to /private/var. The assertion is about the DERIVED
     // relative path, not about the platform's symlinking of tmp.
@@ -366,7 +366,7 @@ duo_check_same(
     $certificatePath,
     'the certificate lands at its DERIVED path, never one a caller chose'
 );
-duo_check_same(
+wprism_check_same(
     '0644',
     substr(sprintf('%o', fileperms($certificatePath)), -4),
     'the certificate is world-readable — it is a public statement, not a secret'
@@ -380,14 +380,14 @@ $verified = AdapterCertification::verifyFile(
     $certificatePath
 );
 $summary = AdapterCertification::certificateSummary($verified);
-duo_check_same('experimental', $summary['status'] ?? null, 'the live verifier keeps an unexercised signature below certification');
-duo_check_same('acme-catalog', $summary['name'] ?? null, 'for this adapter');
-duo_check_same(
+wprism_check_same('experimental', $summary['status'] ?? null, 'the live verifier keeps an unexercised signature below certification');
+wprism_check_same('acme-catalog', $summary['name'] ?? null, 'for this adapter');
+wprism_check_same(
     AdapterSources::TIER_DECLARATIVE,
     $summary['trust_tier'] ?? null,
     'at the declarative trust tier the manifest earned'
 );
-duo_check_same(
+wprism_check_same(
     $signKeyId,
     $summary['authority']['key_id'] ?? null,
     'under the operator\'s own key'
@@ -399,27 +399,27 @@ duo_check_same(
 // exists to remove — and `trust_root: site` is what keeps this
 // `Site-certified` rather than `Platform-certified`.
 $claim = is_array($verified['claim'] ?? null) ? $verified['claim'] : [];
-duo_check_same(
+wprism_check_same(
     false,
     $claim['evidence']['exercised'] ?? null,
     'the CLAIM carries exercised: false, so nothing downstream can read it as a reviewed exercise'
 );
-duo_check_same(
+wprism_check_same(
     'site',
     $claim['certification']['trust_root'] ?? null,
     'and a site trust root, which is what makes the projection say Site-certified'
 );
-duo_check_same(
+wprism_check_same(
     'site',
     $claim['certification']['source'] ?? null,
     'with source "site" — the fact ProjectionVocabulary::projectProvenance() keys on'
 );
-duo_check_same(
+wprism_check_same(
     $signKeyId,
     $claim['certification']['principal'] ?? null,
     'naming the principal the human view prints'
 );
-duo_check_same(
+wprism_check_same(
     // The reason rides on the DISPOSITION, not the claim's evidence block —
     // it is what the entry is certified ON, and it is inside the signed
     // statement either way. Asserted where it lives rather than where it
@@ -428,7 +428,7 @@ duo_check_same(
     $verified['disposition']['reason'] ?? null,
     'and the operator\'s stated basis, signed rather than merely typed'
 );
-duo_check_same(
+wprism_check_same(
     [],
     $claim['evidence']['tests'] ?? null,
     'with NO named tests — `evidence.tests: ["something"]` is indistinguishable downstream from a '
@@ -485,7 +485,7 @@ $foreignVerified = AdapterCertification::verifyFile(
     $rich,
     $environmentCertificatePath
 );
-duo_check_same(
+wprism_check_same(
     'experimental',
     $foreignVerified['claim']['status'] ?? null,
     'fixture premise: the different-PHP approval is a valid current signed statement'
@@ -498,7 +498,7 @@ $currentEnvironmentCertificate = AdapterCertification::sign_site(
     base64_encode($signSecret),
     $reason
 );
-duo_check(
+wprism_check(
     !hash_equals($foreignEnvironmentBytes, $currentEnvironmentCertificate)
         && (json_decode($currentEnvironmentCertificate, true)['statement']['bundle']['environment_summary']['php'] ?? null)
             === PHP_VERSION,
@@ -510,7 +510,7 @@ duo_check(
 // that keeps `site_signed` and `third_party_signed` separable at all.
 $agentLibrary = cert_agent_library($root, 'agentlib', ['acme-catalog'], [AdapterSources::TIER_DECLARATIVE]);
 $agentRepo = cert_site($root, 'agentsite', $rich);
-duo_check_throws(
+wprism_check_throws(
     static fn() => AdapterCertification::sign_site(
         $agentLibrary['dir'],
         $agentRepo,
@@ -529,7 +529,7 @@ duo_check_throws(
 $tampered = $rich;
 $tampered['options']['acme_catalog_layout']['class'] = 'runtime';
 Canon::write_file($signRepo . '/adapters/acme-catalog.json', Canon::encode($tampered));
-duo_check_throws(
+wprism_check_throws(
     static fn() => AdapterCertification::verifyFile(
         Policy::shipped_adapter_library(),
         $signRepo,
@@ -554,25 +554,25 @@ $public = sodium_crypto_sign_publickey_from_secretkey($signSecret);
 $wrote = cert_private('registerAuthority', [
     $authRepo, 'site-acme', $public, 'keeper', AdapterSources::TIER_DECLARATIVE,
 ]);
-duo_check_same(true, $wrote, 'registering a new key reports that it wrote');
+wprism_check_same(true, $wrote, 'registering a new key reports that it wrote');
 $authorities = json_decode(
     (string) file_get_contents($authRepo . '/' . AdapterCertify::AUTHORITIES_RELATIVE),
     true
 );
-duo_check_same(
+wprism_check_same(
     AdapterCertification::AUTHORITIES_FORMAT,
     $authorities['format'] ?? null,
-    'the SITE trust root uses exactly the shipped duo-adapter-authorities/v1 grammar — '
+    'the SITE trust root uses exactly the shipped wprism-adapter-authorities/v1 grammar — '
     . 'a second dialect would be a second verifier'
 );
-duo_check_same(
+wprism_check_same(
     ['adapter_names' => ['keeper'], 'algorithm' => 'ed25519', 'public_key' => base64_encode($public),
         'scope' => 'site_adapter_certification', 'status' => 'trusted',
         'trust_tiers' => [AdapterSources::TIER_DECLARATIVE]],
     $authorities['keys']['site-acme'] ?? null,
     'and the record carries exactly the six fields validateAuthorityRecord() enforces'
 );
-duo_check(
+wprism_check(
     str_contains(
         (string) file_get_contents($authRepo . '/' . AdapterCertify::AUTHORITIES_RELATIVE),
         '"keys": {'
@@ -589,17 +589,17 @@ $authorities = json_decode(
     (string) file_get_contents($authRepo . '/' . AdapterCertify::AUTHORITIES_RELATIVE),
     true
 );
-duo_check_same(
+wprism_check_same(
     ['keeper', 'other'],
     $authorities['keys']['site-acme']['adapter_names'] ?? null,
     'a second adapter widens the existing record rather than adding a second key'
 );
-duo_check_same(
+wprism_check_same(
     [AdapterSources::TIER_DECLARATIVE, AdapterSources::TIER_NATIVE_ACTION],
     $authorities['keys']['site-acme']['trust_tiers'] ?? null,
     'and so does a second trust tier'
 );
-duo_check_same(
+wprism_check_same(
     false,
     cert_private('registerAuthority', [
         $authRepo, 'site-acme', $public, 'keeper', AdapterSources::TIER_DECLARATIVE,
@@ -611,7 +611,7 @@ duo_check_same(
 // hazard: every certificate that id signed would start verifying against
 // another organization.
 $other = sodium_crypto_sign_publickey(sodium_crypto_sign_keypair());
-duo_check_throws(
+wprism_check_throws(
     static fn() => cert_private('registerAuthority', [
         $authRepo, 'site-acme', $other, 'keeper', AdapterSources::TIER_DECLARATIVE,
     ]),
@@ -630,7 +630,7 @@ Canon::write_file(
     $authRepo . '/' . AdapterCertify::AUTHORITIES_RELATIVE,
     Canon::encode(['format' => $revoked['format'], 'keys' => (object) $revoked['keys']])
 );
-duo_check_throws(
+wprism_check_throws(
     static fn() => cert_private('registerAuthority', [
         $authRepo, 'site-acme', $public, 'keeper', AdapterSources::TIER_DECLARATIVE,
     ]),
@@ -643,14 +643,14 @@ duo_check_throws(
 $loose = $keyDir . '/loose.key';
 file_put_contents($loose, base64_encode($signSecret) . "\n");
 chmod($loose, 0644);
-duo_check_throws(
+wprism_check_throws(
     static fn() => AdapterCertify::readSecretKey($loose),
     RuntimeException::class,
     'a group/world-readable secret key file is refused: signing with one mints an authority '
     . 'anybody on the box could forge'
 );
 chmod($loose, 0600);
-duo_check_same(
+wprism_check_same(
     $signSecret,
     AdapterCertify::readSecretKey($loose),
     'a 0600 base64 secret key reads back byte-for-byte'
@@ -658,7 +658,7 @@ duo_check_same(
 $hexKey = $keyDir . '/hex.key';
 file_put_contents($hexKey, bin2hex($signSecret) . "\n");
 chmod($hexKey, 0600);
-duo_check_same(
+wprism_check_same(
     $signSecret,
     AdapterCertify::readSecretKey($hexKey),
     'and so does the hexadecimal spelling, which the engine\'s own signer accepts'
@@ -666,7 +666,7 @@ duo_check_same(
 $junk = $keyDir . '/junk.key';
 file_put_contents($junk, "not a key\n");
 chmod($junk, 0600);
-duo_check_throws(
+wprism_check_throws(
     static fn() => AdapterCertify::readSecretKey($junk),
     RuntimeException::class,
     'a file that is not an Ed25519 secret key is refused before any signing begins'
@@ -680,21 +680,21 @@ $pinRepo = cert_site($root, 'pinsite', [
     'options' => ['keeper_layout' => ['class' => 'authored']],
     'spec_version' => $preFlipSpec,
 ]);
-$before = (string) file_get_contents($pinRepo . '/site.duo.json');
+$before = (string) file_get_contents($pinRepo . '/site.wprism.json');
 
 // Written in CANONICAL key order, which is the order the file will hold:
 // Canon sorts, and this suite compares the decoded file rather than a
 // re-sorted copy of it, so the expectation states the real byte order.
 $pin = ['digest' => str_repeat('a', 64), 'name' => 'keeper', 'source' => 'site'];
-duo_check_same(true, cert_private('writePin', [$pinRepo, $pin]), 'writing a new pin reports that it changed');
-$after = json_decode((string) file_get_contents($pinRepo . '/site.duo.json'), true);
-duo_check_same(['core', $pin], $after['manifests'] ?? null, 'the pin is appended, leaving existing pins alone');
-duo_check(
-    str_contains((string) file_get_contents($pinRepo . '/site.duo.json'), '"policy": {}'),
-    'an EMPTY JSON object in site.duo.json survives the rewrite — an associative round trip turns '
+wprism_check_same(true, cert_private('writePin', [$pinRepo, $pin]), 'writing a new pin reports that it changed');
+$after = json_decode((string) file_get_contents($pinRepo . '/site.wprism.json'), true);
+wprism_check_same(['core', $pin], $after['manifests'] ?? null, 'the pin is appended, leaving existing pins alone');
+wprism_check(
+    str_contains((string) file_get_contents($pinRepo . '/site.wprism.json'), '"policy": {}'),
+    'an EMPTY JSON object in site.wprism.json survives the rewrite — an associative round trip turns '
     . '{} into [], which the engine refuses, and that was a real defect on the first smoke run'
 );
-duo_check_same(
+wprism_check_same(
     false,
     cert_private('writePin', [$pinRepo, $pin]),
     'rewriting the same pin changes no bytes and says so — a no-op must not churn a committed file'
@@ -702,8 +702,8 @@ duo_check_same(
 
 $moved = ['digest' => str_repeat('b', 64), 'name' => 'keeper', 'source' => 'site'];
 cert_private('writePin', [$pinRepo, $moved]);
-$after = json_decode((string) file_get_contents($pinRepo . '/site.duo.json'), true);
-duo_check_same(
+$after = json_decode((string) file_get_contents($pinRepo . '/site.wprism.json'), true);
+wprism_check_same(
     ['core', $moved],
     $after['manifests'] ?? null,
     'a moved digest REPLACES the pin in place rather than adding a second one for the same name'
@@ -717,13 +717,13 @@ $dupRepo = cert_site($root, 'dupsite', [
     'options' => ['keeper_layout' => ['class' => 'authored']],
     'spec_version' => $preFlipSpec,
 ], ['core', 'keeper', ['name' => 'keeper', 'source' => 'site', 'digest' => str_repeat('c', 64)]]);
-duo_check_throws(
+wprism_check_throws(
     static fn() => cert_private('writePin', [$dupRepo, $pin]),
     RuntimeException::class,
     'a repository that already pins one name twice refuses rather than silently collapsing it'
 );
 
-// A site.duo.json that is valid but not canonical (the operator hand-pasted
+// A site.wprism.json that is valid but not canonical (the operator hand-pasted
 // the previous pin, exactly as the guide tells them to) is admitted: the pin
 // write is canonical whatever the input was, only `manifests` changes, and
 // the engine then reads canonical bytes. Refusing here sent the author to
@@ -731,16 +731,16 @@ duo_check_throws(
 $roughRepo = $root . '/roughsite';
 mkdir($roughRepo . '/adapters', 0755, true);
 file_put_contents(
-    $roughRepo . '/site.duo.json',
+    $roughRepo . '/site.wprism.json',
     "{\"spec_version\": 2, \"manifests\": [\"core\"], \"policy\": {}}\n"
 );
-duo_check_same(true, cert_private('writePin', [$roughRepo, $pin]), 'a valid non-canonical site.duo.json takes the pin');
-$roughAfter = (string) file_get_contents($roughRepo . '/site.duo.json');
-duo_check(
+wprism_check_same(true, cert_private('writePin', [$roughRepo, $pin]), 'a valid non-canonical site.wprism.json takes the pin');
+$roughAfter = (string) file_get_contents($roughRepo . '/site.wprism.json');
+wprism_check(
     hash_equals(Canon::encode(json_decode($roughAfter)), $roughAfter),
     'and is canonical afterwards, with its other keys re-encoded unchanged'
 );
-duo_check_same(
+wprism_check_same(
     ['core', $pin],
     json_decode($roughAfter, true)['manifests'],
     'the pin joins the existing name-only core pin'
@@ -748,10 +748,10 @@ duo_check_same(
 
 // ---------------------------------------------------------- argument grammar
 
-duo_check_same(2, cert_run(['certify'])['exit'], 'certify without a site repo is a usage error');
-duo_check_same(2, cert_run(['pin'])['exit'], 'pin without a site repo is a usage error');
-duo_check_same(2, cert_run(['nonsense'])['exit'], 'an unknown adapter sub-verb is a usage error');
-duo_check_same(
+wprism_check_same(2, cert_run(['certify'])['exit'], 'certify without a site repo is a usage error');
+wprism_check_same(2, cert_run(['pin'])['exit'], 'pin without a site repo is a usage error');
+wprism_check_same(2, cert_run(['nonsense'])['exit'], 'an unknown adapter sub-verb is a usage error');
+wprism_check_same(
     2,
     cert_run(['pin', $pinRepo, '--name=keeper', '--source=shipped'])['exit'],
     '--source=shipped is refused: a name-only pin already resolves there, and it is the one source '
@@ -759,35 +759,35 @@ duo_check_same(
 );
 $noSite = $root . '/notarepo';
 mkdir($noSite, 0755, true);
-duo_check_same(
+wprism_check_same(
     2,
     cert_run(['pin', $noSite, '--name=keeper'])['exit'],
-    'a directory with no site.duo.json is not a site repo'
+    'a directory with no site.wprism.json is not a site repo'
 );
-duo_check_same(
+wprism_check_same(
     2,
     cert_run(['certify', $pinRepo, '--name=keeper'])['exit'],
     'certify without --secret-key-file is a usage error: certification IS a signature'
 );
 $missingAdapter = cert_run_cli(['certify', $pinRepo, '--name=absent', '--secret-key-file=' . $secretPath]);
-duo_check_same(2, $missingAdapter['exit'], 'certifying an adapter that is not installed is a usage error');
-duo_check(
+wprism_check_same(2, $missingAdapter['exit'], 'certifying an adapter that is not installed is a usage error');
+wprism_check(
     str_contains($missingAdapter['err'], 'certification signs an installed site adapter'),
     'and the refusal names the thing to do first, including the draft command that produces one'
 );
 
 // -------------------------------------------- hand-edited files (T6 walk S2)
-// An operator finishes a draft by hand and hand-pastes into site.duo.json, so
+// An operator finishes a draft by hand and hand-pastes into site.wprism.json, so
 // both are valid JSON and almost never canonical. certify rewrites the
 // adapter canonically before it signs (same declarations) and says so;
-// --pin admits a non-canonical site.duo.json because its write is canonical
+// --pin admits a non-canonical site.wprism.json because its write is canonical
 // whatever the input was. Invalid JSON is still refused with the parser's words.
 $handRepo = cert_site($root, 'handsite', $rich);
 $handPretty = json_encode($rich, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
 file_put_contents($handRepo . '/adapters/acme-catalog.json', "  " . $handPretty . "\n\n");
-$handSite = json_decode((string) file_get_contents($handRepo . '/site.duo.json'), true);
-file_put_contents($handRepo . '/site.duo.json', json_encode($handSite, JSON_PRETTY_PRINT) . "\n");
-duo_check(
+$handSite = json_decode((string) file_get_contents($handRepo . '/site.wprism.json'), true);
+file_put_contents($handRepo . '/site.wprism.json', json_encode($handSite, JSON_PRETTY_PRINT) . "\n");
+wprism_check(
     !hash_equals(Canon::encode($rich), (string) file_get_contents($handRepo . '/adapters/acme-catalog.json')),
     'the fixture adapter is genuinely non-canonical before certify'
 );
@@ -796,30 +796,30 @@ cert_private('registerAuthority', [
 ]);
 $handRun = cert_run(['certify', $handRepo, '--name=acme-catalog', '--secret-key-file=' . $secretPath,
     '--key-id=' . $signKeyId, '--reason=' . $reason, '--pin']);
-duo_check_same(0, $handRun['exit'], 'certify --pin succeeds on a hand-edited adapter and a hand-edited site.duo.json');
-duo_check(
+wprism_check_same(0, $handRun['exit'], 'certify --pin succeeds on a hand-edited adapter and a hand-edited site.wprism.json');
+wprism_check(
     str_contains($handRun['out'], 'rewrote site adapter acme-catalog.json canonically'),
     'certify says it rewrote the adapter canonically'
 );
-duo_check(
+wprism_check(
     hash_equals(Canon::encode($rich), (string) file_get_contents($handRepo . '/adapters/acme-catalog.json')),
     'the adapter on disk is now the canonical bytes of the same declarations'
 );
-$handPins = json_decode((string) file_get_contents($handRepo . '/site.duo.json'), true)['manifests'] ?? [];
-duo_check(
+$handPins = json_decode((string) file_get_contents($handRepo . '/site.wprism.json'), true)['manifests'] ?? [];
+wprism_check(
     count(array_filter($handPins, static fn ($m) => is_array($m) && ($m['name'] ?? '') === 'acme-catalog' && ($m['source'] ?? '') === 'site')) === 1,
-    'the pin landed in the previously non-canonical site.duo.json'
+    'the pin landed in the previously non-canonical site.wprism.json'
 );
 file_put_contents($handRepo . '/adapters/acme-catalog.json', "{ not json");
 $handBad = cert_run_cli(['certify', $handRepo, '--name=acme-catalog', '--secret-key-file=' . $secretPath, '--key-id=' . $signKeyId]);
-duo_check_same(2, $handBad['exit'], 'invalid JSON is still refused');
-duo_check(str_contains($handBad['err'], 'is not valid JSON'), 'and named as such, never rewritten');
+wprism_check_same(2, $handBad['exit'], 'invalid JSON is still refused');
+wprism_check(str_contains($handBad['err'], 'is not valid JSON'), 'and named as such, never rewritten');
 
 // -------------------------------- overriding a shipped adapter (T6 walk S4)
 // The operator copies manifests/woocommerce.json to adapters/woocommerce.json,
-// edits it, and says `duo adapter pin --source=site`. Three things the walk
+// edits it, and says `wprism adapter pin --source=site`. Three things the walk
 // stopped on, each pinned here: (1) the pin verb bootstraps the override in
-// one command — the site copy loads only once site.duo.json names source
+// one command — the site copy loads only once site.wprism.json names source
 // "site", and the digest that completes the pin can only be read by loading;
 // (2) certify admits the override's inherited `compatibility_shim` tier under
 // a site key; (3) certifying a SECOND adapter under the same key keeps the
@@ -832,24 +832,24 @@ $shippedWoo = json_decode(
 $overrideCopy = $shippedWoo;
 $overrideCopy['options']['woocommerce_walk_banner'] = ['class' => 'authored'];
 $overRepo = cert_site($root, 'oversite', $overrideCopy, ['core', 'woocommerce']);
-duo_check_throws(
+wprism_check_throws(
     static fn() => Policy::load($overRepo),
     RuntimeException::class,
     'before the override pin the site copy of a shipped name refuses to load (it shadows)'
 );
 $overPin = cert_run(['pin', $overRepo, '--name=woocommerce', '--source=site']);
-duo_check_same(0, $overPin['exit'], 'pin --source=site on a shipped name succeeds from a name-only pin');
-duo_check(
-    str_contains($overPin['out'], "override: site.duo.json now names the site copy of shipped adapter 'woocommerce'")
+wprism_check_same(0, $overPin['exit'], 'pin --source=site on a shipped name succeeds from a name-only pin');
+wprism_check(
+    str_contains($overPin['out'], "override: site.wprism.json now names the site copy of shipped adapter 'woocommerce'")
         && str_contains($overPin['out'], 'wrote the pin'),
     'and says it made the override before writing the digest pin'
 );
-$overPins = json_decode((string) file_get_contents($overRepo . '/site.duo.json'), true)['manifests'] ?? [];
+$overPins = json_decode((string) file_get_contents($overRepo . '/site.wprism.json'), true)['manifests'] ?? [];
 $overEntries = array_values(array_filter(
     $overPins,
     static fn ($m) => (is_string($m) ? $m : ($m['name'] ?? null)) === 'woocommerce'
 ));
-duo_check(
+wprism_check(
     count($overEntries) === 1
         && is_array($overEntries[0])
         && ($overEntries[0]['source'] ?? null) === 'site'
@@ -858,18 +858,18 @@ duo_check(
     'the name-only pin is REPLACED by one {name, source:"site", digest} pin; core is untouched'
 );
 $overPolicy = Policy::load($overRepo);
-duo_check_same(
+wprism_check_same(
     AdapterSources::SITE,
     $overPolicy->adapter_sources()->source('woocommerce'),
     'the override now loads from the site source'
 );
-$overBytes = (string) file_get_contents($overRepo . '/site.duo.json');
+$overBytes = (string) file_get_contents($overRepo . '/site.wprism.json');
 $overAgain = cert_run(['pin', $overRepo, '--name=woocommerce', '--source=site']);
-duo_check(
+wprism_check(
     $overAgain['exit'] === 0
         && !str_contains($overAgain['out'], 'override:')
         && str_contains($overAgain['out'], 'confirmed the pin')
-        && hash_equals($overBytes, (string) file_get_contents($overRepo . '/site.duo.json')),
+        && hash_equals($overBytes, (string) file_get_contents($overRepo . '/site.wprism.json')),
     'a second pin --source=site is a confirmation: no override line, no byte change'
 );
 
@@ -877,19 +877,19 @@ duo_check(
 // compatibility_shim, inherited with the provider grant.
 $overCert = cert_run(['certify', $overRepo, '--name=woocommerce', '--secret-key-file=' . $secretPath,
     '--key-id=' . $signKeyId, '--reason=Acme Ltd reviewed its banner option against the shipped adapter.', '--pin']);
-duo_check_same(0, $overCert['exit'], 'certify --pin succeeds on an override that inherits shipped grants');
-duo_check(
+wprism_check_same(0, $overCert['exit'], 'certify --pin succeeds on an override that inherits shipped grants');
+wprism_check(
     str_contains($overCert['out'], 'trust tier: ' . AdapterSources::TIER_COMPATIBILITY_SHIM),
     'and reports the inherited compatibility_shim tier rather than laundering it'
 );
 $overAuthorities = json_decode((string) file_get_contents($overRepo . '/' . AdapterCertify::AUTHORITIES_RELATIVE), true);
-duo_check_same(
+wprism_check_same(
     [AdapterSources::TIER_COMPATIBILITY_SHIM],
     $overAuthorities['keys'][$signKeyId]['trust_tiers'] ?? null,
     'the site trust root records the shim tier for the key — a site key may certify an override\'s declarations'
 );
 $overPolicy = Policy::load($overRepo);
-duo_check_same(
+wprism_check_same(
     AdapterSources::CERTIFICATION_SIGNED_UNEXERCISED,
     $overPolicy->adapter_sources()->diagnostics($overPolicy->manifests)['woocommerce']['certification'] ?? null,
     'the unexercised override reads signed_unexercised'
@@ -903,19 +903,19 @@ Canon::write_file($overRepo . '/adapters/keeper.json', Canon::encode([
     'options' => ['keeper_layout' => ['class' => 'authored']],
     'spec_version' => $preFlipSpec,
 ]));
-duo_check_same(0, cert_run(['pin', $overRepo, '--name=keeper', '--source=site'])['exit'], 'a second site adapter pins');
+wprism_check_same(0, cert_run(['pin', $overRepo, '--name=keeper', '--source=site'])['exit'], 'a second site adapter pins');
 $keeperCert = cert_run(['certify', $overRepo, '--name=keeper', '--secret-key-file=' . $secretPath,
     '--key-id=' . $signKeyId, '--reason=Acme Ltd reviewed keeper.', '--pin']);
-duo_check_same(0, $keeperCert['exit'], 'the second adapter certifies under the same key');
+wprism_check_same(0, $keeperCert['exit'], 'the second adapter certifies under the same key');
 $overAuthorities = json_decode((string) file_get_contents($overRepo . '/' . AdapterCertify::AUTHORITIES_RELATIVE), true);
-duo_check_same(
+wprism_check_same(
     ['keeper', 'woocommerce'],
     $overAuthorities['keys'][$signKeyId]['adapter_names'] ?? null,
     'the key record now names both adapters (it grew)'
 );
 $overPolicy = Policy::load($overRepo);
 $overWords = $overPolicy->adapter_sources()->diagnostics($overPolicy->manifests);
-duo_check_same(
+wprism_check_same(
     [
         'keeper' => AdapterSources::CERTIFICATION_SIGNED_UNEXERCISED,
         'woocommerce' => AdapterSources::CERTIFICATION_SIGNED_UNEXERCISED,
@@ -931,7 +931,7 @@ $verifiedOver = AdapterCertification::verifyFile(
     $overrideCopy,
     $overWooCert
 );
-duo_check_same(
+wprism_check_same(
     'site',
     $verifiedOver['provenance']['proof']['authority']['trust_root'] ?? null,
     'the live verifier agrees, under the site trust root'
@@ -942,14 +942,14 @@ foreach (RepositoryCompiler::resolved_adapters(Policy::load($overRepo)) as $reso
         $overResolvedBefore = $resolvedRow['digest'];
     }
 }
-$overPinsNow = json_decode((string) file_get_contents($overRepo . '/site.duo.json'), true)['manifests'];
+$overPinsNow = json_decode((string) file_get_contents($overRepo . '/site.wprism.json'), true)['manifests'];
 $overPinDigest = null;
 foreach ($overPinsNow as $m) {
     if (is_array($m) && ($m['name'] ?? null) === 'woocommerce') {
         $overPinDigest = $m['digest'];
     }
 }
-duo_check_same(
+wprism_check_same(
     $overPinDigest,
     $overResolvedBefore,
     'the woocommerce pin written BEFORE keeper was certified still equals the digest the engine resolves after: '
@@ -964,7 +964,7 @@ Canon::write_file(
     $overRepo . '/' . AdapterCertify::AUTHORITIES_RELATIVE,
     Canon::encode(['format' => $rotated['format'], 'keys' => (object) $rotated['keys']])
 );
-duo_check_throws(
+wprism_check_throws(
     static fn() => AdapterCertification::verifyFile(
         Policy::shipped_adapter_library(),
         $overRepo,
@@ -981,7 +981,7 @@ Canon::write_file(
     $overRepo . '/' . AdapterCertify::AUTHORITIES_RELATIVE,
     Canon::encode(['format' => $revokedRoot['format'], 'keys' => (object) $revokedRoot['keys']])
 );
-duo_check_throws(
+wprism_check_throws(
     static fn() => AdapterCertification::verifyFile(
         Policy::shipped_adapter_library(),
         $overRepo,
@@ -1009,34 +1009,34 @@ $widenRepo = cert_site($root, 'widensite', (static function (array $copy): array
 })($overrideCopy), ['core', ['name' => 'woocommerce', 'source' => 'site']]);
 $widenCert = cert_run_cli(['certify', $widenRepo, '--name=woocommerce', '--secret-key-file=' . $secretPath,
     '--key-id=' . $signKeyId, '--reason=widened']);
-duo_check_same(2, $widenCert['exit'], 'certifying an override that adds a manifest-sourced provider is refused');
-duo_check(
+wprism_check_same(2, $widenCert['exit'], 'certifying an override that adds a manifest-sourced provider is refused');
+wprism_check(
     str_contains($widenCert['err'], "an override of shipped adapter 'woocommerce' inherits the shipped interpreter"),
     'with the override remediation (repeat the shipped declaration verbatim or drop the change)'
 );
-duo_check(
+wprism_check(
     !is_file($widenRepo . '/' . AdapterCertify::AUTHORITIES_RELATIVE),
     'and no trust root was written for the failed attempt'
 );
 
-// ------------------------------- the pin is the site's scope opt-in (DUO-3495)
+// ------------------------------- the pin is the site's scope opt-in (issue #3495)
 // The reported walkthrough: a site initialized with --allow-unmanaged-plugins
 // records the unmanaged plugin's CPT as policy.scope.post_type.<cpt> =
 // {"class":"runtime"}; the developer later authors, certifies and pins an
 // adapter that declares that CPT. Before this, the pin extended no scope, so
-// `duo capture` silently skipped the type, and three hand-edits of
-// site.duo.json were the only way forward. What follows is that exact
+// `wprism capture` silently skipped the type, and three hand-edits of
+// site.wprism.json were the only way forward. What follows is that exact
 // sequence, plus the invariant the fix must not spend to get there: a
 // recorded site decision is never rewritten by a command that was not told
 // to rewrite it.
 
-/** A site repository whose site.duo.json is init-shaped, with an optional recorded scope. */
+/** A site repository whose site.wprism.json is init-shaped, with an optional recorded scope. */
 function cert_init_site(string $root, string $label, array $manifest, array $scope): string {
     $repo = $root . '/' . $label;
     mkdir($repo . '/adapters', 0755, true);
     Canon::write_file($repo . '/adapters/' . $manifest['name'] . '.json', Canon::encode($manifest));
     $policy = [
-        // Empty JSON OBJECTS, as `duo init` writes them. They are the reason
+        // Empty JSON OBJECTS, as `wprism init` writes them. They are the reason
         // the scope writer is typed: an associative round trip rewrites each
         // one as `[]` and the engine then refuses the file.
         'options' => new stdClass(),
@@ -1048,28 +1048,28 @@ function cert_init_site(string $root, string $label, array $manifest, array $sco
     if ($scope !== []) {
         $policy['scope'] = $scope;
     }
-    Canon::write_file($repo . '/site.duo.json', Canon::encode([
+    Canon::write_file($repo . '/site.wprism.json', Canon::encode([
         'manifests' => ['core'],
         'policy' => $policy,
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]));
 
     return $repo;
 }
 
 /**
- * The two questions capture asks about a whole type, plus the one `duo
- * assess` asks — deliberately reported side by side, because DUO-3504 was
+ * The two questions capture asks about a whole type, plus the one `wprism
+ * assess` asks — deliberately reported side by side, because issue #3504 was
  * this pin answering the first two right and the third wrong.
  *
  * `source` is the declaration that WON the classification, and after the pin
- * it is `site.duo.json` by design: the scope rule this command writes is the
+ * it is `site.wprism.json` by design: the scope rule this command writes is the
  * site's own whole-type decision and site policy always wins. `declared_by`
  * is a second, additive fact — which pinned adapter DECLARES the type
  * (`Policy::declaring_manifest()`) — and it is what
  * `AssessInventory::declarant()` reports as the surface group's `declared_by`
  * and the host renders as "Site-certified". Reading the first as the second
- * made `duo assess` print "Platform-certified" for the CPT of the adapter the
+ * made `wprism assess` print "Platform-certified" for the CPT of the adapter the
  * operator had just certified.
  */
 function cert_type_verdict(string $repo, string $postType): array {
@@ -1086,7 +1086,7 @@ function cert_type_verdict(string $repo, string $postType): array {
 
 // (1) Nothing recorded: the pin opts the site in, and says exactly what it wrote.
 $freshRepo = cert_init_site($root, 'scope-fresh', $rich, []);
-duo_check_same(
+wprism_check_same(
     ['in_scope' => false, 'class' => null, 'source' => null, 'declared_by' => null],
     cert_type_verdict($freshRepo, 'acme_item'),
     'fixture premise: before the pin the engine knows nothing about the declared type — including who declares '
@@ -1094,41 +1094,41 @@ duo_check_same(
 );
 $freshCert = cert_run(['certify', $freshRepo, '--name=acme-catalog', '--secret-key-file=' . $secretPath,
     '--key-id=' . $signKeyId, '--reason=' . $reason, '--pin']);
-duo_check_same(0, $freshCert['exit'], 'certify --pin succeeds on a repository that had decided nothing about the type');
-duo_check(
+wprism_check_same(0, $freshCert['exit'], 'certify --pin succeeds on a repository that had decided nothing about the type');
+wprism_check(
     str_contains($freshCert['out'], 'scope: wrote 1 authored scope rule(s)')
         && str_contains($freshCert['out'], '+ policy.scope.post_type.acme_item = {"class": "authored"}'),
     'and prints the exact rule it wrote — a scope widen is never silent'
 );
-duo_check_same(
-    ['in_scope' => true, 'class' => 'authored', 'source' => 'site.duo.json', 'declared_by' => 'acme-catalog'],
+wprism_check_same(
+    ['in_scope' => true, 'class' => 'authored', 'source' => 'site.wprism.json', 'declared_by' => 'acme-catalog'],
     cert_type_verdict($freshRepo, 'acme_item'),
-    'the engine now answers all three questions for the declared type: in scope, authored, and — DUO-3504 — '
+    'the engine now answers all three questions for the declared type: in scope, authored, and — issue #3504 — '
     . 'declared by the adapter that was just certified, even though the rule that classified it is the site\'s own'
 );
-$freshBytes = (string) file_get_contents($freshRepo . '/site.duo.json');
+$freshBytes = (string) file_get_contents($freshRepo . '/site.wprism.json');
 $freshCertificatePath = $freshRepo . '/adapters/certifications/acme-catalog.json';
 $freshCertificateBytes = (string) file_get_contents($freshCertificatePath);
-duo_check(
+wprism_check(
     str_contains($freshBytes, '"options": {}') && str_contains($freshBytes, '"term_meta": {}'),
     'the write is typed: init\'s empty policy sections are still JSON objects, not lists the engine refuses'
 );
 
 // (2) Rerunning decides nothing twice: no rule, no byte, and it says so.
 // Cross a real UTC-second boundary: siteBundle.created_at used to mint a new
-// signature here, which moved the adapter digest and rewrote site.duo.json.
+// signature here, which moved the adapter digest and rewrote site.wprism.json.
 // A fixed sleep just over one second is bounded and makes the prior defect
 // deterministic without exposing a production clock injection seam.
 usleep(1100000);
 $freshAgain = cert_run(['certify', $freshRepo, '--name=acme-catalog', '--secret-key-file=' . $secretPath,
     '--key-id=' . $signKeyId, '--reason=' . $reason, '--pin']);
-duo_check(
+wprism_check(
     $freshAgain['exit'] === 0
-        && str_contains($freshAgain['out'], "scope: every surface this adapter declares is already in site.duo.json's authored scope")
-        && hash_equals($freshBytes, (string) file_get_contents($freshRepo . '/site.duo.json')),
+        && str_contains($freshAgain['out'], "scope: every surface this adapter declares is already in site.wprism.json's authored scope")
+        && hash_equals($freshBytes, (string) file_get_contents($freshRepo . '/site.wprism.json')),
     'a second certify --pin writes no scope rule and no byte — adoption is idempotent'
 );
-duo_check(
+wprism_check(
     hash_equals($freshCertificateBytes, (string) file_get_contents($freshCertificatePath)),
     'a second semantically identical certify reuses the verified certificate across a UTC-second boundary'
 );
@@ -1139,10 +1139,10 @@ duo_check(
 // independent witnesses for the full deterministic comparison.
 $reasonRotated = cert_run(['certify', $freshRepo, '--name=acme-catalog', '--secret-key-file=' . $secretPath,
     '--key-id=' . $signKeyId, '--reason=Acme Ltd performed a second catalog review.', '--pin']);
-duo_check_same(0, $reasonRotated['exit'], 'certify succeeds when the signed reason changes');
+wprism_check_same(0, $reasonRotated['exit'], 'certify succeeds when the signed reason changes');
 $reasonCertificateBytes = (string) file_get_contents($freshCertificatePath);
-$reasonPinBytes = (string) file_get_contents($freshRepo . '/site.duo.json');
-duo_check(
+$reasonPinBytes = (string) file_get_contents($freshRepo . '/site.wprism.json');
+wprism_check(
     !hash_equals($freshCertificateBytes, $reasonCertificateBytes)
         && !hash_equals($freshBytes, $reasonPinBytes),
     'a changed reason rotates both certificate and digest pin instead of reusing the old timestamp'
@@ -1157,10 +1157,10 @@ file_put_contents($nextSecretPath, base64_encode($nextSecret) . "\n");
 chmod($nextSecretPath, 0600);
 $keyRotated = cert_run(['certify', $freshRepo, '--name=acme-catalog', '--secret-key-file=' . $nextSecretPath,
     '--key-id=' . $nextKeyId, '--reason=Acme Ltd performed a second catalog review.', '--pin']);
-duo_check_same(0, $keyRotated['exit'], 'certify succeeds under a newly registered scoped authority');
+wprism_check_same(0, $keyRotated['exit'], 'certify succeeds under a newly registered scoped authority');
 $keyCertificateBytes = (string) file_get_contents($freshCertificatePath);
-$keyPinBytes = (string) file_get_contents($freshRepo . '/site.duo.json');
-duo_check(
+$keyPinBytes = (string) file_get_contents($freshRepo . '/site.wprism.json');
+wprism_check(
     !hash_equals($reasonCertificateBytes, $keyCertificateBytes)
         && !hash_equals($reasonPinBytes, $keyPinBytes),
     'a changed authority/key rotates both certificate and digest pin'
@@ -1171,10 +1171,10 @@ $changedRich['version_range']['max'] = '3.1.0';
 Canon::write_file($freshRepo . '/adapters/acme-catalog.json', Canon::encode($changedRich));
 $manifestRotated = cert_run(['certify', $freshRepo, '--name=acme-catalog', '--secret-key-file=' . $nextSecretPath,
     '--key-id=' . $nextKeyId, '--reason=Acme Ltd performed a second catalog review.', '--pin']);
-duo_check_same(0, $manifestRotated['exit'], 'certify succeeds after the site adapter manifest changes');
-duo_check(
+wprism_check_same(0, $manifestRotated['exit'], 'certify succeeds after the site adapter manifest changes');
+wprism_check(
     !hash_equals($keyCertificateBytes, (string) file_get_contents($freshCertificatePath))
-        && !hash_equals($keyPinBytes, (string) file_get_contents($freshRepo . '/site.duo.json')),
+        && !hash_equals($keyPinBytes, (string) file_get_contents($freshRepo . '/site.wprism.json')),
     'changed raw/canonical manifest inputs rotate both certificate and digest pin'
 );
 
@@ -1184,40 +1184,40 @@ $walkRepo = cert_init_site($root, 'scope-walkthrough', $rich, [
 ]);
 $walkCert = cert_run(['certify', $walkRepo, '--name=acme-catalog', '--secret-key-file=' . $secretPath,
     '--key-id=' . $signKeyId, '--reason=' . $reason, '--pin']);
-duo_check_same(0, $walkCert['exit'], 'certify --pin still succeeds over a recorded runtime scope class');
-duo_check_same(
+wprism_check_same(0, $walkCert['exit'], 'certify --pin still succeeds over a recorded runtime scope class');
+wprism_check_same(
     ['class' => 'runtime'],
-    Canon::decode(Canon::read_file($walkRepo . '/site.duo.json'))['policy']['scope']['post_type']['acme_item'] ?? null,
-    'THE INVARIANT: a recorded site scope class is not rewritten. `duo classify` and `duo init '
+    Canon::decode(Canon::read_file($walkRepo . '/site.wprism.json'))['policy']['scope']['post_type']['acme_item'] ?? null,
+    'THE INVARIANT: a recorded site scope class is not rewritten. `wprism classify` and `wprism init '
     . '--allow-unmanaged-plugins` write byte-identical rules and the grammar carries no provenance key '
     . '(Policy.php:2794), so flipping it would be a guess about which one wrote it'
 );
-duo_check(
+wprism_check(
     str_contains($walkCert['out'], 'scope: 1 surface(s) this adapter declares stay LOCAL')
         && str_contains($walkCert['out'], '! policy.scope.post_type.acme_item = {"class": "runtime"} — capture will skip post_type acme_item'),
     'and the dead end is named instead of being left to be discovered by an empty capture'
 );
-duo_check(
-    str_contains($walkCert['out'], 'duo adapter pin ' . realpath($walkRepo) . ' --name=acme-catalog --adopt-scope')
-        && str_contains($walkCert['out'], "wp duo classify --repo=<repo> --set='scope:post_type:acme_item=authored'"),
+wprism_check(
+    str_contains($walkCert['out'], 'wprism adapter pin ' . realpath($walkRepo) . ' --name=acme-catalog --adopt-scope')
+        && str_contains($walkCert['out'], "wp wprism classify --repo=<repo> --set='scope:post_type:acme_item=authored'"),
     'with both remedies copy-pasteable: the host command, and the agent-side classify spec'
 );
 
 // (4) --adopt-scope is the operator supplying the fact the file cannot carry.
 $adoptRun = cert_run(['pin', $walkRepo, '--name=acme-catalog', '--source=site', '--adopt-scope']);
-duo_check_same(0, $adoptRun['exit'], 'the printed --adopt-scope command runs');
-duo_check(
-    str_contains($adoptRun['out'], 'scope: --adopt-scope overrode 1 decision(s) site.duo.json had already recorded')
+wprism_check_same(0, $adoptRun['exit'], 'the printed --adopt-scope command runs');
+wprism_check(
+    str_contains($adoptRun['out'], 'scope: --adopt-scope overrode 1 decision(s) site.wprism.json had already recorded')
         && str_contains($adoptRun['out'], '~ policy.scope.post_type.acme_item = {"class": "runtime"} -> {"class": "authored"}'),
     'and reports the override as an override, naming the class it replaced'
 );
-duo_check_same(
-    ['in_scope' => true, 'class' => 'authored', 'source' => 'site.duo.json', 'declared_by' => 'acme-catalog'],
+wprism_check_same(
+    ['in_scope' => true, 'class' => 'authored', 'source' => 'site.wprism.json', 'declared_by' => 'acme-catalog'],
     cert_type_verdict($walkRepo, 'acme_item'),
     'after which the walkthrough\'s capture has nothing left to refuse — one printed command, zero hand-edits — '
     . 'and the adapter is still the declarant an --adopt-scope override did not transfer to the site'
 );
-duo_check_same(
+wprism_check_same(
     2,
     cert_run(['certify', $walkRepo, '--name=acme-catalog', '--secret-key-file=' . $secretPath,
         '--key-id=' . $signKeyId, '--adopt-scope'])['exit'],
@@ -1232,39 +1232,39 @@ $declManifest = [
     'option_autoload' => 'preserve',
     'options' => ['acme_cases_layout' => ['class' => 'authored']],
     'post_types' => ['acme_case' => ['class' => 'authored'], 'acme_log' => ['class' => 'runtime']],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'taxonomies' => ['acme_case_kind' => new stdClass()],
 ];
 $declRepo = cert_init_site($root, 'scope-declared', $declManifest, []);
 $declRun = cert_run(['pin', $declRepo, '--name=acme-cases', '--source=site']);
-duo_check_same(0, $declRun['exit'], 'a site adapter declaring three surfaces pins');
-duo_check(
+wprism_check_same(0, $declRun['exit'], 'a site adapter declaring three surfaces pins');
+wprism_check(
     str_contains($declRun['out'], '+ policy.scope.post_type.acme_case = {"class": "authored"}')
         && str_contains($declRun['out'], '+ policy.scope.taxonomy.acme_case_kind = {"class": "authored"}'),
     'a structural declaration (no class) is authored and adopted, exactly as init reads one'
 );
-$declScope = Canon::decode(Canon::read_file($declRepo . '/site.duo.json'))['policy']['scope'];
-duo_check(
+$declScope = Canon::decode(Canon::read_file($declRepo . '/site.wprism.json'))['policy']['scope'];
+wprism_check(
     !isset($declScope['post_type']['acme_log']),
     'a type the adapter itself classifies runtime is never opted in — the pin adopts declarations, it does not invent them'
 );
 
-// ------------- certify --pin, THEN init: the pin's scope rules are seed (DUO-3515)
+// ------------- certify --pin, THEN init: the pin's scope rules are seed (issue #3515)
 // docs/guides/quickstart.md's seed paragraph and T6 §3.4 both put certify
 // before init ("certifying first and initializing second is the intended
-// order"). Since DUO-3495 `--pin` is the site's scope opt-in as well as its
+// order"). Since issue #3495 `--pin` is the site's scope opt-in as well as its
 // pin, so the file init is handed is the seed + the pin + the rules the pin
 // wrote — and InitPlanner::existing_config() set aside only the pin, so the
 // documented order refused `existing_configuration` on a repository whose
 // entire non-seed content was one certified adapter (grind_adapter_walk.sh
 // S2). Every file below is one this suite's own verb just wrote, on top of
 // the seed's own bytes.
-require_once $duoRoot . '/agent/src/Init/InitPlanner.php';
+require_once $wprismRoot . '/agent/src/Init/InitPlanner.php';
 
 /**
- * A repository whose site.duo.json is the ADOPTION SEED — `Adopt::SEED`'s own
- * body (cli/src/Onboarding/Adopt.php:20-30), which is what `duo adopt` writes
- * and what `duo init` is then handed.
+ * A repository whose site.wprism.json is the ADOPTION SEED — `Adopt::SEED`'s own
+ * body (cli/src/Onboarding/Adopt.php:20-30), which is what `wprism adopt` writes
+ * and what `wprism init` is then handed.
  *
  * Deliberately NOT cert_init_site()'s file: init publishes the flat lists
  * SORTED and the seed does not (`post, page, attachment` here against
@@ -1276,22 +1276,22 @@ function cert_seed_site(string $root, string $label, array $manifest): string {
     $repo = $root . '/' . $label;
     mkdir($repo . '/adapters', 0755, true);
     Canon::write_file($repo . '/adapters/' . $manifest['name'] . '.json', Canon::encode($manifest));
-    Canon::write_file($repo . '/site.duo.json', Canon::encode([
+    Canon::write_file($repo . '/site.wprism.json', Canon::encode([
         'manifests' => ['core'],
         'policy' => [
             'options' => [], 'post_meta' => [], 'term_meta' => [],
             'post_types' => ['post', 'page', 'attachment'],
             'taxonomies' => ['category', 'post_tag'],
         ],
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]));
 
     return $repo;
 }
 
-/** Edit site.duo.json through $edit, run $then, put the original bytes back. */
+/** Edit site.wprism.json through $edit, run $then, put the original bytes back. */
 function cert_with_edited_site(string $repo, callable $edit, callable $then): void {
-    $file = $repo . '/site.duo.json';
+    $file = $repo . '/site.wprism.json';
     $before = (string) file_get_contents($file);
     $site = json_decode($before, false, 512, JSON_THROW_ON_ERROR);
     $edit($site);
@@ -1316,59 +1316,59 @@ function cert_with_scope_rule(string $repo, string $kind, string $name, array $r
 // (6) The reported sequence itself: seed, certify --pin, then ask what init
 // asks. One declared post type — grind_adapter_walk.sh S2's own shape.
 $s2Repo = cert_seed_site($root, 'seed-certify', $rich);
-duo_check(
-    \Duo\InitPlanner::is_adoption_seed($s2Repo),
+wprism_check(
+    \WPrism\InitPlanner::is_adoption_seed($s2Repo),
     'premise: before the pin the adoption seed reads as the adoption seed'
 );
 $s2Cert = cert_run(['certify', $s2Repo, '--name=acme-catalog', '--secret-key-file=' . $secretPath,
     '--key-id=' . $signKeyId, '--reason=' . $reason, '--pin']);
-duo_check_same(0, $s2Cert['exit'], 'certify --pin runs on the seed, as T6 §3.4 orders it');
-duo_check(
+wprism_check_same(0, $s2Cert['exit'], 'certify --pin runs on the seed, as T6 §3.4 orders it');
+wprism_check(
     str_contains($s2Cert['out'], '+ policy.scope.post_type.acme_item = {"class": "authored"}'),
     'and writes its one authored scope rule there too — the seed had decided nothing'
 );
-duo_check(
-    \Duo\InitPlanner::is_adoption_seed($s2Repo),
+wprism_check(
+    \WPrism\InitPlanner::is_adoption_seed($s2Repo),
     'THE FIX: seed + one {name, source:"site", digest} pin + the one authored rule that pin wrote is STILL the '
     . 'adoption seed, so init proposes instead of refusing existing_configuration'
 );
 cert_with_edited_site($s2Repo, static function (stdClass $site): void {
     unset($site->policy->scope);
 }, static function () use ($s2Repo): void {
-    duo_check(
-        \Duo\InitPlanner::is_adoption_seed($s2Repo),
-        'PREMISE, both ways: with policy.scope removed the same file still reads as the seed — DUO-3494 already '
+    wprism_check(
+        \WPrism\InitPlanner::is_adoption_seed($s2Repo),
+        'PREMISE, both ways: with policy.scope removed the same file still reads as the seed — issue #3494 already '
         . 'set the pin itself aside, so the verdict above turns on the scope rule and on nothing else certify wrote'
     );
 });
 cert_with_edited_site($s2Repo, static function (stdClass $site): void {
     unset($site->policy->scope->post_type->acme_item);
 }, static function () use ($s2Repo): void {
-    duo_check(
-        !\Duo\InitPlanner::is_adoption_seed($s2Repo),
+    wprism_check(
+        !\WPrism\InitPlanner::is_adoption_seed($s2Repo),
         'and an EMPTY policy.scope.post_type left behind still reads owned: neither verb writes an empty node '
         . '(writeScopeRules() runs only for a non-empty row set), so the set-aside removes only what it emptied'
     );
 });
 
-// (7) The two-surface case, through `duo adapter pin`: a declared post type
+// (7) The two-surface case, through `wprism adapter pin`: a declared post type
 // AND a structural taxonomy, both adopted by the one command.
 $pinRepo = cert_seed_site($root, 'seed-pin', $declManifest);
 $seedPin = cert_run(['pin', $pinRepo, '--name=acme-cases', '--source=site']);
-duo_check_same(0, $seedPin['exit'], 'the same adoption runs through `duo adapter pin` on a seed');
-duo_check(
+wprism_check_same(0, $seedPin['exit'], 'the same adoption runs through `wprism adapter pin` on a seed');
+wprism_check(
     str_contains($seedPin['out'], '+ policy.scope.post_type.acme_case = {"class": "authored"}')
         && str_contains($seedPin['out'], '+ policy.scope.taxonomy.acme_case_kind = {"class": "authored"}'),
     'writing one rule per declared surface, post type and taxonomy alike'
 );
-duo_check(
-    \Duo\InitPlanner::is_adoption_seed($pinRepo),
+wprism_check(
+    \WPrism\InitPlanner::is_adoption_seed($pinRepo),
     'and both rules are seed-compatible: they are one fact about the repository with the pin that wrote them, '
     . 'not a policy the operator hand-authored'
 );
-duo_check_same(
+wprism_check_same(
     ['post_types' => ['acme_case'], 'taxonomies' => ['acme_case_kind']],
-    \Duo\InitPlanner::adapter_scope(
+    \WPrism\InitPlanner::adapter_scope(
         ['acme-cases'],
         ['acme-cases' => Canon::decode(Canon::read_file($pinRepo . '/adapters/acme-cases.json'))]
     ),
@@ -1380,28 +1380,28 @@ duo_check_same(
 
 // (8) Everything else under policy.scope is still an owned decision.
 cert_with_scope_rule($pinRepo, 'post_type', 'acme_other', ['class' => 'runtime'], static function () use ($pinRepo): void {
-    duo_check(
-        !\Duo\InitPlanner::is_adoption_seed($pinRepo),
+    wprism_check(
+        !\WPrism\InitPlanner::is_adoption_seed($pinRepo),
         'a hand-written runtime rule beside them is a decision only the site can have made — `--pin` writes '
         . 'authored and never a class it was not asked for — and the repository reads owned again'
     );
 });
 cert_with_scope_rule($pinRepo, 'post_type', 'acme_log', ['class' => 'authored'], static function () use ($pinRepo): void {
-    duo_check(
-        !\Duo\InitPlanner::is_adoption_seed($pinRepo),
+    wprism_check(
+        !\WPrism\InitPlanner::is_adoption_seed($pinRepo),
         'and so does an authored rule for a type the pinned adapter classifies RUNTIME itself: the pin adopts '
         . 'declarations, so a rule it would never have written is not seed content'
     );
 });
 cert_with_scope_rule($pinRepo, 'taxonomy', 'acme_unrelated', ['class' => 'authored'], static function () use ($pinRepo): void {
-    duo_check(
-        !\Duo\InitPlanner::is_adoption_seed($pinRepo),
+    wprism_check(
+        !\WPrism\InitPlanner::is_adoption_seed($pinRepo),
         'nor is an authored rule for a surface no pinned adapter declares at all'
     );
 });
 cert_with_scope_rule($pinRepo, 'post_type', 'acme_case', ['class' => 'runtime'], static function () use ($pinRepo): void {
-    duo_check(
-        !\Duo\InitPlanner::is_adoption_seed($pinRepo),
+    wprism_check(
+        !\WPrism\InitPlanner::is_adoption_seed($pinRepo),
         'and flipping the pin\'s own rule to runtime reads owned: what is set aside is the exact rule the verb '
         . 'writes ({"class":"authored"}), not the surface it names'
     );
@@ -1410,8 +1410,8 @@ cert_with_scope_rule($pinRepo, 'post_type', 'acme_case', ['class' => 'runtime'],
 // ------------------------- bulk scope adoption over a repository SET (WP-3.4)
 // The single-repo opt-in rides on the pin, which is right for the site that
 // AUTHORED the adapter and wrong for the fleet that consumes it: adding one
-// adapter to N sites cost N hand edits of site.duo.json, so operator cost
-// scaled with sites × adapters. `duo adapter adopt-scope <repo>… --name=<n>`
+// adapter to N sites cost N hand edits of site.wprism.json, so operator cost
+// scaled with sites × adapters. `wprism adapter adopt-scope <repo>… --name=<n>`
 // is that same opt-in over a set. What follows pins the four properties a
 // batch write must have — idempotent, never overwriting a recorded node,
 // byte-identical to the single-repo writer, and per-repo atomic under a
@@ -1441,20 +1441,20 @@ function cert_bulk_site(string $root, string $label, array $manifest, array $sco
     if ($scope !== []) {
         $policy['scope'] = $scope;
     }
-    Canon::write_file($repo . '/site.duo.json', Canon::encode([
+    Canon::write_file($repo . '/site.wprism.json', Canon::encode([
         'manifests' => ['core', ['name' => $manifest['name'], 'source' => AdapterSources::SITE]],
         'policy' => $policy,
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]));
 
     return $repo;
 }
 
-/** @return array<string,string> repo => its current site.duo.json bytes */
+/** @return array<string,string> repo => its current site.wprism.json bytes */
 function cert_bulk_bytes(array $repos): array {
     $out = [];
     foreach ($repos as $repo) {
-        $out[$repo] = (string) file_get_contents($repo . '/site.duo.json');
+        $out[$repo] = (string) file_get_contents($repo . '/site.wprism.json');
     }
 
     return $out;
@@ -1463,31 +1463,31 @@ function cert_bulk_bytes(array $repos): array {
 $bulkOne = cert_bulk_site($root, 'bulk-one', $declManifest);
 $bulkTwo = cert_bulk_site($root, 'bulk-two', $declManifest);
 // The fleet member whose site already recorded a decision about the type — the
-// DUO-3495 walkthrough's own shape, now one repository inside a set.
+// issue #3495 walkthrough's own shape, now one repository inside a set.
 $bulkThree = cert_bulk_site($root, 'bulk-three', $declManifest, [
     'post_type' => ['acme_case' => ['class' => 'runtime']],
 ]);
 $bulkSet = [$bulkOne, $bulkTwo, $bulkThree];
 
-duo_check_same(
+wprism_check_same(
     // The manifest classifies the type `authored` and the pin makes that
     // reading resolve — but the site never opted the type into its flat list,
-    // so capture still skips it. That gap is exactly what DUO-3495 reported
+    // so capture still skips it. That gap is exactly what issue #3495 reported
     // and what one adoption per site used to be the only cure for.
     ['in_scope' => false, 'class' => 'authored', 'source' => 'acme-cases', 'declared_by' => 'acme-cases'],
     cert_type_verdict($bulkOne, 'acme_case'),
     'fixture premise: every repository in the set pins the adapter, so the declaration resolves — and none of them '
     . 'is in scope, because the CLASS comes from the manifest while being in scope is the site\'s own act'
 );
-duo_check(
-    !isset(Canon::decode(Canon::read_file($bulkOne . '/site.duo.json'))['policy']['scope']),
+wprism_check(
+    !isset(Canon::decode(Canon::read_file($bulkOne . '/site.wprism.json'))['policy']['scope']),
     'and no repository in the set has recorded a scope decision of its own: there is nothing here to overwrite'
 );
 
 $bulkBefore = cert_bulk_bytes($bulkSet);
 $bulkDry = cert_run(array_merge(['adopt-scope'], $bulkSet, ['--name=acme-cases', '--dry-run']));
-duo_check_same(0, $bulkDry['exit'], '--dry-run over the whole set exits 0');
-duo_check(
+wprism_check_same(0, $bulkDry['exit'], '--dry-run over the whole set exits 0');
+wprism_check(
     str_contains($bulkDry['out'], '--dry-run: nothing is written')
         && str_contains($bulkDry['out'], 'would adopt: 3 repo(s), 5 authored scope rule(s)')
         && cert_bulk_bytes($bulkSet) === $bulkBefore,
@@ -1495,16 +1495,16 @@ duo_check(
 );
 
 $bulkRun = cert_run(array_merge(['adopt-scope'], $bulkSet, ['--name=acme-cases']));
-duo_check_same(0, $bulkRun['exit'], 'one invocation adopts the adapter\'s scope across three site repositories');
-duo_check(
+wprism_check_same(0, $bulkRun['exit'], 'one invocation adopts the adapter\'s scope across three site repositories');
+wprism_check(
     str_contains($bulkRun['out'], 'adopted:    3 repo(s), 5 authored scope rule(s)')
         && str_contains($bulkRun['out'], "$bulkOne\n  + policy.scope.post_type.acme_case = {\"class\": \"authored\"}")
         && str_contains($bulkRun['out'], '  + policy.scope.taxonomy.acme_case_kind = {"class": "authored"}'),
     'printing every rule it wrote, per repository — a fleet-wide scope widen is never silent'
 );
 foreach ([$bulkOne, $bulkTwo] as $adoptedRepo) {
-    duo_check_same(
-        ['in_scope' => true, 'class' => 'authored', 'source' => 'site.duo.json', 'declared_by' => 'acme-cases'],
+    wprism_check_same(
+        ['in_scope' => true, 'class' => 'authored', 'source' => 'site.wprism.json', 'declared_by' => 'acme-cases'],
         cert_type_verdict($adoptedRepo, 'acme_case'),
         "the engine answers the three whole-type questions in $adoptedRepo exactly as the single-repo pin leaves them"
     );
@@ -1513,26 +1513,26 @@ foreach ([$bulkOne, $bulkTwo] as $adoptedRepo) {
 // THE INVARIANT, carried into the batch: a recorded class is never overwritten,
 // and the surface beside it is still adopted — the write is per NODE, not per
 // repository, so one recorded decision does not cost the site the rest.
-duo_check_same(
+wprism_check_same(
     ['class' => 'runtime'],
-    Canon::decode(Canon::read_file($bulkThree . '/site.duo.json'))['policy']['scope']['post_type']['acme_case'] ?? null,
+    Canon::decode(Canon::read_file($bulkThree . '/site.wprism.json'))['policy']['scope']['post_type']['acme_case'] ?? null,
     'a recorded site scope class inside the set is left exactly as the site wrote it'
 );
-duo_check_same(
+wprism_check_same(
     ['class' => 'authored'],
-    Canon::decode(Canon::read_file($bulkThree . '/site.duo.json'))['policy']['scope']['taxonomy']['acme_case_kind'] ?? null,
+    Canon::decode(Canon::read_file($bulkThree . '/site.wprism.json'))['policy']['scope']['taxonomy']['acme_case_kind'] ?? null,
     'while the surface that repository had NOT decided is adopted in the same write'
 );
-duo_check(
+wprism_check(
     str_contains($bulkRun['out'], '! policy.scope.post_type.acme_case = {"class": "runtime"} — capture will skip post_type acme_case')
         && str_contains($bulkRun['out'], 'shadowed:   1 repo(s) record a decision this command never overwrites')
-        && str_contains($bulkRun['out'], 'to override one, per site: duo adapter pin <site-repo> --name=acme-cases --adopt-scope'),
+        && str_contains($bulkRun['out'], 'to override one, per site: wprism adapter pin <site-repo> --name=acme-cases --adopt-scope'),
     'and the shadowed node is named with the per-site remedy — the override stays a reviewed act on ONE repository'
 );
 
 $bulkAfter = cert_bulk_bytes($bulkSet);
 $bulkRepeat = cert_run(array_merge(['adopt-scope'], $bulkSet, ['--name=acme-cases']));
-duo_check(
+wprism_check(
     $bulkRepeat['exit'] === 0
         && str_contains($bulkRepeat['out'], 'adopted:    0 repo(s), 0 authored scope rule(s)')
         && str_contains($bulkRepeat['out'], 'settled:    2 repo(s) had already decided every surface')
@@ -1546,10 +1546,10 @@ duo_check(
 // and `pin` make — and the other through the batch verb.
 $bulkSingle = cert_bulk_site($root, 'bulk-single', $declManifest);
 $bulkBatch = cert_bulk_site($root, 'bulk-batch', $declManifest);
-duo_check(
+wprism_check(
     hash_equals(
-        (string) file_get_contents($bulkSingle . '/site.duo.json'),
-        (string) file_get_contents($bulkBatch . '/site.duo.json')
+        (string) file_get_contents($bulkSingle . '/site.wprism.json'),
+        (string) file_get_contents($bulkBatch . '/site.wprism.json')
     ),
     'premise: the single-repo and batch fixtures start byte-identical'
 );
@@ -1564,20 +1564,20 @@ cert_private(
     [$bulkSingle, 'acme-cases', cert_private('resolvedManifest', [$bulkSingle, 'acme-cases']), false]
 );
 $bulkSingleOut = (string) ob_get_clean();
-duo_check_same(
+wprism_check_same(
     0,
     cert_run(['adopt-scope', $bulkBatch, '--name=acme-cases'])['exit'],
     'the batch verb runs over a one-repository set'
 );
-duo_check(
+wprism_check(
     hash_equals(
-        (string) file_get_contents($bulkSingle . '/site.duo.json'),
-        (string) file_get_contents($bulkBatch . '/site.duo.json')
+        (string) file_get_contents($bulkSingle . '/site.wprism.json'),
+        (string) file_get_contents($bulkBatch . '/site.wprism.json')
     ),
-    'and leaves site.duo.json BYTE-IDENTICAL to what the shipped single-repo writer leaves — the batch adds no '
+    'and leaves site.wprism.json BYTE-IDENTICAL to what the shipped single-repo writer leaves — the batch adds no '
     . 'scope semantics, it reuses writeScopeRules() and therefore the same typed, canonical, atomic write'
 );
-duo_check(
+wprism_check(
     str_contains($bulkSingleOut, 'scope: wrote 2 authored scope rule(s)')
         && str_contains($bulkSingleOut, '+ policy.scope.post_type.acme_case = {"class": "authored"}'),
     'and the single-repo verb\'s own output is unchanged by the batch mode existing (rule 8)'
@@ -1588,17 +1588,17 @@ duo_check(
 // a site never pinned would opt it into types nothing can classify.
 $bulkUnpinned = cert_init_site($root, 'bulk-unpinned', $declManifest, []);
 $bulkFresh = cert_bulk_site($root, 'bulk-fresh', $declManifest);
-$bulkFreshBefore = (string) file_get_contents($bulkFresh . '/site.duo.json');
+$bulkFreshBefore = (string) file_get_contents($bulkFresh . '/site.wprism.json');
 $bulkRefusal = cert_run_cli(['adopt-scope', $bulkFresh, $bulkUnpinned, '--name=acme-cases']);
-duo_check_same(2, $bulkRefusal['exit'], 'a set holding one repository that does not pin the adapter is refused');
-duo_check(
+wprism_check_same(2, $bulkRefusal['exit'], 'a set holding one repository that does not pin the adapter is refused');
+wprism_check(
     str_contains($bulkRefusal['err'], 'wrote nothing')
         && str_contains($bulkRefusal['err'], "the engine resolves no adapter 'acme-cases' here")
-        && str_contains($bulkRefusal['err'], "duo adapter pin $bulkUnpinned --name=acme-cases"),
+        && str_contains($bulkRefusal['err'], "wprism adapter pin $bulkUnpinned --name=acme-cases"),
     'naming the repository and the command that fixes it, rather than adopting the rest and reporting a partial'
 );
-duo_check(
-    hash_equals($bulkFreshBefore, (string) file_get_contents($bulkFresh . '/site.duo.json')),
+wprism_check(
+    hash_equals($bulkFreshBefore, (string) file_get_contents($bulkFresh . '/site.wprism.json')),
     'and the healthy repository in that set is untouched — the plan phase writes nothing at all'
 );
 
@@ -1606,35 +1606,35 @@ duo_check(
 // realpath()'s, so a set that would have been planned and counted twice is
 // refused instead. The bytes are checked because a second plan of an
 // already-planned repository is precisely how a batch write double-counts.
-$bulkDupBefore = (string) file_get_contents($bulkFresh . '/site.duo.json');
+$bulkDupBefore = (string) file_get_contents($bulkFresh . '/site.wprism.json');
 $bulkDup = cert_run_cli(['adopt-scope', $bulkFresh, $bulkFresh . '/./', '--name=acme-cases']);
-duo_check_same(
+wprism_check_same(
     2,
     $bulkDup['exit'],
     'one repository named twice under two spellings is refused rather than planned twice against a count nobody '
     . 'can reconcile with the set they typed'
 );
-duo_check(
+wprism_check(
     str_contains($bulkDup['err'], "names the same site repository as '$bulkFresh'")
-        && hash_equals($bulkDupBefore, (string) file_get_contents($bulkFresh . '/site.duo.json')),
+        && hash_equals($bulkDupBefore, (string) file_get_contents($bulkFresh . '/site.wprism.json')),
     'naming the argument that already claimed it, and writing nothing'
 );
-duo_check_same(
+wprism_check_same(
     2,
     cert_run(['adopt-scope', $noSite, '--name=acme-cases'])['exit'],
-    'a directory with no site.duo.json is not a site repo here either'
+    'a directory with no site.wprism.json is not a site repo here either'
 );
-duo_check_same(
+wprism_check_same(
     2,
     cert_run(['adopt-scope', '--name=acme-cases'])['exit'],
     'adopt-scope with no repository is a usage error'
 );
-duo_check_same(2, cert_run(['adopt-scope', $bulkFresh])['exit'], 'and so is adopt-scope without --name');
+wprism_check_same(2, cert_run(['adopt-scope', $bulkFresh])['exit'], 'and so is adopt-scope without --name');
 $bulkOverride = cert_run_cli(['adopt-scope', $bulkThree, '--name=acme-cases', '--adopt-scope']);
-duo_check_same(2, $bulkOverride['exit'], '--adopt-scope is refused in bulk mode');
-duo_check(
+wprism_check_same(2, $bulkOverride['exit'], '--adopt-scope is refused in bulk mode');
+wprism_check(
     str_contains($bulkOverride['err'], 'overriding a decision a site RECORDED is a per-site')
-        && str_contains($bulkOverride['err'], 'duo adapter pin <site-repo> --name=acme-cases --adopt-scope'),
+        && str_contains($bulkOverride['err'], 'wprism adapter pin <site-repo> --name=acme-cases --adopt-scope'),
     'because one flag flipping a recorded class across a fleet is exactly the multiplied consequence this verb '
     . 'exists to avoid — the per-site command is printed instead'
 );
@@ -1650,33 +1650,33 @@ $faultBefore = cert_bulk_bytes([$faultOne, $faultTwo, $faultThree]);
 chmod($faultTwo, 0555);
 $faultRun = cert_run_cli(['adopt-scope', $faultOne, $faultTwo, $faultThree, '--name=acme-cases']);
 chmod($faultTwo, 0755);
-duo_check_same(2, $faultRun['exit'], 'a repository that cannot be written mid-batch fails the invocation');
-duo_check(
-    !hash_equals($faultBefore[$faultOne], (string) file_get_contents($faultOne . '/site.duo.json'))
-        && hash_equals($faultBefore[$faultTwo], (string) file_get_contents($faultTwo . '/site.duo.json'))
-        && hash_equals($faultBefore[$faultThree], (string) file_get_contents($faultThree . '/site.duo.json')),
+wprism_check_same(2, $faultRun['exit'], 'a repository that cannot be written mid-batch fails the invocation');
+wprism_check(
+    !hash_equals($faultBefore[$faultOne], (string) file_get_contents($faultOne . '/site.wprism.json'))
+        && hash_equals($faultBefore[$faultTwo], (string) file_get_contents($faultTwo . '/site.wprism.json'))
+        && hash_equals($faultBefore[$faultThree], (string) file_get_contents($faultThree . '/site.wprism.json')),
     'THE ATOMICITY PROPERTY: the repository written before the fault is fully adopted, the failing one is '
     . 'byte-for-byte untouched, and the one after it was never attempted'
 );
-duo_check_same(
+wprism_check_same(
     ['class' => 'authored'],
-    Canon::decode(Canon::read_file($faultOne . '/site.duo.json'))['policy']['scope']['post_type']['acme_case'] ?? null,
+    Canon::decode(Canon::read_file($faultOne . '/site.wprism.json'))['policy']['scope']['post_type']['acme_case'] ?? null,
     'the adopted repository holds a COMPLETE adoption, not a partial one'
 );
-duo_check(
+wprism_check(
     str_contains($faultRun['err'], "adopted before this failure: $faultOne")
         && str_contains($faultRun['err'], "untouched: $faultTwo, $faultThree")
         && str_contains($faultRun['err'], 're-run the same command — adoption is idempotent'),
     'and the refusal is a LEDGER: which repositories moved, which did not, and why re-running is safe'
 );
-duo_check(
+wprism_check(
     trim($faultRun['out']) !== '' && !str_contains($faultRun['out'], 'PHP Warning')
         && !str_contains($faultRun['err'], 'PHP Warning') && !str_contains($faultRun['err'], 'Notice:'),
     'with no PHP diagnostic anywhere: tempnam() silently falls back to the system temp directory on an '
     . 'unwritable directory, so the unguarded write would have named /tmp in a warning instead of the repository'
 );
 $faultResume = cert_run(['adopt-scope', $faultOne, $faultTwo, $faultThree, '--name=acme-cases']);
-duo_check(
+wprism_check(
     $faultResume['exit'] === 0
         && str_contains($faultResume['out'], 'adopted:    2 repo(s), 4 authored scope rule(s)')
         && str_contains($faultResume['out'], 'settled:    1 repo(s) had already decided every surface'),
@@ -1688,14 +1688,14 @@ duo_check(
 // at an unwritable repository: the tempnam()+rename() discipline is what keeps
 // the file whole, and it is asserted here on its own.
 $faultRaw = cert_bulk_site($root, 'fault-raw', $declManifest);
-$faultRawBefore = (string) file_get_contents($faultRaw . '/site.duo.json');
+$faultRawBefore = (string) file_get_contents($faultRaw . '/site.wprism.json');
 chmod($faultRaw, 0555);
 // Scoped to this one call: the expected rename() warning is the thing under
 // test, and a suite whose job is to make a real failure legible must not print
 // a diagnostic it provoked on purpose.
 set_error_handler(static fn (): bool => true);
 try {
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => cert_private('writeScopeRules', [
             $faultRaw,
             [['kind' => 'post_type', 'name' => 'acme_case']],
@@ -1707,30 +1707,30 @@ try {
     restore_error_handler();
     chmod($faultRaw, 0755);
 }
-duo_check(
-    hash_equals($faultRawBefore, (string) file_get_contents($faultRaw . '/site.duo.json')),
-    'and leaves site.duo.json byte-for-byte intact WITHOUT the guard — the derived-path tempnam()+rename() '
+wprism_check(
+    hash_equals($faultRawBefore, (string) file_get_contents($faultRaw . '/site.wprism.json')),
+    'and leaves site.wprism.json byte-for-byte intact WITHOUT the guard — the derived-path tempnam()+rename() '
     . 'discipline is the atomicity, the writability check only names the repository the operator must fix'
 );
 
 // ------------------------------------------------------------------ closure
 
-duo_check(
-    !str_contains((string) file_get_contents($duoRoot . '/cli/src/Adapter/AdapterCertify.php'), 'sandbox/'),
+wprism_check(
+    !str_contains((string) file_get_contents($wprismRoot . '/cli/src/Adapter/AdapterCertify.php'), 'sandbox/'),
     'the verb never reaches into the sandbox tree'
 );
-duo_check(
+wprism_check(
     str_contains(
-        (string) file_get_contents($duoRoot . '/cli/duo'),
+        (string) file_get_contents($wprismRoot . '/cli/wprism'),
         'AdapterCertify::VERBS'
     ),
-    'every verb is dispatched from cli/duo by the class\'s own closed list'
+    'every verb is dispatched from cli/wprism by the class\'s own closed list'
 );
 foreach (AdapterCertify::VERBS as $verb) {
-    duo_check(
-        str_contains((string) file_get_contents($duoRoot . '/cli/duo'), 'duo adapter ' . $verb . ' '),
-        "`duo adapter $verb` appears in the public usage text"
+    wprism_check(
+        str_contains((string) file_get_contents($wprismRoot . '/cli/wprism'), 'wprism adapter ' . $verb . ' '),
+        "`wprism adapter $verb` appears in the public usage text"
     );
 }
 
-duo_check_summary('regress_adapter_certify');
+wprism_check_summary('regress_adapter_certify');

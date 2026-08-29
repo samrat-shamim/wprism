@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Narrow code/state bridge.
@@ -35,7 +35,7 @@ final class CodeStateContract {
      * @param array<string,mixed> $tree
      * @param array<string,mixed> $descriptor
      * @param array<string,array<string,mixed>> $lockedComponents `{root}/{component}`
-     *        => lock entry (DUO-3499). Empty for a format-1 repository, which
+     *        => lock entry (issue #3499). Empty for a format-1 repository, which
      *        is why every message below is byte-identical to its historical
      *        text when nothing is locked.
      */
@@ -73,7 +73,7 @@ final class CodeStateContract {
         foreach ($requirements['active_plugins'] ?? [] as $plugin) {
             if (!isset($availablePlugins[$plugin])) {
                 throw new \RuntimeException(
-                    "duo: code-stage refused — canonical active plugin '$plugin' has no matching plugin main file in code/wp-content/plugins"
+                    "wprism: code-stage refused — canonical active plugin '$plugin' has no matching plugin main file in code/wp-content/plugins"
                     . self::lock_remedy($lockedComponents, 'plugins', explode('/', (string) $plugin, 2)[0])
                 );
             }
@@ -85,7 +85,7 @@ final class CodeStateContract {
         foreach (['template', 'stylesheet'] as $slot) {
             if (array_key_exists($slot, $requirements) && !isset($themes[$requirements[$slot]])) {
                 throw new \RuntimeException(
-                    "duo: code-stage refused — canonical $slot '{$requirements[$slot]}' has no matching theme directory in code/wp-content/themes"
+                    "wprism: code-stage refused — canonical $slot '{$requirements[$slot]}' has no matching theme directory in code/wp-content/themes"
                     . self::lock_remedy($lockedComponents, 'themes', (string) $requirements[$slot])
                 );
             }
@@ -96,7 +96,7 @@ final class CodeStateContract {
             if (!array_key_exists('theme_templates', $descriptor)) {
                 if ($stylesheet !== $template) {
                     throw new \RuntimeException(
-                        "duo: code-stage refused — canonical child stylesheet '$stylesheet' requires Template header "
+                        "wprism: code-stage refused — canonical child stylesheet '$stylesheet' requires Template header "
                         . "'$template', but this frozen legacy code descriptor has no theme_templates relation; recompile the artifact"
                     );
                 }
@@ -110,12 +110,12 @@ final class CodeStateContract {
                     : "Template header '$declared'";
                 if ($expected === null) {
                     throw new \RuntimeException(
-                        "duo: code-stage refused — canonical standalone stylesheet '$stylesheet' requires no Template header, "
+                        "wprism: code-stage refused — canonical standalone stylesheet '$stylesheet' requires no Template header, "
                         . "but code/wp-content/themes/$stylesheet/style.css declares $actual"
                     );
                 }
                 throw new \RuntimeException(
-                    "duo: code-stage refused — canonical child stylesheet '$stylesheet' requires Template header "
+                    "wprism: code-stage refused — canonical child stylesheet '$stylesheet' requires Template header "
                     . "'$expected', but code/wp-content/themes/$stylesheet/style.css declares $actual"
                 );
             }
@@ -123,7 +123,7 @@ final class CodeStateContract {
     }
 
     /**
-     * The lock-aware tail of an absence refusal (DUO-3499).
+     * The lock-aware tail of an absence refusal (issue #3499).
      *
      * An absent component means two different things, and the operator's next
      * action differs: an UNLOCKED component is genuinely missing from the
@@ -144,7 +144,7 @@ final class CodeStateContract {
         $version = (string) ($entry['version'] ?? '');
         return ". The code lock declares $root/$component version $version, so this repository carries none of its "
             . 'bytes until the materialization step documented in docs/guides/code-updates.md runs '
-            . '(composer install, unzip the locked release archive, or duo code-resolve)';
+            . '(composer install, unzip the locked release archive, or wprism code-resolve)';
     }
 
     /**
@@ -167,7 +167,7 @@ final class CodeStateContract {
             }
             $actual = $state === null ? 'missing' : "'$state'";
             throw new \RuntimeException(
-                "duo: code-stage refused — canonical $name lifecycle record must be present in state/options/core.json; it is $actual. "
+                "wprism: code-stage refused — canonical $name lifecycle record must be present in state/options/core.json; it is $actual. "
                 . 'Absent or deleted records do not express WordPress lifecycle intent, so code could be pruned without reconciliation.'
             );
         }
@@ -201,11 +201,11 @@ final class CodeStateContract {
         if (($requirements['lifecycle_record_states']['active_plugins'] ?? null) === 'present') {
             $activePlugins = $records['active_plugins']['value'];
             if (!is_array($activePlugins) || !array_is_list($activePlugins)) {
-                throw new \RuntimeException('duo: code-stage refused — active_plugins must be a list');
+                throw new \RuntimeException('wprism: code-stage refused — active_plugins must be a list');
             }
             foreach ($activePlugins as $i => $plugin) {
                 if (!is_string($plugin) || $plugin === '') {
-                    throw new \RuntimeException("duo: code-stage refused — active_plugins[$i] must be a non-empty string");
+                    throw new \RuntimeException("wprism: code-stage refused — active_plugins[$i] must be a non-empty string");
                 }
             }
             $requirements['active_plugins'] = $activePlugins;
@@ -216,7 +216,7 @@ final class CodeStateContract {
             }
             $value = $records[$slot]['value'];
             if (!is_string($value) || $value === '') {
-                throw new \RuntimeException("duo: code-stage refused — canonical $slot must be a non-empty theme slug");
+                throw new \RuntimeException("wprism: code-stage refused — canonical $slot must be a non-empty theme slug");
             }
             $requirements[$slot] = $value;
         }

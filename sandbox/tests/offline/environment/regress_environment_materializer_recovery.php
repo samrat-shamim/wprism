@@ -1,5 +1,5 @@
 <?php
-// DUO-3324: offline, adversarial phase-exact materialization/reap recovery.
+// issue #3324: offline, adversarial phase-exact materialization/reap recovery.
 //
 // This deliberately drives the public EnvironmentMaterializer/provider/journal
 // contract. The provider persists a successful mutation before simulating a
@@ -7,7 +7,7 @@
 // than merely retrying an in-memory fake that never changed the host.
 declare(strict_types=1);
 
-namespace Duo\Orchestrator {
+namespace WPrism\Orchestrator {
     /** Minimal semantic materializer seam; EnvironmentMaterializer owns all host sequencing. */
     final class Refresh {
         public static function rebase(EnvironmentDriver $driver, string $production, string $branch, array $resolution = []): array {
@@ -28,7 +28,7 @@ namespace Duo\Orchestrator {
             $path = $root . '/.git/recovery-refresh-' . hash('sha256', $branch) . '.json';
             file_put_contents($path, json_encode([
                 'context' => ['production_snapshot_hash' => hash('sha256', 'semantic-production-truth')],
-                'format' => 'duo-refresh-plan/v1',
+                'format' => 'wprism-refresh-plan/v1',
                 'plan_hash' => hash('sha256', 'semantic-branch-delta'),
             ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
             return ['head' => $head, 'new_branch' => $branch, 'plan_path' => $path, 'run_id' => 'recovery-fixture'];
@@ -53,7 +53,7 @@ namespace Duo\Orchestrator {
      * Convergence semantics, not the renderer, are what this fixture needs:
      * a plan with no drift or conflict is clean. PlanContract stays real —
      * the complete-envelope refusal at that boundary is product behavior
-     * (DUO-3384), and rr_plan() below emits the envelope the agent emits.
+     * (issue #3384), and rr_plan() below emits the envelope the agent emits.
      */
     final class PlanSummary {
         public static function render(array $plan): array {
@@ -69,7 +69,7 @@ namespace {
     // A protocol-lane path is only a local validation aid while this test is
     // developed independently. The checked-in default is always the product
     // file, so CI exercises the same public contract after integration.
-    $rrLifecycle = getenv('DUO_ENVIRONMENT_LIFECYCLE_PATH');
+    $rrLifecycle = getenv('WPRISM_ENVIRONMENT_LIFECYCLE_PATH');
     if (!is_string($rrLifecycle) || $rrLifecycle === '') {
         $rrLifecycle = $rrRoot . '/cli/src/Environment/EnvironmentLifecycle.php';
     }
@@ -79,13 +79,13 @@ namespace {
     }
     require_once $rrLifecycle;
 
-    use Duo\Orchestrator\CommandEnvironmentProvider;
-    use Duo\Orchestrator\DriverCapability;
-    use Duo\Orchestrator\DriverCapabilityReport;
-    use Duo\Orchestrator\EnvironmentDriver;
-    use Duo\Orchestrator\EnvironmentLifecycleCanon;
-    use Duo\Orchestrator\EnvironmentLifecycleJournal;
-    use Duo\Orchestrator\EnvironmentMaterializer;
+    use WPrism\Orchestrator\CommandEnvironmentProvider;
+    use WPrism\Orchestrator\DriverCapability;
+    use WPrism\Orchestrator\DriverCapabilityReport;
+    use WPrism\Orchestrator\EnvironmentDriver;
+    use WPrism\Orchestrator\EnvironmentLifecycleCanon;
+    use WPrism\Orchestrator\EnvironmentLifecycleJournal;
+    use WPrism\Orchestrator\EnvironmentMaterializer;
 
     function rr_fail(string $message): never {
         fwrite(STDERR, "FAIL: $message\n");
@@ -93,9 +93,9 @@ namespace {
     }
 
     /**
-     * One complete, clean `wp duo plan --format=json` envelope, spelled out
+     * One complete, clean `wp wprism plan --format=json` envelope, spelled out
      * the way agent/src/Apply/Apply.php emits it. Branch convergence refuses
-     * anything less (DUO-3384).
+     * anything less (issue #3384).
      */
     function rr_plan(): string {
         return (string) json_encode([
@@ -241,7 +241,7 @@ namespace {
         }
         public function captureWp(array $args): array {
             $this->calls[] = ['kind' => 'wp', 'args' => $args];
-            if (($args[0] ?? null) === 'duo' && ($args[1] ?? null) === 'plan') {
+            if (($args[0] ?? null) === 'wprism' && ($args[1] ?? null) === 'plan') {
                 return ['exit' => 0, 'stdout' => rr_plan() . "\n", 'stderr' => ''];
             }
             // The materializer reads the source URL binding (home + uploads)
@@ -283,7 +283,7 @@ namespace {
                 'artifact_hash' => (string) $summary['artifact_hash'],
                 'checkpoint_identity' => hash('sha256', 'checkpoint:' . (string) $context['operation_id']),
                 'code_revision' => isset($summary['code']) && is_array($summary['code']) ? ($summary['code']['code_revision'] ?? null) : null,
-                'format' => 'duo-branch-environment-promotion-receipt/v1',
+                'format' => 'wprism-branch-environment-promotion-receipt/v1',
                 'operation_id' => (string) $context['operation_id'],
                 'owner' => (string) $context['promotion_owner'],
                 'state_revision' => (string) $summary['revision_hash'],
@@ -332,7 +332,7 @@ namespace {
         };
         $source = new RecoveryMaterializationDriver('production-' . $name, '/production/' . $name, $commit);
         $target = new RecoveryMaterializationDriver('branch-' . $name, '/branch/' . $name, '', $stateOnly);
-        $journal = new EnvironmentLifecycleJournal($repo . '/.git/duo-environments');
+        $journal = new EnvironmentLifecycleJournal($repo . '/.git/wprism-environments');
         return [
             'cfg' => $cfg,
             'commit' => $commit,
@@ -382,7 +382,7 @@ namespace {
         }
     }
 
-    $tmp = sys_get_temp_dir() . '/duo-materializer-recovery-' . bin2hex(random_bytes(8));
+    $tmp = sys_get_temp_dir() . '/wprism-materializer-recovery-' . bin2hex(random_bytes(8));
     if (!mkdir($tmp, 0700, true) && !is_dir($tmp)) rr_fail('could not create recovery fixture root');
     try {
         $providerScript = $tmp . '/provider.php';
@@ -536,7 +536,7 @@ if ($mutating && $fault === $faultKey && !($state['faulted'][$faultKey] ?? false
 }
 $response = [
     'action' => $action, 'environment' => (string) ($request['environment'] ?? ''),
-    'format' => 'duo-branch-environment-provider-response/v1', 'operation_id' => $operation,
+    'format' => 'wprism-branch-environment-provider-response/v1', 'operation_id' => $operation,
     'provider' => ['id' => 'recovery-provider-' . $role, 'protocol' => 1], 'result' => $result, 'status' => 'ok',
 ];
 echo c($response) . "\n";
@@ -544,7 +544,7 @@ PHP);
 
         $materializeMethod = new ReflectionMethod(EnvironmentMaterializer::class, 'materialize');
         if ($materializeMethod->getNumberOfParameters() !== 7) {
-            rr_fail('phase-exact recovery fixture requires the frozen-context materialize callback API; integrate the DUO-3324 protocol lane first');
+            rr_fail('phase-exact recovery fixture requires the frozen-context materialize callback API; integrate the issue #3324 protocol lane first');
         }
 
         // Every provider mutation must survive a lost response with exactly one
@@ -568,7 +568,7 @@ PHP);
             $promotion = rr_promoter();
             rr_throws(static fn() => rr_materialize($fixture, $promotion['callback']), 'provider failed', "lost $action response stops the current materialization");
             $receipt = rr_materialize($fixture, $promotion['callback']);
-            rr_ok(($receipt['format'] ?? null) === 'duo-branch-environment-receipt/v1', "lost $action response resumes to one materialization receipt");
+            rr_ok(($receipt['format'] ?? null) === 'wprism-branch-environment-receipt/v1', "lost $action response resumes to one materialization receipt");
             $roleCalls = rr_calls($role === 'source' ? $fixture['source_log'] : $fixture['target_log']);
             $allCalls = array_merge(rr_calls($fixture['source_log']), rr_calls($fixture['target_log']));
             rr_assert_exact_duplicate($roleCalls, $action, "lost $action response reuses exact operation/idempotency input");

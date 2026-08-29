@@ -1,5 +1,5 @@
 {
-    "assess_digest": "sha256:d0ea068acc1737afa351bd0a995e2662d7392b787cec0d0ff8d27fad2f3b3be8",
+    "assess_digest": "sha256:03ccc61bf3ad20b2a27bb8292673a6e0d55effb37e070805da61ac4e2f9d666f",
     "authority": {
         "read_only": true,
         "repo": "/siterepo",
@@ -18,7 +18,7 @@
         },
         "registry_sha256": "8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f"
     },
-    "format": "duo-assess-report/v1",
+    "format": "wprism-assess-report/v1",
     "generated_at": "2026-08-17T09:14:02Z",
     "surfaces": [
         {
@@ -27,7 +27,7 @@
             "id": "post_type:wpforms",
             "kind": "post_type",
             "label": "post_type:wpforms",
-            "meaning": "form definitions the operator authors and Duo manages end to end",
+            "meaning": "form definitions the operator authors and WPrism manages end to end",
             "next_action": "nothing — supported",
             "operations": {
                 "release": {
@@ -40,7 +40,7 @@
                     "effect_recovery_semantics": "provider-state restorable",
                     "gap_action": "nothing — supported",
                     "handling": "manage",
-                    "meaning": "form definitions the operator authors and Duo manages end to end",
+                    "meaning": "form definitions the operator authors and WPrism manages end to end",
                     "readiness": "Ready",
                     "remediation": null,
                     "state_class": "authored"
@@ -54,7 +54,7 @@
             "id": "post_type:acme_item",
             "kind": "post_type",
             "label": "post_type:acme_item",
-            "meaning": "catalog items the operator authors and Duo manages end to end",
+            "meaning": "catalog items the operator authors and WPrism manages end to end",
             "next_action": "nothing — supported",
             "operations": {
                 "release": {
@@ -67,7 +67,7 @@
                     "effect_recovery_semantics": "provider-state restorable",
                     "gap_action": "nothing — supported",
                     "handling": "manage",
-                    "meaning": "catalog items the operator authors and Duo manages end to end",
+                    "meaning": "catalog items the operator authors and WPrism manages end to end",
                     "readiness": "Ready",
                     "remediation": null,
                     "state_class": "authored"
@@ -81,7 +81,7 @@
             "id": "post_type:product",
             "kind": "post_type",
             "label": "post_type:product",
-            "meaning": "authored catalog content Duo manages end to end",
+            "meaning": "authored catalog content WPrism manages end to end",
             "next_action": "nothing — supported",
             "operations": {
                 "release": {
@@ -94,7 +94,7 @@
                     "effect_recovery_semantics": "provider-state restorable",
                     "gap_action": "nothing — supported",
                     "handling": "manage",
-                    "meaning": "authored catalog content Duo manages end to end",
+                    "meaning": "authored catalog content WPrism manages end to end",
                     "readiness": "Ready",
                     "remediation": null,
                     "state_class": "authored"

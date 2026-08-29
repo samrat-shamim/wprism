@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression — DUO-3214(a): the authored post-meta and option call sites
+# Regression — issue #3214(a): the authored post-meta and option call sites
 # used to gate CaptureSafetyGates::guardSecret() behind `is_string($v)` — an authored
 # value that decoded to an ARRAY (a plugin's serialized settings blob) got
 # ZERO secret scanning in any downstream branch. guard_secret() now deep-
@@ -14,12 +14,12 @@
 # core logic change in isolation; full end-to-end call-site behavior is
 # still proven separately via a live sandbox pair (see the PR body —
 # CaptureCandidateBuilder is not offline-stubbable end-to-end the way agent/src/
-# Publish.php was for DUO-3213).
+# Publish.php was for issue #3213).
 #
 # The PHP harness above deliberately does NOT prove the call sites are
 # actually wired unconditionally in the real source file — Reflection
 # invokes guard_secret() directly, bypassing whatever gates its real
-# callers. That gap is real, not hypothetical: a rebase onto DUO-3211
+# callers. That gap is real, not hypothetical: a rebase onto issue #3211
 # (agent/src/Capture/Capture.php's build_options() rewrite) silently reverted one
 # of the two options-loop call sites back to an is_string()-gated shape via
 # a no-conflict-marker auto-merge — git's 3-way merge considered that hunk
@@ -29,8 +29,8 @@
 # below closes that specific gap: a plain grep-level scan of Capture.php,
 # OptionsCapture.php, EntityMetaCapture.php, and UserMetaCapture.php,
 # asserting each security callback's unconditional call sites (post/term
-# meta, both authored-options loops, and user_meta -- DUO-3268's later
-# addition, extracted by DUO-3349)
+# meta, both authored-options loops, and user_meta -- issue #3268's later
+# addition, extracted by issue #3349)
 # has no is_string() gate in the two
 # lines immediately before it, and that
 # the one DELIBERATE exception (the sub_keys loop's hand-rolled is_string/
@@ -47,16 +47,16 @@
 # known-good shape confirmed to pass, before this check was trusted for a
 # real run.
 #
-# DUO-3285: this suite's own count assertion (3 unconditional sites) went
+# issue #3285: this suite's own count assertion (3 unconditional sites) went
 # silently stale exactly the way this file's own docblock warns about --
-# DUO-3268 ("add authored user meta sidecars") legitimately added a fourth
-# unconditional call site. DUO-3349 later extracted those actual invocations
+# issue #3268 ("add authored user meta sidecars") legitimately added a fourth
+# unconditional call site. issue #3349 later extracted those actual invocations
 # into UserMetaCapture and EntityMetaCapture, leaving equally mandatory Capture
 # callback bindings; this suite now pins both sides of each handoff instead of
 # counting only one file. Before the extraction, the added user-meta call existed for months and
 # nothing ever caught the assertion falling behind because this suite had
 # no Makefile target reachable from any bundle or CI check. First real
-# catch by DUO-3285's own regress-offline-all, discovered by running the
+# catch by issue #3285's own regress-offline-all, discovered by running the
 # bundle for the first time, not by design -- corrected here (4, not 3;
 # the new site is genuinely unconditional and correct, this was always a
 # stale test assumption, never a Capture.php defect).
@@ -94,7 +94,7 @@ for entry in "${CALL_LINES[@]}"; do
   [ "$start" -lt 1 ] && start=1
   window=$(sed -n "${start},${lineno}p" "$CAPTURE_SRC")
   grep -q 'is_string(' <<<"$window" \
-    && fail "guardSecret() call at CaptureCandidateBuilder.php:$lineno appears gated by a nearby is_string() check -- this is the exact shape of the DUO-3211-rebase silent reversion (see this script's header); widened deep scanning would silently stop applying to array-shaped values again:
+    && fail "guardSecret() call at CaptureCandidateBuilder.php:$lineno appears gated by a nearby is_string() check -- this is the exact shape of the issue #3211-rebase silent reversion (see this script's header); widened deep scanning would silently stop applying to array-shaped values again:
 $window"
 done
 pass "all three extracted-capturer bindings have no nearby is_string() gate"

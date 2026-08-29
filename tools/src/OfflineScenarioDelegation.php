@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tooling;
+namespace WPrism\Tooling;
 
 use RuntimeException;
 
 /** Prevent a changed run's explicit scenario task from also running inside the package aggregate. */
 final class OfflineScenarioDelegation
 {
-    public const ENVIRONMENT = 'DUO_OFFLINE_DELEGATED_SCENARIOS';
+    public const ENVIRONMENT = 'WPRISM_OFFLINE_DELEGATED_SCENARIOS';
     public const AGGREGATE_TARGET = 'regress-adapter-packages';
 
     private const TARGET_PATTERN =

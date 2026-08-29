@@ -1,13 +1,13 @@
 <?php
 /**
- * Offline characterization for `duo adapter proposals` — the scheduled
+ * Offline characterization for `wprism adapter proposals` — the scheduled
  * re-bisection job, the range-bump PROPOSAL it emits, and the derived adapter
  * freshness the census ranks.
  *
  * ## What is actually driven here
  *
- * `AdapterProposals::project()` and the real `duo adapter proposals` /
- * `duo census` executables. The bisection underneath is `AdapterBoundary`'s
+ * `AdapterProposals::project()` and the real `wprism adapter proposals` /
+ * `wprism census` executables. The bisection underneath is `AdapterBoundary`'s
  * own `search()` — the same planner `regress_adapter_boundary_search.php`
  * characterizes — so nothing here re-implements a search; this suite is about
  * what the JOB does with N of them.
@@ -85,11 +85,11 @@ require_once $repoRoot . '/cli/src/Command/CommandOutput.php';
 require_once $repoRoot . '/cli/src/Adapter/AdapterBoundary.php';
 require_once $repoRoot . '/cli/src/Adapter/AdapterProposals.php';
 
-use Duo\AdapterLibrary;
-use Duo\Canon;
-use Duo\ManifestDispositions;
-use Duo\Orchestrator\AdapterBoundary;
-use Duo\Orchestrator\AdapterProposals;
+use WPrism\AdapterLibrary;
+use WPrism\Canon;
+use WPrism\ManifestDispositions;
+use WPrism\Orchestrator\AdapterBoundary;
+use WPrism\Orchestrator\AdapterProposals;
 
 /** @return array<string,string> path => sha256 for every shipped adapter-library file */
 function bp_manifest_digests(string $root): array {
@@ -133,15 +133,15 @@ function bp_write(string $path, array $document): void {
 }
 
 /**
- * Run the real `duo` executable.
+ * Run the real `wprism` executable.
  *
  * @param list<string> $args
  * @return array{exit:int,stdout:string,stderr:string}
  */
-function bp_duo(string $repoRoot, array $args): array {
+function bp_wprism(string $repoRoot, array $args): array {
     $pipes = [];
     $process = proc_open(
-        array_merge([PHP_BINARY, $repoRoot . '/cli/duo'], $args),
+        array_merge([PHP_BINARY, $repoRoot . '/cli/wprism'], $args),
         [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
         $pipes,
         $repoRoot,
@@ -149,7 +149,7 @@ function bp_duo(string $repoRoot, array $args): array {
         ['bypass_shell' => true]
     );
     if (!is_resource($process)) {
-        throw new RuntimeException('could not start the duo executable');
+        throw new RuntimeException('could not start the wprism executable');
     }
     fclose($pipes[0]);
     $stdout = (string) stream_get_contents($pipes[1]);
@@ -161,7 +161,7 @@ function bp_duo(string $repoRoot, array $args): array {
 
 /** A deterministic 64-hex string that is visibly a fixture, never a real digest. */
 function bp_digest(string $seed): string {
-    return hash('sha256', 'duo-proposals-fixture/' . $seed);
+    return hash('sha256', 'wprism-proposals-fixture/' . $seed);
 }
 
 /**
@@ -267,13 +267,13 @@ foreach (AdapterLibrary::fromSourceTree($repoRoot)->packages() as $package) {
     }
 }
 
-$shipped = bp_duo($repoRoot, ['adapter', 'proposals', '--format=json']);
-duo_check_same(AdapterProposals::EXIT_OK, $shipped['exit'], 'the job runs over the shipped library and its committed ledger');
+$shipped = bp_wprism($repoRoot, ['adapter', 'proposals', '--format=json']);
+wprism_check_same(AdapterProposals::EXIT_OK, $shipped['exit'], 'the job runs over the shipped library and its committed ledger');
 $shippedDocument = json_decode($shipped['stdout'], true);
-duo_check(is_array($shippedDocument), 'and emits a decodable document');
-duo_check_same(AdapterProposals::FORMAT, $shippedDocument['format'], 'declaring its own format');
-duo_check_same($pinned, $shippedDocument['ledger']['adapters'], "every one of the $pinned manifests declaring a plugin AND a version_range is a subject");
-duo_check_same(
+wprism_check(is_array($shippedDocument), 'and emits a decodable document');
+wprism_check_same(AdapterProposals::FORMAT, $shippedDocument['format'], 'declaring its own format');
+wprism_check_same($pinned, $shippedDocument['ledger']['adapters'], "every one of the $pinned manifests declaring a plugin AND a version_range is a subject");
+wprism_check_same(
     $pinned,
     count($shippedDocument['freshness']),
     'and every one of them gets a freshness row, including the ones with no recorded ledger at all — '
@@ -282,14 +282,14 @@ duo_check_same(
 
 // The invariants, over whatever the shipped ledger happens to hold today.
 foreach ($shippedDocument['proposals'] as $row) {
-    duo_check_json_equal(
+    wprism_check_json_equal(
         Canon::encode($row['edits'][0]['proposed']),
         Canon::encode($row['edits'][1]['proposed']['range']),
         'shipped proposal for ' . $row['adapter'] . ': both edits agree on the canonical bytes the validator compares'
     );
 }
 foreach ($shippedDocument['refused'] as $row) {
-    duo_check(
+    wprism_check(
         in_array($row['reason'], [
             'no_green_probe',
             'bisection_incomplete',
@@ -309,8 +309,8 @@ foreach ($shippedDocument['refused'] as $row) {
         $acf = $row;
     }
 }
-duo_check(is_array($acf), 'the committed acf release list is a subject of the job');
-duo_check_same('no_green_probe', $acf['reason'], 'and with no outcomes recorded beside it, it proposes nothing');
+wprism_check(is_array($acf), 'the committed acf release list is a subject of the job');
+wprism_check_same('no_green_probe', $acf['reason'], 'and with no outcomes recorded beside it, it proposes nothing');
 
 // ================================================ 2. the proposal's shape
 
@@ -335,13 +335,13 @@ $document = AdapterProposals::project(
     ['fixture-forms' => bp_ledger_entry($scratch, 'fixture-forms', $versions, $outcomes)]
 );
 
-duo_check_same(1, count($document['proposals']), 'evidence beyond the declared max produces exactly one proposal');
+wprism_check_same(1, count($document['proposals']), 'evidence beyond the declared max produces exactly one proposal');
 $proposal = $document['proposals'][0];
-duo_check_same('proposed', $proposal['status'], 'and it is a proposal, not a no-op row');
-duo_check_same('1.5.0', $proposal['evidence']['ceiling'], 'the evidenced ceiling is the newest green release');
-duo_check_same('1.0.0', $proposal['evidence']['floor'], 'and the floor is the oldest green one');
-duo_check_same('1.5.0', $proposal['evidence']['anchor'], 'the anchor is DERIVED from the record — the newest green probe, not a flag a human typed');
-duo_check_same(
+wprism_check_same('proposed', $proposal['status'], 'and it is a proposal, not a no-op row');
+wprism_check_same('1.5.0', $proposal['evidence']['ceiling'], 'the evidenced ceiling is the newest green release');
+wprism_check_same('1.0.0', $proposal['evidence']['floor'], 'and the floor is the oldest green one');
+wprism_check_same('1.5.0', $proposal['evidence']['anchor'], 'the anchor is DERIVED from the record — the newest green probe, not a flag a human typed');
+wprism_check_same(
     ['min' => '1.0.0', 'max' => '1.6.0'],
     $proposal['proposed_range'],
     'max moves to the next RECORDED release after the ceiling: exclusive, so it admits 1.5.0 and nothing past it, '
@@ -349,34 +349,34 @@ duo_check_same(
 );
 
 // The two edits, in the two files, at the two pointers.
-duo_check_same(2, count($proposal['edits']), 'a range bump is TWO edits, because the range lives in two files');
-duo_check_same(
+wprism_check_same(2, count($proposal['edits']), 'a range bump is TWO edits, because the range lives in two files');
+wprism_check_same(
     'adapter-packages/fixture-forms/package/manifest.json',
     $proposal['edits'][0]['file'],
     'the manifest edit names the package manifest'
 );
-duo_check_same('/version_range', $proposal['edits'][0]['pointer'], 'at /version_range');
-duo_check_same(
+wprism_check_same('/version_range', $proposal['edits'][0]['pointer'], 'at /version_range');
+wprism_check_same(
     'adapter-packages/fixture-forms/package/disposition.json',
     $proposal['edits'][1]['file'],
     'the second edit names the reviewed restatement — that adapter\'s OWN document since WP-4.4'
 );
-duo_check_same(
+wprism_check_same(
     '/supported_versions',
     $proposal['edits'][1]['pointer'],
     'at a pointer into the package disposition itself, with no whole-library subject prefix'
 );
-duo_check_json_equal(
+wprism_check_json_equal(
     Canon::encode($proposal['edits'][0]['proposed']),
     Canon::encode($proposal['edits'][1]['proposed']['range']),
     'and the two agree on CANONICAL BYTES — the comparison ManifestDispositions.php:632-637 actually makes'
 );
-duo_check_same(
+wprism_check_same(
     'fixture-forms/fixture-forms.php',
     $proposal['edits'][1]['proposed']['plugin'],
     'the disposition edit restates the MANIFEST\'s plugin, the other half of that same check'
 );
-duo_check_same(
+wprism_check_same(
     hash('sha256', Canon::encode($proposal['proposed_range'])),
     $proposal['canon']['range_sha256'],
     'the document publishes the canonical digest of the range both edits encode'
@@ -409,7 +409,7 @@ function bp_entry(array $range): array {
         ],
         'default_authored_keyspaces' => [],
         'evidence' => [
-            'bundle_schema' => 'duo-subject-certification-bundle/v1',
+            'bundle_schema' => 'wprism-subject-certification-bundle/v1',
             'tests' => ['conformance-fixture'],
         ],
         'reason' => 'Fixture disposition for the boundary-proposals suite; no product claim.',
@@ -417,7 +417,7 @@ function bp_entry(array $range): array {
         'supported_versions' => ['plugin' => 'fixture-forms/fixture-forms.php', 'range' => $range],
         'unsupported' => [[
             'operation' => 'all',
-            'reason' => 'Duo v1 refuses multisite, so this fixture claims none of it.',
+            'reason' => 'WPrism v1 refuses multisite, so this fixture claims none of it.',
             'surface' => 'multisite',
         ]],
     ];
@@ -426,7 +426,7 @@ function bp_entry(array $range): array {
 // The base library the proposal is an edit ONTO: it must load before the edit,
 // or "the edit still loads" would prove nothing.
 ManifestDispositions::assert_entry('fixture-forms', bp_entry($declared), bp_manifest($declared));
-duo_check(true, 'the unedited fixture pair passes the real validator, so the edit below has a valid base');
+wprism_check(true, 'the unedited fixture pair passes the real validator, so the edit below has a valid base');
 
 // Both edits applied, exactly as the document proposes them.
 $editedManifest = bp_manifest($declared);
@@ -438,12 +438,12 @@ try {
     ManifestDispositions::assert_entry('fixture-forms', $editedEntry, $editedManifest);
 } catch (Throwable $t) {
     $accepted = false;
-    duo_check_detail('validator refused the proposed pair: ' . $t->getMessage());
+    wprism_check_detail('validator refused the proposed pair: ' . $t->getMessage());
 }
-duo_check($accepted, 'the REAL ManifestDispositions validator accepts the pair with BOTH proposed edits applied');
+wprism_check($accepted, 'the REAL ManifestDispositions validator accepts the pair with BOTH proposed edits applied');
 
 // The failing-before proof for that shape: one edit alone bricks the library.
-duo_check_throws(
+wprism_check_throws(
     static function () use ($editedManifest): void {
         ManifestDispositions::assert_entry('fixture-forms', bp_entry(['min' => '1.0.0', 'max' => '1.4.0']), $editedManifest);
     },
@@ -451,7 +451,7 @@ duo_check_throws(
     'applying ONLY the manifest edit is refused by the validator — which is why the proposal carries both',
     'versions disagree with its manifest contract'
 );
-duo_check_throws(
+wprism_check_throws(
     static function () use ($editedEntry, $declared): void {
         ManifestDispositions::assert_entry('fixture-forms', $editedEntry, bp_manifest($declared));
     },
@@ -472,10 +472,10 @@ $edge = AdapterProposals::project(
     [$forms],
     ['fixture-forms' => bp_ledger_entry($scratch, 'fixture-forms', $short, $shortOutcomes)]
 );
-duo_check_same([], $edge['proposals'], 'with no recorded release above the ceiling, nothing is proposed');
-duo_check_same(1, count($edge['unchanged']), 'the adapter reports as unchanged instead');
+wprism_check_same([], $edge['proposals'], 'with no recorded release above the ceiling, nothing is proposed');
+wprism_check_same(1, count($edge['unchanged']), 'the adapter reports as unchanged instead');
 $limits = implode(' ', $edge['unchanged'][0]['limits']);
-duo_check(
+wprism_check(
     str_contains($limits, 'newest RECORDED release'),
     'and the row says WHY the max did not move, rather than leaving the reader to infer the evidence agreed'
 );
@@ -490,8 +490,8 @@ $noGreen = AdapterProposals::project(
         '1.5.0' => AdapterBoundary::OUTCOME_DIVERGES,
     ])]
 );
-duo_check_same([], $noGreen['proposals'], 'a bisection that never reached green proposes NOTHING');
-duo_check_same('no_green_probe', $noGreen['refused'][0]['reason'], 'it is refused, and the refusal is named');
+wprism_check_same([], $noGreen['proposals'], 'a bisection that never reached green proposes NOTHING');
+wprism_check_same('no_green_probe', $noGreen['refused'][0]['reason'], 'it is refused, and the refusal is named');
 
 // (b) the record is incomplete — more probes are required.
 $partial = AdapterProposals::project(
@@ -500,9 +500,9 @@ $partial = AdapterProposals::project(
         '1.5.0' => AdapterBoundary::OUTCOME_GREEN,
     ])]
 );
-duo_check_same([], $partial['proposals'], 'an unfinished search proposes nothing');
-duo_check_same('bisection_incomplete', $partial['refused'][0]['reason'], 'and says the search did not run to completion');
-duo_check(
+wprism_check_same([], $partial['proposals'], 'an unfinished search proposes nothing');
+wprism_check_same('bisection_incomplete', $partial['refused'][0]['reason'], 'and says the search did not run to completion');
+wprism_check(
     is_array($partial['refused'][0]['next_probe']),
     'carrying the ONE release to probe next — the bisector\'s exit-3 answer as a row, because a job over N '
     . 'adapters cannot express N next-probes as one process status'
@@ -517,8 +517,8 @@ $blocked = AdapterProposals::project(
     [$forms],
     ['fixture-forms' => bp_ledger_entry($scratch, 'fixture-forms', $versions, $unresolved)]
 );
-duo_check_same([], $blocked['proposals'], 'an unresolvable artifact proposes nothing');
-duo_check(
+wprism_check_same([], $blocked['proposals'], 'an unresolvable artifact proposes nothing');
+wprism_check(
     str_contains($blocked['refused'][0]['detail'], 'artifact_unresolved'),
     'and the refusal carries the search\'s own blocking reason rather than a summary of it'
 );
@@ -532,8 +532,8 @@ $broken = AdapterProposals::project(
     [$mismatched],
     ['fixture-forms' => bp_ledger_entry($scratch, 'fixture-forms', $versions, $outcomes)]
 );
-duo_check_same([], $broken['proposals'], 'a manifest and disposition that already disagree get no proposal');
-duo_check_same(
+wprism_check_same([], $broken['proposals'], 'a manifest and disposition that already disagree get no proposal');
+wprism_check_same(
     'declared_pair_disagrees',
     $broken['refused'][0]['reason'],
     'because there is no loadable base to propose an edit onto'
@@ -559,13 +559,13 @@ $holed = AdapterProposals::project(
     [$forms],
     ['fixture-forms' => bp_ledger_entry($scratch, 'fixture-forms', $hole, $holeOutcomes)]
 );
-duo_check_same([], $holed['proposals'], 'a range that would contain a recorded failing release is never proposed');
-duo_check_same(
+wprism_check_same([], $holed['proposals'], 'a range that would contain a recorded failing release is never proposed');
+wprism_check_same(
     'proposal_contains_failing_release',
     $holed['refused'][0]['reason'],
     'it is refused instead, by name'
 );
-duo_check(
+wprism_check(
     str_contains($holed['refused'][0]['detail'], '1.1.0'),
     'and the refusal names the release that disproves the range, so a reviewer can go probe it'
 );
@@ -584,20 +584,20 @@ function bp_newest_green(array $versions, array $outcomes): ?string {
 }
 
 $fresh = $document['freshness'][0];
-duo_check_same('fixture-forms', $fresh['adapter'], 'freshness is per adapter');
-duo_check_same(
+wprism_check_same('fixture-forms', $fresh['adapter'], 'freshness is per adapter');
+wprism_check_same(
     bp_newest_green($versions, $outcomes),
     $fresh['last_verified'],
     'last_verified is the newest release that PROBED GREEN — a version, the shape platform.json already uses '
     . 'per axis, not a date no probe record could know'
 );
-duo_check_same('1.6.0', $fresh['newest_recorded_release'], 'beside the newest release anybody recorded');
-duo_check_same(1, $fresh['releases_behind'], 'so the proof is one recorded release behind');
-duo_check_same(1, $fresh['failing_newer'], 'and that release is one the record says fails');
-duo_check_same(0, $fresh['unprobed_newer'], 'with nothing newer left unprobed');
-duo_check_same('behind', $fresh['freshness_class'], 'which is the `behind` class');
-duo_check_same(true, $fresh['stale'], 'and stale');
-duo_check_same(true, $fresh['open_proposal'], 'with an open proposal against it');
+wprism_check_same('1.6.0', $fresh['newest_recorded_release'], 'beside the newest release anybody recorded');
+wprism_check_same(1, $fresh['releases_behind'], 'so the proof is one recorded release behind');
+wprism_check_same(1, $fresh['failing_newer'], 'and that release is one the record says fails');
+wprism_check_same(0, $fresh['unprobed_newer'], 'with nothing newer left unprobed');
+wprism_check_same('behind', $fresh['freshness_class'], 'which is the `behind` class');
+wprism_check_same(true, $fresh['stale'], 'and stale');
+wprism_check_same(true, $fresh['open_proposal'], 'with an open proposal against it');
 
 // `current`: nothing recorded is newer than the newest green.
 $current = AdapterProposals::project(
@@ -607,8 +607,8 @@ $current = AdapterProposals::project(
         '1.1.0' => AdapterBoundary::OUTCOME_GREEN,
     ])]
 );
-duo_check_same('current', $current['freshness'][0]['freshness_class'], 'an adapter proven through its newest recorded release is `current`');
-duo_check_same(false, $current['freshness'][0]['stale'], 'and not stale');
+wprism_check_same('current', $current['freshness'][0]['freshness_class'], 'an adapter proven through its newest recorded release is `current`');
+wprism_check_same(false, $current['freshness'][0]['stale'], 'and not stale');
 
 // `behind` via an UNPROBED newer release — the ordinary staleness a scheduled
 // job exists to find: upstream shipped, and nobody has run the pair yet.
@@ -618,8 +618,8 @@ $unprobedDoc = AdapterProposals::project(
         '1.0.0' => AdapterBoundary::OUTCOME_GREEN,
     ])]
 );
-duo_check_same('behind', $unprobedDoc['freshness'][0]['freshness_class'], 'a recorded release nobody probed makes the adapter `behind`');
-duo_check_same(1, $unprobedDoc['freshness'][0]['unprobed_newer'], 'and it is counted as unprobed, not as failing');
+wprism_check_same('behind', $unprobedDoc['freshness'][0]['freshness_class'], 'a recorded release nobody probed makes the adapter `behind`');
+wprism_check_same(1, $unprobedDoc['freshness'][0]['unprobed_newer'], 'and it is counted as unprobed, not as failing');
 
 // `unrecorded` and `unverified`.
 $classes = AdapterProposals::project(
@@ -632,10 +632,10 @@ $byAdapter = [];
 foreach ($classes['freshness'] as $row) {
     $byAdapter[$row['adapter']] = $row;
 }
-duo_check_same('unrecorded', $byAdapter['fixture-gallery']['freshness_class'], 'an adapter with no recorded release list is `unrecorded`');
-duo_check_same(null, $byAdapter['fixture-gallery']['last_verified'], 'with no last_verified at all');
-duo_check_same(true, $byAdapter['fixture-gallery']['stale'], 'and it is stale: never bisected is the loudest staleness there is');
-duo_check_same('unverified', $byAdapter['fixture-forms']['freshness_class'], 'a candidate set with no green probe is `unverified`');
+wprism_check_same('unrecorded', $byAdapter['fixture-gallery']['freshness_class'], 'an adapter with no recorded release list is `unrecorded`');
+wprism_check_same(null, $byAdapter['fixture-gallery']['last_verified'], 'with no last_verified at all');
+wprism_check_same(true, $byAdapter['fixture-gallery']['stale'], 'and it is stale: never bisected is the loudest staleness there is');
+wprism_check_same('unverified', $byAdapter['fixture-forms']['freshness_class'], 'a candidate set with no green probe is `unverified`');
 
 // Freshness can never be hand-asserted. The readers normalize and drop unknown
 // keys, so this is checked against the RAW ledger document.
@@ -644,14 +644,14 @@ bp_publish_ledger($hostileLedger, 'fixture-forms', ['1.0.0'], ['1.0.0' => Adapte
 $handAsserted = Canon::decode((string) file_get_contents($hostileLedger . '/fixture-forms' . AdapterProposals::RELEASES_SUFFIX));
 $handAsserted['last_verified'] = '9.9.9';
 bp_write($hostileLedger . '/fixture-forms' . AdapterProposals::RELEASES_SUFFIX, $handAsserted);
-$refusedHand = bp_duo($repoRoot, ['adapter', 'proposals', '--ledger=' . $hostileLedger, '--format=json']);
-duo_check_same(
+$refusedHand = bp_wprism($repoRoot, ['adapter', 'proposals', '--ledger=' . $hostileLedger, '--format=json']);
+wprism_check_same(
     AdapterProposals::EXIT_REFUSED,
     $refusedHand['exit'],
     'a ledger document asserting its own last_verified is REFUSED — an input allowed to state its freshness '
     . 'would let the adapter nobody has probed declare itself current'
 );
-duo_check(
+wprism_check(
     str_contains($refusedHand['stdout'], 'DERIVED from probe outcomes'),
     'and the refusal says the fact is derived, not recorded'
 );
@@ -698,18 +698,18 @@ $censusLedger = $scratch . '/census-ledger';
 bp_publish_ledger($censusLedger, 'fixture-forms', $versions, $outcomes);
 bp_publish_ledger($censusLedger, 'fixture-gallery', ['1.0.0'], ['1.0.0' => AdapterBoundary::OUTCOME_GREEN]);
 
-$health = bp_duo($repoRoot, [
+$health = bp_wprism($repoRoot, [
     'adapter', 'proposals',
     '--ledger=' . $censusLedger,
     '--manifests=' . $library,
     '--format=json',
 ]);
-duo_check_same(AdapterProposals::EXIT_OK, $health['exit'], 'the job runs over a fixture library and ledger');
+wprism_check_same(AdapterProposals::EXIT_OK, $health['exit'], 'the job runs over a fixture library and ledger');
 $healthPath = $scratch . '/health.json';
 file_put_contents($healthPath, $health['stdout']);
 $healthDocument = json_decode($health['stdout'], true);
-duo_check_same(1, $healthDocument['ledger']['open_proposals'], 'one adapter has an open range proposal');
-duo_check_same(1, $healthDocument['ledger']['stale_adapters'], 'and exactly one of the two is stale');
+wprism_check_same(1, $healthDocument['ledger']['open_proposals'], 'one adapter has an open range proposal');
+wprism_check_same(1, $healthDocument['ledger']['stale_adapters'], 'and exactly one of the two is stale');
 
 // Two sites, both installing both plugins; only one pins the stale adapter.
 function bp_inventory(array $plugins, array $pins): array {
@@ -722,7 +722,7 @@ function bp_inventory(array $plugins, array $pins): array {
         $pinRows[] = ['name' => $pin, 'source' => 'shipped', 'adapter_digest' => str_repeat('a', 64), 'status' => 'certified'];
     }
     return [
-        'format' => 'duo-assess-inventory/v1',
+        'format' => 'wprism-assess-inventory/v1',
         'spec_version' => 2,
         'agent_version' => '0.5.0',
         'target' => [
@@ -733,7 +733,7 @@ function bp_inventory(array $plugins, array $pins): array {
         'plugins' => $pluginRows,
         'policy' => ['manifests' => $pinRows, 'surface_groups' => []],
         'coverage' => [
-            'format' => 'duo-coverage-report/v1',
+            'format' => 'wprism-coverage-report/v1',
             'options' => [
                 'total' => 10,
                 'captured' => 8,
@@ -752,20 +752,20 @@ function bp_inventory(array $plugins, array $pins): array {
 bp_write($scratch . '/sites/alpha.json', bp_inventory(['fixture-forms', 'fixture-gallery'], ['fixture-forms']));
 bp_write($scratch . '/sites/beta.json', bp_inventory(['fixture-forms', 'fixture-gallery'], []));
 
-$census = bp_duo($repoRoot, [
+$census = bp_wprism($repoRoot, [
     'census',
     '--dir=' . $scratch . '/sites',
     '--manifests=' . $library,
     '--health=' . $healthPath,
     '--format=json',
 ]);
-duo_check_same(0, $census['exit'], 'the census folds the two submissions with the health document beside them');
+wprism_check_same(0, $census['exit'], 'the census folds the two submissions with the health document beside them');
 $censusDocument = json_decode($census['stdout'], true);
 $fleetHealth = $censusDocument['fleet_health'];
-duo_check_same('duo-adapter-boundary-proposals/v1', $fleetHealth['source'], 'the census names the document its health rows came from');
-duo_check_same(2, count($fleetHealth['rows']), 'one row per adapter in the health document');
-duo_check_same(1, $fleetHealth['stale'], 'one of them is stale');
-duo_check_same(1, $fleetHealth['open_proposals'], 'and one has an open proposal');
+wprism_check_same('wprism-adapter-boundary-proposals/v1', $fleetHealth['source'], 'the census names the document its health rows came from');
+wprism_check_same(2, count($fleetHealth['rows']), 'one row per adapter in the health document');
+wprism_check_same(1, $fleetHealth['stale'], 'one of them is stale');
+wprism_check_same(1, $fleetHealth['open_proposals'], 'and one has an open proposal');
 
 // The redaction property, through the health document this time: the census
 // reads names and counts out of it and nothing else. Asserted BEFORE the rank
@@ -777,25 +777,25 @@ $hostileHealth['freshness'][0]['home'] = 'https://' . BP_SENTINEL;
 $hostileHealth['freshness'][0]['site_label'] = BP_SENTINEL;
 $hostilePath = $scratch . '/hostile-health.json';
 file_put_contents($hostilePath, Canon::encode($hostileHealth));
-$hostileCensus = bp_duo($repoRoot, [
+$hostileCensus = bp_wprism($repoRoot, [
     'census',
     '--dir=' . $scratch . '/sites',
     '--manifests=' . $library,
     '--health=' . $hostilePath,
     '--format=json',
 ]);
-duo_check_same(0, $hostileCensus['exit'], 'a health document carrying extra fields still folds');
-duo_check(
+wprism_check_same(0, $hostileCensus['exit'], 'a health document carrying extra fields still folds');
+wprism_check(
     !str_contains($hostileCensus['stdout'], BP_SENTINEL),
     'and NOTHING outside the whitelist reaches the census document — fleet_health reads names and counts, the '
     . 'same discipline Coverage.php:24-36 holds all the way through an inventory'
 );
 
 $top = $fleetHealth['rows'][0];
-duo_check_same('fixture-forms', $top['adapter'], 'the stale adapter one site PINS ranks first');
-duo_check_same(2, $top['sites_installed'], 'joined to the census\'s own install count');
-duo_check_same(1, $top['sites_pinning'], 'and its pin count');
-duo_check_same(
+wprism_check_same('fixture-forms', $top['adapter'], 'the stale adapter one site PINS ranks first');
+wprism_check_same(2, $top['sites_installed'], 'joined to the census\'s own install count');
+wprism_check_same(1, $top['sites_pinning'], 'and its pin count');
+wprism_check_same(
     $top['sites_pinning'] * $top['releases_behind'],
     $top['exposure_score'],
     'ranked by sites pinning x releases behind: an adapter nobody pins is a backlog item, one eleven sites pin '
@@ -804,39 +804,39 @@ duo_check_same(
 // Compared as canonical JSON: the document round-tripped through
 // `Canon::encode()`, which ksorts every object (Canon.php:38-58), so a
 // key-order comparison here would be asserting the encoder's behaviour.
-duo_check_json_equal(
+wprism_check_json_equal(
     ['min' => '1.0.0', 'max' => '1.6.0'],
     $top['open_proposal'],
     'and the open range proposal rides the row, where the operator already looks'
 );
 
 // No health document is a disclosed absence, never an implied "nothing is stale".
-$noHealth = bp_duo($repoRoot, [
+$noHealth = bp_wprism($repoRoot, [
     'census',
     '--dir=' . $scratch . '/sites',
     '--manifests=' . $library,
     '--format=json',
 ]);
 $noHealthDocument = json_decode($noHealth['stdout'], true);
-duo_check_same('not-supplied', $noHealthDocument['fleet_health']['source'], 'a census with no health document says so');
-duo_check_same([], $noHealthDocument['fleet_health']['rows'], 'and ranks nothing');
-duo_check(
+wprism_check_same('not-supplied', $noHealthDocument['fleet_health']['source'], 'a census with no health document says so');
+wprism_check_same([], $noHealthDocument['fleet_health']['rows'], 'and ranks nothing');
+wprism_check(
     str_contains($noHealthDocument['fleet_health']['disclosure'], 'no adapter freshness is known'),
     'stating the absence rather than letting an empty block read as a clean bill of health'
 );
 
 // A document of the wrong format is refused rather than partially read.
 $wrongFormat = $scratch . '/wrong.json';
-file_put_contents($wrongFormat, Canon::encode(['format' => 'duo-fleet-census/v1', 'freshness' => []]));
-$refusedFormat = bp_duo($repoRoot, [
+file_put_contents($wrongFormat, Canon::encode(['format' => 'wprism-fleet-census/v1', 'freshness' => []]));
+$refusedFormat = bp_wprism($repoRoot, [
     'census',
     '--dir=' . $scratch . '/sites',
     '--manifests=' . $library,
     '--health=' . $wrongFormat,
     '--format=json',
 ]);
-duo_check_same(1, $refusedFormat['exit'], 'a --health document of the wrong format is refused');
-duo_check(
+wprism_check_same(1, $refusedFormat['exit'], 'a --health document of the wrong format is refused');
+wprism_check(
     str_contains($refusedFormat['stdout'], 'census_health_unsupported'),
     'with a typed reason code, not a partial read'
 );
@@ -845,18 +845,18 @@ duo_check(
 
 $source = (string) file_get_contents($repoRoot . '/cli/src/Adapter/AdapterProposals.php');
 foreach (['file_put_contents', 'fopen', 'fwrite($', 'unlink', 'rename(', 'mkdir', 'copy('] as $primitive) {
-    duo_check(
+    wprism_check(
         !str_contains($source, $primitive),
         "AdapterProposals.php opens no write path ($primitive): the proposal is evidence FOR a reviewed edit, "
         . 'never the edit'
     );
 }
 
-duo_check_same(
+wprism_check_same(
     $manifestsBefore,
     bp_manifest_digests($repoRoot),
     'and no adapter-package or platform-library byte moved across the whole suite — including the runs that read '
     . 'the shipped library — because those bytes are identity and a job that moved one would re-pin the fleet'
 );
 
-duo_check_summary('adapter boundary proposals');
+wprism_check_summary('adapter boundary proposals');

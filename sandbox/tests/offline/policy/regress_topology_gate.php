@@ -27,11 +27,11 @@ declare(strict_types=1);
  *   7. `AdapterRegistry::report()` reports topology ONCE, at report level,
  *      without contaminating any per-adapter verdict.
  *
- * TOPOLOGY FIXTURE GLOBAL. `$GLOBALS['duo_topology_multisite']` is this
+ * TOPOLOGY FIXTURE GLOBAL. `$GLOBALS['wprism_topology_multisite']` is this
  * suite's name for the answer `is_multisite()` gives, and the same name the
  * cli/adapter extensions use. It is deliberately a THIRD name beside
  * regress_platform_compatibility.php's `$GLOBALS['platform_multisite']` and
- * regress_adapter_contract.php's `$GLOBALS['duo_test_is_multisite']`: each of
+ * regress_adapter_contract.php's `$GLOBALS['wprism_test_is_multisite']`: each of
  * those is private to a suite that declares its own `is_multisite()` for its
  * own subject, and none of them is shared infrastructure. Renaming them would
  * be a reformat of two unrelated suites; sharing one of them would imply an
@@ -47,13 +47,13 @@ require_once __DIR__ . '/../../lib/check.php';
 
 $root = dirname(__DIR__, 4);
 
-$GLOBALS['duo_topology_multisite'] = false;
+$GLOBALS['wprism_topology_multisite'] = false;
 function is_multisite(): bool {
-    return (bool) $GLOBALS['duo_topology_multisite'];
+    return (bool) $GLOBALS['wprism_topology_multisite'];
 }
 
 require_once __DIR__ . '/../../lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 if (!defined('WPINC')) {
     define('WPINC', 'wp-includes');
 }
@@ -63,18 +63,18 @@ if (!defined('WPINC')) {
 // ---------------------------------------------------------------------------
 require_once $root . '/agent/src/Kernel/SiteTopology.php';
 
-use Duo\CommandRefusalException;
-use Duo\SiteTopology;
+use WPrism\CommandRefusalException;
+use WPrism\SiteTopology;
 
 // The exact bytes Policy.php threw before the gate moved to Kernel, and the
 // exact bytes sandbox/tests/live/regress_multisite_refusal.sh:63,65 grep for.
-$sentence = 'duo: multisite is unsupported by the certified v1 contract; '
+$sentence = 'wprism: multisite is unsupported by the certified v1 contract; '
     . 'this command is single-site only and refuses before loading policy or mutating state';
 
 SiteTopology::assert_single_site();
-duo_check(true, 'a single-site target passes the Kernel topology gate without a Policy in the process');
+wprism_check(true, 'a single-site target passes the Kernel topology gate without a Policy in the process');
 
-$GLOBALS['duo_topology_multisite'] = true;
+$GLOBALS['wprism_topology_multisite'] = true;
 
 $kernelRefusal = null;
 try {
@@ -82,31 +82,31 @@ try {
 } catch (CommandRefusalException $refusal) {
     $kernelRefusal = $refusal;
 }
-duo_check(
+wprism_check(
     $kernelRefusal instanceof CommandRefusalException,
     'requiring ONLY agent/src/Kernel/SiteTopology.php is enough to refuse a network — the property '
         . 'journal-reset, the promotion-lease verbs and classify depend on, none of which builds a Policy'
 );
-duo_check_same('multisite_unsupported', $kernelRefusal?->reasonCode, 'the refusal carries the reused whole-target reason code');
-duo_check_same($sentence, $kernelRefusal?->getMessage(), 'the operator sentence is byte-identical to the one Policy.php printed');
-duo_check(
+wprism_check_same('multisite_unsupported', $kernelRefusal?->reasonCode, 'the refusal carries the reused whole-target reason code');
+wprism_check_same($sentence, $kernelRefusal?->getMessage(), 'the operator sentence is byte-identical to the one Policy.php printed');
+wprism_check(
     $kernelRefusal !== null
         && str_contains($kernelRefusal->publicMessage, 'multisite is unsupported by the certified v1 contract')
         && str_contains($kernelRefusal->publicMessage, 'single-site only'),
     'the PUBLIC message carries both sentences the live suite greps, so JSON and human mode say the same thing'
 );
-duo_check(
-    $kernelRefusal !== null && !str_starts_with($kernelRefusal->publicMessage, 'duo: '),
-    'and drops the `duo: ` prefix, which Cli.php calls a human-rendering convention only'
+wprism_check(
+    $kernelRefusal !== null && !str_starts_with($kernelRefusal->publicMessage, 'wprism: '),
+    'and drops the `wprism: ` prefix, which Cli.php calls a human-rendering convention only'
 );
-duo_check(
+wprism_check(
     $kernelRefusal !== null
         && !$kernelRefusal->detailsRedacted
         && !CommandRefusalException::containsSensitivePublicDetail($kernelRefusal->payload())
         && !array_key_exists('details_redacted', $kernelRefusal->payload()),
     'the payload survives the sensitivity screen intact: no path, no value, so a machine caller gets a named reason'
 );
-duo_check_same(
+wprism_check_same(
     'multisite_unsupported',
     $kernelRefusal?->payload()['error'] ?? null,
     'and publishes that reason as the envelope error, not as an unclassified <command>_failed'
@@ -134,28 +134,28 @@ final class TopologyGateHostileWpdb {
 
 $GLOBALS['wpdb'] = new TopologyGateHostileWpdb();
 require_once $root . '/sandbox/tests/lib/wp_stubs.php';
-duo_wp_store()->version = '7.0.3';
+wprism_wp_store()->version = '7.0.3';
 
 require_once $root . '/agent/src/Policy/Policy.php';
 
 $policyRefusal = null;
 try {
-    Duo\Policy::load('/definitely-missing-topology-gate-repository');
+    WPrism\Policy::load('/definitely-missing-topology-gate-repository');
 } catch (Throwable $failure) {
     $policyRefusal = $failure;
 }
-duo_check(
+wprism_check(
     $policyRefusal instanceof CommandRefusalException,
     'Policy::load() on a network throws the TYPED refusal — a bare RuntimeException is not in '
         . 'Cli::PUBLIC_REFUSAL_CLASSES and was published as <command>_failed with details_redacted'
 );
-duo_check_same('multisite_unsupported', $policyRefusal instanceof CommandRefusalException ? $policyRefusal->reasonCode : null, 'Policy::load() delegates to the one Kernel gate');
-duo_check_same($sentence, $policyRefusal?->getMessage(), 'and human mode still prints the identical sentence through WP_CLI::error($t->getMessage())');
-duo_check(
-    $policyRefusal !== null && !str_contains($policyRefusal->getMessage(), 'site.duo.json'),
+wprism_check_same('multisite_unsupported', $policyRefusal instanceof CommandRefusalException ? $policyRefusal->reasonCode : null, 'Policy::load() delegates to the one Kernel gate');
+wprism_check_same($sentence, $policyRefusal?->getMessage(), 'and human mode still prints the identical sentence through WP_CLI::error($t->getMessage())');
+wprism_check(
+    $policyRefusal !== null && !str_contains($policyRefusal->getMessage(), 'site.wprism.json'),
     'the topology refusal precedes the first repository read'
 );
-duo_check_same(
+wprism_check_same(
     0,
     $GLOBALS['wpdb']->reads,
     'and precedes the platform gate: a hostile database probe is never reached, so a network is never told '
@@ -168,37 +168,37 @@ duo_check_same(
 require_once $root . '/sandbox/tests/lib/FakeWpdb.php';
 require_once $root . '/agent/src/Repository/Journal.php';
 
-$journalWpdb = new \DuoTest\FakeWpdb();
+$journalWpdb = new \WPrismTest\FakeWpdb();
 $GLOBALS['wpdb'] = $journalWpdb;
 
-$booted = new ReflectionProperty(Duo\Journal::class, 'booted');
+$booted = new ReflectionProperty(WPrism\Journal::class, 'booted');
 $booted->setValue(null, false);
 
-Duo\Journal::boot();
-duo_check_same(
+WPrism\Journal::boot();
+wprism_check_same(
     [],
-    duo_wp_store()->sortedHooks('query'),
+    wprism_wp_store()->sortedHooks('query'),
     'Journal::boot() on a network registers no `query` observer: the shutdown flush reaches Ledger::ensure() '
         . "and its four CREATE TABLEs against the SERVING blog's prefix, residue no rollback removes"
 );
-duo_check_same([], duo_wp_store()->sortedHooks('shutdown'), 'and registers no `shutdown` flush');
-duo_check_same([], $journalWpdb->queryLog(), 'and issues zero queries — declining, not refusing: boot() runs in every request of every blog');
+wprism_check_same([], wprism_wp_store()->sortedHooks('shutdown'), 'and registers no `shutdown` flush');
+wprism_check_same([], $journalWpdb->queryLog(), 'and issues zero queries — declining, not refusing: boot() runs in every request of every blog');
 
 $booted->setValue(null, false);
-$GLOBALS['duo_topology_multisite'] = false;
-Duo\Journal::boot();
-duo_check(
-    count(duo_wp_store()->sortedHooks('query')) === 1 && count(duo_wp_store()->sortedHooks('shutdown')) === 1,
+$GLOBALS['wprism_topology_multisite'] = false;
+WPrism\Journal::boot();
+wprism_check(
+    count(wprism_wp_store()->sortedHooks('query')) === 1 && count(wprism_wp_store()->sortedHooks('shutdown')) === 1,
     'while a single-site target still boots the journal exactly as before'
 );
-$GLOBALS['duo_topology_multisite'] = true;
+$GLOBALS['wprism_topology_multisite'] = true;
 
 // ---------------------------------------------------------------------------
 // 6. The negative vocabulary pin.
 // ---------------------------------------------------------------------------
 require_once $root . '/cli/src/Assess/SurfaceCatalog.php';
 
-$vocabulary = new ReflectionClass(Duo\Orchestrator\ProjectionVocabulary::class);
+$vocabulary = new ReflectionClass(WPrism\Orchestrator\ProjectionVocabulary::class);
 $blockerVocabulary = [];
 foreach ($vocabulary->getConstants() as $name => $value) {
     if (!str_starts_with($name, 'BLOCKER')) {
@@ -208,20 +208,20 @@ foreach ($vocabulary->getConstants() as $name => $value) {
         $blockerVocabulary[] = (string) $code;
     }
 }
-duo_check(
+wprism_check(
     $blockerVocabulary !== [],
     'the registry blocker vocabulary was actually read (a rename of the BLOCKERS_* constants must not silently '
         . 'turn the two pins below into vacuous truths)'
 );
 foreach (['multisite_unsupported', 'site_mode_unsupported'] as $code) {
-    duo_check(
+    wprism_check(
         !in_array($code, $blockerVocabulary, true),
         "'$code' is absent from every ProjectionVocabulary::BLOCKER* array — agent refusal reason codes and "
             . 'registry blocker codes are separate namespaces, and the host retired this one from the latter '
             . '(cli/src/Contract/ProjectionVocabulary.php:219-235)'
     );
-    duo_check(
-        !in_array($code, Duo\Orchestrator\SurfaceCatalog::CONDITION_CODES, true),
+    wprism_check(
+        !in_array($code, WPrism\Orchestrator\SurfaceCatalog::CONDITION_CODES, true),
         "'$code' is not a SurfaceCatalog condition code either, so it can never be re-filed as a per-surface row"
     );
 }
@@ -229,9 +229,9 @@ foreach (['multisite_unsupported', 'site_mode_unsupported'] as $code) {
 // ---------------------------------------------------------------------------
 // 7. One whole-report blocker, zero per-adapter contamination.
 // ---------------------------------------------------------------------------
-$adapterLibrary = Duo\AdapterLibrary::fromSourceTree($root);
-$dispositions = Duo\ManifestDispositions::load_library($adapterLibrary);
-duo_check($dispositions !== null, 'the shipped reviewed disposition registry loads');
+$adapterLibrary = WPrism\AdapterLibrary::fromSourceTree($root);
+$dispositions = WPrism\ManifestDispositions::load_library($adapterLibrary);
+wprism_check($dispositions !== null, 'the shipped reviewed disposition registry loads');
 
 $coreManifest = json_decode(
     (string) file_get_contents($adapterLibrary->package('core')?->manifestPath() ?? ''),
@@ -249,31 +249,31 @@ $target = static fn(bool $multisite): array => [
     'themes' => [],
 ];
 
-$singleSiteReport = Duo\AdapterRegistry::report($dispositions, [$coreManifest], [], $target(false));
-$multisiteReport = Duo\AdapterRegistry::report($dispositions, [$coreManifest], [], $target(true));
+$singleSiteReport = WPrism\AdapterRegistry::report($dispositions, [$coreManifest], [], $target(false));
+$multisiteReport = WPrism\AdapterRegistry::report($dispositions, [$coreManifest], [], $target(true));
 
-duo_check_json_equal(
+wprism_check_json_equal(
     $singleSiteReport['manifests'],
     $multisiteReport['manifests'],
     'every manifest row — verdict status and reasons included — is byte-identical between the two runs: '
         . 'topology contaminates no per-adapter verdict'
 );
-duo_check_same(
+wprism_check_same(
     count($singleSiteReport['blockers']) + 1,
     count($multisiteReport['blockers']),
-    'a network adds exactly ONE blocker to duo-capability-report/v1'
+    'a network adds exactly ONE blocker to wprism-capability-report/v1'
 );
 $added = array_values(array_filter(
     $multisiteReport['blockers'],
     static fn(array $row): bool => ($row['code'] ?? null) === 'site_mode_unsupported'
 ));
-duo_check_same('platform', $added[0]['name'] ?? null, "and it is reported at report level under name 'platform', never against a manifest or a profile: surface");
-duo_check_same('blocked', $added[0]['status'] ?? null, 'with the blocked status every other blocker row carries');
-duo_check_same(false, $multisiteReport['ready'], "`ready` is `\$blockers === []`, so it flips to false — which is the whole point of the row");
-duo_check_same(
+wprism_check_same('platform', $added[0]['name'] ?? null, "and it is reported at report level under name 'platform', never against a manifest or a profile: surface");
+wprism_check_same('blocked', $added[0]['status'] ?? null, 'with the blocked status every other blocker row carries');
+wprism_check_same(false, $multisiteReport['ready'], "`ready` is `\$blockers === []`, so it flips to false — which is the whole point of the row");
+wprism_check_same(
     $singleSiteReport['ready'],
-    Duo\AdapterRegistry::report($dispositions, [$coreManifest], [], $target(false))['ready'],
+    WPrism\AdapterRegistry::report($dispositions, [$coreManifest], [], $target(false))['ready'],
     'and a single-site report is unchanged, readiness included'
 );
 
-duo_check_summary('topology gate');
+wprism_check_summary('topology gate');

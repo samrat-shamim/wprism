@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
-use Duo\Tooling\OfflineCorpus;
+use WPrism\Tooling\OfflineCorpus;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -36,7 +36,7 @@ final class OfflineCorpusTest extends TestCase
 
     private static function repoRoot(): string
     {
-        $env = getenv('DUO_REPO_ROOT');
+        $env = getenv('WPRISM_REPO_ROOT');
 
         return is_string($env) && $env !== '' ? $env : dirname(__DIR__, 2);
     }
@@ -89,7 +89,7 @@ final class OfflineCorpusTest extends TestCase
      */
     private function fixtureRoot(string $makefileTail = '', array $extraFiles = []): string
     {
-        $root = sys_get_temp_dir() . '/duo-offline-corpus-' . bin2hex(random_bytes(6));
+        $root = sys_get_temp_dir() . '/wprism-offline-corpus-' . bin2hex(random_bytes(6));
         $this->roots[] = $root;
         $files = [
             'sandbox/tests/offline_diagnostics_guard.sh' => "# synthetic guard\n",

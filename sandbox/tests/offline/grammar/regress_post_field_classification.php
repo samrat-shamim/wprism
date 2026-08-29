@@ -21,8 +21,8 @@
 if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 3);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 3);
 }
 
 function get_option(string $name) {
@@ -57,14 +57,14 @@ require __DIR__ . '/../../../../agent/src/Repository/CompiledArtifact.php';
 require __DIR__ . '/../../../../agent/src/Apply/Apply.php';
 require __DIR__ . '/../policy/manifest_fixtures.php';
 
-use Duo\Apply;
-use Duo\Canon;
-use Duo\CompiledRepository;
-use Duo\OptionState;
-use Duo\Policy;
-use Duo\RepositoryAuthorization;
-use Duo\RepositoryAuthorizationException;
-use Duo\Tokens;
+use WPrism\Apply;
+use WPrism\Canon;
+use WPrism\CompiledRepository;
+use WPrism\OptionState;
+use WPrism\Policy;
+use WPrism\RepositoryAuthorization;
+use WPrism\RepositoryAuthorizationException;
+use WPrism\Tokens;
 
 final class PostFieldFakeWpdb {
     public string $prefix = 'wp_';
@@ -100,7 +100,7 @@ final class PostFieldFakeWpdb {
         if ($sql === 'SELECT 1 FROM `wp_postmeta` LIMIT 1') {
             return '1';
         }
-        if (str_contains($sql, 'SELECT local_id FROM wp_duo_map')) {
+        if (str_contains($sql, 'SELECT local_id FROM wp_wprism_map')) {
             preg_match("/uuid = '([^']+)'/", $sql, $m);
             return $this->map[$m[1] ?? ''] ?? null;
         }
@@ -375,22 +375,22 @@ function option_authorization_diagnostics(Policy $policy, array $document): arra
     }
 }
 
-function apply_instance(Policy $policy, Tokens $tokens, string $repositoryRoot): \Duo\PostMaterializer {
-    $fieldMaterializer = new \Duo\ApplyFieldMaterializer($policy, $tokens);
+function apply_instance(Policy $policy, Tokens $tokens, string $repositoryRoot): \WPrism\PostMaterializer {
+    $fieldMaterializer = new \WPrism\ApplyFieldMaterializer($policy, $tokens);
     $fieldMaterializer->begin_authored_transaction();
-    \Duo\CacheInvalidationTransaction::begin();
+    \WPrism\CacheInvalidationTransaction::begin();
     $compiled = (new ReflectionClass(CompiledRepository::class))->newInstanceWithoutConstructor();
-    return new \Duo\PostMaterializer(
+    return new \WPrism\PostMaterializer(
         $policy,
         $tokens,
         $fieldMaterializer,
-        new \Duo\RelationshipMaterializer($policy, $fieldMaterializer),
-        new \Duo\AttachmentMaterializer($policy, $fieldMaterializer, $compiled, $repositoryRoot)
+        new \WPrism\RelationshipMaterializer($policy, $fieldMaterializer),
+        new \WPrism\AttachmentMaterializer($policy, $fieldMaterializer, $compiled, $repositoryRoot)
     );
 }
 
 $root = dirname(__DIR__, 4);
-$fixtureDir = sys_get_temp_dir() . '/duo_regress_post_fields_' . bin2hex(random_bytes(4));
+$fixtureDir = sys_get_temp_dir() . '/wprism_regress_post_fields_' . bin2hex(random_bytes(4));
 mkdir($fixtureDir, 0777, true);
 register_shutdown_function(static function () use ($fixtureDir): void {
     if (!is_dir($fixtureDir)) {
@@ -408,7 +408,7 @@ register_shutdown_function(static function () use ($fixtureDir): void {
 
 $validManifest = [
     'name' => 'woo-fields',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => [
         'product' => [
             'fields' => [
@@ -428,12 +428,12 @@ $validManifest = [
 write_manifest($fixtureDir, 'woo-fields', $validManifest);
 write_manifest($fixtureDir, 'bad-field-name', [
     'name' => 'bad-field-name',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => ['product' => ['fields' => ['slug' => ['class' => 'derived']]]],
 ]);
 write_manifest($fixtureDir, 'bad-field-class', [
     'name' => 'bad-field-class',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => ['product' => ['fields' => ['modified' => ['class' => 'runtime']]]],
 ]);
 $fixtureLibrary = manifest_fixture_adapter_library($fixtureDir);
@@ -455,7 +455,7 @@ check($policy->field_class('product', 'modified') === 'derived', 'fixture produc
 check($policy->field_class('product_variation', 'modified_gmt') === 'derived', 'fixture product_variation.modified_gmt is derived');
 check($policy->field_class('article', 'modified') === 'authored', 'undeclared post type keeps modified authored');
 
-$sourceLibrary = \Duo\AdapterLibrary::fromSourceTree($root);
+$sourceLibrary = \WPrism\AdapterLibrary::fromSourceTree($root);
 $realWooPolicy = Policy::load(null, ['woocommerce'], adapterLibrary: $sourceLibrary);
 check($realWooPolicy->field_class('product', 'modified') === 'derived', 'shipped Woo manifest declares product.modified derived');
 check($realWooPolicy->field_class('product', 'modified_gmt') === 'derived', 'shipped Woo manifest declares product.modified_gmt derived');
@@ -686,7 +686,7 @@ check(
 $deletionEntity = [
     'path' => 'deletions/' . $uuid . '.json',
     'hash' => hash('sha256', Canon::encode([
-        'format' => 'duo-deletion/v1',
+        'format' => 'wprism-deletion/v1',
         'kind' => 'post',
         'type' => 'product',
         'uuid' => $uuid,
@@ -698,7 +698,7 @@ check(
 );
 $changedDeletionEntity = $deletionEntity;
 $changedDeletionEntity['hash'] = hash('sha256', Canon::encode([
-    'format' => 'duo-deletion/v1',
+    'format' => 'wprism-deletion/v1',
     'kind' => 'post',
     'type' => 'product',
     'uuid' => '018f0000-0000-7000-8000-000000000099',
@@ -820,7 +820,7 @@ check(
 $wpdb->map = [];
 $wpdb->inserts = [];
 $newProduct = post_front('product', '018f0000-0000-7000-8000-000000000005', '2026-08-08 00:00:04');
-// DUO-3347 slice 10: ensure_post_row() moved from Apply onto
+// issue #3347 slice 10: ensure_post_row() moved from Apply onto
 // PostMaterializer (Apply keeps only the facade). Fetched via Apply's own
 // post_materializer() factory rather than hand-built, so this test's
 // PostMaterializer is wired with the exact same Tokens instance the real

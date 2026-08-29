@@ -18,7 +18,7 @@ function add_filter(...$args): void {}
 function add_action(...$args): void {}
 function untrailingslashit($value): string { return rtrim((string) $value, '/\\'); }
 function wp_upload_dir($time = null, $create = true, $refresh = false): array {
-    return ['baseurl' => 'https://example.test/wp-content/uploads', 'basedir' => '/tmp/duo-uploads'];
+    return ['baseurl' => 'https://example.test/wp-content/uploads', 'basedir' => '/tmp/wprism-uploads'];
 }
 function get_post_types($args = [], $output = 'names'): array { return []; }
 function get_taxonomies($args = [], $output = 'names'): array { return []; }
@@ -153,11 +153,11 @@ final class LifecycleOptionsFakeWpdb {
             $this->savepointExists = false;
             return 1;
         }
-        if (preg_match('/^SAVEPOINT `duo_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
+        if (preg_match('/^SAVEPOINT `wprism_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
             $this->savepointExists = true;
             return 1;
         }
-        if (preg_match('/^RELEASE SAVEPOINT `duo_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
+        if (preg_match('/^RELEASE SAVEPOINT `wprism_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
             if (!$this->savepointExists) {
                 $this->last_error = 'SAVEPOINT does not exist';
                 return false;
@@ -165,7 +165,7 @@ final class LifecycleOptionsFakeWpdb {
             $this->savepointExists = false;
             return 1;
         }
-        if (preg_match('/DELETE m FROM wp_duo_map m LEFT JOIN `wp_([A-Za-z0-9_]+)` src ON src.`([A-Za-z0-9_]+)` = m\.local_id/', $sql, $m)) {
+        if (preg_match('/DELETE m FROM wp_wprism_map m LEFT JOIN `wp_([A-Za-z0-9_]+)` src ON src.`([A-Za-z0-9_]+)` = m\.local_id/', $sql, $m)) {
             $kind = (string) ($args[0] ?? '');
             $table = (string) $m[1];
             $pk = (string) $m[2];
@@ -362,7 +362,7 @@ final class LifecycleOptionsFakeWpdb {
             $ownerId = (int) $args[0];
             $uuid = $this->termUuidById[$ownerId] ?? null;
             return $uuid === null ? [] : [[
-                'meta_key' => '_duo_uuid',
+                'meta_key' => '_wprism_uuid',
                 'meta_value' => $uuid,
                 'meta_value_bytes' => (string) strlen($uuid),
             ]];
@@ -482,7 +482,7 @@ final class LifecycleOptionsFakeWpdb {
                 ? (string) ($args[0] ?? '')
                 : null;
         }
-        if (str_contains($sql, 'SELECT uuid FROM wp_duo_map') && count($args) >= 2) {
+        if (str_contains($sql, 'SELECT uuid FROM wp_wprism_map') && count($args) >= 2) {
             foreach ($this->map as $entry) {
                 if ($entry['kind'] === (string) $args[0] && (int) $entry['id'] === (int) $args[1]) {
                     return $entry['uuid'];
@@ -490,7 +490,7 @@ final class LifecycleOptionsFakeWpdb {
             }
             return null;
         }
-        if (str_contains($sql, 'SELECT local_id FROM wp_duo_map') && count($args) >= 2) {
+        if (str_contains($sql, 'SELECT local_id FROM wp_wprism_map') && count($args) >= 2) {
             foreach ($this->map as $entry) {
                 if ($entry['uuid'] === (string) $args[0] && $entry['kind'] === (string) $args[1]) {
                     return $entry['id'];
@@ -643,15 +643,15 @@ require_once __DIR__ . '/../../../../agent/src/Capture/Capture.php';
 require_once __DIR__ . '/../../../../agent/src/Promotion/Deploy.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/Apply.php';
 
-use Duo\Canon;
-use Duo\Capture;
-use Duo\CompiledRepository;
-use Duo\Deploy;
-use Duo\Apply;
-use Duo\OptionState;
-use Duo\Policy;
-use Duo\PlainData;
-use Duo\SidebarState;
+use WPrism\Canon;
+use WPrism\Capture;
+use WPrism\CompiledRepository;
+use WPrism\Deploy;
+use WPrism\Apply;
+use WPrism\OptionState;
+use WPrism\Policy;
+use WPrism\PlainData;
+use WPrism\SidebarState;
 
 $failures = 0;
 $check = static function (bool $condition, string $message) use (&$failures): void {
@@ -667,14 +667,14 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
 // already-current ledger. Long Woo table names require the widened schema,
 // so ensure() must stop before it can leave a legacy VARCHAR(32) in service.
 foreach ([
-    'entity_type' => 'schema width lookup for duo_map.entity_type',
-    'id_kind' => 'schema width lookup for duo_map.id_kind',
+    'entity_type' => 'schema width lookup for wprism_map.entity_type',
+    'id_kind' => 'schema width lookup for wprism_map.id_kind',
 ] as $column => $context) {
     $wpdb->queries = [];
     $wpdb->schemaProbeErrorColumn = $column;
     $schemaProbeRefused = false;
     try {
-        \Duo\Ledger::ensure();
+        \WPrism\Ledger::ensure();
     } catch (Throwable $e) {
         $schemaProbeRefused = str_contains($e->getMessage(), 'ledger read failed: ' . $context);
     }
@@ -753,19 +753,19 @@ $materializerPolicy->site['policy']['options']['owned_blob'] = [
     ],
 ];
 $ownedBlobRule = $materializerPolicy->site['policy']['options']['owned_blob'];
-$materializerTokens = new \Duo\Tokens();
-$fieldMaterializer = new \Duo\ApplyFieldMaterializer($materializerPolicy, $materializerTokens);
+$materializerTokens = new \WPrism\Tokens();
+$fieldMaterializer = new \WPrism\ApplyFieldMaterializer($materializerPolicy, $materializerTokens);
 $fieldMaterializer->begin_authored_transaction();
-\Duo\CacheInvalidationTransaction::begin();
-$apply = new \Duo\MenuMaterializer($materializerPolicy, $materializerTokens, $fieldMaterializer);
-$assignLocations = new ReflectionMethod(\Duo\MenuMaterializer::class, 'assign_locations');
-// DUO-3347 slice 7: apply_option_sub_keys() moved from Apply onto
+\WPrism\CacheInvalidationTransaction::begin();
+$apply = new \WPrism\MenuMaterializer($materializerPolicy, $materializerTokens, $fieldMaterializer);
+$assignLocations = new ReflectionMethod(\WPrism\MenuMaterializer::class, 'assign_locations');
+// issue #3347 slice 7: apply_option_sub_keys() moved from Apply onto
 // OptionsMaterializer (Apply keeps only apply_options() as a facade). Fetched
 // via Apply's own options_materializer() factory rather than hand-built, so
 // this test's OptionsMaterializer is wired with the exact same Policy/Tokens/
 // ApplyFieldMaterializer instances the real facade would use.
-$applyOptionSubKeys = new ReflectionMethod(\Duo\OptionsMaterializer::class, 'apply_option_sub_keys');
-$optionsMaterializer = new \Duo\OptionsMaterializer(
+$applyOptionSubKeys = new ReflectionMethod(\WPrism\OptionsMaterializer::class, 'apply_option_sub_keys');
+$optionsMaterializer = new \WPrism\OptionsMaterializer(
     $materializerPolicy,
     $materializerTokens,
     $fieldMaterializer
@@ -798,7 +798,7 @@ $wpdb->optionRows['theme_mods_fixture-theme']['option_value'] = serialize([
 $wpdb->writes = [];
 $assignLocations->invoke($apply, 42, []);
 $deleteLocationWrite = $wpdb->writes[array_key_last($wpdb->writes)] ?? null;
-// DUO-3347 slice 12 moved delete_entity() itself off Apply onto
+// issue #3347 slice 12 moved delete_entity() itself off Apply onto
 // DeleteExecutor, which calls assign_locations() on its own
 // constructor-injected MenuMaterializer directly rather than through
 // Apply's facade (the same "calling back through Apply would be circular"
@@ -845,7 +845,7 @@ $applyOptionSubKeys->invokeArgs($optionsMaterializer, [
     'owned_blob',
     ['owned' => 'new'],
     $ownedBlobRule,
-    'site.duo.json',
+    'site.wprism.json',
     'yes',
     &$subKeysWarnings,
 ]);
@@ -867,7 +867,7 @@ try {
         'owned_blob',
         ['owned' => 'new'],
         $ownedBlobRule,
-        'site.duo.json',
+        'site.wprism.json',
         'yes',
         &$aliasWarnings,
     ]);
@@ -886,7 +886,7 @@ try {
         'owned_blob',
         ['owned' => 'new'],
         $ownedBlobRule,
-        'site.duo.json',
+        'site.wprism.json',
         'yes',
         &$ambiguousWarnings,
     ]);
@@ -906,7 +906,7 @@ foreach (['0', '01', '1.0', '1junk', 1, false, null] as $transactionState) {
             'owned_blob',
             ['owned' => 'new'],
             $ownedBlobRule,
-            'site.duo.json',
+            'site.wprism.json',
             'yes',
             &$transactionWarnings,
         ]);
@@ -927,7 +927,7 @@ try {
         'owned_blob',
         ['owned' => 'new'],
         $ownedBlobRule,
-        'site.duo.json',
+        'site.wprism.json',
         'yes',
         &$transactionWarnings,
     ]);
@@ -946,7 +946,7 @@ try {
         'owned_blob',
         ['owned' => 'new'],
         $ownedBlobRule,
-        'site.duo.json',
+        'site.wprism.json',
         'yes',
         &$restartWarnings,
     ]);
@@ -969,7 +969,7 @@ try {
         'owned_blob',
         ['owned' => 'new'],
         $ownedBlobRule,
-        'site.duo.json',
+        'site.wprism.json',
         'yes',
         &$hostileTableWarnings,
     ]);
@@ -995,7 +995,7 @@ try {
         'owned_blob',
         ['owned' => 'new'],
         $ownedBlobRule,
-        'site.duo.json',
+        'site.wprism.json',
         'yes',
         &$closedWarnings,
     ]);
@@ -1335,10 +1335,10 @@ $nativePolicy->manifests = [[
 ]];
 $nativeInstances = new ReflectionProperty(Policy::class, 'interpreterInstances');
 $nativeInstances->setValue($nativePolicy, ['native-lock-fixture' => $nativeInterpreter]);
-$nativeMaterializer = new \Duo\OptionsMaterializer(
+$nativeMaterializer = new \WPrism\OptionsMaterializer(
     $nativePolicy,
     $materializerTokens,
-    new \Duo\ApplyFieldMaterializer($nativePolicy, $materializerTokens)
+    new \WPrism\ApplyFieldMaterializer($nativePolicy, $materializerTokens)
 );
 $invokeNative = static function (string $autoload = 'yes', array $captured = ['portable' => 'desired']) use (
     $applyOptionSubKeys,
@@ -2135,7 +2135,7 @@ $check(
 );
 $nativeState->requested = 'pll_language_from_content_available';
 $wpdb->optionRows['pll_language_from_content_available'] = ['option_value' => 'yes', 'autoload' => 'no'];
-foreach (\Duo\OptionState::AUTOLOAD_VALUES as $autoloadValue) {
+foreach (\WPrism\OptionState::AUTOLOAD_VALUES as $autoloadValue) {
     $wpdb->optionRows['native_blob'] = [
         'option_value' => serialize(['portable' => 'old']),
         'autoload' => $autoloadValue === 'yes' ? 'no' : 'yes',
@@ -2224,7 +2224,7 @@ try {
         'owned_blob',
         ['owned' => 'new'],
         $ownedBlobRule,
-        'site.duo.json',
+        'site.wprism.json',
         'yes',
         &$objectRejectWarnings,
     ]);
@@ -2322,7 +2322,7 @@ $check(
     $narrowWithStaleMap['options/core']['hash'] === $lifecycle['options/core']['hash'],
     'stale option-name identity cannot change narrow canonical options hash'
 );
-$tokens = new Duo\Tokens();
+$tokens = new WPrism\Tokens();
 $check($tokens->id_to_token(42, 'wc_zone_method') === null, 'deleted custom row cannot mint an orphan option token');
 $orphanRejected = false;
 try {
@@ -2428,7 +2428,7 @@ $check(
 // private method with one menu term so this regression proves the exact SQL,
 // native array/scalar behavior, and the no-hook object boundary at the point
 // where locations are actually consumed.
-$captureForMenus = new \Duo\CaptureCandidateBuilder('/unused', $policy(false));
+$captureForMenus = new \WPrism\CaptureCandidateBuilder('/unused', $policy(false));
 $captureOptionRowsBeforeMenus = $wpdb->optionRows;
 $wpdb->menuTerms = [(object) [
     'term_id' => 7,
@@ -2592,18 +2592,18 @@ $wpdb->transactionState = '1';
 $fieldMaterializer->begin_authored_transaction();
 SidebarState::begin_authored_transaction(
     static fn(string $name, string $purpose): ?array =>
-        \Duo\CacheInvalidationTransaction::lock_option_row($name, $purpose),
+        \WPrism\CacheInvalidationTransaction::lock_option_row($name, $purpose),
     static function (string $name, string $purpose): void {
-        \Duo\CacheInvalidationTransaction::queue_option($name, $purpose);
+        \WPrism\CacheInvalidationTransaction::queue_option($name, $purpose);
     },
     static function (string $name, string $value, string $autoload, string $purpose): void {
-        \Duo\CacheInvalidationTransaction::assert_option_row($name, $value, $autoload, $purpose);
+        \WPrism\CacheInvalidationTransaction::assert_option_row($name, $value, $autoload, $purpose);
     }
 );
 SidebarState::ensure_widgets($sidebarPolicy, $selectedSidebarTree);
 $allocatedWidgetUuids = [];
 foreach ($wpdb->queryCalls as $call) {
-    if (str_contains($call['sql'], 'INSERT INTO wp_duo_map')) {
+    if (str_contains($call['sql'], 'INSERT INTO wp_wprism_map')) {
         $allocatedWidgetUuids[] = (string) ($call['args'][0] ?? '');
     }
 }
@@ -2722,12 +2722,12 @@ $wpdb->transactionState = '1';
 $fieldMaterializer->begin_authored_transaction();
 SidebarState::begin_authored_transaction(
     static fn(string $name, string $purpose): ?array =>
-        \Duo\CacheInvalidationTransaction::lock_option_row($name, $purpose),
+        \WPrism\CacheInvalidationTransaction::lock_option_row($name, $purpose),
     static function (string $name, string $purpose): void {
-        \Duo\CacheInvalidationTransaction::queue_option($name, $purpose);
+        \WPrism\CacheInvalidationTransaction::queue_option($name, $purpose);
     },
     static function (string $name, string $value, string $autoload, string $purpose): void {
-        \Duo\CacheInvalidationTransaction::assert_option_row($name, $value, $autoload, $purpose);
+        \WPrism\CacheInvalidationTransaction::assert_option_row($name, $value, $autoload, $purpose);
     }
 );
 SidebarState::finalize_sidebar(
@@ -2788,12 +2788,12 @@ $inactiveMoveTree = [
 $fieldMaterializer->begin_authored_transaction();
 SidebarState::begin_authored_transaction(
     static fn(string $name, string $purpose): ?array =>
-        \Duo\CacheInvalidationTransaction::lock_option_row($name, $purpose),
+        \WPrism\CacheInvalidationTransaction::lock_option_row($name, $purpose),
     static function (string $name, string $purpose): void {
-        \Duo\CacheInvalidationTransaction::queue_option($name, $purpose);
+        \WPrism\CacheInvalidationTransaction::queue_option($name, $purpose);
     },
     static function (string $name, string $value, string $autoload, string $purpose): void {
-        \Duo\CacheInvalidationTransaction::assert_option_row($name, $value, $autoload, $purpose);
+        \WPrism\CacheInvalidationTransaction::assert_option_row($name, $value, $autoload, $purpose);
     }
 );
 SidebarState::finalize_sidebar(
@@ -2894,12 +2894,12 @@ $finalizeContentlessSidebar = static function (array $widgets) use (
     $fieldMaterializer->begin_authored_transaction();
     SidebarState::begin_authored_transaction(
         static fn(string $name, string $purpose): ?array =>
-            \Duo\CacheInvalidationTransaction::lock_option_row($name, $purpose),
+            \WPrism\CacheInvalidationTransaction::lock_option_row($name, $purpose),
         static function (string $name, string $purpose): void {
-            \Duo\CacheInvalidationTransaction::queue_option($name, $purpose);
+            \WPrism\CacheInvalidationTransaction::queue_option($name, $purpose);
         },
         static function (string $name, string $value, string $autoload, string $purpose): void {
-            \Duo\CacheInvalidationTransaction::assert_option_row($name, $value, $autoload, $purpose);
+            \WPrism\CacheInvalidationTransaction::assert_option_row($name, $value, $autoload, $purpose);
         }
     );
     try {

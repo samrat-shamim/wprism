@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
@@ -9,16 +9,16 @@ require_once dirname(__DIR__) . '/Contract/ContractProposal.php';
 require_once __DIR__ . '/GapActions.php';
 require_once __DIR__ . '/StackInventory.php';
 
-use Duo\Canon;
-use Duo\CommandRefusalException;
+use WPrism\Canon;
+use WPrism\CommandRefusalException;
 
 /**
- * The `duo-assess-report/v1` document — the machine form of everything
- * `duo assess` prints, and the only input `duo contract propose` takes
+ * The `wprism-assess-report/v1` document — the machine form of everything
+ * `wprism assess` prints, and the only input `wprism contract propose` takes
  * (round-3 MUP §2.1, §3.4, §4.1).
  *
  * The document's schema is owned by its consumer,
- * `\Duo\Orchestrator\ContractProposal`, which validates it as a closed key
+ * `\WPrism\Orchestrator\ContractProposal`, which validates it as a closed key
  * set at every level. That is deliberate and it is why this class does not
  * re-declare the schema: two copies of a closed key set drift, and the copy
  * that matters is the one the contract refuses on. What lives here is the
@@ -158,7 +158,7 @@ final class AssessReport {
      * next-actions roll-up could not include one. A count is what makes the
      * sample honest: the sample is bounded and the count never is.
      *
-     * @param array<string,mixed> $inventory a `duo-assess-inventory/v1` document
+     * @param array<string,mixed> $inventory a `wprism-assess-inventory/v1` document
      * @return array{pending_count:int,invisible_names_count:int,undeclared_tables_count:int,names_sample:list<string>}
      */
     public static function unknown(array $inventory): array {
@@ -216,7 +216,7 @@ final class AssessReport {
      * library is a different question, and it is answered in the sibling
      * `dispositions` block below rather than here — this block's shape is
      * copied verbatim into `contract.evidence_pins`, so a key added here would
-     * be a contract wire change (DUO-3484).
+     * be a contract wire change (issue #3484).
      *
      * There are no per-subject bundle pins any more. A claim's `evidence` is
      * the authored citation its disposition carries verbatim — a bundle schema
@@ -249,7 +249,7 @@ final class AssessReport {
     }
 
     /**
-     * The comparison `evidence()` had both halves of and never made (DUO-3484).
+     * The comparison `evidence()` had both halves of and never made (issue #3484).
      *
      * Since #477 `registry_sha256` is the content address of the reviewed
      * dispositions — `ManifestDispositions::sha256()`, sha256 over
@@ -293,7 +293,7 @@ final class AssessReport {
      * Read off the report rather than recomputed, because the report is what
      * the renderer projects and what the digest binds, and two answers to one
      * question is how a human view and a machine view start disagreeing. A
-     * report with no block at all predates DUO-3484 and is treated as
+     * report with no block at all predates issue #3484 and is treated as
      * agreeing: it carries no comparison to have failed, and the only
      * documents in that state are stored proposals from an older build, which
      * `accept` already refuses as stale.
@@ -311,7 +311,7 @@ final class AssessReport {
      *
      * ## The window this must not break
      *
-     * Host ≠ target is a LEGITIMATE state. `duo adopt` assembles the package
+     * Host ≠ target is a LEGITIMATE state. `wprism adopt` assembles the package
      * library into `agent/` and tars `agent recovery`
      * (cli/src/Onboarding/Adopt.php), so a managed site answers from the
      * dispositions of the checkout it was last adopted from. The moment an
@@ -321,7 +321,7 @@ final class AssessReport {
      * its steps 1 and 2 (drain, then re-adopt every environment in a pair)
      * happen while the skew is open. So this may not be an unconditional
      * refusal: an operator diagnosing a site mid-upgrade must still get the
-     * assessment. `duo assess` completes, exit 0, with the mismatch as a
+     * assessment. `wprism assess` completes, exit 0, with the mismatch as a
      * first-class block in the document and its own lines in the human view.
      *
      * ## The act that is unsafe, and why it is this one
@@ -340,7 +340,7 @@ final class AssessReport {
      * `SurfaceCatalog`. It is a committed review artifact asserting a
      * provenance that is not true. That is the unsafe act, so the gate sits at
      * the mint: `AssessCommand::writeLocalArtifacts()` withholds
-     * `proposed.json`, and `duo contract propose` / `accept` refuse.
+     * `proposed.json`, and `wprism contract propose` / `accept` refuse.
      *
      * Diagnosis is not the unsafe act and is not gated. Neither is
      * `projection.json`: its pins and its observations are both the TARGET's
@@ -362,7 +362,7 @@ final class AssessReport {
      *
      * Not derivable. A sha256 carries no ordering, and
      * package-owned disposition documents move independently of
-     * `DUO_AGENT_VERSION` (a reviewed-claim edit bumps no version), so there
+     * `WPRISM_AGENT_VERSION` (a reviewed-claim edit bumps no version), so there
      * is no second fact to break the tie. The remediation therefore names both
      * directions rather than guessing one.
      *
@@ -432,7 +432,7 @@ final class AssessReport {
      * The four contract facts the report has no field for
      * (`ContractProposal::fromAssessReport()`'s `$seed`).
      *
-     * All four are read from `duo-assess-inventory/v1`, which the assessing
+     * All four are read from `wprism-assess-inventory/v1`, which the assessing
      * command already holds — inventing report keys for them would put
      * contract inputs into a document whose job is to describe a site.
      *
@@ -440,7 +440,7 @@ final class AssessReport {
      * profile. The env-class option NAMES are not in the inventory: option
      * groups are grouped by declarant and class precisely because listing
      * them per name would be a listing bounded by the site's plugin set
-     * (§4.6). `duo status`'s `env_missing` checklist is the surface that
+     * (§4.6). `wprism status`'s `env_missing` checklist is the surface that
      * names them, and the review step in §3.4 is where they land in the
      * contract.
      *

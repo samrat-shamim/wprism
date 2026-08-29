@@ -29,7 +29,7 @@ release to mup2? [y/N]
         }
     ],
     "code_revision_from": "e2f1a0900000000000000000000000000000000000000000000000000000ffff",
-    "contract_digest": "sha256:f7f036f9e9ec5cc4157504b1300eb602d8c6add5e311fac3af4dd04430ce1ee8",
+    "contract_digest": "sha256:bc05d0e84a7e7cbab699f477bc32c26d602e042382592c518aae774dab20b429",
     "effects": {
         "containment": "live",
         "containment_basis": "unknown — not enforced in this profile",
@@ -40,16 +40,16 @@ release to mup2? [y/N]
             "declared_in": "contract.declarations.external_effects[0]",
             "effect_recovery_semantics": "provider-state restorable",
             "restored_by": "code release",
-            "reviewed_reason": "activation and deactivation hooks run with normal WordPress semantics and Duo enforces no egress control in this profile; reviewed for this site's installed set on 2026-08-17"
+            "reviewed_reason": "activation and deactivation hooks run with normal WordPress semantics and WPrism enforces no egress control in this profile; reviewed for this site's installed set on 2026-08-17"
         },
         "unknown_blocking": []
     },
     "environment": "mup2",
-    "format": "duo-authorization-plan/v1",
+    "format": "wprism-authorization-plan/v1",
     "frozen_at": "2026-08-17T09:14:02Z",
     "inputs_digest": {
         "conditions_sha256": "sha256:37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
-        "plan_sha256": "sha256:584648f2727f5256670dc123087c3c36fcfaf83d1a349c5cac54daeba691c399",
+        "plan_sha256": "sha256:5f94a5165ef8d9b4b0aec4322dfafbf8a2669ed7beec160902763d4687969a24",
         "target_facts_sha256": "sha256:6d7e1e6ba396dce932c29c966679d6eb611377a1d144000f15017ae0b961829b"
     },
     "may_change": {
@@ -77,11 +77,11 @@ release to mup2? [y/N]
             "environment-bound state drift (1)"
         ]
     },
-    "plan_digest": "sha256:001745ed23e639e89dd704d93947c96986ead1c863c126c12342437832c00257",
+    "plan_digest": "sha256:ce5a87ead1888e4244f388201e1d598624f31b4f958d80095273f9bf5870e590",
     "recovery_profile": {
         "checkpoint_at": "2026-08-17T09:14:02Z",
         "claim": {
-            "claim_digest": "sha256:7a2460efaafd8e1690d557c201b1a8ac8bcd7cf73d4916af3f1fd5dab20562a5",
+            "claim_digest": "sha256:dcff2455bcbf5face4b4df1e9e574c1778a87f1112c11764f42d16212511847d",
             "covered_resources": [
                 "database checkpoint"
             ],
@@ -97,7 +97,7 @@ release to mup2? [y/N]
                 "declared external effect \"code-lifecycle-window\" — restored by \"code release\", which the operator-directed profile does not restore",
                 "declared external effect \"transactional-mail\" — recovery semantics: irreversible"
             ],
-            "format": "duo-recovery-claim/v1",
+            "format": "wprism-recovery-claim/v1",
             "maximum_loss_boundary": "writes committed after the checkpoint this release takes immediately before mutation; the instant that checkpoint pins is printed beside this claim",
             "profile": "operator-directed",
             "restores": [

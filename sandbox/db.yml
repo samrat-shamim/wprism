@@ -1,4 +1,4 @@
-name: duo-db
+name: wprism-db
 
 # -----------------------------------------------------------------------------
 # The ONE shared MariaDB server for every sandbox pair (task #74's sandbox
@@ -12,18 +12,18 @@ name: duo-db
 # that wedged the daemon under three concurrent stacks this session.
 #
 # Here, each pair (sandbox/pair.yml) gets two logical databases on THIS one
-# server: wp_${DUO_PAIR}1 / wp_${DUO_PAIR}2. sandbox/bin/pair.sh creates/
+# server: wp_${WPRISM_PAIR}1 / wp_${WPRISM_PAIR}2. sandbox/bin/pair.sh creates/
 # drops those databases (and the shared `wordpress` application user's
 # wildcard grant) — this compose file only brings up the server itself, it
 # never touches per-pair schema.
 #
-# Own compose project (`duo-db`, set via the top-level `name:` below and
-# also passed explicitly as `-p duo-db` by pair.sh) — deliberately separate
-# from every pair's own project (`duo-<name>`, sandbox/pair.yml) so pairs
+# Own compose project (`wprism-db`, set via the top-level `name:` below and
+# also passed explicitly as `-p wprism-db` by pair.sh) — deliberately separate
+# from every pair's own project (`wprism-<name>`, sandbox/pair.yml) so pairs
 # can be created and destroyed freely without this server ever being in
 # their `compose down`/`up --force-recreate` blast radius.
 #
-# Cross-project reachability is via the `duo-shared` external network this
+# Cross-project reachability is via the `wprism-shared` external network this
 # file OWNS: it's declared here WITHOUT `external: true`, so this is the one
 # compose invocation that creates it (on this file's first `up`). Every
 # other file in this redesign (sandbox/pair.yml and its overrides)
@@ -35,21 +35,21 @@ name: duo-db
 # -----------------------------------------------------------------------------
 
 networks:
-  duo-shared:
-    name: duo-shared
+  wprism-shared:
+    name: wprism-shared
 
 volumes:
-  duo-db-data: {}
+  wprism-db-data: {}
 
 services:
   db:
     image: mariadb:11
-    container_name: duo-shared-db
-    networks: [duo-shared]
+    container_name: wprism-shared-db
+    networks: [wprism-shared]
     environment:
       MARIADB_ROOT_PASSWORD: root
     # Admin operations (pair.sh's CREATE/DROP DATABASE, the shared
-    # `wordpress` user's grant) always go through `docker exec duo-shared-db
+    # `wordpress` user's grant) always go through `docker exec wprism-shared-db
     # mysql -uroot ...` — never over this published port. It's bound to
     # loopback only, for the rare case a human wants to point a GUI client
     # (TablePlus, Sequel Ace, ...) at the sandbox fleet's data directly;
@@ -57,7 +57,7 @@ services:
     ports:
       - "127.0.0.1:3316:3306"
     volumes:
-      - duo-db-data:/var/lib/mysql
+      - wprism-db-data:/var/lib/mysql
     # Same healthcheck sandbox/docker-compose.yml's x-db anchor already
     # used per-pair — --innodb_initialized is the part that matters: a
     # server that accepts TCP connections but hasn't finished InnoDB

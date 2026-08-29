@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  # DUO-3285: was `code-half-unit` (12 suites, the code/state-boundary
+  # issue #3285: was `code-half-unit` (12 suites, the code/state-boundary
   # slice only). regress-offline-all is a strict superset -- its own first
   # prerequisite IS code-half-unit -- so this job now also runs the 19
   # other offline (no-docker) suites that existed but had never run in any
@@ -29,7 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: full offline regress corpus (64 suites, no docker)
+      - name: full generated offline regress corpus (no docker)
         run: make regress-offline-all
 
       - name: evidence freshness and generated product claims

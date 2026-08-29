@@ -1,18 +1,18 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 // Two requires, and each earns its place. materializeLocked() renders the
 // refresh code-resolve phases through CodeResolveCommand, and this file is
-// loaded directly — without cli/duo's load order — by
+// loaded directly — without cli/wprism's load order — by
 // sandbox/tests/offline/environment/regress_rehearse_provider.php. Relying on
 // the shell to have loaded the class first made that suite fatal with
-// `Class "Duo\Orchestrator\CodeResolveCommand" not found`, which is exactly
+// `Class "WPrism\Orchestrator\CodeResolveCommand" not found`, which is exactly
 // why every file here requires its own dependencies. Safe in every order:
-// cli/duo pulls the same file in with `require_once` (:98), and its one
-// dependency cli/duo plain-`require`s — EnvironmentDriver.php — is already
-// loaded at cli/duo:17, before this file at :18.
+// cli/wprism pulls the same file in with `require_once` (:98), and its one
+// dependency cli/wprism plain-`require`s — EnvironmentDriver.php — is already
+// loaded at cli/wprism:17, before this file at :18.
 require_once __DIR__ . '/../Command/CodeResolveCommand.php';
 // EnvironmentProviderProtocol is the extracted, published form of the action
 // vocabulary and the closed result key sets enforced below in assertAction()
@@ -75,7 +75,7 @@ final class EnvironmentProviderCapability {
 
 /** Canonical, digest-bound provider capability evidence. */
 final class EnvironmentProviderCapabilityReport {
-    public const FORMAT = 'duo-branch-environment-capabilities/v1';
+    public const FORMAT = 'wprism-branch-environment-capabilities/v1';
 
     /** @param list<string> $supported */
     public function __construct(
@@ -163,8 +163,8 @@ final class EnvironmentProviderCapabilityReport {
  * failures because it may contain host or production-data diagnostics.
  */
 final class CommandEnvironmentProvider {
-    public const REQUEST_FORMAT = 'duo-branch-environment-provider-request/v1';
-    public const RESPONSE_FORMAT = 'duo-branch-environment-provider-response/v1';
+    public const REQUEST_FORMAT = 'wprism-branch-environment-provider-request/v1';
+    public const RESPONSE_FORMAT = 'wprism-branch-environment-provider-response/v1';
     public const MAX_TIMEOUT_SECONDS = 3600;
     private const OUTPUT_LIMIT = 1048576;
     /** @var ?array{id:string,protocol:int} */
@@ -189,7 +189,7 @@ final class CommandEnvironmentProvider {
         }
         if (($environmentConfig['_machine_local'] ?? false) !== true) {
             throw new \RuntimeException(
-                "env '$environment': environment_provider is privileged host configuration and is allowed only in .duo-envs.json"
+                "env '$environment': environment_provider is privileged host configuration and is allowed only in .wprism-envs.json"
             );
         }
         self::assertExactKeys($cfg, ['command', 'timeout_seconds'], "env '$environment': environment_provider");
@@ -224,7 +224,7 @@ final class CommandEnvironmentProvider {
      * carry host or production-data diagnostics, and this boundary must not
      * describe host internals back to an untrusted provider
      * (assertExactKeys() says only "has missing or unknown fields", :548-556).
-     * `duo env provider-check` sits on the OPERATOR's side of that boundary
+     * `wprism env provider-check` sits on the OPERATOR's side of that boundary
      * and needs to name the field that was wrong, so it re-diagnoses this
      * object through EnvironmentProviderProtocol::diagnose(), which emits
      * field names and value SHAPES only — never a provider-supplied value.
@@ -713,8 +713,8 @@ final class CommandEnvironmentProvider {
 
 /** Append-only, machine-local evidence for materialization/reap recovery. */
 final class EnvironmentLifecycleJournal {
-    public const RUN_FORMAT = 'duo-branch-environment-run/v1';
-    public const EVENT_FORMAT = 'duo-branch-environment-event/v1';
+    public const RUN_FORMAT = 'wprism-branch-environment-run/v1';
+    public const EVENT_FORMAT = 'wprism-branch-environment-event/v1';
 
     public function __construct(private string $base) {
         $this->base = rtrim($base, '/');
@@ -1007,7 +1007,7 @@ final class EnvironmentMaterializer {
         // Direct compositions predating the rehearsal containment profile are
         // ordinary materializations. The public option parser always writes
         // the explicit boolean; retaining this default keeps that existing
-        // API byte-compatible without weakening `duo rehearse`, which sets it.
+        // API byte-compatible without weakening `wprism rehearse`, which sets it.
         $options['containment_required'] ??= false;
         $optionKeys = array_keys($options);
         sort($optionKeys, SORT_STRING);
@@ -1163,7 +1163,7 @@ final class EnvironmentMaterializer {
                 self::recordPhase($journal, $operationId, 'source-binding', $sourceBinding);
             }
 
-            $candidateRef = 'duo/materialize/' . $operationId;
+            $candidateRef = 'wprism/materialize/' . $operationId;
             $semantic = self::phaseData($journal, $operationId, 'semantic-candidate');
             if ($semantic === null) {
                 $productionCommit = self::productionCommit($sourceDriver);
@@ -1177,7 +1177,7 @@ final class EnvironmentMaterializer {
                 }
                 $candidate = Refresh::rebase($sourceDriver, $productionCommit, $candidateRef);
                 // Named with this path's own verb, the one its refusals already
-                // use ("duo: env materialize: ..."), so an operator reading a
+                // use ("wprism: env materialize: ..."), so an operator reading a
                 // rehearse log sees one vocabulary throughout.
                 CodeResolveCommand::renderRefreshPhase($candidate, 'env materialize');
                 $plan = self::readJson((string) $candidate['plan_path'], 'refresh plan');
@@ -1387,18 +1387,18 @@ final class EnvironmentMaterializer {
                 self::recordPhase($journal, $operationId, 'url-set', self::publicEvidence($url));
             }
 
-            $artifactPath = rtrim($targetDriver->repoPath(), '/') . '/.duo/artifacts/materialize-' . $operationId . '.json';
+            $artifactPath = rtrim($targetDriver->repoPath(), '/') . '/.wprism/artifacts/materialize-' . $operationId . '.json';
             $compiledPhase = self::phaseData($journal, $operationId, 'release-compiled');
             if ($compiledPhase === null) {
                 $mkdir = $targetDriver->captureRaw('mkdir -p ' . escapeshellarg(dirname($artifactPath)));
                 if (($mkdir['exit'] ?? 1) !== 0) throw new \RuntimeException('could not create target materialization artifact directory');
-                // DUO-3526: `repository-materialize` above put the candidate
+                // issue #3526: `repository-materialize` above put the candidate
                 // BRANCH in the target repository, and on a split repository
-                // (DUO-3499 code.format 2) Git carries none of the locked
+                // (issue #3499 code.format 2) Git carries none of the locked
                 // component bytes — so the compile below refused
                 // `code_source_missing` and reported only "did not compile on
                 // the target" (grind_adapter_walk.sh S1). This is the same
-                // host-side resolve phase `duo deploy` already runs before its
+                // host-side resolve phase `wprism deploy` already runs before its
                 // own compile, against this environment; it prints nothing and
                 // does nothing for a format-1 repository, and a refusal here
                 // returns before any compile, staging or promotion.
@@ -1431,7 +1431,7 @@ final class EnvironmentMaterializer {
             if ($promotionReceipt === null) {
                 $promotionReceipt = self::invokePromotion($promote, $targetDriver, [
                     'artifact_path' => $artifactPath,
-                    'checkpoint_path' => rtrim($targetDriver->repoPath(), '/') . '/.duo/checkpoints/materialize-' . $operationId . '.sql.enc',
+                    'checkpoint_path' => rtrim($targetDriver->repoPath(), '/') . '/.wprism/checkpoints/materialize-' . $operationId . '.sql.enc',
                     'compiled_summary' => $compiled['summary'],
                     'operation_id' => $operationId,
                     'promotion_owner' => $promotionOwner,
@@ -1442,18 +1442,18 @@ final class EnvironmentMaterializer {
             }
             $verified = self::phaseData($journal, $operationId, 'release-verified');
             if ($verified === null) {
-                $verifyArtifact = rtrim($targetDriver->repoPath(), '/') . '/.duo/artifacts/materialize-verify-' . $operationId . '.json';
+                $verifyArtifact = rtrim($targetDriver->repoPath(), '/') . '/.wprism/artifacts/materialize-verify-' . $operationId . '.json';
                 $verifiedCompile = CodeDeploy::compile($targetDriver, $targetDriver->repoPath(), $verifyArtifact);
                 if (($verifiedCompile['exit'] ?? 1) !== 0 || !is_array($verifiedCompile['summary'] ?? null) || self::releaseIdentity($verifiedCompile['summary']) !== $release) throw new \RuntimeException('target repository changed between frozen promotion and release verification');
                 self::recordPhase($journal, $operationId, 'release-verified', $release);
             }
             if (self::phaseData($journal, $operationId, 'release-converged') === null) {
-                $planResult = $targetDriver->captureWp(['duo', 'plan', '--repo=' . $targetDriver->repoPath(), '--format=json']);
+                $planResult = $targetDriver->captureWp(['wprism', 'plan', '--repo=' . $targetDriver->repoPath(), '--format=json']);
                 if (($planResult['exit'] ?? 1) !== 0) throw new \RuntimeException('could not verify branch environment convergence');
                 $finalPlan = json_decode(trim((string) $planResult['stdout']), true);
                 // PlanSummary::render() tolerates partial fixtures, so a bare
                 // `{}` would render clean and journal a convergence this
-                // operation never observed (DUO-3384). Validate the complete
+                // operation never observed (issue #3384). Validate the complete
                 // agent envelope before trusting its `ok`.
                 PlanContract::requireComplete($finalPlan, 'branch environment convergence');
                 if (!PlanSummary::render($finalPlan)['ok']) throw new \RuntimeException('branch environment did not converge to a clean code/state plan');
@@ -1508,7 +1508,7 @@ final class EnvironmentMaterializer {
             $receipt = [
                 'branch_commit' => $semantic['branch_commit'], 'code_revision' => $release['code_revision'],
                 'environment_identity' => $targetIdentity['environment_identity'], 'expires_at' => $ttl['expires_at'] ?? null,
-                'format' => 'duo-branch-environment-receipt/v1', 'lease_generation' => $targetIdentity['lease_generation'],
+                'format' => 'wprism-branch-environment-receipt/v1', 'lease_generation' => $targetIdentity['lease_generation'],
                 'lease_id' => $targetIdentity['lease_id'], 'mode' => $mode, 'operation_id' => $operationId,
                 'outer_artifact_hash' => $release['outer_artifact_hash'], 'ownership_receipt_sha256' => $targetIdentity['ownership_receipt_sha256'],
                 'plan_hash' => $semantic['plan_hash'], 'provider' => $finalIdentity['_provider'],
@@ -1657,7 +1657,7 @@ final class EnvironmentMaterializer {
             $receipt = [
                 'absence_proof_sha256' => hash('sha256', EnvironmentLifecycleCanon::encode(['operation_id' => $operationId, 'target' => $targetDriver->name()])),
                 'disposition' => 'aborted-no-target', 'environment_identity' => null,
-                'format' => 'duo-branch-environment-reap/v1', 'operation_id' => $operationId, 'resource_id' => null,
+                'format' => 'wprism-branch-environment-reap/v1', 'operation_id' => $operationId, 'resource_id' => null,
             ];
             $receipt['receipt_sha256'] = hash('sha256', EnvironmentLifecycleCanon::encode($receipt));
             self::recordPhase($journal, $operationId, 'reaped', $receipt);
@@ -1909,7 +1909,7 @@ final class EnvironmentMaterializer {
             'absence_proof_sha256' => $result['absence_proof_sha256'],
             'disposition' => $result['disposition'],
             'environment_identity' => $identity['environment_identity'],
-            'format' => 'duo-branch-environment-reap/v1',
+            'format' => 'wprism-branch-environment-reap/v1',
             'operation_id' => $operationId,
             'resource_id' => $identity['resource_id'],
         ];
@@ -2148,7 +2148,7 @@ final class EnvironmentMaterializer {
     }
 
     private static function mutationOwner(string $operationId, string $phase): string {
-        return 'duo-env-' . $phase . '-' . $operationId;
+        return 'wprism-env-' . $phase . '-' . $operationId;
     }
 
     /** @param array<string,mixed> $fence @return array<string,mixed> */
@@ -2220,7 +2220,7 @@ final class EnvironmentMaterializer {
         $keys = array_keys($raw);
         sort($keys, SORT_STRING);
         sort($expected, SORT_STRING);
-        if ($keys !== $expected || ($raw['format'] ?? null) !== 'duo-branch-environment-promotion-receipt/v1'
+        if ($keys !== $expected || ($raw['format'] ?? null) !== 'wprism-branch-environment-promotion-receipt/v1'
             || ($raw['status'] ?? null) !== 'completed' || ($raw['owner'] ?? null) !== $frozenContext['promotion_owner']
             || ($raw['operation_id'] ?? null) !== $frozenContext['operation_id'] || ($raw['artifact_hash'] ?? null) !== $release['outer_artifact_hash']
             || ($raw['state_revision'] ?? null) !== $release['state_revision'] || ($raw['code_revision'] ?? null) !== $release['code_revision']) {
@@ -2304,8 +2304,8 @@ final class EnvironmentMaterializer {
         $root = self::repositoryRoot();
         $semantic = self::phaseData($journal, $operationId, 'semantic-candidate');
         $intent = self::phaseData($journal, $operationId, 'semantic-candidate-intent');
-        $ref = (string) ($semantic['candidate_ref'] ?? $intent['candidate_ref'] ?? ('duo/materialize/' . $operationId));
-        if ($ref !== 'duo/materialize/' . $operationId || !self::refExists($root, $ref)) return;
+        $ref = (string) ($semantic['candidate_ref'] ?? $intent['candidate_ref'] ?? ('wprism/materialize/' . $operationId));
+        if ($ref !== 'wprism/materialize/' . $operationId || !self::refExists($root, $ref)) return;
         $commit = (string) ($semantic['branch_commit'] ?? '');
         self::git($root, $commit === ''
             ? ['update-ref', '-d', 'refs/heads/' . $ref]

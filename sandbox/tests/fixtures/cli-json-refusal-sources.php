@@ -6,11 +6,11 @@ require __DIR__ . '/../../../agent/src/Grammar/Tokens.php';
 require __DIR__ . '/../../../agent/src/Capture/Capture.php';
 require_once __DIR__ . '/../../../agent/src/Capture/CaptureSafetyGates.php';
 
-use Duo\Capture;
-use Duo\CaptureSafetyGates;
-use Duo\Canon;
-use Duo\CommandRefusalException;
-use Duo\Tokens;
+use WPrism\Capture;
+use WPrism\CaptureSafetyGates;
+use WPrism\Canon;
+use WPrism\CommandRefusalException;
+use WPrism\Tokens;
 
 $failures = 0;
 $check = static function (bool $condition, string $message) use (&$failures): void {
@@ -130,14 +130,14 @@ $check(str_contains((string) $scopeFailure?->getMessage(), 'registered or adapte
 
 $commitFactory = new ReflectionMethod(Capture::class, 'commit_outcome_uncertain');
 $cause = new RuntimeException('operator-only database detail');
-$commitFailure = $commitFactory->invoke(null, 'duo: exact human uncertain-commit evidence', $cause);
+$commitFailure = $commitFactory->invoke(null, 'wprism: exact human uncertain-commit evidence', $cause);
 $check($commitFailure instanceof CommandRefusalException, 'uncertain commit uses a deliberate public refusal');
 $check($commitFailure->reasonCode === 'capture_commit_uncertain', 'uncertain commit has a stable recovery reason');
 $check(str_contains($commitFailure->remediation, 'do not retry or discard'), 'uncertain commit explicitly prohibits unsafe replay');
 $check($commitFailure->getPrevious() === $cause, 'uncertain commit preserves its private throwable chain for operators');
 $check(!str_contains((string) json_encode($commitFailure->payload()), 'operator-only'), 'uncertain commit never serializes its private cause');
 
-$markerRoot = sys_get_temp_dir() . '/duo-cli-json-marker-' . bin2hex(random_bytes(6));
+$markerRoot = sys_get_temp_dir() . '/wprism-cli-json-marker-' . bin2hex(random_bytes(6));
 $check(mkdir($markerRoot, 0700), 'database marker refusal fixture root is created');
 $stateDir = $markerRoot . '/state';
 $destinationMethod = new ReflectionMethod(Capture::class, 'publication_destination_sha256');
@@ -158,7 +158,7 @@ $markerRecord = static function (
     string $previousSha
 ) use ($sealMarker): string {
     return $sealMarker([
-        'format' => 'duo-capture-commit-marker/v1',
+        'format' => 'wprism-capture-commit-marker/v1',
         'state_sha256' => $stateSha,
         'intent_id' => $intentId,
         'candidate_sha256' => $candidateSha,

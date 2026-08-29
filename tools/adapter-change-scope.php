@@ -3,7 +3,7 @@
 
 declare(strict_types=1);
 
-use Duo\Tooling\AdapterChangeScopeCommand;
+use WPrism\Tooling\AdapterChangeScopeCommand;
 
 require_once __DIR__ . '/src/AdapterChangeScopeCommand.php';
 

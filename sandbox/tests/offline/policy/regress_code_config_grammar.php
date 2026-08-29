@@ -1,8 +1,8 @@
 <?php
 /**
- * Offline regression for CodeConfigGrammar (DUO-3348 slice 25).
+ * Offline regression for CodeConfigGrammar (issue #3348 slice 25).
  *
- * The optional site.duo.json code envelope is a pure Policy-load grammar.
+ * The optional site.wprism.json code envelope is a pure Policy-load grammar.
  * This suite exercises the extracted wrapper directly, then proves the
  * legacy/valid/refusal behavior through both Policy::from_snapshot() and
  * Policy::load(). Code itself remains the owner of the exact descriptor
@@ -11,8 +11,8 @@
  */
 declare(strict_types=1);
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 2);
 }
 
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
@@ -23,10 +23,10 @@ require_once __DIR__ . '/../../../../agent/src/Policy/CodeConfigGrammar.php';
 require_once __DIR__ . '/manifest_fixtures.php';
 require_once __DIR__ . '/../../lib/frozen_policy.php';
 
-use Duo\Canon;
-use Duo\CodeConfigGrammar;
-use Duo\Policy;
-use DuoTest\FrozenPolicy;
+use WPrism\Canon;
+use WPrism\CodeConfigGrammar;
+use WPrism\Policy;
+use WPrismTest\FrozenPolicy;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -59,36 +59,36 @@ $assertAccepted = static function (callable $fn, string $label) use ($check): vo
 
 $validCode = ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content'];
 $assertAccepted(
-    static fn() => CodeConfigGrammar::validate_site_code([], 'site.duo.json'),
+    static fn() => CodeConfigGrammar::validate_site_code([], 'site.wprism.json'),
     'the legacy state-only site shape remains accepted'
 );
 $assertAccepted(
-    static fn() => CodeConfigGrammar::validate_site_code(['code' => $validCode], 'site.duo.json'),
+    static fn() => CodeConfigGrammar::validate_site_code(['code' => $validCode], 'site.wprism.json'),
     'the exact v1 code envelope remains accepted'
 );
 $assertThrows(
-    static fn() => CodeConfigGrammar::validate_site_code(['code' => 'enabled'], 'site.duo.json'),
+    static fn() => CodeConfigGrammar::validate_site_code(['code' => 'enabled'], 'site.wprism.json'),
     'code must be an object with exactly format, layout, and source',
     'a scalar code declaration is refused at the envelope boundary'
 );
 $assertThrows(
-    static fn() => CodeConfigGrammar::validate_site_code(['code' => [$validCode]], 'site.duo.json'),
+    static fn() => CodeConfigGrammar::validate_site_code(['code' => [$validCode]], 'site.wprism.json'),
     'code must be an object with exactly format, layout, and source',
     'a list-shaped code declaration is refused at the envelope boundary'
 );
 $assertThrows(
-    static fn() => CodeConfigGrammar::validate_site_code(['code' => ['format' => 1, 'layout' => 'custom', 'source' => 'code/wp-content']], 'site.duo.json'),
-    'site.duo.json code declaration is invalid: duo: site.duo.json code must contain exactly',
+    static fn() => CodeConfigGrammar::validate_site_code(['code' => ['format' => 1, 'layout' => 'custom', 'source' => 'code/wp-content']], 'site.wprism.json'),
+    'site.wprism.json code declaration is invalid: wprism: site.wprism.json code must contain exactly',
     'an invalid descriptor keeps Code’s exact contract behind the label-aware wrapper'
 );
 $assertThrows(
-    static fn() => CodeConfigGrammar::validate_site_code(['code' => ['format' => 1, 'layout' => 'custom', 'source' => 'code/wp-content']], 'frozen site.duo.json'),
-    'duo: frozen site.duo.json code declaration is invalid:',
+    static fn() => CodeConfigGrammar::validate_site_code(['code' => ['format' => 1, 'layout' => 'custom', 'source' => 'code/wp-content']], 'frozen site.wprism.json'),
+    'wprism: frozen site.wprism.json code declaration is invalid:',
     'the frozen loader label is preserved by the extracted wrapper'
 );
 
 $frozenSnapshot = static function (array $manifests, ?array $code = null): array {
-    $site = FrozenPolicy::site($manifests, DUO_SPEC_VERSION);
+    $site = FrozenPolicy::site($manifests, WPRISM_SPEC_VERSION);
     if ($code !== null) {
         $site['code'] = $code;
     }
@@ -103,19 +103,19 @@ $check(
 );
 $assertThrows(
     static fn() => manifest_fixture_policy_from_snapshot($frozenSnapshot($snapshotManifests, ['format' => 1, 'layout' => 'custom', 'source' => 'code/wp-content'])),
-    'duo: frozen site.duo.json code declaration is invalid:',
+    'wprism: frozen site.wprism.json code declaration is invalid:',
     'Policy::from_snapshot() preserves the extracted grammar refusal'
 );
 
-$loadRoot = sys_get_temp_dir() . '/duo_regress_code_config_' . bin2hex(random_bytes(4));
+$loadRoot = sys_get_temp_dir() . '/wprism_regress_code_config_' . bin2hex(random_bytes(4));
 $loadManifests = $loadRoot . '/manifests';
 mkdir($loadManifests, 0777, true);
 manifest_fixture_code($loadManifests);
-Canon::write_file($loadRoot . '/site.duo.json', Canon::encode([
+Canon::write_file($loadRoot . '/site.wprism.json', Canon::encode([
     'code' => $validCode,
     'manifests' => ['a', 'b'],
     'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ]));
 Canon::write_file($loadManifests . '/a.json', Canon::encode($snapshotManifests[0]));
 Canon::write_file($loadManifests . '/b.json', Canon::encode($snapshotManifests[1]));
@@ -125,15 +125,15 @@ $check(
     $livePolicy->code_config() === $validCode,
     'Policy::load() reaches CodeConfigGrammar and preserves the valid code config'
 );
-Canon::write_file($loadRoot . '/site.duo.json', Canon::encode([
+Canon::write_file($loadRoot . '/site.wprism.json', Canon::encode([
     'code' => ['format' => 1, 'layout' => 'custom', 'source' => 'code/wp-content'],
     'manifests' => ['a', 'b'],
     'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ]));
 $assertThrows(
     static fn() => Policy::load($loadRoot, adapterLibrary: $adapterLibrary),
-    'duo: site.duo.json code declaration is invalid:',
+    'wprism: site.wprism.json code declaration is invalid:',
     'Policy::load() preserves the extracted grammar refusal'
 );
 manifest_fixture_remove_tree($loadRoot);

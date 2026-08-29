@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/CaptureGateScanner.php';
@@ -17,14 +17,14 @@ require_once __DIR__ . '/../Scope/ScopedCaptureProjector.php';
 /**
  * Capture: environment DB -> canonical state tree.
  *
- * Read-only on content except for identity minting (_duo_uuid meta + ledger
+ * Read-only on content except for identity minting (_wprism_uuid meta + ledger
  * rows). Unclassified meta keys on in-scope entities abort loudly — the
  * loud-and-blocking gate. Ordinary entities without a uuid are unmanaged and
  * invisible. Sidebar snapshots are the deliberate exception: unmapped live
  * defaults receive non-durable deterministic markers so their scoped removal
  * is plan-visible, while snapshot mode still never mints ledger identity.
  *
- * DUO-3213 — publication is atomic and DB-consistent, not clear-then-write-
+ * issue #3213 — publication is atomic and DB-consistent, not clear-then-write-
  * in-place: every candidate read, plus the identity-minting writes alongside
  * them, runs inside one InnoDB `START TRANSACTION WITH CONSISTENT SNAPSHOT`
  * (owned by CaptureTransaction) so a single capture always
@@ -88,16 +88,16 @@ final class Capture {
         ?callable $onPayloadReady = null
     ): array {
         if (!is_resource($publicationLock)) {
-            throw new \InvalidArgumentException('duo: init capture requires its held publication lock');
+            throw new \InvalidArgumentException('wprism: init capture requires its held publication lock');
         }
         if (preg_match('/^sha256:[a-f0-9]{64}$/D', $initialStateIdentity) !== 1) {
-            throw new \InvalidArgumentException('duo: init capture requires an exact empty-state reservation identity');
+            throw new \InvalidArgumentException('wprism: init capture requires an exact empty-state reservation identity');
         }
         if (preg_match('/^sha256:[a-f0-9]{64}$/D', $initialMediaIdentity) !== 1) {
-            throw new \InvalidArgumentException('duo: init capture requires an exact empty-media reservation identity');
+            throw new \InvalidArgumentException('wprism: init capture requires an exact empty-media reservation identity');
         }
         if (preg_match('/^sha256:[a-f0-9]{64}$/D', $initialConfigIdentity) !== 1) {
-            throw new \InvalidArgumentException('duo: init capture requires an exact confirmed-config identity');
+            throw new \InvalidArgumentException('wprism: init capture requires an exact confirmed-config identity');
         }
         return self::run_internal(
             $repo,
@@ -161,7 +161,7 @@ final class Capture {
     }
 
     /**
-     * DUO-3427: typed, because this refusal has an entirely reviewable shape.
+     * issue #3427: typed, because this refusal has an entirely reviewable shape.
      *
      * A retained init recovery journal is not an internal fault: the operator
      * is told exactly what exists and exactly what to run, in a fixed engine
@@ -169,8 +169,8 @@ final class Capture {
      * RuntimeException it reached JSON callers as "capture refused at an
      * unclassified safety gate" with details_redacted, sending an operator
      * holding an interrupted init to private evidence for the one instruction
-     * that IS public — the DUO-3398/DUO-3399 shape, and the same treatment
-     * DUO-3421 gave the init side's proven rollback. The human rendering is
+     * that IS public — the issue #3398/issue #3399 shape, and the same treatment
+     * issue #3421 gave the init side's proven rollback. The human rendering is
      * unchanged: the operator message below is the sentence this gate has
      * always printed.
      */
@@ -195,7 +195,7 @@ final class Capture {
 
     /**
      * In-memory canonical view of this environment (no minting, no writes;
-     * ledger map rows are synced from existing _duo_uuid meta — identity
+     * ledger map rows are synced from existing _wprism_uuid meta — identity
      * repair, not content mutation).
      *
      * @return array<string, array{type: string, hash: string, content: string, path: string}>
@@ -219,7 +219,7 @@ final class Capture {
     }
 
     /**
-     * Strict observation twin of snapshot() for `duo explain`.
+     * Strict observation twin of snapshot() for `wprism explain`.
      *
      * Ordinary plan/apply intentionally retain their established maintenance
      * boundary: ensure the ledger, repair historical widths, and prune stale
@@ -335,7 +335,7 @@ final class Capture {
     }
 
     /**
-     * Collect-only classification walk for `wp duo pending` (the review
+     * Collect-only classification walk for `wp wprism pending` (the review
      * queue's gate-item source, DESIGN.md 3.1.5): the same in-scope entities
      * and the same Policy rule lookups build() uses below — scope_posts(),
      * scope_terms(), post_meta_map() are literally the same private methods,
@@ -353,7 +353,7 @@ final class Capture {
      * }
      *
      * (Menu-item meta findings fold into post_meta above, tagged
-     * 'nav_menu_item' in that entry's post_types — DUO-3275, no separate
+     * 'nav_menu_item' in that entry's post_types — issue #3275, no separate
      * menu_item_meta key.)
      */
     public static function gate_scan(string $repo): array {
@@ -386,7 +386,7 @@ final class Capture {
     }
 
     // ------------------------------------------------------------------
-    // DUO-3213: consistent-snapshot transaction helpers (run()/snapshot())
+    // issue #3213: consistent-snapshot transaction helpers (run()/snapshot())
     // ------------------------------------------------------------------
 
     /**
@@ -403,7 +403,7 @@ final class Capture {
      * loudly and names every offending table before any read happens.
      *
      * Checked against every table Capture's own build() reads from
-     * directly, Ledger's own tables (duo_map/duo_state/duo_kv — created by
+     * directly, Ledger's own tables (wprism_map/wprism_state/wprism_kv — created by
      * Ledger::ensure(), already run by the time this is called), and every
      * manifest-declared custom table (Snapshot::capture() reads those
      * too). A declared table that doesn't exist on this environment (its
@@ -446,7 +446,7 @@ final class Capture {
         return CapturePublicationRecovery::destinationSha256($stateDir);
     }
 
-    /** Destination-scoped marker key stays well below duo_kv.k's 191-byte limit. */
+    /** Destination-scoped marker key stays well below wprism_kv.k's 191-byte limit. */
     private static function publication_marker_key(string $stateDir): string {
         return CapturePublicationRecovery::markerKey($stateDir);
     }
@@ -493,7 +493,7 @@ final class Capture {
     /**
      * Lifecycle handoff variant of verify_engine_support(). It checks only
      * tables that this narrow path can actually read (options, identity
-     * metadata, core rows used by ref triage, and the Duo ledger). In
+     * metadata, core rows used by ref triage, and the WPrism ledger). In
      * particular, a declared Woo/custom table is not inspected unless an
      * option_name_refs rule makes that table part of this path's own safety
      * check; plugin-owned typed tables remain outside the lifecycle boundary.
@@ -521,7 +521,7 @@ final class Capture {
      * as "just add this to policy.post_types" would be actionable-sounding
      * but wrong advice — closer to dangling than unscoped.
      *
-     * public static (DUO-3212): has no instance dependency at all (only
+     * public static (issue #3212): has no instance dependency at all (only
      * global $wpdb and its own two parameters) — Blocks.php's own unscoped-
      * vs-dangling triage for block_attrs refs calls this directly rather
      * than duplicating the query shapes (and their documented revision/
@@ -532,7 +532,7 @@ final class Capture {
     }
 
     /**
-     * DUO-3259: the shape-agnostic core of queue_or_warn_unscoped()/
+     * issue #3259: the shape-agnostic core of queue_or_warn_unscoped()/
      * Blocks::queue_unscoped() above, extracted so a THIRD ref-carrying
      * surface (Shortcodes.php) can reuse the identical three-way decision
      * without a third hand-copy of it. Deliberately NOT refactored into

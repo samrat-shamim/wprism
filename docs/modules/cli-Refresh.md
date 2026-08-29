@@ -14,4 +14,4 @@
 
 - `RefreshPlan::loadCompiler()` requires 39 agent classes by path at runtime — the single largest cli->agent coupling in the repo and the biggest single edit in the move codemod.
 
-**Sub-namespace plan.** Target `Duo\Orchestrator\Refresh\`. Not in this round. cli sub-namespaces are cheaper than agent ones (no manifest binds them) but still wait for the agent Kernel migration to prove the classmap round-trip.
+**Sub-namespace plan.** Target `WPrism\Orchestrator\Refresh\`. Not in this round. cli sub-namespaces are cheaper than agent ones (no manifest binds them) but still wait for the agent Kernel migration to prove the classmap round-trip.

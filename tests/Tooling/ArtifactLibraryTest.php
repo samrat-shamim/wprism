@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
-use Duo\Tooling\ArtifactLibrary;
+use WPrism\Tooling\ArtifactLibrary;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
@@ -18,7 +18,7 @@ final class ArtifactLibraryTest extends TestCase
     protected function setUp(): void
     {
         $this->repoRoot = dirname(__DIR__, 2);
-        $this->scratch = sys_get_temp_dir() . '/duo-artifact-library-' . bin2hex(random_bytes(8));
+        $this->scratch = sys_get_temp_dir() . '/wprism-artifact-library-' . bin2hex(random_bytes(8));
         self::assertTrue(mkdir($this->scratch . '/adapter-packages', 0777, true));
         self::assertTrue(mkdir($this->scratch . '/platform/artifact-library', 0777, true));
         $this->writeFragment('platform/artifact-library/artifacts.lock.json', [

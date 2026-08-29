@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
@@ -12,7 +12,7 @@ require_once __DIR__ . '/../Repository/SidebarState.php';
 require_once __DIR__ . '/IncompleteApplyMarker.php';
 
 /**
- * The pure conflict/display-projection half of plan production (DUO-3347
+ * The pure conflict/display-projection half of plan production (issue #3347
  * slice 2, first cut of the issue's "ApplyPlanner: immutable plan and
  * conflict production" target seam).
  *
@@ -197,7 +197,7 @@ final class ApplyPlanner {
         $ids = array_values(array_unique(array_map('intval', $ids)));
         if (count($ids) > 1) {
             throw new \RuntimeException(
-                "duo: conflicting adoption key for $identity matches local ids " . implode(', ', $ids)
+                "wprism: conflicting adoption key for $identity matches local ids " . implode(', ', $ids)
                 . '; full natural identity must be unique before adoption'
             );
         }
@@ -259,7 +259,7 @@ final class ApplyPlanner {
     /**
      * Project target-only sidebar widget deletions and identity evidence.
      *
-     * Sidebar capture marks target defaults with `_duo_unmanaged`; when a
+     * Sidebar capture marks target defaults with `_wprism_unmanaged`; when a
      * previously managed sidebar has such a default while a desired widget
      * has lost its durable ledger mapping, the plan must refuse rather than
      * infer which local instance owns the canonical UUID. The ledger lookup is
@@ -288,7 +288,7 @@ final class ApplyPlanner {
         $envFront = Canon::decode((string) ($environment['content'] ?? ''));
         $hasUnmanaged = false;
         foreach ((array) ($envFront['widgets'] ?? []) as $widget) {
-            $hasUnmanaged = $hasUnmanaged || !empty($widget['settings']['_duo_unmanaged']);
+            $hasUnmanaged = $hasUnmanaged || !empty($widget['settings']['_wprism_unmanaged']);
         }
         $missingDesiredMap = false;
         foreach ((array) ($desiredDocument['widgets'] ?? []) as $widget) {
@@ -302,7 +302,7 @@ final class ApplyPlanner {
         }
         if ($hasUnmanaged && $missingDesiredMap && $baseHash !== null) {
             throw new \RuntimeException(
-                "duo: widget identity history is missing for {$row['path']}; refusing to infer which live "
+                "wprism: widget identity history is missing for {$row['path']}; refusing to infer which live "
                 . 'instance owns a canonical UUID. Restore identity-export before plan/apply.'
             );
         }
@@ -316,7 +316,7 @@ final class ApplyPlanner {
                 $widgetDeletes[] = [
                     'uuid' => (string) ($widget['uuid'] ?? ''),
                     'type' => (string) ($widget['type'] ?? ''),
-                    'unmanaged' => !empty($widget['settings']['_duo_unmanaged']),
+                    'unmanaged' => !empty($widget['settings']['_wprism_unmanaged']),
                 ];
             }
         }
@@ -701,12 +701,12 @@ final class ApplyPlanner {
     }
 
     /**
-     * DUO-3206's retry widening, and DUO-3489's / DUO-3491's carve-outs.
+     * issue #3206's retry widening, and issue #3489's / issue #3491's carve-outs.
      *
      * A prior apply that committed authored rows but failed a required
      * rebuild deliberately left `apply_in_progress`. The live canonical hash
      * can now be unchanged, drift, or conflict: rebuild actions may normalize
-     * a just-written row after COMMIT, while duo_state intentionally still
+     * a just-written row after COMMIT, while wprism_state intentionally still
      * names the pre-apply base. In every case the interrupted promotion's
      * repository tree remains the recovery target, so every mapped canonical
      * entity is re-run through phase 2/rebuild until the marker clears;
@@ -716,23 +716,23 @@ final class ApplyPlanner {
      * That reasoning covers rows the failed run WROTE. It does not cover
      * environment-only drift, which a normal apply deliberately leaves for
      * capture (rebuild_work() below, :700-706 — "A normal apply leaves
-     * environment-only drift for capture"). DUO-3489 measured the consequence
+     * environment-only drift for capture"). issue #3489 measured the consequence
      * on a live pair:
      * run 1 planned `drift:2`, preserved both rows, and failed the whole-tree
      * convergence gate; run 2 planned `drift:0`, silently overwrote both, and
      * reported `applied 14 entities (canary clean)`. So a row the interrupted
      * run recorded as preserved drift, and which still classifies as drift
-     * now, stays in `drift`: the plan keeps telling the truth, `duo status`
+     * now, stays in `drift`: the plan keeps telling the truth, `wprism status`
      * keeps its non-zero `drift` count, and the documented remedy
-     * (`duo capture` first) remains the only thing that folds it in.
+     * (`wprism capture` first) remains the only thing that folds it in.
      *
-     * DUO-3491 is the same shape one bucket over. Draining `conflict` into
+     * issue #3491 is the same shape one bucket over. Draining `conflict` into
      * `update` means the retry writes rows that a first apply refuses outright
-     * — "duo: conflicts (env and repo both changed since last sync) — capture
+     * — "wprism: conflicts (env and repo both changed since last sync) — capture
      * first or --force-theirs" (ApplyPreparationCoordinator.php:58) — so the
      * marker silently converted an operator decision into an automatic
-     * override. That is right only where DUO-3206's premise holds: the failed
-     * run wrote the row, its `duo_state` base is stale, and the "repo side
+     * override. That is right only where issue #3206's premise holds: the failed
+     * run wrote the row, its `wprism_state` base is stale, and the "repo side
      * changed too" half of the three-way answer is our own write. It does not
      * hold for an identity that run never wrote — a preserved-drift row whose
      * repository side moved when the operator recompiled between the two runs
@@ -742,10 +742,10 @@ final class ApplyPlanner {
      *
      * The evidence is the marker's own record, and each wire is read for the
      * claim it makes and no more: v2's `write_set` decides directly, v1
-     * (DUO-3489's wire, still live on any target interrupted under 9b440c3)
+     * (issue #3489's wire, still live on any target interrupted under 9b440c3)
      * can only prove the preserved-drift identities were not written and
-     * leaves the rest on DUO-3206's widening, and a record-less marker keeps
-     * DUO-3206's behaviour byte for byte.
+     * leaves the rest on issue #3206's widening, and a record-less marker keeps
+     * issue #3206's behaviour byte for byte.
      *
      * @param array<string,mixed> $plan
      * @param string|null $marker the raw `apply_in_progress` ledger value
@@ -782,7 +782,7 @@ final class ApplyPlanner {
             // v1 carries no write set. The one thing it does prove is that a
             // recorded preserved-drift identity was NOT written, so a conflict
             // on one of those is a genuine divergence; everything else has no
-            // evidence either way and keeps DUO-3206's widening.
+            // evidence either way and keeps issue #3206's widening.
             if ($preserved !== null && isset($preserved[$uuid])) {
                 $retainedConflict[] = $row;
                 continue;
@@ -794,7 +794,7 @@ final class ApplyPlanner {
         if ($retained !== []) {
             $incomplete = [
                 'reason' => $reason . '; ' . count($retained)
-                    . ' environment-drifted entities it deliberately preserved are still drift and are not being overwritten by this retry — run `duo capture` to fold them into the repository first',
+                    . ' environment-drifted entities it deliberately preserved are still drift and are not being overwritten by this retry — run `wprism capture` to fold them into the repository first',
                 'preserved_drift' => array_map(
                     static fn(array $row): array => [
                         'path' => (string) ($row['path'] ?? ''),
@@ -808,7 +808,7 @@ final class ApplyPlanner {
         if ($retainedConflict !== []) {
             $incomplete['reason'] = (string) $incomplete['reason'] . '; ' . count($retainedConflict)
                 . (count($retainedConflict) === 1 ? ' entity conflicts' : ' entities conflict')
-                . ' three ways on identities the interrupted apply never wrote, so this retry will not override them — resolve the repository side or run `duo capture` first, or re-run with --force-theirs exactly as a first apply demands';
+                . ' three ways on identities the interrupted apply never wrote, so this retry will not override them — resolve the repository side or run `wprism capture` first, or re-run with --force-theirs exactly as a first apply demands';
             $incomplete['retained_conflict'] = array_map(
                 static fn(array $row): array => [
                     'path' => (string) ($row['path'] ?? ''),
@@ -819,7 +819,7 @@ final class ApplyPlanner {
             );
         }
         $plan['incomplete_apply'][] = $incomplete;
-        // The three buckets are consumed in their original DUO-3206 order:
+        // The three buckets are consumed in their original issue #3206 order:
         // rebuild_work() re-sorts `update` only by phase2_rank, and PHP's
         // stable sort therefore carries this sequence into apply's actual
         // write order. `drift` and `conflict` keep only what stays carved out.
@@ -916,7 +916,7 @@ final class ApplyPlanner {
             $deleteWork
         );
         return sprintf(
-            'duo: planned deletions require --with-deletes (%d); no target mutation attempted. '
+            'wprism: planned deletions require --with-deletes (%d); no target mutation attempted. '
                 . 'Review and rerun with --with-deletes to authorize:'
                 . "\n  - %s",
             count($deleteWork),
@@ -1240,12 +1240,12 @@ final class ApplyPlanner {
             : 'replace_target_authored_state';
 
         return [
-            'format' => 'duo-plan-conflict/v1',
+            'format' => 'wprism-plan-conflict/v1',
             'kind' => $repositoryIntent === 'delete' ? 'tombstone_conflict' : 'concurrent_change',
             'reason_code' => $reasonCode,
             'base' => [
                 'role' => 'last_synced',
-                'source' => 'duo_state',
+                'source' => 'wprism_state',
                 'state' => $baseState,
                 'content_hash' => $baseHash,
             ],
@@ -1348,7 +1348,7 @@ final class ApplyPlanner {
         $status = $suppliedFlags === $requiredFlags ? 'authorized' : 'incomplete';
 
         $evidence = [
-            'format' => 'duo-forced-plan-override/v1',
+            'format' => 'wprism-forced-plan-override/v1',
             'plan_bucket' => $bucket === 'delete_conflict' ? 'delete_conflict' : 'conflict',
             'entity_identity_sha256' => hash('sha256', (string) ($row['uuid'] ?? '')),
             'conflict_kind' => $kind,
@@ -1389,7 +1389,7 @@ final class ApplyPlanner {
      * `title` front matter and terms/menus carry `name`; options, sidebars,
      * and typed tables are already named by their repository path. Only the
      * authored value itself is projected — never a guessed or derived label
-     * (DUO-3345: plans must speak WordPress names, not identifier-bearing
+     * (issue #3345: plans must speak WordPress names, not identifier-bearing
      * paths alone). The raw value lands in plan JSON; human renderers own
      * any display sanitization.
      */
@@ -1532,7 +1532,7 @@ final class ApplyPlanner {
                     ? 'not yet provisioned'
                     : ($expected === null ? 'present but has no intended-value binding' : 'different from its intended value');
                 $warnings[] = "env_missing: option '$name' is required and $state on this environment — see "
-                    . "'wp duo env-set --name=$name --stdin'";
+                    . "'wp wprism env-set --name=$name --stdin'";
             }
         }
 

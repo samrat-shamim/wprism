@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
-use Duo\TypedTableMaterializer;
-use DuoTest\FakeWpdb;
-use DuoTest\WpStore;
+use WPrism\TypedTableMaterializer;
+use WPrismTest\FakeWpdb;
+use WPrismTest\WpStore;
 
 $repoRoot = dirname(__DIR__, 4);
 require_once $repoRoot . '/sandbox/tests/lib/check.php';
@@ -118,7 +118,7 @@ $disposition = json_decode(
     512,
     JSON_THROW_ON_ERROR
 );
-duo_check(
+wprism_check(
     ($disposition['status'] ?? null) === 'certified'
         && ($disposition['capabilities']['lifecycle_phases'] ?? null) === ['retire', 'activate', 'verify']
         && in_array('deploy', $disposition['capabilities']['operations'] ?? [], true)
@@ -126,7 +126,7 @@ duo_check(
     'the reviewed disposition certifies the exact lifecycle and native product paths'
 );
 $unsupported = array_fill_keys(array_column($disposition['unsupported'] ?? [], 'surface'), true);
-duo_check(
+wprism_check(
     isset($unsupported['runtime.action-scheduler-deactivation-cleanup']),
     'the pinned upstream deactivation defect remains an explicit unsupported runtime surface'
 );
@@ -137,7 +137,7 @@ $readiness = json_decode(
     512,
     JSON_THROW_ON_ERROR
 );
-duo_check(
+wprism_check(
     ($readiness['readiness'] ?? null) === 'ready'
         && ($readiness['gaps'] ?? null) === []
         && ($readiness['blocked'] ?? null) === []
@@ -146,41 +146,41 @@ duo_check(
 );
 
 $matrix = (string) file_get_contents($repoRoot . '/sandbox/tests/certify/certify_version_matrix.sh');
-duo_check(
+wprism_check(
     str_contains($matrix, 'wp_delete_user((int) $user_id, (int) $admin->ID)'),
     'the exact matrix removes retained conformance users before each PMPro boundary'
 );
 $pmproMatrixFile = (string) file_get_contents(dirname(__DIR__) . '/certify/version-matrix.sh');
-duo_check(
+wprism_check(
     preg_match('/check_pmpro_content\(\) \{.*?wp_conf1\(\).*?wp_conf2\(\)/s', $pmproMatrixFile) === 1,
     'the exact matrix binds both PMPro conformance environments to its dedicated pair'
 );
-duo_check(
-    preg_match('/version_matrix_workflow\(\) \{.*?wp2 duo apply --repo=\/siterepo --adopt-by-slug=terms,posts.*?2>&1 \| tee "\$VMATRIX_APPLY_LOG"/s', $pmproMatrixFile) === 1,
+wprism_check(
+    preg_match('/version_matrix_workflow\(\) \{.*?wp2 wprism apply --repo=\/siterepo --adopt-by-slug=terms,posts.*?2>&1 \| tee "\$VMATRIX_APPLY_LOG"/s', $pmproMatrixFile) === 1,
     'the exact matrix retains PMPro apply output for the declared cache postcondition boundary'
 );
 
-duo_check_same(
+wprism_check_same(
     ['min' => '3.8.2', 'max' => '3.8.4'],
     $manifest['version_range'] ?? null,
     'the admitted interval is exactly the two schema-audited PMPro tags'
 );
-duo_check_same(
+wprism_check_same(
     ['invalidate-vocabulary/v1', 'spec-window/v1'],
     $manifest['engine_features'] ?? null,
     'the adapter negotiates the engine-owned invalidation vocabulary'
 );
-duo_check_same(3, $manifest['spec_version'] ?? null, 'the feature-gated declaration is carried by spec v3');
-duo_check(
+wprism_check_same(3, $manifest['spec_version'] ?? null, 'the feature-gated declaration is carried by spec v3');
+wprism_check(
     !isset($manifest['providers']) && !isset($manifest['actions']),
     'PMPro ships no executable provider or action after the engine absorbs cache invalidation'
 );
-duo_check_same(
+wprism_check_same(
     [['cache_group' => 'pmpro_membership_level_meta', 'cache_key' => '{id}']],
     $manifest['tables']['pmpro_membership_levels']['invalidate'] ?? null,
     'each materialized membership level declares the exact PMPro cache entry to drop'
 );
-duo_check_same(
+wprism_check_same(
     [['match' => '^pmpro_']],
     $manifest['option_namespaces'] ?? null,
     'the complete PMPro option namespace is discoverable so an add-on or future core key refuses loudly'
@@ -197,10 +197,10 @@ $expectedModes = [
 ];
 foreach ($expectedModes as $table => $mode) {
     $decl = $manifest['tables'][$table] ?? [];
-    duo_check_same($mode, $decl['identity']['mode'] ?? 'mapped', "$table has its reviewed production identity mode");
-    duo_check_same('authored_snapshot', $decl['class'] ?? null, "$table is a real typed snapshot declaration");
+    wprism_check_same($mode, $decl['identity']['mode'] ?? 'mapped', "$table has its reviewed production identity mode");
+    wprism_check_same('authored_snapshot', $decl['class'] ?? null, "$table is a real typed snapshot declaration");
 }
-duo_check_same(
+wprism_check_same(
     [
         'table:pmpro_discount_codes_levels',
         'table:pmpro_membership_levels_groups',
@@ -210,12 +210,12 @@ duo_check_same(
     array_keys($manifest['deletions'] ?? []),
     'deletion authority is limited to pure authored relationship rows'
 );
-duo_check_same(
+wprism_check_same(
     'runtime',
     $manifest['tables']['pmpro_membership_levelmeta']['default_class'] ?? null,
     'unknown core or add-on level metadata cannot inherit authored ownership'
 );
-duo_check_same(
+wprism_check_same(
     [
         'confirmation_in_email',
         'enable_avatars',
@@ -230,7 +230,7 @@ $tableClasses = array_map(
     static fn(array $decl): string => (string) ($decl['class'] ?? ''),
     $manifest['tables'] ?? []
 );
-duo_check(
+wprism_check(
     !in_array('authored_typed_snapshot_post_v1', $tableClasses, true),
     'no intent-only table marker remains hidden in the certified contract'
 );
@@ -243,19 +243,19 @@ duo_check(
 $invalidation = $manifest['tables']['pmpro_membership_levels']['invalidate'][0];
 wp_cache_set(7, ['membership_account_message' => ['stale-private-value']], 'pmpro_membership_level_meta');
 $run->invoke($materializer, $invalidation, 7);
-duo_check_same(
+wprism_check_same(
     "Members only — 東京\n" . str_repeat('x', 131072),
     get_pmpro_membership_level_meta(7, 'membership_account_message', true),
     'the declared engine invalidation makes PMPro rebuild large UTF-8 metadata from committed rows'
 );
-duo_check_same('keep', wp_cache_get('unrelated', 'unrelated-group'), 'unrelated cache groups are never flushed');
-duo_check(
+wprism_check_same('keep', wp_cache_get('unrelated', 'unrelated-group'), 'unrelated cache groups are never flushed');
+wprism_check(
     !in_array('flush', array_column(WpStore::instance()->cacheEvents, 'op'), true),
     'the generic primitive never falls back to a site-wide cache flush'
 );
 
 $run->invoke($materializer, $invalidation, 7);
-duo_check_same(
+wprism_check_same(
     "Members only — 東京\n" . str_repeat('x', 131072),
     get_pmpro_membership_level_meta(7, 'membership_account_message', true),
     'an immediate invalidation retry is idempotent and still serves the native fresh value'
@@ -264,11 +264,11 @@ duo_check_same(
 [, $stickyMaterializer, $stickyRun] = pmpro_fixture();
 wp_cache_set(7, ['membership_account_message' => ['stale']], 'pmpro_membership_level_meta');
 $GLOBALS['pmpro_sticky_cache'] = true;
-duo_check_throws(
+wprism_check_throws(
     static fn() => $stickyRun->invoke($stickyMaterializer, $invalidation, 7),
     RuntimeException::class,
     'a persistent cache that refuses deletion blocks the generic engine postcondition',
     "left '7' cached in group 'pmpro_membership_level_meta'"
 );
 
-duo_check_summary('Paid Memberships Pro production readiness');
+wprism_check_summary('Paid Memberships Pro production readiness');

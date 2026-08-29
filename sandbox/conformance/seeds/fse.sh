@@ -21,11 +21,11 @@
 # already exported; runs from the sandbox/ directory.
 set -euo pipefail
 
-ABOUT_ID=$(wp_conf1 post create --post_type=page --post_title='Duo FSE About' --post_name=duo-fse-about \
+ABOUT_ID=$(wp_conf1 post create --post_type=page --post_title='WPrism FSE About' --post_name=wprism-fse-about \
   --post_status=publish --post_content='<!-- wp:paragraph --><p>About the conformance site.</p><!-- /wp:paragraph -->' --porcelain)
-CONTACT_ID=$(wp_conf1 post create --post_type=page --post_title='Duo FSE Contact' --post_name=duo-fse-contact \
+CONTACT_ID=$(wp_conf1 post create --post_type=page --post_title='WPrism FSE Contact' --post_name=wprism-fse-contact \
   --post_status=publish --post_content='<!-- wp:paragraph --><p>Contact the conformance site.</p><!-- /wp:paragraph -->' --porcelain)
-# DUO-3381: assert the premise before anything consumes it. These ids are
+# issue #3381: assert the premise before anything consumes it. These ids are
 # interpolated straight into block attributes below ({"id":$ABOUT_ID},
 # {"ref":$NAV_ID}) — an empty capture from a load-starved `docker compose
 # run` (see the shared conformance/asserts.sh's require_fixture_ids) produces syntactically invalid
@@ -76,7 +76,7 @@ require_fixture_values ATT_URL
 CTA_CONTENT="<!-- wp:image {\"id\":$ATT_ID,\"sizeSlug\":\"full\",\"linkDestination\":\"none\"} -->
 <figure class=\"wp-block-image size-full\"><img src=\"$ATT_URL\" alt=\"\" class=\"wp-image-$ATT_ID\"/></figure>
 <!-- /wp:image -->"
-CTA_ID=$(wp_conf1 post create --post_type=wp_block --post_title='Duo FSE CTA' --post_name=duo-fse-cta \
+CTA_ID=$(wp_conf1 post create --post_type=wp_block --post_title='WPrism FSE CTA' --post_name=wprism-fse-cta \
   --post_status=publish --post_content="$CTA_CONTENT" --porcelain)
 require_fixture_ids CTA_ID
 wp_conf1 term create wp_pattern_category "Conformance Patterns" --slug=conformance-patterns --porcelain >/dev/null
@@ -95,8 +95,8 @@ wp_conf1 post meta update "$CTA_ID" wp_pattern_sync_status unsynced
 # The navigation: one link per kind_from branch (post-type/taxonomy/custom).
 NAV_CONTENT="<!-- wp:navigation-link {\"label\":\"About\",\"type\":\"page\",\"id\":$ABOUT_ID,\"url\":\"$ABOUT_URL\",\"kind\":\"post-type\"} /-->
 <!-- wp:navigation-link {\"label\":\"News\",\"type\":\"category\",\"id\":$NEWS_ID,\"url\":\"$NEWS_URL\",\"kind\":\"taxonomy\"} /-->
-<!-- wp:navigation-link {\"label\":\"External\",\"type\":\"custom\",\"url\":\"https://duo-conformance-external.example.test/features\",\"kind\":\"custom\"} /-->"
-NAV_ID=$(wp_conf1 post create --post_type=wp_navigation --post_title='Duo FSE Primary Nav' --post_name=duo-fse-primary-nav \
+<!-- wp:navigation-link {\"label\":\"External\",\"type\":\"custom\",\"url\":\"https://wprism-conformance-external.example.test/features\",\"kind\":\"custom\"} /-->"
+NAV_ID=$(wp_conf1 post create --post_type=wp_navigation --post_title='WPrism FSE Primary Nav' --post_name=wprism-fse-primary-nav \
   --post_status=publish --post_content="$NAV_CONTENT" --porcelain)
 require_fixture_ids NAV_ID
 

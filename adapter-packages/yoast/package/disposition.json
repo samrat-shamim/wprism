@@ -30,7 +30,7 @@
     },
     "default_authored_keyspaces": [],
     "evidence": {
-        "bundle_schema": "duo-subject-certification-bundle/v1",
+        "bundle_schema": "wprism-subject-certification-bundle/v1",
         "tests": [
             "conformance-yoast",
             "exact-artifact-version-matrix"
@@ -48,7 +48,7 @@
     "unsupported": [
         {
             "operation": "delete",
-            "reason": "Declared post-meta and option sub-key absence is an ordinary entity update, and core post deletion plus Yoast reindex is exercised with explicit deletion authority; the adapter declares no Yoast-owned authored entity/table selector, so Duo does not synthesize deletion of plugin-specific entities or derived rows outside the reindex provider.",
+            "reason": "Declared post-meta and option sub-key absence is an ordinary entity update, and core post deletion plus Yoast reindex is exercised with explicit deletion authority; the adapter declares no Yoast-owned authored entity/table selector, so WPrism does not synthesize deletion of plugin-specific entities or derived rows outside the reindex provider.",
             "surface": "deletions.yoast-entity"
         },
         {
@@ -58,7 +58,7 @@
         },
         {
             "operation": "all",
-            "reason": "The shared platform certificate and Duo v1 apply model are single-site; network options, per-blog index projections and network activation are outside this adapter.",
+            "reason": "The shared platform certificate and WPrism v1 apply model are single-site; network options, per-blog index projections and network activation are outside this adapter.",
             "surface": "multisite"
         }
     ]

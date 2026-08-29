@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * DUO-3354: the entity-token wire format is a pure codec seam.  This suite
+ * issue #3354: the entity-token wire format is a pure codec seam.  This suite
  * deliberately loads it without WordPress, a database, or a plugin and then
  * proves that Tokens keeps only the historical Ledger-backed facade.
  */
@@ -63,12 +63,12 @@ final class CodecFakeWpdb {
 }
 
 require __DIR__ . '/../../../../agent/src/Kernel/IdentityTokenCodec.php';
-check(!class_exists(\Duo\Ledger::class, false), 'codec standalone load does not load Ledger');
+check(!class_exists(\WPrism\Ledger::class, false), 'codec standalone load does not load Ledger');
 require __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
 
-use Duo\IdentityTokenCodec;
-use Duo\Tokens;
+use WPrism\IdentityTokenCodec;
+use WPrism\Tokens;
 
 $uuid = '01234567-89ab-cdef-0123-456789abcdef';
 
@@ -92,9 +92,9 @@ check(IdentityTokenCodec::ledger_kind('post') === 'post', 'post kind remains unc
 check(IdentityTokenCodec::ledger_kind('term') === 'term', 'term kind remains unchanged');
 check(IdentityTokenCodec::ledger_kind('tt') === 'term_taxonomy', 'tt alias remains the ledger taxonomy kind');
 check(IdentityTokenCodec::ledger_kind('wc_zone_method') === 'wc_zone_method', 'custom manifest kinds pass through');
-check(IdentityTokenCodec::ledger_kind('post') === \Duo\Ledger::KIND_POST, 'post alias stays aligned with Ledger vocabulary');
-check(IdentityTokenCodec::ledger_kind('term') === \Duo\Ledger::KIND_TERM, 'term alias stays aligned with Ledger vocabulary');
-check(IdentityTokenCodec::ledger_kind('tt') === \Duo\Ledger::KIND_TT, 'tt alias stays aligned with Ledger vocabulary');
+check(IdentityTokenCodec::ledger_kind('post') === \WPrism\Ledger::KIND_POST, 'post alias stays aligned with Ledger vocabulary');
+check(IdentityTokenCodec::ledger_kind('term') === \WPrism\Ledger::KIND_TERM, 'term alias stays aligned with Ledger vocabulary');
+check(IdentityTokenCodec::ledger_kind('tt') === \WPrism\Ledger::KIND_TT, 'tt alias stays aligned with Ledger vocabulary');
 check(IdentityTokenCodec::encode('post', $uuid) === '{{post:' . $uuid . '}}', 'encode preserves canonical post token spelling');
 check(IdentityTokenCodec::encode('custom_kind', $uuid) === '{{custom_kind:' . $uuid . '}}', 'encode supports declared custom kinds');
 check(IdentityTokenCodec::encode('post', null) === null, 'unmapped identities remain null at the codec boundary');
@@ -117,7 +117,7 @@ foreach ([
     try {
         IdentityTokenCodec::decode($malformed);
     } catch (RuntimeException $e) {
-        $threw = str_contains($e->getMessage(), "duo: malformed ref token '$malformed'");
+        $threw = str_contains($e->getMessage(), "wprism: malformed ref token '$malformed'");
     }
     check($threw, "malformed token is refused with the historical diagnostic: $malformed");
 }

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/PlanContract.php';
 require_once __DIR__ . '/PlanSummary.php';
@@ -30,9 +30,9 @@ final class PlanViewException extends \RuntimeException {
  * snapshot it already fetched for status.
  */
 final class PlanView {
-    public const FORMAT = 'duo-plan-view/v2';
+    public const FORMAT = 'wprism-plan-view/v2';
 
-    /** MUP §4.6: the one closed ceiling, shared (DUO-3521). */
+    /** MUP §4.6: the one closed ceiling, shared (issue #3521). */
     public const MAX_LIMIT = HumanViewLimit::MAX_LIMIT;
 
     private const REDACTION = 'values_omitted';
@@ -73,7 +73,7 @@ final class PlanView {
     ];
 
     /**
-     * Parse the only status flags this host owns.  The direct `duo plan`
+     * Parse the only status flags this host owns.  The direct `wprism plan`
      * passthrough deliberately leaves parsing to the target agent, but status
      * must canonicalize before forwarding so it can verify the returned view.
      *
@@ -402,7 +402,7 @@ final class PlanView {
                 $lines[] = '  surface: ' . $surface;
             }
             if ($selector !== '') {
-                $lines[] = '  EXPLAIN wp duo explain ' . $selector . ' --repo=<repo>';
+                $lines[] = '  EXPLAIN wp wprism explain ' . $selector . ' --repo=<repo>';
             }
         }
         return $lines;
@@ -500,7 +500,7 @@ final class PlanView {
 
     /** @param array<string,mixed> $plan @param array<string,mixed> $request */
     private static function cursorDigest(array $plan, array $request): string {
-        $parts = ['duo-plan-view-cursor/v1'];
+        $parts = ['wprism-plan-view-cursor/v1'];
         foreach (['category', 'action', 'entity'] as $key) {
             $parts[] = $key . '=' . implode(',', (array) ($request[$key] ?? []));
         }

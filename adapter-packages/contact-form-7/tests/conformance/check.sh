@@ -90,9 +90,9 @@ PHPEOF
 }
 
 commit_cf7_source() { # <message>
-  wp_conf1 duo capture --repo=/siterepo >/dev/null
+  wp_conf1 wprism capture --repo=/siterepo >/dev/null
   git -C "$CONF_REPO1" add -A
-  git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm "$1"
+  git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm "$1"
   git -C "$CONF_REPO1" push -q origin main
   git -C "$CONF_REPO2" pull -q origin main
 }
@@ -116,7 +116,7 @@ printf '%s\n' "$TARGET" | jq -e '
   .version == "6.1.7" and
   .main.old_id == "3199001" and .legacy.old_id == "3199002" and
   (.main.hash | test("^[0-9a-f]{64}$")) and (.legacy.hash | test("^[0-9a-f]{64}$")) and
-  (.main.form | contains("Name 東京 🚀")) and (.main.form | contains("duo-unknown")) and
+  (.main.form | contains("Name 東京 🚀")) and (.main.form | contains("wprism-unknown")) and
   (.main.mail.recipient == "main-recipient@example.test") and
   (.main.mail.subject | contains("main 東京 🚀")) and
   (.main.mail.body | length > 25000) and (.main.mail.body | contains($home)) and
@@ -128,9 +128,9 @@ printf '%s\n' "$TARGET" | jq -e '
   .main.flamingo.channel == 8801 and
   .main.constant_contact.list == "target-environment-list" and
   .main.sendinblue.list == "target-environment-list" and
-  .option.duo_target_only == "target-option-preserved" and
+  .option.wprism_target_only == "target-option-preserved" and
   .option.turnstile == {"target-site-key":"target-secret-key"} and
-  (.option | has("duo_source_only") | not) and
+  (.option | has("wprism_source_only") | not) and
   .legacy.storage == [
     {"current":false,"legacy":true}, {"current":false,"legacy":true},
     {"current":false,"legacy":true}, {"current":false,"legacy":true},
@@ -185,7 +185,7 @@ grep -q "_wpcf7\" value=\"$TARGET_LEGACY\"" <<<"$STORAGE_FRONT" \
   && grep -q "_wpcf7\" value=\"$TARGET_MAIN\"" <<<"$MULTIPLE_FRONT" \
   && grep -q "_wpcf7\" value=\"$TARGET_LEGACY\"" <<<"$MULTIPLE_FRONT" \
   || fail "multiple-form page did not render both target identities"
-grep -Fq '[duo-unknown raw="main-literal"]' <<<"$FRONT" \
+grep -Fq '[wprism-unknown raw="main-literal"]' <<<"$FRONT" \
   || fail "CF7 changed the verified literal behavior of an unknown form tag"
 grep -Fq 'data-sitekey="target-site-key"' <<<"$FRONT" \
   || fail "CF7 target render did not retain its environment-owned Turnstile integration"
@@ -228,12 +228,12 @@ printf '%s\n' "$SUBMISSION" | jq -e '.status == "mail_sent" and (.posted_data_ha
   || fail "conf1 changed after an anonymous conf2 CF7 submission"
 pass "target Turnstile spam behavior and local demo-mode success both execute without crossing environment state"
 
-ZERO_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "CF7 zero-change plan" json "$ZERO_PLAN"
+ZERO_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "CF7 zero-change plan" json "$ZERO_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$ZERO_PLAN" >/dev/null \
   || fail "CF7 retry retained work: $ZERO_PLAN"
-ZERO_APPLY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "CF7 zero-change apply" json "$ZERO_APPLY"
+ZERO_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "CF7 zero-change apply" json "$ZERO_APPLY"
 jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$ZERO_APPLY" >/dev/null \
   || fail "CF7 no-op apply was not clean and idempotent: $ZERO_APPLY"
 pass "CF7 zero-change plan/apply is idempotent"
@@ -249,7 +249,7 @@ for shape in \
   require_fixture_ids TEMP_PAGE
   BEFORE_STATUS=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
   SHAPE_RC=0
-  SHAPE_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || SHAPE_RC=$?
+  SHAPE_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || SHAPE_RC=$?
   [ "$SHAPE_RC" -ne 0 ] \
     && grep -Eq 'requires exactly one|must be exactly 7 lowercase hexadecimal' <<<"$SHAPE_OUT" \
     || fail "CF7 unsafe modern identity shape did not refuse: $shape => $SHAPE_OUT"
@@ -279,7 +279,7 @@ wp_conf1 eval '
 ' >/dev/null
 SECRET_STATUS=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
 SECRET_RC=0
-SECRET_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || SECRET_RC=$?
+SECRET_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || SECRET_RC=$?
 [ "$SECRET_RC" -ne 0 ] && grep -q 'secret guard tripped' <<<"$SECRET_OUT" \
   && ! grep -Fq "$FAKE_TOKEN" <<<"$SECRET_OUT" \
   || fail "CF7 credential-shaped recipient did not refuse and redact: $SECRET_OUT"
@@ -297,7 +297,7 @@ wp_conf1 eval '
   update_post_meta($p->ID,"_mail",$mail);
 ' >/dev/null
 MAIL_RC=0
-MAIL_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || MAIL_RC=$?
+MAIL_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || MAIL_RC=$?
 [ "$MAIL_RC" -ne 0 ] && grep -q "unknown field 'future_transport'" <<<"$MAIL_OUT" \
   || fail "CF7 unknown mail schema field did not refuse: $MAIL_OUT"
 wp_conf1 eval '
@@ -311,7 +311,7 @@ wp_conf1 eval '
   update_post_meta($p->ID,"_form",get_post_meta($p->ID,"form",true));
 ' >/dev/null
 DUAL_RC=0
-DUAL_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || DUAL_RC=$?
+DUAL_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || DUAL_RC=$?
 [ "$DUAL_RC" -ne 0 ] && grep -q "both 'form' and '_form'" <<<"$DUAL_OUT" \
   || fail "CF7 dual legacy/current storage did not refuse: $DUAL_OUT"
 wp_conf1 eval '$p=get_page_by_path("conformance-legacy-storage",OBJECT,"wpcf7_contact_form"); delete_post_meta($p->ID,"_form");' >/dev/null
@@ -322,7 +322,7 @@ wp_conf1 eval '
   update_post_meta($legacy->ID,"_hash",get_post_meta($main->ID,"_hash",true));
 ' >/dev/null
 HASH_RC=0
-HASH_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || HASH_RC=$?
+HASH_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || HASH_RC=$?
 [ "$HASH_RC" -ne 0 ] && grep -Eqi 'multiple matching forms|duplicates|ambiguous' <<<"$HASH_OUT" \
   || fail "CF7 duplicate native hash-prefix owners did not refuse: $HASH_OUT"
 wp_conf1 eval '
@@ -347,10 +347,10 @@ DELETE_ID=$(wp_conf1 eval '
 require_fixture_ids DELETE_ID
 DELETE_STATUS=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
 DELETE_RC=0
-DELETE_OUT=$(wp_conf1 duo capture --repo=/siterepo --format=json) || DELETE_RC=$?
-require_duo_answered "CF7 unsupported form deletion capture" json "$DELETE_OUT"
+DELETE_OUT=$(wp_conf1 wprism capture --repo=/siterepo --format=json) || DELETE_RC=$?
+require_wprism_answered "CF7 unsupported form deletion capture" json "$DELETE_OUT"
 [ "$DELETE_RC" -ne 0 ] && jq -e '
-  .format == "duo-command-refusal/v1" and .reason_code == "unsupported_deletion" and
+  .format == "wprism-command-refusal/v1" and .reason_code == "unsupported_deletion" and
   any(.diagnostics[]?; .code == "unsupported_deletion" and .surface == "post:wpcf7_contact_form")
 ' <<<"$DELETE_OUT" >/dev/null \
   || fail "CF7 form deletion did not refuse at exact selector: $DELETE_OUT"
@@ -380,19 +380,19 @@ wp_conf2 eval '
   $f->set_properties(["mail"=>$mail,"messages"=>$messages]); $f->save();
 ' >/dev/null
 CONFLICT_BEFORE=$(cf7_target_hash)
-CONFLICT_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "CF7 competing branch plan" json "$CONFLICT_PLAN"
+CONFLICT_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "CF7 competing branch plan" json "$CONFLICT_PLAN"
 jq -e '(.conflict | length) > 0' <<<"$CONFLICT_PLAN" >/dev/null \
   || fail "CF7 competing mail/messages did not produce typed conflicts: $CONFLICT_PLAN"
 CONFLICT_RC=0
-CONFLICT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || CONFLICT_RC=$?
-require_duo_answered "CF7 unforced competing branch apply" human "$CONFLICT_OUT"
+CONFLICT_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || CONFLICT_RC=$?
+require_wprism_answered "CF7 unforced competing branch apply" human "$CONFLICT_OUT"
 [ "$CONFLICT_RC" -ne 0 ] && grep -qi 'conflict' <<<"$CONFLICT_OUT" \
   || fail "CF7 competing branch did not refuse: $CONFLICT_OUT"
 [ "$(cf7_target_hash)" = "$CONFLICT_BEFORE" ] \
   || fail "CF7 unforced conflict partially mutated target state"
-FORCED=$(wp_conf2 duo apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "CF7 forced competing branch apply" json "$FORCED"
+FORCED=$(wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "CF7 forced competing branch apply" json "$FORCED"
 jq -e '
   .canary == "clean" and .verification.result == "pass" and .plan.conflict == 1 and
   (.warnings | any(contains("FORCED conflict") and contains("repository intent authorized")))
@@ -405,7 +405,7 @@ printf '%s\n' "$CONVERGED" | jq -e '
   (.main.messages.validation_error | contains($observed.home)) and
   .main.config_validation["target-runtime"] == true and
   .main.constant_contact.list == "target-environment-list" and
-  .option.duo_target_only == "target-option-preserved"
+  .option.wprism_target_only == "target-option-preserved"
 ' >/dev/null || fail "CF7 forced conflict resolution lost repository or target-owned state: $CONVERGED"
 pass "dirty mail/message conflicts refuse atomically; explicit force converges and preserves target runtime/integration state"
 
@@ -421,23 +421,23 @@ wp_conf1 eval '
 ' >/dev/null
 commit_cf7_source 'conformance: CF7 transactional recovery intent'
 FAULT_BEFORE=$(cf7_target_hash)
-wp_conf2 db query 'ALTER TABLE wp_postmeta DROP CONSTRAINT IF EXISTS duo_cf7_fail_messages' >/dev/null
+wp_conf2 db query 'ALTER TABLE wp_postmeta DROP CONSTRAINT IF EXISTS wprism_cf7_fail_messages' >/dev/null
 wp_conf2 db query '
-  ALTER TABLE wp_postmeta ADD CONSTRAINT duo_cf7_fail_messages
+  ALTER TABLE wp_postmeta ADD CONSTRAINT wprism_cf7_fail_messages
   CHECK (meta_key <> "_messages" OR meta_value NOT LIKE "%CF7 transaction message%")
 ' >/dev/null
 FAULT_RC=0
-FAULT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || FAULT_RC=$?
-require_duo_answered "CF7 injected transaction failure" human "$FAULT_OUT"
-[ "$FAULT_RC" -ne 0 ] && grep -q 'duo_cf7_fail_messages' <<<"$FAULT_OUT" \
+FAULT_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || FAULT_RC=$?
+require_wprism_answered "CF7 injected transaction failure" human "$FAULT_OUT"
+[ "$FAULT_RC" -ne 0 ] && grep -q 'wprism_cf7_fail_messages' <<<"$FAULT_OUT" \
   || fail "CF7 injected late database failure did not surface exactly: $FAULT_OUT"
 [ "$(cf7_target_hash)" = "$FAULT_BEFORE" ] \
   || fail "CF7 failed transaction left partial post/meta writes"
-[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
+[ "$(wp_conf2 eval 'echo null === \WPrism\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
   || fail "CF7 failed transaction did not retain retry authority"
-wp_conf2 db query 'ALTER TABLE wp_postmeta DROP CONSTRAINT duo_cf7_fail_messages' >/dev/null
-RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "CF7 retry after injected failure" json "$RETRY"
+wp_conf2 db query 'ALTER TABLE wp_postmeta DROP CONSTRAINT wprism_cf7_fail_messages' >/dev/null
+RETRY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "CF7 retry after injected failure" json "$RETRY"
 jq -e '.canary == "clean" and .verification.result == "pass" and .applied >= 1' <<<"$RETRY" >/dev/null \
   || fail "CF7 retry did not consume durable intent: $RETRY"
 RETRIED=$(observe_cf7 conf2)
@@ -459,8 +459,8 @@ commit_cf7_source 'conformance: concurrent CF7 apply intent'
 CONCURRENT_A="${CONF_REPO2:-siterepo/conf2}/.tmp-cf7-concurrent-a.log"
 CONCURRENT_B="${CONF_REPO2:-siterepo/conf2}/.tmp-cf7-concurrent-b.log"
 set +e
-wp_conf2 duo apply --repo=/siterepo --default-author=admin >"$CONCURRENT_A" 2>&1 & PID_A=$!
-wp_conf2 duo apply --repo=/siterepo --default-author=admin >"$CONCURRENT_B" 2>&1 & PID_B=$!
+wp_conf2 wprism apply --repo=/siterepo --default-author=admin >"$CONCURRENT_A" 2>&1 & PID_A=$!
+wp_conf2 wprism apply --repo=/siterepo --default-author=admin >"$CONCURRENT_B" 2>&1 & PID_B=$!
 wait "$PID_A"; RC_A=$?
 wait "$PID_B"; RC_B=$?
 set -e
@@ -480,8 +480,8 @@ rm -f "$CONCURRENT_A" "$CONCURRENT_B"
 CONCURRENT=$(observe_cf7 conf2)
 printf '%s\n' "$CONCURRENT" | jq -e '.main.mail.subject == "Concurrent CF7 intent 東京 🚀"' >/dev/null \
   || fail "competing CF7 applies lost repository intent: $CONCURRENT"
-CONCURRENT_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "CF7 plan after competing applies" json "$CONCURRENT_PLAN"
+CONCURRENT_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "CF7 plan after competing applies" json "$CONCURRENT_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$CONCURRENT_PLAN" >/dev/null \
   || fail "CF7 competing applies left retained work: $CONCURRENT_PLAN"
 pass "competing CF7 applies serialize and leave one exact idempotent result"
@@ -489,14 +489,14 @@ pass "competing CF7 applies serialize and leave one exact idempotent result"
 # Deactivation is reversible. CF7's native uninstall is destructive (all form
 # posts and wpcf7 option); missing code must refuse, then exact digest-bound
 # reinstall plus explicit repository authority must reconstruct native forms.
-wp_conf2 option update duo_cf7_neighbor 'target-neighbor-preserved' >/dev/null
+wp_conf2 option update wprism_cf7_neighbor 'target-neighbor-preserved' >/dev/null
 wp_conf2 plugin deactivate contact-form-7 >/dev/null
 if wp_conf2 plugin is-active contact-form-7 >/dev/null 2>&1; then
   fail "CF7 deactivation premise did not land"
 fi
-REACTIVATE=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "CF7 deploy after deactivation" json "$REACTIVATE"
-wp_conf2 plugin is-active contact-form-7 >/dev/null || fail "Duo deploy did not reactivate exact CF7 code"
+REACTIVATE=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "CF7 deploy after deactivation" json "$REACTIVATE"
+wp_conf2 plugin is-active contact-form-7 >/dev/null || fail "WPrism deploy did not reactivate exact CF7 code"
 # A combined `uninstall --deactivate` keeps WPCF7_VERSION defined in that
 # request, and CF7's uninstall.php intentionally skips deletion in that shape.
 # A second native request after deactivation is the plugin's destructive path.
@@ -510,11 +510,11 @@ fi
 if wp_conf2 option get wpcf7 >/dev/null 2>&1; then
   fail "CF7 native uninstall retained its environment option"
 fi
-[ "$(wp_conf2 option get duo_cf7_neighbor)" = 'target-neighbor-preserved' ] \
+[ "$(wp_conf2 option get wprism_cf7_neighbor)" = 'target-neighbor-preserved' ] \
   || fail "CF7 uninstall mutated an unrelated target option"
 MISSING_RC=0
-MISSING_OUT=$(wp_conf2 duo deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
-require_duo_answered "CF7 deploy with code absent" human "$MISSING_OUT"
+MISSING_OUT=$(wp_conf2 wprism deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
+require_wprism_answered "CF7 deploy with code absent" human "$MISSING_OUT"
 [ "$MISSING_RC" -ne 0 ] && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$MISSING_OUT" \
   || fail "missing CF7 code did not refuse at compatibility: $MISSING_OUT"
 CF7_SHA=aedc5cc878e1e62187882286e0711168491d744be547addc063311999ef1468d
@@ -524,23 +524,23 @@ CF7_ARTIFACT="/artifacts-cache/plugin-contact-form-7-6.1.7-${CF7_SHA}.zip"
 wp_conf2 plugin install "$CF7_ARTIFACT" --force >/dev/null
 [ "$(wp_conf2 plugin get contact-form-7 --field=version)" = '6.1.7' ] \
   || fail "CF7 exact reinstall reported wrong version"
-REINSTALL_DEPLOY=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "CF7 deploy after exact reinstall" json "$REINSTALL_DEPLOY"
+REINSTALL_DEPLOY=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "CF7 deploy after exact reinstall" json "$REINSTALL_DEPLOY"
 wp_conf2 eval '
   $option=(array)get_option("wpcf7",[]);
-  $option["duo_reinstall_target"]="reinstall-env-preserved";
+  $option["wprism_reinstall_target"]="reinstall-env-preserved";
   update_option("wpcf7",$option);
 ' >/dev/null
 REINSTALL_BEFORE=$(cf7_target_hash)
 REINSTALL_RC=0
-REINSTALL_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || REINSTALL_RC=$?
-require_duo_answered "CF7 unforced apply after destructive uninstall" human "$REINSTALL_OUT"
+REINSTALL_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || REINSTALL_RC=$?
+require_wprism_answered "CF7 unforced apply after destructive uninstall" human "$REINSTALL_OUT"
 [ "$REINSTALL_RC" -ne 0 ] && grep -Eq 'slug collisions need explicit resolution|collides with env id' <<<"$REINSTALL_OUT" \
   || fail "CF7 activation default did not require explicit slug adoption: $REINSTALL_OUT"
 [ "$(cf7_target_hash)" = "$REINSTALL_BEFORE" ] \
   || fail "CF7 unforced reinstall collision partially mutated target state"
-REINSTALL_APPLY=$(wp_conf2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "CF7 recovery with explicit activation-default adoption" json "$REINSTALL_APPLY"
+REINSTALL_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "CF7 recovery with explicit activation-default adoption" json "$REINSTALL_APPLY"
 jq -e '
   .canary == "clean" and .verification.result == "pass" and .plan.adopt == 1 and
   (.warnings | any(contains("adopted env post")))
@@ -551,20 +551,20 @@ printf '%s\n' "$RECOVERED" | jq -e '
   .main.mail.subject == "Concurrent CF7 intent 東京 🚀" and
   (.main.form | contains("Name 東京 🚀")) and
   (.legacy.form | contains("legacy-literal")) and
-  .option.duo_reinstall_target == "reinstall-env-preserved"
+  .option.wprism_reinstall_target == "reinstall-env-preserved"
 ' >/dev/null || fail "CF7 native state did not recover after exact reinstall: $RECOVERED"
-[ "$(wp_conf2 option get duo_cf7_neighbor)" = 'target-neighbor-preserved' ] \
+[ "$(wp_conf2 option get wprism_cf7_neighbor)" = 'target-neighbor-preserved' ] \
   || fail "CF7 recovery mutated the unrelated target option"
 RECOVERY_FRONT=$(curl -fs "http://localhost:${CONF2_PORT}/conformance-contact/") \
   || fail "CF7 recovered modern page did not render"
 RECOVERY_ID=$(jq -r '.main.id' <<<"$RECOVERED")
 grep -q "_wpcf7\" value=\"$RECOVERY_ID\"" <<<"$RECOVERY_FRONT" \
   || fail "CF7 recovered modern shortcode did not resolve its reconstructed target form"
-FINAL_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "CF7 final recovery plan" json "$FINAL_PLAN"
+FINAL_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "CF7 final recovery plan" json "$FINAL_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$FINAL_PLAN" >/dev/null \
   || fail "CF7 recovery was not idempotent: $FINAL_PLAN"
-wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-cf7-final >/dev/null
+wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-cf7-final >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-cf7-final" \
   || fail "CF7 final recovered state was not byte-identical"
 rm -rf "$CONF_REPO2/.tmp-cf7-final"

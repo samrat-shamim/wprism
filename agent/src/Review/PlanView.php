@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/PlanCategorySummary.php';
@@ -15,7 +15,7 @@ require_once __DIR__ . '/PlanExplanation.php';
  * changes a bucket, a row order, or Apply::run().
  */
 final class PlanView {
-    public const FORMAT = 'duo-plan-view/v2';
+    public const FORMAT = 'wprism-plan-view/v2';
     public const MAX_LIMIT = 200;
 
     private const REDACTION = 'values_omitted';
@@ -38,7 +38,7 @@ final class PlanView {
     ];
 
     /**
-     * Parse the five view flags accepted by direct `wp duo plan`.
+     * Parse the five view flags accepted by direct `wp wprism plan`.
      * WP-CLI passes values as an associative map, so duplicate complete flags
      * have already been normalized by its dispatcher; token duplicates are
      * intentionally harmless and canonicalized into closed-vocabulary order.
@@ -356,7 +356,7 @@ final class PlanView {
 
     /** @param array<string,mixed> $plan @param array<string,mixed> $request */
     private static function cursorDigest(array $plan, array $request): string {
-        $parts = ['duo-plan-view-cursor/v1'];
+        $parts = ['wprism-plan-view-cursor/v1'];
         foreach (['category', 'action', 'entity'] as $key) {
             $parts[] = $key . '=' . implode(',', (array) ($request[$key] ?? []));
         }
@@ -550,7 +550,7 @@ final class PlanView {
             'plan view filters are invalid',
             'use closed category/action/entity identifiers, an emitted opaque cursor, and a canonical limit from 1 through 200',
             [],
-            'duo: invalid plan view filter'
+            'wprism: invalid plan view filter'
         );
     }
 
@@ -560,7 +560,7 @@ final class PlanView {
             'the plan changed after this view cursor was issued',
             'restart at the first page without --cursor, then continue only with cursors emitted by that plan',
             [],
-            'duo: plan view cursor is stale'
+            'wprism: plan view cursor is stale'
         );
     }
 
@@ -570,7 +570,7 @@ final class PlanView {
             'the requested plan view is unavailable for this plan',
             'rerun the complete plan without view filters or repair the plan identity/provenance inconsistency before retrying',
             [],
-            'duo: requested plan view unavailable'
+            'wprism: requested plan view unavailable'
         );
     }
 }

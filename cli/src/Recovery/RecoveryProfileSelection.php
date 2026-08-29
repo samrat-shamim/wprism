@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/RecoveryClaim.php';
 require_once __DIR__ . '/ScopedRollbackProfile.php';
@@ -9,7 +9,7 @@ require_once __DIR__ . '/VerifiedRollbackProfile.php';
 
 /**
  * Which recovery profile this release runs under, and why — round-3 MUP
- * §2.3 ("`--profile` may only *strengthen* silently") over DUO-3310's
+ * §2.3 ("`--profile` may only *strengthen* silently") over issue #3310's
  * existing auto-selection.
  *
  * ## This class decides nothing new
@@ -20,11 +20,11 @@ require_once __DIR__ . '/VerifiedRollbackProfile.php';
  * checkpoint, code-release, upload and effect providers, plus the
  * `verified_rollback` policy, a compiled code release identity and canonical
  * upload/effect inventories; `ScopedRollbackProfile::select()` is the
- * checkpoint-only sibling for a scoped window. `cli/duo`'s promotion state
+ * checkpoint-only sibling for a scoped window. `cli/wprism`'s promotion state
  * machine consumes exactly that boolean today — verified when it is true, a
  * `WARN automatic verified rollback unavailable (<reason>); using
  * operator-directed checkpoint/recovery` line when it is false
- * (cli/duo, the `promote` arm). This class does three things that decision
+ * (cli/wprism, the `promote` arm). This class does three things that decision
  * does not do, and nothing else:
  *
  *  1. **Names the profile in the product's words.** `automatic: true|false`
@@ -35,7 +35,7 @@ require_once __DIR__ . '/VerifiedRollbackProfile.php';
  *     `--accept-weaker-recovery` is present, because the spec makes that a
  *     named human authority rather than a flag with a default.
  *  3. **Produces the claim.** `RecoveryClaim::build()` is called here, once,
- *     so the claim that reaches the authorization plan and the claim `duo
+ *     so the claim that reaches the authorization plan and the claim `wprism
  *     recover` re-prints are the same bytes.
  *
  * ## `checkpoint_at` is a request fact, not a claim field
@@ -71,7 +71,7 @@ require_once __DIR__ . '/VerifiedRollbackProfile.php';
  * enter through `--profile=none` plus the explicit weaker-recovery flag.
  */
 final class RecoveryProfileSelection {
-    public const FORMAT = 'duo-recovery-profile-selection/v1';
+    public const FORMAT = 'wprism-recovery-profile-selection/v1';
 
     /** @var list<string> */
     public const PROFILES = RecoveryClaim::PROFILES;
@@ -93,9 +93,9 @@ final class RecoveryProfileSelection {
     ];
 
     /**
-     * The operator warning DUO-3310's fallback already prints, kept
-     * word-for-word so an operator who has seen `duo promote` reads the same
-     * sentence in `duo release`. `cli/duo`'s own byte stream is untouched:
+     * The operator warning issue #3310's fallback already prints, kept
+     * word-for-word so an operator who has seen `wprism promote` reads the same
+     * sentence in `wprism release`. `cli/wprism`'s own byte stream is untouched:
      * release composes promote, it does not fork it.
      */
     public const WARN_PREFIX = 'WARN automatic verified rollback unavailable (';
@@ -112,7 +112,7 @@ final class RecoveryProfileSelection {
     ];
 
     /**
-     * DUO-3310's decision for a full promotion, in product words.
+     * issue #3310's decision for a full promotion, in product words.
      *
      * @param array<string,mixed> $plan the compiled plan summary
      *        `VerifiedRollbackProfile::select()` already consumes
@@ -208,8 +208,8 @@ final class RecoveryProfileSelection {
                 $refusal = self::refusal(
                     'recovery_profile_unprovable',
                     "the target cannot prove the requested $requested recovery profile",
-                    'run duo release without --profile to use the profile the target proves, or configure the '
-                        . 'missing recovery providers and re-run duo assess',
+                    'run wprism release without --profile to use the profile the target proves, or configure the '
+                        . 'missing recovery providers and re-run wprism assess',
                     [['requested' => $requested, 'provable' => $provable, 'reason' => $reason]]
                 );
             } elseif (!$accepted) {

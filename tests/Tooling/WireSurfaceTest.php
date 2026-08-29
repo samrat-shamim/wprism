@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
 use PHPUnit\Framework\TestCase;
 
@@ -45,13 +45,13 @@ final class WireSurfaceTest extends TestCase
 
     private static function repoRoot(): string
     {
-        $env = getenv('DUO_REPO_ROOT');
+        $env = getenv('WPRISM_REPO_ROOT');
         return is_string($env) && $env !== '' ? $env : dirname(__DIR__, 2);
     }
 
     public static function setUpBeforeClass(): void
     {
-        $fixture = (string) tempnam(sys_get_temp_dir(), 'duo-wire-surface');
+        $fixture = (string) tempnam(sys_get_temp_dir(), 'wprism-wire-surface');
         unlink($fixture);
         if (!mkdir($fixture, 0700) && !is_dir($fixture)) {
             self::fail("could not create the fixture root at $fixture");
@@ -150,8 +150,8 @@ final class WireSurfaceTest extends TestCase
         $result = self::withMutation(
             'agent/src/Adapter/AdapterCertification.php',
             static fn(string $source): string => str_replace(
-                'duo-site-adapter-certification-signature/v2',
-                'duo-site-adapter-certification-signature/v3',
+                'wprism-site-adapter-certification-signature/v2',
+                'wprism-site-adapter-certification-signature/v3',
                 $source
             )
         );
@@ -160,7 +160,7 @@ final class WireSurfaceTest extends TestCase
         // The reported "shipped" line carries the MUTATED domain, which is the
         // whole point: the document is projected from the constant the
         // refusals consult, never compared against a second copy of it.
-        self::assertStringContainsString('duo-site-adapter-certification-signature/v3', $result['stderr']);
+        self::assertStringContainsString('wprism-site-adapter-certification-signature/v3', $result['stderr']);
     }
 
     /**
@@ -189,7 +189,7 @@ final class WireSurfaceTest extends TestCase
         file_put_contents(
             $path,
             "<?php\n// A fourth signing surface, added without a register row.\n"
-                . "function duo_wire_surface_probe_sign(string \$m, string \$k): string {\n"
+                . "function wprism_wire_surface_probe_sign(string \$m, string \$k): string {\n"
                 . "    return sodium_crypto_sign_detached(\$m, \$k);\n}\n"
         );
         try {
@@ -249,7 +249,7 @@ final class WireSurfaceTest extends TestCase
         $result = self::withMutation(
             'platform/adapter-library/capabilities/adapter-authorities.json',
             static fn(string $source): string => json_encode([
-                'format' => 'duo-adapter-authorities/v1',
+                'format' => 'wprism-adapter-authorities/v1',
                 'keys' => ['acme-000000000000' => [
                     'adapter_names' => ['acme-forms'],
                     'algorithm' => 'ed25519',
@@ -261,7 +261,7 @@ final class WireSurfaceTest extends TestCase
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n"
         );
         self::assertSame(1, $result['status'], 'a populated v1 platform trust root must fail the register check');
-        self::assertStringContainsString('neither the empty duo-adapter-authorities/v1 registry', $result['stderr']);
+        self::assertStringContainsString('neither the empty wprism-adapter-authorities/v1 registry', $result['stderr']);
     }
 
     /**
@@ -276,14 +276,14 @@ final class WireSurfaceTest extends TestCase
         $package = (string) self::$fixture . '/adapter-packages/zeta/package';
         self::assertTrue(mkdir($package, 0700, true));
         $source = (string) file_get_contents(
-            (string) self::$fixture . '/adapter-packages/duo-agency-cpt/package/manifest.json'
+            (string) self::$fixture . '/adapter-packages/wprism-agency-cpt/package/manifest.json'
         );
         $decoded = json_decode($source, true);
         self::assertIsArray($decoded, 'the fixture manifest did not decode');
         $decoded['name'] = 'zeta';
         file_put_contents($package . '/manifest.json', json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
         copy(
-            (string) self::$fixture . '/adapter-packages/duo-agency-cpt/package/disposition.json',
+            (string) self::$fixture . '/adapter-packages/wprism-agency-cpt/package/disposition.json',
             $package . '/disposition.json'
         );
         try {

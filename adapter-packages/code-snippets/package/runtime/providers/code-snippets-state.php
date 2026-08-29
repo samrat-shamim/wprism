@@ -1,14 +1,14 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Providers;
+namespace WPrism\Providers;
 
-use Duo\ManifestProviderRuntime;
+use WPrism\ManifestProviderRuntime;
 
 /**
  * Code Snippets 3.9.5/3.9.6 cache and optional flat-file repair.
  *
- * Duo materializes the snippets table directly, bypassing save_snippet(),
+ * WPrism materializes the snippets table directly, bypassing save_snippet(),
  * clean_snippets_cache(), and Snippet_Files' create/update/delete hooks. A
  * stale in-process object-cache row can therefore hide the committed table,
  * while file-based execution can continue running the target's pre-apply PHP.
@@ -52,12 +52,12 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
     private function assert_runtime_contract(): void {
         if (is_multisite()) {
             throw new \RuntimeException(
-                'duo: Code Snippets state provider is certified for single-site tables only'
+                'wprism: Code Snippets state provider is certified for single-site tables only'
             );
         }
         if (get_option('active_shared_network_snippets', false) !== false) {
             throw new \RuntimeException(
-                'duo: Code Snippets state provider refuses residual multisite snippet state on a single site'
+                'wprism: Code Snippets state provider refuses residual multisite snippet state on a single site'
             );
         }
         $plugin = \Code_Snippets\code_snippets();
@@ -66,7 +66,7 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
             || !is_object($plugin->db)
             || !is_object($plugin->snippet_handler_registry)) {
             throw new \RuntimeException(
-                'duo: Code Snippets 3.9.x database or flat-file API is unavailable'
+                'wprism: Code Snippets 3.9.x database or flat-file API is unavailable'
             );
         }
     }
@@ -75,7 +75,7 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
         $this->assert_runtime_contract();
         $table = \Code_Snippets\code_snippets()->db->get_table_name(false);
         if (!is_string($table) || preg_match('/^[A-Za-z0-9_]+$/D', $table) !== 1) {
-            throw new \RuntimeException('duo: Code Snippets returned an unsafe site table name');
+            throw new \RuntimeException('wprism: Code Snippets returned an unsafe site table name');
         }
         return $table;
     }
@@ -101,7 +101,7 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
 
         if ($verify && !hash_equals($databaseHash, $apiHash)) {
             throw new \RuntimeException(
-                'duo: Code Snippets cache repair did not converge the plugin API on the snippets table'
+                'wprism: Code Snippets cache repair did not converge the plugin API on the snippets table'
             );
         }
 
@@ -126,7 +126,7 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
         );
         if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
             throw new \RuntimeException(
-                "duo: Code Snippets verification query failed against $table"
+                "wprism: Code Snippets verification query failed against $table"
             );
         }
         return array_map(static fn(array $row): array => [
@@ -147,14 +147,14 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
     private function api_rows(): array {
         $objects = \Code_Snippets\get_snippets();
         if (!is_array($objects)) {
-            throw new \RuntimeException('duo: Code Snippets get_snippets() did not return a list');
+            throw new \RuntimeException('wprism: Code Snippets get_snippets() did not return a list');
         }
         usort($objects, static fn(object $a, object $b): int => ((int) $a->id <=> (int) $b->id));
         $rows = [];
         foreach ($objects as $snippet) {
             if (!$snippet instanceof \Code_Snippets\Snippet) {
                 throw new \RuntimeException(
-                    'duo: Code Snippets get_snippets() returned a non-Snippet row'
+                    'wprism: Code Snippets get_snippets() returned a non-Snippet row'
                 );
             }
             $rows[] = [
@@ -176,12 +176,12 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
         $directory = $this->flat_table_directory();
         if (is_link($root) || is_link($directory)) {
             throw new \RuntimeException(
-                'duo: Code Snippets flat-file projection is symlinked; refusing recursive repair'
+                'wprism: Code Snippets flat-file projection is symlinked; refusing recursive repair'
             );
         }
         if (file_exists($directory) && !is_dir($directory)) {
             throw new \RuntimeException(
-                'duo: Code Snippets flat-file table projection is not a directory'
+                'wprism: Code Snippets flat-file table projection is not a directory'
             );
         }
         if (!is_dir($directory)) {
@@ -190,13 +190,13 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
         $filesystem = new \Code_Snippets\WordPress_File_System_Adapter();
         if (!$filesystem->delete($directory, true)) {
             throw new \RuntimeException(
-                'duo: Code Snippets could not remove the stale site-table flat-file projection'
+                'wprism: Code Snippets could not remove the stale site-table flat-file projection'
             );
         }
         clearstatcache(true, $directory);
         if (file_exists($directory)) {
             throw new \RuntimeException(
-                'duo: Code Snippets stale site-table flat-file projection survived deletion'
+                'wprism: Code Snippets stale site-table flat-file projection survived deletion'
             );
         }
     }
@@ -207,7 +207,7 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
         $directory = rtrim(\Code_Snippets\Snippet_Files::get_base_dir($hash), '/');
         if (dirname($directory) !== $root || basename($directory) !== $hash || $hash === '') {
             throw new \RuntimeException(
-                'duo: Code Snippets returned an unsafe flat-file table projection path'
+                'wprism: Code Snippets returned an unsafe flat-file table projection path'
             );
         }
         return $directory;
@@ -220,12 +220,12 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
         $tree = $this->flat_tree($directory);
         if ($verify && $actualEnabled !== $expectedEnabled) {
             throw new \RuntimeException(
-                'duo: Code Snippets flat-file enabled flag disagrees with plugin settings'
+                'wprism: Code Snippets flat-file enabled flag disagrees with plugin settings'
             );
         }
         if ($verify && !$expectedEnabled && $tree !== []) {
             throw new \RuntimeException(
-                'duo: disabled Code Snippets flat-file mode retained a site-table projection'
+                'wprism: disabled Code Snippets flat-file mode retained a site-table projection'
             );
         }
         if ($verify && $expectedEnabled) {
@@ -241,7 +241,7 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
         }
         if (is_link($directory) || !is_dir($directory)) {
             throw new \RuntimeException(
-                'duo: Code Snippets flat-file table projection is not a real directory'
+                'wprism: Code Snippets flat-file table projection is not a real directory'
             );
         }
         $tree = [];
@@ -251,7 +251,7 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
         foreach ($iterator as $file) {
             if ($file->isLink() || !$file->isFile()) {
                 throw new \RuntimeException(
-                    'duo: Code Snippets flat-file projection contains a non-regular entry'
+                    'wprism: Code Snippets flat-file projection contains a non-regular entry'
                 );
             }
             $path = $file->getPathname();
@@ -259,7 +259,7 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
             $hash = hash_file('sha256', $path);
             if (!is_string($hash)) {
                 throw new \RuntimeException(
-                    'duo: Code Snippets could not hash a flat-file projection entry'
+                    'wprism: Code Snippets could not hash a flat-file projection entry'
                 );
             }
             $tree[$relative] = $hash;
@@ -300,20 +300,20 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
             $indexPath = $directory . '/' . $indexRelative;
             if (!is_file($indexPath)) {
                 throw new \RuntimeException(
-                    "duo: Code Snippets flat-file projection is missing $indexRelative"
+                    "wprism: Code Snippets flat-file projection is missing $indexRelative"
                 );
             }
             $actualRows = require $indexPath;
             if (!is_array($actualRows)) {
                 throw new \RuntimeException(
-                    "duo: Code Snippets flat-file index $indexRelative did not return rows"
+                    "wprism: Code Snippets flat-file index $indexRelative did not return rows"
                 );
             }
             $normalized = [];
             foreach ($actualRows as $id => $row) {
                 if (!is_array($row)) {
                     throw new \RuntimeException(
-                        "duo: Code Snippets flat-file index $indexRelative contains a malformed row"
+                        "wprism: Code Snippets flat-file index $indexRelative contains a malformed row"
                     );
                 }
                 $normalized[(int) $id] = [
@@ -328,7 +328,7 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
             ksort($normalized, SORT_NUMERIC);
             if ($normalized !== $expectedRows) {
                 throw new \RuntimeException(
-                    "duo: Code Snippets flat-file index $indexRelative disagrees with the plugin API"
+                    "wprism: Code Snippets flat-file index $indexRelative disagrees with the plugin API"
                 );
             }
             $expectedFiles[$indexRelative] = $tree[$indexRelative] ?? '';
@@ -336,7 +336,7 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
         ksort($expectedFiles, SORT_STRING);
         if ($tree !== $expectedFiles) {
             throw new \RuntimeException(
-                'duo: Code Snippets flat-file projection contains missing, stale, or unexpected files'
+                'wprism: Code Snippets flat-file projection contains missing, stale, or unexpected files'
             );
         }
     }
@@ -345,7 +345,7 @@ final class CodeSnippetsState extends ManifestProviderRuntime {
     private function digest(mixed $value): string {
         $json = wp_json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if (!is_string($json)) {
-            throw new \RuntimeException('duo: Code Snippets could not encode provider evidence');
+            throw new \RuntimeException('wprism: Code Snippets could not encode provider evidence');
         }
         return hash('sha256', $json);
     }

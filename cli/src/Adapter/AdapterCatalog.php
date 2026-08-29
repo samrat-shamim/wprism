@@ -1,25 +1,25 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
-use Duo\AdapterRegistry;
-use Duo\AdapterLibrary;
-use Duo\AdapterSources;
-use Duo\Canon;
-use Duo\ManifestDispositions;
-use Duo\Policy;
+use WPrism\AdapterRegistry;
+use WPrism\AdapterLibrary;
+use WPrism\AdapterSources;
+use WPrism\Canon;
+use WPrism\ManifestDispositions;
+use WPrism\Policy;
 
 /**
- * `duo adapter list|inspect|doctor` — what is installed, what it is allowed to
+ * `wprism adapter list|inspect|doctor` — what is installed, what it is allowed to
  * do, and what is wrong with it.
  *
  * Every fact this command prints already existed and was already enforced. It
  * was just not reachable as an answer to the question an operator actually
- * has. `wp duo capabilities --all` reports the shipped library and only the
+ * has. `wp wprism capabilities --all` reports the shipped library and only the
  * shipped library; `--repo` reports exactly the pinned set and nothing else;
- * `duo manifest-validate` answers a grammar question about a directory;
- * `wp duo manifest-pin` answers about one adapter. None of them says "here is
+ * `wprism manifest-validate` answers a grammar question about a directory;
+ * `wp wprism manifest-pin` answers about one adapter. None of them says "here is
  * everything installed on this machine, where each piece came from, what
  * executable authority its own declarations reach, and which of them is
  * broken" — and the operator most in need of that answer is the one whose
@@ -35,19 +35,19 @@ use Duo\Policy;
  * the remediation beside it. A doctor that paraphrased the engine would be a
  * second copy of the rules, drifting from the day it shipped.
  *
- * WordPress-free by construction, the same way `duo manifest-validate` is: no
+ * WordPress-free by construction, the same way `wprism manifest-validate` is: no
  * environment, no transport, no registry service, no database. Everything it
  * reads is on this machine — the agent's own manifest library, the reviewed
  * dispositions beside it, the capability claim those dispositions project, and
  * (with `--repo`) one site repository's `adapters/` source and its pins.
  *
  * That is also the exact reason this command cannot be the whole answer. The
- * engine has THREE adapter sources since DUO-3339, and the third —
- * `<plugin-dir>/duo-adapter.json`, bundled by an active plugin — lives in
+ * engine has THREE adapter sources since issue #3339, and the third —
+ * `<plugin-dir>/wprism-adapter.json`, bundled by an active plugin — lives in
  * WP_PLUGIN_DIR, which a WordPress-free host process does not have and must
  * not invent. So the `sources` block of every report says which of the three
  * this run actually reached, rendered FROM the survey rather than asserted in
- * prose here, and the deferred list points at `wp duo adapter-survey`, which
+ * prose here, and the deferred list points at `wp wprism adapter-survey`, which
  * is the same survey running ON the target where that source exists.
  *
  * Two boundaries it states rather than hides, both in the always-emitted
@@ -57,16 +57,16 @@ use Duo\Policy;
  *      `regen_dependency.regenerator` is reported — it is the basis of the
  *      trust tier, and the tier is the whole point — but resolving one means
  *      running its top level and its constructor. An inventory of what is
- *      installed must not be the command that executes it; `duo
+ *      installed must not be the command that executes it; `wprism
  *      manifest-validate` is where that trust decision is taken deliberately.
  *   2. It answers nothing about a live target. Whether a declared plugin is
  *      installed, active, and inside its version window, whether a provider
  *      answers, and whether a claim is certified for one environment's
- *      WordPress/PHP/database are facts about that environment. `duo
- *      capabilities <env>` and `duo plan <env>` are where those get answered.
+ *      WordPress/PHP/database are facts about that environment. `wprism
+ *      capabilities <env>` and `wprism plan <env>` are where those get answered.
  *
  * Neither boundary is a footnote: they are printed on every run, passing or
- * failing, for the reason `duo manifest-validate`'s own docblock gives — a
+ * failing, for the reason `wprism manifest-validate`'s own docblock gives — a
  * tool that listed its limits only when something went wrong would let
  * silence read as "everything about these adapters is verified".
  */
@@ -74,14 +74,14 @@ final class AdapterCatalog {
     /**
      * Envelope of the catalog report (both output modes carry it).
      *
-     * v2 is DUO-3339's plugin source: the document gained `sources` (which of
+     * v2 is issue #3339's plugin source: the document gained `sources` (which of
      * the three this process could reach) and `not_installed` (an adapter that
      * is on this disk and lost to a higher-precedence definition), and every
      * refusal row gained `source` and `scope`. A consumer written against v1
      * would read a v2 report as complete while missing an entire source, so
      * the generation moves.
      */
-    public const FORMAT = 'duo-adapter-catalog/v2';
+    public const FORMAT = 'wprism-adapter-catalog/v2';
 
     private const VERBS = ['list', 'inspect', 'doctor'];
 
@@ -113,7 +113,7 @@ final class AdapterCatalog {
                 'why' => 'the manifest-shipped PHP these name is REPORTED here (it is what the trust tier is '
                     . 'derived from) and deliberately never loaded: checking that a file defines its contract '
                     . 'class requires running its top level and its constructor, which an inventory of what is '
-                    . 'installed must not do. `duo manifest-validate <manifests-dir>` takes that trust decision '
+                    . 'installed must not do. `wprism manifest-validate <manifests-dir>` takes that trust decision '
                     . 'explicitly and reports the class-contract verdict',
             ],
             [
@@ -124,17 +124,17 @@ final class AdapterCatalog {
                 'why' => 'each adapter\'s grammar verdict here is an ISOLATED load, so a manifest can read `ok` '
                     . 'and still be illegal in company — one owner per declared name, globally unique provider '
                     . 'ids, and one plugin/theme range per claim are properties of a SET. '
-                    . '`duo manifest-validate <manifests-dir> --pins=<a,b,...>` co-loads a set and runs them',
+                    . '`wprism manifest-validate <manifests-dir> --pins=<a,b,...>` co-loads a set and runs them',
             ],
             [
-                'surface' => 'site.duo.json policy.tables / policy.options',
+                'surface' => 'site.wprism.json policy.tables / policy.options',
                 'check' => 'ReferenceKindGrammar::validate_ref_kinds() / CrossManifestGuards::validate_no_conflicting_option_rules()',
                 // Three states, not two: a run that WAS given --repo but whose
                 // source carries a refusal did not get to use it either, and
                 // saying otherwise would be the one claim on this list that is
                 // simply false for that run.
                 'why' => $repo === null
-                    ? 'both guards take the SITE half of policy as INPUT: a table declared in site.duo.json '
+                    ? 'both guards take the SITE half of policy as INPUT: a table declared in site.wprism.json '
                         . 'extends the legal ref/token/ledger kind vocabulary, and a site policy.options rule is '
                         . 'the explicit resolution for one option two manifests declare differently. Without '
                         . '--repo=<site-repo> the grammar verdicts above were produced with no site policy at '
@@ -145,7 +145,7 @@ final class AdapterCatalog {
                             . 'were produced with no site policy after all — exactly as a run without --repo '
                             . 'produces them, and with the same caveat — and no site adapter\'s own grammar was '
                             . 'judged at all. Resolve the refusals and re-run for the site-policy-aware verdicts'
-                        : 'the grammar verdicts above were produced against the site.duo.json on THIS machine. '
+                        : 'the grammar verdicts above were produced against the site.wprism.json on THIS machine. '
                             . 'Whether the target runs that revision of the repository is a fact about the target'),
             ],
             [
@@ -154,7 +154,7 @@ final class AdapterCatalog {
                 'why' => 'whether a declared plugin or theme is installed, active, and inside its declared '
                     . 'window, and whether the provider code registered under a declared id exists and matches '
                     . 'its identity, are facts about one target filesystem and one running WordPress. Only the '
-                    . 'shape of the claim is checkable here — run `duo plan <env>`, whose provider_problems rows '
+                    . 'shape of the claim is checkable here — run `wprism plan <env>`, whose provider_problems rows '
                     . 'are the negotiated answer',
             ],
             [
@@ -163,24 +163,24 @@ final class AdapterCatalog {
                 'why' => 'certification is a reviewed claim evaluated against one target: whether the plugin the '
                     . 'claim is authored for is installed, active, and inside the reviewed version window. The '
                     . 'reviewed status and its authored evidence citation are read here; whether the claim holds '
-                    . 'FOR YOUR SITE is not — run `duo capabilities <env>` for that',
+                    . 'FOR YOUR SITE is not — run `wprism capabilities <env>` for that',
             ],
             [
                 'surface' => 'the ' . AdapterSources::PLUGIN . ' adapter source ('
                     . AdapterSources::PLUGIN_PATH_PREFIX . '/<plugin-dir>/' . AdapterSources::PLUGIN_FILE . ')',
-                'check' => 'AdapterSources::survey() on the target — `wp duo adapter-survey`',
+                'check' => 'AdapterSources::survey() on the target — `wp wprism adapter-survey`',
                 // Rendered FROM the survey's own source inventory rather than
                 // restated here. Two CLIs describing one scan in two hand-
                 // written paragraphs is exactly how a catalog ends up
                 // describing an engine that no longer exists — which is what
-                // this row itself was, until DUO-3339: it said the engine had
+                // this row itself was, until issue #3339: it said the engine had
                 // "exactly two adapter sources" and that a plugin-bundled
                 // manifest "is discovered by nothing".
                 'why' => 'the engine has THREE adapter sources: the shipped library, <site-repo>/'
                     . AdapterSources::SITE_DIR . '/, and one ' . AdapterSources::PLUGIN_FILE
                     . ' at the root of each ACTIVE plugin that bundles one. This process scanned '
                     . self::source_summary($sources) . '. A bundled adapter is discoverable only where '
-                    . 'WP_PLUGIN_DIR exists, so run `wp duo adapter-survey [--repo=<path>]` on the target for '
+                    . 'WP_PLUGIN_DIR exists, so run `wp wprism adapter-survey [--repo=<path>]` on the target for '
                     . 'that source'
                     . (isset($unscanned[AdapterSources::PLUGIN])
                         ? ' — ' . $unscanned[AdapterSources::PLUGIN]
@@ -224,9 +224,9 @@ final class AdapterCatalog {
      */
     public static function run(array $args): int {
         // `doctor --migration` is a different question with a different
-        // document (`duo-migration-preflight/v1`), so it gets its own owner and
+        // document (`wprism-migration-preflight/v1`), so it gets its own owner and
         // its own parser rather than a branch inside the loop below. Same
-        // split, same reason as `AdapterCertify::VERBS` in cli/duo: keeping the
+        // split, same reason as `AdapterCertify::VERBS` in cli/wprism: keeping the
         // read-only catalog's flag loop and every refusal string it produces
         // exactly where they were is what stops a new mode from moving the
         // output of an existing one (AGENTS.md rule 8).
@@ -241,7 +241,7 @@ final class AdapterCatalog {
         $json = false;
 
         // A repeated flag is refused rather than last-wins, the posture
-        // `duo manifest-validate` and `duo driver-capabilities` both take: a
+        // `wprism manifest-validate` and `wprism driver-capabilities` both take: a
         // second --repo silently replacing the first would survey a source
         // the operator did not ask about and report it as though they had.
         $seen = [];
@@ -258,7 +258,7 @@ final class AdapterCatalog {
             } elseif (str_starts_with($arg, '--repo=')) {
                 $repoArg = trim(substr($arg, strlen('--repo=')));
                 if ($repoArg === '') {
-                    return self::fail('--repo needs the path of a duo site repo (the directory holding site.duo.json)');
+                    return self::fail('--repo needs the path of a wprism site repo (the directory holding site.wprism.json)');
                 }
             } elseif (str_starts_with($arg, '--adapter-library=')) {
                 $libraryArg = trim(substr($arg, strlen('--adapter-library=')));
@@ -283,16 +283,16 @@ final class AdapterCatalog {
             return self::fail("unknown subcommand '$verb' (expected " . implode(' | ', self::VERBS) . ')');
         }
         if ($verb === 'inspect' && ($name === null || $name === '')) {
-            return self::fail('inspect needs an adapter name: duo adapter inspect <name> [--repo=<site-repo>]');
+            return self::fail('inspect needs an adapter name: wprism adapter inspect <name> [--repo=<site-repo>]');
         }
         if ($verb !== 'inspect' && $name !== null) {
             return self::fail("'$verb' takes no positional argument, got '$name'");
         }
 
-        // A directory that is not a duo site repo would fail once per adapter
-        // with the engine's "not a duo site repo?" message, which reads as
+        // A directory that is not a wprism site repo would fail once per adapter
+        // with the engine's "not a wprism site repo?" message, which reads as
         // "your adapters are broken". It is a usage error about the flag, so
-        // it is refused here, once, as one — `duo manifest-validate`'s
+        // it is refused here, once, as one — `wprism manifest-validate`'s
         // precedent for exactly this.
         $repo = null;
         if ($repoArg !== null) {
@@ -300,10 +300,10 @@ final class AdapterCatalog {
             if ($resolved === false) {
                 return self::fail("--repo '$repoArg' is not a directory");
             }
-            if (!is_file($resolved . '/site.duo.json')) {
+            if (!is_file($resolved . '/site.wprism.json')) {
                 return self::fail(
-                    "--repo '$resolved' has no site.duo.json — --repo takes the duo SITE REPO (the directory "
-                    . 'holding site.duo.json), whose adapters/ source and pins this catalog reports'
+                    "--repo '$resolved' has no site.wprism.json — --repo takes the wprism SITE REPO (the directory "
+                    . 'holding site.wprism.json), whose adapters/ source and pins this catalog reports'
                 );
             }
             $repo = $resolved;
@@ -333,7 +333,7 @@ final class AdapterCatalog {
 
         $report = [
             'format' => self::FORMAT,
-            'spec_version' => DUO_SPEC_VERSION,
+            'spec_version' => WPRISM_SPEC_VERSION,
             'command' => $verb,
             // Kept as a wire-field name for current consumers. Its value is
             // the selected library root; logical package layouts do not have
@@ -704,7 +704,7 @@ final class AdapterCatalog {
      * @return list<string|array<string,mixed>>
      */
     private static function repository_pin_for(string $repo, string $name): array {
-        $site = Canon::decode(Canon::read_file(rtrim($repo, '/') . '/site.duo.json'));
+        $site = Canon::decode(Canon::read_file(rtrim($repo, '/') . '/site.wprism.json'));
         foreach ((array) ($site['manifests'] ?? []) as $pin) {
             if ((is_string($pin) && $pin === $name)
                 || (is_array($pin) && ($pin['name'] ?? null) === $name)) {
@@ -774,7 +774,7 @@ final class AdapterCatalog {
             //
             // `source` is ATTRIBUTED rather than assumed. Hardcoding `shipped`
             // here sent an operator whose site adapter shadowed a shipped one
-            // to the wrong directory — the exact failure DUO-3314 put `source`
+            // to the wrong directory — the exact failure issue #3314 put `source`
             // on these rows to prevent. With nothing attributable it reports
             // `unknown`, which is deliberately not one of the three source
             // words for the same reason `trust_tier` below is not one of the
@@ -783,9 +783,9 @@ final class AdapterCatalog {
             // printed as a fact. The engine's own message on `reason` already
             // names the exact file in every attributable case.
             //
-            // Read off the refusal's own `source` since DUO-3339. The previous
+            // Read off the refusal's own `source` since issue #3339. The previous
             // implementation sniffed `paths` for a leading `adapters/`, which
-            // a `plugins/<dir>/duo-adapter.json` path silently fell out of —
+            // a `plugins/<dir>/wprism-adapter.json` path silently fell out of —
             // and only whole-SOURCE refusals can stop a pin set from loading
             // at all, so a per-adapter plugin refusal is not a candidate here
             // in the first place.
@@ -806,7 +806,7 @@ final class AdapterCatalog {
                 'reason' => $t->getMessage(),
                 'source' => $source,
                 'trust_tier' => 'unknown',
-                'remediation' => 'resolve the refusal(s) this report lists, or amend site.duo.json\'s '
+                'remediation' => 'resolve the refusal(s) this report lists, or amend site.wprism.json\'s '
                     . '`manifests` pins',
             ]];
         }
@@ -1082,7 +1082,7 @@ final class AdapterCatalog {
             // Adapter identity is ArtifactPolicyIdentity::manifest_rows()
             // hashed against a LOADED policy — the site's own pin set, its
             // interpreter and provider bytes — which is what
-            // `AdapterCertify::pinObject()` resolves for `duo adapter certify
+            // `AdapterCertify::pinObject()` resolves for `wprism adapter certify
             // <repo> --name=<n> --pin`. This command loads the shipped library
             // with no site policy, so its row would differ from the one a pin
             // must carry. The manifest's own content hash is on `sha256:`
@@ -1191,7 +1191,7 @@ final class AdapterCatalog {
 
     /**
      * Machine-read output, so slashes stay unescaped and key order is the
-     * engine's — the same rule `duo manifest-validate` states for its own two
+     * engine's — the same rule `wprism manifest-validate` states for its own two
      * documents.
      *
      * @param array<string,mixed> $document
@@ -1199,7 +1199,7 @@ final class AdapterCatalog {
     private static function encode(array $document): string {
         $json = json_encode($document, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if (!is_string($json)) {
-            throw new \RuntimeException('duo: adapter catalog could not encode its report');
+            throw new \RuntimeException('wprism: adapter catalog could not encode its report');
         }
         return $json;
     }
@@ -1208,43 +1208,43 @@ final class AdapterCatalog {
      * Load the engine's pure surface into this WordPress-free process, exactly
      * as cli/src/Adapter/ManifestValidate.php's own boot() does and for the same
      * reason: `Policy::load()` compares a manifest's declared `spec_version`
-     * against DUO_SPEC_VERSION, so leaving it undefined would make every
+     * against WPRISM_SPEC_VERSION, so leaving it undefined would make every
      * shipped adapter report a grammar error about this command rather than
      * about the adapter.
      */
     private static function boot(): void {
         $repo = dirname(__DIR__, 3);
-        $agent = $repo . '/agent/duo.php';
+        $agent = $repo . '/agent/wprism.php';
         if (!is_file($agent)) {
             throw new \RuntimeException("adapter: agent source not found at $agent");
         }
         $source = (string) file_get_contents($agent);
-        if (!defined('DUO_AGENT_VERSION')) {
-            if (preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $source, $m) !== 1) {
-                throw new \RuntimeException('adapter: could not resolve DUO_AGENT_VERSION');
+        if (!defined('WPRISM_AGENT_VERSION')) {
+            if (preg_match("/define\('WPRISM_AGENT_VERSION', '([^']+)'\)/", $source, $m) !== 1) {
+                throw new \RuntimeException('adapter: could not resolve WPRISM_AGENT_VERSION');
             }
-            define('DUO_AGENT_VERSION', $m[1]);
+            define('WPRISM_AGENT_VERSION', $m[1]);
         }
-        if (!defined('DUO_SPEC_VERSION')) {
-            if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $source, $m) !== 1) {
-                throw new \RuntimeException('adapter: could not resolve DUO_SPEC_VERSION');
+        if (!defined('WPRISM_SPEC_VERSION')) {
+            if (preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", $source, $m) !== 1) {
+                throw new \RuntimeException('adapter: could not resolve WPRISM_SPEC_VERSION');
             }
-            define('DUO_SPEC_VERSION', (int) $m[1]);
+            define('WPRISM_SPEC_VERSION', (int) $m[1]);
         }
-        $duoAgentClassmap = require $repo . '/agent/duo-classmap.php';
-        if (!is_array($duoAgentClassmap)) {
-            throw new \RuntimeException('adapter: agent/duo-classmap.php did not return a map');
+        $wprismAgentClassmap = require $repo . '/agent/wprism-classmap.php';
+        if (!is_array($wprismAgentClassmap)) {
+            throw new \RuntimeException('adapter: agent/wprism-classmap.php did not return a map');
         }
-        $duoAgentFiles = [];
-        foreach ($duoAgentClassmap as $duoAgentPath) {
-            $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
+        $wprismAgentFiles = [];
+        foreach ($wprismAgentClassmap as $wprismAgentPath) {
+            $wprismAgentFiles[basename((string) $wprismAgentPath, '.php')] = (string) $wprismAgentPath;
         }
         foreach (['Canon', 'OptionState', 'ManifestDispositions', 'AdapterRegistry', 'Policy'] as $class) {
-            $duoAgentFile = $duoAgentFiles[$class] ?? null;
-            if (!is_string($duoAgentFile)) {
-                throw new \RuntimeException('adapter: agent source ' . $class . '.php is absent from agent/duo-classmap.php');
+            $wprismAgentFile = $wprismAgentFiles[$class] ?? null;
+            if (!is_string($wprismAgentFile)) {
+                throw new \RuntimeException('adapter: agent source ' . $class . '.php is absent from agent/wprism-classmap.php');
             }
-            require_once $repo . '/agent/' . $duoAgentFile;
+            require_once $repo . '/agent/' . $wprismAgentFile;
         }
     }
 
@@ -1266,7 +1266,7 @@ final class AdapterCatalog {
 
     /** Fail closed on this command's own paths: usage, a bad dir, an unreadable library. */
     private static function fail(string $message): int {
-        fwrite(STDERR, "duo: adapter: $message\n");
+        fwrite(STDERR, "wprism: adapter: $message\n");
         return 2;
     }
 }

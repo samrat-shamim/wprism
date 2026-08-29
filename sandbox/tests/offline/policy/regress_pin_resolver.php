@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for PinResolver.php (DUO-3348 slice 5: manifest-pin
+ * Offline regression for PinResolver.php (issue #3348 slice 5: manifest-pin
  * normalization/validation, moved out of Policy.php). All three methods
  * were pure — every dependency an explicit parameter, never `$this` — so
  * this suite drives them directly rather than through a full Policy::load()
@@ -22,9 +22,9 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../../../agent/src/Policy/PinResolver.php';
 
-use Duo\AdapterSources;
-use Duo\PinResolver;
-use Duo\Policy;
+use WPrism\AdapterSources;
+use WPrism\PinResolver;
+use WPrism\Policy;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -111,7 +111,7 @@ foreach ([AdapterSources::SHIPPED, AdapterSources::SITE, AdapterSources::PLUGIN]
 
 // === validate_manifest_sources() ============================================
 
-$fixtureDir = sys_get_temp_dir() . '/duo_regress_pin_resolver_' . bin2hex(random_bytes(4));
+$fixtureDir = sys_get_temp_dir() . '/wprism_regress_pin_resolver_' . bin2hex(random_bytes(4));
 mkdir($fixtureDir, 0777, true);
 register_shutdown_function(function () use ($fixtureDir) {
     $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($fixtureDir, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
@@ -156,15 +156,15 @@ $check_throws(
 
 // validate_manifest_pins()'s Policy type hint means a real, loaded Policy
 // class is unavoidable to call it at all (even via reflection -- resolving
-// \Duo\Policy::class as a symbol needs the class defined) -- required here
+// \WPrism\Policy::class as a symbol needs the class defined) -- required here
 // for exactly that, and for nothing else this suite still deliberately
 // avoids requiring (RepositoryCompiler.php is never required in this file).
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/manifest_fixtures.php';
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 0);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 0);
 }
 // Policy::load() itself calls PinResolver::validate_manifest_pins()
 // internally as part of loading 'm' (no digest pins here, so it already
@@ -222,7 +222,7 @@ $check(
 // construction, etc.) accidentally loaded RepositoryCompiler.php either,
 // which would have made that earlier proof coincidental rather than causal.
 $check(
-    !class_exists(\Duo\RepositoryCompiler::class, false),
+    !class_exists(\WPrism\RepositoryCompiler::class, false),
     'RepositoryCompiler.php was never loaded anywhere in this process -- corroborates the early-return proof above'
 );
 

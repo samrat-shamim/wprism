@@ -1,13 +1,13 @@
 <?php
 /**
- * Offline characterization for RepositoryMenuLocationValidator (DUO-3348
+ * Offline characterization for RepositoryMenuLocationValidator (issue #3348
  * slice 43). It owns only the authored menu-location uniqueness topology;
  * RepositoryCompiler retains traversal, parsing, aggregate refusal, and the
  * surrounding identity/graph/portable-shape ordering.
  */
 declare(strict_types=1);
 
-namespace Duo {
+namespace WPrism {
     final class Policy {
         public string $locationsClass = 'authored';
         public function menu_field_class(string $field): string {
@@ -28,7 +28,7 @@ namespace {
     };
 
     $child = proc_open(
-        [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\Duo\\RepositoryMenuLocationValidator::class, false) && class_exists(\\Duo\\Policy::class, false) && !class_exists(\\Duo\\RepositoryCompiler::class, false) && !class_exists(\\Duo\\RepositoryReferenceGraphValidator::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $validatorPath],
+        [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\WPrism\\RepositoryMenuLocationValidator::class, false) && class_exists(\\WPrism\\Policy::class, false) && !class_exists(\\WPrism\\RepositoryCompiler::class, false) && !class_exists(\\WPrism\\RepositoryReferenceGraphValidator::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $validatorPath],
         [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
         $pipes
     );
@@ -48,8 +48,8 @@ namespace {
 
     require_once $validatorPath;
 
-    use Duo\Policy;
-    use Duo\RepositoryMenuLocationValidator;
+    use WPrism\Policy;
+    use WPrism\RepositoryMenuLocationValidator;
 
     $policy = new Policy();
     $diagnostics = [];

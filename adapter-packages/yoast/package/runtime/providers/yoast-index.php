@@ -1,19 +1,19 @@
 <?php
-namespace Duo\Providers;
+namespace WPrism\Providers;
 
-use Duo\ManifestProviderRuntime;
-use Duo\WpCliChildProcess;
+use WPrism\ManifestProviderRuntime;
+use WPrism\WpCliChildProcess;
 
 if (!class_exists(WpCliChildProcess::class, false)) {
-    $duoLayoutRoot = dirname(__DIR__, 5);
-    $duoAgentRoot = is_dir($duoLayoutRoot . '/agent/src')
-        ? $duoLayoutRoot . '/agent'
-        : (basename($duoLayoutRoot) === 'agent' && is_dir($duoLayoutRoot . '/src') ? $duoLayoutRoot : null);
-    if ($duoAgentRoot === null) {
-        throw new \RuntimeException('duo: Yoast provider cannot resolve the explicit source or embedded agent layout');
+    $wprismLayoutRoot = dirname(__DIR__, 5);
+    $wprismAgentRoot = is_dir($wprismLayoutRoot . '/agent/src')
+        ? $wprismLayoutRoot . '/agent'
+        : (basename($wprismLayoutRoot) === 'agent' && is_dir($wprismLayoutRoot . '/src') ? $wprismLayoutRoot : null);
+    if ($wprismAgentRoot === null) {
+        throw new \RuntimeException('wprism: Yoast provider cannot resolve the explicit source or embedded agent layout');
     }
-    require_once $duoAgentRoot . '/src/Kernel/WpCliChildProcess.php';
-    unset($duoLayoutRoot, $duoAgentRoot);
+    require_once $wprismAgentRoot . '/src/Kernel/WpCliChildProcess.php';
+    unset($wprismLayoutRoot, $wprismAgentRoot);
 }
 
 /**
@@ -47,7 +47,7 @@ final class YoastIndex extends ManifestProviderRuntime {
     protected function invoke_reindex(array $args): array {
         if (!class_exists('\WP_CLI')) {
             throw new \RuntimeException(
-                "duo: Yoast reindex runs the plugin's own '" . self::COMMAND
+                "wprism: Yoast reindex runs the plugin's own '" . self::COMMAND
                 . "' command and is unavailable outside wp-cli"
             );
         }
@@ -60,26 +60,26 @@ final class YoastIndex extends ManifestProviderRuntime {
             $result = WpCliChildProcess::capture(self::COMMAND, 600, 524288, 131072);
         } catch (\Throwable $t) {
             throw new \RuntimeException(
-                "duo: Yoast '" . self::COMMAND . "' could not start",
+                "wprism: Yoast '" . self::COMMAND . "' could not start",
                 0,
                 $t
             );
         }
         if ($result['return_code'] !== 0) {
             throw new \RuntimeException(
-                "duo: Yoast '" . self::COMMAND . "' exited {$result['return_code']}"
+                "wprism: Yoast '" . self::COMMAND . "' exited {$result['return_code']}"
             );
         }
         if (trim($result['stderr']) !== '') {
             throw new \RuntimeException(
-                "duo: Yoast '" . self::COMMAND . "' emitted stderr despite exit 0; recovery_required"
+                "wprism: Yoast '" . self::COMMAND . "' emitted stderr despite exit 0; recovery_required"
             );
         }
 
         $after = $this->projection_snapshot(true);
         if ($before['indexing_enabled'] !== $after['indexing_enabled']) {
             throw new \RuntimeException(
-                'duo: Yoast indexability changed during reindex; recovery_required'
+                'wprism: Yoast indexability changed during reindex; recovery_required'
             );
         }
         return ['before' => $before, 'after' => $after, 'verified' => true];
@@ -127,7 +127,7 @@ final class YoastIndex extends ManifestProviderRuntime {
         if ($verify && $enabled) {
             if ($snapshot['indexed_public_posts'] !== $snapshot['public_posts']) {
                 throw new \RuntimeException(
-                    "duo: Yoast indexable readback covers {$snapshot['indexed_public_posts']} of "
+                    "wprism: Yoast indexable readback covers {$snapshot['indexed_public_posts']} of "
                     . "{$snapshot['public_posts']} public post(s); recovery_required"
                 );
             }
@@ -140,7 +140,7 @@ final class YoastIndex extends ManifestProviderRuntime {
             ] as $field) {
                 if ($snapshot[$field] !== 0) {
                     throw new \RuntimeException(
-                        "duo: Yoast projection readback found {$snapshot[$field]} $field; recovery_required"
+                        "wprism: Yoast projection readback found {$snapshot[$field]} $field; recovery_required"
                     );
                 }
             }
@@ -155,20 +155,20 @@ final class YoastIndex extends ManifestProviderRuntime {
             $wpdb->last_error = '';
             $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
             if ((string) ($wpdb->last_error ?? '') !== '') {
-                throw new \RuntimeException("duo: Yoast projection table probe failed for $table");
+                throw new \RuntimeException("wprism: Yoast projection table probe failed for $table");
             }
             if ((string) $exists !== $table) {
-                throw new \RuntimeException("duo: Yoast projection table $table is missing; recovery_required");
+                throw new \RuntimeException("wprism: Yoast projection table $table is missing; recovery_required");
             }
             $wpdb->last_error = '';
             $columns = $wpdb->get_col("SHOW COLUMNS FROM `$table`");
             if ((string) ($wpdb->last_error ?? '') !== '' || !is_array($columns)) {
-                throw new \RuntimeException("duo: Yoast projection schema probe failed for $table");
+                throw new \RuntimeException("wprism: Yoast projection schema probe failed for $table");
             }
             $missing = array_values(array_diff($required, array_map('strval', $columns)));
             if ($missing !== []) {
                 throw new \RuntimeException(
-                    "duo: Yoast projection table $table is missing required column(s): "
+                    "wprism: Yoast projection table $table is missing required column(s): "
                     . implode(', ', $missing) . '; recovery_required'
                 );
             }
@@ -177,15 +177,15 @@ final class YoastIndex extends ManifestProviderRuntime {
 
     private function indexing_enabled(): bool {
         if (!function_exists('YoastSEO')) {
-            throw new \RuntimeException('duo: Yoast indexable helper is unavailable; recovery_required');
+            throw new \RuntimeException('wprism: Yoast indexable helper is unavailable; recovery_required');
         }
         try {
             $helper = \YoastSEO()->helpers->indexable;
         } catch (\Throwable $t) {
-            throw new \RuntimeException('duo: Yoast indexable helper is unavailable; recovery_required', 0, $t);
+            throw new \RuntimeException('wprism: Yoast indexable helper is unavailable; recovery_required', 0, $t);
         }
         if (!is_object($helper) || !is_callable([$helper, 'should_index_indexables'])) {
-            throw new \RuntimeException('duo: Yoast indexable helper has an incompatible API; recovery_required');
+            throw new \RuntimeException('wprism: Yoast indexable helper has an incompatible API; recovery_required');
         }
         return (bool) $helper->should_index_indexables();
     }
@@ -196,15 +196,15 @@ final class YoastIndex extends ManifestProviderRuntime {
             $helper = \YoastSEO()->helpers->post_type;
             $types = $helper->get_indexable_post_types();
         } catch (\Throwable $t) {
-            throw new \RuntimeException('duo: Yoast post-type helper is unavailable; recovery_required', 0, $t);
+            throw new \RuntimeException('wprism: Yoast post-type helper is unavailable; recovery_required', 0, $t);
         }
         if (!is_array($types) || $types === []) {
-            throw new \RuntimeException('duo: Yoast post-type helper returned no indexable post types; recovery_required');
+            throw new \RuntimeException('wprism: Yoast post-type helper returned no indexable post types; recovery_required');
         }
         $types = array_values(array_unique(array_map('strval', $types)));
         foreach ($types as $type) {
             if (preg_match('/^[a-z0-9_-]+$/', $type) !== 1) {
-                throw new \RuntimeException('duo: Yoast post-type helper returned an invalid post type; recovery_required');
+                throw new \RuntimeException('wprism: Yoast post-type helper returned an invalid post type; recovery_required');
             }
         }
         sort($types, SORT_STRING);
@@ -327,7 +327,7 @@ final class YoastIndex extends ManifestProviderRuntime {
         $wpdb->last_error = '';
         $count = $wpdb->get_var($query);
         if ($count === null || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException("duo: Yoast $context query failed; recovery_required");
+            throw new \RuntimeException("wprism: Yoast $context query failed; recovery_required");
         }
         return (int) $count;
     }

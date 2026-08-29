@@ -30,18 +30,18 @@ $one = static function (string $type, string $title): WP_Post {
     }
     return $posts[0];
 };
-$event = $one('tribe_events', 'Duo Production Readiness Event 東京');
-$all_day = $one('tribe_events', 'Duo All Day Boundary Event');
-$delete_probe = $one('tribe_events', 'Duo Unsupported Delete Probe');
-$venue = $one('tribe_venue', 'Duo Readiness Hall 東京');
-$disabled_venue = $one('tribe_venue', 'Duo Map Disabled Venue');
-$absent_map_venue = $one('tribe_venue', 'Duo Map Metadata Absent Venue');
-$organizer = $one('tribe_organizer', 'Duo Readiness Team 東京');
-$organizer_accessibility = $one('tribe_organizer', 'Duo Accessibility Guild বাংলা');
-$organizer_night = $one('tribe_organizer', 'Duo Night Crew مرحبا');
+$event = $one('tribe_events', 'WPrism Production Readiness Event 東京');
+$all_day = $one('tribe_events', 'WPrism All Day Boundary Event');
+$delete_probe = $one('tribe_events', 'WPrism Unsupported Delete Probe');
+$venue = $one('tribe_venue', 'WPrism Readiness Hall 東京');
+$disabled_venue = $one('tribe_venue', 'WPrism Map Disabled Venue');
+$absent_map_venue = $one('tribe_venue', 'WPrism Map Metadata Absent Venue');
+$organizer = $one('tribe_organizer', 'WPrism Readiness Team 東京');
+$organizer_accessibility = $one('tribe_organizer', 'WPrism Accessibility Guild বাংলা');
+$organizer_night = $one('tribe_organizer', 'WPrism Night Crew مرحبا');
 $organizers = [$organizer, $organizer_accessibility, $organizer_night];
-$widget_page = $one('page', 'Duo TEC Legacy Widget Surface');
-$category = get_term_by('slug', 'duo-readiness-category', 'tribe_events_cat');
+$widget_page = $one('page', 'WPrism TEC Legacy Widget Surface');
+$category = get_term_by('slug', 'wprism-readiness-category', 'tribe_events_cat');
 if (!$category instanceof WP_Term) {
     throw new RuntimeException('TEC event category is missing');
 }
@@ -61,7 +61,7 @@ $all_day_occurrence = $wpdb->get_row($wpdb->prepare(
 $repository_event = tribe_events()->where('id', (int) $event->ID)->first();
 $cache = $wpdb->get_var($wpdb->prepare(
     "SELECT value FROM {$wpdb->prefix}tec_kv_cache WHERE cache_key=%s",
-    'duo-readiness-target-only'
+    'wprism-readiness-target-only'
 ));
 $option = (array) get_option('tribe_events_calendar_options', []);
 $category_meta = [];
@@ -650,9 +650,9 @@ PHPEOF
 }
 
 commit_tec_source() { # <message>
-  wp_conf1 duo capture --repo=/siterepo >/dev/null
+  wp_conf1 wprism capture --repo=/siterepo >/dev/null
   git -C "$CONF_REPO1" add -A
-  git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm "$1"
+  git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm "$1"
   git -C "$CONF_REPO1" push -q origin main
   git -C "$CONF_REPO2" pull -q origin main
 }
@@ -660,9 +660,9 @@ commit_tec_source() { # <message>
 tec_target_hash() {
   wp_conf2 eval '
     global $wpdb;
-    $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0]??null;
+    $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0]??null;
     if(!$p) throw new RuntimeException("TEC hash event missing");
-    $term=get_term_by("slug","duo-readiness-category","tribe_events_cat");
+    $term=get_term_by("slug","wprism-readiness-category","tribe_events_cat");
     $option=(array)get_option("tribe_events_calendar_options",[]);
     $selected=[]; foreach(["eventsSlug","singleEventSlug","tribeEnableViews","viewOption","eventsDefaultVenueID","eventsDefaultOrganizerID","google_maps_js_api_key","eb_security_key"] as $k){$selected[$k]=$option[$k]??null;}
     $rows=[
@@ -693,12 +693,12 @@ tec_target_storage_fingerprint() {
       "widget_page" => $wpdb->prepare(
         "SELECT * FROM {$wpdb->posts} WHERE post_type=%s AND post_name=%s ORDER BY ID",
         "page",
-        "duo-tec-legacy-widget-surface"
+        "wprism-tec-legacy-widget-surface"
       ),
       "widget_page_postmeta" => $wpdb->prepare(
         "SELECT pm.* FROM {$wpdb->postmeta} pm INNER JOIN {$wpdb->posts} p ON p.ID=pm.post_id WHERE p.post_type=%s AND p.post_name=%s ORDER BY pm.meta_id",
         "page",
-        "duo-tec-legacy-widget-surface"
+        "wprism-tec-legacy-widget-surface"
       ),
       "terms" => "SELECT t.* FROM {$wpdb->terms} t INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id=t.term_id WHERE tt.taxonomy=\"tribe_events_cat\" ORDER BY t.term_id",
       "term_taxonomy" => "SELECT * FROM {$wpdb->term_taxonomy} WHERE taxonomy=\"tribe_events_cat\" ORDER BY term_taxonomy_id",
@@ -740,7 +740,7 @@ tec_target_storage_fingerprint() {
     if (!is_array($main) || !array_key_exists("schema-version", $main)) {
       throw new RuntimeException("TEC lifecycle main-option schema marker is absent or malformed");
     }
-    $main["schema-version"] = "__duo_env_schema_version__";
+    $main["schema-version"] = "__wprism_env_schema_version__";
     $mainRows[0]["option_value"] = serialize($main);
     $fingerprint["main_option"] = [
       "count" => 1,
@@ -757,14 +757,14 @@ tec_seed_lifecycle_runtime() {
       if (!$role instanceof WP_Role) {
         throw new RuntimeException("TEC lifecycle role is missing");
       }
-      $role->add_cap("duo_tec_lifecycle_neighbor");
+      $role->add_cap("wprism_tec_lifecycle_neighbor");
     }
     $hooks = [
       "tribe_schedule_transient_purge",
       "tribe_trash_event_cron",
       "tribe_del_event_cron",
       "tribe_aggregator_single_process_insert_records",
-      "duo_tec_lifecycle_neighbor_cron",
+      "wprism_tec_lifecycle_neighbor_cron",
     ];
     foreach ($hooks as $offset => $hook) {
       wp_clear_scheduled_hook($hook);
@@ -772,8 +772,8 @@ tec_seed_lifecycle_runtime() {
         throw new RuntimeException("TEC lifecycle cron seed failed");
       }
     }
-    update_option("rewrite_rules", ["duo-tec-lifecycle" => "runtime"]);
-    set_transient("tec_custom_tables_v1_initialized", "duo-lifecycle", 0);
+    update_option("rewrite_rules", ["wprism-tec-lifecycle" => "runtime"]);
+    set_transient("tec_custom_tables_v1_initialized", "wprism-lifecycle", 0);
   ' >/dev/null
 }
 
@@ -819,7 +819,7 @@ tec_lifecycle_state() {
       }
       ksort($pluginCaps, SORT_STRING);
       $roles[$roleName] = [
-        "neighbor" => $role->has_cap("duo_tec_lifecycle_neighbor"),
+        "neighbor" => $role->has_cap("wprism_tec_lifecycle_neighbor"),
         "plugin_caps" => $pluginCaps,
       ];
     }
@@ -837,7 +837,7 @@ tec_lifecycle_state() {
         "delete" => $countHook("tribe_del_event_cron"),
         "aggregator" => $countHook("tribe_aggregator_process_insert_records"),
         "aggregator_single" => $countHook("tribe_aggregator_single_process_insert_records"),
-        "neighbor" => $countHook("duo_tec_lifecycle_neighbor_cron"),
+        "neighbor" => $countHook("wprism_tec_lifecycle_neighbor_cron"),
       ],
       "roles" => $roles,
     ], JSON_UNESCAPED_SLASHES);
@@ -867,7 +867,7 @@ tec_deactivate_reactivate_cycle() { # <exact-version>
   before=$(tec_lifecycle_state)
   require_observed_nonempty "TEC $expected_version active lifecycle state" "$before"
   printf '%s\n' "$before" | jq -e --arg version "$expected_version" '
-    .schema_version == $version and .legacy_ct1_transient == "duo-lifecycle" and
+    .schema_version == $version and .legacy_ct1_transient == "wprism-lifecycle" and
     .rewrite_rules_rows == 1 and
     .cron == {
       transient_purge:1, trash:1, delete:1, aggregator:0,
@@ -904,10 +904,10 @@ tec_deactivate_reactivate_cycle() { # <exact-version>
   [ "$inactive_raw" != "$before_raw" ] \
     || fail "TEC $expected_version deactivation did not expose its exact env schema-version transition"
 
-  reactivate=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-  require_duo_answered "TEC $expected_version deploy after deactivation" json "$reactivate"
+  reactivate=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+  require_wprism_answered "TEC $expected_version deploy after deactivation" json "$reactivate"
   wp_conf2 plugin is-active the-events-calendar >/dev/null \
-    || fail "Duo deploy did not reactivate exact TEC $expected_version code"
+    || fail "WPrism deploy did not reactivate exact TEC $expected_version code"
   reactivated=$(tec_lifecycle_state)
   require_observed_nonempty "TEC $expected_version reactivated lifecycle state" "$reactivated"
   reactivated_caps=$(printf '%s\n' "$reactivated" | jq -c '.roles | with_entries(.value = .value.plugin_caps)')
@@ -926,7 +926,7 @@ tec_deactivate_reactivate_cycle() { # <exact-version>
 tec_derived_hash() {
   wp_conf2 eval '
     global $wpdb;
-    $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0]??null;
+    $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0]??null;
     if(!$p) throw new RuntimeException("TEC derived hash event missing");
     echo hash("sha256",wp_json_encode([
       "event"=>$wpdb->get_results($wpdb->prepare("SELECT * FROM {$wpdb->prefix}tec_events WHERE post_id=%d OR event_id IN (SELECT event_id FROM {$wpdb->prefix}tec_events WHERE post_id=%d) ORDER BY event_id",$p->ID,$p->ID),ARRAY_A),
@@ -942,7 +942,7 @@ TARGET_IDS_FILE="${CONF_REPO2:-siterepo/conf2}/.tmp-tec-target-ids.json"
 [ -f "$TARGET_IDS_FILE" ] || fail "TEC target identity premise is missing: $TARGET_IDS_FILE"
 SOURCE_IDS=$(cat "$SOURCE_IDS_FILE")
 TARGET_IDS=$(cat "$TARGET_IDS_FILE")
-TEC_SOURCE_EVENT_STATE=$(grep -RlF '"title": "Duo Production Readiness Event 東京"' \
+TEC_SOURCE_EVENT_STATE=$(grep -RlF '"title": "WPrism Production Readiness Event 東京"' \
   "${CONF_REPO1:-siterepo/conf1}/state/posts/tribe_events" || true)
 [ -n "$TEC_SOURCE_EVENT_STATE" ] && [ "$(printf '%s\n' "$TEC_SOURCE_EVENT_STATE" | wc -l | tr -d ' ')" = 1 ] \
   || fail "TEC canonical source event was not unique: $TEC_SOURCE_EVENT_STATE"
@@ -964,7 +964,7 @@ printf '%s\n' "$TEC_SOURCE_EVENT_JSON" | jq -e '
 TEC_CANON_ORGANIZER_BLOCKS=$(TEC_STATE_PATH="$TEC_SOURCE_EVENT_STATE" php -r '
   require $argv[1];
   require $argv[2];
-  [, $body] = Duo\Canon::parse_post_file((string) file_get_contents((string) getenv("TEC_STATE_PATH")));
+  [, $body] = WPrism\Canon::parse_post_file((string) file_get_contents((string) getenv("TEC_STATE_PATH")));
   $ids = [];
   $walk = static function (array $blocks) use (&$walk, &$ids): void {
       foreach ($blocks as $block) {
@@ -978,12 +978,12 @@ TEC_CANON_ORGANIZER_BLOCKS=$(TEC_STATE_PATH="$TEC_SOURCE_EVENT_STATE" php -r '
   };
   $walk(parse_blocks($body));
   echo json_encode($ids, JSON_UNESCAPED_SLASHES);
-' "$DUO_SOURCE_ROOT/agent/src/Kernel/Canon.php" "$DUO_SOURCE_ROOT/sandbox/tests/support/wp-block-parser-stub.php")
+' "$WPRISM_SOURCE_ROOT/agent/src/Kernel/Canon.php" "$WPRISM_SOURCE_ROOT/sandbox/tests/support/wp-block-parser-stub.php")
 printf '%s\n' "$TEC_CANON_ORGANIZER_BLOCKS" | jq -e --argjson front "$TEC_SOURCE_EVENT_JSON" '
   . == $front.meta._EventOrganizerID and
   length == 3 and all(.[]; test("^\\{\\{post:[0-9a-f-]{36}\\}\\}$"))
 ' >/dev/null || fail "TEC canonical organizer blocks did not retain exact ordered post tokens: $TEC_CANON_ORGANIZER_BLOCKS"
-TEC_SOURCE_WIDGET_STATE=$(grep -RlF '"title": "Duo TEC Legacy Widget Surface"' \
+TEC_SOURCE_WIDGET_STATE=$(grep -RlF '"title": "WPrism TEC Legacy Widget Surface"' \
   "${CONF_REPO1:-siterepo/conf1}/state/posts/page" || true)
 [ -n "$TEC_SOURCE_WIDGET_STATE" ] \
   && [ "$(printf '%s\n' "$TEC_SOURCE_WIDGET_STATE" | wc -l | tr -d ' ')" = 1 ] \
@@ -991,13 +991,13 @@ TEC_SOURCE_WIDGET_STATE=$(grep -RlF '"title": "Duo TEC Legacy Widget Surface"' \
 TEC_CANON_WIDGET_BLOCKS=$(TEC_STATE_PATH="$TEC_SOURCE_WIDGET_STATE" php -r '
   require $argv[1];
   require $argv[2];
-  [, $body] = Duo\Canon::parse_post_file((string) file_get_contents((string) getenv("TEC_STATE_PATH")));
+  [, $body] = WPrism\Canon::parse_post_file((string) file_get_contents((string) getenv("TEC_STATE_PATH")));
   $attrs = [];
   foreach (parse_blocks($body) as $block) {
     if (($block["blockName"] ?? null) === "core/legacy-widget") $attrs[] = $block["attrs"] ?? null;
   }
   echo json_encode($attrs, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-' "$DUO_SOURCE_ROOT/agent/src/Kernel/Canon.php" "$DUO_SOURCE_ROOT/sandbox/tests/support/wp-block-parser-stub.php")
+' "$WPRISM_SOURCE_ROOT/agent/src/Kernel/Canon.php" "$WPRISM_SOURCE_ROOT/sandbox/tests/support/wp-block-parser-stub.php")
 TEC_SOURCE_SIDEBAR="${CONF_REPO1:-siterepo/conf1}/state/sidebars/wp_inactive_widgets.json"
 [ -f "$TEC_SOURCE_SIDEBAR" ] || fail "TEC canonical SidebarState fixture is missing: $TEC_SOURCE_SIDEBAR"
 jq -e --argjson blocks "$TEC_CANON_WIDGET_BLOCKS" --argjson event "$TEC_SOURCE_EVENT_JSON" '
@@ -1007,10 +1007,10 @@ jq -e --argjson blocks "$TEC_CANON_WIDGET_BLOCKS" --argjson event "$TEC_SOURCE_E
   $blocks[0] == {id:("{{widget:" + $widgets[0].uuid + "}}"),idBase:"tribe-widget-events-list"} and
   $blocks[1] == {id:("{{widget:" + $widgets[1].uuid + "}}"),idBase:"tribe-widget-events-qr-code"} and
   $blocks[2].idBase == "tribe-widget-events-list" and
-  $blocks[2].instance.duo == "the-events-calendar/v1" and
+  $blocks[2].instance.wprism == "the-events-calendar/v1" and
   ($blocks[2].instance.settings.title | contains("{{home}}/calendar-readiness/")) and
   $blocks[3].idBase == "tribe-widget-events-qr-code" and
-  $blocks[3].instance.duo == "the-events-calendar/v1" and
+  $blocks[3].instance.wprism == "the-events-calendar/v1" and
   $blocks[3].instance.settings.event_id == ("{{post:" + $event.uuid + "}}") and
   $widgets[1].settings.event_id == ("{{post:" + $event.uuid + "}}")
 ' "$TEC_SOURCE_SIDEBAR" >/dev/null \
@@ -1024,7 +1024,7 @@ TEC_WIDGET_OBJECT_BACKUP="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-widget-object-b
 TEC_WIDGET_OBJECT_OUT="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-widget-object-capture"
 rm -rf "$TEC_WIDGET_OBJECT_OUT"
 wp_conf1 eval '
-  $pages=get_posts(["post_type"=>"page","post_status"=>"any","posts_per_page"=>2,"title"=>"Duo TEC Legacy Widget Surface"]);
+  $pages=get_posts(["post_type"=>"page","post_status"=>"any","posts_per_page"=>2,"title"=>"WPrism TEC Legacy Widget Surface"]);
   if(count($pages)!==1) throw new RuntimeException("TEC widget object probe page is not unique");
   $backup=[
     "post_content"=>$pages[0]->post_content,
@@ -1043,15 +1043,15 @@ wp_conf1 eval '
   }
 ' >/dev/null
 TEC_WIDGET_OBJECT_RC=0
-TEC_WIDGET_OBJECT_CAPTURE=$(wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-widget-object-capture 2>&1) \
+TEC_WIDGET_OBJECT_CAPTURE=$(wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-tec-widget-object-capture 2>&1) \
   || TEC_WIDGET_OBJECT_RC=$?
-require_duo_answered "TEC embedded widget object refusal" human "$TEC_WIDGET_OBJECT_CAPTURE"
+require_wprism_answered "TEC embedded widget object refusal" human "$TEC_WIDGET_OBJECT_CAPTURE"
 [ "$TEC_WIDGET_OBJECT_RC" -ne 0 ] \
   && grep -Fq 'non-plain serialized data (PHP object)' <<<"$TEC_WIDGET_OBJECT_CAPTURE" \
   && [ ! -e "$TEC_WIDGET_OBJECT_OUT" ] \
   || fail "TEC embedded widget object graph did not refuse atomically: $TEC_WIDGET_OBJECT_CAPTURE"
 wp_conf1 eval '
-  $pages=get_posts(["post_type"=>"page","post_status"=>"any","posts_per_page"=>2,"title"=>"Duo TEC Legacy Widget Surface"]);
+  $pages=get_posts(["post_type"=>"page","post_status"=>"any","posts_per_page"=>2,"title"=>"WPrism TEC Legacy Widget Surface"]);
   if(count($pages)!==1) throw new RuntimeException("TEC widget object restore page is not unique");
   $raw=file_get_contents("/siterepo/.tmp-tec-widget-object-backup.txt");
   $backup=is_string($raw)?json_decode($raw,true):null;
@@ -1207,7 +1207,7 @@ printf '%s\n' "$TARGET" | jq -e \
   .event.organizer == .organizer.id and .event.organizer_rows == ($dirty.organizers) and
   .event.organizer_blocks == ($dirty.organizers) and
   .event.organizer_helper == ($dirty.organizers) and .event.rest.organizers == ($dirty.organizers) and
-  .event.organizer_names == ["Duo Readiness Team 東京","Duo Accessibility Guild বাংলা","Duo Night Crew مرحبا"] and
+  .event.organizer_names == ["WPrism Readiness Team 東京","WPrism Accessibility Guild বাংলা","WPrism Night Crew مرحبا"] and
   .event.preview_organizers == [$dirty.organizers[2],$dirty.organizers[0],$dirty.organizers[1]] and
   .event.preview_venues == [$dirty.venue] and .event.category_ids == [.category.id] and
   .event.start == "2026-09-05 22:30:00" and .event.end == "2026-09-06 01:45:00" and
@@ -1250,9 +1250,9 @@ printf '%s\n' "$TARGET" | jq -e \
   all(.organizers[]; (.website | startswith($home))) and
   .category.description == "Portable category description — বাংলা — مرحبا" and
   .category.meta == {primary:"#123abc",secondary:"#fedcba",text:"#ffffff",priority:"17",hidden:"0"} and
-  .category.dropdown.primary == "#123abc" and .category.dropdown.slug == "duo-readiness-category" and
+  .category.dropdown.primary == "#123abc" and .category.dropdown.slug == "wprism-readiness-category" and
   (.category_css | type == "string") and
-  (.category_css | contains(".tribe_events_cat-duo-readiness-category{")) and
+  (.category_css | contains(".tribe_events_cat-wprism-readiness-category{")) and
   (.category_css | contains("--tec-color-category-primary:#123abc")) and
   (.category_css | contains("--tec-color-category-secondary:#fedcba")) and
   (.category_css | contains("--tec-color-category-text:#ffffff")) and
@@ -1350,12 +1350,12 @@ printf '%s\n' "$TARGET" | jq -e \
   }] and
   .widget_surface.blocks.stored_list == {id:("tribe-widget-events-list-" + (.widget_surface.list.local_id|tostring))} and
   .widget_surface.blocks.stored_qr == {id:("tribe-widget-events-qr-code-" + (.widget_surface.qr.local_id|tostring))} and
-  .widget_surface.list.settings.title == ("Duo Sidebar Calendar 東京 " + $home + "calendar-readiness/") and
+  .widget_surface.list.settings.title == ("WPrism Sidebar Calendar 東京 " + $home + "calendar-readiness/") and
   .widget_surface.list.settings.limit == 7 and
   .widget_surface.qr.settings.event_id == .event.id and
-  .widget_surface.qr.settings.widget_title == "Duo Sidebar Event QR বাংলা" and
+  .widget_surface.qr.settings.widget_title == "WPrism Sidebar Event QR বাংলা" and
   .widget_surface.blocks.embedded_list.hash_valid == true and
-  .widget_surface.blocks.embedded_list.settings.title == ("Duo Embedded Calendar مرحبا " + $home + "calendar-readiness/") and
+  .widget_surface.blocks.embedded_list.settings.title == ("WPrism Embedded Calendar مرحبا " + $home + "calendar-readiness/") and
   .widget_surface.blocks.embedded_list.settings.limit == "10" and
   .widget_surface.blocks.embedded_qr.hash_valid == true and
   .widget_surface.blocks.embedded_qr.settings.event_id == .event.id and
@@ -1378,13 +1378,13 @@ PERMALINK=$(jq -er '.event.permalink' <<<"$TARGET")
 FRONT=$(curl -fsSL "$PERMALINK") || fail "TEC target event permalink did not return 200: $PERMALINK"
 require_observed_nonempty "TEC target event response" "$FRONT"
 [ "${#FRONT}" -ge 20000 ] || fail "TEC target event response was suspiciously short (${#FRONT} bytes)"
-grep -qF 'Duo Production Readiness Event 東京' <<<"$FRONT" || fail "TEC target event response lost the title"
+grep -qF 'WPrism Production Readiness Event 東京' <<<"$FRONT" || fail "TEC target event response lost the title"
 grep -qF 'Portable long event body' <<<"$FRONT" || fail "TEC target event response lost the long body"
 grep -qF 'Admission details 東京 — bring ID' <<<"$FRONT" \
   || fail "TEC target event response lost the Gutenberg price description"
 grep -qF '· at ·' <<<"$FRONT" || fail "TEC target event response lost the date/time separator"
 grep -qF '· until ·' <<<"$FRONT" || fail "TEC target event response lost the time-range separator"
-for organizer_name in 'Duo Readiness Team 東京' 'Duo Accessibility Guild বাংলা' 'Duo Night Crew مرحبا'; do
+for organizer_name in 'WPrism Readiness Team 東京' 'WPrism Accessibility Guild বাংলা' 'WPrism Night Crew مرحبا'; do
   grep -qF "$organizer_name" <<<"$FRONT" \
     || fail "TEC target event response lost organizer: $organizer_name"
 done
@@ -1392,7 +1392,7 @@ grep -qF 'tribe-events-status-single--canceled' <<<"$FRONT" \
   || fail "TEC target event response did not render the native canceled status"
 grep -qF 'Weather <strong>closure</strong> 東京 — doors remain shut.' <<<"$FRONT" \
   || fail "TEC target event response did not render the kses-preserved canceled reason"
-! grep -qF '.tribe_events_cat-duo-readiness-category{' <<<"$FRONT" \
+! grep -qF '.tribe_events_cat-wprism-readiness-category{' <<<"$FRONT" \
   || fail "TEC singular event unexpectedly enqueued archive-only Category Colors CSS"
 
 ALL_DAY_PERMALINK=$(jq -er '.all_day.permalink' <<<"$TARGET")
@@ -1414,18 +1414,18 @@ ARCHIVE=$(curl -fsSL "http://localhost:${CONF2_PORT}/calendar-readiness/") \
   || fail "TEC authored archive slug did not resolve after rewrite repair"
 grep -qF 'Readiness before 東京' <<<"$ARCHIVE" || fail "TEC archive lost authored before HTML"
 grep -qF 'Readiness after বাংলা' <<<"$ARCHIVE" || fail "TEC archive lost authored after HTML"
-grep -qF '.tribe_events_cat-duo-readiness-category{' <<<"$ARCHIVE" \
+grep -qF '.tribe_events_cat-wprism-readiness-category{' <<<"$ARCHIVE" \
   || fail "TEC archive did not enqueue the native Category Colors selector"
 grep -qF '#123abc' <<<"$ARCHIVE" || fail "TEC archive did not carry the authored primary category color"
 WIDGET_PERMALINK=$(jq -er '.widget_surface.permalink' <<<"$TARGET")
 WIDGET_FRONT=$(curl -fsSL "$WIDGET_PERMALINK") \
   || fail "TEC target legacy-widget page did not return 200: $WIDGET_PERMALINK"
 require_observed_nonempty "TEC target legacy-widget response" "$WIDGET_FRONT"
-grep -qF 'Duo Sidebar Calendar 東京' <<<"$WIDGET_FRONT" \
+grep -qF 'WPrism Sidebar Calendar 東京' <<<"$WIDGET_FRONT" \
   || fail "TEC stored-id list widget did not render through the target-native block path"
-grep -qF 'Duo Embedded Calendar مرحبا' <<<"$WIDGET_FRONT" \
+grep -qF 'WPrism Embedded Calendar مرحبا' <<<"$WIDGET_FRONT" \
   || fail "TEC embedded list widget did not render after target-salt re-signing"
-grep -qF 'Duo Production Readiness Event 東京' <<<"$WIDGET_FRONT" \
+grep -qF 'WPrism Production Readiness Event 東京' <<<"$WIDGET_FRONT" \
   || fail "TEC rendered list widgets did not resolve the applied event graph"
 ! grep -qF 'Target-only stale list widget' <<<"$WIDGET_FRONT" \
   || fail "TEC legacy-widget page rendered the displaced target widget instance"
@@ -1460,7 +1460,7 @@ foreach ([
     $assert(is_file($path) && hash_file('sha256', $path) === $expectedSha256,
         "exact Category Colors service source disagrees: $relative");
 }
-$policy = \Duo\Policy::load('/siterepo');
+$policy = \WPrism\Policy::load('/siterepo');
 $providerPath = $policy->adapter_runtime_path(
     'the-events-calendar',
     'providers',
@@ -1469,13 +1469,13 @@ $providerPath = $policy->adapter_runtime_path(
 $assert(is_file($providerPath),
     'exact Category Colors provider source is absent from the selected adapter package');
 require_once $providerPath;
-$assert(class_exists(\Duo\Providers\TheEventsCalendarCategoryColors::class, false),
+$assert(class_exists(\WPrism\Providers\TheEventsCalendarCategoryColors::class, false),
     'exact Category Colors provider class did not load from the selected adapter package');
-$provider = new \Duo\Providers\TheEventsCalendarCategoryColors(
+$provider = new \WPrism\Providers\TheEventsCalendarCategoryColors(
     $policy->provider_declarations()['the-events-calendar-category-colors']
 );
 $operation = [
-    'format' => 'duo-provider-operation/v1',
+    'format' => 'wprism-provider-operation/v1',
     'id' => 'tec-exact-category-colors-boundary',
 ];
 $cacheKey = \TEC\Events\Category_Colors\Repositories\Category_Color_Dropdown_Provider::CACHE_KEY;
@@ -1489,7 +1489,7 @@ $deleteCreated = static function () use (&$created): void {
 $createCategory = static function (string $slug, array $meta) use (&$created): int {
     $inserted = wp_insert_term($slug, Tribe__Events__Main::TAXONOMY, [
         'slug' => $slug,
-        'description' => 'Duo exact Category Colors boundary fixture.',
+        'description' => 'WPrism exact Category Colors boundary fixture.',
     ]);
     if (is_wp_error($inserted)) {
         throw new RuntimeException('could not create exact Category Colors fixture: ' . $inserted->get_error_message());
@@ -1543,10 +1543,10 @@ try {
         'tec-events-cat-colors-priority' => '41',
         'tec-events-cat-colors-hidden' => '0',
     ];
-    $createCategory('duo-equal-priority-alpha', $equal + [
+    $createCategory('wprism-equal-priority-alpha', $equal + [
         'tec-events-cat-colors-primary' => '#102030',
     ]);
-    $createCategory('duo-equal-priority-beta', $equal + [
+    $createCategory('wprism-equal-priority-beta', $equal + [
         'tec-events-cat-colors-primary' => '#405060',
     ]);
 
@@ -1560,7 +1560,7 @@ try {
         'equal-priority native generations changed the semantic scoped receipt');
     $assert(!array_key_exists('css_sha256', $first['after'] ?? []),
         'equal-priority scoped evidence incorrectly bound unstable raw CSS order');
-    foreach (['duo-equal-priority-alpha', 'duo-equal-priority-beta'] as $slug) {
+    foreach (['wprism-equal-priority-alpha', 'wprism-equal-priority-beta'] as $slug) {
         $selector = '.tribe_events_cat-' . $slug . '{';
         $assert(substr_count($firstCss, $selector) === 1 && substr_count($secondCss, $selector) === 1,
             "exact equal-priority CSS lost or duplicated selector $slug");
@@ -1571,8 +1571,8 @@ try {
     $assert($cache->get($cacheKey) === false,
         'native Category Colors invocation did not finish with the dropdown cache absent');
     $staleCache = [[
-        'slug' => 'duo-equal-priority-alpha',
-        'name' => 'duo-equal-priority-alpha',
+        'slug' => 'wprism-equal-priority-alpha',
+        'name' => 'wprism-equal-priority-alpha',
         'priority' => 41,
         'primary' => '#000000',
         'hidden' => false,
@@ -1608,10 +1608,10 @@ try {
             $bySlug[(string) $row['slug']] = $row;
         }
     }
-    $assert(($bySlug['duo-equal-priority-alpha']['primary'] ?? null) === '#102030'
-        && ($bySlug['duo-equal-priority-alpha']['priority'] ?? null) === 41
-        && ($bySlug['duo-equal-priority-beta']['primary'] ?? null) === '#405060'
-        && ($bySlug['duo-equal-priority-beta']['priority'] ?? null) === 41,
+    $assert(($bySlug['wprism-equal-priority-alpha']['primary'] ?? null) === '#102030'
+        && ($bySlug['wprism-equal-priority-alpha']['priority'] ?? null) === 41
+        && ($bySlug['wprism-equal-priority-beta']['primary'] ?? null) === '#405060'
+        && ($bySlug['wprism-equal-priority-beta']['priority'] ?? null) === 41,
         'native dropdown repopulation lost equal-priority semantic rows');
     $populatedCache = $cache->get($cacheKey);
     $assert(is_array($populatedCache), 'native dropdown did not repopulate its exact cache entry');
@@ -1650,7 +1650,7 @@ try {
     $fixtureNumber = 0;
     $lastColoredSlug = null;
     while ($remaining > 0) {
-        $slug = sprintf('duo-one-page-%03d', $fixtureNumber++);
+        $slug = sprintf('wprism-one-page-%03d', $fixtureNumber++);
         $termMeta = array_slice($values, 0, min(5, $remaining), true);
         $createCategory($slug, $termMeta);
         if (isset($termMeta['tec-events-cat-colors-primary'])) {
@@ -1671,7 +1671,7 @@ try {
     // generator and cache-bust hooks. Establish the refusal preimage only
     // after that native fixture mutation, then repopulate the exact cache so
     // the provider must preserve both durable CSS and populated cache bytes.
-    $createCategory('duo-second-page-refusal', [
+    $createCategory('wprism-second-page-refusal', [
         'tec-events-cat-colors-primary' => '#abcdef',
     ]);
     $assert($relevantCount() === 501, 'exact native second-page fixture did not reach 501 rows');
@@ -1770,7 +1770,7 @@ tec_widget_scope_physical_hash() {
         ARRAY_A
       ),
       "map" => $wpdb->get_results(
-        "SELECT uuid,entity_type,id_kind,local_id FROM {$wpdb->prefix}duo_map " .
+        "SELECT uuid,entity_type,id_kind,local_id FROM {$wpdb->prefix}wprism_map " .
         "ORDER BY uuid,entity_type,id_kind,local_id",
         ARRAY_A
       ),
@@ -1787,20 +1787,20 @@ tec_widget_scope_ledger_witness() {
     global $wpdb;
     $wpdb->last_error = "";
     $selected = $wpdb->get_results($wpdb->prepare(
-      "SELECT uuid,entity_type,content_hash FROM {$wpdb->prefix}duo_state WHERE uuid=%s ORDER BY uuid",
+      "SELECT uuid,entity_type,content_hash FROM {$wpdb->prefix}wprism_state WHERE uuid=%s ORDER BY uuid",
       $uuid
     ), ARRAY_A);
     $other = $wpdb->get_results($wpdb->prepare(
-      "SELECT uuid,entity_type,content_hash FROM {$wpdb->prefix}duo_state WHERE uuid<>%s " .
+      "SELECT uuid,entity_type,content_hash FROM {$wpdb->prefix}wprism_state WHERE uuid<>%s " .
       "ORDER BY uuid,entity_type,content_hash",
       $uuid
     ), ARRAY_A);
     $kv = $wpdb->get_results(
-      "SELECT k,v FROM {$wpdb->prefix}duo_kv ORDER BY k,v",
+      "SELECT k,v FROM {$wpdb->prefix}wprism_kv ORDER BY k,v",
       ARRAY_A
     );
     $journal = $wpdb->get_results(
-      "SELECT id,t,op,tbl,item,surface,actor,caps,hook,proposal FROM {$wpdb->prefix}duo_journal " .
+      "SELECT id,t,op,tbl,item,surface,actor,caps,hook,proposal FROM {$wpdb->prefix}wprism_journal " .
       "ORDER BY id,t,op,tbl,item,surface,actor,caps,hook,proposal",
       ARRAY_A
     );
@@ -1824,15 +1824,15 @@ tec_widget_scope_canonical_widgets() {
   TEC_STATE_PATH=$1 php -r '
     require $argv[1];
     require $argv[2];
-    [, $body] = Duo\Canon::parse_post_file((string) file_get_contents((string) getenv("TEC_STATE_PATH")));
+    [, $body] = WPrism\Canon::parse_post_file((string) file_get_contents((string) getenv("TEC_STATE_PATH")));
     $attrs = [];
     foreach (parse_blocks($body) as $block) {
       if (($block["blockName"] ?? null) === "core/legacy-widget") {
         $attrs[] = $block["attrs"] ?? null;
       }
     }
-    echo Duo\Canon::encode($attrs);
-  ' "$DUO_SOURCE_ROOT/agent/src/Kernel/Canon.php" "$DUO_SOURCE_ROOT/sandbox/tests/support/wp-block-parser-stub.php"
+    echo WPrism\Canon::encode($attrs);
+  ' "$WPRISM_SOURCE_ROOT/agent/src/Kernel/Canon.php" "$WPRISM_SOURCE_ROOT/sandbox/tests/support/wp-block-parser-stub.php"
 }
 
 tec_widget_scope_expected_page() {
@@ -1840,7 +1840,7 @@ tec_widget_scope_expected_page() {
     require $argv[1];
     require $argv[2];
     $source = (string) file_get_contents((string) getenv("TEC_STATE_PATH"));
-    [, $body] = Duo\Canon::parse_post_file($source);
+    [, $body] = WPrism\Canon::parse_post_file($source);
     $kept = [];
     $stored = 0;
     $embedded = 0;
@@ -1865,7 +1865,7 @@ tec_widget_scope_expected_page() {
       throw new RuntimeException("TEC scoped inactive-widget expected page lost its canonical front matter");
     }
     echo substr($source, 0, $frontEnd + 5) . serialize_blocks($kept) . "\n";
-  ' "$DUO_SOURCE_ROOT/agent/src/Kernel/Canon.php" "$DUO_SOURCE_ROOT/sandbox/tests/support/wp-block-parser-stub.php"
+  ' "$WPRISM_SOURCE_ROOT/agent/src/Kernel/Canon.php" "$WPRISM_SOURCE_ROOT/sandbox/tests/support/wp-block-parser-stub.php"
 }
 
 tec_widget_scope_assert_repo_absent() { # <repo> <needle> <role>
@@ -1901,7 +1901,7 @@ tec_widget_scope_restore_physical_preimage() {
       ["%d"]
     );
     $stateResult = $wpdb->query($wpdb->prepare(
-      "INSERT INTO {$wpdb->prefix}duo_state (uuid,entity_type,content_hash) VALUES (%s,%s,%s) " .
+      "INSERT INTO {$wpdb->prefix}wprism_state (uuid,entity_type,content_hash) VALUES (%s,%s,%s) " .
       "ON DUPLICATE KEY UPDATE entity_type=VALUES(entity_type),content_hash=VALUES(content_hash)",
       $state[0]["uuid"],
       $state[0]["entity_type"],
@@ -1955,7 +1955,7 @@ git clone -q --no-hardlinks "$TEC_WIDGET_SCOPE_BASE" "$TEC_WIDGET_SCOPE_HOST"
 TEC_WIDGET_SCOPE_BASE_HEAD=$(git -C "$TEC_WIDGET_SCOPE_BASE" rev-parse --verify HEAD)
 TEC_WIDGET_SCOPE_CLONE_HEAD=$(git -C "$TEC_WIDGET_SCOPE_HOST" rev-parse --verify HEAD)
 [ "$TEC_WIDGET_SCOPE_CLONE_HEAD" = "$TEC_WIDGET_SCOPE_BASE_HEAD" ] \
-  && cmp -s "$TEC_WIDGET_SCOPE_BASE/site.duo.json" "$TEC_WIDGET_SCOPE_HOST/site.duo.json" \
+  && cmp -s "$TEC_WIDGET_SCOPE_BASE/site.wprism.json" "$TEC_WIDGET_SCOPE_HOST/site.wprism.json" \
   && [ -z "$(git -C "$TEC_WIDGET_SCOPE_HOST" status --porcelain=v1 --untracked-files=all)" ] \
   || fail "TEC scoped inactive-widget clone did not bind the exact source HEAD/site identity"
 # pair.yml's CLI runs as uid/gid 33 while this disposable clone is created by
@@ -1984,18 +1984,18 @@ tec_scope_contract_json() {
   # The host transport preserves the agent's pretty canonical contract while
   # Compose writes progress on stderr. Compact exactly one stdout document so
   # the shared answer classifier still sees one complete final envelope.
-  php ../cli/duo --envs-file="$TEC_SCOPE_ENVS" scope "$@" --contract --format=json \
+  php ../cli/wprism --envs-file="$TEC_SCOPE_ENVS" scope "$@" --contract --format=json \
     | jq -ce -s 'if length == 1 then .[0] else error("TEC scope expected exactly one JSON document") end'
 }
 
 TEC_WIDGET_SCOPE_ONE="$TEC_WIDGET_SCOPE_HOST/.first.scope.json"
-capture_duo_json_success TEC_WIDGET_SCOPE_ONE_OUT \
+capture_wprism_json_success TEC_WIDGET_SCOPE_ONE_OUT \
   "TEC scoped inactive-widget first contract" \
   tec_scope_contract_json tec-widget-source \
   --roots="post:$TEC_WIDGET_PAGE_UUID"
 printf '%s\n' "$TEC_WIDGET_SCOPE_ONE_OUT" >"$TEC_WIDGET_SCOPE_ONE"
 jq -e --arg uuid "$TEC_WIDGET_PAGE_UUID" '
-  .format == "duo-scope-contract/v1" and
+  .format == "wprism-scope-contract/v1" and
   .selectors == ["post:" + $uuid] and
   any(.live.closure[]; .entity == "sidebar/wp_inactive_widgets")
 ' "$TEC_WIDGET_SCOPE_ONE" >/dev/null \
@@ -2066,32 +2066,32 @@ require_observed_nonempty "TEC scoped inactive-widget mutated physical witness" 
   || fail "TEC scoped inactive-widget mutation did not change its exact post witness"
 TEC_WIDGET_LEDGER_MUTATED=$(tec_widget_scope_ledger_witness)
 [ "$TEC_WIDGET_LEDGER_MUTATED" = "$TEC_WIDGET_LEDGER_ORIGINAL" ] \
-  || fail "TEC scoped inactive-widget fixture mutation changed Duo ledger bytes before capture"
+  || fail "TEC scoped inactive-widget fixture mutation changed WPrism ledger bytes before capture"
 
-TEC_WIDGET_CAPTURE_ONE=$(wp_conf1 duo capture \
+TEC_WIDGET_CAPTURE_ONE=$(wp_conf1 wprism capture \
   --repo="$TEC_WIDGET_SCOPE_REPO" \
   --scope-contract="$TEC_WIDGET_SCOPE_REPO/.first.scope.json" \
   --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "TEC scoped inactive-widget first capture" json "$TEC_WIDGET_CAPTURE_ONE"
+require_wprism_answered "TEC scoped inactive-widget first capture" json "$TEC_WIDGET_CAPTURE_ONE"
 printf '%s\n' "$TEC_WIDGET_CAPTURE_ONE" | jq -e --arg hash "$(jq -r '.scope_hash' "$TEC_WIDGET_SCOPE_ONE")" '
   .scope.scope_hash == $hash and .counts.deletion == 0
 ' >/dev/null || fail "TEC scoped inactive-widget capture returned malformed scope/deletion evidence"
 [ ! -e "$TEC_WIDGET_SCOPE_HOST/state/sidebars/wp_inactive_widgets.json" ] \
   || fail "TEC scoped inactive-widget capture published an empty/shared pseudo row"
 tec_widget_scope_assert_repo_absent "$TEC_WIDGET_SCOPE_HOST" \
-  'duo-inactive-overlay-deauthorization/v1' 'capture-local receipt'
+  'wprism-inactive-overlay-deauthorization/v1' 'capture-local receipt'
 tec_widget_scope_assert_repo_absent "$TEC_WIDGET_SCOPE_HOST" \
   'sidebar/wp_inactive_widgets' 'pseudo-row tombstone/carrier'
 [ "$(tec_widget_scope_physical_hash)" = "$TEC_WIDGET_PHYSICAL_MUTATED" ] \
   || fail "TEC scoped inactive-widget capture mutated post/options/sidebar/map target bytes"
 TEC_WIDGET_SCOPE_TWO="$TEC_WIDGET_SCOPE_HOST/.second.scope.json"
-capture_duo_json_success TEC_WIDGET_SCOPE_TWO_OUT \
+capture_wprism_json_success TEC_WIDGET_SCOPE_TWO_OUT \
   "TEC scoped inactive-widget second contract" \
   tec_scope_contract_json tec-widget-source \
   --roots="post:$TEC_WIDGET_PAGE_UUID"
 printf '%s\n' "$TEC_WIDGET_SCOPE_TWO_OUT" >"$TEC_WIDGET_SCOPE_TWO"
 jq -e --arg uuid "$TEC_WIDGET_PAGE_UUID" '
-  .format == "duo-scope-contract/v1" and
+  .format == "wprism-scope-contract/v1" and
   ([.live.roots[], .live.closure[]] | any(.entity == "sidebar/wp_inactive_widgets") | not) and
   ([.live.roots[] | select(.entity == $uuid and .type == "post" and
     (.entity_hash | test("^[a-f0-9]{64}$")))] | length) == 1
@@ -2110,7 +2110,7 @@ jq -en --argjson before "$TEC_WIDGET_LEDGER_ORIGINAL" \
   $after.selected_state[0].entity_type == $before.selected_state[0].entity_type and
   $after.selected_state[0].content_hash != $before.selected_state[0].content_hash and
   $after.selected_state[0].content_hash == $expected
-' >/dev/null || fail "TEC scoped inactive-widget capture exceeded its exact selected duo_state bookkeeping row"
+' >/dev/null || fail "TEC scoped inactive-widget capture exceeded its exact selected wprism_state bookkeeping row"
 TEC_WIDGET_SCOPE_STATE_REL=${TEC_SOURCE_WIDGET_STATE#"$TEC_WIDGET_SCOPE_BASE/"}
 [ "$TEC_WIDGET_SCOPE_STATE_REL" != "$TEC_SOURCE_WIDGET_STATE" ] \
   || fail "TEC scoped inactive-widget canonical page is outside its bound source repository"
@@ -2130,11 +2130,11 @@ jq -en --argjson actual "$TEC_WIDGET_CANONICAL_FIRST" --argjson expected "$TEC_W
 ' >/dev/null || fail "TEC scoped inactive-widget capture did not preserve the exact two embedded widget blocks"
 
 TEC_WIDGET_REPO_FIRST=$(tec_widget_scope_repo_hash "$TEC_WIDGET_SCOPE_HOST")
-TEC_WIDGET_CAPTURE_TWO=$(wp_conf1 duo capture \
+TEC_WIDGET_CAPTURE_TWO=$(wp_conf1 wprism capture \
   --repo="$TEC_WIDGET_SCOPE_REPO" \
   --scope-contract="$TEC_WIDGET_SCOPE_REPO/.second.scope.json" \
   --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "TEC scoped inactive-widget fixed-point capture" json "$TEC_WIDGET_CAPTURE_TWO"
+require_wprism_answered "TEC scoped inactive-widget fixed-point capture" json "$TEC_WIDGET_CAPTURE_TWO"
 printf '%s\n' "$TEC_WIDGET_CAPTURE_TWO" | jq -e --arg hash "$(jq -r '.scope_hash' "$TEC_WIDGET_SCOPE_TWO")" '
   .scope.scope_hash == $hash and .counts.deletion == 0
 ' >/dev/null || fail "TEC scoped inactive-widget retry returned malformed scope/deletion evidence"
@@ -2144,21 +2144,21 @@ printf '%s\n' "$TEC_WIDGET_CAPTURE_TWO" | jq -e --arg hash "$(jq -r '.scope_hash
   || fail "TEC scoped inactive-widget retry changed target assignment/option/map bytes"
 TEC_WIDGET_LEDGER_SECOND=$(tec_widget_scope_ledger_witness)
 [ "$TEC_WIDGET_LEDGER_SECOND" = "$TEC_WIDGET_LEDGER_FIRST" ] \
-  || fail "TEC scoped inactive-widget fixed-point capture changed Duo ledger rows"
+  || fail "TEC scoped inactive-widget fixed-point capture changed WPrism ledger rows"
 TEC_WIDGET_CANONICAL_SECOND=$(tec_widget_scope_canonical_widgets "$TEC_WIDGET_SCOPE_STATE" | jq -cS '.')
 [ "$TEC_WIDGET_CANONICAL_SECOND" = "$TEC_WIDGET_CANONICAL_FIRST" ] \
   && [ "$TEC_WIDGET_CANONICAL_SECOND" = "$TEC_WIDGET_EXPECTED_EMBEDDED" ] \
   && cmp -s "$TEC_WIDGET_EXPECTED_PAGE" "$TEC_WIDGET_SCOPE_STATE" \
   || fail "TEC scoped inactive-widget retry changed the exact embedded widget projection"
 tec_widget_scope_assert_repo_absent "$TEC_WIDGET_SCOPE_HOST" \
-  'duo-inactive-overlay-deauthorization/v1' 'retry capture-local receipt'
+  'wprism-inactive-overlay-deauthorization/v1' 'retry capture-local receipt'
 tec_widget_scope_assert_repo_absent "$TEC_WIDGET_SCOPE_HOST" \
   'sidebar/wp_inactive_widgets' 'retry pseudo-row tombstone/carrier'
 
 tec_widget_scope_restore_physical_preimage
 [ "$(tec_widget_scope_physical_hash)" = "$TEC_WIDGET_PHYSICAL_ORIGINAL" ] \
   && [ "$(tec_widget_scope_ledger_witness)" = "$TEC_WIDGET_LEDGER_ORIGINAL" ] \
-  || fail "TEC scoped inactive-widget cleanup did not restore exact target and Duo ledger bytes"
+  || fail "TEC scoped inactive-widget cleanup did not restore exact target and WPrism ledger bytes"
 TEC_WIDGET_SCOPE_MUTATED=0
 rm -rf -- "$TEC_WIDGET_SCOPE_HOST"
 pass "real scoped capture deauthorizes only stored inactive ownership, preserves target/ledger bytes, and reaches a receipt-free fixed point"
@@ -2169,12 +2169,12 @@ pass "real scoped capture deauthorizes only stored inactive ownership, preserves
 # receipt is exercised by both a failure before COMMIT and a provider failure
 # after COMMIT. The physical term-id re-key below is a portable-state-preserving
 # ABA: every term/taxonomy/meta/relationship byte keeps its meaning while the
-# selected duo_map generation alone changes.
+# selected wprism_map generation alone changes.
 tec_category_uuid() {
   wp_conf1 eval '
-    $term=get_term_by("slug","duo-readiness-category","tribe_events_cat");
+    $term=get_term_by("slug","wprism-readiness-category","tribe_events_cat");
     if(!$term instanceof WP_Term) throw new RuntimeException("TEC source category disappeared");
-    $uuid=\Duo\Ledger::uuid_for((int)$term->term_id,\Duo\Ledger::KIND_TERM);
+    $uuid=\WPrism\Ledger::uuid_for((int)$term->term_id,\WPrism\Ledger::KIND_TERM);
     if(!is_string($uuid)) throw new RuntimeException("TEC source category has no term UUID");
     echo $uuid;
   ' | tr -d '[:space:]'
@@ -2183,12 +2183,12 @@ tec_category_uuid() {
 tec_category_scope() { # <target-host-path> <category-uuid>
   local output=$1 uuid=$2 scoped
   [[ "$uuid" =~ ^[a-f0-9-]{36}$ ]] || fail "TEC Category Colors scope received a malformed category UUID"
-  capture_duo_json_success scoped \
+  capture_wprism_json_success scoped \
     "TEC Category Colors scope contract" \
     tec_scope_contract_json tec-source --roots="term:${uuid}"
   printf '%s\n' "$scoped" >"$output"
   jq -e --arg uuid "$uuid" '
-    .format == "duo-scope-contract/v1" and .selectors == ["term:" + $uuid] and
+    .format == "wprism-scope-contract/v1" and .selectors == ["term:" + $uuid] and
     any(.potential_actions[];
       .manifest == "the-events-calendar" and
       .declaration.kind == "provider" and
@@ -2200,16 +2200,16 @@ tec_category_scope() { # <target-host-path> <category-uuid>
 
 tec_scoped_session_evidence() {
   wp_conf2 eval '
-    $session=\Duo\ScopedApplySession::open(new \Duo\LedgerScopedApplySessionStorage());
-    if(!$session instanceof \Duo\ScopedApplySession) throw new RuntimeException("TEC scoped session is absent");
+    $session=\WPrism\ScopedApplySession::open(new \WPrism\LedgerScopedApplySessionStorage());
+    if(!$session instanceof \WPrism\ScopedApplySession) throw new RuntimeException("TEC scoped session is absent");
     $canonical=$session->canonical();
     $record=$session->to_array();
     $authorActionHash=$record["intents"][0]["action_hash"]??null;
     $receipt=$record["receipts"][0]??null;
-    $roots=\Duo\ScopedApply::ledger_map_roots(
+    $roots=\WPrism\ScopedApply::ledger_map_roots(
       (array)($record["authority"]["selection"]["ledger_map_identity_hashes"]??[])
     );
-    $current=\Duo\ScopedApplyCoordinator::authored_ledger_map_hash($roots);
+    $current=\WPrism\ScopedApplyCoordinator::authored_ledger_map_hash($roots);
     $receiptAfter=is_array($receipt)?($receipt["after_hash"]??null):null;
     echo wp_json_encode([
       "canonical_sha256"=>hash("sha256",$canonical),
@@ -2219,7 +2219,7 @@ tec_scoped_session_evidence() {
       "receipt_count"=>count($record["receipts"]??[]),
       "author_action_hash"=>$authorActionHash,
       "author_action_matches"=>is_string($authorActionHash)
-        &&hash_equals(hash("sha256","duo-scoped-authored-transaction/v2"),$authorActionHash),
+        &&hash_equals(hash("sha256","wprism-scoped-authored-transaction/v2"),$authorActionHash),
       "author_receipt_after"=>$receiptAfter,
       "current_author_after"=>$current,
       "author_matches"=>is_string($receiptAfter)&&hash_equals($receiptAfter,$current),
@@ -2233,7 +2233,7 @@ tec_scoped_color_storage_hash() { # <category-uuid>; excludes the scoped session
   wp_conf2 eval "
     global \$wpdb;
     \$uuid='$uuid';
-    \$term=get_term_by('slug','duo-readiness-category','tribe_events_cat');
+    \$term=get_term_by('slug','wprism-readiness-category','tribe_events_cat');
     if(!\$term instanceof WP_Term) throw new RuntimeException('TEC target category disappeared');
     \$id=(int)\$term->term_id;
     \$queries=[
@@ -2241,10 +2241,10 @@ tec_scoped_color_storage_hash() { # <category-uuid>; excludes the scoped session
       'tt'=>\$wpdb->prepare(\"SELECT * FROM {\$wpdb->term_taxonomy} WHERE term_id=%d ORDER BY term_taxonomy_id\",\$id),
       'meta'=>\$wpdb->prepare(\"SELECT * FROM {\$wpdb->termmeta} WHERE term_id=%d ORDER BY meta_id\",\$id),
       'rel'=>\$wpdb->prepare(\"SELECT tr.* FROM {\$wpdb->term_relationships} tr INNER JOIN {\$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tt.term_id=%d ORDER BY tr.object_id,tr.term_taxonomy_id\",\$id),
-      'map'=>\$wpdb->prepare(\"SELECT * FROM {\$wpdb->prefix}duo_map WHERE uuid=%s ORDER BY id_kind,local_id\",\$uuid),
-      'state'=>\$wpdb->prepare(\"SELECT * FROM {\$wpdb->prefix}duo_state WHERE uuid=%s\",\$uuid),
+      'map'=>\$wpdb->prepare(\"SELECT * FROM {\$wpdb->prefix}wprism_map WHERE uuid=%s ORDER BY id_kind,local_id\",\$uuid),
+      'state'=>\$wpdb->prepare(\"SELECT * FROM {\$wpdb->prefix}wprism_state WHERE uuid=%s\",\$uuid),
       'css'=>\$wpdb->prepare(\"SELECT option_id,option_name,option_value,autoload FROM {\$wpdb->options} WHERE option_name=%s\",'tec_events_category_color_css'),
-      'revision'=>\"SELECT k,v FROM {\$wpdb->prefix}duo_kv WHERE k IN ('applied_revision','apply_in_progress') ORDER BY k\",
+      'revision'=>\"SELECT k,v FROM {\$wpdb->prefix}wprism_kv WHERE k IN ('applied_revision','apply_in_progress') ORDER BY k\",
     ];
     \$rows=[];
     foreach(\$queries as \$name=>\$sql){
@@ -2261,7 +2261,7 @@ tec_set_source_category_primary() { # <#rrggbb>
   local color=$1
   [[ "$color" =~ ^#[0-9a-f]{6}$ ]] || fail "TEC source Category Colors fixture received an invalid color"
   wp_conf1 eval "
-    \$term=get_term_by('slug','duo-readiness-category','tribe_events_cat');
+    \$term=get_term_by('slug','wprism-readiness-category','tribe_events_cat');
     if(!\$term instanceof WP_Term) throw new RuntimeException('TEC source category disappeared');
     tribe(\\TEC\\Events\\Category_Colors\\Event_Category_Meta::class)
       ->set_term((int)\$term->term_id)
@@ -2281,13 +2281,13 @@ TEC_COLOR_ABA_MAY_BE_REKEYED=0
 restore_tec_scoped_color_faults() {
   if [ "${TEC_COLOR_KV_CONSTRAINT_MAY_EXIST:-0}" -eq 1 ]; then
     wp_conf2 db query \
-      'ALTER TABLE wp_duo_kv DROP CONSTRAINT IF EXISTS duo_tec_fail_scoped_receipt' \
+      'ALTER TABLE wp_wprism_kv DROP CONSTRAINT IF EXISTS wprism_tec_fail_scoped_receipt' \
       >/dev/null 2>&1 || true
     TEC_COLOR_KV_CONSTRAINT_MAY_EXIST=0
   fi
   if [ "${TEC_COLOR_SESSION_RECEIPT_CONSTRAINT_MAY_EXIST:-0}" -eq 1 ]; then
     wp_conf2 db query \
-      'ALTER TABLE wp_duo_kv DROP CONSTRAINT IF EXISTS duo_tec_fail_scoped_effect_receipt' \
+      'ALTER TABLE wp_wprism_kv DROP CONSTRAINT IF EXISTS wprism_tec_fail_scoped_effect_receipt' \
       >/dev/null 2>&1 || true
     TEC_COLOR_SESSION_RECEIPT_CONSTRAINT_MAY_EXIST=0
   fi
@@ -2297,7 +2297,7 @@ restore_tec_scoped_color_faults() {
     && [[ "${TEC_COLOR_UUID:-}" =~ ^[a-f0-9-]{36}$ ]]; then
     wp_conf2 db query "
       START TRANSACTION;
-      UPDATE wp_duo_map SET local_id=${COLOR_ABA_OLD_ID}
+      UPDATE wp_wprism_map SET local_id=${COLOR_ABA_OLD_ID}
         WHERE uuid='${TEC_COLOR_UUID}' AND id_kind='term' AND local_id=${COLOR_ABA_NEW_ID};
       UPDATE wp_termmeta SET term_id=${COLOR_ABA_OLD_ID} WHERE term_id=${COLOR_ABA_NEW_ID};
       UPDATE wp_term_taxonomy SET term_id=${COLOR_ABA_OLD_ID}
@@ -2330,18 +2330,18 @@ tec_set_source_category_primary '#456789'
 commit_tec_source 'conformance: scoped TEC Category Colors atomic author intent'
 tec_category_scope "$TEC_COLOR_PRECOMMIT_SCOPE" "$TEC_COLOR_UUID"
 COLOR_ATOMIC_BEFORE=$(tec_scoped_color_storage_hash "$TEC_COLOR_UUID")
-wp_conf2 db query 'ALTER TABLE wp_duo_kv DROP CONSTRAINT IF EXISTS duo_tec_fail_scoped_receipt' >/dev/null
+wp_conf2 db query 'ALTER TABLE wp_wprism_kv DROP CONSTRAINT IF EXISTS wprism_tec_fail_scoped_receipt' >/dev/null
 TEC_COLOR_KV_CONSTRAINT_MAY_EXIST=1
 wp_conf2 db query '
-  ALTER TABLE wp_duo_kv ADD CONSTRAINT duo_tec_fail_scoped_receipt
+  ALTER TABLE wp_wprism_kv ADD CONSTRAINT wprism_tec_fail_scoped_receipt
   CHECK (k <> "scoped_apply_session" OR v NOT LIKE "%\"phase\": \"authored_committed\"%")
 ' >/dev/null
 COLOR_ATOMIC_RC=0
-COLOR_ATOMIC_OUT=$(wp_conf2 duo apply --repo=/siterepo \
+COLOR_ATOMIC_OUT=$(wp_conf2 wprism apply --repo=/siterepo \
   --scope-contract=/siterepo/.tmp-tec-category-colors-precommit.scope.json \
   --default-author=admin 2>&1) || COLOR_ATOMIC_RC=$?
-require_duo_answered "TEC injected atomic scoped author-receipt failure" human "$COLOR_ATOMIC_OUT"
-[ "$COLOR_ATOMIC_RC" -ne 0 ] && grep -Fq 'duo_tec_fail_scoped_receipt' <<<"$COLOR_ATOMIC_OUT" \
+require_wprism_answered "TEC injected atomic scoped author-receipt failure" human "$COLOR_ATOMIC_OUT"
+[ "$COLOR_ATOMIC_RC" -ne 0 ] && grep -Fq 'wprism_tec_fail_scoped_receipt' <<<"$COLOR_ATOMIC_OUT" \
   || fail "TEC atomic scoped author-receipt constraint did not fail at the product boundary: $COLOR_ATOMIC_OUT"
 [ "$(tec_scoped_color_storage_hash "$TEC_COLOR_UUID")" = "$COLOR_ATOMIC_BEFORE" ] \
   || fail "TEC atomic author-receipt failure did not roll target, map, state, and CSS bytes back"
@@ -2353,14 +2353,14 @@ printf '%s\n' "$COLOR_ATOMIC_SESSION" | jq -e '
   .author_action_matches == true and
   .author_receipt_after == null and .author_matches == false
 ' >/dev/null || fail "TEC failed atomic author receipt did not retain only retryable authoring intent: $COLOR_ATOMIC_SESSION"
-wp_conf2 db query 'ALTER TABLE wp_duo_kv DROP CONSTRAINT duo_tec_fail_scoped_receipt' >/dev/null
+wp_conf2 db query 'ALTER TABLE wp_wprism_kv DROP CONSTRAINT wprism_tec_fail_scoped_receipt' >/dev/null
 TEC_COLOR_KV_CONSTRAINT_MAY_EXIST=0
-COLOR_ATOMIC_RETRY=$(wp_conf2 duo apply --repo=/siterepo \
+COLOR_ATOMIC_RETRY=$(wp_conf2 wprism apply --repo=/siterepo \
   --scope-contract=/siterepo/.tmp-tec-category-colors-precommit.scope.json \
   --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "TEC atomic scoped author-receipt retry" json "$COLOR_ATOMIC_RETRY"
+require_wprism_answered "TEC atomic scoped author-receipt retry" json "$COLOR_ATOMIC_RETRY"
 jq -e '
-  .format == "duo-scoped-apply-result/v1" and .canary == "clean" and
+  .format == "wprism-scoped-apply-result/v1" and .canary == "clean" and
   .verification.result == "pass" and .scoped_receipt.phase == "complete"
 ' <<<"$COLOR_ATOMIC_RETRY" >/dev/null \
   || fail "TEC atomic scoped author-receipt retry did not converge: $COLOR_ATOMIC_RETRY"
@@ -2381,12 +2381,12 @@ printf '%s\n' "$COLOR_FAULT_BEFORE" | jq -e '
   .category.meta.primary == "#456789" and .category.dropdown.primary == "#456789" and
   (.category_css | contains("--tec-color-category-primary:#456789"))
 ' >/dev/null || fail "TEC Category Colors failure premise is not at the prior projection: $COLOR_FAULT_BEFORE"
-COLOR_FAULT_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
+COLOR_FAULT_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_wprism_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
 require_observed_nonempty "TEC applied revision before Category Colors fault" "$COLOR_FAULT_REV_BEFORE"
-wp_conf2 db query 'ALTER TABLE wp_duo_kv DROP CONSTRAINT IF EXISTS duo_tec_fail_scoped_effect_receipt' >/dev/null
+wp_conf2 db query 'ALTER TABLE wp_wprism_kv DROP CONSTRAINT IF EXISTS wprism_tec_fail_scoped_effect_receipt' >/dev/null
 TEC_COLOR_SESSION_RECEIPT_CONSTRAINT_MAY_EXIST=1
 wp_conf2 db query '
-  ALTER TABLE wp_duo_kv ADD CONSTRAINT duo_tec_fail_scoped_effect_receipt
+  ALTER TABLE wp_wprism_kv ADD CONSTRAINT wprism_tec_fail_scoped_effect_receipt
   CHECK (
     k <> "scoped_apply_session"
     OR JSON_UNQUOTE(JSON_EXTRACT(v, "$.phase")) = "complete"
@@ -2394,10 +2394,10 @@ wp_conf2 db query '
   )
 ' >/dev/null
 COLOR_FAULT_RC=0
-COLOR_FAULT_OUT=$(wp_conf2 duo apply --repo=/siterepo \
+COLOR_FAULT_OUT=$(wp_conf2 wprism apply --repo=/siterepo \
   --scope-contract=/siterepo/.tmp-tec-category-colors-provider.scope.json \
   --default-author=admin 2>&1) || COLOR_FAULT_RC=$?
-require_duo_answered "TEC injected Category Colors provider failure" human "$COLOR_FAULT_OUT"
+require_wprism_answered "TEC injected Category Colors provider failure" human "$COLOR_FAULT_OUT"
 [ "$COLOR_FAULT_RC" -ne 0 ] \
   && grep -Fq "required manifest action 'provider:the-events-calendar-category-colors/regenerate_css' failed" <<<"$COLOR_FAULT_OUT" \
   && grep -Fq 'scoped apply session update CAS' <<<"$COLOR_FAULT_OUT" \
@@ -2410,7 +2410,7 @@ COLOR_FAULT_EXPECTED=$(printf '%s\n' "$COLOR_FAULT_BEFORE" | jq -Sc '
 ')
 [ "$(printf '%s\n' "$COLOR_FAULT_AFTER" | jq -Sc .)" = "$COLOR_FAULT_EXPECTED" ] \
   || fail "TEC lost outer receipt did not retain the verified native Category Colors effect: $COLOR_FAULT_AFTER"
-[ "$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$COLOR_FAULT_REV_BEFORE" ] \
+[ "$(wp_conf2 db query "SELECT v FROM wp_wprism_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$COLOR_FAULT_REV_BEFORE" ] \
   || fail "TEC failed Category Colors provider action advanced applied_revision"
 COLOR_FAULT_SESSION=$(tec_scoped_session_evidence)
 printf '%s\n' "$COLOR_FAULT_SESSION" | jq -e '
@@ -2419,15 +2419,15 @@ printf '%s\n' "$COLOR_FAULT_SESSION" | jq -e '
   .author_action_hash == "a0b8cb4c1ee6649aa089e3f21cc64471337f0b4d389837ba1219c77479b573c0" and
   .author_action_matches == true and .author_matches == true
 ' >/dev/null || fail "TEC failed Category Colors provider action did not retain exact scoped recovery authority: $COLOR_FAULT_SESSION"
-wp_conf2 db query 'ALTER TABLE wp_duo_kv DROP CONSTRAINT duo_tec_fail_scoped_effect_receipt' >/dev/null
+wp_conf2 db query 'ALTER TABLE wp_wprism_kv DROP CONSTRAINT wprism_tec_fail_scoped_effect_receipt' >/dev/null
 TEC_COLOR_SESSION_RECEIPT_CONSTRAINT_MAY_EXIST=0
 
 COLOR_ABA_OLD_ID=$(wp_conf2 db query "
-  SELECT local_id FROM wp_duo_map
+  SELECT local_id FROM wp_wprism_map
   WHERE uuid='${TEC_COLOR_UUID}' AND id_kind='term'
 " --skip-column-names | tr -d '[:space:]')
 [[ "$COLOR_ABA_OLD_ID" =~ ^[1-9][0-9]*$ ]] || fail "TEC Category Colors ABA premise lacks one selected term map"
-[ "$(wp_conf2 db query "SELECT COUNT(*) FROM wp_duo_map WHERE uuid='${TEC_COLOR_UUID}' AND id_kind='term'" --skip-column-names | tr -d '[:space:]')" = 1 ] \
+[ "$(wp_conf2 db query "SELECT COUNT(*) FROM wp_wprism_map WHERE uuid='${TEC_COLOR_UUID}' AND id_kind='term'" --skip-column-names | tr -d '[:space:]')" = 1 ] \
   || fail "TEC Category Colors ABA premise has a duplicate selected term map"
 COLOR_ABA_NEW_ID=$(wp_conf2 db query 'SELECT COALESCE(MAX(term_id),0)+1000 FROM wp_terms' --skip-column-names | tr -d '[:space:]')
 COLOR_ABA_AUTOINCREMENT=$(wp_conf2 db query "
@@ -2446,7 +2446,7 @@ wp_conf2 db query "
   UPDATE wp_terms SET term_id=${COLOR_ABA_NEW_ID} WHERE term_id=${COLOR_ABA_OLD_ID};
   UPDATE wp_term_taxonomy SET term_id=${COLOR_ABA_NEW_ID} WHERE term_id=${COLOR_ABA_OLD_ID} AND taxonomy='tribe_events_cat';
   UPDATE wp_termmeta SET term_id=${COLOR_ABA_NEW_ID} WHERE term_id=${COLOR_ABA_OLD_ID};
-  UPDATE wp_duo_map SET local_id=${COLOR_ABA_NEW_ID}
+  UPDATE wp_wprism_map SET local_id=${COLOR_ABA_NEW_ID}
     WHERE uuid='${TEC_COLOR_UUID}' AND id_kind='term' AND local_id=${COLOR_ABA_OLD_ID};
   COMMIT;
 " >/dev/null
@@ -2459,10 +2459,10 @@ printf '%s\n' "$COLOR_ABA_SESSION_DRIFT" | jq -e '
   .author_receipt_after != .current_author_after
 ' >/dev/null || fail "TEC selected term-id ABA did not change only the atomic author map witness: $COLOR_ABA_SESSION_DRIFT"
 COLOR_ABA_RC=0
-COLOR_ABA_OUT=$(wp_conf2 duo apply --repo=/siterepo \
+COLOR_ABA_OUT=$(wp_conf2 wprism apply --repo=/siterepo \
   --scope-contract=/siterepo/.tmp-tec-category-colors-provider.scope.json \
   --default-author=admin 2>&1) || COLOR_ABA_RC=$?
-require_duo_answered "TEC selected-map ABA retry refusal" human "$COLOR_ABA_OUT"
+require_wprism_answered "TEC selected-map ABA retry refusal" human "$COLOR_ABA_OUT"
 [ "$COLOR_ABA_RC" -ne 0 ] \
   && grep -Fq 'scoped apply recovery author receipt does not match selected state and identity map' <<<"$COLOR_ABA_OUT" \
   || fail "TEC selected-map ABA did not refuse before Category Colors effect replay: $COLOR_ABA_OUT"
@@ -2470,12 +2470,12 @@ require_duo_answered "TEC selected-map ABA retry refusal" human "$COLOR_ABA_OUT"
   || fail "TEC selected-map ABA refusal changed its already-active recovery session"
 [ "$(wp_conf2 db query "SELECT SHA2(CONCAT(option_id,0x00,option_value,0x00,autoload),256) FROM wp_options WHERE option_name='tec_events_category_color_css'" --skip-column-names | tr -d '[:space:]')" = "$COLOR_ABA_CSS_BEFORE" ] \
   || fail "TEC selected-map ABA refusal replayed the Category Colors CSS effect"
-[ "$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$COLOR_FAULT_REV_BEFORE" ] \
+[ "$(wp_conf2 db query "SELECT v FROM wp_wprism_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$COLOR_FAULT_REV_BEFORE" ] \
   || fail "TEC selected-map ABA refusal advanced applied_revision"
 
 wp_conf2 db query "
   START TRANSACTION;
-  UPDATE wp_duo_map SET local_id=${COLOR_ABA_OLD_ID}
+  UPDATE wp_wprism_map SET local_id=${COLOR_ABA_OLD_ID}
     WHERE uuid='${TEC_COLOR_UUID}' AND id_kind='term' AND local_id=${COLOR_ABA_NEW_ID};
   UPDATE wp_termmeta SET term_id=${COLOR_ABA_OLD_ID} WHERE term_id=${COLOR_ABA_NEW_ID};
   UPDATE wp_term_taxonomy SET term_id=${COLOR_ABA_OLD_ID} WHERE term_id=${COLOR_ABA_NEW_ID} AND taxonomy='tribe_events_cat';
@@ -2487,12 +2487,12 @@ TEC_COLOR_ABA_MAY_BE_REKEYED=0
 COLOR_ABA_SESSION_RESTORED=$(tec_scoped_session_evidence)
 printf '%s\n' "$COLOR_ABA_SESSION_RESTORED" | jq -e '.author_matches == true' >/dev/null \
   || fail "TEC selected-map ABA inverse did not restore the exact atomic author map witness: $COLOR_ABA_SESSION_RESTORED"
-COLOR_RETRY=$(wp_conf2 duo apply --repo=/siterepo \
+COLOR_RETRY=$(wp_conf2 wprism apply --repo=/siterepo \
   --scope-contract=/siterepo/.tmp-tec-category-colors-provider.scope.json \
   --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "TEC Category Colors retry" json "$COLOR_RETRY"
+require_wprism_answered "TEC Category Colors retry" json "$COLOR_RETRY"
 jq -e '
-  .format == "duo-scoped-apply-result/v1" and .canary == "clean" and
+  .format == "wprism-scoped-apply-result/v1" and .canary == "clean" and
   .verification.result == "pass" and .scoped_receipt.phase == "complete" and .applied >= 1
 ' <<<"$COLOR_RETRY" >/dev/null || fail "TEC Category Colors retry did not converge: $COLOR_RETRY"
 COLOR_RECOVERED=$(observe_tec conf2)
@@ -2511,7 +2511,7 @@ pass "scoped Category Colors recovery refuses a selected-map ABA before reconcil
 # is a blocking leak; both paths must redact the public diagnostic.
 SCHEMA_BACKUP="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-schema-backup.json"
 wp_conf1 eval '
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
   file_put_contents("/siterepo/.tmp-tec-schema-backup.json",wp_json_encode([
     "content"=>$p->post_content,
     "start"=>get_post_meta($p->ID,"_EventStartDate",true),
@@ -2527,7 +2527,7 @@ BODY_WARNING_DIR="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-body-warning"
 rm -rf "$BODY_WARNING_DIR"
 wp_conf1 eval '
   global $wpdb;
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
   if($wpdb->update($wpdb->posts,["post_content"=>"AKIAABCDEFGHIJKLMNOP"],["ID"=>$p->ID],["%s"],["%d"])!==1){
     throw new RuntimeException("TEC credential body probe could not persist its exact physical mutation");
   }
@@ -2535,7 +2535,7 @@ wp_conf1 eval '
 ' >/dev/null
 BEFORE_STATUS=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
 SECRET_RC=0
-SECRET_OUT=$(wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-body-warning 2>&1) || SECRET_RC=$?
+SECRET_OUT=$(wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-tec-body-warning 2>&1) || SECRET_RC=$?
 [ "$SECRET_RC" -eq 0 ] \
   && grep -Fq 'looks like it contains a aws key' <<<"$SECRET_OUT" \
   && grep -Fq 'not blocked: bodies may legitimately discuss credentials' <<<"$SECRET_OUT" \
@@ -2548,7 +2548,7 @@ rm -rf "$BODY_WARNING_DIR"
 wp_conf1 eval '
   global $wpdb;
   $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
   if($wpdb->update($wpdb->posts,["post_content"=>$b["content"]],["ID"=>$p->ID],["%s"],["%d"])!==1){
     throw new RuntimeException("TEC credential body probe could not restore its exact physical preimage");
   }
@@ -2558,12 +2558,12 @@ wp_conf1 eval '
 META_SECRET_DIR="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-meta-secret"
 rm -rf "$META_SECRET_DIR"
 wp_conf1 eval '
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
   update_post_meta($p->ID,"_EventCost","AKIAABCDEFGHIJKLMNOP");
 ' >/dev/null
 SECRET_RC=0
-SECRET_OUT=$(wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-meta-secret 2>&1) || SECRET_RC=$?
-require_duo_answered "TEC credential-shaped authored meta capture" human "$SECRET_OUT"
+SECRET_OUT=$(wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-tec-meta-secret 2>&1) || SECRET_RC=$?
+require_wprism_answered "TEC credential-shaped authored meta capture" human "$SECRET_OUT"
 [ "$SECRET_RC" -ne 0 ] \
   && grep -Fq 'secret guard tripped' <<<"$SECRET_OUT" \
   && grep -Fq "post_meta '_EventCost'" <<<"$SECRET_OUT" \
@@ -2576,21 +2576,21 @@ require_duo_answered "TEC credential-shaped authored meta capture" human "$SECRE
 rm -rf "$META_SECRET_DIR"
 wp_conf1 eval '
   $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
   update_post_meta($p->ID,"_EventCost",$b["cost"]);
 ' >/dev/null
 
 ORGANIZER_DUP_DIR="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-organizer-duplicate"
 rm -rf "$ORGANIZER_DUP_DIR"
 wp_conf1 eval '
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
   $ids=get_post_meta($p->ID,"_EventOrganizerID",false);
   if(count($ids)!==3||!add_post_meta($p->ID,"_EventOrganizerID",$ids[0])) throw new RuntimeException("duplicate organizer probe failed");
 ' >/dev/null
 ORGANIZER_DUP_RC=0
-ORGANIZER_DUP_OUT=$(wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-organizer-duplicate 2>&1) \
+ORGANIZER_DUP_OUT=$(wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-tec-organizer-duplicate 2>&1) \
   || ORGANIZER_DUP_RC=$?
-require_duo_answered "TEC duplicate organizer row capture" human "$ORGANIZER_DUP_OUT"
+require_wprism_answered "TEC duplicate organizer row capture" human "$ORGANIZER_DUP_OUT"
 [ "$ORGANIZER_DUP_RC" -ne 0 ] \
   && grep -Fq "repeated-row authored meta '_EventOrganizerID'" <<<"$ORGANIZER_DUP_OUT" \
   && grep -Fq 'contains a duplicate value' <<<"$ORGANIZER_DUP_OUT" \
@@ -2598,7 +2598,7 @@ require_duo_answered "TEC duplicate organizer row capture" human "$ORGANIZER_DUP
 [ ! -e "$ORGANIZER_DUP_DIR" ] || fail "TEC duplicate organizer refusal published isolated output"
 wp_conf1 eval '
   $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
   delete_post_meta($p->ID,"_EventOrganizerID");
   foreach($b["organizers"] as $id){if(!add_post_meta($p->ID,"_EventOrganizerID",$id))throw new RuntimeException("organizer restore failed");}
   if(get_post_meta($p->ID,"_EventOrganizerID",false)!==$b["organizers"])throw new RuntimeException("organizer order restore failed");
@@ -2608,13 +2608,13 @@ rm -rf "$ORGANIZER_DUP_DIR"
 ORGANIZER_BLOCK_DIR="${CONF_REPO1:-siterepo/conf1}/.tmp-tec-organizer-block-owner"
 rm -rf "$ORGANIZER_BLOCK_DIR"
 mkdir -p "$ORGANIZER_BLOCK_DIR"
-cp "$CONF_REPO1/site.duo.json" "$ORGANIZER_BLOCK_DIR/site.duo.json"
+cp "$CONF_REPO1/site.wprism.json" "$ORGANIZER_BLOCK_DIR/site.wprism.json"
 chmod -R a+rwX "$ORGANIZER_BLOCK_DIR"
 wp_conf1 eval '
   global $wpdb;
   $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
-  $v=get_posts(["post_type"=>"tribe_venue","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Readiness Hall 東京"])[0];
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
+  $v=get_posts(["post_type"=>"tribe_venue","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Readiness Hall 東京"])[0];
   $needle="\"organizer\":".(int)$b["organizers"][0];
   $replacement="\"organizer\":".(int)$v->ID;
   $content=preg_replace("/".preg_quote($needle,"/")."/",$replacement,$b["content"],1,$count);
@@ -2623,24 +2623,24 @@ wp_conf1 eval '
   }
 ' >/dev/null
 ORGANIZER_BLOCK_CAPTURE_RC=0
-ORGANIZER_BLOCK_CAPTURE_OUT=$(wp_conf1 duo capture --repo=/siterepo \
+ORGANIZER_BLOCK_CAPTURE_OUT=$(wp_conf1 wprism capture --repo=/siterepo \
   --out=/siterepo/.tmp-tec-organizer-block-owner/state 2>&1) \
   || ORGANIZER_BLOCK_CAPTURE_RC=$?
-require_duo_answered "TEC wrong-owner organizer block capture" human "$ORGANIZER_BLOCK_CAPTURE_OUT"
+require_wprism_answered "TEC wrong-owner organizer block capture" human "$ORGANIZER_BLOCK_CAPTURE_OUT"
 [ "$ORGANIZER_BLOCK_CAPTURE_RC" -eq 0 ] \
   && grep -Fq 'Success: captured' <<<"$ORGANIZER_BLOCK_CAPTURE_OUT" \
   || fail "TEC wrong-owner organizer block did not traverse capture/tokenization: $ORGANIZER_BLOCK_CAPTURE_OUT"
 ORGANIZER_BLOCK_RC=0
-ORGANIZER_BLOCK_OUT=$(wp_conf1 duo compile --repo=/siterepo/.tmp-tec-organizer-block-owner 2>&1) \
+ORGANIZER_BLOCK_OUT=$(wp_conf1 wprism compile --repo=/siterepo/.tmp-tec-organizer-block-owner 2>&1) \
   || ORGANIZER_BLOCK_RC=$?
-require_duo_answered "TEC wrong-owner organizer block compile" human "$ORGANIZER_BLOCK_OUT"
+require_wprism_answered "TEC wrong-owner organizer block compile" human "$ORGANIZER_BLOCK_OUT"
 [ "$ORGANIZER_BLOCK_RC" -ne 0 ] \
   && grep -Fq 'organizer block must resolve to post type tribe_organizer, not tribe_venue' <<<"$ORGANIZER_BLOCK_OUT" \
   || fail "TEC wrong-owner organizer block did not refuse through capture/token/interpreter paths: $ORGANIZER_BLOCK_OUT"
 wp_conf1 eval '
   global $wpdb;
   $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
   if($wpdb->update($wpdb->posts,["post_content"=>$b["content"]],["ID"=>$p->ID])===false){
     throw new RuntimeException("organizer block content restore failed");
   }
@@ -2654,11 +2654,11 @@ tec_compile_refusal() { # <scratch-suffix> <evidence-label> <diagnostic-regex> [
   local capture_rc=0 capture_out compile_rc=0 compile_out
   rm -rf "$host"
   mkdir -p "$host"
-  cp "$CONF_REPO1/site.duo.json" "$host/site.duo.json"
+  cp "$CONF_REPO1/site.wprism.json" "$host/site.wprism.json"
   chmod -R a+rwX "$host"
-  capture_out=$(wp_conf1 duo capture --repo=/siterepo --out="$repo/state" 2>&1) \
+  capture_out=$(wp_conf1 wprism capture --repo=/siterepo --out="$repo/state" 2>&1) \
     || capture_rc=$?
-  require_duo_answered "$label capture" human "$capture_out"
+  require_wprism_answered "$label capture" human "$capture_out"
   [ "$capture_rc" -eq 0 ] && grep -Fq 'Success: captured' <<<"$capture_out" \
     || fail "$label did not traverse capture/tokenization: $capture_out"
   case "$transform" in
@@ -2669,13 +2669,13 @@ tec_compile_refusal() { # <scratch-suffix> <evidence-label> <diagnostic-regex> [
         foreach(glob($repo."/state/posts/tribe_events/*.md")?:[] as $path){
           $bytes=file_get_contents($path);
           if(!is_string($bytes))throw new RuntimeException("TEC structured-cost fixture could not read canonical bytes");
-          [$front,$body]=\Duo\Canon::parse_post_file($bytes);
-          if(($front["title"]??null)==="Duo Production Readiness Event 東京")$matches[]=[$path,$front,$body];
+          [$front,$body]=\WPrism\Canon::parse_post_file($bytes);
+          if(($front["title"]??null)==="WPrism Production Readiness Event 東京")$matches[]=[$path,$front,$body];
         }
         if(count($matches)!==1)throw new RuntimeException("TEC structured-cost fixture event is not unique");
         [$path,$front,$body]=$matches[0];
         $front["meta"]["_EventCost"]=["future"=>"schema"];
-        $mutated=\Duo\Canon::post_file($front,$body);
+        $mutated=\WPrism\Canon::post_file($front,$body);
         if(file_put_contents($path,$mutated)!==strlen($mutated)){
           throw new RuntimeException("TEC structured-cost fixture could not write canonical bytes");
         }
@@ -2683,98 +2683,98 @@ tec_compile_refusal() { # <scratch-suffix> <evidence-label> <diagnostic-regex> [
       ;;
     *) fail "$label received unknown fixture transform '$transform'" ;;
   esac
-  compile_out=$(wp_conf1 duo compile --repo="$repo" 2>&1) || compile_rc=$?
-  require_duo_answered "$label compile" human "$compile_out"
+  compile_out=$(wp_conf1 wprism compile --repo="$repo" 2>&1) || compile_rc=$?
+  require_wprism_answered "$label compile" human "$compile_out"
   [ "$compile_rc" -ne 0 ] && grep -Eqi -- "$expected" <<<"$compile_out" \
     || fail "$label did not refuse through the shipped interpreter: $compile_out"
   rm -rf "$host"
 }
 
 wp_conf1 eval '
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
   update_post_meta($p->ID,"_tribe_events_status","rescheduled");
 ' >/dev/null
 tec_compile_refusal status-malformed 'TEC unknown event status' \
   'stored event status must be canceled or postponed'
 wp_conf1 eval '
   $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
   update_post_meta($p->ID,"_tribe_events_status",$b["status"]);
   update_post_meta($p->ID,"_tribe_events_status_reason",$b["status_reason"]);
 ' >/dev/null
 
 wp_conf1 eval '
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
   update_post_meta($p->ID,"_tribe_events_status_reason",["not"=>"a string"]);
 ' >/dev/null
 tec_compile_refusal status-reason-malformed 'TEC non-string event status reason' \
   'event status reason must remain one scalar string'
 wp_conf1 eval '
   $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
   update_post_meta($p->ID,"_tribe_events_status_reason",$b["status_reason"]);
 ' >/dev/null
 
 wp_conf1 eval '
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
   update_post_meta($p->ID,"_EventStartDate","2026-02-30 01:02:03");
 ' >/dev/null
 tec_compile_refusal impossible-date 'TEC impossible date' 'exact real Y-m-d H:i:s date'
 wp_conf1 eval '
   $b=json_decode(file_get_contents("/siterepo/.tmp-tec-schema-backup.json"),true,512,JSON_THROW_ON_ERROR);
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
   update_post_meta($p->ID,"_EventStartDate",$b["start"]);
 ' >/dev/null
 
 wp_conf1 eval '
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
   update_post_meta($p->ID,"_EventRecurrence",["rules"=>[["type"=>"Every Week"]]]);
 ' >/dev/null
 RECURRENCE_RC=0
-RECURRENCE_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || RECURRENCE_RC=$?
+RECURRENCE_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || RECURRENCE_RC=$?
 [ "$RECURRENCE_RC" -ne 0 ] && grep -Eqi 'recurrence|unclassified' <<<"$RECURRENCE_OUT" \
   || fail "TEC Pro recurrence state did not refuse in the free adapter: $RECURRENCE_OUT"
 wp_conf1 eval '
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
   delete_post_meta($p->ID,"_EventRecurrence");
 ' >/dev/null
 
 wp_conf1 eval '
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
   update_post_meta($p->ID,"_EventRecurrenceRRULE","FREQ=WEEKLY;COUNT=3");
 ' >/dev/null
 RRULE_RC=0
-RRULE_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || RRULE_RC=$?
+RRULE_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || RRULE_RC=$?
 [ "$RRULE_RC" -ne 0 ] && grep -Eqi '_EventRecurrenceRRULE|recurrence|unclassified' <<<"$RRULE_OUT" \
   || fail "TEC Pro RRULE state did not refuse in the free adapter: $RRULE_OUT"
 wp_conf1 eval '
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
   delete_post_meta($p->ID,"_EventRecurrenceRRULE");
 ' >/dev/null
 
 wp_conf1 eval '
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
   update_post_meta($p->ID,"_tribe_aggregator_global_id","outside-free-contract");
 ' >/dev/null
 IMPORT_RC=0
-IMPORT_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || IMPORT_RC=$?
+IMPORT_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || IMPORT_RC=$?
 [ "$IMPORT_RC" -ne 0 ] && grep -Eqi '_tribe_aggregator_global_id|aggregator|unclassified' <<<"$IMPORT_OUT" \
   || fail "TEC Event Aggregator state did not refuse in the free adapter: $IMPORT_OUT"
 wp_conf1 eval '
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
   delete_post_meta($p->ID,"_tribe_aggregator_global_id");
 ' >/dev/null
 
 wp_conf1 eval '
-  $v=get_posts(["post_type"=>"tribe_venue","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Readiness Hall 東京"])[0];
+  $v=get_posts(["post_type"=>"tribe_venue","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Readiness Hall 東京"])[0];
   update_post_meta($v->ID,"_VenueLat","27.7172");
 ' >/dev/null
 COORDINATE_RC=0
-COORDINATE_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || COORDINATE_RC=$?
+COORDINATE_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || COORDINATE_RC=$?
 [ "$COORDINATE_RC" -ne 0 ] && grep -Eqi '_VenueLat|coordinate|unclassified' <<<"$COORDINATE_OUT" \
   || fail "TEC Pro/Event Aggregator coordinate state did not refuse in the free adapter: $COORDINATE_OUT"
 wp_conf1 eval '
-  $v=get_posts(["post_type"=>"tribe_venue","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Readiness Hall 東京"])[0];
+  $v=get_posts(["post_type"=>"tribe_venue","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Readiness Hall 東京"])[0];
   delete_post_meta($v->ID,"_VenueLat");
 ' >/dev/null
 
@@ -2835,10 +2835,10 @@ tec_refuse_post_deletion() { # <post-type> <title> <surface>
   status=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
   before=$(tec_deletion_fingerprint)
   rc=0
-  out=$(wp_conf1 duo capture --repo=/siterepo --format=json) || rc=$?
-  require_duo_answered "TEC unsupported $surface deletion capture" json "$out"
+  out=$(wp_conf1 wprism capture --repo=/siterepo --format=json) || rc=$?
+  require_wprism_answered "TEC unsupported $surface deletion capture" json "$out"
   [ "$rc" -ne 0 ] && jq -e --arg surface "$surface" '
-    .format == "duo-command-refusal/v1" and .reason_code == "unsupported_deletion" and
+    .format == "wprism-command-refusal/v1" and .reason_code == "unsupported_deletion" and
     any(.diagnostics[]?; .code == "unsupported_deletion" and .surface == $surface)
   ' <<<"$out" >/dev/null \
     || fail "TEC deletion did not refuse at exact selector $surface: $out"
@@ -2874,10 +2874,10 @@ tec_refuse_term_deletion() { # <taxonomy> <slug> <surface>
   status=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
   before=$(tec_deletion_fingerprint)
   rc=0
-  out=$(wp_conf1 duo capture --repo=/siterepo --format=json) || rc=$?
-  require_duo_answered "TEC unsupported $surface deletion capture" json "$out"
+  out=$(wp_conf1 wprism capture --repo=/siterepo --format=json) || rc=$?
+  require_wprism_answered "TEC unsupported $surface deletion capture" json "$out"
   [ "$rc" -ne 0 ] && jq -e --arg surface "$surface" '
-    .format == "duo-command-refusal/v1" and .reason_code == "unsupported_deletion" and
+    .format == "wprism-command-refusal/v1" and .reason_code == "unsupported_deletion" and
     any(.diagnostics[]?; .code == "unsupported_deletion" and .surface == $surface)
   ' <<<"$out" >/dev/null \
     || fail "TEC deletion did not refuse at exact selector $surface: $out"
@@ -2896,17 +2896,17 @@ tec_refuse_term_deletion() { # <taxonomy> <slug> <surface>
   pass "unsupported TEC deletion refuses atomically at $surface"
 }
 
-tec_refuse_post_deletion tribe_events 'Duo Unsupported Delete Probe' post:tribe_events
-tec_refuse_post_deletion tribe_venue 'Duo Unsupported Delete Venue' post:tribe_venue
-tec_refuse_post_deletion tribe_organizer 'Duo Unsupported Delete Organizer' post:tribe_organizer
-tec_refuse_term_deletion tribe_events_cat duo-unsupported-delete-category term:tribe_events_cat
+tec_refuse_post_deletion tribe_events 'WPrism Unsupported Delete Probe' post:tribe_events
+tec_refuse_post_deletion tribe_venue 'WPrism Unsupported Delete Venue' post:tribe_venue
+tec_refuse_post_deletion tribe_organizer 'WPrism Unsupported Delete Organizer' post:tribe_organizer
+tec_refuse_term_deletion tribe_events_cat wprism-unsupported-delete-category term:tribe_events_cat
 unset -f tec_deletion_fingerprint tec_refuse_post_deletion tec_refuse_term_deletion
 pass "all unsupported TEC entity deletions refuse with no tombstone, cascade, reverse-reference, occurrence, or Category Colors mutation"
 
 # TEC's repository update contract replaces linked entities when an update
 # omits them. Every late-event mutation therefore carries the exact native
 # venue/organizer preimage and proves the save retained it; otherwise the
-# fixture manufactures an unsupported deletion before Duo sees its intended
+# fixture manufactures an unsupported deletion before WPrism sees its intended
 # conflict/recovery/concurrency scenario.
 tec_update_event_preserving_links() { # <conf1|conf2> <description> <url-path-or-empty> <start-or-empty> <end-or-empty> <timezone-or-empty>
   local env=$1 description=$2 url_path=$3 start=$4 end=$5 timezone=$6 payload
@@ -2915,10 +2915,10 @@ tec_update_event_preserving_links() { # <conf1|conf2> <description> <url-path-or
     --arg start "$start" --arg end "$end" --arg timezone "$timezone" \
     '{description:$description,url_path:$url_path,start:$start,end:$end,timezone:$timezone}' \
     | base64 | tr -d '\r\n')
-  wp_env "$env" eval "\$duo_override=json_decode(base64_decode('$payload'),true,512,JSON_THROW_ON_ERROR);"'
+  wp_env "$env" eval "\$wprism_override=json_decode(base64_decode('$payload'),true,512,JSON_THROW_ON_ERROR);"'
     $posts=get_posts([
       "post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>2,
-      "title"=>"Duo Production Readiness Event 東京"
+      "title"=>"WPrism Production Readiness Event 東京"
     ]);
     if(count($posts)!==1)throw new RuntimeException("TEC linked update event is not unique");
     $event=$posts[0];
@@ -2951,11 +2951,11 @@ tec_update_event_preserving_links() { # <conf1|conf2> <description> <url-path-or
       delete_post_meta($event->ID,"_preview_venues");
       delete_post_meta($event->ID,"_preview_organizers");
     }
-    $description=$duo_override["description"];
-    if($duo_override["url_path"]!=="")$description.=" ".home_url($duo_override["url_path"]);
+    $description=$wprism_override["description"];
+    if($wprism_override["url_path"]!=="")$description.=" ".home_url($wprism_override["url_path"]);
     $args=["description"=>$description,"venue"=>$venue,"organizers"=>$organizers];
     foreach(["start_date"=>"start","end_date"=>"end","timezone"=>"timezone"] as $arg=>$override){
-      if($duo_override[$override]!=="")$args[$arg]=$duo_override[$override];
+      if($wprism_override[$override]!=="")$args[$arg]=$wprism_override[$override];
     }
     $result=tribe_events()->where("id",$event->ID)->set_args($args)->save();
     if(empty($result[$event->ID]))throw new RuntimeException("TEC linked event update failed");
@@ -2976,18 +2976,18 @@ commit_tec_source 'conformance: competing TEC event intent'
 tec_update_event_preserving_links conf2 'Target competing body' '' \
   '2032-01-01 05:00:00' '2032-01-01 06:00:00' UTC
 CONFLICT_BEFORE=$(tec_target_hash)
-CONFLICT_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "TEC competing event plan" json "$CONFLICT_PLAN"
+CONFLICT_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "TEC competing event plan" json "$CONFLICT_PLAN"
 jq -e '(.conflict | length) > 0' <<<"$CONFLICT_PLAN" >/dev/null \
   || fail "TEC competing event did not produce a typed conflict: $CONFLICT_PLAN"
 CONFLICT_RC=0
-CONFLICT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || CONFLICT_RC=$?
-require_duo_answered "TEC unforced competing event apply" human "$CONFLICT_OUT"
+CONFLICT_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || CONFLICT_RC=$?
+require_wprism_answered "TEC unforced competing event apply" human "$CONFLICT_OUT"
 [ "$CONFLICT_RC" -ne 0 ] && grep -qi 'conflict' <<<"$CONFLICT_OUT" \
   || fail "TEC competing event did not refuse: $CONFLICT_OUT"
 [ "$(tec_target_hash)" = "$CONFLICT_BEFORE" ] || fail "TEC unforced conflict partially mutated target state"
-FORCED=$(wp_conf2 duo apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "TEC forced competing event apply" json "$FORCED"
+FORCED=$(wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "TEC forced competing event apply" json "$FORCED"
 jq -e '.canary == "clean" and .verification.result == "pass" and .plan.conflict >= 1' <<<"$FORCED" >/dev/null \
   || fail "TEC forced repository intent did not converge: $FORCED"
 CONVERGED=$(observe_tec conf2)
@@ -3008,11 +3008,11 @@ tec_update_event_preserving_links conf1 'TEC filtered-row refusal body 東京 �
   /filter-refusal/ '2026-09-08 13:15:00' '2026-09-08 16:45:00' Asia/Kathmandu
 commit_tec_source 'conformance: TEC filtered derived-row refusal intent'
 FILTER_DERIVED_BEFORE=$(tec_derived_hash)
-FILTER_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
+FILTER_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_wprism_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
 require_observed_nonempty "TEC applied revision before event-data filter refusal" "$FILTER_REV_BEFORE"
 TEC_FILTER_MU_MAY_EXIST=1
 remove_tec_filter_fault() {
-  $COMPOSE exec -T --user root wp2 rm -f -- /var/www/html/wp-content/mu-plugins/duo-tec-event-data-filter-fault.php >/dev/null 2>&1
+  $COMPOSE exec -T --user root wp2 rm -f -- /var/www/html/wp-content/mu-plugins/wprism-tec-event-data-filter-fault.php >/dev/null 2>&1
 }
 cleanup_tec_filter_fault() {
   local status=$?
@@ -3024,42 +3024,42 @@ cleanup_tec_filter_fault() {
 }
 trap cleanup_tec_filter_fault EXIT
 $COMPOSE exec -T --user root wp2 sh -c \
-  'printf "%s\n" "<?php" "add_filter(\"tec_events_custom_tables_v1_event_data_from_post\", static function (array \$data): array { \$data[\"timezone\"] = \"UTC\"; return \$data; }, PHP_INT_MAX, 1);" > /var/www/html/wp-content/mu-plugins/duo-tec-event-data-filter-fault.php'
+  'printf "%s\n" "<?php" "add_filter(\"tec_events_custom_tables_v1_event_data_from_post\", static function (array \$data): array { \$data[\"timezone\"] = \"UTC\"; return \$data; }, PHP_INT_MAX, 1);" > /var/www/html/wp-content/mu-plugins/wprism-tec-event-data-filter-fault.php'
 [ "$(wp_conf2 eval 'echo has_filter("tec_events_custom_tables_v1_event_data_from_post") ? "registered" : "missing";')" = registered ] \
   || fail "TEC event-data filter fault was not registered"
 FILTER_RC=0
-FILTER_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || FILTER_RC=$?
-require_duo_answered "TEC native event-data filter refusal" human "$FILTER_OUT"
+FILTER_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || FILTER_RC=$?
+require_wprism_answered "TEC native event-data filter refusal" human "$FILTER_OUT"
 [ "$FILTER_RC" -ne 0 ] \
   && grep -Fq "batch regenerator 'the-events-calendar' failed" <<<"$FILTER_OUT" \
   && grep -Fq 'free-plugin derived-state contract does not admit the event-data filter' <<<"$FILTER_OUT" \
   || fail "TEC event-data filter did not refuse through the exact regenerator: $FILTER_OUT"
 [ "$(wp_conf2 eval '
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
   echo get_post_meta($p->ID,"_EventStartDate",true);
 ')" = '2026-09-08 13:15:00' ] || fail "TEC event-data filter refusal lost the committed authored intent"
 [ "$(tec_derived_hash)" = "$FILTER_DERIVED_BEFORE" ] \
   || fail "TEC event-data filter refusal mutated a derived row before topology validation"
 [ "$(wp_conf2 eval '
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
-  $uuid=\Duo\Ledger::uuid_for((int)$p->ID,\Duo\Ledger::KIND_POST);
-  echo $uuid === null ? "missing-uuid" : (string)\Duo\Ledger::kv_get("regen_pending:".$uuid);
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
+  $uuid=\WPrism\Ledger::uuid_for((int)$p->ID,\WPrism\Ledger::KIND_POST);
+  echo $uuid === null ? "missing-uuid" : (string)\WPrism\Ledger::kv_get("regen_pending:".$uuid);
 ')" = tribe_events ] || fail "TEC event-data filter refusal did not arm the exact batch retry marker"
-[ "$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$FILTER_REV_BEFORE" ] \
+[ "$(wp_conf2 db query "SELECT v FROM wp_wprism_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$FILTER_REV_BEFORE" ] \
   || fail "TEC event-data filter refusal advanced applied_revision"
-[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
+[ "$(wp_conf2 eval 'echo null === \WPrism\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
   || fail "TEC event-data filter refusal did not retain apply_in_progress"
 remove_tec_filter_fault
 TEC_FILTER_MU_MAY_EXIST=0
 trap - EXIT
-FILTER_RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "TEC retry after event-data filter refusal" json "$FILTER_RETRY"
+FILTER_RETRY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "TEC retry after event-data filter refusal" json "$FILTER_RETRY"
 jq -e '.canary == "clean" and .verification.result == "pass" and .applied >= 1' <<<"$FILTER_RETRY" >/dev/null \
   || fail "TEC retry after event-data filter refusal did not converge: $FILTER_RETRY"
 [ "$(wp_conf2 eval '
-  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"Duo Production Readiness Event 東京"])[0];
-  $uuid=\Duo\Ledger::uuid_for((int)$p->ID,\Duo\Ledger::KIND_POST);
-  echo $uuid !== null && \Duo\Ledger::kv_get("regen_pending:".$uuid) === null ? "clear" : "retained";
+  $p=get_posts(["post_type"=>"tribe_events","post_status"=>"any","posts_per_page"=>1,"title"=>"WPrism Production Readiness Event 東京"])[0];
+  $uuid=\WPrism\Ledger::uuid_for((int)$p->ID,\WPrism\Ledger::KIND_POST);
+  echo $uuid !== null && \WPrism\Ledger::kv_get("regen_pending:".$uuid) === null ? "clear" : "retained";
 ')" = clear ] || fail "TEC successful event-data filter retry retained its batch marker"
 FILTER_RETRIED=$(observe_tec conf2)
 printf '%s\n' "$FILTER_RETRIED" | jq -e '
@@ -3076,22 +3076,22 @@ tec_update_event_preserving_links conf1 'TEC transaction body 東京 🚀' \
   /transaction/ '2026-09-09 13:15:00' '2026-09-09 16:45:00' Asia/Kathmandu
 commit_tec_source 'conformance: TEC transactional recovery intent'
 FAULT_BEFORE=$(tec_target_hash)
-wp_conf2 db query 'ALTER TABLE wp_postmeta DROP CONSTRAINT IF EXISTS duo_tec_fail_end' >/dev/null
+wp_conf2 db query 'ALTER TABLE wp_postmeta DROP CONSTRAINT IF EXISTS wprism_tec_fail_end' >/dev/null
 wp_conf2 db query '
-  ALTER TABLE wp_postmeta ADD CONSTRAINT duo_tec_fail_end
+  ALTER TABLE wp_postmeta ADD CONSTRAINT wprism_tec_fail_end
   CHECK (meta_key <> "_EventEndDate" OR meta_value <> "2026-09-09 16:45:00")
 ' >/dev/null
 FAULT_RC=0
-FAULT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || FAULT_RC=$?
-require_duo_answered "TEC injected transaction failure" human "$FAULT_OUT"
-[ "$FAULT_RC" -ne 0 ] && grep -q 'duo_tec_fail_end' <<<"$FAULT_OUT" \
+FAULT_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || FAULT_RC=$?
+require_wprism_answered "TEC injected transaction failure" human "$FAULT_OUT"
+[ "$FAULT_RC" -ne 0 ] && grep -q 'wprism_tec_fail_end' <<<"$FAULT_OUT" \
   || fail "TEC injected late database failure did not surface exactly: $FAULT_OUT"
 [ "$(tec_target_hash)" = "$FAULT_BEFORE" ] || fail "TEC failed transaction left partial post/meta/derived writes"
-[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
+[ "$(wp_conf2 eval 'echo null === \WPrism\Ledger::kv_get("apply_in_progress") ? "clear" : "retained";')" = retained ] \
   || fail "TEC failed transaction did not retain retry authority"
-wp_conf2 db query 'ALTER TABLE wp_postmeta DROP CONSTRAINT duo_tec_fail_end' >/dev/null
-RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "TEC retry after injected failure" json "$RETRY"
+wp_conf2 db query 'ALTER TABLE wp_postmeta DROP CONSTRAINT wprism_tec_fail_end' >/dev/null
+RETRY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "TEC retry after injected failure" json "$RETRY"
 jq -e '.canary == "clean" and .verification.result == "pass" and .applied >= 1' <<<"$RETRY" >/dev/null \
   || fail "TEC retry did not consume durable intent: $RETRY"
 RETRIED=$(observe_tec conf2)
@@ -3109,8 +3109,8 @@ commit_tec_source 'conformance: concurrent TEC apply intent'
 CONCURRENT_A="${CONF_REPO2:-siterepo/conf2}/.tmp-tec-concurrent-a.log"
 CONCURRENT_B="${CONF_REPO2:-siterepo/conf2}/.tmp-tec-concurrent-b.log"
 set +e
-wp_conf2 duo apply --repo=/siterepo --default-author=admin >"$CONCURRENT_A" 2>&1 & PID_A=$!
-wp_conf2 duo apply --repo=/siterepo --default-author=admin >"$CONCURRENT_B" 2>&1 & PID_B=$!
+wp_conf2 wprism apply --repo=/siterepo --default-author=admin >"$CONCURRENT_A" 2>&1 & PID_A=$!
+wp_conf2 wprism apply --repo=/siterepo --default-author=admin >"$CONCURRENT_B" 2>&1 & PID_B=$!
 wait "$PID_A"; RC_A=$?
 wait "$PID_B"; RC_B=$?
 set -e
@@ -3132,8 +3132,8 @@ printf '%s\n' "$CONCURRENT" | jq -e '
   .event.content == "Concurrent TEC intent 東京 🚀" and
   .event.occurrence.start_date == .event.start and .event.occurrence.end_date == .event.end
 ' >/dev/null || fail "competing TEC applies lost intent or occurrence repair: $CONCURRENT"
-CONCURRENT_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "TEC plan after competing applies" json "$CONCURRENT_PLAN"
+CONCURRENT_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "TEC plan after competing applies" json "$CONCURRENT_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$CONCURRENT_PLAN" >/dev/null \
   || fail "TEC competing applies left retained work: $CONCURRENT_PLAN"
 pass "competing TEC applies serialize and leave one exact idempotent native result"
@@ -3141,7 +3141,7 @@ pass "competing TEC applies serialize and leave one exact idempotent native resu
 # TEC's uninstall.php is intentionally empty: code removal retains authored
 # rows/options/tables. Missing code must refuse, then the exact cached artifact
 # reinstalls and deploy reactivates without overwriting target-owned siblings.
-wp_conf2 option update duo_tec_neighbor 'target-neighbor-preserved' >/dev/null
+wp_conf2 option update wprism_tec_neighbor 'target-neighbor-preserved' >/dev/null
 tec_seed_lifecycle_runtime
 LIFECYCLE_BEFORE=$(tec_target_storage_fingerprint)
 LIFECYCLE_RAW_BEFORE=$(tec_target_main_option_raw_hash)
@@ -3171,7 +3171,7 @@ wp_conf2 plugin uninstall the-events-calendar >/dev/null
 wp_conf2 plugin is-installed the-events-calendar >/dev/null 2>&1 && fail "TEC uninstall left plugin code installed"
 [ "$(wp_conf2 db query 'SELECT COUNT(*) FROM wp_posts WHERE post_type="tribe_events"' --skip-column-names)" = "$ROWS_BEFORE_UNINSTALL" ] \
   || fail "TEC empty native uninstall unexpectedly deleted authored event rows"
-[ "$(wp_conf2 option get duo_tec_neighbor)" = 'target-neighbor-preserved' ] \
+[ "$(wp_conf2 option get wprism_tec_neighbor)" = 'target-neighbor-preserved' ] \
   || fail "TEC uninstall mutated an unrelated target option"
 [ "$(tec_target_storage_fingerprint)" = "$LIFECYCLE_BEFORE" ] \
   || fail "TEC empty native uninstall mutated authored, derived, Customizer, settings, or Category Colors rows"
@@ -3185,8 +3185,8 @@ printf '%s\n' "$UNINSTALLED_STATE" | jq -e '
 MISSING_STORAGE_BEFORE=$(tec_target_storage_fingerprint)
 MISSING_REPO_BEFORE=$(git -C "$CONF_REPO2" status --porcelain=v1 --untracked-files=all -- state)
 MISSING_RC=0
-MISSING_OUT=$(wp_conf2 duo deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
-require_duo_answered "TEC deploy with code absent" human "$MISSING_OUT"
+MISSING_OUT=$(wp_conf2 wprism deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
+require_wprism_answered "TEC deploy with code absent" human "$MISSING_OUT"
 [ "$MISSING_RC" -ne 0 ] && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$MISSING_OUT" \
   || fail "missing TEC code did not refuse at compatibility: $MISSING_OUT"
 [ "$(tec_target_storage_fingerprint)" = "$MISSING_STORAGE_BEFORE" ] \
@@ -3204,8 +3204,8 @@ TEC_ARTIFACT="/artifacts-cache/plugin-the-events-calendar-${TEC_LIFECYCLE_VERSIO
 wp_conf2 plugin install "$TEC_ARTIFACT" --force >/dev/null
 [ "$(wp_conf2 plugin get the-events-calendar --field=version)" = "$TEC_LIFECYCLE_VERSION" ] \
   || fail "TEC exact reinstall reported wrong version"
-REINSTALL_DEPLOY=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "TEC deploy after exact reinstall" json "$REINSTALL_DEPLOY"
+REINSTALL_DEPLOY=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "TEC deploy after exact reinstall" json "$REINSTALL_DEPLOY"
 REINSTALLED_STATE=$(tec_lifecycle_state)
 REINSTALLED_CAPS=$(printf '%s\n' "$REINSTALLED_STATE" | jq -c '.roles | with_entries(.value = .value.plugin_caps)')
 printf '%s\n' "$REINSTALLED_STATE" | jq -e --arg version "$TEC_LIFECYCLE_VERSION" '
@@ -3217,8 +3217,8 @@ printf '%s\n' "$REINSTALLED_STATE" | jq -e --arg version "$TEC_LIFECYCLE_VERSION
   || fail "TEC exact reinstall mutated persistent authored or derived state"
 [ "$(tec_target_main_option_raw_hash)" = "$LIFECYCLE_RAW_BEFORE" ] \
   || fail "TEC exact reinstall did not converge the exact mixed settings row"
-REINSTALL_APPLY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "TEC apply after residue-preserving reinstall" json "$REINSTALL_APPLY"
+REINSTALL_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "TEC apply after residue-preserving reinstall" json "$REINSTALL_APPLY"
 jq -e '.canary == "clean" and .verification.result == "pass"' <<<"$REINSTALL_APPLY" >/dev/null \
   || fail "TEC exact reinstall did not retain/converge canonical state: $REINSTALL_APPLY"
 RECOVERED=$(observe_tec conf2)
@@ -3230,13 +3230,13 @@ printf '%s\n' "$RECOVERED" | jq -e --arg version "$TEC_LIFECYCLE_VERSION" '
   (.category_css | contains("--tec-color-category-primary:#654321")) and
   .options.maps_key == "target-maps-key-preserved" and .cache == "target-runtime-preserved"
 ' >/dev/null || fail "TEC native state did not survive exact reinstall: $RECOVERED"
-[ "$(wp_conf2 option get duo_tec_neighbor)" = 'target-neighbor-preserved' ] \
+[ "$(wp_conf2 option get wprism_tec_neighbor)" = 'target-neighbor-preserved' ] \
   || fail "TEC recovery mutated the unrelated target option"
-FINAL_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "TEC final recovery plan" json "$FINAL_PLAN"
+FINAL_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "TEC final recovery plan" json "$FINAL_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$FINAL_PLAN" >/dev/null \
   || fail "TEC recovery was not idempotent: $FINAL_PLAN"
-wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-tec-final >/dev/null
+wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-tec-final >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-tec-final" || fail "TEC final recovered state was not byte-identical"
 rm -rf "$CONF_REPO2/.tmp-tec-final"
 if [ "${TEC_PRESERVE_ID_FIXTURES:-0}" != 1 ]; then

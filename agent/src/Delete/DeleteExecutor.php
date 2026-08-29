@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Repository/Snapshot.php';
@@ -11,8 +11,8 @@ require_once __DIR__ . '/../Apply/ApplyFieldMaterializer.php';
 // sandbox/tests/offline/code-half/regress_code_revision_enforcement.php and
 // regress_scoped_promotion_target.php both reach this file transitively
 // through Apply.php (direct requires, verified) and both stub a fake
-// Duo\Ledger; regress_scoped_promotion_target.php additionally stubs a fake
-// Duo\Db. Requiring either here would fatal with "Cannot redeclare class"
+// WPrism\Ledger; regress_scoped_promotion_target.php additionally stubs a fake
+// WPrism\Db. Requiring either here would fatal with "Cannot redeclare class"
 // against whichever of the two a given suite fakes -- the identical
 // exclusion PostMaterializer.php/RelationshipMaterializer.php already
 // document for the same reason (verified via `grep -rlE '^\s*(final\s+)?class\s+
@@ -23,7 +23,7 @@ require_once __DIR__ . '/../Apply/ApplyFieldMaterializer.php';
 // no new transitive path to either -- verified the same way.
 
 /**
- * The delete executor (DUO-3347 slice 12, the "DeleteGuardEvaluator/
+ * The delete executor (issue #3347 slice 12, the "DeleteGuardEvaluator/
  * DeleteExecutor" target seam -- executor half only): deletes one entity's
  * live rows (typed-table row, post, or term/menu) and verifies every row is
  * gone before returning. Moved verbatim from Apply::delete_entity()/
@@ -34,13 +34,13 @@ require_once __DIR__ . '/../Apply/ApplyFieldMaterializer.php';
  * place -- is NOT part of this slice. It is deeply entangled with
  * ApplyPlanner's plan-construction code, a materially larger and riskier
  * cut than the already-decided, already-authorized row deletion this class
- * performs; DUO-3347's own guardrail ("No change to conflict semantics or
+ * performs; issue #3347's own guardrail ("No change to conflict semantics or
  * deletion authority in extraction PRs") is exactly why it stays out.
  *
  * Two things this move deliberately does NOT carry over, both left on
  * AuthoredTransactionExecutor rather than folded in here:
  *
- * - The trailing REGEN_PENDING_PREFIX marker cleanup (DUO-3234), previously
+ * - The trailing REGEN_PENDING_PREFIX marker cleanup (issue #3234), previously
  *   the last statement of the 'post' branch. Clearing a stale regen-pending
  *   marker for a uuid that no longer resolves to anything is reconciliation
  *   bookkeeping -- this issue's own separately-named ReconciliationCoordinator
@@ -90,7 +90,7 @@ final class DeleteExecutor {
             $idKind = (string) $rowTables[$type]['id_kind'];
             $localId = Ledger::id_for($uuid, $idKind);
             if ($localId === null) {
-                throw new \RuntimeException("duo: cannot delete $type $uuid: target identity mapping is missing");
+                throw new \RuntimeException("wprism: cannot delete $type $uuid: target identity mapping is missing");
             }
             Snapshot::delete_row($this->policy, $uuid, $type);
             Snapshot::assert_row_deleted($this->policy, $type, $localId);
@@ -100,11 +100,11 @@ final class DeleteExecutor {
         if ($type === 'post') {
             $id = Ledger::id_for($uuid, Ledger::KIND_POST);
             if ($id === null) {
-                throw new \RuntimeException("duo: cannot delete post $uuid: target identity mapping is missing");
+                throw new \RuntimeException("wprism: cannot delete post $uuid: target identity mapping is missing");
             }
             $post = $this->locked_post_row($id, "post $uuid deletion parent locking");
             if ($post === null) {
-                throw new \RuntimeException("duo: cannot delete post $uuid: exact target row is missing");
+                throw new \RuntimeException("wprism: cannot delete post $uuid: exact target row is missing");
             }
             $postType = $post['post_type'];
             $children = $this->locked_child_posts($id, "post $uuid revision roster locking");
@@ -141,7 +141,7 @@ final class DeleteExecutor {
                 CacheInvalidationTransaction::queue_post($revisionId, 'revision', 'apply delete post revision');
                 if ($this->locked_post_row($revisionId, "post $uuid revision readback") !== null
                     || $metaLock->read($revisionId) !== []) {
-                    throw new \RuntimeException("duo: post $uuid revision $revisionId deletion readback was nonempty");
+                    throw new \RuntimeException("wprism: post $uuid revision $revisionId deletion readback was nonempty");
                 }
             }
             $this->relationshipMaterializer->delete_post_relationships($id, $postType);
@@ -151,13 +151,13 @@ final class DeleteExecutor {
             if ($this->locked_post_row($id, "post $uuid deletion readback") !== null
                 || $metaLock->read($id) !== []
                 || $this->locked_child_posts($id, "post $uuid revision roster readback") !== $preservedChildren) {
-                throw new \RuntimeException("duo: post $uuid exact locked deletion readback disagrees with the mutation roster");
+                throw new \RuntimeException("wprism: post $uuid exact locked deletion readback disagrees with the mutation roster");
             }
         } elseif ($type === 'term' || $type === 'menu') {
             $termId = Ledger::id_for($uuid, Ledger::KIND_TERM);
             $tt = Ledger::id_for($uuid, Ledger::KIND_TT);
             if ($termId === null || $tt === null) {
-                throw new \RuntimeException("duo: cannot delete $type $uuid: target term identity mapping is incomplete");
+                throw new \RuntimeException("wprism: cannot delete $type $uuid: target term identity mapping is incomplete");
             }
             [$taxonomy, $relationshipObjectIds] = $this->deletion_relationship_witness($termId, $tt);
             CacheInvalidationTransaction::assert_term_taxonomy_prepared($taxonomy, "apply delete $type");
@@ -181,7 +181,7 @@ final class DeleteExecutor {
                 foreach ($relationshipObjectIds as $itemId) {
                     $item = $this->locked_post_row($itemId, 'apply delete menu item post locking');
                     if ($item === null || !hash_equals('nav_menu_item', $item['post_type'])) {
-                        throw new \RuntimeException('duo: menu deletion relationship points at a non-menu-item post');
+                        throw new \RuntimeException('wprism: menu deletion relationship points at a non-menu-item post');
                     }
                     $postMetaLock->read($itemId);
                     $relationships = $this->relationshipMaterializer->lock_owner_relationships(
@@ -191,7 +191,7 @@ final class DeleteExecutor {
                     foreach ($relationships as $relationship) {
                         if ($relationship['term_taxonomy_id'] !== $tt) {
                             throw new \RuntimeException(
-                                "duo: menu deletion refuses item $itemId shared with another taxonomy/menu"
+                                "wprism: menu deletion refuses item $itemId shared with another taxonomy/menu"
                             );
                         }
                     }
@@ -217,7 +217,7 @@ final class DeleteExecutor {
                     }
                     if ($this->locked_post_row($itemId, 'apply delete menu item readback') !== null
                         || $postMetaLock->read($itemId) !== []) {
-                        throw new \RuntimeException("duo: menu $uuid item $itemId deletion readback was nonempty");
+                        throw new \RuntimeException("wprism: menu $uuid item $itemId deletion readback was nonempty");
                     }
                 }
             }
@@ -234,7 +234,7 @@ final class DeleteExecutor {
                 $tt,
                 'apply delete taxonomy relationships readback'
             ) !== []) {
-                throw new \RuntimeException('duo: taxonomy relationship deletion locked readback was nonempty');
+                throw new \RuntimeException('wprism: taxonomy relationship deletion locked readback was nonempty');
             }
             foreach ($relationshipObjectIds as $objectId) {
                 CacheInvalidationTransaction::queue_relationship(
@@ -251,10 +251,10 @@ final class DeleteExecutor {
                 || $this->locked_term_taxonomy_rows($termId, "apply delete $type taxonomy readback") !== []
                 || $termMetaLock->read($termId) !== []
                 || $this->locked_inbound_relationship_ids($tt, "apply delete $type inbound readback") !== []) {
-                throw new \RuntimeException("duo: $type $uuid exact locked deletion readback was nonempty");
+                throw new \RuntimeException("wprism: $type $uuid exact locked deletion readback was nonempty");
             }
         } else {
-            throw new \RuntimeException("duo: cannot delete unsupported entity type '$type'");
+            throw new \RuntimeException("wprism: cannot delete unsupported entity type '$type'");
         }
         $warnings[] = "deleted $type $uuid";
     }
@@ -262,11 +262,11 @@ final class DeleteExecutor {
     /** @return array{0:string,1:list<int>} */
     private function deletion_relationship_witness(int $termId, int $termTaxonomyId): array {
         if ($this->locked_term_row($termId, 'term deletion exact term locking') === null) {
-            throw new \RuntimeException('duo: term deletion exact term row is missing');
+            throw new \RuntimeException('wprism: term deletion exact term row is missing');
         }
         $taxonomyRows = $this->locked_term_taxonomy_rows($termId, 'term deletion taxonomy owner-range locking');
         if (count($taxonomyRows) !== 1 || $taxonomyRows[0]['term_taxonomy_id'] !== $termTaxonomyId) {
-            throw new \RuntimeException('duo: term deletion requires one exact unshared taxonomy row');
+            throw new \RuntimeException('wprism: term deletion requires one exact unshared taxonomy row');
         }
         $taxonomy = $taxonomyRows[0]['taxonomy'];
 
@@ -289,7 +289,7 @@ final class DeleteExecutor {
         ), ARRAY_A);
         if (!is_array($rows) || !array_is_list($rows) || count($rows) > 1
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: $purpose failed");
+            throw new \RuntimeException("wprism: $purpose failed");
         }
         if ($rows === []) return null;
         $row = $rows[0];
@@ -297,7 +297,7 @@ final class DeleteExecutor {
         $postType = is_array($row) ? ($row['post_type'] ?? null) : null;
         if (!is_array($row) || array_keys($row) !== ['ID', 'post_type'] || $id !== $postId
             || !is_string($postType) || preg_match('/^[A-Za-z0-9_-]{1,20}$/D', $postType) !== 1) {
-            throw new \RuntimeException("duo: $purpose returned a malformed/aliased row");
+            throw new \RuntimeException("wprism: $purpose returned a malformed/aliased row");
         }
         return ['ID' => $id, 'post_type' => $postType];
     }
@@ -313,10 +313,10 @@ final class DeleteExecutor {
             $parentId
         ), ARRAY_A);
         if (!is_array($rows) || !array_is_list($rows) || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: $purpose failed");
+            throw new \RuntimeException("wprism: $purpose failed");
         }
         if (count($rows) > self::MAX_REVISIONS) {
-            throw new \RuntimeException("duo: $purpose exceeds the bounded child-row limit");
+            throw new \RuntimeException("wprism: $purpose exceeds the bounded child-row limit");
         }
         $out = [];
         $seen = [];
@@ -326,7 +326,7 @@ final class DeleteExecutor {
             if (!is_array($row) || array_keys($row) !== ['ID', 'post_type'] || $id === null
                 || !is_string($postType) || preg_match('/^[A-Za-z0-9_-]{1,20}$/D', $postType) !== 1
                 || isset($seen[$id])) {
-                throw new \RuntimeException("duo: $purpose returned a malformed/duplicate row at position $position");
+                throw new \RuntimeException("wprism: $purpose returned a malformed/duplicate row at position $position");
             }
             $seen[$id] = true;
             $out[] = ['ID' => $id, 'post_type' => $postType];
@@ -346,13 +346,13 @@ final class DeleteExecutor {
         ), ARRAY_A);
         if (!is_array($rows) || !array_is_list($rows) || count($rows) > 1
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: $purpose failed");
+            throw new \RuntimeException("wprism: $purpose failed");
         }
         if ($rows === []) return null;
         $row = $rows[0];
         if (!is_array($row) || array_keys($row) !== ['term_id']
             || self::canonical_positive_id($row['term_id'] ?? null) !== $termId) {
-            throw new \RuntimeException("duo: $purpose returned a malformed/aliased row");
+            throw new \RuntimeException("wprism: $purpose returned a malformed/aliased row");
         }
         return ['term_id' => $termId];
     }
@@ -369,10 +369,10 @@ final class DeleteExecutor {
             $termId
         ), ARRAY_A);
         if (!is_array($rows) || !array_is_list($rows) || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: $purpose failed");
+            throw new \RuntimeException("wprism: $purpose failed");
         }
         if (count($rows) > self::MAX_TERM_TAXONOMIES) {
-            throw new \RuntimeException("duo: $purpose exceeds the bounded taxonomy-row limit");
+            throw new \RuntimeException("wprism: $purpose exceeds the bounded taxonomy-row limit");
         }
         $out = [];
         $seen = [];
@@ -382,7 +382,7 @@ final class DeleteExecutor {
             if (!is_array($row) || array_keys($row) !== ['term_taxonomy_id', 'taxonomy'] || $id === null
                 || !is_string($taxonomy) || preg_match('/^[A-Za-z0-9_-]{1,32}$/D', $taxonomy) !== 1
                 || isset($seen[$id])) {
-                throw new \RuntimeException("duo: $purpose returned a malformed/duplicate row at position $position");
+                throw new \RuntimeException("wprism: $purpose returned a malformed/duplicate row at position $position");
             }
             $seen[$id] = true;
             $out[] = ['term_taxonomy_id' => $id, 'taxonomy' => $taxonomy];
@@ -407,10 +407,10 @@ final class DeleteExecutor {
         if (!is_array($rows)
             || !array_is_list($rows)
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: $purpose failed");
+            throw new \RuntimeException("wprism: $purpose failed");
         }
         if (count($rows) > 100000) {
-            throw new \RuntimeException("duo: $purpose exceeds the bounded row limit");
+            throw new \RuntimeException("wprism: $purpose exceeds the bounded row limit");
         }
         $ids = [];
         foreach ($rows as $position => $relationship) {
@@ -420,7 +420,7 @@ final class DeleteExecutor {
             $id = self::canonical_positive_id($rawId);
             if ($id === null || isset($ids[$id])) {
                 throw new \RuntimeException(
-                    "duo: $purpose contains a malformed/duplicate row at position $position"
+                    "wprism: $purpose contains a malformed/duplicate row at position $position"
                 );
             }
             $ids[$id] = true;

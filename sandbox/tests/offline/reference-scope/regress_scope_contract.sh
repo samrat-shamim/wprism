@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression — DUO-3344 immutable scope-contract evidence. Pure compiler /
+# Regression — issue #3344 immutable scope-contract evidence. Pure compiler /
 # policy / closure work over a scratch repository; no Docker, WordPress, or
 # target APIs. The PHP harness booby-traps target option/upload calls itself.
 set -euo pipefail
@@ -15,7 +15,7 @@ say "php -l syntax check (contract, shared surface projector, host/agent boundar
 for file in regress_scope_contract.php ../../../../agent/src/Repository/CanonicalSurfaces.php ../../../../agent/src/Policy/ScopeContract.php \
   ../../../../agent/src/Scope/ScopedStateOverlay.php \
   ../../../../agent/src/Policy/ScopeClosure.php ../../../../agent/src/Repository/RepositoryCompiler.php ../../../../agent/src/Policy/Policy.php \
-  ../../../../agent/src/Apply/Apply.php ../../../../agent/src/Command/Cli.php ../../../../cli/duo; do
+  ../../../../agent/src/Apply/Apply.php ../../../../agent/src/Command/Cli.php ../../../../cli/wprism; do
   php -l "$file" >/dev/null || fail "$file has a syntax error"
 done
 pass "no syntax errors"

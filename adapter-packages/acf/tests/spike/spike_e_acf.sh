@@ -76,8 +76,8 @@ install_env() { # install_env <e1|e2> <port> <title>
 say "boot env pair e1 (:8804) / e2 (:8805)"
 mkdir -p siterepo/e1 siterepo/e2
 $COMPOSE up -d db-e1 wp-e1 db-e2 wp-e2
-install_env e1 8804 "Duo E1"
-install_env e2 8805 "Duo E2"
+install_env e1 8804 "WPrism E1"
+install_env e2 8805 "WPrism E2"
 pass "both envs installed with ACF (free) active"
 
 say "init the site repo (own origin, own clones — never touches siterepo/a|b|c)"
@@ -85,7 +85,7 @@ if [ ! -d siterepo/origin-e.git ]; then
   git init --bare -b main siterepo/origin-e.git >/dev/null
 fi
 if [ ! -d siterepo/e1/.git ]; then
-  cat > siterepo/e1/site.duo.json <<'EOF'
+  cat > siterepo/e1/site.wprism.json <<'EOF'
 {
   "manifests": ["core", "acf"],
   "policy": {
@@ -103,7 +103,7 @@ EOF
 fi
 
 say "seed ACF schema + content on e1: field group, image field, relationship field"
-# EXPLICIT keys throughout (group_duo_demo / field_duo_hero / field_duo_related)
+# EXPLICIT keys throughout (group_wprism_demo / field_wprism_hero / field_wprism_related)
 # so the DB-backed field/group posts are deterministic across runs. The field
 # group's DB post ID (not its key) is what acf_update_field()'s 'parent' wants.
 cat > siterepo/e1/.tmp-seed-acf.php <<'PHPEOF'
@@ -114,8 +114,8 @@ if (!function_exists('acf_update_field_group')) {
 }
 
 acf_update_field_group([
-    'key' => 'group_duo_demo',
-    'title' => 'Duo Demo',
+    'key' => 'group_wprism_demo',
+    'title' => 'WPrism Demo',
     'fields' => [],
     'location' => [[['param' => 'post_type', 'operator' => '==', 'value' => 'post']]],
     'menu_order' => 0,
@@ -126,7 +126,7 @@ acf_update_field_group([
     'active' => true,
 ]);
 $group_posts = get_posts([
-    'post_type' => 'acf-field-group', 'name' => 'group_duo_demo',
+    'post_type' => 'acf-field-group', 'name' => 'group_wprism_demo',
     'posts_per_page' => 1, 'fields' => 'ids', 'post_status' => 'any',
 ]);
 $group_id = $group_posts ? (int) $group_posts[0] : 0;
@@ -136,17 +136,17 @@ if (!$group_id) {
 }
 
 acf_update_field([
-    'key' => 'field_duo_hero',
+    'key' => 'field_wprism_hero',
     'label' => 'Hero Image',
-    'name' => 'duo_hero',
+    'name' => 'wprism_hero',
     'type' => 'image',
     'parent' => $group_id,
     'return_format' => 'id',
 ]);
 acf_update_field([
-    'key' => 'field_duo_related',
+    'key' => 'field_wprism_related',
     'label' => 'Related',
-    'name' => 'duo_related',
+    'name' => 'wprism_related',
     'type' => 'relationship',
     'parent' => $group_id,
     'post_type' => ['post'],
@@ -159,7 +159,7 @@ require_once ABSPATH . 'wp-admin/includes/file.php';
 require_once ABSPATH . 'wp-admin/includes/media.php';
 
 $upload_dir = wp_upload_dir();
-$filename = trailingslashit($upload_dir['path']) . 'duo-acf-logo.png';
+$filename = trailingslashit($upload_dir['path']) . 'wprism-acf-logo.png';
 $im = imagecreatetruecolor(96, 64);
 imagefilledrectangle($im, 0, 0, 95, 63, imagecolorallocate($im, 200, 90, 30));
 imagepng($im, $filename);
@@ -168,7 +168,7 @@ imagedestroy($im);
 $filetype = wp_check_filetype(basename($filename), null);
 $att_id = wp_insert_attachment([
     'post_mime_type' => $filetype['type'],
-    'post_title' => 'Duo ACF Logo',
+    'post_title' => 'WPrism ACF Logo',
     'post_content' => '',
     'post_status' => 'inherit',
 ], $filename);
@@ -176,19 +176,19 @@ if (is_wp_error($att_id) || !$att_id) {
     fwrite(STDERR, "attachment insert failed\n");
     exit(1);
 }
-update_post_meta($att_id, '_wp_attachment_image_alt', 'Duo ACF logo');
+update_post_meta($att_id, '_wp_attachment_image_alt', 'WPrism ACF logo');
 $meta = wp_generate_attachment_metadata($att_id, $filename);
 wp_update_attachment_metadata($att_id, $meta);
 
 // two relationship targets + the content post carrying both field values
 $target1 = wp_insert_post([
     'post_type' => 'post', 'post_status' => 'publish',
-    'post_title' => 'Duo Related Target One', 'post_name' => 'duo-related-target-one',
+    'post_title' => 'WPrism Related Target One', 'post_name' => 'wprism-related-target-one',
     'post_content' => "<!-- wp:paragraph -->\n<p>Relationship target one.</p>\n<!-- /wp:paragraph -->",
 ], true);
 $target2 = wp_insert_post([
     'post_type' => 'post', 'post_status' => 'publish',
-    'post_title' => 'Duo Related Target Two', 'post_name' => 'duo-related-target-two',
+    'post_title' => 'WPrism Related Target Two', 'post_name' => 'wprism-related-target-two',
     'post_content' => "<!-- wp:paragraph -->\n<p>Relationship target two.</p>\n<!-- /wp:paragraph -->",
 ], true);
 if (is_wp_error($target1) || is_wp_error($target2)) {
@@ -198,7 +198,7 @@ if (is_wp_error($target1) || is_wp_error($target2)) {
 
 $content_id = wp_insert_post([
     'post_type' => 'post', 'post_status' => 'publish',
-    'post_title' => 'Duo ACF Content', 'post_name' => 'duo-acf-content',
+    'post_title' => 'WPrism ACF Content', 'post_name' => 'wprism-acf-content',
     'post_content' => "<!-- wp:paragraph -->\n<p>Carries ACF fields.</p>\n<!-- /wp:paragraph -->",
 ], true);
 if (is_wp_error($content_id)) {
@@ -206,8 +206,8 @@ if (is_wp_error($content_id)) {
     exit(1);
 }
 
-update_field('duo_hero', $att_id, $content_id);
-update_field('duo_related', [$target1, $target2], $content_id);
+update_field('wprism_hero', $att_id, $content_id);
+update_field('wprism_related', [$target1, $target2], $content_id);
 
 echo json_encode([
     'group' => $group_id, 'attachment' => $att_id,
@@ -217,16 +217,16 @@ PHPEOF
 SEED_JSON=$(wp_e1 eval-file /siterepo/.tmp-seed-acf.php)
 rm -f siterepo/e1/.tmp-seed-acf.php
 echo "$SEED_JSON" | jq .
-pass "seeded group_duo_demo (image field_duo_hero, relationship field_duo_related) + content"
+pass "seeded group_wprism_demo (image field_wprism_hero, relationship field_wprism_related) + content"
 
 say "capture e1 into the site repo (schema-driven meta classification runs here)"
-wp_e1 duo capture --repo=/siterepo
+wp_e1 wprism capture --repo=/siterepo
 git -C siterepo/e1 add -A
-git -C siterepo/e1 -c user.name=duo -c user.email=duo@example.test commit -qm "capture: seeded ACF content on e1"
+git -C siterepo/e1 -c user.name=wprism -c user.email=wprism@example.test commit -qm "capture: seeded ACF content on e1"
 git -C siterepo/e1 push -qu origin main
 
 say "acceptance: capture is deterministic (capture twice, zero diff)"
-wp_e1 duo capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
+wp_e1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
 diff -r siterepo/e1/state siterepo/e1/.tmp-state2 || fail "capture is not deterministic"
 rm -rf siterepo/e1/.tmp-state2
 pass "capture-twice diff is empty"
@@ -240,44 +240,44 @@ fi
 
 say "apply e1's captured state onto e2"
 REV=$(git -C siterepo/e2 rev-parse HEAD)
-APPLY_JSON=$(wp_e2 duo apply --repo=/siterepo --adopt-by-slug=terms --default-author=admin --revision="$REV" --json | tail -1)
+APPLY_JSON=$(wp_e2 wprism apply --repo=/siterepo --adopt-by-slug=terms --default-author=admin --revision="$REV" --json | tail -1)
 echo "$APPLY_JSON" | jq .
 [ "$(echo "$APPLY_JSON" | jq -r '.canary')" = "clean" ] || fail "side-effect canary was not clean during apply"
 pass "apply succeeded, side-effect canary clean"
 
 say "acceptance: canonical(e2) == canonical(e1), byte for byte"
-wp_e2 duo capture --repo=/siterepo --out=/siterepo/.tmp-e2state >/dev/null
+wp_e2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-e2state >/dev/null
 diff -r siterepo/e1/state siterepo/e2/.tmp-e2state || fail "round-trip mismatch between e1 and e2"
 rm -rf siterepo/e2/.tmp-e2state
 pass "canonical state identical: interpreter-typed refs remapped, string-cast serialized arrays intact, verbatim field bodies byte-preserved"
 
-say "acceptance: get_field('duo_hero') on e2 resolves to a byte-identical attachment"
-CONTENT_E2=$(wp_e2 post list --post_type=post --name=duo-acf-content --field=ID)
-HERO_ATT_E2=$(wp_e2 eval "echo get_field('duo_hero', $CONTENT_E2);")
-[ -n "$HERO_ATT_E2" ] || fail "get_field(duo_hero) returned nothing on e2"
+say "acceptance: get_field('wprism_hero') on e2 resolves to a byte-identical attachment"
+CONTENT_E2=$(wp_e2 post list --post_type=post --name=wprism-acf-content --field=ID)
+HERO_ATT_E2=$(wp_e2 eval "echo get_field('wprism_hero', $CONTENT_E2);")
+[ -n "$HERO_ATT_E2" ] || fail "get_field(wprism_hero) returned nothing on e2"
 HERO_FILE_REL=$(wp_e2 post meta get "$HERO_ATT_E2" _wp_attached_file)
 E1_MEDIA=$(grep -h '"media"' siterepo/e1/state/posts/attachment/*.md | sed 's/.*"media": "\([^"]*\)".*/\1/')
 E1_SHA=${E1_MEDIA%.*}
 E2_SHA=$($COMPOSE run --rm -T cli-e2 bash -c "sha256sum /var/www/html/wp-content/uploads/$HERO_FILE_REL | cut -d' ' -f1")
-[ "$E1_SHA" = "$E2_SHA" ] || fail "e2's duo_hero attachment content does not match e1's (got $E2_SHA, want $E1_SHA)"
-pass "get_field(duo_hero) on e2 -> attachment #$HERO_ATT_E2, byte-identical to e1's upload"
+[ "$E1_SHA" = "$E2_SHA" ] || fail "e2's wprism_hero attachment content does not match e1's (got $E2_SHA, want $E1_SHA)"
+pass "get_field(wprism_hero) on e2 -> attachment #$HERO_ATT_E2, byte-identical to e1's upload"
 
-say "acceptance: get_field('duo_related') on e2 resolves to the correct e2-local targets"
+say "acceptance: get_field('wprism_related') on e2 resolves to the correct e2-local targets"
 RELATED_SLUGS=$(wp_e2 eval "
-\$ids = get_field('duo_related', $CONTENT_E2);
+\$ids = get_field('wprism_related', $CONTENT_E2);
 echo implode(',', array_map(fn(\$id) => get_post(\$id)->post_name, (array) \$ids));
 ")
-[ "$RELATED_SLUGS" = "duo-related-target-one,duo-related-target-two" ] \
-  || fail "get_field(duo_related) slugs on e2 are '$RELATED_SLUGS', expected the two seeded targets"
-pass "get_field(duo_related) on e2 -> slugs match by identity ($RELATED_SLUGS)"
+[ "$RELATED_SLUGS" = "wprism-related-target-one,wprism-related-target-two" ] \
+  || fail "get_field(wprism_related) slugs on e2 are '$RELATED_SLUGS', expected the two seeded targets"
+pass "get_field(wprism_related) on e2 -> slugs match by identity ($RELATED_SLUGS)"
 
 say "acceptance: verbatim acf-field post_content still unserializes correctly on e2"
 UNSER_OK=$(wp_e2 eval "
-\$rows = get_posts(['post_type'=>'acf-field','name'=>'field_duo_hero','posts_per_page'=>1,'post_status'=>'any']);
+\$rows = get_posts(['post_type'=>'acf-field','name'=>'field_wprism_hero','posts_per_page'=>1,'post_status'=>'any']);
 \$def = maybe_unserialize(\$rows[0]->post_content ?? '');
 echo (is_array(\$def) && (\$def['type'] ?? null) === 'image') ? 'ok' : 'fail';
 ")
-[ "$UNSER_OK" = "ok" ] || fail "field_duo_hero's verbatim post_content does not unserialize to a valid field def on e2"
-pass "field_duo_hero's post_content survived the verbatim body path and still unserializes to type=image"
+[ "$UNSER_OK" = "ok" ] || fail "field_wprism_hero's verbatim post_content does not unserialize to a valid field def on e2"
+pass "field_wprism_hero's post_content survived the verbatim body path and still unserializes to type=image"
 
 printf '\n\033[1;32m✔ SPIKE E PASSED\033[0m\n'

@@ -15,7 +15,7 @@ than a claim. It changes no engine behavior.
 - **Concurrency: exactly one live pair at a time, program-wide.** A work
   package that needs a pair claims the next slot in the allocation order below;
   everything else in flight stays offline. Pair discipline itself is unchanged:
-  budget, release-when-idle, destroy-when-done, `DUO_EXPECTED_SOURCE_SHA`
+  budget, release-when-idle, destroy-when-done, `WPRISM_EXPECTED_SOURCE_SHA`
   (docs/sandbox.md, docs/agents/linear-loop.md §Evidence scoping).
 - **Per-wave ceiling: 6 pair-hours.** A wave that would exceed it defers its
   cheapest-to-defer live leg (recorded in the wave report, never silently

@@ -1,28 +1,28 @@
 <?php
-namespace Duo\Providers;
+namespace WPrism\Providers;
 
-use Duo\ManifestProviderRuntime;
-use Duo\PlainData;
-use Duo\ProviderSdk;
-use Duo\WpCliChildProcess;
+use WPrism\ManifestProviderRuntime;
+use WPrism\PlainData;
+use WPrism\ProviderSdk;
+use WPrism\WpCliChildProcess;
 
 if (!class_exists(WpCliChildProcess::class, false)) {
-    $duoLayoutRoot = dirname(__DIR__, 5);
-    $duoAgentRoot = is_dir($duoLayoutRoot . '/agent/src')
-        ? $duoLayoutRoot . '/agent'
-        : (basename($duoLayoutRoot) === 'agent' && is_dir($duoLayoutRoot . '/src') ? $duoLayoutRoot : null);
-    if ($duoAgentRoot === null) {
-        throw new \RuntimeException('duo: Ninja Forms provider cannot resolve the explicit source or embedded agent layout');
+    $wprismLayoutRoot = dirname(__DIR__, 5);
+    $wprismAgentRoot = is_dir($wprismLayoutRoot . '/agent/src')
+        ? $wprismLayoutRoot . '/agent'
+        : (basename($wprismLayoutRoot) === 'agent' && is_dir($wprismLayoutRoot . '/src') ? $wprismLayoutRoot : null);
+    if ($wprismAgentRoot === null) {
+        throw new \RuntimeException('wprism: Ninja Forms provider cannot resolve the explicit source or embedded agent layout');
     }
-    require_once $duoAgentRoot . '/src/Kernel/WpCliChildProcess.php';
-    unset($duoLayoutRoot, $duoAgentRoot);
+    require_once $wprismAgentRoot . '/src/Kernel/WpCliChildProcess.php';
+    unset($wprismLayoutRoot, $wprismAgentRoot);
 }
 
 /**
  * Ninja Forms 3.x form-cache rebuild provider.
  *
  * Ninja Forms reads nf3_upgrades before its authored tables and memoizes each
- * form factory for the lifetime of the PHP process. Duo materializes the
+ * form factory for the lifetime of the PHP process. WPrism materializes the
  * authored graph with SQL, so rebuilding in that same process can feed stale
  * cached fields back into WPN_Helper::build_nf_cache(). The provider therefore
  * runs the plugin's native builder in a fresh wp-cli child after deleting every
@@ -32,7 +32,7 @@ if (!class_exists(WpCliChildProcess::class, false)) {
 final class NinjaFormsFormCache extends ManifestProviderRuntime {
     private const CACHE_TABLE = 'nf3_upgrades';
 
-    private const CHILD_FORMAT = 'duo-ninja-forms-cache-rebuild/v1';
+    private const CHILD_FORMAT = 'wprism-ninja-forms-cache-rebuild/v1';
 
     private const MAX_CACHE_BYTES = 16777216;
 
@@ -71,19 +71,19 @@ final class NinjaFormsFormCache extends ManifestProviderRuntime {
     protected function invoke_rebuild_form_caches(array $args): array {
         if (function_exists('is_multisite') && is_multisite()) {
             throw new \RuntimeException(
-                'duo: Ninja Forms form-cache provider is certified for single-site tables only'
+                'wprism: Ninja Forms form-cache provider is certified for single-site tables only'
             );
         }
         if (!class_exists('\WP_CLI')) {
             throw new \RuntimeException(
-                'duo: Ninja Forms cache regeneration requires a fresh wp-cli process'
+                'wprism: Ninja Forms cache regeneration requires a fresh wp-cli process'
             );
         }
 
         $before = $this->projection_summary(false);
         if ($before['maintenance_form_caches'] !== 0) {
             throw new \RuntimeException(
-                'duo: Ninja Forms has a form cache in maintenance mode; recovery_required'
+                'wprism: Ninja Forms has a form cache in maintenance mode; recovery_required'
             );
         }
 
@@ -96,19 +96,19 @@ final class NinjaFormsFormCache extends ManifestProviderRuntime {
             );
         } catch (\Throwable $t) {
             throw new \RuntimeException(
-                'duo: Ninja Forms fresh cache-rebuild process could not start',
+                'wprism: Ninja Forms fresh cache-rebuild process could not start',
                 0,
                 $t
             );
         }
         if ($result['return_code'] !== 0) {
             throw new \RuntimeException(
-                "duo: Ninja Forms fresh cache-rebuild process exited {$result['return_code']}; recovery_required"
+                "wprism: Ninja Forms fresh cache-rebuild process exited {$result['return_code']}; recovery_required"
             );
         }
         if (trim($result['stderr']) !== '') {
             throw new \RuntimeException(
-                'duo: Ninja Forms fresh cache-rebuild process emitted stderr despite exit 0; recovery_required'
+                'wprism: Ninja Forms fresh cache-rebuild process emitted stderr despite exit 0; recovery_required'
             );
         }
         try {
@@ -120,7 +120,7 @@ final class NinjaFormsFormCache extends ManifestProviderRuntime {
             );
         } catch (\Throwable $t) {
             throw new \RuntimeException(
-                'duo: Ninja Forms fresh cache-rebuild process returned a malformed receipt; recovery_required'
+                'wprism: Ninja Forms fresh cache-rebuild process returned a malformed receipt; recovery_required'
             );
         }
         if (!is_array($child)
@@ -140,7 +140,7 @@ final class NinjaFormsFormCache extends ManifestProviderRuntime {
             || $child['form_count'] < 0
             || $child['rebuilt_form_count'] !== $child['form_count']) {
             throw new \RuntimeException(
-                'duo: Ninja Forms fresh cache-rebuild process returned an invalid receipt; recovery_required'
+                'wprism: Ninja Forms fresh cache-rebuild process returned an invalid receipt; recovery_required'
             );
         }
 
@@ -148,17 +148,17 @@ final class NinjaFormsFormCache extends ManifestProviderRuntime {
         if (!hash_equals((string) $before['source_fingerprint'], (string) $after['source_fingerprint'])
             || $before['forms'] !== $after['forms']) {
             throw new \RuntimeException(
-                'duo: Ninja Forms authored table graph changed during cache regeneration; recovery_required'
+                'wprism: Ninja Forms authored table graph changed during cache regeneration; recovery_required'
             );
         }
         if ($after['forms'] !== $child['form_count']) {
             throw new \RuntimeException(
-                'duo: Ninja Forms child receipt disagrees with the checked form population; recovery_required'
+                'wprism: Ninja Forms child receipt disagrees with the checked form population; recovery_required'
             );
         }
         if (!hash_equals((string) $child['cache_fingerprint'], (string) $after['cache_fingerprint'])) {
             throw new \RuntimeException(
-                'duo: Ninja Forms child cache projection disagrees with parent readback; recovery_required'
+                'wprism: Ninja Forms child cache projection disagrees with parent readback; recovery_required'
             );
         }
 
@@ -286,7 +286,7 @@ foreach ($legacy as $name) {
     }
 }
 echo wp_json_encode([
-    'format' => 'duo-ninja-forms-cache-rebuild/v1',
+    'format' => 'wprism-ninja-forms-cache-rebuild/v1',
     'form_count' => count($ids),
     'rebuilt_form_count' => $rebuilt,
     'cache_fingerprint' => hash('sha256', serialize($cache_projection)),
@@ -304,7 +304,7 @@ PHP;
                 "SELECT * FROM `{$this->table_name($table)}` ORDER BY `id`",
                 "$table source inventory",
                 null,
-                "duo: $table source inventory query failed; recovery_required"
+                "wprism: $table source inventory query failed; recovery_required"
             );
         }
 
@@ -320,14 +320,14 @@ PHP;
             "SELECT id, cache, stage, maintenance FROM `{$this->table_name(self::CACHE_TABLE)}` ORDER BY `id`",
             'Ninja Forms cache inventory',
             null,
-            'duo: Ninja Forms cache inventory query failed; recovery_required'
+            'wprism: Ninja Forms cache inventory query failed; recovery_required'
         );
         $legacyRows = ProviderSdk::checked_get_results(
             "SELECT option_name, option_value FROM `{$this->table_name('options')}` "
             . "WHERE option_name LIKE 'nf_form_%' ORDER BY option_name",
             'Ninja Forms legacy cache inventory',
             null,
-            'duo: Ninja Forms legacy cache inventory query failed; recovery_required'
+            'wprism: Ninja Forms legacy cache inventory query failed; recovery_required'
         );
         $legacyFingerprintRows = [];
         foreach ($legacyRows as $row) {
@@ -403,7 +403,7 @@ PHP;
             ] as $field) {
                 if ($summary[$field] !== 0) {
                     throw new \RuntimeException(
-                        "duo: Ninja Forms cache readback found {$summary[$field]} $field; recovery_required"
+                        "wprism: Ninja Forms cache readback found {$summary[$field]} $field; recovery_required"
                     );
                 }
             }
@@ -418,7 +418,7 @@ PHP;
             $id = (int) ($row[$column] ?? 0);
             if ($id <= 0 || isset($ids[$id])) {
                 throw new \RuntimeException(
-                    "duo: Ninja Forms source inventory has an invalid or duplicate $column; recovery_required"
+                    "wprism: Ninja Forms source inventory has an invalid or duplicate $column; recovery_required"
                 );
             }
             $ids[$id] = true;
@@ -439,7 +439,7 @@ PHP;
             $parent = (int) ($row['parent_id'] ?? 0);
             if ($id <= 0 || $parent <= 0 || !isset($parents[$parent])) {
                 throw new \RuntimeException(
-                    "duo: Ninja Forms $label inventory has an invalid id or parent_id; recovery_required"
+                    "wprism: Ninja Forms $label inventory has an invalid id or parent_id; recovery_required"
                 );
             }
             $out[$parent][] = $id;
@@ -460,7 +460,7 @@ PHP;
             $parent = (int) ($row['parent_id'] ?? 0);
             if ($id <= 0 || isset($ids[$id]) || $parent <= 0 || !isset($owners[$parent])) {
                 throw new \RuntimeException(
-                    "duo: Ninja Forms $label meta inventory has an invalid identity or owner; recovery_required"
+                    "wprism: Ninja Forms $label meta inventory has an invalid identity or owner; recovery_required"
                 );
             }
             $ids[$id] = true;
@@ -476,7 +476,7 @@ PHP;
                 || !hash_equals($row['key'], $row['meta_key'])
                 || !$valuesMatch) {
                 throw new \RuntimeException(
-                    "duo: Ninja Forms $label meta legacy/current columns diverge; recovery_required"
+                    "wprism: Ninja Forms $label meta legacy/current columns diverge; recovery_required"
                 );
             }
         }
@@ -531,13 +531,13 @@ PHP;
             $columns = $wpdb->get_col("SHOW COLUMNS FROM `$prefixed`");
             if (!is_array($columns) || (string) ($wpdb->last_error ?? '') !== '') {
                 throw new \RuntimeException(
-                    "duo: Ninja Forms $table schema probe failed; recovery_required"
+                    "wprism: Ninja Forms $table schema probe failed; recovery_required"
                 );
             }
             $missing = array_values(array_diff($required, array_map('strval', $columns)));
             if ($missing !== []) {
                 throw new \RuntimeException(
-                    "duo: Ninja Forms $table is missing required column(s): "
+                    "wprism: Ninja Forms $table is missing required column(s): "
                     . implode(', ', $missing) . '; recovery_required'
                 );
             }
@@ -548,7 +548,7 @@ PHP;
         global $wpdb;
         $prefix = (string) ($wpdb->prefix ?? '');
         if ($prefix === '' || preg_match('/^[A-Za-z0-9_]+$/D', $prefix) !== 1) {
-            throw new \RuntimeException('duo: Ninja Forms database prefix is unavailable or unsafe');
+            throw new \RuntimeException('wprism: Ninja Forms database prefix is unavailable or unsafe');
         }
         return $prefix . $suffix;
     }
@@ -562,7 +562,7 @@ PHP;
             return 1;
         }
         throw new \RuntimeException(
-            "duo: Ninja Forms $label flag is not an exact BIT(1) value; recovery_required"
+            "wprism: Ninja Forms $label flag is not an exact BIT(1) value; recovery_required"
         );
     }
 }

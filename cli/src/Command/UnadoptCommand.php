@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../Transport/Transport.php';
@@ -13,7 +13,7 @@ final class UnadoptCommand {
     /** @param list<string> $extra */
     public static function run(EnvironmentDriver $transport, array $extra): int {
         if (!$transport instanceof AdoptionTransport) {
-            fwrite(STDERR, "duo: unadopt requires a transport with explicit control-plane transfer authority\n");
+            fwrite(STDERR, "wprism: unadopt requires a transport with explicit control-plane transfer authority\n");
             return 1;
         }
         $archive = null;
@@ -27,11 +27,11 @@ final class UnadoptCommand {
                 $archive = substr($arg, strlen('--archive-to='));
                 continue;
             }
-            fwrite(STDERR, "duo: unadopt accepts exactly --archive-to=<absolute-path> and optional --yes\n");
+            fwrite(STDERR, "wprism: unadopt accepts exactly --archive-to=<absolute-path> and optional --yes\n");
             return 1;
         }
         if (!is_string($archive) || $archive === '') {
-            fwrite(STDERR, "duo: unadopt requires --archive-to=<absolute-path>; removal never discards control or recovery evidence\n");
+            fwrite(STDERR, "wprism: unadopt requires --archive-to=<absolute-path>; removal never discards control or recovery evidence\n");
             return 1;
         }
 
@@ -44,10 +44,10 @@ final class UnadoptCommand {
         self::renderPlan($plan);
         if (!$yes) {
             if (!function_exists('stream_isatty') || !stream_isatty(STDIN)) {
-                fwrite(STDERR, "duo: unadopt requires --yes when standard input is not interactive\n");
+                fwrite(STDERR, "wprism: unadopt requires --yes when standard input is not interactive\n");
                 return 1;
             }
-            fwrite(STDOUT, 'Archive the reviewed Duo control plane and remove it from the target? [y/N] ');
+            fwrite(STDOUT, 'Archive the reviewed WPrism control plane and remove it from the target? [y/N] ');
             $answer = fgets(STDIN);
             if (!is_string($answer) || !in_array(strtolower(trim($answer)), ['y', 'yes'], true)) {
                 echo "Unadopt cancelled; no control-plane path was moved.\n";
@@ -58,25 +58,25 @@ final class UnadoptCommand {
         try {
             $result = Unadopt::execute($transport, $plan);
         } catch (\Throwable $error) {
-            fwrite(STDERR, 'duo: unadopt failed: ' . $error->getMessage() . "\n");
+            fwrite(STDERR, 'wprism: unadopt failed: ' . $error->getMessage() . "\n");
             return 1;
         }
         if ($result['exit'] !== 0) {
-            fwrite(STDERR, "duo: unadopt failed during {$result['phase']}\n");
+            fwrite(STDERR, "wprism: unadopt failed during {$result['phase']}\n");
             CommandOutput::renderTransportDetail($result);
             return $result['exit'];
         }
         $receipt = $result['receipt'] ?? [];
-        echo 'unadopt: Duo control plane removed; complete evidence archive: '
+        echo 'unadopt: WPrism control plane removed; complete evidence archive: '
             . ($receipt['archive'] ?? $archive) . "\n";
-        echo 'unadopt: repository code, media, state, Git history, site.duo.json, and durable revocations were preserved in place' . "\n";
+        echo 'unadopt: repository code, media, state, Git history, site.wprism.json, and durable revocations were preserved in place' . "\n";
         echo 'unadopt receipt: ' . hash('sha256', json_encode($receipt, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)) . "\n";
         return 0;
     }
 
     /** @param array<string,mixed> $plan */
     private static function renderPlan(array $plan): void {
-        echo "Duo unadopt plan {$plan['digest']}\n";
+        echo "WPrism unadopt plan {$plan['digest']}\n";
         echo "  agent: {$plan['agent_version']}\n";
         echo "  archive: {$plan['archive']}\n";
         echo "  remove from live target after archive verification:\n";

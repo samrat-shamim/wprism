@@ -75,7 +75,7 @@ check_redirection_boundary_content() {
     .group_ids == [$group] and (.ids | all(. >= 201))
   ' <<<"$out" >/dev/null || fail "Redirection 5.9.0 boundary rows did not converge: $out"
 
-  headers=$(mktemp "${TMPDIR:-/tmp}/duo-vmatrix-redirection.XXXXXX")
+  headers=$(mktemp "${TMPDIR:-/tmp}/wprism-vmatrix-redirection.XXXXXX")
   code=$(curl --max-time 20 -sS -D "$headers" -o /dev/null -w '%{http_code}' "http://localhost:${PORT2}/summer")
   location=$(awk 'BEGIN { IGNORECASE=1 } /^Location:/ { sub(/\r$/, ""); print substr($0, 11) }' "$headers" | tail -1)
   rm -f "$headers"
@@ -91,9 +91,9 @@ VMATRIX_PLUGIN_SLUG=redirection
 version_matrix_preflight() {
   # These production-readiness legs must certify this physical checkout, not a
   # canonical sibling checkout selected by pair.sh for a linked worktree.
-  [ -n "${DUO_EXPECTED_SOURCE_SHA:-}" ] \
-    || fail "$VMATRIX_MANIFEST version-matrix evidence requires DUO_EXPECTED_SOURCE_SHA"
-  export DUO_SOURCE_ROOT="$(cd .. && pwd -P)"
+  [ -n "${WPRISM_EXPECTED_SOURCE_SHA:-}" ] \
+    || fail "$VMATRIX_MANIFEST version-matrix evidence requires WPRISM_EXPECTED_SOURCE_SHA"
+  export WPRISM_SOURCE_ROOT="$(cd .. && pwd -P)"
 }
 
 version_matrix_reset_after_delete() {
@@ -136,7 +136,7 @@ printf '%s\n' '{' \
   '    "taxonomies": ["category", "post_tag"]' \
   '  },' \
   '  "spec_version": 3' \
-  '}' > "siterepo/${PAIR}1/site.duo.json"
+  '}' > "siterepo/${PAIR}1/site.wprism.json"
 cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 "${GIT1[@]}" init -q -b main
 "${GIT1[@]}" remote add origin "../origin-$PAIR.git"
@@ -145,8 +145,8 @@ cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 "${GIT1[@]}" push -qu origin main
 
 seed_redirection_content
-wp1 duo capture --repo=/siterepo
-wp1 duo lint --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
+wp1 wprism lint --repo=/siterepo
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "capture: Redirection $REDIRECTION_VERSION mixed rule graph"
 "${GIT1[@]}" push -q origin main
@@ -155,15 +155,15 @@ clone_case_target
 wp2 plugin install "$REDIRECTION_ARTIFACT_2" >/dev/null
 [ "$(wp2 plugin get redirection --field=version)" = "$REDIRECTION_VERSION" ] \
   || fail "side 2 did not install exact redirection $REDIRECTION_VERSION"
-wp2 duo deploy --repo=/siterepo
+wp2 wprism deploy --repo=/siterepo
 prepare_redirection_boundary_target
 REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
 grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
   || fail "apply canary not clean at redirection $REDIRECTION_VERSION"
 check_redirection_boundary_content
 
-wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
+wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-final
 REDIRECTION_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
 rm -rf "siterepo/${PAIR}2/.tmp-final"
 [ -z "$REDIRECTION_DIFF" ] \
@@ -179,8 +179,8 @@ wp1 plugin install "$REDIRECTION_OLD" >/dev/null
 [ "$(wp1 plugin get redirection --field=version)" = 5.8.1 ] \
   || fail 'Redirection negative control did not install exact 5.8.1'
 NEGATIVE_RC=0
-NEGATIVE_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1) || NEGATIVE_RC=$?
-require_duo_answered 'Redirection 5.8.1 outside-range deploy' human "$NEGATIVE_OUT"
+NEGATIVE_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1) || NEGATIVE_RC=$?
+require_wprism_answered 'Redirection 5.8.1 outside-range deploy' human "$NEGATIVE_OUT"
 [ "$NEGATIVE_RC" -ne 0 ] && grep -Eq 'outside_version_range|outside the .* declared version_range' <<<"$NEGATIVE_OUT" \
   && grep -q '5.8.1' <<<"$NEGATIVE_OUT" \
   || fail "Redirection 5.8.1 refused for the wrong reason: $NEGATIVE_OUT"

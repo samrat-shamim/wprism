@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 /**
  * Offline (no docker, no WordPress bootstrap) regression harness for
- * DUO-3509: the option names a fresh `duo init` on WP 7.0.3 + WooCommerce
+ * issue #3509: the option names a fresh `wprism init` on WP 7.0.3 + WooCommerce
  * 11.0.1 + Yoast SEO 28.3 + Contact Form 7 6.1.7 demanded a decision for,
  * and the classifications this repository now ships for them.
  *
@@ -13,14 +13,14 @@ declare(strict_types=1);
  * Policy::option_rule() / option_rule_details() — because the defect this
  * file pins was precisely that those two returned null for these names, so
  * a fixture manifest declaring them would prove nothing about the library
- * a site actually pins. Run against the pre-DUO-3509 manifests every
+ * a site actually pins. Run against the pre-issue #3509 manifests every
  * class assertion below fails with "unclassified".
  *
  * Three groups deserve their own note:
  *
  *   - The DELIBERATE-OMISSION group asserts that `wp_user_roles` still
  *     resolves to NULL. That is the one check here that fails if someone
- *     ADDS a declaration, and it is deliberate: core.json's own DUO-3509
+ *     ADDS a declaration, and it is deliberate: core.json's own issue #3509
  *     note records why an exact rule for that name cannot be right (the
  *     option name embeds $table_prefix — WP_Roles::_init(),
  *     wp-includes/class-wp-roles.php:342 — and the value is a merge that
@@ -40,7 +40,7 @@ declare(strict_types=1);
  *     "simplification" to a whole-value json_refs declaration would drop
  *     those ids silently and is exactly what this group refuses.
  *
- * The NOTE group is not decoration either: DUO-3509's deliverable for
+ * The NOTE group is not decoration either: issue #3509's deliverable for
  * several of these names is the recorded reasoning, so each declaration is
  * required to be named in its own manifest's notes. A rule added later
  * without a note fails here.
@@ -49,13 +49,13 @@ declare(strict_types=1);
  * and the script exits 1.
  */
 
-define('DUO_SPEC_VERSION', 3);
+define('WPRISM_SPEC_VERSION', 3);
 
 require dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
 require dirname(__DIR__, 4) . '/agent/src/Kernel/OptionState.php';
 require dirname(__DIR__, 4) . '/agent/src/Policy/Policy.php';
 
-use Duo\Policy;
+use WPrism\Policy;
 
 $failures = 0;
 
@@ -72,7 +72,7 @@ function check(bool $condition, string $message): void
 
 $root = dirname(__DIR__, 4);
 require_once $root . '/agent/src/Policy/AdapterLibrary.php';
-$adapterLibrary = \Duo\AdapterLibrary::fromSourceTree($root);
+$adapterLibrary = \WPrism\AdapterLibrary::fromSourceTree($root);
 
 /** @var array<string,array<string,mixed>> $manifests */
 $manifests = [];
@@ -88,19 +88,19 @@ foreach (['core', 'woocommerce', 'yoast', 'contact-form-7'] as $name) {
     );
 }
 
-// The pinned set DUO-3509's reproduction used, in the order a site.duo.json
+// The pinned set issue #3509's reproduction used, in the order a site.wprism.json
 // lists them (core first — PolicyRuleResolver's core-yields-to-plugin
 // precedence is what makes that order safe, and asserting `source` below is
 // what proves no plugin manifest silently shadowed a core declaration).
 $policy = Policy::from_snapshot([
     'dispositions' => null,
-    'format' => 'duo-policy-snapshot/v6',
-    'adapter_sources' => ['certificates' => [], 'format' => 'duo-adapter-sources/v2', 'out_of_tree' => []],
+    'format' => 'wprism-policy-snapshot/v6',
+    'adapter_sources' => ['certificates' => [], 'format' => 'wprism-adapter-sources/v2', 'out_of_tree' => []],
     'manifests' => array_values($manifests),
     'site' => [
         'manifests' => array_keys($manifests),
         'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ],
 ]);
 
@@ -141,7 +141,7 @@ echo "\n-- core: the deliberate omission --\n";
 foreach (['wp_user_roles', 'xy_user_roles'] as $rolesOption) {
     check(
         $policy->option_rule($rolesOption) === null,
-        "options.$rolesOption stays UNDECLARED so `duo pending` keeps demanding a per-site decision "
+        "options.$rolesOption stays UNDECLARED so `wprism pending` keeps demanding a per-site decision "
         . '(core.json records why: the name embeds $table_prefix and the value is a plugin-mutated merge)'
     );
 }
@@ -223,7 +223,7 @@ check(
     'options.wpcf7 is required:false with no sub-key carve-out — nothing in it was verified authored-and-portable'
 );
 
-echo "\n-- every DUO-3509 declaration is named in its own manifest's notes --\n";
+echo "\n-- every shipped option declaration is named in its own manifest's notes --\n";
 // THE DEFERRAL, WRITTEN AT THE SITE (WP-6.4). The grep below is load-bearing
 // regression coverage implemented as `str_contains()` over free prose, and it
 // has a typed replacement as of WP-6.4: the `declaration_evidence` section
@@ -235,7 +235,7 @@ echo "\n-- every DUO-3509 declaration is named in its own manifest's notes --\n"
 // It is not converted here, and the reason is AGENTS.md rule 2 rather than
 // effort. Adopting the section in these four manifests edits four manifests'
 // bytes, `ArtifactPolicyIdentity::manifest_rows()` folds those bytes into each
-// adapter's `digest`, and every `site.duo.json` content pin and every
+// adapter's `digest`, and every `site.wprism.json` content pin and every
 // certificate binding one stops matching — a fleet-visible change bought for a
 // documentation improvement. So the schema check applies to fixtures and
 // out-of-tree adapters (`regress_structured_evidence.php`), this grep stays for
@@ -255,13 +255,14 @@ $documented = [
 foreach ($documented as $manifestName => $names) {
     // core/yoast/contact-form-7 keep notes as a list, woocommerce as a
     // title => text map; flatten both rather than assuming one shape.
-    $notes = (array) ($manifests[$manifestName]['notes'] ?? []);
+    $rawNotes = $manifests[$manifestName]['notes'] ?? ($manifests[$manifestName]['note'] ?? []);
+    $notes = is_array($rawNotes) ? $rawNotes : ['manifest' => (string) $rawNotes];
     $text = implode("\n", array_map(
         static fn($k, $v): string => is_string($v) ? "$k\n$v" : '',
         array_keys($notes),
         array_values($notes)
     ));
-    check(str_contains($text, 'DUO-3509'), "manifests/$manifestName.json carries a DUO-3509 note");
+    check(str_contains($text, 'issue #3509'), "manifests/$manifestName.json carries an issue #3509 note");
     foreach ($names as $optionName) {
         check(
             str_contains($text, $optionName),

@@ -4,8 +4,8 @@
  * meta roster is rechecked against once the owner range lock is held.
  *
  * `VMATRIX_MANIFEST=acf bash sandbox/tests/certify/certify_version_matrix.sh`
- * died at the acf 6.0.0 TARGET apply with "duo: authored post meta
- * '_duo_related' disagrees with the locked target context"
+ * died at the acf 6.0.0 TARGET apply with "wprism: authored post meta
+ * '_wprism_related' disagrees with the locked target context"
  * (ApplyFieldMaterializer.php's post-lock recheck, added as "is not authored
  * in the locked target context" by main #556 18f32d13 and re-worded by #558
  * d6d3a85c); sandbox/bin/adapter-boundary.sh:44-69 records the bisector's
@@ -49,14 +49,14 @@ require_once __DIR__ . '/../../../../agent/src/Apply/UserMetaMaterializer.php';
 // (AGENTS.md rule 2).
 require_once __DIR__ . '/../../../../adapter-packages/acf/package/runtime/interpreters/acf.php';
 
-use Duo\ApplyFieldMaterializer;
-use Duo\CacheInvalidationTransaction;
-use Duo\Interpreters\Acf;
-use Duo\Policy;
-use Duo\Tokens;
-use Duo\UserMetaMaterializer;
-use DuoTest\FakeWpdb;
-use DuoTest\LockingFakeWpdb;
+use WPrism\ApplyFieldMaterializer;
+use WPrism\CacheInvalidationTransaction;
+use WPrism\Interpreters\Acf;
+use WPrism\Policy;
+use WPrism\Tokens;
+use WPrism\UserMetaMaterializer;
+use WPrismTest\FakeWpdb;
+use WPrismTest\LockingFakeWpdb;
 
 const RELATED_UUID = '3f1a5c2e-7b04-4d18-9a63-2c8e51d0b4a7';
 const RELATED_TOKEN = '{{post:' . RELATED_UUID . '}}';
@@ -66,16 +66,16 @@ const RELATED_WIRE = 'a:1:{i:0;s:2:"41";}';
 /**
  * The certify-matrix subject, verbatim from
  * adapter-packages/acf/tests/certify/version-matrix.sh:
- * one relationship field named duo_related, whose value meta carries the ids
- * and whose '_duo_related' shadow meta carries the field-key pointer.
+ * one relationship field named wprism_related, whose value meta carries the ids
+ * and whose '_wprism_related' shadow meta carries the field-key pointer.
  */
 $acfTree = [[
     'type' => 'post',
-    'path' => 'state/posts/acf-field/field_duo_related.json',
-    'data' => ['type' => 'acf-field', 'slug' => 'field_duo_related'],
+    'path' => 'state/posts/acf-field/field_wprism_related.json',
+    'data' => ['type' => 'acf-field', 'slug' => 'field_wprism_related'],
     'body' => serialize([
-        'key' => 'field_duo_related',
-        'name' => 'duo_related',
+        'key' => 'field_wprism_related',
+        'name' => 'wprism_related',
         'type' => 'relationship',
         'post_type' => ['post'],
         'return_format' => 'id',
@@ -116,7 +116,7 @@ $makeDb = static function (array $postmeta = [], array $termmeta = [], array $us
         'meta_key' => 'varchar(255)', 'meta_value' => 'longtext',
     ]);
     $db->setColumns('users', ['ID' => 'bigint unsigned', 'user_login' => 'varchar(60)']);
-    $db->setColumns('duo_map', [
+    $db->setColumns('wprism_map', [
         'uuid' => 'char(36)', 'entity_type' => 'varchar(64)',
         'id_kind' => 'varchar(64)', 'local_id' => 'bigint unsigned',
     ]);
@@ -124,7 +124,7 @@ $makeDb = static function (array $postmeta = [], array $termmeta = [], array $us
         ->seedTable('termmeta', $termmeta)
         ->seedTable('usermeta', $usermeta)
         ->seedTable('users', [['ID' => 7, 'user_login' => 'editor']])
-        ->seedTable('duo_map', [[
+        ->seedTable('wprism_map', [[
             'uuid' => RELATED_UUID, 'entity_type' => 'post', 'id_kind' => 'post', 'local_id' => 41,
         ]]);
     foreach ([$db->postmeta, $db->termmeta, $db->usermeta, $db->users] as $table) {
@@ -149,10 +149,10 @@ $makeDb = static function (array $postmeta = [], array $termmeta = [], array $us
  */
 $run = static function (LockingFakeWpdb $db, callable $body) use ($policy, $tokens): array {
     $GLOBALS['wpdb'] = $db;
-    \DuoTest\WpStore::reset();
+    \WPrismTest\WpStore::reset();
     $field = new ApplyFieldMaterializer($policy, $tokens);
     $user = new UserMetaMaterializer($policy, $tokens, $field);
-    \Duo\Db::start_repeatable_read('authored meta context fixture transaction');
+    \WPrism\Db::start_repeatable_read('authored meta context fixture transaction');
     $field->begin_authored_transaction();
     CacheInvalidationTransaction::begin();
     $failure = null;
@@ -167,7 +167,7 @@ $run = static function (LockingFakeWpdb $db, callable $body) use ($policy, $toke
             'termmeta' => $db->rows('termmeta'),
             'usermeta' => $db->rows('usermeta'),
         ];
-        \Duo\Db::rollback('authored meta context fixture rollback');
+        \WPrism\Db::rollback('authored meta context fixture rollback');
         $field->end_authored_transaction();
         CacheInvalidationTransaction::end();
     }
@@ -191,38 +191,38 @@ $pairs = static function (array $rows, string $ownerColumn, int $ownerId): array
 $fresh = $run($makeDb(), static function (ApplyFieldMaterializer $field): void {
     $field->reconcile_authored_meta(101, [
         // Canonical order: '_' (0x5F) sorts before 'd' (0x64), which is why
-        // the live refusal named '_duo_related' rather than its sibling.
-        '_duo_related' => 'field_duo_related',
-        'duo_related' => [RELATED_TOKEN],
+        // the live refusal named '_wprism_related' rather than its sibling.
+        '_wprism_related' => 'field_wprism_related',
+        'wprism_related' => [RELATED_TOKEN],
     ], 'post 101');
 });
 if ($fresh['failure'] !== null) {
-    duo_check_detail('refusal: ' . $fresh['failure']->getMessage());
+    wprism_check_detail('refusal: ' . $fresh['failure']->getMessage());
 }
-duo_check_same(
-    [['_duo_related', 'field_duo_related'], ['duo_related', RELATED_WIRE]],
+wprism_check_same(
+    [['_wprism_related', 'field_wprism_related'], ['wprism_related', RELATED_WIRE]],
     $pairs($fresh['postmeta'], 'post_id', 101),
     'a fresh post owner materializes both halves of a sibling-classified ACF field'
 );
 
 // ---------------------------------------------------------------- case 2
 // A half-applied owner (apply interrupted between the two rows) must heal.
-// Under the pre-write map '_duo_related' is unclassified there too, because
+// Under the pre-write map '_wprism_related' is unclassified there too, because
 // its own '<field>' sibling is the row that never landed.
 $partial = $run(
-    $makeDb([['meta_id' => 5, 'post_id' => 102, 'meta_key' => '_duo_related', 'meta_value' => 'field_duo_related']]),
+    $makeDb([['meta_id' => 5, 'post_id' => 102, 'meta_key' => '_wprism_related', 'meta_value' => 'field_wprism_related']]),
     static function (ApplyFieldMaterializer $field): void {
         $field->reconcile_authored_meta(102, [
-            '_duo_related' => 'field_duo_related',
-            'duo_related' => [RELATED_TOKEN],
+            '_wprism_related' => 'field_wprism_related',
+            'wprism_related' => [RELATED_TOKEN],
         ], 'post 102');
     }
 );
 if ($partial['failure'] !== null) {
-    duo_check_detail('refusal: ' . $partial['failure']->getMessage());
+    wprism_check_detail('refusal: ' . $partial['failure']->getMessage());
 }
-duo_check_same(
-    [['_duo_related', 'field_duo_related'], ['duo_related', RELATED_WIRE]],
+wprism_check_same(
+    [['_wprism_related', 'field_wprism_related'], ['wprism_related', RELATED_WIRE]],
     $pairs($partial['postmeta'], 'post_id', 102),
     'a half-applied ACF owner converges instead of refusing forever'
 );
@@ -233,18 +233,18 @@ duo_check_same(
 // so the established map still leaves that key unclassified. The roster
 // cannot argue itself into ownership of a target row it does not classify.
 $foreignRows = [
-    ['meta_id' => 6, 'post_id' => 103, 'meta_key' => '_duo_related', 'meta_value' => 'field_duo_undefined'],
-    ['meta_id' => 7, 'post_id' => 103, 'meta_key' => 'duo_related', 'meta_value' => 'target-owned'],
+    ['meta_id' => 6, 'post_id' => 103, 'meta_key' => '_wprism_related', 'meta_value' => 'field_wprism_undefined'],
+    ['meta_id' => 7, 'post_id' => 103, 'meta_key' => 'wprism_related', 'meta_value' => 'target-owned'],
 ];
 $foreign = $run($makeDb($foreignRows), static function (ApplyFieldMaterializer $field): void {
-    $field->reconcile_authored_meta(103, ['duo_related' => 'roster-value'], 'post 103');
+    $field->reconcile_authored_meta(103, ['wprism_related' => 'roster-value'], 'post 103');
 });
-duo_check(
+wprism_check(
     $foreign['failure'] instanceof Throwable
-        && str_contains($foreign['failure']->getMessage(), "authored post 103 meta 'duo_related' disagrees with the locked target context"),
+        && str_contains($foreign['failure']->getMessage(), "authored post 103 meta 'wprism_related' disagrees with the locked target context"),
     'a key the target\'s own pointer leaves unclassified still refuses under the lock'
 );
-duo_check_same($foreignRows, $foreign['postmeta'], 'that refusal happens before any mutation');
+wprism_check_same($foreignRows, $foreign['postmeta'], 'that refusal happens before any mutation');
 
 // ---------------------------------------------------------------- case 4
 // The other half of #556: a roster key that is non-authored under its own
@@ -254,27 +254,27 @@ duo_check_same($foreignRows, $foreign['postmeta'], 'that refusal happens before 
 $runtime = $run($makeDb(), static function (ApplyFieldMaterializer $field): void {
     $field->reconcile_authored_meta(104, ['_runtime_note' => 'not ours'], 'post 104');
 });
-duo_check(
+wprism_check(
     $runtime['failure'] instanceof Throwable
         && str_contains($runtime['failure']->getMessage(), "authored post 104 meta '_runtime_note' disagrees with the locked target context"),
     'a runtime-classified roster key still refuses on an empty owner range'
 );
-duo_check_same([], $runtime['postmeta'], 'the runtime-key refusal writes nothing');
+wprism_check_same([], $runtime['postmeta'], 'the runtime-key refusal writes nothing');
 
 // ---------------------------------------------------------------- case 5
 // term_meta_rule() reaches the same shadow-key machinery through the shared
 // reconcileMetaTable(), so the fresh-owner proof has to hold there too.
 $term = $run($makeDb(), static function (ApplyFieldMaterializer $field): void {
     $field->reconcile_authored_term_meta(31, [
-        '_duo_related' => 'field_duo_related',
-        'duo_related' => [RELATED_TOKEN],
+        '_wprism_related' => 'field_wprism_related',
+        'wprism_related' => [RELATED_TOKEN],
     ]);
 });
 if ($term['failure'] !== null) {
-    duo_check_detail('refusal: ' . $term['failure']->getMessage());
+    wprism_check_detail('refusal: ' . $term['failure']->getMessage());
 }
-duo_check_same(
-    [['_duo_related', 'field_duo_related'], ['duo_related', RELATED_WIRE]],
+wprism_check_same(
+    [['_wprism_related', 'field_wprism_related'], ['wprism_related', RELATED_WIRE]],
     $pairs($term['termmeta'], 'term_id', 31),
     'a fresh term owner materializes the same sibling-classified ACF field'
 );
@@ -290,18 +290,18 @@ $userFresh = $run($makeDb(), static function (ApplyFieldMaterializer $field, Use
     $user->finalize_user_meta([
         'login' => 'editor',
         'meta' => [
-            '_duo_related' => 'field_duo_related',
-            'duo_related' => [RELATED_TOKEN],
+            '_wprism_related' => 'field_wprism_related',
+            'wprism_related' => [RELATED_TOKEN],
         ],
     ]);
 });
 if ($userFresh['failure'] !== null) {
-    duo_check_detail('refusal: ' . $userFresh['failure']->getMessage());
+    wprism_check_detail('refusal: ' . $userFresh['failure']->getMessage());
 }
-duo_check_same(
-    [['_duo_related', 'field_duo_related'], ['duo_related', RELATED_WIRE]],
+wprism_check_same(
+    [['_wprism_related', 'field_wprism_related'], ['wprism_related', RELATED_WIRE]],
     $pairs($userFresh['usermeta'], 'user_id', 7),
     'a target user with no ACF rows yet takes the same authored user-meta pair'
 );
 
-duo_check_summary('authored meta locked-context classification');
+wprism_check_summary('authored meta locked-context classification');

@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Secrets.php';
 require_once __DIR__ . '/../Kernel/PersonalData.php';
@@ -22,22 +22,22 @@ final class InitSiteProbe {
      * First-run freshness: the ledger proper, counted apart from the
      * provenance journal.
      *
-     * `rows` answers exactly one question — has Duo ever owned identity on
-     * this environment. That is `duo_map` (uuid <-> local id), `duo_state`
-     * (content hash at last sync) and `duo_kv` (`applied_revision` and
-     * friends), plus any unknown `duo_*` table, which is itself non-pristine
-     * evidence. `duo_journal` is deliberately not part of it: its rows are
+     * `rows` answers exactly one question — has WPrism ever owned identity on
+     * this environment. That is `wprism_map` (uuid <-> local id), `wprism_state`
+     * (content hash at last sync) and `wprism_kv` (`applied_revision` and
+     * friends), plus any unknown `wprism_*` table, which is itself non-pristine
+     * evidence. `wprism_journal` is deliberately not part of it: its rows are
      * observations, a "proposal generator, never authority"
      * (`agent/src/Repository/Journal.php:7-8`), written by the single INSERT at
-     * `Journal.php:105-109` whose observer refuses every `duo_`-prefixed
-     * table (`:67`), so no journal row can ever be a Duo identity claim.
+     * `Journal.php:105-109` whose observer refuses every `wprism_`-prefixed
+     * table (`:67`), so no journal row can ever be a WPrism identity claim.
      *
-     * Folding the four counts into one made a site booted with `DUO_JOURNAL`
-     * on refuse `duo init` with `existing_duo_ledger` — "remove the abandoned
+     * Folding the four counts into one made a site booted with `WPRISM_JOURNAL`
+     * on refuse `wprism init` with `existing_wprism_ledger` — "remove the abandoned
      * baseline after review" — when no baseline, identity or captured state
-     * had ever existed, and the only escape (`wp duo journal-reset`) truncated
+     * had ever existed, and the only escape (`wp wprism journal-reset`) truncated
      * the one record of the runtime-observed options the post-init
-     * `duo pending` queue exists to name (DUO-3497). `Ledger::ensure()` creates
+     * `wprism pending` queue exists to name (issue #3497). `Ledger::ensure()` creates
      * all four tables on the journal's first flush (`Ledger.php:81-113`), so
      * that environment reached init with four tables and zero identity rows.
      *
@@ -45,37 +45,37 @@ final class InitSiteProbe {
      * can say the evidence is present and will survive init. It is a probe
      * return value, not a proposal field: `state.ledger` keeps its exact
      * `{rows, tables}` wire shape, and `rows` still reads 0 on every
-     * environment a ready `duo-init-plan/v1` proposal describes.
+     * environment a ready `wprism-init-plan/v1` proposal describes.
      *
      * @return array{tables:int,rows:int,observations:int}
      */
     public static function ledger(): array {
         global $wpdb;
-        $pattern = $wpdb->esc_like((string) $wpdb->prefix . 'duo_') . '%';
+        $pattern = $wpdb->esc_like((string) $wpdb->prefix . 'wprism_') . '%';
         $tables = (array) $wpdb->get_col($wpdb->prepare('SHOW TABLES LIKE %s', $pattern));
         if (!empty($wpdb->last_error)) {
-            throw new \RuntimeException('duo: init could not inspect the existing Duo ledger boundary');
+            throw new \RuntimeException('wprism: init could not inspect the existing WPrism ledger boundary');
         }
         sort($tables, SORT_STRING);
-        $journal = (string) $wpdb->prefix . 'duo_journal';
+        $journal = (string) $wpdb->prefix . 'wprism_journal';
         $expected = [
             $journal,
-            (string) $wpdb->prefix . 'duo_kv',
-            (string) $wpdb->prefix . 'duo_map',
-            (string) $wpdb->prefix . 'duo_state',
+            (string) $wpdb->prefix . 'wprism_kv',
+            (string) $wpdb->prefix . 'wprism_map',
+            (string) $wpdb->prefix . 'wprism_state',
         ];
         $rows = 0;
         $observations = 0;
         foreach ($tables as $table) {
             if (!in_array($table, $expected, true)) {
-                // An unknown duo_* table is itself non-pristine evidence;
+                // An unknown wprism_* table is itself non-pristine evidence;
                 // never interpolate its target-controlled name into SQL.
                 $rows++;
                 continue;
             }
             $count = $wpdb->get_var('SELECT COUNT(*) FROM `' . str_replace('`', '``', $table) . '`');
             if (!empty($wpdb->last_error) || !is_numeric($count)) {
-                throw new \RuntimeException('duo: init could not verify that the existing Duo ledger is pristine');
+                throw new \RuntimeException('wprism: init could not verify that the existing WPrism ledger is pristine');
             }
             if ($table === $journal) {
                 $observations += (int) $count;
@@ -142,14 +142,14 @@ final class InitSiteProbe {
             "SELECT COUNT(*) FROM {$wpdb->options} WHERE LENGTH(option_value) > 65536"
         );
         if (!is_numeric($oversizedOptions) || trim((string) $wpdb->last_error) !== '') {
-            throw new \RuntimeException('duo: init risk probe could not bound oversized option values safely');
+            throw new \RuntimeException('wprism: init risk probe could not bound oversized option values safely');
         }
         $oversizedOptions = (int) $oversizedOptions;
         $oversizedUserMeta = $wpdb->get_var(
             "SELECT COUNT(*) FROM {$wpdb->usermeta} WHERE LENGTH(meta_value) > 65536"
         );
         if (!is_numeric($oversizedUserMeta) || trim((string) $wpdb->last_error) !== '') {
-            throw new \RuntimeException('duo: init risk probe could not bound oversized user-meta values safely');
+            throw new \RuntimeException('wprism: init risk probe could not bound oversized user-meta values safely');
         }
         $oversizedUserMeta = (int) $oversizedUserMeta;
 
@@ -210,7 +210,7 @@ final class InitSiteProbe {
         $quotedTable = '`' . str_replace('`', '``', $table) . '`';
         foreach ([$idColumn, $nameColumn, $valueColumn] as $column) {
             if (preg_match('/^[A-Za-z0-9_]+$/D', $column) !== 1) {
-                throw new \RuntimeException('duo: init risk probe received an unsafe column boundary');
+                throw new \RuntimeException('wprism: init risk probe received an unsafe column boundary');
             }
         }
         $counts = [];
@@ -229,7 +229,7 @@ final class InitSiteProbe {
                 ARRAY_A
             );
             if (!is_array($batch) || trim((string) $wpdb->last_error) !== '') {
-                throw new \RuntimeException("duo: init risk probe could not read $failureLabel safely");
+                throw new \RuntimeException("wprism: init risk probe could not read $failureLabel safely");
             }
             if ($batch === []) {
                 break;

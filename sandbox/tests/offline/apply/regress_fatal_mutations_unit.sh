@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Offline half of DUO-3206's regression coverage. The prior implementation
+# Offline half of issue #3206's regression coverage. The prior implementation
 # had no checked mutation abstraction, treated wpdb false like success, and
 # read insert_id zero into the ledger; this harness therefore fails against
 # the prior defect before it can make any database changes.

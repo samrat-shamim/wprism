@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 /**
  * Engine-owned protocol shell for manifest-shipped provider behavior.
@@ -38,7 +38,7 @@ abstract class ManifestProviderRuntime {
             || !is_string($version) || preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/D', $version) !== 1
             || !is_array($contracts) || $contracts === [] || array_is_list($contracts)) {
             throw new \RuntimeException(
-                'duo: manifest-provider runtime requires one validated source: manifest declaration with contracts'
+                'wprism: manifest-provider runtime requires one validated source: manifest declaration with contracts'
             );
         }
 
@@ -46,7 +46,7 @@ abstract class ManifestProviderRuntime {
         if (!is_array($declared) || !array_is_list($declared)
             || $declared !== array_keys($contracts)) {
             throw new \RuntimeException(
-                "duo: manifest-provider '$id' contracts must exactly follow its declared capability list"
+                "wprism: manifest-provider '$id' contracts must exactly follow its declared capability list"
             );
         }
 
@@ -55,7 +55,7 @@ abstract class ManifestProviderRuntime {
                 || preg_match('/^[a-z0-9_]{1,64}$/D', $capability) !== 1
                 || !is_array($contract)) {
                 throw new \RuntimeException(
-                    "duo: manifest-provider '$id' carries a malformed capability contract"
+                    "wprism: manifest-provider '$id' carries a malformed capability contract"
                 );
             }
             $this->assertHandler($id, $capability, 'invoke');
@@ -94,7 +94,7 @@ abstract class ManifestProviderRuntime {
             || !array_key_exists('after', $receipt)
             || ($receipt['verified'] ?? null) !== true) {
             throw new \RuntimeException(
-                "duo: manifest-provider '{$this->declaration['id']}' capability '$capability' "
+                "wprism: manifest-provider '{$this->declaration['id']}' capability '$capability' "
                 . 'did not return before, after, and verified: true'
             );
         }
@@ -131,7 +131,7 @@ abstract class ManifestProviderRuntime {
         $contract = $this->declaration['contracts'][$capability] ?? null;
         if (!is_array($contract)) {
             throw new \RuntimeException(
-                "duo: manifest-provider '{$this->declaration['id']}' does not implement capability '$capability'"
+                "wprism: manifest-provider '{$this->declaration['id']}' does not implement capability '$capability'"
             );
         }
         return $contract;
@@ -142,7 +142,7 @@ abstract class ManifestProviderRuntime {
         $contract = $this->contract($capability);
         if (($contract['scoped']['reconcile'] ?? null) !== true) {
             throw new \RuntimeException(
-                "duo: manifest-provider '{$this->declaration['id']}' capability '$capability' "
+                "wprism: manifest-provider '{$this->declaration['id']}' capability '$capability' "
                 . 'does not declare scoped reconciliation'
             );
         }
@@ -165,7 +165,7 @@ abstract class ManifestProviderRuntime {
         $method = $phase . '_' . $capability;
         if (!method_exists($this, $method)) {
             throw new \RuntimeException(
-                "duo: manifest-provider '$id' capability '$capability' requires protected $method(array): array"
+                "wprism: manifest-provider '$id' capability '$capability' requires protected $method(array): array"
             );
         }
         $reflection = new \ReflectionMethod($this, $method);
@@ -181,7 +181,7 @@ abstract class ManifestProviderRuntime {
             || !$returnType instanceof \ReflectionNamedType
             || $returnType->getName() !== 'array') {
             throw new \RuntimeException(
-                "duo: manifest-provider '$id' capability '$capability' requires protected $method(array): array"
+                "wprism: manifest-provider '$id' capability '$capability' requires protected $method(array): array"
             );
         }
     }

@@ -1,7 +1,7 @@
 <?php
 /**
- * Offline regression for `duo census` — the fleet census
- * (`duo-fleet-census/v1`) over N `duo-assess-inventory/v1` submissions.
+ * Offline regression for `wprism census` — the fleet census
+ * (`wprism-fleet-census/v1`) over N `wprism-assess-inventory/v1` submissions.
  *
  * WHAT FAILS WITHOUT THE CHANGE
  * -----------------------------
@@ -9,20 +9,20 @@
  * than accidental: `Coverage` already names and counts what one site cannot
  * version (agent/src/Review/Coverage.php:336-364 groups the genuinely
  * invisible option rows by prefix with a probable owner; :296-317 counts every
- * undeclared custom table beside its own owner guess), `duo assess` already
+ * undeclared custom table beside its own owner guess), `wprism assess` already
  * carries that block through verbatim, and nothing anywhere folded two of
  * those documents together. So "which adapter is worth building next" had
  * exactly one possible basis — somebody's recollection.
  *
  * Against the pre-change tree every case here fails at the first call:
- * `duo: unknown verb 'census'`.
+ * `wprism: unknown verb 'census'`.
  *
  * WHY IT DRIVES THE EXECUTABLE
  * ----------------------------
  * Same reason `sandbox/tests/offline/refresh/regress_merge_check.php` does:
  * the deliverable includes a dispatch entry, a usage line and an exit-code
  * contract, and an in-process call to `FleetCensus::project()` would assert
- * the document while missing all three. Every case runs the real `cli/duo`
+ * the document while missing all three. Every case runs the real `cli/wprism`
  * process against real files under `sandbox/tmp/`.
  *
  * WHAT IS ASSERTED
@@ -70,7 +70,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../lib/check.php';
 
 $repoRoot = dirname(__DIR__, 4);
-$duo = $repoRoot . '/cli/duo';
+$wprism = $repoRoot . '/cli/wprism';
 
 // Fixtures live under sandbox/tmp/ — gitignored scratch, per AGENTS.md rule 3
 // — with a per-process suffix, because `make -j8` runs the corpus concurrently
@@ -102,15 +102,15 @@ function fc_write(string $path, array $document): void {
 }
 
 /**
- * Run the real `duo` executable.
+ * Run the real `wprism` executable.
  *
  * @param list<string> $args
  * @return array{exit:int,stdout:string,stderr:string}
  */
-function fc_run(string $duo, string $cwd, array $args): array {
+function fc_run(string $wprism, string $cwd, array $args): array {
     $pipes = [];
     $process = proc_open(
-        array_merge([PHP_BINARY, $duo], $args),
+        array_merge([PHP_BINARY, $wprism], $args),
         [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
         $pipes,
         $cwd,
@@ -118,7 +118,7 @@ function fc_run(string $duo, string $cwd, array $args): array {
         ['bypass_shell' => true]
     );
     if (!is_resource($process)) {
-        throw new RuntimeException('could not start the duo executable');
+        throw new RuntimeException('could not start the wprism executable');
     }
     fclose($pipes[0]);
     $stdout = (string) stream_get_contents($pipes[1]);
@@ -135,14 +135,14 @@ function fc_json(string $raw): ?array {
 }
 
 /**
- * `duo census …` — the verb is prepended here rather than at each call site so
+ * `wprism census …` — the verb is prepended here rather than at each call site so
  * no case can accidentally assert against a different one.
  *
  * @param list<string> $args
  * @return array{exit:int,stdout:string,stderr:string}
  */
-function fc_census(string $duo, string $cwd, array $args): array {
-    return fc_run($duo, $cwd, array_merge(['census'], $args));
+function fc_census(string $wprism, string $cwd, array $args): array {
+    return fc_run($wprism, $cwd, array_merge(['census'], $args));
 }
 
 /** The one demand row for a slug, or null. @return array<string,mixed>|null */
@@ -177,7 +177,7 @@ function fc_disposition(string $plugin, array $range, array $entitySections, arr
         ],
         'default_authored_keyspaces' => [],
         'evidence' => [
-            'bundle_schema' => 'duo-subject-certification-bundle/v1',
+            'bundle_schema' => 'wprism-subject-certification-bundle/v1',
             'tests' => ['conformance-fixture'],
         ],
         'reason' => 'Fixture disposition for the fleet census suite; no product claim.',
@@ -185,7 +185,7 @@ function fc_disposition(string $plugin, array $range, array $entitySections, arr
         'supported_versions' => ['plugin' => $plugin, 'range' => $range],
         'unsupported' => [[
             'operation' => 'all',
-            'reason' => 'Duo v1 refuses multisite, so this fixture claims none of it.',
+            'reason' => 'WPrism v1 refuses multisite, so this fixture claims none of it.',
             'surface' => 'multisite',
         ]],
     ];
@@ -300,7 +300,7 @@ function fc_inventory(
     }
 
     return [
-        'format' => 'duo-assess-inventory/v1',
+        'format' => 'wprism-assess-inventory/v1',
         'spec_version' => 2,
         'agent_version' => '0.5.0',
         'target' => [
@@ -317,7 +317,7 @@ function fc_inventory(
         'media' => ['count' => 2, 'bytes' => null],
         'policy' => ['manifests' => $pinRows, 'surface_groups' => []],
         'coverage' => [
-            'format' => 'duo-coverage-report/v1',
+            'format' => 'wprism-coverage-report/v1',
             'options' => $optionTotals + [
                 'declared_excluded_by_class' => [],
                 'invisible_groups' => $optionGroups,
@@ -436,26 +436,26 @@ fc_library($repoRoot, $library, ['entity' => ['tables'], 'field' => ['options']]
 
 // ------------------------------------------------------- 1. determinism
 
-$forward = fc_census($duo, $repoRoot, array_merge(
+$forward = fc_census($wprism, $repoRoot, array_merge(
     array_values($siteFlags),
     ['--manifests=' . $library, '--format=json']
 ));
-duo_check_same(0, $forward['exit'], 'a census over five submissions exits 0');
-duo_check_same('', $forward['stderr'], 'the JSON path writes nothing to stderr');
+wprism_check_same(0, $forward['exit'], 'a census over five submissions exits 0');
+wprism_check_same('', $forward['stderr'], 'the JSON path writes nothing to stderr');
 $document = fc_json($forward['stdout']);
-duo_check($document !== null, 'the JSON path emits one decodable document');
+wprism_check($document !== null, 'the JSON path emits one decodable document');
 // Against a tree with no `census` verb every assertion below has nothing to
 // read. Coercing here keeps that run a wall of named FAILs — which is the
 // evidence — instead of one fatal that hides the other sixty.
 $document ??= [];
-duo_check_same('duo-fleet-census/v1', $document['format'] ?? null, 'the document names its own versioned format');
+wprism_check_same('wprism-fleet-census/v1', $document['format'] ?? null, 'the document names its own versioned format');
 
-$reverse = fc_census($duo, $repoRoot, array_merge(
+$reverse = fc_census($wprism, $repoRoot, array_merge(
     array_reverse(array_values($siteFlags)),
     ['--manifests=' . $library, '--format=json']
 ));
-duo_check_same(0, $reverse['exit'], 'the reversed submission order also exits 0');
-duo_check_same(
+wprism_check_same(0, $reverse['exit'], 'the reversed submission order also exits 0');
+wprism_check_same(
     $forward['stdout'],
     $reverse['stdout'],
     'the rank is a function of the submitted SET: reversing the input order is byte-identical'
@@ -463,7 +463,7 @@ duo_check_same(
 
 // The rank itself, so "deterministic" cannot be satisfied by a document that
 // is stably wrong. Ties break on sites_installed, then on slug.
-duo_check_same(
+wprism_check_same(
     ['fixture-widget', 'fixture-gallery', 'fixture-ledger', 'fixture-forms'],
     array_map(static fn(array $row): string => (string) $row['slug'], (array) ($document['demand'] ?? [])),
     'demand ranks by sites x uncovered surface, ties broken by site count then slug'
@@ -472,45 +472,45 @@ duo_check_same(
 // -------------------------------------------------------- 2. redaction
 
 $encoded = (string) $forward['stdout'];
-duo_check(
+wprism_check(
     !str_contains($encoded, FC_SENTINEL_HOST),
     'no site URL survives the fold: target.home/siteurl are never read'
 );
-duo_check(
+wprism_check(
     !str_contains($encoded, FC_SENTINEL_HINT),
     'no review-queue ref_hint survives the fold: the pending block is never read'
 );
-duo_check(
+wprism_check(
     !str_contains($encoded, FC_SENTINEL_NAME),
     'no plugin or theme display name survives the fold: only the slug identity travels'
 );
 foreach (['home', 'siteurl', 'pending_rows', 'ref_hint'] as $forbidden) {
-    duo_check(
+    wprism_check(
         !str_contains($encoded, '"' . $forbidden . '"'),
         "the census document carries no '$forbidden' key anywhere"
     );
 }
 // The only site identifiers in the document are the caller's own labels.
-duo_check_same(
+wprism_check_same(
     ['alpha', 'bravo', 'charlie', 'delta'],
     array_map(static fn(array $row): string => (string) $row['label'], (array) ($document['sites'] ?? [])),
     'the per-site rows are keyed by the opaque caller label and nothing else'
 );
 
 // And the label cannot BE a site identifier: the grammar admits no dot.
-$hostLabel = fc_census($duo, $repoRoot, [
+$hostLabel = fc_census($wprism, $repoRoot, [
     '--site=alpha.example.com=' . $inventories . '/alpha.json',
     '--manifests=' . $library,
     '--format=json',
 ]);
-duo_check_same(1, $hostLabel['exit'], 'a label that could be a hostname refuses');
+wprism_check_same(1, $hostLabel['exit'], 'a label that could be a hostname refuses');
 $refusal = fc_json($hostLabel['stdout']);
-duo_check_same(
+wprism_check_same(
     'census_label_not_opaque',
     $refusal['reason_code'] ?? null,
     'the hostname-shaped label refuses with its own reason code in the machine envelope'
 );
-duo_check(
+wprism_check(
     !str_contains((string) $hostLabel['stdout'], 'alpha.example.com'),
     'the refusal does not echo the offending label — that is the identity the grammar excludes'
 );
@@ -518,38 +518,38 @@ duo_check(
 // ------------------------------------------- 3. coverage credit is reviewed
 
 $forms = fc_demand($document, 'fixture-forms');
-duo_check($forms !== null, 'the crediting adapter has a demand row');
+wprism_check($forms !== null, 'the crediting adapter has a demand row');
 $forms ??= [];
-duo_check_same(
+wprism_check_same(
     [],
     (array) ($forms['uncovered_surfaces'] ?? null),
     'a residual inside claim_from_disposition() derived surfaces is NOT counted as demand'
 );
-duo_check_same(
+wprism_check_same(
     ['options:fixture_forms', 'tables:fixture_forms_log'],
     (array) ($forms['claimed_surfaces'] ?? null),
     'that residual is reported as already claimed — the remedy is a pin, not an adapter'
 );
-duo_check_same(0, (int) ($forms['demand_score'] ?? -1), 'a fully claimed residual scores zero demand');
+wprism_check_same(0, (int) ($forms['demand_score'] ?? -1), 'a fully claimed residual scores zero demand');
 
 $gallery = fc_demand($document, 'fixture-gallery');
-duo_check($gallery !== null, 'the declared-but-unreviewed adapter has a demand row');
+wprism_check($gallery !== null, 'the declared-but-unreviewed adapter has a demand row');
 $gallery ??= [];
-duo_check_same(
+wprism_check_same(
     ['options:fixture_gallery', 'tables:fixture_gallery_cache'],
     (array) ($gallery['uncovered_surfaces'] ?? null),
     'DECLARING the sections earns zero credit: the disposition names none, so the expansion never runs'
 );
-duo_check_same(
+wprism_check_same(
     [],
     (array) ($gallery['claimed_surfaces'] ?? null),
     'and nothing about it is claimed'
 );
 
 $ledger = fc_demand($document, 'fixture-ledger');
-duo_check($ledger !== null, 'the section-naming adapter has a demand row');
+wprism_check($ledger !== null, 'the section-naming adapter has a demand row');
 $ledger ??= [];
-duo_check_same(
+wprism_check_same(
     ['tables:fixture_ledger_events'],
     (array) ($ledger['uncovered_surfaces'] ?? null),
     'NAMING a section earns zero: only the bare section string is minted, never tables.<key>'
@@ -559,24 +559,24 @@ duo_check_same(
 // adapter's reviewed sections emptied. Credit must vanish.
 $narrowed = $scratch . '/library-narrowed';
 fc_library($repoRoot, $narrowed, ['entity' => [], 'field' => []]);
-$narrowedRun = fc_census($duo, $repoRoot, array_merge(
+$narrowedRun = fc_census($wprism, $repoRoot, array_merge(
     array_values($siteFlags),
     ['--manifests=' . $narrowed, '--format=json']
 ));
-duo_check_same(0, $narrowedRun['exit'], 'the narrowed-library census exits 0');
+wprism_check_same(0, $narrowedRun['exit'], 'the narrowed-library census exits 0');
 $narrowedDocument = fc_json($narrowedRun['stdout']) ?? [];
 $narrowedForms = fc_demand($narrowedDocument, 'fixture-forms') ?? [];
-duo_check_same(
+wprism_check_same(
     ['options:fixture_forms', 'tables:fixture_forms_log'],
     (array) ($narrowedForms['uncovered_surfaces'] ?? null),
     'emptying the reviewed sections moves the same residual back into demand — credit is the REVIEW, not the manifest'
 );
-duo_check_same(
+wprism_check_same(
     6,
     (int) ($narrowedForms['demand_score'] ?? -1),
     'and the demand score rises with it (3 sites x 2 uncovered surfaces)'
 );
-duo_check(
+wprism_check(
     isset($document['library']['surfaces_sha256'], $narrowedDocument['library']['surfaces_sha256'])
         && $document['library']['surfaces_sha256'] !== $narrowedDocument['library']['surfaces_sha256'],
     'the published surfaces_sha256 is the content address of the coverage oracle, so the two runs are distinguishable'
@@ -585,37 +585,37 @@ duo_check(
 // ----------------------------------------- 4. the denominator is disclosed
 
 $population = (array) ($document['population'] ?? []);
-duo_check_same(5, (int) ($population['submissions'] ?? -1), 'the population names every submission received');
-duo_check_same(4, (int) ($population['eligible'] ?? -1), 'and the eligible count every ratio divides by');
-duo_check_same(1, (int) ($population['excluded_total'] ?? -1), 'the excluded population is counted, not dropped');
-// duo_check_json_equal, not duo_check_same: `Canon::encode()` ksorts object
+wprism_check_same(5, (int) ($population['submissions'] ?? -1), 'the population names every submission received');
+wprism_check_same(4, (int) ($population['eligible'] ?? -1), 'and the eligible count every ratio divides by');
+wprism_check_same(1, (int) ($population['excluded_total'] ?? -1), 'the excluded population is counted, not dropped');
+// wprism_check_json_equal, not wprism_check_same: `Canon::encode()` ksorts object
 // keys, so an ordered literal here would be asserting the encoder rather than
 // the fact.
-duo_check_json_equal(
+wprism_check_json_equal(
     [['site_mode' => 'multisite', 'sites' => 1,
       'reason' => 'outside the platform boundary, which claims site_mode single-site']],
     (array) ($population['excluded'] ?? []),
     'the excluded population is NAMED with its topology and the boundary that excluded it'
 );
-duo_check_same('eligible', (string) ($population['denominator'] ?? ''), 'the denominator names itself');
-duo_check(
+wprism_check_same('eligible', (string) ($population['denominator'] ?? ''), 'the denominator names itself');
+wprism_check(
     str_contains((string) ($population['disclosure'] ?? ''), '4 eligible')
         && str_contains((string) ($population['disclosure'] ?? ''), '1 excluded'),
     'the disclosure sentence carries both halves of the denominator'
 );
-duo_check_same(
+wprism_check_same(
     null,
     fc_demand($document, 'fixture-network'),
     'an excluded submission contributes to no demand row, however loud its residual'
 );
-duo_check_same(
+wprism_check_same(
     'single-site',
     (string) ($document['library']['site_mode'] ?? ''),
     'the eligibility rule is read from the platform boundary, not from a literal'
 );
 
 // The residual that nobody owns is still residual, and still named.
-duo_check_json_equal(
+wprism_check_json_equal(
     ['option_groups' => [['prefix' => 'orphan_ns', 'count' => 4]], 'tables' => [],
      'surfaces' => 1, 'option_rows' => 4, 'table_rows' => 0],
     (array) ($document['unattributed'] ?? []),
@@ -624,30 +624,30 @@ duo_check_json_equal(
 
 // ------------------------------------------------------------ 5. the funnel
 
-duo_check_same('no_adapter', (string) ((fc_demand($document, 'fixture-widget') ?? [])['funnel_stage'] ?? ''),
+wprism_check_same('no_adapter', (string) ((fc_demand($document, 'fixture-widget') ?? [])['funnel_stage'] ?? ''),
     'a plugin no adapter declares reads no_adapter — this is demand');
-duo_check_same('adapter_unpinned', (string) ($ledger['funnel_stage'] ?? ''),
+wprism_check_same('adapter_unpinned', (string) ($ledger['funnel_stage'] ?? ''),
     'an adapter that exists and is reviewed but that no site pins reads adapter_unpinned — this is adoption');
-duo_check_same('adapter_unreviewed', (string) ($gallery['funnel_stage'] ?? ''),
+wprism_check_same('adapter_unreviewed', (string) ($gallery['funnel_stage'] ?? ''),
     'an adapter whose review names nothing reads adapter_unreviewed');
-duo_check_same('adapter_pinned', (string) ($forms['funnel_stage'] ?? ''),
+wprism_check_same('adapter_pinned', (string) ($forms['funnel_stage'] ?? ''),
     'an adapter at least one site pins reads adapter_pinned');
-duo_check_same(1, (int) ($forms['sites_pinning'] ?? -1), 'and the row counts the sites that pin it');
-duo_check_same(3, (int) ($forms['sites_installed'] ?? -1), 'against the sites that installed the plugin');
-duo_check_same(2, (int) ($forms['sites_unpinned'] ?? -1), 'leaving the adoption gap as its own number');
+wprism_check_same(1, (int) ($forms['sites_pinning'] ?? -1), 'and the row counts the sites that pin it');
+wprism_check_same(3, (int) ($forms['sites_installed'] ?? -1), 'against the sites that installed the plugin');
+wprism_check_same(2, (int) ($forms['sites_unpinned'] ?? -1), 'leaving the adoption gap as its own number');
 
 $funnel = (array) ($document['funnel'] ?? []);
 $stages = array_keys($funnel);
 $expectedStages = ['no_adapter', 'adapter_unreviewed', 'adapter_unpinned', 'adapter_pinned'];
 sort($stages, SORT_STRING);
 sort($expectedStages, SORT_STRING);
-duo_check_same(
+wprism_check_same(
     $expectedStages,
     $stages,
     'every funnel stage is present including the zeroes — the count is the signal'
 );
-duo_check_same(1, (int) ($funnel['no_adapter']['plugins'] ?? -1), 'the funnel counts the no-adapter plugins');
-duo_check_same(1, (int) ($funnel['adapter_unpinned']['plugins'] ?? -1), 'separately from the adapter-exists-unpinned ones');
+wprism_check_same(1, (int) ($funnel['no_adapter']['plugins'] ?? -1), 'the funnel counts the no-adapter plugins');
+wprism_check_same(1, (int) ($funnel['adapter_unpinned']['plugins'] ?? -1), 'separately from the adapter-exists-unpinned ones');
 
 // ---------------------------------------------- the ratio and its residual
 
@@ -657,23 +657,23 @@ foreach ((array) ($document['sites'] ?? []) as $row) {
         $alpha = (array) $row;
     }
 }
-duo_check($alpha !== null, 'alpha has a per-site row');
+wprism_check($alpha !== null, 'alpha has a per-site row');
 $alpha ??= ['surfaces' => [], 'residual' => ['option_groups' => []]];
 // 200 option rows + 1 non-core table = 201 surfaces; 120 captured + 25
 // declared-excluded + 0 covered tables = 145 covered.
-duo_check_json_equal(
+wprism_check_json_equal(
     ['total' => 201, 'covered' => 145, 'pending' => 2, 'uncovered' => 54,
      'covered_ppm' => intdiv(145 * 1000000, 201)],
     (array) ($alpha['surfaces'] ?? []),
     'the per-site ratio reconciles: covered + pending + uncovered === total'
 );
-duo_check_same(
+wprism_check_same(
     3,
     count((array) ($alpha['residual']['option_groups'] ?? [])),
     'the residual is NAMED per site, not merely counted'
 );
 $fleet = (array) ($document['fleet'] ?? []);
-duo_check_same(
+wprism_check_same(
     (int) ($fleet['total'] ?? -1),
     array_sum(array_map(static fn(array $row): int => (int) $row['surfaces']['total'], (array) ($document['sites'] ?? []))),
     'the fleet denominator is the sum of the eligible site denominators and nothing else'
@@ -681,14 +681,14 @@ duo_check_same(
 
 // ------------------------------------------------------ the basis is labelled
 
-duo_check_same('narrow', (string) ($document['basis']['sample_class'] ?? ''),
+wprism_check_same('narrow', (string) ($document['basis']['sample_class'] ?? ''),
     'a four-site census is labelled narrow rather than published as a fleet verdict');
-duo_check(
+wprism_check(
     str_contains((string) ($document['basis']['caveat'] ?? ''), '4 eligible'),
     'and the caveat names the number the rank rests on'
 );
-$one = fc_census($duo, $repoRoot, [$siteFlags['alpha'], '--manifests=' . $library, '--format=json']);
-duo_check_same('one-site', (string) ((fc_json($one['stdout']) ?? [])['basis']['sample_class'] ?? ''),
+$one = fc_census($wprism, $repoRoot, [$siteFlags['alpha'], '--manifests=' . $library, '--format=json']);
+wprism_check_same('one-site', (string) ((fc_json($one['stdout']) ?? [])['basis']['sample_class'] ?? ''),
     'a census of one estate says so — a labelled sample of one is still better than no basis at all');
 
 // The checkout default is the closed package inventory, while an explicit
@@ -698,25 +698,25 @@ duo_check_same('one-site', (string) ((fc_json($one['stdout']) ?? [])['basis']['s
 // fleet projection learning the new paths.
 require_once $repoRoot . '/cli/src/Assess/FleetCensus.php';
 require_once $repoRoot . '/agent/src/Policy/Policy.php';
-$closedShippedOracle = \Duo\Orchestrator\FleetCensus::library(\Duo\Policy::shipped_adapter_library());
+$closedShippedOracle = \WPrism\Orchestrator\FleetCensus::library(\WPrism\Policy::shipped_adapter_library());
 if (is_dir($repoRoot . '/manifests')) {
-    $legacyShippedOracle = \Duo\Orchestrator\FleetCensus::library($repoRoot . '/manifests');
-    duo_check_same(
+    $legacyShippedOracle = \WPrism\Orchestrator\FleetCensus::library($repoRoot . '/manifests');
+    wprism_check_same(
         $legacyShippedOracle,
         $closedShippedOracle,
         'the closed shipped AdapterLibrary preserves the exact fleet coverage oracle of the legacy flat reader'
     );
 }
-$defaultLibraryRun = fc_census($duo, $repoRoot, [$siteFlags['alpha'], '--format=json']);
-duo_check_same(0, $defaultLibraryRun['exit'], 'omitting --manifests resolves the checkout shipped AdapterLibrary');
+$defaultLibraryRun = fc_census($wprism, $repoRoot, [$siteFlags['alpha'], '--format=json']);
+wprism_check_same(0, $defaultLibraryRun['exit'], 'omitting --manifests resolves the checkout shipped AdapterLibrary');
 $defaultLibraryDocument = fc_json($defaultLibraryRun['stdout']) ?? [];
-duo_check_same(count($closedShippedOracle['adapters']), $defaultLibraryDocument['library']['adapters'] ?? null,
+wprism_check_same(count($closedShippedOracle['adapters']), $defaultLibraryDocument['library']['adapters'] ?? null,
     'the default command enumerates the closed shipped package inventory');
 if (is_dir($repoRoot . '/manifests')) {
-    $explicitShippedRun = fc_census($duo, $repoRoot, [
+    $explicitShippedRun = fc_census($wprism, $repoRoot, [
         $siteFlags['alpha'], '--manifests=' . $repoRoot . '/manifests', '--format=json',
     ]);
-    duo_check_same(
+    wprism_check_same(
         $explicitShippedRun['stdout'],
         $defaultLibraryRun['stdout'],
         'the shipped-object default is byte-identical to the transitional explicit flat-library projection'
@@ -725,18 +725,18 @@ if (is_dir($repoRoot . '/manifests')) {
 
 // ------------------------------------------------------- the verb contract
 
-$usage = fc_run($duo, $repoRoot, ['census', '--not-a-flag=1']);
-duo_check_same(2, $usage['exit'], 'an unrecognized flag is a usage error (2), matching the env-free verb family');
-$none = fc_census($duo, $repoRoot, ['--manifests=' . $library]);
-duo_check_same(1, $none['exit'], 'a census with no submissions refuses (1) rather than publishing an empty fleet');
+$usage = fc_run($wprism, $repoRoot, ['census', '--not-a-flag=1']);
+wprism_check_same(2, $usage['exit'], 'an unrecognized flag is a usage error (2), matching the env-free verb family');
+$none = fc_census($wprism, $repoRoot, ['--manifests=' . $library]);
+wprism_check_same(1, $none['exit'], 'a census with no submissions refuses (1) rather than publishing an empty fleet');
 
-$missing = fc_census($duo, $repoRoot, [
+$missing = fc_census($wprism, $repoRoot, [
     '--site=alpha=' . $scratch . '/does-not-exist.json',
     '--manifests=' . $library,
     '--format=json',
 ]);
-duo_check_same(1, $missing['exit'], 'an unreadable submission refuses');
-duo_check_same(
+wprism_check_same(1, $missing['exit'], 'an unreadable submission refuses');
+wprism_check_same(
     'census_inventory_unreadable',
     (fc_json($missing['stdout']) ?? [])['reason_code'] ?? null,
     'and names why in the machine envelope rather than on stderr'
@@ -753,45 +753,45 @@ fc_write($hostile . '/site.example.com.json', fc_inventory(
     [],
     fc_options(10, 10, 0, 0, 0, 0)
 ));
-$hostileRun = fc_census($duo, $repoRoot, ['--dir=' . $hostile, '--manifests=' . $library, '--format=json']);
-duo_check_same(1, $hostileRun['exit'], '--dir refuses a submission whose filename is a site identifier');
-duo_check_same(
+$hostileRun = fc_census($wprism, $repoRoot, ['--dir=' . $hostile, '--manifests=' . $library, '--format=json']);
+wprism_check_same(1, $hostileRun['exit'], '--dir refuses a submission whose filename is a site identifier');
+wprism_check_same(
     'census_label_not_opaque',
     (fc_json($hostileRun['stdout']) ?? [])['reason_code'] ?? null,
     'with the same reason code the explicit label path uses'
 );
 
 // The human view exists and is bounded; it prints counts, never listings.
-$human = fc_census($duo, $repoRoot, array_merge(
+$human = fc_census($wprism, $repoRoot, array_merge(
     array_values($siteFlags),
     ['--manifests=' . $library, '--limit=2']
 ));
-duo_check_same(0, $human['exit'], 'the human view exits 0');
-duo_check(
+wprism_check_same(0, $human['exit'], 'the human view exits 0');
+wprism_check(
     str_contains($human['stdout'], 'demand: 2 further row(s) in --format=json'),
     '--limit bounds the human rank and points at the unbounded document'
 );
-duo_check(
+wprism_check(
     !str_contains($human['stdout'], FC_SENTINEL_HOST) && !str_contains($human['stdout'], FC_SENTINEL_HINT),
     'and the human view carries no sentinel either'
 );
 
-// The verb must be reachable and documented through cli/duo itself — the two
+// The verb must be reachable and documented through cli/wprism itself — the two
 // halves an in-process test of FleetCensus could not see.
-$shell = (string) file_get_contents($duo);
-duo_check(
+$shell = (string) file_get_contents($wprism);
+wprism_check(
     str_contains($shell, "if (\$verb === 'census') {"),
-    'census is registered in cli/duo dispatch, before the environment preflight'
+    'census is registered in cli/wprism dispatch, before the environment preflight'
 );
-duo_check(
-    str_contains($shell, 'duo census --site=<label>=<inventory.json>'),
+wprism_check(
+    str_contains($shell, 'wprism census --site=<label>=<inventory.json>'),
     'census appears in the public usage text'
 );
 require_once $repoRoot . '/cli/src/Command/EnvironmentCommandPreflight.php';
 require_once $repoRoot . '/cli/src/Transport/EnvironmentDriver.php';
-duo_check(
-    !in_array('census', \Duo\Orchestrator\EnvironmentCommandPreflight::environmentVerbs(), true),
+wprism_check(
+    !in_array('census', \WPrism\Orchestrator\EnvironmentCommandPreflight::environmentVerbs(), true),
     'census is NOT an environment verb: it has no target, and binding it to one would be a category error'
 );
 
-duo_check_summary('regress_fleet_census');
+wprism_check_summary('regress_fleet_census');

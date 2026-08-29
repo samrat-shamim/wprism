@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Repository/ReferenceGraph.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
@@ -8,7 +8,7 @@ require_once __DIR__ . '/../Kernel/OptionState.php';
  * Resolve a bounded set of canonical entities from explicit roots, closing
  * over every declared edge that the roots cannot survive without.
  *
- * DUO-3344's premise is that a developer moving one feature should never
+ * issue #3344's premise is that a developer moving one feature should never
  * have to remember which term, attachment, menu, or child row a page
  * silently depends on. So the closure is computed, never asked for: the
  * caller names roots, and everything reachable from them through a DECLARED
@@ -39,7 +39,7 @@ require_once __DIR__ . '/../Kernel/OptionState.php';
  * owns mutation bounds, deletion checks, and durable receipts. Scoped apply,
  * promote, verification, and rollback remain outside v1.
  *
- * DUO-3344: an `option:<name>` root names one authored option instead of
+ * issue #3344: an `option:<name>` root names one authored option instead of
  * the whole `options/core` surface (`options` remains the coarse selector).
  * Every other root is a real compiled tree key; an option is not -- it is
  * one record inside one file -- so it resolves to a synthetic key
@@ -53,7 +53,7 @@ require_once __DIR__ . '/../Kernel/OptionState.php';
  * authority grant through this read-only resolver.
  */
 final class ScopeClosure {
-    public const FORMAT = 'duo-scope/v1';
+    public const FORMAT = 'wprism-scope/v1';
 
     /**
      * The whole-site scope. Named rather than special-cased so that a
@@ -180,7 +180,7 @@ final class ScopeClosure {
                 $queue[] = $target;
             }
 
-            // Declared parent -> child descent (DUO-3315). A parent row is
+            // Declared parent -> child descent (issue #3315). A parent row is
             // incomplete without the child types its adapter declares — a
             // product without its variations is not a smaller product. The
             // engine learns which types those are from the manifest, never
@@ -226,7 +226,7 @@ final class ScopeClosure {
      */
     private static function resolve_roots(array $tree, array $owners, array $selectors): array {
         if (!$selectors) {
-            throw new \RuntimeException('duo: a scope needs at least one root selector (or "all")');
+            throw new \RuntimeException('wprism: a scope needs at least one root selector (or "all")');
         }
         $roots = [];
         foreach ($selectors as $selector) {
@@ -243,7 +243,7 @@ final class ScopeClosure {
             $roots[] = ['selector' => $selector, 'entity' => self::resolve_one($tree, $owners, $selector)];
         }
         if (!$roots) {
-            throw new \RuntimeException('duo: a scope needs at least one root selector (or "all")');
+            throw new \RuntimeException('wprism: a scope needs at least one root selector (or "all")');
         }
         return $roots;
     }
@@ -256,7 +256,7 @@ final class ScopeClosure {
         [$prefix, $rest] = array_pad(explode(':', $selector, 2), 2, null);
         if ($rest === null || $rest === '') {
             throw new \RuntimeException(
-                "duo: root selector '$selector' is not understood — " . self::GRAMMAR
+                "wprism: root selector '$selector' is not understood — " . self::GRAMMAR
             );
         }
         switch ($prefix) {
@@ -266,7 +266,7 @@ final class ScopeClosure {
                         return (string) $key;
                     }
                 }
-                throw new \RuntimeException("duo: root selector '$selector' names no entity in this revision");
+                throw new \RuntimeException("wprism: root selector '$selector' names no entity in this revision");
             case 'menu':
                 return self::require_typed_slug($tree, 'menu', 'slug', $rest, $selector);
             case 'sidebar':
@@ -278,21 +278,21 @@ final class ScopeClosure {
             case 'table':
                 [$table, $uuid] = array_pad(explode(':', $rest, 2), 2, null);
                 if ($uuid === null || $uuid === '') {
-                    throw new \RuntimeException("duo: root selector '$selector' needs the form table:<table>:<uuid>");
+                    throw new \RuntimeException("wprism: root selector '$selector' needs the form table:<table>:<uuid>");
                 }
                 return self::require_uuid($tree, $owners, $uuid, [(string) $table], $selector);
             case 'post':
             case 'term':
                 return self::require_uuid($tree, $owners, $rest, [$prefix], $selector);
         }
-        throw new \RuntimeException("duo: root selector '$selector' is not understood — " . self::GRAMMAR);
+        throw new \RuntimeException("wprism: root selector '$selector' is not understood — " . self::GRAMMAR);
     }
 
     private const GRAMMAR = 'roots are post:<uuid>, term:<uuid>, table:<table>:<uuid>, menu:<slug>, sidebar:<id>, user-meta:<login>, options, option:<name>, path:<state-relative-path>, or all';
 
     private static function require_key(array $tree, string $key, string $selector): string {
         if (!isset($tree[$key])) {
-            throw new \RuntimeException("duo: root selector '$selector' names no entity in this revision");
+            throw new \RuntimeException("wprism: root selector '$selector' names no entity in this revision");
         }
         return $key;
     }
@@ -306,11 +306,11 @@ final class ScopeClosure {
      */
     private static function require_option(array $tree, string $name, string $selector): string {
         if (!isset($tree['options/core'])) {
-            throw new \RuntimeException("duo: root selector '$selector' names no entity in this revision");
+            throw new \RuntimeException("wprism: root selector '$selector' names no entity in this revision");
         }
         $records = OptionState::records($tree['options/core']['data']);
         if (!array_key_exists($name, $records)) {
-            throw new \RuntimeException("duo: root selector '$selector' names no authored option in this revision");
+            throw new \RuntimeException("wprism: root selector '$selector' names no authored option in this revision");
         }
         return self::option_key($name);
     }
@@ -412,8 +412,8 @@ final class ScopeClosure {
                 $matchedNames = implode("', '", $matches);
                 throw new \RuntimeException(
                     count($matches) === 0
-                        ? "duo: option reference edge '$locator' does not resolve to any authored option name"
-                        : "duo: option reference edge '$locator' matches more than one option name ('$matchedNames') -- "
+                        ? "wprism: option reference edge '$locator' does not resolve to any authored option name"
+                        : "wprism: option reference edge '$locator' matches more than one option name ('$matchedNames') -- "
                             . 'refusing rather than guessing which option owns this dependency'
                 );
             }
@@ -438,7 +438,7 @@ final class ScopeClosure {
                 return (string) $key;
             }
         }
-        throw new \RuntimeException("duo: root selector '$selector' names no $type in this revision");
+        throw new \RuntimeException("wprism: root selector '$selector' names no $type in this revision");
     }
 
     /** @param list<string> $expectTypes */
@@ -447,7 +447,7 @@ final class ScopeClosure {
             $actual = (string) $tree[$uuid]['type'];
             if (!in_array($actual, $expectTypes, true)) {
                 throw new \RuntimeException(
-                    "duo: root selector '$selector' resolves to a '$actual' entity ({$tree[$uuid]['path']}), not "
+                    "wprism: root selector '$selector' resolves to a '$actual' entity ({$tree[$uuid]['path']}), not "
                     . implode('/', $expectTypes) . ' — a scope root is refused rather than silently retyped'
                 );
             }
@@ -459,11 +459,11 @@ final class ScopeClosure {
         $owner = $owners[$uuid] ?? null;
         if ($owner !== null) {
             throw new \RuntimeException(
-                "duo: root selector '$selector' names a {$owner['kind']} carried by {$tree[$owner['entity']]['path']} — "
+                "wprism: root selector '$selector' names a {$owner['kind']} carried by {$tree[$owner['entity']]['path']} — "
                 . 'select that entity instead; a menu item or widget cannot be scoped away from its owner'
             );
         }
-        throw new \RuntimeException("duo: root selector '$selector' names no entity in this revision");
+        throw new \RuntimeException("wprism: root selector '$selector' names no entity in this revision");
     }
 
     /**

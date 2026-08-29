@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Ninja Forms manifest post-deploy hook (task DUO-3223 — closes the gap
+# Ninja Forms manifest post-deploy hook (task issue #3223 — closes the gap
 # task #19 found when the conf-pair harness moved conf2's plugin activation
-# out of install_env and into `wp duo deploy`): removes conf2's OWN
+# out of install_env and into `wp wprism deploy`): removes conf2's OWN
 # activation-created "Contact Me" sample form, the exact same cleanup
 # seeds/ninja-forms.sh already does for conf1, just delayed until conf2
 # actually HAS one to remove.
@@ -21,14 +21,14 @@
 #
 # Why this can't be seeds/ninja-forms.sh's job for conf2 too: at seed time
 # conf2 has no active Ninja Forms install at all (install_env's role=target
-# is plugin-files-only — this is the harness's real promotion path, `wp duo
+# is plugin-files-only — this is the harness's real promotion path, `wp wprism
 # deploy`, exercising actual activate_plugin() reconciliation instead of
 # pre-activating both sides upfront). conf2's own "Contact Me" row doesn't
 # exist to remove until deploy activates the plugin, which is why this
 # cleanup runs here — run.sh's generic post-deploy hook point
 # (conformance/postdeploy/<name>.sh, see run.sh's header comment for the
-# full timing contract), invoked strictly after `wp duo deploy` and
-# strictly before `duo apply` on conf2 only. Invoked by conformance/run.sh
+# full timing contract), invoked strictly after `wp wprism deploy` and
+# strictly before `wprism apply` on conf2 only. Invoked by conformance/run.sh
 # with wp_conf2/$COMPOSE already exported; runs from the sandbox/ directory.
 set -euo pipefail
 
@@ -59,7 +59,7 @@ if ($id) {
     $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->prefix}nf3_forms WHERE id = %d", $id));
     echo "removed this environment's own activation-created 'Contact Me' form (id=$id)\n";
 }
-// DUO-3381: report the POST-CONDITION, not just what was attempted. This
+// issue #3381: report the POST-CONDITION, not just what was attempted. This
 // cleanup is the premise for run.sh's cross-environment byte-diff — a row
 // left behind here surfaces there as "round-trip mismatch between conf1
 // and conf2", an accusation against capture/apply for a fixture this

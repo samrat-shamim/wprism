@@ -1,6 +1,6 @@
 <?php
 /**
- * Direct offline certification for DUO-3349's extracted live scope boundary.
+ * Direct offline certification for issue #3349's extracted live scope boundary.
  *
  * The fixture executes ScopeDiscovery without loading Capture, Policy, Tokens,
  * or WordPress. It pins query order, post/term selection, authored-looking gap
@@ -19,7 +19,7 @@ namespace {
     }
 }
 
-namespace Duo {
+namespace WPrism {
     /** @var string[] */
     $scopeDiscoveryPublicPostTypes = ['page', 'book', 'runtime_type'];
     // Registered by a plugin (`_builtin` false) but public:false — the
@@ -73,7 +73,7 @@ namespace Duo {
     };
 
     $check(class_exists(ScopeDiscovery::class, false), 'ScopeDiscovery loads as a direct offline boundary');
-    foreach (['Duo\\Capture', 'Duo\\Policy', 'Duo\\Tokens', 'Duo\\ScopeClosure', 'Duo\\ScopeContract'] as $runtimeClass) {
+    foreach (['WPrism\\Capture', 'WPrism\\Policy', 'WPrism\\Tokens', 'WPrism\\ScopeClosure', 'WPrism\\ScopeContract'] as $runtimeClass) {
         $check(!class_exists($runtimeClass, false), "ScopeDiscovery does not load $runtimeClass");
     }
 

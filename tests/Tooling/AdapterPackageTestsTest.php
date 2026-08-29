@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
-use Duo\Tooling\AdapterPackageTestDiscovery;
-use Duo\Tooling\AdapterPackageTestRunner;
-use Duo\Tooling\AdapterPackageTestsCommand;
-use Duo\Tooling\AdapterPackageValidator;
+use WPrism\Tooling\AdapterPackageTestDiscovery;
+use WPrism\Tooling\AdapterPackageTestRunner;
+use WPrism\Tooling\AdapterPackageTestsCommand;
+use WPrism\Tooling\AdapterPackageValidator;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -23,7 +23,7 @@ final class AdapterPackageTestsTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->root = sys_get_temp_dir() . '/duo-adapter-package-tests-' . bin2hex(random_bytes(8));
+        $this->root = sys_get_temp_dir() . '/wprism-adapter-package-tests-' . bin2hex(random_bytes(8));
         self::makeDirectory($this->root . '/adapter-packages');
         $canonical = realpath($this->root);
         self::assertNotFalse($canonical);
@@ -85,23 +85,23 @@ final class AdapterPackageTestsTest extends TestCase
     public function testRuntimeSdkIsVersionedAndInventoriesEveryCurrentLegitimateDependency(): void
     {
         self::assertSame([
-            'format' => 'duo-adapter-runtime-sdk/v1',
+            'format' => 'wprism-adapter-runtime-sdk/v1',
             'symbols' => [
-                'Duo\\CacheInvalidationTransaction',
-                'Duo\\Canon',
-                'Duo\\IdentityTokenCodec',
-                'Duo\\Ledger',
-                'Duo\\ManifestProviderRuntime',
-                'Duo\\NativeActions',
-                'Duo\\NativeRewriteEffects',
-                'Duo\\PlainData',
-                'Duo\\Policy',
-                'Duo\\ProviderSdk',
-                'Duo\\Providers',
-                'Duo\\Secrets',
-                'Duo\\SidebarState',
-                'Duo\\Tokens',
-                'Duo\\WpCliChildProcess',
+                'WPrism\\CacheInvalidationTransaction',
+                'WPrism\\Canon',
+                'WPrism\\IdentityTokenCodec',
+                'WPrism\\Ledger',
+                'WPrism\\ManifestProviderRuntime',
+                'WPrism\\NativeActions',
+                'WPrism\\NativeRewriteEffects',
+                'WPrism\\PlainData',
+                'WPrism\\Policy',
+                'WPrism\\ProviderSdk',
+                'WPrism\\Providers',
+                'WPrism\\Secrets',
+                'WPrism\\SidebarState',
+                'WPrism\\Tokens',
+                'WPrism\\WpCliChildProcess',
             ],
         ], AdapterPackageValidator::runtimeSdk());
     }
@@ -114,15 +114,15 @@ final class AdapterPackageTestsTest extends TestCase
         self::write(
             $path,
             str_replace(
-                "namespace Duo\\Interpreters;\n",
-                "namespace Duo\\Interpreters;\n\nuse Duo\\RepositoryCompiler;\n",
+                "namespace WPrism\\Interpreters;\n",
+                "namespace WPrism\\Interpreters;\n\nuse WPrism\\RepositoryCompiler;\n",
                 $source
             )
         );
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage(
-            "depends on non-SDK Duo symbol 'Duo\\RepositoryCompiler' at package/runtime/interpreters/acf.php"
+            "depends on non-SDK WPrism symbol 'WPrism\\RepositoryCompiler' at package/runtime/interpreters/acf.php"
         );
         AdapterPackageValidator::validate($root, 'acf');
     }
@@ -131,35 +131,35 @@ final class AdapterPackageTestsTest extends TestCase
     public static function hiddenRuntimeSdkDependencies(): iterable
     {
         yield 'root namespace unqualified name' => [
-            "\nnamespace Duo;\nRepositoryCompiler::compile();\n",
+            "\nnamespace WPrism;\nRepositoryCompiler::compile();\n",
         ];
         yield 'root namespace constructor' => [
-            "\nnamespace Duo;\nfunction hiddenSdkConstructor(): void { new RepositoryCompiler(); }\n",
+            "\nnamespace WPrism;\nfunction hiddenSdkConstructor(): void { new RepositoryCompiler(); }\n",
         ];
         yield 'root namespace return type' => [
-            "\nnamespace Duo;\nfunction hiddenSdkReturnType(): RepositoryCompiler {}\n",
+            "\nnamespace WPrism;\nfunction hiddenSdkReturnType(): RepositoryCompiler {}\n",
         ];
         yield 'namespace-relative name' => [
-            "\nnamespace Duo;\nnamespace\\RepositoryCompiler::compile();\n",
+            "\nnamespace WPrism;\nnamespace\\RepositoryCompiler::compile();\n",
         ];
-        yield 'deeper Duo namespace unqualified name' => [
-            "\nnamespace Duo\\Repository;\nCompiledArtifactReader::load();\n",
+        yield 'deeper WPrism namespace unqualified name' => [
+            "\nnamespace WPrism\\Repository;\nCompiledArtifactReader::load();\n",
         ];
         yield 'dynamic class string' => [
-            "\n\$class = 'Duo\\\\RepositoryCompiler';\n\$class::compile();\n",
+            "\n\$class = 'WPrism\\\\RepositoryCompiler';\n\$class::compile();\n",
         ];
         yield 'concatenated dynamic class string' => [
-            "\n\$class = 'Duo' . '\\\\RepositoryCompiler';\n\$class::compile();\n",
+            "\n\$class = 'WPrism' . '\\\\RepositoryCompiler';\n\$class::compile();\n",
         ];
         yield 'variable-separated dynamic class string' => [
-            "\n\$root = 'Duo';\n\$internal = 'RepositoryCompiler';\n"
+            "\n\$root = 'WPrism';\n\$internal = 'RepositoryCompiler';\n"
                 . "\$class = \$root . '\\\\' . \$internal;\n\$class::compile();\n",
         ];
         yield 'computed namespace separator in dynamic class string' => [
-            "\n\$class = 'Duo' . chr(92) . 'RepositoryCompiler';\n\$class::compile();\n",
+            "\n\$class = 'WPrism' . chr(92) . 'RepositoryCompiler';\n\$class::compile();\n",
         ];
         yield 'case-variant fully-qualified name' => [
-            "\n\\duo\\RepositoryCompiler::compile();\n",
+            "\n\\wprism\\RepositoryCompiler::compile();\n",
         ];
     }
 
@@ -171,7 +171,7 @@ final class AdapterPackageTestsTest extends TestCase
         self::write($path, (string) file_get_contents($path) . $mutation);
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('depends on non-SDK Duo symbol');
+        $this->expectExceptionMessage('depends on non-SDK WPrism symbol');
         AdapterPackageValidator::validate($root, 'acf');
     }
 
@@ -301,14 +301,14 @@ final class AdapterPackageTestsTest extends TestCase
         self::write(
             $path,
             str_replace(
-                'namespace Duo\\Interpreters;',
-                'namespace Duo\\Repository;',
+                'namespace WPrism\\Interpreters;',
+                'namespace WPrism\\Repository;',
                 (string) file_get_contents($path)
             )
         );
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage("outside owned namespace 'Duo\\Interpreters'");
+        $this->expectExceptionMessage("outside owned namespace 'WPrism\\Interpreters'");
         AdapterPackageValidator::validate($root, 'acf');
     }
 
@@ -319,9 +319,9 @@ final class AdapterPackageTestsTest extends TestCase
         self::write(
             $path,
             (string) file_get_contents($path)
-                . "\nis_callable(['\\\\Duo\\\\Policy', 'load']);\n"
-                . "is_callable(['\\\\Duo\\\\Interpreters\\\\Acf', 'tokens']);\n"
-                . "namespace Duo;\nuse Duo\\Policy as SdkPolicy;\n"
+                . "\nis_callable(['\\\\WPrism\\\\Policy', 'load']);\n"
+                . "is_callable(['\\\\WPrism\\\\Interpreters\\\\Acf', 'tokens']);\n"
+                . "namespace WPrism;\nuse WPrism\\Policy as SdkPolicy;\n"
                 . "function sdkReturnType(): SdkPolicy {}\n"
         );
 
@@ -331,13 +331,13 @@ final class AdapterPackageTestsTest extends TestCase
     }
 
     /** @return iterable<string,array{0:string}> */
-    public static function unresolvedDuoImports(): iterable
+    public static function unresolvedWPrismImports(): iterable
     {
-        yield 'grouped import' => ['use Duo\\{Policy, RepositoryCompiler};'];
-        yield 'root alias' => ['use Duo as Engine;'];
+        yield 'grouped import' => ['use WPrism\\{Policy, RepositoryCompiler};'];
+        yield 'root alias' => ['use WPrism as Engine;'];
     }
 
-    #[DataProvider('unresolvedDuoImports')]
+    #[DataProvider('unresolvedWPrismImports')]
     public function testValidatorRejectsSdkImportSyntaxThatCouldHideAnExactSymbol(string $import): void
     {
         $root = $this->validatorFixture();
@@ -345,11 +345,11 @@ final class AdapterPackageTestsTest extends TestCase
         $source = (string) file_get_contents($path);
         self::write(
             $path,
-            str_replace("namespace Duo\\Interpreters;\n", "namespace Duo\\Interpreters;\n\n$import\n", $source)
+            str_replace("namespace WPrism\\Interpreters;\n", "namespace WPrism\\Interpreters;\n\n$import\n", $source)
         );
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('uses an unresolved grouped or root Duo import');
+        $this->expectExceptionMessage('uses an unresolved grouped or root WPrism import');
         AdapterPackageValidator::validate($root, 'acf');
     }
 
@@ -359,7 +359,7 @@ final class AdapterPackageTestsTest extends TestCase
         $path = $root . '/adapter-packages/acf/package/runtime/interpreters/acf.php';
         self::write(
             $path,
-            (string) file_get_contents($path) . "\n// use Duo\\{RepositoryCompiler}; is documentation, not an import.\n"
+            (string) file_get_contents($path) . "\n// use WPrism\\{RepositoryCompiler}; is documentation, not an import.\n"
         );
 
         $result = AdapterPackageValidator::validate($root, 'acf');
@@ -620,27 +620,27 @@ final class AdapterPackageTestsTest extends TestCase
     {
         yield 'runtime getenv' => [
             'package/runtime/interpreters/acf.php',
-            "\ngetenv('DUO_MANIFESTS_DIR');\n",
+            "\ngetenv('WPRISM_MANIFESTS_DIR');\n",
         ];
         yield 'test putenv' => [
             'tests/offline/regress_global_library.php',
-            "<?php putenv('DUO_MANIFESTS_DIR=/tmp/legacy');\n",
+            "<?php putenv('WPRISM_MANIFESTS_DIR=/tmp/legacy');\n",
         ];
         yield 'shell assignment' => [
             'tests/live/regress_global_library.sh',
-            "#!/usr/bin/env bash\nDUO_MANIFESTS_DIR=/tmp/legacy\n",
+            "#!/usr/bin/env bash\nWPRISM_MANIFESTS_DIR=/tmp/legacy\n",
         ];
         yield 'test text outside a negative assertion' => [
             'tests/offline/regress_global_library_text.php',
-            "<?php \$legacySelector = 'DUO_MANIFESTS_DIR';\n",
+            "<?php \$legacySelector = 'WPRISM_MANIFESTS_DIR';\n",
         ];
         yield 'selection beside a negative assertion' => [
             'tests/offline/regress_global_library_mixed.php',
-            "<?php putenv('DUO_MANIFESTS_DIR=/tmp/legacy'); assert(!str_contains('', 'DUO_MANIFESTS_DIR'));\n",
+            "<?php putenv('WPRISM_MANIFESTS_DIR=/tmp/legacy'); assert(!str_contains('', 'WPRISM_MANIFESTS_DIR'));\n",
         ];
         yield 'concatenated selector spelling' => [
             'tests/offline/regress_global_library_concatenated.php',
-            "<?php getenv('DUO_' . 'MANIFESTS_DIR');\n",
+            "<?php getenv('WPRISM_' . 'MANIFESTS_DIR');\n",
         ];
     }
 
@@ -655,7 +655,7 @@ final class AdapterPackageTestsTest extends TestCase
         self::write($path, $bytes);
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage("selects a manifest library through DUO_MANIFESTS_DIR at $relative");
+        $this->expectExceptionMessage("selects a manifest library through WPRISM_MANIFESTS_DIR at $relative");
         AdapterPackageValidator::validate($root, 'acf');
     }
 
@@ -699,7 +699,7 @@ final class AdapterPackageTestsTest extends TestCase
             <<<'PHP'
 <?php
 $source = '';
-assert(!str_contains($source, 'DUO_MANIFESTS_DIR'));
+assert(!str_contains($source, 'WPRISM_MANIFESTS_DIR'));
 assert(!str_contains($source, '../../agent/src'));
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 PHP
@@ -1181,8 +1181,8 @@ SH
             $root . '/' . substr($relative, strlen('@repo/')),
             <<<'SH'
 #!/usr/bin/env bash
-DUO_CERTIFICATION_MANIFESTS_JSON='["core","woocommerce"]'
-cat >site.duo.json <<'JSON'
+WPRISM_CERTIFICATION_MANIFESTS_JSON='["core","woocommerce"]'
+cat >site.wprism.json <<'JSON'
 {"manifests":["core","woocommerce"]}
 JSON
 require_observed_nonempty "target WooCommerce order-product lookup count" "$LOOKUP_ROWS"
@@ -1208,11 +1208,11 @@ SH
             $root . '/' . substr($relative, strlen('@repo/')),
             <<<'SH'
 #!/usr/bin/env bash
-DUO_CERTIFICATION_MANIFESTS_JSON='["acf","core"]'
-cat >site.duo.json <<'JSON'
+WPRISM_CERTIFICATION_MANIFESTS_JSON='["acf","core"]'
+cat >site.wprism.json <<'JSON'
 {"manifests":["acf","core"]}
 JSON
-require_observed_nonempty "target ACF contract" "$ACF_CONTRACT" # duo-premise-owner: acf
+require_observed_nonempty "target ACF contract" "$ACF_CONTRACT" # wprism-premise-owner: acf
 SH
         );
         self::addPremiseRow(
@@ -1235,11 +1235,11 @@ SH
             $root . '/' . substr($relative, strlen('@repo/')),
             <<<'SH'
 #!/usr/bin/env bash
-DUO_CERTIFICATION_MANIFESTS_JSON='["acf","core","woocommerce"]'
-cat >site.duo.json <<'JSON'
+WPRISM_CERTIFICATION_MANIFESTS_JSON='["acf","core","woocommerce"]'
+cat >site.wprism.json <<'JSON'
 {"manifests":["acf","core","woocommerce"]}
 JSON
-require_observed_nonempty "target WooCommerce contract" "$WOO_CONTRACT" # duo-premise-owner: woocommerce
+require_observed_nonempty "target WooCommerce contract" "$WOO_CONTRACT" # wprism-premise-owner: woocommerce
 SH
         );
         self::addPremiseRow(
@@ -1262,8 +1262,8 @@ SH
             $root . '/' . substr($relative, strlen('@repo/')),
             <<<'SH'
 #!/usr/bin/env bash
-: # DUO_CERTIFICATION_MANIFESTS_JSON='["acf"]'
-require_observed_nonempty "target ACF contract" "$ACF_CONTRACT" # duo-premise-owner: acf
+: # WPRISM_CERTIFICATION_MANIFESTS_JSON='["acf"]'
+require_observed_nonempty "target ACF contract" "$ACF_CONTRACT" # wprism-premise-owner: acf
 SH
         );
         self::addPremiseRow($root, 'observation', $relative, 'require_observed_nonempty "target ACF contract"');
@@ -1282,9 +1282,9 @@ SH
             <<<'SH'
 #!/usr/bin/env bash
 cat <<'INERT' >/dev/null
-DUO_CERTIFICATION_MANIFESTS_JSON='["acf"]'
+WPRISM_CERTIFICATION_MANIFESTS_JSON='["acf"]'
 INERT
-require_observed_nonempty "target ACF contract" "$ACF_CONTRACT" # duo-premise-owner: acf
+require_observed_nonempty "target ACF contract" "$ACF_CONTRACT" # wprism-premise-owner: acf
 SH
         );
         self::addPremiseRow($root, 'observation', $relative, 'require_observed_nonempty "target ACF contract"');
@@ -1620,7 +1620,7 @@ SH
         $baseline = AdapterPackageValidator::validate($root, 'acf');
         self::write(
             $root . '/adapter-packages/broken/package/runtime/providers/broken.php',
-            "<?php getenv('DUO_MANIFESTS_DIR'); this is not PHP;\n"
+            "<?php getenv('WPRISM_MANIFESTS_DIR'); this is not PHP;\n"
         );
         self::write($root . '/adapter-packages/broken/package/manifest.json', "{not-json\n");
 
@@ -1962,7 +1962,7 @@ SH
         self::copyTree($repo . '/adapter-packages/acf', $root . '/adapter-packages/acf');
         self::copyTree($repo . '/platform/adapter-library', $root . '/platform/adapter-library');
         self::makeDirectory($root . '/agent/src');
-        self::write($root . '/agent/duo.php', (string) file_get_contents($repo . '/agent/duo.php'));
+        self::write($root . '/agent/wprism.php', (string) file_get_contents($repo . '/agent/wprism.php'));
         foreach ([
             'agent/src/Kernel/PlainData.php',
             'sandbox/tests/live/regress_capture_concurrency.sh',
@@ -2067,7 +2067,7 @@ SH
         self::write(
             $package . '/evidence/external-tests.json',
             json_encode([
-                'format' => 'duo-adapter-external-evidence/v1',
+                'format' => 'wprism-adapter-external-evidence/v1',
                 'tests' => [$test => $evidence],
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"
         );
@@ -2099,7 +2099,7 @@ SH
         self::write(
             $directory . '/scenario.json',
             json_encode([
-                'format' => 'duo-adapter-integration-scenario/v1',
+                'format' => 'wprism-adapter-integration-scenario/v1',
                 'participants' => $participants,
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"
         );

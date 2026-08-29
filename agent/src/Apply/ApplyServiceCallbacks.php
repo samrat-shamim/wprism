@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Named runtime boundaries needed while constructing apply collaborators.

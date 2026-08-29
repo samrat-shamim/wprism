@@ -39,7 +39,7 @@
  *
  * **3. A refusal writes nothing, and the flag day cannot silently re-derive.**
  * `certify` restores the trust root and leaves no certificate when the authored
- * entry is refused; `duo adapter recertify` — which derives — reports an
+ * entry is refused; `wprism adapter recertify` — which derives — reports an
  * authored certificate as a `blocked` row naming the remedy instead of
  * replacing the site's own argument with the canned floor under the site's own
  * key.
@@ -47,24 +47,24 @@
  * The refusal matrix runs against `sign_site()` in-process (it is what the verb
  * calls, and a subprocess per case would pay a CLI boot for a sentence the
  * signer owns); the two profiles, the file-reading refusals and one end-to-end
- * semantic refusal run through `duo adapter certify` itself, so the flag's
+ * semantic refusal run through `wprism adapter certify` itself, so the flag's
  * plumbing and the wording an operator actually meets are both measured.
  */
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../lib/check.php';
 
-$duoRoot = dirname(__DIR__, 4);
-require_once $duoRoot . '/cli/src/Adapter/AdapterCertify.php';
-require_once $duoRoot . '/cli/src/Adapter/SpecMigration.php';
+$wprismRoot = dirname(__DIR__, 4);
+require_once $wprismRoot . '/cli/src/Adapter/AdapterCertify.php';
+require_once $wprismRoot . '/cli/src/Adapter/SpecMigration.php';
 
-use Duo\AdapterCertification;
-use Duo\AdapterLibrary;
-use Duo\AdapterSources;
-use Duo\Canon;
-use Duo\Policy;
-use Duo\Orchestrator\AdapterCertify;
-use Duo\Orchestrator\SpecMigration;
+use WPrism\AdapterCertification;
+use WPrism\AdapterLibrary;
+use WPrism\AdapterSources;
+use WPrism\Canon;
+use WPrism\Policy;
+use WPrism\Orchestrator\AdapterCertify;
+use WPrism\Orchestrator\SpecMigration;
 
 // Boot the engine into this WordPress-free process exactly as the verb does.
 // No setAccessible(): a no-op since PHP 8.1, DEPRECATED in 8.5, and this repo
@@ -87,7 +87,7 @@ function ar_rmtree(string $path): void {
     @rmdir($path);
 }
 
-$root = sys_get_temp_dir() . '/duo_authored_ratification_' . bin2hex(random_bytes(6));
+$root = sys_get_temp_dir() . '/wprism_authored_ratification_' . bin2hex(random_bytes(6));
 mkdir($root, 0755, true);
 register_shutdown_function(static fn() => ar_rmtree($root));
 
@@ -96,19 +96,19 @@ function ar_site(string $root, string $label, array $manifest): string {
     $repo = $root . '/' . $label;
     mkdir($repo . '/adapters', 0755, true);
     Canon::write_file($repo . '/adapters/' . $manifest['name'] . '.json', Canon::encode($manifest));
-    Canon::write_file($repo . '/site.duo.json', Canon::encode([
+    Canon::write_file($repo . '/site.wprism.json', Canon::encode([
         'manifests' => ['core'],
         // An EMPTY JSON object, deliberately: PHP erases {} vs [] on an
         // associative round trip and the engine refuses the list form.
         'policy' => new stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]));
 
     return $repo;
 }
 
 /**
- * Run `duo adapter <args>` in a child process, for the cases whose SENTENCE
+ * Run `wprism adapter <args>` in a child process, for the cases whose SENTENCE
  * matters: refusals are written to the STDERR constant, which this process
  * cannot rebind.
  *
@@ -116,16 +116,16 @@ function ar_site(string $root, string $label, array $manifest): string {
  * @return array{exit:int,out:string,err:string}
  */
 function ar_cli(array $args): array {
-    global $duoRoot;
+    global $wprismRoot;
     $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
     $pipes = [];
     $process = proc_open(
-        array_merge([PHP_BINARY, $duoRoot . '/cli/duo', 'adapter'], $args),
+        array_merge([PHP_BINARY, $wprismRoot . '/cli/wprism', 'adapter'], $args),
         $descriptors,
         $pipes
     );
     if (!is_resource($process)) {
-        return ['exit' => -1, 'out' => '', 'err' => 'cannot start duo'];
+        return ['exit' => -1, 'out' => '', 'err' => 'cannot start wprism'];
     }
     fclose($pipes[0]);
     $out = (string) stream_get_contents($pipes[1]);
@@ -171,7 +171,7 @@ $manifest = [
     'plugin' => 'acme-ledger/acme-ledger.php',
     'post_meta' => ['_acme_ledger_ref' => ['class' => 'authored']],
     'post_types' => ['acme_entry' => ['class' => 'authored']],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'tables' => [
         'acme_ledger_index' => [
             'class' => 'authored_snapshot',
@@ -274,7 +274,7 @@ $keyPath = $keyDir . '/acme.key';
 file_put_contents($keyPath, base64_encode($secret) . "\n");
 chmod($keyPath, 0600);
 
-$manifestDir = AdapterLibrary::fromSourceTree($duoRoot);
+$manifestDir = AdapterLibrary::fromSourceTree($wprismRoot);
 $reason = 'Acme Ltd approves these exact adapter bytes.';
 
 // ---------------------------------------------------- 1. the derived floor stands
@@ -284,8 +284,8 @@ $floorRun = ar_cli([
     'certify', $floorRepo, '--name=' . $name, '--secret-key-file=' . $keyPath,
     '--key-id=' . $keyId, '--reason=' . $reason,
 ]);
-duo_check_same(0, $floorRun['exit'], 'certify with NO --ratification-file still signs: the derivation is the floor, not a fallback');
-duo_check(
+wprism_check_same(0, $floorRun['exit'], 'certify with NO --ratification-file still signs: the derivation is the floor, not a fallback');
+wprism_check(
     str_contains($floorRun['out'], 'claim basis: DERIVED'),
     'and says which profile signed it, because recertify treats the two differently'
 );
@@ -297,19 +297,19 @@ $floorVerified = AdapterCertification::verifyFile(
     $manifest,
     AdapterCertification::certificatePath($floorRepo, $name)
 );
-duo_check_same('experimental', $floorVerified['claim']['status'] ?? null, 'and the live verifier keeps it below certification without exercise');
+wprism_check_same('experimental', $floorVerified['claim']['status'] ?? null, 'and the live verifier keeps it below certification without exercise');
 $floorDisposition = ar_ratified($floorRepo, $name);
-duo_check_same(
+wprism_check_same(
     [],
     $floorDisposition['capabilities']['deletion_semantics']['supported'] ?? null,
     'the derived floor claims no reviewed deletion selector — a grammar verdict reviews no deletion semantics'
 );
-duo_check_same(
+wprism_check_same(
     [],
     $floorDisposition['capabilities']['lifecycle_phases'] ?? null,
     'and no lifecycle phase, for the same reason'
 );
-duo_check_same(
+wprism_check_same(
     'unsupported',
     $floorDisposition['default_authored_keyspaces'][0]['status'] ?? null,
     'and records the open-ended authored keyspace unsupported: justification is a review judgement nobody made'
@@ -324,12 +324,12 @@ $authoredRun = ar_cli([
     'certify', $authoredRepo, '--name=' . $name, '--secret-key-file=' . $keyPath,
     '--key-id=' . $keyId, '--reason=' . $reason, '--ratification-file=' . $entryPath,
 ]);
-duo_check_same(0, $authoredRun['exit'], 'an author-written entry with per-refusal prose signs');
-duo_check(
+wprism_check_same(0, $authoredRun['exit'], 'an author-written entry with per-refusal prose signs');
+wprism_check(
     str_contains($authoredRun['out'], 'claim basis: AUTHORED (--ratification-file)'),
     'and the verb reports the authored profile rather than presenting it as the derived one'
 );
-duo_check(
+wprism_check(
     hash_equals($entryRaw, (string) file_get_contents($entryPath)),
     'the author\'s file is not rewritten: its formatting reaches no signature, unlike the adapter\'s bytes'
 );
@@ -343,52 +343,52 @@ $authoredVerified = AdapterCertification::verifyFile(
 );
 $disposition = is_array($authoredVerified['disposition'] ?? null) ? $authoredVerified['disposition'] : [];
 $claim = is_array($authoredVerified['claim'] ?? null) ? $authoredVerified['claim'] : [];
-duo_check_same('experimental', $claim['status'] ?? null, 'the LIVE verifier accepts the authored signature without elevating it');
-duo_check_same(
+wprism_check_same('experimental', $claim['status'] ?? null, 'the LIVE verifier accepts the authored signature without elevating it');
+wprism_check_same(
     ar_entry()['reason'],
     $disposition['reason'] ?? null,
     'the author\'s own basis is what the certificate carries, not the operator\'s one-line --reason'
 );
 $ratified = ar_ratified($authoredRepo, $name);
-duo_check(
+wprism_check(
     hash_equals(Canon::encode(ar_entry()), Canon::encode($ratified)),
     'the SIGNED entry is the authored one whole — no member re-derived, normalised or dropped on the way in'
 );
-duo_check_same(
+wprism_check_same(
     ar_entry()['unsupported'][0]['reason'],
     $ratified['unsupported'][0]['reason'] ?? null,
     'and each refusal carries its OWN prose, inside the signed statement — the gap that made this rider: '
     . 'the derivation stamps one canned sentence on every refusal it emits'
 );
-duo_check_same(
+wprism_check_same(
     'justified',
     $ratified['default_authored_keyspaces'][0]['status'] ?? null,
     'an authored entry can justify an open-ended keyspace, which the derivation cannot do at all'
 );
-duo_check_same(
+wprism_check_same(
     ['activate', 'retire'],
     $ratified['capabilities']['lifecycle_phases'] ?? null,
     'and can state a reviewed lifecycle phase, which the derivation leaves empty by construction'
 );
-duo_check(
+wprism_check(
     in_array('deletions.post_types.acme_entry', (array) ($claim['surfaces'] ?? []), true),
     'the reviewed deletion selector reaches the CLAIM projection, where a reader meets it'
 );
-duo_check(
+wprism_check(
     in_array('delete', (array) ($claim['operations'] ?? []), true),
     'and so does the operation it supports'
 );
-duo_check_same(
+wprism_check_same(
     false,
     $claim['evidence']['exercised'] ?? null,
     'while the bundle still records exercised: false — an authored claim is a stronger ARGUMENT, never evidence of a run'
 );
-duo_check_same(
+wprism_check_same(
     [],
     $claim['evidence']['tests'] ?? null,
     'and cites no test, because the unexercised bundle holds none'
 );
-duo_check_same(
+wprism_check_same(
     'site',
     $claim['certification']['trust_root'] ?? null,
     'under the site trust root, while exercised:false keeps the claim below Site-certified'
@@ -427,7 +427,7 @@ $controlCertificate = AdapterCertification::sign_site(
     $reason,
     ar_entry()
 );
-duo_check(
+wprism_check(
     str_contains($controlCertificate, AdapterCertification::FORMAT),
     'control: the unmutated authored entry signs through sign_site() itself'
 );
@@ -436,7 +436,7 @@ duo_check(
 // row, each asserted on its own sentence. `''` rather than whitespace: the
 // per-row check is `=== ''` where the entry-level `reason` is `trim(…) === ''`,
 // so "blank" here means exactly what validate_entry() means by it.
-duo_check_throws(
+wprism_check_throws(
     static fn() => $signWith(static function (array $entry): array {
         $entry['unsupported'][0]['reason'] = '';
         return $entry;
@@ -446,7 +446,7 @@ duo_check_throws(
     "manifest disposition 'acme-ledger' unsupported[0] is malformed"
 );
 
-duo_check_throws(
+wprism_check_throws(
     static fn() => $signWith(static function (array $entry): array {
         $entry['capabilities']['entity_sections'][] = 'widgets';
         return $entry;
@@ -456,7 +456,7 @@ duo_check_throws(
     "manifest disposition 'acme-ledger' names absent manifest section 'widgets'"
 );
 
-duo_check_throws(
+wprism_check_throws(
     static fn() => $signWith(static function (array $entry): array {
         // Over-claim: drop the intent-only table's refusal and the entry now
         // claims convergence for a table the manifest declares as a request.
@@ -468,7 +468,7 @@ duo_check_throws(
     "must mark intent-only table 'acme_ledger_intent' unsupported"
 );
 
-duo_check_throws(
+wprism_check_throws(
     static fn() => $signWith(static function (array $entry): array {
         $entry['supported_versions']['range']['max'] = '9.9.9';
         return $entry;
@@ -478,7 +478,7 @@ duo_check_throws(
     "manifest disposition 'acme-ledger' versions disagree with its manifest contract"
 );
 
-duo_check_throws(
+wprism_check_throws(
     static fn() => $signWith(static function (array $entry): array {
         // The boilerplate shape: prose everywhere and not one refusal.
         $entry['unsupported'] = [];
@@ -489,7 +489,7 @@ duo_check_throws(
     "manifest disposition 'acme-ledger' has a malformed required field"
 );
 
-duo_check_throws(
+wprism_check_throws(
     static fn() => $signWith(static function (array $entry): array {
         $entry['evidence']['tests'] = ['conformance-acme-ledger'];
         return $entry;
@@ -499,7 +499,7 @@ duo_check_throws(
     "cites absent or non-passing bundle test 'conformance-acme-ledger'"
 );
 
-duo_check_throws(
+wprism_check_throws(
     static fn() => $signWith(static function (array $entry): array {
         $entry['status'] = 'experimental';
         return $entry;
@@ -509,7 +509,7 @@ duo_check_throws(
     "external manifest disposition 'acme-ledger' must be a certified entry"
 );
 
-duo_check_throws(
+wprism_check_throws(
     static fn() => $signWith(static function (array $entry): array {
         $entry['default_authored_keyspaces'] = [];
         return $entry;
@@ -519,7 +519,7 @@ duo_check_throws(
     "manifest disposition 'acme-ledger' omits default authored keyspace 'acme_ledger_index'"
 );
 
-duo_check_throws(
+wprism_check_throws(
     static fn() => $signWith(static function (array $entry): array {
         $entry['default_authored_keyspaces'][0]['reason'] = '';
         return $entry;
@@ -529,7 +529,7 @@ duo_check_throws(
     "manifest disposition 'acme-ledger' has malformed default authored keyspace evidence"
 );
 
-duo_check_throws(
+wprism_check_throws(
     static fn() => $signWith(static function (array $entry): array {
         $entry['note'] = 'a member the disposition vocabulary does not carry';
         return $entry;
@@ -541,7 +541,7 @@ duo_check_throws(
 
 // The two rules the PROFILE adds. Both are about scope, and neither is a
 // judgement about the strength of a claim.
-duo_check_throws(
+wprism_check_throws(
     static fn() => $signWith(static function (array $entry): array {
         $entry['capabilities']['field_sections'] = ['option_namespaces', 'post_meta'];
         return $entry;
@@ -551,7 +551,7 @@ duo_check_throws(
     "authored site adapter disposition 'acme-ledger' omits declared field section 'options'"
 );
 
-duo_check_throws(
+wprism_check_throws(
     static fn() => $signWith(static function (array $entry): array {
         $entry['capabilities']['field_sections'][] = 'post_types';
         return $entry;
@@ -561,7 +561,7 @@ duo_check_throws(
     "names 'post_types' as a field section, which this manifest's vocabulary classifies as an entity section"
 );
 
-duo_check_throws(
+wprism_check_throws(
     static fn() => $signWith(static function (array $entry): array {
         $entry['capabilities']['field_sections'][] = 'plugin';
         return $entry;
@@ -582,16 +582,16 @@ $blankRun = ar_cli([
     'certify', $blankRepo, '--name=' . $name, '--secret-key-file=' . $keyPath,
     '--key-id=' . $keyId, '--reason=' . $reason, '--ratification-file=' . $blankPath,
 ]);
-duo_check_same(2, $blankRun['exit'], 'certify exits 2 on a refused authored entry');
-duo_check(
+wprism_check_same(2, $blankRun['exit'], 'certify exits 2 on a refused authored entry');
+wprism_check(
     str_contains($blankRun['err'], 'unsupported[0] is malformed'),
     'and surfaces the engine\'s own sentence rather than a CLI paraphrase'
 );
-duo_check(
+wprism_check(
     !is_file(AdapterCertification::certificatePath($blankRepo, $name)),
     'a refused certify writes no certificate'
 );
-duo_check(
+wprism_check(
     !is_file($blankRepo . '/' . AdapterCertify::AUTHORITIES_RELATIVE),
     'and leaves no trust root behind — a failed certify leaves the repository as it found it'
 );
@@ -600,8 +600,8 @@ $absentRun = ar_cli([
     'certify', $blankRepo, '--name=' . $name, '--secret-key-file=' . $keyPath,
     '--key-id=' . $keyId, '--ratification-file=' . $root . '/nothing-here.json',
 ]);
-duo_check_same(2, $absentRun['exit'], '--ratification-file naming no file is a usage error');
-duo_check(
+wprism_check_same(2, $absentRun['exit'], '--ratification-file naming no file is a usage error');
+wprism_check(
     str_contains($absentRun['err'], '--ratification-file must be a regular non-symlink file'),
     'and says so about the path, not about the disposition grammar'
 );
@@ -612,8 +612,8 @@ $listRun = ar_cli([
     'certify', $blankRepo, '--name=' . $name, '--secret-key-file=' . $keyPath,
     '--key-id=' . $keyId, '--ratification-file=' . $listPath,
 ]);
-duo_check_same(2, $listRun['exit'], 'a JSON array is not a disposition entry');
-duo_check(
+wprism_check_same(2, $listRun['exit'], 'a JSON array is not a disposition entry');
+wprism_check(
     str_contains($listRun['err'], 'must be a JSON object'),
     'and the author meets a sentence about the document they wrote'
 );
@@ -634,8 +634,8 @@ function ar_recertify(array $args): array {
 }
 
 $floorRecertify = ar_recertify(['recertify', $floorRepo, '--secret-key-file=' . $keyPath, '--format=json']);
-duo_check_same(0, $floorRecertify['exit'], 'recertify still re-signs a DERIVED certificate');
-duo_check_same(
+wprism_check_same(0, $floorRecertify['exit'], 'recertify still re-signs a DERIVED certificate');
+wprism_check_same(
     'unchanged',
     $floorRecertify['report']['rows'][0]['outcome'] ?? null,
     'and is idempotent over it, exactly as before this rider'
@@ -643,22 +643,22 @@ duo_check_same(
 
 $authoredBefore = (string) file_get_contents(AdapterCertification::certificatePath($authoredRepo, $name));
 $authoredRecertify = ar_recertify(['recertify', $authoredRepo, '--secret-key-file=' . $keyPath, '--format=json']);
-duo_check_same(1, $authoredRecertify['exit'], 'recertify does NOT re-sign an authored certificate');
-duo_check_same(
+wprism_check_same(1, $authoredRecertify['exit'], 'recertify does NOT re-sign an authored certificate');
+wprism_check_same(
     'blocked',
     $authoredRecertify['report']['rows'][0]['outcome'] ?? null,
     'it reports a blocked row: re-deriving here would replace the site\'s own argument with the canned floor'
 );
-duo_check(
+wprism_check(
     str_contains(
         (string) ($authoredRecertify['report']['rows'][0]['detail'] ?? ''),
         '--ratification-file'
     ),
     'and names the remedy — the verb that took the file in the first place'
 );
-duo_check(
+wprism_check(
     hash_equals($authoredBefore, (string) file_get_contents(AdapterCertification::certificatePath($authoredRepo, $name))),
     'the authored certificate\'s bytes are untouched by the attempt'
 );
 
-duo_check_summary('regress_authored_ratification');
+wprism_check_summary('regress_authored_ratification');

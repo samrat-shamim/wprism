@@ -7,16 +7,16 @@ if (!function_exists('acf_update_field_group')) {
     exit(1);
 }
 acf_update_field_group([
-    'key' => 'group_duo_demo', 'title' => 'Duo Demo', 'fields' => [],
+    'key' => 'group_wprism_demo', 'title' => 'WPrism Demo', 'fields' => [],
     'location' => [[['param' => 'post_type', 'operator' => '==', 'value' => 'post']]],
     'menu_order' => 0, 'position' => 'normal', 'style' => 'default',
     'label_placement' => 'top', 'instruction_placement' => 'label', 'active' => true,
 ]);
-$group_posts = get_posts(['post_type' => 'acf-field-group', 'name' => 'group_duo_demo', 'posts_per_page' => 1, 'fields' => 'ids', 'post_status' => 'any']);
+$group_posts = get_posts(['post_type' => 'acf-field-group', 'name' => 'group_wprism_demo', 'posts_per_page' => 1, 'fields' => 'ids', 'post_status' => 'any']);
 $group_id = $group_posts ? (int) $group_posts[0] : 0;
 if (!$group_id) { fwrite(STDERR, "field group not created\n"); exit(1); }
 acf_update_field([
-    'key' => 'field_duo_related', 'label' => 'Related', 'name' => 'duo_related',
+    'key' => 'field_wprism_related', 'label' => 'Related', 'name' => 'wprism_related',
     'type' => 'relationship', 'parent' => $group_id, 'post_type' => ['post'], 'return_format' => 'id',
 ]);
 $target = wp_insert_post([
@@ -31,7 +31,7 @@ $content_id = wp_insert_post([
     'post_content' => "<!-- wp:paragraph -->\n<p>Carries an ACF field.</p>\n<!-- /wp:paragraph -->",
 ], true);
 if (is_wp_error($content_id)) { fwrite(STDERR, "content post insert failed\n"); exit(1); }
-update_field('duo_related', [$target], $content_id);
+update_field('wprism_related', [$target], $content_id);
 echo json_encode(['group' => $group_id, 'target' => $target, 'content' => $content_id]) . "\n";
 PHPEOF
   local seed_out
@@ -61,7 +61,7 @@ for ACF_VERSION in 6.0.0 6.8.7; do
   [ "$INSTALLED_1" = "$ACF_VERSION" ] || fail "side 1 installed version mismatch: expected $ACF_VERSION, got $INSTALLED_1"
   pass "side 1: acf $ACF_VERSION installed from verified artifact, active"
 
-  cat > "siterepo/${PAIR}1/site.duo.json" <<EOF
+  cat > "siterepo/${PAIR}1/site.wprism.json" <<EOF
 {
   "manifests": ["core", "acf"],
   "policy": {
@@ -82,10 +82,10 @@ EOF
 
   seed_acf_content wp1
 
-  wp1 duo capture --repo=/siterepo
+  wp1 wprism capture --repo=/siterepo
   pass "captured on side 1 (acf $ACF_VERSION)"
 
-  wp1 duo lint --repo=/siterepo
+  wp1 wprism lint --repo=/siterepo
   pass "lint: 0 findings"
 
   "${GIT1[@]}" add -A
@@ -98,7 +98,7 @@ EOF
   require_fixture_values INSTALLED_2
   [ "$INSTALLED_2" = "$ACF_VERSION" ] || fail "side 2 installed version mismatch: expected $ACF_VERSION, got $INSTALLED_2"
 
-  wp2 duo deploy --repo=/siterepo
+  wp2 wprism deploy --repo=/siterepo
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
   # --adopt-by-slug=terms,posts: WordPress core's own defaults (the
   # "Uncategorized" category always, a "Hello World" post/"Sample Page" on
@@ -106,11 +106,11 @@ EOF
   # captured state's own entities of the same name — the same known,
   # expected pattern every other grind/certify pair script in this repo
   # already handles the identical way (grind_r3b_events.sh, grind_r1b_shop.sh).
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at acf $ACF_VERSION"
   pass "deploy + apply succeeded on side 2 (acf $ACF_VERSION, canary clean)"
 
-  wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"
+  wp2 wprism capture --repo=/siterepo --out="/siterepo/.tmp-final"
   DIFF_OUT=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
   rm -rf "siterepo/${PAIR}2/.tmp-final"
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at acf $ACF_VERSION: $DIFF_OUT"
@@ -129,10 +129,10 @@ EOF
     # Deploy reasserts the repository's active-code intent after the exact
     # replacement, then source recapture publishes any real plugin migration
     # of authored bytes instead of assuming the two releases store them alike.
-    wp1 duo deploy --repo=/siterepo --force-code-drift >/dev/null
-    wp2 duo deploy --repo=/siterepo --force-code-drift >/dev/null
-    wp1 duo capture --repo=/siterepo
-    wp1 duo lint --repo=/siterepo
+    wp1 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp2 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp1 wprism capture --repo=/siterepo
+    wp1 wprism lint --repo=/siterepo
     if ! git -C "siterepo/${PAIR}1" diff --quiet -- state; then
       "${GIT1[@]}" add -A
       "${GIT1[@]}" commit -qm "capture: ACF in-place 6.0.0 to 6.8.7 migration"
@@ -140,20 +140,20 @@ EOF
       git -C "siterepo/${PAIR}2" pull -q origin main
     fi
     UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-    wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV" \
+    wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV" \
       2>&1 | tee "$VMATRIX_APPLY_LOG"
     grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
       || fail "ACF in-place 6.0.0 -> 6.8.7 apply canary was not clean"
 
     UPGRADE_NATIVE=$(wp2 eval '
       $content=get_page_by_path("vmatrix-acf-content", OBJECT, "post");
-      $related=$content ? get_field("duo_related", $content->ID) : [];
+      $related=$content ? get_field("wprism_related", $content->ID) : [];
       $target=$related ? get_post((int)$related[0]) : null;
       echo $target ? $target->post_title : "";
     ')
     [ "$UPGRADE_NATIVE" = 'Version Matrix Related Target' ] \
       || fail "ACF 6.8.7 did not resolve the relationship authored under 6.0.0: $UPGRADE_NATIVE"
-    wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-acf-upgrade-final
+    wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-acf-upgrade-final
     UPGRADE_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-acf-upgrade-final" || true)
     rm -rf "siterepo/${PAIR}2/.tmp-acf-upgrade-final"
     [ -z "$UPGRADE_DIFF" ] \
@@ -171,7 +171,7 @@ wp1 plugin install "$OUT_OF_RANGE_ARTIFACT" --activate >/dev/null
 INSTALLED_OOR=$(wp1 plugin get advanced-custom-fields --field=version)
 [ "$INSTALLED_OOR" = "5.12.6" ] || fail "negative control: expected acf 5.12.6 installed, got $INSTALLED_OOR"
 
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "acf"],
   "policy": {
@@ -190,20 +190,20 @@ cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 "${GIT1[@]}" commit -qm "policy: acf negative-control pin, out-of-range plugin installed"
 "${GIT1[@]}" push -qu origin main
 
-# `duo deploy` compiles the repository before it ever reaches code_mismatch()
+# `wprism deploy` compiles the repository before it ever reaches code_mismatch()
 # and refuses loudly if state/ doesn't exist yet ([state_directory_missing])
 # — found live on this section's own first attempt. A real capture (harmless
 # with the out-of-range plugin installed: capture itself never checks
 # version_range, only deploy/apply do — confirmed by direct read of
 # Deploy::code_mismatch()'s own call sites) produces a valid state/ tree
 # cheaply, with zero ACF-specific content since nothing has been seeded.
-wp1 duo capture --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "capture: empty state, acf 5.12.6 still installed"
 "${GIT1[@]}" push -q origin main
 
 set +e
-DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse acf 5.12.6 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"

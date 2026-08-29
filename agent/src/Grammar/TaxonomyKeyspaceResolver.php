@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/TaxonomyPatternResolver.php';
 
@@ -44,12 +44,12 @@ final class TaxonomyKeyspaceResolver {
         if ($declared === []) {
             if ($runtimeObjectTypes !== null && in_array('term', $runtimeObjectTypes, true)) {
                 throw new \RuntimeException(
-                    "duo: taxonomy '$tax' has runtime object_type containing 'term' but no manifest "
+                    "wprism: taxonomy '$tax' has runtime object_type containing 'term' but no manifest "
                     . 'object_keyspace declaration — term or mixed relationship ownership must declare '
                     . 'object_keyspace="term" or object_keyspace="post" explicitly'
                 );
             }
-            return 'post'; // explicit compatibility default for pre-DUO-3316 manifests
+            return 'post'; // explicit compatibility default for pre-issue #3316 manifests
         }
         if (count($declared) !== 1) {
             $claims = [];
@@ -57,7 +57,7 @@ final class TaxonomyKeyspaceResolver {
                 $claims[] = "$value from " . implode(', ', $sources);
             }
             throw new \RuntimeException(
-                "duo: taxonomy '$tax' has ambiguous object_keyspace declarations ("
+                "wprism: taxonomy '$tax' has ambiguous object_keyspace declarations ("
                 . implode('; ', $claims) . ') — every exact or matching pattern declaration must agree'
             );
         }
@@ -67,14 +67,14 @@ final class TaxonomyKeyspaceResolver {
             $hasTermSentinel = in_array('term', $runtimeObjectTypes, true);
             if ($hasTermSentinel && count($runtimeObjectTypes) > 1) {
                 throw new \RuntimeException(
-                    "duo: taxonomy '$tax' is registered with mixed runtime object_type values ("
+                    "wprism: taxonomy '$tax' is registered with mixed runtime object_type values ("
                     . implode(', ', $runtimeObjectTypes) . '); one object_keyspace declaration cannot safely '
                     . 'describe both post- and term-owned relationship rows'
                 );
             }
             if ($hasTermSentinel && $resolved !== 'term') {
                 throw new \RuntimeException(
-                    "duo: taxonomy '$tax' declares object_keyspace='$resolved' but its runtime object_type "
+                    "wprism: taxonomy '$tax' declares object_keyspace='$resolved' but its runtime object_type "
                     . "contains 'term' — declaration/runtime relationship ownership contradicts"
                 );
             }

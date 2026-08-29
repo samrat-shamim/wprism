@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/CacheInvalidationTransaction.php';
@@ -8,15 +8,15 @@ require_once __DIR__ . '/ApplyFieldMaterializer.php';
 // sandbox/tests/offline/code-half/regress_code_revision_enforcement.php and
 // regress_scoped_promotion_target.php both reach this file transitively
 // through Apply.php (direct requires, verified) and both stub a fake
-// Duo\Ledger; regress_scoped_promotion_target.php additionally stubs a fake
-// Duo\Db. Requiring either here would fatal with "Cannot redeclare class"
+// WPrism\Ledger; regress_scoped_promotion_target.php additionally stubs a fake
+// WPrism\Db. Requiring either here would fatal with "Cannot redeclare class"
 // against whichever of the two a given suite fakes -- the identical
 // exclusion TermMaterializer.php already documents for the same reason
 // (verified via `grep -rlE '^\s*(final\s+)?class\s+(Db|Ledger)\s*(\{|extends|implements)'`
 // against each file individually, not assumed from the combined match).
 
 /**
- * The relationship materializer (DUO-3347 slice 8, one of the "Entity
+ * The relationship materializer (issue #3347 slice 8, one of the "Entity
  * materializers: posts, relationships, attachments, typed tables" target
  * seams): reconciles a post's own term_relationships rows against its
  * captured `terms`/`term_orders` front matter, and deletes a post's or
@@ -43,7 +43,7 @@ require_once __DIR__ . '/ApplyFieldMaterializer.php';
  * term-object side of that same roster). Not a narrow, injectable
  * dependency, so reconcile_relationships() takes the resolved
  * $taxesForPostType array as an explicit parameter instead, matching
- * DUO-3347's own guardrail ("dependency injection and narrow data
+ * issue #3347's own guardrail ("dependency injection and narrow data
  * contracts") and TermMaterializer's identical precedent for
  * $termObjectTaxes. delete_post_relationships()/delete_term_relationships()
  * need no such parameter: unlike reconcile_relationships(), they compute
@@ -86,7 +86,7 @@ final class RelationshipMaterializer {
             $keyspace = $this->policy->taxonomy_object_keyspace((string) $tax);
             if ($keyspace !== 'post') {
                 throw new \RuntimeException(
-                    "duo: post $postId declares terms.$tax, but manifest object_keyspace is '$keyspace' "
+                    "wprism: post $postId declares terms.$tax, but manifest object_keyspace is '$keyspace' "
                     . '— post terms require object_keyspace=post'
                 );
             }
@@ -105,7 +105,7 @@ final class RelationshipMaterializer {
             }
             foreach ((array) $uuids as $u) {
                 $tt = Ledger::id_for($u, Ledger::KIND_TT)
-                    ?? throw new \RuntimeException("duo: post $postId references unresolvable term $u ($tax)");
+                    ?? throw new \RuntimeException("wprism: post $postId references unresolvable term $u ($tax)");
                 $desiredTt[$tt] = (int) (($termOrders[$tax] ?? [])[$u] ?? 0);
             }
         }
@@ -163,7 +163,7 @@ final class RelationshipMaterializer {
         ksort($after, SORT_NUMERIC);
         ksort($desiredTt, SORT_NUMERIC);
         if ($after !== $desiredTt) {
-            throw new \RuntimeException('duo: post relationship locked readback disagrees with desired storage');
+            throw new \RuntimeException('wprism: post relationship locked readback disagrees with desired storage');
         }
     }
 
@@ -173,7 +173,7 @@ final class RelationshipMaterializer {
      * post's type and whose resolved object_keyspace is `post` (deliberately
      * not policy-scoped: a full post delete must clean up every taxonomy
      * that legitimately relates to it, same as wp_delete_post(), not just
-     * the ones Duo happens to manage).
+     * the ones WPrism happens to manage).
      *
      * An unfiltered `DELETE ... WHERE object_id = $id` (the previous code)
      * hits every term_relationships row with that raw id regardless of
@@ -207,7 +207,7 @@ final class RelationshipMaterializer {
             $this->lock_owner_relationships($id, 'apply delete post relationships readback'),
             $taxes
         ) !== []) {
-            throw new \RuntimeException("duo: post $id relationship deletion locked readback was nonempty");
+            throw new \RuntimeException("wprism: post $id relationship deletion locked readback was nonempty");
         }
     }
 
@@ -247,20 +247,20 @@ final class RelationshipMaterializer {
             $this->lock_owner_relationships($termId, 'apply delete term-object relationships readback'),
             $taxes
         ) !== []) {
-            throw new \RuntimeException("duo: term $termId outbound relationship deletion locked readback was nonempty");
+            throw new \RuntimeException("wprism: term $termId outbound relationship deletion locked readback was nonempty");
         }
     }
 
     /** @return list<array{term_taxonomy_id:int,term_order:int,taxonomy:string}> */
     private function locked_relationship_rows(int $objectId, array $taxonomies, string $purpose): array {
         if ($objectId <= 0 || $taxonomies === [] || !array_is_list($taxonomies)) {
-            throw new \RuntimeException("duo: $purpose received a malformed relationship owner/scope");
+            throw new \RuntimeException("wprism: $purpose received a malformed relationship owner/scope");
         }
         $taxonomies = array_values(array_unique(array_map('strval', $taxonomies)));
         sort($taxonomies, SORT_STRING);
         foreach ($taxonomies as $taxonomy) {
             if (preg_match('/^[A-Za-z0-9_-]{1,32}$/D', $taxonomy) !== 1) {
-                throw new \RuntimeException("duo: $purpose received a malformed taxonomy");
+                throw new \RuntimeException("wprism: $purpose received a malformed taxonomy");
             }
         }
         return $this->filter_taxonomies($this->lock_owner_relationships($objectId, $purpose), $taxonomies);
@@ -276,7 +276,7 @@ final class RelationshipMaterializer {
     public function lock_owner_relationships(int $objectId, string $purpose): array {
         global $wpdb;
         if ($objectId <= 0) {
-            throw new \RuntimeException("duo: $purpose received a malformed relationship owner");
+            throw new \RuntimeException("wprism: $purpose received a malformed relationship owner");
         }
         $index = $this->fieldMaterializer->proven_lock_index(
             $wpdb->term_relationships,
@@ -296,10 +296,10 @@ final class RelationshipMaterializer {
         if (!is_array($rows)
             || !array_is_list($rows)
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: $purpose locked relationship read failed");
+            throw new \RuntimeException("wprism: $purpose locked relationship read failed");
         }
         if (count($rows) > self::MAX_OWNER_RELATIONSHIPS) {
-            throw new \RuntimeException("duo: $purpose exceeds the bounded relationship limit");
+            throw new \RuntimeException("wprism: $purpose exceeds the bounded relationship limit");
         }
         $out = [];
         $seen = [];
@@ -314,7 +314,7 @@ final class RelationshipMaterializer {
                 || !is_string($taxonomy)
                 || preg_match('/^[A-Za-z0-9_-]{1,32}$/D', $taxonomy) !== 1
                 || isset($seen[$tt])) {
-                throw new \RuntimeException("duo: $purpose returned a malformed/duplicate row at position $position");
+                throw new \RuntimeException("wprism: $purpose returned a malformed/duplicate row at position $position");
             }
             $seen[$tt] = true;
             $out[] = ['term_taxonomy_id' => $tt, 'term_order' => $order, 'taxonomy' => $taxonomy];
@@ -333,14 +333,14 @@ final class RelationshipMaterializer {
     /** @return list<string> */
     private function post_deletion_taxonomies(string $postType): array {
         if (preg_match('/^[A-Za-z0-9_-]{1,20}$/D', $postType) !== 1) {
-            throw new \RuntimeException('duo: post relationship deletion received a malformed post type');
+            throw new \RuntimeException('wprism: post relationship deletion received a malformed post type');
         }
         return array_values(array_filter(
             $this->runtime_taxonomy_roster(),
             function (string $taxonomy) use ($postType): bool {
                 $object = get_taxonomy($taxonomy);
                 if (!is_object($object) || !is_array($object->object_type ?? null)) {
-                    throw new \RuntimeException('duo: relationship deletion encountered malformed taxonomy registration');
+                    throw new \RuntimeException('wprism: relationship deletion encountered malformed taxonomy registration');
                 }
                 return in_array($postType, $object->object_type, true)
                     && $this->policy->taxonomy_object_keyspace($taxonomy, $object->object_type) === 'post';
@@ -355,7 +355,7 @@ final class RelationshipMaterializer {
             function (string $taxonomy): bool {
                 $object = get_taxonomy($taxonomy);
                 if (!is_object($object) || !is_array($object->object_type ?? null)) {
-                    throw new \RuntimeException('duo: relationship deletion encountered malformed taxonomy registration');
+                    throw new \RuntimeException('wprism: relationship deletion encountered malformed taxonomy registration');
                 }
                 return $this->policy->taxonomy_object_keyspace($taxonomy, $object->object_type) === 'term';
             }
@@ -366,7 +366,7 @@ final class RelationshipMaterializer {
     private function runtime_taxonomy_roster(): array {
         $raw = get_taxonomies([], 'names');
         if (!is_array($raw) || count($raw) > 4096) {
-            throw new \RuntimeException('duo: relationship deletion taxonomy registry is malformed or saturated');
+            throw new \RuntimeException('wprism: relationship deletion taxonomy registry is malformed or saturated');
         }
         $out = [];
         foreach ($raw as $key => $value) {
@@ -375,7 +375,7 @@ final class RelationshipMaterializer {
                 || (!is_int($key) && (!is_string($value) || !hash_equals($taxonomy, $value)))
                 || preg_match('/^[A-Za-z0-9_-]{1,32}$/D', $taxonomy) !== 1
                 || isset($out[$taxonomy])) {
-                throw new \RuntimeException('duo: relationship deletion taxonomy registry contains a malformed/duplicate name');
+                throw new \RuntimeException('wprism: relationship deletion taxonomy registry contains a malformed/duplicate name');
             }
             $out[$taxonomy] = true;
         }

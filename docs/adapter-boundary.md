@@ -15,7 +15,7 @@ than silently weakening this doctrine.
 
 ## Product outcome
 
-Duo should be the ordinary development and operations workflow for WordPress:
+WPrism should be the ordinary development and operations workflow for WordPress:
 one understandable path for code, authored state, media references, lifecycle
 hooks, previews, refresh/rebase, promotion, convergence, and rollback.
 
@@ -143,14 +143,14 @@ The provider contract must define:
 - receipts sufficient for recovery; and
 - value-level verification, not command-success-only verification.
 
-Duo's provider SDK and manifest runtime may offer generic facilities such as
+WPrism's provider SDK and manifest runtime may offer generic facilities such as
 checked database reads, canonical codecs, scoped context, heartbeat, receipts,
 dispatch, and error mapping. They must not become a second home for plugin APIs
 or business rules.
 
 ### 5. Compatibility shim
 
-An executable Duo-owned shim is an exceptional, temporary bridge for an
+An executable WPrism-owned shim is an exceptional, temporary bridge for an
 ecosystem limitation. It must be quarantined outside engine decision logic,
 named in capability diagnostics, version-bounded, and assigned a removal path.
 It is never the default adapter-authoring model and never masquerades as a
@@ -174,7 +174,7 @@ adapter diagnostics.
 
 Those six words are this doctrine's, and the shipped vocabulary is smaller by
 design — a status word minted to match prose would read as reviewed evidence
-next to `dispositions/`, which is precisely the substitution the
+next to `package/disposition.json`, which is precisely the substitution the
 certification separation exists to refuse (`agent/src/Adapter/AdapterSources.php`
 states the same rationale for the fourth word `uncertified`). So the mapping is
 stated here instead of being invented in code:
@@ -188,7 +188,7 @@ stated here instead of being invented in code:
 > `CapabilityRegistry` no longer exists (`cli/src/Adapter/AdapterCertify.php:996`:
 > "There is no CapabilityRegistry.php to require any more"); the reporter is
 > `AdapterRegistry::report()` in `agent/src/Adapter/AdapterRegistry.php`,
-> emitting `duo-capability-report/v1` (`:57`), and the reviewed claim source is
+> emitting `wprism-capability-report/v1` (`:57`), and the reviewed claim source is
 > the hand-authored capsule `package/disposition.json`. The blocker code for a name
 > with no reviewed entry is `missing_disposition_entry` (`:392`), not
 > `missing_registry_entry`. Every row below is restated against what ships
@@ -197,24 +197,24 @@ stated here instead of being invented in code:
 
 | Doctrine word | Where it is visibly reported today |
 |---|---|
-| certified | `dispositions/<name>.json` status `certified` + a `certified` verdict from `AdapterRegistry::report()`; `duo adapter list` disposition column |
-| exercised | not a status. The evidence facts behind it are printed by `duo adapter inspect` under "verification (the facts that exist, not a scale)": `evidence.bundle_schema`, `plugin_execution.status` (`verified`/`unverified`/`not-a-product-claim`), and each cited test **id and nothing else** — a verdict word there would be a result that process did not produce (`cli/src/Adapter/AdapterCatalog.php:1052-1063`). The retired `evidence.status` (`current`/`candidate`) conjunct is gone with the apparatus that set it (`cli/src/Transport/CodeDeploy.php:191-194` records why keeping it would now refuse every claim) |
+| certified | the adapter capsule's `package/disposition.json` status `certified` + a `certified` verdict from `AdapterRegistry::report()`; `wprism adapter list` disposition column |
+| exercised | not a status. The evidence facts behind it are printed by `wprism adapter inspect` under "verification (the facts that exist, not a scale)": `evidence.bundle_schema`, `plugin_execution.status` (`verified`/`unverified`/`not-a-product-claim`), and each cited test **id and nothing else** — a verdict word there would be a result that process did not produce (`cli/src/Adapter/AdapterCatalog.php:1052-1063`). The retired `evidence.status` (`current`/`candidate`) conjunct is gone with the apparatus that set it (`cli/src/Transport/CodeDeploy.php:191-194` records why keeping it would now refuse every claim) |
 | uncertified | the fourth status word, carried by an out-of-tree adapter's synthesized provenance record; blocker code `adapter_source_uncertified` |
 | incompatible | two separate code sets, deliberately not merged: a **certification** verdict from `AdapterRegistry::report()` whose reason names the mismatch (`plugin_version_mismatch`, `plugin_not_active` — the two `target_reasons()` raises today, `agent/src/Adapter/AdapterRegistry.php:559-579`), and a **negotiation** problem row from `Providers::diagnose()` (`outside_version_range`, `identity_mismatch`, `contract_shape`, `malformed_capability`, `invalid_capability_args`, `non_idempotent_capability`). The five platform-axis codes this row used to name — `wordpress_version_mismatch`, `php_version_mismatch`, `database_version_mismatch`, `theme_version_mismatch`, `revision_not_certified` — were raised against the generated evidence record's measured axes and went with it; `multisite_unsupported` survives only as an *init* refusal (`agent/src/Init/InitPlanner.php:340`), because topology is now judged once for the whole assessment rather than per surface (`cli/src/Contract/ProjectionVocabulary.php:219-235`) |
 | missing | certification: `missing_disposition_entry` — `no reviewed disposition entry exists for '<name>'`. Negotiation: `missing_plugin`, `inactive_plugin`, `missing_plugin_provider`, `missing_capability`, `undeclared_provider`, `provider_code_unavailable` |
-| ambiguous | refused rather than reported as a status — `AdapterSources` refuses ambiguous identity, shadowing, declared-name collisions, case-fold confusables, an unanchored plugin bundle, and two active plugins bundling one name at load, and `duo adapter doctor` / `wp duo adapter-survey` report the same conditions as refusal rows with codes `ambiguous_identity`, `shadows_shipped`, `name_collision`, `case_collision`, `plugin_anchor_mismatch`, `source_collision`, `source_unreadable`. One ambiguity is deliberately NOT refused: a plugin-bundled name a shipped or site definition already answers to is RESOLVED by the source precedence `shipped > site > plugin` and reported as an installed-but-not-loaded row naming its winner. Ambiguity is refused where the operator authored both sides; where a third party's update created it, resolving it loudly beats taking the site down (see spec/repo-format.md, "Plugin-bundled adapters") |
+| ambiguous | refused rather than reported as a status — `AdapterSources` refuses ambiguous identity, shadowing, declared-name collisions, case-fold confusables, an unanchored plugin bundle, and two active plugins bundling one name at load, and `wprism adapter doctor` / `wp wprism adapter-survey` report the same conditions as refusal rows with codes `ambiguous_identity`, `shadows_shipped`, `name_collision`, `case_collision`, `plugin_anchor_mismatch`, `source_collision`, `source_unreadable`. One ambiguity is deliberately NOT refused: a plugin-bundled name a shipped or site definition already answers to is RESOLVED by the source precedence `shipped > site > plugin` and reported as an installed-but-not-loaded row naming its winner. Ambiguity is refused where the operator authored both sides; where a third party's update created it, resolving it loudly beats taking the site down (see spec/repo-format.md, "Plugin-bundled adapters") |
 
 The requirement the table serves is unchanged: each of those states must be
 distinguishable wherever capabilities are reported. It is the *word* that is
 not minted, not the distinction.
 
 An unsupported or unverifiable capability fails before destructive writes.
-Duo reports the missing capability, responsible adapter/provider, compatible
+WPrism reports the missing capability, responsible adapter/provider, compatible
 versions, and remediation path rather than guessing or silently degrading.
 
 ## Generated state belongs to the plugin's semantics
 
-Duo distinguishes authored truth from generated tables, caches, indexes, and
+WPrism distinguishes authored truth from generated tables, caches, indexes, and
 other projections. The manifest declares when generated effects are required;
 the plugin's provider or a generic native action performs them.
 
@@ -277,33 +277,33 @@ shortcut unavailable to users.
 The active Linear program is organized by outcomes rather than the historical
 audit sequence:
 
-- **DUO-3332 — Functional WordPress proof**
-  - DUO-3336: 15-minute `duo init` golden path
-  - DUO-3337: ecommerce developer move matrix and executable proof
-  - DUO-3326: code compatibility refusal before activation
-- **DUO-3333 — Ecosystem-owned adapter boundary**
-  - DUO-3338: structured native actions and plugin-owned provider contract
-  - DUO-3339: discovery, trust tiers, and capability catalog
-  - DUO-3340: custom-extension authoring loop
-  - DUO-3341: remove WooCommerce-specific policy from core
-  - DUO-3342: retire the Duo-owned WooCommerce lookup regenerator
-  - DUO-3314–DUO-3318, DUO-3325, and DUO-3327: bounded generic primitives
+- **issue #3332 — Functional WordPress proof**
+  - issue #3336: 15-minute `wprism init` golden path
+  - issue #3337: ecommerce developer move matrix and executable proof
+  - issue #3326: code compatibility refusal before activation
+- **issue #3333 — Ecosystem-owned adapter boundary**
+  - issue #3338: structured native actions and plugin-owned provider contract
+  - issue #3339: discovery, trust tiers, and capability catalog
+  - issue #3340: custom-extension authoring loop
+  - issue #3341: remove WooCommerce-specific policy from core
+  - issue #3342: retire the WPrism-owned WooCommerce lookup regenerator
+  - issue #3314–issue #3318, issue #3325, and issue #3327: bounded generic primitives
     and authoring support
-- **DUO-3334 — Daily developer workflows**
-  - DUO-3343: production refresh/rebase
-  - DUO-3344: scoped synchronization with dependency closure
-  - DUO-3345: semantic plan/diff/conflict/explain UX
-  - DUO-3346: portable environment-driver contract
-  - DUO-3323 and DUO-3324: developer guides and branch materialization
-- **DUO-3335 — Maintainable engine seams**
-  - DUO-3347–DUO-3355 and DUO-3320: behavior-preserving decomposition and
+- **issue #3334 — Daily developer workflows**
+  - issue #3343: production refresh/rebase
+  - issue #3344: scoped synchronization with dependency closure
+  - issue #3345: semantic plan/diff/conflict/explain UX
+  - issue #3346: portable environment-driver contract
+  - issue #3323 and issue #3324: developer guides and branch materialization
+- **issue #3335 — Maintainable engine seams**
+  - issue #3347–issue #3355 and issue #3320: behavior-preserving decomposition and
     neutral documentation
 
 Hard dependency gates are intentionally few:
 
-- DUO-3338 blocks DUO-3314, DUO-3317, DUO-3325, DUO-3327, and DUO-3342;
-- DUO-3315 and DUO-3316 block DUO-3344; and
-- DUO-3346 blocks DUO-3324.
+- issue #3338 blocks issue #3314, issue #3317, issue #3325, issue #3327, and issue #3342;
+- issue #3315 and issue #3316 block issue #3344; and
+- issue #3346 blocks issue #3324.
 
 The product proof, semantic UX, refresh/rebase, and behavior-preserving
 refactors may proceed in parallel and should expose gaps early.

@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for StateHandoffVerifier (DUO-3350 slice 7: the
+ * Offline regression for StateHandoffVerifier (issue #3350 slice 7: the
  * before/after canonical options snapshot comparison collaborator
  * extracted from Deploy). Deliberately narrow, the same wiring/shape idiom
  * the earlier slices in this issue established: this file does not
@@ -76,7 +76,7 @@ check(
 // now public on the new class so Deploy's private facades can call them.
 require_once $root . '/agent/src/Promotion/StateHandoffVerifier.php';
 require_once $root . '/agent/src/Promotion/Deploy.php';
-$verifier = new ReflectionClass(\Duo\StateHandoffVerifier::class);
+$verifier = new ReflectionClass(\WPrism\StateHandoffVerifier::class);
 check(
     array_map(static fn(ReflectionParameter $p): string => $p->getName(), $verifier->getMethod('options_snapshot')->getParameters())
         === ['repo', 'policy', 'compiled', 'forceUnresolvedRefs'],
@@ -97,7 +97,7 @@ foreach (['options_snapshot', 'bind_lifecycle_missing_options', 'unexpected_life
 }
 foreach (['options_snapshot', 'bind_lifecycle_missing_options', 'unexpected_lifecycle_state_changes'] as $stillPrivateOnDeploy) {
     check(
-        (new ReflectionClass(\Duo\Deploy::class))->getMethod($stillPrivateOnDeploy)->isPrivate(),
+        (new ReflectionClass(\WPrism\Deploy::class))->getMethod($stillPrivateOnDeploy)->isPrivate(),
         "Deploy::$stillPrivateOnDeploy() facade stays private, matching the moved method's original visibility"
     );
 }

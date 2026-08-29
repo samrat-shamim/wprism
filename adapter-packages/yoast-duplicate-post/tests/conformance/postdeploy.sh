@@ -10,8 +10,8 @@ wp_set_current_user(1);
 require_once DUPLICATE_POST_PATH . 'admin-functions.php';
 duplicate_post_admin_init();
 
-if (!get_role('duo_reviewer')) {
-    add_role('duo_reviewer', 'Duo Reviewer', ['read' => true, 'edit_posts' => true]);
+if (!get_role('wprism_reviewer')) {
+    add_role('wprism_reviewer', 'WPrism Reviewer', ['read' => true, 'edit_posts' => true]);
 }
 for ($i = 0; $i < 12; $i++) {
     $spacer = wp_insert_post([
@@ -27,20 +27,20 @@ if (false === $wpdb->query("ALTER TABLE {$wpdb->posts} AUTO_INCREMENT = 9100001"
     throw new RuntimeException('could not establish the large target post-id boundary');
 }
 
-$category = wp_insert_term('Target Duplicate Category', 'category', ['slug' => 'duo-duplicate-category']);
-$tag = wp_insert_term('Target Duplicate Tag', 'post_tag', ['slug' => 'duo-duplicate-tag']);
+$category = wp_insert_term('Target Duplicate Category', 'category', ['slug' => 'wprism-duplicate-category']);
+$tag = wp_insert_term('Target Duplicate Tag', 'post_tag', ['slug' => 'wprism-duplicate-tag']);
 if (is_wp_error($category) || is_wp_error($tag)) {
     throw new RuntimeException('could not create target taxonomy identities');
 }
 $original = wp_insert_post([
     'post_type' => 'post', 'post_status' => 'private',
-    'post_title' => 'Target hostile original', 'post_name' => 'duo-duplicate-original',
+    'post_title' => 'Target hostile original', 'post_name' => 'wprism-duplicate-original',
     'post_excerpt' => 'target-original-excerpt', 'post_content' => 'target-original-body',
     'menu_order' => 99,
 ], true);
 $copy = wp_insert_post([
     'post_type' => 'post', 'post_status' => 'publish',
-    'post_title' => 'Target hostile copy', 'post_name' => 'duo-duplicate-copy',
+    'post_title' => 'Target hostile copy', 'post_name' => 'wprism-duplicate-copy',
     'post_excerpt' => 'target-copy-excerpt', 'post_content' => 'target-copy-body',
     'menu_order' => 88,
 ], true);
@@ -104,7 +104,7 @@ unset($_GET['settings-updated']);
 update_option('yoast_duplicate_post_target_neighbor', 'target-only-neighbor');
 
 $roles = [];
-foreach (['administrator', 'duo_reviewer', 'editor', 'subscriber'] as $roleName) {
+foreach (['administrator', 'wprism_reviewer', 'editor', 'subscriber'] as $roleName) {
     $role = get_role($roleName);
     $roles[$roleName] = $role ? $role->has_cap('copy_posts') : null;
 }
@@ -128,7 +128,7 @@ HOSTILE_JSON=$(printf '%s\n' "$HOSTILE_OUT" | awk 'NF { line=$0 } END { print li
 printf '%s\n' "$HOSTILE_JSON" | jq -e '
   .settings_count == 28 and .original_id >= 9100001 and .copy_id > .original_id and
   .original_ref == .copy_id and (.runtime_copy | tonumber) == .copy_id and
-  .roles.administrator == false and .roles.duo_reviewer == false and
+  .roles.administrator == false and .roles.wprism_reviewer == false and
   .roles.editor == true and .roles.subscriber == true and .version == "4.7"
 ' >/dev/null || fail "Yoast Duplicate Post hostile target premises did not land: $HOSTILE_JSON"
 pass "Yoast Duplicate Post target starts with divergent identities, hostile settings/refs, inverted role caps, runtime workflow residue, and an undeclared neighbor"

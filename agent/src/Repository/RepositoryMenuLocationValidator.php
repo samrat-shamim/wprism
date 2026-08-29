@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // This is a pure canonical-tree topology check. Normal direct loads close
 // Policy, while focused fixtures may preload a narrow double; retain the

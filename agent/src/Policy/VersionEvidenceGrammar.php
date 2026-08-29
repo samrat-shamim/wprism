@@ -1,8 +1,8 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
- * Pure `site.duo.json` grammar for the ONE input that can graduate an
+ * Pure `site.wprism.json` grammar for the ONE input that can graduate an
  * `outside_version_range` finding: recorded, per-release probe outcomes.
  *
  * ## The cost this exists to remove, and the one it must not create
@@ -31,7 +31,7 @@ namespace Duo;
  * version, seed, capture, deploy, apply, recapture, require byte-identity
  * (`cli/src/Adapter/AdapterBoundary.php:73-85`). Nothing on a managed site can
  * perform it, and nothing here tries: this is a reader for what
- * `duo adapter boundary` already writes. Its four-word outcome vocabulary is
+ * `wprism adapter boundary` already writes. Its four-word outcome vocabulary is
  * restated below rather than imported, because `agent/` never references
  * `cli/` — `sandbox/tests/offline/apply/regress_graduated_version_range.php`
  * asserts the two lists are equal, so the restatement cannot drift silently.
@@ -68,7 +68,7 @@ namespace Duo;
  */
 final class VersionEvidenceGrammar {
     /**
-     * The optional top-level `site.duo.json` key, keyed by plugin basename —
+     * The optional top-level `site.wprism.json` key, keyed by plugin basename —
      * the same keying `Policy::version_ranges()` uses, so the join between a
      * declared range and its evidence is an exact identity rather than a slug
      * match that could bind one plugin's probes to another's contract.
@@ -109,14 +109,14 @@ final class VersionEvidenceGrammar {
         $block = $site[self::SITE_KEY];
         if (!is_array($block) || array_is_list($block)) {
             throw new \RuntimeException(
-                "duo: $label " . self::SITE_KEY . ' must be an object keyed by plugin basename '
+                "wprism: $label " . self::SITE_KEY . ' must be an object keyed by plugin basename '
                 . "(the same keying the manifests' version_range contract uses)"
             );
         }
         foreach ($block as $plugin => $entry) {
             if (!is_string($plugin) || $plugin === '') {
                 throw new \RuntimeException(
-                    "duo: $label " . self::SITE_KEY . ' keys must be non-empty plugin basenames'
+                    "wprism: $label " . self::SITE_KEY . ' keys must be non-empty plugin basenames'
                 );
             }
             self::validate_entry($entry, "$label " . self::SITE_KEY . " '$plugin'");
@@ -172,13 +172,13 @@ final class VersionEvidenceGrammar {
     /** @param mixed $entry */
     private static function validate_entry($entry, string $where): void {
         if (!is_array($entry) || array_is_list($entry)) {
-            throw new \RuntimeException("duo: $where must be an object");
+            throw new \RuntimeException("wprism: $where must be an object");
         }
         foreach (['manifest', 'slug'] as $identity) {
             $value = $entry[$identity] ?? null;
             if (!is_string($value) || trim($value) === '') {
                 throw new \RuntimeException(
-                    "duo: $where must carry a non-empty '$identity' — evidence that does not say which adapter "
+                    "wprism: $where must carry a non-empty '$identity' — evidence that does not say which adapter "
                     . 'and which upstream plugin it was recorded against cannot be joined to a declared '
                     . 'version_range, and joining it by position would be a fabrication'
                 );
@@ -187,7 +187,7 @@ final class VersionEvidenceGrammar {
         $releases = $entry['releases'] ?? null;
         if (!is_array($releases) || !array_is_list($releases) || $releases === []) {
             throw new \RuntimeException(
-                "duo: $where must carry a non-empty 'releases' list. The recorded release ORDER is what makes "
+                "wprism: $where must carry a non-empty 'releases' list. The recorded release ORDER is what makes "
                 . 'an unprobed release detectable: outcomes alone cannot tell a fully-probed interval from one '
                 . 'where only the installed version was ever tried'
             );
@@ -197,10 +197,10 @@ final class VersionEvidenceGrammar {
         foreach ($releases as $position => $version) {
             $at = "$where releases[$position]";
             if (!is_string($version) || preg_match('/^[0-9A-Za-z][0-9A-Za-z._-]*$/D', $version) !== 1) {
-                throw new \RuntimeException("duo: $at must be a version string in the recorded release-list grammar");
+                throw new \RuntimeException("wprism: $at must be a version string in the recorded release-list grammar");
             }
             if (isset($seen[$version])) {
-                throw new \RuntimeException("duo: $at repeats version '$version'; a release appears once");
+                throw new \RuntimeException("wprism: $at repeats version '$version'; a release appears once");
             }
             $seen[$version] = true;
             // A mis-ordered list does not fail loudly, it answers about the
@@ -208,7 +208,7 @@ final class VersionEvidenceGrammar {
             // the bisector refuses its own release list (AdapterBoundary.php:695-703).
             if ($previous !== null && version_compare($previous, $version, '>=')) {
                 throw new \RuntimeException(
-                    "duo: $at records '$version' after '$previous', but version_compare() orders them the other "
+                    "wprism: $at records '$version' after '$previous', but version_compare() orders them the other "
                     . 'way. The list is the release order the graduated verdict walks; a mis-ordered one silently '
                     . 'reports about the wrong interval, so it is refused rather than sorted'
                 );
@@ -217,35 +217,35 @@ final class VersionEvidenceGrammar {
         }
         $outcomes = $entry['outcomes'] ?? null;
         if (!is_array($outcomes) || !array_is_list($outcomes)) {
-            throw new \RuntimeException("duo: $where must carry an 'outcomes' list (it may be empty)");
+            throw new \RuntimeException("wprism: $where must carry an 'outcomes' list (it may be empty)");
         }
         $recorded = [];
         foreach ($outcomes as $position => $row) {
             $at = "$where outcomes[$position]";
             if (!is_array($row) || array_is_list($row)) {
-                throw new \RuntimeException("duo: $at must be an object");
+                throw new \RuntimeException("wprism: $at must be an object");
             }
             $version = $row['version'] ?? null;
             if (!is_string($version) || !isset($seen[$version])) {
                 throw new \RuntimeException(
-                    "duo: $at must carry a 'version' that appears in this entry's own releases list; an outcome "
+                    "wprism: $at must carry a 'version' that appears in this entry's own releases list; an outcome "
                     . 'for a release the list does not contain describes an interval this evidence cannot bound'
                 );
             }
             if (isset($recorded[$version])) {
-                throw new \RuntimeException("duo: $at repeats version '$version'; a release has one outcome");
+                throw new \RuntimeException("wprism: $at repeats version '$version'; a release has one outcome");
             }
             $recorded[$version] = true;
             $outcome = $row['outcome'] ?? null;
             if (!is_string($outcome) || !in_array($outcome, self::OUTCOMES, true)) {
                 throw new \RuntimeException(
-                    "duo: $at must carry an 'outcome' of " . implode(' | ', self::OUTCOMES)
+                    "wprism: $at must carry an 'outcome' of " . implode(' | ', self::OUTCOMES)
                 );
             }
             $signature = $row['signature'] ?? null;
             if (!is_string($signature) || trim($signature) === '') {
                 throw new \RuntimeException(
-                    "duo: $at must carry a non-empty 'signature'. The verdict this evidence supports is reported "
+                    "wprism: $at must carry a non-empty 'signature'. The verdict this evidence supports is reported "
                     . 'WITH its per-release evidence; an outcome with no signature is a verdict with nothing '
                     . 'behind it, which is the silent pass this whole mechanism refuses to become'
                 );

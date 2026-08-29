@@ -31,7 +31,7 @@ The remaining ACF-owned evidence and fixture assets now live here:
   `conformance-acf` entry and its phase hooks
 - `tests/certify/version-matrix.sh` — the ACF functions exercised by the
   shared `exact-artifact-version-matrix` driver
-- `fixtures/boundary/{releases,site.duo}.json` — reviewed boundary-probe inputs
+- `fixtures/boundary/{releases,site.wprism}.json` — reviewed boundary-probe inputs
 - `tests/live/regress_acf_term_options_fields.sh` —
   `regress-acf-term-options-fields`
 - `tests/spike/spike_e_acf.sh` — the historical `spike-e` target

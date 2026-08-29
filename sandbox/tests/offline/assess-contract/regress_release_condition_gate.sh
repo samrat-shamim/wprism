@@ -19,9 +19,9 @@
 # production mutation anyway.
 #
 # Every case below RELEASES against that build. Each drives the real
-# `php cli/duo release` end to end over a `local` transport with a fake `wp` on
+# `php cli/wprism release` end to end over a `local` transport with a fake `wp` on
 # PATH, and the assertion that matters most is not the reason code: it is that
-# `$DUO_CALLS` records no `duo promotion-begin`, `duo deploy` or `duo apply`.
+# `$WPRISM_CALLS` records no `wprism promotion-begin`, `wprism deploy` or `wprism apply`.
 # That proves the refusal is PRE-mutation rather than merely early in the
 # source — the difference between a gate and a comment.
 #
@@ -29,7 +29,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo-release-condition-gate.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/wprism-release-condition-gate.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
 FAILURES=0
@@ -38,7 +38,7 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; FAILURES=$((FAILURES + 1)); }
 say()  { printf '\n== %s ==\n' "$*"; }
 
 printf '== syntax ==\n'
-for file in "$ROOT/cli/duo" \
+for file in "$ROOT/cli/wprism" \
   "$ROOT/cli/src/Command/ReleaseCommand.php" \
   "$ROOT/cli/src/Command/AssessCommand.php" \
   "$ROOT/cli/src/Assess/SurfaceCatalog.php" \
@@ -56,20 +56,20 @@ php "$ROOT/sandbox/tests/fixtures/release/make-release-site.php" "$TMP/site" >/d
   || { echo "FAIL: could not build the release fixture" >&2; exit 1; }
 
 SITE="$TMP/site/repo"
-export DUO_FIXTURES="$TMP/site/fixtures"
-export DUO_SITE_REPO="$SITE"
-export DUO_CALLS="$TMP/calls.txt"
+export WPRISM_FIXTURES="$TMP/site/fixtures"
+export WPRISM_SITE_REPO="$SITE"
+export WPRISM_CALLS="$TMP/calls.txt"
 PATH="$TMP/site/bin:$PATH"
 export PATH
 
-duo() {
+wprism() {
   local out="$1"; shift
-  ( cd "$SITE" && php "$ROOT/cli/duo" --envs-file="$TMP/site/envs.json" "$@" ) \
+  ( cd "$SITE" && php "$ROOT/cli/wprism" --envs-file="$TMP/site/envs.json" "$@" ) \
     > "$out" 2> "$out.err"
 }
 
 # The reviewed contract, through the real propose -> review -> accept path.
-duo "$TMP/propose.txt" contract fixture propose \
+wprism "$TMP/propose.txt" contract fixture propose \
   || { fail 'contract propose failed'; cat "$TMP/propose.txt.err" >&2; }
 php -r '
 $path = $argv[1];
@@ -92,16 +92,16 @@ foreach ($contract["declarations"]["surfaces"] as $index => $surface) {
 }
 $proposal["contract"] = $contract;
 file_put_contents($path, json_encode($proposal, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-' "$SITE/.duo/contract/fixture/proposed.json"
-duo "$TMP/accept.txt" contract fixture accept \
+' "$SITE/.wprism/contract/fixture/proposed.json"
+wprism "$TMP/accept.txt" contract fixture accept \
   || { fail 'contract accept failed'; cat "$TMP/accept.txt.err" >&2; }
 
 # release <name> [args...]: resets both fixture call counters and the recorded
 # call log, so `caps-calls` and the mutation assertion are about THIS run.
 release() {
   local name="$1"; shift
-  rm -f "$DUO_FIXTURES/plan-calls" "$DUO_FIXTURES/caps-calls" "$DUO_CALLS"
-  duo "$TMP/$name.txt" release fixture "$@"
+  rm -f "$WPRISM_FIXTURES/plan-calls" "$WPRISM_FIXTURES/caps-calls" "$WPRISM_CALLS"
+  wprism "$TMP/$name.txt" release fixture "$@"
   local status=$?
   cat "$TMP/$name.txt.err" >> "$TMP/$name.txt"
   return $status
@@ -110,15 +110,15 @@ release() {
 # The target was NOT touched: promotion never began, no lifecycle phase ran,
 # no apply ran. Read off the fake wp's own call log, not off the source.
 #
-# `duo compile` is deliberately not in this list. It is a read — the content
+# `wprism compile` is deliberately not in this list. It is a read — the content
 # address `prepare()` binds the plan to, and the gate re-reads to compare —
 # and it runs before the freeze on every release, `--plan-only` included. The
 # three verbs below are the ones that begin a production-visible mutation.
 assert_untouched() {
   local what="$1"
-  if grep -Eq 'duo (promotion-begin|deploy|apply) ' "$DUO_CALLS"; then
+  if grep -Eq 'wprism (promotion-begin|deploy|apply) ' "$WPRISM_CALLS"; then
     fail "$what refused, but the target was already being mutated"
-    grep -Eo 'duo (promotion-begin|deploy|apply) ' "$DUO_CALLS" | sort -u >&2
+    grep -Eo 'wprism (promotion-begin|deploy|apply) ' "$WPRISM_CALLS" | sort -u >&2
   else
     pass "$what refuses BEFORE the first production-visible call: the target is untouched"
   fi
@@ -150,11 +150,11 @@ grep -Eq 'condition: plugin_version_mismatch — sample-adapter in 10\.0\.0-11\.
   || { fail 'the condition line is not the documented row'; grep -n 'condition:' "$TMP/planonly.txt" >&2; }
 
 # ----------------------------------------------------------------- the drift
-# `DUO_CAPS_AFTER_CALL=2`: call 1 is the freeze-time capability read inside
+# `WPRISM_CAPS_AFTER_CALL=2`: call 1 is the freeze-time capability read inside
 # `prepare()`, call 2 is the mutation gate's own re-probe. The target changes
 # in between, which is exactly the operator's confirmation window.
 say 'the plugin is DOWNGRADED between freeze and gate'
-DUO_CAPS_AFTER=moved DUO_CAPS_AFTER_CALL=2 release "moved" --yes --format=json
+WPRISM_CAPS_AFTER=moved WPRISM_CAPS_AFTER_CALL=2 release "moved" --yes --format=json
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'a moved condition refuses (exit 1)' || fail "a moved condition exited $STATUS"
 assert_refusal moved release_condition_changed 'a downgraded plugin'
@@ -170,7 +170,7 @@ grep -Fq '9.9.0' "$TMP/moved.txt" \
 assert_untouched 'a downgraded plugin'
 
 say 'the plugin is DEACTIVATED between freeze and gate'
-DUO_CAPS_AFTER=inactive DUO_CAPS_AFTER_CALL=2 release "inactive" --yes --format=json
+WPRISM_CAPS_AFTER=inactive WPRISM_CAPS_AFTER_CALL=2 release "inactive" --yes --format=json
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'a deactivated plugin refuses (exit 1)' || fail "a deactivated plugin exited $STATUS"
 assert_refusal inactive release_condition_changed 'a deactivated plugin'
@@ -183,7 +183,7 @@ grep -Fq '"state": "appeared"' "$TMP/inactive.txt" \
 assert_untouched 'a deactivated plugin'
 
 say 'a condition is WITHDRAWN between freeze and gate'
-DUO_CAPS_AFTER=withdrawn DUO_CAPS_AFTER_CALL=2 release "withdrawn" --yes --format=json
+WPRISM_CAPS_AFTER=withdrawn WPRISM_CAPS_AFTER_CALL=2 release "withdrawn" --yes --format=json
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'a withdrawn condition refuses (exit 1)' || fail "a withdrawn condition exited $STATUS"
 # Deliberate and conservative: the operator authorized a plan whose printed
@@ -198,7 +198,7 @@ assert_untouched 'a withdrawn condition'
 
 # ------------------------------------------------------------ uncheckability
 say 'the manifest is ABSENT from the gate-time report'
-DUO_CAPS_AFTER=gone DUO_CAPS_AFTER_CALL=2 release "gone" --yes --format=json
+WPRISM_CAPS_AFTER=gone WPRISM_CAPS_AFTER_CALL=2 release "gone" --yes --format=json
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'an absent claim refuses (exit 1)' || fail "an absent claim exited $STATUS"
 assert_refusal gone release_condition_uncheckable 'an absent manifest'
@@ -208,7 +208,7 @@ grep -Fq '"state": "absent_from_report"' "$TMP/gone.txt" \
 assert_untouched 'an absent manifest'
 
 say 'the gate-time report carries prose with no subject to re-probe'
-DUO_CAPS_AFTER=blind DUO_CAPS_AFTER_CALL=2 release "blind" --yes --format=json
+WPRISM_CAPS_AFTER=blind WPRISM_CAPS_AFTER_CALL=2 release "blind" --yes --format=json
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'a subject-less condition refuses (exit 1)' || fail "a subject-less condition exited $STATUS"
 assert_refusal blind release_condition_uncheckable 'a condition with no subject'
@@ -219,7 +219,7 @@ assert_untouched 'a condition with no subject'
 
 # ------------------------------------------------------ the reviewed library
 say 'the reviewed disposition library moves between freeze and gate'
-DUO_CAPS_AFTER=skew DUO_CAPS_AFTER_CALL=2 release "skew" --yes --format=json
+WPRISM_CAPS_AFTER=skew WPRISM_CAPS_AFTER_CALL=2 release "skew" --yes --format=json
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'a moved reviewed library refuses (exit 1)' || fail "a moved library exited $STATUS"
 grep -Fq '[release_evidence_not_current]' "$TMP/skew.txt" \
@@ -235,21 +235,21 @@ assert_untouched 'a moved reviewed library'
 
 # --------------------------------------------------------------- happy path
 say 'nothing changed during the window'
-DUO_PLAN_AFTER=plan-converged DUO_PLAN_AFTER_CALL=3 release "clean" --yes --format=json
+WPRISM_PLAN_AFTER=plan-converged WPRISM_PLAN_AFTER_CALL=3 release "clean" --yes --format=json
 STATUS=$?
 [ "$STATUS" = 0 ] && pass 'an unchanged target releases (exit 0)' \
   || { fail "a clean release exited $STATUS"; sed -n '1,40p' "$TMP/clean.txt" >&2; }
-CAPS=$(grep -c 'duo capabilities .*--operation=promote' "$DUO_CALLS" || true)
+CAPS=$(grep -c 'wprism capabilities .*--operation=promote' "$WPRISM_CALLS" || true)
 [ "$CAPS" = 2 ] \
   && pass 'exactly TWO capability reads: one at freeze, one at the mutation gate' \
-  || fail "expected 2 duo capabilities --operation=promote calls, saw $CAPS"
+  || fail "expected 2 wprism capabilities --operation=promote calls, saw $CAPS"
 # Identical argv on both reads, or the gate would be comparing the answers to
 # two different questions (AssessCommand::capabilityReport()).
-UNIQUE=$(grep 'duo capabilities .*--operation=promote' "$DUO_CALLS" | sort -u | wc -l | tr -d ' ')
+UNIQUE=$(grep 'wprism capabilities .*--operation=promote' "$WPRISM_CALLS" | sort -u | wc -l | tr -d ' ')
 [ "$UNIQUE" = 1 ] \
   && pass 'freeze and gate observe through IDENTICAL argv, --adoption-preview included' \
   || { fail 'the freeze-time and gate-time capability reads used different arguments'
-       grep 'duo capabilities' "$DUO_CALLS" | sort -u >&2; }
+       grep 'wprism capabilities' "$WPRISM_CALLS" | sort -u >&2; }
 grep -Fq '"conditions_rechecked"' "$TMP/clean.txt" \
   && pass 'the released outcome records the recheck' \
   || fail 'the released outcome carries no conditions_rechecked block'
@@ -268,7 +268,7 @@ print('ok: the recheck record names its instant, its count and the claims it re-
 PY
 
 say 'the released human view stays bounded'
-DUO_PLAN_AFTER=plan-converged DUO_PLAN_AFTER_CALL=3 release "cleanhuman" --yes
+WPRISM_PLAN_AFTER=plan-converged WPRISM_PLAN_AFTER_CALL=3 release "cleanhuman" --yes
 LINES=$(grep -c 'conditions rechecked at' "$TMP/cleanhuman.txt" || true)
 [ "$LINES" = 1 ] \
   && pass 'the human view gains EXACTLY one recheck line' \

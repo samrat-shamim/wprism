@@ -1,16 +1,16 @@
 <?php
 /**
- * Run `duo adapter doctor --migration` at ONE agent state, as a child process.
+ * Run `wprism adapter doctor --migration` at ONE agent state, as a child process.
  *
  * WHY THIS FILE EXISTS
  * --------------------
  * A migration preflight's TARGET is the agent state the process runs at — the
  * verb's own docblock states why there is no `--target` flag, and
  * `spec_migration_estate.php`'s header states the underlying constraint: a
- * state is the pair (`agent/duo.php`'s two `define()`s, the manifest library),
- * and PHP can define `DUO_AGENT_VERSION` exactly once per process. The shipped
- * `cli/duo` executable resolves those defines from the checkout's own
- * `agent/duo.php` (`AdapterCatalog::boot()`), so it is always the CURRENT
+ * state is the pair (`agent/wprism.php`'s two `define()`s, the manifest library),
+ * and PHP can define `WPRISM_AGENT_VERSION` exactly once per process. The shipped
+ * `cli/wprism` executable resolves those defines from the checkout's own
+ * `agent/wprism.php` (`AdapterCatalog::boot()`), so it is always the CURRENT
  * agent. To drive the preflight against a POST-BUMP agent — which is the whole
  * point of the cross-check in `regress_migration_preflight.php` — the state has
  * to be established before the command boots, in its own process. That is all
@@ -44,8 +44,8 @@ if (($argc ?? 0) < 4) {
     exit(2);
 }
 
-define('DUO_AGENT_VERSION', $argv[1]);
-define('DUO_SPEC_VERSION', (int) $argv[2]);
+define('WPRISM_AGENT_VERSION', $argv[1]);
+define('WPRISM_SPEC_VERSION', (int) $argv[2]);
 $libraryRoot = $argv[3];
 
 // From offline/cli/: four hops to the repo root.
@@ -55,4 +55,4 @@ require_once $preflightRoot . '/cli/src/Adapter/MigrationPreflight.php';
 
 $args = array_slice($argv, 4);
 $args[] = '--adapter-library=' . $libraryRoot;
-exit(\Duo\Orchestrator\AdapterCatalog::run($args));
+exit(\WPrism\Orchestrator\AdapterCatalog::run($args));

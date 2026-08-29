@@ -1,16 +1,16 @@
 # Dev setup: from a fresh checkout to a green gate
 
 This is the setup-and-loop guide for people (and coding agents) working *on*
-duo-wp. It is not about running Duo against a site — that is
+wprism. It is not about running WPrism against a site — that is
 [docs/guides/quickstart.md](guides/quickstart.md). Everything below assumes you
 will produce local evidence, because **there is no CI: local evidence is the
-merge gate** (owner decision, DUO-3320).
+merge gate** (owner decision, issue #3320).
 
 ## The short version
 
 ```bash
-git clone https://github.com/duotronic-ai/duo-wp     # NOT --depth 1; see below
-cd duo-wp
+git clone https://github.com/duotronic-ai/wprism     # NOT --depth 1; see below
+cd wprism
 bash tools/doctor.sh --fix                            # diagnose + apply the safe remedies
 composer install                                      # dev toolchain only; nothing here ships
 composer check                                        # lint + phpstan + php-cs-fixer + phpunit
@@ -54,7 +54,7 @@ and regenerator file that manifest names
 (`agent/src/Policy/ArtifactPolicyIdentity.php:60-115`). `manifest_hash()`
 (`:127`) and each adapter's own `digest` (`:147`) are that same row hashed, and
 the class comment at `:53-56` spells out the consequence: a site repo's
-per-manifest content pin, `adapter_digest`, `duo assess`'s reported digest and
+per-manifest content pin, `adapter_digest`, `wprism assess`'s reported digest and
 the contract that pins it are all one row hashed.
 
 So a one-byte edit to `adapter-packages/<slug>/package/` is a fleet-visible
@@ -62,8 +62,8 @@ change. The same rule applies to identity-bearing platform-library inputs. A
 deployed site holding a compiled artifact refuses with
 `compiled_artifact_manifest_mismatch` — "compiled manifest/interpreter set does
 not match active pins" (`agent/src/Repository/CompiledArtifactReader.php:39-42`)
-— and every `site.duo.json` content pin stops matching. The remedy is to
-recompile and re-pin (`wp duo manifest-pin` prints the copy-pasteable object),
+— and every `site.wprism.json` content pin stops matching. The remedy is to
+recompile and re-pin (`wp wprism manifest-pin` prints the copy-pasteable object),
 never a fallback.
 
 `agent/src`, `cli/src` and `recovery/` carry no such adapter identity: a
@@ -183,7 +183,7 @@ three separate refusals — each with its own self-test inside the suite, so non
 can rot unnoticed.
 
 Tooling self-tests are different: they go in `tests/` as PHPUnit 11
-(`Duo\Tests\…`, PSR-4) and need no Makefile wiring at all.
+(`WPrism\Tests\…`, PSR-4) and need no Makefile wiring at all.
 
 ## Live evidence
 
@@ -199,7 +199,7 @@ Everything above is offline. When a change genuinely needs a real WordPress:
   `bash sandbox/bin/pair.sh list` before every `up`; stop idle pairs; destroy
   them when the issue's verification is done. `tools/doctor.sh` prints the
   current inventory when a docker daemon is reachable.
-- Bind every live run to its commit: `DUO_EXPECTED_SOURCE_SHA=$(git rev-parse
+- Bind every live run to its commit: `WPRISM_EXPECTED_SOURCE_SHA=$(git rev-parse
   HEAD)`. A pair's bind mounts resolve to the canonical checkout, not to
   whichever worktree ran `pair.sh`, so an unbound live verdict can be about code
   you did not write.
@@ -210,10 +210,10 @@ authenticated), `bash scripts/agent-bootstrap.sh` is the fail-loud one-shot;
 
 ## The classmap autoloader
 
-`agent/duo-classmap.php` and `cli/duo-classmap.php` are **generated** files
+`agent/wprism-classmap.php` and `cli/wprism-classmap.php` are **generated** files
 (`php tools/classmap-generate.php`). Each maps every fully-qualified type
-declared under `agent/src` / `cli/src` to its path, and `agent/duo.php` and
-`cli/duo` register a small `spl_autoload_register()` fallback over them.
+declared under `agent/src` / `cli/src` to its path, and `agent/wprism.php` and
+`cli/wprism` register a small `spl_autoload_register()` fallback over them.
 
 This does not make the drop-in "an autoloader project" in the sense AGENTS.md
 non-negotiable 1 forbids: nothing is vendored or fetched, the map is a
@@ -221,12 +221,13 @@ first-party source file that ships inside `agent/`, and **every existing
 `require_once` stays** (owner ruling D4). The fallback is additive — an
 autoloader is only consulted for a class that is *still undeclared* when it is
 referenced — so on the production path it resolves nothing at all. Measured:
-after `agent/duo.php` finishes, 247 of the map's 251 names are already
-declared, and the four exceptions (`Duo\AdapterCertification` and the three
-withdrawal/supersession signals declared in the same file —
-`Duo\SupersededSiteAdapterCertificate`,
-`Duo\StalePlatformSiteAdapterCertificate`,
-`Duo\SupersededWireSiteAdapterCertificate`) are
+after `agent/wprism.php` finishes, 276 of the map's 281 names are already
+declared, and the five exceptions (`WPrism\AdapterCertification` and its four
+withdrawal/supersession signals —
+`WPrism\SupersededSiteAdapterCertificate`,
+`WPrism\StalePlatformSiteAdapterCertificate`,
+`WPrism\SupersededWireSiteAdapterCertificate`,
+`WPrism\WithdrawnAuthoritySiteAdapterCertificate`) are
 `require_once`d at each of that file's three use sites in `AdapterSources.php`
 before any of them is ever named. What the map buys is the partially-loaded case —
 an offline suite that includes three `agent/src` files by hand, or a new file
@@ -246,9 +247,9 @@ Two properties are load-bearing and must survive any edit:
   for exactly that reason.
 
 Two types are deliberately excluded, each documented in `CM_EXCLUSIONS` in the
-generator: `Duo\Cli` (its file's last line is `WP_CLI::add_command()`, a
-top-level side effect that must stay behind `duo.php`'s WP-CLI require) and
-`Duo\InitialStateBoundaryException` (declared three times behind
+generator: `WPrism\Cli` (its file's last line is `WP_CLI::add_command()`, a
+top-level side effect that must stay behind `wprism.php`'s WP-CLI require) and
+`WPrism\InitialStateBoundaryException` (declared three times behind
 `class_exists(…, false)` guards, so no single file is its home).
 
 The output is deterministic by construction — FQCN-sorted with `strcmp()`, LF,
@@ -263,7 +264,7 @@ line.
 Adding a class to `agent/src` or `cli/src` therefore has one extra step: run
 `php tools/classmap-generate.php` and commit the regenerated map alongside it.
 
-## `duo assess` / `duo contract` (round-3 MUP)
+## `wprism assess` / `wprism contract` (round-3 MUP)
 
 Two environment-bound host verbs land with the round-3 minimum usable platform;
 the six product words they report are defined in
@@ -271,22 +272,22 @@ the six product words they report are defined in
 neither writes to a target.
 
 ```bash
-duo assess <env> [--operation=<csv>] [--limit=<1..200>] [--format=json]
-duo contract <env> show|propose|accept|attest [--format=json]
+wprism assess <env> [--operation=<csv>] [--limit=<1..200>] [--format=json]
+wprism contract <env> show|propose|accept|attest [--format=json]
 ```
 
-`duo assess` composes, in this order and with each step gating the next:
-`Doctor::run()`, the read-only adoption and `wp duo init` probes,
-`wp duo assess-inventory --format=json` (which already carries `coverage`,
+`wprism assess` composes, in this order and with each step gating the next:
+`Doctor::run()`, the read-only adoption and `wp wprism init` probes,
+`wp wprism assess-inventory --format=json` (which already carries `coverage`,
 `pending` and the target's adapter survey), one
-`wp duo capabilities --operation=<op>` per *distinct registry operation* — four
-calls for all six product operations — and the host-side `duo adapter list`.
-It prints the stack, the authority Duo actually has, one row per
+`wp wprism capabilities --operation=<op>` per *distinct registry operation* — four
+calls for all six product operations — and the host-side `wprism adapter list`.
+It prints the stack, the authority WPrism actually has, one row per
 WordPress-language surface with the six spec dimensions, the unknown queue
 counted and named, and one next action per gap from a closed set. It writes
-`.duo/contract/<env>/proposed.json` into the **local** site repository (the
-directory holding `site.duo.json`, not the target's `repo_path`), and
-regenerates `.duo/contract/projection.json` when a contract has already been
+`.wprism/contract/<env>/proposed.json` into the **local** site repository (the
+directory holding `site.wprism.json`, not the target's `repo_path`), and
+regenerates `.wprism/contract/projection.json` when a contract has already been
 accepted. The proposal is per environment and the contract and projection are
 per site, so assessing one environment leaves another's review in flight
 alone.
@@ -296,13 +297,13 @@ Three things about it are easy to get wrong when reading the output:
 - **Exit 0 means green readiness.** Exit 3 is a complete assessment containing
   red readiness; exit 1 means the assessment itself refused — unreachable
   target, multisite, an unresolvable environment — and carries a
-  `duo-command-refusal/v1` envelope under `--format=json`.
+  `wprism-command-refusal/v1` envelope under `--format=json`.
 - **`containment: unknown — not enforced in this profile` is the honest value,
   not a bug.** MUP ships no egress control, so only apply's hook-free window is
   structurally provable. `sandboxed` and `compensatable` are never emitted. The
-  contract itself carries an `unsigned` attestation until someone runs `duo
+  contract itself carries an `unsigned` attestation until someone runs `wprism
   contract <env> attest` under a key they provisioned in
-  `.duo/contract/authorities.json` — the signer ships, the trust root ships
+  `.wprism/contract/authorities.json` — the signer ships, the trust root ships
   empty — but adapter claims are not stuck at `Uncertified`: since round-3 T6
   an operator-signed adapter reads `Site-certified` and a shipped reviewed one
   reads `Platform-certified` (`cli/src/Contract/ProjectionVocabulary.php:805`,
@@ -313,7 +314,7 @@ Three things about it are easy to get wrong when reading the output:
   falling back to the default. The counts printed beside a truncated list are
   always the true totals.
 
-`duo contract` is the reviewed half. `propose` regenerates the proposal from a
+`wprism contract` is the reviewed half. `propose` regenerates the proposal from a
 fresh assessment; `show` reads the two committed documents from disk and
 contacts nothing; `accept` re-runs the assessment, refuses a stale proposal
 (`contract_proposal_stale`) rather than reconciling it, writes `contract.json`
@@ -324,20 +325,20 @@ refuses, so the human review step is enforced rather than requested.
 
 Offline coverage: `sandbox/tests/offline/assess-contract/regress_assess_composition.sh`,
 `regress_assess_bounds.sh`, `regress_contract_accept.sh` (all three drive the
-real `php cli/duo` over a `local` transport with a fake `wp` on `PATH`, built by
+real `php cli/wprism` over a `local` transport with a fake `wp` on `PATH`, built by
 `sandbox/tests/fixtures/assess/make-fixture.php`), plus the Contract module's
 own `regress_assess_projection.php`, `regress_contract_shape.php` and
 `regress_contract_projection.php`.
 
-### `duo release` / `duo verify` / `duo recover` / `duo rehearse` (round-3 MUP §2.2–§2.5)
+### `wprism release` / `wprism verify` / `wprism recover` / `wprism rehearse` (round-3 MUP §2.2–§2.5)
 
 Four more host verbs, all environment-bound, all with a `--format=json`
 document of their own. Four things about them are easy to get wrong:
 
-- **`release` composes `promote`; it does not fork it.** `cli/duo`'s
-  `cmd_release()` injects `cmd_promote()` — the same entry point `duo promote`
+- **`release` composes `promote`; it does not fork it.** `cli/wprism`'s
+  `cmd_release()` injects `cmd_promote()` — the same entry point `wprism promote`
   itself calls — so deploy-before-apply ordering, the lease, the fence, the
-  checkpoint, DUO-3310's verified/scoped rollback selection and every
+  checkpoint, issue #3310's verified/scoped rollback selection and every
   `promote phase:` output byte come from one implementation. `ReleaseCommand`
   adds the frozen authorization in front of it and the verification behind it.
   `regress_release_next_action.sh` asserts the exact phase sequence, so a fork
@@ -346,7 +347,7 @@ document of their own. Four things about them are easy to get wrong:
   authorization plan is frozen is an assessment gap and carries a §2.1 gap
   action (`declare in contract`, `classify`, `exclude`, …). Only a failure
   *after* the freeze carries a release next action from
-  `resume|reconcile|retry|recover|requalify|escalate`. `duo release` observes
+  `resume|reconcile|retry|recover|requalify|escalate`. `wprism release` observes
   the failure class from a read-only re-read of the target rather than from
   promote's exit code, and falls back to `nothing_safe` → `escalate` rather
   than guessing.
@@ -355,16 +356,16 @@ document of their own. Four things about them are easy to get wrong:
   through the driver, and refuses a mismatch with `reconcile`. Nothing is
   fetched, pushed or checked out — `regress_release_ref_binding.sh` proves that
   against a recorded `git` shim, not against the source.
-- **`duo verify`'s convergence half is a read-only plan re-read, and says so.**
-  `wp duo verify-canonical` needs a `--compiled` artifact and a
-  `duo-policy-snapshot/v6` that only a mutating apply produces
+- **`wprism verify`'s convergence half is a read-only plan re-read, and says so.**
+  `wp wprism verify-canonical` needs a `--compiled` artifact and a
+  `wprism-policy-snapshot/v6` that only a mutating apply produces
   (`agent/src/Apply/ConvergenceVerifier.php:91-114`), and MUP §2.4 forbids
   adding an agent command to export one. So the report carries
   `verifier: "plan-reconciliation/v1"` plus a disclosure naming where the
   byte-level recapture actually ran — inside the release's own apply, where it
   fails closed. It is never labelled `canonical-recapture/v1`.
 
-`duo recover` replaces typing `recovery/rollback-control.php` by hand. It
+`wprism recover` replaces typing `recovery/rollback-control.php` by hand. It
 refuses without `--writers-excluded` (the checkpoint contains its own promotion
 lease row, so a lock inside the database being imported cannot protect the
 window), enforces code-first ordering by name, and runs the fourth ordered step

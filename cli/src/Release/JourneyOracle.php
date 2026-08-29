@@ -1,16 +1,16 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 
-use Duo\Canon;
-use Duo\CommandRefusalException;
+use WPrism\Canon;
+use WPrism\CommandRefusalException;
 
 /**
- * The declared affected-journey oracles, and the `duo-verify-report/v1`
+ * The declared affected-journey oracles, and the `wprism-verify-report/v1`
  * document that pairs them with convergence (round-3 MUP §2.4; product spec
  * *Release and verify*: "Success requires post-release verification of
  * affected journeys, not only successful commands").
@@ -58,14 +58,14 @@ use Duo\CommandRefusalException;
  * ## What is deliberately not emitted
  *
  * §2.4's illustrative JSON shows `convergence.mismatched`. The shipped
- * verifier (`\Duo\ConvergenceVerifier`) fails closed on a mismatch rather
+ * verifier (`\WPrism\ConvergenceVerifier`) fails closed on a mismatch rather
  * than counting them — it throws, so a completed run has nothing to count.
  * Emitting `mismatched: 0` would therefore be a fabricated zero. The
  * convergence block carries the verifier's own fields instead: `verifier`,
  * `entities`, `deletions` and a `status` derived from its `result`.
  */
 final class JourneyOracle {
-    public const FORMAT = 'duo-verify-report/v1';
+    public const FORMAT = 'wprism-verify-report/v1';
 
     /** Row and verdict vocabulary. */
     public const PASS = 'pass';
@@ -102,7 +102,7 @@ final class JourneyOracle {
     public const RENDER_PATH_UNAVAILABLE =
         'render_contains is declared but this profile ships no manifest-declared render path for the journey';
 
-    /** The `result` value `\Duo\ConvergenceVerifier` publishes on success. */
+    /** The `result` value `\WPrism\ConvergenceVerifier` publishes on success. */
     public const CONVERGENCE_PASS = 'pass';
 
     /**
@@ -392,7 +392,7 @@ final class JourneyOracle {
     }
 
     /**
-     * Normalize `wp duo verify-canonical --format=json` into the report's
+     * Normalize `wp wprism verify-canonical --format=json` into the report's
      * convergence block.
      *
      * @param ?array<string,mixed> $summary the agent verifier's own document,
@@ -447,7 +447,7 @@ final class JourneyOracle {
     }
 
     /**
-     * Assemble the `duo-verify-report/v1` document.
+     * Assemble the `wprism-verify-report/v1` document.
      *
      * @param array<string,mixed> $convergence from convergence()
      * @param list<array<string,mixed>> $journeyRows from run()
@@ -497,7 +497,7 @@ final class JourneyOracle {
         ];
     }
 
-    /** Canonical bytes for `duo verify --format=json`. */
+    /** Canonical bytes for `wprism verify --format=json`. */
     public static function encode(array $report): string {
         return Canon::encode($report);
     }
@@ -551,7 +551,7 @@ final class JourneyOracle {
         $method = (string) ($request['method'] ?? 'GET');
         $headers = [
             'Accept: text/html, application/json',
-            'User-Agent: duo-verify/1',
+            'User-Agent: wprism-verify/1',
         ];
         foreach ((array) ($request['headers'] ?? []) as $name => $value) {
             $headers[] = (string) $name . ': ' . (string) $value;
@@ -790,7 +790,7 @@ final class JourneyOracle {
         return new CommandRefusalException(
             $code,
             $message,
-            'correct the contract declarations.journeys[] entry, accept the reviewed contract, then run duo verify again'
+            'correct the contract declarations.journeys[] entry, accept the reviewed contract, then run wprism verify again'
         );
     }
 }

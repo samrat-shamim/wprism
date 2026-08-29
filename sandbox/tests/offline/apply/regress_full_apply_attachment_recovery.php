@@ -26,7 +26,7 @@ if (!class_exists('WP_CLI')) {
         /** @var list<string> */
         public static array $commands = [];
 
-        use \DuoTest\WpCliChildRuntime;
+        use \WPrismTest\WpCliChildRuntime;
 
         public static function accepts_verify_command(string $command): bool {
             $repo = (string) ($GLOBALS['full_apply_repo'] ?? '');
@@ -43,7 +43,7 @@ if (!class_exists('WP_CLI')) {
             if ($inner === null || $innerPrefix === '' || !str_starts_with($inner, $innerPrefix)) return false;
             $verify = substr($inner, strlen($innerPrefix));
             return preg_match(
-                '/^duo verify-canonical --repo=' . preg_quote(escapeshellarg($repo), '/')
+                '/^wprism verify-canonical --repo=' . preg_quote(escapeshellarg($repo), '/')
                     . ' --expected-artifact=[a-f0-9]{64}'
                     . " --compiled='[^']+'"
                     . " --policy-snapshot='[^']+' --format=json$/D",
@@ -186,16 +186,16 @@ if (!function_exists('get_plugins')) {
     function get_plugins(): array { return []; }
 }
 
-require_once __DIR__ . '/../../../../agent/duo.php';
+require_once __DIR__ . '/../../../../agent/wprism.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/ApplyRequestCoordinator.php';
 
-use Duo\ApplyRequestCoordinator;
-use Duo\Canon;
-use Duo\Ledger;
-use Duo\Policy;
-use Duo\RepositoryCompiler;
-use DuoTest\FakeWpdb;
-use DuoTest\WpStore;
+use WPrism\ApplyRequestCoordinator;
+use WPrism\Canon;
+use WPrism\Ledger;
+use WPrism\Policy;
+use WPrism\RepositoryCompiler;
+use WPrismTest\FakeWpdb;
+use WPrismTest\WpStore;
 
 /** @return array<string,mixed> */
 function full_apply_attachment_post(string $uuid): array {
@@ -227,7 +227,7 @@ function full_apply_attachment_core_columns(): array {
     ];
 }
 
-$tmp = sys_get_temp_dir() . '/duo-full-apply-' . bin2hex(random_bytes(6));
+$tmp = sys_get_temp_dir() . '/wprism-full-apply-' . bin2hex(random_bytes(6));
 $repo = $tmp . '/repo';
 mkdir($repo . '/state/posts/attachment', 0777, true);
 mkdir($repo . '/media', 0777, true);
@@ -245,17 +245,17 @@ $coordinatorSource = (string) file_get_contents($repoRoot . '/agent/src/Apply/Ap
 $cliSource = (string) file_get_contents($repoRoot . '/agent/src/Command/Cli.php');
 $captureSource = (string) file_get_contents($repoRoot . '/agent/src/Capture/CapturePublicationWorkflow.php');
 $deploySource = (string) file_get_contents($repoRoot . '/agent/src/Promotion/Deploy.php');
-duo_check(
+wprism_check(
     str_contains($coordinatorSource, '$library = $opts[\'adapter_library\'] ?? null;')
         && substr_count($cliSource, 'self::internal_adapter_library($assoc)') === 5,
     'capture/plan/apply/deploy/lint retain one object-only AdapterLibrary handoff for hermetic engine evidence'
 );
-duo_check(
+wprism_check(
     substr_count($captureSource, 'adapterLibrary: $adapterLibrary') === 4
         && substr_count($deploySource, 'adapterLibrary: $adapterLibrary') === 2,
     'capture and deploy reuse the injected library for every pre-lock and locked policy proof'
 );
-duo_check(
+wprism_check(
     preg_match('/^\s*\* \[--adapter[-_]library/m', $cliSource) !== 1,
     'the in-process AdapterLibrary handoff is not a registered target-operator path flag'
 );
@@ -267,14 +267,14 @@ $mediaName = hash('sha256', $bytes) . '.png';
 file_put_contents($repo . '/media/' . $mediaName, $bytes);
 $post = full_apply_attachment_post($uuid);
 $post['media'] = $mediaName;
-file_put_contents($repo . '/site.duo.json', Canon::encode([
+file_put_contents($repo . '/site.wprism.json', Canon::encode([
     'manifests' => ['core', 'polylang'],
     'policy' => [
         'post_types' => ['attachment'], 'taxonomies' => [], 'options' => (object) [],
         'post_meta' => [
             '_wp_attached_file' => ['class' => 'managed'],
             '_wp_attachment_metadata' => ['class' => 'derived'],
-            '_duo_uuid' => ['class' => 'managed'],
+            '_wprism_uuid' => ['class' => 'managed'],
             '_wp_attachment_image_alt' => ['class' => 'managed'],
         ], 'term_meta' => (object) [],
     ], 'spec_version' => 2,
@@ -284,7 +284,7 @@ file_put_contents(
     Canon::post_file($post, '')
 );
 
-$adapterLibrary = \Duo\AdapterLibrary::fromSourceTree($repoRoot);
+$adapterLibrary = \WPrism\AdapterLibrary::fromSourceTree($repoRoot);
 $policy = Policy::load(
     $repo,
     adapterLibrary: $adapterLibrary
@@ -328,21 +328,21 @@ foreach ([
 ] as $table => $indexes) {
     $wpdb->setIndexes($table, $indexes);
 }
-$wpdb->setIndexes('wp_duo_map', [
+$wpdb->setIndexes('wp_wprism_map', [
     $index('PRIMARY', 0, 1, 'uuid'),
     $index('id_kind_local_id', 0, 1, 'id_kind'),
 ]);
-foreach (['wp_duo_map', 'wp_duo_state', 'wp_duo_kv', 'wp_duo_journal'] as $table) {
+foreach (['wp_wprism_map', 'wp_wprism_state', 'wp_wprism_kv', 'wp_wprism_journal'] as $table) {
     $wpdb->seedTable($table, [])->setTableEngine($table, 'InnoDB');
 }
-$wpdb->setColumns('wp_duo_map', ['uuid' => 'varchar(36)', 'entity_type' => 'varchar(64)', 'id_kind' => 'varchar(64)', 'local_id' => 'bigint unsigned'])
-    ->setColumns('wp_duo_state', ['uuid' => 'varchar(64)', 'entity_type' => 'varchar(64)', 'content_hash' => 'varchar(64)'])
-    ->setColumns('wp_duo_kv', ['k' => 'varchar(191)', 'v' => 'longtext'])
-    ->setColumns('wp_duo_journal', ['id' => 'bigint', 't' => 'datetime', 'op' => 'varchar(32)', 'tbl' => 'varchar(64)', 'item' => 'varchar(191)', 'surface' => 'varchar(32)', 'actor' => 'bigint', 'caps' => 'text', 'hook' => 'text', 'proposal' => 'varchar(32)'])
-    ->setUniqueKey('wp_duo_map', ['uuid', 'id_kind'])
-    ->setUniqueKey('wp_duo_map', ['id_kind', 'local_id'])
-    ->setUniqueKey('wp_duo_state', ['uuid'])
-    ->setUniqueKey('wp_duo_kv', ['k']);
+$wpdb->setColumns('wp_wprism_map', ['uuid' => 'varchar(36)', 'entity_type' => 'varchar(64)', 'id_kind' => 'varchar(64)', 'local_id' => 'bigint unsigned'])
+    ->setColumns('wp_wprism_state', ['uuid' => 'varchar(64)', 'entity_type' => 'varchar(64)', 'content_hash' => 'varchar(64)'])
+    ->setColumns('wp_wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext'])
+    ->setColumns('wp_wprism_journal', ['id' => 'bigint', 't' => 'datetime', 'op' => 'varchar(32)', 'tbl' => 'varchar(64)', 'item' => 'varchar(191)', 'surface' => 'varchar(32)', 'actor' => 'bigint', 'caps' => 'text', 'hook' => 'text', 'proposal' => 'varchar(32)'])
+    ->setUniqueKey('wp_wprism_map', ['uuid', 'id_kind'])
+    ->setUniqueKey('wp_wprism_map', ['id_kind', 'local_id'])
+    ->setUniqueKey('wp_wprism_state', ['uuid'])
+    ->setUniqueKey('wp_wprism_kv', ['k']);
 
 // Fail once at the actual post-authored lease renewal, after the DB/filesystem
 // intent is durable and before native rebuild can consume it.
@@ -364,46 +364,46 @@ try {
 } catch (Throwable $failure) {
     $firstFailure = $failure;
 }
-duo_check($firstFailure !== null, 'first public apply fails at the injected post-authored apply-rebuild lease boundary');
-if ($firstFailure !== null) duo_check_detail(get_class($firstFailure) . ': ' . $firstFailure->getMessage());
+wprism_check($firstFailure !== null, 'first public apply fails at the injected post-authored apply-rebuild lease boundary');
+if ($firstFailure !== null) wprism_check_detail(get_class($firstFailure) . ': ' . $firstFailure->getMessage());
 if ($firstFailure?->getPrevious() !== null) {
-    duo_check_detail('previous: ' . get_class($firstFailure->getPrevious()) . ': ' . $firstFailure->getPrevious()->getMessage());
+    wprism_check_detail('previous: ' . get_class($firstFailure->getPrevious()) . ': ' . $firstFailure->getPrevious()->getMessage());
 }
-duo_check($failedHeartbeat, 'the failure seam observed the real apply-rebuild heartbeat');
-duo_check(count($wpdb->rows('wp_posts')) === 1, 'first apply committed the authored attachment row before the rebuild boundary');
-duo_check(count($wpdb->rows('wp_duo_map')) === 1, 'first apply sealed the attachment identity map before the rebuild boundary');
-duo_check(Ledger::kv_get('apply_in_progress') !== null, 'first apply left the durable incomplete-apply marker for recovery');
+wprism_check($failedHeartbeat, 'the failure seam observed the real apply-rebuild heartbeat');
+wprism_check(count($wpdb->rows('wp_posts')) === 1, 'first apply committed the authored attachment row before the rebuild boundary');
+wprism_check(count($wpdb->rows('wp_wprism_map')) === 1, 'first apply sealed the attachment identity map before the rebuild boundary');
+wprism_check(Ledger::kv_get('apply_in_progress') !== null, 'first apply left the durable incomplete-apply marker for recovery');
 $attachmentMarkers = array_values(array_filter(
-    $wpdb->rows('wp_duo_kv'),
+    $wpdb->rows('wp_wprism_kv'),
     static fn(array $row): bool => str_starts_with((string) ($row['k'] ?? ''), 'attachment_fs:')
 ));
-duo_check(count($attachmentMarkers) === 1, 'first apply left exactly one durable attachment filesystem marker');
+wprism_check(count($attachmentMarkers) === 1, 'first apply left exactly one durable attachment filesystem marker');
 if (count($attachmentMarkers) === 1) {
-    duo_check(
+    wprism_check(
         preg_match('/^attachment_fs:[0-9a-f]{32}$/D', (string) $attachmentMarkers[0]['k']) === 1
-            && str_starts_with((string) $attachmentMarkers[0]['v'], 'duo-attachment-filesystem-transaction/v1:'),
+            && str_starts_with((string) $attachmentMarkers[0]['v'], 'wprism-attachment-filesystem-transaction/v1:'),
         'attachment marker has the exact bounded key/value format'
     );
 }
-$journalPath = $repo . '/.duo/attachment-filesystem/current/journal.json';
-duo_check(is_file($journalPath), 'first apply retained the exact private attachment journal path');
+$journalPath = $repo . '/.wprism/attachment-filesystem/current/journal.json';
+wprism_check(is_file($journalPath), 'first apply retained the exact private attachment journal path');
 if (is_file($journalPath)) {
     $journal = Canon::decode((string) file_get_contents($journalPath));
-    duo_check(is_array($journal) && ($journal['phase'] ?? null) === 'originals_published', 'first apply journal records originals-published before native rebuild');
+    wprism_check(is_array($journal) && ($journal['phase'] ?? null) === 'originals_published', 'first apply journal records originals-published before native rebuild');
 }
 $originalPath = $store->uploadBaseDir . '/2026/08/recovery-note.png';
-duo_check(is_file($originalPath) && hash_equals(hash('sha256', $bytes), hash_file('sha256', $originalPath)), 'first apply published the exact original bytes');
+wprism_check(is_file($originalPath) && hash_equals(hash('sha256', $bytes), hash_file('sha256', $originalPath)), 'first apply published the exact original bytes');
 $uploadFiles = [];
 if (is_dir($store->uploadBaseDir)) {
     $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($store->uploadBaseDir, FilesystemIterator::SKIP_DOTS));
     foreach ($iterator as $file) if ($file->isFile()) $uploadFiles[] = substr($file->getPathname(), strlen($store->uploadBaseDir) + 1);
 }
 sort($uploadFiles, SORT_STRING);
-duo_check($uploadFiles === ['2026/08/recovery-note.png'], 'first apply has no derivative or metadata files before native rebuild');
+wprism_check($uploadFiles === ['2026/08/recovery-note.png'], 'first apply has no derivative or metadata files before native rebuild');
 $authoredMetaKeys = array_values(array_unique(array_map(static fn(array $row): string => (string) ($row['meta_key'] ?? ''), $wpdb->rows('wp_postmeta'))));
 sort($authoredMetaKeys, SORT_STRING);
-duo_check($authoredMetaKeys === ['_duo_uuid', '_wp_attached_file', '_wp_attachment_image_alt'], 'first apply committed only authored attachment metadata');
-duo_check(Ledger::kv_get('applied_revision') === null, 'first apply did not advance the applied revision before native rebuild');
+wprism_check($authoredMetaKeys === ['_wp_attached_file', '_wp_attachment_image_alt', '_wprism_uuid'], 'first apply committed only authored attachment metadata');
+wprism_check(Ledger::kv_get('applied_revision') === null, 'first apply did not advance the applied revision before native rebuild');
 $secondFailure = null;
 try {
     ApplyRequestCoordinator::apply($repo, [
@@ -413,27 +413,27 @@ try {
 } catch (Throwable $failure) {
     $secondFailure = $failure;
 }
-duo_check($secondFailure !== null, 'second identical public apply reaches native rebuild then refuses unavailable cross-process convergence');
-if ($secondFailure !== null) duo_check_detail(get_class($secondFailure) . ': ' . $secondFailure->getMessage());
+wprism_check($secondFailure !== null, 'second identical public apply reaches native rebuild then refuses unavailable cross-process convergence');
+if ($secondFailure !== null) wprism_check_detail(get_class($secondFailure) . ': ' . $secondFailure->getMessage());
 $childCommands = WP_CLI::$commands;
-duo_check(count($childCommands) === 1, 'native convergence launched exactly one bounded child command');
+wprism_check(count($childCommands) === 1, 'native convergence launched exactly one bounded child command');
 if (count($childCommands) === 1) {
-    duo_check(
+    wprism_check(
         WP_CLI::accepts_verify_command($childCommands[0]),
         'bounded child command has the exact verify-canonical argv grammar and no extras'
     );
     $extra = WP_CLI::runcommand($childCommands[0] . ' --unexpected', []);
-    duo_check(($extra->return_code ?? null) === 126, 'bounded child command refuses an unexpected extra argv token');
+    wprism_check(($extra->return_code ?? null) === 126, 'bounded child command refuses an unexpected extra argv token');
     $missingFormat = str_replace('--format=json', '--format=xml', $childCommands[0]);
     $malformed = WP_CLI::runcommand($missingFormat, []);
-    duo_check(($malformed->return_code ?? null) === 126, 'bounded child command refuses malformed argv missing format');
+    wprism_check(($malformed->return_code ?? null) === 126, 'bounded child command refuses malformed argv missing format');
 }
-duo_check(count(array_filter($wpdb->rows('wp_postmeta'), static fn(array $row): bool => ($row['meta_key'] ?? '') === '_wp_attachment_metadata')) === 1, 'retry settles exactly one native attachment metadata row before convergence refusal');
-duo_check(count(array_filter($wpdb->rows('wp_postmeta'), static fn(array $row): bool => ($row['meta_key'] ?? '') === '_wp_attached_file')) === 1, 'retry preserves exactly one managed attached-file sidecar');
+wprism_check(count(array_filter($wpdb->rows('wp_postmeta'), static fn(array $row): bool => ($row['meta_key'] ?? '') === '_wp_attachment_metadata')) === 1, 'retry settles exactly one native attachment metadata row before convergence refusal');
+wprism_check(count(array_filter($wpdb->rows('wp_postmeta'), static fn(array $row): bool => ($row['meta_key'] ?? '') === '_wp_attached_file')) === 1, 'retry preserves exactly one managed attached-file sidecar');
 $metadataRows = array_values(array_filter($wpdb->rows('wp_postmeta'), static fn(array $row): bool => ($row['meta_key'] ?? '') === '_wp_attachment_metadata'));
 if (count($metadataRows) === 1) {
     $metadata = maybe_unserialize($metadataRows[0]['meta_value'] ?? null);
-    duo_check(
+    wprism_check(
         is_array($metadata)
             && ($metadata['file'] ?? null) === '2026/08/recovery-note.png'
             && ($metadata['sizes']['thumbnail']['file'] ?? null) === 'recovery-note-1x1.png'
@@ -441,12 +441,12 @@ if (count($metadataRows) === 1) {
         'retry persists exact native metadata and derivative identity'
     );
 }
-duo_check(($GLOBALS['full_apply_metadata_calls'] ?? 0) === 1, 'retry invokes the native metadata generator exactly once');
-duo_check(is_file($store->uploadBaseDir . '/2026/08/recovery-note-1x1.png'), 'retry publishes the exact generated derivative');
-duo_check(Ledger::kv_get('apply_in_progress') !== null, 'convergence refusal retains the durable incomplete-apply marker');
-duo_check(Ledger::kv_get('applied_revision') === null, 'convergence refusal does not advance applied revision');
-duo_check(count(array_filter($wpdb->rows('wp_duo_kv'), static fn(array $row): bool => str_starts_with((string) ($row['k'] ?? ''), 'attachment_fs:'))) === 0, 'native rebuild clears the attachment filesystem marker before convergence verification');
+wprism_check(($GLOBALS['full_apply_metadata_calls'] ?? 0) === 1, 'retry invokes the native metadata generator exactly once');
+wprism_check(is_file($store->uploadBaseDir . '/2026/08/recovery-note-1x1.png'), 'retry publishes the exact generated derivative');
+wprism_check(Ledger::kv_get('apply_in_progress') !== null, 'convergence refusal retains the durable incomplete-apply marker');
+wprism_check(Ledger::kv_get('applied_revision') === null, 'convergence refusal does not advance applied revision');
+wprism_check(count(array_filter($wpdb->rows('wp_wprism_kv'), static fn(array $row): bool => str_starts_with((string) ($row['k'] ?? ''), 'attachment_fs:'))) === 0, 'native rebuild clears the attachment filesystem marker before convergence verification');
 
-if (duo_check_failed() > 0) {
+if (wprism_check_failed() > 0) {
     exit(1);
 }

@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Canonical wire format for authored wp_options rows.
@@ -12,8 +12,8 @@ namespace Duo;
  * needed to recreate a row without WordPress choosing autoload implicitly.
  */
 final class OptionState {
-    public const FORMAT = 'duo-options/v1';
-    public const WITNESS_FORMAT = 'duo-options/v2';
+    public const FORMAT = 'wprism-options/v1';
+    public const WITNESS_FORMAT = 'wprism-options/v2';
     public const AUTOLOAD_VALUES = ['yes', 'no', 'auto', 'on', 'off', 'auto-on', 'auto-off'];
 
     /** @return array{format:string,records:array<string,array<string,mixed>>} */
@@ -67,7 +67,7 @@ final class OptionState {
 
     public static function deleted(array $previousPresent, bool $retainClassificationWitness = false): array {
         if (($previousPresent['state'] ?? null) !== 'present') {
-            throw new \RuntimeException('duo: an option tombstone requires a prior present record');
+            throw new \RuntimeException('wprism: an option tombstone requires a prior present record');
         }
         $out = ['state' => 'deleted', 'expected_hash' => self::record_hash($previousPresent)];
         if ($retainClassificationWitness) {
@@ -150,7 +150,7 @@ final class OptionState {
         }
         if ($declared !== $autoload) {
             throw new \RuntimeException(
-                "duo: $context has autoload '$autoload' but policy declares " . var_export($declared, true)
+                "wprism: $context has autoload '$autoload' but policy declares " . var_export($declared, true)
                 . ' — update the adapter declaration or the source row; storage semantics cannot be guessed'
             );
         }
@@ -220,7 +220,7 @@ final class OptionState {
     private static function validate_autoload($autoload, string $context): void {
         if (!is_string($autoload) || !in_array($autoload, self::AUTOLOAD_VALUES, true)) {
             throw new \RuntimeException(
-                "duo: $context has unsupported autoload " . var_export($autoload, true)
+                "wprism: $context has unsupported autoload " . var_export($autoload, true)
                 . ' (expected ' . implode('|', self::AUTOLOAD_VALUES) . ')'
             );
         }

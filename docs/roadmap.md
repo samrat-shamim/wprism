@@ -1,9 +1,9 @@
-# Duo — owner roadmap
+# WPrism — owner roadmap
 
 Owner lane: delegated to the team-lead session (2026-08-07). Rulings are posted on
 Linear issues as `OWNER RULING` comments; this document holds the direction those
 rulings serve. It changes only by owner commit. Honest boundary refreshed
-2026-08-20 (evidence-seal retraction; post-teardown of DUO-3306/3450).
+2026-08-20 (evidence-seal retraction; post-teardown of issue #3306/3450).
 
 ## Thesis
 
@@ -31,23 +31,23 @@ What a status does NOT mean is that a digest binds it to an artifact set or a
 particular run.
 
 The honest boundary has moved again — and in one direction it moved back.
-Proofs now include a real SSH-host adoption run (DUO-3257 phase 1), a signed
-production-form SSH crash-rollback certification (DUO-3299 — harness-signed
+Proofs now include a real SSH-host adoption run (issue #3257 phase 1), a signed
+production-form SSH crash-rollback certification (issue #3299 — harness-signed
 Ed25519 evidence, not third-party attestation), automatic verified-rollback
-promotion — `duo promote` selects the certified profile whenever the target
+promotion — `wprism promote` selects the certified profile whenever the target
 proves every rollback capability, and falls back to operator-directed with an
-explicit warning otherwise (DUO-3310) — and an operator's own Ed25519 authority
+explicit warning otherwise (issue #3310) — and an operator's own Ed25519 authority
 over adapters it authored, which is the one thing that reads `Site-certified`
 (T6). The retraction: the evidence seal is gone. Per-manifest scoped
-certification bundles (DUO-3306, DUO-3450) sealed a claim to a content-addressed
+certification bundles (issue #3306, issue #3450) sealed a claim to a content-addressed
 record, that apparatus was torn out, and nothing replaced it. A claim now rests
 on a human's reviewed disposition and on conformance suites that are re-run
 rather than sealed — weaker in kind than a bound record, and honest about it.
 What remains unclaimed: no third-party production site has adopted, no field
 evidence yet shows a real target qualifying for the automatic verified profile,
-the contract attestation signer ships with an EMPTY trust root (`duo contract
+the contract attestation signer ships with an EMPTY trust root (`wprism contract
 <env> attest` signs under a key an operator provisions in
-`.duo/contract/authorities.json`; no site ships with one, so every application
+`.wprism/contract/authorities.json`; no site ships with one, so every application
 contract in the field still writes `attestation.state: unsigned`), and there is
 no public registry.
 
@@ -56,19 +56,19 @@ no public registry.
 **H1 — Correctness closure (exit reached 2026-08-08).** The board drained:
 surface-boundary program complete, raw-ID elimination shipped, every ruling's
 deliverables landed, version-boundary matrix certified on pinned artifacts,
-WooCommerce closed as a contract (DUO-3225) — partly by honest reduction
+WooCommerce closed as a contract (issue #3225) — partly by honest reduction
 (product deletion support removed rather than under-proven). Exit criterion
 met as stated: no known path by which authored data silently fails to
-propagate. The former tail items have since landed: DUO-3248 (journal table
-provenance bounded), DUO-3274 (fixture-staleness sweep reconciled), DUO-3301
+propagate. The former tail items have since landed: issue #3248 (journal table
+provenance bounded), issue #3274 (fixture-staleness sweep reconciled), issue #3301
 (TEC render checks made truthful).
 
 **H2 — Adoption (running).** Phase 1 grounded the SSH path on a real host and
-same-day-fixed what it surfaced (DUO-3287, DUO-3290). The rollback program
-(DUO-3291 design → DUO-3293…3299) built and certified the machinery — receipt +
+same-day-fixed what it surfaced (issue #3287, issue #3290). The rollback program
+(issue #3291 design → issue #3293…3299) built and certified the machinery — receipt +
 generation fence, encrypted checkpoints, atomic code releases with verified
 restore, upload journaling, effect contracts, crash certification — and
-DUO-3310 wired `duo promote` to select that profile automatically when the
+issue #3310 wired `wprism promote` to select that profile automatically when the
 target qualifies. Next: product-spec Phase A — a calibration cohort of at
 least three transactionally active single-site WooCommerce sites across two
 agencies, followed by the held-out validation cohort defined in
@@ -81,9 +81,9 @@ evidence about real targets and verified recovery.
 market wedge, makes agencies the initial customer, and makes agent-driven
 qualification the route through the ecosystem long tail. The shipped
 foundations are narrower than this section once claimed: reviewed manifest
-dispositions no manifest can reach (DUO-3227), per-adapter conformance suites
+dispositions no manifest can reach (issue #3227), per-adapter conformance suites
 that are run rather than sealed, an operator's own signing authority over
-adapters it authored, and inert human-ratified `duo adapter-draft` candidates.
+adapters it authored, and inert human-ratified `wprism adapter-draft` candidates.
 The evidence-bound part is what is missing — a claim is backed by review plus a
 re-runnable live suite, not by a record that binds it — so building the
 qualification route back up to "evidence-bound" is work in this horizon, not a
@@ -115,46 +115,46 @@ launch gate passes.
 ## Standing decisions
 
 - Artifact sourcing: wp.org release archive, sha256-locked, no latest-fallback
-  (DUO-3223 ruling). Extended from the test estate to the PRODUCT code half on
-  2026-08-21 (owner ruling, shipped as DUO-3499): Duo owns a lockfile,
-  `code/duo-code.lock.json`, and the egress constraint is absolute — the
+  (issue #3223 ruling). Extended from the test estate to the PRODUCT code half on
+  2026-08-21 (owner ruling, shipped as issue #3499): WPrism owns a lockfile,
+  `code/wprism-code.lock.json`, and the egress constraint is absolute — the
   agent/production target NEVER fetches from a registry, so classification and
   resolution are orchestrator-host work only. That constraint is what keeps
   `code_release_provider`'s shipped probe attestation ("off-target build and
   dependency resolution … no target Git history or registry credentials") true
-  for a site using both. Resolution itself shipped as DUO-3500 (`duo
+  for a site using both. Resolution itself shipped as issue #3500 (`wprism
   code-resolve`, and the automatic `<verb> phase: code-resolve` inside deploy
   and promote) for `local` and `docker`; host-to-target push over ssh shipped
-  as DUO-3514 — the host resolves into a throwaway staging worktree from the
+  as issue #3514 — the host resolves into a throwaway staging worktree from the
   TARGET's own lock, ships one tar, and the trees are verified target-side
   against `tree_sha256` in a staging directory before anything is renamed into
-  `code/wp-content`. DUO-3514 also shipped the retention half:
-  `duo recover <env> --prune-retained=<keep-n> [--confirm-prune]` is the only
+  `code/wp-content`. issue #3514 also shipped the retention half:
+  `wprism recover <env> --prune-retained=<keep-n> [--confirm-prune]` is the only
   verb that removes a retained release checkpoint, and nothing prunes
   automatically.
 - Git never carries third-party code (owner ruling, 2026-08-23). There is no
   vendoring mode: every plugin and theme component is LOCKED — against its
   wp.org release, or against an archive the operator imported on the host with
-  `duo code-import` (`imported-archive`, recorded by digest alone: no URL, no
+  `wprism code-import` (`imported-archive`, recorded by digest alone: no URL, no
   path) — or declared FIRST-PARTY with `--first-party=<root>/<slug>`, and
-  anything else blocks `duo init`, refuses `duo code-classify`, and refuses
+  anything else blocks `wprism init`, refuses `wprism code-classify`, and refuses
   every compile (`code_component_undeclared`). `--code=full` and the
-  `vendored-archive` lock origin are retired; `duo-code-lock/v2` carries the
+  `vendored-archive` lock origin are retired; `wprism-code-lock/v2` carries the
   `first_party` declarations beside `components`. Premium archives are the
-  operator's to move between hosts, never Duo's to download.
+  operator's to move between hosts, never WPrism's to download.
 - natural_key identity: the key supplies deterministic bootstrap identity;
   the ledger supplies continuity thereafter, so renames retain UUIDs and are
-  surfaced as informational observations (DUO-3237 revised ruling).
+  surfaced as informational observations (issue #3237 revised ruling).
 - Manifest-layer reclassification of core options is legal and loud
-  (DUO-3249 ruling: default_category derived under Polylang).
+  (issue #3249 ruling: default_category derived under Polylang).
 - Forced overrides must disclose their consequences and ship an exit path
-  through duo, never through operator SQL (DUO-3251 ruling).
+  through wprism, never through operator SQL (issue #3251 ruling).
 - Sandbox pairs and test fixtures are disposable by design; scripts touching a
   namespace must prove it dead first (linear-loop.md field notes).
 - Current platform-certified status derives only from the generated capability
   document (`docs/capabilities.md` and the README block); product prose never
   hand-claims support. Dispositions are reviewed inputs kept separate so a
-  manifest cannot certify itself (DUO-3227; release-gate enforces byte-level
+  manifest cannot certify itself (issue #3227; release-gate enforces byte-level
   agreement between the generated prose and those inputs). Site-certified
   status is separate and exists only in a generated per-site projection backed
   by reviewed declarations, conformance suites re-run against that site's pair,
@@ -164,10 +164,10 @@ launch gate passes.
   with that root empty by default; the platform-root ruling is H3 work.
 - Capability *reduction* is a legitimate certification outcome: working but
   unprovable behavior is removed and refused, not shipped under-proven
-  (DUO-3225: Woo product deletion → fail-closed boundary).
-- A successful database import is not a verified rollback (DUO-3291 ruling —
+  (issue #3225: Woo product deletion → fail-closed boundary).
+- A successful database import is not a verified rollback (issue #3291 ruling —
   this part stands). The "promotion stays operator-directed" half was
-  superseded 2026-08-09 by DUO-3310: `duo promote` now selects the certified
+  superseded 2026-08-09 by issue #3310: `wprism promote` now selects the certified
   verified-rollback profile automatically when the target proves every
   rollback capability, and remains operator-directed with an explicit warning
   when it does not.

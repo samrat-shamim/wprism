@@ -9,7 +9,7 @@ declare(strict_types=1);
  * database map, engine/topology mismatches, checked live-probe parsing, safe
  * local-POSIX filesystem/process capability profiles, aggregate diagnostics, and
  * Policy ordering. Before this gate, a direct
- * `wp duo` command bypassed the host doctor and reached repository reads or
+ * `wp wprism` command bypassed the host doctor and reached repository reads or
  * mutation on an entirely unexercised runtime.
  *
  * WordPress and PHP are each two independent conditions, and this suite proves
@@ -33,12 +33,12 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../lib/check.php';
 
 $root = dirname(__DIR__, 4);
-// WP-4.12: read from agent/duo.php, not retyped. This suite loads the SHIPPED
+// WP-4.12: read from agent/wprism.php, not retyped. This suite loads the SHIPPED
 // platform.json, which restates both defines, so a literal here fails the
 // boundary's own version-agreement check the moment the defines move — and it
 // fails as a fatal about the boundary, not as anything about compatibility.
 require_once __DIR__ . '/../../lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 if (!defined('ABSPATH')) {
     define('ABSPATH', $root . '/');
 }
@@ -79,9 +79,9 @@ require_once $root . '/agent/src/Policy/AdapterLibrary.php';
 require_once $root . '/agent/src/Policy/ManifestDispositions.php';
 require_once $root . '/agent/src/Policy/PlatformCompatibility.php';
 
-use Duo\CommandRefusalException;
-use Duo\AdapterLibrary;
-use Duo\PlatformCompatibility;
+use WPrism\CommandRefusalException;
+use WPrism\AdapterLibrary;
+use WPrism\PlatformCompatibility;
 
 $adapterLibrary = AdapterLibrary::fromSourceTree($root);
 $platformDocument = json_decode(
@@ -145,8 +145,8 @@ $refusal = static function (callable $operation): ?CommandRefusalException {
 };
 
 PlatformCompatibility::assert_supported($platform, $facts());
-duo_check(true, 'the shipped PHP/MariaDB/Linux-filesystem/process/WordPress/single-site boundary accepts its exercised facts');
-duo_check(
+wprism_check(true, 'the shipped PHP/MariaDB/Linux-filesystem/process/WordPress/single-site boundary accepts its exercised facts');
+wprism_check(
     $refusal(static fn() => PlatformCompatibility::assert_supported(
         $platform,
         $facts(osFamily: 'Darwin', processOsFamily: 'Darwin')
@@ -159,19 +159,19 @@ duo_check(
 // rather than restated here so adding a series to platform.json cannot leave
 // this suite asserting the old set.
 $verifiedWordPress = $platform['compatibility']['wordpress']['verified'];
-duo_check(count($verifiedWordPress) >= 2, 'the shipped claim names more than one exercised core series');
+wprism_check(count($verifiedWordPress) >= 2, 'the shipped claim names more than one exercised core series');
 foreach ($verifiedWordPress as $series => $patch) {
     $failure = $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $facts(wordpress: $patch)));
-    duo_check($failure === null, "the exercised $series proof core $patch is accepted by the agent gate");
+    wprism_check($failure === null, "the exercised $series proof core $patch is accepted by the agent gate");
 }
 
 // Same contract on the PHP axis, and read from the claim for the same reason:
 // every value of php.verified is a runtime a live matrix ran end to end.
 $verifiedPhp = $platform['compatibility']['php']['verified'];
-duo_check(count($verifiedPhp) >= 2, 'the shipped claim names more than one exercised PHP series');
+wprism_check(count($verifiedPhp) >= 2, 'the shipped claim names more than one exercised PHP series');
 foreach ($verifiedPhp as $series => $patch) {
     $failure = $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $facts(php: $patch)));
-    duo_check($failure === null, "the exercised PHP $series proof runtime $patch is accepted by the agent gate");
+    wprism_check($failure === null, "the exercised PHP $series proof runtime $patch is accepted by the agent gate");
 }
 
 foreach ([
@@ -211,7 +211,7 @@ foreach ([
     'WordPress later patch inside the newly exercised 7.1 series' => $facts(wordpress: '7.1.9'),
 ] as $label => $caseFacts) {
     $failure = $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $caseFacts));
-    duo_check($failure === null, "$label is accepted by the agent gate");
+    wprism_check($failure === null, "$label is accepted by the agent gate");
 }
 
 foreach ([
@@ -256,9 +256,9 @@ foreach ([
     'multisite topology' => [$facts(siteMode: 'multisite'), 'platform_site_mode_unsupported'],
 ] as $label => [$caseFacts, $code]) {
     $failure = $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $caseFacts));
-    duo_check($failure instanceof CommandRefusalException, "$label refuses through the typed platform contract");
-    duo_check_same('platform_unsupported', $failure?->reasonCode, "$label shares one stable command reason");
-    duo_check_same($code, $failure?->diagnostics[0]['code'] ?? null, "$label names its exact platform axis");
+    wprism_check($failure instanceof CommandRefusalException, "$label refuses through the typed platform contract");
+    wprism_check_same('platform_unsupported', $failure?->reasonCode, "$label shares one stable command reason");
+    wprism_check_same($code, $failure?->diagnostics[0]['code'] ?? null, "$label names its exact platform axis");
 }
 
 // Every primitive is independently load-bearing. A one-cell sample would let
@@ -272,12 +272,12 @@ foreach (array_keys($allProcessFunctions) as $function) {
         $platform,
         $facts(processFunctions: $missingOne)
     ));
-    duo_check_same(
+    wprism_check_same(
         'platform_process_function_unsupported',
         $failure?->diagnostics[0]['code'] ?? null,
         "missing process primitive $function refuses on the process-function axis"
     );
-    duo_check_same(
+    wprism_check_same(
         'missing ' . $function,
         $failure?->diagnostics[0]['observed'] ?? null,
         "missing process primitive $function is named without hiding behind another prerequisite"
@@ -290,7 +290,7 @@ foreach (array_keys($allProcessFunctions) as $function) {
 // (sandbox/tests/live/regress_core_scope_platform.sh), so the offline and
 // live halves of the evidence cannot drift apart.
 $belowMinimum = $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $facts(wordpress: '6.8.3')));
-duo_check_same(
+wprism_check_same(
     '>=6.9.0 <7.2.0 exercised 6.9, 7.0, 7.1',
     $belowMinimum?->diagnostics[0]['required'] ?? null,
     'a refused core is told the exercised matrix, not one exact version'
@@ -301,7 +301,7 @@ duo_check_same(
 // refused runtime (sandbox/tests/live/regress_core_scope_platform.sh), so a
 // drift between the two halves of the evidence would surface here first.
 $phpBelowMinimum = $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $facts(php: '8.2.99')));
-duo_check_same(
+wprism_check_same(
     '>=8.3.0 <8.5.0 exercised 8.3, 8.4',
     $phpBelowMinimum?->diagnostics[0]['required'] ?? null,
     'a refused PHP runtime is told the exercised matrix, not the bare range'
@@ -316,12 +316,12 @@ $mysqlBelowMinimum = $refusal(static fn() => PlatformCompatibility::assert_suppo
     $platform,
     $facts(engine: 'MySQL', database: '8.3.9')
 ));
-duo_check_same(
+wprism_check_same(
     'MySQL >=8.4.0 <8.5.0',
     $mysqlBelowMinimum?->diagnostics[0]['required'] ?? null,
     'a refused database version is told its OWN engine range, engine-qualified'
 );
-duo_check_same(
+wprism_check_same(
     'MariaDB >=11.0.0 <12.0.0',
     $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $facts(database: '10.11.0')))
         ?->diagnostics[0]['required'] ?? null,
@@ -342,18 +342,18 @@ $unclaimedEngine = $refusal(static fn() => PlatformCompatibility::assert_support
     $mariadbOnly,
     $facts(engine: 'MySQL', database: '8.4.3')
 ));
-duo_check_same('platform_unsupported', $unclaimedEngine?->reasonCode, 'an unclaimed engine shares one stable command reason');
-duo_check_same(
+wprism_check_same('platform_unsupported', $unclaimedEngine?->reasonCode, 'an unclaimed engine shares one stable command reason');
+wprism_check_same(
     'platform_database_engine_unsupported',
     $unclaimedEngine?->diagnostics[0]['code'] ?? null,
     'an engine no engines map names refuses on the engine axis, never on a version comparison'
 );
-duo_check_same(
+wprism_check_same(
     'MariaDB',
     $unclaimedEngine?->diagnostics[0]['required'] ?? null,
     'and the operator is told exactly which engines that boundary claims'
 );
-duo_check(
+wprism_check(
     $refusal(static fn() => PlatformCompatibility::assert_supported($mariadbOnly, $facts())) === null,
     'the same single-engine fixture still accepts the engine it does claim'
 );
@@ -373,18 +373,18 @@ $holed['compatibility']['wordpress'] = [
     'verified' => ['6.9' => '6.9.2', '7.1' => '7.1.4'],
 ];
 $holeFailure = $refusal(static fn() => PlatformCompatibility::assert_supported($holed, $facts(wordpress: '7.0.1')));
-duo_check_same('platform_unsupported', $holeFailure?->reasonCode, 'an unexercised minor line inside the range shares one stable command reason');
-duo_check_same(
+wprism_check_same('platform_unsupported', $holeFailure?->reasonCode, 'an unexercised minor line inside the range shares one stable command reason');
+wprism_check_same(
     'platform_wordpress_version_unsupported',
     $holeFailure?->diagnostics[0]['code'] ?? null,
     'an unexercised minor line inside the declared range refuses on the WordPress axis'
 );
-duo_check_same(
+wprism_check_same(
     '>=6.9.0 <7.2.0 exercised 6.9, 7.1',
     $holeFailure?->diagnostics[0]['required'] ?? null,
     'the hole is named to the operator: the label lists exercised series, not the range endpoints alone'
 );
-duo_check(
+wprism_check(
     $refusal(static fn() => PlatformCompatibility::assert_supported($holed, $facts(wordpress: '7.1.9'))) === null,
     'the same holed boundary still accepts an unrun patch inside one of its exercised series'
 );
@@ -403,18 +403,18 @@ $holedPhp['compatibility']['php'] = [
     'verified' => ['8.3' => '8.3.33', '8.5' => '8.5.1'],
 ];
 $phpHoleFailure = $refusal(static fn() => PlatformCompatibility::assert_supported($holedPhp, $facts(php: '8.4.7')));
-duo_check_same('platform_unsupported', $phpHoleFailure?->reasonCode, 'an unexercised PHP series inside the range shares one stable command reason');
-duo_check_same(
+wprism_check_same('platform_unsupported', $phpHoleFailure?->reasonCode, 'an unexercised PHP series inside the range shares one stable command reason');
+wprism_check_same(
     'platform_php_version_unsupported',
     $phpHoleFailure?->diagnostics[0]['code'] ?? null,
     'an unexercised PHP series inside the declared range refuses on the PHP axis alone'
 );
-duo_check_same(
+wprism_check_same(
     '>=8.3.0 <8.6.0 exercised 8.3, 8.5',
     $phpHoleFailure?->diagnostics[0]['required'] ?? null,
     'the PHP hole is named to the operator: the label lists exercised series, not the range endpoints alone'
 );
-duo_check(
+wprism_check(
     $refusal(static fn() => PlatformCompatibility::assert_supported($holedPhp, $facts(php: '8.5.9'))) === null,
     'the same holed PHP boundary still accepts an unrun patch inside one of its exercised series'
 );
@@ -429,7 +429,7 @@ $allMismatch = $refusal(static fn() => PlatformCompatibility::assert_supported(
     $platform,
     $facts('8.5.0', 'MySQL', '8.3.9', '7.2.0', 'multisite', 'Windows', processOsFamily: 'Windows')
 ));
-duo_check_same(
+wprism_check_same(
     [
         'platform_site_mode_unsupported',
         'platform_php_version_unsupported',
@@ -441,7 +441,7 @@ duo_check_same(
     array_column($allMismatch?->diagnostics ?? [], 'code'),
     'multi-axis incompatibility reports every independent mismatch in stable review order'
 );
-duo_check(
+wprism_check(
     $allMismatch !== null
         && !$allMismatch->detailsRedacted
         && !str_contains((string) json_encode($allMismatch->payload()), 'maria~')
@@ -452,7 +452,7 @@ duo_check(
 $malformed = $platform;
 $malformed['compatibility']['php']['max'] = '8.3.0';
 $invalidBoundary = $refusal(static fn() => PlatformCompatibility::assert_supported($malformed, $facts()));
-duo_check_same('platform_boundary_invalid', $invalidBoundary?->reasonCode, 'a malformed platform range refuses before comparison');
+wprism_check_same('platform_boundary_invalid', $invalidBoundary?->reasonCode, 'a malformed platform range refuses before comparison');
 
 // Each row is a boundary whose wordpress axis cannot be trusted to say what
 // was exercised. Every one of them fails closed on the SAME existing
@@ -501,7 +501,7 @@ foreach ([
     $shape = $platform;
     $shape['compatibility']['wordpress'] = $axis;
     $shapeFailure = $refusal(static fn() => PlatformCompatibility::assert_supported($shape, $facts()));
-    duo_check_same(
+    wprism_check_same(
         'platform_boundary_invalid',
         $shapeFailure?->reasonCode,
         "$label refuses fail-closed before any platform comparison"
@@ -540,7 +540,7 @@ foreach ([
     $shape = $platform;
     $shape['compatibility']['php'] = $axis;
     $shapeFailure = $refusal(static fn() => PlatformCompatibility::assert_supported($shape, $facts()));
-    duo_check_same(
+    wprism_check_same(
         'platform_boundary_invalid',
         $shapeFailure?->reasonCode,
         "$label refuses fail-closed before any platform comparison"
@@ -588,7 +588,7 @@ foreach ([
     $shape = $platform;
     $shape['compatibility']['database'] = $axis;
     $shapeFailure = $refusal(static fn() => PlatformCompatibility::assert_supported($shape, $facts()));
-    duo_check_same(
+    wprism_check_same(
         'platform_boundary_invalid',
         $shapeFailure?->reasonCode,
         "$label refuses fail-closed before any platform comparison"
@@ -629,7 +629,7 @@ foreach ([
         $shape['compatibility']['filesystem'] = $axis;
     }
     $shapeFailure = $refusal(static fn() => PlatformCompatibility::assert_supported($shape, $facts()));
-    duo_check_same(
+    wprism_check_same(
         'platform_boundary_invalid',
         $shapeFailure?->reasonCode,
         "$label refuses fail-closed before any platform comparison"
@@ -688,7 +688,7 @@ foreach ([
         $shape['compatibility']['process'] = $axis;
     }
     $shapeFailure = $refusal(static fn() => PlatformCompatibility::assert_supported($shape, $facts()));
-    duo_check_same(
+    wprism_check_same(
         'platform_boundary_invalid',
         $shapeFailure?->reasonCode,
         "$label refuses fail-closed before any platform comparison"
@@ -718,7 +718,7 @@ foreach ([
     'non-boolean process shell executable fact' => $nonBooleanProcessShellFact,
 ] as $label => $caseFacts) {
     $shapeFailure = $refusal(static fn() => PlatformCompatibility::assert_supported($platform, $caseFacts));
-    duo_check_same('platform_probe_unavailable', $shapeFailure?->reasonCode, "$label is a probe failure, not a target mismatch");
+    wprism_check_same('platform_probe_unavailable', $shapeFailure?->reasonCode, "$label is a probe failure, not a target mismatch");
 }
 
 $liveFacts = PlatformCompatibility::current_facts();
@@ -730,7 +730,7 @@ $liveProcessFunctions = [];
 foreach ($processRequirements as $function) {
     $liveProcessFunctions[$function] = function_exists($function);
 }
-duo_check_same(
+wprism_check_same(
     [
         'php' => PHP_VERSION,
         'database' => ['engine' => 'MariaDB', 'version' => '11.8.8'],
@@ -753,17 +753,17 @@ duo_check_same(
     $liveFacts,
     'the checked probe reduces a real MariaDB-style server banner to reviewed platform facts'
 );
-duo_check_same(['SELECT VERSION()'], $GLOBALS['wpdb']->queries, 'the platform gate reads the server version exactly once');
+wprism_check_same(['SELECT VERSION()'], $GLOBALS['wpdb']->queries, 'the platform gate reads the server version exactly once');
 
 $GLOBALS['wpdb']->server = '8.4.3';
 $mysqlFacts = PlatformCompatibility::current_facts();
-duo_check_same(['engine' => 'MySQL', 'version' => '8.4.3'], $mysqlFacts['database'], 'a non-MariaDB server banner is classified as MySQL, never guessed compatible');
+wprism_check_same(['engine' => 'MySQL', 'version' => '8.4.3'], $mysqlFacts['database'], 'a non-MariaDB server banner is classified as MySQL, never guessed compatible');
 
 $GLOBALS['wpdb']->server = false;
 $GLOBALS['wpdb']->last_error = 'private database password sk_live_12345678901234567890';
 $probeFailure = $refusal(static fn() => PlatformCompatibility::current_facts());
-duo_check_same('platform_probe_unavailable', $probeFailure?->reasonCode, 'an unreadable database fact is a typed fail-closed probe refusal');
-duo_check(
+wprism_check_same('platform_probe_unavailable', $probeFailure?->reasonCode, 'an unreadable database fact is a typed fail-closed probe refusal');
+wprism_check(
     $probeFailure !== null
         && !str_contains($probeFailure->getMessage(), 'password')
         && !str_contains((string) json_encode($probeFailure->payload()), 'sk_live'),
@@ -793,31 +793,31 @@ $hostInsideClaim = preg_match('/^\d+(?:\.\d+){1,3}$/D', PHP_VERSION) === 1
     && DIRECTORY_SEPARATOR === '/'
     && !in_array(false, $liveFunctions, true);
 
-$policyFailure = $refusal(static fn() => Duo\Policy::load('/definitely-missing-platform-ordering-repository'));
+$policyFailure = $refusal(static fn() => WPrism\Policy::load('/definitely-missing-platform-ordering-repository'));
 if ($hostInsideClaim) {
-    duo_check(
+    wprism_check(
         $policyFailure !== null && $policyFailure->reasonCode !== 'platform_unsupported',
         'Policy load on a host PHP the claim exercises passes the platform gate and refuses on the missing repository instead'
     );
 } else {
-    duo_check_same('platform_unsupported', $policyFailure?->reasonCode, 'Policy load invokes the platform gate on a real WordPress-shaped runtime');
-    duo_check(
-        $policyFailure !== null && !str_contains($policyFailure->getMessage(), 'site.duo.json'),
+    wprism_check_same('platform_unsupported', $policyFailure?->reasonCode, 'Policy load invokes the platform gate on a real WordPress-shaped runtime');
+    wprism_check(
+        $policyFailure !== null && !str_contains($policyFailure->getMessage(), 'site.wprism.json'),
         'platform refusal precedes the first repository read'
     );
 }
 
 $GLOBALS['platform_multisite'] = true;
 try {
-    Duo\Policy::load('/definitely-missing-platform-ordering-repository');
+    WPrism\Policy::load('/definitely-missing-platform-ordering-repository');
     $multisiteMessage = '';
 } catch (Throwable $failure) {
     $multisiteMessage = $failure->getMessage();
 }
-duo_check(
+wprism_check(
     str_contains($multisiteMessage, 'multisite is unsupported by the certified v1 contract')
         && !str_contains($multisiteMessage, 'platform compatibility refused'),
     'the established multisite refusal remains the first and exact topology answer'
 );
 
-duo_check_summary('platform compatibility');
+wprism_check_summary('platform compatibility');

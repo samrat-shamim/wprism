@@ -1,5 +1,5 @@
 <?php
-// DUO-3384: incomplete agent plan envelopes fail closed at the promotion
+// issue #3384: incomplete agent plan envelopes fail closed at the promotion
 // trust boundaries.
 //
 // PlanSummary::render() deliberately tolerates partial fixtures, so a valid
@@ -7,7 +7,7 @@
 // render(...)['ok'] into durable evidence must therefore validate the
 // complete envelope first. This suite drives `{}`, a plan missing one
 // required bucket, and a valid complete plan through the two promotion
-// reconciliation boundaries in cli/duo, then pins the validator's bucket
+// reconciliation boundaries in cli/wprism, then pins the validator's bucket
 // list to what agent/src/Apply/Apply.php actually emits. The third boundary,
 // branch-environment convergence, is exercised in
 // regress_environment_materializer.php, which already owns the materializer
@@ -23,32 +23,32 @@ declare(strict_types=1);
  * the same idiom regress_frozen_materialization_promotion.php uses, so this
  * suite exercises the shipped functions rather than a copy of them.
  */
-$duoSource = file_get_contents(__DIR__ . '/../../../../cli/duo');
-if (!is_string($duoSource)) {
-    fwrite(STDERR, "FAIL: could not read public duo shell\n");
+$wprismSource = file_get_contents(__DIR__ . '/../../../../cli/wprism');
+if (!is_string($wprismSource)) {
+    fwrite(STDERR, "FAIL: could not read public wprism shell\n");
     exit(1);
 }
-$duoMain = "\ntry {\n    exit(main(\$argv));";
-$duoAt = strpos($duoSource, $duoMain);
-if ($duoAt === false) {
-    fwrite(STDERR, "FAIL: public duo shell main guard moved\n");
+$wprismMain = "\ntry {\n    exit(main(\$argv));";
+$wprismAt = strpos($wprismSource, $wprismMain);
+if ($wprismAt === false) {
+    fwrite(STDERR, "FAIL: public wprism shell main guard moved\n");
     exit(1);
 }
-$duoPhp = strpos($duoSource, '<?php');
-if ($duoPhp === false || $duoPhp > $duoAt) {
-    fwrite(STDERR, "FAIL: public duo shell PHP prologue moved\n");
+$wprismPhp = strpos($wprismSource, '<?php');
+if ($wprismPhp === false || $wprismPhp > $wprismAt) {
+    fwrite(STDERR, "FAIL: public wprism shell PHP prologue moved\n");
     exit(1);
 }
-$duoSource = substr($duoSource, $duoPhp + 5, $duoAt - ($duoPhp + 5)); // strip shebang and `<?php`
-$duoSource = str_replace('__DIR__', var_export(dirname(__DIR__, 4) . '/cli', true), $duoSource);
-eval($duoSource);
+$wprismSource = substr($wprismSource, $wprismPhp + 5, $wprismAt - ($wprismPhp + 5)); // strip shebang and `<?php`
+$wprismSource = str_replace('__DIR__', var_export(dirname(__DIR__, 4) . '/cli', true), $wprismSource);
+eval($wprismSource);
 
-use Duo\Orchestrator\DriverCapability;
-use Duo\Orchestrator\DriverCapabilityReport;
-use Duo\Orchestrator\EnvironmentDriver;
-use Duo\Orchestrator\RollbackAuthority;
-use Duo\Orchestrator\SshTransport;
-use Duo\Recovery\RollbackControl;
+use WPrism\Orchestrator\DriverCapability;
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\EnvironmentDriver;
+use WPrism\Orchestrator\RollbackAuthority;
+use WPrism\Orchestrator\SshTransport;
+use WPrism\Recovery\RollbackControl;
 
 function pct_fail(string $message): never {
     fwrite(STDERR, "FAIL: $message\n");
@@ -75,7 +75,7 @@ function pct_refuses(callable $call, string $needle, string $message): void {
 }
 
 /**
- * One complete `wp duo plan --format=json` envelope, written out literally
+ * One complete `wp wprism plan --format=json` envelope, written out literally
  * rather than derived from PlanContract: a fixture that asked the validator
  * what it wanted would prove nothing about the validator.
  *
@@ -109,7 +109,7 @@ function pct_json(array $plan): string {
 /** Content-address one compiled artifact exactly the way the target verifies it. */
 function pct_artifact(string $revisionHash): array {
     $artifact = [
-        'deletions' => [], 'effects_inventory' => [], 'format' => 'duo-compiled-repository/v1',
+        'deletions' => [], 'effects_inventory' => [], 'format' => 'wprism-compiled-repository/v1',
         'revision_hash' => $revisionHash, 'tree' => [], 'uploads_inventory' => [],
     ];
     $artifact['artifact_hash'] = hash('sha256', json_encode(
@@ -163,7 +163,7 @@ final class PlanContractPromotionDriver implements EnvironmentDriver {
             $start = strrpos($script, $marker);
             if ($start === false) return $this->fail('malformed PHP hash fixture');
             $path = substr($script, $start + strlen($marker), -1);
-            if (str_contains($path, '/.duo/artifacts/')) return $this->ok($this->artifactHash . "\n");
+            if (str_contains($path, '/.wprism/artifacts/')) return $this->ok($this->artifactHash . "\n");
             if (!isset($this->files[$path])) return $this->fail('missing file');
             return $this->ok(hash('sha256', $this->files[$path]) . "\n");
         }
@@ -234,9 +234,9 @@ $summary = [
 ];
 $context = [
     'operation_id' => $operation,
-    'promotion_owner' => 'duo-env-promotion-' . $operation,
-    'artifact_path' => $repoPath . '/.duo/artifacts/materialize-' . $operation . '.json',
-    'checkpoint_path' => $repoPath . '/.duo/checkpoints/materialize-' . $operation . '.sql.enc',
+    'promotion_owner' => 'wprism-env-promotion-' . $operation,
+    'artifact_path' => $repoPath . '/.wprism/artifacts/materialize-' . $operation . '.json',
+    'checkpoint_path' => $repoPath . '/.wprism/checkpoints/materialize-' . $operation . '.sql.enc',
     'compiled_summary' => $summary,
 ];
 
@@ -244,7 +244,7 @@ $incomplete = [
     'an empty plan object' => '{}',
     'a plan missing one required bucket' => pct_json(pct_plan_without('conflict')),
     'a plan whose required bucket is not a list' => pct_json(pct_plan(['conflict' => ['blocked' => true]])),
-    // DUO-3388: a COMPLETE envelope (every required bucket present and a list)
+    // issue #3388: a COMPLETE envelope (every required bucket present and a list)
     // whose one populated bucket carries a NON-ARRAY row. requireComplete()'s
     // predecessor stopped at "exists and is a list", so this reached
     // PlanSummary::label(array $r) and raised an uncaught TypeError at every
@@ -281,7 +281,7 @@ foreach ($incomplete as $label => $planJson) {
         "$label refuses before any target mutation");
 }
 
-// DUO-3388: the row-shape refusal is house-style AND names the bucket and the
+// issue #3388: the row-shape refusal is house-style AND names the bucket and the
 // offending index, not a bare TypeError. pct_refuses catches Throwable, so a
 // reverted floor would let render()'s "must be of type array, bool given"
 // TypeError through here — but its message does NOT contain this needle, so
@@ -323,7 +323,7 @@ pct_ok(frozen_promotion_reconcile($driftDriver, $repoPath, $driftContext) === nu
 // The verified path reads its checkpoint identity from the external rollback
 // authority, so this drives a real SshTransport against a real committed
 // control root through a fake ssh/wp pair on PATH.
-$tmp = sys_get_temp_dir() . '/duo-plan-contract-' . bin2hex(random_bytes(8));
+$tmp = sys_get_temp_dir() . '/wprism-plan-contract-' . bin2hex(random_bytes(8));
 $oldPath = (string) getenv('PATH');
 try {
     $sshRepo = $tmp . '/target-repo';
@@ -331,12 +331,12 @@ try {
     $planFile = $tmp . '/plan.json';
     $bin = $tmp . '/bin';
     if (!mkdir($wpPath, 0700, true) || !mkdir($bin, 0700, true)) pct_fail('could not create ssh fixture root');
-    $sshArtifactPath = $sshRepo . '/.duo/artifacts/materialize-' . $operation . '.json';
+    $sshArtifactPath = $sshRepo . '/.wprism/artifacts/materialize-' . $operation . '.json';
     pct_write($sshArtifactPath, json_encode(
         $artifact,
         JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
     ) . "\n");
-    pct_write($sshRepo . '/.duo/checkpoints/materialize-' . $operation . '.sql.enc', "-- frozen checkpoint\n");
+    pct_write($sshRepo . '/.wprism/checkpoints/materialize-' . $operation . '.sql.enc', "-- frozen checkpoint\n");
 
     pct_write($bin . '/ssh', "#!/usr/bin/env bash\nset -euo pipefail\nremote=\"\${!#}\"\nexec /bin/sh -c \"\$remote\"\n");
     chmod($bin . '/ssh', 0700);
@@ -346,8 +346,8 @@ try {
 declare(strict_types=1);
 $args = $argv;
 array_shift($args);
-if (($args[0] ?? '') === 'duo' && ($args[1] ?? '') === 'plan') {
-    echo file_get_contents((string) getenv('DUO_PLAN_CONTRACT_PLAN'));
+if (($args[0] ?? '') === 'wprism' && ($args[1] ?? '') === 'plan') {
+    echo file_get_contents((string) getenv('WPRISM_PLAN_CONTRACT_PLAN'));
     exit(0);
 }
 exit(0);
@@ -358,7 +358,7 @@ PHP);
     // A committed generation whose receipt binds this exact artifact, owner,
     // and checkpoint digest — the only preconditions the verified path checks
     // before it trusts the target's plan.
-    $control = $sshRepo . '/.duo/control';
+    $control = $sshRepo . '/.wprism/control';
     // The adopted runtime is the whole recovery directory, not one file:
     // rollback-control.php require_once()s its executor/bundle siblings.
     foreach (glob(dirname(__DIR__, 4) . '/recovery/*.php') ?: [] as $recoverySource) {
@@ -419,7 +419,7 @@ PHP);
         ];
     };
     $submit = static function (array $request) use ($control): array {
-        $path = tempnam(sys_get_temp_dir(), 'duo-plan-contract-request-');
+        $path = tempnam(sys_get_temp_dir(), 'wprism-plan-contract-request-');
         if ($path === false) pct_fail('could not allocate authority request');
         pct_write($path, RollbackControl::canonical($request) . "\n");
         try {
@@ -462,12 +462,12 @@ PHP);
         'operation_id' => $operation,
         'promotion_owner' => $context['promotion_owner'],
         'artifact_path' => $sshArtifactPath,
-        'checkpoint_path' => $sshRepo . '/.duo/checkpoints/materialize-' . $operation . '.sql.enc',
+        'checkpoint_path' => $sshRepo . '/.wprism/checkpoints/materialize-' . $operation . '.sql.enc',
         'compiled_summary' => $summary,
     ];
     foreach ($incomplete as $label => $planJson) {
         pct_write($planFile, $planJson . "\n");
-        putenv('DUO_PLAN_CONTRACT_PLAN=' . $planFile);
+        putenv('WPRISM_PLAN_CONTRACT_PLAN=' . $planFile);
         $verifiedContext = $sshContextBase;
         pct_refuses(
             static function () use ($transport, $sshRepo, &$verifiedContext): void {
@@ -481,7 +481,7 @@ PHP);
     }
 
     pct_write($planFile, pct_json(pct_plan()) . "\n");
-    putenv('DUO_PLAN_CONTRACT_PLAN=' . $planFile);
+    putenv('WPRISM_PLAN_CONTRACT_PLAN=' . $planFile);
     $verifiedContext = $sshContextBase;
     $verifiedReceipt = frozen_promotion_verified_reconcile($transport, $sshRepo, $verifiedContext);
     pct_ok(is_array($verifiedReceipt)
@@ -491,24 +491,24 @@ PHP);
         'a complete clean plan still reconciles the verified provider commit');
 
     pct_write($planFile, pct_json(pct_plan(['conflict' => [['path' => 'state/posts/a.json', 'type' => 'post', 'uuid' => 'a']]])) . "\n");
-    putenv('DUO_PLAN_CONTRACT_PLAN=' . $planFile);
+    putenv('WPRISM_PLAN_CONTRACT_PLAN=' . $planFile);
     $verifiedContext = $sshContextBase;
     pct_ok(frozen_promotion_verified_reconcile($transport, $sshRepo, $verifiedContext) === null,
         'a complete but unclean plan still declines the verified reconciliation');
 } finally {
     putenv('PATH=' . $oldPath);
-    putenv('DUO_PLAN_CONTRACT_PLAN');
+    putenv('WPRISM_PLAN_CONTRACT_PLAN');
     pct_remove($tmp);
 }
 
 // ------------------------------------------------------ the contract itself
-$contract = \Duo\Orchestrator\PlanContract::class;
+$contract = \WPrism\Orchestrator\PlanContract::class;
 pct_ok($contract::violations(pct_plan()) === [], 'a complete envelope has no contract violations');
 pct_ok($contract::violations([]) === array_map(
     static fn(string $bucket): string => "missing $bucket",
     $contract::requiredBuckets()
 ), 'an empty plan object names every missing bucket rather than rendering clean');
-// DUO-3342's bucket, pinned like `warnings` above because it carries the same
+// issue #3342's bucket, pinned like `warnings` above because it carries the same
 // hazard: PlanSummary::render() defaults it (`$plan['regen_context'] ?? []`),
 // so an envelope that simply omits it renders as though no derived-state
 // receipt were outstanding — and `ok` is what the convergence and frozen-
@@ -517,8 +517,8 @@ pct_ok($contract::violations([]) === array_map(
 pct_ok($contract::violations(pct_plan_without('regen_context')) === ['missing regen_context'],
     'an envelope omitting the outstanding-receipt bucket is incomplete, so a caller cannot read a clean `ok` '
     . 'off a document that never carried it');
-pct_ok(\Duo\Orchestrator\PlanSummary::render(pct_plan_without('regen_context'))['ok'] === true
-    && \Duo\Orchestrator\PlanSummary::render(pct_plan([
+pct_ok(\WPrism\Orchestrator\PlanSummary::render(pct_plan_without('regen_context'))['ok'] === true
+    && \WPrism\Orchestrator\PlanSummary::render(pct_plan([
         'regen_context' => [['uuid' => 'u', 'type' => 'post', 'post_type' => 'p', 'kind' => 'delete']],
     ]))['ok'] === false,
     'and that is exactly the fail-open it closes: the renderer calls the omitting document clean while the '
@@ -529,7 +529,7 @@ pct_ok($contract::violations(pct_plan(['drift' => ['state/options/core.json' => 
     'a bucket that is an object rather than a list fails closed');
 pct_ok($contract::violations(pct_plan(['create' => 'none'])) === ['create is not a list'],
     'a bucket that is a scalar fails closed');
-// DUO-3388 row-shape floor. A complete envelope whose bucket IS a list but
+// issue #3388 row-shape floor. A complete envelope whose bucket IS a list but
 // carries a non-array row is named by bucket and offending index — the cheap
 // floor beneath the deliberately-unvalidated row field shapes.
 pct_ok($contract::violations(pct_plan(['conflict' => [true]])) === ['conflict row 0 is not a JSON object'],

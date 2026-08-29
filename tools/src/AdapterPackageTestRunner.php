@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tooling;
+namespace WPrism\Tooling;
 
 use RuntimeException;
 
@@ -12,7 +12,7 @@ require_once __DIR__ . '/AdapterPackageValidator.php';
 /** Execute every discovered offline suite directly and retain every result. */
 final class AdapterPackageTestRunner
 {
-    public const FORMAT = 'duo-adapter-package-test-run/v1';
+    public const FORMAT = 'wprism-adapter-package-test-run/v1';
 
     /**
      * @return array{

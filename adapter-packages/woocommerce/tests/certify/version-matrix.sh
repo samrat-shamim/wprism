@@ -73,7 +73,7 @@ woocommerce_boundary_storage_hash() {
       "catalog_taxonomy" => "SELECT * FROM {$wpdb->term_taxonomy} WHERE taxonomy LIKE \"product\\_%\" OR taxonomy LIKE \"pa\\_%\" ORDER BY term_taxonomy_id",
       "catalog_relationships" => "SELECT tr.* FROM {$wpdb->term_relationships} tr INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tt.taxonomy LIKE \"product\\_%\" OR tt.taxonomy LIKE \"pa\\_%\" ORDER BY tr.object_id,tr.term_taxonomy_id",
       "catalog_termmeta" => "SELECT tm.* FROM {$wpdb->termmeta} tm INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id=tm.term_id WHERE tt.taxonomy LIKE \"product\\_%\" OR tt.taxonomy LIKE \"pa\\_%\" ORDER BY tm.meta_id",
-      "options" => "SELECT option_name,option_value,autoload FROM {$wpdb->options} WHERE option_name IN (\"duo_target_environment_neighbor\",\"pickup_location_pickup_locations\",\"woocommerce_calc_taxes\",\"woocommerce_maybe_regenerate_images_hash\",\"woocommerce_paypal_settings\",\"woocommerce_pickup_location_settings\",\"woocommerce_price_num_decimals\",\"woocommerce_thumbnail_cropping\",\"woocommerce_thumbnail_cropping_custom_height\",\"woocommerce_thumbnail_cropping_custom_width\",\"woocommerce_thumbnail_image_width\") ORDER BY option_name",
+      "options" => "SELECT option_name,option_value,autoload FROM {$wpdb->options} WHERE option_name IN (\"wprism_target_environment_neighbor\",\"pickup_location_pickup_locations\",\"woocommerce_calc_taxes\",\"woocommerce_maybe_regenerate_images_hash\",\"woocommerce_paypal_settings\",\"woocommerce_pickup_location_settings\",\"woocommerce_price_num_decimals\",\"woocommerce_thumbnail_cropping\",\"woocommerce_thumbnail_cropping_custom_height\",\"woocommerce_thumbnail_cropping_custom_width\",\"woocommerce_thumbnail_image_width\") ORDER BY option_name",
       "attributes" => "SELECT * FROM {$wpdb->prefix}woocommerce_attribute_taxonomies ORDER BY attribute_id",
       "zones" => "SELECT * FROM {$wpdb->prefix}woocommerce_shipping_zones ORDER BY zone_id",
       "zone_locations" => "SELECT * FROM {$wpdb->prefix}woocommerce_shipping_zone_locations ORDER BY location_id",
@@ -89,9 +89,9 @@ woocommerce_boundary_storage_hash() {
       "target_order_addresses" => "SELECT a.* FROM {$wpdb->prefix}wc_order_addresses a INNER JOIN {$wpdb->prefix}wc_orders o ON o.id=a.order_id WHERE o.billing_email=\"target-runtime@example.test\" ORDER BY a.id",
       "target_order_operational" => "SELECT o.* FROM {$wpdb->prefix}wc_order_operational_data o INNER JOIN {$wpdb->prefix}wc_orders p ON p.id=o.order_id WHERE p.billing_email=\"target-runtime@example.test\" ORDER BY o.id",
       "target_order_meta" => "SELECT m.* FROM {$wpdb->prefix}wc_orders_meta m INNER JOIN {$wpdb->prefix}wc_orders o ON o.id=m.order_id WHERE o.billing_email=\"target-runtime@example.test\" ORDER BY m.id",
-      "target_session" => "SELECT * FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key=\"duo-target-runtime-session\" ORDER BY session_id",
-      "target_action" => "SELECT a.* FROM {$wpdb->prefix}actionscheduler_actions a WHERE a.hook=\"duo_woo_target_runtime_probe\" ORDER BY a.action_id",
-      "target_action_group" => "SELECT g.* FROM {$wpdb->prefix}actionscheduler_groups g INNER JOIN {$wpdb->prefix}actionscheduler_actions a ON a.group_id=g.group_id WHERE a.hook=\"duo_woo_target_runtime_probe\" ORDER BY g.group_id",
+      "target_session" => "SELECT * FROM {$wpdb->prefix}woocommerce_sessions WHERE session_key=\"wprism-target-runtime-session\" ORDER BY session_id",
+      "target_action" => "SELECT a.* FROM {$wpdb->prefix}actionscheduler_actions a WHERE a.hook=\"wprism_woo_target_runtime_probe\" ORDER BY a.action_id",
+      "target_action_group" => "SELECT g.* FROM {$wpdb->prefix}actionscheduler_groups g INNER JOIN {$wpdb->prefix}actionscheduler_actions a ON a.group_id=g.group_id WHERE a.hook=\"wprism_woo_target_runtime_probe\" ORDER BY g.group_id",
     ];
     $state = [];
     foreach ($queries as $key => $sql) {
@@ -111,50 +111,50 @@ woocommerce_boundary_storage_hash() {
   '
 }
 
-woocommerce_downgrade_duo_storage_hash() {
-  # A code-drift refusal is read-only for Duo-owned persistence.  Project every
+woocommerce_downgrade_wprism_storage_hash() {
+  # A code-drift refusal is read-only for WPrism-owned persistence.  Project every
   # prefixed ledger table and the option namespace instead of assuming the
   # current migration's table list; an added ledger table must therefore enter
   # this witness automatically.
   wp2 eval '
     global $wpdb;
-    $like = $wpdb->esc_like($wpdb->prefix . "duo_") . "%";
+    $like = $wpdb->esc_like($wpdb->prefix . "wprism_") . "%";
     $tables = $wpdb->get_col($wpdb->prepare("SHOW TABLES LIKE %s", $like));
-    if (!is_array($tables)) { throw new RuntimeException("Duo storage table discovery did not return an array"); }
+    if (!is_array($tables)) { throw new RuntimeException("WPrism storage table discovery did not return an array"); }
     sort($tables, SORT_STRING);
     $state = ["tables" => [], "options" => []];
     foreach ($tables as $table) {
       if (!is_string($table) || preg_match("/^[A-Za-z0-9_]+$/D", $table) !== 1) {
-        throw new RuntimeException("Duo storage table name is not a safe SQL identifier");
+        throw new RuntimeException("WPrism storage table name is not a safe SQL identifier");
       }
       $wpdb->last_error = "";
       $columns = $wpdb->get_col("SHOW COLUMNS FROM `{$table}`", 0);
       if ($wpdb->last_error !== "" || !is_array($columns) || $columns === []) {
-        throw new RuntimeException("Duo storage column discovery failed for " . $table);
+        throw new RuntimeException("WPrism storage column discovery failed for " . $table);
       }
       foreach ($columns as $column) {
         if (!is_string($column) || preg_match("/^[A-Za-z0-9_]+$/D", $column) !== 1) {
-          throw new RuntimeException("Duo storage column name is not a safe SQL identifier");
+          throw new RuntimeException("WPrism storage column name is not a safe SQL identifier");
         }
       }
       $order = implode(",", array_map(static fn(string $column): string => "`{$column}`", $columns));
       $wpdb->last_error = "";
       $rows = $wpdb->get_results("SELECT * FROM `{$table}` ORDER BY {$order}", ARRAY_A);
       if ($wpdb->last_error !== "" || !is_array($rows)) {
-        throw new RuntimeException("Duo storage read failed for " . $table);
+        throw new RuntimeException("WPrism storage read failed for " . $table);
       }
-      if (count($rows) > 50000) { throw new RuntimeException("Duo storage projection exceeded its fixture bound"); }
+      if (count($rows) > 50000) { throw new RuntimeException("WPrism storage projection exceeded its fixture bound"); }
       $state["tables"][$table] = $rows;
     }
     $wpdb->last_error = "";
     $state["options"] = $wpdb->get_results(
-      "SELECT option_name,option_value,autoload FROM {$wpdb->options} WHERE option_name REGEXP \"^(duo_|_transient(_timeout)?_duo_)\" ORDER BY option_name",
+      "SELECT option_name,option_value,autoload FROM {$wpdb->options} WHERE option_name REGEXP \"^(wprism_|_transient(_timeout)?_wprism_)\" ORDER BY option_name",
       ARRAY_A
     );
     if ($wpdb->last_error !== "" || !is_array($state["options"])) {
-      throw new RuntimeException("Duo option storage read failed");
+      throw new RuntimeException("WPrism option storage read failed");
     }
-    if (count($state["options"]) > 50000) { throw new RuntimeException("Duo option projection exceeded its fixture bound"); }
+    if (count($state["options"]) > 50000) { throw new RuntimeException("WPrism option projection exceeded its fixture bound"); }
     echo hash("sha256", wp_json_encode($state, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
   '
 }
@@ -164,11 +164,11 @@ woocommerce_downgrade_runtime_hash() {
   # 11.0.0 archive is active, ordinary commands may inspect but must not alter
   # runtime activation or scheduled work while refusing the stale code witness.
   wp2 eval '
-    $duo_cron = [];
+    $wprism_cron = [];
     foreach (_get_cron_array() as $timestamp => $hooks) {
       foreach ($hooks as $hook => $events) {
-        if (is_string($hook) && str_starts_with($hook, "duo_")) {
-          $duo_cron[$timestamp][$hook] = $events;
+        if (is_string($hook) && str_starts_with($hook, "wprism_")) {
+          $wprism_cron[$timestamp][$hook] = $events;
         }
       }
     }
@@ -176,7 +176,7 @@ woocommerce_downgrade_runtime_hash() {
       "active_plugins" => get_option("active_plugins", []),
       "stylesheet" => get_stylesheet(),
       "template" => get_template(),
-      "duo_cron" => $duo_cron,
+      "wprism_cron" => $wprism_cron,
     ];
     echo hash("sha256", wp_json_encode($state, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
   '
@@ -194,11 +194,11 @@ woocommerce_downgrade_repository_hash() {
 
 woocommerce_downgrade_refusal_snapshot() {
   local storage native runtime repository
-  storage=$(woocommerce_downgrade_duo_storage_hash)
+  storage=$(woocommerce_downgrade_wprism_storage_hash)
   native=$(woocommerce_boundary_storage_hash)
   runtime=$(woocommerce_downgrade_runtime_hash)
   repository=$(woocommerce_downgrade_repository_hash)
-  require_observed_nonempty 'WooCommerce downgrade Duo storage witness' "$storage"
+  require_observed_nonempty 'WooCommerce downgrade WPrism storage witness' "$storage"
   require_observed_nonempty 'WooCommerce downgrade native storage witness' "$native"
   require_observed_nonempty 'WooCommerce downgrade runtime witness' "$runtime"
   require_observed_nonempty 'WooCommerce downgrade repository witness' "$repository"
@@ -213,7 +213,7 @@ woocommerce_preapply_authority_assertion() { # <exact-version> <matrix-phase>
   # failure evidence; none of this path writes WordPress or the repository.
   local version="$1" phase="$2" evidence
   evidence=$(wp2 eval '
-$policy = \Duo\Policy::load("/siterepo");
+$policy = \WPrism\Policy::load("/siterepo");
 $sources = $policy->adapter_sources();
 $loaded = [];
 foreach ($policy->manifests as $manifest) {
@@ -232,7 +232,7 @@ foreach ($policy->manifests as $manifest) {
 }
 usort($loaded, static fn(array $a, array $b): int => strcmp($a["name"], $b["name"]));
 $evidence = [
-    "format" => "duo-woocommerce-preapply-authority/v1",
+    "format" => "wprism-woocommerce-preapply-authority/v1",
     "loaded_manifests" => $loaded,
     "rules" => [
         "option:pickup_location_pickup_locations" => $policy->option_rule_details("pickup_location_pickup_locations"),
@@ -304,7 +304,7 @@ echo $json;
   require_observed_nonempty "WooCommerce $version $phase pre-apply authority evidence" "$evidence"
   jq -se '
     length == 1
-    and .[0].format == "duo-woocommerce-preapply-authority/v1"
+    and .[0].format == "wprism-woocommerce-preapply-authority/v1"
     and (.[0].loaded_manifests | map(.name) == ["core", "woocommerce"])
     and (.[0].loaded_manifests | all(.source == "shipped" and (.file | type == "string" and length > 0) and (.path | type == "string" and length > 0) and (.sha256 | test("^[0-9a-f]{64}$"))))
     and .[0].rules["option:pickup_location_pickup_locations"] == {rule:{class:"authored",plain_data:true,autoload:"preserve"},source:"woocommerce"}
@@ -323,7 +323,7 @@ assert_woocommerce_downgrade_refusal_unchanged() { # <operation> <post-install-s
   local operation="$1" expected="$2" observed
   observed=$(woocommerce_downgrade_refusal_snapshot)
   [ "$observed" = "$expected" ] \
-    || fail "WooCommerce 11.0.1 to 11.0.0 $operation refusal mutated Duo storage, runtime, or repository state"
+    || fail "WooCommerce 11.0.1 to 11.0.0 $operation refusal mutated WPrism storage, runtime, or repository state"
 }
 
 check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact-11.0.0-target-artifact>
@@ -350,8 +350,8 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
   snapshot=$(woocommerce_downgrade_refusal_snapshot)
 
   plan_rc=0
-  plan_out=$(wp2 duo plan --repo=/siterepo --format=json 2>&1) || plan_rc=$?
-  require_duo_answered 'WooCommerce 11.0.1 to 11.0.0 downgrade plan' json "$plan_out"
+  plan_out=$(wp2 wprism plan --repo=/siterepo --format=json 2>&1) || plan_rc=$?
+  require_wprism_answered 'WooCommerce 11.0.1 to 11.0.0 downgrade plan' json "$plan_out"
   [ "$plan_rc" -eq 0 ] || fail "WooCommerce in-range downgrade plan did not report its code drift: $plan_out"
   plan_json=$(awk 'NF { line=$0 } END { print line }' <<<"$plan_out")
   jq -e '
@@ -364,8 +364,8 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
   assert_woocommerce_downgrade_refusal_unchanged plan "$snapshot"
 
   deploy_rc=0
-  deploy_out=$(wp2 duo deploy --repo=/siterepo 2>&1) || deploy_rc=$?
-  require_duo_answered 'WooCommerce 11.0.1 to 11.0.0 downgrade deploy refusal' human "$deploy_out"
+  deploy_out=$(wp2 wprism deploy --repo=/siterepo 2>&1) || deploy_rc=$?
+  require_wprism_answered 'WooCommerce 11.0.1 to 11.0.0 downgrade deploy refusal' human "$deploy_out"
   [ "$deploy_rc" -ne 0 ] && grep -q 'code_drift' <<<"$deploy_out" \
     && grep -q '11.0.1' <<<"$deploy_out" && grep -q '11.0.0' <<<"$deploy_out" \
     || fail "WooCommerce in-range downgrade deploy did not refuse at the exact code-drift boundary: $deploy_out"
@@ -373,23 +373,23 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
 
   revision=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
   apply_rc=0
-  apply_out=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$revision" 2>&1) || apply_rc=$?
-  require_duo_answered 'WooCommerce 11.0.1 to 11.0.0 downgrade apply refusal' human "$apply_out"
+  apply_out=$(wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$revision" 2>&1) || apply_rc=$?
+  require_wprism_answered 'WooCommerce 11.0.1 to 11.0.0 downgrade apply refusal' human "$apply_out"
   [ "$apply_rc" -ne 0 ] && grep -q 'code_drift' <<<"$apply_out" \
     && grep -q '11.0.1' <<<"$apply_out" && grep -q '11.0.0' <<<"$apply_out" \
     || fail "WooCommerce in-range downgrade apply did not refuse at the exact code-drift boundary: $apply_out"
   assert_woocommerce_downgrade_refusal_unchanged apply "$snapshot"
-  pass 'WooCommerce 11.0.1 -> 11.0.0 ordinary plan identifies code_drift; deploy/apply refuse without Duo storage, runtime, or repository mutation'
+  pass 'WooCommerce 11.0.1 -> 11.0.0 ordinary plan identifies code_drift; deploy/apply refuse without WPrism storage, runtime, or repository mutation'
 
   local forced_source forced_target
-  forced_source=$(wp1 duo deploy --repo=/siterepo --force-code-drift 2>&1)
-  forced_target=$(wp2 duo deploy --repo=/siterepo --force-code-drift 2>&1)
+  forced_source=$(wp1 wprism deploy --repo=/siterepo --force-code-drift 2>&1)
+  forced_target=$(wp2 wprism deploy --repo=/siterepo --force-code-drift 2>&1)
   normalize_woocommerce_harness_placeholder_mode wp2
   grep -q 'FORCED past code_drift' <<<"$forced_source" \
     && grep -q 'FORCED past code_drift' <<<"$forced_target" \
     || fail "WooCommerce explicit downgrade re-baseline did not report both forced decisions: source=$forced_source target=$forced_target"
-  settled=$(wp2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-  require_duo_answered 'WooCommerce 11.0.1 to 11.0.0 plan after explicit re-baseline' json "$settled"
+  settled=$(wp2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+  require_wprism_answered 'WooCommerce 11.0.1 to 11.0.0 plan after explicit re-baseline' json "$settled"
   jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict,.code_mismatch,.code_drift,.incomplete_apply,.incomplete_lifecycle,.regen_pending,.regen_context] | map(length) | add) == 0' <<<"$settled" >/dev/null \
     || fail "WooCommerce explicit 11.0.0 re-baseline invented work: $settled"
 
@@ -409,8 +409,8 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
   ')
   jq -e --arg note "$mutation_note" '.price == "17.345678" and .note == $note and .lookup == {min_price:"17.3457",max_price:"17.3457"}' <<<"$source_price" >/dev/null \
     || fail "WooCommerce exact 11.0.0 source mutation/readback was not precise: $source_price"
-  wp1 duo capture --repo=/siterepo
-  wp1 duo lint --repo=/siterepo
+  wp1 wprism capture --repo=/siterepo
+  wp1 wprism lint --repo=/siterepo
   "${GIT1[@]}" add -A
   "${GIT1[@]}" commit -qm 'capture: woocommerce 11.0.1 to 11.0.0 in-range downgrade'
   "${GIT1[@]}" push -q origin main
@@ -418,7 +418,7 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
   git -C "siterepo/${PAIR}2" pull -q origin main
   revision=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
   woocommerce_preapply_authority_assertion 11.0.0 'in-range downgrade'
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$revision" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+  wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$revision" 2>&1 | tee "$VMATRIX_APPLY_LOG"
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
     || fail 'WooCommerce exact 11.0.0 apply canary was not clean after downgrade re-baseline'
   target_price=$(wp2 eval '
@@ -430,11 +430,11 @@ check_woocommerce_in_range_downgrade() { # <exact-11.0.0-source-artifact> <exact
   ')
   jq -e --arg note "$mutation_note" '.price == "17.345678" and .note == $note and .lookup == {min_price:"17.3457",max_price:"17.3457"}' <<<"$target_price" >/dev/null \
     || fail "WooCommerce exact 11.0.0 target mutation/readback was not precise: $target_price"
-  settled=$(wp2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-  require_duo_answered 'WooCommerce exact 11.0.0 plan after downgrade mutation' json "$settled"
+  settled=$(wp2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+  require_wprism_answered 'WooCommerce exact 11.0.0 plan after downgrade mutation' json "$settled"
   jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict,.code_mismatch,.code_drift,.incomplete_apply,.incomplete_lifecycle,.regen_pending,.regen_context] | map(length) | add) == 0' <<<"$settled" >/dev/null \
     || fail "WooCommerce exact 11.0.0 plan did not settle after downgrade mutation: $settled"
-  wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-woo-downgrade-final >/dev/null
+  wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-woo-downgrade-final >/dev/null
   downgrade_compare_rc=0
   downgrade_compare_out=$(php "$package_tests/../fixtures/woocommerce-downgrade-recapture.php" \
     "siterepo/${PAIR}1/state" \
@@ -461,7 +461,7 @@ check_woocommerce_boundary_lifecycle() { # <exact-version> <verified-artifact>
   require_observed_nonempty "WooCommerce $version native state before deactivation" "$before_native"
   wp2 plugin deactivate woocommerce >/dev/null
   wp2 plugin is-active woocommerce >/dev/null 2>&1 && fail "WooCommerce $version deactivation premise did not land"
-  wp2 duo deploy --repo=/siterepo >/dev/null
+  wp2 wprism deploy --repo=/siterepo >/dev/null
   wp2 plugin is-active woocommerce >/dev/null || fail "WooCommerce $version deploy did not reactivate the exact plugin"
   normalize_woocommerce_harness_placeholder_mode wp2
   reactivated_native=$(woocommerce_boundary_observation)
@@ -474,18 +474,18 @@ check_woocommerce_boundary_lifecycle() { # <exact-version> <verified-artifact>
   absent_after_uninstall=$(woocommerce_boundary_storage_hash)
   [ "$absent_after_uninstall" = "$before_uninstall" ] || fail "WooCommerce $version default uninstall changed retained authored or target-runtime storage"
   missing_before="$absent_after_uninstall"; missing_rc=0
-  missing_out=$(wp2 duo deploy --repo=/siterepo 2>&1) || missing_rc=$?
-  require_duo_answered "WooCommerce $version deploy with code absent" human "$missing_out"
+  missing_out=$(wp2 wprism deploy --repo=/siterepo 2>&1) || missing_rc=$?
+  require_wprism_answered "WooCommerce $version deploy with code absent" human "$missing_out"
   [ "$missing_rc" -ne 0 ] && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$missing_out" || fail "WooCommerce $version missing-code deploy did not refuse at compatibility: $missing_out"
   missing_after=$(woocommerce_boundary_storage_hash)
   [ "$missing_after" = "$missing_before" ] || fail "WooCommerce $version missing-code refusal partially changed retained storage"
   wp2 plugin install "$artifact" --force >/dev/null
   [ "$(wp2 plugin get woocommerce --field=version)" = "$version" ] || fail "WooCommerce exact reinstall reported the wrong version at $version"
-  wp2 duo deploy --repo=/siterepo >/dev/null
+  wp2 wprism deploy --repo=/siterepo >/dev/null
   wp2 plugin is-active woocommerce >/dev/null || fail "WooCommerce $version exact reinstall was not active after deploy"
   normalize_woocommerce_harness_placeholder_mode wp2
   check_woocommerce_content
-  wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-woo-lifecycle-final >/dev/null
+  wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-woo-lifecycle-final >/dev/null
   lifecycle_diff_rc=0
   lifecycle_diff=$(diff -r "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-woo-lifecycle-final" 2>&1) || lifecycle_diff_rc=$?
   [ "$lifecycle_diff_rc" -le 1 ] || fail "WooCommerce $version exact-reinstall recapture comparison errored: $lifecycle_diff"
@@ -528,20 +528,20 @@ if (!\$product) { throw new RuntimeException('WooCommerce deletion fixture produ
   product_uuid=$(basename "$product_file" | cut -d- -f1-5)
   [[ "$product_uuid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || fail "WooCommerce $version deletion fixture has a malformed product UUID"
   expected_hash=$(shasum -a 256 "$product_file" | awk '{print $1}')
-  expected_revision=$(wp2 eval 'echo \Duo\RepositoryCompiler::compile("/siterepo", \Duo\Policy::load("/siterepo"))->revision_hash();')
+  expected_revision=$(wp2 eval 'echo \WPrism\RepositoryCompiler::compile("/siterepo", \WPrism\Policy::load("/siterepo"))->revision_hash();')
   require_observed_nonempty "WooCommerce $version deletion expected revision" "$expected_revision"
   source_path="posts/product/$(basename "$product_file")"; backup="$repo/.tmp-woocommerce-product-delete.md"
   mkdir -p "$repo/state/deletions"; mv "$product_file" "$backup"
   jq -n --arg expected_hash "$expected_hash" --arg expected_revision "$expected_revision" --arg source_path "$source_path" --arg uuid "$product_uuid" \
-    '{expected_hash:$expected_hash,expected_revision:$expected_revision,format:"duo-deletion/v1",kind:"post",source_path:$source_path,type:"product",uuid:$uuid}' > "$repo/state/deletions/$product_uuid.json"
+    '{expected_hash:$expected_hash,expected_revision:$expected_revision,format:"wprism-deletion/v1",kind:"post",source_path:$source_path,type:"product",uuid:$uuid}' > "$repo/state/deletions/$product_uuid.json"
   before_tree=$(git -C "$repo" status --porcelain); before_head=$(git -C "$repo" rev-parse HEAD); before_origin=$(git -C "$repo" rev-parse refs/remotes/origin/main)
   set +e
-  plan_rc=0; plan_out=$(wp2 duo plan --repo=/siterepo --format=json 2>&1) || plan_rc=$?
-  require_duo_answered "WooCommerce $version deletion refusal plan" json "$plan_out"
-  apply_rc=0; apply_out=$(wp2 duo apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || apply_rc=$?
-  require_duo_answered "WooCommerce $version deletion refusal apply" human "$apply_out"
-  force_rc=0; force_out=$(wp2 duo apply --repo=/siterepo --with-deletes --force-delete-referenced --default-author=admin 2>&1) || force_rc=$?
-  require_duo_answered "WooCommerce $version forced deletion refusal apply" human "$force_out"
+  plan_rc=0; plan_out=$(wp2 wprism plan --repo=/siterepo --format=json 2>&1) || plan_rc=$?
+  require_wprism_answered "WooCommerce $version deletion refusal plan" json "$plan_out"
+  apply_rc=0; apply_out=$(wp2 wprism apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || apply_rc=$?
+  require_wprism_answered "WooCommerce $version deletion refusal apply" human "$apply_out"
+  force_rc=0; force_out=$(wp2 wprism apply --repo=/siterepo --with-deletes --force-delete-referenced --default-author=admin 2>&1) || force_rc=$?
+  require_wprism_answered "WooCommerce $version forced deletion refusal apply" human "$force_out"
   set -e
   [ "$plan_rc" -ne 0 ] && [ "$apply_rc" -ne 0 ] && [ "$force_rc" -ne 0 ] || fail "WooCommerce $version accepted unsupported product deletion"
   for output in "$plan_out" "$apply_out" "$force_out"; do grep -Fq 'deletion intent for post:product is unsupported' <<<"$output" || fail "WooCommerce $version deletion refusal did not name the missing capability: $output"; done
@@ -554,8 +554,8 @@ if (!\$product) { throw new RuntimeException('WooCommerce deletion fixture produ
   after_head=$(git -C "$repo" rev-parse HEAD); after_origin=$(git -C "$repo" rev-parse refs/remotes/origin/main)
   [ "$after_head" = "$before_head" ] && [ "$after_origin" = "$before_origin" ] || fail "WooCommerce $version refusal moved the disposable repository revision"
   rm "$repo/state/deletions/$product_uuid.json"; rmdir "$repo/state/deletions"; mv "$backup" "$product_file"
-  retry=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
-  require_duo_answered "WooCommerce $version deletion retry plan" json "$retry"
+  retry=$(wp2 wprism plan --repo=/siterepo --format=json | tail -1)
+  require_wprism_answered "WooCommerce $version deletion retry plan" json "$retry"
   echo "$retry" | jq -e '(.delete | length) == 0 and (.delete_conflict | length) == 0' >/dev/null || fail "WooCommerce $version deletion retry did not settle after intent removal: $retry"
   [ -z "$(git -C "$repo" status --porcelain)" ] || fail "WooCommerce $version deletion fixture did not restore its disposable repository state"
   pass "WooCommerce $version product deletion refuses before product/order/repository mutation and retry settles"
@@ -566,9 +566,9 @@ VMATRIX_PLUGIN_SLUG=woocommerce
 version_matrix_preflight() {
   # These production-readiness legs must certify this physical checkout, not a
   # canonical sibling checkout selected by pair.sh for a linked worktree.
-  [ -n "${DUO_EXPECTED_SOURCE_SHA:-}" ] \
-    || fail "$VMATRIX_MANIFEST version-matrix evidence requires DUO_EXPECTED_SOURCE_SHA"
-  export DUO_SOURCE_ROOT="$(cd .. && pwd -P)"
+  [ -n "${WPRISM_EXPECTED_SOURCE_SHA:-}" ] \
+    || fail "$VMATRIX_MANIFEST version-matrix evidence requires WPRISM_EXPECTED_SOURCE_SHA"
+  export WPRISM_SOURCE_ROOT="$(cd .. && pwd -P)"
 }
 
 version_matrix_reset_before_empty() {
@@ -638,7 +638,7 @@ for WOO_VERSION in 11.0.0 11.0.1; do
     || fail "side 1 could not establish HPOS through WooCommerce's native new-shop lifecycle"
   pass "side 1: woocommerce $WOO_VERSION installed from verified artifact, active, HPOS enabled"
 
-  cat > "siterepo/${PAIR}1/site.duo.json" <<EOF
+  cat > "siterepo/${PAIR}1/site.wprism.json" <<EOF
 {
   "manifests": ["core", "woocommerce"],
   "policy": {
@@ -658,9 +658,9 @@ EOF
   "${GIT1[@]}" push -qu origin main
 
   seed_woocommerce_content
-  wp1 duo capture --repo=/siterepo
+  wp1 wprism capture --repo=/siterepo
   pass "captured on side 1 (woocommerce $WOO_VERSION)"
-  wp1 duo lint --repo=/siterepo
+  wp1 wprism lint --repo=/siterepo
   pass "lint: 0 findings"
 
   "${GIT1[@]}" add -A
@@ -673,11 +673,11 @@ EOF
   require_fixture_values INSTALLED_2
   [ "$INSTALLED_2" = "$WOO_VERSION" ] || fail "side 2 installed version mismatch: expected $WOO_VERSION, got $INSTALLED_2"
 
-  wp2 duo deploy --repo=/siterepo
+  wp2 wprism deploy --repo=/siterepo
   normalize_woocommerce_harness_placeholder_mode wp2
   postdeploy_woocommerce_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+  wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at woocommerce $WOO_VERSION"
   WOOCOMMERCE_BOUNDARY_PROVIDER_RECEIPT=$(cat "$VMATRIX_APPLY_LOG")
   pass "deploy + apply succeeded on side 2 (woocommerce $WOO_VERSION, HPOS, canary clean)"
@@ -685,7 +685,7 @@ EOF
   postapply_woocommerce_content
   check_woocommerce_content
 
-  wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"
+  wp2 wprism capture --repo=/siterepo --out="/siterepo/.tmp-final"
   DIFF_OUT=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
   rm -rf "siterepo/${PAIR}2/.tmp-final"
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at woocommerce $WOO_VERSION: $DIFF_OUT"
@@ -702,15 +702,15 @@ EOF
     wp1 plugin install "$UPGRADE_ARTIFACT_1" --force --activate >/dev/null
     [ "$(wp1 plugin get woocommerce --field=version)" = 11.0.1 ] \
       || fail 'WooCommerce source in-place upgrade did not install exact 11.0.1'
-    wp1 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp1 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
     wp1 eval '
       $product=wc_get_product(wc_get_product_id_by_sku("CONF-WIDGET-1"));
       if (!$product) { throw new RuntimeException("upgrade product missing"); }
       $product->set_purchase_note("WooCommerce 11.0.0 to 11.0.1 upgrade 東京 🚀");
       $product->save();
     ' >/dev/null
-    wp1 duo capture --repo=/siterepo
-    wp1 duo lint --repo=/siterepo
+    wp1 wprism capture --repo=/siterepo
+    wp1 wprism lint --repo=/siterepo
     "${GIT1[@]}" add -A
     "${GIT1[@]}" commit -qm 'capture: woocommerce 11.0.0 to 11.0.1 in-place upgrade'
     "${GIT1[@]}" push -q origin main
@@ -719,11 +719,11 @@ EOF
     [ "$(wp2 plugin get woocommerce --field=version)" = 11.0.1 ] \
       || fail 'WooCommerce target in-place upgrade did not install exact 11.0.1'
     git -C "siterepo/${PAIR}2" pull -q origin main
-    wp2 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp2 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
     normalize_woocommerce_harness_placeholder_mode wp2
     UPGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
     woocommerce_preapply_authority_assertion 11.0.1 'in-place upgrade'
-    wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV" \
+    wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$UPGRADE_REV" \
       2>&1 | tee "$VMATRIX_APPLY_LOG"
     grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
       || fail 'apply canary not clean after woocommerce 11.0.0 to 11.0.1 in-place upgrade'
@@ -741,7 +741,7 @@ EOF
     ')
     [ "$UPGRADE_NOTE" = 'WooCommerce 11.0.0 to 11.0.1 upgrade 東京 🚀' ] \
       || fail "WooCommerce 11.0.1 did not preserve/apply the product authored during upgrade: $UPGRADE_NOTE"
-    wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-woo-upgrade-final
+    wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-woo-upgrade-final
     UPGRADE_DIFF_RC=0
     UPGRADE_DIFF=$(diff -r "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-woo-upgrade-final" 2>&1) \
       || UPGRADE_DIFF_RC=$?
@@ -780,7 +780,7 @@ require_fixture_values NEGATIVE_INSTALLED
   || fail "negative control premise did not install exact woocommerce 11.0.0 bytes"
 establish_woocommerce_hpos wp1 >/dev/null \
   || fail "negative-control source could not establish HPOS through WooCommerce's native new-shop lifecycle"
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "woocommerce"],
   "policy": {
@@ -799,7 +799,7 @@ cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 "${GIT1[@]}" commit -qm "policy: woocommerce negative-control pin"
 "${GIT1[@]}" push -qu origin main
 seed_woocommerce_content
-wp1 duo capture --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "capture: valid WooCommerce state for negative control"
 "${GIT1[@]}" push -q origin main
@@ -812,7 +812,7 @@ INSTALLED_OOR=$(wp1 plugin get woocommerce --field=version)
 [ "$INSTALLED_OOR" = "10.9.4" ] || fail "negative control: expected woocommerce 10.9.4 installed, got $INSTALLED_OOR"
 
 set +e
-DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse woocommerce 10.9.4 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"
@@ -838,7 +838,7 @@ wp1 plugin install "$IN_RANGE_ARTIFACT" --activate >/dev/null
   || fail "upper-bound premise did not install exact WooCommerce 11.0.1 bytes"
 establish_woocommerce_hpos wp1 >/dev/null \
   || fail "upper-bound source could not establish HPOS through WooCommerce's native new-shop lifecycle"
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "woocommerce"],
   "policy": {
@@ -857,7 +857,7 @@ cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 "${GIT1[@]}" commit -qm "policy: woocommerce exclusive-upper negative-control pin"
 "${GIT1[@]}" push -qu origin main
 seed_woocommerce_content
-wp1 duo capture --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "capture: valid WooCommerce state for exclusive-upper negative control"
 "${GIT1[@]}" push -q origin main
@@ -882,7 +882,7 @@ PRE_REFUSAL_HEAD=$(git -C "siterepo/${PAIR}1" rev-parse HEAD)
 PRE_REFUSAL_REPO=$(git -C "siterepo/${PAIR}1" status --porcelain)
 
 set +e
-DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse synthetic WooCommerce 11.0.2 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"

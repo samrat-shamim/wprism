@@ -1,5 +1,5 @@
 <?php
-/** Offline characterization of Policy's exact option projection (DUO-3348 slice 55). */
+/** Offline characterization of Policy's exact option projection (issue #3348 slice 55). */
 declare(strict_types=1);
 
 $root = dirname(__DIR__, 4);
@@ -13,7 +13,7 @@ $check = static function (bool $ok, string $message) use (&$failures): void {
 };
 
 $child = proc_open(
-    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\Duo\\ExactOptionResolver::class, false) && class_exists(\\Duo\\PolicyRuleResolver::class, false) && !class_exists(\\Duo\\Policy::class, false) && !class_exists(\\Duo\\RepositoryCompiler::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $resolverPath],
+    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\WPrism\\ExactOptionResolver::class, false) && class_exists(\\WPrism\\PolicyRuleResolver::class, false) && !class_exists(\\WPrism\\Policy::class, false) && !class_exists(\\WPrism\\RepositoryCompiler::class, false) && !function_exists("get_option") ? "loaded\\n" : "broken\\n";', $resolverPath],
     [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
     $pipes
 );
@@ -33,8 +33,8 @@ $check(
 
 require_once $resolverPath;
 
-use Duo\ExactOptionResolver;
-use Duo\PolicyRuleResolver;
+use WPrism\ExactOptionResolver;
+use WPrism\PolicyRuleResolver;
 
 $withOptionAutoload = static function (array $rule, array $source): array {
     if (!array_key_exists('autoload', $rule) && array_key_exists('option_autoload', $source)) {
@@ -105,7 +105,7 @@ require_once "$root/agent/src/Kernel/Canon.php";
 require_once "$root/agent/src/Kernel/OptionState.php";
 require_once "$root/agent/src/Policy/Policy.php";
 
-$policy = new Duo\Policy();
+$policy = new WPrism\Policy();
 $policy->site = $site;
 $policy->manifests = $manifests;
 $check(

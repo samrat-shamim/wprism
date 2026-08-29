@@ -9,7 +9,7 @@
 # failure stops later phases and retains the exact database restore advice.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
-DUO="$REPO_ROOT/cli/duo"
+WPRISM="$REPO_ROOT/cli/wprism"
 FIX="$(mktemp -d)"
 FAKE_WP="$FIX/bin"
 SITE="$FIX/site"
@@ -39,21 +39,21 @@ first="${args[$pos]:-}"
 second="${args[$((pos + 1))]:-}"
 printf '%s\n' "$*" >> "$FAKE_WP_TRACE"
 
-if [ "$first" = duo ] && [ "$second" = code-preflight ]; then
+if [ "$first" = wprism ] && [ "$second" = code-preflight ]; then
   if [ "${FAKE_PREFLIGHT_FAIL:-0}" != 0 ]; then
-    printf '%s\n' '{"format":"duo-command-refusal/v1","ok":false,"command":"code-preflight","error":"code_compilation_failed","diagnostics":[{"code":"code_source_requires_wordpress_incompatible","path":"themes/inactive/style.css","required_version":"99.0","target_version":"6.8.2"}]}'
+    printf '%s\n' '{"format":"wprism-command-refusal/v1","ok":false,"command":"code-preflight","error":"code_compilation_failed","diagnostics":[{"code":"code_source_requires_wordpress_incompatible","path":"themes/inactive/style.css","required_version":"99.0","target_version":"6.8.2"}]}'
     exit 14
   fi
   required=true
   [ "${FAKE_CODE_CHANGE_REQUIRED:-1}" = 0 ] && required=false
-  printf '%s\n' '{"format":"duo-code-runtime/v1","enabled":true,"change_required":'"$required"',"compatible":true,"code_revision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","target":{"php":"8.3.0","wordpress":"6.8.2","source":"target-control-plane"},"requirements":[],"diagnostics":[]}'
+  printf '%s\n' '{"format":"wprism-code-runtime/v1","enabled":true,"change_required":'"$required"',"compatible":true,"code_revision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","target":{"php":"8.3.0","wordpress":"6.8.2","source":"target-control-plane"},"requirements":[],"diagnostics":[]}'
   exit 0
 fi
 
 # The product connects `db export -` directly to this authenticated sealer.
 # Cipher behavior has its PHP regression; this phase fake preserves the
 # no-plaintext path and the sealer's atomic output contract.
-if [ "$first" = duo ] && [ "$second" = checkpoint-seal ]; then
+if [ "$first" = wprism ] && [ "$second" = checkpoint-seal ]; then
   output=''
   for arg in "${args[@]}"; do
     [[ "$arg" == --output=* ]] && output="${arg#--output=}"
@@ -68,7 +68,7 @@ fi
 # no-write preflight ordering without mechanically weakening those checks.
 printf '%s\n' "$*" >> "$FAKE_WP_LOG"
 
-if [ "$first" = duo ] && [ "$second" = compile ]; then
+if [ "$first" = wprism ] && [ "$second" = compile ]; then
   if [ "${FAKE_COMPILE_FAIL:-0}" != 0 ]; then
     printf '%s\n' 'structured compiler diagnostic from stdout'
     printf '%s\n' 'transport lifecycle noise from stderr' >&2
@@ -90,13 +90,13 @@ if [ "$first" = duo ] && [ "$second" = compile ]; then
   exit 0
 fi
 
-if [ "$first" = duo ] && [ "$second" = promotion-begin ]; then
+if [ "$first" = wprism ] && [ "$second" = promotion-begin ]; then
   if [ "${FAKE_BEGIN_FAIL:-0}" = 1 ]; then
-    printf "Error: duo: promotion lock held by 'other-owner' in phase 'apply'\n" >&2
+    printf "Error: wprism: promotion lock held by 'other-owner' in phase 'apply'\n" >&2
     exit 4
   fi
   if [ "${FAKE_BEGIN_FAIL:-0}" = 3 ]; then
-    printf '%s\n' 'Error: duo: unresolved lifecycle attempt blocks a new promotion session; restore the exact pre-lifecycle database checkpoint' >&2
+    printf '%s\n' 'Error: wprism: unresolved lifecycle attempt blocks a new promotion session; restore the exact pre-lifecycle database checkpoint' >&2
     exit 4
   fi
   [ "${FAKE_BEGIN_FAIL:-0}" = 2 ] && exit 4
@@ -104,7 +104,7 @@ if [ "$first" = duo ] && [ "$second" = promotion-begin ]; then
   exit 0
 fi
 
-if [ "$first" = duo ] && [ "$second" = promotion-abort ]; then
+if [ "$first" = wprism ] && [ "$second" = promotion-abort ]; then
   [ "${FAKE_ABORT_FAIL:-0}" = 0 ] || exit 12
   printf 'promotion-abort ok\n'
   exit 0
@@ -122,32 +122,32 @@ if [ "$first" = db ] && [ "$second" = export ]; then
   exit 0
 fi
 
-if [ "$first" = duo ] && [ "$second" = code-stage ]; then
+if [ "$first" = wprism ] && [ "$second" = code-stage ]; then
   [ "${FAKE_STAGE_FAIL:-0}" = 0 ] || exit 8
   printf 'code-stage ok\n'
   exit 0
 fi
 
-if [ "$first" = duo ] && [ "$second" = deploy ]; then
+if [ "$first" = wprism ] && [ "$second" = deploy ]; then
   if [[ "$*" == *"--lifecycle-phase=retire"* && "${FAKE_RETIRE_FAIL:-0}" != 0 ]]; then exit 7; fi
   if [[ "$*" == *"--lifecycle-phase=activate"* && "${FAKE_ACTIVATE_FAIL:-0}" != 0 ]]; then exit 13; fi
   printf 'deploy ok\n'
   exit 0
 fi
 
-if [ "$first" = duo ] && [ "$second" = code-finalize ]; then
+if [ "$first" = wprism ] && [ "$second" = code-finalize ]; then
   [ "${FAKE_FINALIZE_FAIL:-0}" = 0 ] || exit 9
   printf 'code-finalize ok\n'
   exit 0
 fi
 
-if [ "$first" = duo ] && [ "$second" = lifecycle-settle ]; then
+if [ "$first" = wprism ] && [ "$second" = lifecycle-settle ]; then
   [ "${FAKE_SETTLE_FAIL:-0}" = 0 ] || exit 15
   printf 'lifecycle-settle ok\n'
   exit 0
 fi
 
-if [ "$first" = duo ] && [ "$second" = apply ]; then
+if [ "$first" = wprism ] && [ "$second" = apply ]; then
   [ "${FAKE_APPLY_FAIL:-0}" = 0 ] || exit 10
   printf 'apply ok\n'
   exit 0
@@ -170,13 +170,13 @@ has() { grep -q -- "$2" <<<"$1"; }
 assert_control_call() {
   local call="$1" label="$2"
   [[ "$call" == *"--exec="* \
-    && "$call" == *"DUO_CONTROL_PLANE"* \
-    && "$call" == *"DUO_CONTROL_WPMU_PLUGIN_DIR"* \
+    && "$call" == *"WPRISM_CONTROL_PLANE"* \
+    && "$call" == *"WPRISM_CONTROL_WPMU_PLUGIN_DIR"* \
     && "$call" == *"after_wp_config_load"* \
     && "$call" == *"SUNRISE"* \
     && "$call" == *"--skip-plugins"* \
     && "$call" == *"--skip-themes"* ]] \
-    || fail "$label did not use the isolated Duo control-plane bootstrap"
+    || fail "$label did not use the isolated WPrism control-plane bootstrap"
 }
 assert_runtime_call() {
   local call="$1" label="$2"
@@ -199,8 +199,8 @@ assert_same_artifact_and_owner() {
 }
 assert_begin_and_abort() {
   local begin="$1" abort="$2" phase
-  [[ "$begin" == *"duo promotion-begin"* ]] || fail "promotion-begin was not invoked"
-  [[ "$abort" == *"duo promotion-abort"* ]] || fail "promotion-abort was not invoked"
+  [[ "$begin" == *"wprism promotion-begin"* ]] || fail "promotion-begin was not invoked"
+  [[ "$abort" == *"wprism promotion-abort"* ]] || fail "promotion-abort was not invoked"
   assert_control_call "$begin" "promotion-begin"
   assert_control_call "$abort" "promotion-abort"
   [ "$(call_hash "$begin")" = "--artifact-hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ] \
@@ -228,12 +228,12 @@ assert_checkpoint() {
   local out="$1" checkpoint
   checkpoint="$(sed -n 's/^database checkpoint: //p' <<<"$out")"
   [ -f "$checkpoint" ] || fail "database checkpoint was not retained"
-  [[ "$checkpoint" == "$SITE/.duo/checkpoints/"* ]] \
+  [[ "$checkpoint" == "$SITE/.wprism/checkpoints/"* ]] \
     || fail "checkpoint was not isolated below the target operational directory"
 }
 # The recovery guidance a post-checkpoint failure owes an operator.
 #
-# Until DUO-3525 this asserted four numbered `wp` instructions — abort,
+# Until issue #3525 this asserted four numbered `wp` instructions — abort,
 # re-begin, isolated `wp db import`, mandatory final abort. That recipe is
 # precisely what docs/product-spec.md:556-557 says normal operation never
 # depends on and what regress_mup_leak_audit.sh part (c) forbids in every
@@ -254,13 +254,13 @@ assert_code_recovery_guidance() {
     || fail "code-enabled failure did not explain the checkpoint lease row"
   has "$out" 'external maintenance/exclusion' \
     || fail "code-enabled failure omitted the external recovery exclusion"
-  remedy="$(sed -n 's/^duo: promote: once that exclusion is in place, recover with: //p' <<<"$out")"
+  remedy="$(sed -n 's/^wprism: promote: once that exclusion is in place, recover with: //p' <<<"$out")"
   [ -n "$remedy" ] || fail "code-enabled failure named no recovery exit path: $out"
-  [[ "$remedy" == "duo recover unit --restore=promote-"*" --writers-excluded --operator-directed" ]] \
-    || fail "the recovery remedy is not the documented duo recover form: $remedy"
+  [[ "$remedy" == "wprism recover unit --restore=promote-"*" --writers-excluded --operator-directed" ]] \
+    || fail "the recovery remedy is not the documented wprism recover form: $remedy"
   has "$out" 'releases the lease row the import reinstates, including when the import' \
     || fail "code-enabled failure dropped the mandatory-final-abort safety fact"
-  for forbidden in 'wp duo promotion-abort' 'wp duo promotion-begin' 'wp db import'; do
+  for forbidden in 'wp wprism promotion-abort' 'wp wprism promotion-begin' 'wp db import'; do
     if grep -Fq -- "$forbidden" <<<"$out"; then
       fail "the failure view still publishes the retired raw-recovery step '$forbidden'"
     fi
@@ -273,7 +273,7 @@ run_promote() {
   local code="$1"; shift
   : > "$LOG"
   : > "$TRACE"
-  if OUT="$(FAKE_CODE_ENABLED="$code" "$@" "$DUO" --envs-file="$ENVS" promote unit --default-author=admin --force-unresolved-refs 2>&1)"; then
+  if OUT="$(FAKE_CODE_ENABLED="$code" "$@" "$WPRISM" --envs-file="$ENVS" promote unit --default-author=admin --force-unresolved-refs 2>&1)"; then
     CODE=0
   else
     CODE=$?
@@ -286,10 +286,10 @@ run_promote 0 env
 [ "$CODE" -eq 0 ] || fail "legacy promote exited non-zero: $OUT"
 mapfile -t CALLS < "$LOG"
 [ "${#CALLS[@]}" -eq 4 ] || fail "state-only path expected four wp calls, got ${#CALLS[@]}"
-[[ "${CALLS[0]}" == *"duo compile"* ]] || fail "legacy phase 1 was not compile"
-[[ "${CALLS[1]}" == *"duo promotion-begin"* ]] || fail "legacy phase 2 did not acquire checkpoint lease"
+[[ "${CALLS[0]}" == *"wprism compile"* ]] || fail "legacy phase 1 was not compile"
+[[ "${CALLS[1]}" == *"wprism promotion-begin"* ]] || fail "legacy phase 2 did not acquire checkpoint lease"
 [[ "${CALLS[2]}" == *"db export"* ]] || fail "legacy phase 3 was not checkpoint"
-[[ "${CALLS[3]}" == *"duo apply"* ]] || fail "state-only phase 4 was not apply"
+[[ "${CALLS[3]}" == *"wprism apply"* ]] || fail "state-only phase 4 was not apply"
 assert_control_call "${CALLS[0]}" "legacy compile"
 assert_control_call "${CALLS[1]}" "legacy promotion-begin"
 assert_runtime_call "${CALLS[2]}" "legacy checkpoint"
@@ -318,15 +318,15 @@ run_promote 1 env
 [ "$CODE" -eq 0 ] || fail "code-enabled promote exited non-zero: $OUT"
 mapfile -t CALLS < "$LOG"
 [ "${#CALLS[@]}" -eq 9 ] || fail "code-enabled path expected nine wp calls, got ${#CALLS[@]}"
-[[ "${CALLS[0]}" == *"duo compile"* ]] || fail "code path phase 1 was not compile"
-[[ "${CALLS[1]}" == *"duo promotion-begin"* ]] || fail "code path phase 2 did not acquire checkpoint lease"
+[[ "${CALLS[0]}" == *"wprism compile"* ]] || fail "code path phase 1 was not compile"
+[[ "${CALLS[1]}" == *"wprism promotion-begin"* ]] || fail "code path phase 2 did not acquire checkpoint lease"
 [[ "${CALLS[2]}" == *"db export"* ]] || fail "code path phase 3 was not checkpoint"
-[[ "${CALLS[3]}" == *"duo code-stage"* ]] || fail "code path phase 4 was not code-stage"
-[[ "${CALLS[4]}" == *"duo deploy"*"--lifecycle-phase=retire"* ]] || fail "code path phase 5 was not lifecycle retirement"
-[[ "${CALLS[5]}" == *"duo deploy"*"--lifecycle-phase=activate"* ]] || fail "code path phase 6 was not lifecycle activation"
-[[ "${CALLS[6]}" == *"duo lifecycle-settle"* ]] || fail "code path phase 7 was not lifecycle settlement"
-[[ "${CALLS[7]}" == *"duo code-finalize"* ]] || fail "code path phase 8 was not code-finalize"
-[[ "${CALLS[8]}" == *"duo apply"* ]] || fail "code path phase 9 was not apply"
+[[ "${CALLS[3]}" == *"wprism code-stage"* ]] || fail "code path phase 4 was not code-stage"
+[[ "${CALLS[4]}" == *"wprism deploy"*"--lifecycle-phase=retire"* ]] || fail "code path phase 5 was not lifecycle retirement"
+[[ "${CALLS[5]}" == *"wprism deploy"*"--lifecycle-phase=activate"* ]] || fail "code path phase 6 was not lifecycle activation"
+[[ "${CALLS[6]}" == *"wprism lifecycle-settle"* ]] || fail "code path phase 7 was not lifecycle settlement"
+[[ "${CALLS[7]}" == *"wprism code-finalize"* ]] || fail "code path phase 8 was not code-finalize"
+[[ "${CALLS[8]}" == *"wprism apply"* ]] || fail "code path phase 9 was not apply"
 assert_control_call "${CALLS[0]}" "code compile"
 assert_control_call "${CALLS[1]}" "code promotion-begin"
 assert_runtime_call "${CALLS[2]}" "code checkpoint"
@@ -362,9 +362,9 @@ pass "code artifact sequences begin -> checkpoint -> stage -> retire -> activate
 
 mapfile -t TRACED_CALLS < "$TRACE"
 [ "${#TRACED_CALLS[@]}" -eq 11 ] || fail "code path expected compile/preflight, the sealed checkpoint pipeline, and later mutation calls"
-[[ "${TRACED_CALLS[0]}" == *"duo compile"* \
-  && "${TRACED_CALLS[1]}" == *"duo code-preflight"* \
-  && "${TRACED_CALLS[2]}" == *"duo promotion-begin"* ]] \
+[[ "${TRACED_CALLS[0]}" == *"wprism compile"* \
+  && "${TRACED_CALLS[1]}" == *"wprism code-preflight"* \
+  && "${TRACED_CALLS[2]}" == *"wprism promotion-begin"* ]] \
   || fail "code target-runtime preflight did not run after compile and before promotion-begin"
 assert_control_call "${TRACED_CALLS[1]}" "promotion target-runtime preflight"
 [ "$(call_artifact "${TRACED_CALLS[1]}")" = "$(call_artifact "${TRACED_CALLS[5]}")" ] \
@@ -381,15 +381,15 @@ run_promote 1 env FAKE_CODE_CHANGE_REQUIRED=0
 [ "$CODE" -eq 0 ] || fail "content-only promote exited non-zero: $OUT"
 mapfile -t CALLS < "$LOG"
 [ "${#CALLS[@]}" -eq 4 ] || fail "content-only path expected compile/begin/checkpoint/apply, got ${#CALLS[@]} calls"
-[[ "${CALLS[0]}" == *"duo compile"* && "${CALLS[1]}" == *"duo promotion-begin"* \
-  && "${CALLS[2]}" == *"db export"* && "${CALLS[3]}" == *"duo apply"* ]] \
+[[ "${CALLS[0]}" == *"wprism compile"* && "${CALLS[1]}" == *"wprism promotion-begin"* \
+  && "${CALLS[2]}" == *"db export"* && "${CALLS[3]}" == *"wprism apply"* ]] \
   || fail "content-only phase order was not compile -> begin -> checkpoint -> apply"
 if grep -Eq 'code-stage|code-finalize|lifecycle-phase' "$LOG"; then
   fail "THE property: unchanged code still invoked stage/finalize or extension lifecycle hooks"
 fi
 mapfile -t TRACED_CALLS < "$TRACE"
 [ "${#TRACED_CALLS[@]}" -eq 6 ] || fail "content-only path omitted compile/preflight/sealing or added a mutation"
-[[ "${TRACED_CALLS[1]}" == *"duo code-preflight"* ]] \
+[[ "${TRACED_CALLS[1]}" == *"wprism code-preflight"* ]] \
   || fail "content-only decision did not come from target code preflight"
 has "$OUT" 'promote complete: content apply; code lifecycle hooks not run' \
   || fail "content-only completion did not disclose the hook-free path"
@@ -400,7 +400,7 @@ run_promote 1 env FAKE_STAGE_FAIL=1
 [ "$CODE" -eq 8 ] || fail "code-stage failure exit was not propagated (got $CODE)"
 mapfile -t CALLS < "$LOG"
 [ "${#CALLS[@]}" -eq 5 ] || fail "later phases or abort boundary were wrong after code-stage failure"
-[[ "${CALLS[3]}" == *"duo code-stage"* ]] || fail "fourth call was not failed code-stage"
+[[ "${CALLS[3]}" == *"wprism code-stage"* ]] || fail "fourth call was not failed code-stage"
 assert_begin_and_abort "${CALLS[1]}" "${CALLS[4]}"
 has "$OUT" 'code-stage failed.*later phases were not run' \
   || fail "code-stage failure did not name its stop boundary"
@@ -433,7 +433,7 @@ run_promote 1 env FAKE_SETTLE_FAIL=1
 [ "$CODE" -eq 15 ] || fail "lifecycle settlement failure exit was not propagated (got $CODE)"
 mapfile -t CALLS < "$LOG"
 [ "${#CALLS[@]}" -eq 8 ] || fail "finalize/apply or abort boundary were wrong after settlement failure"
-[[ "${CALLS[6]}" == *"duo lifecycle-settle"* ]] || fail "seventh call was not failed lifecycle settlement"
+[[ "${CALLS[6]}" == *"wprism lifecycle-settle"* ]] || fail "seventh call was not failed lifecycle settlement"
 assert_begin_and_abort "${CALLS[1]}" "${CALLS[7]}"
 has "$OUT" 'lifecycle-settle failed.*later phases were not run' \
   || fail "lifecycle settlement failure did not name its stop boundary"
@@ -446,7 +446,7 @@ run_promote 1 env FAKE_FINALIZE_FAIL=1
 [ "$CODE" -eq 9 ] || fail "code-finalize failure exit was not propagated (got $CODE)"
 mapfile -t CALLS < "$LOG"
 [ "${#CALLS[@]}" -eq 9 ] || fail "apply or abort boundary were wrong after code-finalize failure"
-[[ "${CALLS[7]}" == *"duo code-finalize"* ]] || fail "eighth call was not failed code-finalize"
+[[ "${CALLS[7]}" == *"wprism code-finalize"* ]] || fail "eighth call was not failed code-finalize"
 assert_begin_and_abort "${CALLS[1]}" "${CALLS[8]}"
 has "$OUT" 'code-finalize failed.*later phases were not run' \
   || fail "code-finalize failure did not name its stop boundary"
@@ -460,7 +460,7 @@ run_promote 1 env FAKE_APPLY_FAIL=1
 [ "$CODE" -eq 10 ] || fail "apply failure exit was not propagated (got $CODE)"
 mapfile -t CALLS < "$LOG"
 [ "${#CALLS[@]}" -eq 10 ] || fail "unexpected calls around failed apply"
-[[ "${CALLS[8]}" == *"duo apply"* ]] || fail "ninth call was not failed apply"
+[[ "${CALLS[8]}" == *"wprism apply"* ]] || fail "ninth call was not failed apply"
 assert_begin_and_abort "${CALLS[1]}" "${CALLS[9]}"
 assert_code_recovery_guidance "$OUT"
 pass "code-enabled apply failure aborts the lease and requires ordered code recovery"
@@ -471,15 +471,15 @@ run_promote 0 env FAKE_APPLY_FAIL=1
 [ "$CODE" -eq 10 ] || fail "legacy apply failure exit was not propagated (got $CODE)"
 mapfile -t CALLS < "$LOG"
 [ "${#CALLS[@]}" -eq 5 ] || fail "state-only apply failure did not run compensating abort"
-[[ "${CALLS[3]}" == *"duo apply"* ]] || fail "state-only failure did not reach apply directly"
+[[ "${CALLS[3]}" == *"wprism apply"* ]] || fail "state-only failure did not reach apply directly"
 assert_begin_and_abort "${CALLS[1]}" "${CALLS[4]}"
 has "$OUT" 'checkpoint contains its temporary promotion lease row' \
   || fail "legacy apply failure omitted checkpoint lease recovery explanation"
 has "$OUT" 'external maintenance/exclusion' \
   || fail "legacy apply failure omitted external recovery exclusion"
-# Same DUO-3525 substitution as assert_code_recovery_guidance above: the
+# Same issue #3525 substitution as assert_code_recovery_guidance above: the
 # legacy arm shares the one chokepoint, so it gets the one verb too.
-has "$OUT" '^duo: promote: once that exclusion is in place, recover with: duo recover unit --restore=promote-.* --writers-excluded --operator-directed$' \
+has "$OUT" '^wprism: promote: once that exclusion is in place, recover with: wprism recover unit --restore=promote-.* --writers-excluded --operator-directed$' \
   || fail "legacy apply failure named no recovery exit path: $OUT"
 has "$OUT" 'releases the lease row the import reinstates, including when the import' \
   || fail "legacy apply failure dropped the mandatory-final-abort safety fact"
@@ -498,10 +498,10 @@ run_promote 1 env FAKE_PREFLIGHT_FAIL=1
 [ "$CODE" -eq 14 ] || fail "target-runtime preflight failure exit was not propagated (got $CODE)"
 mapfile -t CALLS < "$LOG"
 [ "${#CALLS[@]}" -eq 1 ] || fail "target-runtime preflight failure ran begin/checkpoint/mutation calls"
-[[ "${CALLS[0]}" == *"duo compile"* ]] || fail "target-runtime refusal did not retain compile as its only historical phase"
+[[ "${CALLS[0]}" == *"wprism compile"* ]] || fail "target-runtime refusal did not retain compile as its only historical phase"
 mapfile -t TRACED_CALLS < "$TRACE"
 [ "${#TRACED_CALLS[@]}" -eq 2 ] || fail "target-runtime refusal did not stop at compile/preflight"
-[[ "${TRACED_CALLS[1]}" == *"duo code-preflight"* ]] || fail "second traced call was not target-runtime preflight"
+[[ "${TRACED_CALLS[1]}" == *"wprism code-preflight"* ]] || fail "second traced call was not target-runtime preflight"
 assert_control_call "${TRACED_CALLS[1]}" "failed promotion target-runtime preflight"
 has "$OUT" 'code_source_requires_wordpress_incompatible' \
   || fail "target-runtime refusal lost its component/target diagnostic"
@@ -518,7 +518,7 @@ run_promote 1 env FAKE_BEGIN_FAIL=1
 [ "$CODE" -eq 4 ] || fail "promotion-begin failure exit was not propagated (got $CODE)"
 mapfile -t CALLS < "$LOG"
 [ "${#CALLS[@]}" -eq 2 ] || fail "checkpoint or later phase ran after promotion-begin failure"
-[[ "${CALLS[0]}" == *"duo compile"* && "${CALLS[1]}" == *"duo promotion-begin"* ]] \
+[[ "${CALLS[0]}" == *"wprism compile"* && "${CALLS[1]}" == *"wprism promotion-begin"* ]] \
   || fail "promotion-begin did not follow compile"
 if has "${CALLS[*]}" 'promotion-abort'; then
   fail "begin refusal attempted an abort"
@@ -532,7 +532,7 @@ run_promote 1 env FAKE_BEGIN_FAIL=3
 [ "$CODE" -eq 4 ] || fail "lifecycle-attempt begin refusal exit was not propagated (got $CODE)"
 mapfile -t CALLS < "$LOG"
 [ "${#CALLS[@]}" -eq 2 ] || fail "lifecycle-attempt refusal ran checkpoint, cleanup, or later phases"
-[[ "${CALLS[0]}" == *"duo compile"* && "${CALLS[1]}" == *"duo promotion-begin"* ]] \
+[[ "${CALLS[0]}" == *"wprism compile"* && "${CALLS[1]}" == *"wprism promotion-begin"* ]] \
   || fail "lifecycle-attempt refusal did not stop at begin"
 if has "${CALLS[*]}" 'promotion-abort'; then
   fail "lifecycle-attempt refusal attempted a new-owner abort"
@@ -559,7 +559,7 @@ run_promote 1 env FAKE_CHECKPOINT_FAIL=1
 [ "$CODE" -eq 5 ] || fail "checkpoint failure exit was not propagated (got $CODE)"
 mapfile -t CALLS < "$LOG"
 [ "${#CALLS[@]}" -eq 4 ] || fail "checkpoint failure did not run exactly begin/export/abort"
-[[ "${CALLS[1]}" == *"duo promotion-begin"* && "${CALLS[2]}" == *"db export"* ]] \
+[[ "${CALLS[1]}" == *"wprism promotion-begin"* && "${CALLS[2]}" == *"db export"* ]] \
   || fail "checkpoint was not protected by promotion-begin"
 assert_begin_and_abort "${CALLS[1]}" "${CALLS[3]}"
 has "$OUT" 'no usable checkpoint was produced' \
@@ -602,16 +602,16 @@ pass "compile failure occurs before checkpoint and all code/state mutation"
 # appended after the host's own --repo on apply and win wp-cli's assoc parsing.
 for internal in --repo=/tmp/forged --compiled=/tmp/forged.json --artifact-hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --promotion-owner=intruder --promotion-hold --materializing-code --state-handoff --lifecycle-phase=activate; do
   : > "$LOG"
-  if FAKE_CODE_ENABLED=1 "$DUO" --envs-file="$ENVS" promote unit "$internal" >/dev/null 2>&1; then
+  if FAKE_CODE_ENABLED=1 "$WPRISM" --envs-file="$ENVS" promote unit "$internal" >/dev/null 2>&1; then
     fail "promote accepted caller-owned internal flag $internal"
   fi
   [ ! -s "$LOG" ] || fail "promote contacted target after rejecting $internal"
 done
-if FAKE_CODE_ENABLED=1 "$DUO" --envs-file="$ENVS" promote unit --repo /tmp/forged >/dev/null 2>&1; then
+if FAKE_CODE_ENABLED=1 "$WPRISM" --envs-file="$ENVS" promote unit --repo /tmp/forged >/dev/null 2>&1; then
   fail "promote accepted split caller-owned --repo flag"
 fi
 [ ! -s "$LOG" ] || fail "promote contacted target after rejecting split --repo"
-if FAKE_CODE_ENABLED=1 "$DUO" --envs-file="$ENVS" promote unit --artifact-hash aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa >/dev/null 2>&1; then
+if FAKE_CODE_ENABLED=1 "$WPRISM" --envs-file="$ENVS" promote unit --artifact-hash aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa >/dev/null 2>&1; then
   fail "promote accepted split caller-owned --artifact-hash flag"
 fi
 [ ! -s "$LOG" ] || fail "promote contacted target after rejecting split --artifact-hash"

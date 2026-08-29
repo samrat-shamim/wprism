@@ -4,10 +4,10 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../../cli/src/Command/PassthroughCommand.php';
 require_once __DIR__ . '/../../../../agent/src/Capture/Capture.php';
 
-use Duo\Capture;
-use Duo\Orchestrator\DriverCapabilityReport;
-use Duo\Orchestrator\EnvironmentDriver;
-use Duo\Orchestrator\PassthroughCommand;
+use WPrism\Capture;
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\EnvironmentDriver;
+use WPrism\Orchestrator\PassthroughCommand;
 
 function fail_passthrough(string $message): never {
     fwrite(STDERR, "FAIL: $message\n");
@@ -26,7 +26,7 @@ final class RecordingInputPassthroughDriver implements EnvironmentDriver {
     public $onInstruction = null;
 
     public function __construct() {
-        $path = tempnam(sys_get_temp_dir(), 'duo-input-fixture-');
+        $path = tempnam(sys_get_temp_dir(), 'wprism-input-fixture-');
         if (!is_string($path)) throw new RuntimeException('could not create input fixture');
         $this->inputPath = $path;
     }
@@ -115,14 +115,14 @@ assert_passthrough(
 $ordinary = PassthroughCommand::run($driver, 'capabilities', ['--format=json']);
 assert_passthrough($ordinary === 23, 'ordinary passthrough preserves the transport exit code');
 assert_passthrough(
-    $driver->calls === [['duo', 'capabilities', '--repo=/fixture/repo', '--format=json']],
+    $driver->calls === [['wprism', 'capabilities', '--repo=/fixture/repo', '--format=json']],
     'ordinary passthrough preserves the exact agent argv and repo binding'
 );
 
 $lint = PassthroughCommand::run($driver, 'lint', ['--format=json']);
 assert_passthrough($lint === 23, 'lint passthrough preserves the transport exit code');
 assert_passthrough(
-    $driver->calls[1] === ['duo', 'lint', '--repo=/fixture/repo', '--format=json'],
+    $driver->calls[1] === ['wprism', 'lint', '--repo=/fixture/repo', '--format=json'],
     'lint passthrough preserves the exact agent argv and repo binding'
 );
 
@@ -170,7 +170,7 @@ assert_passthrough(
     $echoTransitions === [false, true]
         && $inputLifecycle === ['read', 'target']
         && $envDriver->calls === [[
-            'duo', 'env-set', '--repo=/fixture/repo', '--name=gateway_secret', '--stdin',
+            'wprism', 'env-set', '--repo=/fixture/repo', '--name=gateway_secret', '--stdin',
         ]]
         && file_get_contents($envDriver->inputPath) === "secret\n",
     'interactive env-set masks one host read and sends only that value through detached target stdin'
@@ -248,7 +248,7 @@ assert_passthrough(
 );
 
 $timeoutDriver = new RecordingInputPassthroughDriver();
-$timeoutDriver->blockAfterReadMarker = tempnam(sys_get_temp_dir(), 'duo-env-set-timeout-');
+$timeoutDriver->blockAfterReadMarker = tempnam(sys_get_temp_dir(), 'wprism-env-set-timeout-');
 $timeoutClock = [0.0, 0.1, 0.2, 2.0];
 $timeoutStarted = microtime(true);
 $timeoutExit = PassthroughCommand::runEnvSet(
@@ -334,7 +334,7 @@ try {
 }
 
 if (function_exists('pcntl_fork') && function_exists('pcntl_waitpid') && function_exists('posix_kill')) {
-    $handoffMarker = tempnam(sys_get_temp_dir(), 'duo-env-set-handoff-');
+    $handoffMarker = tempnam(sys_get_temp_dir(), 'wprism-env-set-handoff-');
     assert_passthrough(is_string($handoffMarker), 'env-set handoff fixture is created');
     $handoffPid = pcntl_fork();
     assert_passthrough($handoffPid !== -1, 'env-set handoff fixture forks');
@@ -373,7 +373,7 @@ if (function_exists('pcntl_fork') && function_exists('pcntl_waitpid') && functio
     );
 
     if (function_exists('posix_setpgid')) {
-        $slowWriteMarker = tempnam(sys_get_temp_dir(), 'duo-env-set-slow-write-');
+        $slowWriteMarker = tempnam(sys_get_temp_dir(), 'wprism-env-set-slow-write-');
         assert_passthrough(is_string($slowWriteMarker), 'slow target-write fixture is created');
         $slowWritePid = pcntl_fork();
         assert_passthrough($slowWritePid !== -1, 'slow target-write fixture forks');
@@ -424,7 +424,7 @@ if (function_exists('pcntl_fork') && function_exists('pcntl_waitpid') && functio
             'resumed nonblocking handoff preserves the exact target outcome'
         );
 
-        $handoffSuspendMarker = tempnam(sys_get_temp_dir(), 'duo-env-set-handoff-suspend-');
+        $handoffSuspendMarker = tempnam(sys_get_temp_dir(), 'wprism-env-set-handoff-suspend-');
         assert_passthrough(is_string($handoffSuspendMarker), 'post-handoff suspension fixture is created');
         $handoffSuspendPid = pcntl_fork();
         assert_passthrough($handoffSuspendPid !== -1, 'post-handoff suspension fixture forks');
@@ -477,7 +477,7 @@ if (function_exists('pcntl_fork') && function_exists('pcntl_waitpid') && functio
         );
     }
 
-    $signalLog = tempnam(sys_get_temp_dir(), 'duo-env-set-signal-');
+    $signalLog = tempnam(sys_get_temp_dir(), 'wprism-env-set-signal-');
     assert_passthrough(is_string($signalLog), 'env-set signal fixture is created');
     $signalPid = pcntl_fork();
     assert_passthrough($signalPid !== -1, 'env-set signal fixture forks');
@@ -555,7 +555,7 @@ if (function_exists('pcntl_fork') && function_exists('pcntl_waitpid') && functio
     $restoreCleanupGuard();
     pcntl_signal(SIGTERM, $previousTermHandler);
 
-    $suspendLog = tempnam(sys_get_temp_dir(), 'duo-env-set-suspend-');
+    $suspendLog = tempnam(sys_get_temp_dir(), 'wprism-env-set-suspend-');
     assert_passthrough(is_string($suspendLog), 'suspend signal fixture is created');
     $suspendPid = pcntl_fork();
     assert_passthrough($suspendPid !== -1, 'suspend signal fixture forks');
@@ -609,7 +609,7 @@ if (function_exists('pcntl_fork') && function_exists('pcntl_waitpid') && functio
     @unlink($suspendLog);
 
 
-    $quitLog = tempnam(sys_get_temp_dir(), 'duo-env-set-quit-');
+    $quitLog = tempnam(sys_get_temp_dir(), 'wprism-env-set-quit-');
     assert_passthrough(is_string($quitLog), 'quit signal fixture is created');
     $quitPid = pcntl_fork();
     assert_passthrough($quitPid !== -1, 'quit signal fixture forks');
@@ -672,16 +672,16 @@ $warningMethod = new ReflectionMethod(Capture::class, 'lint_warning');
 $captureWarning = $warningMethod->invoke(null, 2, '/srv/site repo;literal', 'preview');
 assert_passthrough(
     is_string($captureWarning)
-        && str_contains($captureWarning, 'run on the host: `duo lint preview`')
-        && str_contains($captureWarning, "`wp duo lint --repo='/srv/site repo;literal'`")
+        && str_contains($captureWarning, 'run on the host: `wprism lint preview`')
+        && str_contains($captureWarning, "`wp wprism lint --repo='/srv/site repo;literal'`")
         && !str_contains($captureWarning, '<env>'),
     'capture lint warning gives copy-ready host and shell-safe direct-target commands'
 );
 $directCaptureWarning = $warningMethod->invoke(null, 1, '/srv/site repo;literal', null);
 assert_passthrough(
     is_string($directCaptureWarning)
-        && !str_contains($directCaptureWarning, 'duo lint <env>')
-        && str_contains($directCaptureWarning, "`wp duo lint --repo='/srv/site repo;literal'`"),
+        && !str_contains($directCaptureWarning, 'wprism lint <env>')
+        && str_contains($directCaptureWarning, "`wp wprism lint --repo='/srv/site repo;literal'`"),
     'direct target capture emits only its copy-ready target remediation'
 );
 $unsafeCaptureWarning = $warningMethod->invoke(null, 1, "/srv/site\n\x1bINJECT", 'preview');
@@ -689,7 +689,7 @@ assert_passthrough(
     is_string($unsafeCaptureWarning)
         && preg_match('/[\x00-\x1F\x7F]/', $unsafeCaptureWarning) !== 1
         && !str_contains($unsafeCaptureWarning, 'INJECT')
-        && str_contains($unsafeCaptureWarning, 'run on the host: `duo lint preview`')
+        && str_contains($unsafeCaptureWarning, 'run on the host: `wprism lint preview`')
         && str_contains($unsafeCaptureWarning, 'configured repository path is unsafe to render'),
     'capture lint warning replaces a control-bearing repository command with one bounded safe line'
 );
@@ -705,8 +705,8 @@ assert_passthrough(
     is_string($outputOnlyCaptureWarning)
         && str_contains($outputOnlyCaptureWarning, 'output-only candidate was scanned before publication')
         && str_contains($outputOnlyCaptureWarning, 'Rerun capture without `--out`')
-        && !str_contains($outputOnlyCaptureWarning, '`duo lint preview`')
-        && !str_contains($outputOnlyCaptureWarning, '`wp duo lint'),
+        && !str_contains($outputOnlyCaptureWarning, '`wprism lint preview`')
+        && !str_contains($outputOnlyCaptureWarning, '`wp wprism lint'),
     'output-only capture never suggests a lint command that scans different repository state'
 );
 
@@ -727,7 +727,7 @@ assert_passthrough(
 $scoped = PassthroughCommand::run($driver, 'plan', ['--format=json']);
 assert_passthrough($scoped === 23, 'unscoped plan remains a direct passthrough');
 assert_passthrough(
-    $driver->calls[2] === ['duo', 'plan', '--repo=/fixture/repo', '--format=json'],
+    $driver->calls[2] === ['wprism', 'plan', '--repo=/fixture/repo', '--format=json'],
     'unscoped plan does not synthesize a scope wire argument'
 );
 

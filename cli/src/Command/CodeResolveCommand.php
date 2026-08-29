@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../Transport/CodePushTransport.php';
@@ -10,16 +10,16 @@ require_once __DIR__ . '/../Code/WpOrgReleases.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Code/CodeSourceLock.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 
-use Duo\CodeSourceLock;
-use Duo\CommandRefusalException;
+use WPrism\CodeSourceLock;
+use WPrism\CommandRefusalException;
 
 /**
- * `duo code-resolve <env>` — put the locked components' bytes back (DUO-3500).
+ * `wprism code-resolve <env>` — put the locked components' bytes back (issue #3500).
  *
  * A fresh clone of a split repository carries no bytes for anything
- * `code/duo-code.lock.json` declares, so it refuses to compile with
+ * `code/wprism-code.lock.json` declares, so it refuses to compile with
  * `code_component_unresolved`. This verb is the step that answers that
- * refusal, and `duo deploy` / `duo promote` run it automatically as
+ * refusal, and `wprism deploy` / `wprism promote` run it automatically as
  * `<verb> phase: code-resolve` before compiling, so the ordinary path needs no
  * separate command at all.
  *
@@ -32,18 +32,18 @@ use Duo\CommandRefusalException;
  *
  * - **local** — `repo_path` IS a host path; that is what the transport means.
  * - **docker** — `repo_path` is the path INSIDE the container, and the host
- *   side of that bind mount is the checkout the CLI is standing in. `duo` is
+ *   side of that bind mount is the checkout the CLI is standing in. `wprism` is
  *   already anchored there: the environment registry itself is found by
  *   walking up from the working directory, so the `<env>` being resolved and
  *   the checkout being written come from one place.
  * - **ssh** — the repository is on the far side of a network boundary, so the
- *   host resolves and then PUSHES (DUO-3514). The lock is read from the
- *   TARGET, never from the operator's cwd (which is DUO-3526's ruling applied
+ *   host resolves and then PUSHES (issue #3514). The lock is read from the
+ *   TARGET, never from the operator's cwd (which is issue #3526's ruling applied
  *   to the transport that has no host repository at all); resolution happens
  *   in a throwaway host staging worktree, so no checkout of the site is
  *   needed; the resolved trees travel as ONE tar through
  *   `CodePushTransport`; and they are verified TARGET-SIDE, in a staging
- *   directory under `.duo/code-push/`, against the lock's `tree_sha256`
+ *   directory under `.wprism/code-push/`, against the lock's `tree_sha256`
  *   BEFORE anything is renamed into place. A component the target already
  *   holds at a different digest refuses `code_resolve_component_drifted`
  *   rather than being overwritten — CodeResolver's own doctrine, "nothing
@@ -67,11 +67,11 @@ final class CodeResolveCommand {
     /** The host→target push could not be completed; the target was not changed. */
     public const REASON_PUSH_FAILED = 'code_resolve_push_failed';
 
-    /** Target-side staging root for a push, under the repository's own `.duo/`. */
-    public const PUSH_STAGING = '.duo/code-push';
+    /** Target-side staging root for a push, under the repository's own `.wprism/`. */
+    public const PUSH_STAGING = '.wprism/code-push';
 
     /** Disposable target-visible repository snapshots used by release compilation. */
-    public const RELEASE_STAGING = '.duo/code-release-prepare';
+    public const RELEASE_STAGING = '.wprism/code-release-prepare';
 
     /**
      * Which inventory proof is being taken. Not decoration: each one may state
@@ -100,14 +100,14 @@ final class CodeResolveCommand {
             if (str_starts_with($arg, '--cache-dir=')) {
                 $cacheDir = substr($arg, strlen('--cache-dir='));
                 if ($cacheDir === '' || !str_starts_with($cacheDir, '/')) {
-                    fwrite(STDERR, "duo: code-resolve --cache-dir requires an absolute path\n");
+                    fwrite(STDERR, "wprism: code-resolve --cache-dir requires an absolute path\n");
                     return 1;
                 }
                 continue;
             }
             fwrite(
                 STDERR,
-                "duo: code-resolve accepts only --dry-run, --offline and --cache-dir=<path>; unsupported argument '$arg'\n"
+                "wprism: code-resolve accepts only --dry-run, --offline and --cache-dir=<path>; unsupported argument '$arg'\n"
             );
             return 1;
         }
@@ -119,7 +119,7 @@ final class CodeResolveCommand {
                     throw self::unresolvableTransport($transport);
                 }
 
-                // DUO-3514. The verb's contract — "make these bytes present
+                // issue #3514. The verb's contract — "make these bytes present
                 // where this environment reads them" — is honoured on ssh by
                 // resolving here and pushing, so it no longer refuses. The
                 // empty verb selects the verb's own render prefix; the phase
@@ -128,7 +128,7 @@ final class CodeResolveCommand {
             }
             $lock = CodeResolver::declaredLock($repo);
             if ($lock === null) {
-                echo 'duo: this repository declares no code lock (site.duo.json code format 1, or no code half); '
+                echo 'wprism: this repository declares no code lock (site.wprism.json code format 1, or no code half); '
                     . "nothing to resolve.\n";
                 return 0;
             }
@@ -138,13 +138,13 @@ final class CodeResolveCommand {
         } catch (CommandRefusalException $refusal) {
             return self::renderRefusal($refusal, 'code-resolve');
         } catch (\Throwable $error) {
-            fwrite(STDERR, 'duo: code-resolve: ' . $error->getMessage() . "\n");
+            fwrite(STDERR, 'wprism: code-resolve: ' . $error->getMessage() . "\n");
             return 1;
         }
     }
 
     /**
-     * The automatic host-side phase `duo deploy` and `duo promote` run before
+     * The automatic host-side phase `wprism deploy` and `wprism promote` run before
      * compiling. Returns null to continue, or the exit code to return.
      *
      * It prints NOTHING when the repository declares no lock, which is every
@@ -184,11 +184,11 @@ final class CodeResolveCommand {
             return null;
         } catch (CommandRefusalException $refusal) {
             self::renderRefusal($refusal, "$verb: code-resolve");
-            fwrite(STDERR, "duo: $verb: refusing before compile; no lifecycle or code materialization occurred\n");
+            fwrite(STDERR, "wprism: $verb: refusing before compile; no lifecycle or code materialization occurred\n");
             return 1;
         } catch (\Throwable $error) {
-            fwrite(STDERR, "duo: $verb: code-resolve: " . $error->getMessage() . "\n");
-            fwrite(STDERR, "duo: $verb: refusing before compile; no lifecycle or code materialization occurred\n");
+            fwrite(STDERR, "wprism: $verb: code-resolve: " . $error->getMessage() . "\n");
+            fwrite(STDERR, "wprism: $verb: refusing before compile; no lifecycle or code materialization occurred\n");
             return 1;
         }
     }
@@ -197,14 +197,14 @@ final class CodeResolveCommand {
      * Compile one release from an isolated, target-visible repository snapshot.
      *
      * A format-2 repository deliberately omits locked third-party component
-     * bytes. The public `duo code-resolve` verb materializes those bytes into
+     * bytes. The public `wprism code-resolve` verb materializes those bytes into
      * the repository because that is exactly what its operator requested.
      * Automatic deploy/promote compilation has a different transaction
      * boundary: leaving those bytes in the canonical repository before a
      * promotion lease or checkpoint makes a failed preflight a repository
      * mutation with no compensation (agency audit finding 72).
      *
-     * This boundary snapshots the repository under its private `.duo/`
+     * This boundary snapshots the repository under its private `.wprism/`
      * runtime directory, resolves only inside that snapshot, compiles through
      * the supplied product callback, and removes the snapshot in `finally`.
      * The snapshot path is visible through every transport, so the agent that
@@ -253,7 +253,7 @@ final class CodeResolveCommand {
                     $lock = CodeResolver::declaredLock($hostStage);
                     if ($lock === null) {
                         throw self::releaseStageFailed(
-                            "duo: the isolated repository snapshot at $targetStage did not carry the declared lock"
+                            "wprism: the isolated repository snapshot at $targetStage did not carry the declared lock"
                         );
                     }
                     $rows = self::resolver(false, null)->resolve($hostStage, $lock['components'], false);
@@ -274,14 +274,14 @@ final class CodeResolveCommand {
             self::renderRefusal($refusal, "$verb: code-resolve");
             fwrite(
                 STDERR,
-                "duo: $verb: refusing before compile; the canonical repository was not materialized\n"
+                "wprism: $verb: refusing before compile; the canonical repository was not materialized\n"
             );
             return 1;
         } catch (\Throwable $error) {
-            fwrite(STDERR, "duo: $verb: code-resolve: " . $error->getMessage() . "\n");
+            fwrite(STDERR, "wprism: $verb: code-resolve: " . $error->getMessage() . "\n");
             fwrite(
                 STDERR,
-                "duo: $verb: refusing before compile; the canonical repository was not materialized\n"
+                "wprism: $verb: refusing before compile; the canonical repository was not materialized\n"
             );
             return 1;
         }
@@ -289,7 +289,7 @@ final class CodeResolveCommand {
 
     /** Whether a target-only repository declares the locked code format. */
     private static function targetDeclaresLock(EnvironmentDriver $transport, string $repo): bool {
-        $site = $transport->captureRaw('cat ' . escapeshellarg($repo . '/site.duo.json'));
+        $site = $transport->captureRaw('cat ' . escapeshellarg($repo . '/site.wprism.json'));
         if ($site['exit'] !== 0) {
             return false;
         }
@@ -308,7 +308,7 @@ final class CodeResolveCommand {
         $archive = $stage . '.tar';
         $script = 'umask 077; mkdir -p ' . escapeshellarg(dirname($stage))
             . ' && tar -C ' . escapeshellarg($repo)
-            . " --exclude='./.git' --exclude='./.duo' -cf " . escapeshellarg($archive) . ' .'
+            . " --exclude='./.git' --exclude='./.wprism' -cf " . escapeshellarg($archive) . ' .'
             . ' && mkdir ' . escapeshellarg($stage)
             . ' && tar --no-same-owner -xf ' . escapeshellarg($archive) . ' -C ' . escapeshellarg($stage)
             . ' && rm -f ' . escapeshellarg($archive);
@@ -318,7 +318,7 @@ final class CodeResolveCommand {
                 'rm -f ' . escapeshellarg($archive) . '; rm -rf ' . escapeshellarg($stage)
             );
             throw self::releaseStageFailed(
-                'duo: the target could not create an isolated repository snapshot for release compilation',
+                'wprism: the target could not create an isolated repository snapshot for release compilation',
                 $result
             );
         }
@@ -359,7 +359,7 @@ final class CodeResolveCommand {
      * ssh arm and a docker invocation from outside the checkout both need.
      */
     private static function hostRepo(EnvironmentDriver $transport): ?string {
-        // One question, asked of the driver, for every transport (DUO-3526).
+        // One question, asked of the driver, for every transport (issue #3526).
         //
         // Before this the docker arm inferred the answer from
         // `CodeResolver::locateSiteRepo(getcwd())` — the directory the operator
@@ -377,7 +377,7 @@ final class CodeResolveCommand {
         // knowledge here and no `require` of any transport file — naming
         // DockerTransport directly cannot be done from this file at all
         // (DockerTransport.php does not require its own base class, so a
-        // require_once of it here fatals under cli/duo's load order). A fake
+        // require_once of it here fatals under cli/wprism's load order). A fake
         // driver that implements only the interface returns null and falls to
         // the read-only target arm, which is the correct answer for a driver
         // that exposes no host repository.
@@ -396,7 +396,7 @@ final class CodeResolveCommand {
      * bytes did not land where the target reads, the components are still
      * reported absent here, by name, before anything is compiled.
      *
-     * It reuses the same `wp duo code-inventory` read the read-only arm uses,
+     * It reuses the same `wp wprism code-inventory` read the read-only arm uses,
      * so there is one notion of "what the target holds".
      *
      * @param list<array<string,mixed>> $components
@@ -452,10 +452,10 @@ final class CodeResolveCommand {
             throw new CommandRefusalException(
                 CodeResolver::REASON_TREE_DIGEST_MISMATCH,
                 'the trees pushed to the target do not hash to the digests the lock declares',
-                're-lock the components with duo code-classify if the releases were legitimately re-packaged; '
+                're-lock the components with wprism code-classify if the releases were legitimately re-packaged; '
                 . 'nothing was published into the target\'s code/wp-content and its staging directory was removed',
                 [],
-                'duo: the target does not report the locked digest for staged: ' . implode(', ', $missing)
+                'wprism: the target does not report the locked digest for staged: ' . implode(', ', $missing)
             );
         }
         if ($proof === self::PROOF_POST_PUSH) {
@@ -468,9 +468,9 @@ final class CodeResolveCommand {
                 'the target does not report the locked digests after the verified trees were published there',
                 'inspect the target repository: the trees verified in staging and were renamed into place, so '
                 . 'something changed code/wp-content between those two reads; do not compile this target until '
-                . 'duo code-resolve reports every component at its locked digest',
+                . 'wprism code-resolve reports every component at its locked digest',
                 [],
-                'duo: after publishing, the target does not hold: ' . implode(', ', $missing)
+                'wprism: after publishing, the target does not hold: ' . implode(', ', $missing)
             );
         }
         throw new CommandRefusalException(
@@ -479,7 +479,7 @@ final class CodeResolveCommand {
             . 'at the locked digest',
             'confirm the compose service mounts this environment\'s repository at its repo_path, then rerun',
             [],
-            'duo: after resolving, the target still does not hold: ' . implode(', ', $missing)
+            'wprism: after resolving, the target still does not hold: ' . implode(', ', $missing)
         );
     }
 
@@ -488,18 +488,18 @@ final class CodeResolveCommand {
     }
 
     /**
-     * The target-side arm: ssh (which now resolves and pushes, DUO-3514) and
+     * The target-side arm: ssh (which now resolves and pushes, issue #3514) and
      * docker-from-outside-the-checkout (which still only asks).
      *
      * The reads are unchanged and stay first, because they are the pre-push
      * half of docs/code-half.md:241-242's design and they are what makes the
-     * push safe: the target's own `site.duo.json`, the target's own lock, and
-     * the target's own `wp duo code-inventory` — the same read
-     * `duo code-classify` uses to prove a checkout and a target agree
+     * push safe: the target's own `site.wprism.json`, the target's own lock, and
+     * the target's own `wp wprism code-inventory` — the same read
+     * `wprism code-classify` uses to prove a checkout and a target agree
      * (cli/src/Command/CodeClassifyCommand.php:231-265). Nothing is fetched or
      * transferred until they say which components are missing.
      *
-     * `$verb === ''` selects the VERB's rendering (no phase line, "duo:
+     * `$verb === ''` selects the VERB's rendering (no phase line, "wprism:
      * code-resolve" prefix, exit code returned); any other value is the
      * automatic phase, which prints its phase line and returns null to
      * continue.
@@ -514,7 +514,7 @@ final class CodeResolveCommand {
         bool $render = true
     ): ?int {
         $repo = rtrim($repoOverride ?? $transport->repoPath(), '/');
-        $site = $transport->captureRaw('cat ' . escapeshellarg($repo . '/site.duo.json'));
+        $site = $transport->captureRaw('cat ' . escapeshellarg($repo . '/site.wprism.json'));
         if ($site['exit'] !== 0) {
             // Not a silent skip: compile reads the same file one phase later
             // and refuses by name if it is missing, so nothing unresolved can
@@ -537,7 +537,7 @@ final class CodeResolveCommand {
                 'the target declares code format 2 but its declared lock could not be read',
                 'restore the declared lock file in the target repository, then retry',
                 [],
-                "duo: could not read $relative from the target repository"
+                "wprism: could not read $relative from the target repository"
             );
         }
         $lock = CodeSourceLock::parse(trim($lockRead['stdout']));
@@ -573,7 +573,7 @@ final class CodeResolveCommand {
         if ($pending !== []) {
             if (!$pushing) {
                 throw self::pushUnsupported(
-                    'duo: the host cannot materialize into an ssh target, and these locked component(s) are not '
+                    'wprism: the host cannot materialize into an ssh target, and these locked component(s) are not '
                     . 'already correct there: ' . implode(', ', $pending)
                 );
             }
@@ -588,10 +588,10 @@ final class CodeResolveCommand {
                     CodeResolver::REASON_DRIFTED,
                     'a locked component is present on the target with bytes other than the ones the lock declares',
                     'remove the component directory on the target and rerun to push the locked release, or '
-                    . 're-lock it with duo code-classify if the present bytes are the intended ones; '
+                    . 're-lock it with wprism code-classify if the present bytes are the intended ones; '
                     . 'nothing overwrites a tree Git does not carry',
                     [],
-                    'duo: the target holds locked component(s) at a different digest: ' . implode(', ', $drifted)
+                    'wprism: the target holds locked component(s) at a different digest: ' . implode(', ', $drifted)
                     . '; nothing was transferred'
                 );
             }
@@ -633,7 +633,7 @@ final class CodeResolveCommand {
         if ($verb !== '') {
             return null;
         }
-        echo 'duo: this repository declares no code lock (site.duo.json code format 1, or no code half); '
+        echo 'wprism: this repository declares no code lock (site.wprism.json code format 1, or no code half); '
             . "nothing to resolve.\n";
 
         return 0;
@@ -641,7 +641,7 @@ final class CodeResolveCommand {
 
     /**
      * Resolve on the host, ship one tar, verify target-side, then rename into
-     * place (DUO-3514).
+     * place (issue #3514).
      *
      * The ORDER is the contract, and it is the same order
      * `CodeResolver::materialize()` uses on the host (:326-336), lifted across
@@ -655,9 +655,9 @@ final class CodeResolveCommand {
      *     per component;
      *  3. place it through `CodePushTransport`, inside a `try/finally` that
      *     removes it on every observed exit including a partial upload;
-     *  4. extract into `<repo>/.duo/code-push/<token>/code/wp-content` — a
+     *  4. extract into `<repo>/.wprism/code-push/<token>/code/wp-content` — a
      *     directory laid out as a REPOSITORY, so the target's own
-     *     `wp duo code-inventory --repo=<staging>` reports the staged trees'
+     *     `wp wprism code-inventory --repo=<staging>` reports the staged trees'
      *     digests (agent/src/Command/Cli.php:948-960 reads only
      *     `<repo>/code/wp-content`);
      *  5. compare those against the lock BEFORE a single byte reaches
@@ -709,13 +709,13 @@ final class CodeResolveCommand {
                 . ' -cf ' . escapeshellarg($localTar) . ' ' . implode(' ', $members)
             );
             if ($tar['exit'] !== 0) {
-                throw self::pushFailed('duo: the host could not archive the resolved component trees', $tar);
+                throw self::pushFailed('wprism: the host could not archive the resolved component trees', $tar);
             }
 
             $put = $transport->putCodePushInput($localTar, $targetTar);
             if ($put['exit'] !== 0) {
                 throw self::pushFailed(
-                    'duo: the resolved component archive could not be placed on the target',
+                    'wprism: the resolved component archive could not be placed on the target',
                     $put
                 );
             }
@@ -727,7 +727,7 @@ final class CodeResolveCommand {
             );
             if ($extract['exit'] !== 0) {
                 throw self::pushFailed(
-                    'duo: the target could not unpack the resolved component archive into its staging directory',
+                    'wprism: the target could not unpack the resolved component archive into its staging directory',
                     $extract
                 );
             }
@@ -743,20 +743,20 @@ final class CodeResolveCommand {
                 $destination = $repo . '/' . CodeSourceLock::SOURCE . '/' . $key;
                 $publish[] = 's=' . escapeshellarg($source) . '; d=' . escapeshellarg($destination)
                     . '; p=' . escapeshellarg($repo . '/' . CodeSourceLock::SOURCE . '/' . $entry['root']) . '; '
-                    . '[ -d "$s" ] || { echo ' . escapeshellarg('duo: staged tree missing: ' . $key)
+                    . '[ -d "$s" ] || { echo ' . escapeshellarg('wprism: staged tree missing: ' . $key)
                     . ' >&2; exit 1; }; '
                     // Absence was PROVED by the inventory above; a path that
                     // exists now appeared during the push, and overwriting it
                     // would destroy bytes Git does not carry.
                     . '{ [ ! -e "$d" ] && [ ! -L "$d" ]; } || { echo '
-                    . escapeshellarg('duo: target component appeared during the push: ' . $key)
+                    . escapeshellarg('wprism: target component appeared during the push: ' . $key)
                     . ' >&2; exit 1; }; '
                     . 'mkdir -p "$p" || exit 1; mv "$s" "$d" || exit 1; ';
             }
             $moved = $transport->captureRaw(implode('', $publish) . 'exit 0');
             if ($moved['exit'] !== 0) {
                 throw self::pushFailed(
-                    'duo: the target could not publish the verified component trees into code/wp-content',
+                    'wprism: the target could not publish the verified component trees into code/wp-content',
                     $moved
                 );
             }
@@ -783,10 +783,10 @@ final class CodeResolveCommand {
 
     /** A throwaway host worktree for one push. Never inside a site repository. */
     private static function hostStage(): string {
-        $stage = rtrim(sys_get_temp_dir(), '/') . '/duo-code-push-' . bin2hex(random_bytes(8));
+        $stage = rtrim(sys_get_temp_dir(), '/') . '/wprism-code-push-' . bin2hex(random_bytes(8));
         if (!@mkdir($stage, 0700, true) && !is_dir($stage)) {
             throw self::pushFailed(
-                'duo: the host could not create a staging worktree for the code push',
+                'wprism: the host could not create a staging worktree for the code push',
                 ['exit' => 1, 'stdout' => '', 'stderr' => "could not create $stage"]
             );
         }
@@ -803,7 +803,7 @@ final class CodeResolveCommand {
      * away from being pointed at a real checkout.
      */
     private static function removeHostStage(string $path): void {
-        if (!str_contains($path, '/duo-code-push-') || !is_dir($path)) {
+        if (!str_contains($path, '/wprism-code-push-') || !is_dir($path)) {
             return;
         }
         $iterator = new \RecursiveIteratorIterator(
@@ -845,31 +845,31 @@ final class CodeResolveCommand {
      * @return array<string,string>
      */
     private static function targetInventory(EnvironmentDriver $transport, string $repo, bool $pushing = false): array {
-        $result = $transport->captureWp(['duo', 'code-inventory', '--repo=' . $repo, '--format=json']);
+        $result = $transport->captureWp(['wprism', 'code-inventory', '--repo=' . $repo, '--format=json']);
         if ($result['exit'] !== 0) {
             throw $pushing
                 ? self::pushFailed(
-                    'duo: the target could not report the code inventory of ' . $repo
+                    'wprism: the target could not report the code inventory of ' . $repo
                     . ', so nothing proves what it holds',
                     $result
                 )
                 : self::pushUnsupported(
-                    'duo: the host cannot materialize into an ssh target, and the target could not report its own '
+                    'wprism: the host cannot materialize into an ssh target, and the target could not report its own '
                     . 'code inventory (exit ' . $result['exit'] . '), so nothing proves the locked components are '
                     . 'already correct there'
                 );
         }
         $decoded = json_decode(trim($result['stdout']), true);
-        if (!is_array($decoded) || ($decoded['format'] ?? null) !== 'duo-code-inventory/v1'
+        if (!is_array($decoded) || ($decoded['format'] ?? null) !== 'wprism-code-inventory/v1'
             || !is_array($decoded['components'] ?? null)) {
             throw $pushing
                 ? self::pushFailed(
-                    'duo: the target returned an unrecognized code inventory for ' . $repo
+                    'wprism: the target returned an unrecognized code inventory for ' . $repo
                     . ', so nothing proves what it holds',
                     $result
                 )
                 : self::pushUnsupported(
-                    'duo: the host cannot materialize into an ssh target, and the target returned an unrecognized '
+                    'wprism: the host cannot materialize into an ssh target, and the target returned an unrecognized '
                     . 'code inventory, so nothing proves the locked components are already correct there'
                 );
         }
@@ -885,11 +885,11 @@ final class CodeResolveCommand {
     /**
      * The refusal for a transport this host can neither WRITE nor PUSH to.
      *
-     * Its bytes are unchanged, deliberately. DUO-3514 landed the push for
+     * Its bytes are unchanged, deliberately. issue #3514 landed the push for
      * `CodePushTransport` transports, so a real ssh environment no longer
      * reaches this sentence at all; what still does is a docker service with
      * no writable bind at its `repo_path` and any hand-rolled driver, and for
-     * those "host-to-target push over ssh is DUO-3514 and is not implemented"
+     * those "host-to-target push over ssh is issue #3514 and is not implemented"
      * remains exactly as true as it was. Rewording it would move a refusal
      * this issue did not change the behaviour of (AGENTS.md rule 8).
      */
@@ -897,10 +897,10 @@ final class CodeResolveCommand {
         return new CommandRefusalException(
             self::REASON_TRANSPORT_UNSUPPORTED,
             'this transport cannot be resolved from the host: only local and docker environments expose the '
-            . 'site repository to the machine running duo',
+            . 'site repository to the machine running wprism',
             'materialize the locked components on the target itself, following "Resolving a split repository" '
             . 'in docs/guides/code-updates.md, or run the deploy from a local or docker environment; host-to-target '
-            . 'push over ssh is DUO-3514 and is not implemented',
+            . 'push over ssh is issue #3514 and is not implemented',
             [],
             $operatorMessage
         );
@@ -908,7 +908,7 @@ final class CodeResolveCommand {
 
     private static function unresolvableTransport(EnvironmentDriver $transport): CommandRefusalException {
         if ($transport->driverId() === 'docker') {
-            // Reworded with the mechanism it now describes (DUO-3526). The
+            // Reworded with the mechanism it now describes (issue #3526). The
             // previous text sent the operator to run from inside a checkout,
             // which was the cwd inference this issue removed; leaving it would
             // name a remedy that no longer affects the outcome.
@@ -919,18 +919,18 @@ final class CodeResolveCommand {
                 'mount the environment\'s repository into the service at its repo_path as a writable bind mount, '
                 . 'then rerun',
                 [],
-                'duo: the compose service for this environment exposes no writable bind mount at its repo_path, '
+                'wprism: the compose service for this environment exposes no writable bind mount at its repo_path, '
                 . 'so the host side of its repository could not be identified'
             );
         }
         return self::pushUnsupported(
-            'duo: ' . $transport->driverId() . " transport '" . $transport->name()
+            'wprism: ' . $transport->driverId() . " transport '" . $transport->name()
             . "' keeps its repository on the far side of the transport, where this host cannot write"
         );
     }
 
     /**
-     * A push that started and could not be completed (DUO-3514).
+     * A push that started and could not be completed (issue #3514).
      *
      * Separate from `pushUnsupported()` because it answers a different
      * question: not "this transport has no mechanism" but "the mechanism ran
@@ -955,14 +955,14 @@ final class CodeResolveCommand {
 
     /**
      * Report the code resolution a refresh/rebase/rehearse performed into its
-     * compile worktrees (DUO-3523).
+     * compile worktrees (issue #3523).
      *
      * Rendering lives HERE, not in Refresh: `cli/src/Refresh/Refresh.php`
      * contains no `echo` at all — it returns structured results and its command
      * renders them — and the work being reported is this file's own, so it gets
      * this file's own vocabulary. A split refresh therefore prints the same
      * `RESOLVED/UNCHANGED` rows and the same `N materialized, M unchanged`
-     * summary as `duo code-resolve` and the deploy phase, differing only in the
+     * summary as `wprism code-resolve` and the deploy phase, differing only in the
      * prefix that says which worktree it was for.
      *
      * A format-1 repository resolves nothing, so `code_resolve` is absent or
@@ -983,7 +983,7 @@ final class CodeResolveCommand {
      * @param list<array{root:string,component:string,version:string,state:string,detail:string}> $rows
      */
     private static function render(string $lockPath, array $rows, bool $dryRun, string $phasePrefix): void {
-        $prefix = $phasePrefix === '' ? 'duo: code-resolve' : "duo: $phasePrefix";
+        $prefix = $phasePrefix === '' ? 'wprism: code-resolve' : "wprism: $phasePrefix";
         echo $prefix . ': ' . count($rows) . ' component(s) declared in ' . $lockPath . "\n";
         $counts = ['resolved' => 0, 'unchanged' => 0, 'would-resolve' => 0];
         foreach ($rows as $row) {
@@ -993,7 +993,7 @@ final class CodeResolveCommand {
                 . ' — ' . $row['detail'] . "\n";
         }
         if ($dryRun) {
-            echo "duo: --dry-run: nothing was fetched, written, or cached.\n";
+            echo "wprism: --dry-run: nothing was fetched, written, or cached.\n";
             return;
         }
         echo $prefix . ': ' . $counts['resolved'] . ' materialized, ' . $counts['unchanged'] . " unchanged.\n";
@@ -1010,7 +1010,7 @@ final class CodeResolveCommand {
      * directory (agent/src/Kernel/CommandRefusal.php:199).
      */
     private static function renderRefusal(CommandRefusalException $refusal, string $command): int {
-        fwrite(STDERR, "duo: $command: " . $refusal->getMessage() . "\n");
+        fwrite(STDERR, "wprism: $command: " . $refusal->getMessage() . "\n");
         fwrite(STDERR, '[' . $refusal->reasonCode . '] ' . $refusal->publicMessage . "\n");
         fwrite(STDERR, 'remedy: ' . $refusal->remediation . "\n");
         return 1;

@@ -7,15 +7,15 @@ shell library and has nothing to do with the PHP harness below.)
 
 | file | provides |
 | --- | --- |
-| `check.php` | `duo_check*()` assertions, the end-of-suite summary/exit code, and `duo_code_without_comments()` for the suites that measure a reader set by grepping shipped source (rationale-dense prose names the same tokens, so comments are stripped first) |
-| `wp_stubs.php` | `\DuoTest\WpStore` plus `function_exists()`-guarded WordPress function stubs |
-| `FakeWpdb.php` | `\DuoTest\FakeWpdb` — a duck-typed `$wpdb` that interprets SQL against seeded rows |
-| `frozen_policy.php` | `\DuoTest\FrozenPolicy` — the `duo-policy-snapshot/v6` envelope for suites that need a `Policy` to test something else |
-| `ConformanceVector.php` | `\DuoTest\ConformanceVector` — the `duo-conformance-vector/v1` grammar and its offline replay driver |
+| `check.php` | `wprism_check*()` assertions, the end-of-suite summary/exit code, and `wprism_code_without_comments()` for the suites that measure a reader set by grepping shipped source (rationale-dense prose names the same tokens, so comments are stripped first) |
+| `wp_stubs.php` | `\WPrismTest\WpStore` plus `function_exists()`-guarded WordPress function stubs |
+| `FakeWpdb.php` | `\WPrismTest\FakeWpdb` — a duck-typed `$wpdb` that interprets SQL against seeded rows |
+| `frozen_policy.php` | `\WPrismTest\FrozenPolicy` — the `wprism-policy-snapshot/v6` envelope for suites that need a `Policy` to test something else |
+| `ConformanceVector.php` | `\WPrismTest\ConformanceVector` — the `wprism-conformance-vector/v1` grammar and its offline replay driver |
 
 `FrozenPolicy` exists because the frozen wire stopped taking a snapshot's word
 for provenance. A suite that only wants a `Policy` object used to hand
-`Policy::from_snapshot()` a `duo-policy-snapshot/v4` envelope, where any
+`Policy::from_snapshot()` a `wprism-policy-snapshot/v4` envelope, where any
 manifest name absent from `out_of_tree` was granted shipped authority with no
 proof; v4 is now refused by name and v6 compares the frozen manifest against an
 explicit `AdapterLibrary`. `FrozenPolicy::envelope()` publishes the manifests
@@ -66,10 +66,10 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/TransientDbException.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/ApplyFieldMaterializer.php';
 
-use Duo\ApplyFieldMaterializer;
-use Duo\TransientDbException;
-use DuoTest\FakeWpdb;
-use DuoTest\WpStore;
+use WPrism\ApplyFieldMaterializer;
+use WPrism\TransientDbException;
+use WPrismTest\FakeWpdb;
+use WPrismTest\WpStore;
 
 $store = WpStore::reset()->seedOptions(['home' => 'https://example.test']);
 $wpdb = FakeWpdb::install();                 // assigns $GLOBALS['wpdb']
@@ -80,20 +80,20 @@ $wpdb->seedTable('wp_postmeta', [
 $materializer = (new ReflectionClass(ApplyFieldMaterializer::class))->newInstanceWithoutConstructor();
 
 $materializer->upsert_meta($wpdb->postmeta, 'post_id', 19, 'owned', 'after', 'test update');
-duo_check_same('after', $wpdb->rows('wp_postmeta')[0]['meta_value'], 'upsert_meta updates in place');
+wprism_check_same('after', $wpdb->rows('wp_postmeta')[0]['meta_value'], 'upsert_meta updates in place');
 
 $materializer->upsert_meta($wpdb->postmeta, 'post_id', 19, 'nullable', null, 'test insert');
-duo_check_same(8, $wpdb->insert_id, 'the insert took the next meta_id');
+wprism_check_same(8, $wpdb->insert_id, 'the insert took the next meta_id');
 
 // The Db.php seam: a MySQL 1213 must arrive as the retryable typed class.
 $wpdb->simulateDeadlock('UPDATE');
-duo_check_throws(
+wprism_check_throws(
     static fn() => $materializer->upsert_meta($wpdb->postmeta, 'post_id', 19, 'owned', 'again', 'probe'),
     TransientDbException::class,
     'a deadlock on the authored-meta UPDATE reaches Db.php as TransientDbException'
 );
 
-duo_check_summary('my new suite');           // prints PASS/FAIL and exits 0/1
+wprism_check_summary('my new suite');           // prints PASS/FAIL and exits 0/1
 ```
 
 Add the leaf target to the `Makefile` the way every other offline suite does
@@ -119,26 +119,26 @@ offline corpus does not run and which needs no `Makefile` edit at all.
 
 ## Assertions (`check.php`)
 
-- `duo_check(bool $ok, string $message)` — the primitive; `ok:` to STDOUT,
+- `wprism_check(bool $ok, string $message)` — the primitive; `ok:` to STDOUT,
   `FAIL:` to STDERR.
-- `duo_check_same($expected, $actual, $message)` — strict `===` with a compact
-  first-difference diff. Prefer it over `duo_check($a === $b, ...)`: the diff is
+- `wprism_check_same($expected, $actual, $message)` — strict `===` with a compact
+  first-difference diff. Prefer it over `wprism_check($a === $b, ...)`: the diff is
   the whole point.
-- `duo_check_json_equal($expected, $actual, $message)` — object key order
-  ignored, array element order preserved. Use `duo_check_same()` on the raw
+- `wprism_check_json_equal($expected, $actual, $message)` — object key order
+  ignored, array element order preserved. Use `wprism_check_same()` on the raw
   string when byte-exact canonical output *is* the contract.
-- `duo_check_throws(callable, $class, $message, ?$messageContains)`.
-- `duo_check_refuses(callable, $reasonCode, $message)` — expects
-  `\Duo\CommandRefusalException` with that reason code. Asserts the machine
+- `wprism_check_throws(callable, $class, $message, ?$messageContains)`.
+- `wprism_check_refuses(callable, $reasonCode, $message)` — expects
+  `\WPrism\CommandRefusalException` with that reason code. Asserts the machine
   readable code, never the message, which the class may redact.
-- `duo_check_summary(string $suite): never` — the tail. Exits 1 if anything
+- `wprism_check_summary(string $suite): never` — the tail. Exits 1 if anything
   failed **and** if nothing was asserted at all.
-- `duo_check_closure(): \Closure` — a `(bool $ok, string $message)` closure, the
+- `wprism_check_closure(): \Closure` — a `(bool $ok, string $message)` closure, the
   migration seam described below.
 
 ## WordPress stubs (`wp_stubs.php`)
 
-Everything reads and writes one `\DuoTest\WpStore` singleton (`WpStore::reset()`
+Everything reads and writes one `\WPrismTest\WpStore` singleton (`WpStore::reset()`
 per suite). Stubbed: `get_option` / `add_option` / `update_option` /
 `delete_option`, `wp_upload_dir`, `add_filter` / `add_action` / `remove_filter` /
 `remove_action` / `has_filter` / `has_action` / `apply_filters` / `do_action`,
@@ -215,7 +215,7 @@ refuses by name, each with its own case in `tests/Tooling/HarnessLibTest.php`.
 
 The one way to fill those setters with something better than bookkeeping is a
 RECORDING. `ConformanceVector::seed()` drives them from a
-`duo-adapter-probe/v1` document — `SHOW COLUMNS` / `SHOW INDEX` /
+`wprism-adapter-probe/v1` document — `SHOW COLUMNS` / `SHOW INDEX` /
 `information_schema` read off a real pinned plugin version on a real server,
 self-hashed, `authority: false` (`agent/src/Adapter/AdapterProbe.php`). That
 does not widen what the interpreter answers; it changes where the schema facts
@@ -227,7 +227,7 @@ came from, which is the half the objection above was ever about.
 recapture round trip against a disposable pair, and
 `docs/agents/live-pair-budget.md` allows exactly one pair at a time
 program-wide. `CONF_RECORD_VECTOR=<file>` makes one such run leave a
-`duo-conformance-vector/v1` document behind: the live rows, conf1's `duo_map`,
+`wprism-conformance-vector/v1` document behind: the live rows, conf1's `wprism_map`,
 the probe, and both canonical trees. `ConformanceVector::replay()` then reruns
 that round trip offline through the REAL engine — `Snapshot::capture()`, then
 `Snapshot::ensure_row()` + `Snapshot::finalize_row()` into an empty second
@@ -235,7 +235,7 @@ target, then capture again — and reports whether the recorded bytes came back.
 
 Two properties are not conveniences and should not be smoothed over:
 
-- **The recorded `duo_map` is mandatory.** Capture MINTS a uuid for an unmapped
+- **The recorded `wprism_map` is mandatory.** Capture MINTS a uuid for an unmapped
   row, so a vector without the ledger replays to different canonical paths and
   bytes every run. `assert_document()` refuses one by name.
 - **A replay verdict is a weaker word.** `replay()` answers `vector_replayed`
@@ -269,7 +269,7 @@ Facts worth knowing before you write an assertion:
   non-NULL column — `COUNT(*)` included — arrives as a PHP string, and
   `get_var()`/`get_col()`/`get_row()`/`get_results()` reproduce that. `rows()`
   reads the *store* and keeps your fixture's PHP types. Assert against the
-  `get_*()` value when you are pinning what the engine sees, or `duo_check_same()`'s
+  `get_*()` value when you are pinning what the engine sees, or `wprism_check_same()`'s
   `===` will pass offline on an `int` the live gate returns as `'1'`.
   `insert_id` / `rows_affected` / `num_rows` stay ints, as on `wpdb`.
 
@@ -324,8 +324,8 @@ touched file is a chance to change what a suite actually checks.
 
 The incremental path, in the order that keeps every step green:
 
-1. Replace the local `$check` closure with `$check = duo_check_closure();` and
-   the hand-rolled tail with `duo_check_summary('<suite>')`. The existing
+1. Replace the local `$check` closure with `$check = wprism_check_closure();` and
+   the hand-rolled tail with `wprism_check_summary('<suite>')`. The existing
    `$check(...)` call sites are untouched.
 2. Replace the bespoke fake `$wpdb` with `FakeWpdb::install()` plus
    `seedTable()` calls derived from its fixture arrays. Run it: any
@@ -336,5 +336,5 @@ The incremental path, in the order that keeps every step green:
    compiled before the `require` runs, so a partial migration cannot fatal on
    redeclaration — the suite's own stub simply keeps winning until you remove
    it.
-4. Convert `$check($a === $b, ...)` to `duo_check_same($a, $b, ...)` as you
+4. Convert `$check($a === $b, ...)` to `wprism_check_same($a, $b, ...)` as you
    touch each assertion, for the diff.

@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline contract for DUO-3352's shared recovery protocol foundation.
+ * Offline contract for issue #3352's shared recovery protocol foundation.
  *
  * This deliberately exercises the real codec, durable publication, lock, and
  * provider transport in isolation from WordPress and the resource bundles.
@@ -14,10 +14,10 @@ declare(strict_types=1);
 $repoRoot = dirname(__DIR__, 4);
 require $repoRoot . '/recovery/rollback-control.php';
 
-use Duo\Recovery\AtomicStore;
-use Duo\Recovery\CanonicalJson;
-use Duo\Recovery\ProtocolLock;
-use Duo\Recovery\ProviderClient;
+use WPrism\Recovery\AtomicStore;
+use WPrism\Recovery\CanonicalJson;
+use WPrism\Recovery\ProtocolLock;
+use WPrism\Recovery\ProviderClient;
 
 $failures = 0;
 
@@ -57,7 +57,7 @@ function treeRemove(string $path): void {
     @rmdir($path);
 }
 
-$root = sys_get_temp_dir() . '/duo_recovery_protocol_' . bin2hex(random_bytes(6));
+$root = sys_get_temp_dir() . '/wprism_recovery_protocol_' . bin2hex(random_bytes(6));
 mkdir($root, 0700, true);
 register_shutdown_function(static function () use ($root): void { treeRemove($root); });
 
@@ -191,7 +191,7 @@ foreach (['CanonicalJson.php', 'AtomicStore.php', 'ProtocolLock.php', 'ProviderC
     ok(str_contains($bootstrap, $file) && str_contains($adopt, $file), "$file is part of local and adopted runtime completeness");
 }
 $authority = "$root/authority";
-\Duo\Recovery\RollbackControl::initialize($authority);
+\WPrism\Recovery\RollbackControl::initialize($authority);
 $authorityRuntime = $authority . '/recovery-runtime';
 mkdir($authorityRuntime, 0700, true);
 $runtimeFiles = [
@@ -203,12 +203,12 @@ foreach ($runtimeFiles as $file) {
     copy($repoRoot . '/recovery/' . $file, $authorityRuntime . '/' . $file);
 }
 ok(
-    \Duo\Recovery\RollbackControl::inspectReadOnly($authority)['quiescent'] === true,
+    \WPrism\Recovery\RollbackControl::inspectReadOnly($authority)['quiescent'] === true,
     'read-only rollback inspection accepts a complete shared runtime'
 );
 unlink($authorityRuntime . '/ProviderClient.php');
 throws(
-    static fn() => \Duo\Recovery\RollbackControl::inspectReadOnly($authority),
+    static fn() => \WPrism\Recovery\RollbackControl::inspectReadOnly($authority),
     'recovery runtime file',
     'read-only rollback inspection refuses a runtime missing a shared protocol dependency'
 );

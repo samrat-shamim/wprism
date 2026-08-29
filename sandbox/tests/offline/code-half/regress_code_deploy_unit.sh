@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Offline contract for duo deploy <env>: compile -> target runtime preflight -> begin target session ->
+# Offline contract for wprism deploy <env>: compile -> target runtime preflight -> begin target session ->
 # optional code stage -> fresh lifecycle retire/activate -> optional code finalize.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
-DUO="$REPO_ROOT/cli/duo"
+WPRISM="$REPO_ROOT/cli/wprism"
 FIX="$(mktemp -d)"
 BIN="$FIX/bin"
 SITE="$FIX/site"
@@ -27,7 +27,7 @@ while true; do
 done
 first=$1
 second=$2
-if [ "$first:$second" = duo:compile ]; then
+if [ "$first:$second" = wprism:compile ]; then
   [ "$FAKE_COMPILE_FAIL" = 1 ] && exit 6
   hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   if [ "$FAKE_CODE_ENABLED" = 1 ]; then
@@ -43,17 +43,17 @@ if [ "$first:$second" = duo:compile ]; then
   printf '%s\n' "$summary"
   exit 0
 fi
-if [ "$first:$second" = duo:code-preflight ]; then
+if [ "$first:$second" = wprism:code-preflight ]; then
   if [ "$FAKE_PREFLIGHT_FAIL" = 1 ]; then
-    printf '%s\n' '{"format":"duo-command-refusal/v1","ok":false,"command":"code-preflight","error":"code_compilation_failed","diagnostics":[{"code":"code_source_requires_php_incompatible","path":"plugins/inactive/inactive.php","required_version":"99.0","target_version":"8.3.0"}]}'
+    printf '%s\n' '{"format":"wprism-command-refusal/v1","ok":false,"command":"code-preflight","error":"code_compilation_failed","diagnostics":[{"code":"code_source_requires_php_incompatible","path":"plugins/inactive/inactive.php","required_version":"99.0","target_version":"8.3.0"}]}'
     exit 14
   fi
-  printf '%s\n' '{"format":"duo-code-runtime/v1","enabled":true,"change_required":true,"compatible":true,"code_revision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","target":{"php":"8.3.0","wordpress":"6.8.2","source":"target-control-plane"},"requirements":[],"diagnostics":[]}'
+  printf '%s\n' '{"format":"wprism-code-runtime/v1","enabled":true,"change_required":true,"compatible":true,"code_revision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","target":{"php":"8.3.0","wordpress":"6.8.2","source":"target-control-plane"},"requirements":[],"diagnostics":[]}'
   exit 0
 fi
 if [ "$first:$second" = db:export ]; then
   # `wp db export <path> --porcelain`, the one primitive both promote
-  # (cli/duo:2387) and deploy use. Write the file as well as report the call, so
+  # (cli/wprism:2387) and deploy use. Write the file as well as report the call, so
   # the suite can assert the checkpoint LANDED at the path deploy chose and
   # shares a stem with the artifact — not merely that an export was attempted.
   [ "${FAKE_EXPORT_FAIL:-0}" = 1 ] && exit 23
@@ -65,7 +65,7 @@ if [ "$first:$second" = db:export ]; then
   fi
   exit 0
 fi
-if [ "$first:$second" = duo:checkpoint-seal ]; then
+if [ "$first:$second" = wprism:checkpoint-seal ]; then
   out=""
   for arg in "$@"; do
     case "$arg" in --output=*) out="${arg#--output=}" ;; esac
@@ -74,16 +74,16 @@ if [ "$first:$second" = duo:checkpoint-seal ]; then
   cat > "$out"
   exit 0
 fi
-if [ "$first:$second" = duo:promotion-begin ]; then exit 0; fi
-if [ "$first:$second" = duo:promotion-abort ]; then exit 0; fi
-if [ "$first:$second" = duo:code-stage ]; then [ "$FAKE_STAGE_FAIL" = 1 ] && exit 8; exit 0; fi
-if [ "$first:$second" = duo:deploy ]; then
+if [ "$first:$second" = wprism:promotion-begin ]; then exit 0; fi
+if [ "$first:$second" = wprism:promotion-abort ]; then exit 0; fi
+if [ "$first:$second" = wprism:code-stage ]; then [ "$FAKE_STAGE_FAIL" = 1 ] && exit 8; exit 0; fi
+if [ "$first:$second" = wprism:deploy ]; then
   if [[ "$*" == *"--lifecycle-phase=retire"* && "$FAKE_RETIRE_FAIL" = 1 ]]; then exit 7; fi
   if [[ "$*" == *"--lifecycle-phase=activate"* && "$FAKE_ACTIVATE_FAIL" = 1 ]]; then exit 13; fi
   exit 0
 fi
-if [ "$first:$second" = duo:lifecycle-settle ]; then [ "${FAKE_SETTLE_FAIL:-0}" = 1 ] && exit 15; exit 0; fi
-if [ "$first:$second" = duo:code-finalize ]; then [ "$FAKE_FINALIZE_FAIL" = 1 ] && exit 9; exit 0; fi
+if [ "$first:$second" = wprism:lifecycle-settle ]; then [ "${FAKE_SETTLE_FAIL:-0}" = 1 ] && exit 15; exit 0; fi
+if [ "$first:$second" = wprism:code-finalize ]; then [ "$FAKE_FINALIZE_FAIL" = 1 ] && exit 9; exit 0; fi
 exit 11
 FAKE
 chmod +x "$BIN/wp"
@@ -98,13 +98,13 @@ arg() { grep -o -- "$2" <<<"$1" || true; }
 assert_control_call() {
   local call="$1" label="$2"
   [[ "$call" == *"--exec="* \
-    && "$call" == *"DUO_CONTROL_PLANE"* \
-    && "$call" == *"DUO_CONTROL_WPMU_PLUGIN_DIR"* \
+    && "$call" == *"WPRISM_CONTROL_PLANE"* \
+    && "$call" == *"WPRISM_CONTROL_WPMU_PLUGIN_DIR"* \
     && "$call" == *"after_wp_config_load"* \
     && "$call" == *"SUNRISE"* \
     && "$call" == *"--skip-plugins"* \
     && "$call" == *"--skip-themes"* ]] \
-    || fail "$label did not use the isolated Duo control-plane bootstrap"
+    || fail "$label did not use the isolated WPrism control-plane bootstrap"
 }
 assert_runtime_call() {
   local call="$1" label="$2"
@@ -120,7 +120,7 @@ invoke() {
   mode=$1
   shift
   : > "$LOG"
-  if OUT="$(FAKE_CODE_ENABLED="$mode" FAKE_COMPILE_FAIL=0 FAKE_PREFLIGHT_FAIL=0 FAKE_STAGE_FAIL=0 FAKE_RETIRE_FAIL=0 FAKE_ACTIVATE_FAIL=0 FAKE_SETTLE_FAIL=0 FAKE_FINALIZE_FAIL=0 FAKE_EXPORT_FAIL=0 "$@" "$DUO" --envs-file="$ENVS" deploy unit --force-code-mismatch --force-code-drift $DEPLOY_EXTRA 2>&1)"; then
+  if OUT="$(FAKE_CODE_ENABLED="$mode" FAKE_COMPILE_FAIL=0 FAKE_PREFLIGHT_FAIL=0 FAKE_STAGE_FAIL=0 FAKE_RETIRE_FAIL=0 FAKE_ACTIVATE_FAIL=0 FAKE_SETTLE_FAIL=0 FAKE_FINALIZE_FAIL=0 FAKE_EXPORT_FAIL=0 "$@" "$WPRISM" --envs-file="$ENVS" deploy unit --force-code-mismatch --force-code-drift $DEPLOY_EXTRA 2>&1)"; then
     CODE=0
   else
     CODE=$?
@@ -132,7 +132,7 @@ invoke() {
 # its layout decision until after the config constants exist, and refuses a
 # custom MU root before it can even require the protected agent (let alone run
 # code-stage against the inert standard directory).
-DUO_ROOT="$REPO_ROOT" CONTROL_WP_ROOT="$SITE/control-wp" php <<'PHP'
+WPRISM_ROOT="$REPO_ROOT" CONTROL_WP_ROOT="$SITE/control-wp" php <<'PHP'
 <?php
 final class WP_CLI {
     /** @var array<string,list<callable>> */
@@ -146,14 +146,14 @@ final class WP_CLI {
 }
 
 $root = getenv('CONTROL_WP_ROOT');
-@mkdir($root . '/wp-content/mu-plugins/duo', 0777, true);
+@mkdir($root . '/wp-content/mu-plugins/wprism', 0777, true);
 $loaded = $root . '/agent-loaded';
 file_put_contents(
-    $root . '/wp-content/mu-plugins/duo/duo.php',
+    $root . '/wp-content/mu-plugins/wprism/wprism.php',
     '<?php file_put_contents(' . var_export($loaded, true) . ', "loaded");'
 );
-require getenv('DUO_ROOT') . '/cli/src/Transport/CodeDeploy.php';
-$args = \Duo\Orchestrator\CodeDeploy::controlArgs(['duo', 'code-stage']);
+require getenv('WPRISM_ROOT') . '/cli/src/Transport/CodeDeploy.php';
+$args = \WPrism\Orchestrator\CodeDeploy::controlArgs(['wprism', 'code-stage']);
 $exec = null;
 foreach ($args as $arg) {
     if (str_starts_with($arg, '--exec=')) {
@@ -188,7 +188,7 @@ pass "control bootstrap proves wp-config MU layout before agent load or stage wr
 # The accepted bootstrap keeps the target's cron out of the control window:
 # spawn_cron() writes the doing_cron transient and POSTs wp-cron.php, which
 # runs plugin code — exactly what a control-plane observation must not do.
-DUO_ROOT="$REPO_ROOT" CONTROL_WP_ROOT="$SITE/control-wp-cron" php <<'PHP'
+WPRISM_ROOT="$REPO_ROOT" CONTROL_WP_ROOT="$SITE/control-wp-cron" php <<'PHP'
 <?php
 final class WP_CLI {
     /** @var array<string,list<callable>> */
@@ -201,11 +201,11 @@ final class WP_CLI {
     }
 }
 $root = getenv('CONTROL_WP_ROOT');
-@mkdir($root . '/wp-content/mu-plugins/duo', 0777, true);
-file_put_contents($root . '/wp-content/mu-plugins/duo/duo.php', '<?php // fixture agent');
-require getenv('DUO_ROOT') . '/cli/src/Transport/CodeDeploy.php';
+@mkdir($root . '/wp-content/mu-plugins/wprism', 0777, true);
+file_put_contents($root . '/wp-content/mu-plugins/wprism/wprism.php', '<?php // fixture agent');
+require getenv('WPRISM_ROOT') . '/cli/src/Transport/CodeDeploy.php';
 $exec = null;
-foreach (\Duo\Orchestrator\CodeDeploy::controlArgs(['duo', 'refresh-export']) as $arg) {
+foreach (\WPrism\Orchestrator\CodeDeploy::controlArgs(['wprism', 'refresh-export']) as $arg) {
     if (str_starts_with($arg, '--exec=')) {
         $exec = substr($arg, strlen('--exec='));
     }
@@ -217,7 +217,7 @@ foreach (WP_CLI::$hooks['after_wp_config_load'] ?? [] as $hook) {
 if (!defined('DISABLE_WP_CRON') || DISABLE_WP_CRON !== true) {
     throw new RuntimeException('FAIL: the control bootstrap left the target cron spawnable');
 }
-if (!defined('DUO_CONTROL_PLANE')) {
+if (!defined('WPRISM_CONTROL_PLANE')) {
     throw new RuntimeException('FAIL: the accepted bootstrap did not mark the control plane');
 }
 PHP
@@ -230,7 +230,7 @@ invoke 0 env
 [ "$CODE" -eq 0 ] || fail "legacy deploy failed: $OUT"
 [ "$(calls)" = 1 ] || fail "descriptor-free path expected only the compile call"
 ONE="$(line 1)"
-[[ "$ONE" == *"duo compile"* ]] || fail "descriptor-free call was not compile"
+[[ "$ONE" == *"wprism compile"* ]] || fail "descriptor-free call was not compile"
 assert_control_call "$ONE" "legacy compile"
 grep -q 'deploy complete: no code descriptor; lifecycle hooks not run' <<<"$OUT" || fail "descriptor-free completion missing"
 grep -q 'database checkpoint retained: ' <<<"$OUT" && fail "descriptor-free no-op retained an invented checkpoint"
@@ -239,29 +239,38 @@ pass "descriptor-free deploy is a disclosed lifecycle-hook-free no-op"
 # Descriptor turns on exactly stage, lifecycle, settlement, and finalize. All use one artifact
 # and owner; only lifecycle gets hold/materializing-code. The DB checkpoint sits
 # under the lease between promotion-begin and code-stage — before it the dump
-# would carry no lease row for `duo recover`'s four steps to re-take
-# (cli/duo:3289-3297), after it the dump would already describe mutated code.
+# would carry no lease row for `wprism recover`'s four steps to re-take
+# (cli/wprism:3289-3297), after it the dump would already describe mutated code.
 invoke 1 env
 [ "$CODE" -eq 0 ] || fail "code deploy failed: $OUT"
 [ "$(calls)" = 10 ] || fail "code path expected ten wp calls"
 ONE="$(line 1)"
 TWO="$(line 2)"
 THREE="$(line 3)"
-EXPORT="$(line 4)"
-CKPT="$(line 5)"
+PIPE_A="$(line 4)"
+PIPE_B="$(line 5)"
+if [[ "$PIPE_A" == *"db export -"* && "$PIPE_B" == *"wprism checkpoint-seal"* ]]; then
+  EXPORT="$PIPE_A"
+  CKPT="$PIPE_B"
+elif [[ "$PIPE_B" == *"db export -"* && "$PIPE_A" == *"wprism checkpoint-seal"* ]]; then
+  EXPORT="$PIPE_B"
+  CKPT="$PIPE_A"
+else
+  fail "checkpoint pipeline calls were missing or escaped the pre-stage boundary"
+fi
 FOUR="$(line 6)"
 FIVE="$(line 7)"
 SIX="$(line 8)"
 SEVEN="$(line 9)"
 EIGHT="$(line 10)"
-[[ "$ONE" == *"duo compile"* && "$TWO" == *"duo code-preflight"* \
-  && "$THREE" == *"duo promotion-begin"* && "$EXPORT" == *"db export -"* \
-  && "$CKPT" == *"duo checkpoint-seal"* \
-  && "$FOUR" == *"duo code-stage"* \
-  && "$FIVE" == *"duo deploy"*"--lifecycle-phase=retire"* \
-  && "$SIX" == *"duo deploy"*"--lifecycle-phase=activate"* \
-  && "$SEVEN" == *"duo lifecycle-settle"* \
-  && "$EIGHT" == *"duo code-finalize"* ]] || fail "code phase order wrong"
+[[ "$ONE" == *"wprism compile"* && "$TWO" == *"wprism code-preflight"* \
+  && "$THREE" == *"wprism promotion-begin"* && "$EXPORT" == *"db export -"* \
+  && "$CKPT" == *"wprism checkpoint-seal"* \
+  && "$FOUR" == *"wprism code-stage"* \
+  && "$FIVE" == *"wprism deploy"*"--lifecycle-phase=retire"* \
+  && "$SIX" == *"wprism deploy"*"--lifecycle-phase=activate"* \
+  && "$SEVEN" == *"wprism lifecycle-settle"* \
+  && "$EIGHT" == *"wprism code-finalize"* ]] || fail "code phase order wrong"
 assert_control_call "$ONE" "code compile"
 assert_control_call "$TWO" "code target-runtime preflight"
 assert_control_call "$THREE" "code promotion-begin"
@@ -288,7 +297,7 @@ H="$(arg "$FOUR" '--artifact-hash=[^ ]*')"
 [[ "$SEVEN" != *"--promotion-hold"* && "$SEVEN" != *"--materializing-code"* ]] || fail "standalone settlement received lifecycle materialization flags"
 [[ "$EIGHT" != *"--promotion-hold"* && "$EIGHT" != *"--materializing-code"* ]] || fail "standalone finalize retained lifecycle flags"
 ART="$(printf '%s' "$A" | sed 's/^--compiled=//')"
-[[ "$ART" == "$SITE/.duo/artifacts/deploy-"*.json ]] || fail "artifact outside target .duo/artifacts"
+[[ "$ART" == "$SITE/.wprism/artifacts/deploy-"*.json ]] || fail "artifact outside target .wprism/artifacts"
 [ -f "$ART" ] || fail "artifact not retained"
 grep -q 'deploy complete: code-stage -> lifecycle-retire -> lifecycle-activate -> lifecycle-settle -> code-finalize' <<<"$OUT" || fail "code completion missing"
 
@@ -296,10 +305,10 @@ grep -q 'deploy complete: code-stage -> lifecycle-retire -> lifecycle-activate -
 # reads the lease identity out of the SIBLING artifacts/<same-stem>.json, so a
 # checkpoint whose stem differs from the artifact's lists with an empty
 # artifact_hash and then refuses checkpoint_identity_unknown at --restore time.
-CKPT_PATH="$(printf '%s' "$CKPT" | tr ' ' '\n' | grep -- "$SITE/.duo/checkpoints/" || true)"
+CKPT_PATH="$(printf '%s' "$CKPT" | tr ' ' '\n' | grep -- "$SITE/.wprism/checkpoints/" || true)"
 CKPT_PATH="${CKPT_PATH#--output=}"
-[[ "$CKPT_PATH" == "$SITE/.duo/checkpoints/deploy-"*.sql.enc ]] \
-  || fail "checkpoint outside target .duo/checkpoints, or not named deploy-<owner>.sql.enc: $CKPT_PATH"
+[[ "$CKPT_PATH" == "$SITE/.wprism/checkpoints/deploy-"*.sql.enc ]] \
+  || fail "checkpoint outside target .wprism/checkpoints, or not named deploy-<owner>.sql.enc: $CKPT_PATH"
 [ -s "$CKPT_PATH" ] || fail "checkpoint not retained on the target"
 [ "$(basename "$CKPT_PATH" .sql.enc)" = "$(basename "$ART" .json)" ] \
   || fail "checkpoint and artifact do not share a stem, so the lease identity cannot be read back"
@@ -313,12 +322,12 @@ DEPLOY_EXTRA="--no-checkpoint"
 invoke 1 env
 [ "$CODE" -eq 0 ] || fail "--no-checkpoint deploy failed: $OUT"
 [ "$(calls)" = 8 ] || fail "--no-checkpoint path expected eight wp calls"
-[[ "$(line 1)" == *"duo compile"* && "$(line 2)" == *"duo code-preflight"* \
-  && "$(line 3)" == *"duo promotion-begin"* && "$(line 4)" == *"duo code-stage"* \
-  && "$(line 5)" == *"duo deploy"*"--lifecycle-phase=retire"* \
-  && "$(line 6)" == *"duo deploy"*"--lifecycle-phase=activate"* \
-  && "$(line 7)" == *"duo lifecycle-settle"* \
-  && "$(line 8)" == *"duo code-finalize"* ]] || fail "--no-checkpoint phase order wrong"
+[[ "$(line 1)" == *"wprism compile"* && "$(line 2)" == *"wprism code-preflight"* \
+  && "$(line 3)" == *"wprism promotion-begin"* && "$(line 4)" == *"wprism code-stage"* \
+  && "$(line 5)" == *"wprism deploy"*"--lifecycle-phase=retire"* \
+  && "$(line 6)" == *"wprism deploy"*"--lifecycle-phase=activate"* \
+  && "$(line 7)" == *"wprism lifecycle-settle"* \
+  && "$(line 8)" == *"wprism code-finalize"* ]] || fail "--no-checkpoint phase order wrong"
 grep -q 'db export' "$LOG" && fail "--no-checkpoint still exported the database"
 EXPECTED_NO_CKPT="deploy phase: compile
 deploy phase: code-preflight
@@ -341,9 +350,13 @@ pass "--no-checkpoint reproduces the pre-change call sequence and output"
 invoke 1 env FAKE_EXPORT_FAIL=1
 [ "$CODE" -eq 23 ] || fail "checkpoint export exit not propagated"
 [ "$(calls)" = 6 ] || fail "code/lifecycle ran after a failed checkpoint"
-[[ "$(line 4)" == *"db export"* && "$(line 5)" == *"duo checkpoint-seal"* \
-  && "$(line 6)" == *"duo promotion-abort"* ]] \
-  || fail "a failed checkpoint did not clean the begun session"
+FAIL_PIPE_A="$(line 4)"
+FAIL_PIPE_B="$(line 5)"
+if ! { [[ "$FAIL_PIPE_A" == *"db export"* && "$FAIL_PIPE_B" == *"wprism checkpoint-seal"* ]] \
+  || [[ "$FAIL_PIPE_B" == *"db export"* && "$FAIL_PIPE_A" == *"wprism checkpoint-seal"* ]]; } \
+  || [[ "$(line 6)" != *"wprism promotion-abort"* ]]; then
+  fail "a failed checkpoint did not clean the begun session"
+fi
 assert_control_call "$(line 6)" "checkpoint-failure promotion-abort"
 grep -q 'database checkpoint failed; code and lifecycle phases were not started' <<<"$OUT" \
   || fail "the checkpoint failure did not name its boundary"
@@ -355,12 +368,12 @@ pass "a failed checkpoint aborts the lease before any code or lifecycle mutation
 invoke 1 env FAKE_STAGE_FAIL=1
 [ "$CODE" -eq 8 ] || fail "stage exit not propagated"
 [ "$(calls)" = 7 ] || fail "later phases or cleanup were wrong after stage failure"
-[[ "$(line 7)" == *"duo promotion-abort"* ]] || fail "stage failure did not clean begun session"
+[[ "$(line 7)" == *"wprism promotion-abort"* ]] || fail "stage failure did not clean begun session"
 assert_control_call "$(line 7)" "stage-failure promotion-abort"
 grep -q 'code-stage failed.*were not run' <<<"$OUT" || fail "stage stop wording missing"
 # A checkpoint an operator is never told how to use is not a recovery story.
-# Since DUO-3525 that story is ONE verb, not four numbered `wp` instructions:
-# print_promotion_recovery() (cli/duo:3317-3394) now names `duo recover <env>
+# Since issue #3525 that story is ONE verb, not four numbered `wp` instructions:
+# print_promotion_recovery() (cli/wprism:3317-3394) now names `wprism recover <env>
 # --restore=<id> --writers-excluded --operator-directed`, which drives exactly
 # the four steps it used to print (RecoverCommand::ORDERED_STEPS,
 # cli/src/Command/RecoverCommand.php:114). Deploy shares that one chokepoint
@@ -370,35 +383,35 @@ grep -q 'code-stage failed.*were not run' <<<"$OUT" || fail "stage stop wording 
 grep -q 'promotion lease cleanup confirmed' <<<"$OUT" || fail "the abort result was discarded"
 grep -q 'this checkpoint contains its temporary promotion lease row' <<<"$OUT" \
   || fail "a post-checkpoint failure printed no recovery guidance"
-grep -qE '^duo: deploy: once that exclusion is in place, recover with: duo recover unit --restore=deploy-[A-Za-z0-9._-]+ --writers-excluded --operator-directed$' <<<"$OUT" \
-  || fail "the deploy-attributed duo recover remedy is missing: $OUT"
+grep -qE '^wprism: deploy: once that exclusion is in place, recover with: wprism recover unit --restore=deploy-[A-Za-z0-9._-]+ --writers-excluded --operator-directed$' <<<"$OUT" \
+  || fail "the deploy-attributed wprism recover remedy is missing: $OUT"
 grep -q 'releases the lease row the import reinstates, including when the import' <<<"$OUT" \
   || fail "the recovery guidance dropped the mandatory-final-abort safety fact"
 if grep -Fq 'wp db import' <<<"$OUT"; then
   fail "deploy still publishes the retired raw database import recipe"
 fi
-grep -q 'duo: deploy: code may be staged or partially finalized' <<<"$OUT" \
+grep -q 'wprism: deploy: code may be staged or partially finalized' <<<"$OUT" \
   || fail "a stage failure did not announce the code-first ordering"
 pass "stage failure stops lifecycle/finalize and guides recovery of its own checkpoint"
 
 invoke 1 env FAKE_RETIRE_FAIL=1
 [ "$CODE" -eq 7 ] || fail "lifecycle exit not propagated"
 [ "$(calls)" = 8 ] || fail "finalize/cleanup calls wrong after lifecycle failure"
-[[ "$(line 8)" == *"duo promotion-abort"* ]] || fail "lifecycle failure did not clean begun session"
+[[ "$(line 8)" == *"wprism promotion-abort"* ]] || fail "lifecycle failure did not clean begun session"
 assert_control_call "$(line 8)" "retirement-failure promotion-abort"
 pass "retirement failure stops activation/finalize"
 
 invoke 1 env FAKE_ACTIVATE_FAIL=1
 [ "$CODE" -eq 13 ] || fail "activation exit not propagated"
 [ "$(calls)" = 9 ] || fail "finalize/cleanup calls wrong after activation failure"
-[[ "$(line 9)" == *"duo promotion-abort"* ]] || fail "activation failure did not clean begun session"
+[[ "$(line 9)" == *"wprism promotion-abort"* ]] || fail "activation failure did not clean begun session"
 assert_control_call "$(line 9)" "activation-failure promotion-abort"
 pass "activation failure stops finalize"
 
 invoke 1 env FAKE_SETTLE_FAIL=1
 [ "$CODE" -eq 15 ] || fail "settlement exit not propagated"
 [ "$(calls)" = 10 ] || fail "finalize/cleanup calls wrong after settlement failure"
-[[ "$(line 9)" == *"duo lifecycle-settle"* && "$(line 10)" == *"duo promotion-abort"* ]] \
+[[ "$(line 9)" == *"wprism lifecycle-settle"* && "$(line 10)" == *"wprism promotion-abort"* ]] \
   || fail "settlement failure did not stop finalize and clean begun session"
 assert_control_call "$(line 10)" "settlement-failure promotion-abort"
 pass "lifecycle settlement failure stops finalize"
@@ -406,7 +419,7 @@ pass "lifecycle settlement failure stops finalize"
 invoke 1 env FAKE_FINALIZE_FAIL=1
 [ "$CODE" -eq 9 ] || fail "finalize exit not propagated"
 [ "$(calls)" = 11 ] || fail "wrong calls after finalize failure"
-[[ "$(line 11)" == *"duo promotion-abort"* ]] || fail "finalize failure did not clean begun session"
+[[ "$(line 11)" == *"wprism promotion-abort"* ]] || fail "finalize failure did not clean begun session"
 assert_control_call "$(line 11)" "finalize-failure promotion-abort"
 pass "finalize failure is non-successful"
 
@@ -419,12 +432,12 @@ pass "compile failure causes no code/lifecycle call"
 invoke 1 env FAKE_PREFLIGHT_FAIL=1
 [ "$CODE" -eq 14 ] || fail "target-runtime preflight exit not propagated"
 [ "$(calls)" = 2 ] || fail "begin/stage/lifecycle ran after target-runtime preflight failure"
-[[ "$(line 1)" == *"duo compile"* && "$(line 2)" == *"duo code-preflight"* ]] \
+[[ "$(line 1)" == *"wprism compile"* && "$(line 2)" == *"wprism code-preflight"* ]] \
   || fail "target-runtime refusal did not stop at compile -> preflight"
 assert_control_call "$(line 2)" "failed code target-runtime preflight"
 grep -q 'code_source_requires_php_incompatible' <<<"$OUT" || fail "target-runtime refusal lost its structured diagnostic"
 grep -q 'refusing before promotion-begin' <<<"$OUT" || fail "target-runtime refusal did not name its no-lease boundary"
-if grep -q 'duo promotion-abort' "$LOG"; then
+if grep -q 'wprism promotion-abort' "$LOG"; then
   fail "pre-begin target-runtime refusal attempted lease cleanup"
 fi
 pass "target-runtime incompatibility refuses before begin with no cleanup fiction"
@@ -434,7 +447,7 @@ pass "target-runtime incompatibility refuses before begin with no cleanup fictio
 # target differ from the immutable artifact's source repo.
 for bad in --repo=/tmp/forged --compiled=/tmp/fake.json --artifact-hash=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --promotion-owner=intruder --promotion-hold --materializing-code --state-handoff --lifecycle-phase=activate --force-unresolved-refs --with-deletes --no-checkpoint=false; do
   : > "$LOG"
-  if FAKE_CODE_ENABLED=1 "$DUO" --envs-file="$ENVS" deploy unit "$bad" >/dev/null 2>&1; then
+  if FAKE_CODE_ENABLED=1 "$WPRISM" --envs-file="$ENVS" deploy unit "$bad" >/dev/null 2>&1; then
     fail "deploy accepted $bad"
   fi
   [ "$(calls)" = 0 ] || fail "deploy contacted target after rejecting $bad"

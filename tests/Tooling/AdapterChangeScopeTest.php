@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
-use Duo\Tooling\AdapterChangeScope;
+use WPrism\Tooling\AdapterChangeScope;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -85,9 +85,10 @@ final class AdapterChangeScopeTest extends TestCase
     {
         yield 'platform' => ['platform/adapter-library/platform.json'];
         yield 'agent adapter library' => ['agent/adapter-library/AdapterLibrary.php'];
-        yield 'package runner' => ['adapter-package-runner/bin/run.php'];
-        yield 'package schema' => ['adapter-package-schema/v1.json'];
-        yield 'shared adapter kit' => ['tools/adapter-kit.php'];
+        yield 'package test command' => ['tools/adapter-package-tests.php'];
+        yield 'package validator implementation' => ['tools/src/AdapterPackageValidator.php'];
+        yield 'generated adapter kit' => ['tools/adapter-kit.json'];
+        yield 'shared conformance harness' => ['sandbox/conformance/checks/core.sh'];
         yield 'shared test library' => ['sandbox/tests/lib/FakeWpdb.php'];
         yield 'unknown root' => ['some-new-root/file.php'];
         yield 'malformed adapter slug' => ['adapter-packages/Bad_Slug/manifest.json'];

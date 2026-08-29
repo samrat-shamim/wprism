@@ -1,8 +1,8 @@
-# Duo — product specification
+# WPrism — product specification
 
 *Status: **RATIFIED — founder decision** (2026-08-14).*
 
-This document defines Duo's durable product direction: the customer promise,
+This document defines WPrism's durable product direction: the customer promise,
 product boundary, safety model, core workflows, and strategic priorities. It is
 not a source of current compatibility claims or wire-format behavior.
 
@@ -33,32 +33,32 @@ availability is stated only by the generated capability document
 
 This specification supersedes the two 2026-08-13 agent-era drafts and the RC1
 working draft. It is distilled from those drafts and the founding design. The
-DUO-3332 operator walkthrough informs its usability requirements, but is
+issue #3332 operator walkthrough informs its usability requirements, but is
 product-design evidence rather than external market validation.
 
 ## Product definition
 
-> **Duo makes the proven parts of a WordPress site branchable like code.**
+> **WPrism makes the proven parts of a WordPress site branchable like code.**
 > Teams and their agents can branch, rehearse, review, merge, and release code
 > plus authored content and configuration while orders, inventory, sessions,
 > secrets, and other live or environment-bound data remain local.
 
-Assessment is Duo's default entry action, not a completeness claim. For any
-reachable WordPress site, Duo returns either a bounded assessment of facts
+Assessment is WPrism's default entry action, not a completeness claim. For any
+reachable WordPress site, WPrism returns either a bounded assessment of facts
 observable with the granted access or a structured refusal naming missing
 access, unsupported topology or platform, and the next safe action. The result
 distinguishes assessed, access-limited, unsupported, and unobserved scope. Only
 evidence-backed capabilities become branchable; adoption never implies
 universal support or reversibility.
 
-Duo is the **agent-native change and release layer for WordPress**. Branchable
+WPrism is the **agent-native change and release layer for WordPress**. Branchable
 WordPress is the market wedge. The underlying versionability and evidence
 system is how that wedge expands safely across WordPress's long tail.
 
 ### What versionable means
 
 For an operation that moves or restores state, a surface is versionable when
-Duo can prove that it can:
+WPrism can prove that it can:
 
 1. distinguish authored intent from runtime, derived, secret,
    environment-bound, and externally owned state;
@@ -97,7 +97,7 @@ deployment contract and executable evidence.
 
 ### Initial commercial wedge
 
-Duo initially serves **WordPress agencies and professional development teams
+WPrism initially serves **WordPress agencies and professional development teams
 operating plugin-heavy, revenue-bearing sites**, especially WooCommerce sites.
 They already use Git, staging, SSH or comparable environment access, and are
 adopting agents for development and operations.
@@ -105,7 +105,7 @@ adopting agents for development and operations.
 This customer has:
 
 - recurring need to change live sites without losing business activity;
-- enough technical authority to install and operate Duo;
+- enough technical authority to install and operate WPrism;
 - multiple sites over which qualification knowledge and operating discipline
   compound;
 - a buyer who understands the cost of manual database reconciliation; and
@@ -119,7 +119,7 @@ operational inventory, media, and supported configuration on a Git branch;
 rehearse it in isolation; Merge it; and Release it without overwriting orders,
 sessions, stock reservations, secrets, or environment bindings. If the change
 requires an unqualified surface, destructive migration, or uncontained live
-effect, Duo stops at assessment or qualification without promising release.
+effect, WPrism stops at assessment or qualification without promising release.
 The subscriptions scenario below is a destination outcome, not an initial
 availability claim.
 
@@ -127,7 +127,7 @@ availability claim.
 read access. Rehearsal additionally requires an operator- or host-supplied
 snapshot and disposable-environment provider. Production release requires
 code-deployment authority, target fencing, environment bindings, and the
-authority required by the selected recovery profile. Duo validates and
+authority required by the selected recovery profile. WPrism validates and
 orchestrates configured providers; it does not supply hosting or compute.
 Missing authority leaves stronger workflows unavailable and appears as an
 explicit assessment result.
@@ -147,13 +147,13 @@ gross-margin bounds before pricing is fixed.
   reviews technical boundaries, and owns releases across one site or a fleet.
 - **Site or business owner:** states desired outcomes, reviews visible changes,
   and authorizes business ownership, external effects, downtime, and risk.
-- **AI agent:** operates Duo's detailed interfaces, performs discovery and
+- **AI agent:** operates WPrism's detailed interfaces, performs discovery and
   experiments, proposes contract changes, gathers evidence, and explains
   decisions in WordPress language.
 - **Host or platform team:** supplies environment authority such as snapshots,
   traffic exclusion, code releases, secret storage, retention, and recovery.
 
-Duo is **agent-native but not agent-dependent**. It does not initially ship or
+WPrism is **agent-native but not agent-dependent**. It does not initially ship or
 manage a general-purpose agent. It ships stable contracts that any capable
 agent can drive, plus replaceable operating guidance, an agent skill, examples,
 and evaluation scenarios that make correct operation reproducible.
@@ -189,12 +189,12 @@ are not ordinary user vocabulary.
 
 1. **Branchability is the wedge.** Assessment, qualification, recovery, and
    evidence exist to make code plus authored WordPress state safely branchable;
-   Duo does not become a generic agent-governance platform.
+   WPrism does not become a generic agent-governance platform.
 2. **Loud, blocking, scoped.** Unknown or unproved behavior never silently
    enters the repository, silently disappears from it, or inherits a broader
    Ready claim. A precise refusal is better than an approximate success.
 3. **Plugins and themes run unmodified.** Versionability cannot require the
-   WordPress ecosystem to adopt Duo-specific storage APIs.
+   WordPress ecosystem to adopt WPrism-specific storage APIs.
 4. **Authored intent moves; live truth stays local.** Human-authored, portable,
    source state is branchable. Runtime, derived, environment-bound, secret, and
    externally owned state is retained, rebuilt, rebound, or re-synchronized
@@ -224,11 +224,11 @@ are not ordinary user vocabulary.
     effects it restores. It never implies that emails, payments, webhooks, or
     other external reality were undone.
 11. **Adoption is progressive.** Every step must deliver value without implying
-    a site-wide maturity level. There is no universal "Duo-ready" badge.
+    a site-wide maturity level. There is no universal "WPrism-ready" badge.
 
 ## The versionability contract
 
-Duo evaluates a capability equivalent to:
+WPrism evaluates a capability equivalent to:
 
 ```text
 capability(
@@ -256,7 +256,7 @@ Release, Verify, Delete, and Recover**. Branching is a Git workflow outcome. The
 per-operation capability projection may decompose one customer operation into
 engine operations such as compile, plan, deploy, apply, promote, recapture, and
 render-api — that projection is what `AdapterRegistry::report()` evaluates for
-an exact operation × surface × target and what `duo capabilities` returns. A
+an exact operation × surface × target and what `wprism capabilities` returns. A
 customer operation is technically Ready only when every engine capability on
 its declared dependency map is current; product terminology cannot create an
 alias claim.
@@ -282,7 +282,7 @@ Certification provenance and technical readiness are separate dimensions:
 - **Site-certified:** this application's reviewed contract, site-bound evidence,
   and certification attestation cover the exact capability. Site-certified
   means approved by a named customer organization under its policy through
-  Duo's certification protocol; it is not a Duo platform-team endorsement and
+  WPrism's certification protocol; it is not a WPrism platform-team endorsement and
   is never silently reused on another site.
 - **Uncertified:** no current platform or site attestation covers the exact
   capability. Experimental evidence may exist, but it cannot authorize a
@@ -309,7 +309,7 @@ dependency set, and expiry.
   conditional path.
 - **Not qualified:** semantics may be proposed or partly understood, but the
   required proof is incomplete.
-- **Unsupported:** Duo understands the boundary well enough to refuse the
+- **Unsupported:** WPrism understands the boundary well enough to refuse the
   operation for a stated reason.
 
 ### State class and handling
@@ -335,7 +335,7 @@ Every relevant external effect has two separate declarations:
 - **Recovery semantics:** not applicable, provider-state restorable,
   compensatable, irreversible, or unknown.
 
-Provider-state restorable means Duo can restore an exact, named remote resource;
+Provider-state restorable means WPrism can restore an exact, named remote resource;
 it never claims to undo observation or downstream action. Compensatable means a
 separate action such as a refund may offset part of the consequence without
 reversing the original effect. Unknown containment or recovery semantics blocks
@@ -346,7 +346,7 @@ generic success or rollback status.
 ### Authorization
 
 Technical readiness and reusable evidence never carry execution authority.
-Immediately before mutation, Duo evaluates authorization against the frozen
+Immediately before mutation, WPrism evaluates authorization against the frozen
 plan, authenticated actor, target, state handling, effect inventory, recovery
 profile, conditions, and expiry. Any plan change invalidates that authorization.
 
@@ -424,7 +424,7 @@ secret values.
 
 ### 5. Generated projection
 
-Duo composes platform defaults, reviewed site declarations, current evidence,
+WPrism composes platform defaults, reviewed site declarations, current evidence,
 certification attestations, and environment bindings into one capability view
 consumed by assessment, planning, promotion, recovery, agents, and human
 review.
@@ -434,7 +434,7 @@ review.
 Application-specific behavior stays outside generic engine decision logic.
 Initial extensions are declarative wherever possible. Executable interpreters,
 providers, or oracles run only inside explicit version, trust, capability, and
-evidence boundaries. Duo does not initially expose a general-purpose agent code
+evidence boundaries. WPrism does not initially expose a general-purpose agent code
 execution SDK.
 
 An application contract may narrow a platform default or fill an extensible
@@ -461,7 +461,7 @@ access, topology, or platform support is insufficient, the assessment result is
 a structured, scoped refusal rather than a partial success presented as
 complete.
 
-Duo must:
+WPrism must:
 
 - inventory the stack, storage surfaces, integrations, and environment
   authority;
@@ -479,7 +479,7 @@ redacted by default.
 
 ### 2. Rehearse
 
-Duo addresses an operator- or host-provisioned disposable environment
+WPrism addresses an operator- or host-provisioned disposable environment
 initialized from an approved snapshot. It may orchestrate declared provider
 capabilities, but does not itself promise infrastructure provisioning. Agents
 can implement and test there without production mutation authority.
@@ -504,7 +504,7 @@ Rehearsal must:
 
 Proven authored state enters the repository alongside code and media.
 
-Duo must:
+WPrism must:
 
 - capture only authored state whose handling and operation are technically
   Ready and separately authorized;
@@ -527,7 +527,7 @@ Release coordinates code, authored state, media, lifecycle work, generated
 state, external effects, and recovery under one plan.
 
 Before any production-visible code, data, filesystem, lifecycle, or
-external-effect mutation, Duo must durably bind and present an authorization
+external-effect mutation, WPrism must durably bind and present an authorization
 plan showing:
 
 - the exact requested scope;
@@ -552,16 +552,16 @@ documented public next action: resume, reconcile, retry, recover, requalify, or
 escalate. Retry uses the same operation identity and is offered only after
 durable receipt reconciliation proves replay safe. Ambiguous commitment is
 quarantined as reconcile-required; it is never retried generically. If no
-automated action is safe, Duo refuses and identifies the required operator
+automated action is safe, WPrism refuses and identifies the required operator
 authority. Normal operation never depends on private identifiers, undocumented
 commands, or raw database surgery.
 
 ### Day-two operation
 
-On Assess, status, plan, and immediately before mutation, Duo must report
+On Assess, status, plan, and immediately before mutation, WPrism must report
 relevant application, environment, and evidence drift. Optional monitoring may
 surface drift earlier but is not required for the core contract. Changes made
-outside Duo are adoptable where safe. Dependency changes invalidate bounded
+outside WPrism are adoptable where safe. Dependency changes invalidate bounded
 capabilities rather than the whole site. Preview expiry, artifact retention,
 cleanup, receipt reconciliation, and recovery are ownership-aware and
 idempotent.
@@ -641,11 +641,11 @@ business behavior.
 ### Invalidation
 
 Every capability declares the code, version, schema, policy, oracle,
-environment, and provider facts on which it depends, and Duo rechecks those
+environment, and provider facts on which it depends, and WPrism rechecks those
 facts against the target itself at each use. Relevant drift changes a previous
 Ready result to **Requalification required**: a version outside a declared
 range, adapter bytes that no longer match their pin, a changed reviewed
-disposition, or a named suite that no longer passes on the target. Duo
+disposition, or a named suite that no longer passes on the target. WPrism
 invalidates the smallest dependency-bound capability it can prove; it never
 silently assumes continued compatibility.
 
@@ -733,7 +733,7 @@ default.
 - Multi-master replication between independently authored production sites.
 - Versioning orders, sessions, comments, analytics, form submissions, or other
   operational histories as authored state.
-- Requiring plugin or theme authors to modify their products for Duo.
+- Requiring plugin or theme authors to modify their products for WPrism.
 - Making every WordPress database row Git-managed.
 - Inferring business ownership of ambiguous data without authority.
 - Claiming that rollback reverses external reality.
@@ -746,7 +746,7 @@ capability document.
 
 ## Privacy and ecosystem evidence
 
-Duo does not upload site-scoped evidence by default. Initial application
+WPrism does not upload site-scoped evidence by default. Initial application
 contracts and evidence are local or stored in explicitly configured customer
 infrastructure. Configured remote storage and bring-your-own agents are separate
 egress paths whose destinations, data classes, redaction, credentials,
@@ -894,7 +894,7 @@ product direction:
    hidden-reference and ownership defects despite clean round trips.
 3. **Live-writer recovery:** introduce runtime transactions after a checkpoint,
    force release failure, and prove the profile preserved or prevented them.
-4. **Irreversible effects:** call a remote sink before failure and verify Duo
+4. **Irreversible effects:** call a remote sink before failure and verify WPrism
    prevented, sandboxed, or truthfully excluded it from recovery.
 5. **External authority:** exercise concurrent Git and ERP/PIM ownership of the
    same fields and require an explicit, non-destructive resolution.
@@ -902,7 +902,7 @@ product direction:
    migration with no valid down path.
 7. **First-time usability:** external WordPress operators complete assess,
    preview, change, review, release, and recover through public surfaces without
-   learning Duo internals.
+   learning WPrism internals.
 8. **Upgrade maintenance:** change dependency versions and demonstrate that
    only dependent evidence is invalidated and regenerated.
 9. **Fleet reuse:** repeat qualification across similar sites and measure safe
@@ -922,7 +922,7 @@ Ratification of this document makes the following product decisions:
   branchable.
 - Agencies and professional developer-operators are the initial commercial
   customer.
-- Duo remains host-agnostic and bring-your-own-agent.
+- WPrism remains host-agnostic and bring-your-own-agent.
 - The registry is the platform-certified baseline catalog; site-certified
   capability has distinct certification provenance and a named approving
   principal.
@@ -933,7 +933,7 @@ Ratification of this document makes the following product decisions:
   not an adoption rung.
 - Agent autonomy stops at new business intent and consequential risk unless
   explicit organizational policy already supplies authority.
-- Duo uploads no customer evidence by default, and ecosystem aggregation is
+- WPrism uploads no customer evidence by default, and ecosystem aggregation is
   deferred.
 - Field adoption and user-surface closure precede broad new abstraction work.
 
@@ -984,10 +984,10 @@ Ratification of this document makes the following product decisions:
     document but the **per-operation capability projection**: the
     `capability(stack, surface, operation, …)` evaluation sketched directly
     above it, which is `AdapterRegistry::report()`
-    (`agent/src/Adapter/AdapterRegistry.php:319`, `duo-capability-report/v1`)
+    (`agent/src/Adapter/AdapterRegistry.php:319`, `wprism-capability-report/v1`)
     run for one exact operation × surface × target probe, projected into this
     document's vocabulary by `ProjectionVocabulary` and surfaced by
-    `duo capabilities` and `duo assess`. A decomposition into compile/plan/
+    `wprism capabilities` and `wprism assess`. A decomposition into compile/plan/
     deploy/apply/promote/recapture/render-api is a per-operation answer about
     one target, not a row in a catalog.
   - **Explicit non-goals** — "no prose claim exists until their exact

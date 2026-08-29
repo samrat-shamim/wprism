@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for DUO-3345's optional plan category projection.
+ * Offline regression for issue #3345's optional plan category projection.
  *
  * The detailed plan remains authoritative. This suite proves the additive
  * projection is a closed, ordered, count-only and value-free view; validates
@@ -9,8 +9,8 @@
  */
 declare(strict_types=1);
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 2);
 }
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
@@ -21,10 +21,10 @@ require_once __DIR__ . '/../../../../agent/src/Apply/Apply.php';
 require_once __DIR__ . '/../../../../cli/src/Plan/PlanContract.php';
 require_once __DIR__ . '/../../../../cli/src/Plan/PlanSummary.php';
 
-use Duo\ApplyPlanner;
-use Duo\PlanCategorySummary;
-use Duo\Orchestrator\PlanContract;
-use Duo\Orchestrator\PlanSummary;
+use WPrism\ApplyPlanner;
+use WPrism\PlanCategorySummary;
+use WPrism\Orchestrator\PlanContract;
+use WPrism\Orchestrator\PlanSummary;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -318,14 +318,14 @@ $invalidRendered = PlanSummary::render($invalid);
 $withoutRendered = PlanSummary::render($without);
 $check($validRendered['ok'] === $invalidRendered['ok'] && $validRendered['ok'] === $withoutRendered['ok'], 'optional projection never changes plan readiness');
 $check(PlanContract::violations($invalid) === [] && PlanContract::violations($without) === [], 'malformed or absent optional display data never changes completeness');
-$check(str_contains(implode("\n", $validRendered['lines']), 'SUMMARY [duo-plan-category-summary/v1]'), 'host status renders a valid projection');
-$check(!str_contains(implode("\n", $invalidRendered['lines']), 'SUMMARY [duo-plan-category-summary/v1]'), 'host status omits a malformed projection');
-$check(!str_contains(implode("\n", $withoutRendered['lines']), 'SUMMARY [duo-plan-category-summary/v1]'), 'host status does not synthesize an older agent projection');
+$check(str_contains(implode("\n", $validRendered['lines']), 'SUMMARY [wprism-plan-category-summary/v1]'), 'host status renders a valid projection');
+$check(!str_contains(implode("\n", $invalidRendered['lines']), 'SUMMARY [wprism-plan-category-summary/v1]'), 'host status omits a malformed projection');
+$check(!str_contains(implode("\n", $withoutRendered['lines']), 'SUMMARY [wprism-plan-category-summary/v1]'), 'host status does not synthesize an older agent projection');
 
 $human = PlanCategorySummary::humanLines($summary);
 $humanText = implode("\n", $human);
 $check(PlanContract::categorySummaryHumanLines($decodedSummary) === $human, 'separately deployable host and agent renderers stay byte-identical');
-$check($human[0] === 'SUMMARY [duo-plan-category-summary/v1]', 'human projection has a stable versioned header');
+$check($human[0] === 'SUMMARY [wprism-plan-category-summary/v1]', 'human projection has a stable versioned header');
 $check(str_contains($humanText, 'secrets: redacted; secret values omitted'), 'human projection makes secret redaction visible');
 $check(str_contains($humanText, 'vocabulary: generated effects use shipped derived classification'), 'human projection teaches public/wire vocabulary');
 foreach (['SECRET_', 'INJECTED'] as $raw) {

@@ -26,12 +26,12 @@ ACTIVATION_SAMPLE_ID=$(wp_conf1 post create --post_type=page --post_status=publi
   --post_content='<!-- wp:paragraph --><p>This is an example page. It is different from a blog post because it will stay in one place and will show up in your site navigation.</p><!-- /wp:paragraph -->' \
   --porcelain)
 
-# DUO-3209: the portable adoption key for hierarchical posts is
+# issue #3209: the portable adoption key for hierarchical posts is
 # (post_type, slug, parent identity), never slug alone. Two siblings in
 # different branches deliberately share the same slug.
 BRANCH_A=$(wp_conf1 post create --post_type=page --post_title='Branch A' --post_name=branch-a --post_status=publish --porcelain)
 BRANCH_B=$(wp_conf1 post create --post_type=page --post_title='Branch B' --post_name=branch-b --post_status=publish --porcelain)
-# DUO-3381: assert the premise before anything consumes it. Every id above
+# issue #3381: assert the premise before anything consumes it. Every id above
 # comes back from a `docker compose run` that can be starved of output under
 # host load without exiting non-zero (see the shared conformance/asserts.sh's require_fixture_ids), and
 # an empty --post_parent silently casts to 0 — the two children below would
@@ -68,7 +68,7 @@ rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-makeimg.php
 # invalid block JSON authored into canonical state — and leave checks/
 # core.sh's attachment scenarios (the branch-edit/forced-deletion block,
 # which finds this exact attachment by slug) failing as if apply had lost
-# the row (DUO-3381).
+# the row (issue #3381).
 require_fixture_ids ATT_ID
 UP_URL=$(wp_conf1 eval "echo wp_get_attachment_url($ATT_ID);")
 require_fixture_values UP_URL
@@ -82,12 +82,12 @@ HELLO_ID=$(wp_conf1 post create --post_type=post --post_title='Hello Conformance
 # page_on_front/default_category/sticky_posts are the ref-typed options this
 # manifest exists to prove; `option update page_on_front ''` succeeds, so an
 # empty id here would be captured as authored state rather than refused
-# (DUO-3381).
+# (issue #3381).
 require_fixture_ids HELLO_ID
 wp_conf1 post term add "$HELLO_ID" post_tag "$TOPIC_ID" --by=id >/dev/null
 wp_conf1 post meta update "$HELLO_ID" origin 'source-authored-origin' >/dev/null
 
-wp_conf1 option update blogname 'Duo Conformance' >/dev/null
+wp_conf1 option update blogname 'WPrism Conformance' >/dev/null
 wp_conf1 option update show_on_front page >/dev/null
 wp_conf1 option update page_on_front "$HOME_ID" >/dev/null
 wp_conf1 option update default_category "$NEWS_ID" >/dev/null
@@ -106,7 +106,7 @@ if (get_option("permalink_structure") !== "/journal/%postname%/" || !is_array($r
 }
 ' >/dev/null
 
-# DUO-3264: dynamic_options.theme_mods (fork A of the owner ruling, issue
+# issue #3264: dynamic_options.theme_mods (fork A of the owner ruling, issue
 # comment 9fd882a6) — a representative theme_mods_<stylesheet> sweep,
 # proving both halves of the mechanism against the REAL manifests/core.json
 # (not a fixture): (1) the currently-active theme's declared sub_keys
@@ -131,9 +131,9 @@ wp_conf1 eval "set_theme_mod('background_color', 'aa3333'); set_theme_mod('custo
 wp_conf1 theme activate twentytwentyfive >/dev/null
 wp_conf1 eval "set_theme_mod('background_color', '3c8c3c'); set_theme_mod('custom_logo', $ATT_ID); set_theme_mod('header_image', '$UP_URL'); set_theme_mod('header_image_data', array('attachment_id' => $ATT_ID, 'url' => '$UP_URL', 'thumbnail_url' => '$UP_URL', 'height' => 48, 'width' => 64)); wp_update_custom_css_post('body { background: #3c8c3c; }');" >/dev/null
 
-# DUO-3278: representative closed widget family. Counters are deliberately
+# issue #3278: representative closed widget family. Counters are deliberately
 # sparse and later collide with unrelated target defaults; portable identity
-# comes only from duo_map, never from settings injected into these arrays.
+# comes only from wprism_map, never from settings injected into these arrays.
 WIDGET_MENU_ID=$(wp_conf1 menu create 'Conformance Widget Menu' --porcelain)
 require_fixture_ids WIDGET_MENU_ID
 wp_conf1 menu item add-post "$WIDGET_MENU_ID" "$HOME_ID" >/dev/null

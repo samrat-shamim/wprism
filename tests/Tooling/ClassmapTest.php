@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -11,9 +11,9 @@ use PHPUnit\Framework\TestCase;
  * Pin the generated classmaps and the generator that produces them.
  *
  * What is actually at risk here is not the generator's cleverness — it is the
- * *currency* of two committed files. agent/duo-classmap.php and
- * cli/duo-classmap.php back an spl_autoload_register() fallback in
- * agent/duo.php and cli/duo; a map that has drifted from the source tree is
+ * *currency* of two committed files. agent/wprism-classmap.php and
+ * cli/wprism-classmap.php back an spl_autoload_register() fallback in
+ * agent/wprism.php and cli/wprism; a map that has drifted from the source tree is
  * either a dead entry (an autoload that fails to open a file) or a missing
  * entry (a class the fallback silently declines to resolve). Neither shows up
  * in the offline corpus, because on the production load path every require
@@ -33,7 +33,7 @@ final class ClassmapTest extends TestCase
 {
     private static function repoRoot(): string
     {
-        $env = getenv('DUO_REPO_ROOT');
+        $env = getenv('WPRISM_REPO_ROOT');
         return is_string($env) && $env !== '' ? $env : dirname(__DIR__, 2);
     }
 
@@ -64,8 +64,8 @@ final class ClassmapTest extends TestCase
     public static function targetProvider(): array
     {
         return [
-            'agent' => ['agent', 'src', 'agent/duo-classmap.php'],
-            'cli' => ['cli', 'src', 'cli/duo-classmap.php'],
+            'agent' => ['agent', 'src', 'agent/wprism-classmap.php'],
+            'cli' => ['cli', 'src', 'cli/wprism-classmap.php'],
         ];
     }
 
@@ -94,8 +94,8 @@ final class ClassmapTest extends TestCase
     {
         $result = self::invoke([self::repoRoot() . '/tools/classmap-generate.php', '--check']);
         self::assertSame(0, $result['status'], "--check reported drift:\n{$result['stdout']}{$result['stderr']}");
-        self::assertStringContainsString('ok    agent/duo-classmap.php', $result['stdout']);
-        self::assertStringContainsString('ok    cli/duo-classmap.php', $result['stdout']);
+        self::assertStringContainsString('ok    agent/wprism-classmap.php', $result['stdout']);
+        self::assertStringContainsString('ok    cli/wprism-classmap.php', $result['stdout']);
     }
 
     #[DataProvider('targetProvider')]
@@ -165,7 +165,7 @@ final class ClassmapTest extends TestCase
             self::assertNotSame('', trim($reason), "CM_EXCLUSIONS[$fqcn] has no documented reason");
         }
         self::assertArrayHasKey(
-            'Duo\\Cli',
+            'WPrism\\Cli',
             CM_EXCLUSIONS,
             'agent/src/Command/Cli.php ends in a top-level WP_CLI::add_command() call and must never be autoloadable'
         );
@@ -187,16 +187,16 @@ final class ClassmapTest extends TestCase
     }
 
     /**
-     * The two maps are registered side by side in cli/duo, so a shared key
+     * The two maps are registered side by side in cli/wprism, so a shared key
      * would make resolution depend on registration order.
      */
     public function testTheTwoMapsHaveDisjointKeys(): void
     {
         $repo = self::repoRoot();
         /** @var array<string,string> $agent */
-        $agent = require $repo . '/agent/duo-classmap.php';
+        $agent = require $repo . '/agent/wprism-classmap.php';
         /** @var array<string,string> $cli */
-        $cli = require $repo . '/cli/duo-classmap.php';
+        $cli = require $repo . '/cli/wprism-classmap.php';
         self::assertSame([], array_intersect_key($agent, $cli));
     }
 
@@ -213,10 +213,10 @@ final class ClassmapTest extends TestCase
         self::assertTrue(mkdir($dir, 0700, true), "could not create $dir");
         $file = $dir . '/ScratchProbe.php';
         try {
-            file_put_contents($file, "<?php\nnamespace Duo;\nfinal class ClassmapScratchProbe {}\n");
+            file_put_contents($file, "<?php\nnamespace WPrism;\nfinal class ClassmapScratchProbe {}\n");
             foreach (self::targetProvider() as [$root, $scanDir, $_generated]) {
                 $map = cm_build_map($repo . '/' . $root, $scanDir);
-                self::assertArrayNotHasKey('Duo\\ClassmapScratchProbe', $map);
+                self::assertArrayNotHasKey('WPrism\\ClassmapScratchProbe', $map);
                 foreach ($map as $relative) {
                     self::assertStringStartsWith($scanDir . '/', $relative);
                 }
@@ -242,14 +242,14 @@ final class ClassmapTest extends TestCase
         self::assertSame(0, $first['status'], $first['stderr']);
         self::assertSame(0, $second['status'], $second['stderr']);
         self::assertSame($first['stdout'], $second['stdout']);
-        self::assertStringContainsString('==> agent/duo-classmap.php', $first['stdout']);
-        self::assertStringContainsString('==> cli/duo-classmap.php', $first['stdout']);
+        self::assertStringContainsString('==> agent/wprism-classmap.php', $first['stdout']);
+        self::assertStringContainsString('==> cli/wprism-classmap.php', $first['stdout']);
         self::assertStringNotContainsString(self::repoRoot(), $first['stdout'], 'the map must carry no host path');
     }
 
     /**
      * The end-to-end claim, in a fresh interpreter that has included nothing
-     * but the map: the closure agent/duo.php registers resolves a class whose
+     * but the map: the closure agent/wprism.php registers resolves a class whose
      * file name does not match it (CommandRefusalException lives in
      * CommandRefusal.php, CompiledRepository in CompiledArtifact.php,
      * PublicationRecord in PublicationJournal.php). Those three are exactly
@@ -261,13 +261,13 @@ final class ClassmapTest extends TestCase
         $agentDir = self::repoRoot() . '/agent';
         $probe = <<<'PHP'
 $dir = $argv[1];
-$map = require $dir . '/duo-classmap.php';
+$map = require $dir . '/wprism-classmap.php';
 spl_autoload_register(static function (string $class) use ($map, $dir): void {
     if (!isset($map[$class])) { return; }
     $file = $dir . '/' . $map[$class];
     if (is_file($file)) { require_once $file; }
 });
-$names = ['Duo\CommandRefusalException', 'Duo\CompiledRepository', 'Duo\PublicationRecord'];
+$names = ['WPrism\CommandRefusalException', 'WPrism\CompiledRepository', 'WPrism\PublicationRecord'];
 foreach ($names as $name) {
     if (class_exists($name, false)) { echo "PRELOADED $name\n"; continue; }
     echo (class_exists($name) ? 'RESOLVED ' : 'UNRESOLVED ') . $name . "\n";
@@ -278,32 +278,32 @@ PHP;
         self::assertSame(0, $result['status'], $result['stderr']);
         self::assertSame('', $result['stderr']);
         self::assertSame(
-            "RESOLVED Duo\\CommandRefusalException\n"
-            . "RESOLVED Duo\\CompiledRepository\n"
-            . "RESOLVED Duo\\PublicationRecord\n"
+            "RESOLVED WPrism\\CommandRefusalException\n"
+            . "RESOLVED WPrism\\CompiledRepository\n"
+            . "RESOLVED WPrism\\PublicationRecord\n"
             . "AUTOLOADERS=1\n",
             $result['stdout']
         );
     }
 
     /**
-     * Duo\Cli is the one type whose file has a top-level side effect
+     * WPrism\Cli is the one type whose file has a top-level side effect
      * (WP_CLI::add_command at agent/src/Command/Cli.php's last line). Autoloading it
      * outside a WP-CLI runtime is an immediate fatal, so the fallback must
-     * decline to resolve it and leave it to duo.php's WP_CLI-gated require.
+     * decline to resolve it and leave it to wprism.php's WP_CLI-gated require.
      */
-    public function testDuoCliIsNotResolvableThroughTheFallback(): void
+    public function testWPrismCliIsNotResolvableThroughTheFallback(): void
     {
         $agentDir = self::repoRoot() . '/agent';
         $probe = <<<'PHP'
 $dir = $argv[1];
-$map = require $dir . '/duo-classmap.php';
+$map = require $dir . '/wprism-classmap.php';
 spl_autoload_register(static function (string $class) use ($map, $dir): void {
     if (!isset($map[$class])) { return; }
     $file = $dir . '/' . $map[$class];
     if (is_file($file)) { require_once $file; }
 });
-echo (class_exists('Duo\Cli') ? 'RESOLVED' : 'UNRESOLVED') . "\n";
+echo (class_exists('WPrism\Cli') ? 'RESOLVED' : 'UNRESOLVED') . "\n";
 PHP;
         $result = self::invoke(['-r', $probe, $agentDir]);
         self::assertSame(0, $result['status'], $result['stderr']);
@@ -311,29 +311,29 @@ PHP;
     }
 
     /**
-     * The whole point of "additive": including agent/duo.php must still load
+     * The whole point of "additive": including agent/wprism.php must still load
      * every file it loaded before, with the autoloader as a net underneath
      * rather than a replacement. Every mapped name but five is declared
      * eagerly here; those five are exactly the five
      * AdapterCertification.php declares, and that file is deliberately lazy —
      * only a record carrying a signed external claim requires it
-     * (agent/src/Adapter/AdapterSources.php:838, :1091, :3899). Duo\Cli is not
+     * (agent/src/Adapter/AdapterSources.php:838, :1091, :3899). WPrism\Cli is not
      * in this list because it is not in the map at all (see
-     * testDuoCliIsNotResolvableThroughTheFallback above).
+     * testWPrismCliIsNotResolvableThroughTheFallback above).
      *
      * The list is spelled out rather than counted: WP-1.1 added two withdrawal
      * exceptions to that file and G2-FIXES C3 added the third, and a count
      * would have absorbed each of them silently where this assertion names
      * them.
      */
-    public function testDuoPhpStillLoadsEagerlyWithExactlyOneExtraAutoloader(): void
+    public function testWPrismPhpStillLoadsEagerlyWithExactlyOneExtraAutoloader(): void
     {
         $repo = self::repoRoot();
         $probe = <<<'PHP'
-define('ABSPATH', sys_get_temp_dir() . '/duo-classmap-probe/');
+define('ABSPATH', sys_get_temp_dir() . '/wprism-classmap-probe/');
 $before = count(spl_autoload_functions() ?: []);
-require $argv[1] . '/agent/duo.php';
-$map = require $argv[1] . '/agent/duo-classmap.php';
+require $argv[1] . '/agent/wprism.php';
+$map = require $argv[1] . '/agent/wprism-classmap.php';
 $undeclared = [];
 foreach (array_keys($map) as $fqcn) {
     if (!class_exists($fqcn, false) && !interface_exists($fqcn, false)
@@ -342,31 +342,31 @@ foreach (array_keys($map) as $fqcn) {
     }
 }
 echo 'AUTOLOADERS=' . ($before + 1) . '/' . count(spl_autoload_functions() ?: []) . "\n";
-echo 'VERSION=' . DUO_AGENT_VERSION . '/' . DUO_SPEC_VERSION . "\n";
+echo 'VERSION=' . WPRISM_AGENT_VERSION . '/' . WPRISM_SPEC_VERSION . "\n";
 echo 'UNDECLARED=' . implode(',', $undeclared) . "\n";
 PHP;
         $result = self::invoke(['-r', $probe, $repo]);
         self::assertSame(0, $result['status'], $result['stderr']);
         self::assertSame('', $result['stderr']);
-        // The VERSION line proves `duo.php` EXECUTED rather than merely parsed
+        // The VERSION line proves `wprism.php` EXECUTED rather than merely parsed
         // — the constants only exist at runtime — so what it must compare
         // against is the source of record, not a literal. WP-4.12 measured the
-        // cost of the literal: this assertion failed on the flip with
-        // `VERSION=0.6.0/3`, and a test that goes red on a correct bump for a
+        // cost of the literal: an assertion pinned to the previous version
+        // goes red on a correct bump for a
         // reason unrelated to its own subject (one extra autoloader, no
         // eagerly-undeclared class) trains a reader to retype the number rather
         // than read the failure. Same regex and same reason as
         // `AdapterCertify::boot()` (:1463-1481), `tools/wire-surface.php`
         // (:128-136) and `sandbox/tests/lib/agent_version.php`.
-        $source = (string) file_get_contents($repo . '/agent/duo.php');
-        self::assertSame(1, preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $source, $agent));
-        self::assertSame(1, preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $source, $spec));
+        $source = (string) file_get_contents($repo . '/agent/wprism.php');
+        self::assertSame(1, preg_match("/define\('WPRISM_AGENT_VERSION', '([^']+)'\)/", $source, $agent));
+        self::assertSame(1, preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", $source, $spec));
         self::assertSame(
             "AUTOLOADERS=1/1\n"
             . "VERSION={$agent[1]}/{$spec[1]}\n"
-            . 'UNDECLARED=Duo\\AdapterCertification,Duo\\StalePlatformSiteAdapterCertificate,'
-            . 'Duo\\SupersededSiteAdapterCertificate,Duo\\SupersededWireSiteAdapterCertificate,'
-            . "Duo\\WithdrawnAuthoritySiteAdapterCertificate\n",
+            . 'UNDECLARED=WPrism\\AdapterCertification,WPrism\\StalePlatformSiteAdapterCertificate,'
+            . 'WPrism\\SupersededSiteAdapterCertificate,WPrism\\SupersededWireSiteAdapterCertificate,'
+            . "WPrism\\WithdrawnAuthoritySiteAdapterCertificate\n",
             $result['stdout']
         );
     }
@@ -381,10 +381,10 @@ PHP;
         $dir = self::repoRoot() . '/sandbox/tmp/classmap-dup-' . bin2hex(random_bytes(6));
         self::assertTrue(mkdir($dir . '/src', 0700, true), "could not create $dir/src");
         try {
-            file_put_contents($dir . '/src/A.php', "<?php\nnamespace Duo\\Probe;\nclass Twin {}\n");
-            file_put_contents($dir . '/src/B.php', "<?php\nnamespace Duo\\Probe;\nclass Twin {}\n");
+            file_put_contents($dir . '/src/A.php', "<?php\nnamespace WPrism\\Probe;\nclass Twin {}\n");
+            file_put_contents($dir . '/src/B.php', "<?php\nnamespace WPrism\\Probe;\nclass Twin {}\n");
             $this->expectException(\RuntimeException::class);
-            $this->expectExceptionMessage('Duo\\Probe\\Twin is declared twice');
+            $this->expectExceptionMessage('WPrism\\Probe\\Twin is declared twice');
             cm_build_map($dir, 'src');
         } finally {
             @unlink($dir . '/src/A.php');
@@ -406,7 +406,7 @@ PHP;
         self::assertFileExists($worker);
         self::assertSame([], cm_declared_types((string) file_get_contents($worker)));
         /** @var array<string,string> $cli */
-        $cli = require $repo . '/cli/duo-classmap.php';
+        $cli = require $repo . '/cli/wprism-classmap.php';
         self::assertNotContains('src/RefreshPlanCompile.php', array_values($cli));
     }
 
@@ -417,7 +417,7 @@ PHP;
     {
         $source = <<<'PHP'
 <?php
-namespace Duo\Probe;
+namespace WPrism\Probe;
 $a = Something::class;
 $b = new class { public function f(): void {} };
 final class Real {}
@@ -426,7 +426,7 @@ trait Shared {}
 enum Mode: string { case On = 'on'; }
 PHP;
         self::assertSame(
-            ['Duo\\Probe\\Real', 'Duo\\Probe\\Contract', 'Duo\\Probe\\Shared', 'Duo\\Probe\\Mode'],
+            ['WPrism\\Probe\\Real', 'WPrism\\Probe\\Contract', 'WPrism\\Probe\\Shared', 'WPrism\\Probe\\Mode'],
             cm_declared_types($source)
         );
     }

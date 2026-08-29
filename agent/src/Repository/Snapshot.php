@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
@@ -34,7 +34,7 @@ require_once __DIR__ . '/../Apply/TypedTableMaterializer.php';
  * to it, on purpose, exactly as before):
  *
  * 1. `"authored_snapshot"` — a ROW table: has its own primary key and its
- *    own identity (a duo_map ledger row). Every real, live column MUST be
+ *    own identity (a wprism_map ledger row). Every real, live column MUST be
  *    accounted for by exactly one of: `pk` (the primary key, implicit,
  *    never in `columns`/`refs`), `refs[]` (FK-shaped columns, resolved
  *    through the ledger like {{post:uuid}} today), or `columns{}` (every
@@ -97,22 +97,22 @@ require_once __DIR__ . '/../Apply/TypedTableMaterializer.php';
  * Attached-meta rows get NO file and NO uuid of their own — they are pure
  * sidecar data, reconciled as an owned key-set on apply exactly like
  * postmeta (Apply::finalize_post()'s existing pattern), which is also why
- * they need no entry in duo_map at all.
+ * they need no entry in wprism_map at all.
  *
  * ---- Identity: three modes, one recovery contract ----
  *
- * Posts/terms mint a uuid and store it BACK onto the row itself (_duo_uuid
- * via postmeta/termmeta) — durable even if the duo_map ledger is ever lost,
+ * Posts/terms mint a uuid and store it BACK onto the row itself (_wprism_uuid
+ * via postmeta/termmeta) — durable even if the wprism_map ledger is ever lost,
  * because the row carries its own receipt. A custom table's row has no meta
  * space of its own and MUST NOT get one added to the plugin's own schema
  * (DESIGN.md's non-negotiable "plugins work completely unmodified"), so
- * identity for a declared table's rows lives ONLY in duo_map, keyed by
+ * identity for a declared table's rows lives ONLY in wprism_map, keyed by
  * (id_kind, local_id) -> uuid. Three identity modes, declared per table:
  *
  * - `"identity": {"mode": "mapped"}` (the default when `identity` is
  *   omitted) — a fresh row gets a random Uuid::v7(), same as posts/terms.
- *   Because the plugin row cannot carry the UUID, `duo_map` plus the
- *   `duo-identity-ledger/v1` disaster-recovery sidecar is the durable store.
+ *   Because the plugin row cannot carry the UUID, `wprism_map` plus the
+ *   `wprism-identity-ledger/v1` disaster-recovery sidecar is the durable store.
  *   A populated non-minting target with a missing mapping blocks; a source
  *   whose canonical mapped UUIDs lost their mappings also blocks instead of
  *   minting replacements. nf3_forms/nf3_fields/nf3_actions use this mode (no
@@ -125,7 +125,7 @@ require_once __DIR__ . '/../Apply/TypedTableMaterializer.php';
  *   duplicate name at the application layer, which is what makes it stable in
  *   practice even though the DB index is merely MUL — verified live in grind
  *   round R1-B). A fresh row's
- *   uuid is DERIVED, not minted: `Uuid::v5(Uuid::NAMESPACE_DUO,
+ *   uuid is DERIVED, not minted: `Uuid::v5(Uuid::NAMESPACE_WPRISM,
  *   "<table>:<natural key value>")` — the SAME (table, value) always
  *   produces the SAME uuid. This is BOOTSTRAP identity for a never-seen row;
  *   after first capture, the existing ledger mapping is consulted first and
@@ -136,7 +136,7 @@ require_once __DIR__ . '/../Apply/TypedTableMaterializer.php';
  *   is the reconciliation path. Contradictory mappings still block and
  *   ordinary Ledger::set() never deletes or rebinds identity implicitly.
  *
- *   `"columns": ["<col>", ...]` (DUO-3318) is the PARENT-SCOPED form of the
+ *   `"columns": ["<col>", ...]` (issue #3318) is the PARENT-SCOPED form of the
  *   same mode, for the far more common real schema: a key that is unique
  *   only WITHIN a parent row (a slot code unique per room, an option key
  *   unique per form). `column` is exactly its 1-component case, unchanged
@@ -147,12 +147,12 @@ require_once __DIR__ . '/../Apply/TypedTableMaterializer.php';
  *   uuid per environment for the same authored fact. A scalar component
  *   contributes its raw value. `pk` stays REQUIRED here (unlike
  *   composite_ref): the table still has its own surrogate primary key, and
- *   duo_map's local_id stays that plain scalar — no packing, so delete,
+ *   wprism_map's local_id stays that plain scalar — no packing, so delete,
  *   adopt, and `invalidate` all keep working exactly as they do for any
  *   other row table. Filenames need `slug_column` for this form (a tuple has
  *   no portable one-line spelling; see ManifestGrammar::assert_natural_key_grammar()).
  * - `"identity": {"mode": "composite_ref", "columns": ["<col1>", "<col2>"]}`
- *   (DUO-3235, task #125) — for a PURE JOIN table: no surrogate `pk` column
+ *   (issue #3235, task #125) — for a PURE JOIN table: no surrogate `pk` column
  *   exists at all, and its real, live composite PRIMARY KEY is exactly the
  *   two FK columns already declared in `refs[]` (checked as an exact set
  *   equality in assert_composite_row_schema() — `identity.columns` must be
@@ -164,7 +164,7 @@ require_once __DIR__ . '/../Apply/TypedTableMaterializer.php';
  *   at all — PMPro's real "Require Membership" content-restriction fact.
  *
  *   The uuid is derived, like natural_key mode, but from a DIFFERENT input:
- *   `Uuid::v5(NAMESPACE_DUO, "<table>:<col1>=<ref1-uuid>:<col2>=<ref2-uuid>")`
+ *   `Uuid::v5(NAMESPACE_WPRISM, "<table>:<col1>=<ref1-uuid>:<col2>=<ref2-uuid>")`
  *   — the tuple of the REFERENCED ROWS' OWN uuids, never the raw local ids
  *   the live join row currently holds. This is load-bearing, not a stylistic
  *   choice: unlike `attribute_name` (a human-authored STRING, stable and
@@ -187,7 +187,7 @@ require_once __DIR__ . '/../Apply/TypedTableMaterializer.php';
  *   a composite_ref row's identity is a PURE FUNCTION of its two resolved
  *   refs, recomputed fresh on every capture — never looked up, nothing to
  *   "mint." So unlike mapped mode, there is no un-minted state to gate
- *   behind `$mint`, and unlike EITHER other mode, duo_map's role shrinks to
+ *   behind `$mint`, and unlike EITHER other mode, wprism_map's role shrinks to
  *   pure bookkeeping for delete_row() (see pack_composite_id()'s docblock),
  *   never consulted to establish identity itself — the strongest of the
  *   three modes' self-healing properties, precisely because there was never
@@ -220,14 +220,14 @@ require_once __DIR__ . '/../Apply/TypedTableMaterializer.php';
  *   "Engine boundary"), not a hard restriction the grammar itself imposes
  *   on every future composite_ref table.
  *
- *   Mutation continuity (cross-ref DUO-3237): composite_ref's two columns
+ *   Mutation continuity (cross-ref issue #3237): composite_ref's two columns
  *   are ALWAYS refs, so their stability is entirely inherited from whatever
  *   identity mode the referenced table already uses. A mapped natural_key
  *   target keeps its ledger UUID across a key rename, so a composite_ref row
  *   referencing it keeps the same derived tuple UUID too. This fixture's two ref
  *   targets — `pmpro_level` (mapped identity: a random v7, stored in
- *   duo_map, untouched by editing `name`) and `post` (the built-in
- *   `_duo_uuid` postmeta, untouched by editing title/slug) — are both
+ *   wprism_map, untouched by editing `name`) and `post` (the built-in
+ *   `_wprism_uuid` postmeta, untouched by editing title/slug) — are both
  *   likewise rename-stable. A fresh environment independently bootstrapping
  *   an already-renamed natural_key target without its ledger/repository
  *   history can derive a different target UUID and thus a different tuple;
@@ -243,7 +243,7 @@ require_once __DIR__ . '/../Apply/TypedTableMaterializer.php';
  *   delete+create is the semantically correct shape, matching what hand-
  *   edited canonical JSON files would show too (one deleted, one created).
  *
- * `id_kind` values share duo_map.id_kind's column budget with post/term/
+ * `id_kind` values share wprism_map.id_kind's column budget with post/term/
  * term_taxonomy (VARCHAR(16), no enum constraint — confirmed by reading
  * Ledger::ensure()'s CREATE TABLE): this file enforces that ceiling at
  * assert_row_schema() time rather than migrating the column, matching what
@@ -348,7 +348,7 @@ final class Snapshot {
 
     /**
      * Declared ROW tables (class === authored_snapshot), keyed by table
-     * name. Throws if two tables declare the same id_kind (duo_map's
+     * name. Throws if two tables declare the same id_kind (wprism_map's
      * unique key is (id_kind, local_id); two tables sharing one id_kind
      * would collide their rows' identities the instant both have a row
      * with the same local_id) — checked here, once, rather than at every
@@ -356,7 +356,7 @@ final class Snapshot {
      * reserved entity type (see RESERVED_TYPES): a table row entity's own
      * 'type' field IS its table name (not a generic "table" wrapper plus a
      * separate name field) — the single source of truth Apply's dispatch,
-     * duo_state's entity_type, and DELETE planning (which has no captured
+     * wprism_state's entity_type, and DELETE planning (which has no captured
      * file left to read a name back out of) all share, so it must never
      * collide with the four names posts/terms/menus/options already own.
      */
@@ -365,7 +365,7 @@ final class Snapshot {
     }
 
     /**
-     * DUO-3246: repairs duo_map/duo_state rows whose entity_type was
+     * issue #3246: repairs wprism_map/wprism_state rows whose entity_type was
      * silently truncated by the pre-fix VARCHAR(32) schema — a table row's
      * entity_type IS its table name (see this function's own caller,
      * row_tables(), and this file's docblock), and two currently-shipped
@@ -373,7 +373,7 @@ final class Snapshot {
      * zone_methods) exceed 32 chars.
      *
      * A migration-time direct UPDATE, deliberately never Ledger::set():
-     * DUO-3209's identity-contradiction guard exists specifically to
+     * issue #3209's identity-contradiction guard exists specifically to
      * refuse an ORDINARY code path silently retyping an identity —
      * repairing a KNOWN truncation artifact is not an ordinary retype, it
      * is restoring the value that should have been written the first
@@ -430,7 +430,7 @@ final class Snapshot {
             if ($ambiguous) {
                 continue;
             }
-            foreach (['duo_map', 'duo_state'] as $table) {
+            foreach (['wprism_map', 'wprism_state'] as $table) {
                 $affected = (int) Db::query($wpdb->prepare(
                     "UPDATE {$wpdb->prefix}{$table} SET entity_type = %s WHERE entity_type = %s",
                     $full, $truncated
@@ -470,9 +470,9 @@ final class Snapshot {
                 if (!Uuid::is($uuid)
                     || (Ledger::id_for($uuid, $decl['id_kind']) === null && !isset($observedDeleted[$uuid]))) {
                     throw new \RuntimeException(
-                        "duo: mapped identity history is missing for canonical $table entity $uuid; "
+                        "wprism: mapped identity history is missing for canonical $table entity $uuid; "
                         . 'refusing to mint a replacement. Restore the database-matched identity sidecar with '
-                        . '`wp duo identity-import --repo=<repo> --in=<file>` before capture'
+                        . '`wp wprism identity-import --repo=<repo> --in=<file>` before capture'
                     );
                 }
             }
@@ -530,13 +530,13 @@ final class Snapshot {
             }
             $missing = $wpdb->get_var($wpdb->prepare(
                 "SELECT src.`$pk` FROM `$prefixed` src "
-                . "LEFT JOIN {$wpdb->prefix}duo_map m ON m.id_kind = %s AND m.local_id = src.`$pk` "
+                . "LEFT JOIN {$wpdb->prefix}wprism_map m ON m.id_kind = %s AND m.local_id = src.`$pk` "
                 . "WHERE m.uuid IS NULL ORDER BY src.`$pk` ASC LIMIT 1",
                 $decl['id_kind']
             ));
             if ($missing !== null) {
                 throw new \RuntimeException(
-                    "duo: cannot export identity sidecar: mapped table '$table' row $missing has no ledger identity; "
+                    "wprism: cannot export identity sidecar: mapped table '$table' row $missing has no ledger identity; "
                     . 'capture it first or recover the missing sidecar'
                 );
             }
@@ -640,18 +640,18 @@ final class Snapshot {
     }
 
     /**
-     * duo_map.entity_type/duo_state.entity_type are VARCHAR(64) and a table
+     * wprism_map.entity_type/wprism_state.entity_type are VARCHAR(64) and a table
      * row's entity_type IS its table name. A ledger COLUMN WIDTH, not manifest
      * grammar — which is exactly why it stays here rather than moving to
      * Policy::assert_table_grammar() with the rest of the declaration checks
-     * (DUO-3318): Policy.php is deliberately loadable with no other engine
+     * (issue #3318): Policy.php is deliberately loadable with no other engine
      * class present, and naming Ledger there would end that.
      */
     private static function assert_entity_type_width(string $table): void {
         TableSchema::assert_entity_type_width($table);
     }
 
-    /** duo_map.id_kind's own width. @see assert_entity_type_width() */
+    /** wprism_map.id_kind's own width. @see assert_entity_type_width() */
     private static function assert_id_kind_width(string $table, array $decl): void {
         TableSchema::assert_id_kind_width($table, $decl, Ledger::ID_KIND_WIDTH);
     }
@@ -665,7 +665,7 @@ final class Snapshot {
      * treating the new column as invisible. A pure schema check (never
      * data-dependent), so it's cheap to always run.
      *
-     * DUO-3318 split this function in two along one line: "does answering
+     * issue #3318 split this function in two along one line: "does answering
      * this need the database". Everything answerable from the declaration
      * alone is Policy::assert_table_grammar()'s, reached from Policy::load()
      * so a malformed declaration refuses OFFLINE — before a target exists,
@@ -685,7 +685,7 @@ final class Snapshot {
     }
 
     /**
-     * Schema assertion for identity.mode=composite_ref (DUO-3235, task #125)
+     * Schema assertion for identity.mode=composite_ref (issue #3235, task #125)
      * — the "pure join table" shape (see this file's docblock, "Identity:
      * three modes"). Deliberately a SEPARATE method from assert_row_schema()
      * rather than more branches threaded through it: the invariants differ
@@ -699,7 +699,7 @@ final class Snapshot {
      * pack_composite_id()'s docblock for the bit-budget arithmetic it would
      * need) but unexercised, so refused rather than half-supported.
      *
-     * DUO-3318: the declaration half of all of that now lives in
+     * issue #3318: the declaration half of all of that now lives in
      * Policy::assert_table_grammar()'s composite branch (see
      * assert_row_schema() for the split rule). This function keeps the two
      * ledger column widths and the live column reconciliation, and re-runs the
@@ -725,7 +725,7 @@ final class Snapshot {
      * enumeration to check (see this file's docblock for why that's a
      * deliberately different completeness problem for an EAV sidecar).
      *
-     * `id_column` (DUO-3235, task #126) — the sidecar's own PK column NAME,
+     * `id_column` (issue #3235, task #126) — the sidecar's own PK column NAME,
      * defaulting to `'id'` for exact backward compatibility with every
      * fixture that shipped before this field existed (nf3_*_meta,
      * woocommerce_attribute_taxonomies have no attached-meta table at all,
@@ -735,7 +735,7 @@ final class Snapshot {
      * (literal `'id'`) at THREE call sites, not just this one — capturing
      * or applying a table declaring an override would have hit the other
      * two even after this method alone stopped throwing (the identical
-     * two-bugs-hiding-each-other trap DUO-3212's Blocks.php/Lint.php pair
+     * two-bugs-hiding-each-other trap issue #3212's Blocks.php/Lint.php pair
      * hit): TypedTableCapture's `ORDER BY id` and TypedTableMaterializer's
      * reconciliation
      * `SELECT id, ...` + its UPDATE `WHERE id = ...`. All three now read
@@ -780,7 +780,7 @@ final class Snapshot {
         // observe an already-valid ledger or refuse, never turn a read into
         // an identity repair.
         if (!$strictReadOnly) {
-            self::repair_truncated_entity_types($policy); // DUO-3246
+            self::repair_truncated_entity_types($policy); // issue #3246
         }
         $metaTables = self::meta_tables($policy);
         $metaByOwner = self::meta_tables_by_owner($rowTables, $metaTables); // throws on a dangling attached_to.table
@@ -800,7 +800,7 @@ final class Snapshot {
                     . "; {$gap['reason']}";
             }
             throw new \RuntimeException(
-                "duo: attached-meta keys exist outside a version-pinned declared keyspace (loud-and-blocking gate):\n  - "
+                "wprism: attached-meta keys exist outside a version-pinned declared keyspace (loud-and-blocking gate):\n  - "
                 . implode("\n  - ", $lines)
             );
         }
@@ -966,7 +966,7 @@ final class Snapshot {
             static function (string $uuid, string $table, string $kind, int $localId, string $context): void {
                 Ledger::require_read_only_mapping($uuid, $table, $kind, $localId, $context);
             },
-            static fn(string $name): string => Uuid::v5(Uuid::NAMESPACE_DUO, $name),
+            static fn(string $name): string => Uuid::v5(Uuid::NAMESPACE_WPRISM, $name),
             static fn(): string => Uuid::v7(),
             static fn(string $content): array => Canon::decode($content),
             static function (string $table, string $pk, array $predicates, array $args): ?int {
@@ -983,7 +983,7 @@ final class Snapshot {
 
     /**
      * The exact UUIDv5 name a natural_key row derives its identity from
-     * (DUO-3318) — one function, so capture, the continuity note, the
+     * (issue #3318) — one function, so capture, the continuity note, the
      * repository compiler's duplicate-identity check, and adoption can never
      * disagree about what "the same row" means.
      *
@@ -1012,12 +1012,12 @@ final class Snapshot {
 
     /**
      * A natural_key row's identity components read back out of an already-
-     * CAPTURED file's flat `columns` map (DUO-3318) — the apply/compile/plan
+     * CAPTURED file's flat `columns` map (issue #3318) — the apply/compile/plan
      * direction, where a ref column holds a "{{kind:uuid}}" token rather than
      * a live local id, so the referenced uuid is already present and needs no
      * ledger lookup at all.
      *
-     * Returns null when any component is absent, empty, or — DUO-3318 review
+     * Returns null when any component is absent, empty, or — issue #3318 review
      * (N3) — carries a ref token this engine cannot parse. That is not a
      * failure: it is the ordinary state of a file captured before the
      * declaration existed, or of a row whose optional-looking component was
@@ -1025,7 +1025,7 @@ final class Snapshot {
      * "say nothing" rather than as an error. The malformed-token case joined
      * that list because both callers are INFORMATIONAL (the identity-
      * continuity note, at capture and in a plan row): hard-throwing there made
-     * one corrupt byte in one repository file abort a whole `duo plan` from an
+     * one corrupt byte in one repository file abort a whole `wprism plan` from an
      * annotation nobody asked for. The fail-closed reading of the same token
      * still exists where it belongs — capture's own live derivation
      * (SnapshotIdentity's live component reader) and apply's adoption lookup
@@ -1039,14 +1039,14 @@ final class Snapshot {
     }
 
     /**
-     * Identity for one row: reuse the existing duo_map entry if one exists
+     * Identity for one row: reuse the existing wprism_map entry if one exists
      * and re-affirm it via contradiction-intolerant Ledger::set(). A
      * never-seen mapped row gets NEW identity only when $mint is true;
      * natural-key rows derive identity in either mode. See this file's
      * docblock for the mapped-vs-natural_key recovery split.
      *
      * $tokens is the capture-direction resolver for a REF identity component
-     * (DUO-3318's parent-scoped natural key): the referenced row's uuid, never
+     * (issue #3318's parent-scoped natural key): the referenced row's uuid, never
      * the live local id sitting in the column.
      */
     private static function identify_row(
@@ -1101,7 +1101,7 @@ final class Snapshot {
      * identity (find_collision()), so a malformed one is a corruption to
      * refuse, never a value to derive something wrong from.
      *
-     * DUO-3318 review (N3): the attribution used to say "composite_ref
+     * issue #3318 review (N3): the attribution used to say "composite_ref
      * identity derivation", which was true when composite_ref was the only
      * mode that read a ref token for identity; the parent-scoped natural key
      * reaches it too.
@@ -1111,7 +1111,7 @@ final class Snapshot {
     }
 
     /**
-     * Packs a composite_ref row's two CURRENT local ids into duo_map's
+     * Packs a composite_ref row's two CURRENT local ids into wprism_map's
      * existing, unchanged `local_id BIGINT UNSIGNED` column — deliberately
      * NOT a schema migration (see this file's docblock): (id_kind, local_id)
      * stays the SAME lookup shape delete_row() and every other ledger
@@ -1185,7 +1185,7 @@ final class Snapshot {
      * tables have no natural collision key at all — always create fresh.
      *
      * $tree/$cache/$seen carry the parent-resolution fallback for a
-     * parent-scoped key's ref component (DUO-3318 review, S2) and mirror
+     * parent-scoped key's ref component (issue #3318 review, S2) and mirror
      * Apply::find_collision()'s own signature: $tree is the compiled
      * repository keyed by uuid, $cache is Apply's shared per-uuid collision
      * memo, and $seen is the recursion path (by VALUE, so it scopes itself to
@@ -1285,7 +1285,7 @@ final class Snapshot {
     /**
      * Delete an exact local row through the same typed-snapshot cascade and
      * invalidation path as apply. Orphans uses this because a damaged row may
-     * itself have lost its duo_map identity and therefore cannot be selected
+     * itself have lost its wprism_map identity and therefore cannot be selected
      * by UUID; the table declaration + local primary key remain sufficient
      * deletion authority once the operator selects that listed orphan.
      */

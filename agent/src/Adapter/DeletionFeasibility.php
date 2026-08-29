@@ -1,14 +1,14 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 
 /**
- * Can each PROPOSED deletion guard lock? (`duo-deletion-feasibility/v1`)
+ * Can each PROPOSED deletion guard lock? (`wprism-deletion-feasibility/v1`)
  *
  * A manifest's deletion contract is only as strong as its guards' lock
  * boundaries: `DeleteGuardReferenceScanner` runs each guard's final
@@ -20,14 +20,14 @@ require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
  * already declared and pinned. This emitter runs the identical computation at
  * AUTHORING time, over a proposal that is not declared anywhere yet.
  *
- * `manifests/ninja-forms.json:17`'s DUO-3328 note is a prose transcription of
+ * `manifests/ninja-forms.json:17`'s issue #3328 note is a prose transcription of
  * exactly this function's output: "Ninja Forms 3.14.11 ships
  * nf3_actions.parent_id and nf3_fields.parent_id without complete indexes, so
- * InnoDB cannot take the next-key/gap locks required … Duo therefore does not
+ * InnoDB cannot take the next-key/gap locks required … WPrism therefore does not
  * advertise table:nf3_forms deletion." That paragraph was written by a human
  * reading a live schema by hand. This class computes the null it records.
  *
- * ## Why a sibling document and not `duo-adapter-probe/v1`
+ * ## Why a sibling document and not `wprism-adapter-probe/v1`
  *
  * The probe is the natural carrier — it already reports per-column index
  * coverage in `lock_index()`'s terms (`AdapterProbe::indexes_of():232-292`)
@@ -37,7 +37,7 @@ require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
  * from the consumer side against a CLOSED per-table key set. A feasibility
  * row is keyed by a DELETION SELECTOR, so joining it to that document would
  * either put deletion vocabulary into the draft's evidence stream — the one
- * thing WP-2.1 walled off — or force `duo-adapter-probe/v2` on every existing
+ * thing WP-2.1 walled off — or force `wprism-adapter-probe/v2` on every existing
  * consumer to carry a section the draft must then refuse. A sibling format is
  * the honest shape: one document, one question, its own hash, consumed by a
  * human rather than spliced into a fragment.
@@ -53,7 +53,7 @@ require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
  * it. `authority: false` is declared in its own bytes, exactly like the probe.
  *
  * Nor is it a manifest validator. `DeletionCapabilityResolver::capability()`
- * owns the guard grammar (`:47-162`) and `duo manifest-validate` runs it; this
+ * owns the guard grammar (`:47-162`) and `wprism manifest-validate` runs it; this
  * report reads a proposal no manifest has adopted yet, so "is this guard
  * well-formed" is a question it deliberately leaves to the tool that already
  * answers it, and a proposal that would fail there still gets a lock answer
@@ -70,7 +70,7 @@ require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
  * so it is checked on every guard rather than assumed.
  */
 final class DeletionFeasibility {
-    public const FORMAT = 'duo-deletion-feasibility/v1';
+    public const FORMAT = 'wprism-deletion-feasibility/v1';
 
     /** Same word `AdapterProbe`/`AdapterObservation` publish: values never enter the document. */
     public const REDACTION = 'values_omitted';
@@ -131,7 +131,7 @@ final class DeletionFeasibility {
     /**
      * @param array<string,mixed> $proposal `<selector> => {guards: [...]}` — the shape a
      *   manifest's `deletions` section has, minus `cascades`, which is refused
-     * @return array<string,mixed> a `duo-deletion-feasibility/v1` document
+     * @return array<string,mixed> a `wprism-deletion-feasibility/v1` document
      */
     public static function report(array $proposal): array {
         global $wpdb;
@@ -139,7 +139,7 @@ final class DeletionFeasibility {
             // There is no schema outside a loaded WordPress, and a report full
             // of nulls would be indistinguishable from a real unindexed one —
             // which is precisely the conclusion that must never be invented.
-            throw new \RuntimeException('duo: deletion feasibility needs a live target; $wpdb is unavailable');
+            throw new \RuntimeException('wprism: deletion feasibility needs a live target; $wpdb is unavailable');
         }
         if ($proposal === []) {
             throw self::refuse(
@@ -275,7 +275,7 @@ final class DeletionFeasibility {
                 if (!in_array((string) $key, self::GUARD_KEYS, true)) {
                     // NAMING the offender is the whole remedy here. `note` is
                     // the obvious thing an author annotating a guard writes,
-                    // `wp help duo adapter-deletion-feasibility` documents
+                    // `wp help wprism adapter-deletion-feasibility` documents
                     // `--proposal` only as "`<selector>: {"guards": [...]}` —
                     // minus `cascades`" and lists none of the 13 legal keys,
                     // and the sentence that would have explained it was being
@@ -427,19 +427,19 @@ final class DeletionFeasibility {
         $rows = $wpdb->get_results("SHOW INDEX FROM `$prefixed`", ARRAY_A);
         self::assert_read_ok('index inventory');
         if (!is_array($rows)) {
-            throw new \RuntimeException('duo: deletion feasibility could not read a guard table index inventory');
+            throw new \RuntimeException('wprism: deletion feasibility could not read a guard table index inventory');
         }
 
         $indexes = [];
         foreach ($rows as $row) {
             if (!is_array($row)) {
-                throw new \RuntimeException('duo: deletion feasibility read a malformed index row');
+                throw new \RuntimeException('wprism: deletion feasibility read a malformed index row');
             }
             $name = (string) ($row['Key_name'] ?? '');
             self::assert_identifier($name, 'index');
             $seq = (int) ($row['Seq_in_index'] ?? 0);
             if ($seq <= 0) {
-                throw new \RuntimeException('duo: deletion feasibility read a malformed index ordinal');
+                throw new \RuntimeException('wprism: deletion feasibility read a malformed index ordinal');
             }
             $part = (string) ($row['Column_name'] ?? '');
             self::assert_identifier($part, 'column');
@@ -475,7 +475,7 @@ final class DeletionFeasibility {
         // Neither half is echoed: an index name is a server identifier, and
         // the useful fact is that the two readings disagreed at all.
         throw new \RuntimeException(
-            'duo: deletion feasibility refuses to publish an explanation that disagrees with '
+            'wprism: deletion feasibility refuses to publish an explanation that disagrees with '
                 . "DeleteGuardEvaluator::lock_index()'s own verdict for a guard on '{$row['table']}'"
         );
     }
@@ -497,7 +497,7 @@ final class DeletionFeasibility {
     private static function assert_identifier(string $value, string $kind): void {
         if (preg_match(self::IDENTIFIER, $value) !== 1) {
             throw new \RuntimeException(
-                "duo: deletion feasibility refused a $kind name outside the portable identifier grammar"
+                "wprism: deletion feasibility refused a $kind name outside the portable identifier grammar"
             );
         }
     }
@@ -549,7 +549,7 @@ final class DeletionFeasibility {
      *
      * Measured on a live WPForms Lite pair: a guard carrying a `note` key —
      * the obvious thing an author annotating a guard writes, and a key
-     * `wp help duo adapter-deletion-feasibility` never lists — returned the
+     * `wp help wprism adapter-deletion-feasibility` never lists — returned the
      * unclassified envelope with remediation "inspect the proposed deletion
      * selectors and their guards", while the sentence that names the actual
      * problem ("…a guard field it does not model; it would answer for the
@@ -558,7 +558,7 @@ final class DeletionFeasibility {
      * `invalid_arguments` is this verb's own reason code for a `--proposal` it
      * cannot read (`Cli.php:3409`), so one command answers "your proposal is
      * wrong" with one code whether the file was unreadable or its contents
-     * were. The operator message keeps the `duo: ` prefix these refusals have
+     * were. The operator message keeps the `wprism: ` prefix these refusals have
      * always carried, so the human/exception form is unchanged.
      */
     private static function refuse(string $publicMessage, string $remediation): CommandRefusalException {
@@ -567,7 +567,7 @@ final class DeletionFeasibility {
             $publicMessage,
             $remediation,
             [],
-            'duo: ' . $publicMessage
+            'wprism: ' . $publicMessage
         );
     }
 
@@ -579,7 +579,7 @@ final class DeletionFeasibility {
     private static function assert_read_ok(string $what): void {
         global $wpdb;
         if (trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: deletion feasibility could not read the $what; refusing to infer it");
+            throw new \RuntimeException("wprism: deletion feasibility could not read the $what; refusing to infer it");
         }
     }
 
@@ -602,10 +602,10 @@ final class DeletionFeasibility {
     }
 
     private static function agent_version(): string {
-        return defined('DUO_AGENT_VERSION') ? (string) DUO_AGENT_VERSION : 'unknown';
+        return defined('WPRISM_AGENT_VERSION') ? (string) WPRISM_AGENT_VERSION : 'unknown';
     }
 
     private static function spec_version(): int {
-        return defined('DUO_SPEC_VERSION') ? (int) DUO_SPEC_VERSION : 0;
+        return defined('WPRISM_SPEC_VERSION') ? (int) WPRISM_SPEC_VERSION : 0;
     }
 }

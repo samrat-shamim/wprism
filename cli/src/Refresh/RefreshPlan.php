@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/RefreshFieldDiff.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/MediaPayloadAuthority.php';
@@ -13,10 +13,10 @@ require_once dirname(__DIR__, 3) . '/agent/src/Kernel/MediaPayloadAuthority.php'
  * production.  This class never contacts WordPress and never raw-merges state.
  */
 final class RefreshPlan {
-    private const GIT_FORMAT = 'duo-refresh-git/v1';
-    private const PRODUCTION_FORMAT = 'duo-refresh-production/v1';
-    private const PLAN_FORMAT = 'duo-refresh-plan/v1';
-    private const MATERIALIZATION_FORMAT = 'duo-refresh-materialization/v1';
+    private const GIT_FORMAT = 'wprism-refresh-git/v1';
+    private const PRODUCTION_FORMAT = 'wprism-refresh-production/v1';
+    private const PLAN_FORMAT = 'wprism-refresh-plan/v1';
+    private const MATERIALIZATION_FORMAT = 'wprism-refresh-materialization/v1';
 
     /** @return array<string,mixed> */
     public static function normalizeProductionSnapshot(array $raw): array {
@@ -27,7 +27,7 @@ final class RefreshPlan {
         $claimed = (string) ($raw['snapshot_hash'] ?? '');
         $basis = $raw;
         unset($basis['snapshot_hash']);
-        if (!self::isHash($claimed) || !hash_equals($claimed, hash('sha256', \Duo\Canon::encode($basis)))) {
+        if (!self::isHash($claimed) || !hash_equals($claimed, hash('sha256', \WPrism\Canon::encode($basis)))) {
             throw new \RuntimeException('production snapshot hash does not verify');
         }
         self::assertSnapshot($raw, 'production');
@@ -88,10 +88,10 @@ final class RefreshPlan {
         $args = [PHP_BINARY, $worker, $path, $commit, $label];
         if ($scopeContract !== null) {
             self::loadCompiler();
-            $scopeContract = \Duo\ScopeContract::from_array($scopeContract);
-            $scopePath = tempnam(sys_get_temp_dir(), 'duo-refresh-scope-');
+            $scopeContract = \WPrism\ScopeContract::from_array($scopeContract);
+            $scopePath = tempnam(sys_get_temp_dir(), 'wprism-refresh-scope-');
             if ($scopePath === false
-                || file_put_contents($scopePath, \Duo\Canon::encode($scopeContract), LOCK_EX) === false) {
+                || file_put_contents($scopePath, \WPrism\Canon::encode($scopeContract), LOCK_EX) === false) {
                 throw new \RuntimeException('cannot stage immutable scope evidence for candidate validation');
             }
             @chmod($scopePath, 0600);
@@ -133,7 +133,7 @@ final class RefreshPlan {
     ): array {
         self::loadCompiler();
         $root = realpath($path);
-        if (!self::isCommit($commit) || $root === false || !is_file($root . '/site.duo.json')
+        if (!self::isCommit($commit) || $root === false || !is_file($root . '/site.wprism.json')
             || !in_array($label, self::WORKTREE_ROLES, true)) {
             throw new \RuntimeException("cannot compile $label Git worktree");
         }
@@ -143,25 +143,25 @@ final class RefreshPlan {
         }
         [$compiled, $fieldDiffPolicy] = self::withGitWorktreePolicy(
             $root,
-            static function (\Duo\Policy $policy) use ($root, $label, $scopeMode, $scopePath): array {
+            static function (\WPrism\Policy $policy) use ($root, $label, $scopeMode, $scopePath): array {
                 $fieldDiffPolicy = self::fieldDiffPolicyProjection($policy);
                 $compiled = in_array($label, self::DIFF_ONLY_ROLES, true)
-                    ? \Duo\RepositoryCompiler::compile_for_diff($root, $policy)
-                    : \Duo\RepositoryCompiler::compile($root, $policy);
+                    ? \WPrism\RepositoryCompiler::compile_for_diff($root, $policy)
+                    : \WPrism\RepositoryCompiler::compile($root, $policy);
                 if ($scopeMode === 'candidate' || $scopePath !== null) {
                     if ($scopeMode !== 'candidate' || $scopePath === null || !is_file($scopePath)) {
                         throw new \RuntimeException('cannot validate scoped candidate: malformed worker request');
                     }
-                    $decoded = \Duo\Canon::decode(\Duo\Canon::read_file($scopePath));
+                    $decoded = \WPrism\Canon::decode(\WPrism\Canon::read_file($scopePath));
                     if (!is_array($decoded)) {
                         throw new \RuntimeException('cannot validate scoped candidate: contract is not an object');
                     }
-                    $contract = \Duo\ScopeContract::from_array($decoded);
+                    $contract = \WPrism\ScopeContract::from_array($decoded);
                     $sourceTombstones = array_fill_keys(
                         array_map('strval', array_column((array) $contract['tombstones'], 'uuid')),
                         true
                     );
-                    $selected = array_fill_keys(\Duo\ScopedStateOverlay::selected_identities($contract), true);
+                    $selected = array_fill_keys(\WPrism\ScopedStateOverlay::selected_identities($contract), true);
                     $authorizedDeletions = [];
                     foreach (array_keys($compiled->deletions()) as $identity) {
                         $identity = (string) $identity;
@@ -169,7 +169,7 @@ final class RefreshPlan {
                             $authorizedDeletions[] = $identity;
                         }
                     }
-                    \Duo\ScopeContract::assert_candidate_bounded(
+                    \WPrism\ScopeContract::assert_candidate_bounded(
                         $contract,
                         $compiled,
                         $policy,
@@ -207,23 +207,23 @@ final class RefreshPlan {
                 $name = (string) $name;
                 $path = rtrim($root, '/') . '/media/' . $name;
                 try {
-                    $parsed = \Duo\MediaPayloadAuthority::parseMediaName($name);
-                    $observed = \Duo\MediaPayloadAuthority::observeCatalogFile($path, $name);
+                    $parsed = \WPrism\MediaPayloadAuthority::parseMediaName($name);
+                    $observed = \WPrism\MediaPayloadAuthority::observeCatalogFile($path, $name);
                     if (!self::isHash($expected)
                         || !hash_equals($parsed['sha256'], (string) $expected)
                         || !hash_equals($observed['sha256'], (string) $expected)) {
                         throw new \RuntimeException('content address mismatch');
                     }
-                    $catalogBytes = \Duo\MediaPayloadAuthority::addToAggregate($catalogBytes, $observed['size']);
+                    $catalogBytes = \WPrism\MediaPayloadAuthority::addToAggregate($catalogBytes, $observed['size']);
                     $catalog[$name] = (string) $expected;
                 } catch (\Throwable $failure) {
                     throw new \RuntimeException("compiled media catalog entry '$name' cannot be verified");
                 }
             }
-            \Duo\MediaPayloadAuthority::assertRefreshExportHeadroom($catalogBytes);
+            \WPrism\MediaPayloadAuthority::assertRefreshExportHeadroom($catalogBytes);
             foreach ($catalog as $name => $expected) {
                 try {
-                    $bytes = \Duo\MediaPayloadAuthority::readCatalogBlob(
+                    $bytes = \WPrism\MediaPayloadAuthority::readCatalogBlob(
                         rtrim($root, '/') . '/media/' . $name,
                         $name
                     );
@@ -292,7 +292,7 @@ final class RefreshPlan {
     public static function fieldDiffPolicyWorker(string $path, string $commit, string $label): array {
         self::loadCompiler();
         $root = realpath($path);
-        if ($label !== 'candidate' || !self::isCommit($commit) || $root === false || !is_file($root . '/site.duo.json')) {
+        if ($label !== 'candidate' || !self::isCommit($commit) || $root === false || !is_file($root . '/site.wprism.json')) {
             throw new \RuntimeException('cannot load candidate field policy');
         }
         $head = self::runProcess(['git', '-C', $root, 'rev-parse', '--verify', 'HEAD^{commit}']);
@@ -301,7 +301,7 @@ final class RefreshPlan {
         }
         return self::withGitWorktreePolicy(
             $root,
-            static fn(\Duo\Policy $policy): array => self::fieldDiffPolicyProjection($policy)
+            static fn(\WPrism\Policy $policy): array => self::fieldDiffPolicyProjection($policy)
         );
     }
 
@@ -311,12 +311,12 @@ final class RefreshPlan {
         $platform = $root . '/platform/adapter-library';
         if (file_exists($packages) || is_link($packages) || file_exists($platform) || is_link($platform)) {
             return $operation(
-                \Duo\Policy::load(
+                \WPrism\Policy::load(
                     $root,
                     null,
                     false,
                     null,
-                    \Duo\AdapterLibrary::fromSourceTree($root)
+                    \WPrism\AdapterLibrary::fromSourceTree($root)
                 )
             );
         }
@@ -327,12 +327,12 @@ final class RefreshPlan {
             // Reading that explicitly named ref is the one bounded use for
             // the strict legacy reader; it never changes runtime discovery.
             return $operation(
-                \Duo\Policy::load(
+                \WPrism\Policy::load(
                     $root,
                     null,
                     false,
                     null,
-                    \Duo\AdapterLibrary::fromLegacyFlatDirectory($legacy)
+                    \WPrism\AdapterLibrary::fromLegacyFlatDirectory($legacy)
                 )
             );
         }
@@ -340,17 +340,17 @@ final class RefreshPlan {
         // A normal site repository owns adapters/ and canonical state, not the
         // engine's shipped library. Compile it against the library belonging
         // to this process, exactly as an ordinary Policy::load($root) does.
-        return $operation(\Duo\Policy::load($root));
+        return $operation(\WPrism\Policy::load($root));
     }
 
     /** @return array<string,mixed> */
-    private static function fieldDiffPolicyProjection(\Duo\Policy $policy): array {
+    private static function fieldDiffPolicyProjection(\WPrism\Policy $policy): array {
         $types = array_values(array_unique(array_merge($policy->post_types(), $policy->declared_post_types())));
         sort($types, SORT_STRING);
         $derived = [];
         foreach ($types as $type) {
             $fields = [];
-            foreach (array_keys(\Duo\Policy::DERIVABLE_FIELD_COLUMNS) as $field) {
+            foreach (array_keys(\WPrism\Policy::DERIVABLE_FIELD_COLUMNS) as $field) {
                 if ($policy->field_class((string) $type, (string) $field) === 'derived') {
                     $fields[] = (string) $field;
                 }
@@ -361,11 +361,11 @@ final class RefreshPlan {
         $projection = [
             'derived_post_fields' => $derived,
             'format' => RefreshFieldDiff::POLICY_FORMAT,
-            'manifest_hash' => \Duo\RepositoryCompiler::manifest_hash($policy),
-            'resolved_adapters_sha256' => hash('sha256', \Duo\Canon::encode(\Duo\RepositoryCompiler::resolved_adapters($policy))),
-            'state_site_hash' => \Duo\RepositoryCompiler::state_site_hash($policy),
+            'manifest_hash' => \WPrism\RepositoryCompiler::manifest_hash($policy),
+            'resolved_adapters_sha256' => hash('sha256', \WPrism\Canon::encode(\WPrism\RepositoryCompiler::resolved_adapters($policy))),
+            'state_site_hash' => \WPrism\RepositoryCompiler::state_site_hash($policy),
         ];
-        $projection['projection_hash'] = hash('sha256', \Duo\Canon::encode($projection));
+        $projection['projection_hash'] = hash('sha256', \WPrism\Canon::encode($projection));
         return RefreshFieldDiff::normalizePolicyProjection($projection);
     }
 
@@ -402,18 +402,18 @@ final class RefreshPlan {
         $selectedScope = [];
         if ($scopeContract !== null) {
             self::loadCompiler();
-            $scopeContract = \Duo\ScopeContract::from_array($scopeContract);
+            $scopeContract = \WPrism\ScopeContract::from_array($scopeContract);
             $scopeEvidence = $production['scope'] ?? null;
             if (!is_array($scopeEvidence)
-                || ($scopeEvidence['format'] ?? null) !== 'duo-refresh-scope/v1'
+                || ($scopeEvidence['format'] ?? null) !== 'wprism-refresh-scope/v1'
                 || ($scopeEvidence['out_of_scope'] ?? null) !== 'omitted_not_absent'
                 || !hash_equals((string) $scopeContract['scope_hash'], (string) ($scopeEvidence['scope_hash'] ?? ''))) {
                 throw new \RuntimeException('scoped production snapshot does not match plan context');
             }
-            foreach (\Duo\ScopedStateOverlay::selected_identities($scopeContract) as $identity) {
+            foreach (\WPrism\ScopedStateOverlay::selected_identities($scopeContract) as $identity) {
                 $selectedScope[$identity] = true;
             }
-            foreach (\Duo\ScopeContract::option_root_names($scopeContract) as $name) {
+            foreach (\WPrism\ScopeContract::option_root_names($scopeContract) as $name) {
                 $selectedScope['option:' . $name] = true;
             }
         }
@@ -525,7 +525,7 @@ final class RefreshPlan {
         ];
         if ($scopeContract !== null) {
             $plan['scope_baseline'] = [
-                'format' => 'duo-refresh-scope-baseline/v1',
+                'format' => 'wprism-refresh-scope-baseline/v1',
                 'records' => $branch['records'],
                 'deletions' => $branch['deletions'],
                 'media' => $branch['media'],
@@ -672,7 +672,7 @@ final class RefreshPlan {
             $row = $entry['selected'] ?? null;
             if ($row === null) continue;
             if (($row['virtual'] ?? null) === 'option') {
-                $options[(string) $row['option_name']] = \Duo\Canon::decode((string) $row['content']);
+                $options[(string) $row['option_name']] = \WPrism\Canon::decode((string) $row['content']);
                 continue;
             }
             $path = (string) ($row['path'] ?? '');
@@ -691,9 +691,9 @@ final class RefreshPlan {
             }
         }
         ksort($options, SORT_STRING);
-        $format = 'duo-options/v1';
-        foreach ($options as $record) if (is_array($record) && array_key_exists('classification_witness', $record)) $format = 'duo-options/v2';
-        $stateRows['options/core.json'] = \Duo\Canon::encode(['format' => $format, 'records' => (object) $options]);
+        $format = 'wprism-options/v1';
+        foreach ($options as $record) if (is_array($record) && array_key_exists('classification_witness', $record)) $format = 'wprism-options/v2';
+        $stateRows['options/core.json'] = \WPrism\Canon::encode(['format' => $format, 'records' => (object) $options]);
         ksort($stateRows, SORT_STRING);
         ksort($mediaNeeded, SORT_STRING);
         self::assertMediaPayloadBudget($mediaNeeded);
@@ -722,13 +722,13 @@ final class RefreshPlan {
     ): array {
         $baseline = $plan['scope_baseline'] ?? null;
         if (!is_array($baseline)
-            || ($baseline['format'] ?? null) !== 'duo-refresh-scope-baseline/v1'
+            || ($baseline['format'] ?? null) !== 'wprism-refresh-scope-baseline/v1'
             || !is_array($baseline['records'] ?? null)
             || !is_array($baseline['deletions'] ?? null)
             || !is_array($baseline['media'] ?? null)) {
             throw new \RuntimeException('scoped refresh plan has no exact branch baseline');
         }
-        $scopeContract = \Duo\ScopeContract::from_array($plan['context']['scope_contract']);
+        $scopeContract = \WPrism\ScopeContract::from_array($plan['context']['scope_contract']);
         if (!hash_equals((string) $scopeContract['scope_hash'], (string) ($baseline['scope_hash'] ?? ''))) {
             throw new \RuntimeException('scoped refresh baseline does not match its immutable contract');
         }
@@ -768,14 +768,14 @@ final class RefreshPlan {
                 if ($optionRecords === null) {
                     $baselineOptions = $stateByIdentity['options/core'] ?? null;
                     $optionRecords = $baselineOptions !== null
-                        ? \Duo\OptionState::records(\Duo\Canon::decode((string) $baselineOptions['content']))
+                        ? \WPrism\OptionState::records(\WPrism\Canon::decode((string) $baselineOptions['content']))
                         : [];
                 }
                 $name = substr($identity, strlen('option:'));
                 if ($row === null) {
                     unset($optionRecords[$name]);
                 } else {
-                    $optionRecords[$name] = \Duo\Canon::decode((string) $row['content']);
+                    $optionRecords[$name] = \WPrism\Canon::decode((string) $row['content']);
                 }
                 continue;
             }
@@ -785,7 +785,7 @@ final class RefreshPlan {
             }
         }
         if ($optionRecords !== null) {
-            $content = self::encode(\Duo\OptionState::document($optionRecords));
+            $content = self::encode(\WPrism\OptionState::document($optionRecords));
             $stateByIdentity['options/core'] = [
                 'identity' => 'options/core',
                 'type' => 'options',
@@ -818,7 +818,7 @@ final class RefreshPlan {
                 continue;
             }
             try {
-                [$front] = \Duo\Canon::parse_post_file((string) ($selectedRow['content'] ?? ''));
+                [$front] = \WPrism\Canon::parse_post_file((string) ($selectedRow['content'] ?? ''));
             } catch (\Throwable $failure) {
                 throw new \RuntimeException('scoped refresh selected malformed canonical post state', 0, $failure);
             }
@@ -864,7 +864,7 @@ final class RefreshPlan {
             throw new \RuntimeException("refresh media '$name' does not verify");
         }
         try {
-            return \Duo\MediaPayloadAuthority::decodeArtifactMedia($name, [
+            return \WPrism\MediaPayloadAuthority::decodeArtifactMedia($name, [
                 'sha256' => $payload['sha256'],
                 'base64' => $payload['base64'],
             ]);
@@ -882,9 +882,9 @@ final class RefreshPlan {
                 throw new \RuntimeException('refresh media payload is malformed');
             }
             try {
-                $bytes = \Duo\MediaPayloadAuthority::addToAggregate(
+                $bytes = \WPrism\MediaPayloadAuthority::addToAggregate(
                     $bytes,
-                    \Duo\MediaPayloadAuthority::canonicalBase64DecodedLength(
+                    \WPrism\MediaPayloadAuthority::canonicalBase64DecodedLength(
                         $payload['base64'],
                         'refresh media payload'
                     )
@@ -893,7 +893,7 @@ final class RefreshPlan {
                 throw new \RuntimeException("refresh media '$name' does not verify");
             }
         }
-        \Duo\MediaPayloadAuthority::assertRefreshExportHeadroom($bytes);
+        \WPrism\MediaPayloadAuthority::assertRefreshExportHeadroom($bytes);
     }
 
     /** Apply the immutable run's choices without rewriting the persisted plan. */
@@ -962,7 +962,7 @@ final class RefreshPlan {
     public static function validateMaterialization(array $receipt, array $plan, string $worktree): void {
         $plan = self::normalizePlan($plan);
         $scopeContract = is_array($plan['context']['scope_contract'] ?? null)
-            ? \Duo\ScopeContract::from_array($plan['context']['scope_contract'])
+            ? \WPrism\ScopeContract::from_array($plan['context']['scope_contract'])
             : null;
         if (($receipt['format'] ?? null) !== self::MATERIALIZATION_FORMAT
             || ($receipt['resolved'] ?? null) !== true
@@ -999,8 +999,8 @@ final class RefreshPlan {
         if (!is_array($baseline)) {
             throw new \RuntimeException('scoped refresh validation has no exact branch baseline');
         }
-        $selected = array_fill_keys(\Duo\ScopedStateOverlay::selected_identities($scopeContract), true);
-        $selectedOptions = array_fill_keys(\Duo\ScopeContract::option_root_names($scopeContract), true);
+        $selected = array_fill_keys(\WPrism\ScopedStateOverlay::selected_identities($scopeContract), true);
+        $selectedOptions = array_fill_keys(\WPrism\ScopeContract::option_root_names($scopeContract), true);
         foreach (['records', 'deletions'] as $field) {
             foreach ((array) ($baseline[$field] ?? []) as $identity => $row) {
                 $identity = (string) $identity;
@@ -1049,8 +1049,8 @@ final class RefreshPlan {
             throw new \RuntimeException('scoped refresh changed or removed excluded branch records identity \'options/core\'');
         }
         try {
-            $baselineOptions = \Duo\OptionState::records(\Duo\Canon::decode((string) ($baselineRow['content'] ?? '')));
-            $candidateOptions = \Duo\OptionState::records(\Duo\Canon::decode((string) ($candidateRow['content'] ?? '')));
+            $baselineOptions = \WPrism\OptionState::records(\WPrism\Canon::decode((string) ($baselineRow['content'] ?? '')));
+            $candidateOptions = \WPrism\OptionState::records(\WPrism\Canon::decode((string) ($candidateRow['content'] ?? '')));
         } catch (\Throwable $failure) {
             throw new \RuntimeException('scoped refresh candidate has malformed options/core state', 0, $failure);
         }
@@ -1059,7 +1059,7 @@ final class RefreshPlan {
                 continue;
             }
             if (!array_key_exists($name, $candidateOptions)
-                || \Duo\Canon::encode($candidateOptions[$name]) !== \Duo\Canon::encode($record)) {
+                || \WPrism\Canon::encode($candidateOptions[$name]) !== \WPrism\Canon::encode($record)) {
                 throw new \RuntimeException("scoped refresh changed or removed excluded option '$name'");
             }
         }
@@ -1076,9 +1076,9 @@ final class RefreshPlan {
         $states = [];
         foreach ((array) ($snapshot['records'] ?? []) as $identity => $row) {
             if ((string) $identity === 'options/core') {
-                $document = \Duo\Canon::decode((string) $row['content']);
-                foreach (\Duo\OptionState::records($document) as $name => $record) {
-                    $content = \Duo\Canon::encode($record);
+                $document = \WPrism\Canon::decode((string) $row['content']);
+                foreach (\WPrism\OptionState::records($document) as $name => $record) {
+                    $content = \WPrism\Canon::encode($record);
                     $states['option:' . $name] = [
                         'identity' => 'option:' . $name, 'type' => 'option', 'path' => 'options/core.json',
                         'hash' => hash('sha256', $content), 'content' => $content,
@@ -1144,24 +1144,24 @@ final class RefreshPlan {
     }
 
     private static function loadCompiler(): void {
-        if (class_exists(\Duo\RepositoryCompiler::class, false)
-            && class_exists(\Duo\CodeStateContract::class, false)) return;
-        if (!defined('DUO_SPEC_VERSION')) define('DUO_SPEC_VERSION', 3);
+        if (class_exists(\WPrism\RepositoryCompiler::class, false)
+            && class_exists(\WPrism\CodeStateContract::class, false)) return;
+        if (!defined('WPRISM_SPEC_VERSION')) define('WPRISM_SPEC_VERSION', 3);
         $root = dirname(__DIR__, 3);
-        $duoAgentClassmap = require $root . '/agent/duo-classmap.php';
-        if (!is_array($duoAgentClassmap)) {
-            throw new \RuntimeException('refresh: agent/duo-classmap.php did not return a map');
+        $wprismAgentClassmap = require $root . '/agent/wprism-classmap.php';
+        if (!is_array($wprismAgentClassmap)) {
+            throw new \RuntimeException('refresh: agent/wprism-classmap.php did not return a map');
         }
-        $duoAgentFiles = [];
-        foreach ($duoAgentClassmap as $duoAgentPath) {
-            $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
+        $wprismAgentFiles = [];
+        foreach ($wprismAgentClassmap as $wprismAgentPath) {
+            $wprismAgentFiles[basename((string) $wprismAgentPath, '.php')] = (string) $wprismAgentPath;
         }
         foreach (['Uuid','OrderPreserved','Canon','OptionState','UserMetaState','Db','Secrets','PersonalData','ManifestDispositions','Policy','Ledger','PromotionLock','Identity','IdentityBackup','Deletion','JsonRefs','Tokens','Blocks','PlainData','SidebarState','Shortcodes','Canary','IdentityNotes','Snapshot','Orphans','TransientDbException','Publish','Capture','RepositoryAuthorization','CodeCompatibility','Code','ReferenceGraph','RepositoryCompiler','ScopeClosure','CanonicalSurfaces','ScopeContract','ScopedStateOverlay','CodeStateContract'] as $file) {
-            $duoAgentFile = $duoAgentFiles[$file] ?? null;
-            if (!is_string($duoAgentFile)) {
-                throw new \RuntimeException('refresh: agent source ' . $file . '.php is absent from agent/duo-classmap.php');
+            $wprismAgentFile = $wprismAgentFiles[$file] ?? null;
+            if (!is_string($wprismAgentFile)) {
+                throw new \RuntimeException('refresh: agent source ' . $file . '.php is absent from agent/wprism-classmap.php');
             }
-            require_once $root . '/agent/' . $duoAgentFile;
+            require_once $root . '/agent/' . $wprismAgentFile;
         }
     }
 
@@ -1217,7 +1217,7 @@ final class RefreshPlan {
 
     private static function encode(mixed $value): string {
         self::loadCompiler();
-        return \Duo\Canon::encode($value);
+        return \WPrism\Canon::encode($value);
     }
 
     private static function isHash(mixed $value): bool {

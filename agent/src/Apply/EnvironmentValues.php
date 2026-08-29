@@ -1,13 +1,13 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 
 /** Target-local intended values for manifest-declared environment options. */
 final class EnvironmentValues {
-    public const FILE = '.duo-env-values.json';
+    public const FILE = '.wprism-env-values.json';
 
     /** @return array<string,string> */
     public static function read(string $repo): array {
@@ -16,29 +16,29 @@ final class EnvironmentValues {
             return [];
         }
         if (!is_file($path) || is_link($path)) {
-            throw new \RuntimeException('duo: ' . self::FILE . ' must be a regular non-symlink file');
+            throw new \RuntimeException('wprism: ' . self::FILE . ' must be a regular non-symlink file');
         }
         $mode = fileperms($path);
         if ($mode === false || ($mode & 0077) !== 0) {
-            throw new \RuntimeException('duo: ' . self::FILE . ' must be readable only by its owner (mode 0600)');
+            throw new \RuntimeException('wprism: ' . self::FILE . ' must be readable only by its owner (mode 0600)');
         }
         $raw = file_get_contents($path);
         if ($raw === false) {
-            throw new \RuntimeException('duo: cannot read ' . self::FILE);
+            throw new \RuntimeException('wprism: cannot read ' . self::FILE);
         }
         try {
             $typed = json_decode($raw, false, 512, JSON_THROW_ON_ERROR);
             $values = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
         } catch (\Throwable $failure) {
-            throw new \RuntimeException('duo: ' . self::FILE . ' is not valid JSON: ' . $failure->getMessage());
+            throw new \RuntimeException('wprism: ' . self::FILE . ' is not valid JSON: ' . $failure->getMessage());
         }
         if (!is_object($typed) || !is_array($values) || array_is_list($values)) {
-            throw new \RuntimeException('duo: ' . self::FILE . ' must be a JSON object of option name to value');
+            throw new \RuntimeException('wprism: ' . self::FILE . ' must be a JSON object of option name to value');
         }
         foreach ($values as $name => $value) {
             if (!is_string($name) || $name === '' || !is_string($value) || $value === '') {
                 throw new \RuntimeException(
-                    'duo: ' . self::FILE . ' must contain only non-empty string option names and values'
+                    'wprism: ' . self::FILE . ' must contain only non-empty string option names and values'
                 );
             }
         }
@@ -54,34 +54,34 @@ final class EnvironmentValues {
         $temporary = $path . '.tmp.' . bin2hex(random_bytes(8));
         $handle = @fopen($temporary, 'xb');
         if ($handle === false) {
-            throw new \RuntimeException('duo: cannot stage ' . self::FILE);
+            throw new \RuntimeException('wprism: cannot stage ' . self::FILE);
         }
         try {
             if (!chmod($temporary, 0600)) {
-                throw new \RuntimeException('duo: cannot restrict staged ' . self::FILE . ' to mode 0600');
+                throw new \RuntimeException('wprism: cannot restrict staged ' . self::FILE . ' to mode 0600');
             }
             $bytes = Canon::encode($values);
             $offset = 0;
             while ($offset < strlen($bytes)) {
                 $written = fwrite($handle, substr($bytes, $offset));
                 if ($written === false || $written === 0) {
-                    throw new \RuntimeException('duo: cannot write staged ' . self::FILE);
+                    throw new \RuntimeException('wprism: cannot write staged ' . self::FILE);
                 }
                 $offset += $written;
             }
             if (!fflush($handle)) {
-                throw new \RuntimeException('duo: cannot flush staged ' . self::FILE);
+                throw new \RuntimeException('wprism: cannot flush staged ' . self::FILE);
             }
             if (function_exists('fsync') && !fsync($handle)) {
-                throw new \RuntimeException('duo: cannot sync staged ' . self::FILE);
+                throw new \RuntimeException('wprism: cannot sync staged ' . self::FILE);
             }
             fclose($handle);
             $handle = null;
             if (!rename($temporary, $path)) {
-                throw new \RuntimeException('duo: cannot publish ' . self::FILE);
+                throw new \RuntimeException('wprism: cannot publish ' . self::FILE);
             }
             if (!chmod($path, 0600)) {
-                throw new \RuntimeException('duo: cannot restrict published ' . self::FILE . ' to mode 0600');
+                throw new \RuntimeException('wprism: cannot restrict published ' . self::FILE . ' to mode 0600');
             }
         } finally {
             if (is_resource($handle)) {
@@ -96,7 +96,7 @@ final class EnvironmentValues {
     private static function path(string $repo): string {
         $root = realpath($repo);
         if ($root === false || !is_dir($root)) {
-            throw new \RuntimeException('duo: environment value repository root is not a directory');
+            throw new \RuntimeException('wprism: environment value repository root is not a directory');
         }
         return $root . '/' . self::FILE;
     }

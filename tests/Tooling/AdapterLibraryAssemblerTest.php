@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
-use Duo\Tooling\AdapterLibraryAssembler;
+use WPrism\Tooling\AdapterLibraryAssembler;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
@@ -17,7 +17,7 @@ final class AdapterLibraryAssemblerTest extends TestCase
 
     protected function setUp(): void
     {
-        $scratch = sys_get_temp_dir() . '/duo-adapter-assembler-' . bin2hex(random_bytes(8));
+        $scratch = sys_get_temp_dir() . '/wprism-adapter-assembler-' . bin2hex(random_bytes(8));
         self::makeDirectory($scratch);
         $resolved = realpath($scratch);
         self::assertNotFalse($resolved);
@@ -69,7 +69,7 @@ final class AdapterLibraryAssemblerTest extends TestCase
         self::assertSame(AdapterLibraryAssembler::FORMAT, $result['format']);
         self::assertSame($agent . '/adapter-library', $result['target']);
         self::assertSame(
-            "duo-embedded-adapter-library-assembly/v1\n",
+            "wprism-embedded-adapter-library-assembly/v1\n",
             file_get_contents($agent . '/' . AdapterLibraryAssembler::DEPLOYMENT_MARKER)
         );
         self::assertSame([
@@ -288,7 +288,7 @@ final class AdapterLibraryAssemblerTest extends TestCase
         self::assertTrue($cleanupReached);
         self::assertSame($agent . '/adapter-library', $result['target']);
         self::assertSame(
-            "duo-embedded-adapter-library-assembly/v1\n",
+            "wprism-embedded-adapter-library-assembly/v1\n",
             file_get_contents($agent . '/' . AdapterLibraryAssembler::DEPLOYMENT_MARKER)
         );
         self::assertFileExists($agent . '/adapter-library/adapters/alpha/manifest.json');

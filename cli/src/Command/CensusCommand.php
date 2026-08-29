@@ -1,13 +1,13 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/CommandOutput.php';
 require_once __DIR__ . '/../Assess/FleetCensus.php';
 
 /**
- * Host command boundary for `duo census`.
+ * Host command boundary for `wprism census`.
  *
  * ## The exit-code contract
  *
@@ -60,7 +60,7 @@ final class CensusCommand {
                 // `--health` is optional, and the line already omits `--limit`
                 // for the same reason — a usage remediation names the shape of
                 // the call, not every flag.
-                'run `duo census --site=<label>=<inventory.json> [--dir=<dir>] [--manifests=<dir>] [--format=json]`'
+                'run `wprism census --site=<label>=<inventory.json> [--dir=<dir>] [--manifests=<dir>] [--format=json]`'
             );
         }
         $json = $options['format'] === 'json';
@@ -95,7 +95,7 @@ final class CensusCommand {
 
         if ($json) {
             // Canon::encode() already terminates with LF (Canon.php:102).
-            echo \Duo\Canon::encode($document);
+            echo \WPrism\Canon::encode($document);
             return FleetCensus::EXIT_OK;
         }
         if ($options['baseline'] === null) {
@@ -129,19 +129,19 @@ final class CensusCommand {
             );
             return $code;
         }
-        fwrite(STDERR, 'duo: census: ' . $message . "\n");
+        fwrite(STDERR, 'wprism: census: ' . $message . "\n");
         if ($diagnostic !== null && trim($diagnostic) !== '') {
             foreach (explode("\n", rtrim($diagnostic, "\n")) as $line) {
                 fwrite(STDERR, '  ' . $line . "\n");
             }
         }
-        fwrite(STDERR, 'duo: census: remedy: ' . $remediation . "\n");
+        fwrite(STDERR, 'wprism: census: remedy: ' . $remediation . "\n");
         return $code;
     }
 
     /**
      * The human view is the decision, in reading order: how much of this is
-     * measured, how much of it Duo sees, what to build, what to pin. Counts
+     * measured, how much of it WPrism sees, what to build, what to pin. Counts
      * only — the residual listings live in the JSON document, and a terminal
      * that printed one line per invisible option group on a fleet of forty
      * sites would bury the four numbers an operator came for.

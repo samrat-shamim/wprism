@@ -1,15 +1,15 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once dirname(__DIR__) . '/Contract/ProjectionVocabulary.php';
 
-use Duo\CommandRefusalException;
+use WPrism\CommandRefusalException;
 
 /**
- * The containment disclosure `duo rehearse` prints once, at the top of its
+ * The containment disclosure `wprism rehearse` prints once, at the top of its
  * report (round-3 MUP §2.2, §4.4, §8; product spec *Core product workflows
  * → 2. Rehearse*).
  *
@@ -56,8 +56,8 @@ use Duo\CommandRefusalException;
  * softened the banner fails here rather than in review.
  */
 final class RehearsalDisclosure {
-    public const FORMAT = 'duo-rehearsal-disclosure/v1';
-    public const VERIFIED_FORMAT = 'duo-rehearsal-containment-proof/v1';
+    public const FORMAT = 'wprism-rehearsal-disclosure/v1';
+    public const VERIFIED_FORMAT = 'wprism-rehearsal-containment-proof/v1';
     public const VERIFIED_PROFILE = 'agency-rehearsal-v1';
     public const PREFLIGHT = 'containment: required — production-derived bytes will not enter the rehearsal '
         . 'until its machine-local provider proves credential isolation and default-denied HTTP, mail, payment, '
@@ -274,7 +274,7 @@ final class RehearsalDisclosure {
             'rehearsal_containment_unproven',
             $message,
             'configure a machine-local environment provider that implements environment.containment.verify '
-                . 'and rerun duo rehearse; production-derived bytes are not admitted without its exact receipt'
+                . 'and rerun wprism rehearse; production-derived bytes are not admitted without its exact receipt'
         );
     }
 }

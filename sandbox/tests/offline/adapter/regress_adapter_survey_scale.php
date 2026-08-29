@@ -27,10 +27,10 @@
  * only where the bound is loose enough to be a shape check rather than a
  * performance budget.
  *
- * The counters sit on the real product path: `Duo\glob()`,
- * `Duo\json_decode()` and `Duo\file_get_contents()` are declared in the
+ * The counters sit on the real product path: `WPrism\glob()`,
+ * `WPrism\json_decode()` and `WPrism\file_get_contents()` are declared in the
  * measuring process before the agent is required, so the UNQUALIFIED calls
- * inside `namespace Duo` resolve to them and no seam is added to the engine
+ * inside `namespace WPrism` resolve to them and no seam is added to the engine
  * for a test's benefit. The interception is proved live before any number is
  * trusted (`instrument_alive`), because a counter that silently stopped
  * intercepting would report a beautiful, meaningless 0.
@@ -47,30 +47,30 @@
  *
  * NO `declare(strict_types=1)` HERE, DELIBERATELY, for
  * regress_policy_load_scale.php's reason: this file re-declares three
- * functions the whole `Duo` namespace calls, and under strict types every
+ * functions the whole `WPrism` namespace calls, and under strict types every
  * forwarded call would be argument-checked with THIS file's strictness rather
  * than the calling file's — a harness able to change the behaviour of the path
  * it measures.
  */
 
-namespace Duo {
+namespace WPrism {
     /**
      * The three seams. Each forwards verbatim — same arguments, same return
      * value, and for json_decode the same `json_last_error()` state for
      * `Canon::decode()`'s check on the line after its call.
      */
     function glob(...$args) {
-        \DuoSurveyProbe::$globs[] = (string) $args[0];
+        \WPrismSurveyProbe::$globs[] = (string) $args[0];
         return \glob(...$args);
     }
 
     function json_decode(...$args) {
-        \DuoSurveyProbe::$decodes++;
+        \WPrismSurveyProbe::$decodes++;
         return \json_decode(...$args);
     }
 
     function file_get_contents(...$args) {
-        \DuoSurveyProbe::read((string) $args[0]);
+        \WPrismSurveyProbe::read((string) $args[0]);
         return \file_get_contents(...$args);
     }
 }
@@ -84,11 +84,11 @@ namespace {
     function is_multisite(): bool {
         return false;
     }
-    if (!defined('DUO_SPEC_VERSION')) {
-        define('DUO_SPEC_VERSION', 2);
+    if (!defined('WPRISM_SPEC_VERSION')) {
+        define('WPRISM_SPEC_VERSION', 2);
     }
 
-    final class DuoSurveyProbe {
+    final class WPrismSurveyProbe {
         /** @var list<string> */
         public static array $globs = [];
         public static int $decodes = 0;
@@ -120,7 +120,7 @@ namespace {
             if (self::$mutateMode === 'add') {
                 file_put_contents(
                     self::$library . '/zz-late-arrival.json',
-                    (string) json_encode(['name' => 'zz-late-arrival', 'spec_version' => DUO_SPEC_VERSION])
+                    (string) json_encode(['name' => 'zz-late-arrival', 'spec_version' => WPRISM_SPEC_VERSION])
                 );
                 return;
             }
@@ -137,7 +137,7 @@ namespace {
         }
     }
 
-    $scaleLibrary = (string) (getenv('DUO_ADAPTER_SURVEY_SCALE_LIBRARY') ?: '');
+    $scaleLibrary = (string) (getenv('WPRISM_ADAPTER_SURVEY_SCALE_LIBRARY') ?: '');
 
     // ------------------------------------------------------------------
     // Child mode: one survey of one library, reported as one JSON line.
@@ -154,31 +154,31 @@ namespace {
         require_once $agent . '/src/Adapter/AdapterSources.php';
         require_once __DIR__ . '/../policy/manifest_fixtures.php';
 
-        $repo = (string) (getenv('DUO_ADAPTER_SURVEY_SCALE_REPO') ?: '');
+        $repo = (string) (getenv('WPRISM_ADAPTER_SURVEY_SCALE_REPO') ?: '');
         $repo = $repo === '' ? null : $repo;
-        DuoSurveyProbe::$library = $scaleLibrary;
+        WPrismSurveyProbe::$library = $scaleLibrary;
         $adapterLibrary = manifest_fixture_adapter_library($scaleLibrary);
         // Closing the fixture is setup, outside the measured product path. Arm
         // the mutation only after that setup so it lands inside survey().
-        DuoSurveyProbe::$mutateAt = (int) (getenv('DUO_ADAPTER_SURVEY_SCALE_MUTATE') ?: '0');
-        DuoSurveyProbe::$mutateMode = (string) (getenv('DUO_ADAPTER_SURVEY_SCALE_MUTATE_MODE') ?: '');
+        WPrismSurveyProbe::$mutateAt = (int) (getenv('WPRISM_ADAPTER_SURVEY_SCALE_MUTATE') ?: '0');
+        WPrismSurveyProbe::$mutateMode = (string) (getenv('WPRISM_ADAPTER_SURVEY_SCALE_MUTATE_MODE') ?: '');
 
         // Proof that the seams are live, through the same engine methods the
         // measurement counts, before any number is reported.
-        DuoSurveyProbe::reset();
-        Duo\Canon::decode('{"instrument":"alive"}');
-        $instrumentAlive = DuoSurveyProbe::$decodes === 1;
+        WPrismSurveyProbe::reset();
+        WPrism\Canon::decode('{"instrument":"alive"}');
+        $instrumentAlive = WPrismSurveyProbe::$decodes === 1;
 
-        DuoSurveyProbe::reset();
+        WPrismSurveyProbe::reset();
         $started = microtime(true);
         $refusal = null;
         $movedBy = null;
         $rows = -1;
         try {
-            $survey = Duo\AdapterSources::survey_library($adapterLibrary, $repo);
+            $survey = WPrism\AdapterSources::survey_library($adapterLibrary, $repo);
             $rows = count($survey['adapters']);
             $statuses = array_count_values(array_column(array_column($survey['adapters'], 'grammar'), 'status'));
-        } catch (Duo\CommandRefusalException $typed) {
+        } catch (WPrism\CommandRefusalException $typed) {
             $refusal = $typed->reasonCode;
             // WHICH half of the witness saw it. The operator sentence names
             // the axis, and the two mutations below are here precisely because
@@ -197,15 +197,15 @@ namespace {
         // of its own: the witness comparison below globs the library twice
         // itself, and a harness that counted its own reads would report the
         // survey as more expensive than it is.
-        $globs = DuoSurveyProbe::$globs;
-        $reads = DuoSurveyProbe::$reads;
-        $decodes = DuoSurveyProbe::$decodes;
+        $globs = WPrismSurveyProbe::$globs;
+        $reads = WPrismSurveyProbe::$reads;
+        $decodes = WPrismSurveyProbe::$decodes;
 
         // Every read this survey made under the library or the repository,
         // against the dependency set the memo's witness is taken over: a read
         // the witness does not name is a file whose change the memo cannot
         // see.
-        $witness = Duo\AdapterSources::scan_dependencies_library($adapterLibrary, $repo);
+        $witness = WPrism\AdapterSources::scan_dependencies_library($adapterLibrary, $repo);
         $named = [];
         foreach ($witness['files'] as $file) {
             $named[(string) (realpath($file) ?: $file)] = true;
@@ -249,7 +249,7 @@ namespace {
             'library_globs' => $libraryGlobs,
             'moved_by' => $movedBy,
             'ms' => round($elapsed * 1000, 2),
-            'mutated' => DuoSurveyProbe::$mutated,
+            'mutated' => WPrismSurveyProbe::$mutated,
             'reads' => count($reads),
             'refusal' => $refusal,
             'registry_reads' => $registryReads,
@@ -313,7 +313,7 @@ namespace {
                 'name' => $name,
                 'option_autoload' => 'preserve',
                 'options' => [str_replace('-', '_', $name) . '_layout' => ['class' => 'authored']],
-                'spec_version' => DUO_SPEC_VERSION,
+                'spec_version' => WPRISM_SPEC_VERSION,
             ]));
             $entries[$name] = survey_scale_entry();
         }
@@ -339,16 +339,16 @@ namespace {
         if (!is_dir("$repo/adapters/certifications") && !mkdir("$repo/adapters/certifications", 0o777, true)) {
             throw new RuntimeException("cannot create the synthetic repository at $repo");
         }
-        file_put_contents("$repo/site.duo.json", (string) json_encode([
+        file_put_contents("$repo/site.wprism.json", (string) json_encode([
             'manifests' => ['scale-adapter-00000'],
             'policy' => new stdClass(),
-            'spec_version' => DUO_SPEC_VERSION,
+            'spec_version' => WPRISM_SPEC_VERSION,
         ]));
         file_put_contents("$repo/adapters/acme-widget.json", (string) json_encode([
             'name' => 'acme-widget',
             'option_autoload' => 'preserve',
             'options' => ['acme_widget_layout' => ['class' => 'authored']],
-            'spec_version' => DUO_SPEC_VERSION,
+            'spec_version' => WPRISM_SPEC_VERSION,
         ]));
         file_put_contents(
             "$repo/adapters/certifications/acme-widget.json",
@@ -366,10 +366,10 @@ namespace {
      * @return array{exit:int,output:string,measurement:?array<string,mixed>}
      */
     function survey_scale_measure(string $library, ?string $repo = null, int $mutateAt = 0, string $mode = ''): array {
-        $command = 'DUO_ADAPTER_SURVEY_SCALE_LIBRARY=' . escapeshellarg($library)
-            . ' DUO_ADAPTER_SURVEY_SCALE_REPO=' . escapeshellarg((string) $repo)
-            . ' DUO_ADAPTER_SURVEY_SCALE_MUTATE=' . escapeshellarg((string) $mutateAt)
-            . ' DUO_ADAPTER_SURVEY_SCALE_MUTATE_MODE=' . escapeshellarg($mode)
+        $command = 'WPRISM_ADAPTER_SURVEY_SCALE_LIBRARY=' . escapeshellarg($library)
+            . ' WPRISM_ADAPTER_SURVEY_SCALE_REPO=' . escapeshellarg((string) $repo)
+            . ' WPRISM_ADAPTER_SURVEY_SCALE_MUTATE=' . escapeshellarg((string) $mutateAt)
+            . ' WPRISM_ADAPTER_SURVEY_SCALE_MUTATE_MODE=' . escapeshellarg($mode)
             . ' ' . escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__) . ' 2>&1';
         $lines = [];
         $status = 0;
@@ -398,20 +398,20 @@ namespace {
     foreach ($sizes as $n) {
         $result = survey_scale_measure($libraries[$n]);
         $measurement = $result['measurement'];
-        duo_check(
+        wprism_check(
             $result['exit'] === 0 && is_array($measurement),
             "a survey of a $n-adapter library succeeds"
         );
         if (!is_array($measurement)) {
-            duo_check_detail(duo_check_repr($result['output']));
+            wprism_check_detail(wprism_check_repr($result['output']));
             continue;
         }
         $measurements[$n] = $measurement;
-        duo_check(
+        wprism_check(
             $measurement['instrument_alive'] === true,
             "the counters are proved live before the $n-adapter measurement is trusted"
         );
-        duo_check(
+        wprism_check(
             $measurement['rows'] === $n && ($measurement['statuses']['ok'] ?? 0) === $n,
             "all $n rows are surveyed and every one of them reaches grammar ok: "
             . json_encode($measurement['statuses'])
@@ -425,12 +425,12 @@ namespace {
         // per instance so no subject is ever opened twice by one discover().
         // What this suite exists to refuse is the QUADRATIC shape — a reviewed
         // read per (row, row) pair — and 2n is what proves it absent.
-        duo_check(
+        wprism_check(
             $measurement['registry_reads'] === 2 * $n + 2,
             "the reviewed source is read once per surveyed subject per discover() — 2 x $n adapter entries plus "
             . 'the two profile-document reads, never once per ROW PAIR; counted ' . $measurement['registry_reads']
         );
-        duo_check(
+        wprism_check(
             $measurement['library_globs'] === 0,
             "and the pre-closed AdapterLibrary is never rediscovered during a $n-adapter survey; counted "
             . $measurement['library_globs'] . ' library globs'
@@ -442,7 +442,7 @@ namespace {
     foreach ($sizes as $n) {
         $registryPerAdapter[$n] = (($measurements[$n]['registry_reads'] ?? 0) - 2) / max(1, $n);
     }
-    duo_check(
+    wprism_check(
         count($measurements) === count($sizes)
             && count(array_unique(array_column($measurements, 'library_globs'))) === 1
             && count(array_unique($registryPerAdapter)) === 1,
@@ -465,7 +465,7 @@ namespace {
     foreach ($sizes as $n) {
         $perRow[$n] = (($measurements[$n]['decodes'] ?? 0) - 2) / max(1, $n);
     }
-    duo_check(
+    wprism_check(
         count(array_unique($perRow)) === 1 && (int) reset($perRow) === 4,
         'decodes are exactly 4 per surveyed adapter plus the two profile documents — two manifests and two reviewed '
         . 'documents, one pair per discover(): ' . implode(', ', array_map(
@@ -479,7 +479,7 @@ namespace {
     // measured on this one while five other agents ran, the 125-adapter
     // survey moved between 53 ms and 245 ms run to run, which is more spread
     // than the 4x the assertion would have been trying to see.
-    duo_check_detail('wall time: ' . implode(', ', array_map(
+    wprism_check_detail('wall time: ' . implode(', ', array_map(
         static fn(int $n): string => "$n adapters => " . ($measurements[$n]['ms'] ?? '?') . ' ms',
         $sizes
     )) . ' (evidence, not an assertion)');
@@ -492,23 +492,23 @@ namespace {
     $repo = survey_scale_repo($scaleRoot);
     $withRepo = survey_scale_measure($libraries[125], $repo);
     $repoMeasurement = $withRepo['measurement'];
-    duo_check(
+    wprism_check(
         $withRepo['exit'] === 0 && is_array($repoMeasurement),
         'a survey with a repository, a site adapter and a companion certificate succeeds'
     );
     if (is_array($repoMeasurement)) {
-        duo_check_same(
+        wprism_check_same(
             [],
             $repoMeasurement['unwitnessed_reads'],
             'every file the scan opened under the library or the repository is named by scan_dependencies()'
         );
-        duo_check(
+        wprism_check(
             $repoMeasurement['registry_reads'] === 2 * 125 + 2 && $repoMeasurement['library_globs'] === 0,
             'and the repository half changes none of the whole-library counts: '
             . $repoMeasurement['registry_reads'] . ' registry reads, ' . $repoMeasurement['library_globs'] . ' globs'
         );
     } else {
-        duo_check_detail(duo_check_repr($withRepo['output']));
+        wprism_check_detail(wprism_check_repr($withRepo['output']));
     }
 
     echo "\n== a library that moves mid-survey REFUSES, both ways it can move ==\n";
@@ -528,11 +528,11 @@ namespace {
         $library = survey_scale_library($scaleRoot, $size);
         $moved = survey_scale_measure($library, null, $size + 10, $mode);
         $movedMeasurement = $moved['measurement'];
-        duo_check(
+        wprism_check(
             is_array($movedMeasurement) && $movedMeasurement['mutated'] === true,
             "$what: the fixture really did mutate the library mid-survey"
         );
-        duo_check(
+        wprism_check(
             is_array($movedMeasurement) && $movedMeasurement['refusal'] === 'adapter_library_moved',
             "$what — the survey refuses with the typed reason code instead of publishing rows judged against two "
             . 'libraries (got: ' . var_export(
@@ -540,7 +540,7 @@ namespace {
                 true
             ) . ')'
         );
-        duo_check(
+        wprism_check(
             is_array($movedMeasurement) && $movedMeasurement['moved_by'] === $half,
             "and it is the $half witness that saw it — the two halves are not interchangeable, which is why both "
             . 'exist (saw: ' . var_export(
@@ -548,7 +548,7 @@ namespace {
                 true
             ) . ')'
         );
-        duo_check(
+        wprism_check(
             is_array($movedMeasurement) && $movedMeasurement['rows'] === -1,
             'and it publishes NO rows at all — a refused survey is not a partial inventory'
         );
@@ -583,25 +583,25 @@ namespace {
         sort($found, SORT_STRING);
         return $found;
     };
-    duo_check_same(
+    wprism_check_same(
         ['agent/src/Adapter/AdapterScan.php'],
         $callers('::load_from_scan(', 'agent/src/Policy/Policy.php'),
         'Policy::load_from_scan() — the entry that accepts an already-resolved library — is called only by the scan '
         . 'handle, so no mutation entry point can be handed one'
     );
-    duo_check_same(
+    wprism_check_same(
         ['agent/src/Adapter/AdapterSources.php'],
         $callers('AdapterScan::open(', 'agent/src/Adapter/AdapterScan.php'),
         'and a handle is opened only by AdapterSources::survey(), the read-only inventory'
     );
-    duo_check_same(
+    wprism_check_same(
         ['agent/src/Adapter/AdapterSources.php'],
         $callers('AdapterScan::open_library(', 'agent/src/Adapter/AdapterScan.php'),
         'and the explicit-library handle is likewise opened only by the read-only inventory'
     );
 
-    if (duo_check_failed() === 0) {
+    if (wprism_check_failed() === 0) {
         exec('rm -rf ' . escapeshellarg($scaleRoot));
     }
-    duo_check_summary('regress_adapter_survey_scale');
+    wprism_check_summary('regress_adapter_survey_scale');
 }

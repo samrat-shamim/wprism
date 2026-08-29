@@ -1,13 +1,13 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Interpreters;
+namespace WPrism\Interpreters;
 
-use Duo\Canon;
-use Duo\CacheInvalidationTransaction;
-use Duo\NativeRewriteEffects;
-use Duo\PlainData;
-use Duo\Policy;
+use WPrism\Canon;
+use WPrism\CacheInvalidationTransaction;
+use WPrism\NativeRewriteEffects;
+use WPrism\PlainData;
+use WPrism\Policy;
 
 /**
  * Validate Polylang's native mixed-option and metadata frontiers that a
@@ -148,7 +148,7 @@ final class Polylang {
             $rawValue = $allOptions[$name] ?? '';
             $value = PlainData::decode($rawValue, 'Polylang option namespace');
             if (!is_array($value) || ($value !== [] && array_is_list($value))) {
-                throw new \RuntimeException('duo: Polylang option namespace row must be an object');
+                throw new \RuntimeException('wprism: Polylang option namespace row must be an object');
             }
             if (!is_string($rawValue)) {
                 // Immutable repository values contain no target-local marker.
@@ -180,7 +180,7 @@ final class Polylang {
         }
         if (preg_match('/^(?:polylang(?:_|$)|pll_)/D', $name) === 1) {
             throw new \RuntimeException(
-                'duo: Polylang option namespace contains an unreviewed row '
+                'wprism: Polylang option namespace contains an unreviewed row '
                 . self::fingerprint($name)
                 . '; refusing silent target ownership'
             );
@@ -235,38 +235,38 @@ final class Polylang {
                 ksort($captured, SORT_STRING);
                 return $captured;
             }
-            throw new \RuntimeException('duo: Polylang native option capture normalization requires PLL()');
+            throw new \RuntimeException('wprism: Polylang native option capture normalization requires PLL()');
         }
         $rawPrimary = $rawOptionSnapshot['polylang'] ?? null;
         if ($rawPrimary !== null && !is_string($rawPrimary)) {
-            throw new \RuntimeException('duo: Polylang native option capture snapshot has malformed primary bytes');
+            throw new \RuntimeException('wprism: Polylang native option capture snapshot has malformed primary bytes');
         }
         $topologyMarker = $rawOptionSnapshot['pll_language_from_content_available'] ?? null;
         $runtime = PLL();
         $options = is_object($runtime) ? ($runtime->options ?? null) : null;
         if (!is_object($options) || !is_callable([$options, 'get']) || !is_callable([$options, 'get_schema'])) {
             throw new \RuntimeException(
-                'duo: Polylang native option capture normalization requires Options::get()/get_schema()'
+                'wprism: Polylang native option capture normalization requires Options::get()/get_schema()'
             );
         }
         $defaults = $this->native_schema_defaults($options);
         foreach (self::OPTION_KEYS as $key) {
             if (($subKeys[$key]['class'] ?? null) !== 'authored') {
                 throw new \RuntimeException(
-                    "duo: Polylang native option capture normalization has no authored declaration for '$key'"
+                    "wprism: Polylang native option capture normalization has no authored declaration for '$key'"
                 );
             }
             $native = $options->get($key);
             if ($native === null) {
                 throw new \RuntimeException(
-                    "duo: Polylang native option capture normalization is missing registered option '$key'"
+                    "wprism: Polylang native option capture normalization is missing registered option '$key'"
                 );
             }
             if (!array_key_exists($key, $captured)) {
                 $default = $defaults[$key];
                 if ($native !== $default) {
                     throw new \RuntimeException(
-                        "duo: Polylang raw option '$key' is missing while its native singleton disagrees "
+                        "wprism: Polylang raw option '$key' is missing while its native singleton disagrees "
                         . 'with the registered schema default; refusing stale process-local source state'
                     );
                 }
@@ -283,7 +283,7 @@ final class Polylang {
             }
             if (!$equivalent) {
                 throw new \RuntimeException(
-                    "duo: Polylang raw option '$key' disagrees with its registered native normalization; "
+                    "wprism: Polylang raw option '$key' disagrees with its registered native normalization; "
                     . 'refusing to publish silently coerced source state'
                 );
             }
@@ -307,15 +307,15 @@ final class Polylang {
     private function native_schema_defaults(object $options): array {
         $schema = $options->get_schema();
         if (!is_array($schema) || ($schema !== [] && array_is_list($schema))) {
-            throw new \RuntimeException('duo: Polylang native option schema must be an object');
+            throw new \RuntimeException('wprism: Polylang native option schema must be an object');
         }
         $properties = $schema['properties'] ?? null;
         if (!is_array($properties) || ($properties !== [] && array_is_list($properties))) {
-            throw new \RuntimeException('duo: Polylang native option schema properties must be an object');
+            throw new \RuntimeException('wprism: Polylang native option schema properties must be an object');
         }
         if (array_keys($properties) !== self::NATIVE_OPTION_KEYS) {
             throw new \RuntimeException(
-                'duo: Polylang native option schema does not match the reviewed 15-key registry order'
+                'wprism: Polylang native option schema does not match the reviewed 15-key registry order'
             );
         }
         $defaults = [];
@@ -324,7 +324,7 @@ final class Polylang {
                 || ($property !== [] && array_is_list($property))
                 || !array_key_exists('default', $property)) {
                 throw new \RuntimeException(
-                    "duo: Polylang native option schema has no exact default for registered option '$key'"
+                    "wprism: Polylang native option schema has no exact default for registered option '$key'"
                 );
             }
             PlainData::assert($property['default'], "Polylang native option schema default $key");
@@ -359,20 +359,20 @@ final class Polylang {
         }
         if ($writeStorage === null || $registerRuntimeRestore === null) {
             throw new \RuntimeException(
-                'duo: Polylang native option materialization requires engine-owned storage and rollback callbacks'
+                'wprism: Polylang native option materialization requires engine-owned storage and rollback callbacks'
             );
         }
         $this->assert_portable_options($captured, false);
         ksort($captured, SORT_STRING);
         if (!function_exists('PLL')) {
-            throw new \RuntimeException('duo: Polylang native option materialization requires PLL()');
+            throw new \RuntimeException('wprism: Polylang native option materialization requires PLL()');
         }
         $runtime = PLL();
         $options = is_object($runtime) ? ($runtime->options ?? null) : null;
         foreach (['get', 'get_all', 'merge', 'protect_wp_option_storage', 'reset', 'save', 'save_all', 'set'] as $method) {
             if (!is_object($options) || !is_callable([$options, $method])) {
                 throw new \RuntimeException(
-                    "duo: Polylang native option materialization requires Options::$method()"
+                    "wprism: Polylang native option materialization requires Options::$method()"
                 );
             }
         }
@@ -400,7 +400,7 @@ final class Polylang {
             }
             if (!$removed || $stillRegistered !== false) {
                 throw new \RuntimeException(
-                    'duo: Polylang could not disarm the reviewed native shutdown writer before mutation'
+                    'wprism: Polylang could not disarm the reviewed native shutdown writer before mutation'
                 );
             }
         };
@@ -411,7 +411,7 @@ final class Polylang {
             if (!add_action('shutdown', [$options, 'save_all'], 1000, 0)
                 || has_action('shutdown', [$options, 'save_all']) !== 1000) {
                 throw new \RuntimeException(
-                    'duo: Polylang could not restore the reviewed native shutdown writer'
+                    'wprism: Polylang could not restore the reviewed native shutdown writer'
                 );
             }
             $shutdownDisarmed = false;
@@ -479,7 +479,7 @@ final class Polylang {
             try {
                 if ($this->native_option_values($options, 'after transaction rollback') !== $originalNative) {
                     throw new \RuntimeException(
-                        'duo: Polylang native option runtime state did not restore after transaction rollback'
+                        'wprism: Polylang native option runtime state did not restore after transaction rollback'
                     );
                 }
             } catch (\Throwable $failure) {
@@ -491,7 +491,7 @@ final class Polylang {
                     $parts[] = $stage . '=' . self::failure_fingerprint($failure);
                 }
                 throw new \RuntimeException(
-                    'duo: Polylang native rollback cleanup was incomplete; ' . implode('; ', $parts),
+                    'wprism: Polylang native rollback cleanup was incomplete; ' . implode('; ', $parts),
                     0,
                     $failures[0][1]
                 );
@@ -525,7 +525,7 @@ final class Polylang {
                 $this->assert_native_result($options->merge($beforeDefault), 'Options::merge() before default_lang');
                 if ($options->reset('default_lang') !== '') {
                     throw new \RuntimeException(
-                        'duo: Polylang Options::reset(default_lang) did not produce the native empty default'
+                        'wprism: Polylang Options::reset(default_lang) did not produce the native empty default'
                     );
                 }
                 $this->assert_native_result(
@@ -549,7 +549,7 @@ final class Polylang {
             // PHP `!==` would falsely reject that byte-equivalent object.
             if (Canon::encode($native) !== Canon::encode($captured)) {
                 throw new \RuntimeException(
-                    'duo: Polylang native option normalization changed portable values; refusing non-convergent apply'
+                    'wprism: Polylang native option normalization changed portable values; refusing non-convergent apply'
                 );
             }
             // Options::save()/update_option() publish uncommitted bytes into
@@ -577,7 +577,7 @@ final class Polylang {
             $afterEffective = get_option('polylang', $missing);
             if ($afterEffective === $missing || $afterEffective !== $afterRaw) {
                 throw new \RuntimeException(
-                    'duo: Polylang native option effective postcondition disagrees with exact raw storage; recovery_required'
+                    'wprism: Polylang native option effective postcondition disagrees with exact raw storage; recovery_required'
                 );
             }
             foreach ($captured as $key => $value) {
@@ -589,14 +589,14 @@ final class Polylang {
                 if (!array_key_exists($key, $afterRaw)
                     || Canon::encode($afterRaw[$key]) !== Canon::encode($value)) {
                     throw new \RuntimeException(
-                        'duo: Polylang native option raw postcondition does not match the portable group; recovery_required'
+                        'wprism: Polylang native option raw postcondition does not match the portable group; recovery_required'
                     );
                 }
             }
             foreach ($targetOwned as $key => $value) {
                 if (!array_key_exists($key, $afterRaw) || $afterRaw[$key] !== $value) {
                     throw new \RuntimeException(
-                        'duo: Polylang native option save changed a target-owned sibling; recovery_required'
+                        'wprism: Polylang native option save changed a target-owned sibling; recovery_required'
                     );
                 }
             }
@@ -604,7 +604,7 @@ final class Polylang {
             foreach (self::NATIVE_OPTION_KEYS as $key) {
                 if (!array_key_exists($key, $afterRaw) || $afterRaw[$key] !== $afterNative[$key]) {
                     throw new \RuntimeException(
-                        'duo: Polylang native option save did not persist the complete registry; recovery_required'
+                        'wprism: Polylang native option save did not persist the complete registry; recovery_required'
                     );
                 }
             }
@@ -612,7 +612,7 @@ final class Polylang {
             ksort($afterPortable, SORT_STRING);
             if (Canon::encode($afterPortable) !== Canon::encode($captured)) {
                 throw new \RuntimeException(
-                    'duo: Polylang native in-memory postcondition drifted from the portable group; recovery_required'
+                    'wprism: Polylang native in-memory postcondition drifted from the portable group; recovery_required'
                 );
             }
         } catch (\Throwable $failure) {
@@ -654,7 +654,7 @@ final class Polylang {
             }
             if (!$restored) {
                 throw new \RuntimeException(
-                    'duo: Polylang native option failure could not restore exact raw and in-memory state; recovery_required',
+                    'wprism: Polylang native option failure could not restore exact raw and in-memory state; recovery_required',
                     0,
                     $failure
                 );
@@ -671,11 +671,11 @@ final class Polylang {
             || ($row['option_name'] ?? null) !== 'polylang'
             || !is_string($row['option_value'] ?? null)
             || !is_string($row['autoload'] ?? null)) {
-            throw new \RuntimeException("duo: Polylang $where returned malformed raw option storage");
+            throw new \RuntimeException("wprism: Polylang $where returned malformed raw option storage");
         }
         $value = PlainData::decode($row['option_value'], "Polylang $where raw option storage");
         if (!is_array($value) || ($value !== [] && array_is_list($value))) {
-            throw new \RuntimeException("duo: Polylang $where raw option storage must be an object");
+            throw new \RuntimeException("wprism: Polylang $where raw option storage must be an object");
         }
         return $value;
     }
@@ -687,7 +687,7 @@ final class Polylang {
             $value = $options->get($key);
             if ($value === null) {
                 throw new \RuntimeException(
-                    "duo: Polylang $where is missing registered option '$key'"
+                    "wprism: Polylang $where is missing registered option '$key'"
                 );
             }
             $values[$key] = $value;
@@ -706,7 +706,7 @@ final class Polylang {
             }
             if ($options->get($key) !== $before[$key]) {
                 throw new \RuntimeException(
-                    "duo: Polylang native option '$key' did not restore in memory"
+                    "wprism: Polylang native option '$key' did not restore in memory"
                 );
             }
         }
@@ -730,7 +730,7 @@ final class Polylang {
         foreach (['add_filter', 'remove_filter', 'add_action', 'remove_action', 'has_filter', 'has_action'] as $function) {
             if (!function_exists($function)) {
                 throw new \RuntimeException(
-                    "duo: Polylang native option materialization requires WordPress $function()"
+                    "wprism: Polylang native option materialization requires WordPress $function()"
                 );
             }
         }
@@ -738,7 +738,7 @@ final class Polylang {
         if (($shutdownExpected && $shutdownPriority !== 1000)
             || (!$shutdownExpected && $shutdownPriority !== false)) {
             throw new \RuntimeException(
-                'duo: Polylang native option shutdown callback does not match the reviewed 3.8.x topology'
+                'wprism: Polylang native option shutdown callback does not match the reviewed 3.8.x topology'
             );
         }
         $callbacks = $this->hook_callbacks('pre_update_option_polylang');
@@ -750,14 +750,14 @@ final class Polylang {
             || $callbacks[0]['function'][0] !== $options
             || $callbacks[0]['function'][1] !== 'protect_wp_option_storage') {
             throw new \RuntimeException(
-                'duo: Polylang native option storage filter does not match the reviewed 3.8.x topology'
+                'wprism: Polylang native option storage filter does not match the reviewed 3.8.x topology'
             );
         }
         try {
             NativeRewriteEffects::assert_inert_polylang_option_filter_topology();
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: Polylang native option materialization refuses an unaudited option filter topology',
+                'wprism: Polylang native option materialization refuses an unaudited option filter topology',
                 0,
                 $failure
             );
@@ -774,7 +774,7 @@ final class Polylang {
         ] as $hook) {
             if ($this->hook_callbacks($hook) !== []) {
                 throw new \RuntimeException(
-                    'duo: Polylang native option materialization refuses an unaudited option filter topology'
+                    'wprism: Polylang native option materialization refuses an unaudited option filter topology'
                 );
             }
         }
@@ -791,19 +791,19 @@ final class Polylang {
             ? $hook->callbacks
             : (is_array($hook) ? $hook : null);
         if (!is_array($buckets)) {
-            throw new \RuntimeException('duo: Polylang option hook registry is malformed');
+            throw new \RuntimeException('wprism: Polylang option hook registry is malformed');
         }
         $out = [];
         foreach ($buckets as $priority => $entries) {
             if (!is_int($priority) || !is_array($entries)) {
-                throw new \RuntimeException('duo: Polylang option hook registry is malformed');
+                throw new \RuntimeException('wprism: Polylang option hook registry is malformed');
             }
             foreach ($entries as $entry) {
                 if (!is_array($entry)
                     || !array_key_exists('function', $entry)
                     || !isset($entry['accepted_args'])
                     || !is_int($entry['accepted_args'])) {
-                    throw new \RuntimeException('duo: Polylang option hook registry is malformed');
+                    throw new \RuntimeException('wprism: Polylang option hook registry is malformed');
                 }
                 $out[] = [
                     'priority' => $priority,
@@ -820,7 +820,7 @@ final class Polylang {
      * save boundary consume it while terminal filters force old===new, so core
      * performs no SQL or cache publication. The second save and save_all calls
      * are executable proof that neither a direct caller nor shutdown can write
-     * after Duo releases its row locks.
+     * after WPrism releases its row locks.
      *
      * @param array<string,mixed> $lockedValue
      */
@@ -838,12 +838,12 @@ final class Polylang {
                 ['pre_update_option', $forceGenericOld, PHP_INT_MAX, 3],
             ] as [$hook, $callback, $priority, $acceptedArgs]) {
                 if (!add_filter($hook, $callback, $priority, $acceptedArgs)) {
-                    throw new \RuntimeException("duo: Polylang $where could not install a native no-write guard");
+                    throw new \RuntimeException("wprism: Polylang $where could not install a native no-write guard");
                 }
                 $added[] = [$hook, $callback, $priority];
             }
             if ($options->save() !== false) {
-                throw new \RuntimeException("duo: Polylang $where native modified-state consume attempted a write");
+                throw new \RuntimeException("wprism: Polylang $where native modified-state consume attempted a write");
             }
         } catch (\Throwable $failure) {
             $primaryFailure = $failure;
@@ -853,7 +853,7 @@ final class Polylang {
                 try {
                     if (!remove_filter($hook, $callback, $priority)) {
                         throw new \RuntimeException(
-                            "duo: Polylang $where could not remove a native no-write guard"
+                            "wprism: Polylang $where could not remove a native no-write guard"
                         );
                     }
                 } catch (\Throwable $failure) {
@@ -869,7 +869,7 @@ final class Polylang {
                     $parts[] = 'remove=' . self::failure_fingerprint($failure);
                 }
                 throw new \RuntimeException(
-                    "duo: Polylang $where native no-write guard cleanup was incomplete; " . implode('; ', $parts),
+                    "wprism: Polylang $where native no-write guard cleanup was incomplete; " . implode('; ', $parts),
                     0,
                     $primaryFailure ?? $cleanupFailures[0]
                 );
@@ -880,21 +880,21 @@ final class Polylang {
         }
         $this->assert_native_option_hook_topology($options, false);
         if ($options->save() !== false) {
-            throw new \RuntimeException("duo: Polylang $where left native modified state armed");
+            throw new \RuntimeException("wprism: Polylang $where left native modified state armed");
         }
         $options->save_all();
         if ($options->save() !== false) {
-            throw new \RuntimeException("duo: Polylang $where shutdown save re-armed native modified state");
+            throw new \RuntimeException("wprism: Polylang $where shutdown save re-armed native modified state");
         }
     }
 
     private function assert_native_result(mixed $errors, string $where): void {
         if (!is_object($errors) || !is_callable([$errors, 'get_error_codes'])) {
-            throw new \RuntimeException("duo: Polylang $where returned an unreadable validation result");
+            throw new \RuntimeException("wprism: Polylang $where returned an unreadable validation result");
         }
         $codes = $errors->get_error_codes();
         if (!is_array($codes)) {
-            throw new \RuntimeException("duo: Polylang $where returned malformed error codes");
+            throw new \RuntimeException("wprism: Polylang $where returned malformed error codes");
         }
         if ($codes === []) {
             return;
@@ -904,7 +904,7 @@ final class Polylang {
             static fn(string $code): bool => preg_match('/^[a-z0-9_-]{1,96}$/D', $code) === 1
         )), 0, 8);
         throw new \RuntimeException(
-            "duo: Polylang $where refused the option group"
+            "wprism: Polylang $where refused the option group"
             . ($safeCodes === [] ? '' : ' (' . implode(', ', $safeCodes) . ')')
         );
     }
@@ -952,13 +952,13 @@ final class Polylang {
         if ($targetValue === null) {
             if ($effective !== $missing) {
                 throw new \RuntimeException(
-                    'duo: Polylang primary option cache disagrees with the locked absent row'
+                    'wprism: Polylang primary option cache disagrees with the locked absent row'
                 );
             }
             $targetValue = [];
         } elseif (!is_array($effective) || $effective !== $targetValue) {
             throw new \RuntimeException(
-                'duo: Polylang primary option cache disagrees with the exact locked row'
+                'wprism: Polylang primary option cache disagrees with the exact locked row'
             );
         }
         $prepared = [];
@@ -971,7 +971,7 @@ final class Polylang {
                 $current = $options->get($key);
                 if ($current === null || $default !== $current) {
                     throw new \RuntimeException(
-                        'duo: Polylang native registry could not project a raw-missing registered default'
+                        'wprism: Polylang native registry could not project a raw-missing registered default'
                     );
                 }
                 $prepared[$key] = $current;
@@ -988,7 +988,7 @@ final class Polylang {
             }
             if (!$equivalent) {
                 throw new \RuntimeException(
-                    'duo: Polylang in-memory option registry disagrees with the exact locked row'
+                    'wprism: Polylang in-memory option registry disagrees with the exact locked row'
                 );
             }
             $prepared[$key] = $native;
@@ -1009,7 +1009,7 @@ final class Polylang {
         if ($row === null) {
             if ($effective !== $missing) {
                 throw new \RuntimeException(
-                    'duo: Polylang target topology marker cache disagrees with the locked absent row'
+                    'wprism: Polylang target topology marker cache disagrees with the locked absent row'
                 );
             }
             return null;
@@ -1020,7 +1020,7 @@ final class Polylang {
             || !is_string($effective)
             || !hash_equals($raw, $effective)) {
             throw new \RuntimeException(
-                'duo: Polylang target topology marker cache disagrees with the exact locked row'
+                'wprism: Polylang target topology marker cache disagrees with the exact locked row'
             );
         }
         return hash_equals($raw, 'yes') ? 'yes' : null;
@@ -1029,25 +1029,25 @@ final class Polylang {
     private function assert_biography(mixed $value, string $where): void {
         if (!is_string($value) || strlen($value) > self::BIOGRAPHY_MAX_BYTES) {
             throw new \RuntimeException(
-                "duo: Polylang $where must be a scalar string of at most "
+                "wprism: Polylang $where must be a scalar string of at most "
                 . self::BIOGRAPHY_MAX_BYTES . ' bytes'
             );
         }
         if (preg_match('//u', $value) !== 1
             || preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', $value) === 1) {
             throw new \RuntimeException(
-                "duo: Polylang $where must be valid UTF-8 without unsafe control bytes"
+                "wprism: Polylang $where must be valid UTF-8 without unsafe control bytes"
             );
         }
         if (!function_exists('wp_kses')) {
             throw new \RuntimeException(
-                "duo: Polylang $where cannot prove the native pre_user_description KSES boundary"
+                "wprism: Polylang $where cannot prove the native pre_user_description KSES boundary"
             );
         }
         $sanitized = wp_kses($value, 'pre_user_description');
         if (!is_string($sanitized) || !hash_equals($value, $sanitized)) {
             throw new \RuntimeException(
-                "duo: Polylang $where is not already canonical under the native pre_user_description KSES boundary"
+                "wprism: Polylang $where is not already canonical under the native pre_user_description KSES boundary"
             );
         }
     }
@@ -1056,33 +1056,33 @@ final class Polylang {
         $model = is_object($runtime) ? ($runtime->model ?? null) : null;
         if (!is_object($model) || !is_callable([$model, 'get_languages_list'])) {
             throw new \RuntimeException(
-                'duo: Polylang native option capture cannot audit language flag dependencies'
+                'wprism: Polylang native option capture cannot audit language flag dependencies'
             );
         }
         $languages = $model->get_languages_list();
         if (!is_array($languages) || !array_is_list($languages) || count($languages) > 512) {
-            throw new \RuntimeException('duo: Polylang language flag audit returned an invalid bounded language list');
+            throw new \RuntimeException('wprism: Polylang language flag audit returned an invalid bounded language list');
         }
         foreach ($languages as $language) {
             if (!is_object($language)) {
-                throw new \RuntimeException('duo: Polylang language flag audit returned a malformed language');
+                throw new \RuntimeException('wprism: Polylang language flag audit returned a malformed language');
             }
             $slug = $this->language_slug($language->slug ?? null, false, 'language flag audit slug');
             $flagCode = $language->flag_code ?? null;
             if (!is_string($flagCode) || strlen($flagCode) > 64
                 || preg_match('/^[a-z0-9_-]*$/D', $flagCode) !== 1) {
-                throw new \RuntimeException("duo: Polylang language flag dependency for '$slug' is invalid");
+                throw new \RuntimeException("wprism: Polylang language flag dependency for '$slug' is invalid");
             }
             if ((string) ($language->custom_flag_url ?? '') !== ''
                 || (string) ($language->custom_flag ?? '') !== '') {
                 throw new \RuntimeException(
-                    "duo: Polylang language '$slug' uses a custom flag asset; wp-content/polylang/theme flag "
+                    "wprism: Polylang language '$slug' uses a custom flag asset; wp-content/polylang/theme flag "
                     . 'files and pll_custom_flag filters are code/environment topology, not portable state'
                 );
             }
             if ($flagCode !== '' && (string) ($language->flag_url ?? '') === '') {
                 throw new \RuntimeException(
-                    "duo: Polylang language '$slug' names a flag code that is unavailable in this deployed artifact"
+                    "wprism: Polylang language '$slug' names a flag code that is unavailable in this deployed artifact"
                 );
             }
         }
@@ -1129,7 +1129,7 @@ final class Polylang {
                             'code' => 'adapter_schema_content_mismatch',
                             'path' => (string) ($entity['path'] ?? ''),
                             'locator' => 'meta._pll_strings_translations',
-                            'message' => 'duo: Polylang string catalogs are valid only on language terms',
+                            'message' => 'wprism: Polylang string catalogs are valid only on language terms',
                         ];
                     } else {
                         try {
@@ -1177,7 +1177,7 @@ final class Polylang {
                         if (($defaultLanguage === '' && $languages !== [])
                             || ($defaultLanguage !== '' && !isset($languages[$defaultLanguage]))) {
                             throw new \RuntimeException(
-                                'duo: Polylang portable option default_lang must be empty exactly when the '
+                                'wprism: Polylang portable option default_lang must be empty exactly when the '
                                 . 'repository has no language terms, or name an exact repository language slug'
                             );
                         }
@@ -1224,7 +1224,7 @@ final class Polylang {
                             'code' => 'adapter_schema_content_mismatch',
                             'path' => (string) ($entity['path'] ?? ''),
                             'locator' => 'meta.' . $key,
-                            'message' => "duo: Polylang biography suffix '{$match[1]}' has no repository language term",
+                            'message' => "wprism: Polylang biography suffix '{$match[1]}' has no repository language term",
                         ];
                     }
                     if ($key === 'description' || str_starts_with((string) $key, 'description_')) {
@@ -1267,7 +1267,7 @@ final class Polylang {
     /** @param array<string,bool> $languages */
     private function assert_widget_settings(mixed $settings, array $languages, string $where): void {
         if (!is_array($settings) || ($settings !== [] && array_is_list($settings))) {
-            throw new \RuntimeException("duo: Polylang $where settings must be an object");
+            throw new \RuntimeException("wprism: Polylang $where settings must be an object");
         }
         $required = array_merge(['title'], self::MENU_KEYS);
         $allowed = array_merge($required, ['pll_lang']);
@@ -1279,7 +1279,7 @@ final class Polylang {
         sort($withLanguage, SORT_STRING);
         if ($keys !== $expected && $keys !== $withLanguage) {
             throw new \RuntimeException(
-                "duo: Polylang $where must contain title and exactly the six native switcher toggles, "
+                "wprism: Polylang $where must contain title and exactly the six native switcher toggles, "
                 . 'with only optional pll_lang'
             );
         }
@@ -1288,21 +1288,21 @@ final class Polylang {
             || strlen($title) > self::WIDGET_TITLE_MAX_BYTES
             || preg_match('//u', $title) !== 1
             || preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', $title) === 1) {
-            throw new \RuntimeException("duo: Polylang $where title is not a bounded canonical scalar string");
+            throw new \RuntimeException("wprism: Polylang $where title is not a bounded canonical scalar string");
         }
         if (function_exists('sanitize_text_field') && sanitize_text_field($title) !== $title) {
-            throw new \RuntimeException("duo: Polylang $where title is not canonical under sanitize_text_field()");
+            throw new \RuntimeException("wprism: Polylang $where title is not canonical under sanitize_text_field()");
         }
         foreach (self::MENU_KEYS as $key) {
             if (!is_int($settings[$key]) || !in_array($settings[$key], [0, 1], true)) {
-                throw new \RuntimeException("duo: Polylang $where.$key must be the native integer 0 or 1");
+                throw new \RuntimeException("wprism: Polylang $where.$key must be the native integer 0 or 1");
             }
         }
         if (array_key_exists('pll_lang', $settings)) {
             $language = $this->language_slug($settings['pll_lang'], false, "$where pll_lang");
             if (!isset($languages[$language])) {
                 throw new \RuntimeException(
-                    "duo: Polylang $where pll_lang has no exact repository language term"
+                    "wprism: Polylang $where pll_lang has no exact repository language term"
                 );
             }
         }
@@ -1310,59 +1310,59 @@ final class Polylang {
 
     private function assert_language_description(mixed $value, string $where): void {
         if (!is_string($value)) {
-            throw new \RuntimeException("duo: Polylang $where must be canonical PHP-serialized plain data");
+            throw new \RuntimeException("wprism: Polylang $where must be canonical PHP-serialized plain data");
         }
         try {
             $decoded = PlainData::decode_serialized($value, "Polylang $where");
         } catch (\RuntimeException $failure) {
             throw new \RuntimeException(
-                "duo: Polylang $where must be canonical PHP-serialized plain data",
+                "wprism: Polylang $where must be canonical PHP-serialized plain data",
                 0,
                 $failure
             );
         }
         if (!is_array($decoded) || array_is_list($decoded)) {
-            throw new \RuntimeException("duo: Polylang $where must be an object");
+            throw new \RuntimeException("wprism: Polylang $where must be an object");
         }
         $keys = array_keys($decoded);
         sort($keys, SORT_STRING);
         if ($keys !== ['flag_code', 'locale', 'rtl']) {
             throw new \RuntimeException(
-                "duo: Polylang $where must contain exactly flag_code, locale, rtl"
+                "wprism: Polylang $where must contain exactly flag_code, locale, rtl"
             );
         }
         if (!is_string($decoded['locale'])
             || preg_match('/^[a-z]{2,3}(?:_[A-Z]{2})?(?:_[a-z0-9]+)?$/D', $decoded['locale']) !== 1) {
-            throw new \RuntimeException("duo: Polylang $where.locale is invalid");
+            throw new \RuntimeException("wprism: Polylang $where.locale is invalid");
         }
         if (!(is_bool($decoded['rtl'])
             || (is_int($decoded['rtl']) && in_array($decoded['rtl'], [0, 1], true)))) {
-            throw new \RuntimeException("duo: Polylang $where.rtl must be native boolean/integer 0 or 1");
+            throw new \RuntimeException("wprism: Polylang $where.rtl must be native boolean/integer 0 or 1");
         }
         if (!is_string($decoded['flag_code'])
             || preg_match('/^[a-z0-9_-]{0,64}$/D', $decoded['flag_code']) !== 1) {
-            throw new \RuntimeException("duo: Polylang $where.flag_code is invalid");
+            throw new \RuntimeException("wprism: Polylang $where.flag_code is invalid");
         }
     }
 
     private function assert_portable_options(mixed $value, bool $repository): void {
         if (!is_array($value) || array_is_list($value)) {
-            throw new \RuntimeException('duo: Polylang portable option must be an object');
+            throw new \RuntimeException('wprism: Polylang portable option must be an object');
         }
         $keys = array_keys($value);
         sort($keys, SORT_STRING);
         if ($keys !== self::OPTION_KEYS) {
             throw new \RuntimeException(
-                'duo: Polylang portable option must contain exactly ' . implode(', ', self::OPTION_KEYS)
+                'wprism: Polylang portable option must contain exactly ' . implode(', ', self::OPTION_KEYS)
             );
         }
         $this->language_slug($value['default_lang'], true, 'portable option default_lang');
         if (!is_int($value['force_lang']) || !in_array($value['force_lang'], [0, 1], true)) {
-            throw new \RuntimeException('duo: Polylang portable option force_lang supports only native modes 0 or 1');
+            throw new \RuntimeException('wprism: Polylang portable option force_lang supports only native modes 0 or 1');
         }
         foreach (['browser', 'hide_default', 'media_support', 'redirect_lang', 'rewrite'] as $booleanKey) {
             if (!is_bool($value[$booleanKey])) {
-                throw new \RuntimeException("duo: Polylang portable option $booleanKey must be a native boolean");
+                throw new \RuntimeException("wprism: Polylang portable option $booleanKey must be a native boolean");
             }
         }
         $this->assert_slug_list($value['post_types'], 'post_types', 20, self::OBJECT_TYPE_MAX_ITEMS);
@@ -1380,44 +1380,44 @@ final class Polylang {
         ?array $allow = null
     ): void {
         if (!is_array($value) || !array_is_list($value)) {
-            throw new \RuntimeException("duo: Polylang portable option $key must be a list");
+            throw new \RuntimeException("wprism: Polylang portable option $key must be a list");
         }
         if (count($value) > $maxItems) {
-            throw new \RuntimeException("duo: Polylang portable option $key exceeds the bounded item limit");
+            throw new \RuntimeException("wprism: Polylang portable option $key exceeds the bounded item limit");
         }
         $bytes = 0;
         foreach ($value as $item) {
             if (!is_string($item) || preg_match('/^[a-z0-9_-]{1,' . $maxLength . '}$/D', $item) !== 1
                 || ($allow !== null && !in_array($item, $allow, true))) {
-                throw new \RuntimeException("duo: Polylang portable option $key contains an unsupported value");
+                throw new \RuntimeException("wprism: Polylang portable option $key contains an unsupported value");
             }
             $bytes += strlen($item);
             if ($bytes > self::OBJECT_TYPE_MAX_TOTAL_BYTES) {
-                throw new \RuntimeException("duo: Polylang portable option $key exceeds the bounded byte limit");
+                throw new \RuntimeException("wprism: Polylang portable option $key exceeds the bounded byte limit");
             }
         }
         if (count(array_unique($value)) !== count($value)) {
-            throw new \RuntimeException("duo: Polylang portable option $key contains duplicates");
+            throw new \RuntimeException("wprism: Polylang portable option $key contains duplicates");
         }
     }
 
     private function assert_nav_menus(mixed $value, bool $repository): void {
         if (!is_array($value) || ($value !== [] && array_is_list($value))) {
-            throw new \RuntimeException('duo: Polylang portable option nav_menus must be an object');
+            throw new \RuntimeException('wprism: Polylang portable option nav_menus must be an object');
         }
         if (count($value) > self::NAV_MAX_THEMES) {
-            throw new \RuntimeException('duo: Polylang portable option nav_menus exceeds the bounded theme limit');
+            throw new \RuntimeException('wprism: Polylang portable option nav_menus exceeds the bounded theme limit');
         }
         $assignments = 0;
         $bytes = 0;
         foreach ($value as $stylesheet => $locations) {
             if (!$this->valid_stylesheet($stylesheet)
                 || !is_array($locations) || ($locations !== [] && array_is_list($locations))) {
-                throw new \RuntimeException('duo: Polylang portable option nav_menus theme map is invalid');
+                throw new \RuntimeException('wprism: Polylang portable option nav_menus theme map is invalid');
             }
             if (count($locations) > self::NAV_MAX_LOCATIONS_PER_THEME) {
                 throw new \RuntimeException(
-                    'duo: Polylang portable option nav_menus exceeds the bounded per-theme location limit'
+                    'wprism: Polylang portable option nav_menus exceeds the bounded per-theme location limit'
                 );
             }
             $bytes += strlen($stylesheet);
@@ -1428,11 +1428,11 @@ final class Polylang {
                     || preg_match('//u', $location) !== 1
                     || preg_match('/[\x00-\x1F\x7F]/', $location) === 1
                     || !is_array($languages) || ($languages !== [] && array_is_list($languages))) {
-                    throw new \RuntimeException('duo: Polylang portable option nav_menus location map is invalid');
+                    throw new \RuntimeException('wprism: Polylang portable option nav_menus location map is invalid');
                 }
                 if (count($languages) > self::NAV_MAX_LANGUAGES_PER_LOCATION) {
                     throw new \RuntimeException(
-                        'duo: Polylang portable option nav_menus exceeds the bounded per-location language limit'
+                        'wprism: Polylang portable option nav_menus exceeds the bounded per-location language limit'
                     );
                 }
                 $bytes += strlen($location);
@@ -1441,20 +1441,20 @@ final class Polylang {
                         $language = $this->language_slug($language, false, 'portable nav_menus language');
                     } catch (\RuntimeException) {
                         throw new \RuntimeException(
-                            'duo: Polylang portable option nav_menus language entry is invalid'
+                            'wprism: Polylang portable option nav_menus language entry is invalid'
                         );
                     }
                     if (!($menu === 0 || ($repository
                             ? (is_string($menu)
                                 && preg_match('/^\{\{term:[0-9a-f-]{36}\}\}$/D', $menu) === 1)
                             : (is_int($menu) && $menu > 0)))) {
-                        throw new \RuntimeException('duo: Polylang portable option nav_menus language entry is invalid');
+                        throw new \RuntimeException('wprism: Polylang portable option nav_menus language entry is invalid');
                     }
                     ++$assignments;
                     $bytes += strlen($language) + (is_string($menu) ? strlen($menu) : 8);
                     if ($assignments > self::NAV_MAX_ASSIGNMENTS || $bytes > self::NAV_MAX_TOTAL_BYTES) {
                         throw new \RuntimeException(
-                            'duo: Polylang portable option nav_menus exceeds the bounded aggregate limit'
+                            'wprism: Polylang portable option nav_menus exceeds the bounded aggregate limit'
                         );
                     }
                 }
@@ -1467,7 +1467,7 @@ final class Polylang {
             || strlen($value) > self::LANGUAGE_SLUG_MAX_BYTES
             || ($value === '' && !$allowEmpty)
             || ($value !== '' && preg_match('/^[a-z][a-z0-9_-]*$/D', $value) !== 1)) {
-            throw new \RuntimeException("duo: Polylang $where is invalid");
+            throw new \RuntimeException("wprism: Polylang $where is invalid");
         }
         return $value;
     }
@@ -1483,18 +1483,18 @@ final class Polylang {
 
     private function assert_supported_topology(mixed $mode, mixed $marker, string $where): void {
         if (!is_int($mode) || !in_array($mode, [0, 1, 2, 3], true)) {
-            throw new \RuntimeException("duo: Polylang $where force_lang is invalid");
+            throw new \RuntimeException("wprism: Polylang $where force_lang is invalid");
         }
         if (in_array($mode, [2, 3], true)) {
             throw new \RuntimeException(
-                "duo: Polylang $where force_lang mode $mode is topology-bound; subdomain/domain DNS, TLS, "
+                "wprism: Polylang $where force_lang mode $mode is topology-bound; subdomain/domain DNS, TLS, "
                 . 'cookie and canonical-host bindings are not portable in this adapter'
             );
         }
         if ($mode === 0 && $marker !== 'yes') {
             throw new \RuntimeException(
-                "duo: Polylang $where force_lang mode 0 requires target-local "
-                . "pll_language_from_content_available='yes'; Duo never copies or forges that marker"
+                "wprism: Polylang $where force_lang mode 0 requires target-local "
+                . "pll_language_from_content_available='yes'; WPrism never copies or forges that marker"
             );
         }
     }
@@ -1513,15 +1513,15 @@ final class Polylang {
     private function assert_string_catalog(mixed $value, string $where, bool $serialized): void {
         if ($serialized) {
             if (!is_string($value)) {
-                throw new \RuntimeException("duo: Polylang $where must be canonical serialized plain data");
+                throw new \RuntimeException("wprism: Polylang $where must be canonical serialized plain data");
             }
             $value = PlainData::decode_serialized($value, "Polylang $where");
         }
         if (!is_array($value) || !array_is_list($value)) {
-            throw new \RuntimeException("duo: Polylang $where must be a list of [source, translation] rows");
+            throw new \RuntimeException("wprism: Polylang $where must be a list of [source, translation] rows");
         }
         if (count($value) > self::CATALOG_MAX_ROWS) {
-            throw new \RuntimeException("duo: Polylang $where exceeds the bounded row limit");
+            throw new \RuntimeException("wprism: Polylang $where exceeds the bounded row limit");
         }
         $sources = [];
         $bytes = 0;
@@ -1530,22 +1530,22 @@ final class Polylang {
                 || !is_string($row[0] ?? null) || !is_string($row[1] ?? null)
                 || $row[0] === '') {
                 throw new \RuntimeException(
-                    "duo: Polylang $where rows must contain exactly a nonempty source and string translation"
+                    "wprism: Polylang $where rows must contain exactly a nonempty source and string translation"
                 );
             }
             $sourceBytes = strlen($row[0]);
             $translationBytes = strlen($row[1]);
             if ($sourceBytes > self::CATALOG_MAX_STRING_BYTES
                 || $translationBytes > self::CATALOG_MAX_STRING_BYTES) {
-                throw new \RuntimeException("duo: Polylang $where contains an oversized string");
+                throw new \RuntimeException("wprism: Polylang $where contains an oversized string");
             }
             $bytes += $sourceBytes + $translationBytes;
             if ($bytes > self::CATALOG_MAX_TOTAL_BYTES) {
-                throw new \RuntimeException("duo: Polylang $where exceeds the bounded byte limit");
+                throw new \RuntimeException("wprism: Polylang $where exceeds the bounded byte limit");
             }
             $sourceHash = hash('sha256', $row[0]);
             if (isset($sources[$sourceHash])) {
-                throw new \RuntimeException("duo: Polylang $where contains duplicate source strings");
+                throw new \RuntimeException("wprism: Polylang $where contains duplicate source strings");
             }
             $sources[$sourceHash] = true;
         }
@@ -1556,20 +1556,20 @@ final class Polylang {
             $value = PlainData::decode_serialized($value, "Polylang $where");
         }
         if (!is_array($value) || array_is_list($value)) {
-            throw new \RuntimeException("duo: Polylang $where must be an object with the exact native switcher keys");
+            throw new \RuntimeException("wprism: Polylang $where must be an object with the exact native switcher keys");
         }
         $keys = array_keys($value);
         sort($keys, SORT_STRING);
         if ($keys !== self::MENU_KEYS) {
             throw new \RuntimeException(
-                "duo: Polylang $where must contain exactly " . implode(', ', self::MENU_KEYS)
+                "wprism: Polylang $where must contain exactly " . implode(', ', self::MENU_KEYS)
             );
         }
         foreach (self::MENU_KEYS as $key) {
             $candidate = $value[$key];
             if (!(is_bool($candidate) || (is_int($candidate) && ($candidate === 0 || $candidate === 1)))) {
                 throw new \RuntimeException(
-                    "duo: Polylang $where.$key must be native boolean/integer 0 or 1"
+                    "wprism: Polylang $where.$key must be native boolean/integer 0 or 1"
                 );
             }
         }

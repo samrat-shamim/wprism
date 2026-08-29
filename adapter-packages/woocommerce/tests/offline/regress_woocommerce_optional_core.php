@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 
 if (!function_exists('get_current_blog_id')) {
     function get_current_blog_id(): int {
@@ -87,12 +87,12 @@ require_once __DIR__ . '/../../../../agent/src/Policy/ScopeDiscovery.php';
 require_once __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
 require_once __DIR__ . '/../../../../agent/src/Capture/OptionsCapture.php';
 
-use Duo\OptionsCapture;
-use Duo\Policy;
-use Duo\ScopeDiscovery;
-use Duo\Tokens;
-use DuoTest\FakeWpdb;
-use DuoTest\WpStore;
+use WPrism\OptionsCapture;
+use WPrism\Policy;
+use WPrism\ScopeDiscovery;
+use WPrism\Tokens;
+use WPrismTest\FakeWpdb;
+use WPrismTest\WpStore;
 
 if (!function_exists('wc_sanitize_permalink')) {
     function wc_sanitize_permalink(mixed $value): string {
@@ -292,38 +292,38 @@ $settingsInventory = json_decode(
     flags: JSON_THROW_ON_ERROR
 );
 require_once $root . '/tools/src/ArtifactLibrary.php';
-$artifactLock = \Duo\Tooling\ArtifactLibrary::loadPackage($root, 'woocommerce');
+$artifactLock = \WPrism\Tooling\ArtifactLibrary::loadPackage($root, 'woocommerce');
 
-duo_check_same(
-    'duo-woocommerce-optional-core-inventory/v1',
+wprism_check_same(
+    'wprism-woocommerce-optional-core-inventory/v1',
     $inventory['format'] ?? null,
     'the optional-core source union has one explicit schema'
 );
-duo_check_same(
+wprism_check_same(
     ['11.0.0', '11.0.1'],
     array_keys((array) ($inventory['artifacts'] ?? [])),
     'the optional-core inventory admits only the two exact reviewed artifacts'
 );
 foreach ((array) ($inventory['artifacts'] ?? []) as $version => $sha256) {
-    duo_check_same(
+    wprism_check_same(
         $sha256,
         $artifactLock['plugins']['woocommerce'][$version]['sha256'] ?? null,
         "optional-core source evidence is pinned to the official WooCommerce $version artifact"
     );
 }
-duo_check_same(
+wprism_check_same(
     32,
     count((array) ($inventory['source_files'] ?? [])),
     'the inventory binds all 32 exact optional-core storage writers, readers, and registries'
 );
 foreach ((array) ($inventory['source_files'] ?? []) as $path => $sha256) {
-    duo_check(
+    wprism_check(
         is_string($path) && $path !== ''
             && is_string($sha256) && preg_match('/^[0-9a-f]{64}$/D', $sha256) === 1,
         "$path carries one reviewed byte-identical 11.0.0/11.0.1 source digest"
     );
 }
-duo_check_same(
+wprism_check_same(
     [
         'includes/class-woocommerce.php' => [
             '11.0.0' => '5982ef2ab60231218cc71a2ba9bd387496d32c1a5eeb5468116d51137bbd7ef4',
@@ -337,7 +337,7 @@ duo_check_same(
     $inventory['version_specific_source_files'] ?? null,
     'the optional review-route bootstrap and endpoint behavior bind both exact version-specific artifacts'
 );
-duo_check_same(
+wprism_check_same(
     [
         'block_email_editor',
         'cli_migrator',
@@ -355,7 +355,7 @@ duo_check_same(
 $policy = Policy::load(
     null,
     ['woocommerce'],
-    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
+    adapterLibrary: \WPrism\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
 );
 
 /*
@@ -364,7 +364,7 @@ $policy = Policy::load(
  * check. Every factory/callback double throws if admission executes it.
  */
 $woocommerceHookInterpreter = $policy->interpreters()['woocommerce'] ?? null;
-duo_check(is_object($woocommerceHookInterpreter), 'the Woo interpreter is available for hook admission probes');
+wprism_check(is_object($woocommerceHookInterpreter), 'the Woo interpreter is available for hook admission probes');
 $assertMixedMutationHooks = (new ReflectionClass($woocommerceHookInterpreter))
     ->getMethod('assert_mixed_option_mutation_hooks');
 $assertTecAdmission = static function (int &$writes) use (
@@ -386,7 +386,7 @@ foreach ($updateCallbacks as $callbacks) {
             : (is_array($callback) ? (string) ($callback[0] ?? '') : '');
     }
 }
-duo_check_same(
+wprism_check_same(
     [],
     array_values(array_intersect($updateOwners, [
         \Automattic\WooCommerce\Internal\Features\FeaturesController::class,
@@ -395,7 +395,7 @@ duo_check_same(
     ])),
     'the marker-write update_option union excludes all four Woo updated_option observers'
 );
-duo_check_same(
+wprism_check_same(
     8,
     array_sum(array_map('count', $updateCallbacks)),
     'the marker-write update_option union is only six Yoast services, sitemap cache, and tracking'
@@ -423,12 +423,12 @@ $expectedUpdatedIdentities = [
     '999|Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::process_updated_option|3',
 ];
 sort($expectedUpdatedIdentities, SORT_STRING);
-duo_check_same($expectedUpdatedIdentities, $updatedIdentities,
+wprism_check_same($expectedUpdatedIdentities, $updatedIdentities,
     'the marker-write updated_option union is exactly Woo four plus TEC five');
 $tecWrites = 0;
-duo_check($assertTecAdmission($tecWrites) === true && $tecWrites === 1,
+wprism_check($assertTecAdmission($tecWrites) === true && $tecWrites === 1,
     'the exact TEC five plus Woo four updated_option identities admit before the marker write');
-duo_check_same([0, 0], [$GLOBALS['wooMixedTecFactoryCalls'], $GLOBALS['wooMixedTecCallbackCalls']],
+wprism_check_same([0, 0], [$GLOBALS['wooMixedTecFactoryCalls'], $GLOBALS['wooMixedTecCallbackCalls']],
     'TEC reciprocal admission reads no factory and executes no native callback');
 
 $assertTecRefusal = static function (string $label, Closure $mutate, string $needle) use (
@@ -437,18 +437,18 @@ $assertTecRefusal = static function (string $label, Closure $mutate, string $nee
     woo_optional_install_native_topology(true, 'woocommerce_bacs_settings');
     $writes = 0;
     $mutate();
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $assertTecAdmission($writes),
         RuntimeException::class,
         "$label refuses before the marker-write boundary",
         $needle
     );
-    duo_check_same(0, $writes, "$label reaches no marker write");
-    duo_check_same([0, 0], [$GLOBALS['wooMixedTecFactoryCalls'], $GLOBALS['wooMixedTecCallbackCalls']],
+    wprism_check_same(0, $writes, "$label reaches no marker write");
+    wprism_check_same([0, 0], [$GLOBALS['wooMixedTecFactoryCalls'], $GLOBALS['wooMixedTecCallbackCalls']],
         "$label executes neither TEC factory nor callback");
     woo_optional_install_native_topology(true, 'woocommerce_bacs_settings');
     $writes = 0;
-    duo_check($assertTecAdmission($writes) === true && $writes === 1,
+    wprism_check($assertTecAdmission($writes) === true && $writes === 1,
         "restoring $label permits the exact same-process marker-write retry");
 };
 $assertTecRefusal(
@@ -560,17 +560,17 @@ foreach ([
 woo_optional_clear_hooks();
 
 $reviewFamily = (array) ($inventory['families']['customer_review_requests'] ?? []);
-duo_check_same(
+wprism_check_same(
     ['class' => 'authored', 'ref' => 'post', 'autoload' => 'preserve'],
     $policy->option_rule('woocommerce_review_order_page_id'),
     'the customer review host page crosses the portable post identity ledger'
 );
-duo_check_same(
+wprism_check_same(
     'runtime',
     $policy->option_rule('woocommerce_review_order_flush_rewrite_pending')['class'] ?? null,
     'the one-request review-route flush marker remains target runtime'
 );
-duo_check_same(
+wprism_check_same(
     [
         'feature_options' => ['woocommerce_feature_customer_review_request_enabled'],
         'authored_options' => ['woocommerce_review_order_page_id' => 'post_reference'],
@@ -582,39 +582,39 @@ duo_check_same(
     'the optional-core inventory closes the feature, authored page, runtime marker, and derived rewrite split'
 );
 $reviewActions = $policy->actions_for(['option:woocommerce_review_order_page_id']);
-duo_check_same(1, count($reviewActions), 'a review-page identity change selects one bounded native convergence action');
-duo_check_same(
+wprism_check_same(1, count($reviewActions), 'a review-page identity change selects one bounded native convergence action');
+wprism_check_same(
     ['kind' => 'native', 'action' => 'rewrite.flush', 'args' => []],
     array_intersect_key((array) ($reviewActions[0] ?? []), array_flip(['kind', 'action', 'args'])),
     'the review page reuses the hardened fresh-process rewrite action without a manifest-controlled payload'
 );
 
 foreach (['wc_email_sync_backfill_completed_tracked', 'woocommerce_email_template_sync_backfill_complete'] as $name) {
-    duo_check_same('runtime', $policy->option_rule($name)['class'] ?? null, "$name is target-local sync state");
+    wprism_check_same('runtime', $policy->option_rule($name)['class'] ?? null, "$name is target-local sync state");
 }
 foreach ((array) ($inventory['families']['customer_stock_notifications']['runtime_options'] ?? []) as $name) {
-    duo_check_same('runtime', $policy->option_rule((string) $name)['class'] ?? null,
+    wprism_check_same('runtime', $policy->option_rule((string) $name)['class'] ?? null,
         "$name is exact target-local stock-notification UI/runtime state");
 }
 foreach ((array) ($inventory['families']['customer_stock_notifications']['filter_hooks'] ?? []) as $hookName) {
-    duo_check_same(null, $policy->option_rule((string) $hookName),
+    wprism_check_same(null, $policy->option_rule((string) $hookName),
         "$hookName is a filter hook, not a silently invented portable option");
 }
 $stockEmailOptions = (array) ($inventory['families']['customer_stock_notifications']['email_setting_options'] ?? []);
-duo_check_same([
+wprism_check_same([
     'woocommerce_customer_stock_notification_settings',
     'woocommerce_customer_stock_notification_verified_settings',
     'woocommerce_customer_stock_notification_verify_settings',
 ], $stockEmailOptions, 'all three feature-gated stock-notification email settings records are source-enumerated');
 $cycleFamily = (array) ($inventory['families']['customer_stock_notifications']['runtime_option_patterns'] ?? []);
-duo_check_same(
+wprism_check_same(
     ['wc_stock_notifications_cycle_state_<product-id>' => 'canonical_positive_php_integer'],
     $cycleFamily,
     'per-product stock-delivery cycle state has one exact runtime option-name grammar'
 );
 foreach (['1', '811', (string) PHP_INT_MAX] as $productId) {
     $name = 'wc_stock_notifications_cycle_state_' . $productId;
-    duo_check_same(
+    wprism_check_same(
         'runtime',
         $policy->owned_option_rule_via_interpreter($name, [$name => 'runtime-state'])['class'] ?? null,
         "$name stays target-local through the exact native product-id suffix"
@@ -622,17 +622,17 @@ foreach (['1', '811', (string) PHP_INT_MAX] as $productId) {
 }
 foreach (['', '0', '01', '-1', '+1', '1.0', '9223372036854775808', '1_suffix', '١'] as $suffix) {
     $name = 'wc_stock_notifications_cycle_state_' . $suffix;
-    duo_check_same(
+    wprism_check_same(
         null,
         $policy->owned_option_rule_via_interpreter($name, [$name => 'hostile-state']),
         "$name cannot widen the native per-product cycle-state family"
     );
 }
 foreach (['wc_migrator_analytics', 'wc_migrator_products_count'] as $name) {
-    duo_check_same('runtime', $policy->option_rule($name)['class'] ?? null, "$name is target-local migration progress");
+    wprism_check_same('runtime', $policy->option_rule($name)['class'] ?? null, "$name is target-local migration progress");
 }
 foreach (['shopify', 'webflow', 'partner_extension'] as $platform) {
-    duo_check_same(
+    wprism_check_same(
         'env',
         $policy->option_rule("wc_migrator_credentials_$platform")['class'] ?? null,
         "filtered migrator platform $platform keeps its credential record target-sovereign"
@@ -644,17 +644,17 @@ foreach ([
     'wc_migrator_credentials_bad/slash',
     'wc_migrator_credentials_' . str_repeat('x', 65),
 ] as $nearMiss) {
-    duo_check_same(null, $policy->option_rule($nearMiss), "$nearMiss cannot widen the closed credential family");
+    wprism_check_same(null, $policy->option_rule($nearMiss), "$nearMiss cannot widen the closed credential family");
 }
-duo_check_same('runtime', $manifest['post_types']['import_session']['class'] ?? null,
+wprism_check_same('runtime', $manifest['post_types']['import_session']['class'] ?? null,
     'CLI import sessions and their source/progress metadata are explicitly runtime');
-duo_check_same('runtime', $manifest['post_types']['wc_push_token']['class'] ?? null,
+wprism_check_same('runtime', $manifest['post_types']['wc_push_token']['class'] ?? null,
     'push-token posts and device secrets/PII are explicitly runtime');
-duo_check(!array_key_exists('woo_email', $manifest['post_types'] ?? []),
+wprism_check(!array_key_exists('woo_email', $manifest['post_types'] ?? []),
     'Block Email Editor posts remain outside portable scope instead of silently dropping merchant content');
 foreach (['woocommerce_email_templates_new_order_post_id', 'woocommerce_email_templates_addon_gateway_post_id'] as $name) {
-    duo_check_same(null, $policy->option_rule($name), "$name remains an explicit unsupported post-reference boundary");
-    duo_check_same('woocommerce', $policy->option_namespace($name)['owner'] ?? null,
+    wprism_check_same(null, $policy->option_rule($name), "$name remains an explicit unsupported post-reference boundary");
+    wprism_check_same('woocommerce', $policy->option_namespace($name)['owner'] ?? null,
         "$name remains discovery-owned and therefore fails loudly when populated");
 }
 
@@ -662,16 +662,16 @@ $unsupported = [];
 foreach ((array) ($dispositions['manifests']['woocommerce']['unsupported'] ?? []) as $row) {
     $unsupported[(string) ($row['surface'] ?? '')] = (string) ($row['operation'] ?? '');
 }
-duo_check_same('capture', $unsupported['post_types.woo_email'] ?? null,
+wprism_check_same('capture', $unsupported['post_types.woo_email'] ?? null,
     'the reviewed disposition names the populated Block Email Editor post boundary');
-duo_check_same('capture', $unsupported['options.woocommerce_email_templates_*_post_id'] ?? null,
+wprism_check_same('capture', $unsupported['options.woocommerce_email_templates_*_post_id'] ?? null,
     'the reviewed disposition names the target-local Block Email Editor mapping boundary');
-duo_check_same(
+wprism_check_same(
     'capture',
     $unsupported['options.woocommerce_google_analytics_settings|woocommerce_paymob-main_settings|woocommerce_ppec_paypal_settings|woocommerce_stripe_settings|woocommerce_woocommerce_payments_settings'] ?? null,
     'the reviewed disposition names every source-observed integration-owned settings record'
 );
-duo_check_same(
+wprism_check_same(
     'capture',
     $unsupported['options.woocommerce_table_rate_default_priority_*|woocommerce_table_rate_priorities_*'] ?? null,
     'the reviewed disposition names both legacy table-rate extension option families'
@@ -680,27 +680,27 @@ foreach ([
     'options.woocommerce_bacs_settings|woocommerce_cheque_settings|woocommerce_cod_settings',
     'options.woocommerce_<core-email-id>_settings',
 ] as $surface) {
-    duo_check(!array_key_exists($surface, $unsupported),
+    wprism_check(!array_key_exists($surface, $unsupported),
         "$surface graduated from its populated-source refusal into the closed native registry");
 }
-duo_check_same(
+wprism_check_same(
     'env',
     $policy->option_rule('woocommerce_bacs_accounts')['class'] ?? null,
     'the separate BACS bank-detail list is target-environment-owned rather than a universal capture blocker'
 );
 
 $nativeContract = (array) ($settingsInventory['closed_records']['native_materialization_contract'] ?? []);
-duo_check_same(
+wprism_check_same(
     ['normalize_captured_option_sub_keys', 'materialize_option_sub_keys', 'project_materialized_option_sub_keys'],
     $nativeContract['interpreter_methods'] ?? null,
     'the exact settings inventory binds capture normalization, native apply, and finalized-storage projection'
 );
-duo_check_same(
+wprism_check_same(
     [1048576, 262144],
     [$nativeContract['max_record_bytes'] ?? null, $nativeContract['max_text_bytes'] ?? null],
     'mixed settings records and text carry explicit aggregate bounds'
 );
-duo_check(
+wprism_check(
     ($nativeContract['native_validator'] ?? null) === 'WC_Settings_API'
         && ($nativeContract['native_validator_abstract'] ?? null) === true
         && (new ReflectionClass('WC_Settings_API'))->isAbstract()
@@ -715,9 +715,9 @@ duo_check(
 );
 
 $woocommerceInterpreter = $policy->interpreters()['woocommerce'] ?? null;
-duo_check(is_object($woocommerceInterpreter), 'the digest-bound WooCommerce interpreter is available');
+wprism_check(is_object($woocommerceInterpreter), 'the digest-bound WooCommerce interpreter is available');
 foreach ((array) ($nativeContract['interpreter_methods'] ?? []) as $method) {
-    duo_check(method_exists($woocommerceInterpreter, (string) $method), "$method is implemented by shipped Woo bytes");
+    wprism_check(method_exists($woocommerceInterpreter, (string) $method), "$method is implemented by shipped Woo bytes");
 }
 
 $mixedRules = static function (string $name) use ($settingsInventory): array {
@@ -759,7 +759,7 @@ $mixedOptionNames = array_merge(
 );
 foreach ($mixedOptionNames as $optionName) {
     $rule = $policy->option_rule((string) $optionName);
-    duo_check(
+    wprism_check(
         ($rule['class'] ?? null) === 'env'
             && ($rule['required'] ?? null) === false
             && ($rule['autoload'] ?? null) === 'preserve'
@@ -769,7 +769,7 @@ foreach ($mixedOptionNames as $optionName) {
         "$optionName resolves through the exact digest-bound closed sibling registry"
     );
 }
-duo_check_same(
+wprism_check_same(
     [
         'option_name',
         'raw_authored',
@@ -871,7 +871,7 @@ $permalinkRules = [
     'use_verbose_page_rules' => ['class' => 'authored'],
 ];
 $permalinkRule = $policy->option_rule('woocommerce_permalinks');
-duo_check(
+wprism_check(
     ($permalinkRule['class'] ?? null) === 'derived'
         && ($permalinkRule['required'] ?? null) === false
         && ($permalinkRule['autoload'] ?? null) === 'preserve'
@@ -895,9 +895,9 @@ $permalinkNormalized = $woocommerceInterpreter->normalize_captured_option_sub_ke
     $permalinkRules,
     ['woocommerce_permalinks' => serialize($permalinkSource)]
 );
-duo_check_same($permalinkCaptured, $permalinkNormalized,
+wprism_check_same($permalinkCaptured, $permalinkNormalized,
     'exact native-order Woo permalink storage normalizes to canonical repository key order');
-duo_check_same(
+wprism_check_same(
     [],
     $woocommerceInterpreter->normalize_captured_option_sub_keys(
         'woocommerce_permalinks',
@@ -909,7 +909,7 @@ duo_check_same(
 );
 $sparsePermalink = $permalinkSource;
 unset($sparsePermalink['use_verbose_page_rules']);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $woocommerceInterpreter->normalize_captured_option_sub_keys(
         'woocommerce_permalinks',
         array_intersect_key($permalinkCaptured, $sparsePermalink),
@@ -924,7 +924,7 @@ $soleBrandBase = $permalinkSource;
 $soleBrandBase['product_base'] = '/%product_brand%';
 $soleBrandCaptured = $soleBrandBase;
 ksort($soleBrandCaptured, SORT_STRING);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $woocommerceInterpreter->normalize_captured_option_sub_keys(
         'woocommerce_permalinks',
         $soleBrandCaptured,
@@ -935,7 +935,7 @@ duo_check_throws(
     'repository capture cannot bypass the exact Woo Brands product-base validator',
     'native Brands product-base guard'
 );
-duo_check_same(
+wprism_check_same(
     '/product/%product_brand%',
     $GLOBALS['WC_Brands_Admin']->validate_product_base($soleBrandBase)['product_base'] ?? null,
     'the pinned native Brands validator prefixes the otherwise-invalid sole brand placeholder'
@@ -949,13 +949,13 @@ $permalinkResult = $materializeMixed(
     'yes',
     ['product_base' => 'stale-only-sparse-target']
 );
-duo_check(
+wprism_check(
     $permalinkResult['handled'] === true
         && $permalinkResult['written'] === $permalinkSource
         && $permalinkResult['projected'] === $permalinkNormalized,
     'native permalink materialization completes a sparse hostile target through exact source-proven hook topology'
 );
-duo_check(
+wprism_check(
     $materializeMixed(
         'woocommerce_permalinks',
         $permalinkNormalized,
@@ -965,7 +965,7 @@ duo_check(
     )['written'] === $permalinkSource,
     'a missing target permalink row uses the closed Woo/Yoast insertion callback union'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn() => $materializeMixed(
         'woocommerce_permalinks',
         $permalinkNormalized,
@@ -980,7 +980,7 @@ duo_check_throws(
     'requires the checkpointed yoast-index action'
 );
 woo_optional_clear_hooks();
-duo_check_same(0, $GLOBALS['wooMixedContainerGetCalls'],
+wprism_check_same(0, $GLOBALS['wooMixedContainerGetCalls'],
     'mixed-option admission reads Woo resolved_cache and never calls Container::get');
 woo_optional_clear_hooks();
 
@@ -991,7 +991,7 @@ woo_optional_install_hook('pre_update_option_woocommerce_permalinks', [[
 ]]);
 $hookWriteCalls = 0;
 $hookFinalizeCalls = 0;
-duo_check_throws(
+wprism_check_throws(
     static fn() => $woocommerceInterpreter->materialize_option_sub_keys(
         'woocommerce_permalinks',
         $permalinkNormalized,
@@ -1013,7 +1013,7 @@ duo_check_throws(
     'a same-class foreign Brands validator refuses before direct permalink storage',
     'exact native service'
 );
-duo_check_same([0, 0], [$hookWriteCalls, $hookFinalizeCalls],
+wprism_check_same([0, 0], [$hookWriteCalls, $hookFinalizeCalls],
     'foreign specific hook topology reaches no mixed-option write or finalization');
 woo_optional_clear_hooks();
 
@@ -1027,7 +1027,7 @@ woo_optional_install_hook('pre_update_option', [[
     $hostileHook, 'mutate', 10, 1,
 ]]);
 $hookWriteCalls = 0;
-duo_check_throws(
+wprism_check_throws(
     static fn() => $woocommerceInterpreter->materialize_option_sub_keys(
         'woocommerce_permalinks',
         $permalinkNormalized,
@@ -1046,10 +1046,10 @@ duo_check_throws(
     'a generic extension option callback refuses before direct permalink storage',
     'extension callback'
 );
-duo_check_same(0, $hookWriteCalls,
+wprism_check_same(0, $hookWriteCalls,
     'generic hostile hook topology is observed before the engine-owned write callback');
 woo_optional_clear_hooks();
-duo_check_same(
+wprism_check_same(
     $permalinkSource,
     $materializeMixed(
         'woocommerce_permalinks',
@@ -1092,7 +1092,7 @@ foreach ($emailRecords as $optionName => $record) {
         $rules,
         []
     );
-    duo_check_same([], $absent, "$optionName admits a never-saved clean-install source row");
+    wprism_check_same([], $absent, "$optionName admits a never-saved clean-install source row");
     $normalized = $woocommerceInterpreter->normalize_captured_option_sub_keys(
         (string) $optionName,
         $captured,
@@ -1101,11 +1101,11 @@ foreach ($emailRecords as $optionName => $record) {
     );
     $expected = $captured;
     ksort($expected, SORT_STRING);
-    duo_check_same($expected, $normalized, "$optionName normalizes every portable native email field exactly");
+    wprism_check_same($expected, $normalized, "$optionName normalizes every portable native email field exactly");
     if ($optionName === 'woocommerce_admin_payment_gateway_enabled_settings') {
         $compiledOrderRules = $rules;
         ksort($compiledOrderRules, SORT_STRING);
-        duo_check_same(
+        wprism_check_same(
             $normalized,
             $woocommerceInterpreter->normalize_captured_option_sub_keys(
                 (string) $optionName,
@@ -1117,7 +1117,7 @@ foreach ($emailRecords as $optionName => $record) {
         );
         $missingCompiledRule = $compiledOrderRules;
         unset($missingCompiledRule['preheader']);
-        duo_check_throws(
+        wprism_check_throws(
             static fn() => $woocommerceInterpreter->normalize_captured_option_sub_keys(
                 (string) $optionName,
                 $captured,
@@ -1143,13 +1143,13 @@ foreach ($emailRecords as $optionName => $record) {
         }
     }
     $absentResult = $materializeMixed((string) $optionName, $absent, $rules, 'on', $rawRecord);
-    duo_check_same(
+    wprism_check_same(
         $absentExpected,
         $absentResult['written'],
         "$optionName removes stale authored siblings while preserving a target-owned recipient on source absence"
     );
     $result = $materializeMixed((string) $optionName, $normalized, $rules, 'on', $target);
-    duo_check(
+    wprism_check(
         $result['handled'] === true
             && $result['write_calls'] === 1
             && $result['finalize_calls'] === 1
@@ -1158,7 +1158,7 @@ foreach ($emailRecords as $optionName => $record) {
         "$optionName uses one engine-owned write/finalization and an exact native projection"
     );
     $created = $materializeMixed((string) $optionName, $normalized, $rules, 'on', null);
-    duo_check(
+    wprism_check(
         $created['handled'] === true
             && $created['write_calls'] === 1
             && $created['finalize_calls'] === 1
@@ -1166,7 +1166,7 @@ foreach ($emailRecords as $optionName => $record) {
         "$optionName exercises the exact absent-target Woo/Yoast insertion union"
     );
     if (isset($rules['recipient'])) {
-        duo_check_same(
+        wprism_check_same(
             'target-recipient-DO_NOT_ECHO@example.test',
             $result['written']['recipient'] ?? null,
             "$optionName preserves target recipient identity"
@@ -1174,7 +1174,7 @@ foreach ($emailRecords as $optionName => $record) {
     }
     $trackingRefusalCases[] = [(string) $optionName, $normalized, $rules, $target];
 }
-duo_check(count($GLOBALS['wooMixedNativeCalls']) >= count($emailRecords),
+wprism_check(count($GLOBALS['wooMixedNativeCalls']) >= count($emailRecords),
     'every exact email record crosses WC_Settings_API native validation');
 
 $partialEmail = ['enabled' => 'yes'];
@@ -1192,7 +1192,7 @@ $partialEmailResult = $materializeMixed(
     'yes',
     ['recipient' => 'target@example.test', 'subject' => 'delete-stale-subject']
 );
-duo_check_same(
+wprism_check_same(
     ['recipient' => 'target@example.test', 'enabled' => 'yes'],
     $partialEmailResult['written'],
     'a valid partial native email record preserves its target recipient and removes omitted authored fields'
@@ -1204,7 +1204,7 @@ $partialEmailRepeat = $materializeMixed(
     'yes',
     $partialEmailResult['written']
 );
-duo_check_same($partialEmailResult['written'], $partialEmailRepeat['written'],
+wprism_check_same($partialEmailResult['written'], $partialEmailRepeat['written'],
     'partial email materialization is byte-stable on repeat');
 
 $gatewayRules = [
@@ -1258,7 +1258,7 @@ $assertTrackingObserverRefusal = static function (
     $finalizations = 0;
     $restores = 0;
     $before = $trackingSnapshot();
-    duo_check_throws(
+    wprism_check_throws(
         static function () use ($policy, $name, $captured, $rules, $target, &$writes, &$finalizations, &$restores): bool {
             $written = null;
             return $policy->materialize_option_sub_keys_via_interpreter(
@@ -1282,14 +1282,14 @@ $assertTrackingObserverRefusal = static function (
         "$name refuses the tracking observer before OptionsMaterializer mutation",
         'tracking observer would track the current option'
     );
-    duo_check_same([0, 0, 0], [$writes, $finalizations, $restores],
+    wprism_check_same([0, 0, 0], [$writes, $finalizations, $restores],
         "$name tracking refusal reaches no storage, finalization, or runtime-restore callback");
-    duo_check_same($before, $trackingSnapshot(), "$name tracking refusal leaves tracker state untouched");
+    wprism_check_same($before, $trackingSnapshot(), "$name tracking refusal leaves tracker state untouched");
     $tracker->set_allowed_options([]);
 };
 foreach ($trackingRefusalCases as [$optionName, $captured, $rules, $target]) {
     $assertTrackingObserverRefusal($optionName, $captured, $rules, $target);
-    duo_check(
+    wprism_check(
         $materializeMixed($optionName, $captured, $rules, 'on', $target)['handled'] === true,
         "$optionName retries after its tracking observer exclusion is removed"
     );
@@ -1298,22 +1298,22 @@ woo_optional_install_native_topology(true, 'woocommerce_cheque_settings');
 $trackingSuccessBefore = $trackingSnapshot();
 $trackingSuccessWrites = 0;
 $trackingSuccessFinalizations = 0;
-duo_check(
+wprism_check(
     $runClosedExistingTopology($trackingSuccessWrites, $trackingSuccessFinalizations) === true,
     'the inert exact Woo tracking observer admits an ordinary existing mixed-option write'
 );
-duo_check_same($trackingSuccessBefore, $trackingSnapshot(),
+wprism_check_same($trackingSuccessBefore, $trackingSnapshot(),
     'an admitted inert Woo tracking observer is never invoked or mutated');
 woo_optional_install_native_topology(true, 'woocommerce_cheque_settings', true, false);
 $initializedTrackerBefore = $trackingSnapshot();
 $initializedTrackerWrites = 0;
 $initializedTrackerFinalizations = 0;
-duo_check(
+wprism_check(
     $runClosedExistingTopology($initializedTrackerWrites, $initializedTrackerFinalizations) === true
         && [$initializedTrackerWrites, $initializedTrackerFinalizations] === [1, 1],
     'an initialized Woo tracker without its dynamic update_option observer remains outside the mutation boundary'
 );
-duo_check_same($initializedTrackerBefore, $trackingSnapshot(),
+wprism_check_same($initializedTrackerBefore, $trackingSnapshot(),
     'the initialized-only Woo tracker remains untouched');
 woo_optional_install_native_topology(true, 'woocommerce_cheque_settings');
 foreach ([
@@ -1331,19 +1331,19 @@ foreach ([
 $extendedAncillaryBefore = $trackingSnapshot();
 $extendedAncillaryWrites = 0;
 $extendedAncillaryFinalizations = 0;
-duo_check(
+wprism_check(
     $runClosedExistingTopology($extendedAncillaryWrites, $extendedAncillaryFinalizations) === true
         && [$extendedAncillaryWrites, $extendedAncillaryFinalizations] === [1, 1],
     'unrelated callbacks on Woo tracker ancillary hooks do not become mutation observers'
 );
-duo_check_same($extendedAncillaryBefore, $trackingSnapshot(),
+wprism_check_same($extendedAncillaryBefore, $trackingSnapshot(),
     'admitting unrelated ancillary callbacks never executes the Woo tracker');
 $assertTrackingFailureIsInert = static function (string $label, bool $failFinalization) use ($policy, $trackingSnapshot): void {
     woo_optional_install_native_topology(true, 'woocommerce_cheque_settings');
     $before = $trackingSnapshot();
     $writes = 0;
     $finalizations = 0;
-    duo_check_throws(
+    wprism_check_throws(
         static function () use ($policy, $failFinalization, &$writes, &$finalizations): bool {
             $written = null;
             return $policy->materialize_option_sub_keys_via_interpreter(
@@ -1376,7 +1376,7 @@ $assertTrackingFailureIsInert = static function (string $label, bool $failFinali
         "$label fails through OptionsMaterializer without running the tracking observer",
         'injected tracking'
     );
-    duo_check_same($before, $trackingSnapshot(), "$label leaves every tracker field untouched");
+    wprism_check_same($before, $trackingSnapshot(), "$label leaves every tracker field untouched");
 };
 $assertTrackingFailureIsInert('an injected mixed-option write failure', false);
 $assertTrackingFailureIsInert('an injected mixed-option finalization failure', true);
@@ -1390,17 +1390,17 @@ $assertClosedTopologyRefusal = static function (
     $writes = 0;
     $finalizations = 0;
     $mutate();
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $runClosedExistingTopology($writes, $finalizations),
         RuntimeException::class,
         "$label refuses before the OptionsMaterializer write/finalization boundary",
         $needle
     );
-    duo_check_same([0, 0], [$writes, $finalizations], "$label reaches no mixed-option mutation callbacks");
+    wprism_check_same([0, 0], [$writes, $finalizations], "$label reaches no mixed-option mutation callbacks");
     $restore();
     $writes = 0;
     $finalizations = 0;
-    duo_check(
+    wprism_check(
         $runClosedExistingTopology($writes, $finalizations) === true && [$writes, $finalizations] === [1, 1],
         "restoring $label permits same-process exact topology retry"
     );
@@ -1587,7 +1587,7 @@ $assertClosedTopologyRefusal(
 woo_optional_install_native_topology(true, 'woocommerce_cheque_settings', false);
 $inactiveSitemapWrites = 0;
 $inactiveSitemapFinalizations = 0;
-duo_check(
+wprism_check(
     $runClosedExistingTopology($inactiveSitemapWrites, $inactiveSitemapFinalizations) === true
         && [$inactiveSitemapWrites, $inactiveSitemapFinalizations] === [1, 1],
     'the global-and-static-callback-absent Yoast sitemap topology remains an exact admissible inactive state'
@@ -1596,7 +1596,7 @@ woo_optional_install_native_topology(false, 'woocommerce_cheque_settings');
 $absentUnionWrites = 0;
 $absentUnionFinalizations = 0;
 array_pop($GLOBALS['wp_filter']['add_option']->callbacks[10]);
-duo_check_throws(
+wprism_check_throws(
     static function () use ($policy, &$absentUnionWrites, &$absentUnionFinalizations): bool {
         $written = null;
         return $policy->materialize_option_sub_keys_via_interpreter(
@@ -1623,10 +1623,10 @@ duo_check_throws(
     'a missing Yoast add_option callback refuses an absent target before mutation',
     'topology is incomplete'
 );
-duo_check_same([0, 0], [$absentUnionWrites, $absentUnionFinalizations],
+wprism_check_same([0, 0], [$absentUnionWrites, $absentUnionFinalizations],
     'the absent-target Yoast add_option refusal reaches no write/finalization callback');
 woo_optional_install_native_topology(false, 'woocommerce_cheque_settings');
-duo_check(
+wprism_check(
     $materializeMixed(
         'woocommerce_cheque_settings',
         ['enabled' => 'yes'],
@@ -1636,7 +1636,7 @@ duo_check(
     )['handled'] === true,
     'restoring the six Yoast add_option callbacks permits same-process absent-target retry'
 );
-duo_check_same(
+wprism_check_same(
     ['account_details' => 'native_empty_ui_placeholder'],
     $settingsInventory['closed_records']['gateway_settings']['woocommerce_bacs_settings']['derived_fields'] ?? null,
     'BACS inventory includes the exact empty account_details placeholder persisted by its native admin save'
@@ -1653,7 +1653,7 @@ $absentGatewayTargets = [
 ];
 foreach ($gatewayRules as $optionName => $rules) {
     $absent = $woocommerceInterpreter->normalize_captured_option_sub_keys($optionName, [], $rules, []);
-    duo_check_same([], $absent, "$optionName admits a never-saved clean-install source row");
+    wprism_check_same([], $absent, "$optionName admits a never-saved clean-install source row");
     $absentResult = $materializeMixed(
         $optionName,
         $absent,
@@ -1664,18 +1664,18 @@ foreach ($gatewayRules as $optionName => $rules) {
     $expected = $optionName === 'woocommerce_bacs_settings'
         ? ['account_details' => '', 'account_name' => 'TARGET-BANK-SECRET-DO_NOT-ECHO']
         : [];
-    duo_check_same(
+    wprism_check_same(
         $expected,
         $absentResult['written'],
         "$optionName materializes source absence as authored deletion without erasing target-owned state"
     );
     $assertTrackingObserverRefusal($optionName, $absent, $rules, $absentGatewayTargets[$optionName]);
-    duo_check(
+    wprism_check(
         $materializeMixed($optionName, $absent, $rules, 'no', $absentGatewayTargets[$optionName])['handled'] === true,
         "$optionName retries after its tracking observer exclusion is removed"
     );
 }
-duo_check_throws(
+wprism_check_throws(
     static fn() => $woocommerceInterpreter->normalize_captured_option_sub_keys(
         'woocommerce_cheque_settings',
         ['enabled' => 'yes'],
@@ -1685,7 +1685,7 @@ duo_check_throws(
     RuntimeException::class,
     'an absent raw row cannot disagree with nonempty captured authored siblings'
 );
-duo_check_same(
+wprism_check_same(
     [],
     $woocommerceInterpreter->normalize_captured_option_sub_keys(
         'woocommerce_cheque_settings',
@@ -1732,17 +1732,17 @@ $bacsResult = $materializeMixed(
         'yes',
         null
     );
-duo_check(
+wprism_check(
     $bacsCreated['handled'] === true && $bacsCreated['write_calls'] === 1
         && $bacsCreated['finalize_calls'] === 1
         && !array_key_exists('account_name', (array) $bacsCreated['written']),
     'BACS exercises the exact absent-target insertion callbacks without copying target-owned bank identity'
 );
-duo_check_same('TARGET-BANK-SECRET-DO_NOT-ECHO', $bacsResult['written']['account_name'] ?? null,
+wprism_check_same('TARGET-BANK-SECRET-DO_NOT-ECHO', $bacsResult['written']['account_name'] ?? null,
     'BACS materialization preserves the target bank identity instead of copying source secrets');
-duo_check(!array_key_exists('instructions', (array) $bacsResult['written']),
+wprism_check(!array_key_exists('instructions', (array) $bacsResult['written']),
     'a source-absent authored BACS sibling deletes stale target content');
-duo_check_same('', $bacsResult['written']['account_details'] ?? null,
+wprism_check_same('', $bacsResult['written']['account_details'] ?? null,
     'BACS preserves only the exact target-local derived account-details placeholder');
 $bacsRepeat = $materializeMixed(
     'woocommerce_bacs_settings',
@@ -1751,12 +1751,12 @@ $bacsRepeat = $materializeMixed(
     'yes',
     $bacsResult['written']
 );
-duo_check_same($bacsResult['written'], $bacsRepeat['written'],
+wprism_check_same($bacsResult['written'], $bacsRepeat['written'],
     'BACS authored/target-owned materialization is byte-stable on repeat');
 
 $malformedBacsPlaceholder = $bacsSource;
 $malformedBacsPlaceholder['account_details'] = 'not-native-empty';
-duo_check_throws(
+wprism_check_throws(
     static fn() => $woocommerceInterpreter->normalize_captured_option_sub_keys(
         'woocommerce_bacs_settings',
         $bacsCaptured,
@@ -1766,7 +1766,7 @@ duo_check_throws(
     RuntimeException::class,
     'a nonempty BACS account_details placeholder refuses as non-native derived state'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn() => $materializeMixed(
         'woocommerce_bacs_settings',
         ['enabled' => 'no'],
@@ -1785,7 +1785,7 @@ $chequeResult = $materializeMixed(
     'off',
     ['enabled' => 'yes', 'title' => 'Old', 'description' => 'remove', 'instructions' => 'remove']
 );
-duo_check_same(
+wprism_check_same(
     ['enabled' => 'no', 'title' => '<span>Cheque</span>'],
     $materializeMixed(
         'woocommerce_cheque_settings',
@@ -1796,12 +1796,12 @@ duo_check_same(
     )['written'],
     'cheque exercises the exact absent-target insertion callbacks'
 );
-duo_check_same(
+wprism_check_same(
     ['enabled' => 'no', 'title' => '<span>Cheque</span>'],
     $chequeResult['written'],
     'cheque native materialization removes every absent authored sibling and preserves exact inline safe text'
 );
-duo_check_same(
+wprism_check_same(
     ['enabled' => 'no'],
     $woocommerceInterpreter->project_materialized_option_sub_keys(
         'woocommerce_cheque_settings',
@@ -1815,7 +1815,7 @@ foreach ([
     'duplicate desired key' => ['enabled', 'enabled'],
     'target-owned desired key' => ['account_name'],
 ] as $label => $desiredKeys) {
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $woocommerceInterpreter->project_materialized_option_sub_keys(
             'woocommerce_bacs_settings',
             ['enabled' => 'no'],
@@ -1845,7 +1845,7 @@ $codNormalized = $woocommerceInterpreter->normalize_captured_option_sub_keys(
     $gatewayRules['woocommerce_cod_settings'],
     ['woocommerce_cod_settings' => serialize($codSource)]
 );
-duo_check_same(
+wprism_check_same(
     [
         ['method_id' => 'flat_rate'],
         ['instance_id' => 17, 'method_id' => 'flat_rate'],
@@ -1854,7 +1854,7 @@ duo_check_same(
     $codNormalized['enable_for_methods'] ?? null,
     'COD capture separates stable method-wide identities from typed instance references'
 );
-duo_check_same(
+wprism_check_same(
     2,
     count(array_filter(
         $wpdb->queryLog(),
@@ -1869,7 +1869,7 @@ $compiledNestedCodRules['enable_for_methods']['json_refs'][0] = [
     'path' => '$.*.instance_id',
 ];
 $codQueriesBeforeCanonicalReplay = count($wpdb->queryLog());
-duo_check_same(
+wprism_check_same(
     $codNormalized,
     $woocommerceInterpreter->normalize_captured_option_sub_keys(
         'woocommerce_cod_settings',
@@ -1879,12 +1879,12 @@ duo_check_same(
     ),
     'compiled canonical nested json-ref key order retains the exact COD method-instance contract'
 );
-duo_check_same(
+wprism_check_same(
     2,
     count($wpdb->queryLog()) - $codQueriesBeforeCanonicalReplay,
     'canonical-order replay still witnesses each COD instance exactly once'
 );
-duo_check_same(0, WC_Shipping_Zones::$resolverCalls,
+wprism_check_same(0, WC_Shipping_Zones::$resolverCalls,
     'COD capture does not construct or resolve a hook-capable Woo shipping service');
 
 $seedCodSourceMethods = static function (array $rows) use ($wpdb): void {
@@ -1899,7 +1899,7 @@ $wpdb->onQuery(static function (string $sql, string $method): ?string {
         ? 'simulated raw shipping-method witness query failure'
         : null;
 });
-duo_check_throws(
+wprism_check_throws(
     static fn() => $woocommerceInterpreter->normalize_captured_option_sub_keys(
         'woocommerce_cod_settings',
         $codSource,
@@ -1928,7 +1928,7 @@ foreach ([
     ],
 ] as $label => $rows) {
     $seedCodSourceMethods($rows);
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $woocommerceInterpreter->normalize_captured_option_sub_keys(
             'woocommerce_cod_settings',
             $codSource,
@@ -1973,7 +1973,7 @@ $wpdb->onQuery(static function (string $sql, string $method, FakeWpdb $db) use (
     }
     return null;
 });
-duo_check_throws(
+wprism_check_throws(
     static function () use (
         $woocommerceInterpreter,
         $codRebound,
@@ -2007,7 +2007,7 @@ duo_check_throws(
     'COD immediate target raw-row recheck refuses a method replacement race after storage is armed',
     'does not match its exact core method identity'
 );
-duo_check_same([2, 1, 0, 0], [$targetWitnessReads, $raceWriteCalls, $raceFinalizeCalls, $raceRestores],
+wprism_check_same([2, 1, 0, 0], [$targetWitnessReads, $raceWriteCalls, $raceFinalizeCalls, $raceRestores],
     'COD race refusal reaches one engine-owned write but no finalization or unrequested restoration');
 $wpdb->onQuery(null);
 $wpdb->seedTable('wp_woocommerce_shipping_zone_methods', $targetMethodRows);
@@ -2019,14 +2019,14 @@ $codResult = $materializeMixed(
     'auto-off',
     ['enabled' => 'no', 'title' => 'Stale', 'enable_for_methods' => ['local_pickup']]
 );
-duo_check_same(
+wprism_check_same(
     ['flat_rate', 'flat_rate:117', 'free_shipping:119'],
     $codResult['written']['enable_for_methods'] ?? null,
     'COD native storage rebuilds exact target-local method_id:instance_id bytes'
 );
-duo_check_same($codRebound, $codResult['projected'],
+wprism_check_same($codRebound, $codResult['projected'],
     'COD finalized native bytes project back to the exact materialized typed-reference shape');
-duo_check_same(
+wprism_check_same(
     6,
     count(array_filter(
         $wpdb->queryLog(),
@@ -2035,7 +2035,7 @@ duo_check_same(
     )),
     'COD materialization witnesses target rows before storage, immediately after it, and during finalized projection'
 );
-duo_check_same(0, WC_Shipping_Zones::$resolverCalls,
+wprism_check_same(0, WC_Shipping_Zones::$resolverCalls,
     'COD raw witness and race recheck execute no shipping-service construction path');
 $codCreated = $materializeMixed(
     'woocommerce_cod_settings',
@@ -2044,7 +2044,7 @@ $codCreated = $materializeMixed(
     'auto-off',
     null
 );
-duo_check(
+wprism_check(
     $codCreated['handled'] === true && $codCreated['write_calls'] === 1
         && $codCreated['finalize_calls'] === 1,
     'COD exercises the exact absent-target insertion callbacks'
@@ -2056,7 +2056,7 @@ $codRepeat = $materializeMixed(
     'auto-off',
     $codResult['written']
 );
-duo_check_same($codResult['written'], $codRepeat['written'],
+wprism_check_same($codResult['written'], $codRepeat['written'],
     'COD typed-reference materialization is byte-stable on repeat');
 
 $emptyCod = $codSource;
@@ -2074,7 +2074,7 @@ $emptyResult = $materializeMixed(
     'no',
     null
 );
-duo_check_same('', $emptyResult['written']['enable_for_methods'] ?? null,
+wprism_check_same('', $emptyResult['written']['enable_for_methods'] ?? null,
     'COD empty restrictions normalize canonically and return to the exact native empty writer shape');
 
 foreach ([
@@ -2086,7 +2086,7 @@ foreach ([
 ] as $label => $methods) {
     $hostile = $codSource;
     $hostile['enable_for_methods'] = $methods;
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $woocommerceInterpreter->normalize_captured_option_sub_keys(
             'woocommerce_cod_settings',
             $hostile,
@@ -2100,7 +2100,7 @@ foreach ([
 
 $codExtra = $codRebound;
 $codExtra['enable_for_methods'][1]['extension_data'] = 'secret-DO_NOT-ECHO';
-duo_check_throws(
+wprism_check_throws(
     static fn() => $materializeMixed(
         'woocommerce_cod_settings',
         $codExtra,
@@ -2116,7 +2116,7 @@ duo_check_throws(
 $GLOBALS['wooMixedMutateField'] = 'subject';
 $mutatedEmail = ['enabled' => 'yes', 'subject' => 'marker-DO_NOT-ECHO'];
 $newOrderRules = $mixedRules('woocommerce_new_order_settings');
-duo_check_throws(
+wprism_check_throws(
     static fn() => $woocommerceInterpreter->normalize_captured_option_sub_keys(
         'woocommerce_new_order_settings',
         $mutatedEmail,
@@ -2137,9 +2137,9 @@ try {
         $gatewayRules['woocommerce_bacs_settings'],
         ['woocommerce_bacs_settings' => serialize($unknownBacs)]
     );
-    duo_check(false, 'unknown mixed-record siblings refuse atomically');
+    wprism_check(false, 'unknown mixed-record siblings refuse atomically');
 } catch (RuntimeException $failure) {
-    duo_check(!str_contains($failure->getMessage(), $unknownMarker)
+    wprism_check(!str_contains($failure->getMessage(), $unknownMarker)
         && !str_contains($failure->getMessage(), 'payload'),
         'unknown mixed-record sibling diagnostics contain only a bounded key fingerprint');
 }
@@ -2157,7 +2157,7 @@ $hostileMixedStorage = [
     'over-bound raw row' => str_repeat('x', 1048577),
 ];
 foreach ($hostileMixedStorage as $label => $wire) {
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $woocommerceInterpreter->normalize_captured_option_sub_keys(
             'woocommerce_cheque_settings',
             [],
@@ -2168,7 +2168,7 @@ foreach ($hostileMixedStorage as $label => $wire) {
         "mixed option $label refuses at the safe raw-storage boundary"
     );
 }
-duo_check_same(0, WooOptionalWakeupCanary::$wakeups,
+wprism_check_same(0, WooOptionalWakeupCanary::$wakeups,
     'mixed option native normalization executes no object wakeup hooks');
 
 foreach ([
@@ -2180,7 +2180,7 @@ foreach ([
     'invalid UTF-8 text' => ['woocommerce_new_order_settings', ['subject' => "bad\xFF"]],
     'over-bound text' => ['woocommerce_new_order_settings', ['subject' => str_repeat('x', 262145)]],
 ] as $label => [$optionName, $record]) {
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $woocommerceInterpreter->normalize_captured_option_sub_keys(
             $optionName,
             $record,
@@ -2194,7 +2194,7 @@ foreach ([
 
 $nativeDriftCalls = ['restore' => 0, 'write' => 0, 'finalize' => 0];
 $GLOBALS['wooMixedMutateField'] = 'subject';
-duo_check_throws(
+wprism_check_throws(
     static function () use ($woocommerceInterpreter, $mixedRules, &$nativeDriftCalls): void {
         $woocommerceInterpreter->materialize_option_sub_keys(
             'woocommerce_new_order_settings',
@@ -2220,7 +2220,7 @@ duo_check_throws(
     'native validator drift refuses repository materialization before mutation'
 );
 unset($GLOBALS['wooMixedMutateField']);
-duo_check_same(
+wprism_check_same(
     ['restore' => 0, 'write' => 0, 'finalize' => 0],
     $nativeDriftCalls,
     'native validator refusal reaches no runtime restore, storage write, or finalization callback'
@@ -2228,7 +2228,7 @@ duo_check_same(
 
 $mutationCalls = ['restore' => 0, 'write' => 0, 'finalize' => 0];
 $nativeCallsBeforeInvalidRepository = count($GLOBALS['wooMixedNativeCalls']);
-duo_check_throws(
+wprism_check_throws(
     static fn() => $woocommerceInterpreter->materialize_option_sub_keys(
         'woocommerce_new_order_settings',
         ['subject' => ['not' => 'text']],
@@ -2251,7 +2251,7 @@ duo_check_throws(
     RuntimeException::class,
     'invalid repository coercion refuses without emitting a PHP warning or reaching native mutation'
 );
-duo_check_same(
+wprism_check_same(
     [
         'calls' => ['restore' => 0, 'write' => 0, 'finalize' => 0],
         'native_delta' => 0,
@@ -2263,7 +2263,7 @@ duo_check_same(
     'repository type validation completes before runtime restore, storage write, finalization, or native string coercion'
 );
 
-duo_check_throws(
+wprism_check_throws(
     static fn() => $woocommerceInterpreter->materialize_option_sub_keys(
         'woocommerce_cheque_settings',
         ['enabled' => 'no'],
@@ -2279,7 +2279,7 @@ duo_check_throws(
 );
 
 $failedWriteCalls = ['restore' => 0, 'write' => 0, 'finalize' => 0];
-duo_check_throws(
+wprism_check_throws(
     static function () use ($woocommerceInterpreter, $gatewayRules, &$failedWriteCalls): void {
         $woocommerceInterpreter->materialize_option_sub_keys(
             'woocommerce_cheque_settings',
@@ -2305,13 +2305,13 @@ duo_check_throws(
     RuntimeException::class,
     'an injected engine storage failure stays loud for outer rollback/retry'
 );
-duo_check_same(
+wprism_check_same(
     ['restore' => 1, 'write' => 1, 'finalize' => 0],
     $failedWriteCalls,
     'a failed storage write registers rollback exactly once and never finalizes partial state'
 );
 
-duo_check_throws(
+wprism_check_throws(
     static fn() => $woocommerceInterpreter->materialize_option_sub_keys(
         'woocommerce_cheque_settings',
         ['enabled' => 'no'],
@@ -2333,7 +2333,7 @@ duo_check_throws(
 );
 
 foreach ($hostileMixedStorage as $label => $wire) {
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $woocommerceInterpreter->materialize_option_sub_keys(
             'woocommerce_cheque_settings',
             ['enabled' => 'no'],
@@ -2354,7 +2354,7 @@ foreach ($hostileMixedStorage as $label => $wire) {
         "final mixed option $label refuses at the bounded safe-storage boundary"
     );
 }
-duo_check_same(0, WooOptionalWakeupCanary::$wakeups,
+wprism_check_same(0, WooOptionalWakeupCanary::$wakeups,
     'final mixed-option verification executes no object wakeup hooks');
 
 $aggregateTarget = [];
@@ -2362,7 +2362,7 @@ foreach (['account_name', 'account_number', 'bank_name', 'sort_code'] as $field)
     $aggregateTarget[$field] = str_repeat('x', 262144);
 }
 $aggregateWriteCalls = 0;
-duo_check_throws(
+wprism_check_throws(
     static fn() => $woocommerceInterpreter->materialize_option_sub_keys(
         'woocommerce_bacs_settings',
         ['enabled' => 'no'],
@@ -2380,30 +2380,30 @@ duo_check_throws(
     RuntimeException::class,
     'aggregate target-owned mixed-record bytes refuse before an oversized native write'
 );
-duo_check_same(0, $aggregateWriteCalls,
+wprism_check_same(0, $aggregateWriteCalls,
     'the aggregate record bound is enforced before engine-owned mutation');
 
 foreach ((array) ($inventory['families']['fulfillments']['runtime_tables'] ?? []) as $table) {
-    duo_check_same('runtime', $manifest['tables'][$table]['class'] ?? null, "$table remains runtime fulfillment state");
+    wprism_check_same('runtime', $manifest['tables'][$table]['class'] ?? null, "$table remains runtime fulfillment state");
 }
 foreach ((array) ($inventory['families']['customer_stock_notifications']['runtime_tables'] ?? []) as $table) {
-    duo_check_same('runtime', $manifest['tables'][$table]['class'] ?? null, "$table remains subscriber runtime/PII state");
+    wprism_check_same('runtime', $manifest['tables'][$table]['class'] ?? null, "$table remains subscriber runtime/PII state");
 }
 foreach ((array) ($inventory['families']['email_unsubscribes']['runtime_tables'] ?? []) as $table) {
-    duo_check_same('runtime', $manifest['tables'][$table]['class'] ?? null, "$table remains email-recipient runtime state");
+    wprism_check_same('runtime', $manifest['tables'][$table]['class'] ?? null, "$table remains email-recipient runtime state");
 }
 $GLOBALS['wpdb'] = new class {
     public function get_blog_prefix(int $blogId): string {
         return $blogId === 1 ? 'wp_' : "wp_{$blogId}_";
     }
 };
-duo_check_same(
+wprism_check_same(
     ['class' => 'runtime'],
     $policy->meta_rule_for_user('wc_push_notification_preferences_wp', []),
     'push preferences resolve only for the exact current-site suffix'
 );
 foreach (['wc_push_notification_preferences', 'wp_wc_push_notification_preferences', 'wc_push_notification_preferences_wp_2'] as $nearMiss) {
-    duo_check_same(null, $policy->meta_rule_for_user($nearMiss, []), "$nearMiss cannot widen push-preference ownership");
+    wprism_check_same(null, $policy->meta_rule_for_user($nearMiss, []), "$nearMiss cannot widen push-preference ownership");
 }
 
 $store = WpStore::reset()
@@ -2422,19 +2422,19 @@ $wpdb->seedTable('wp_posts', [
 $wpdb->seedTable('wp_term_taxonomy', []);
 
 $gaps = (new ScopeDiscovery($policy))->gaps();
-duo_check_same(
+wprism_check_same(
     ['post_type:woo_email' => ['entities' => 2]],
     $gaps,
     'customized and uncustomized live Block Email Editor posts fail the real scope gate while trash and runtime entities do not'
 );
-duo_check(!str_contains((string) json_encode($gaps), $contentMarker),
+wprism_check(!str_contains((string) json_encode($gaps), $contentMarker),
     'the Block Email Editor scope refusal exposes only a bounded row count, never merchant block content');
 
 $wpdb->seedTable('wp_posts', [
     ['ID' => 814, 'post_type' => 'wc_push_token', 'post_status' => 'private', 'post_content' => 'device secret'],
     ['ID' => 815, 'post_type' => 'import_session', 'post_status' => 'publish', 'post_content' => 'source URL'],
 ]);
-duo_check_same([], (new ScopeDiscovery($policy))->gaps(),
+wprism_check_same([], (new ScopeDiscovery($policy))->gaps(),
     'feature-disabled/no-template state stays clean while push and import runtime state remains local');
 
 $mappingMarker = 'mapping_value_secret_DO_NOT_ECHO';
@@ -2594,13 +2594,13 @@ foreach ($hostileMixedProductRows as $label => $wire) {
         'option_value' => $wire,
         'autoload' => 'yes',
     ]]);
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => $capture->capture(false, false, null, [], false, true),
         RuntimeException::class,
         "real mixed-option capture refuses $label before canonical publication"
     );
 }
-duo_check_same(0, WooOptionalWakeupCanary::$wakeups,
+wprism_check_same(0, WooOptionalWakeupCanary::$wakeups,
     'real closed mixed-option capture executes no object wakeup hooks');
 $wpdb->seedTable('wp_options', $optionRows);
 $captureResult = $capture->capture(false, false, null, [], false, true);
@@ -2615,16 +2615,16 @@ $expectedPending = array_map(
     static fn(string $name): string => "options:$name (owner candidate woocommerce; namespace matched without a classification)",
     $expectedPendingNames
 );
-duo_check_same($expectedPending, $pending,
+wprism_check_same($expectedPending, $pending,
     'real option capture accepts exact core mixed records while addon/template/near-miss state remains loudly unclassified');
 $bacsCapturedRecord = $captureResult['document']['records']['woocommerce_bacs_settings']['value'] ?? null;
 $newOrderCapturedRecord = $captureResult['document']['records']['woocommerce_new_order_settings']['value'] ?? null;
-duo_check(is_array($bacsCapturedRecord)
+wprism_check(is_array($bacsCapturedRecord)
     && ($bacsCapturedRecord['title'] ?? null) === '<span>' . $gatewayMarker . '</span>'
     && !array_key_exists('account_name', $bacsCapturedRecord)
     && !array_key_exists('account_details', $bacsCapturedRecord),
     'real capture publishes portable BACS content while excluding bank identity and derived carriers');
-duo_check(is_array($newOrderCapturedRecord)
+wprism_check(is_array($newOrderCapturedRecord)
     && ($newOrderCapturedRecord['subject'] ?? null) === $emailMarker . ' ✓'
     && !array_key_exists('recipient', $newOrderCapturedRecord),
     'real capture publishes merchant email content while excluding target recipient identity');
@@ -2632,10 +2632,10 @@ $capturedMixedCount = count(array_filter(
     $mixedOptionNames,
     static fn(string $name): bool => array_key_exists($name, (array) ($captureResult['document']['records'] ?? []))
 ));
-duo_check_same(count($mixedOptionNames), $capturedMixedCount,
+wprism_check_same(count($mixedOptionNames), $capturedMixedCount,
     'every exact core gateway/email settings record crosses the real closed-subkey capture path');
 $captureEvidence = json_encode($captureResult, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-duo_check(
+wprism_check(
     is_string($captureEvidence)
         && !str_contains($captureEvidence, $mappingMarker)
         && !str_contains($captureEvidence, $credentialMarker)
@@ -2664,24 +2664,24 @@ foreach ($emailRecords as $optionName => $record) {
 $actualGuardKeys = array_map(static fn(array $call): string => (string) ($call[1] ?? ''), $secretCalls);
 sort($expectedGuardKeys, SORT_STRING);
 sort($actualGuardKeys, SORT_STRING);
-duo_check_same($expectedGuardKeys, $actualGuardKeys,
+wprism_check_same($expectedGuardKeys, $actualGuardKeys,
     'the real capture secret guard sees every portable mixed/thumbnail field and no target-owned sibling');
-duo_check(count(array_filter(
+wprism_check(count(array_filter(
     $secretCalls,
     static fn(array $call): bool => ($call[3] ?? null) === 'authored'
 )) === count($secretCalls), 'every real mixed-option guard call retains the authored sibling class');
 foreach ($targetEnvironmentOptions as $optionName) {
-    duo_check_same('env', $policy->option_rule((string) $optionName)['class'] ?? null,
+    wprism_check_same('env', $policy->option_rule((string) $optionName)['class'] ?? null,
         "$optionName is explicitly deployment-local and never enters repository state");
-    duo_check(!array_key_exists((string) $optionName, (array) ($captureResult['document']['records'] ?? [])),
+    wprism_check(!array_key_exists((string) $optionName, (array) ($captureResult['document']['records'] ?? [])),
         "$optionName remains absent from the captured options document");
 }
 foreach ($thumbnailOptions as $optionName => $optionValue) {
-    duo_check_same(
+    wprism_check_same(
         ['state' => 'present', 'autoload' => 'yes', 'value' => $optionValue],
         $captureResult['document']['records'][$optionName] ?? null,
         "$optionName crosses real option capture as exact merchant-authored thumbnail state"
     );
 }
 
-duo_check_summary('WooCommerce optional-core inventory');
+wprism_check_summary('WooCommerce optional-core inventory');

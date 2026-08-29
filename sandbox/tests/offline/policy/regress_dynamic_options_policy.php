@@ -1,14 +1,14 @@
 <?php
 /**
  * Offline (no docker, no WordPress bootstrap) regression harness for
- * DUO-3264's Policy.php-side wiring: the dynamic_options primitive (fork A
+ * issue #3264's Policy.php-side wiring: the dynamic_options primitive (fork A
  * of the owner ruling, issue comment 9fd882a6) — dynamic_options()/
  * resolve_dynamic_option()/dynamic_option_rule_for_name()/
  * dynamic_option_rule_for_prefix()/is_dynamic_option_residue(), and
  * validate_dynamic_options()'s load-time guard. Uses an explicit FAKE flat
  * adapter library, never the real core package payload —
  * this file proves the MECHANISM works in isolation; a real theme_mods_*
- * blob's own key-by-key shapes are grounded and proven live (DUO-3264's
+ * blob's own key-by-key shapes are grounded and proven live (issue #3264's
  * own issue comments have the full empirical record: two real WordPress
  * themes, real Customizer-equivalent APIs, not assumed) and round-tripped
  * end to end on a live pair (capture -> push -> clone -> deploy -> apply
@@ -19,20 +19,20 @@
  * docblocks for the full reasoning, proven live not just reasoned about):
  * dynamic_option_rule_for_name() requires an EXACT match against the
  * caller-supplied resolved value (safe only at actual apply time, once
- * DUO-3216's own theme-mismatch refuse-gate already guarantees the match
+ * issue #3216's own theme-mismatch refuse-gate already guarantees the match
  * holds); dynamic_option_rule_for_prefix() matches by prefix ALONE,
  * independent of the live resolved value (what RepositoryAuthorization
- * needs, since it also runs as part of `wp duo deploy`'s own repository
+ * needs, since it also runs as part of `wp wprism deploy`'s own repository
  * compilation — the command that reconciles a theme mismatch in the first
  * place, discovered as a genuine circular dependency when the stricter
- * check was tried there first and `wp duo deploy` itself refused to
+ * check was tried there first and `wp wprism deploy` itself refused to
  * compile).
  *
  * Exit 0 and "ALL PASSED" on success; any failed check prints "FAIL: ..."
  * and the script exits 1.
  */
 
-$fixtureDir = sys_get_temp_dir() . '/duo_regress_dynamic_options_' . bin2hex(random_bytes(4));
+$fixtureDir = sys_get_temp_dir() . '/wprism_regress_dynamic_options_' . bin2hex(random_bytes(4));
 mkdir($fixtureDir, 0777, true);
 register_shutdown_function(function () use ($fixtureDir) {
     $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($fixtureDir, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
@@ -58,9 +58,9 @@ echo "\n== direct DynamicOptionResolver boundary ==\n";
 require __DIR__ . '/../../../../agent/src/Grammar/DynamicOptionResolver.php';
 
 check(
-    class_exists(\Duo\DynamicOptionResolver::class, false)
-        && !class_exists(\Duo\Policy::class, false)
-        && !class_exists(\Duo\RepositoryCompiler::class, false)
+    class_exists(\WPrism\DynamicOptionResolver::class, false)
+        && !class_exists(\WPrism\Policy::class, false)
+        && !class_exists(\WPrism\RepositoryCompiler::class, false)
         && !function_exists('get_option'),
     'DynamicOptionResolver loads as a pure declaration resolver without Policy, RepositoryCompiler, or WordPress'
 );
@@ -71,7 +71,7 @@ $normalizer = static function (array $rule, array $source): array {
     }
     return $rule;
 };
-$direct = new \Duo\DynamicOptionResolver([
+$direct = new \WPrism\DynamicOptionResolver([
     [
         'name' => 'first',
         'option_autoload' => 'preserve',
@@ -118,11 +118,11 @@ require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require __DIR__ . '/../../lib/frozen_policy.php';
 require __DIR__ . '/manifest_fixtures.php';
 
-use Duo\Policy;
-use DuoTest\FrozenPolicy;
+use WPrism\Policy;
+use WPrismTest\FrozenPolicy;
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 0);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 0);
 }
 
 function write_manifest(string $dir, string $name, array $json): void {
@@ -134,7 +134,7 @@ echo "\n== fixture: a 'core' manifest declaring dynamic_options.theme_mods ==\n"
 
 write_manifest($fixtureDir, 'core', [
     'name' => 'core',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'option_autoload' => 'preserve',
     'dynamic_options' => [
         'theme_mods' => [
@@ -224,31 +224,31 @@ function expect_load_failure(string $fixtureDir, string $manifestName, string $n
 }
 
 write_manifest($fixtureDir, 'bad_no_prefix', [
-    'name' => 'bad_no_prefix', 'spec_version' => DUO_SPEC_VERSION,
+    'name' => 'bad_no_prefix', 'spec_version' => WPRISM_SPEC_VERSION,
     'dynamic_options' => ['widgets' => ['resolver' => 'active_stylesheet', 'sub_keys' => ['x' => ['class' => 'authored']]]],
 ]);
 expect_load_failure($fixtureDir, 'bad_no_prefix', "dynamic_options.widgets");
 
 write_manifest($fixtureDir, 'bad_resolver', [
-    'name' => 'bad_resolver', 'spec_version' => DUO_SPEC_VERSION,
+    'name' => 'bad_resolver', 'spec_version' => WPRISM_SPEC_VERSION,
     'dynamic_options' => ['widgets' => ['prefix' => 'widgets_', 'resolver' => 'active_plugin_xyz', 'sub_keys' => ['x' => ['class' => 'authored']]]],
 ]);
 expect_load_failure($fixtureDir, 'bad_resolver', 'dynamic_options.widgets.resolver');
 
 write_manifest($fixtureDir, 'bad_empty_subkeys', [
-    'name' => 'bad_empty_subkeys', 'spec_version' => DUO_SPEC_VERSION,
+    'name' => 'bad_empty_subkeys', 'spec_version' => WPRISM_SPEC_VERSION,
     'dynamic_options' => ['widgets' => ['prefix' => 'widgets_', 'resolver' => 'active_stylesheet', 'sub_keys' => []]],
 ]);
 expect_load_failure($fixtureDir, 'bad_empty_subkeys', 'dynamic_options.widgets.sub_keys');
 
 write_manifest($fixtureDir, 'bad_subkey_class', [
-    'name' => 'bad_subkey_class', 'spec_version' => DUO_SPEC_VERSION,
+    'name' => 'bad_subkey_class', 'spec_version' => WPRISM_SPEC_VERSION,
     'dynamic_options' => ['widgets' => ['prefix' => 'widgets_', 'resolver' => 'active_stylesheet', 'sub_keys' => ['x' => ['class' => 'not_a_real_class']]]],
 ]);
 expect_load_failure($fixtureDir, 'bad_subkey_class', 'dynamic_options.widgets.sub_keys.x');
 
 // ======================================================================
-echo "\n== DUO-3375: a top-level `class` on a dynamic_options declaration is a DEAD field, refused at load ==\n";
+echo "\n== issue #3375: a top-level `class` on a dynamic_options declaration is a DEAD field, refused at load ==\n";
 
 // resolve_dynamic_option()/dynamic_option_rule_for_name() HARDWIRE the resolved
 // row's class to 'env' (proven above), so a manifest that writes a top-level
@@ -262,7 +262,7 @@ $msg = '';
 $threw = false;
 try {
     write_manifest($fixtureDir, 'bad_toplevel_class_authored', [
-        'name' => 'bad_toplevel_class_authored', 'spec_version' => DUO_SPEC_VERSION,
+        'name' => 'bad_toplevel_class_authored', 'spec_version' => WPRISM_SPEC_VERSION,
         'option_autoload' => 'preserve',
         'dynamic_options' => ['widgets' => [
             'prefix' => 'widgets_',
@@ -276,7 +276,7 @@ try {
     $threw = true;
     $msg = $e->getMessage();
 }
-check($threw, "a dynamic_options declaration carrying class:authored is REFUSED at load — never loaded-then-coerced-to-env (the DUO-3375 bug)");
+check($threw, "a dynamic_options declaration carrying class:authored is REFUSED at load — never loaded-then-coerced-to-env (the issue #3375 bug)");
 check(str_contains($msg, 'dynamic_options.widgets.class'), "the refusal names the exact dead field (got: $msg)");
 check(str_contains($msg, 'authored'), 'the refusal echoes the rejected value back to the operator');
 check(str_contains($msg, "'env'"), "the refusal names what the engine forces instead — 'env'");
@@ -290,7 +290,7 @@ check(
 // is still an unconsumed claim, so the schema is not quietly widened to it.
 foreach (['env', 'managed'] as $deadClass) {
     write_manifest($fixtureDir, "bad_toplevel_class_$deadClass", [
-        'name' => "bad_toplevel_class_$deadClass", 'spec_version' => DUO_SPEC_VERSION,
+        'name' => "bad_toplevel_class_$deadClass", 'spec_version' => WPRISM_SPEC_VERSION,
         'option_autoload' => 'preserve',
         'dynamic_options' => ['widgets' => [
             'prefix' => 'widgets_',
@@ -303,14 +303,14 @@ foreach (['env', 'managed'] as $deadClass) {
 }
 
 // ======================================================================
-echo "\n== DUO-3375: the frozen-snapshot entry point reaches the SAME verdict (load/from_snapshot lockstep) ==\n";
+echo "\n== issue #3375: the frozen-snapshot entry point reaches the SAME verdict (load/from_snapshot lockstep) ==\n";
 
 // Both Policy::load() and Policy::from_snapshot() call the identical
 // validate_dynamic_options(); this half proves the from_snapshot() call site
-// (Policy.php, the DUO-3318 lockstep line) is present. Mutation anchor: delete
+// (Policy.php, the issue #3318 lockstep line) is present. Mutation anchor: delete
 // the self::validate_dynamic_options() call inside from_snapshot() and the
 // refusal check below flips to FAIL while load() above still refuses — exactly
-// the DUO-3318 L1 divergence class.
+// the issue #3318 L1 divergence class.
 // Deliberately NOT published into $fixtureDir: this half freezes a `core` that
 // carries the dead field, and $fixtureDir's `core.json` is the clean fixture
 // every expect_load_failure() below still loads alongside its bad manifest.
@@ -318,12 +318,12 @@ echo "\n== DUO-3375: the frozen-snapshot entry point reaches the SAME verdict (l
 // A real snapshot has already been through Canon::decode(), so every object is
 // a PHP array by the time from_snapshot() sees it.
 function frozen_snapshot(array $manifests): array {
-    return FrozenPolicy::envelope($manifests, FrozenPolicy::site($manifests, DUO_SPEC_VERSION));
+    return FrozenPolicy::envelope($manifests, FrozenPolicy::site($manifests, WPRISM_SPEC_VERSION));
 }
 
 $cleanCoreManifest = [
     'name' => 'core',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'option_autoload' => 'preserve',
     'dynamic_options' => ['theme_mods' => [
         'prefix' => 'theme_mods_',
@@ -353,11 +353,11 @@ try {
     $frozenThrew = true;
     $frozenMsg = $e->getMessage();
 }
-check($frozenThrew, 'from_snapshot() ALSO refuses a top-level class — the two entry points reach the same verdict (DUO-3375 lockstep)');
+check($frozenThrew, 'from_snapshot() ALSO refuses a top-level class — the two entry points reach the same verdict (issue #3375 lockstep)');
 check(str_contains($frozenMsg, 'dynamic_options.theme_mods.class'), "from_snapshot()'s refusal names the dead field too (got: $frozenMsg)");
 
 // ======================================================================
-echo "\n== DUO-3375: a valid declaration's canonical bytes are UNCHANGED (schema not widened) ==\n";
+echo "\n== issue #3375: a valid declaration's canonical bytes are UNCHANGED (schema not widened) ==\n";
 
 // $p is the clean 'core' fixture loaded at the top of this file. Its enumerated
 // declaration and its resolved row must serialize to these exact bytes: the fix
@@ -384,7 +384,7 @@ $expectedEnumCanon = <<<JSON
 
 JSON;
 check(
-    \Duo\Canon::encode($p->dynamic_options()['theme_mods']) === $expectedEnumCanon,
+    \WPrism\Canon::encode($p->dynamic_options()['theme_mods']) === $expectedEnumCanon,
     'the enumerated valid declaration canonicalizes to its expected, unchanged bytes'
 );
 
@@ -409,7 +409,7 @@ $expectedResolveCanon = <<<JSON
 
 JSON;
 check(
-    \Duo\Canon::encode($p->resolve_dynamic_option('theme_mods', 'storefront')) === $expectedResolveCanon,
+    \WPrism\Canon::encode($p->resolve_dynamic_option('theme_mods', 'storefront')) === $expectedResolveCanon,
     "the resolved row still canonicalizes with class=env and the declared sub_keys — unchanged bytes"
 );
 
@@ -417,7 +417,7 @@ check(
 echo "\n== validate_option_storage(): a dynamic_options entry with an authored sub_key still needs autoload ==\n";
 
 write_manifest($fixtureDir, 'bad_no_autoload', [
-    'name' => 'bad_no_autoload', 'spec_version' => DUO_SPEC_VERSION,
+    'name' => 'bad_no_autoload', 'spec_version' => WPRISM_SPEC_VERSION,
     // deliberately no 'option_autoload' manifest default AND no per-declaration 'autoload'
     'dynamic_options' => ['widgets' => ['prefix' => 'widgets_', 'resolver' => 'active_stylesheet', 'sub_keys' => ['x' => ['class' => 'authored']]]],
 ]);

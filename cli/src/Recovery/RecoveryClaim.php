@@ -1,16 +1,16 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 
-use Duo\Canon;
-use Duo\CommandRefusalException;
+use WPrism\Canon;
+use WPrism\CommandRefusalException;
 
 /**
- * The literal recovery claim — `duo-recovery-claim/v1` (round-3 MUP §2.3.1,
+ * The literal recovery claim — `wprism-recovery-claim/v1` (round-3 MUP §2.3.1,
  * §2.5; product spec safety invariant 10, *Recovery claims are literal*).
  *
  * The spec's sentence is the whole design: *"Rollback names exactly which
@@ -31,7 +31,7 @@ use Duo\CommandRefusalException;
  *     "the claim the operator saw at authorization is the claim they see at
  *     recovery". The claim is therefore a canonical array with its own
  *     digest, embedded verbatim in the frozen authorization plan
- *     (`recovery_profile.claim`) and re-printed verbatim by `duo recover`.
+ *     (`recovery_profile.claim`) and re-printed verbatim by `wprism recover`.
  *     Nothing downstream re-derives it: `AuthorizationPlan` takes it as an
  *     array and never references this class, which is also what keeps the
  *     Release module free of a Recovery edge (module map rule 9).
@@ -42,9 +42,9 @@ use Duo\CommandRefusalException;
  * DIGESTED part of the authorization plan, so anything in it lands in
  * `plan_digest`. A digest that includes a clock is a timestamp, not an
  * identity: `maximum_loss_boundary` used to interpolate the checkpoint
- * instant, which made two `duo release --plan-only` runs a second apart
+ * instant, which made two `wprism release --plan-only` runs a second apart
  * produce two different `plan_digest` values for one decision — filling
- * `.duo/releases/` with duplicates and leaving `duo verify --plan=<digest>`
+ * `.wprism/releases/` with duplicates and leaving `wprism verify --plan=<digest>`
  * with no stable name to cite (AuthorizationPlan::digest()'s own docblock
  * promises the opposite).
  *
@@ -52,7 +52,7 @@ use Duo\CommandRefusalException;
  * naming its instant, and the concrete instant travels beside the claim
  * instead of inside it: `recovery_profile.checkpoint_at` in the frozen plan,
  * excluded from `plan_digest` exactly like `frozen_at`, and printed next to
- * the claim by `duo release` and again by `duo recover`. The operator loses
+ * the claim by `wprism release` and again by `wprism recover`. The operator loses
  * nothing — the same two facts are on the same page — and the claim keeps
  * the byte-identity property MUP §2.5 requires of it, because a claim built
  * from the same facts at any two moments is now the same bytes.
@@ -61,7 +61,7 @@ use Duo\CommandRefusalException;
  *
  * `cli:Recovery` may depend only on `Recovery`, `Transport` and
  * `agent:Kernel` (docs/modules/cli-Recovery.md). MUP §3.4 nevertheless says
- * "`duo recover` reads `external_effects[]` for its does-not-restore list",
+ * "`wprism recover` reads `external_effects[]` for its does-not-restore list",
  * so the caller — the verb boundary in `cli/src/Command/` — reads the
  * contract and hands the rows in as `declared_external_effects`. That is the
  * same composition rule every other cross-module document already follows,
@@ -82,7 +82,7 @@ use Duo\CommandRefusalException;
  * `does_not_restore` with the remedy stated on the row.
  */
 final class RecoveryClaim {
-    public const FORMAT = 'duo-recovery-claim/v1';
+    public const FORMAT = 'wprism-recovery-claim/v1';
 
     /** Product spec, *Release and verify*: the closed recovery-profile enum. */
     public const VERIFIED_AUTOMATIC = 'verified-automatic';
@@ -293,7 +293,7 @@ final class RecoveryClaim {
         return 'sha256:' . hash('sha256', Canon::encode($claim));
     }
 
-    /** Canonical bytes: what the plan embeds and what `duo recover` re-prints. */
+    /** Canonical bytes: what the plan embeds and what `wprism recover` re-prints. */
     public static function encode(array $claim): string {
         return Canon::encode($claim);
     }
@@ -303,7 +303,7 @@ final class RecoveryClaim {
      *
      * Used at both printings — the plan freeze and the recovery run — so a
      * hand-edited frozen plan cannot smuggle an empty `does_not_restore`
-     * past `duo recover`.
+     * past `wprism recover`.
      *
      * @param array<string,mixed> $claim
      */
@@ -516,7 +516,7 @@ final class RecoveryClaim {
         return new CommandRefusalException(
             $code,
             $message,
-            'do not act on this claim; re-run duo release --plan-only to regenerate it from the current target'
+            'do not act on this claim; re-run wprism release --plan-only to regenerate it from the current target'
         );
     }
 }

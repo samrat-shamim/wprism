@@ -1,14 +1,14 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/AdapterSources.php';
 // WP-4.12: the {N-1, N} window itself, shared with RepositoryCompiler, which
-// judges site.duo.json's own spec_version and cannot reference this layer.
+// judges site.wprism.json's own spec_version and cannot reference this layer.
 require_once __DIR__ . '/../Kernel/SpecVersionWindow.php';
 // WP-6.4: the value grammar for the `declaration_evidence` section. Eager, not
 // lazy like AdapterCertification below — that one is deferred because it is one
-// of the four names agent/duo.php's bootstrap deliberately does not declare
-// (agent/duo.php:124-128); this one is an ordinary sibling with no dependencies
+// of the four names agent/wprism.php's bootstrap deliberately does not declare
+// (agent/wprism.php:124-128); this one is an ordinary sibling with no dependencies
 // of its own, and validate_adapter_contract() names it unconditionally.
 require_once __DIR__ . '/StructuredEvidence.php';
 // The manifest-provider runtime owns its feature name. This roster reads that
@@ -49,7 +49,7 @@ require_once __DIR__ . '/../Policy/AdapterClaimResolutions.php';
  * shared range predicate and loader/runtime/reporting orchestration.
  *
  * It is also where the wire version is decided, and since WP-4.2 that is a
- * WINDOW rather than an equality: a manifest declaring `DUO_SPEC_VERSION` or
+ * WINDOW rather than an equality: a manifest declaring `WPRISM_SPEC_VERSION` or
  * the one version before it is accepted, an integer outside that window refuses
  * naming the window, and a manifest inside it that declares a section this
  * engine implements only at a higher version refuses naming the section
@@ -104,7 +104,7 @@ final class AdapterContractGrammar {
      *
      * After `spec-window/v1`, SEVEN post-v3 features shipped through this
      * channel in one wave, and together they are the proof § v3.2's claim
-     * holds — each staged a grammar change with `DUO_SPEC_VERSION` left at 3,
+     * holds — each staged a grammar change with `WPRISM_SPEC_VERSION` left at 3,
      * asserted by each one's own suite:
      *
      *   - `typed-column-codecs/v1` and `attr-id-codecs/v1` (WP-6.1): how one
@@ -146,7 +146,7 @@ final class AdapterContractGrammar {
      * (spec/repo-format.md § v3.2). A name is also permanent, which is why
      * docs/wire-surface.md carries it as row R-19: a declared name lives inside
      * the manifest bytes ArtifactPolicyIdentity::manifest_rows() folds into the
-     * adapter digest that every `site.duo.json` pin and every certificate
+     * adapter digest that every `site.wprism.json` pin and every certificate
      * binds, so renaming one moves the digest of every manifest declaring it.
      *
      * @var array<string,array{since:int,keys:array<string,string>}>
@@ -177,7 +177,7 @@ final class AdapterContractGrammar {
         ],
         // WP-6.4, and the reason this constant is worth having: the FIRST
         // grammar section to ship after v3, added here and nowhere else, with
-        // `DUO_SPEC_VERSION` left at 3. `since` is 3 rather than 4 for the
+        // `WPRISM_SPEC_VERSION` left at 3. `since` is 3 rather than 4 for the
         // same reason it is 3 for the row above and NOT the version at which
         // the section was written: `since` is the first version whose grammar
         // HAS the section, and this engine's does. A 4 here would refuse the
@@ -329,7 +329,7 @@ final class AdapterContractGrammar {
      * under `make release-gate` by probing this validator rather than by
      * reading this line (spec/repo-format.md § v3.1).
      *
-     * DELEGATED SINCE WP-4.12. `site.duo.json` carries the same wire version
+     * DELEGATED SINCE WP-4.12. `site.wprism.json` carries the same wire version
      * integer and `RepositoryCompiler::compile()` now judges it against the
      * same window, but `Repository` is layer 3 and this file is layer 5, so
      * the compiler cannot reference it. The definition moved down to
@@ -405,7 +405,7 @@ final class AdapterContractGrammar {
     /**
      * The same rows, whole: feature => `{since, keys}`, sorted by name.
      *
-     * Published for `duo manifest-validate --emit-schema` (WP-6.5), which used
+     * Published for `wprism manifest-validate --emit-schema` (WP-6.5), which used
      * to be unable to describe the channel at all — the four post-v3 SECTIONS
      * and the `engine_features` key itself appeared nowhere in the emitted
      * grammar document, so an author could not learn from the engine's own
@@ -488,7 +488,7 @@ final class AdapterContractGrammar {
                 'refines' => 'nothing — declaring a name admits the top-level keys that feature claims '
                     . '(§ v3.3\'s growth rule) and gates the value vocabularies it widens; a name this engine '
                     . 'does not implement refuses the adapter BY FEATURE NAME',
-                'validated_by' => 'Duo\\AdapterContractGrammar::assert_engine_features()',
+                'validated_by' => 'WPrism\\AdapterContractGrammar::assert_engine_features()',
             ],
         ];
         ksort($grammars, SORT_STRING);
@@ -498,7 +498,7 @@ final class AdapterContractGrammar {
             $missing = array_values(array_diff($claimed, $described));
             $extra = array_values(array_diff($described, $claimed));
             throw new \RuntimeException(
-                'duo: the published feature-section grammars do not match the roster — claimed but undescribed {'
+                'wprism: the published feature-section grammars do not match the roster — claimed but undescribed {'
                 . implode(', ', $missing) . '}, described but unclaimed {' . implode(', ', $extra)
                 . '}. A feature that claims a top-level key publishes that section\'s value grammar in the same '
                 . 'change (spec/repo-format.md § v3.21)'
@@ -521,8 +521,8 @@ final class AdapterContractGrammar {
      * release-gate` (register row R-21) so that it cannot be reintroduced.
      *
      * The require is lazy, and deliberately: `AdapterCertification` is one of
-     * the four names `agent/duo.php`'s bootstrap does NOT declare, and it is
-     * require_once'd at each use site instead (agent/duo.php:124-128). A v2
+     * the four names `agent/wprism.php`'s bootstrap does NOT declare, and it is
+     * require_once'd at each use site instead (agent/wprism.php:124-128). A v2
      * manifest never reaches this method, so the open v2 era loads exactly the
      * files it loads today; the require is here rather than at the top of the
      * file for that reason and no other.
@@ -616,7 +616,7 @@ final class AdapterContractGrammar {
      * this engine implements, mapped to its arm.
      *
      * Published rather than derived per manifest because two readers need the
-     * engine-wide answer and neither has a manifest in hand: `duo
+     * engine-wide answer and neither has a manifest in hand: `wprism
      * manifest-validate --emit-schema` prints the arm beside each roster row so
      * an author can see, before writing a line, whether the section they are
      * about to declare will be covered by a certificate; and
@@ -656,8 +656,8 @@ final class AdapterContractGrammar {
      *     roster row would be dead code that reads as a decision).
      *
      * The require is lazy for `admitted_top_level_keys()`'s stated reason:
-     * `AdapterCertification` is one of the four names agent/duo.php's bootstrap
-     * deliberately does not declare (agent/duo.php:124-128), and no v2 manifest
+     * `AdapterCertification` is one of the four names agent/wprism.php's bootstrap
+     * deliberately does not declare (agent/wprism.php:124-128), and no v2 manifest
      * reaches this method.
      */
     private static function assert_arm(string $feature, string $key, mixed $arm): string {
@@ -665,7 +665,7 @@ final class AdapterContractGrammar {
         $vocabulary = AdapterCertification::certificateArms();
         if (!is_string($arm) || !in_array($arm, $vocabulary, true)) {
             throw new \RuntimeException(
-                "duo: engine feature '$feature' classifies its top-level key '$key' as "
+                "wprism: engine feature '$feature' classifies its top-level key '$key' as "
                 . var_export($arm, true) . ", which is not one of the signer's certificate arms ("
                 . implode(', ', $vocabulary) . ') — a feature that claims a top-level key must say what a '
                 . 'certificate covers it as, in the same row that claims it (spec/repo-format.md § v3.21)'
@@ -679,7 +679,7 @@ final class AdapterContractGrammar {
         );
         if (in_array($key, $classified, true)) {
             throw new \RuntimeException(
-                "duo: engine feature '$feature' classifies '$key', which the signer's own three-arm partition "
+                "wprism: engine feature '$feature' classifies '$key', which the signer's own three-arm partition "
                 . 'already carries — a roster row classifies only the keys § v3.2\'s channel ADDS, so the two '
                 . 'can never be two spellings of one arm (spec/repo-format.md § v3.21)'
             );
@@ -694,24 +694,24 @@ final class AdapterContractGrammar {
     public static function validate_adapter_contract(array $manifest): void {
         $name = (string) ($manifest['name'] ?? '?');
         $spec = $manifest['spec_version'] ?? null;
-        $supported = defined('DUO_SPEC_VERSION') ? DUO_SPEC_VERSION : 0;
-        // Absent or non-integer keeps DUO-3247's refusal byte for byte, and
+        $supported = defined('WPRISM_SPEC_VERSION') ? WPRISM_SPEC_VERSION : 0;
+        // Absent or non-integer keeps issue #3247's refusal byte for byte, and
         // deliberately so: it is not a version, so there is no window for it to
         // be inside and nothing about the window is worth printing at it
         // (spec/repo-format.md § v3.1).
         if (!is_int($spec)) {
             $declared = $spec === null ? 'no spec_version' : ('spec_version ' . var_export($spec, true));
             throw new \RuntimeException(
-                "duo: manifest '$name' declares $declared"
+                "wprism: manifest '$name' declares $declared"
                 . " but this engine requires spec_version $supported — pin a compatible manifest or update it"
             );
         }
         $accepted = self::accepted_window($supported);
         if (!in_array($spec, $accepted, true)) {
             throw new \RuntimeException(
-                "duo: manifest '$name' declares spec_version " . var_export($spec, true)
+                "wprism: manifest '$name' declares spec_version " . var_export($spec, true)
                 . ' but this engine accepts spec_version ' . self::window_text($accepted)
-                . " — the acceptance window is exactly N and N-1, where N is this engine's DUO_SPEC_VERSION"
+                . " — the acceptance window is exactly N and N-1, where N is this engine's WPRISM_SPEC_VERSION"
                 . ' (spec/repo-format.md § v3.1) — pin a compatible manifest or update it'
             );
         }
@@ -742,7 +742,7 @@ final class AdapterContractGrammar {
             $interpreter = $manifest['interpreter'];
             if (!is_string($interpreter) || preg_match('/^[a-z0-9_-]+$/D', $interpreter) !== 1) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' declares interpreter " . var_export($interpreter, true)
+                    "wprism: manifest '$name' declares interpreter " . var_export($interpreter, true)
                     . ' — an interpreter name must be a non-empty string matching ^[a-z0-9_-]+$, since it resolves '
                     . 'to <manifests_dir>/interpreters/<name>.php'
                 );
@@ -754,7 +754,7 @@ final class AdapterContractGrammar {
                 continue;
             }
             if (!is_string($id) || $id === '') {
-                throw new \RuntimeException("duo: manifest '$name' declares a non-string or empty '$idKey'");
+                throw new \RuntimeException("wprism: manifest '$name' declares a non-string or empty '$idKey'");
             }
             if ($idKey === 'plugin') {
                 AdapterSources::assert_plugin_basename($id, "manifest '$name' declares 'plugin'");
@@ -768,7 +768,7 @@ final class AdapterContractGrammar {
                 || in_array('..', $segments, true) || in_array('.', $segments, true)
                 || in_array('', $segments, true))) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' declares '$idKey' " . var_export($id, true)
+                    "wprism: manifest '$name' declares '$idKey' " . var_export($id, true)
                     . ' — a ' . $idKey . ' identifier is '
                     . ($idKey === 'plugin' ? "'<directory>/<file>.php' or '<file>.php'" : 'a bare directory slug')
                     . ', never an absolute path and never one containing a ".." segment; it is concatenated into '
@@ -778,9 +778,9 @@ final class AdapterContractGrammar {
             $range = $manifest[$rangeKey] ?? null;
             if (!is_array($range)) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' declares '$idKey' ('$id') but no '$rangeKey' — an adapter naming a "
+                    "wprism: manifest '$name' declares '$idKey' ('$id') but no '$rangeKey' — an adapter naming a "
                     . "$idKey with no exact version range is unbounded support, which this project's contract "
-                    . 'forbids (DUO-3222). Declare {"min":..,"max":..} or drop the ' . "$idKey claim."
+                    . 'forbids (issue #3222). Declare {"min":..,"max":..} or drop the ' . "$idKey claim."
                 );
             }
             Policy::assert_min_max_range($range, "manifest '$name' declares '$rangeKey'");
@@ -801,7 +801,7 @@ final class AdapterContractGrammar {
      * The refusal names the SECTION and the ADAPTER, never just "this engine
      * requires spec_version N", because those are the two facts an operator
      * needs to decide whether to edit a manifest or move an engine. Its blast
-     * radius is the blast radius the SOURCE already grants: `duo
+     * radius is the blast radius the SOURCE already grants: `wprism
      * manifest-validate` loads every manifest on its own and prints a verdict
      * per manifest, AdapterSources::grammar_verdict() judges one adapter at a
      * time for the survey, and the plugin source records a per-adapter refusal
@@ -828,7 +828,7 @@ final class AdapterContractGrammar {
             // it is not, saying "declare spec_version $since" would send them
             // to a manifest this same validator refuses wholesale one line
             // above. WP-4.12 moved this engine from the second era into the
-            // first: at DUO_SPEC_VERSION 2 the only implemented section
+            // first: at WPRISM_SPEC_VERSION 2 the only implemented section
             // (`engine_features`, since 3) sat one past the ceiling and BOTH
             // in-window versions refused it; the flip put 3 inside the window,
             // so a v2 manifest now gets the actionable remedy and a v3 one is
@@ -840,7 +840,7 @@ final class AdapterContractGrammar {
                 : "this engine's window does not reach spec_version $since, so remove the section or run an "
                     . 'engine whose window does';
             throw new \RuntimeException(
-                "duo: manifest '$name' declares spec_version $spec and the section '$section', which this "
+                "wprism: manifest '$name' declares spec_version $spec and the section '$section', which this "
                 . "engine implements only at spec_version $since — a manifest inside the acceptance window "
                 . self::window_text($accepted) . ' may not declare a section from a HIGHER version '
                 . '(spec/repo-format.md § v3.1). Remedy: ' . $remedy
@@ -895,7 +895,7 @@ final class AdapterContractGrammar {
             // the harnesses that pin these strings.
             $shown = json_encode($declared, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
             throw new \RuntimeException(
-                "duo: manifest '$name' declares 'engine_features' "
+                "wprism: manifest '$name' declares 'engine_features' "
                 . (is_string($shown) ? $shown : var_export($declared, true))
                 . ' — engine_features is a non-empty, sorted, duplicate-free list of engine feature name '
                 . 'strings (spec/repo-format.md § v3.2)'
@@ -907,7 +907,7 @@ final class AdapterContractGrammar {
                 continue;
             }
             throw new \RuntimeException(
-                "duo: manifest '$name' declares engine feature " . var_export($feature, true)
+                "wprism: manifest '$name' declares engine feature " . var_export($feature, true)
                 . ' — this engine does not implement it. Feature names are engine-owned: an adapter declares '
                 . 'one, never mints one (spec/repo-format.md § v3.2). This engine implements: '
                 . implode(', ', $implemented)
@@ -951,7 +951,7 @@ final class AdapterContractGrammar {
     private static function assert_top_level_keys(string $name, int $spec, array $manifest): void {
         $admitted = self::admitted_top_level_keys($manifest);
         $unknown = array_values(array_diff(array_map('strval', array_keys($manifest)), $admitted));
-        // `duo adapter-draft` emits one recognised authoring sidecar at v2.
+        // `wprism adapter-draft` emits one recognised authoring sidecar at v2.
         // It remains unsignable and is refused from v3; no arbitrary key gets
         // this exception, so misspelled or invented v2 sections fail closed.
         if ($spec < self::DRAFT_SIDECAR_REFUSED_SINCE) {
@@ -964,7 +964,7 @@ final class AdapterContractGrammar {
 
         // `_draft` gets its own sentence, and it wins over every other unknown
         // key, because it says something about the whole document rather than
-        // about one section: this is `duo adapter-draft` output
+        // about one section: this is `wprism adapter-draft` output
         // (cli/src/Adapter/AdapterDraft.php:379), and the first thing its author
         // has to do is strip the sidecar and re-validate — at which point any
         // remaining unrecognised key is reported with the remedy that fits it.
@@ -978,11 +978,11 @@ final class AdapterContractGrammar {
         // proposals under a signature.
         if (in_array('_draft', $unknown, true)) {
             throw new \RuntimeException(
-                "duo: manifest '$name' declares spec_version $spec and the top-level key '_draft' — that is the "
-                . 'proposal sidecar `duo adapter-draft` writes for a human reviewer, and it is an authoring '
+                "wprism: manifest '$name' declares spec_version $spec and the top-level key '_draft' — that is the "
+                . 'proposal sidecar `wprism adapter-draft` writes for a human reviewer, and it is an authoring '
                 . 'artifact rather than a declaration: admitting it would put unreviewed proposals inside the '
                 . 'identity row every certificate covers (spec/repo-format.md § v3.3). Remedy: strip the `_draft` '
-                . 'key before install — `duo manifest-validate` reports the sidecar\'s facts, proposals and '
+                . 'key before install — `wprism manifest-validate` reports the sidecar\'s facts, proposals and '
                 . 'unsupported counts on every run, so nothing in it is lost by removing it'
             );
         }
@@ -1001,14 +1001,14 @@ final class AdapterContractGrammar {
                 // The pinned phrase is written CONTIGUOUSLY, never split across
                 // a concatenation, so `grep` and the document suite find the
                 // spec's own sentence in the shipped bytes.
-                "duo: manifest '$name' declares '" . self::RESERVED_PACKAGE_KEY
+                "wprism: manifest '$name' declares '" . self::RESERVED_PACKAGE_KEY
                 . "' — the executable adapter lane is reserved and shut."
                 . ' It opens only at gate G5 (spec/repo-format.md § v3.11), never by declaring the key'
             );
         }
 
         throw new \RuntimeException(
-            "duo: manifest '$name' declares spec_version $spec and the top-level "
+            "wprism: manifest '$name' declares spec_version $spec and the top-level "
             . (count($unknown) === 1 ? 'key ' : 'keys ')
             . implode(', ', array_map(static fn(string $k): string => "'" . $k . "'", $unknown))
             . ', which this engine does not recognise — at spec_version ' . self::CLOSED_KEY_SET_SINCE
@@ -1025,7 +1025,7 @@ final class AdapterContractGrammar {
      * ranges remain redundant but deterministic and are intentionally allowed.
      *
      * WP-5.5 adds the one way out, and it is the operator's rather than an
-     * adapter's: `site.duo.json` `policy.adapter_claims` names WHICH claimant
+     * adapter's: `site.wprism.json` `policy.adapter_claims` names WHICH claimant
      * is in force for that plugin or theme (spec/repo-format.md § v3.13), and
      * a collision so resolved is not ambiguous any more — pin order decides
      * nothing, a written decision does. The displaced claimant is reported by
@@ -1065,7 +1065,7 @@ final class AdapterContractGrammar {
                         && !AdapterClaimResolutions::resolves($resolutions, $idKey, $id)
                     ) {
                         throw new \RuntimeException(
-                            "duo: manifests '{$prev['name']}' and '$name' both declare $idKey '$id' with "
+                            "wprism: manifests '{$prev['name']}' and '$name' both declare $idKey '$id' with "
                             . "different $rangeKey values (" . json_encode($prev['range']) . ' vs '
                             . json_encode($range) . ') — conflicting ownership with no v2 composition rule; '
                             . 'pin only one, or narrow one range to a disjoint window'

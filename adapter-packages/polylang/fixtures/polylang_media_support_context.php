@@ -10,8 +10,8 @@ declare(strict_types=1);
  * and publishes only the resolved ownership rows as JSON.
  */
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 2);
 }
 
 $root = dirname(__DIR__, 3);
@@ -31,7 +31,7 @@ function get_taxonomy(string $taxonomy): object|false {
 
 /** @return array<string,mixed> */
 function polylang_media_ownership(mixed $mediaSupport, array $postTypes): array {
-    $policy = new \Duo\Policy();
+    $policy = new \WPrism\Policy();
     $policy->site = ['policy' => ['taxonomies' => ['language', 'post_translations']]];
     $optionDeclarations = [
         ['option' => 'polylang', 'sub_key' => 'post_types'],
@@ -53,12 +53,12 @@ function polylang_media_ownership(mixed $mediaSupport, array $postTypes): array 
             ],
         ],
     ]];
-    $compiled = \Duo\CompiledRepository::create([
+    $compiled = \WPrism\CompiledRepository::create([
         'tree' => [
             'options/core' => [
                 'type' => 'options',
-                'data' => \Duo\OptionState::document([
-                    'polylang' => \Duo\OptionState::present([
+                'data' => \WPrism\OptionState::document([
+                    'polylang' => \WPrism\OptionState::present([
                         'media_support' => $mediaSupport,
                         'post_types' => $postTypes,
                     ], 'yes'),
@@ -67,11 +67,11 @@ function polylang_media_ownership(mixed $mediaSupport, array $postTypes): array 
         ],
     ]);
     $warnings = [];
-    return (new \Duo\TaxonomyApplyContext($policy, $compiled))->ownership($warnings)
+    return (new \WPrism\TaxonomyApplyContext($policy, $compiled))->ownership($warnings)
         + ['warnings' => $warnings];
 }
 
-echo \Duo\Canon::encode([
+echo \WPrism\Canon::encode([
     'disabled' => polylang_media_ownership(0, ['book']),
     'enabled' => polylang_media_ownership(1, []),
     'malformed' => polylang_media_ownership('1', []),

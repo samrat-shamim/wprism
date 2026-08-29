@@ -1,18 +1,18 @@
-# DUO-3244: single source of truth for every sandbox fixture's INNER
+# issue #3244: single source of truth for every sandbox fixture's INNER
 # site-repo .gitignore (siterepo/<pair>N/.gitignore) -- copy this file
-# rather than hand-rolling a printf. Mirrors the OUTER duo-wp repo's own
+# rather than hand-rolling a printf. Mirrors the OUTER wprism repo's own
 # .gitignore exactly (state.capture.lock/-staging/-backup/-intent/-receipt
-# are agent/src/Publication/Publish.php's capture-publication artifacts, DUO-3213): a fixture
+# are agent/src/Publication/Publish.php's capture-publication artifacts, issue #3213): a fixture
 # missing state.capture.lock here hits a real, structural failure the
 # moment a test captures on both sides of a pair before a git pull on the
-# second side -- see DUO-3244 for the concrete repro.
+# second side -- see issue #3244 for the concrete repro.
 /.tmp*
-/.duo/
-/.duo-envs.json
-/.duo-init-code-*
-/.duo-init-attempt
-/.duo-init-attempt.next
-/.*.duo-init-*
+/.wprism/
+/.wprism-envs.json
+/.wprism-init-code-*
+/.wprism-init-attempt
+/.wprism-init-attempt.next
+/.*.wprism-init-*
 /state.capture.lock
 /state.capture-staging/
 /state.capture-backup/
@@ -25,9 +25,9 @@
 /state.capture-receipt.previous
 /state.capture-receipt.next
 
-# DUO-3232: env-bound value provisioning. `wp duo env-set` publishes the
+# issue #3232: env-bound value provisioning. `wp wprism env-set` publishes the
 # target-local intended value here before writing wp_options; plan requires
 # exact equality for required env options. The file is never captured and
 # must stay on ONE environment's own checkout, never shared via git.
 # See cli/README.md and cli/src/Onboarding/Doctor.php's own git-tracked hygiene check.
-/.duo-env-values.json
+/.wprism-env-values.json

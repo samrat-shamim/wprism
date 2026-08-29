@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
@@ -14,8 +14,8 @@ require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 // sandbox/tests/offline/code-half/regress_code_revision_enforcement.php and
 // regress_scoped_promotion_target.php both reach this file transitively
 // through Apply.php (direct requires, verified) and both stub a fake
-// Duo\Ledger; regress_scoped_promotion_target.php additionally stubs a fake
-// Duo\Db. Requiring either here would fatal with "Cannot redeclare class"
+// WPrism\Ledger; regress_scoped_promotion_target.php additionally stubs a fake
+// WPrism\Db. Requiring either here would fatal with "Cannot redeclare class"
 // against whichever of the two a given suite fakes -- the identical
 // exclusion RelationshipMaterializer.php already documents for the same
 // reason (verified via `grep -rlE '^\s*(final\s+)?class\s+(Db|Ledger)\s*(\{|extends|implements)'`
@@ -27,7 +27,7 @@ require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 // file's own top-of-file requires, not assumed.
 
 /**
- * The post materializer (DUO-3347 slice 10-11, one of the "Entity
+ * The post materializer (issue #3347 slice 10-11, one of the "Entity
  * materializers: posts, typed tables" target seams): creates a new post's
  * ledger-mapped wp_posts row (phase 1) and finalizes it (phase 2) -- the
  * field UPDATE plus authored-meta/relationship/attachment reconciliation --
@@ -117,23 +117,23 @@ final class PostMaterializer {
             'post_modified_gmt' => $front['modified_gmt'],
             'post_content_filtered' => '',
             'post_parent' => 0,
-            'guid' => $this->tokens->home() . '/?duo=' . $front['uuid'],
+            'guid' => $this->tokens->home() . '/?wprism=' . $front['uuid'],
             'menu_order' => (int) ($front['menu_order'] ?? 0),
             'post_type' => $front['type'],
             'post_mime_type' => $front['mime'] ?? '',
             'comment_count' => 0,
         ], null, 'apply insert post');
         $id = Db::insert_id('apply insert post');
-        Db::insert($wpdb->postmeta, ['post_id' => $id, 'meta_key' => '_duo_uuid', 'meta_value' => $front['uuid']], null, 'apply insert post identity');
+        Db::insert($wpdb->postmeta, ['post_id' => $id, 'meta_key' => '_wprism_uuid', 'meta_value' => $front['uuid']], null, 'apply insert post identity');
         $identityRows = $this->fieldMaterializer->meta_owner_range_lock(
             $wpdb->postmeta,
             'post_id',
             'apply insert post identity readback'
-        )->exact_key_rows($id, '_duo_uuid');
+        )->exact_key_rows($id, '_wprism_uuid');
         if (count($identityRows) !== 1
             || !is_string($identityRows[0]['meta_value'] ?? null)
             || !hash_equals((string) $front['uuid'], $identityRows[0]['meta_value'])) {
-            throw new \RuntimeException('duo: apply insert post identity did not persist one exact requested sidecar');
+            throw new \RuntimeException('wprism: apply insert post identity did not persist one exact requested sidecar');
         }
         Ledger::set($front['uuid'], 'post', Ledger::KIND_POST, $id);
         CacheInvalidationTransaction::queue_post($id, (string) $front['type'], 'apply insert post');
@@ -149,7 +149,7 @@ final class PostMaterializer {
     ): void {
         global $wpdb;
         $id = Ledger::id_for($front['uuid'], Ledger::KIND_POST)
-            ?? throw new \RuntimeException("duo: post {$front['uuid']} missing from ledger after phase 1");
+            ?? throw new \RuntimeException("wprism: post {$front['uuid']} missing from ledger after phase 1");
 
         $parentId = 0;
         if (!empty($front['parent'])) {
@@ -179,7 +179,7 @@ final class PostMaterializer {
                 $body,
                 $this->policy->body_ref_rule((string) $front['type'])
                     ?? throw new \RuntimeException(
-                        "duo: {$front['type']} '{$front['slug']}' declares body=" . BodyRefGrammar::BODY_MODE
+                        "wprism: {$front['type']} '{$front['slug']}' declares body=" . BodyRefGrammar::BODY_MODE
                         . ' but no body_refs paths are loaded for it — the manifest that declared the mode is not '
                         . 'the manifest that is pinned'
                     ),
@@ -209,7 +209,7 @@ final class PostMaterializer {
         // a field this post_type classifies 'derived' is dropped from this
         // UPDATE entirely rather than overwritten with the captured byte
         // string, once the row already exists. The front-matter-name =>
-        // wp_posts-column translation is Policy's (DUO-3318): this loop used
+        // wp_posts-column translation is Policy's (issue #3318): this loop used
         // to carry its own literal copy of it, so widening the allowlist
         // without widening the copy would have left a field a manifest may
         // legally declare `derived` still overwritten here — the

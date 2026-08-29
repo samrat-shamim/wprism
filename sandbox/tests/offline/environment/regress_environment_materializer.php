@@ -1,8 +1,8 @@
 <?php
-// DUO-3324: offline product orchestration and exact-reap regression.
+// issue #3324: offline product orchestration and exact-reap regression.
 declare(strict_types=1);
 
-namespace Duo\Orchestrator {
+namespace WPrism\Orchestrator {
     final class Refresh {
         public static function rebase(EnvironmentDriver $driver, string $production, string $branch, array $resolution = []): array {
             $root = trim((string) shell_exec('git rev-parse --show-toplevel'));
@@ -12,7 +12,7 @@ namespace Duo\Orchestrator {
             $path = $root . '/.git/materializer-plan-' . hash('sha256', $branch) . '.json';
             file_put_contents($path, json_encode([
                 'context' => ['production_snapshot_hash' => hash('sha256', 'semantic-production')],
-                'format' => 'duo-refresh-plan/v1',
+                'format' => 'wprism-refresh-plan/v1',
                 'plan_hash' => hash('sha256', 'semantic-plan'),
             ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
             return ['head' => $head, 'new_branch' => $branch, 'plan_path' => $path, 'run_id' => 'fixture'];
@@ -36,7 +36,7 @@ namespace Duo\Orchestrator {
      * The renderer's own verdict is not what this suite exercises; only that
      * a converged plan is clean and a drifted one is not. PlanContract below
      * is deliberately NOT stubbed — the complete-envelope check at the
-     * convergence boundary is product behavior under test (DUO-3384).
+     * convergence boundary is product behavior under test (issue #3384).
      */
     final class PlanSummary {
         public static function render(array $plan): array {
@@ -50,13 +50,13 @@ require_once __DIR__ . '/../../../../cli/src/Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../../../../cli/src/Plan/PlanContract.php';
 require_once __DIR__ . '/../../../../cli/src/Environment/EnvironmentLifecycle.php';
 
-use Duo\Orchestrator\CommandEnvironmentProvider;
-use Duo\Orchestrator\DriverCapability;
-use Duo\Orchestrator\DriverCapabilityReport;
-use Duo\Orchestrator\EnvironmentDriver;
-use Duo\Orchestrator\EnvironmentLifecycleJournal;
-use Duo\Orchestrator\EnvironmentLifecycleCanon;
-use Duo\Orchestrator\EnvironmentMaterializer;
+use WPrism\Orchestrator\CommandEnvironmentProvider;
+use WPrism\Orchestrator\DriverCapability;
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\EnvironmentDriver;
+use WPrism\Orchestrator\EnvironmentLifecycleJournal;
+use WPrism\Orchestrator\EnvironmentLifecycleCanon;
+use WPrism\Orchestrator\EnvironmentMaterializer;
 
 function em_fail(string $message): never { fwrite(STDERR, "FAIL: $message\n"); exit(1); }
 function em_ok(bool $condition, string $message): void { if (!$condition) em_fail($message); echo "ok: $message\n"; }
@@ -81,7 +81,7 @@ function em_actions(string $log): array {
 }
 
 /**
- * One complete `wp duo plan --format=json` envelope, spelled out the way
+ * One complete `wp wprism plan --format=json` envelope, spelled out the way
  * agent/src/Apply/Apply.php emits it. Branch convergence refuses anything less.
  *
  * @param array<string,list<mixed>> $overrides
@@ -101,7 +101,7 @@ function em_plan(array $overrides = []): array {
 
 final class MaterializerDriver implements EnvironmentDriver {
     public array $calls = [];
-    /** Raw `wp duo plan --format=json` stdout; a complete clean envelope by default. */
+    /** Raw `wp wprism plan --format=json` stdout; a complete clean envelope by default. */
     public string $planJson = '';
     public function __construct(private string $name, private string $repo, private string $productionCommit = '') {
         $this->planJson = (string) json_encode(em_plan(), JSON_UNESCAPED_SLASHES);
@@ -120,7 +120,7 @@ final class MaterializerDriver implements EnvironmentDriver {
         $this->calls[] = ['wp', $args];
         // The materializer reads the source URL binding (home + uploads) to
         // rebind a rehearsal target off its restored snapshot; every other
-        // wp call in this fixture is `duo plan`.
+        // wp call in this fixture is `wprism plan`.
         if (($args[0] ?? null) === 'eval' && str_contains((string) ($args[1] ?? ''), 'get_option')) {
             return ['exit' => 0, 'stdout' => "http://source.example:9600\nhttp://source.example:9600/wp-content/uploads\n", 'stderr' => ''];
         }
@@ -140,7 +140,7 @@ final class MaterializerDriver implements EnvironmentDriver {
     }
 }
 
-$tmp = sys_get_temp_dir() . '/duo-environment-materializer-' . bin2hex(random_bytes(7));
+$tmp = sys_get_temp_dir() . '/wprism-environment-materializer-' . bin2hex(random_bytes(7));
 $repo = $tmp . '/repo';
 mkdir($repo, 0700, true);
 try {
@@ -188,7 +188,7 @@ if ($a === 'snapshot-create' && $mode === 'create-loss') {
 $caps = ['environment.attach','environment.containment.verify','environment.create','environment.destroy','environment.detach','environment.inspect','environment.mutation.acquire','environment.mutation.read','environment.mutation.release','environment.ttl','environment.ttl.read','environment.url.discover','environment.url.set','operation.receipts','repository.materialize','snapshot.set.abort','snapshot.set.create','snapshot.set.prepare','snapshot.set.read','snapshot.set.restore'];
 if ($mode === 'attach-only') $caps = array_values(array_diff($caps, ['environment.create', 'environment.destroy']));
 $owner = (string) ($i['mutation_owner'] ?? $i['expected_mutation_owner'] ?? '');
-$materialFence = str_contains($owner, 'duo-env-materialize-');
+$materialFence = str_contains($owner, 'wprism-env-materialize-');
 $fenceId = $materialFence ? 'mutation-material-0001' : 'mutation-reap-0001';
 $heldReceipt = $h($materialFence ? 'mutation-material-held' : 'mutation-reap-held');
 $releasedReceipt = $h($materialFence ? 'mutation-material-released' : 'mutation-reap-released');
@@ -222,7 +222,7 @@ $result = match ($a) {
  'destroy','detach' => ['absence_proof_sha256'=>$h('absence'),'disposition'=>$a === 'destroy' ? 'destroyed' : 'detached','environment_identity'=>'environment-identity-0001','lease_generation'=>3,'lease_id'=>'lease-identity-0001','ownership_receipt_sha256'=>$h('owner'),'resource_id'=>'resource-identity-0001'],
  default => [],
 };
-$response=['action'=>$a,'environment'=>$request['environment'],'format'=>'duo-branch-environment-provider-response/v1','operation_id'=>$request['operation_id'],'provider'=>['id'=>'fixture-provider','protocol'=>1],'result'=>$result,'status'=>'ok'];
+$response=['action'=>$a,'environment'=>$request['environment'],'format'=>'wprism-branch-environment-provider-response/v1','operation_id'=>$request['operation_id'],'provider'=>['id'=>'fixture-provider','protocol'=>1],'result'=>$result,'status'=>'ok'];
 echo c($response)."\n";
 PHP);
     $state = $tmp . '/provider-state';
@@ -236,7 +236,7 @@ PHP);
     ];
     $source = new MaterializerDriver('production', '/production/repo', $commit);
     $target = new MaterializerDriver('branch', '/branch/repo');
-    $journal = new EnvironmentLifecycleJournal($repo . '/.git/duo-environments');
+    $journal = new EnvironmentLifecycleJournal($repo . '/.git/wprism-environments');
     $promotions = 0;
     $promotionCalls = [];
     $promote = static function (EnvironmentDriver $driver, array $frozenContext) use (&$promotions, &$promotionCalls): array {
@@ -246,13 +246,13 @@ PHP);
             'artifact_hash' => (string) $summary['artifact_hash'],
             'checkpoint_identity' => hash('sha256', 'checkpoint-' . $frozenContext['operation_id']),
             'code_revision' => isset($summary['code']['code_revision']) ? (string) $summary['code']['code_revision'] : null,
-            'format' => 'duo-branch-environment-promotion-receipt/v1',
+            'format' => 'wprism-branch-environment-promotion-receipt/v1',
             'operation_id' => $frozenContext['operation_id'],
             'owner' => $frozenContext['promotion_owner'],
             'state_revision' => (string) $summary['revision_hash'],
             'status' => 'completed',
         ];
-        $body['receipt_sha256'] = hash('sha256', \Duo\Orchestrator\EnvironmentLifecycleCanon::encode($body));
+        $body['receipt_sha256'] = hash('sha256', \WPrism\Orchestrator\EnvironmentLifecycleCanon::encode($body));
         $promotionCalls[] = ['context' => $frozenContext, 'receipt' => $body];
         return $body;
     };
@@ -284,7 +284,7 @@ PHP);
         && $receipt['code_revision'] !== $receipt['state_revision'], 'release receipt preserves separate code and state identities');
     em_ok($promotions === 1, 'materialization uses the supplied existing promotion path exactly once');
     em_ok(($promotionCalls[0]['receipt']['artifact_hash'] ?? null) === ($receipt['outer_artifact_hash'] ?? null)
-        && ($promotionCalls[0]['receipt']['owner'] ?? null) === 'duo-env-promotion-' . $receipt['operation_id']
+        && ($promotionCalls[0]['receipt']['owner'] ?? null) === 'wprism-env-promotion-' . $receipt['operation_id']
         && ($promotionCalls[0]['context']['artifact_path'] ?? null) !== '',
         'promotion consumes the exact frozen artifact under the deterministic operation owner');
     $targetActions = em_actions($targetLog);
@@ -409,7 +409,7 @@ PHP);
     em_ok(array_slice(em_actions($sourceLog), $sourceBeforeBlocked) === ['capabilities']
         && em_actions($blockedLog) === ['capabilities'], 'unsupported create refuses both sides before snapshot or target mutation');
 
-    // DUO-3384: branch convergence trusts PlanSummary::render(...)['ok'], and
+    // issue #3384: branch convergence trusts PlanSummary::render(...)['ok'], and
     // the renderer intentionally tolerates partial fixtures — `{}` renders
     // clean. Convergence must therefore validate the complete agent envelope
     // first, and must never journal a convergence it did not observe. The

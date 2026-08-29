@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression — DUO-3339: the installed-adapter catalog. `duo adapter
+# Regression — issue #3339: the installed-adapter catalog. `wprism adapter
 # list|inspect|doctor` reports what is installed across the two adapter sources
 # the engine has, where each piece came from, the executable authority its own
 # declarations reach (with the declaration that produced it), its reviewed
@@ -9,11 +9,11 @@
 #
 # All pure PHP and file I/O. The command is WordPress-free by construction (it
 # is dependency-free host PHP over the pure half of Policy::load(), the same
-# half `duo manifest-validate` drives), so the harness runs the REAL command as
+# half `wprism manifest-validate` drives), so the harness runs the REAL command as
 # a subprocess against the REAL shipped library and REAL scratch site
 # repositories. No docker, no sandbox pair, no WordPress bootstrap, no $wpdb
 # stub, nothing mocked. Same idiom as sandbox/tests/offline/policy/regress_manifest_validate.sh
-# (DUO-3327) and sandbox/tests/offline/adapter/regress_adapter_sources.sh (DUO-3314).
+# (issue #3327) and sandbox/tests/offline/adapter/regress_adapter_sources.sh (issue #3314).
 #
 # Like regress_adapter_sources.sh, this one runs against the REAL shipped
 # manifest bytes rather than a synthetic library: the claim under test is that
@@ -38,7 +38,7 @@ command -v php >/dev/null || fail "php required on PATH"
 
 say "php -l syntax check (harness + every file it exercises)"
 php -l regress_adapter_catalog.php >/dev/null || fail "regress_adapter_catalog.php has a syntax error"
-php -l ../../../../cli/duo >/dev/null || fail "cli/duo has a syntax error"
+php -l ../../../../cli/wprism >/dev/null || fail "cli/wprism has a syntax error"
 php -l ../../../../cli/src/Adapter/AdapterCatalog.php >/dev/null || fail "cli/src/Adapter/AdapterCatalog.php has a syntax error"
 php -l ../../../../cli/src/Plan/PlanSummary.php >/dev/null || fail "cli/src/Plan/PlanSummary.php has a syntax error"
 php -l ../../../../agent/src/Adapter/AdapterSources.php >/dev/null || fail "agent/src/Adapter/AdapterSources.php has a syntax error"
@@ -116,13 +116,13 @@ catalog_set="$(boot_set ../../../../cli/src/Adapter/AdapterCatalog.php)" || fail
 
 # ManifestValidate::boot()'s transitive closure, walked exactly the way
 # ../policy/regress_manifest_validate.sh walks it before scanning: its own class list out
-# of agent/duo-classmap.php, then each file's `require_once __DIR__` lines. The
+# of agent/wprism-classmap.php, then each file's `require_once __DIR__` lines. The
 # two walks must agree, so this is that walk and not a summary of it.
 uncovered="$(php -r '
     $repo = dirname(getcwd(), 4);
     $src = (string) file_get_contents($repo . "/cli/src/Adapter/ManifestValidate.php");
     $classFiles = [];
-    foreach ((array) (require $repo . "/agent/duo-classmap.php") as $mappedPath) {
+    foreach ((array) (require $repo . "/agent/wprism-classmap.php") as $mappedPath) {
         $classFiles[basename((string) $mappedPath, ".php")] = (string) $mappedPath;
     }
     $queue = [];

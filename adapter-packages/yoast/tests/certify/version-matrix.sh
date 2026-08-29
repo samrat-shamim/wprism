@@ -80,7 +80,7 @@ for YOAST_VERSION in 28.0 28.3; do
   [ "$INSTALLED_1" = "$YOAST_VERSION" ] || fail "side 1 installed version mismatch: expected $YOAST_VERSION, got $INSTALLED_1"
   pass "side 1: wordpress-seo $YOAST_VERSION installed from verified artifact, active"
 
-  cat > "siterepo/${PAIR}1/site.duo.json" <<EOF
+  cat > "siterepo/${PAIR}1/site.wprism.json" <<EOF
 {
   "manifests": ["core", "yoast"],
   "policy": {
@@ -100,9 +100,9 @@ EOF
   "${GIT1[@]}" push -qu origin main
 
   seed_yoast_content
-  wp1 duo capture --repo=/siterepo
+  wp1 wprism capture --repo=/siterepo
   pass "captured on side 1 (wordpress-seo $YOAST_VERSION)"
-  wp1 duo lint --repo=/siterepo
+  wp1 wprism lint --repo=/siterepo
   pass "lint: 0 findings"
 
   "${GIT1[@]}" add -A
@@ -115,16 +115,16 @@ EOF
   require_fixture_values INSTALLED_2
   [ "$INSTALLED_2" = "$YOAST_VERSION" ] || fail "side 2 installed version mismatch: expected $YOAST_VERSION, got $INSTALLED_2"
 
-  wp2 duo deploy --repo=/siterepo
+  wp2 wprism deploy --repo=/siterepo
   postdeploy_yoast_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+  wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
   grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at wordpress-seo $YOAST_VERSION"
   pass "deploy + apply succeeded on side 2 (wordpress-seo $YOAST_VERSION, canary clean)"
 
   check_yoast_content
 
-  wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"
+  wp2 wprism capture --repo=/siterepo --out="/siterepo/.tmp-final"
   DIFF_OUT=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
   rm -rf "siterepo/${PAIR}2/.tmp-final"
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at wordpress-seo $YOAST_VERSION: $DIFF_OUT"
@@ -137,12 +137,12 @@ EOF
     wp1 plugin install "$UPGRADE_ARTIFACT_1" --force --activate >/dev/null
     [ "$(wp1 plugin get wordpress-seo --field=version)" = 28.3 ] \
       || fail 'Yoast source in-place upgrade did not install exact 28.3'
-    wp1 duo deploy --repo=/siterepo --force-code-drift >/dev/null
+    wp1 wprism deploy --repo=/siterepo --force-code-drift >/dev/null
     UPGRADE_POST=$(wp1 post list --post_type=post --name=conformance-yoast-post --field=ID)
     require_fixture_ids UPGRADE_POST
     wp1 post meta update "$UPGRADE_POST" _yoast_wpseo_twitter-title 'Yoast 28.0 to 28.3 upgrade 東京 🚀' >/dev/null
-    wp1 duo capture --repo=/siterepo
-    wp1 duo lint --repo=/siterepo
+    wp1 wprism capture --repo=/siterepo
+    wp1 wprism lint --repo=/siterepo
     "${GIT1[@]}" add -A
     "${GIT1[@]}" commit -qm 'capture: wordpress-seo 28.0 to 28.3 in-place upgrade'
     "${GIT1[@]}" push -q origin main
@@ -151,9 +151,9 @@ EOF
     wp2 plugin install "$UPGRADE_ARTIFACT_2" --force --activate >/dev/null
     [ "$(wp2 plugin get wordpress-seo --field=version)" = 28.3 ] \
       || fail 'Yoast target in-place upgrade did not install exact 28.3'
-    wp2 duo deploy --repo=/siterepo --force-code-drift
+    wp2 wprism deploy --repo=/siterepo --force-code-drift
     REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-    wp2 duo apply --repo=/siterepo --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+    wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
     grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
       || fail 'apply canary not clean after wordpress-seo 28.0 to 28.3 in-place upgrade'
     SAVED_YOAST_VERSION="$YOAST_VERSION"
@@ -161,7 +161,7 @@ EOF
     check_yoast_content
     YOAST_VERSION="$SAVED_YOAST_VERSION"
 
-    wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-upgraded-final
+    wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-upgraded-final
     UPGRADE_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-upgraded-final" || true)
     rm -rf "siterepo/${PAIR}2/.tmp-upgraded-final"
     [ -z "$UPGRADE_DIFF" ] || fail "Yoast 28.0 to 28.3 in-place upgrade lost byte identity: $UPGRADE_DIFF"
@@ -182,7 +182,7 @@ NEGATIVE_INSTALLED=$(wp1 plugin get wordpress-seo --field=version)
 require_fixture_values NEGATIVE_INSTALLED
 [ "$NEGATIVE_INSTALLED" = "28.0" ] \
   || fail "negative control premise did not install exact wordpress-seo 28.0 bytes"
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "yoast"],
   "policy": {
@@ -201,7 +201,7 @@ cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 "${GIT1[@]}" commit -qm "policy: wordpress-seo negative-control pin"
 "${GIT1[@]}" push -qu origin main
 seed_yoast_content
-wp1 duo capture --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "capture: valid Yoast state for negative control"
 "${GIT1[@]}" push -q origin main
@@ -214,7 +214,7 @@ INSTALLED_OOR=$(wp1 plugin get wordpress-seo --field=version)
 [ "$INSTALLED_OOR" = "27.9" ] || fail "negative control: expected wordpress-seo 27.9 installed, got $INSTALLED_OOR"
 
 set +e
-DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] || fail "expected deploy to refuse wordpress-seo 27.9 as outside_version_range, but it exited 0 (got: $DEPLOY_OUT)"

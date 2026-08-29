@@ -1,16 +1,16 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
-use Duo\Recovery\RollbackControl;
+use WPrism\Recovery\RollbackControl;
 
 /**
  * Checkpoint-only authority for one SSH scoped state-promotion window.
  *
  * The typehints below name `RecoveryTransport` for one reason only: this
  * profile drives `RollbackAuthority`, and that class is now typed on the
- * capability interface. The DISPATCH gate stays SSH-only at cli/duo:1752 and
+ * capability interface. The DISPATCH gate stays SSH-only at cli/wprism:1752 and
  * keeps its exact `scoped_promotion_unavailable` envelope — the seal
  * semantics a scope contract carries (docs/recovery-runtime.md) are certified
  * on the SSH harness alone, and widening them is a separate issue from
@@ -62,7 +62,7 @@ final class ScopedRollbackProfile {
         }
         if (($status['ok'] ?? false) !== true) {
             throw new \RuntimeException(
-                'duo rollback: scoped authority status is invalid: '
+                'wprism rollback: scoped authority status is invalid: '
                 . trim((string) ($status['error'] ?? 'verification failed'))
             );
         }
@@ -86,7 +86,7 @@ final class ScopedRollbackProfile {
                     $resuming = true;
                     $status = $terminal;
                 } elseif (($terminal['exclusion_state'] ?? null) !== 'released') {
-                    throw new \RuntimeException('duo rollback: scoped terminal exclusion has an unknown state');
+                    throw new \RuntimeException('wprism rollback: scoped terminal exclusion has an unknown state');
                 }
             }
         }
@@ -167,17 +167,17 @@ final class ScopedRollbackProfile {
         self::assertHash($artifact, 'scoped compiled artifact hash');
         $scope = $plan['scope'] ?? null;
         if (!is_array($scope)
-            || ($scope['format'] ?? null) !== 'duo-scope-contract/v1'
+            || ($scope['format'] ?? null) !== 'wprism-scope-contract/v1'
             || !hash_equals($scopeHash, (string) ($scope['scope_hash'] ?? ''))
             || !hash_equals($artifact, (string) ($scope['source_artifact_hash'] ?? ''))) {
-            throw new \RuntimeException('duo rollback: scoped plan does not bind the exact scope/artifact');
+            throw new \RuntimeException('wprism rollback: scoped plan does not bind the exact scope/artifact');
         }
-        if (($plan['format'] ?? null) !== 'duo-scoped-plan/v1') {
-            throw new \RuntimeException('duo rollback: checkpoint-only profile requires a scoped target plan');
+        if (($plan['format'] ?? null) !== 'wprism-scoped-plan/v1') {
+            throw new \RuntimeException('wprism rollback: checkpoint-only profile requires a scoped target plan');
         }
         $target = $plan['target'] ?? null;
         if (!is_array($target)) {
-            throw new \RuntimeException('duo rollback: scoped plan has no target root witnesses');
+            throw new \RuntimeException('wprism rollback: scoped plan has no target root witnesses');
         }
         foreach ([
             'selected_before_root', 'protected_out_of_scope_root', 'ledger_map_root',
@@ -189,17 +189,17 @@ final class ScopedRollbackProfile {
         $actions = $plan['selected_actions'] ?? null;
         if (!is_array($surfaces) || !array_is_list($surfaces)
             || !is_array($actions) || !array_is_list($actions)) {
-            throw new \RuntimeException('duo rollback: scoped plan has no canonical selected work evidence');
+            throw new \RuntimeException('wprism rollback: scoped plan has no canonical selected work evidence');
         }
         // The first checkpoint-only profile has no scoped inverse protocol for
         // effects.  A selected action is thus a typed refusal, never a silent
         // route through a configured ordinary effect provider.
         if ($actions !== []) {
-            throw new \RuntimeException('duo rollback: checkpoint-only scoped promotion refuses selected actions/effects');
+            throw new \RuntimeException('wprism rollback: checkpoint-only scoped promotion refuses selected actions/effects');
         }
         $adapters = $plan['resolved_adapters'] ?? null;
         if (!is_array($adapters) || !array_is_list($adapters)) {
-            throw new \RuntimeException('duo rollback: scoped plan has no resolved adapter identity');
+            throw new \RuntimeException('wprism rollback: scoped plan has no resolved adapter identity');
         }
         $ttl = $policy['claim_ttl_seconds'] ?? null;
         $retention = $policy['retention_seconds'] ?? null;
@@ -207,12 +207,12 @@ final class ScopedRollbackProfile {
         if (!is_int($ttl) || $ttl < 30 || $ttl > 3600
             || !is_int($retention) || $retention < 60 || $retention > 31536000
             || !is_string($key) || $key === '') {
-            throw new \RuntimeException('duo rollback: checkpoint-only profile policy is incomplete');
+            throw new \RuntimeException('wprism rollback: checkpoint-only profile policy is incomplete');
         }
         self::assertActor($key, 'scoped encryption key id');
         $resources = [
             'allow_deletes' => $allowDeletes,
-            'format' => 'duo-scoped-promotion-resources/v1',
+            'format' => 'wprism-scoped-promotion-resources/v1',
             'scope' => [
                 'scope_hash' => $scopeHash,
                 'source_artifact_hash' => $artifact,
@@ -274,7 +274,7 @@ final class ScopedRollbackProfile {
                 if (($terminal['exclusion_state'] ?? null) === 'held') {
                     $resume = true;
                 } elseif (($terminal['exclusion_state'] ?? null) !== 'released') {
-                    throw new \RuntimeException('duo rollback: scoped terminal exclusion has an unknown state');
+                    throw new \RuntimeException('wprism rollback: scoped terminal exclusion has an unknown state');
                 }
             }
         }
@@ -287,7 +287,7 @@ final class ScopedRollbackProfile {
         } else {
             $policy = $this->transport->verifiedRollbackConfig();
             if ($policy === null) {
-                throw new \RuntimeException('duo rollback: verified_rollback policy is not configured');
+                throw new \RuntimeException('wprism rollback: verified_rollback policy is not configured');
             }
             $now = $timestamp ?? self::timestamp();
             $claim = $this->authority->claimScoped(
@@ -331,7 +331,7 @@ final class ScopedRollbackProfile {
             return $status;
         }
         if ((string) $status['state'] !== 'promoting') {
-            throw new \RuntimeException('duo rollback: scoped apply receipt can be recorded only while promoting');
+            throw new \RuntimeException('wprism rollback: scoped apply receipt can be recorded only while promoting');
         }
         $input = self::scopedApplyInput($status, $terminal);
         return $this->recordHashOnlyOperation(
@@ -360,7 +360,7 @@ final class ScopedRollbackProfile {
             $status = $this->transition('committed', 'scoped_committed_verified', ['verifying_new']);
         }
         if ((string) $status['state'] !== 'committed') {
-            throw new \RuntimeException('duo rollback: scoped commit has an incompatible authority state');
+            throw new \RuntimeException('wprism rollback: scoped commit has an incompatible authority state');
         }
         return $status;
     }
@@ -407,7 +407,7 @@ final class ScopedRollbackProfile {
             // committed, never restore a target Apply that has already
             // passed the fresh-world boundary.
             throw new \RuntimeException(
-                'duo rollback: fresh-verified scoped promotion has no automatic rollback authority'
+                'wprism rollback: fresh-verified scoped promotion has no automatic rollback authority'
             );
         }
         if ((string) $status['state'] === 'rolled_back') {
@@ -438,7 +438,7 @@ final class ScopedRollbackProfile {
             $status = $this->transition('rolled_back', 'scoped_rolled_back_verified', ['verifying_prior']);
         }
         if ((string) $status['state'] !== 'rolled_back') {
-            throw new \RuntimeException('duo rollback: scoped rollback has an incompatible authority state');
+            throw new \RuntimeException('wprism rollback: scoped rollback has an incompatible authority state');
         }
         return $this->release();
     }
@@ -449,7 +449,7 @@ final class ScopedRollbackProfile {
         if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true
             || ($status['active'] ?? false) !== true
             || ($status['receipt_format'] ?? null) !== RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT) {
-            throw new \RuntimeException('duo rollback: active scoped promotion receipt is unavailable or invalid');
+            throw new \RuntimeException('wprism rollback: active scoped promotion receipt is unavailable or invalid');
         }
         return $status;
     }
@@ -458,7 +458,7 @@ final class ScopedRollbackProfile {
     private function statusTerminal(): array {
         $status = $this->status();
         if (empty($status['terminal'])) {
-            throw new \RuntimeException('duo rollback: expected terminal scoped authority');
+            throw new \RuntimeException('wprism rollback: expected terminal scoped authority');
         }
         return $status;
     }
@@ -471,7 +471,7 @@ final class ScopedRollbackProfile {
         }
         if (!in_array((string) $status['state'], $from, true)) {
             throw new \RuntimeException(
-                "duo rollback: cannot transition scoped authority from {$status['state']} to $next"
+                "wprism rollback: cannot transition scoped authority from {$status['state']} to $next"
             );
         }
         return $this->authority->appendScoped(
@@ -492,7 +492,7 @@ final class ScopedRollbackProfile {
         $evidence = RollbackAuthority::scopedEvidence($this->transport);
         $status = (array) $evidence['status'];
         if ((string) ($status['state'] ?? '') !== $state) {
-            throw new \RuntimeException("duo rollback: $operation cannot resume outside $state");
+            throw new \RuntimeException("wprism rollback: $operation cannot resume outside $state");
         }
         $completed = (array) ($evidence['completed_operations'] ?? []);
         $done = $completed[$operation] ?? null;
@@ -500,7 +500,7 @@ final class ScopedRollbackProfile {
             if ((int) ($done['attempt'] ?? 0) !== 1
                 || !hash_equals($inputHash, (string) ($done['input_sha256'] ?? ''))
                 || !hash_equals($resultHash, (string) ($done['result_sha256'] ?? ''))) {
-                throw new \RuntimeException("duo rollback: completed $operation does not match this exact scoped evidence");
+                throw new \RuntimeException("wprism rollback: completed $operation does not match this exact scoped evidence");
             }
             return $status;
         }
@@ -508,7 +508,7 @@ final class ScopedRollbackProfile {
         $pending = $open[$operation . '#1'] ?? null;
         if (is_array($pending)) {
             if (!hash_equals($inputHash, (string) ($pending['input_sha256'] ?? ''))) {
-                throw new \RuntimeException("duo rollback: prepared $operation does not match this exact scoped evidence");
+                throw new \RuntimeException("wprism rollback: prepared $operation does not match this exact scoped evidence");
             }
         } else {
             $this->authority->prepareScopedOperation($state, $operation, 1, $input);
@@ -531,7 +531,7 @@ final class ScopedRollbackProfile {
         $evidence = RollbackAuthority::scopedEvidence($this->transport);
         $status = (array) $evidence['status'];
         if ((string) ($status['state'] ?? '') !== $state) {
-            throw new \RuntimeException("duo rollback: $adapter cannot resume outside $state");
+            throw new \RuntimeException("wprism rollback: $adapter cannot resume outside $state");
         }
         $completed = (array) ($evidence['completed_operations'] ?? []);
         $done = $completed[$adapter] ?? null;
@@ -539,7 +539,7 @@ final class ScopedRollbackProfile {
             if ((int) ($done['attempt'] ?? 0) !== 1
                 || !hash_equals($inputHash, (string) ($done['input_sha256'] ?? ''))
                 || !preg_match('/^[a-f0-9]{64}$/', (string) ($done['result_sha256'] ?? ''))) {
-                throw new \RuntimeException("duo rollback: completed $adapter does not match this exact checkpoint operation");
+                throw new \RuntimeException("wprism rollback: completed $adapter does not match this exact checkpoint operation");
             }
             return $status;
         }
@@ -547,7 +547,7 @@ final class ScopedRollbackProfile {
         $pending = $open[$adapter . '#1'] ?? null;
         if (is_array($pending)) {
             if (!hash_equals($inputHash, (string) ($pending['input_sha256'] ?? ''))) {
-                throw new \RuntimeException("duo rollback: prepared $adapter does not match this exact checkpoint operation");
+                throw new \RuntimeException("wprism rollback: prepared $adapter does not match this exact checkpoint operation");
             }
         } else {
             $this->authority->prepareScopedOperation($state, $adapter, 1, $input);
@@ -567,11 +567,11 @@ final class ScopedRollbackProfile {
         $status = (array) ($evidence['status'] ?? []);
         $state = (string) ($status['state'] ?? '');
         if (!in_array($state, ['promoting', 'verifying_new', 'committed'], true)) {
-            throw new \RuntimeException('duo rollback: scoped commit has no promotable authority state');
+            throw new \RuntimeException('wprism rollback: scoped commit has no promotable authority state');
         }
         $open = (array) ($evidence['open_operations'] ?? []);
         if (isset($open['scoped_apply#1'])) {
-            throw new \RuntimeException('duo rollback: scoped commit requires completed, not open, scoped_apply evidence');
+            throw new \RuntimeException('wprism rollback: scoped commit requires completed, not open, scoped_apply evidence');
         }
         $completed = (array) ($evidence['completed_operations'] ?? []);
         $done = $completed['scoped_apply'] ?? null;
@@ -584,20 +584,20 @@ final class ScopedRollbackProfile {
             || (string) ($done['claimant'] ?? '') !== (string) ($status['claimant'] ?? '')
             || preg_match('/^[a-f0-9]{64}$/', (string) ($done['input_sha256'] ?? '')) !== 1
             || preg_match('/^[a-f0-9]{64}$/', (string) ($done['result_sha256'] ?? '')) !== 1) {
-            throw new \RuntimeException('duo rollback: scoped commit requires exact completed scoped_apply evidence');
+            throw new \RuntimeException('wprism rollback: scoped commit requires exact completed scoped_apply evidence');
         }
         $history = (array) ($evidence['completed_operation_history'] ?? []);
         $historical = $history['scoped_apply'] ?? null;
         if (!is_array($historical)
             || !hash_equals(RollbackControl::canonical($done), RollbackControl::canonical($historical))) {
-            throw new \RuntimeException('duo rollback: scoped apply completion history is inconsistent');
+            throw new \RuntimeException('wprism rollback: scoped apply completion history is inconsistent');
         }
         if ($terminal !== null) {
             $input = self::scopedApplyInput($status, $terminal);
             $expectedInput = hash('sha256', RollbackControl::canonical($input) . "\n");
             if (!hash_equals($expectedInput, (string) $done['input_sha256'])
                 || !hash_equals((string) $terminal['terminal_hash'], (string) $done['result_sha256'])) {
-                throw new \RuntimeException('duo rollback: completed scoped_apply does not bind this terminal receipt');
+                throw new \RuntimeException('wprism rollback: completed scoped_apply does not bind this terminal receipt');
             }
         }
     }
@@ -626,7 +626,7 @@ final class ScopedRollbackProfile {
         return [
             'artifact_hash' => (string) $status['artifact_hash'],
             'authority_hash' => (string) $terminal['authority_hash'],
-            'format' => 'duo-scoped-promotion-operation/v1',
+            'format' => 'wprism-scoped-promotion-operation/v1',
             'lease_hash' => (string) $terminal['lease_hash'],
             'scope_hash' => (string) $status['scope_hash'],
             'terminal_hash' => (string) $terminal['terminal_hash'],
@@ -645,7 +645,7 @@ final class ScopedRollbackProfile {
         sort($keys, SORT_STRING);
         sort($expected, SORT_STRING);
         if ($keys !== $expected || ($terminal['phase'] ?? null) !== 'complete') {
-            throw new \RuntimeException('duo rollback: scoped apply terminal receipt is malformed');
+            throw new \RuntimeException('wprism rollback: scoped apply terminal receipt is malformed');
         }
         foreach ([
             'authority_hash', 'convergence_hash', 'intents_hash', 'lease_hash',
@@ -657,24 +657,24 @@ final class ScopedRollbackProfile {
         $withoutHash = $terminal;
         unset($withoutHash['terminal_hash']);
         if (!hash_equals(
-            hash('sha256', \Duo\Canon::encode($withoutHash)),
+            hash('sha256', \WPrism\Canon::encode($withoutHash)),
             (string) $terminal['terminal_hash']
         )) {
-            throw new \RuntimeException('duo rollback: scoped apply terminal receipt hash does not verify');
+            throw new \RuntimeException('wprism rollback: scoped apply terminal receipt hash does not verify');
         }
         return $terminal;
     }
 
     private static function assertHash(string $value, string $label): void {
         if (preg_match('/^[a-f0-9]{64}$/', $value) !== 1) {
-            throw new \RuntimeException("duo rollback: $label must be a sha256 digest");
+            throw new \RuntimeException("wprism rollback: $label must be a sha256 digest");
         }
     }
 
     private static function assertActor(string $value, string $label): void {
         if (strlen($value) < 1 || strlen($value) > 200
             || preg_match('/^[A-Za-z0-9._:@+\\/-]+$/', $value) !== 1) {
-            throw new \RuntimeException("duo rollback: $label is malformed");
+            throw new \RuntimeException("wprism rollback: $label is malformed");
         }
     }
 
@@ -685,7 +685,7 @@ final class ScopedRollbackProfile {
             new \DateTimeZone('UTC')
         );
         if (!$time || $time->format('Y-m-d\\TH:i:s\\Z') !== $value) {
-            throw new \RuntimeException("duo rollback: $label must be canonical UTC seconds");
+            throw new \RuntimeException("wprism rollback: $label must be canonical UTC seconds");
         }
         return $time->getTimestamp();
     }

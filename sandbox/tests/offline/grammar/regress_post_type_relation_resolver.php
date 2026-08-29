@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline characterization for the pure manifest-declared post-type
- * relationship resolver (DUO-3348 slice 40).
+ * relationship resolver (issue #3348 slice 40).
  */
 declare(strict_types=1);
 
@@ -16,7 +16,7 @@ $check = static function (bool $ok, string $message) use (&$failures): void {
 };
 
 $child = proc_open(
-    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\Duo\\PostTypeRelationResolver::class, false) && !class_exists(\\Duo\\Policy::class, false) && !class_exists(\\Duo\\RepositoryCompiler::class, false) ? "loaded\\n" : "broken\\n";', $resolverPath],
+    [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\WPrism\\PostTypeRelationResolver::class, false) && !class_exists(\\WPrism\\Policy::class, false) && !class_exists(\\WPrism\\RepositoryCompiler::class, false) ? "loaded\\n" : "broken\\n";', $resolverPath],
     [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
     $pipes
 );
@@ -36,44 +36,44 @@ $check(
 
 require_once $resolverPath;
 
-use Duo\PostTypeRelationResolver;
+use WPrism\PostTypeRelationResolver;
 
 $resolver = new PostTypeRelationResolver([
     [
         'name' => 'first',
         'post_types' => [
-            'duo_album' => ['children' => ['duo_chapter', 'duo_asset', '', 7]],
-            'duo_chapter' => ['children' => ['duo_page']],
+            'wprism_album' => ['children' => ['wprism_chapter', 'wprism_asset', '', 7]],
+            'wprism_chapter' => ['children' => ['wprism_page']],
         ],
     ],
     [
         'name' => 'second',
         'post_types' => [
-            'duo_story' => ['children' => ['duo_chapter']],
-            'duo_album' => ['children' => ['duo_asset']],
-            'duo_page' => [],
-            'duo_isolated' => [],
-            'duo_invalid' => 'not-a-declaration',
+            'wprism_story' => ['children' => ['wprism_chapter']],
+            'wprism_album' => ['children' => ['wprism_asset']],
+            'wprism_page' => [],
+            'wprism_isolated' => [],
+            'wprism_invalid' => 'not-a-declaration',
         ],
     ],
 ]);
 
 $check(
-    $resolver->children('duo_album') === ['duo_asset', 'duo_chapter'],
+    $resolver->children('wprism_album') === ['wprism_asset', 'wprism_chapter'],
     'children compose additively, discard invalid leaves, deduplicate, and sort'
 );
 $check(
-    $resolver->parents('duo_chapter') === ['duo_album', 'duo_story'],
+    $resolver->parents('wprism_chapter') === ['wprism_album', 'wprism_story'],
     'plural inverse parents are manifest-declared and deterministic'
 );
 $check(
-    $resolver->parents('duo_asset') === ['duo_album']
-    && $resolver->children('duo_invalid') === [],
+    $resolver->parents('wprism_asset') === ['wprism_album']
+    && $resolver->children('wprism_invalid') === [],
     'one-parent and malformed-declaration cases never infer a relationship'
 );
 $check(
-    $resolver->closure(['duo_story', 'duo_isolated', 'duo_unknown', '', 7])
-        === ['duo_album', 'duo_asset', 'duo_chapter', 'duo_isolated', 'duo_page', 'duo_story', 'duo_unknown'],
+    $resolver->closure(['wprism_story', 'wprism_isolated', 'wprism_unknown', '', 7])
+        === ['wprism_album', 'wprism_asset', 'wprism_chapter', 'wprism_isolated', 'wprism_page', 'wprism_story', 'wprism_unknown'],
     'closure is transitive, bidirectional, lexical, root-preserving, and never guesses unknown types'
 );
 

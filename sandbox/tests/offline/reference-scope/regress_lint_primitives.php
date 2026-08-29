@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * DUO-3354: the scanner foundation must be standalone and deterministic
+ * issue #3354: the scanner foundation must be standalone and deterministic
  * before a registry can rely on it. This pins the historical Lint surface
  * ordering, per-surface pathname sort, locator spelling, and optional
  * `matches` wire shape without loading WordPress, Policy, or Pending.
@@ -18,14 +18,14 @@ function check(bool $condition, string $message): void {
 require __DIR__ . '/../../../../agent/src/Review/LintFinding.php';
 require __DIR__ . '/../../../../agent/src/Repository/StateTreeWalker.php';
 
-use Duo\LintFinding;
-use Duo\StateTreeWalker;
+use WPrism\LintFinding;
+use WPrism\StateTreeWalker;
 
-check(!class_exists(\Duo\Policy::class, false), 'primitives standalone load does not load Policy');
-check(!class_exists(\Duo\Pending::class, false), 'primitives standalone load does not load Pending');
+check(!class_exists(\WPrism\Policy::class, false), 'primitives standalone load does not load Policy');
+check(!class_exists(\WPrism\Pending::class, false), 'primitives standalone load does not load Pending');
 check(!function_exists('get_option'), 'primitives standalone load does not need WordPress');
 
-$root = sys_get_temp_dir() . '/duo-lint-primitives-' . bin2hex(random_bytes(6));
+$root = sys_get_temp_dir() . '/wprism-lint-primitives-' . bin2hex(random_bytes(6));
 $paths = [
     'posts/page/z.md',
     'posts/post/a.md',

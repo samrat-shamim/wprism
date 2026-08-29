@@ -389,7 +389,7 @@ namespace {
     }
 }
 
-namespace Duo {
+namespace WPrism {
     final class Policy {}
 
     /**
@@ -423,7 +423,7 @@ namespace Duo {
     }
 
     final class Providers {
-        public const SCOPED_OPERATION_FORMAT = 'duo-scoped-effect-operation/v1';
+        public const SCOPED_OPERATION_FORMAT = 'wprism-scoped-effect-operation/v1';
     }
 
     final class Canon {
@@ -455,8 +455,8 @@ namespace {
     require_once dirname(__DIR__, 2) . '/package/runtime/providers/polylang-nav-menus.php';
     require_once dirname(__DIR__, 2) . '/package/runtime/interpreters/polylang.php';
 
-    use Duo\Interpreters\Polylang;
-    use Duo\Providers\PolylangNavMenus;
+    use WPrism\Interpreters\Polylang;
+    use WPrism\Providers\PolylangNavMenus;
 
     $strictReadOnlyFixture = dirname(__DIR__, 2) . '/fixtures/polylang_strict_readonly_context.php';
     $strictReadOnlyProcess = proc_open(
@@ -476,14 +476,14 @@ namespace {
         $strictReadOnlyExit = 1;
     }
     $strictReadOnly = json_decode($strictReadOnlyOut, true);
-    duo_check(
+    wprism_check(
         $strictReadOnlyExit === 0 && $strictReadOnlyErr === '' && is_array($strictReadOnly),
         'inactive lifecycle capture validates Polylang authored values without PLL()'
     );
-    duo_check_same(4, $strictReadOnly['refusals'] ?? null, 'inactive lifecycle refuses malformed values and topology');
-    duo_check_same(true, $strictReadOnly['browser'] ?? null, 'inactive lifecycle normalizes legacy boolean bytes');
-    duo_check_same(false, $strictReadOnly['media_support'] ?? null, 'inactive lifecycle preserves exact boolean false');
-    duo_check_same(false, $strictReadOnly['rewrite'] ?? null, 'inactive lifecycle preserves exact rewrite mode');
+    wprism_check_same(4, $strictReadOnly['refusals'] ?? null, 'inactive lifecycle refuses malformed values and topology');
+    wprism_check_same(true, $strictReadOnly['browser'] ?? null, 'inactive lifecycle normalizes legacy boolean bytes');
+    wprism_check_same(false, $strictReadOnly['media_support'] ?? null, 'inactive lifecycle preserves exact boolean false');
+    wprism_check_same(false, $strictReadOnly['rewrite'] ?? null, 'inactive lifecycle preserves exact rewrite mode');
 
     $contextFixture = dirname(__DIR__, 2) . '/fixtures/polylang_media_support_context.php';
     $contextProcess = proc_open(
@@ -501,21 +501,21 @@ namespace {
         $contextExit = 1;
     }
     $context = json_decode($contextOut, true);
-    duo_check(
+    wprism_check(
         $contextExit === 0 && $contextErr === '' && is_array($context),
         'real compiled-option taxonomy context fixture executes without WordPress or diagnostics'
     );
-    duo_check_same(
+    wprism_check_same(
         ['language', 'post_translations'],
         $context['enabled']['by_post_type']['attachment'] ?? null,
         'compiled media_support=1 owns attachment relationships despite a process-start registry frozen at disabled'
     );
-    duo_check_same(
+    wprism_check_same(
         ['language', 'post_translations'],
         $context['disabled']['by_post_type']['book'] ?? null,
         'compiled array-valued custom post types retain the original additive ownership contract'
     );
-    duo_check(
+    wprism_check(
         !isset($context['disabled']['by_post_type']['attachment'])
             && !isset($context['malformed']['by_post_type']['attachment'])
             && ($context['enabled']['warnings'] ?? null) === [],
@@ -538,33 +538,33 @@ namespace {
         $sidebarExit = 1;
     }
     $sidebar = json_decode($sidebarOut, true);
-    duo_check(
+    wprism_check(
         $sidebarExit === 0 && $sidebarErr === '' && is_array($sidebar),
         'real SidebarState complete-uninstall fixture executes through the shared row-backed database'
     );
     $recoveredWidgets = $sidebar['recovered_widgets'] ?? null;
-    duo_check(
+    wprism_check(
         is_array($recoveredWidgets) && count($recoveredWidgets) === 2
             && array_reduce($recoveredWidgets, static fn(bool $valid, mixed $widget): bool => $valid
                 && is_array($widget)
                 && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/D', (string) ($widget['uuid'] ?? '')) === 1
                 && ($widget['type'] ?? null) === 'polylang'
-                && ($widget['settings'] ?? null) === ['_duo_unmanaged' => true], true),
+                && ($widget['settings'] ?? null) === ['_wprism_unmanaged' => true], true),
         'compiled file-owned sidebar retains every Polylang contentless uninstall assignment as target-only deletion evidence'
     );
-    duo_check(
+    wprism_check(
         count($sidebar['recovery_warnings'] ?? []) === 2
             && str_contains((string) ($sidebar['recovery_warnings'][0] ?? ''), 'target-only deletion evidence'),
         'each native residue assignment is named and bounded by complete repository ownership'
     );
-    duo_check(
+    wprism_check(
         str_contains((string) ($sidebar['capture_refusal'] ?? ''), 'polylang-1 is absent')
             && str_contains((string) ($sidebar['unowned_refusal'] ?? ''), 'polylang-1 is absent'),
         'ordinary capture and forged or unowned sidebar recovery remain loudly blocked'
     );
     $sidebarSource = (string) file_get_contents($repoRoot . '/agent/src/Repository/SidebarState.php');
     $sidebarFixtureSource = (string) file_get_contents($sidebarFixture);
-    duo_check(
+    wprism_check(
         !str_contains($sidebarSource, 'array_is_list($portableWidgetReferences)')
             && str_contains(
                 $sidebarFixtureSource,
@@ -572,12 +572,12 @@ namespace {
             ),
         'SidebarState requires the explicit seventh canonical-tree argument and never reinterprets an ambiguous sixth argument'
     );
-    duo_check_same(
+    wprism_check_same(
         true,
         $sidebar['orphan_identity_ignored'] ?? null,
         'raw-SQL complete uninstall orphan metadata is not fabricated into a live identity collision'
     );
-    duo_check(
+    wprism_check(
         str_contains((string) ($sidebar['live_duplicate_refusal'] ?? ''), 'term:19, term:20'),
         'two attached replacement terms with one UUID still refuse as a real live collision'
     );
@@ -598,13 +598,13 @@ namespace {
         $termGroupExit = 1;
     }
     $termGroup = json_decode($termGroupOut, true);
-    duo_check(
+    wprism_check(
         $termGroupExit === 0 && $termGroupErr === '' && is_array($termGroup),
         'real Polylang term-order fixture executes capture, schema and apply through the shared database'
     );
-    duo_check_same(2, $termGroup['captured_language_term_group'] ?? null, 'language capture preserves native term_group order');
-    duo_check_same(2, $termGroup['string_term_group'] ?? null, 'canonical decimal database term_group normalizes without widening grammar');
-    duo_check(
+    wprism_check_same(2, $termGroup['captured_language_term_group'] ?? null, 'language capture preserves native term_group order');
+    wprism_check_same(2, $termGroup['string_term_group'] ?? null, 'canonical decimal database term_group normalizes without widening grammar');
+    wprism_check(
         count($termGroup['term_group_refusals'] ?? []) === 11
             && count(array_filter(
                 $termGroup['term_group_refusals'] ?? [],
@@ -613,23 +613,23 @@ namespace {
             )) === 11,
         'negative, overflow, float, scientific, junk, leading-zero and nonscalar term_group values refuse before publication'
     );
-    duo_check_same(false, $termGroup['captured_category_has_term_group'] ?? null, 'ordinary taxonomy bytes remain unchanged without exact opt-in');
-    duo_check_same(2, $termGroup['materialized_term_group'] ?? null, 'term materialization restores native language order');
-    duo_check(
+    wprism_check_same(false, $termGroup['captured_category_has_term_group'] ?? null, 'ordinary taxonomy bytes remain unchanged without exact opt-in');
+    wprism_check_same(2, $termGroup['materialized_term_group'] ?? null, 'term materialization restores native language order');
+    wprism_check(
         ($termGroup['language_description'] ?? null) === ($termGroup['materialized_description'] ?? null)
             && str_contains((string) ($termGroup['language_description'] ?? ''), 's:3:"rtl";i:1;'),
         'real capture/apply preserves legacy integer RTL metadata after schema validation'
     );
-    duo_check(
+    wprism_check(
         str_contains((string) ($termGroup['malformed_description_refusal'] ?? ''), 'canonical PHP-serialized plain data'),
         'real capture path refuses malformed language metadata before canonical publication'
     );
-    duo_check(
+    wprism_check(
         ($termGroup['valid_schema_findings'] ?? null) === 0
             && array_column($termGroup['schema_findings'] ?? [], 'locator') === ['term_group', 'term_group', 'term_group'],
         'missing, stringly and undeclared term_group repository values all refuse at schema validation'
     );
-    duo_check(
+    wprism_check(
         str_contains((string) ($termGroup['invalid_exact'] ?? ''), "must be the literal 'authored'")
             && str_contains((string) ($termGroup['invalid_pattern'] ?? ''), 'requires an exact taxonomy declaration'),
         'manifest grammar rejects alternate classes and dynamic term-order authority'
@@ -670,12 +670,12 @@ namespace {
         $nativeProjection = ['catalogs' => []];
         $GLOBALS['pll_native_command_result'] = (object) [
             'return_code' => 0,
-            'stdout' => 'DUO_PLL_NATIVE:' . base64_encode((string) json_encode($nativeProjection)) . "\n",
+            'stdout' => 'WPRISM_PLL_NATIVE:' . base64_encode((string) json_encode($nativeProjection)) . "\n",
             'stderr' => '',
         ];
         $GLOBALS['pll_child_result'] = [
             'return_code' => 0,
-            'stdout' => 'DUO_PLL_NATIVE:' . base64_encode((string) json_encode($nativeProjection)) . "\n",
+            'stdout' => 'WPRISM_PLL_NATIVE:' . base64_encode((string) json_encode($nativeProjection)) . "\n",
             'stderr' => '',
         ];
         $GLOBALS['pll_child_throw'] = null;
@@ -705,7 +705,7 @@ namespace {
 
     function pll_operation(): array {
         return [
-            'format' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
+            'format' => \WPrism\Providers::SCOPED_OPERATION_FORMAT,
             'authority_hash' => str_repeat('a', 64),
             'lease_session_id' => 'polylang-fixture-session',
             'operation_id' => 'polylang-fixture-operation',
@@ -715,12 +715,12 @@ namespace {
     }
 
     $provider = pll_reset();
-    duo_check_same(
+    wprism_check_same(
         ['id' => 'polylang-nav-menus', 'plugin' => 'polylang/polylang.php', 'version' => '2.0.0'],
         $provider->identity(),
         'Polylang provider identity makes the full derived-state contract fleet-visible'
     );
-    duo_check_same(
+    wprism_check_same(
         [
             'args' => [],
             'reads' => [
@@ -731,18 +731,18 @@ namespace {
             'scope' => 'site',
             'idempotent' => true,
             'timeout_seconds' => 120,
-            'scoped' => ['operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT, 'reconcile' => true],
+            'scoped' => ['operation_envelope' => \WPrism\Providers::SCOPED_OPERATION_FORMAT, 'reconcile' => true],
         ],
         $provider->capabilities()['synchronize_runtime'] ?? null,
         'provider declares the exact bounded reads, writes, timeout and recovery surface'
     );
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('unknown', []),
         \RuntimeException::class,
         'unknown provider capability refuses',
         'does not implement capability'
     );
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->reconcile_scoped('unknown', [], pll_operation()),
         \RuntimeException::class,
         'unknown recovery capability refuses',
@@ -751,40 +751,40 @@ namespace {
 
     $provider = pll_reset();
     $receipt = $provider->invoke_scoped('synchronize_runtime', [], pll_operation());
-    duo_check_same(true, $receipt['verified'] ?? null, 'scoped invocation verifies all three projections');
-    duo_check_same(pll_operation(), $receipt['operation'] ?? null, 'scoped receipt binds the exact recovery operation');
-    duo_check_same(102, get_option('default_category'), 'default category repoints to the target-local English translation');
-    duo_check_same(
+    wprism_check_same(true, $receipt['verified'] ?? null, 'scoped invocation verifies all three projections');
+    wprism_check_same(pll_operation(), $receipt['operation'] ?? null, 'scoped receipt binds the exact recovery operation');
+    wprism_check_same(102, get_option('default_category'), 'default category repoints to the target-local English translation');
+    wprism_check_same(
         ['footer' => 0, 'primary' => 11],
         get_option('theme_mods_twentytwentyone')['nav_menu_locations'] ?? null,
         'raw theme locations project the declared default language with target-local menu ids'
     );
-    duo_check_same(
+    wprism_check_same(
         'preserve-me',
         get_option('theme_mods_twentytwentyone')['custom_target_neighbor'] ?? null,
         'provider preserves unrelated target theme-mod bytes'
     );
-    duo_check_same('en', $receipt['after']['default_category_language'] ?? null, 'receipt proves the native category language');
-    duo_check_same(2, $receipt['after']['nav_menu_locations_count'] ?? null, 'receipt bounds the complete raw menu projection');
-    duo_check(
+    wprism_check_same('en', $receipt['after']['default_category_language'] ?? null, 'receipt proves the native category language');
+    wprism_check_same(2, $receipt['after']['nav_menu_locations_count'] ?? null, 'receipt bounds the complete raw menu projection');
+    wprism_check(
         preg_match('/^[0-9a-f]{64}$/D', (string) ($receipt['after']['nav_menu_locations_hash'] ?? '')) === 1
             && preg_match('/^[0-9a-f]{64}$/D', (string) ($receipt['after']['native_catalogs_hash'] ?? '')) === 1,
         'receipt publishes bounded fingerprints rather than option contents'
     );
-    duo_check(
+    wprism_check(
         count($GLOBALS['pll_command_calls']) === 0
             && count($GLOBALS['pll_child_calls']) === 1
             && str_starts_with((string) ($GLOBALS['pll_child_calls'][0][0] ?? ''), 'eval ')
             && array_slice($GLOBALS['pll_child_calls'][0] ?? [], 1) === [120, 262144, 131072],
         'provider uses a bounded fresh catalog-verification child with fixed process limits'
     );
-    duo_check_same(
+    wprism_check_same(
         [],
         $GLOBALS['pll_cache_deletes'],
         'provider does not mutate core rewrite caches; the distinct native action owns that boundary'
     );
     $published = json_encode($receipt, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-    duo_check(
+    wprism_check(
         is_string($published) && !str_contains($published, 'preserve-me') && !str_contains($published, 'index.php'),
         'provider receipt excludes authored, target-owned, and rewrite-rule bytes'
     );
@@ -796,7 +796,7 @@ namespace {
     $GLOBALS['pll_term_meta'][7]['_pll_strings_translations'] = '';
     $GLOBALS['pll_execute_fresh_catalog_child'] = true;
     $emptyCatalogReceipt = $provider->invoke('synchronize_runtime', []);
-    duo_check(
+    wprism_check(
         ($emptyCatalogReceipt['verified'] ?? null) === true
             && preg_match('/^[0-9a-f]{64}$/D', (string) ($emptyCatalogReceipt['after']['native_catalogs_hash'] ?? '')) === 1,
         'fresh catalog child normalizes Polylang’s exact empty termmeta sentinel like the parent projection'
@@ -806,10 +806,10 @@ namespace {
     $GLOBALS['pll_child_throw'] = new \RuntimeException('fixture transport timeout secret');
     try {
         $provider->invoke('synchronize_runtime', []);
-        duo_check(false, 'bounded catalog-child launch failure refuses');
+        wprism_check(false, 'bounded catalog-child launch failure refuses');
     } catch (\RuntimeException $e) {
-        duo_check(
-            $e->getMessage() === 'duo: Polylang native registry/catalog verification child could not start; recovery_required'
+        wprism_check(
+            $e->getMessage() === 'wprism: Polylang native registry/catalog verification child could not start; recovery_required'
                 && $e->getPrevious() === null
                 && !str_contains($e->getMessage(), 'fixture transport timeout secret'),
             'bounded catalog-child timeout failure stays redacted at the provider boundary'
@@ -824,10 +824,10 @@ namespace {
     ];
     try {
         $provider->invoke('synchronize_runtime', []);
-        duo_check(false, 'nonzero bounded catalog child refuses');
+        wprism_check(false, 'nonzero bounded catalog child refuses');
     } catch (\RuntimeException $e) {
-        duo_check(
-            $e->getMessage() === 'duo: Polylang native registry/catalog verification child failed; recovery_required'
+        wprism_check(
+            $e->getMessage() === 'wprism: Polylang native registry/catalog verification child failed; recovery_required'
                 && !str_contains($e->getMessage(), 'secret'),
             'nonzero bounded catalog child never exposes captured output'
         );
@@ -837,10 +837,10 @@ namespace {
     $GLOBALS['pll_child_result']['stderr'] = 'child stderr secret';
     try {
         $provider->invoke('synchronize_runtime', []);
-        duo_check(false, 'stderr-bearing bounded catalog child refuses');
+        wprism_check(false, 'stderr-bearing bounded catalog child refuses');
     } catch (\RuntimeException $e) {
-        duo_check(
-            $e->getMessage() === 'duo: Polylang native registry/catalog verification child failed; recovery_required'
+        wprism_check(
+            $e->getMessage() === 'wprism: Polylang native registry/catalog verification child failed; recovery_required'
                 && !str_contains($e->getMessage(), 'secret'),
             'bounded catalog-child stderr is redacted from the provider refusal'
         );
@@ -855,7 +855,7 @@ namespace {
     ] as $label => $stdout) {
         $provider = pll_reset();
         $GLOBALS['pll_child_result']['stdout'] = $stdout;
-        duo_check_throws(
+        wprism_check_throws(
             static fn(): array => $provider->invoke('synchronize_runtime', []),
             \RuntimeException::class,
             "catalog child noncanonical receipt #$label refuses before a provider receipt",
@@ -867,13 +867,13 @@ namespace {
     $provider->invoke('synchronize_runtime', []);
     $GLOBALS['pll_after_command'] = static function (): void {};
     $idempotent = $provider->invoke('synchronize_runtime', []);
-    duo_check(
+    wprism_check(
         !array_key_exists('outcome', $idempotent['after'])
             && $idempotent['before'] === array_diff_key($idempotent['after'], ['native_catalogs_hash' => true]),
         'identical retry publishes a phase-independent exact after projection'
     );
     $reconciled = $provider->reconcile_scoped('synchronize_runtime', [], pll_operation());
-    duo_check(
+    wprism_check(
         ($reconciled['verified'] ?? null) === true
             && $reconciled['after'] === $idempotent['after'],
         'direct recovery reconciliation reruns the same phase-independent value projection'
@@ -895,7 +895,7 @@ namespace {
         $scopedExit = 1;
     }
     $durableScoped = json_decode($scopedOut, true);
-    duo_check(
+    wprism_check(
         $scopedExit === 0
             && $scopedErr === ''
             && is_array($durableScoped)
@@ -920,7 +920,7 @@ namespace {
     foreach ($configurationCases as [$label, $mutate, $message]) {
         $provider = pll_reset();
         $mutate();
-        duo_check_throws(
+        wprism_check_throws(
             static fn(): array => $provider->invoke('synchronize_runtime', []),
             \RuntimeException::class,
             "$label refuses before an unverifiable receipt",
@@ -930,7 +930,7 @@ namespace {
 
     $provider = pll_reset();
     $GLOBALS['pll_retain_theme_mod'] = true;
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('synchronize_runtime', []),
         \RuntimeException::class,
         'hostile retained theme-mod write refuses at exact raw readback',
@@ -938,7 +938,7 @@ namespace {
     );
 
     $providerSource = (string) file_get_contents(dirname(__DIR__, 2) . '/package/runtime/providers/polylang-nav-menus.php');
-    duo_check(
+    wprism_check(
         !str_contains($providerSource, "runcommand('rewrite flush'")
             && !str_contains($providerSource, 'NativeActions::'),
         'Polylang provider models plugin projections without invoking the native rewrite action'
@@ -953,7 +953,7 @@ namespace {
         (array) ($polylangManifest['actions'] ?? []),
         static fn(array $action): bool => in_array('option:polylang', (array) ($action['triggers'] ?? []), true)
     ));
-    duo_check(
+    wprism_check(
         count($selectedPolylangActions) >= 2
             && ($selectedPolylangActions[0]['kind'] ?? null) === 'provider'
             && ($selectedPolylangActions[1]['kind'] ?? null) === 'native'
@@ -963,24 +963,24 @@ namespace {
     $provider = pll_reset();
     $beforeTheme = get_option('theme_mods_twentytwentyone');
     $GLOBALS['pll_options']['polylang']['nav_menus']['twentytwentyone']['primary']['en'] = 999;
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('synchronize_runtime', []),
         \RuntimeException::class,
         'projection validation fails before any provider effect',
         'missing target menu'
     );
-    duo_check_same($beforeTheme, get_option('theme_mods_twentytwentyone'), 'projection failure leaves native theme state untouched');
+    wprism_check_same($beforeTheme, get_option('theme_mods_twentytwentyone'), 'projection failure leaves native theme state untouched');
 
     $provider = pll_reset();
     $GLOBALS['pll_options']['theme_mods_twentytwentyone']['nav_menu_locations'] = 'broken';
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->reconcile_scoped('synchronize_runtime', [], pll_operation()),
         \RuntimeException::class,
         'recovery reconciliation refuses malformed raw theme state',
         'raw nav_menu_locations storage is invalid'
     );
 
-    $interpreter = new Polylang(new \Duo\Policy());
+    $interpreter = new Polylang(new \WPrism\Policy());
     $manifest = json_decode(
         (string) file_get_contents(dirname(__DIR__, 2) . '/package/manifest.json'),
         true,
@@ -988,23 +988,23 @@ namespace {
         JSON_THROW_ON_ERROR
     );
     $nativeSubKeys = $manifest['options']['polylang']['sub_keys'];
-    duo_check(
-        !array_key_exists('duo_target_runtime_neighbor', $nativeSubKeys),
-        'arbitrary duo_* Polylang siblings remain outside the reviewed closed native registry'
+    wprism_check(
+        !array_key_exists('wprism_target_runtime_neighbor', $nativeSubKeys),
+        'arbitrary wprism_* Polylang siblings remain outside the reviewed closed native registry'
     );
-    duo_check(
+    wprism_check(
         ($nativeSubKeys['force_lang']['lint_ok'] ?? null) === true,
         'Polylang force_lang is an audited 0/1 mode, not a portable entity reference'
     );
-    duo_check(
+    wprism_check(
         !array_key_exists('polylang_wpml_strings', $manifest['options']),
         'unobserved populated WPML registry remains outside Polylang authored ownership'
     );
-    duo_check(
+    wprism_check(
         !in_array('option:polylang_wpml_strings', $manifest['actions'][0]['triggers'] ?? [], true),
         'unobserved WPML registry cannot trigger a provider-side native read or effect'
     );
-    duo_check_same(
+    wprism_check_same(
         ['class' => 'runtime'],
         $interpreter->option_rule(
             'polylang_wpml_strings',
@@ -1012,7 +1012,7 @@ namespace {
         ),
         'Polylang 3.8.x empty WPML registry row is target-local runtime state, not an authored claim'
     );
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): ?array => $interpreter->option_rule(
             'polylang_wpml_strings',
             ['polylang_wpml_strings' => serialize(['unreviewed' => 'fixture'])]
@@ -1022,8 +1022,8 @@ namespace {
         'contains an unreviewed row'
     );
     require_once $repoRoot . '/tools/src/ArtifactLibrary.php';
-    $artifactLock = \Duo\Tooling\ArtifactLibrary::loadPackage($repoRoot, 'polylang');
-    duo_check_same(
+    $artifactLock = \WPrism\Tooling\ArtifactLibrary::loadPackage($repoRoot, 'polylang');
+    wprism_check_same(
         [
             '3.7' => [
                 'url' => 'https://downloads.wordpress.org/plugin/polylang.3.7.zip',
@@ -1046,7 +1046,7 @@ namespace {
         array_intersect_key($artifactLock['plugins']['polylang'] ?? [], array_flip(['3.7', '3.8', '3.8.6'])),
         'Polylang pins the adjacent lower refusal, canonical official lower boundary, and standalone exact 3.8.6 fixture'
     );
-    duo_check_same(
+    wprism_check_same(
         [
             'url' => 'https://downloads.wordpress.org/plugin/polylang.3.8.7.zip',
             'sha256' => 'bdb1e8d929410b3083f0884e6a356f91d659159771cc63893c9c06e83daddcb0',
@@ -1056,7 +1056,7 @@ namespace {
         'official Polylang 3.8.7 archive is digest-pinned as the admitted upper boundary'
     );
     $versionMatrix = (string) file_get_contents(dirname(__DIR__) . '/certify/version-matrix.sh');
-    duo_check(
+    wprism_check(
         str_contains($versionMatrix, 'for POLYLANG_VERSION in 3.8 3.8.7; do')
             && str_contains($versionMatrix, 'fetch_artifact polylang "$POLYLANG_VERSION" cli1')
             && str_contains($versionMatrix, 'fetch_artifact polylang 3.8.7 cli1')
@@ -1064,13 +1064,13 @@ namespace {
             && str_contains($versionMatrix, "[ \"\$(wp1 plugin get polylang --field=version)\" = '3.8.7' ]"),
         'version matrix installs and exercises both exact official admitted boundaries'
     );
-    duo_check(
+    wprism_check(
         str_contains($versionMatrix, 'negative control: polylang 3.7')
             && str_contains($versionMatrix, 'fetch_artifact polylang 3.7 cli1')
             && str_contains($versionMatrix, 'polylang 3.7 (real, installed, immediately below'),
         'version matrix installs the real adjacent 3.7 lower control and proves its version-gate refusal'
     );
-    duo_check(
+    wprism_check(
         str_contains($versionMatrix, 'synthetic Polylang 3.8.8')
             && str_contains($versionMatrix, 'Version:           3.8.8')
             && str_contains($versionMatrix, 'outside_version_range')
@@ -1088,28 +1088,28 @@ namespace {
         512,
         JSON_THROW_ON_ERROR
     );
-    duo_check_same(
+    wprism_check_same(
         'polylang',
         $entry['manifest'] ?? null,
         'the capsule conformance entry selects the Polylang adapter'
     );
     $conformanceEntry = $entry['entry'] ?? [];
-    duo_check_same(
+    wprism_check_same(
         [['slug' => 'polylang', 'version' => '3.8.6']],
         $conformanceEntry['plugins'] ?? null,
         'ordinary Polylang conformance is pinned to the exact standalone 3.8.6 artifact'
     );
-    duo_check_same(
+    wprism_check_same(
         ['post', 'page', 'wp_block', 'attachment'],
         $conformanceEntry['post_types'] ?? null,
         'ordinary Polylang conformance scopes posts, pages, synced patterns and attachments explicitly'
     );
-    duo_check_same(
+    wprism_check_same(
         ['core', 'polylang'],
         $conformanceEntry['pin'] ?? null,
         'the capsule conformance entry pins core and Polylang without a central registry'
     );
-    duo_check(
+    wprism_check(
         str_contains($seedScript, '$pageFixtures = [')
             && str_contains($seedScript, "'fr' => ['private'")
             && str_contains($seedScript, "'ar' => ['draft'")
@@ -1126,7 +1126,7 @@ namespace {
             && str_contains($seedScript, 'pll_save_post_translations($blocks);'),
         'source fixture covers every persistent non-deletion status under a publisher and proves every authored natural key survived WordPress normalization'
     );
-    duo_check(
+    wprism_check(
         str_contains($hostileScript, "'en' => ['portable-polylang-page-en', 'draft']")
             && str_contains($hostileScript, "'fr' => ['portable-polylang-page-fr', 'publish']")
             && str_contains($hostileScript, "'en' => ['portable-polylang-block-en', 'private']")
@@ -1141,7 +1141,7 @@ namespace {
             && str_contains($hostileScript, '.blocks | to_entries'),
         'hostile target fixture proves publisher-authored same-key page/pattern rows at disjoint identities and incompatible statuses'
     );
-    duo_check(
+    wprism_check(
         str_contains($checksScript, '$pageSlugs =')
             && str_contains($checksScript, '$blockSlugs =')
             && str_contains($checksScript, "'redirect_lang' => is_array(\$option)")
@@ -1159,7 +1159,7 @@ namespace {
             && str_contains($checksScript, '.source == "native:rewrite.flush"')
             && str_contains($checksScript, '.after.native_catalogs_hash')
             && str_contains($checksScript, 'populated Polylang string translations were not captured as the reviewed plain-data termmeta shape')
-            && str_contains($checksScript, 'DUO_PLL_NATIVE:')
+            && str_contains($checksScript, 'WPRISM_PLL_NATIVE:')
             && str_contains($checksScript, "provider 'polylang-nav-menus' capability 'synchronize_runtime' failed")
             && str_contains($checksScript, 'Polylang provider verification failure ran rewrite generation despite the preceding action refusal')
             && str_contains($checksScript, 'Polylang provider retry after exact repair')
@@ -1174,7 +1174,7 @@ namespace {
             && !str_contains($checksScript, '.after.rewrite_rules_count'),
         'Polylang checker proves source-authored status/content, native translation-group id rewrites, hostile target adoption, split projection/rewrite receipts, reviewed string catalogs, page routing, provider-child atomic refusal, destructive-uninstall backup/refusal/restore and recapture idempotence'
     );
-    duo_check(
+    wprism_check(
         substr_count($versionMatrix, '"post_types": ["post", "page", "wp_block", "attachment"],') === 2,
         'both Polylang candidate-bound version-matrix fixtures retain synced patterns in scope'
     );
@@ -1261,7 +1261,7 @@ namespace {
     $GLOBALS['pll_cache_delete_result'] = false;
     $GLOBALS['pll_option_cache']['polylang'] = ['stale' => 'cached-primary'];
     $finalized = 0;
-    duo_check_same(
+    wprism_check_same(
         true,
         $interpreter->materialize_option_sub_keys(
             'polylang',
@@ -1284,13 +1284,13 @@ namespace {
         PllNativeOptions::ORDER,
         static fn(string $key): bool => array_key_exists($key, $nativeDesired)
     ));
-    duo_check_same($expectedNativeOrder, $native->setOrder, 'native merge validates authored settings in registry dependency order');
+    wprism_check_same($expectedNativeOrder, $native->setOrder, 'native merge validates authored settings in registry dependency order');
     $nativeAfter = $GLOBALS['pll_options']['polylang'];
     $nativePortableAfter = array_intersect_key($nativeAfter, $nativeDesired);
     $nativePortableExpected = $nativeDesired;
     ksort($nativePortableAfter, SORT_STRING);
     ksort($nativePortableExpected, SORT_STRING);
-    duo_check(
+    wprism_check(
         $finalized === 1
             && $markerLocks === []
             && $nativePortableAfter === $nativePortableExpected
@@ -1299,7 +1299,7 @@ namespace {
             && array_keys($nativeAfter) === PllNativeOptions::ORDER,
         'native save persists all 15 registered keys, converges stale authored bytes, and preserves target-owned siblings'
     );
-    duo_check(
+    wprism_check(
         count($GLOBALS['pll_cache_deletes']) >= 2,
         'stale primary cache and cache-key absence (`wp_cache_delete=false`) are accepted only after exact raw/native readback'
     );
@@ -1309,7 +1309,7 @@ namespace {
     $reorderedDesired['nav_menus'] = [
         'theme' => ['primary' => ['ar' => 43, 'en' => 41, 'fr' => 42]],
     ];
-    duo_check_same(
+    wprism_check_same(
         true,
         $interpreter->materialize_option_sub_keys(
             'polylang',
@@ -1325,7 +1325,7 @@ namespace {
         ),
         'native grouped materialization accepts Polylang sanitizer object-key reordering'
     );
-    duo_check_same(
+    wprism_check_same(
         ['en', 'fr', 'ar'],
         array_keys($reorderedNative->values['nav_menus']['theme']['primary']),
         'native sanitizer key order remains observable while canonical equality ignores object-key order'
@@ -1334,7 +1334,7 @@ namespace {
 
     $native = $installNative($nativeBefore, $nativeBefore);
     add_filter('option_polylang', static fn(mixed $value): mixed => $nativeDesired, 10, 1);
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): bool => $interpreter->materialize_option_sub_keys(
             'polylang',
             $nativeDesired,
@@ -1351,7 +1351,7 @@ namespace {
         'effective option filters cannot repair retained wrong database bytes into a false native success',
         'refuses an unaudited option filter topology'
     );
-    duo_check(
+    wprism_check(
         $nativeBefore === $GLOBALS['pll_options']['polylang'] && $native->setOrder === [],
         'unaudited filter topology refuses before raw or native state can change'
     );
@@ -1372,7 +1372,7 @@ namespace {
     );
     $normalizedKeys = array_keys($normalized);
     sort($normalizedKeys, SORT_STRING);
-    duo_check_same(
+    wprism_check_same(
         ['browser', 'default_lang', 'force_lang', 'hide_default', 'media_support', 'nav_menus', 'post_types', 'redirect_lang', 'rewrite', 'sync', 'taxonomies'],
         $normalizedKeys,
         'capture normalization projects every native authored default when raw upgrade rows omit keys'
@@ -1395,7 +1395,7 @@ namespace {
         ])],
         false
     );
-    duo_check_same(
+    wprism_check_same(
         99,
         $rawMenuOptions['nav_menus']['theme']['primary']['en'],
         'capture normalization accepts native nav-menu ids before the ordinary json_refs codec tokenizes them'
@@ -1405,7 +1405,7 @@ namespace {
     $interpreter->option_rule('polylang', [
         'polylang' => serialize(['default_lang' => '']),
     ]);
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $interpreter->normalize_captured_option_sub_keys(
             'polylang',
             ['default_lang' => ''],
@@ -1423,7 +1423,7 @@ namespace {
         'polylang' => serialize(['default_lang' => '', 'nav_menus' => []]),
         'pll_language_from_content_available' => 'yes',
     ]);
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $interpreter->normalize_captured_option_sub_keys(
             'polylang',
             ['default_lang' => '', 'nav_menus' => []],
@@ -1444,7 +1444,7 @@ namespace {
     $retainedPrimary['domains'] = ['en' => 'https://stale-cache.invalid'];
     $GLOBALS['pll_option_cache']['polylang'] = $retainedPrimary;
     $GLOBALS['pll_retain_option_cache'] = ['polylang' => true, 'alloptions' => true];
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): bool => $interpreter->materialize_option_sub_keys(
             'polylang',
             $nativeDesired,
@@ -1461,11 +1461,11 @@ namespace {
         'retained stale primary cache refuses before native setters',
         'primary option cache disagrees with the exact locked row'
     );
-    duo_check_same([], $native->setOrder, 'retained stale primary cache performs no native setter side effects');
+    wprism_check_same([], $native->setOrder, 'retained stale primary cache performs no native setter side effects');
 
     $native = $installNative($nativeBefore, $nativeBefore);
     $native->values['domains'] = ['en' => 'https://stale-singleton.invalid'];
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): bool => $interpreter->materialize_option_sub_keys(
             'polylang',
             $nativeDesired,
@@ -1482,7 +1482,7 @@ namespace {
         'stale in-memory native registry refuses before grouped merge',
         'in-memory option registry disagrees with the exact locked row'
     );
-    duo_check_same([], $native->setOrder, 'stale native singleton cannot become the base of a grouped save');
+    wprism_check_same([], $native->setOrder, 'stale native singleton cannot become the base of a grouped save');
 
     $cleanDefaults = $nativeBefore;
     $cleanDefaults['domains'] = [];
@@ -1495,7 +1495,7 @@ namespace {
     $native = $installNative($cleanDefaults, null);
     $GLOBALS['pll_option_cache']['polylang'] = $nativeBefore;
     $absentRestores = 0;
-    duo_check_same(
+    wprism_check_same(
         true,
         $interpreter->materialize_option_sub_keys(
             'polylang',
@@ -1515,7 +1515,7 @@ namespace {
         ),
         'clean-install absent target materializes native defaults without a generic partial-row fallback'
     );
-    duo_check(
+    wprism_check(
         $absentRestores === 0
             && is_array($GLOBALS['pll_options']['polylang'] ?? null)
             && array_keys($GLOBALS['pll_options']['polylang']) === PllNativeOptions::ORDER
@@ -1536,7 +1536,7 @@ namespace {
     $staleSparseNative['media_support'] = false;
     $staleSparseNative['version'] = '3.7.99';
     $native = $installNative($staleSparseNative, $sparseRaw);
-    duo_check_same(
+    wprism_check_same(
         true,
         $interpreter->materialize_option_sub_keys(
             'polylang',
@@ -1555,7 +1555,7 @@ namespace {
         ),
         'upgrade-era raw-missing registered keys reset through the native registry before grouped save'
     );
-    duo_check(
+    wprism_check(
         $GLOBALS['pll_options']['polylang']['domains'] === []
             && $GLOBALS['pll_options']['polylang']['first_activation'] === false
             && $GLOBALS['pll_options']['polylang']['media_support'] === true
@@ -1567,7 +1567,7 @@ namespace {
         $native = $installNative($nativeBefore, $nativeBefore);
         $unsupported = $nativeDesired;
         $unsupported['force_lang'] = $unsupportedMode;
-        duo_check_throws(
+        wprism_check_throws(
             static fn(): bool => $interpreter->materialize_option_sub_keys(
                 'polylang',
                 $unsupported,
@@ -1584,7 +1584,7 @@ namespace {
             "topology mode $unsupportedMode refuses before domain/browser coercion or reachability warnings",
             'supports only native modes 0 or 1'
         );
-        duo_check_same([], $native->setOrder, "topology mode $unsupportedMode performs no native setter side effects");
+        wprism_check_same([], $native->setOrder, "topology mode $unsupportedMode performs no native setter side effects");
     }
 
     $modeZeroDesired = $nativeDesired;
@@ -1598,7 +1598,7 @@ namespace {
         }
         $markerLocks = [];
         if ($marker !== 'yes') {
-            duo_check_throws(
+            wprism_check_throws(
                 static fn(): bool => $interpreter->materialize_option_sub_keys(
                     'polylang',
                     $modeZeroDesired,
@@ -1615,10 +1615,10 @@ namespace {
                 'mode 0 refuses an absent/non-yes exact locked capability marker',
                 "requires target-local pll_language_from_content_available='yes'"
             );
-            duo_check_same([], $native->setOrder, 'mode-0 marker refusal happens before native setters');
+            wprism_check_same([], $native->setOrder, 'mode-0 marker refusal happens before native setters');
             continue;
         }
-        duo_check_same(
+        wprism_check_same(
             true,
             $interpreter->materialize_option_sub_keys(
                 'polylang',
@@ -1634,7 +1634,7 @@ namespace {
             ),
             'mode 0 is supported only with the exact locked target capability marker'
         );
-        duo_check_same(
+        wprism_check_same(
             ['pll_language_from_content_available'],
             $markerLocks,
             'mode 0 obtains one raw companion row/gap lock instead of trusting object-cache state'
@@ -1644,7 +1644,7 @@ namespace {
     $native = $installNative($nativeBefore, $nativeBefore);
     $GLOBALS['pll_options']['pll_language_from_content_available'] = 'yes';
     $GLOBALS['pll_option_cache']['pll_language_from_content_available'] = 'no';
-    duo_check_same(
+    wprism_check_same(
         true,
         $interpreter->materialize_option_sub_keys(
             'polylang',
@@ -1660,7 +1660,7 @@ namespace {
         ),
         'raw yes plus stale cached no purges both option caches and converges through the locked marker'
     );
-    duo_check(
+    wprism_check(
         in_array(['pll_language_from_content_available', 'options'], $GLOBALS['pll_cache_deletes'], true)
             && in_array(['alloptions', 'options'], $GLOBALS['pll_cache_deletes'], true),
         'native mode-0 materialization purges the exact companion and alloptions before native setters'
@@ -1669,7 +1669,7 @@ namespace {
     $native = $installNative($nativeBefore, $nativeBefore);
     $GLOBALS['pll_options']['pll_language_from_content_available'] = 'no';
     $GLOBALS['pll_option_cache']['pll_language_from_content_available'] = 'yes';
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): bool => $interpreter->materialize_option_sub_keys(
             'polylang',
             $modeZeroDesired,
@@ -1686,7 +1686,7 @@ namespace {
         'raw no plus stale cached yes purges the stale capability and refuses before native setters',
         "requires target-local pll_language_from_content_available='yes'"
     );
-    duo_check_same([], $native->setOrder, 'stale cached yes cannot authorize a raw non-yes topology marker');
+    wprism_check_same([], $native->setOrder, 'stale cached yes cannot authorize a raw non-yes topology marker');
 
     $native = $installNative($nativeBefore, $nativeBefore);
     $native->warnOnceAt = 'sync';
@@ -1708,7 +1708,7 @@ namespace {
     } catch (\RuntimeException $failure) {
         $warningText = $failure->getMessage();
     }
-    duo_check(
+    wprism_check(
         str_contains($warningText, 'pll_invalid_domains')
             && $native->values === $nativeBefore
             && $GLOBALS['pll_options']['polylang'] === $nativeBefore
@@ -1717,7 +1717,7 @@ namespace {
             && $native->save() === false,
         'warning-class native results restore exact raw/in-memory state, consume modified state, and preserve shutdown topology'
     );
-    duo_check_same(
+    wprism_check_same(
         true,
         $interpreter->materialize_option_sub_keys(
             'polylang',
@@ -1766,7 +1766,7 @@ namespace {
             $GLOBALS['pll_remove_filter_attempts'],
             static fn(string $hook): bool => in_array($hook, $temporaryGuardRemovalOrder, true)
         ));
-        duo_check(
+        wprism_check(
             str_contains($cleanupText, 'guard cleanup was incomplete')
                 && array_slice($temporaryAttempts, 0, 3) === $temporaryGuardRemovalOrder
                 && !isset($GLOBALS['wp_filter']['pre_option_polylang'])
@@ -1778,7 +1778,7 @@ namespace {
             'first/middle/last temporary-guard removal failures attempt every cleanup and leave no later guard or armed shutdown write'
         );
         if ($position === 1) {
-            duo_check(
+            wprism_check(
                 str_contains($cleanupText, 'primary=') && str_contains($cleanupText, 'remove='),
                 'native save plus guard-cleanup failure retains bounded fingerprints for both causes'
             );
@@ -1814,7 +1814,7 @@ namespace {
             $GLOBALS['pll_add_filter_attempts'],
             static fn(string $hook): bool => in_array($hook, $temporaryGuardInstallOrder, true)
         ));
-        duo_check(
+        wprism_check(
             str_contains($installText, 'could not install a native no-write guard')
                 && in_array($failedHook, $temporaryAdds, true)
                 && !isset($GLOBALS['wp_filter']['pre_option_polylang'])
@@ -1862,7 +1862,7 @@ namespace {
         } catch (\RuntimeException $failure) {
             $restoreText = $failure->getMessage();
         }
-        duo_check(
+        wprism_check(
             str_contains($restoreText, 'recovery_required')
                 && is_callable($registeredRuntimeRestore)
                 && !$native->modified
@@ -1872,7 +1872,7 @@ namespace {
             "$position native restore-setter failure still consumes modified state before any shutdown writer is rearmed"
         );
         $registeredRuntimeRestore();
-        duo_check(
+        wprism_check(
             $native->values === $restoreBefore
                 && !$native->modified
                 && has_action('shutdown', [$native, 'save_all']) === 1000
@@ -1885,7 +1885,7 @@ namespace {
     $failedWrite = static function (array $value): void {
         throw new \RuntimeException('injected engine-owned raw write failure');
     };
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): bool => $interpreter->materialize_option_sub_keys(
             'polylang',
             $nativeDesired,
@@ -1902,11 +1902,11 @@ namespace {
         'engine-owned native storage failure cannot be mistaken for idempotent false',
         'injected engine-owned raw write failure'
     );
-    duo_check(
+    wprism_check(
         $native->values === $nativeBefore && $GLOBALS['pll_options']['polylang'] === $nativeBefore,
         'storage failure restores exact same-process native and raw state'
     );
-    duo_check_same(
+    wprism_check_same(
         true,
         $interpreter->materialize_option_sub_keys(
             'polylang',
@@ -1924,7 +1924,7 @@ namespace {
     );
 
     $native = $installNative($nativeBefore, $nativeBefore);
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): bool => $interpreter->materialize_option_sub_keys(
             'polylang',
             $nativeDesired,
@@ -1941,7 +1941,7 @@ namespace {
         'post-save storage/autoload failure stays inside native restoration boundary',
         'autoload reconciliation failed'
     );
-    duo_check(
+    wprism_check(
         $native->values === $nativeBefore && $GLOBALS['pll_options']['polylang'] === $nativeBefore,
         'post-save storage failure restores exact raw and in-memory state before returning'
     );
@@ -1954,17 +1954,17 @@ namespace {
         'show_names' => true,
         'dropdown' => 0,
     ];
-    duo_check_same(
+    wprism_check_same(
         ['class' => 'authored', 'plain_data' => true, 'lint_ok' => true],
         $interpreter->post_meta_rule('_pll_menu_item', ['_pll_menu_item' => serialize($native)]),
         'native switcher metadata receives the authored plain-data rule'
     );
-    duo_check_same(
+    wprism_check_same(
         ['class' => 'authored', 'plain_data' => true, 'lint_ok' => true],
         $interpreter->post_meta_rule('_pll_menu_item', []),
         'missing target switcher metadata still exposes the reviewed authored rule for materialization'
     );
-    duo_check_same(null, $interpreter->post_meta_rule('_foreign', []), 'interpreter never claims foreign post metadata');
+    wprism_check_same(null, $interpreter->post_meta_rule('_foreign', []), 'interpreter never claims foreign post metadata');
     foreach ([
         'list' => [0, 1, 0, 1, 0, 1],
         'missing key' => array_diff_key($native, ['dropdown' => true]),
@@ -1972,40 +1972,40 @@ namespace {
         'wrong value type' => array_replace($native, ['show_names' => '1']),
         'out-of-range value' => array_replace($native, ['show_names' => 2]),
     ] as $label => $invalid) {
-        duo_check_throws(
+        wprism_check_throws(
             static fn(): ?array => $interpreter->post_meta_rule('_pll_menu_item', ['_pll_menu_item' => serialize($invalid)]),
             \RuntimeException::class,
             "switcher $label refuses at capture schema classification",
             'Polylang live _pll_menu_item'
         );
     }
-    duo_check_same(
+    wprism_check_same(
         ['class' => 'authored', 'plain_data' => true],
         $interpreter->term_meta_rule('_pll_strings_translations', [
             '_pll_strings_translations' => serialize([['Hello', 'Bonjour']]),
         ]),
         'populated string-translation termmeta enters the authored plain-data term sidecar'
     );
-    duo_check_same(
+    wprism_check_same(
         ['class' => 'runtime'],
         $interpreter->term_meta_rule('_pll_strings_translations', ['_pll_strings_translations' => '']),
         'Polylang exact empty string-catalog sentinel remains target-local runtime residue'
     );
-    duo_check_same(
+    wprism_check_same(
         ['class' => 'authored', 'plain_data' => true],
         $interpreter->term_meta_rule('_pll_strings_translations', [
             '_pll_strings_translations' => serialize([]),
         ]),
         'a native serialized empty string catalog remains a valid authored list distinct from the runtime sentinel'
     );
-    duo_check_same(
+    wprism_check_same(
         ['class' => 'authored', 'plain_data' => true],
         $interpreter->term_meta_rule('_pll_strings_translations', [
             '_pll_strings_translations' => [['Hello', 'Bonjour']],
         ]),
         'canonical native string-catalog data retains authored classification through apply context'
     );
-    duo_check_same(
+    wprism_check_same(
         ['class' => 'authored', 'plain_data' => true],
         $interpreter->term_meta_rule('_pll_strings_translations', []),
         'missing target string catalog still exposes the reviewed authored rule for materialization'
@@ -2017,7 +2017,7 @@ namespace {
         'duplicate source' => serialize([['Hello', 'Bonjour'], ['Hello', 'Salut']]),
         'trailing serialization' => serialize([['Hello', 'Bonjour']]) . 'tail',
     ] as $label => $invalidCatalog) {
-        duo_check_throws(
+        wprism_check_throws(
             static fn(): ?array => $interpreter->term_meta_rule('_pll_strings_translations', [
                 '_pll_strings_translations' => $invalidCatalog,
             ]),
@@ -2025,21 +2025,21 @@ namespace {
             "string catalog $label refuses before authored classification"
         );
     }
-    duo_check_same(null, $interpreter->term_meta_rule('_foreign', []), 'interpreter never claims foreign term metadata');
+    wprism_check_same(null, $interpreter->term_meta_rule('_foreign', []), 'interpreter never claims foreign term metadata');
 
     $legacyLanguageDescription = serialize(['locale' => 'ar', 'rtl' => 1, 'flag_code' => 'sa']);
     $modernLanguageDescription = serialize(['locale' => 'fr_FR', 'rtl' => false, 'flag_code' => 'fr']);
-    duo_check_same(
+    wprism_check_same(
         ['lint_ok' => true],
         $interpreter->taxonomy_description_lint_rule('language', $legacyLanguageDescription),
         'legacy integer RTL language metadata is schema-validated before its lint exemption'
     );
-    duo_check_same(
+    wprism_check_same(
         ['lint_ok' => true],
         $interpreter->taxonomy_description_lint_rule('language', $modernLanguageDescription),
         'Polylang 3.8 boolean RTL language metadata is schema-validated before its lint exemption'
     );
-    duo_check_same(
+    wprism_check_same(
         null,
         $interpreter->taxonomy_description_lint_rule('category', $legacyLanguageDescription),
         'interpreter never exempts foreign taxonomy descriptions'
@@ -2053,7 +2053,7 @@ namespace {
         'invalid flag' => serialize(['locale' => 'ar', 'rtl' => 1, 'flag_code' => '../secret']),
         'malformed serialization' => 'a:3:{broken',
     ] as $label => $invalidDescription) {
-        duo_check_throws(
+        wprism_check_throws(
             static fn(): ?array => $interpreter->taxonomy_description_lint_rule('language', $invalidDescription),
             \RuntimeException::class,
             "language description $label refuses before exemption",
@@ -2069,7 +2069,7 @@ namespace {
     } catch (\RuntimeException $failure) {
         $descriptionSecretFailure = $failure->getMessage();
     }
-    duo_check(
+    wprism_check(
         $descriptionSecretFailure !== '' && !str_contains($descriptionSecretFailure, $fakeDescriptionSecret),
         'language-description schema refusal never echoes untrusted secret-shaped bytes'
     );
@@ -2118,19 +2118,19 @@ namespace {
             ],
         ],
     ];
-    duo_check_same([], $interpreter->repository_diagnostics($validTree), 'native switcher and language repository schemas pass');
+    wprism_check_same([], $interpreter->repository_diagnostics($validTree), 'native switcher and language repository schemas pass');
     $tamperedTree = $validTree;
     $tamperedTree[1]['data']['meta']['_pll_menu_item']['future'] = 1;
     $diagnostics = $interpreter->repository_diagnostics($tamperedTree);
-    duo_check_same('adapter_schema_content_mismatch', $diagnostics[0]['code'] ?? null, 'tampered repository switcher emits a stable schema diagnostic');
-    duo_check_same('meta._pll_menu_item', $diagnostics[0]['locator'] ?? null, 'tamper diagnostic points at the exact meta frontier');
+    wprism_check_same('adapter_schema_content_mismatch', $diagnostics[0]['code'] ?? null, 'tampered repository switcher emits a stable schema diagnostic');
+    wprism_check_same('meta._pll_menu_item', $diagnostics[0]['locator'] ?? null, 'tamper diagnostic points at the exact meta frontier');
     $tamperedDescriptionTree = $validTree;
     $tamperedDescriptionTree[2]['data']['description'] = serialize([
         'locale' => 'ar', 'rtl' => 1, 'flag_code' => 'sa', 'future' => 1,
     ]);
     $diagnostics = $interpreter->repository_diagnostics($tamperedDescriptionTree);
-    duo_check_same('adapter_schema_content_mismatch', $diagnostics[0]['code'] ?? null, 'tampered repository language description emits a stable schema diagnostic');
-    duo_check_same('description', $diagnostics[0]['locator'] ?? null, 'language-description diagnostic points at the exact frontier');
+    wprism_check_same('adapter_schema_content_mismatch', $diagnostics[0]['code'] ?? null, 'tampered repository language description emits a stable schema diagnostic');
+    wprism_check_same('description', $diagnostics[0]['locator'] ?? null, 'language-description diagnostic points at the exact frontier');
 
     foreach ([
         'missing portable key' => array_diff_key($portableOptions, ['media_support' => true]),
@@ -2144,7 +2144,7 @@ namespace {
         $tree = $validTree;
         $tree[0]['data']['records']['polylang']['value'] = $invalidOptions;
         $diagnostics = $interpreter->repository_diagnostics($tree);
-        duo_check(
+        wprism_check(
             ($diagnostics[0]['code'] ?? null) === 'adapter_schema_content_mismatch'
                 && ($diagnostics[0]['locator'] ?? null) === 'records.polylang.value',
             "portable option $label refuses at immutable repository schema validation"
@@ -2448,12 +2448,12 @@ PHP);
     $native = $installNative($nativeBefore, $nativeBefore);
     $coInstall = $installCoInstallTopology();
     $coInstallRawBefore = $GLOBALS['pll_options']['polylang'];
-    duo_check_same(
+    wprism_check_same(
         true,
         $invokeCoInstall(),
         'the exact inert TEC Harbor plus Woo/Yoast pre-update callback union permits Polylang native materialization'
     );
-    duo_check(
+    wprism_check(
         $GLOBALS['pll_options']['polylang'] !== $coInstallRawBefore
             && $native->values['browser'] === true
             && $GLOBALS['pll_options']['polylang']['browser'] === true
@@ -2463,14 +2463,14 @@ PHP);
             && count($GLOBALS['pll_coinstall_option_reads']) >= 6,
         'the complete co-install callback union remains a no-op for polylang while native values and storage converge'
     );
-    duo_check_same(0, $GLOBALS['pll_coinstall_tribe_calls'], 'the validator never calls tribe(PUE) while inspecting Harbor identity');
-    duo_check_same(0, $GLOBALS['pll_coinstall_container_get_calls'], 'the validator never calls Woo Container::get() while inspecting the runtime cache');
+    wprism_check_same(0, $GLOBALS['pll_coinstall_tribe_calls'], 'the validator never calls tribe(PUE) while inspecting Harbor identity');
+    wprism_check_same(0, $GLOBALS['pll_coinstall_container_get_calls'], 'the validator never calls Woo Container::get() while inspecting the runtime cache');
     $coInstallYoastConstructorsStable = true;
     foreach ($coInstallYoastClasses as $class) {
         $coInstallYoastConstructorsStable = $coInstallYoastConstructorsStable
             && ($GLOBALS['pll_coinstall_constructs'][$class] ?? 0) === 1;
     }
-    duo_check(
+    wprism_check(
         ($GLOBALS['pll_coinstall_constructs']['harbor'] ?? 0) === 1
             && ($GLOBALS['pll_coinstall_constructs']['runtime_container'] ?? 0) === 1
             && ($GLOBALS['pll_coinstall_constructs']['woo_container'] ?? 0) === 1
@@ -2505,19 +2505,19 @@ PHP);
         if ($failure instanceof \Throwable && $failure->getPrevious() instanceof \Throwable) {
             $failureText .= ' | ' . $failure->getPrevious()->getMessage();
         }
-        duo_check(
+        wprism_check(
             $failure instanceof \RuntimeException
                 && str_contains($failureText, $cause),
             "$label refuses with the exact closed-topology cause before native mutation"
         );
-        duo_check(
+        wprism_check(
             $native->setOrder === []
                 && $native->values === $nativeBefore
                 && $GLOBALS['pll_options']['polylang'] === $preimage,
             "$label preserves the raw and native preimage before any setter"
         );
         $restore($services);
-        duo_check_same(
+        wprism_check_same(
             true,
             $invokeCoInstall(),
             "$label restoration permits same-process retry through the exact union"
@@ -2613,5 +2613,5 @@ PHP);
         'extended or substituted WooCommerce pre_update_option callbacks'
     );
 
-    duo_check_summary('Polylang production readiness');
+    wprism_check_summary('Polylang production readiness');
 }

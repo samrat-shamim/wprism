@@ -60,15 +60,15 @@ install_env() { # install_env <a|b> <port> <title>
   fi
 }
 
-install_env a 8801 "Duo A"
-install_env b 8802 "Duo B"
+install_env a 8801 "WPrism A"
+install_env b 8802 "WPrism B"
 
 if [ ! -d siterepo/origin.git ]; then
   git init --bare -b main siterepo/origin.git >/dev/null
 fi
 if [ ! -d siterepo/a/.git ]; then
   git clone -q siterepo/origin.git siterepo/a 2>/dev/null || true
-  cat > siterepo/a/site.duo.json <<'EOF'
+  cat > siterepo/a/site.wprism.json <<'EOF'
 {
   "manifests": ["core"],
   "policy": {
@@ -82,7 +82,7 @@ if [ ! -d siterepo/a/.git ]; then
 EOF
   cp site-repo.gitignore.template siterepo/a/.gitignore
   git -C siterepo/a add -A
-  git -C siterepo/a -c user.name=duo -c user.email=duo@example.test commit -qm "init site repo"
+  git -C siterepo/a -c user.name=wprism -c user.email=wprism@example.test commit -qm "init site repo"
   git -C siterepo/a push -qu origin main
 fi
 

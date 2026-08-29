@@ -1,6 +1,6 @@
 <?php
 /**
- * DUO-3340 offline regression for the closed, redacted adapter observation.
+ * issue #3340 offline regression for the closed, redacted adapter observation.
  *
  * This deliberately uses a fake wpdb/WP hook surface instead of a live pair:
  * it proves the target projection's no-DML/read-error boundary and the host's
@@ -14,14 +14,14 @@ declare(strict_types=1);
 
 namespace {
     if (!defined('ARRAY_A')) define('ARRAY_A', 'ARRAY_A');
-    define('DUO_AGENT_VERSION', '0.5.0');
-    define('DUO_SPEC_VERSION', 2);
+    define('WPRISM_AGENT_VERSION', '0.5.0');
+    define('WPRISM_SPEC_VERSION', 2);
 
     final class ObservationCliHalt extends RuntimeException {}
 
     /**
      * Minimal WP-CLI surface to run Cli::adapter_observe's refusal path, plus
-     * the warning/success channels DUO-3497's journal-reset guard writes on.
+     * the warning/success channels issue #3497's journal-reset guard writes on.
      */
     final class WP_CLI {
         /** @var list<string> */
@@ -42,23 +42,23 @@ namespace {
         }
     }
 
-    $GLOBALS['duo_observation_hooks'] = [
+    $GLOBALS['wprism_observation_hooks'] = [
         'filters' => [], 'actions' => [], 'removed_filters' => [], 'removed_actions' => [],
     ];
 
     function get_option(string $name): bool { return false; }
     function is_serialized(mixed $value): bool { return false; }
     function add_filter(string $hook, mixed $callback, int $priority = 10): void {
-        $GLOBALS['duo_observation_hooks']['filters'][] = [$hook, $callback, $priority];
+        $GLOBALS['wprism_observation_hooks']['filters'][] = [$hook, $callback, $priority];
     }
     function add_action(string $hook, mixed $callback, int $priority = 10): void {
-        $GLOBALS['duo_observation_hooks']['actions'][] = [$hook, $callback, $priority];
+        $GLOBALS['wprism_observation_hooks']['actions'][] = [$hook, $callback, $priority];
     }
     function remove_filter(string $hook, mixed $callback, int $priority = 10): void {
-        $GLOBALS['duo_observation_hooks']['removed_filters'][] = [$hook, $callback, $priority];
+        $GLOBALS['wprism_observation_hooks']['removed_filters'][] = [$hook, $callback, $priority];
     }
     function remove_action(string $hook, mixed $callback, int $priority = 10): void {
-        $GLOBALS['duo_observation_hooks']['removed_actions'][] = [$hook, $callback, $priority];
+        $GLOBALS['wprism_observation_hooks']['removed_actions'][] = [$hook, $callback, $priority];
     }
 
     final class ObservationFakeWpdb {
@@ -74,7 +74,7 @@ namespace {
         public bool $journalPresent = true;
         public bool $journalPrerequisiteQueryFails = false;
         public bool $journalQueryFails = false;
-        /** DUO-3497: what `journal-reset` is about to destroy, and a read that fails. */
+        /** issue #3497: what `journal-reset` is about to destroy, and a read that fails. */
         public int $journalRowCount = 0;
         public bool $journalCountQueryFails = false;
         /** Simulate a failed value SELECT whose next successful SELECT clears wpdb::$last_error. */
@@ -111,11 +111,11 @@ namespace {
                     $this->last_error = 'access denied with secret-shaped private driver detail';
                     return null;
                 }
-                return $this->journalPresent ? 'wp_duo_journal' : null;
+                return $this->journalPresent ? 'wp_wprism_journal' : null;
             }
-            if (str_contains($query, 'SELECT COUNT(*) FROM wp_duo_journal')) {
+            if (str_contains($query, 'SELECT COUNT(*) FROM wp_wprism_journal')) {
                 if ($this->journalCountQueryFails) {
-                    $this->last_error = 'simulated unreadable duo_journal COUNT';
+                    $this->last_error = 'simulated unreadable wprism_journal COUNT';
                     return null;
                 }
                 // wpdb reads mysqli's text protocol: COUNT(*) arrives as a string.
@@ -140,7 +140,7 @@ namespace {
             $this->begin_read($query);
             if (str_contains($query, 'SELECT tbl, item, surface, caps, proposal')) {
                 if ($this->journalQueryFails) {
-                    $this->last_error = 'simulated malformed duo_journal schema';
+                    $this->last_error = 'simulated malformed wprism_journal schema';
                     return [];
                 }
                 return [[
@@ -191,7 +191,7 @@ namespace {
     }
 }
 
-namespace Duo {
+namespace WPrism {
     final class Ledger {
         public const TABLE_IDENTIFIER_WIDTH = 191;
         public static int $ensureCalls = 0;
@@ -322,7 +322,7 @@ namespace Duo {
     }
 
     final class AdapterSources {
-        public const FORMAT = 'duo-adapter-sources/v2';
+        public const FORMAT = 'wprism-adapter-sources/v2';
         public const SHIPPED = 'shipped';
         public const SITE = 'site';
         public const PLUGIN = 'plugin';
@@ -365,7 +365,7 @@ namespace Duo {
                         'regenerators' => [['post_type' => 'product', 'regenerator' => '/home/private/regen.php']],
                     ],
                     'name' => '1vendor.foo_bar',
-                    'path' => '/home/private/plugin/duo-adapter.json',
+                    'path' => '/home/private/plugin/wprism-adapter.json',
                     'sha256' => str_repeat('c', 64),
                     'source' => 'plugin',
                     'tier_basis' => "PLUGIN_THROWABLE\nAuthorization: Bearer SECRET",
@@ -405,18 +405,18 @@ namespace {
     require_once $repoRoot . '/cli/src/Transport/EnvironmentDriver.php';
     require_once $repoRoot . '/cli/src/Adapter/AdapterObservation.php';
 
-    use Duo\AdapterObservation as TargetObservation;
-    use Duo\CommandRefusalException;
-    use Duo\Cli;
-    use Duo\Db;
-    use Duo\Journal;
-    use Duo\Ledger;
-    use Duo\Pending;
-    use Duo\Policy;
-    use Duo\Orchestrator\AdapterObservation as HostObservation;
-    use Duo\Orchestrator\DriverCapability;
-    use Duo\Orchestrator\DriverCapabilityReport;
-    use Duo\Orchestrator\EnvironmentDriver;
+    use WPrism\AdapterObservation as TargetObservation;
+    use WPrism\CommandRefusalException;
+    use WPrism\Cli;
+    use WPrism\Db;
+    use WPrism\Journal;
+    use WPrism\Ledger;
+    use WPrism\Pending;
+    use WPrism\Policy;
+    use WPrism\Orchestrator\AdapterObservation as HostObservation;
+    use WPrism\Orchestrator\DriverCapability;
+    use WPrism\Orchestrator\DriverCapabilityReport;
+    use WPrism\Orchestrator\EnvironmentDriver;
 
     $failures = 0;
     function check(bool $condition, string $message): void {
@@ -514,8 +514,8 @@ namespace {
         'malformed adapter-observe detaches/discards journal state so its shutdown flush cannot insert provenance'
     );
     check(
-        $GLOBALS['duo_observation_hooks']['removed_filters'] !== []
-            && $GLOBALS['duo_observation_hooks']['removed_actions'] !== [],
+        $GLOBALS['wprism_observation_hooks']['removed_filters'] !== []
+            && $GLOBALS['wprism_observation_hooks']['removed_actions'] !== [],
         'malformed adapter-observe detaches both query and shutdown callbacks'
     );
     $cliSource = (string) file_get_contents($repoRoot . '/agent/src/Command/Cli.php');
@@ -527,14 +527,14 @@ namespace {
         'adapter-observe suspends journal before even malformed-argument refusal paths'
     );
 
-    // DUO-3497: the other end of the same evidence. `journal-reset` is the one
+    // issue #3497: the other end of the same evidence. `journal-reset` is the one
     // statement in the shipped runtime that removes journal rows, and options
     // no adapter declares are recorded NOWHERE else — capture whitelists
     // options, so the journal is their only witness (agent/src/Review/
-    // Pending.php:16-19). Truncating silently therefore empties `duo pending`
+    // Pending.php:16-19). Truncating silently therefore empties `wprism pending`
     // while the writes it named are still in the database: silent-uncapture.
     // The live report had it destroying the observations only because
-    // `duo init` refused `existing_duo_ledger` on a journal-only environment
+    // `wprism init` refused `existing_wprism_ledger` on a journal-only environment
     // and named no other escape; that half is fixed in InitSiteProbe::ledger(),
     // and this half stays true wherever an operator reaches for the command.
     echo "\n== journal-reset states the evidence it destroys ==\n";
@@ -550,7 +550,7 @@ namespace {
     check(
         count(WP_CLI::$warnings) === 1
             && str_contains(WP_CLI::$warnings[0], 'destroying 7 observation row(s)')
-            && str_contains(WP_CLI::$warnings[0], 'duo pending loses them permanently'),
+            && str_contains(WP_CLI::$warnings[0], 'wprism pending loses them permanently'),
         'a populated journal-reset names the count and what the review queue loses before truncating'
     );
     check(
@@ -592,19 +592,19 @@ namespace {
     WP_CLI::$errors = [];
 
     echo "\n== target projection and read-only target paths ==\n";
-    $site = sys_get_temp_dir() . '/duo-observation-site-' . bin2hex(random_bytes(6));
+    $site = sys_get_temp_dir() . '/wprism-observation-site-' . bin2hex(random_bytes(6));
     mkdir($site, 0700, true);
-    file_put_contents($site . '/site.duo.json', "{\"spec_version\":2,\"private\":\"sk_live_abcdefghijklmnopqrst\"}\n");
+    file_put_contents($site . '/site.wprism.json', "{\"spec_version\":2,\"private\":\"sk_live_abcdefghijklmnopqrst\"}\n");
     register_shutdown_function(static fn() => remove_tree($site));
 
     Ledger::$ensureCalls = 0;
     Db::$mutationCalls = 0;
-    \Duo\Capture::$readOnlyCalls = 0;
+    \WPrism\Capture::$readOnlyCalls = 0;
     $wpdb = new ObservationFakeWpdb();
     $GLOBALS['wpdb'] = $wpdb;
     $report = TargetObservation::report($site);
     $again = TargetObservation::report($site);
-    $canonical = \Duo\Canon::encode($report);
+    $canonical = \WPrism\Canon::encode($report);
 
     $expectedTop = [
         'authority', 'catalog', 'deferred', 'format', 'journal', 'observation_hash', 'pending', 'policy',
@@ -617,11 +617,11 @@ namespace {
     check(
         $report['authority'] === false
             && $report['redaction'] === 'values_omitted'
-            && $report['repository']['site_policy_sha256'] === 'sha256:' . hash('sha256', file_get_contents($site . '/site.duo.json')),
+            && $report['repository']['site_policy_sha256'] === 'sha256:' . hash('sha256', file_get_contents($site . '/site.wprism.json')),
         'target records only the observed site-policy hash, no overclaimed repository identity'
     );
     check(
-        $report['catalog']['format'] === 'duo-adapter-sources/v2'
+        $report['catalog']['format'] === 'wprism-adapter-sources/v2'
             && $report['catalog']['installed'][0]['name'] === '1vendor.foo_bar',
         'catalog is explicitly a source-v2 projection and preserves valid digit/dot/underscore adapter names'
     );
@@ -642,7 +642,7 @@ namespace {
     check(
         is_array($bootstrapDeferred)
             && $bootstrapDeferred['subject'] === 'bootstrap_effects'
-            && $bootstrapDeferred['statement'] === 'normal plugin/provider registration and capability negotiation remain enabled; third-party callbacks may have side effects before or during evidence collection; Duo invokes no provider action and performs no explicit mutation after observer entry'
+            && $bootstrapDeferred['statement'] === 'normal plugin/provider registration and capability negotiation remain enabled; third-party callbacks may have side effects before or during evidence collection; WPrism invokes no provider action and performs no explicit mutation after observer entry'
             && in_array('version_lifecycle', array_column($report['deferred'], 'subject'), true),
         'closed deferred rows state callback scope and complete version lifecycle boundary exactly'
     );
@@ -656,7 +656,7 @@ namespace {
     }
     check($markersAbsent, 'target canonical document omits raw secrets, paths, IDs, titles, values, and plugin Throwable-shaped text');
     check(
-        Ledger::$ensureCalls === 0 && Db::$mutationCalls === 0 && \Duo\Capture::$readOnlyCalls === 2
+        Ledger::$ensureCalls === 0 && Db::$mutationCalls === 0 && \WPrism\Capture::$readOnlyCalls === 2
             && all_select_only($wpdb->queries),
         'target Journal/Pending observation uses no Ledger repair or DB mutation and issues SELECT/SHOW queries only'
     );
@@ -666,7 +666,7 @@ namespace {
         !str_contains($journalReadSource, 'Ledger::ensure') && !str_contains($pendingReadSource, 'Ledger::ensure'),
         'the durable journal reader and the one Pending entry point cannot call Ledger::ensure'
     );
-    // DUO-3497's survival half. Observations recorded before `duo init` reach
+    // issue #3497's survival half. Observations recorded before `wprism init` reach
     // the post-init review queue only because this aggregation has no time,
     // id, or initialization predicate — it groups every row in the table. The
     // statement is pinned whitespace-normalized so a date bound added later is
@@ -680,7 +680,7 @@ namespace {
         str_contains(
             (string) preg_replace('/\s+/', ' ', $pendingJournalSource),
             'SELECT item, surface, caps, proposal, COUNT(*) AS n '
-            . 'FROM {$wpdb->prefix}duo_journal '
+            . 'FROM {$wpdb->prefix}wprism_journal '
             . "WHERE tbl = %s AND item != '' "
             . 'GROUP BY item, surface, caps, proposal'
         ),
@@ -734,7 +734,7 @@ namespace {
         'read-only pending path fails closed when wpdb reports a read error'
     );
 
-    // T7 grind A1: on a target Duo has never written to (the first `duo assess`
+    // T7 grind A1: on a target WPrism has never written to (the first `wprism assess`
     // on an adoption seed) the journal table is provably absent. That is a
     // known state, not a failed read: the strict scan proceeds with the live
     // gate walk alone and the journal-derived half of the queue is empty. A
@@ -780,14 +780,14 @@ namespace {
     echo "\n== strict intermediate pending reads ==\n";
     $gateIntermediateDb = new ObservationFakeWpdb();
     $GLOBALS['wpdb'] = $gateIntermediateDb;
-    \Duo\Capture::$failIntermediateReadThenSuccess = true;
+    \WPrism\Capture::$failIntermediateReadThenSuccess = true;
     $gateIntermediateError = null;
     try {
         Pending::scan($site, new Policy());
     } catch (CommandRefusalException $e) {
         $gateIntermediateError = $e->reasonCode;
     } finally {
-        \Duo\Capture::$failIntermediateReadThenSuccess = false;
+        \WPrism\Capture::$failIntermediateReadThenSuccess = false;
     }
     check(
         $gateIntermediateError === 'pending_evidence_unreadable',
@@ -796,14 +796,14 @@ namespace {
 
     $keyspaceIntermediateDb = new ObservationFakeWpdb();
     $GLOBALS['wpdb'] = $keyspaceIntermediateDb;
-    \Duo\Snapshot::$failIntermediateReadThenSuccess = true;
+    \WPrism\Snapshot::$failIntermediateReadThenSuccess = true;
     $keyspaceIntermediateError = null;
     try {
         Pending::scan($site, new Policy());
     } catch (CommandRefusalException $e) {
         $keyspaceIntermediateError = $e->reasonCode;
     } finally {
-        \Duo\Snapshot::$failIntermediateReadThenSuccess = false;
+        \WPrism\Snapshot::$failIntermediateReadThenSuccess = false;
     }
     check(
         $keyspaceIntermediateError === 'pending_evidence_unreadable',
@@ -884,7 +884,7 @@ namespace {
     check($hostResult === 0 && $hostJson === $canonical, 'host emits only the validated canonical target document in JSON mode');
     check(
         $driver->calls === [[
-            'duo', 'adapter-observe', '--repo=/target/private/repo', '--format=json',
+            'wprism', 'adapter-observe', '--repo=/target/private/repo', '--format=json',
         ]],
         'host calls target exactly once with configured target repo_path and no local --repo conflation'
     );
@@ -893,23 +893,23 @@ namespace {
     $extra = $report;
     $extra['pending']['items'][0]['value'] = 'raw-secret-value';
     $extra['observation_hash'] = HostObservation::hash_document($extra);
-    expect_throw(static fn() => HostObservation::validate(\Duo\Canon::encode($extra)), 'host rejects unknown/value-bearing fields even with a recomputed hash');
+    expect_throw(static fn() => HostObservation::validate(\WPrism\Canon::encode($extra)), 'host rejects unknown/value-bearing fields even with a recomputed hash');
 
     $badHash = $report;
     $badHash['observation_hash'] = 'sha256:' . str_repeat('0', 64);
-    expect_throw(static fn() => HostObservation::validate(\Duo\Canon::encode($badHash)), 'host recomputes and rejects a mutated observation hash');
+    expect_throw(static fn() => HostObservation::validate(\WPrism\Canon::encode($badHash)), 'host recomputes and rejects a mutated observation hash');
 
     $badType = $report;
     $badType['journal']['summary']['observations'] = '2';
     $badType['observation_hash'] = HostObservation::hash_document($badType);
-    expect_throw(static fn() => HostObservation::validate(\Duo\Canon::encode($badType)), 'host rejects malformed field types even with a recomputed hash');
+    expect_throw(static fn() => HostObservation::validate(\WPrism\Canon::encode($badType)), 'host rejects malformed field types even with a recomputed hash');
 
     $reordered = $report;
     [$reordered['pending']['items'][0], $reordered['pending']['items'][1]] = [
         $reordered['pending']['items'][1], $reordered['pending']['items'][0],
     ];
     $reordered['observation_hash'] = HostObservation::hash_document($reordered);
-    expect_throw(static fn() => HostObservation::validate(\Duo\Canon::encode($reordered)), 'host rejects reordered closed rows even when their hash is recomputed');
+    expect_throw(static fn() => HostObservation::validate(\WPrism\Canon::encode($reordered)), 'host rejects reordered closed rows even when their hash is recomputed');
 
     $noncanonical = json_encode($report, JSON_UNESCAPED_SLASHES) . "\n";
     expect_throw(static fn() => HostObservation::validate((string) $noncanonical), 'host rejects noncanonical object byte ordering');
@@ -921,7 +921,7 @@ namespace {
     check($driverCapability->ready(), 'adapter-observe is wired to normal attach + WP-CLI driver capability requirements');
 
     echo "\n== create-only local evidence ==\n";
-    $outDir = sys_get_temp_dir() . '/duo-observation-out-' . bin2hex(random_bytes(6));
+    $outDir = sys_get_temp_dir() . '/wprism-observation-out-' . bin2hex(random_bytes(6));
     mkdir($outDir, 0700, true);
     register_shutdown_function(static fn() => remove_tree($outDir));
     $out = $outDir . '/evidence.json';
@@ -931,7 +931,7 @@ namespace {
     $outHuman = (string) ob_get_clean();
     check(
         $outResult === 0 && $outDriver->calls === [[
-            'duo', 'adapter-observe', '--repo=/target/private/repo', '--format=json',
+            'wprism', 'adapter-observe', '--repo=/target/private/repo', '--format=json',
         ]] && file_get_contents($out) === $canonical,
         'host makes one target call then writes validated evidence atomically and create-only'
     );

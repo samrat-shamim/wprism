@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for DUO-3262's interpreter contract. Fake manifest-
+ * Offline regression for issue #3262's interpreter contract. Fake manifest-
  * shipped interpreters prove that post_meta_rule() remains required while
  * term_meta_rule()/user_meta_rule() are optional, context-aware hooks. The
  * test exercises the real Policy loader and dispatch; no WordPress bootstrap
@@ -12,11 +12,11 @@ require __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/manifest_fixtures.php';
 
-use Duo\Canon;
-use Duo\Policy;
+use WPrism\Canon;
+use WPrism\Policy;
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 0);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 0);
 }
 
 $failures = 0;
@@ -39,7 +39,7 @@ function check_throws(callable $fn, string $needle, string $message): void {
     }
 }
 
-$root = sys_get_temp_dir() . '/duo_regress_interpreter_policy_' . bin2hex(random_bytes(4));
+$root = sys_get_temp_dir() . '/wprism_regress_interpreter_policy_' . bin2hex(random_bytes(4));
 mkdir($root . '/interpreters', 0777, true);
 register_shutdown_function(function () use ($root) {
     $it = new RecursiveIteratorIterator(
@@ -53,7 +53,7 @@ register_shutdown_function(function () use ($root) {
 });
 file_put_contents($root . '/interpreters/legacy-post-only.php', <<<'PHP'
 <?php
-namespace Duo\Interpreters;
+namespace WPrism\Interpreters;
 final class LegacyPostOnly {
     public function __construct($policy) {}
     public function post_meta_rule(string $key, array $allMeta): ?array {
@@ -67,7 +67,7 @@ PHP
 
 file_put_contents($root . '/interpreters/all-meta-hooks.php', <<<'PHP'
 <?php
-namespace Duo\Interpreters;
+namespace WPrism\Interpreters;
 final class AllMetaHooks {
     public function __construct($policy) {}
     public function post_meta_rule(string $key, array $allMeta): ?array {
@@ -89,7 +89,7 @@ PHP
 
 file_put_contents($root . '/interpreters/hostile-dynamic.php', <<<'PHP'
 <?php
-namespace Duo\Interpreters;
+namespace WPrism\Interpreters;
 final class HostileDynamic {
     public function __construct($policy) {}
     public function post_meta_rule(string $key, array $allMeta): ?array {
@@ -101,7 +101,7 @@ PHP
 
 file_put_contents($root . '/interpreters/missing-post-hook.php', <<<'PHP'
 <?php
-namespace Duo\Interpreters;
+namespace WPrism\Interpreters;
 final class MissingPostHook {
     public function __construct($policy) {}
     public function term_meta_rule(string $key, array $allMeta): ?array { return null; }
@@ -112,7 +112,7 @@ PHP
 function write_manifest(string $root, string $name, array $extra): void {
     Canon::write_file("$root/$name.json", Canon::encode(array_merge([
         'name' => $name,
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ], $extra)));
 }
 
@@ -407,7 +407,7 @@ check_throws(
     fn() => $nativePolicy->option_sub_key_materialization_runtime_companions(
         'native_blob',
         $nativeRule,
-        'site.duo.json'
+        'site.wprism.json'
     ),
     'full effective rule/provenance differs',
     'site policy cannot borrow a digest-bound runtime-companion writer roster'
@@ -625,7 +625,7 @@ check_throws(
         'native_blob',
         ['portable' => 'value'],
         $nativeRule,
-        'site.duo.json',
+        'site.wprism.json',
         'yes',
         ['portable' => 'before'],
         static fn(string $targetName): ?array => null,
@@ -703,7 +703,7 @@ mkdir($siteRepo);
 register_shutdown_function(static function () use ($siteRepo): void {
     manifest_fixture_remove_tree($siteRepo);
 });
-Canon::write_file($siteRepo . '/site.duo.json', Canon::encode([
+Canon::write_file($siteRepo . '/site.wprism.json', Canon::encode([
     'manifests' => ['legacy'],
     'policy' => new stdClass(),
 ]));
@@ -715,7 +715,7 @@ Policy::set_rule($siteRepo, 'user_meta', 'profile_owner', [
 $sitePolicy = interpreter_policy_load($root, $siteRepo);
 check(
     ($sitePolicy->meta_rule_for_user('profile_owner', [])['ref'] ?? null) === 'user',
-    'wp duo classify write path accepts user_meta and Policy loads the site override'
+    'wp wprism classify write path accepts user_meta and Policy loads the site override'
 );
 check(
     $sitePolicy->user_meta_missing_behavior(['profile_owner' => 'user:editor']) === 'warn',

@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/CodeDescriptorCompiler.php';
 require_once __DIR__ . '/CodeSourceLock.php';
@@ -13,7 +13,7 @@ require_once __DIR__ . '/CodeOwnershipPruner.php';
  *
  * The code half deliberately starts with a small, explicit contract rather
  * than trying to guess how an arbitrary WordPress checkout is laid out.  A
- * site opts in from site.duo.json with:
+ * site opts in from site.wprism.json with:
  *
  *   "code": {"format": 1, "layout": "wp-content", "source": "code/wp-content"}
  *
@@ -27,11 +27,11 @@ require_once __DIR__ . '/CodeOwnershipPruner.php';
  * can otherwise make the normal lifecycle process impossible to bootstrap.
  */
 final class Code {
-    public const DESCRIPTOR_FORMAT = 'duo-code/v1';
+    public const DESCRIPTOR_FORMAT = 'wprism-code/v1';
     public const LAYOUT = 'wp-content';
     public const SOURCE = 'code/wp-content';
 
-    /** Keys in duo_kv. These are intentionally stable integration points. */
+    /** Keys in wprism_kv. These are intentionally stable integration points. */
     public const CODE_REVISION_KEY = 'code_revision';
     public const CODE_DESCRIPTOR_KEY = 'code_descriptor';
     public const CODE_STAGE_REVISION_KEY = CodeStageTransaction::REVISION_KEY;
@@ -41,7 +41,7 @@ final class Code {
     public const CODE_STAGE_ARTIFACT_KEY = CodeStageTransaction::ARTIFACT_KEY;
     /** Canonical list of prior staged descriptors retained for recovery. */
     public const CODE_STAGE_HISTORY_KEY = CodeStageTransaction::HISTORY_KEY;
-    /** Canonical paths proven absent before Duo first staged them. */
+    /** Canonical paths proven absent before WPrism first staged them. */
     public const CODE_STAGE_CREATED_PATHS_KEY = CodeStageTransaction::CREATED_PATHS_KEY;
 
     /** @var list<string> */
@@ -68,14 +68,14 @@ final class Code {
         return CodeDescriptorCompiler::descriptor_from_source($source);
     }
 
-    /** Validate a site.duo.json code declaration independently of Policy. */
+    /** Validate a site.wprism.json code declaration independently of Policy. */
     public static function assert_config(array $config): void {
         CodeDescriptorCompiler::assert_config($config);
     }
 
     /**
      * The declared code lock path, or null for a fully vendored (format 1)
-     * repository. DUO-3499.
+     * repository. issue #3499.
      *
      * @param ?array<string,mixed> $config
      */
@@ -132,22 +132,22 @@ final class Code {
     public static function assert_verified_staged(CompiledRepository $compiled): void {
         $descriptor = $compiled->code_descriptor();
         if ($descriptor === null) {
-            throw new \RuntimeException('duo: materializing-code requires an opted-in compiled code descriptor');
+            throw new \RuntimeException('wprism: materializing-code requires an opted-in compiled code descriptor');
         }
         self::assert_descriptor($descriptor);
         $stageRevision = Ledger::kv_get(self::CODE_STAGE_REVISION_KEY);
         if ($stageRevision === null || !preg_match('/^[0-9a-f]{64}$/', $stageRevision)
             || !hash_equals((string) $descriptor['code_revision'], $stageRevision)) {
-            throw new \RuntimeException('duo: materializing-code refused — code_stage_revision does not match the compiled code revision');
+            throw new \RuntimeException('wprism: materializing-code refused — code_stage_revision does not match the compiled code revision');
         }
         $stageArtifact = Ledger::kv_get(self::CODE_STAGE_ARTIFACT_KEY);
         if ($stageArtifact === null || !preg_match('/^[0-9a-f]{64}$/', $stageArtifact)
             || !hash_equals($compiled->artifact_hash(), $stageArtifact)) {
-            throw new \RuntimeException('duo: materializing-code refused — staged code artifact does not match the compiled artifact');
+            throw new \RuntimeException('wprism: materializing-code refused — staged code artifact does not match the compiled artifact');
         }
         $staged = self::stored_stage_descriptor($stageRevision, $descriptor);
         if ($staged === null) {
-            throw new \RuntimeException('duo: materializing-code refused — no staged code descriptor exists');
+            throw new \RuntimeException('wprism: materializing-code refused — no staged code descriptor exists');
         }
         self::stored_stage_created_paths($staged);
         self::stored_stage_history();
@@ -283,7 +283,7 @@ final class Code {
         ] as $key) {
             if (($existing = Ledger::kv_get($key)) !== null && $existing !== '') {
                 throw new \RuntimeException(
-                    "duo: initial code baseline refused — lifecycle metadata '$key' already exists; use the ordinary deploy recovery workflow"
+                    "wprism: initial code baseline refused — lifecycle metadata '$key' already exists; use the ordinary deploy recovery workflow"
                 );
             }
         }
@@ -292,7 +292,7 @@ final class Code {
         $extras = self::owned_extra_files($descriptor);
         if ($extras) {
             throw new \RuntimeException(
-                'duo: initial code baseline found unrecorded file(s) in a managed component: '
+                'wprism: initial code baseline found unrecorded file(s) in a managed component: '
                 . implode(', ', array_slice($extras, 0, 8))
             );
         }
@@ -319,7 +319,7 @@ final class Code {
         $descriptor = $compiled->code_descriptor();
         if ($descriptor === null) {
             return [
-                'format' => 'duo-code-runtime/v1',
+                'format' => 'wprism-code-runtime/v1',
                 'enabled' => false,
                 'change_required' => false,
                 'compatible' => true,
@@ -357,7 +357,7 @@ final class Code {
     }
 
     /**
-     * Exact current runtime evidence, distinct from Duo's generated
+     * Exact current runtime evidence, distinct from WPrism's generated
      * certification baseline. The protected agent/control-plane process is
      * the source; this record makes no support verdict of its own.
      *
@@ -429,7 +429,7 @@ final class Code {
 
         $owner = (string) ($opts['promotion_owner'] ?? '');
         if ($owner === '') {
-            throw new \RuntimeException('duo: code-stage requires an explicit --promotion-owner; use the host duo deploy workflow');
+            throw new \RuntimeException('wprism: code-stage requires an explicit --promotion-owner; use the host wprism deploy workflow');
         }
         Ledger::ensure();
         $artifact = $compiled->artifact_hash();
@@ -441,7 +441,7 @@ final class Code {
             PromotionLock::assert_no_lifecycle_attempt($owner, $artifact, 'code-stage');
             $stageRevision = Ledger::kv_get(self::CODE_STAGE_REVISION_KEY);
             if ($stageRevision !== null && !preg_match('/^[0-9a-f]{64}$/', $stageRevision)) {
-                throw new \RuntimeException('duo: malformed code_stage_revision; refusing recovery guesswork');
+                throw new \RuntimeException('wprism: malformed code_stage_revision; refusing recovery guesswork');
             }
             $staged = self::stored_stage_descriptor($stageRevision, null);
             $stagedCreatedPaths = self::stored_stage_created_paths($staged);
@@ -486,7 +486,7 @@ final class Code {
             // claim an operator's pre-existing component root on a later
             // promotion. A crash during per-file writes is therefore handled
             // conservatively: unrecorded partial bytes may require manual
-            // cleanup, but they can never grant Duo root-wide ownership.
+            // cleanup, but they can never grant WPrism root-wide ownership.
             $history[$descriptor['code_revision']] = $descriptor;
             ksort($history, SORT_STRING);
             self::publish_stage_descriptor(
@@ -501,7 +501,7 @@ final class Code {
                 'staged' => true,
                 'code_revision' => $descriptor['code_revision'],
                 'files' => count($descriptor['files']),
-                // DUO-3501: 'files' stays the whole descriptor inventory it
+                // issue #3501: 'files' stays the whole descriptor inventory it
                 // has always been; these two partition it by what this stage
                 // actually had to move, so a re-stage of an unchanged payload
                 // is visible as such instead of looking like a full rewrite.
@@ -522,7 +522,7 @@ final class Code {
     }
 
     /**
-     * Verify staged files, remove only prior Duo-owned paths now absent, then
+     * Verify staged files, remove only prior WPrism-owned paths now absent, then
      * publish the completed descriptor/revision. The lease is released unless
      * promotion-hold asks us to hand it to state apply.
      */
@@ -536,14 +536,14 @@ final class Code {
         self::assert_expected_artifact($compiled, $opts);
         $owner = (string) ($opts['promotion_owner'] ?? '');
         if ($owner === '') {
-            throw new \RuntimeException('duo: code-finalize requires an explicit --promotion-owner; use the host duo deploy workflow');
+            throw new \RuntimeException('wprism: code-finalize requires an explicit --promotion-owner; use the host wprism deploy workflow');
         }
         Ledger::ensure();
         $stageRevision = Ledger::kv_get(self::CODE_STAGE_REVISION_KEY);
         if ($stageRevision === null || !preg_match('/^[0-9a-f]{64}$/', $stageRevision)
             || !hash_equals($descriptor['code_revision'], $stageRevision)) {
             throw new \RuntimeException(
-                'duo: code-finalize refused — code-stage has not recorded this compiled code revision '
+                'wprism: code-finalize refused — code-stage has not recorded this compiled code revision '
                 . '(run code-stage first and keep the same compiled artifact)'
             );
         }
@@ -569,7 +569,7 @@ final class Code {
             $extras = self::owned_extra_files($descriptor);
             if ($extras) {
                 throw new \RuntimeException(
-                    'duo: code-finalize verification found unrecorded file(s): '
+                    'wprism: code-finalize verification found unrecorded file(s): '
                     . implode(', ', array_slice($extras, 0, 8))
                 );
             }
@@ -661,20 +661,20 @@ final class Code {
         $revision = Ledger::kv_get(self::CODE_REVISION_KEY);
         if ($raw === null) {
             if ($revision !== null && $revision !== '') {
-                throw new \RuntimeException('duo: code ledger has code_revision but no code_descriptor; refusing deletion guesswork');
+                throw new \RuntimeException('wprism: code ledger has code_revision but no code_descriptor; refusing deletion guesswork');
             }
             return null;
         }
         try {
             $descriptor = Canon::decode($raw);
         } catch (\Throwable $t) {
-            throw new \RuntimeException('duo: stored code descriptor is not valid canonical JSON', 0, $t);
+            throw new \RuntimeException('wprism: stored code descriptor is not valid canonical JSON', 0, $t);
         }
         if (!is_array($descriptor)) {
-            throw new \RuntimeException('duo: stored code descriptor is not an object');
+            throw new \RuntimeException('wprism: stored code descriptor is not an object');
         }
         if (Canon::encode($descriptor) !== $raw) {
-            throw new \RuntimeException('duo: stored code descriptor is not canonical JSON');
+            throw new \RuntimeException('wprism: stored code descriptor is not canonical JSON');
         }
         self::assert_descriptor($descriptor);
         if ($revision !== null && $revision !== '' && !hash_equals($revision, $descriptor['code_revision'])) {
@@ -695,25 +695,25 @@ final class Code {
         }
         if ($stageRevision === null || $raw === null || $raw === '') {
             throw new \RuntimeException(
-                'duo: code ledger has code_stage_revision but no code_stage_descriptor; refusing finalize guesswork'
+                'wprism: code ledger has code_stage_revision but no code_stage_descriptor; refusing finalize guesswork'
             );
         }
         try {
             $descriptor = Canon::decode($raw);
         } catch (\Throwable $t) {
-            throw new \RuntimeException('duo: staged code descriptor is not valid canonical JSON', 0, $t);
+            throw new \RuntimeException('wprism: staged code descriptor is not valid canonical JSON', 0, $t);
         }
         if (!is_array($descriptor)) {
-            throw new \RuntimeException('duo: staged code descriptor is not an object');
+            throw new \RuntimeException('wprism: staged code descriptor is not an object');
         }
         if (Canon::encode($descriptor) !== $raw) {
-            throw new \RuntimeException('duo: staged code descriptor is not canonical JSON');
+            throw new \RuntimeException('wprism: staged code descriptor is not canonical JSON');
         }
         self::assert_descriptor($descriptor);
         if (!hash_equals((string) $stageRevision, (string) ($descriptor['code_revision'] ?? ''))
             || ($expected !== null && !hash_equals((string) $expected['code_revision'], (string) $descriptor['code_revision']))) {
             throw new \RuntimeException(
-                'duo: staged code descriptor does not match the compiled code revision; re-run code-stage'
+                'wprism: staged code descriptor does not match the compiled code revision; re-run code-stage'
             );
         }
         return $descriptor;
@@ -728,23 +728,23 @@ final class Code {
         try {
             $rows = Canon::decode($raw);
         } catch (\Throwable $t) {
-            throw new \RuntimeException('duo: staged code history is not valid canonical JSON', 0, $t);
+            throw new \RuntimeException('wprism: staged code history is not valid canonical JSON', 0, $t);
         }
         if (!is_array($rows) || !array_is_list($rows)) {
-            throw new \RuntimeException('duo: staged code history is not a descriptor list');
+            throw new \RuntimeException('wprism: staged code history is not a descriptor list');
         }
         if (Canon::encode($rows) !== $raw) {
-            throw new \RuntimeException('duo: staged code history is not canonical JSON');
+            throw new \RuntimeException('wprism: staged code history is not canonical JSON');
         }
         $history = [];
         $revisions = [];
         foreach ($rows as $i => $descriptor) {
             if (!is_array($descriptor)) {
-                throw new \RuntimeException("duo: staged code history[$i] is not a descriptor");
+                throw new \RuntimeException("wprism: staged code history[$i] is not a descriptor");
             }
             self::assert_descriptor($descriptor);
             if (isset($history[$descriptor['code_revision']])) {
-                throw new \RuntimeException("duo: staged code history contains duplicate revision '{$descriptor['code_revision']}'");
+                throw new \RuntimeException("wprism: staged code history contains duplicate revision '{$descriptor['code_revision']}'");
             }
             $revisions[] = $descriptor['code_revision'];
             $history[$descriptor['code_revision']] = $descriptor;
@@ -752,7 +752,7 @@ final class Code {
         $expectedRevisions = $revisions;
         sort($expectedRevisions, SORT_STRING);
         if ($revisions !== $expectedRevisions) {
-            throw new \RuntimeException('duo: staged code history is not sorted by code revision');
+            throw new \RuntimeException('wprism: staged code history is not sorted by code revision');
         }
         return $history;
     }
@@ -772,11 +772,11 @@ final class Code {
         try {
             $paths = Canon::decode($raw);
         } catch (\Throwable $t) {
-            throw new \RuntimeException('duo: staged created-path receipt is not valid canonical JSON', 0, $t);
+            throw new \RuntimeException('wprism: staged created-path receipt is not valid canonical JSON', 0, $t);
         }
         if ($staged === null || !is_array($paths) || !array_is_list($paths)
             || Canon::encode($paths) !== $raw) {
-            throw new \RuntimeException('duo: staged created-path receipt is malformed or has no staged descriptor');
+            throw new \RuntimeException('wprism: staged created-path receipt is malformed or has no staged descriptor');
         }
         $stagedPaths = [];
         foreach ($staged['files'] as $row) {
@@ -786,14 +786,14 @@ final class Code {
         foreach ($paths as $i => $path) {
             if (!is_string($path) || !self::safe_relative($path)
                 || !isset($stagedPaths[$path]) || isset($seen[$path])) {
-                throw new \RuntimeException("duo: staged created-path receipt[$i] is not a unique staged file");
+                throw new \RuntimeException("wprism: staged created-path receipt[$i] is not a unique staged file");
             }
             $seen[$path] = true;
         }
         $expected = $paths;
         sort($expected, SORT_STRING);
         if ($paths !== $expected) {
-            throw new \RuntimeException('duo: staged created-path receipt is not deterministically sorted');
+            throw new \RuntimeException('wprism: staged created-path receipt is not deterministically sorted');
         }
         return $paths;
     }
@@ -803,7 +803,7 @@ final class Code {
         if (!hash_equals((string) $expected['code_revision'], (string) $actual['code_revision'])
             || Canon::encode($actual) !== Canon::encode($expected)) {
             throw new \RuntimeException(
-                'duo: code payload changed after compilation; re-run `wp duo compile` and stage the new artifact'
+                'wprism: code payload changed after compilation; re-run `wp wprism compile` and stage the new artifact'
             );
         }
     }
@@ -833,7 +833,7 @@ final class Code {
         if (!preg_match('/^[0-9a-f]{64}$/', $expected)
             || !hash_equals($expected, $compiled->artifact_hash())) {
             throw new \RuntimeException(
-                'duo: code materialization artifact does not match the host-compiled artifact hash'
+                'wprism: code materialization artifact does not match the host-compiled artifact hash'
             );
         }
     }
@@ -935,7 +935,7 @@ final class Code {
 
     /**
      * Thin compatibility facade over CodeOwnershipPruner::remove_old_owned_files()
-     * (DUO-3350 slice 5) -- kept so this method's existing internal call site
+     * (issue #3350 slice 5) -- kept so this method's existing internal call site
      * (finalize(), unchanged) needs no edit while this decomposition proceeds.
      */
     private static function remove_old_owned_files(?array $previous, ?array $staged, array $history, array $current): array {
@@ -944,7 +944,7 @@ final class Code {
 
     /**
      * Thin compatibility facade over CodeOwnershipPruner::assert_removal_safe()
-     * (DUO-3350 slice 5) -- kept so the callback materialize_payload()'s
+     * (issue #3350 slice 5) -- kept so the callback materialize_payload()'s
      * facade constructs for CodeMaterializer::materialize_payload() needs no
      * change while this decomposition proceeds.
      */
@@ -954,7 +954,7 @@ final class Code {
 
     /**
      * Thin compatibility facade over CodeOwnershipPruner::owned_extra_files()
-     * (DUO-3350 slice 5) -- kept so this method's existing internal call
+     * (issue #3350 slice 5) -- kept so this method's existing internal call
      * sites (completed_code_mismatch(), validated_initial_baseline(),
      * finalize(), unchanged) need no edit while this decomposition proceeds.
      */

@@ -4,38 +4,38 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 
-DUO_ROOT="$ROOT" php -d display_errors=1 <<'PHP'
+WPRISM_ROOT="$ROOT" php -d display_errors=1 <<'PHP'
 <?php
-$root = getenv('DUO_ROOT');
-// WP-4.12: from agent/duo.php, never retyped — this heredoc reaches the
+$root = getenv('WPRISM_ROOT');
+// WP-4.12: from agent/wprism.php, never retyped — this heredoc reaches the
 // shipped platform.json, which restates the defines.
 require_once $root . '/sandbox/tests/lib/agent_version.php';
-duo_test_define_agent_versions();
-$duoAgentClassmap = require $root . '/agent/duo-classmap.php';
-if (!is_array($duoAgentClassmap)) {
-    throw new \RuntimeException('regress_code_descriptor_unit: agent/duo-classmap.php did not return a map');
+wprism_test_define_agent_versions();
+$wprismAgentClassmap = require $root . '/agent/wprism-classmap.php';
+if (!is_array($wprismAgentClassmap)) {
+    throw new \RuntimeException('regress_code_descriptor_unit: agent/wprism-classmap.php did not return a map');
 }
-$duoAgentFiles = [];
-foreach ($duoAgentClassmap as $duoAgentPath) {
-    $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
+$wprismAgentFiles = [];
+foreach ($wprismAgentClassmap as $wprismAgentPath) {
+    $wprismAgentFiles[basename((string) $wprismAgentPath, '.php')] = (string) $wprismAgentPath;
 }
 foreach (['Canon', 'OptionState', 'Uuid', 'Db', 'Ledger', 'Policy', 'Snapshot', 'Deletion', 'RepositoryAuthorization', 'SidebarState', 'Code', 'RepositoryCompiler', 'CodeStateContract'] as $file) {
-    $duoAgentFile = $duoAgentFiles[$file] ?? null;
-    if (!is_string($duoAgentFile)) {
-        throw new \RuntimeException('regress_code_descriptor_unit: agent source ' . $file . '.php is absent from agent/duo-classmap.php');
+    $wprismAgentFile = $wprismAgentFiles[$file] ?? null;
+    if (!is_string($wprismAgentFile)) {
+        throw new \RuntimeException('regress_code_descriptor_unit: agent source ' . $file . '.php is absent from agent/wprism-classmap.php');
     }
-    require_once $root . '/agent/' . $duoAgentFile;
+    require_once $root . '/agent/' . $wprismAgentFile;
 }
 
-use Duo\Canon;
-use Duo\Code;
-use Duo\CodeCompatibility;
-use Duo\CompiledRepository;
-use Duo\OptionState;
-use Duo\Policy;
-use Duo\CommandRefusalException;
-use Duo\RepositoryCompilationException;
-use Duo\RepositoryCompiler;
+use WPrism\Canon;
+use WPrism\Code;
+use WPrism\CodeCompatibility;
+use WPrism\CompiledRepository;
+use WPrism\OptionState;
+use WPrism\Policy;
+use WPrism\CommandRefusalException;
+use WPrism\RepositoryCompilationException;
+use WPrism\RepositoryCompiler;
 
 function fail_test(string $message): never { throw new RuntimeException("FAIL: $message"); }
 function assert_test(bool $condition, string $message): void {
@@ -55,7 +55,7 @@ function remove_test(string $path): void {
     }
     @rmdir($path);
 }
-/** Recreate the exact released duo-code/v1 descriptor shape. */
+/** Recreate the exact released wprism-code/v1 descriptor shape. */
 function legacy_descriptor_test(array $descriptor): array {
     unset($descriptor['theme_templates'], $descriptor['code_revision']);
     $descriptor['code_revision'] = Code::revision_for($descriptor);
@@ -70,11 +70,11 @@ final class DescriptorLedgerWpdb {
     public array $kv = [];
 
     public function prepare(string $_sql, mixed ...$args): string {
-        return 'duo-test-kv:' . (string) ($args[0] ?? '');
+        return 'wprism-test-kv:' . (string) ($args[0] ?? '');
     }
 
     public function get_var(string $query): ?string {
-        $prefix = 'duo-test-kv:';
+        $prefix = 'wprism-test-kv:';
         if (!str_starts_with($query, $prefix)) {
             throw new RuntimeException("FAIL: unexpected ledger query '$query'");
         }
@@ -82,8 +82,8 @@ final class DescriptorLedgerWpdb {
     }
 }
 
-$repo = sys_get_temp_dir() . '/duo-code-contract-' . bin2hex(random_bytes(6));
-$target = sys_get_temp_dir() . '/duo-code-contract-target-' . bin2hex(random_bytes(6));
+$repo = sys_get_temp_dir() . '/wprism-code-contract-' . bin2hex(random_bytes(6));
+$target = sys_get_temp_dir() . '/wprism-code-contract-target-' . bin2hex(random_bytes(6));
 mkdir($repo . '/state', 0777, true);
 mkdir($target, 0777, true);
 define('WP_CONTENT_DIR', $target);
@@ -94,7 +94,7 @@ register_shutdown_function(static function () use ($repo, $target): void {
     remove_test($target);
 });
 
-put_test($repo . '/site.duo.json', Canon::encode([
+put_test($repo . '/site.wprism.json', Canon::encode([
     'manifests' => ['core'],
     'policy' => [
         'options' => (object) [], 'post_meta' => (object) [], 'term_meta' => (object) [],
@@ -193,10 +193,10 @@ $baselineCodeRevision = $baseline->code_revision();
 // canonical database-state identity. Removing only that declaration must
 // preserve revision_hash while disabling code materialization and moving the
 // full policy/artifact identities.
-$siteWithCode = Canon::decode(Canon::read_file($repo . '/site.duo.json'));
+$siteWithCode = Canon::decode(Canon::read_file($repo . '/site.wprism.json'));
 $siteWithoutCode = $siteWithCode;
 unset($siteWithoutCode['code']);
-put_test($repo . '/site.duo.json', Canon::encode($siteWithoutCode));
+put_test($repo . '/site.wprism.json', Canon::encode($siteWithoutCode));
 $stateOnlyPolicy = $compile();
 assert_test(
     $stateOnlyPolicy->revision_hash() === $baselineRevision,
@@ -211,9 +211,9 @@ assert_test(
     $stateOnlyPolicy->artifact_hash() !== $baseline->artifact_hash(),
     'outer artifact identity must still bind code opt-in and descriptor presence'
 );
-put_test($repo . '/site.duo.json', Canon::encode($siteWithCode));
+put_test($repo . '/site.wprism.json', Canon::encode($siteWithCode));
 
-// The released duo-code/v1 descriptor did not carry child-theme linkage.
+// The released wprism-code/v1 descriptor did not carry child-theme linkage.
 // It remains exact-shape, self-verifying deletion authority when loaded from
 // completed/staged/history ledger rows; only newly compiled descriptors add
 // the strictly validated relation.

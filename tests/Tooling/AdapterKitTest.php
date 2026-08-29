@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
-use Duo\Tooling\AdapterKit;
+use WPrism\Tooling\AdapterKit;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -35,7 +35,7 @@ final class AdapterKitTest extends TestCase
 
     private static function repoRoot(): string
     {
-        $env = getenv('DUO_REPO_ROOT');
+        $env = getenv('WPRISM_REPO_ROOT');
 
         return is_string($env) && $env !== '' ? $env : dirname(__DIR__, 2);
     }
@@ -81,7 +81,7 @@ final class AdapterKitTest extends TestCase
 
     private function scratch(string $label): string
     {
-        $root = sys_get_temp_dir() . '/duo-adapter-kit-' . $label . '-' . bin2hex(random_bytes(6));
+        $root = sys_get_temp_dir() . '/wprism-adapter-kit-' . $label . '-' . bin2hex(random_bytes(6));
         $this->roots[] = $root;
         mkdir($root, 0o777, true);
 

@@ -8,18 +8,18 @@
  * NOT allowed to move:
  *
  *   (a) SSH's handoff is byte-for-byte the wire it always was: the allocated
- *       path is still `/tmp/duo-rollback-<label>-<32hex>.json`, placement is
+ *       path is still `/tmp/wprism-rollback-<label>-<32hex>.json`, placement is
  *       still one `scp <local> <host>:<path>`, and removal is still one
  *       `ssh -T <host> 'rm -f <path>'`. A fixture already greps the `request`
- *       label by name (sandbox/tests/fixtures/duo3344-scoped-promote-unit.php),
+ *       label by name (sandbox/tests/fixtures/scoped-promote-unit.php),
  *       so a single unified prefix would have been a silent wire change.
  *   (b) LocalTransport's handoff is an exclusive 0600 create that refuses a
  *       path it did not reserve, refuses a second write to the same token,
  *       and refuses to unlink a path whose dev:ino no longer matches what the
  *       exclusive create observed.
  *   (d) An environment that never opted in answers every recovery predicate
- *       false and carries no rollback authority, which is what keeps `duo
- *       envs`, `duo status` and `duo promote` byte-identical for it.
+ *       false and carries no rollback authority, which is what keeps `wprism
+ *       envs`, `wprism status` and `wprism promote` byte-identical for it.
  *
  * DockerTransport is deliberately NOT a RecoveryTransport in this phase and
  * the suite asserts that: `docker compose run --rm` gives every call a fresh
@@ -39,12 +39,12 @@ require_once dirname(__DIR__, 4) . '/cli/src/Transport/LocalTransport.php';
 require_once dirname(__DIR__, 4) . '/cli/src/Transport/DockerTransport.php';
 require_once dirname(__DIR__, 4) . '/cli/src/Transport/SshTransport.php';
 
-use Duo\Orchestrator\DockerTransport;
-use Duo\Orchestrator\LocalTransport;
-use Duo\Orchestrator\RecoveryTransport;
-use Duo\Orchestrator\SshTransport;
+use WPrism\Orchestrator\DockerTransport;
+use WPrism\Orchestrator\LocalTransport;
+use WPrism\Orchestrator\RecoveryTransport;
+use WPrism\Orchestrator\SshTransport;
 
-$tmp = sys_get_temp_dir() . '/duo-recovery-transport-' . bin2hex(random_bytes(8));
+$tmp = sys_get_temp_dir() . '/wprism-recovery-transport-' . bin2hex(random_bytes(8));
 
 function rt_remove_tree(string $path): void {
     if (is_link($path) || is_file($path)) {
@@ -122,21 +122,21 @@ try {
         'wp_path' => '/srv/wordpress',
     ] + rt_recovery_keys($signingKey));
 
-    duo_check(
+    wprism_check(
         $ssh instanceof RecoveryTransport,
         'SshTransport implements the recovery capability interface'
     );
     $sshInput = $ssh->allocateControlInput('input');
     $sshRequest = $ssh->allocateControlInput('request');
-    duo_check(
-        preg_match('#^/tmp/duo-rollback-input-[a-f0-9]{32}\.json$#D', $sshInput) === 1,
-        'the SSH operation handoff keeps its exact /tmp/duo-rollback-input-<32hex>.json name'
+    wprism_check(
+        preg_match('#^/tmp/wprism-rollback-input-[a-f0-9]{32}\.json$#D', $sshInput) === 1,
+        'the SSH operation handoff keeps its exact /tmp/wprism-rollback-input-<32hex>.json name'
     );
-    duo_check(
-        preg_match('#^/tmp/duo-rollback-request-[a-f0-9]{32}\.json$#D', $sshRequest) === 1,
-        'the SSH signed-request handoff keeps its distinct duo-rollback-request- prefix, which a fixture greps by name'
+    wprism_check(
+        preg_match('#^/tmp/wprism-rollback-request-[a-f0-9]{32}\.json$#D', $sshRequest) === 1,
+        'the SSH signed-request handoff keeps its distinct wprism-rollback-request- prefix, which a fixture greps by name'
     );
-    duo_check(
+    wprism_check(
         $ssh->allocateControlInput('input') !== $sshInput,
         'each allocation is an unpredictable fresh token'
     );
@@ -144,14 +144,14 @@ try {
     $source = $tmp . '/handoff-source.json';
     file_put_contents($source, "{\"fixture\":true}\n");
     $placed = $ssh->putControlInput($source, $sshInput);
-    duo_check_same(0, $placed['exit'], 'the SSH handoff placement succeeds through the transport scp');
-    duo_check_same(
+    wprism_check_same(0, $placed['exit'], 'the SSH handoff placement succeeds through the transport scp');
+    wprism_check_same(
         [$source, 'fixture-host:' . $sshInput],
         explode("\n", rtrim((string) file_get_contents($scpLog), "\n")),
         'placement is one scp with the exact two arguments RollbackAuthority used to build inline'
     );
     $ssh->removeControlInput($sshInput);
-    duo_check_same(
+    wprism_check_same(
         ['-T', 'fixture-host', 'rm -f ' . escapeshellarg($sshInput)],
         explode("\n", rtrim((string) file_get_contents($sshLog), "\n")),
         'removal is the same single ssh -T "rm -f <escaped path>" RollbackAuthority used to build inline'
@@ -166,40 +166,40 @@ try {
         'wp_path' => $tmp . '/wordpress',
     ] + rt_recovery_keys($signingKey));
 
-    duo_check(
+    wprism_check(
         $local instanceof RecoveryTransport,
         'LocalTransport implements the recovery capability interface'
     );
     $localPath = $local->allocateControlInput('input');
-    duo_check(
-        preg_match('#^/tmp/duo-rollback-input-[a-f0-9]{32}\.json$#D', $localPath) === 1,
+    wprism_check(
+        preg_match('#^/tmp/wprism-rollback-input-[a-f0-9]{32}\.json$#D', $localPath) === 1,
         'the local handoff uses the same closed name shape as SSH'
     );
-    duo_check(!file_exists($localPath), 'allocation reserves a name and creates nothing');
+    wprism_check(!file_exists($localPath), 'allocation reserves a name and creates nothing');
 
     $result = $local->putControlInput($source, $localPath);
-    duo_check_same(0, $result['exit'], 'the local handoff places the controller bytes');
-    duo_check_same(
+    wprism_check_same(0, $result['exit'], 'the local handoff places the controller bytes');
+    wprism_check_same(
         (string) file_get_contents($source),
         (string) file_get_contents($localPath),
         'the placed handoff is byte-identical to the canonical JSON the controller wrote'
     );
-    duo_check_same(0600, fileperms($localPath) & 0777, 'the placed handoff is mode 0600');
+    wprism_check_same(0600, fileperms($localPath) & 0777, 'the placed handoff is mode 0600');
 
     $again = $local->putControlInput($source, $localPath);
-    duo_check_same(64, $again['exit'], 'a second placement onto a spent token refuses');
+    wprism_check_same(64, $again['exit'], 'a second placement onto a spent token refuses');
 
-    $unreserved = '/tmp/duo-rollback-input-' . str_repeat('a', 32) . '.json';
-    duo_check_same(
+    $unreserved = '/tmp/wprism-rollback-input-' . str_repeat('a', 32) . '.json';
+    wprism_check_same(
         64,
         $local->putControlInput($source, $unreserved)['exit'],
         'a path this transport never reserved is refused rather than created'
     );
-    duo_check(
+    wprism_check(
         !file_exists($unreserved),
         'the refused unreserved path is not created as a side effect'
     );
-    duo_check_same(
+    wprism_check_same(
         64,
         $local->removeControlInput($unreserved)['exit'],
         'removal refuses a path this transport never reserved'
@@ -214,18 +214,18 @@ try {
     unlink($localPath);
     rename($substitute, $localPath);
     $refused = $local->removeControlInput($localPath);
-    duo_check_same(73, $refused['exit'], 'removal refuses a handoff whose dev:ino changed under it');
-    duo_check(file_exists($localPath), 'the foreign replacement is retained for operator review, not deleted');
+    wprism_check_same(73, $refused['exit'], 'removal refuses a handoff whose dev:ino changed under it');
+    wprism_check(file_exists($localPath), 'the foreign replacement is retained for operator review, not deleted');
     @unlink($localPath);
 
     $collision = $local->allocateControlInput('input');
     file_put_contents($collision, "pre-existing\n");
-    duo_check_same(
+    wprism_check_same(
         67,
         $local->putControlInput($source, $collision)['exit'],
         'exclusive creation refuses a reserved path that already exists'
     );
-    duo_check_same(
+    wprism_check_same(
         "pre-existing\n",
         (string) file_get_contents($collision),
         'the colliding path keeps its own bytes'
@@ -233,7 +233,7 @@ try {
     @unlink($collision);
 
     $missing = $local->allocateControlInput('request');
-    duo_check_same(
+    wprism_check_same(
         0,
         $local->removeControlInput($missing)['exit'],
         'removing a reserved handoff that was never placed is success, so the crash-edge finally is unconditional'
@@ -255,29 +255,29 @@ try {
         'uploadProviderConfigured',
         'verifiedRollbackConfigured',
     ] as $predicate) {
-        duo_check_same(
+        wprism_check_same(
             false,
             $bare->$predicate(),
             "an environment that never opted in answers $predicate() false"
         );
     }
-    duo_check_same(null, $bare->recoveryConfig(), 'an un-opted-in local environment exposes no recovery config');
-    duo_check_same(null, $bare->verifiedRollbackConfig(), 'an un-opted-in local environment exposes no verified policy');
-    duo_check_same(
+    wprism_check_same(null, $bare->recoveryConfig(), 'an un-opted-in local environment exposes no recovery config');
+    wprism_check_same(null, $bare->verifiedRollbackConfig(), 'an un-opted-in local environment exposes no verified policy');
+    wprism_check_same(
         'local  wp_path=' . $tmp . '/wordpress repo_path=' . $tmp . '/site',
         $bare->describe(),
-        'duo envs prints exactly what it printed before for an environment that never opted in'
+        'wprism envs prints exactly what it printed before for an environment that never opted in'
     );
-    duo_check_same(
+    wprism_check_same(
         'local  wp_path=' . $tmp . '/wordpress repo_path=' . $tmp . '/site'
             . ' rollback_key_id=recovery-transport-key rollback_recovery=configured verified_rollback=configured',
         $local->describe(),
-        'an opted-in local environment names its rollback authority in duo envs'
+        'an opted-in local environment names its rollback authority in wprism envs'
     );
 
     // The privilege gate: the same configuration without machine-local
     // provenance is a hard refusal, not a quietly disarmed environment.
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => new LocalTransport('recovery-transport-unauthorized', [
             'repo_path' => $tmp . '/site',
             'transport' => 'local',
@@ -314,12 +314,12 @@ try {
     } catch (\Throwable $failure) {
         $localRefusal = $failure->getMessage();
     }
-    duo_check_same(
+    wprism_check_same(
         "env 'parity': rollback_recovery.timeout_seconds must be 1..60",
         $sshRefusal,
         'SSH keeps its exact rollback_recovery refusal string'
     );
-    duo_check_same(
+    wprism_check_same(
         $sshRefusal,
         $localRefusal,
         'local refuses the same malformed config with the byte-identical message, because one parser owns both'
@@ -332,7 +332,7 @@ try {
         'service' => 'wordpress',
         'transport' => 'docker',
     ]);
-    duo_check(
+    wprism_check(
         !$docker instanceof RecoveryTransport,
         'DockerTransport is deliberately not a RecoveryTransport yet: run --rm gives every call a fresh container, so a /tmp handoff would vanish before the runtime could read it'
     );
@@ -341,4 +341,4 @@ try {
     rt_remove_tree($tmp);
 }
 
-duo_check_summary('recovery transport capability boundary');
+wprism_check_summary('recovery transport capability boundary');

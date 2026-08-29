@@ -15,7 +15,7 @@
  *
  *   - "another process on this target is mid-mutation, retry later"
  *     (process_fence_held) from a corrupt repository;
- *   - "your --repo is not a duo repository" (repository_missing) from a real
+ *   - "your --repo is not a wprism repository" (repository_missing) from a real
  *     policy defect;
  *   - "this deployed site's manifest pins moved, recompile and re-pin"
  *     (compiled_artifact_manifest_mismatch) from a repository that failed to
@@ -38,7 +38,7 @@
  *  3. THE HUMAN BYTES. `getMessage()` is byte-identical to the sentence
  *     `WP_CLI::error($t->getMessage())` printed before. Three consumers read
  *     exactly these bytes: sandbox/tests/live/regress_capture_concurrency.sh:500,656,
- *     sandbox/tests/live/regress_promotion_lock.sh:194, and cli/duo:3267, which
+ *     sandbox/tests/live/regress_promotion_lock.sh:194, and cli/wprism:3267, which
  *     `str_contains()` "promotion lock held by" to tell a definite live
  *     contender from an uncertain begin. Anyone who "improves" the operator
  *     wording breaks those, and this suite says so offline first.
@@ -53,7 +53,7 @@
  *
  * OFFLINE: no WordPress, no MySQL, no docker. `FakeWpdb` carries the advisory
  * lock/connection model `ProcessFence` needs (agent/src/Kernel/ProcessFence.php:29,56-61)
- * and the `duo_kv` rows `Ledger::kv_get()` reads.
+ * and the `wprism_kv` rows `Ledger::kv_get()` reads.
  */
 declare(strict_types=1);
 
@@ -106,7 +106,7 @@ namespace {
     }
 }
 
-namespace Duo {
+namespace WPrism {
     /**
      * The three backends `Cli` calls on the paths under test.
      *
@@ -156,16 +156,16 @@ namespace {
     require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php';
     require_once __DIR__ . '/../../../../agent/src/Command/Cli.php';
 
-    use Duo\ArtifactPolicyIdentity;
-    use Duo\Canon;
-    use Duo\CommandRefusalException;
-    use Duo\CompiledArtifactReader;
-    use Duo\CompiledRepository;
-    use Duo\Policy;
-    use Duo\ProcessFence;
-    use Duo\PromotionLease;
-    use DuoTest\FakeWpdb;
-    use DuoTest\WpStore;
+    use WPrism\ArtifactPolicyIdentity;
+    use WPrism\Canon;
+    use WPrism\CommandRefusalException;
+    use WPrism\CompiledArtifactReader;
+    use WPrism\CompiledRepository;
+    use WPrism\Policy;
+    use WPrism\ProcessFence;
+    use WPrism\PromotionLease;
+    use WPrismTest\FakeWpdb;
+    use WPrismTest\WpStore;
 
     // A PHP warning is itself an unclassified output channel on a suite that
     // certifies public failure output, so it must make this run non-green.
@@ -176,9 +176,9 @@ namespace {
         E_WARNING | E_USER_WARNING
     );
 
-    /** The gate the installed case runs; the Duo backends above call only this. */
+    /** The gate the installed case runs; the WPrism backends above call only this. */
     function typed_refusal_mechanism(): array {
-        $mechanism = $GLOBALS['duo_typed_refusal_mechanism'] ?? null;
+        $mechanism = $GLOBALS['wprism_typed_refusal_mechanism'] ?? null;
         if (!$mechanism instanceof Closure) {
             throw new RuntimeException('no engine gate was installed for this case');
         }
@@ -190,7 +190,7 @@ namespace {
      * `$wpdb` for the promotion-lease cases.
      *
      * A DECORATOR over the shared FakeWpdb, not an eleventh bespoke fake: it
-     * forwards everything and intercepts exactly the two `duo_kv` statements
+     * forwards everything and intercepts exactly the two `wprism_kv` statements
      * whose `JSON_EXTRACT` predicate FakeWpdb's interpreter deliberately
      * refuses — `PromotionLease`'s acquire upsert
      * (agent/src/Promotion/PromotionLease.php:373-394) and its heartbeat UPDATE
@@ -223,8 +223,8 @@ namespace {
             if (str_contains($query, 'JSON_EXTRACT')) {
                 $this->intercepted++;
                 if ($this->mode === 'clear') {
-                    $this->inner->seedTable('wp_duo_kv', array_values(array_filter(
-                        $this->inner->rows('wp_duo_kv'),
+                    $this->inner->seedTable('wp_wprism_kv', array_values(array_filter(
+                        $this->inner->rows('wp_wprism_kv'),
                         static fn(array $row): bool => ($row['k'] ?? '') !== 'promotion_lock'
                     )));
                 }
@@ -250,7 +250,7 @@ namespace {
         }
     }
 
-    $tmp = sys_get_temp_dir() . '/duo-typed-refusal-envelopes-' . bin2hex(random_bytes(6));
+    $tmp = sys_get_temp_dir() . '/wprism-typed-refusal-envelopes-' . bin2hex(random_bytes(6));
     if (!mkdir($tmp, 0777, true) && !is_dir($tmp)) {
         throw new RuntimeException("could not create $tmp");
     }
@@ -268,7 +268,7 @@ namespace {
     const OTHER_ARTIFACT = '0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0';
 
     /**
-     * Install a fresh `$wpdb` holding the given `duo_kv` rows.
+     * Install a fresh `$wpdb` holding the given `wprism_kv` rows.
      *
      * @param array<string,array<string,mixed>> $rows key => decoded payload
      */
@@ -276,7 +276,7 @@ namespace {
         WpStore::reset();
         $inner = new FakeWpdb();
         $inner->setLockResult($lockResult);
-        $inner->seedTable('wp_duo_kv', array_values(array_map(
+        $inner->seedTable('wp_wprism_kv', array_values(array_map(
             static fn(string $key, array $payload): array => [
                 'k' => $key,
                 'v' => json_encode($payload, JSON_UNESCAPED_SLASHES),
@@ -323,35 +323,35 @@ namespace {
         callable $reseed
     ): array {
         $reseed();
-        $GLOBALS['duo_typed_refusal_mechanism'] = Closure::fromCallable($gate);
+        $GLOBALS['wprism_typed_refusal_mechanism'] = Closure::fromCallable($gate);
 
         $refusal = null;
         try {
             $gate();
-            duo_check(false, "$case: the engine gate did not refuse at all");
+            wprism_check(false, "$case: the engine gate did not refuse at all");
         } catch (CommandRefusalException $typed) {
-            duo_check(true, "$case: the engine gate refuses with a typed, machine-readable refusal");
+            wprism_check(true, "$case: the engine gate refuses with a typed, machine-readable refusal");
             $refusal = $typed;
         } catch (Throwable $other) {
-            duo_check(false, "$case: the engine gate threw " . get_class($other) . ' instead of CommandRefusalException');
-            duo_check_detail('message: ' . $other->getMessage());
+            wprism_check(false, "$case: the engine gate threw " . get_class($other) . ' instead of CommandRefusalException');
+            wprism_check_detail('message: ' . $other->getMessage());
         }
 
         $reseed();
         WP_CLI::reset();
         try {
             $handler();
-            duo_check(false, "$case: the $command handler returned instead of halting");
+            wprism_check(false, "$case: the $command handler returned instead of halting");
         } catch (TypedRefusalHalt $halt) {
-            duo_check_same(1, $halt->status, "$case: the $command JSON refusal exits with status 1");
+            wprism_check_same(1, $halt->status, "$case: the $command JSON refusal exits with status 1");
         } catch (Throwable $other) {
-            duo_check(false, "$case: the $command handler halted through " . get_class($other) . ', not the structured path');
-            duo_check_detail('message: ' . $other->getMessage());
+            wprism_check(false, "$case: the $command handler halted through " . get_class($other) . ', not the structured path');
+            wprism_check_detail('message: ' . $other->getMessage());
         }
-        duo_check_same([], WP_CLI::$errors, "$case: the $command JSON refusal never enters WP_CLI::error human rendering");
-        duo_check_same(1, count(WP_CLI::$lines), "$case: the $command JSON refusal emits exactly one machine-readable record");
+        wprism_check_same([], WP_CLI::$errors, "$case: the $command JSON refusal never enters WP_CLI::error human rendering");
+        wprism_check_same(1, count(WP_CLI::$lines), "$case: the $command JSON refusal emits exactly one machine-readable record");
         $decoded = json_decode(WP_CLI::$lines[0] ?? '', true);
-        duo_check(is_array($decoded), "$case: the $command JSON refusal record decodes");
+        wprism_check(is_array($decoded), "$case: the $command JSON refusal record decodes");
 
         return [$refusal, is_array($decoded) ? $decoded : []];
     }
@@ -372,14 +372,14 @@ namespace {
         string $operatorSentence
     ): void {
         if ($refusal !== null) {
-            duo_check_same($reasonCode, $refusal->reasonCode, "$case: names $reasonCode");
-            duo_check_same($publicMessage, $refusal->publicMessage, "$case: its public message is the reviewed constant");
-            duo_check_same($remediation, $refusal->remediation, "$case: its remediation is the reviewed constant");
+            wprism_check_same($reasonCode, $refusal->reasonCode, "$case: names $reasonCode");
+            wprism_check_same($publicMessage, $refusal->publicMessage, "$case: its public message is the reviewed constant");
+            wprism_check_same($remediation, $refusal->remediation, "$case: its remediation is the reviewed constant");
             // Byte-identity with what WP_CLI::error() printed before this
-            // change, which the live pins and cli/duo:3267 read.
-            duo_check_same($operatorSentence, $refusal->getMessage(), "$case: getMessage() is byte-identical to the operator sentence");
-            duo_check_same(false, $refusal->detailsRedacted, "$case: the reviewed public fields survive the constructor's own screen");
-            duo_check(
+            // change, which the live pins and cli/wprism:3267 read.
+            wprism_check_same($operatorSentence, $refusal->getMessage(), "$case: getMessage() is byte-identical to the operator sentence");
+            wprism_check_same(false, $refusal->detailsRedacted, "$case: the reviewed public fields survive the constructor's own screen");
+            wprism_check(
                 $refusal instanceof RuntimeException,
                 "$case: it is still a \\RuntimeException, so every existing catch classifies it identically"
             );
@@ -387,43 +387,43 @@ namespace {
 
         // The envelope an orchestrator actually branches on. Every assertion
         // below reports `{$command}_failed` on the pre-change tree.
-        duo_check_same($reasonCode, $published['error'] ?? null, "$case: the published envelope names $reasonCode at the top level");
-        duo_check_same($reasonCode, $published['reason_code'] ?? null, "$case: reason_code agrees with error");
-        duo_check_same($publicMessage, $published['message'] ?? null, "$case: the published message is the reviewed public half");
-        duo_check_same($remediation, $published['remediation'] ?? null, "$case: the published remediation is the reviewed public half");
-        duo_check_same($command, $published['command'] ?? null, "$case: the record identifies its public command");
-        duo_check_same('duo-command-refusal/v1', $published['format'] ?? null, "$case: the record keeps the versioned refusal envelope");
-        duo_check(
+        wprism_check_same($reasonCode, $published['error'] ?? null, "$case: the published envelope names $reasonCode at the top level");
+        wprism_check_same($reasonCode, $published['reason_code'] ?? null, "$case: reason_code agrees with error");
+        wprism_check_same($publicMessage, $published['message'] ?? null, "$case: the published message is the reviewed public half");
+        wprism_check_same($remediation, $published['remediation'] ?? null, "$case: the published remediation is the reviewed public half");
+        wprism_check_same($command, $published['command'] ?? null, "$case: the record identifies its public command");
+        wprism_check_same('wprism-command-refusal/v1', $published['format'] ?? null, "$case: the record keeps the versioned refusal envelope");
+        wprism_check(
             !array_key_exists('details_redacted', $published),
             "$case: the refusal is classified, so it is not the redacted catch-all it used to fall into"
         );
 
         // §5.2: nothing value-bearing may reach the published record.
         $json = (string) json_encode($published, JSON_UNESCAPED_SLASHES);
-        duo_check(
+        wprism_check(
             !str_contains($json, LEASE_OWNER) && !str_contains($json, OTHER_OWNER),
             "$case: no lease owner token reaches the published record"
         );
-        duo_check(
+        wprism_check(
             preg_match('/(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])/', $json) !== 1,
             "$case: no 64-hex artifact hash reaches the published record"
         );
-        duo_check(
+        wprism_check(
             preg_match('~(?:^|[\s:(\'"])/[^\s\'"),]+~', $json) !== 1,
             "$case: no absolute filesystem path reaches the published record"
         );
-        duo_check(
+        wprism_check(
             preg_match('/\b[12]\d{9}\b/', $json) !== 1,
             "$case: no epoch timestamp reaches the published record"
         );
-        duo_check_same(
+        wprism_check_same(
             false,
             CommandRefusalException::containsSensitivePublicDetail($published),
             "$case: the record passes the same screen Cli applies at the serialization boundary"
         );
     }
 
-    $cli = new \Duo\Cli();
+    $cli = new \WPrism\Cli();
 
     // ------------------------------------------------------------- the fence
     echo "\n== the connection-scoped process fence ==\n";
@@ -447,7 +447,7 @@ namespace {
         'process_fence_held',
         'another live process on this target holds the promotion fence; concurrent target mutation was refused',
         'wait for the capture, apply, or promotion already running on this target to finish or release its fence, then retry this command',
-        'duo: promotion lock held by another live target process; concurrent target mutation refused'
+        'wprism: promotion lock held by another live target process; concurrent target mutation refused'
     );
 
     // assertHeld() with no fence ever taken: the continuity break. A DIFFERENT
@@ -467,7 +467,7 @@ namespace {
         'process_fence_not_held',
         'the promotion process fence is no longer continuously held by this command\'s database connection; target mutation was refused',
         'do not retry in place: rerun the command so it acquires a fresh fence, and inspect the recorded apply, promotion, and recovery evidence first if a mutation was already in flight',
-        'duo: promotion process fence is not continuously held by this database connection'
+        'wprism: promotion process fence is not continuously held by this database connection'
     );
 
     // ------------------------------------------------------- the promotion lease
@@ -497,7 +497,7 @@ namespace {
         'promotion_lease_held',
         'a promotion lease on this target is held by another release; concurrent target mutation was refused',
         'wait for the recorded promotion to finish, or release its lease through the release that holds it, before promoting this target again',
-        "duo: promotion lock held by '" . OTHER_OWNER . "' in phase 'deploy' until epoch 4102444800; "
+        "wprism: promotion lock held by '" . OTHER_OWNER . "' in phase 'deploy' until epoch 4102444800; "
             . 'concurrent target mutation refused'
     );
 
@@ -520,7 +520,7 @@ namespace {
         'promotion_lease_expired',
         'the promotion lease expired before this handoff; the promotion was refused rather than revived',
         'begin a new promotion instead of reviving this one; an expired owner must not resume a half-finished release',
-        'duo: promotion lock expired before handoff; start a new promotion rather than reviving this owner'
+        'wprism: promotion lock expired before handoff; start a new promotion rather than reviving this owner'
     );
 
     // The same owner, a live lease, a different compiled artifact.
@@ -542,7 +542,7 @@ namespace {
         'promotion_lease_artifact_mismatch',
         'the promotion lease owner attempted to change its compiled artifact mid-promotion; target mutation was refused',
         'abort this promotion and begin a new one for the exact compiled artifact you intend to release',
-        'duo: promotion lock owner attempted to change its compiled artifact'
+        'wprism: promotion lock owner attempted to change its compiled artifact'
     );
 
     // Two internal detection points, ONE public code. First: the pre-write
@@ -562,7 +562,7 @@ namespace {
         'promotion_lease_lost',
         'the promotion lease this command holds is gone or expired; target mutation was refused',
         'do not retry in place: abort this promotion, inspect the recorded lifecycle and recovery evidence, then begin a new promotion',
-        'duo: promotion lock lost or expired; mutation refused'
+        'wprism: promotion lock lost or expired; mutation refused'
     );
 
     // Second: the lease was still there before the renewal UPDATE and gone
@@ -586,32 +586,32 @@ namespace {
         'promotion_lease_lost',
         'the promotion lease this command holds is gone or expired; target mutation was refused',
         'do not retry in place: abort this promotion, inspect the recorded lifecycle and recovery evidence, then begin a new promotion',
-        'duo: promotion lock lost during renewal; mutation refused'
+        'wprism: promotion lock lost during renewal; mutation refused'
     );
 
     // ----------------------------------------------------- the repository state
-    echo "\n== repository state: not a duo repository ==\n";
+    echo "\n== repository state: not a wprism repository ==\n";
 
     // The first thing an orchestrator meets on a mistyped --repo. The operator
-    // sentence carries the absolute site.duo.json path; the public half must
+    // sentence carries the absolute site.wprism.json path; the public half must
     // not, or CommandRefusal.php:199 would redact the whole payload.
-    $absentRepo = $tmp . '/not-a-duo-repository';
+    $absentRepo = $tmp . '/not-a-wprism-repository';
     [$refusal, $published] = typed_refusal_case(
-        'a --repo that is not a duo repository',
+        'a --repo that is not a wprism repository',
         'plan',
         static fn() => $cli->plan([], ['repo' => $absentRepo, 'format' => 'json']),
         static fn() => Policy::load($absentRepo),
         static fn(): object => typed_refusal_wpdb()
     );
     typed_refusal_assert(
-        'a --repo that is not a duo repository',
+        'a --repo that is not a wprism repository',
         'plan',
         $refusal,
         $published,
         'repository_missing',
-        'the given repository path is not a duo site repository: it has no site.duo.json',
-        'point --repo at an initialized duo site repository, or run duo init against that directory first',
-        "duo: $absentRepo/site.duo.json not found (not a duo site repo?)"
+        'the given repository path is not a wprism site repository: it has no site.wprism.json',
+        'point --repo at an initialized wprism site repository, or run wprism init against that directory first',
+        "wprism: $absentRepo/site.wprism.json not found (not a wprism site repo?)"
     );
 
     // ------------------------------------------- the compiled artifact identity
@@ -659,8 +659,8 @@ namespace {
         $published,
         'compiled_artifact_manifest_mismatch',
         'the compiled manifest and interpreter set does not match this repository\'s active manifest pins',
-        'recompile the repository and re-pin it with the object wp duo manifest-pin emits, then rerun this command with the new artifact',
-        "duo: repository compilation failed (1 blocking diagnostic(s)); no target contact or mutation attempted:\n"
+        'recompile the repository and re-pin it with the object wp wprism manifest-pin emits, then rerun this command with the new artifact',
+        "wprism: repository compilation failed (1 blocking diagnostic(s)); no target contact or mutation attempted:\n"
             . "  - [compiled_artifact_manifest_mismatch] $manifestArtifact — compiled manifest/interpreter set "
             . 'does not match active pins'
     );
@@ -681,10 +681,10 @@ namespace {
         $published,
         'compiled_artifact_policy_mismatch',
         'the compiled artifact was built from a different site policy than the one active on this repository',
-        'recompile the repository against its current site.duo.json, then rerun this command with that artifact',
-        "duo: repository compilation failed (1 blocking diagnostic(s)); no target contact or mutation attempted:\n"
+        'recompile the repository against its current site.wprism.json, then rerun this command with that artifact',
+        "wprism: repository compilation failed (1 blocking diagnostic(s)); no target contact or mutation attempted:\n"
             . "  - [compiled_artifact_policy_mismatch] $policyArtifact — compiled site policy does not match the "
-            . 'active site.duo.json'
+            . 'active site.wprism.json'
     );
 
     $unreadableArtifact = $tmp . '/unreadable.json';
@@ -697,17 +697,17 @@ namespace {
         static fn(): object => typed_refusal_wpdb()
     );
     if ($refusal !== null) {
-        duo_check_same('compiled_artifact_invalid', $refusal->reasonCode, 'an unreadable compiled artifact: names compiled_artifact_invalid');
+        wprism_check_same('compiled_artifact_invalid', $refusal->reasonCode, 'an unreadable compiled artifact: names compiled_artifact_invalid');
         // The nested Throwable text is operator evidence and can itself carry
         // the artifact path, which is exactly why the published diagnostic
         // carries the reviewed constant instead of $message.
-        duo_check(
+        wprism_check(
             str_contains($refusal->getMessage(), '[compiled_artifact_invalid] ' . $unreadableArtifact),
             'an unreadable compiled artifact: the operator sentence keeps the compiler-batch framing, path included'
         );
     }
-    duo_check_same('compiled_artifact_invalid', $published['error'] ?? null, 'an unreadable compiled artifact: the envelope names compiled_artifact_invalid');
-    duo_check(
+    wprism_check_same('compiled_artifact_invalid', $published['error'] ?? null, 'an unreadable compiled artifact: the envelope names compiled_artifact_invalid');
+    wprism_check(
         !array_key_exists('details_redacted', $published)
             && !str_contains((string) json_encode($published), $unreadableArtifact),
         'an unreadable compiled artifact: the envelope is classified and the artifact path never reaches it'
@@ -716,7 +716,7 @@ namespace {
     // The reviewed diagnostic row every reader refusal publishes: code plus the
     // same constant guidance, and NEVER the artifact path or the nested
     // exception text that used to be copied verbatim into public JSON.
-    duo_check_same(
+    wprism_check_same(
         [['code' => 'compiled_artifact_invalid',
           'message' => 'the compiled artifact is unreadable or disagrees with its own recorded content',
           'remediation' => 'recompile the repository and rerun this command against the newly compiled artifact']],
@@ -724,5 +724,5 @@ namespace {
         'an unreadable compiled artifact: its published diagnostic row is reviewed, constant, and path-free'
     );
 
-    duo_check_summary('regress_typed_refusal_envelopes');
+    wprism_check_summary('regress_typed_refusal_envelopes');
 }

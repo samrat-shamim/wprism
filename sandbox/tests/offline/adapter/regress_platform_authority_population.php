@@ -13,7 +13,7 @@
  * the checklist with its current truth values). So this suite proves the
  * MECHANISM and the CEREMONY over the program's own fixture keys, in scratch
  * libraries, and it re-asserts on every run that the SHIPPED file is still
- * `{"format":"duo-adapter-authorities/v1","keys":{}}` byte for byte.
+ * `{"format":"wprism-adapter-authorities/v1","keys":{}}` byte for byte.
  *
  * NO REAL VENDOR WAS VETTED HERE, and nothing below should be read as saying
  * one was. `acme-*` is a fixture namespace and its key is a deterministic
@@ -87,7 +87,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/certification_fixture.php';
 
 require_once __DIR__ . '/../../lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 
 require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
@@ -97,12 +97,12 @@ require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterCertification.php'
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php';
 
-use Duo\AdapterCertification;
-use Duo\AdapterLibrary;
-use Duo\AdapterSources;
-use Duo\Canon;
-use Duo\Policy;
-use Duo\RepositoryCompiler;
+use WPrism\AdapterCertification;
+use WPrism\AdapterLibrary;
+use WPrism\AdapterSources;
+use WPrism\Canon;
+use WPrism\Policy;
+use WPrism\RepositoryCompiler;
 
 // The two WordPress seams a policy load can touch. They REFUSE rather than
 // answer, exactly as `spec_migration_estate.php:2060-2072` does: a suite that
@@ -199,7 +199,7 @@ function pop_write_canon(string $path, $value): void {
  */
 function pop_write_bundle(string $dir, string $site, string $name, array $manifest): string {
     $pretty = static fn($value): string => json_encode(
-        \Duo\Canon::normalize($value),
+        \WPrism\Canon::normalize($value),
         JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
     ) . "\n";
     $descriptor = static function (string $path, string $relative): array {
@@ -299,7 +299,7 @@ function pop_write_bundle(string $dir, string $site, string $name, array $manife
     $digestInput = $bundle;
     unset($digestInput['bundle_digest']);
     $bundle['bundle_digest'] = hash('sha256', json_encode(
-        \Duo\Canon::normalize($digestInput),
+        \WPrism\Canon::normalize($digestInput),
         JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
     ) . "\n");
     pop_write($dir . '/bundle.json', $pretty($bundle));
@@ -326,10 +326,10 @@ function pop_run(array $command): array {
 // Rule 3: scratch never lives under agent/ or manifests/ —
 // `sandbox/bin/pair.sh:355` refuses on an untracked file there. A unique root
 // per run, because `make -j8` runs this corpus concurrently.
-$root = sys_get_temp_dir() . '/duo-authority-population-' . bin2hex(random_bytes(6));
+$root = sys_get_temp_dir() . '/wprism-authority-population-' . bin2hex(random_bytes(6));
 register_shutdown_function(static fn() => pop_remove_tree($root));
 
-$library = duo_cert_hermetic_library($repo, $root . '/library-projection');
+$library = wprism_cert_hermetic_library($repo, $root . '/library-projection');
 $adapterLibrary = AdapterLibrary::fromLegacyFlatDirectory($library);
 $site = $root . '/site';
 if (!mkdir($site . '/adapters', 0777, true)) {
@@ -426,21 +426,21 @@ echo "\n== the shipped precondition: G4 gates real population, and it has not op
 // ---------------------------------------------------------------------------
 
 $shippedAuthorities = (string) file_get_contents($repo . '/platform/adapter-library/capabilities/adapter-authorities.json');
-duo_check_same(
+wprism_check_same(
     Canon::encode((object) ['format' => AdapterCertification::AUTHORITIES_FORMAT, 'keys' => new stdClass()]),
     $shippedAuthorities,
     'platform/adapter-library/capabilities/adapter-authorities.json is still the EMPTY v1 registry, BYTE FOR BYTE — this work '
     . 'package populates a scratch library and never the shipped one, because issuing a real key is gate G4\'s '
     . 'decision and G4 has conditions this environment cannot meet'
 );
-duo_check(
+wprism_check(
     !str_contains($shippedAuthorities, $platformKey['short'])
         && !str_contains($shippedAuthorities, $vendorKey['short'])
         && !str_contains($shippedAuthorities, $secondVendorKey['short']),
     'and no fixture key of this suite appears anywhere in it: the ceremony below is rehearsed over seeds checked '
     . 'into this file, not over material any party holds'
 );
-duo_check(
+wprism_check(
     !file_exists($repo . '/platform/adapter-library/capabilities/adapter-revocations.json'),
     'the shipped manifest library still carries NO revocation document either — its absence is what makes '
     . '"nothing is revoked" an answer rather than a default (§ v3.8)'
@@ -463,7 +463,7 @@ $unsignedRegistry = (object) [
 ];
 pop_write($authoritiesPath, Canon::encode($unsignedRegistry));
 $unsignedRefusal = (string) $refusal(static fn() => $resolve($platformId));
-duo_check(
+wprism_check(
     str_contains($unsignedRefusal, 'must contain exactly format, keys, signature'),
     'an enrolled-but-unsigned v2 registry is refused by the shipped reader, through the closed envelope key set '
     . '— the signature is not an adornment a populated root may omit (' . $unsignedRefusal . ')'
@@ -481,14 +481,14 @@ $signRegistry = pop_run([
     '--authority=' . $platformId,
     '--secret-key-file=' . $platformSecretPath,
 ]);
-duo_check(
+wprism_check(
     $signRegistry['exit'] === 0,
     'the reviewer verb `authorities-sign` signs the registry in place, through the shipped producer, which '
     . 'validates every record before the private key is touched (' . trim($signRegistry['stderr']) . ')'
 );
 $enrolledRaw = (string) file_get_contents($authoritiesPath);
 $enrolledDocument = Canon::decode($enrolledRaw);
-duo_check_same(
+wprism_check_same(
     $platformId,
     (string) ($enrolledDocument['signature']['key_id'] ?? ''),
     'and the envelope names the key inside the document as its signer — the registry attests to ITSELF, which is '
@@ -496,13 +496,13 @@ duo_check_same(
     . 'move a window or flip a status in it'
 );
 [$platformRecord, $resolvedPlatformId, $platformDigest, $platformRootWord] = $resolve($platformId);
-duo_check_same($platformId, $resolvedPlatformId, 'the enrolled key now resolves through the shipped selector');
-duo_check_same(
+wprism_check_same($platformId, $resolvedPlatformId, 'the enrolled key now resolves through the shipped selector');
+wprism_check_same(
     AdapterCertification::TRUST_ROOT_PLATFORM,
     $platformRootWord,
     'under trust root `platform` — the root a reviewer owns, which is what enrollment moves'
 );
-duo_check_same(
+wprism_check_same(
     2,
     $platformRecord['record_version'] ?? null,
     'and the record it carries is a `record_version: 2` record: fingerprint-derived id, mandatory window, '
@@ -541,7 +541,7 @@ $signDelegation = pop_run([
     '--authority=' . $platformId,
     '--secret-key-file=' . $platformSecretPath,
 ]);
-duo_check(
+wprism_check(
     $signDelegation['exit'] === 0 && $signDelegation['stdout'] !== '',
     'the reviewer verb `delegation-sign` emits the installable {signature, statement} object ('
     . trim($signDelegation['stderr']) . ')'
@@ -556,14 +556,14 @@ $installDelegations = static function (array $delegations) use ($site): void {
 $installDelegations([$vendorId => $delegation]);
 
 [$vendorRecord, $resolvedVendorId, , $vendorRootWord] = $resolve($vendorId);
-duo_check_same($vendorId, $resolvedVendorId, 'the site installs it, and the vendor key resolves at depth 1');
-duo_check_same(
+wprism_check_same($vendorId, $resolvedVendorId, 'the site installs it, and the vendor key resolves at depth 1');
+wprism_check_same(
     AdapterCertification::TRUST_ROOT_SITE,
     $vendorRootWord,
     'under trust root `site`, not a third word: R-13\'s third value stays unspent, because a delegated key '
     . 'certifies ONE repository and that is what `site` already means inside the signed statement'
 );
-duo_check_same(
+wprism_check_same(
     ['acme-invoices-*', 'acme-shop'],
     (static function (array $names): array {
         sort($names, SORT_STRING);
@@ -584,14 +584,14 @@ $adapterManifest = [
     'options' => ['acme_shop_layout' => ['class' => 'authored']],
     'plugin' => 'acme-shop/acme-shop.php',
     'post_types' => [],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'version_range' => ['max' => '3.0.0', 'min' => '1.0.0'],
 ];
 pop_write_canon($site . '/adapters/' . $adapterName . '.json', $adapterManifest);
-pop_write_canon($site . '/site.duo.json', (object) [
+pop_write_canon($site . '/site.wprism.json', (object) [
     'manifests' => [['name' => $adapterName, 'source' => 'site']],
     'policy' => new stdClass(),
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ]);
 
 $signSite = static fn(string $authorityId, string $secretPath): array => pop_run([
@@ -606,7 +606,7 @@ $signSite = static fn(string $authorityId, string $secretPath): array => pop_run
     '--reason=grammar verified by the enrolled vendor; not exercised',
 ]);
 $vendorSign = $signSite($vendorId, $vendorSecretPath);
-duo_check(
+wprism_check(
     $vendorSign['exit'] === 0,
     'the delegated vendor key certifies the adapter through `sign-site` (' . trim($vendorSign['stderr']) . ')'
 );
@@ -618,18 +618,18 @@ $vendorVerified = AdapterCertification::verifyFile(
     $adapterManifest,
     $certificatePath
 );
-duo_check_same(
+wprism_check_same(
     'experimental',
     $vendorVerified['claim']['status'] ?? null,
     'and the unexercised signature verifies live without becoming a certified claim'
 );
-duo_check_same(
+wprism_check_same(
     AdapterCertification::TRUST_ROOT_SITE,
     $vendorVerified['disposition']['provenance']['proof']['authority']['trust_root'] ?? null,
     'and it is SITE-rooted, carrying the delegated key as its principal: the delegation is a documented '
     . 'provenance for a key inside the existing site root, never a new custody model'
 );
-duo_check_same(
+wprism_check_same(
     $vendorId,
     $vendorVerified['disposition']['provenance']['proof']['authority']['key_id'] ?? null,
     'with the vendor\'s own id inside the signature, which is what makes the typed revocation below able to name '
@@ -643,7 +643,7 @@ echo "\n== step 5: the word an operator actually reads, projected from both root
 // Certification is an ELEVATION the repository pin gates
 // (`AdapterSources::bind_explicit_pins()`), so the word is only reachable once
 // the pin binds both `source: "site"` and the final certificate-derived digest.
-// Computed in two passes for the reason `duo adapter certify --pin` does it in
+// Computed in two passes for the reason `wprism adapter certify --pin` does it in
 // two: the digest folds the certificate in, so it cannot be known before the
 // certificate exists.
 $pinRepository = static function (string $name) use ($site, $adapterLibrary): string {
@@ -651,10 +651,10 @@ $pinRepository = static function (string $name) use ($site, $adapterLibrary): st
     // repository at load (`PinResolver::validate_manifest_pins()`), and the
     // digest folds the CERTIFICATE in, so re-minting one always invalidates the
     // pin that preceded it. That is rule 2 acting on a site adapter, and it is
-    // why `duo adapter certify --pin` writes the pin rather than asking for it.
-    $reset = Canon::decode(Canon::read_file($site . '/site.duo.json'));
+    // why `wprism adapter certify --pin` writes the pin rather than asking for it.
+    $reset = Canon::decode(Canon::read_file($site . '/site.wprism.json'));
     $reset['manifests'] = [['name' => $name, 'source' => 'site']];
-    pop_write_canon($site . '/site.duo.json', $reset);
+    pop_write_canon($site . '/site.wprism.json', $reset);
     $policy = Policy::load($site, adapterLibrary: $adapterLibrary);
     $digest = '';
     foreach (RepositoryCompiler::resolved_adapters($policy) as $row) {
@@ -662,9 +662,9 @@ $pinRepository = static function (string $name) use ($site, $adapterLibrary): st
             $digest = (string) $row['digest'];
         }
     }
-    $document = Canon::decode(Canon::read_file($site . '/site.duo.json'));
+    $document = Canon::decode(Canon::read_file($site . '/site.wprism.json'));
     $document['manifests'] = [['digest' => $digest, 'name' => $name, 'source' => 'site']];
-    pop_write_canon($site . '/site.duo.json', $document);
+    pop_write_canon($site . '/site.wprism.json', $document);
 
     return $digest;
 };
@@ -677,7 +677,7 @@ $surveyWord = static function (string $name) use ($site, $adapterLibrary): ?stri
     return null;
 };
 $pinRepository($adapterName);
-duo_check_same(
+wprism_check_same(
     AdapterSources::CERTIFICATION_SIGNED_UNEXERCISED,
     $surveyWord($adapterName),
     'an unexercised adapter approval under a delegated vendor key projects `signed_unexercised`'
@@ -699,7 +699,7 @@ $platformThroughSiteVerb = (string) $refusal(static function () use ($signSite, 
         throw new RuntimeException($result['stderr']);
     }
 });
-duo_check(
+wprism_check(
     str_contains($platformThroughSiteVerb, "authority key '$platformId' is agent-owned")
         && str_contains($platformThroughSiteVerb, 'certifies a reviewed exercise'),
     'the enrolled platform key is refused BY NAME through the operator verb: enrollment does not make the cheap '
@@ -719,7 +719,7 @@ $platformSign = pop_run([
     '--authority=' . $platformId,
     '--secret-key-file=' . $platformSecretPath,
 ]);
-duo_check(
+wprism_check(
     $platformSign['exit'] === 0,
     'the enrolled platform key certifies the same adapter from a reviewed-exercise bundle ('
     . trim($platformSign['stderr']) . ')'
@@ -733,20 +733,20 @@ $platformVerified = AdapterCertification::verifyFile(
 );
 $platformEnvelope = $platformVerified['envelope'];
 $platformRecordDigest = (string) ($platformVerified['disposition']['provenance']['proof']['authority']['record_sha256'] ?? '');
-duo_check_same(
+wprism_check_same(
     AdapterCertification::TRUST_ROOT_PLATFORM,
     $platformVerified['disposition']['provenance']['proof']['authority']['trust_root'] ?? null,
     'and THAT certificate is platform-rooted — the one certificate shape an enrolled trust root exists to make '
     . 'possible'
 );
 $pinRepository($adapterName);
-duo_check_same(
+wprism_check_same(
     'third_party_signed',
     $surveyWord($adapterName),
     'so the operator-facing word becomes `third_party_signed`: the enrollment ceremony\'s actual product, and '
     . 'the exact word gate G4 decides whether any stranger may ever cause to appear'
 );
-duo_check_same(
+wprism_check_same(
     $platformDigest,
     $platformRecordDigest,
     'the certificate pins the enrolled record\'s own canonical digest — the value the second-enrollment '
@@ -802,12 +802,12 @@ $enrollSecond = static function () use (
     ]);
 };
 $secondEnrollment = $enrollSecond();
-duo_check(
+wprism_check(
     $secondEnrollment['exit'] === 0,
     'a SECOND, UNRELATED vendor is enrolled and the registry re-signed (' . trim($secondEnrollment['stderr']) . ')'
 );
 $grownDocument = Canon::decode((string) file_get_contents($authoritiesPath));
-duo_check(
+wprism_check(
     (string) $grownDocument['signature']['value'] !== (string) $enrolledDocument['signature']['value']
         && count((array) $grownDocument['keys']) === 2,
     'and the ENVELOPE signature moved with it: the signature covers `{format, keys}`, so admitting one vendor '
@@ -833,20 +833,20 @@ try {
 } catch (Throwable $t) {
     $grown = ['claim' => ['status' => 'refused: ' . $t->getMessage()]];
 }
-duo_check_same(
+wprism_check_same(
     'certified',
     $grown['claim']['status'] ?? null,
     'THE INVARIANT: the certificate issued under the FIRST key still verifies after the second enrollment — '
     . 'enrollment cadence is independent of every already-certified site, which is the property that makes '
     . 'admitting a vendor a data decision rather than a fleet event'
 );
-duo_check_same(
+wprism_check_same(
     $platformRecordDigest,
     (string) ($grown['disposition']['provenance']['proof']['authority']['record_sha256'] ?? ''),
     'and the pinned authority digest is still the record the certificate was SIGNED over, so no repository pin '
     . 'moves when the trust root grows'
 );
-duo_check_same(
+wprism_check_same(
     'certified',
     AdapterCertification::verifyFrozen(
         $adapterLibrary,
@@ -857,7 +857,7 @@ duo_check_same(
     'the FROZEN path answers the same way: a promoted site holding this snapshot is untouched by an enrollment '
     . 'it never saw'
 );
-duo_check_same(
+wprism_check_same(
     $vendorId,
     $resolve($vendorId)[1],
     'and the first vendor\'s delegation still resolves THROUGH the widened delegator: a delegation is judged '
@@ -891,7 +891,7 @@ $identityMoved = (string) $refusal(
         $certificatePath
     )
 );
-duo_check(
+wprism_check(
     str_contains($identityMoved, "site adapter '$adapterName' certification authority/key/fingerprint/trust root")
         && str_contains($identityMoved, 'does not match the current platform authority record'),
     'while flipping that key\'s `status` in the same file still stops it at once, and it is the IDENTITY '
@@ -911,7 +911,7 @@ echo "\n== step 8: the refusal matrix a delegated grant must have ==\n";
 // `sign-site` is the path an operator runs, and a fixture that replayed a saved
 // certificate would stop proving the producer still agrees with the verifier.
 $vendorSign = $signSite($vendorId, $vendorSecretPath);
-duo_check($vendorSign['exit'] === 0, 're-minted under the delegated vendor key (' . trim($vendorSign['stderr']) . ')');
+wprism_check($vendorSign['exit'] === 0, 're-minted under the delegated vendor key (' . trim($vendorSign['stderr']) . ')');
 $vendorVerified = AdapterCertification::verifyFile(
     $adapterLibrary,
     $site,
@@ -921,7 +921,7 @@ $vendorVerified = AdapterCertification::verifyFile(
 );
 $vendorEnvelope = $vendorVerified['envelope'];
 $pinRepository($adapterName);
-duo_check_same(
+wprism_check_same(
     AdapterSources::CERTIFICATION_SIGNED_UNEXERCISED,
     $surveyWord($adapterName),
     'and the repository preserves the signed_unexercised control every refusal below is measured against'
@@ -932,7 +932,7 @@ duo_check_same(
 $outsideNamespace = (string) $refusal(
     static fn() => $scope->invoke(null, $vendorRecord, $vendorId, 'acme-catalog', 'declarative_manifest')
 );
-duo_check(
+wprism_check(
     str_contains($outsideNamespace, "is not scoped to site adapter 'acme-catalog'"),
     'a name inside the DELEGATOR\'s namespace but outside the DELEGATE\'s grant refuses by name: the grant is '
     . 'the delegate\'s scope, never the delegator\'s (' . $outsideNamespace . ')'
@@ -949,7 +949,7 @@ $outsideEndToEnd = pop_run([
     '--secret-key-file=' . $vendorSecretPath,
     '--reason=grammar verified by the enrolled vendor; not exercised',
 ]);
-duo_check(
+wprism_check(
     $outsideEndToEnd['exit'] !== 0
         && str_contains($outsideEndToEnd['stderr'], "is not scoped to site adapter 'acme-catalog'"),
     'and the same refusal fires end to end, before a private key is touched — a vendor cannot certify outside '
@@ -966,21 +966,21 @@ try {
 } catch (Throwable $t) {
     $expiredTyped = $t;
 }
-duo_check(
-    $expiredTyped instanceof \Duo\WithdrawnAuthoritySiteAdapterCertificate
+wprism_check(
+    $expiredTyped instanceof \WPrism\WithdrawnAuthoritySiteAdapterCertificate
         && str_contains($expiredTyped->getMessage(), "authority key '$vendorId' expired at 2027-01-01T00:00:00Z"),
     'an EXPIRED delegation withdraws the adapter through the TYPED signal — not a whole-source refusal: a grant '
     . 'that lapsed on schedule must not brick a site (' . get_class($expiredTyped ?? new RuntimeException('none'))
     . ': ' . ($expiredTyped?->getMessage() ?? 'no refusal') . ')'
 );
-duo_check_same(
+wprism_check_same(
     'uncertified',
     $surveyWord($adapterName),
     'and the operator-facing word falls to `uncertified`: exactly as unvouched-for as an adapter nobody ever '
     . 'signed, which is what an expired grant means'
 );
 $setClock('2026-06-01T00:00:00Z');
-duo_check_same(
+wprism_check_same(
     AdapterSources::CERTIFICATION_SIGNED_UNEXERCISED,
     $surveyWord($adapterName),
     'moving the clock back restores the signed approval — the window is read live on every resolution'
@@ -1028,12 +1028,12 @@ $revokedDelegator = (string) $refusal(
         $certificatePath
     )
 );
-duo_check(
+wprism_check(
     str_contains($revokedDelegator, "authority key '$platformId' is revoked by the platform-signed revocation record"),
     'revoking the DELEGATOR through the typed channel invalidates its delegate on the live path at once, with '
     . 'no agent release and no site file touched (' . $revokedDelegator . ')'
 );
-duo_check_same(
+wprism_check_same(
     'experimental',
     AdapterCertification::verifyFrozen(
         $adapterLibrary,
@@ -1060,7 +1060,7 @@ echo "\n== step 9: THE REVOCATION DRILL on WP-1.4's rehearsal fleet ==\n";
 // driver, unchanged, and the drill runs against it in a child process at the
 // estate's own state — a state is a pair of define()s and this process already
 // holds the tree's.
-$estate = sys_get_temp_dir() . '/duo-revocation-drill-estate-' . bin2hex(random_bytes(6));
+$estate = sys_get_temp_dir() . '/wprism-revocation-drill-estate-' . bin2hex(random_bytes(6));
 register_shutdown_function(static fn() => pop_remove_tree($estate));
 $estateDriver = __DIR__ . '/../guards/spec_migration_estate.php';
 $materialize = pop_run([PHP_BINARY, $estateDriver, $estate, 'A', 'materialize']);
@@ -1087,17 +1087,17 @@ if ($drill['exit'] !== 0 || !is_array($drilled)) {
     exit(1);
 }
 
-duo_check_same(
+wprism_check_same(
     ['format' => AdapterCertification::AUTHORITIES_FORMAT, 'keys' => []],
     (array) $drilled['shipped_root'],
     'the fleet\'s own manifest libraries carry the EMPTY v1 root, exactly like every agent in the field — the '
     . 'drill enrolls into a copy, and the copy is what it burns a key in'
 );
-duo_check(
+wprism_check(
     $drilled['revocation_document_ships'] === false,
     'and none of them ships a revocation document, which is why the drill has to install one'
 );
-duo_check(
+wprism_check(
     str_contains(
         (string) $drilled['inert_before_enrollment']['message'],
         'is not installed in capabilities/adapter-authorities.json'
@@ -1108,7 +1108,7 @@ duo_check(
     . 'BUYS; an agent with an empty root has none, which is why G4 orders (3) before admission'
 );
 foreach (['certified-alpha', 'certified-beta', 'promoted-frozen'] as $id) {
-    duo_check_same(
+    wprism_check_same(
         'experimental',
         (string) $drilled['before'][$id]['verdict'],
         "control: $id verifies before the burn — every measurement below is against this"
@@ -1118,32 +1118,32 @@ foreach (['certified-alpha', 'certified-beta', 'promoted-frozen'] as $id) {
 $alpha = (array) $drilled['after']['certified-alpha'];
 $frozen = (array) $drilled['after']['promoted-frozen'];
 $beta = (array) $drilled['after']['certified-beta'];
-duo_check(
+wprism_check(
     $alpha['verdict'] === 'withdrawn'
         && str_contains((string) $alpha['reason'], "authority key 'site-key-alpha' is revoked by the platform-signed revocation record"),
     'THE LIVE PATH: a site certified under the burnt key withdraws its claim, naming the key, the instant and '
     . 'the reason (' . substr((string) $alpha['reason'], 0, 140) . ')'
 );
-duo_check(
+wprism_check(
     $frozen['verdict'] === 'withdrawn'
         && str_contains((string) $frozen['reason'], "authority key 'site-key-alpha' is revoked by the platform-signed revocation record"),
     'THE FROZEN PATH — the case the channel exists for: a PROMOTED site verifying from the snapshot it holds '
     . 'reopens no mutable site file, so the operator\'s own authorities.json can never reach it. The '
     . 'agent-owned document does'
 );
-duo_check(
+wprism_check(
     str_contains((string) $frozen['reason'], 'This channel reaches the frozen path, which a status flip in the operator\'s own adapters/authorities.json deliberately does not'),
     'and the refusal STATES the distinction, so an operator reading a refused snapshot can tell which of the two '
     . 'revocation mechanisms answered without reading the source'
 );
-duo_check_same(
+wprism_check_same(
     'experimental',
     (string) $beta['verdict'],
     'BLAST RADIUS: the site certified under the OTHER operator key is untouched — one burnt fingerprint burns '
     . 'one identity, not a fleet'
 );
 foreach (['certified-alpha', 'promoted-frozen'] as $id) {
-    duo_check(
+    wprism_check(
         str_starts_with((string) $drilled['after'][$id]['load'], 'loaded ')
             && (string) $drilled['after'][$id]['word'] === 'uncertified',
         "and $id still LOADS with its claim withdrawn to `uncertified`: a revocation takes away the CLAIM, not "
@@ -1161,34 +1161,34 @@ foreach (['certified-alpha', 'promoted-frozen'] as $id) {
 // (AGENTS.md rule 2). So a revocation hands every affected site the flag day's
 // own step 6 — recompile — in the middle of a security incident, and the
 // compromise ceremony has to say so.
-duo_check(
+wprism_check(
     (string) $drilled['after']['certified-alpha']['digest'] !== (string) $drilled['before']['certified-alpha']['digest']
         && (string) $drilled['after']['certified-alpha']['manifest_hash']
             !== (string) $drilled['before']['certified-alpha']['manifest_hash'],
     'the withdrawn adapter\'s DIGEST moves, and the site\'s `manifest_hash` with it — the certificate is folded '
     . 'into the row `manifest_rows()` hashes, so removing it is a content change by rule 2\'s own definition'
 );
-duo_check_same(
+wprism_check_same(
     'compiled_artifact_manifest_mismatch',
     (string) $drilled['after']['certified-alpha']['artifact'],
     'so the compiled artifact the site was HOLDING refuses by name — the incident\'s real cost, and the reason '
     . 'the compromise ceremony ends with a recompile step rather than with the revocation itself'
 );
-duo_check(
+wprism_check(
     str_starts_with((string) $drilled['after']['certified-alpha']['load'], 'loaded '),
     'while the repository still LOADS on a stale content pin, because a `source: "site"` pin on an adapter that '
     . 'is no longer certified is the documented edit-then-uncertified concession '
     . '(`PinResolver::validate_manifest_pins()`) — without it the remedy command could not run on the site that '
     . 'needs it'
 );
-duo_check_same(
+wprism_check_same(
     (string) $drilled['before']['certified-beta']['manifest_hash'],
     (string) $drilled['after']['certified-beta']['manifest_hash'],
     'and the site under the OTHER key does not move one identity byte: the blast radius is the fingerprint, not '
     . 'the fleet'
 );
 foreach (['certified-alpha', 'certified-beta', 'promoted-frozen'] as $id) {
-    duo_check_same(
+    wprism_check_same(
         'experimental',
         (string) $drilled['restored'][$id],
         "stand-down: removing the document restores $id — ABSENCE means \"nothing is revoked\", which is the "
@@ -1201,13 +1201,13 @@ foreach (['certified-alpha', 'certified-beta', 'promoted-frozen'] as $id) {
 // hardware. What IS asserted is the SHAPE — the whole fleet is reached inside
 // one second of agent-side work, and no site needed an agent release, a
 // restart or a second document.
-duo_check_detail(sprintf(
+wprism_check_detail(sprintf(
     'measured propagation, agent side (this host, this run): document install %.3f ms',
     (float) $drilled['install_ms']
 ));
 foreach (['certified-alpha', 'certified-beta', 'promoted-frozen'] as $id) {
     $row = (array) $drilled['after'][$id];
-    duo_check_detail(sprintf(
+    wprism_check_detail(sprintf(
         '  %-16s %-6s verify %8.3f ms   landed->effect %8.3f ms   verdict %s',
         $id,
         (string) $row['path'],
@@ -1216,7 +1216,7 @@ foreach (['certified-alpha', 'certified-beta', 'promoted-frozen'] as $id) {
         (string) $row['verdict']
     ));
 }
-duo_check(
+wprism_check(
     (float) $drilled['fleet_reached_ms'] < 1000.0 && (float) $drilled['install_ms'] < 1000.0,
     sprintf(
         'the whole fleet — live and frozen — is reached in %.3f ms of agent-side work, with no agent release, no '
@@ -1241,13 +1241,13 @@ echo "\n== step 10: the ceremony is WRITTEN DOWN, and the gate it serves is enum
 // disappear is worse than no checklist.
 $guide = $repo . '/docs/guides/trust-enrollment.md';
 $guideText = is_file($guide) ? (string) file_get_contents($guide) : '';
-duo_check(
+wprism_check(
     $guideText !== '',
     'docs/guides/trust-enrollment.md exists — G4 condition (5) is a written deliverable, and this suite is the '
     . 'evidence the rest of that page cites'
 );
 foreach (['The vetting posture', 'The rotation ceremony', 'The compromise ceremony', 'The G4 checklist'] as $section) {
-    duo_check(
+    wprism_check(
         str_contains($guideText, '## ' . $section),
         "and it still carries the section '$section'"
     );
@@ -1258,24 +1258,24 @@ for ($condition = 1; $condition <= 8; $condition++) {
         $enumerated++;
     }
 }
-duo_check_same(
+wprism_check_same(
     8,
     $enumerated,
     'the checklist enumerates all EIGHT G4 conditions: the gate opens on all of them or on none, so a table '
     . 'that lost a row would read as a gate that got easier'
 );
-duo_check(
+wprism_check(
     substr_count($guideText, '**NOT MET') >= 2
         && str_contains($guideText, 'not meetable here'),
     'and it still records the conditions that are NOT met — including the one no fixture in this repository can '
     . 'ever satisfy, because a third party actually producing an exercised bundle is exactly the thing a '
     . 'rehearsal cannot stand in for'
 );
-duo_check(
+wprism_check(
     str_contains($guideText, 'regress_platform_authority_population.php')
         && str_contains($guideText, 'revocation_drill.php'),
     'and it cites this suite and its drill by name, so renaming either without re-reading the page fails here '
     . 'rather than leaving the evidence column pointing at nothing'
 );
 
-duo_check_summary('platform authority population');
+wprism_check_summary('platform authority population');

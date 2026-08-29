@@ -27,7 +27,7 @@
     },
     "default_authored_keyspaces": [],
     "evidence": {
-        "bundle_schema": "duo-subject-certification-bundle/v1",
+        "bundle_schema": "wprism-subject-certification-bundle/v1",
         "tests": [
             "conformance-classic-editor",
             "exact-artifact-version-matrix"
@@ -45,7 +45,7 @@
     "unsupported": [
         {
             "operation": "all",
-            "reason": "Duo v1 refuses multisite, so Classic Editor's network option is outside this adapter.",
+            "reason": "WPrism v1 refuses multisite, so Classic Editor's network option is outside this adapter.",
             "surface": "multisite"
         }
     ]

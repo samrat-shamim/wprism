@@ -1,5 +1,5 @@
 <?php
-// DUO-3346: offline contract for the host-side environment-driver boundary.
+// issue #3346: offline contract for the host-side environment-driver boundary.
 
 declare(strict_types=1);
 
@@ -14,17 +14,17 @@ require_once __DIR__ . '/../../../../cli/src/Command/ScopeCommand.php';
 require_once __DIR__ . '/../../../../cli/src/Refresh/Refresh.php';
 require_once __DIR__ . '/../../../../cli/src/Command/EnvironmentCommandPreflight.php';
 
-use Duo\Orchestrator\CodeDeploy;
-use Duo\Orchestrator\DockerTransport;
-use Duo\Orchestrator\Doctor;
-use Duo\Orchestrator\DriverCapability;
-use Duo\Orchestrator\DriverCapabilityReport;
-use Duo\Orchestrator\EnvironmentDriver;
-use Duo\Orchestrator\EnvironmentCommandPreflight;
-use Duo\Orchestrator\LocalTransport;
-use Duo\Orchestrator\Refresh;
-use Duo\Orchestrator\SshTransport;
-use Duo\Orchestrator\ScopeCommand;
+use WPrism\Orchestrator\CodeDeploy;
+use WPrism\Orchestrator\DockerTransport;
+use WPrism\Orchestrator\Doctor;
+use WPrism\Orchestrator\DriverCapability;
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\EnvironmentDriver;
+use WPrism\Orchestrator\EnvironmentCommandPreflight;
+use WPrism\Orchestrator\LocalTransport;
+use WPrism\Orchestrator\Refresh;
+use WPrism\Orchestrator\SshTransport;
+use WPrism\Orchestrator\ScopeCommand;
 
 function fail(string $message): never {
     fwrite(STDERR, "FAIL: $message\n");
@@ -86,17 +86,17 @@ $local = new LocalTransport('local-proof', [
     'transport' => 'local', 'wp_path' => '/wordpress', 'repo_path' => '/repo',
 ]);
 $docker = new DockerTransport('container-proof', [
-    'transport' => 'docker', 'compose_file' => '/tmp/duo-driver-compose.yml',
+    'transport' => 'docker', 'compose_file' => '/tmp/wprism-driver-compose.yml',
     'service' => 'cli', 'repo_path' => '/repo',
 ]);
-// DUO-3513: the opt-in `mode: "exec"` docker driver is a first-class
+// issue #3513: the opt-in `mode: "exec"` docker driver is a first-class
 // EnvironmentDriver too -- it must share the exact same attach/promote/
 // create capability contract as `run` mode, `local`, and `ssh`. The probe
 // seam is fixed to "running" so capabilityReport() (which never touches the
 // target) stays deterministic offline; regress_docker_exec_mode.php is the
 // suite for the mode's own command-string and not-running behavior.
 $dockerExec = new DockerTransport('container-exec-proof', [
-    'transport' => 'docker', 'compose_file' => '/tmp/duo-driver-compose.yml',
+    'transport' => 'docker', 'compose_file' => '/tmp/wprism-driver-compose.yml',
     'service' => 'cli', 'repo_path' => '/repo', 'mode' => 'exec',
 ], static fn(): bool => true);
 $ssh = new SshTransport('ssh-proof', [
@@ -104,7 +104,7 @@ $ssh = new SshTransport('ssh-proof', [
     'wp_path' => '/wordpress', 'repo_path' => '/repo',
 ]);
 assert_true(
-    str_starts_with($ssh->wpInstruction(['duo', 'status']), 'ssh -T '),
+    str_starts_with($ssh->wpInstruction(['wprism', 'status']), 'ssh -T '),
     'SSH transport does not explicitly defeat a RequestTTY=force user configuration'
 );
 
@@ -183,12 +183,12 @@ pass('core doctor, compile, refresh, and rebase workflows depend on the narrow d
 
 /** @return array{exit:int,stdout:string,stderr:string} */
 function invoke_cli(array $args): array {
-    $command = array_merge([PHP_BINARY, __DIR__ . '/../../../../cli/duo'], $args);
+    $command = array_merge([PHP_BINARY, __DIR__ . '/../../../../cli/wprism'], $args);
     $proc = proc_open($command, [
         0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w'],
     ], $pipes);
     if (!is_resource($proc)) {
-        fail('could not start public duo CLI');
+        fail('could not start public wprism CLI');
     }
     fclose($pipes[0]);
     $stdout = stream_get_contents($pipes[1]) ?: '';
@@ -198,7 +198,7 @@ function invoke_cli(array $args): array {
     return ['exit' => proc_close($proc), 'stdout' => $stdout, 'stderr' => $stderr];
 }
 
-$tmp = sys_get_temp_dir() . '/duo-driver-contract-' . bin2hex(random_bytes(8));
+$tmp = sys_get_temp_dir() . '/wprism-driver-contract-' . bin2hex(random_bytes(8));
 if (!mkdir($tmp, 0700, true) && !is_dir($tmp)) {
     fail('could not create CLI fixture directory');
 }
@@ -261,7 +261,7 @@ assert_true(
 );
 assert_true(!file_exists($tmp . '/repo'), 'denied public workflow mutated its target path');
 
-// DUO-3344 contract evidence is only truthful when the host path cannot boot
+// issue #3344 contract evidence is only truthful when the host path cannot boot
 // arbitrary plugins/themes/ordinary MU code before the agent compiles its
 // target-independent revision. Exercise the real public CLI with a fake wp
 // binary and capture every forwarded argument; this is stronger than a source
@@ -274,7 +274,7 @@ $fakeWp = $fakeBin . '/wp';
 file_put_contents(
     $fakeWp,
     '#!/usr/bin/env bash' . "\n"
-        . 'printf \'%s\\n\' "$@" > "$DUO_SCOPE_ARGS"' . "\n"
+        . 'printf \'%s\\n\' "$@" > "$WPRISM_SCOPE_ARGS"' . "\n"
         . 'for arg in "$@"; do' . "\n"
         . '  if [ "$arg" = lint ]; then echo LINT_STREAM_MARKER; exit 23; fi' . "\n"
         . 'done' . "\n"
@@ -282,7 +282,7 @@ file_put_contents(
 chmod($fakeWp, 0700);
 $oldPath = getenv('PATH') ?: '';
 putenv('PATH=' . $fakeBin . ':' . $oldPath);
-putenv('DUO_SCOPE_ARGS=' . $scopeArgs);
+putenv('WPRISM_SCOPE_ARGS=' . $scopeArgs);
 $scopeForward = invoke_cli([
     '--envs-file=' . $envsFile, 'scope', 'local-proof', '--roots=all', '--contract',
 ]);
@@ -294,7 +294,7 @@ assert_true(
         && count(array_filter($forwarded, static fn(string $arg): bool => str_starts_with($arg, '--exec='))) === 1
         && in_array('--skip-plugins', $forwarded, true)
         && in_array('--skip-themes', $forwarded, true)
-        && in_array('duo', $forwarded, true)
+        && in_array('wprism', $forwarded, true)
         && in_array('scope', $forwarded, true)
         && in_array('--repo=' . $tmp . '/repo', $forwarded, true)
         && in_array('--roots=all', $forwarded, true)
@@ -322,7 +322,7 @@ $lintForward = invoke_cli([
     '--envs-file=' . $envsFile, 'lint', 'local-proof', '--format=json',
 ]);
 putenv('PATH=' . $oldPath);
-putenv('DUO_SCOPE_ARGS');
+putenv('WPRISM_SCOPE_ARGS');
 assert_true($lintForward['exit'] === 23, 'public lint did not preserve the agent failure exit: ' . $lintForward['stderr']);
 assert_true(
     str_contains($lintForward['stdout'], 'LINT_STREAM_MARKER'),
@@ -331,7 +331,7 @@ assert_true(
 $lintArgs = is_file($scopeArgs) ? file($scopeArgs, FILE_IGNORE_NEW_LINES) : false;
 assert_true(
     is_array($lintArgs)
-        && in_array('duo', $lintArgs, true)
+        && in_array('wprism', $lintArgs, true)
         && in_array('lint', $lintArgs, true)
         && in_array('--repo=' . $tmp . '/repo', $lintArgs, true)
         && in_array('--format=json', $lintArgs, true),
@@ -349,9 +349,9 @@ assert_true(
         && file_get_contents($scopeArgs) === $beforeOverrideArgs,
     'public lint rejects a caller repository override before target contact'
 );
-$controlArgs = CodeDeploy::controlArgs(['duo', 'scope']);
+$controlArgs = CodeDeploy::controlArgs(['wprism', 'scope']);
 assert_true(
-    str_contains($controlArgs[0], 'DUO_CONTROL_PLANE')
+    str_contains($controlArgs[0], 'WPRISM_CONTROL_PLANE')
         && str_contains($controlArgs[0], 'WPMU_PLUGIN_DIR'),
     'scope control bootstrap isolates ordinary MU-plugin loading before the agent runs'
 );
@@ -362,19 +362,19 @@ unlink($envsFile);
 rmdir($tmp);
 pass('public JSON/human paths share the report and refuse before target mutation');
 
-// DUO-3344: every verb that reaches the driver preflight must be known to
-// DriverCapabilityReport::requirements(). Registering a verb in cli/duo's
+// issue #3344: every verb that reaches the driver preflight must be known to
+// DriverCapabilityReport::requirements(). Registering a verb in cli/wprism's
 // dispatch and usage while forgetting this third table produces a command
 // that parses, documents, and routes correctly and then dies in the
 // preflight on EVERY transport before any work — which is exactly how
-// `duo scope` shipped broken. The verb list and the exemptions are both
-// read out of cli/duo rather than restated here, so this cannot pass by
+// `wprism scope` shipped broken. The verb list and the exemptions are both
+// read out of cli/wprism rather than restated here, so this cannot pass by
 // being updated in lockstep with the bug.
-$duoSource = file_get_contents(__DIR__ . '/../../../../cli/duo');
-assert_true(is_string($duoSource) && $duoSource !== '', 'could not read cli/duo');
+$wprismSource = file_get_contents(__DIR__ . '/../../../../cli/wprism');
+assert_true(is_string($wprismSource) && $wprismSource !== '', 'could not read cli/wprism');
 assert_true(
-    str_contains($duoSource, '`duo env-set <env>')
-        && str_contains($duoSource, '[A-Za-z0-9][A-Za-z0-9._-]{0,63}'),
+    str_contains($wprismSource, '`wprism env-set <env>')
+        && str_contains($wprismSource, '[A-Za-z0-9][A-Za-z0-9._-]{0,63}'),
     'public help keeps the complete host env-set command and environment-name grammar'
 );
 
@@ -384,9 +384,9 @@ $verbsNeedingEnv = EnvironmentCommandPreflight::environmentVerbs();
 assert_true(count($verbsNeedingEnv) >= 15, 'environment preflight vocabulary is implausibly short');
 assert_true(in_array('scope', $verbsNeedingEnv, true), 'scope is not registered in $verbsNeedingEnv');
 assert_true(
-    str_contains($duoSource, "'scope' => cmd_scope(\$transport, \$extra)")
-        && str_contains($duoSource, 'function cmd_scope(')
-        && str_contains($duoSource, 'ScopeCommand::run($t, $extra)'),
+    str_contains($wprismSource, "'scope' => cmd_scope(\$transport, \$extra)")
+        && str_contains($wprismSource, 'function cmd_scope(')
+        && str_contains($wprismSource, 'ScopeCommand::run($t, $extra)'),
     'scope dispatch is not registered through the extracted isolated control-plane handler'
 );
 assert_true(
@@ -395,16 +395,16 @@ assert_true(
 );
 assert_true(in_array('explain', $verbsNeedingEnv, true), 'explain is not registered in $verbsNeedingEnv');
 assert_true(
-    str_contains($duoSource, 'EnvironmentCommandPreflight::requiresEnvironment('),
-    'cli/duo does not ask the preflight collaborator whether a command needs an environment'
+    str_contains($wprismSource, 'EnvironmentCommandPreflight::requiresEnvironment('),
+    'cli/wprism does not ask the preflight collaborator whether a command needs an environment'
 );
 
 // A verb may legitimately never reach the common preflight if main() returns
 // for it first (driver-capabilities renders the report itself). Keep that
 // single, explicit exception in the behavioral check.
 assert_true(
-    str_contains($duoSource, 'EnvironmentCommandPreflight::capabilityReport('),
-    'cli/duo does not route driver capability checks through the preflight collaborator'
+    str_contains($wprismSource, 'EnvironmentCommandPreflight::capabilityReport('),
+    'cli/wprism does not route driver capability checks through the preflight collaborator'
 );
 
 $requirements = new ReflectionMethod(DriverCapabilityReport::class, 'requirements');
@@ -426,7 +426,7 @@ foreach ($verbsNeedingEnv as $verb) {
 assert_true($reachedPreflight >= 14, 'derived exemptions swallowed nearly every verb — the check would prove nothing');
 assert_true(
     $unknown === [],
-    'these cli/duo verbs reach the driver preflight but are unknown to requirements(): ' . implode('; ', $unknown)
+    'these cli/wprism verbs reach the driver preflight but are unknown to requirements(): ' . implode('; ', $unknown)
 );
 assert_true(
     $requirements->invoke(null, 'scope') === $requirements->invoke(null, 'coverage'),
@@ -440,9 +440,9 @@ assert_true(
     $requirements->invoke(null, 'lint') === $requirements->invoke(null, 'coverage'),
     'lint must demand exactly the attach + wp-cli control capabilities of other read-only scans'
 );
-pass('every cli/duo verb reaching the driver preflight resolves through requirements()');
+pass('every cli/wprism verb reaching the driver preflight resolves through requirements()');
 
-// DUO: `duo envs` output is what an operator diffs when they wonder whether a
+// WPRISM: `wprism envs` output is what an operator diffs when they wonder whether a
 // change reached their environments. Admitting LocalTransport to the recovery
 // capability interface must not move one byte of it for an environment that
 // never configured a rollback authority (AGENTS.md rule 8), so the three
@@ -453,7 +453,7 @@ assert_true(
     'the un-configured local describe line moved'
 );
 assert_true(
-    $docker->describe() === 'docker compose_file=/tmp/duo-driver-compose.yml service=cli repo_path=/repo',
+    $docker->describe() === 'docker compose_file=/tmp/wprism-driver-compose.yml service=cli repo_path=/repo',
     'the un-configured docker describe line moved'
 );
 assert_true(
@@ -476,7 +476,7 @@ $recoveryKeys = [
         'exclusion_provider' => $providerArgv,
         'timeout_seconds' => 5,
     ],
-    'rollback_signing_key' => '/tmp/duo-envs-proof-signing.key',
+    'rollback_signing_key' => '/tmp/wprism-envs-proof-signing.key',
     'verified_rollback' => [
         'claim_ttl_seconds' => 90,
         'encryption_key_id' => 'kms-envs-proof',
@@ -501,7 +501,7 @@ assert_true(
         . ' rollback_key_id=envs-proof-key rollback_recovery=configured verified_rollback=configured',
     'the opted-in ssh describe line moved'
 );
-pass('duo envs is byte-identical for every environment that never opted in, and names the authority for those that did');
+pass('wprism envs is byte-identical for every environment that never opted in, and names the authority for those that did');
 
 // Transport::runCapturing() must drain stdout and stderr concurrently. The
 // sequential form (stream_get_contents(stdout) then stderr) deadlocked the
@@ -516,7 +516,7 @@ $captureProbe = <<<'PHP'
 require $argv[1] . '/cli/src/Transport/EnvironmentDriver.php';
 require $argv[1] . '/cli/src/Transport/Transport.php';
 require $argv[1] . '/cli/src/Transport/LocalTransport.php';
-$t = new Duo\Orchestrator\LocalTransport('pipe-proof', [
+$t = new WPrism\Orchestrator\LocalTransport('pipe-proof', [
     'transport' => 'local', 'wp_path' => '/wordpress', 'repo_path' => '/repo',
 ]);
 $r = $t->captureRaw(

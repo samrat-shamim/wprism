@@ -1,6 +1,6 @@
 <?php
 /**
- * `duo adapter doctor --migration` — the preflight, cross-checked against the
+ * `wprism adapter doctor --migration` — the preflight, cross-checked against the
  * flag-day rehearsal that measured what a bump actually moves.
  *
  * THE ACCEPTANCE, AND WHY IT IS THE ONLY ONE WORTH HAVING
@@ -110,16 +110,16 @@ $stateDriver = __DIR__ . '/migration_preflight_state.php';
 // json_encode() plus a guess about key order. `ApplicationContract.php` pulls
 // Canon and CommandRefusal by path (its own require_once lines), and the two
 // defines are what `Policy::load()` would compare a manifest's spec_version
-// against; resolving them from `agent/duo.php` is the same regex
+// against; resolving them from `agent/wprism.php` is the same regex
 // `AdapterCatalog::boot()` uses, for the same reason (a literal drifts).
-$duoSource = (string) file_get_contents($root . '/agent/duo.php');
-if (preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $duoSource, $agentMatch) !== 1
-    || preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $duoSource, $specMatch) !== 1) {
-    fwrite(STDERR, "FAIL: cannot resolve the agent defines from agent/duo.php\n");
+$wprismSource = (string) file_get_contents($root . '/agent/wprism.php');
+if (preg_match("/define\('WPRISM_AGENT_VERSION', '([^']+)'\)/", $wprismSource, $agentMatch) !== 1
+    || preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", $wprismSource, $specMatch) !== 1) {
+    fwrite(STDERR, "FAIL: cannot resolve the agent defines from agent/wprism.php\n");
     exit(1);
 }
-define('DUO_AGENT_VERSION', $agentMatch[1]);
-define('DUO_SPEC_VERSION', (int) $specMatch[1]);
+define('WPRISM_AGENT_VERSION', $agentMatch[1]);
+define('WPRISM_SPEC_VERSION', (int) $specMatch[1]);
 require_once $root . '/cli/src/Contract/ApplicationContract.php';
 
 /**
@@ -145,11 +145,11 @@ const CROSS_CHECK_VOCABULARY = [
 const CROSS_CHECK_UNOBSERVED = [
     'content_pin:' =>
         'the rehearsal observes a moved pin only through the adapter digest underneath it — its per-site rows '
-        . 'carry adapters[].digest, never the site.duo.json pin list — so a content_pin row has no observed '
+        . 'carry adapters[].digest, never the site.wprism.json pin list — so a content_pin row has no observed '
         . 'counterpart to equal. It is not unobserved in substance: the same movement is compared as '
         . 'adapter_digest:<name>.',
     'contract_attestation' =>
-        'no site in the estate carries .duo/contract/contract.json; the estate\'s one attested contract lives '
+        'no site in the estate carries .wprism/contract/contract.json; the estate\'s one attested contract lives '
         . 'beside the sites (holdings/_contract/) and the rehearsal drives it through its own probe.',
     'contract_registry' =>
         'same: no estate SITE carries a host contract, so there is no per-site observation to compare against.',
@@ -193,7 +193,7 @@ function preflight_estate(string $driver, string $estate, string $state, string 
 }
 
 /**
- * Run the preflight at one agent state and decode its `duo-migration-preflight/v1`.
+ * Run the preflight at one agent state and decode its `wprism-migration-preflight/v1`.
  *
  * @param list<string> $args
  * @return array{0:int,1:array<string,mixed>}
@@ -309,7 +309,7 @@ if (!function_exists('sodium_crypto_sign_seed_keypair')) {
 // Rule 3: never under agent/ or manifests/ — `sandbox/bin/pair.sh:355` refuses
 // on an untracked file there. A unique root per run, because the corpus runs
 // concurrently.
-$scratch = sys_get_temp_dir() . '/duo-migration-preflight-' . bin2hex(random_bytes(6));
+$scratch = sys_get_temp_dir() . '/wprism-migration-preflight-' . bin2hex(random_bytes(6));
 register_shutdown_function(static fn() => preflight_remove_tree($scratch));
 $estate = $scratch . '/estate';
 
@@ -324,7 +324,7 @@ $observedB = preflight_estate($estateDriver, $estate, 'B', 'observe');
 // into preflighting a different agent than the rehearsal measured.
 $targetAgent = (string) $observedB['agent_version'];
 $targetSpec = (int) $observedB['spec_version'];
-duo_check(
+wprism_check(
     $targetAgent !== (string) $observedA['agent_version']
     && (string) $observedB['platform_sha256'] !== (string) $observedA['platform_sha256'],
     'the estate really does move the agent under the fleet (' . (string) $observedA['agent_version']
@@ -361,7 +361,7 @@ $estateSites = array_keys((array) $observedA['sites']);
 $accountedFor = array_values(array_unique(array_merge(array_keys($cohort), array_keys($controls))));
 sort($estateSites, SORT_STRING);
 sort($accountedFor, SORT_STRING);
-duo_check_same(
+wprism_check_same(
     $estateSites,
     $accountedFor,
     'every site the estate builds is accounted for here — seven cross-checked and two controls named with their '
@@ -380,13 +380,13 @@ foreach ($cohort as $id => $holds) {
     }
     [$exit, $document] = preflight_at($stateDriver, $targetAgent, $targetSpec, $estate . '/libs/B', $args);
 
-    duo_check_same(
-        'duo-migration-preflight/v1',
+    wprism_check_same(
+        'wprism-migration-preflight/v1',
         (string) ($document['format'] ?? ''),
-        "$id: the preflight emits duo-migration-preflight/v1"
+        "$id: the preflight emits wprism-migration-preflight/v1"
     );
-    duo_check_same(1, $exit, "$id: a site with predicted movement exits 1 (a surfaced finding), never 0");
-    duo_check_same([], (array) $document['unclassified'], "$id: every certificate and pin shape was classified");
+    wprism_check_same(1, $exit, "$id: a site with predicted movement exits 1 (a surfaced finding), never 0");
+    wprism_check_same([], (array) $document['unclassified'], "$id: every certificate and pin shape was classified");
 
     $predicted = preflight_ids($document);
     foreach ($predicted as $predictedId) {
@@ -402,14 +402,14 @@ foreach ($cohort as $id => $holds) {
     $observed = preflight_observed($observedA['sites'][$id], $observedB['sites'][$id]);
 
     printf("%-17s %-9d %-9d %s\n", $id, count($comparable), count($observed), implode(' ', $observed));
-    duo_check_same(
+    wprism_check_same(
         $observed,
         $comparable,
         "$id: THE ACCEPTANCE — the preflight's predicted invalidation set EQUALS the rehearsal's observed set, "
         . 'id for id and count for count, on the same fixture'
     );
 }
-duo_check_same(
+wprism_check_same(
     [],
     $straySources,
     'and every predicted movement class is either in the compared vocabulary or in the reviewed unobserved list '
@@ -431,17 +431,17 @@ foreach ($cohort as $id => $holds) {
             $row = $movement;
         }
     }
-    duo_check(
+    wprism_check(
         is_array($row) && (string) $row['class'] === 'artifact_reprojection',
         "(a) $id: artifact_hash is predicted to move — a site pinning nothing but shipped adapters included — "
         . 'because the compiled document carries every adapter\'s capability.platform.agent_version'
     );
-    duo_check(
+    wprism_check(
         is_array($row) && (array) $row['basis'] !== [],
         "(a) $id: and the prediction names the basis it came from (" . implode(', ', (array) ($row['basis'] ?? []))
         . '), never an unsourced assertion'
     );
-    duo_check(
+    wprism_check(
         str_contains((string) ($row['remedy'] ?? ''), 'scope contract'),
         "(a) $id: with the re-projection remedy stated: scope contracts, scoped mutation authorities and scoped "
         . 'rollback claims are what pin artifact_hash'
@@ -454,25 +454,25 @@ foreach ($cohort as $id => $holds) {
     'doctor', '--migration', '--repo=' . $estate . '/sites/core-only', '--format=json',
     '--artifact=' . $estate . '/holdings/core-only/artifact.json',
 ]);
-duo_check_same(
+wprism_check_same(
     (string) $observedA['agent_version'],
     (string) ($coreOnly['held_artifact']['capability_platform_agent_versions']['core'] ?? ''),
     '(a) the mechanism is in the payload, not in this suite\'s prose: the HELD compiled artifact\'s '
     . 'resolved_adapters[core].capability.platform.agent_version is the pre-bump agent'
 );
-duo_check_same(
+wprism_check_same(
     $targetAgent,
     (string) ($coreOnly['adapters'][0]['capability_platform_agent_version'] ?? ''),
     '(a) and the target resolves the identical adapter with the post-bump agent in the same field — which is the '
     . 'whole of why artifact_hash moves under digest neutrality'
 );
-duo_check_same(
+wprism_check_same(
     'holds',
     (string) ($coreOnly['identity']['manifest_hash']['verdict'] ?? ''),
     '(a) while manifest_hash HOLDS on that same site: digest neutrality is real, and artifact_hash moving anyway '
     . 'is the correction WP-1.4 measured'
 );
-duo_check_same(
+wprism_check_same(
     'verifies',
     (string) ($coreOnly['held_artifact']['reader'] ?? ''),
     '(a) and the held artifact still VERIFIES — read_artifact() compares site_hash, manifest_hash, effects and '
@@ -533,13 +533,13 @@ foreach ($certifiedCohort as $id => $adapter) {
     foreach ((array) $document['movements'] as $movement) {
         $classes[(string) $movement['id']] = $movement;
     }
-    duo_check(
+    wprism_check(
         isset($classes["certificate:$adapter"]) && isset($classes["adapter_digest:$adapter"])
             && isset($classes['manifest_hash']) && isset($classes['revision_hash']),
         "(b) $id: the spec flip withdraws the certificate and moves all four with it — the certificate row, the "
         . 'certificate-derived adapter digest, and this site\'s own manifest_hash and revision_hash'
     );
-    duo_check(
+    wprism_check(
         in_array('certificate-gate', (array) ($classes['manifest_hash']['basis'] ?? []), true)
             && in_array('certificate-gate', (array) ($classes['revision_hash']['basis'] ?? []), true),
         "(b) $id: and both identities are sourced from the CERTIFICATE gate, so they are predicted without a held "
@@ -551,35 +551,35 @@ foreach ($certifiedCohort as $id => $adapter) {
             $certificate = $row;
         }
     }
-    duo_check_same(
+    wprism_check_same(
         'stale_platform',
         (string) ($certificate['outcome'] ?? ''),
         "(b) $id: the certificate is WITHDRAWN against the target — the answer comes from "
         . 'AdapterCertification::verifyFile() raising StalePlatformSiteAdapterCertificate, never from a digest '
         . 'this command hashed itself'
     );
-    duo_check_same(
+    wprism_check_same(
         false,
         $certificate['matches_target_platform'] ?? null,
         "(b) $id: and its platform answer is false: the gate REACHED the platform question and answered it, which "
         . 'is the only signal MigrationPreflight.php:620-622 lets report `false` rather than `null`'
     );
-    duo_check_same(
-        "duo: site adapter '$adapter' certification was signed under spec version "
+    wprism_check_same(
+        "wprism: site adapter '$adapter' certification was signed under spec version "
         . (string) ($certificate['certificate_spec_version'] ?? '') . ', which is not the spec version '
         . $targetSpec . ' this agent publishes',
         (string) ($certificate['reason'] ?? ''),
         "(b) $id: carrying the engine's own sentence byte for byte — the SPEC halves of the two states named in "
         . 'it, so an operator reads why the claim went rather than that it did'
     );
-    duo_check_same(
+    wprism_check_same(
         (int) $observedA['spec_version'],
         $certificate['certificate_spec_version'] ?? null,
         "(b) $id: and the withdrawal really is the spec half: the certificate binds spec "
         . (string) $observedA['spec_version'] . ' while the target publishes ' . $targetSpec . ', which is the '
         . 'FIRST of assertPlatformBinding()\'s three questions and the reason no bound cell is ever consulted'
     );
-    duo_check(
+    wprism_check(
         str_contains((string) ($classes['manifest_hash']['remedy'] ?? ''), 'compiled_artifact_manifest_mismatch'),
         "(b) $id: with the fleet-visible cost stated in the remedy, not left to be discovered — the held compiled "
         . 'artifact refuses with compiled_artifact_manifest_mismatch (CompiledArtifactReader.php:56-57) until the '
@@ -590,7 +590,7 @@ foreach ($certifiedCohort as $id => $adapter) {
         // state-A artifact, so this is the identity a deployed site would find
         // moved under it on the flag day.
         $manifestIdentity = (array) ($document['identity']['manifest_hash'] ?? []);
-        duo_check(
+        wprism_check(
             (string) ($manifestIdentity['verdict'] ?? '') === 'moves'
                 && (string) ($manifestIdentity['held'] ?? '') !== (string) ($manifestIdentity['target'] ?? ''),
             "(b) $id: and the movement is measured, not asserted — held manifest_hash "
@@ -599,13 +599,13 @@ foreach ($certifiedCohort as $id => $adapter) {
             . 'CompiledRepository::from_array() and target through RepositoryCompiler::compile()'
         );
     }
-    duo_check_same(
+    wprism_check_same(
         (string) $observedA['agent_version'],
         (string) ($certificate['certificate_agent_version'] ?? ''),
         "(b) $id: while the certificate still NAMES the agent it was signed against — read facts survive a refused "
         . 'verification, so an operator can still see both ends of the transition'
     );
-    duo_check_same(
+    wprism_check_same(
         true,
         $certificate['key_reachable'] ?? null,
         "(b) $id: the signing key id is reachable by id in the site trust root — the reachability question is "
@@ -632,11 +632,11 @@ $ordinaryLib = $scratch . '/libs-ordinary-release';
 preflight_copy_tree($estate . '/libs/A', $ordinaryLib);
 $ordinaryBoundary = json_decode((string) file_get_contents($ordinaryLib . '/capabilities/platform.json'), true);
 $ordinaryBoundary['platform']['agent_version'] = $ordinaryAgent;
-file_put_contents($ordinaryLib . '/capabilities/platform.json', \Duo\Canon::encode($ordinaryBoundary));
+file_put_contents($ordinaryLib . '/capabilities/platform.json', \WPrism\Canon::encode($ordinaryBoundary));
 
 echo "\n== finding (b) 2/3: an ordinary agent release ($ordinaryAgent, spec {$observedA['spec_version']}) "
     . "withdraws nothing ==\n";
-duo_check(
+wprism_check(
     $ordinaryAgent !== (string) $observedA['agent_version'] && $ordinaryAgent !== $targetAgent
     && (int) $ordinaryBoundary['platform']['spec_version'] === (int) $observedA['spec_version'],
     "(b) fixture: $ordinaryAgent is a third agent state, neither A (" . (string) $observedA['agent_version']
@@ -659,17 +659,17 @@ foreach ($certifiedCohort as $id => $adapter) {
     foreach ((array) $document['movements'] as $movement) {
         $classes[(string) $movement['id']] = $movement;
     }
-    duo_check(
+    wprism_check(
         !isset($classes["certificate:$adapter"]) && !isset($classes["adapter_digest:$adapter"]),
         "(b) $id: an agent release that moves no exercised compatibility cell withdraws NOTHING — no certificate "
         . 'row and no certificate-derived adapter digest (§ v3.6)'
     );
-    duo_check(
+    wprism_check(
         !isset($classes['manifest_hash']) && !isset($classes['revision_hash']),
         "(b) $id: so this site's manifest_hash is not predicted from the certificate gate either — the identity "
         . 'the flip moves stays put, which is what makes an additive release pin-neutral for it'
     );
-    duo_check(
+    wprism_check(
         isset($classes['artifact_hash']),
         "(b) $id: while artifact_hash still moves for it (basis "
         . implode(', ', (array) ($classes['artifact_hash']['basis'] ?? [])) . ') — the green above is a certificate '
@@ -681,13 +681,13 @@ foreach ($certifiedCohort as $id => $adapter) {
             $certificate = $row;
         }
     }
-    duo_check_same(
+    wprism_check_same(
         'holds',
         (string) ($certificate['outcome'] ?? ''),
         "(b) $id: the certificate HOLDS against this target — the answer comes from "
         . 'AdapterCertification::verifyFile() completing, never from a digest this command hashed itself'
     );
-    duo_check_same(
+    wprism_check_same(
         true,
         $certificate['matches_target_platform'] ?? null,
         "(b) $id: and its platform answer is true: every cell it was exercised against is still carried and still "
@@ -715,7 +715,7 @@ $movedBoundary['platform']['compatibility']['wordpress']['last_verified'] = (str
 );
 file_put_contents(
     $movedLib . '/capabilities/platform.json',
-    \Duo\Canon::encode($movedBoundary)
+    \WPrism\Canon::encode($movedBoundary)
 );
 
 echo "\n== finding (b) 3/3: the same release minus the exercised '$droppedCell' cell withdraws all three ==\n";
@@ -735,13 +735,13 @@ foreach ($certifiedCohort as $id => $adapter) {
     foreach ((array) $document['movements'] as $movement) {
         $classes[(string) $movement['id']] = $movement;
     }
-    duo_check(
+    wprism_check(
         isset($classes['manifest_hash']) && isset($classes['revision_hash'])
             && isset($classes["certificate:$adapter"]) && isset($classes["adapter_digest:$adapter"]),
         "(b) $id: a target that DROPPED the exercised '$droppedCell' cell brings all four predicted movements "
         . 'back — the withdrawal, the certificate-derived digest, and this site\'s manifest_hash and revision_hash'
     );
-    duo_check(
+    wprism_check(
         in_array('certificate-gate', (array) ($classes['manifest_hash']['basis'] ?? []), true),
         "(b) $id: sourced from the CERTIFICATE gate, so it holds without a held artifact — which is how "
         . 'promoted-frozen, whose artifact was never kept, is predicted at all'
@@ -752,14 +752,14 @@ foreach ($certifiedCohort as $id => $adapter) {
             $certificate = $row;
         }
     }
-    duo_check_same(
+    wprism_check_same(
         false,
         $certificate['matches_target_platform'] ?? null,
         "(b) $id: and the platform answer is false, from AdapterCertification::verifyFile() raising "
         . 'StalePlatformSiteAdapterCertificate rather than from a comparison this command performed'
     );
-    duo_check_same(
-        "duo: site adapter '$adapter' certification was exercised against 'wordpress' cell '$droppedCell', "
+    wprism_check_same(
+        "wprism: site adapter '$adapter' certification was exercised against 'wordpress' cell '$droppedCell', "
         . 'which the agent-owned platform boundary no longer carries',
         (string) ($certificate['reason'] ?? ''),
         "(b) $id: and the sentence is the CELL one (AdapterCertification.php:3753-3754), not the spec one probe "
@@ -772,13 +772,13 @@ echo "\n== the controls: the preflight does not invent a movement it cannot sour
 [$driftExit, $drifted] = preflight_at($stateDriver, $targetAgent, $targetSpec, $estate . '/libs/B', [
     'doctor', '--migration', '--repo=' . $estate . '/sites/drifted-pin', '--format=json',
 ]);
-duo_check_same('refused', (string) $drifted['status'], 'CONTROL drifted-pin: ' . $controls['drifted-pin']);
-duo_check_same(1, $driftExit, 'CONTROL drifted-pin: a refusing site is a surfaced finding, exit 1');
-duo_check(
+wprism_check_same('refused', (string) $drifted['status'], 'CONTROL drifted-pin: ' . $controls['drifted-pin']);
+wprism_check_same(1, $driftExit, 'CONTROL drifted-pin: a refusing site is a surfaced finding, exit 1');
+wprism_check(
     str_contains((string) ($drifted['site']['refusal'] ?? ''), 'digest mismatch'),
     'CONTROL drifted-pin: carrying the engine\'s own refusal, byte for byte, rather than a paraphrase'
 );
-duo_check(
+wprism_check(
     (array) $drifted['pins'] !== [],
     'CONTROL drifted-pin: and the PIN LIST is still answered on a repository whose load refused — pins are read '
     . 'through PinResolver::normalize_manifest_pins() before Policy::load() runs, which is the property this '
@@ -796,7 +796,7 @@ function preflight_write(string $path, string $bytes): void {
     file_put_contents($path, $bytes);
 }
 
-// The fixtures run at the TREE's own agent state, through the shipped `cli/duo`
+// The fixtures run at the TREE's own agent state, through the shipped `cli/wprism`
 // executable: that is the product path an operator walks, and it is the one
 // state the checkout can be. Nothing here needs a bump — these cases are about
 // classification, not about movement.
@@ -805,26 +805,26 @@ $sites = $scratch . '/fixtures';
 
 // F1: a certified site adapter, minted by the operator's own command.
 $certified = $sites . '/certified';
-preflight_write($certified . '/site.duo.json', \Duo\Canon::encode([
+preflight_write($certified . '/site.wprism.json', \WPrism\Canon::encode([
     'manifests' => ['core', ['name' => 'preflight-forms', 'source' => 'site']],
     'policy' => ['options' => new stdClass(), 'post_types' => ['post'], 'taxonomies' => ['category']],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ]));
 // Canonical bytes, not json_encode(): `AdapterCertification` reads a site
 // adapter through readCanonicalObjectFile(), so a fixture that happened to
 // match canonical key order today would break on the next field anybody adds.
-preflight_write($certified . '/adapters/preflight-forms.json', \Duo\Canon::encode([
+preflight_write($certified . '/adapters/preflight-forms.json', \WPrism\Canon::encode([
     'name' => 'preflight-forms',
     'option_autoload' => 'preserve',
     'post_types' => new stdClass(),
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'tables' => [],
 ]));
 $keypair = sodium_crypto_sign_seed_keypair(str_repeat('P', SODIUM_CRYPTO_SIGN_SEEDBYTES));
 preflight_write($scratch . '/keys/preflight.key', base64_encode(sodium_crypto_sign_secretkey($keypair)) . "\n");
 chmod($scratch . '/keys/preflight.key', 0600);
 [$certifyExit, , $certifyErr] = preflight_run([
-    PHP_BINARY, $root . '/cli/duo', 'adapter', 'certify', $certified,
+    PHP_BINARY, $root . '/cli/wprism', 'adapter', 'certify', $certified,
     '--name=preflight-forms',
     '--key-id=preflight-key',
     '--secret-key-file=' . $scratch . '/keys/preflight.key',
@@ -832,34 +832,34 @@ chmod($scratch . '/keys/preflight.key', 0600);
     '--pin',
     '--adapter-library=' . $fixtureLib,
 ]);
-duo_check_same(0, $certifyExit, 'fixture: `duo adapter certify --pin` minted the certified fixture (' . trim($certifyErr) . ')');
+wprism_check_same(0, $certifyExit, 'fixture: `wprism adapter certify --pin` minted the certified fixture (' . trim($certifyErr) . ')');
 
 // The product path, end to end: the shipped executable, no test driver.
-[$dueExit, $duoOut, $duoErr] = preflight_run([
-    PHP_BINARY, $root . '/cli/duo', 'adapter', 'doctor', '--migration', '--repo=' . $certified, '--format=json',
+[$dueExit, $wprismOut, $wprismErr] = preflight_run([
+    PHP_BINARY, $root . '/cli/wprism', 'adapter', 'doctor', '--migration', '--repo=' . $certified, '--format=json',
     '--adapter-library=' . $fixtureLib,
 ]);
-$greenDocument = json_decode($duoOut, true);
-duo_check_same(0, $dueExit, 'F1 certified adapter: the SHIPPED `duo adapter doctor --migration` exits 0 on a site '
-    . 'whose certificate matches the agent it is run from (' . trim($duoErr) . ')');
-duo_check_same('ok', (string) ($greenDocument['status'] ?? ''), 'F1: status ok — nothing moves and nothing is unclassified');
-duo_check_same(
+$greenDocument = json_decode($wprismOut, true);
+wprism_check_same(0, $dueExit, 'F1 certified adapter: the SHIPPED `wprism adapter doctor --migration` exits 0 on a site '
+    . 'whose certificate matches the agent it is run from (' . trim($wprismErr) . ')');
+wprism_check_same('ok', (string) ($greenDocument['status'] ?? ''), 'F1: status ok — nothing moves and nothing is unclassified');
+wprism_check_same(
     'holds',
     (string) ($greenDocument['certificates'][0]['outcome'] ?? ''),
     'F1: the certificate HOLDS, from AdapterCertification::verifyFile() returning rather than throwing'
 );
-duo_check_same(
+wprism_check_same(
     true,
     $greenDocument['certificates'][0]['key_reachable'] ?? null,
     'F1: its signing key id is reachable in the site trust root the certify run registered it in'
 );
-duo_check_same(
+wprism_check_same(
     true,
     $greenDocument['certificates'][0]['matches_target_platform'] ?? null,
     'F1: and its platform matches the target — the green half of the same gate'
 );
-duo_check_same([], (array) ($greenDocument['movements'] ?? [null]), 'F1: no predicted movement at all');
-duo_check(
+wprism_check_same([], (array) ($greenDocument['movements'] ?? [null]), 'F1: no predicted movement at all');
+wprism_check(
     (array) ($greenDocument['deferred'] ?? []) !== [],
     'F1: and the run still ends with its DEFERRED list — the identity questions it was given no held documents '
     . 'for are named, never folded into the pass'
@@ -870,7 +870,7 @@ foreach ((array) $greenDocument['pins'] as $row) {
         $pinRow = $row;
     }
 }
-duo_check(
+wprism_check(
     is_array($pinRow) && (string) $pinRow['verdict'] === 'holds' && (string) $pinRow['source'] === 'site',
     'F1: and the {name,source,digest} pin `certify --pin` wrote is classified as holding against the digest '
     . 'ArtifactPolicyIdentity::resolved_adapters() resolves'
@@ -884,11 +884,11 @@ duo_check(
 // TREE's agent state, and until WP-4.12 that was the same pair as state A, so
 // passing `$observedA`'s versions here was a distinction without a difference.
 // The flip separated them: this fixture's site adapter is authored at
-// DUO_SPEC_VERSION — 3 — while state A is spec 2, whose acceptance window is
-// {1, 2}, so `Policy::load()` refused it outright with "duo: manifest
+// WPRISM_SPEC_VERSION — 3 — while state A is spec 2, whose acceptance window is
+// {1, 2}, so `Policy::load()` refused it outright with "wprism: manifest
 // 'preflight-forms' declares spec_version 3 but this engine accepts
 // spec_version {1, 2} — the acceptance window is exactly N and N-1, where N is
-// this engine's DUO_SPEC_VERSION (spec/repo-format.md § v3.1) — pin a
+// this engine's WPRISM_SPEC_VERSION (spec/repo-format.md § v3.1) — pin a
 // compatible manifest or update it" and the run exited 1. That refusal is the
 // spec window working, not the certificate question this case is about, and it
 // would have made F2 report `refused` no matter what the preflight did with
@@ -896,10 +896,10 @@ duo_check(
 // load verdict is now asserted too so a future divergence between the fixture's
 // bytes and the state driving them can never hide behind a green exit code.
 $uncertified = $sites . '/uncertified';
-preflight_write($uncertified . '/site.duo.json', \Duo\Canon::encode([
+preflight_write($uncertified . '/site.wprism.json', \WPrism\Canon::encode([
     'manifests' => ['core', ['name' => 'preflight-forms', 'source' => 'site']],
     'policy' => ['options' => new stdClass(), 'post_types' => ['post'], 'taxonomies' => ['category']],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ]));
 preflight_write(
     $uncertified . '/adapters/preflight-forms.json',
@@ -907,21 +907,21 @@ preflight_write(
 );
 [$uncertifiedExit, $uncertifiedDocument] = preflight_at(
     $stateDriver,
-    DUO_AGENT_VERSION,
-    DUO_SPEC_VERSION,
+    WPRISM_AGENT_VERSION,
+    WPRISM_SPEC_VERSION,
     $fixtureLib,
     ['doctor', '--migration', '--repo=' . $uncertified, '--format=json']
 );
-duo_check_same(0, $uncertifiedExit, 'F2 uncertified adapter: a site with no certificate at all is green — there is '
+wprism_check_same(0, $uncertifiedExit, 'F2 uncertified adapter: a site with no certificate at all is green — there is '
     . 'no claim for the bump to withdraw');
-duo_check_same(
+wprism_check_same(
     'ok',
     (string) ($uncertifiedDocument['site']['load'] ?? ''),
     'F2: and the green is one the repository EARNED — Policy::load() accepted it, so the exit code is about the '
     . 'absent certificate and not about a site the engine never got to read'
 );
-duo_check_same([], (array) $uncertifiedDocument['certificates'], 'F2: and it reports no certificates rather than an empty verdict about one');
-duo_check_same(
+wprism_check_same([], (array) $uncertifiedDocument['certificates'], 'F2: and it reports no certificates rather than an empty verdict about one');
+wprism_check_same(
     'no_content_pin',
     (string) ($uncertifiedDocument['pins'][1]['verdict'] ?? ''),
     'F2: its source-only override pin declares no content, so there is no digest to move — reported as the '
@@ -937,7 +937,7 @@ $contractFixture = json_decode(
     true
 );
 $targetRegistry = (string) ($greenDocument['target']['registry_sha256'] ?? '');
-duo_check(
+wprism_check(
     preg_match('/^[0-9a-f]{64}$/', $targetRegistry) === 1,
     'fixture: the preflight publishes the target registry_sha256 it observed (ManifestDispositions::sha256(), '
     . 'the one definition a host contract pins)'
@@ -948,10 +948,10 @@ foreach ([
     'moved' => [str_repeat('a', 64), 'whole-contract', true],
 ] as $label => [$registry, $expectedMode, $expectedMovement]) {
     $site = $sites . '/contract-' . $label;
-    preflight_write($site . '/site.duo.json', \Duo\Canon::encode([
+    preflight_write($site . '/site.wprism.json', \WPrism\Canon::encode([
         'manifests' => ['core'],
         'policy' => ['options' => new stdClass(), 'post_types' => ['post'], 'taxonomies' => ['category']],
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]));
     $document = $contractFixture;
     $document['evidence_pins']['registry_sha256'] = $registry;
@@ -972,8 +972,8 @@ foreach ([
     // addresses the document's content, so an edited fixture that kept the
     // shipped digest would be refused as a tamper before any evidence pin was
     // read, and the case would be about the wrong thing entirely.
-    $document = \Duo\Orchestrator\ApplicationContract::withDigest($document);
-    preflight_write($site . '/.duo/contract/contract.json', \Duo\Canon::encode($document) . "\n");
+    $document = \WPrism\Orchestrator\ApplicationContract::withDigest($document);
+    preflight_write($site . '/.wprism/contract/contract.json', \WPrism\Canon::encode($document) . "\n");
 
     [$contractExit, $contractReport] = preflight_at(
         $stateDriver,
@@ -983,23 +983,23 @@ foreach ([
         ['doctor', '--migration', '--repo=' . $site, '--format=json']
     );
     $row = $contractReport['contracts'][0] ?? [];
-    duo_check_same(
+    wprism_check_same(
         $expectedMode,
         (string) ($row['registry']['invalidation'] ?? ''),
         "F3/F4 contract-$label: the invalidation verdict is ContractProjection::generate()'s own, reached by "
         . 'calling it with the registry hash this run observed'
     );
-    duo_check_same(
+    wprism_check_same(
         $expectedMovement,
         in_array('contract_registry', preflight_ids($contractReport), true),
         "F3/F4 contract-$label: and a moved reviewed registry is predicted as an invalidation, an unmoved one is not"
     );
-    duo_check_same(
+    wprism_check_same(
         $expectedMovement ? 1 : 0,
         $contractExit,
         "F3/F4 contract-$label: exit code agrees with the verdict"
     );
-    duo_check_same(
+    wprism_check_same(
         'unsigned',
         (string) ($row['attestation']['verdict'] ?? ''),
         "F3/F4 contract-$label: an unsigned contract is reported unsigned rather than silently verified"
@@ -1011,7 +1011,7 @@ foreach ([
 // reviewed typed signals — and this preflight has no reviewed migration outcome
 // for it.
 $unclassifiable = $sites . '/unclassifiable-certificate';
-foreach (['site.duo.json', 'adapters/preflight-forms.json', 'adapters/authorities.json'] as $relative) {
+foreach (['site.wprism.json', 'adapters/preflight-forms.json', 'adapters/authorities.json'] as $relative) {
     preflight_write($unclassifiable . '/' . $relative, (string) file_get_contents($certified . '/' . $relative));
 }
 // Mutated as BYTES, one base64 character of the signature, rather than decoded
@@ -1019,7 +1019,7 @@ foreach (['site.duo.json', 'adapters/preflight-forms.json', 'adapters/authoritie
 // so a re-encoded document would be refused for its FORMATTING and the case
 // would never reach the signature check it is about. One character in, one
 // character out keeps the length, the canonical base64 shape and every other
-// byte of the file exactly as `duo adapter certify` wrote them.
+// byte of the file exactly as `wprism adapter certify` wrote them.
 $certificateBytes = (string) file_get_contents($certified . '/adapters/certifications/preflight-forms.json');
 $mutated = preg_replace_callback(
     '/("signature": ")(.)/',
@@ -1028,7 +1028,7 @@ $mutated = preg_replace_callback(
     1,
     $mutations
 );
-duo_check_same(1, $mutations, 'F5 fixture: exactly one signature byte was mutated in the canonical certificate');
+wprism_check_same(1, $mutations, 'F5 fixture: exactly one signature byte was mutated in the canonical certificate');
 preflight_write($unclassifiable . '/adapters/certifications/preflight-forms.json', (string) $mutated);
 [$unclassifiedExit, $unclassifiedDocument] = preflight_at(
     $stateDriver,
@@ -1037,8 +1037,8 @@ preflight_write($unclassifiable . '/adapters/certifications/preflight-forms.json
     $fixtureLib,
     ['doctor', '--migration', '--repo=' . $unclassifiable, '--format=json']
 );
-duo_check_same(1, $unclassifiedExit, 'F5 unclassifiable certificate: no green verdict — exit 1');
-duo_check(
+wprism_check_same(1, $unclassifiedExit, 'F5 unclassifiable certificate: no green verdict — exit 1');
+wprism_check(
     (string) $unclassifiedDocument['status'] !== 'ok',
     'F5: and status is never `ok` while a shape is unclassified (' . (string) $unclassifiedDocument['status'] . ')'
 );
@@ -1048,27 +1048,27 @@ foreach ((array) $unclassifiedDocument['unclassified'] as $row) {
         $unclassifiedRow = $row;
     }
 }
-duo_check(
+wprism_check(
     is_array($unclassifiedRow),
     'F5: the refusal is an UNCLASSIFIED row naming the certificate, not silence — following '
     . 'CompiledArtifactReader::artifact_guidance()\'s posture that an unreviewed gate is a hard stop'
 );
-duo_check(
+wprism_check(
     str_contains((string) ($unclassifiedRow['detail'] ?? ''), 'invalid Ed25519 signature'),
     'F5: carrying the engine\'s own sentence byte for byte (' . (string) ($unclassifiedRow['detail'] ?? '') . ')'
 );
-duo_check_same(
+wprism_check_same(
     'unclassified',
     (string) ($unclassifiedDocument['certificates'][0]['outcome'] ?? ''),
     'F5: and the certificate row says `unclassified` rather than borrowing one of the three reviewed outcomes'
 );
-duo_check_same(
+wprism_check_same(
     'preflight-key',
     (string) ($unclassifiedDocument['certificates'][0]['key_id'] ?? ''),
     'F5: while STILL reporting which key id signed it — read facts survive a refused verification, because those '
     . 'two values are what tell an operator what to do next'
 );
-duo_check_same(
+wprism_check_same(
     'refused',
     (string) ($unclassifiedDocument['site']['load'] ?? ''),
     'F5: and this whole verdict was produced on a repository whose Policy::load() refuses outright — the state in '
@@ -1078,10 +1078,10 @@ duo_check_same(
 // F6: a pin shape the verb cannot classify — an unknown pin key, which
 // `PinResolver::normalize_manifest_pins()` refuses by name.
 $badPins = $sites . '/unclassifiable-pin';
-preflight_write($badPins . '/site.duo.json', \Duo\Canon::encode([
+preflight_write($badPins . '/site.wprism.json', \WPrism\Canon::encode([
     'manifests' => [['name' => 'core', 'digest' => str_repeat('b', 64), 'flavour' => 'strawberry']],
     'policy' => ['options' => new stdClass(), 'post_types' => ['post'], 'taxonomies' => ['category']],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ]));
 [$badPinExit, $badPinDocument] = preflight_at(
     $stateDriver,
@@ -1090,14 +1090,14 @@ preflight_write($badPins . '/site.duo.json', \Duo\Canon::encode([
     $fixtureLib,
     ['doctor', '--migration', '--repo=' . $badPins, '--format=json']
 );
-duo_check_same(1, $badPinExit, 'F6 unclassifiable pin shape: no green verdict — exit 1');
+wprism_check_same(1, $badPinExit, 'F6 unclassifiable pin shape: no green verdict — exit 1');
 $pinShapeRow = null;
 foreach ((array) $badPinDocument['unclassified'] as $row) {
     if ((string) $row['what'] === 'pin shape') {
         $pinShapeRow = $row;
     }
 }
-duo_check(
+wprism_check(
     is_array($pinShapeRow) && str_contains((string) $pinShapeRow['detail'], 'unknown pin key'),
     'F6: the normalizer\'s own refusal is the row, so a pin key nobody reviewed can never read as a pin that holds ('
     . (string) ($pinShapeRow['detail'] ?? '') . ')'
@@ -1111,15 +1111,15 @@ foreach ([
     [['adapter', 'doctor', '--migration', '--repo=' . $certified, '--artifact=/nonexistent/x.json'], "--artifact '/nonexistent/x.json' is not a file"],
 ] as [$argv, $expected]) {
     [$usageExit, , $usageErr] = preflight_run(array_merge(
-        [PHP_BINARY, $root . '/cli/duo'],
+        [PHP_BINARY, $root . '/cli/wprism'],
         $argv,
         ['--adapter-library=' . $fixtureLib]
     ));
-    duo_check_same(2, $usageExit, 'usage: `' . implode(' ', array_slice($argv, 0, 3)) . ' ...` exits 2, not 1');
-    duo_check(
+    wprism_check_same(2, $usageExit, 'usage: `' . implode(' ', array_slice($argv, 0, 3)) . ' ...` exits 2, not 1');
+    wprism_check(
         str_contains($usageErr, $expected),
         'usage: and says why — ' . trim($usageErr)
     );
 }
 
-duo_check_summary('duo adapter doctor --migration preflight');
+wprism_check_summary('wprism adapter doctor --migration preflight');

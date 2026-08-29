@@ -15,7 +15,7 @@
  * assuming.
  *
  * This file replaces those with ONE seedable in-memory store,
- * \DuoTest\WpStore, and a set of stubs that read and write it. Every stub is
+ * \WPrismTest\WpStore, and a set of stubs that read and write it. Every stub is
  * function_exists()-guarded, so:
  *
  *   - a suite that already declares its own stub keeps it (include order
@@ -49,7 +49,7 @@
  */
 declare(strict_types=1);
 
-namespace DuoTest {
+namespace WPrismTest {
 
 /**
  * The single in-memory WordPress state every stub in this file reads.
@@ -73,7 +73,7 @@ final class WpStore {
      *
      * Unique per PROCESS and per instance, because the authoritative gate is
      * `make -j8` and it does not give each leaf its own TMPDIR the way
-     * tools/offline.php does. A fixed /tmp/duo-uploads would be shared by
+     * tools/offline.php does. A fixed /tmp/wprism-uploads would be shared by
      * every suite running at that moment, so one suite's fixture files would
      * be visible to another and "the upload dir holds exactly N files" would
      * flake on scheduling alone.
@@ -133,7 +133,7 @@ final class WpStore {
     public array $blogInfo = [
         'url' => 'http://example.test',
         'wpurl' => 'http://example.test',
-        'name' => 'Duo Offline Fixture',
+        'name' => 'WPrism Offline Fixture',
         'charset' => 'UTF-8',
         'language' => 'en-US',
     ];
@@ -144,7 +144,7 @@ final class WpStore {
         // a suite that resets mid-run starts from an empty root rather than
         // inheriting the files the previous store left behind.
         $this->uploadBaseDir = sys_get_temp_dir()
-            . '/duo-uploads-' . getmypid() . '-' . bin2hex(random_bytes(4));
+            . '/wprism-uploads-' . getmypid() . '-' . bin2hex(random_bytes(4));
     }
 
     public static function instance(): self {
@@ -256,7 +256,7 @@ if (!defined('ARRAY_N')) {
 // Path constants. Defined, never created: an offline suite that only reads
 // paths must not leave directories behind in a parallel `make -j8` run.
 if (!defined('ABSPATH')) {
-    define('ABSPATH', sys_get_temp_dir() . '/duo-wp-root/');
+    define('ABSPATH', sys_get_temp_dir() . '/wprism-root/');
 }
 if (!defined('WP_CONTENT_DIR')) {
     define('WP_CONTENT_DIR', rtrim(ABSPATH, '/') . '/wp-content');
@@ -274,10 +274,10 @@ if (!defined('DAY_IN_SECONDS')) {
     define('DAY_IN_SECONDS', 86400);
 }
 
-if (!function_exists('duo_wp_store')) {
+if (!function_exists('wprism_wp_store')) {
     /** Shorthand accessor for the store the stubs below read. */
-    function duo_wp_store(): \DuoTest\WpStore {
-        return \DuoTest\WpStore::instance();
+    function wprism_wp_store(): \WPrismTest\WpStore {
+        return \WPrismTest\WpStore::instance();
     }
 }
 
@@ -345,7 +345,7 @@ if (!function_exists('get_option')) {
      * against that ambiguity.
      */
     function get_option(string $option, mixed $default = false): mixed {
-        $store = duo_wp_store();
+        $store = wprism_wp_store();
         return array_key_exists($option, $store->options) ? $store->options[$option] : $default;
     }
 }
@@ -353,7 +353,7 @@ if (!function_exists('get_option')) {
 if (!function_exists('add_option')) {
     /** WordPress semantics: refuses (returns false) if the option exists. */
     function add_option(string $option, mixed $value = '', string $deprecated = '', string|bool $autoload = 'yes'): bool {
-        $store = duo_wp_store();
+        $store = wprism_wp_store();
         if (array_key_exists($option, $store->options)) {
             return false;
         }
@@ -374,7 +374,7 @@ if (!function_exists('update_option')) {
      * Autoload is only changed when explicitly passed, matching WP >= 4.2.
      */
     function update_option(string $option, mixed $value, string|bool|null $autoload = null): bool {
-        $store = duo_wp_store();
+        $store = wprism_wp_store();
         $exists = array_key_exists($option, $store->options);
         if ($exists && $store->options[$option] === $value) {
             return false;
@@ -392,7 +392,7 @@ if (!function_exists('update_option')) {
 if (!function_exists('delete_option')) {
     /** False when the option was not there, matching WordPress. */
     function delete_option(string $option): bool {
-        $store = duo_wp_store();
+        $store = wprism_wp_store();
         if (!array_key_exists($option, $store->options)) {
             return false;
         }
@@ -413,7 +413,7 @@ if (!function_exists('wp_upload_dir')) {
      * needs bytes on disk calls WpStore::ensureUploadDir() itself.
      */
     function wp_upload_dir(?string $time = null, bool $create_dir = true, bool $refresh_cache = false): array {
-        $store = duo_wp_store();
+        $store = wprism_wp_store();
         $subdir = '/' . gmdate('Y/m', $time !== null ? (int) strtotime($time) : $store->timestamp());
         return [
             'path' => $store->uploadBaseDir . $subdir,
@@ -435,7 +435,7 @@ if (!function_exists('add_filter')) {
      * the ordering guarantee the engine's boot sequence relies on.
      */
     function add_filter(string $hook_name, callable $callback, int $priority = 10, int $accepted_args = 1): bool {
-        $store = duo_wp_store();
+        $store = wprism_wp_store();
         $store->hooks[$hook_name][] = [
             'callback' => $callback,
             'priority' => $priority,
@@ -470,7 +470,7 @@ if (!function_exists('remove_filter')) {
      * detached from the one named here.
      */
     function remove_filter(string $hook_name, callable $callback, int $priority = 10): bool {
-        $store = duo_wp_store();
+        $store = wprism_wp_store();
         foreach ($store->hooks[$hook_name] ?? [] as $index => $entry) {
             if ($entry['priority'] === $priority && $entry['callback'] == $callback) {
                 unset($store->hooks[$hook_name][$index]);
@@ -509,7 +509,7 @@ if (!function_exists('has_filter')) {
      * int-0 case must stay an int.
      */
     function has_filter(string $hook_name, callable|false $callback = false): bool|int {
-        $store = duo_wp_store();
+        $store = wprism_wp_store();
         $entries = $store->hooks[$hook_name] ?? [];
         if ($callback === false) {
             return $entries !== [];
@@ -537,7 +537,7 @@ if (!function_exists('apply_filters')) {
      * does -- a filter declared with one parameter must not receive three.
      */
     function apply_filters(string $hook_name, mixed $value, mixed ...$args): mixed {
-        $store = duo_wp_store();
+        $store = wprism_wp_store();
         foreach ($store->sortedHooks($hook_name) as $entry) {
             $callArgs = array_slice(array_merge([$value], $args), 0, max(1, $entry['accepted_args']));
             $value = ($entry['callback'])(...$callArgs);
@@ -554,7 +554,7 @@ if (!function_exists('do_action')) {
      * WordPress.
      */
     function do_action(string $hook_name, mixed ...$args): void {
-        $store = duo_wp_store();
+        $store = wprism_wp_store();
         $store->firedActions[] = ['hook' => $hook_name, 'args' => $args];
         foreach ($store->sortedHooks($hook_name) as $entry) {
             $callArgs = array_slice($args, 0, $entry['accepted_args']);
@@ -572,7 +572,7 @@ if (!function_exists('wp_cache_get')) {
      * the engine's option cache invalidation depends on.
      */
     function wp_cache_get(string|int $key, string $group = '', bool $force = false, mixed &$found = null): mixed {
-        $store = duo_wp_store();
+        $store = wprism_wp_store();
         $group = $group === '' ? 'default' : $group;
         $store->cacheEvents[] = ['op' => 'get', 'group' => $group, 'key' => (string) $key];
         $found = isset($store->cache[$group]) && array_key_exists((string) $key, $store->cache[$group]);
@@ -583,7 +583,7 @@ if (!function_exists('wp_cache_get')) {
 if (!function_exists('wp_cache_set')) {
     /** $expire is accepted and ignored: nothing in the offline suites ages out. */
     function wp_cache_set(string|int $key, mixed $data, string $group = '', int $expire = 0): bool {
-        $store = duo_wp_store();
+        $store = wprism_wp_store();
         $group = $group === '' ? 'default' : $group;
         $store->cacheEvents[] = ['op' => 'set', 'group' => $group, 'key' => (string) $key];
         $store->cache[$group][(string) $key] = $data;
@@ -594,7 +594,7 @@ if (!function_exists('wp_cache_set')) {
 if (!function_exists('wp_cache_delete')) {
     /** False on a miss, matching WordPress, so "did we invalidate?" is assertable. */
     function wp_cache_delete(string|int $key, string $group = ''): bool {
-        $store = duo_wp_store();
+        $store = wprism_wp_store();
         $group = $group === '' ? 'default' : $group;
         $store->cacheEvents[] = ['op' => 'delete', 'group' => $group, 'key' => (string) $key];
         if (!isset($store->cache[$group]) || !array_key_exists((string) $key, $store->cache[$group])) {
@@ -607,7 +607,7 @@ if (!function_exists('wp_cache_delete')) {
 
 if (!function_exists('wp_cache_flush')) {
     function wp_cache_flush(): bool {
-        $store = duo_wp_store();
+        $store = wprism_wp_store();
         $store->cacheEvents[] = ['op' => 'flush', 'group' => '', 'key' => ''];
         $store->cache = [];
         return true;
@@ -771,7 +771,7 @@ if (!function_exists('get_post_types')) {
      * @return array<string,string>|array<string,object>
      */
     function get_post_types(array|string $args = [], string $output = 'names', string $operator = 'and'): array {
-        $store = duo_wp_store();
+        $store = wprism_wp_store();
         $args = is_string($args) ? [] : $args;
         $matched = [];
         foreach ($store->postTypes as $name => $object) {
@@ -797,7 +797,7 @@ if (!function_exists('get_post_types')) {
 if (!function_exists('get_bloginfo')) {
     /** 'version' comes from the store's $version; other keys from $blogInfo. */
     function get_bloginfo(string $show = '', string $filter = 'raw'): string {
-        $store = duo_wp_store();
+        $store = wprism_wp_store();
         if ($show === 'version') {
             return $store->version;
         }
@@ -868,7 +868,7 @@ if (!function_exists('wp_normalize_path')) {
 
 if (!function_exists('is_multisite')) {
     /**
-     * Always false. Duo refuses multisite outright (see the multisite refusal
+     * Always false. WPrism refuses multisite outright (see the multisite refusal
      * regression), so an offline suite that observes true here would be
      * asserting against a configuration the product does not support.
      */
@@ -885,7 +885,7 @@ if (!function_exists('current_time')) {
      * the fixture clock is UTC by construction.
      */
     function current_time(string $type, int|bool $gmt = 0): string|int {
-        $now = duo_wp_store()->timestamp();
+        $now = wprism_wp_store()->timestamp();
         return match ($type) {
             'mysql' => gmdate('Y-m-d H:i:s', $now),
             'timestamp', 'U' => $now,

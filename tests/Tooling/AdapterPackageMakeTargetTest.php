@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
-use Duo\Tooling\AdapterPackageMakeTarget;
+use WPrism\Tooling\AdapterPackageMakeTarget;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
@@ -16,7 +16,7 @@ final class AdapterPackageMakeTargetTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->scratch = sys_get_temp_dir() . '/duo-adapter-make-target-' . bin2hex(random_bytes(8));
+        $this->scratch = sys_get_temp_dir() . '/wprism-adapter-make-target-' . bin2hex(random_bytes(8));
         self::assertTrue(mkdir($this->scratch . '/adapter-packages', 0777, true));
         $root = realpath($this->scratch);
         self::assertNotFalse($root);
@@ -44,6 +44,27 @@ final class AdapterPackageMakeTargetTest extends TestCase
         self::assertDoesNotMatchRegularExpression(
             '/^\t[^\n]*adapter-packages\/[a-z0-9-]+\/tests\//m',
             $makefile
+        );
+    }
+
+    public function testSpikeEAggregateResolvesThePackageOwnedAcfSpike(): void
+    {
+        $repo = dirname(__DIR__, 2);
+
+        $test = AdapterPackageMakeTarget::resolve($repo, 'spike-e-acf');
+
+        self::assertSame('acf', $test['adapter']);
+        self::assertSame('spike', $test['class']);
+        self::assertSame(
+            'adapter-packages/acf/tests/spike/spike_e_acf.sh',
+            $test['path']
+        );
+
+        $make = self::runMakeDry('spike-e');
+        self::assertSame(0, $make['status'], $make['stdout'] . $make['stderr']);
+        self::assertStringContainsString(
+            'php tools/adapter-package-make-target.php --target-from-make',
+            $make['stdout']
         );
     }
 
@@ -111,10 +132,10 @@ final class AdapterPackageMakeTargetTest extends TestCase
 
     public function testMakeDispatcherKeepsMetacharacterGoalOutOfShellSyntax(): void
     {
-        $process = self::runMake('regress-no-such-suite;printf DUO_INJECTED');
+        $process = self::runMake('regress-no-such-suite;printf WPRISM_INJECTED');
 
         self::assertNotSame(0, $process['status'], $process['stdout'] . $process['stderr']);
-        self::assertStringNotContainsString('DUO_INJECTED', $process['stdout']);
+        self::assertStringNotContainsString('WPRISM_INJECTED', $process['stdout']);
         self::assertStringContainsString('Adapter package make target is not canonical', $process['stderr']);
     }
 
@@ -138,6 +159,25 @@ final class AdapterPackageMakeTargetTest extends TestCase
         $repo = dirname(__DIR__, 2);
         $process = proc_open(
             ['make', '--no-print-directory', $target],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            $repo
+        );
+        self::assertIsResource($process);
+        $stdout = (string) stream_get_contents($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        return ['status' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr];
+    }
+
+    /** @return array{status:int,stdout:string,stderr:string} */
+    private static function runMakeDry(string $target): array
+    {
+        $repo = dirname(__DIR__, 2);
+        $process = proc_open(
+            ['make', '--no-print-directory', '--just-print', $target],
             [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes,
             $repo

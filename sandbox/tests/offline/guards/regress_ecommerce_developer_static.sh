@@ -5,15 +5,15 @@ set -euo pipefail
 cd "$(dirname "$0")/../../.."
 
 SCRIPT="tests/grind/grind_ecommerce_developer.sh"
-FIXTURE="fixtures/duo-ecommerce-developer-grind"
+FIXTURE="fixtures/wprism-ecommerce-developer-grind"
 MATRIX="tests/grind/grind_ecommerce_developer.matrix.json"
 STATIC_STRUCTURE_FILE=""
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 pass() { echo "ok: $*"; }
-STATIC_INVALID_OUT="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-invalid.XXXXXX")"
-STATIC_EXISTING_OUT="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-existing.XXXXXX")"
-STATIC_EARLY_OUT="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-early.XXXXXX")"
+STATIC_INVALID_OUT="$(mktemp "${TMPDIR:-/tmp}/wprism-ecommerce-invalid.XXXXXX")"
+STATIC_EXISTING_OUT="$(mktemp "${TMPDIR:-/tmp}/wprism-ecommerce-existing.XXXXXX")"
+STATIC_EARLY_OUT="$(mktemp "${TMPDIR:-/tmp}/wprism-ecommerce-early.XXXXXX")"
 STATIC_SENTINEL=""
 STATIC_CREATED_SITEREPO=0
 cleanup_static() {
@@ -211,7 +211,7 @@ GREATEST_VERIFIED_WORDPRESS="$(jq -er '.wordpress.verified | select(type == "obj
 [ "$GREATEST_VERIFIED_WORDPRESS" = "$EXPECTED_WORDPRESS_VERSION" ] \
   || fail "compatibility baseline last_verified ($EXPECTED_WORDPRESS_VERSION) is not the newest exercised core ($GREATEST_VERIFIED_WORDPRESS)"
 EXPECTED_WORDPRESS_IMAGE="wordpress:${EXPECTED_WORDPRESS_VERSION}-php8.3-apache"
-EXPECTED_PAIR_WORDPRESS_IMAGE="\${DUO_WP_IMAGE:-${EXPECTED_WORDPRESS_IMAGE}}"
+EXPECTED_PAIR_WORDPRESS_IMAGE="\${WPRISM_WP_IMAGE:-${EXPECTED_WORDPRESS_IMAGE}}"
 pair_service_image() {
   local service="$1"
   awk -v service="$service" '
@@ -230,7 +230,7 @@ pass "generic pair WordPress image is pinned to evidence boundary ${EXPECTED_WOR
 # original path in SCRIPT_SOURCE because the live collision probes and the
 # heredoc checks still need the actual executable.
 SCRIPT_SOURCE="$SCRIPT"
-STATIC_STRUCTURE_FILE="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-structure.XXXXXX")"
+STATIC_STRUCTURE_FILE="$(mktemp "${TMPDIR:-/tmp}/wprism-ecommerce-structure.XXXXXX")"
 {
   awk '/^say "/ { exit } { print }' "$SCRIPT_SOURCE" | strip_static_comments
   while IFS= read -r name; do
@@ -273,7 +273,7 @@ RUNTIME_ISOLATION_HELPER_BLOCK="$(function_block assert_runtime_isolation | stri
 RUNTIME_STATE_EXCLUSION_HELPER_BLOCK="$(function_block assert_runtime_state_excluded | strip_static_comments)"
 RUNTIME_IDENTITY_HELPER_BLOCK="$(function_block runtime_identity_inventory | strip_static_comments)"
 ENV_SECRET_HELPER_BLOCK="$(function_block assert_env_secret_isolation | strip_static_comments)"
-SOURCE_LEDGER_HELPER_BLOCK="$(function_block source_duo_ledger_snapshot | strip_static_comments)"
+SOURCE_LEDGER_HELPER_BLOCK="$(function_block source_wprism_ledger_snapshot | strip_static_comments)"
 ACF_SCHEMA_HELPER_BLOCK="$(function_block assert_acf_schema | strip_static_comments)"
 FRONTEND_HELPER_BLOCK="$(function_block assert_frontend_child_parent | strip_static_comments)"
 REST_HELPER_BLOCK="$(function_block assert_extension_rest_status | strip_static_comments)"
@@ -286,15 +286,15 @@ FAILED_V2_RECOVERY_PHASE_BLOCK="$(phase_block 'exact checkpoint recovery, then f
 REPLACEMENT_PHASE_BLOCK="$(phase_block 'explicit plugin identity replacement: preflight dependency refusal, semantic plan, retire old, activate new' | strip_static_comments)"
 REPLACEMENT_ROLLBACK_PHASE_BLOCK="$(phase_block 'exact replacement rollback: reverse-promote the immediate prior v2 code/state; retain the superseded checkpoint as evidence' | strip_static_comments)"
 ROLLBACK_PHASE_BLOCK="$(phase_block 'exact rollback: import v1 checkpoint under maintenance, then promote v1' | strip_static_comments)"
-FAIL_CLOSED_PHASE_BLOCK="$(phase_block 'Woo deletion boundary: public product delete is refused before Duo capture mutation' | strip_static_comments)"
+FAIL_CLOSED_PHASE_BLOCK="$(phase_block 'Woo deletion boundary: public product delete is refused before WPrism capture mutation' | strip_static_comments)"
 FINAL_RECAPTURE_PHASE_BLOCK="$(phase_block 'final recapture/status and exact clean-room cleanup' | strip_static_comments)"
 CLEAN_ROOM_PHASE_BLOCK="$(phase_block 'clean room: pair.sh HTTP pair' | strip_static_comments)"
 CLEANUP_PAIR_DESTROY='if ! bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1; then'
-CLEANUP_DOCKER_CONTAINERS='pair_containers="$(docker ps -aq --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null)"'
-CLEANUP_DOCKER_VOLUMES='pair_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null)"'
-CLEANUP_DOCKER_NETWORKS='pair_networks="$(docker network ls -q --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null)"'
+CLEANUP_DOCKER_CONTAINERS='pair_containers="$(docker ps -aq --filter "label=com.docker.compose.project=wprism-$PAIR" 2>/dev/null)"'
+CLEANUP_DOCKER_VOLUMES='pair_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=wprism-$PAIR" 2>/dev/null)"'
+CLEANUP_DOCKER_NETWORKS='pair_networks="$(docker network ls -q --filter "label=com.docker.compose.project=wprism-$PAIR" 2>/dev/null)"'
 CLEANUP_DOCKER_LEFTOVER='[ -n "$pair_containers$pair_volumes$pair_networks" ]; then'
-CLEANUP_DB_QUERY="remaining_dbs=\"\$(docker exec -e MYSQL_PWD=root duo-shared-db mariadb -uroot -N -B --raw -e \"SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME IN ('wp_\${PAIR}1','wp_\${PAIR}2')\" 2>/dev/null)\""
+CLEANUP_DB_QUERY="remaining_dbs=\"\$(docker exec -e MYSQL_PWD=root wprism-shared-db mariadb -uroot -N -B --raw -e \"SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME IN ('wp_\${PAIR}1','wp_\${PAIR}2')\" 2>/dev/null)\""
 CLEANUP_DB_LEFTOVER='[ -n "$remaining_dbs" ]; then'
 CLEANUP_PAIR_PATH_GUARD='if [ "$PAIR_PATHS_OWNED" = 1 ]; then'
 CLEANUP_TEARDOWN_GUARD='if [ "$teardown_verified" = 1 ]; then'
@@ -316,15 +316,15 @@ block_contains visibility-helper "$VISIBILITY_HELPER_BLOCK" "$VISIBILITY_STATE_A
 block_contains visibility-helper "$VISIBILITY_HELPER_BLOCK" 'assert_eq 9 "$state_count"' 'visibility helper does not require all nine canonical term files'
 EQ_PREDICATE='[ "$expected" = "$actual" ] || fail "$label: expected '\''$expected'\'', got '\''$actual'\''"'
 RECEIPT_FILE_ASSERT='[ -f "$artifact" ] || fail "$label artifact missing: $artifact"'
-RECEIPT_JQ_CALL="jq -e --arg code \"\$expected_code\" '(.artifact_hash | test(\"^[0-9a-f]{64}\$\")) and (.revision_hash | test(\"^[0-9a-f]{64}\$\")) and .code.format == \"duo-code/v1\" and .code.code_revision == \$code' \"\$artifact\" >/dev/null || fail \"\$label artifact receipt malformed\""
+RECEIPT_JQ_CALL="jq -e --arg code \"\$expected_code\" '(.artifact_hash | test(\"^[0-9a-f]{64}\$\")) and (.revision_hash | test(\"^[0-9a-f]{64}\$\")) and .code.format == \"wprism-code/v1\" and .code.code_revision == \$code' \"\$artifact\" >/dev/null || fail \"\$label artifact receipt malformed\""
 RECEIPT_CODE_ASSERT='assert_eq "$expected_code" "$(ledger_revision)" "$label completed code revision"'
 RECEIPT_STATE_ASSERT='assert_eq "$(jq -r '\''.revision_hash'\'' "$artifact")" "$(ledger_value applied_revision)" "$label applied state revision"'
-RECEIPT_LOCK_ASSERT='assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM wp_duo_kv WHERE k = '\''promotion_lock'\''")" "$label released promotion lease"'
+RECEIPT_LOCK_ASSERT='assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM wp_wprism_kv WHERE k = '\''promotion_lock'\''")" "$label released promotion lease"'
 THEME_CHILD_ASSERT='assert_eq "$CHILD_THEME" "$(target_wp option get stylesheet)" "active child theme"'
 THEME_PARENT_ASSERT='assert_eq "$PARENT_THEME" "$(target_wp option get template)" "active parent theme"'
 THEME_WOO_ACTIVE='target_wp plugin is-active "$WOO_SLUG" >/dev/null || fail "WooCommerce is inactive"'
 THEME_ACF_ACTIVE='target_wp plugin is-active "$ACF_SLUG" >/dev/null || fail "ACF is inactive"'
-THEME_EXT_ACTIVE='target_wp plugin is-active "$EXT_SLUG" >/dev/null || fail "Duo Commerce Extension is inactive"'
+THEME_EXT_ACTIVE='target_wp plugin is-active "$EXT_SLUG" >/dev/null || fail "WPrism Commerce Extension is inactive"'
 THEME_PLUGINS_ASSERT='assert_eq "$expected_active" "$(active_plugins_json)" "exact authored active_plugins order"'
 THEME_RUNTIME_ASSERT='target_wp eval '\''if (!class_exists("WooCommerce")) { exit(1); } if (!function_exists("woocommerce_content")) { exit(1); }'\'' || fail "custom storefront did not load WooCommerce integration"'
 block_contains eq-helper "$EQ_HELPER_BLOCK" 'local expected="$1" actual="$2" label="$3"' 'assert_eq helper does not bind expected/actual/label arguments'
@@ -342,13 +342,13 @@ block_contains theme-helper "$THEME_HELPER_BLOCK" "$THEME_EXT_ACTIVE" 'theme/dep
 block_contains theme-helper "$THEME_HELPER_BLOCK" "$THEME_PLUGINS_ASSERT" 'theme/dependency helper does not assert authored plugin order'
 block_contains theme-helper "$THEME_HELPER_BLOCK" "$THEME_RUNTIME_ASSERT" 'theme/dependency helper does not assert Woo runtime integration'
 ordered_contract initial-v1-recapture "$INITIAL_V1_PHASE_BLOCK" \
-  'target_wp duo capture --repo=/siterepo --out=/siterepo/.tmp-v1-recapture >/dev/null' \
+  'target_wp wprism capture --repo=/siterepo --out=/siterepo/.tmp-v1-recapture >/dev/null' \
   'if ! diff -r "$OTHER_SITE/state" "$OTHER_SITE/.tmp-v1-recapture" >/dev/null; then' \
   'diff -ru "$OTHER_SITE/state" "$OTHER_SITE/.tmp-v1-recapture" >&2 || true' \
   "fail 'initial v1 target recapture did not match canonical state byte-for-byte'" \
   'rm -rf -- "$OTHER_SITE/.tmp-v1-recapture"'
 ordered_contract final-derived-aware-recapture "$FINAL_RECAPTURE_PHASE_BLOCK" \
-  'target_wp duo capture --repo=/siterepo --out=/siterepo/.tmp-final-state >/dev/null' \
+  'target_wp wprism capture --repo=/siterepo --out=/siterepo/.tmp-final-state >/dev/null' \
   'if FINAL_RAW_DIFF="$(diff -rq "$OTHER_SITE/state" "$OTHER_SITE/.tmp-final-state")"; then' \
   '[ "$FINAL_RAW_DIFF_STATUS" -le 1 ]' \
   'FINAL_SEMANTIC_DIFF="$(final_compiled_state_diff)"' \
@@ -450,44 +450,44 @@ helper_noop_rejected visibility-helper "$VISIBILITY_STATE_ASSERT"
 helper_noop_rejected eq-helper "$EQ_PREDICATE"
 helper_noop_rejected receipt-helper "$RECEIPT_JQ_CALL"
 helper_noop_rejected theme-helper "$THEME_RUNTIME_ASSERT"
-CLEANUP_HELPER_GOLDEN_HASH=6abba119a6008574c1d576d52472712f119252d182d95407918a67898a05c7a7
+CLEANUP_HELPER_GOLDEN_HASH=ccfec1bbdbb869e320cc7bfa011501b9daf73ae717c426d6d2f330c1fe6c9c97
 ORDER_HELPER_GOLDEN_HASH=a5e218adaba2ef1c2f7dcee7078886c36fd4e743f8108aa883d1b5de3c3f0f64
 ORDER_SNAPSHOT_DATA_HELPER_GOLDEN_HASH=95777d9b3c8dd94e1a9c27febc42b3bff1ccbc7d47e5ce87aee5517637fcd35c
 VISIBILITY_HELPER_GOLDEN_HASH=49bc8eb8253fe2c9a3d9a5299ddce5123afb84689a8f74bf189ada8cdb830a51
 EQ_HELPER_GOLDEN_HASH=4533ae3a46601a7646bbfc7e6258d08136783621e32487b906784be559a7d3c1
-RECEIPT_HELPER_GOLDEN_HASH=916f0031edc22a8a90a0e68ce9b436b2a7700b339f48f83abd2820517e7608f9
-THEME_HELPER_GOLDEN_HASH=92f7178cab9469fee55245f405839ce130c1fc9e8e113ada4ab8cfa560f5810e
-REPLACEMENT_DEPENDENCY_HELPER_GOLDEN_HASH=1af8e0f446c33e4d53b2f64bfcb1c02aac93d6e955be24f2995a3f1ee21833a0
+RECEIPT_HELPER_GOLDEN_HASH=b8e2aa13c1f59012e79456732c85a6844cc585f3727222fef7d3662b7dbb1999
+THEME_HELPER_GOLDEN_HASH=1f138962a1311a9ee2b31c88e2eea62aba6c40294e6b240557270ab2bc0078ba
+REPLACEMENT_DEPENDENCY_HELPER_GOLDEN_HASH=be5e884fb7c71d66baca2c9963859849bd96c2b0c4f77f3aad29d1cf41463f95
 PHASE_ORDER_HELPER_GOLDEN_HASH=b8be7ab1221ac36f7ee6128ce24341d86ae46d66d7f0623ee567d3202b4e9aff
 ABSENT_HELPER_GOLDEN_HASH=74e54e8d9c00ba9d83634d57f7d56248999adf428426ab97d95e48dfb5a05616
 TRACE_HELPER_GOLDEN_HASH=dc4e232dae6bbae8b99cd00355e3b890d420d0c74ef70ef8baf170391aad73c5
 STATE_TREE_HASH_HELPER_GOLDEN_HASH=0b405c1bd3820c990ab1e6c3f2fe303fc8e8071be20fe65b133f73771c040349
-FINAL_COMPILED_STATE_DIFF_HELPER_GOLDEN_HASH=a6880a0178cbdab3968d75671dd90acdddc2476c621e5f513e30cdf88c768b11
+FINAL_COMPILED_STATE_DIFF_HELPER_GOLDEN_HASH=80b87cd083236bd92d2f827ee432dc0f0c4bbcb8312845e56fbc86b01af35a43
 TARGET_PLUGIN_TREE_HASH_HELPER_GOLDEN_HASH=6c9343b7af357aa093efaae96328a2315ee2c1c421a27d0afecc72d4bf68a3a6
 TARGET_PATH_HELPER_GOLDEN_HASH=c881d4b675e06224911c23f194af7a7305b85f3f8f6b2f452cca870b5a91c7d4
-TARGET_MANAGED_CODE_TREE_HASH_HELPER_GOLDEN_HASH=a9477b84f96b9cb2a00a4d4cd3e2dc55830806355fa7362c3d49380644a24bd6
-SOURCE_MANAGED_CODE_TREE_HASH_HELPER_GOLDEN_HASH=fe35ce2a019a1f045c4c0d48f76df6a5a24f9c645340d38006a771848b1818be
+TARGET_MANAGED_CODE_TREE_HASH_HELPER_GOLDEN_HASH=f6efd59230b172241418ea3bdf82abb1e40015353bdfb5ba967dde55cac6891f
+SOURCE_MANAGED_CODE_TREE_HASH_HELPER_GOLDEN_HASH=64de41c6698f3c3b71a3bec2ca5768467b2ceaa0cdf6a888433cb70cd45cb1de
 TARGET_TEE_UNCHANGED_HELPER_GOLDEN_HASH=d2dba3b69d1c9faba4ee697313197c02616d7686e537f953c482bdaf3163bad0
-TARGET_ORDER_SNAPSHOT_HELPER_GOLDEN_HASH=7bfecd258305c19f28e31c9058ede01bfbc844479030369fc7e14f83d03bcfb8
+TARGET_ORDER_SNAPSHOT_HELPER_GOLDEN_HASH=71cb4b0492793fd6bbd8ace962d9c7cbab0d8290c0f084117ad3aa886ca9e203
 TARGET_ORDER_ABSENT_HELPER_GOLDEN_HASH=25473f5c9ff32ce4ae0834dcda96c10bd5eca04a4f0577254bbf63087ad7c99d
-DELETION_PROBE_PRESENT_HELPER_GOLDEN_HASH=bd7116812eb69a82f6f3cc8b3594955be85ce4983d9395645cbe79418dd286ba
-LIVE_CHECKOUT_HELPER_GOLDEN_HASH=14acd3e360a12129a103219551ccd46699d0a485d815c533d1b6bd5fc0006233
-DEPLOY_ARTIFACT_FILES_HELPER_GOLDEN_HASH=74c60dc1cd6c256058840f36863e0f14e8b84c994a97036642e6ba0bf3d53eb4
+DELETION_PROBE_PRESENT_HELPER_GOLDEN_HASH=e6c1d7d44dea423ffc302fef5ddca1dee3dae9f15d257b4ea864d56606711f65
+LIVE_CHECKOUT_HELPER_GOLDEN_HASH=c21e5c32d1502f228a03597c762928abbd9a65f44661f4713ed39b019f92a872
+DEPLOY_ARTIFACT_FILES_HELPER_GOLDEN_HASH=a9a80b83d54171fe429d36eabb6f1194054879a50abe7ef2001b0a7ea14121e5
 NEW_DEPLOY_ARTIFACT_HELPER_GOLDEN_HASH=021e208799477388afb71a60c933bd8ceab7145a48485c7f319f9687a569ff1d
-PROMOTE_ARTIFACT_HELPER_GOLDEN_HASH=1f8f0e0aa48373c9429c2819f6f676cc4da6d0086b6b866f7f05bf0dbca51c7e
+PROMOTE_ARTIFACT_HELPER_GOLDEN_HASH=be1c216a02985a593f438945ee925c58acbfa920e0d7ea6f79904e10cc36bac2
 SOURCE_EVENT_BASELINE_HELPER_GOLDEN_HASH=2dae7f427f639ab1bcb9d4e1e12122a2c8fba8499e6fdc81d8d1cf245ea4120c
 RUNTIME_ISOLATION_HELPER_GOLDEN_HASH=b785e1dffaf6ee68c850bc3e78af0573220af20ff3e2255457386f54aa18c5da
-RUNTIME_STATE_EXCLUSION_HELPER_GOLDEN_HASH=49e7fccf04e6e6e5e95d0f9c283a37b6a7c1194b6f515393f8d2cad196f806ea
-RUNTIME_IDENTITY_HELPER_GOLDEN_HASH=5bb575bc44f32865f890383e47d341a3862a01c713ac74e2f675be36288276cc
-ENV_SECRET_HELPER_GOLDEN_HASH=434293b1db5c243c18bdb0f036d3d29e3140e2277844cb4ade597a76c1672a5d
-SOURCE_LEDGER_HELPER_GOLDEN_HASH=c1de83ea8b60d634fbd77e761b35612591aa354d4c55aa703ec9eb8a5cc8a17d
-ACF_SCHEMA_HELPER_GOLDEN_HASH=8ebb0003d070fea83241ddf3a565c1fe62485b4e0345a2101c82fd51cf584a65
-FRONTEND_HELPER_GOLDEN_HASH=92273a989a026102a60f14fb5904101c2f2e50e66e5afa12372ed225812979ca
-REST_HELPER_GOLDEN_HASH=04e2ae5929d0f588dac14cf7fe5090bf8039e07fe2d9ea6d743635a059564b61
-REPLACEMENT_REST_HELPER_GOLDEN_HASH=b3dcfeec7d63c6a135a655ab70fd539bbc19a66d96da99596bdd681260c5682d
-STORE_API_HTTP_HELPER_GOLDEN_HASH=166220142d61874d76e56c6a18a30f09149c1ed06be33c40bdf8d560d5ef80c6
-FAIL_CLOSED_PHASE_GOLDEN_HASH=17c902f33093bca291dee125caa4aff7cbc09909f0c33196315b26ab6830cf83
-FINAL_RECAPTURE_PHASE_GOLDEN_HASH=8ad39bfd59ef81c8c78ef9c6f4c1800af877f2ae5cae2a0ce40488123c10559c
+RUNTIME_STATE_EXCLUSION_HELPER_GOLDEN_HASH=a116ed9f90e6a945cf457f2c77bb194ac45c17b55d4ed7439f26d0816ef03c1b
+RUNTIME_IDENTITY_HELPER_GOLDEN_HASH=cab6a3ec8e5c6984a8edda994c07c341252beaed9f922ed3a6dd3c2c13338330
+ENV_SECRET_HELPER_GOLDEN_HASH=b5d213887ab6526a306491d7098ff5ff7677b775c86bbb6b31c6beb73c918a54
+SOURCE_LEDGER_HELPER_GOLDEN_HASH=9f22c8b4d5aaa0b5d7e83a4c7841d26312edb64b9f453f157c9f50774cf651d8
+ACF_SCHEMA_HELPER_GOLDEN_HASH=3bf205d4c8cbaeaff427643a8419dc2cb9266b23b06ea8852b3167e514510757
+FRONTEND_HELPER_GOLDEN_HASH=fa999370a2b21a296064800532897c6f2400f6fdaef74b1961d4836d3c5e9d21
+REST_HELPER_GOLDEN_HASH=d2e5bf96c2eb9f001fe9762927a47728c32fdca65f8f8811b88973aa32c99e52
+REPLACEMENT_REST_HELPER_GOLDEN_HASH=41604b76fc54f75359748bf10b4bacfeddf3f0a48859af08d2ecc871645a13c8
+STORE_API_HTTP_HELPER_GOLDEN_HASH=2621ad82f1172bcba70180c9249022d669627f3a950d01c5478b2efd4d30831c
+FAIL_CLOSED_PHASE_GOLDEN_HASH=7effa0f1767fa978c8a7c12b30c17ac28b507dd2bf37ed9a4e24c1ce1738a6da
+FINAL_RECAPTURE_PHASE_GOLDEN_HASH=a2aa6ff6a816e5d715191c5a8e4580ed937880f0b51c22800e1242a22dde5319
 assert_block_golden_hash cleanup "$CLEANUP_HELPER_BLOCK" "$CLEANUP_HELPER_GOLDEN_HASH"
 assert_block_golden_hash order-helper "$ORDER_HELPER_BLOCK" "$ORDER_HELPER_GOLDEN_HASH"
 assert_block_golden_hash visibility-helper "$VISIBILITY_HELPER_BLOCK" "$VISIBILITY_HELPER_GOLDEN_HASH"
@@ -526,11 +526,11 @@ assert_helper_contracts state-tree-hash "$STATE_TREE_HASH_HELPER_BLOCK" "$STATE_
   'sha256sum "$path"' 'state_tree_hash helper does not hash each state file' \
   ') | sha256sum | awk' 'state_tree_hash helper does not hash the complete path/content manifest'
 assert_helper_contracts final-compiled-state-diff "$FINAL_COMPILED_STATE_DIFF_HELPER_BLOCK" "$FINAL_COMPILED_STATE_DIFF_HELPER_GOLDEN_HASH" \
-  '\Duo\Policy::load("/siterepo")' 'final semantic diff does not load the pinned repository policy' \
-  '\Duo\RepositoryCompiler::compile_staged("/siterepo/state", "/siterepo", $policy)' 'final semantic diff does not compile the complete canonical tree' \
-  '\Duo\RepositoryCompiler::compile_staged("/siterepo/.tmp-final-state", "/siterepo", $policy)' 'final semantic diff does not compile the complete recaptured tree' \
+  '\WPrism\Policy::load("/siterepo")' 'final semantic diff does not load the pinned repository policy' \
+  '\WPrism\RepositoryCompiler::compile_staged("/siterepo/state", "/siterepo", $policy)' 'final semantic diff does not compile the complete canonical tree' \
+  '\WPrism\RepositoryCompiler::compile_staged("/siterepo/.tmp-final-state", "/siterepo", $policy)' 'final semantic diff does not compile the complete recaptured tree' \
   '$ordered_post_hash = static function (string $root, string $path) use ($policy)' 'final semantic diff does not define an ordered raw post projection' \
-  '\Duo\Canon::read_file($root . "/" . $path)' 'ordered raw post projection does not read the compiled entity file' \
+  '\WPrism\Canon::read_file($root . "/" . $path)' 'ordered raw post projection does not read the compiled entity file' \
   'json_decode(substr($text, 4, $end - 3), false, 512, JSON_THROW_ON_ERROR)' 'ordered raw post projection does not preserve JSON object insertion order' \
   'array_keys(get_object_vars($front))' 'ordered raw post projection does not enumerate only top-level front fields' \
   '$policy->field_class($postType, (string) $key) === "derived"' 'ordered raw post projection does not consult the pinned field classification' \
@@ -546,7 +546,7 @@ assert_helper_contracts final-compiled-state-diff "$FINAL_COMPILED_STATE_DIFF_HE
   '$out[$path] = (string) $entity["hash"];' 'final semantic diff does not preserve deletion hashes' \
   '"canonical_hash" => $left[$path] ?? null' 'final semantic diff omits canonical mismatch evidence' \
   '"recaptured_hash" => $right[$path] ?? null' 'final semantic diff omits recapture mismatch evidence' \
-  'echo \Duo\Canon::encode($diff);' 'final semantic diff is not deterministic canonical JSON'
+  'echo \WPrism\Canon::encode($diff);' 'final semantic diff is not deterministic canonical JSON'
 block_absent final-compiled-state-diff "$FINAL_COMPILED_STATE_DIFF_HELPER_BLOCK" \
   'Canon::post_hash_basis' 'final semantic diff regressed to the key-sorting post hash basis'
 assert_helper_contracts target-plugin-tree-hash "$TARGET_PLUGIN_TREE_HASH_HELPER_BLOCK" "$TARGET_PLUGIN_TREE_HASH_HELPER_GOLDEN_HASH" \
@@ -566,10 +566,10 @@ assert_helper_contracts target-managed-code-tree-hash "$TARGET_MANAGED_CODE_TREE
   '$root = "/var/www/html/wp-content";' 'target_managed_code_tree_hash helper is not rooted at wp-content' \
   '"plugins/woocommerce",' 'target_managed_code_tree_hash helper omits WooCommerce' \
   '"plugins/advanced-custom-fields",' 'target_managed_code_tree_hash helper omits ACF' \
-  '"plugins/duo-commerce-extension",' 'target_managed_code_tree_hash helper omits the extension' \
-  '"plugins/duo-commerce-replacement",' 'target_managed_code_tree_hash helper omits the replacement' \
-  '"themes/duo-commerce-parent",' 'target_managed_code_tree_hash helper omits the parent theme' \
-  '"themes/duo-commerce-child",' 'target_managed_code_tree_hash helper omits the child theme' \
+  '"plugins/wprism-commerce-extension",' 'target_managed_code_tree_hash helper omits the extension' \
+  '"plugins/wprism-commerce-replacement",' 'target_managed_code_tree_hash helper omits the replacement' \
+  '"themes/wprism-commerce-parent",' 'target_managed_code_tree_hash helper omits the parent theme' \
+  '"themes/wprism-commerce-child",' 'target_managed_code_tree_hash helper omits the child theme' \
   '$absoluteRoot = $root . "/" . $relativeRoot;' 'target_managed_code_tree_hash helper does not resolve each managed root' \
   'if (!is_dir($absoluteRoot)) {' 'target_managed_code_tree_hash helper does not handle absent managed roots explicitly' \
   'new RecursiveDirectoryIterator($absoluteRoot, FilesystemIterator::SKIP_DOTS)' 'target_managed_code_tree_hash helper does not recurse through managed files' \
@@ -579,14 +579,14 @@ assert_helper_contracts target-managed-code-tree-hash "$TARGET_MANAGED_CODE_TREE
   'sort($rows, SORT_STRING);' 'target_managed_code_tree_hash helper does not sort its manifest deterministically' \
   'echo hash("sha256", implode("\\n", $rows));' 'target_managed_code_tree_hash helper does not return a manifest SHA-256'
 assert_helper_contracts source-managed-code-tree-hash "$SOURCE_MANAGED_CODE_TREE_HASH_HELPER_BLOCK" "$SOURCE_MANAGED_CODE_TREE_HASH_HELPER_GOLDEN_HASH" \
-  'DUO_SOURCE_CODE_ROOT="$SITE/code/wp-content" php -r' 'source_managed_code_tree_hash helper does not bind the source managed-code root' \
-  '$root = rtrim((string) getenv("DUO_SOURCE_CODE_ROOT"), "/");' 'source_managed_code_tree_hash helper does not read the bound source root safely' \
+  'WPRISM_SOURCE_CODE_ROOT="$SITE/code/wp-content" php -r' 'source_managed_code_tree_hash helper does not bind the source managed-code root' \
+  '$root = rtrim((string) getenv("WPRISM_SOURCE_CODE_ROOT"), "/");' 'source_managed_code_tree_hash helper does not read the bound source root safely' \
   '"plugins/woocommerce",' 'source_managed_code_tree_hash helper omits WooCommerce' \
   '"plugins/advanced-custom-fields",' 'source_managed_code_tree_hash helper omits ACF' \
-  '"plugins/duo-commerce-extension",' 'source_managed_code_tree_hash helper omits the extension' \
-  '"plugins/duo-commerce-replacement",' 'source_managed_code_tree_hash helper omits the replacement' \
-  '"themes/duo-commerce-parent",' 'source_managed_code_tree_hash helper omits the parent theme' \
-  '"themes/duo-commerce-child",' 'source_managed_code_tree_hash helper omits the child theme' \
+  '"plugins/wprism-commerce-extension",' 'source_managed_code_tree_hash helper omits the extension' \
+  '"plugins/wprism-commerce-replacement",' 'source_managed_code_tree_hash helper omits the replacement' \
+  '"themes/wprism-commerce-parent",' 'source_managed_code_tree_hash helper omits the parent theme' \
+  '"themes/wprism-commerce-child",' 'source_managed_code_tree_hash helper omits the child theme' \
   '$absoluteRoot = $root . "/" . $relativeRoot;' 'source_managed_code_tree_hash helper does not resolve each managed root' \
   'if (!is_dir($absoluteRoot)) {' 'source_managed_code_tree_hash helper does not handle absent managed roots explicitly' \
   'new RecursiveDirectoryIterator($absoluteRoot, FilesystemIterator::SKIP_DOTS)' 'source_managed_code_tree_hash helper does not recurse through managed files' \
@@ -714,7 +714,7 @@ assert_helper_contracts target-order-snapshot "$TARGET_ORDER_SNAPSHOT_HELPER_BLO
   '(.hpos_meta | length) >= 1 and' 'target order snapshot helper does not require HPOS order metadata rows' \
   '((.meta_key | tostring | length) > 0)' 'target order snapshot helper does not require nonempty HPOS metadata keys' \
   '((.meta_value | type) == "string")' 'target order snapshot helper does not require valid HPOS metadata values' \
-  'any(.hpos_meta[]; .meta_key == "_duo_runtime_marker" and .meta_value == "target-order-only")' 'target order snapshot helper does not require the exact HPOS metadata marker' \
+  'any(.hpos_meta[]; .meta_key == "_wprism_runtime_marker" and .meta_value == "target-order-only")' 'target order snapshot helper does not require the exact HPOS metadata marker' \
   '(.customer_lookup | length) == 1 and' 'target order snapshot helper does not require one Woo customer lookup row' \
   '(.customer_lookup[0].customer_id | tonumber) as $analytics_customer_id' 'target order snapshot helper does not bind the Woo analytics customer identity' \
   '((.customer_lookup[0].user_id | tonumber) == $expected_customer)' 'target order snapshot helper does not map the Woo customer to the WordPress user' \
@@ -750,7 +750,7 @@ assert_helper_contracts target-order-snapshot "$TARGET_ORDER_SNAPSHOT_HELPER_BLO
   '.meta_key == "_line_subtotal" and (.meta_value | tonumber) > 0' 'target order snapshot helper does not require a positive raw line subtotal' \
   '.meta_key == "_line_total" and (.meta_value | tonumber) > 0' 'target order snapshot helper does not require a positive raw line total' \
   '.meta_key == "rate_id" and (.meta_value | tonumber) > 0' 'target order snapshot helper does not require the raw tax rate' \
-  '.meta_key == "label" and .meta_value == "Duo Grind CA Sales Tax"' 'target order snapshot helper does not require the exact raw tax label' \
+  '.meta_key == "label" and .meta_value == "WPrism Grind CA Sales Tax"' 'target order snapshot helper does not require the exact raw tax label' \
   '.meta_key == "tax_amount" and (.meta_value | tonumber) > 0' 'target order snapshot helper does not require a positive raw tax amount' \
   '(.order_itemmeta | length) >= 10 and' 'target order snapshot helper does not require complete order-item metadata' \
   '((.meta_id | tonumber) > 0)' 'target order snapshot helper does not require valid order-item metadata IDs' \
@@ -784,7 +784,7 @@ assert_helper_contracts deletion-probe-present "$DELETION_PROBE_PRESENT_HELPER_B
   'manual_regenerate_attribute_lookup' 'deletion probe does not establish the explicit manual Woo attribute baseline' \
   'local id="$1" meta_rows attribute_rows' 'deletion probe present helper does not bind ID and lookup counts' \
   '[[ "$id" =~ ^[0-9]+$ ]] || fail' 'deletion probe present helper does not validate a numeric ID' \
-  'target_wp post list --post_type=product --name=duo-grind-delete-probe --field=ID' 'deletion probe present helper does not query the canonical probe slug' \
+  'target_wp post list --post_type=product --name=wprism-grind-delete-probe --field=ID' 'deletion probe present helper does not query the canonical probe slug' \
   'assert_eq "$id"' 'deletion probe present helper does not assert the probe product identity' \
   'wp_wc_product_meta_lookup WHERE product_id = $id' 'deletion probe present helper does not query Woo meta lookup rows' \
   'sku = '\''GRIND-DELETE-PROBE'\''' 'deletion probe present helper does not bind the probe SKU' \
@@ -802,9 +802,9 @@ assert_helper_contracts live-checkout "$LIVE_CHECKOUT_HELPER_BLOCK" "$LIVE_CHECK
   '[ "$git_dir" != "$common_dir" ]' 'live checkout guard does not reject linked-worktree git-dir identity' \
   '[ -f "$REPO_ROOT/.git" ]' 'live checkout guard does not reject a linked-worktree .git file' \
   'git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all' 'live checkout guard does not reject dirty source bytes' \
-  'DUO_AGENT_SRC=' 'live checkout guard does not validate the canonical agent mount source' \
-  'DUO_ADAPTER_PACKAGES_SRC=' 'live checkout guard does not validate the canonical adapter-package mount source' \
-  'DUO_PLATFORM_SRC=' 'live checkout guard does not validate the canonical platform mount source'
+  'WPRISM_AGENT_SRC=' 'live checkout guard does not validate the canonical agent mount source' \
+  'WPRISM_ADAPTER_PACKAGES_SRC=' 'live checkout guard does not validate the canonical adapter-package mount source' \
+  'WPRISM_PLATFORM_SRC=' 'live checkout guard does not validate the canonical platform mount source'
 block_contains prelude "$PRELUDE_BLOCK" '[[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]]' 'invalid-name probe disappeared before live checkout mutation'
 block_contains prelude "$PRELUDE_BLOCK" 'for pair_path in "$SITE" "$OTHER_SITE" "$ORIGIN"; do' 'pre-existing-root probe disappeared before live checkout mutation'
 block_contains prelude "$PRELUDE_BLOCK" 'refusing to reuse pre-existing pair path' 'pre-existing-root refusal disappeared before live checkout mutation'
@@ -815,7 +815,7 @@ ordered_contract prelude "$PRELUDE_BLOCK" \
   'ENVS_FILE="$(mktemp'
 
 assert_helper_contracts deploy-artifact-files "$DEPLOY_ARTIFACT_FILES_HELPER_BLOCK" "$DEPLOY_ARTIFACT_FILES_HELPER_GOLDEN_HASH" \
-  '[ -d "$OTHER_SITE/.duo/artifacts" ] || return 0' 'deploy artifact probe does not tolerate a fresh target artifact directory' \
+  '[ -d "$OTHER_SITE/.wprism/artifacts" ] || return 0' 'deploy artifact probe does not tolerate a fresh target artifact directory' \
   "-name 'deploy-*.json'" 'deploy artifact probe does not restrict the receipt kind' \
   'print | sort' 'deploy artifact probe does not produce deterministic receipt inventory'
 assert_helper_contracts new-deploy-artifact "$NEW_DEPLOY_ARTIFACT_HELPER_BLOCK" "$NEW_DEPLOY_ARTIFACT_HELPER_GOLDEN_HASH" \
@@ -826,7 +826,7 @@ assert_helper_contracts new-deploy-artifact "$NEW_DEPLOY_ARTIFACT_HELPER_BLOCK" 
 assert_helper_contracts promote-artifact "$PROMOTE_ARTIFACT_HELPER_BLOCK" "$PROMOTE_ARTIFACT_HELPER_GOLDEN_HASH" \
   'checkpoint="$(sed -n' 'promote artifact binding does not parse the printed checkpoint' \
   'promote-\(.*\)\.sql' 'promote artifact binding does not bind the checkpoint run name' \
-  'artifact="$OTHER_SITE/.duo/artifacts/promote-$checkpoint.json"' 'promote artifact binding does not derive the exact receipt path' \
+  'artifact="$OTHER_SITE/.wprism/artifacts/promote-$checkpoint.json"' 'promote artifact binding does not derive the exact receipt path' \
   '[ -f "$artifact" ]' 'promote artifact binding does not require the exact receipt file'
 
 assert_helper_contracts source-event-baseline "$SOURCE_EVENT_BASELINE_HELPER_BLOCK" "$SOURCE_EVENT_BASELINE_HELPER_GOLDEN_HASH" \
@@ -844,13 +844,13 @@ assert_helper_contracts runtime-isolation "$RUNTIME_ISOLATION_HELPER_BLOCK" "$RU
 assert_helper_contracts runtime-state-exclusion "$RUNTIME_STATE_EXCLUSION_HELPER_BLOCK" "$RUNTIME_STATE_EXCLUSION_HELPER_GOLDEN_HASH" \
   'source-customer@example.invalid' 'runtime state exclusion omits the source customer marker' \
   'source-order@example.invalid' 'runtime state exclusion omits the source order marker' \
-  'Duo Grind source-only runtime event' 'runtime state exclusion omits the source event marker' \
+  'WPrism Grind source-only runtime event' 'runtime state exclusion omits the source event marker' \
   'runtime-customer@example.invalid' 'runtime state exclusion omits the target customer marker' \
   'runtime-only@example.invalid' 'runtime state exclusion omits the target order marker' \
   'target-order-only' 'runtime state exclusion omits the target HPOS metadata marker' \
   '200 Target Runtime Way' 'runtime state exclusion omits the target billing-address marker' \
   '201 Target Fulfillment Way' 'runtime state exclusion omits the target shipping-address marker' \
-  'Duo Grind runtime v1 event' 'runtime state exclusion omits the target event marker' \
+  'WPrism Grind runtime v1 event' 'runtime state exclusion omits the target event marker' \
   'activate:replacement-fixed:fresh=yes:retiring-root=present' 'runtime state exclusion omits the replacement lifecycle marker' \
   'source-only-synthetic-secret' 'runtime state exclusion omits the source secret marker' \
   'target-only-synthetic-secret' 'runtime state exclusion omits the target secret marker'
@@ -864,26 +864,26 @@ assert_helper_contracts env-secret "$ENV_SECRET_HELPER_BLOCK" "$ENV_SECRET_HELPE
   'source-only-synthetic-secret' 'env-secret helper does not assert the source-owned value' \
   'target-only-synthetic-secret' 'env-secret helper does not assert the target-owned value'
 assert_helper_contracts source-ledger "$SOURCE_LEDGER_HELPER_BLOCK" "$SOURCE_LEDGER_HELPER_GOLDEN_HASH" \
-  '"duo_map" => "SELECT uuid, entity_type, id_kind, local_id' 'source ledger snapshot omits the identity map' \
-  '"duo_state" => "SELECT uuid, entity_type, content_hash' 'source ledger snapshot omits state hashes' \
-  '"duo_kv" => "SELECT k, v' 'source ledger snapshot omits control-plane keys' \
+  '"wprism_map" => "SELECT uuid, entity_type, id_kind, local_id' 'source ledger snapshot omits the identity map' \
+  '"wprism_state" => "SELECT uuid, entity_type, content_hash' 'source ledger snapshot omits state hashes' \
+  '"wprism_kv" => "SELECT k, v' 'source ledger snapshot omits control-plane keys' \
   'wp_json_encode($snapshot, JSON_UNESCAPED_SLASHES)' 'source ledger snapshot is not normalized JSON'
 assert_helper_contracts acf-schema "$ACF_SCHEMA_HELPER_BLOCK" "$ACF_SCHEMA_HELPER_GOLDEN_HASH" \
-  '.group.key == "group_duo_commerce_catalog"' 'ACF schema assertion does not bind the exact group key' \
+  '.group.key == "group_wprism_commerce_catalog"' 'ACF schema assertion does not bind the exact group key' \
   '.group.location == [[{"param":"post_type","operator":"==","value":"product"}]]' 'ACF schema assertion does not bind the exact product location' \
   '.field_count == 1' 'ACF schema assertion does not reject extra fields' \
-  '.field.key == "field_duo_inventory_note"' 'ACF schema assertion does not bind the exact field key' \
+  '.field.key == "field_wprism_inventory_note"' 'ACF schema assertion does not bind the exact field key' \
   '.field.parent == .group.id' 'ACF schema assertion does not bind the field to the exact group ID' \
   '.field.conditional_logic == false' 'ACF schema assertion does not reject conditional field logic'
 assert_helper_contracts frontend "$FRONTEND_HELPER_BLOCK" "$FRONTEND_HELPER_GOLDEN_HASH" \
   'curl --connect-timeout 3 --max-time 10' 'frontend probe is not bounded by connect and total timeouts' \
-  'duo-commerce-storefront' 'frontend probe does not assert the parent body marker' \
-  'duo-commerce-child-catalog' 'frontend probe does not assert child template execution' \
-  'duo-commerce-parent-css' 'frontend probe does not assert parent stylesheet enqueue' \
-  'duo-commerce-child-css' 'frontend probe does not assert child stylesheet enqueue' \
+  'wprism-commerce-storefront' 'frontend probe does not assert the parent body marker' \
+  'wprism-commerce-child-catalog' 'frontend probe does not assert child template execution' \
+  'wprism-commerce-parent-css' 'frontend probe does not assert parent stylesheet enqueue' \
+  'wprism-commerce-child-css' 'frontend probe does not assert child stylesheet enqueue' \
   '[ "$parent_offset" -lt "$child_offset" ]' 'frontend probe does not assert dependency order'
 assert_helper_contracts extension-rest "$REST_HELPER_BLOCK" "$REST_HELPER_GOLDEN_HASH" \
-  '/wp-json/duo-commerce/v1/status' 'extension REST probe does not call the public status endpoint' \
+  '/wp-json/wprism-commerce/v1/status' 'extension REST probe does not call the public status endpoint' \
   'jq -e --arg version "$expected_version" --argjson schema "$expected_schema"' 'extension REST probe does not bind exact version/schema expectations' \
   '.extension_version == $version' 'extension REST probe does not assert extension version' \
   '.schema == $schema' 'extension REST probe does not assert schema version' \
@@ -891,7 +891,7 @@ assert_helper_contracts extension-rest "$REST_HELPER_BLOCK" "$REST_HELPER_GOLDEN
 assert_helper_contracts replacement-rest "$REPLACEMENT_REST_HELPER_BLOCK" "$REPLACEMENT_REST_HELPER_GOLDEN_HASH" \
   'curl --connect-timeout 3 --max-time 10' 'replacement REST probe is not bounded' \
   'assert_eq 200 "$http"' 'replacement REST probe does not require HTTP 200' \
-  '.extension_identity == "duo-commerce-replacement"' 'replacement REST probe does not assert the distinct identity' \
+  '.extension_identity == "wprism-commerce-replacement"' 'replacement REST probe does not assert the distinct identity' \
   '.extension_version == "1.0.0"' 'replacement REST probe does not assert the reviewed version' \
   '.schema == 2' 'replacement REST probe does not assert the v2 runtime schema' \
   '.woocommerce == true' 'replacement REST probe does not assert Woo availability'
@@ -946,9 +946,9 @@ block_absent inactive-runtime-compatibility "$INACTIVE_COMPAT_PHASE_BLOCK" 'prom
 ordered_contract failed-v2-checkpoint "$FAILED_V2_PHASE_BLOCK" \
   'V2_FAILED_CHECKPOINT="$(sed -n' \
   'V2_FAILED_RUN_ID="$(basename "$V2_FAILED_CHECKPOINT")"' \
-  'assert_eq "/siterepo/.duo/checkpoints/promote-$V2_FAILED_RUN_ID.sql.enc"' \
-  'V2_FAILED_CHECKPOINT_HOST="$OTHER_SITE/.duo/checkpoints/promote-$V2_FAILED_RUN_ID.sql.enc"' \
-  'V2_FAILED_ARTIFACT_FILE="$OTHER_SITE/.duo/artifacts/promote-$V2_FAILED_RUN_ID.json"' \
+  'assert_eq "/siterepo/.wprism/checkpoints/promote-$V2_FAILED_RUN_ID.sql.enc"' \
+  'V2_FAILED_CHECKPOINT_HOST="$OTHER_SITE/.wprism/checkpoints/promote-$V2_FAILED_RUN_ID.sql.enc"' \
+  'V2_FAILED_ARTIFACT_FILE="$OTHER_SITE/.wprism/artifacts/promote-$V2_FAILED_RUN_ID.json"' \
   'V2_FAILED_CHECKPOINT_SHA256="$(sha256sum "$V2_FAILED_CHECKPOINT_HOST"' \
   'V2_FAILED_COMPILED_HASH="$(jq -r '\''.artifact_hash'\'' "$V2_FAILED_ARTIFACT_FILE")"' \
   'assert_eq "$V2_FAILED_COMPILED_HASH" "$V2_FAILED_RECOMPUTED_HASH"' \
@@ -980,7 +980,7 @@ ordered_contract explicit-plugin-identity-replacement "$REPLACEMENT_PHASE_BLOCK"
   '.records.active_plugins.value = [$woo, $acf, $replacement]' \
   'REPLACEMENT_PLAN="$(plan_json)"' \
   'assert_eq "$REPLACEMENT_PLAN_ACTIVE_BEFORE" "$(active_plugins_json)"' \
-  'assert_eq "$REPLACEMENT_PLAN_SETTING_BEFORE" "$(target_wp option get duo_commerce_extension_settings --format=json)"' \
+  'assert_eq "$REPLACEMENT_PLAN_SETTING_BEFORE" "$(target_wp option get wprism_commerce_extension_settings --format=json)"' \
   'assert_runtime_isolation '\''replacement semantic plan'\'' 1' \
   'REPLACEMENT_SOURCE_MANAGED_CODE_TREE_HASH="$(source_managed_code_tree_hash)"' \
   'REPLACEMENT_OUT="$(promote --with-deletes 2>&1)"' \
@@ -1005,10 +1005,10 @@ block_contains explicit-plugin-identity-replacement "$REPLACEMENT_PHASE_BLOCK" \
   '.issue == "code_revision_stale" and .kind == "code" and .completed_revision == $completed' \
   'replacement plan does not bind the prior completed code revision'
 block_contains explicit-plugin-identity-replacement "$REPLACEMENT_PHASE_BLOCK" \
-  '.rebuild_option_names == ["duo_commerce_extension_settings"]' \
+  '.rebuild_option_names == ["wprism_commerce_extension_settings"]' \
   'replacement plan does not expose the exact authored-setting write set'
 block_contains explicit-plugin-identity-replacement "$REPLACEMENT_PHASE_BLOCK" \
-  '(.option_deletes | index("duo_commerce_extension_settings") != null)' \
+  '(.option_deletes | index("wprism_commerce_extension_settings") != null)' \
   'replacement plan does not expose the authored setting deletion'
 block_contains explicit-plugin-identity-replacement "$REPLACEMENT_PHASE_BLOCK" \
   '.adapter_dispositions == []' 'replacement plan does not require clean adapter diagnostics'
@@ -1041,7 +1041,7 @@ ordered_contract exact-plugin-identity-replacement-rollback "$REPLACEMENT_ROLLBA
   'assert_eq present "$(target_path "$CONTENT/plugins/$EXT_SLUG")"' \
   'assert_eq absent "$(target_path "$CONTENT/plugins/$REPLACEMENT_SLUG")"' \
   'assert_eq "$REPLACEMENT_CHECKPOINT_SHA256" "$(sha256sum "$REPLACEMENT_CHECKPOINT_HOST"' \
-  'assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM wp_duo_kv WHERE k = '\''promotion_lock'\''")"' \
+  'assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM wp_wprism_kv WHERE k = '\''promotion_lock'\''")"' \
   'assert_eq "$AUTHORED_ACTIVE_PLUGINS_JSON" "$(active_plugins_json)"' \
   'target_wp maintenance-mode deactivate' \
   'assert_parent_theme_and_dependencies' \
@@ -1073,7 +1073,7 @@ ordered_contract exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" \
   'assert_eq "$NATIVE_ACTIVE_PLUGINS_JSON" "$ROLLBACK_ACTIVE_PLUGINS_JSON"' \
   'assert_eq "$REPLACEMENT_OLD_FILE_HASH_BEFORE" "$(target_hash "$EXT_TARGET")"' \
   'assert_eq retail "$ROLLBACK_SETTING_AFTER_IMPORT"' \
-  'assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '\''wp_duo_commerce_extension_events'\'' AND COLUMN_NAME = '\''context'\''")" '\''exact v1 runtime table shape'\''' \
+  'assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '\''wp_wprism_commerce_extension_events'\'' AND COLUMN_NAME = '\''context'\''")" '\''exact v1 runtime table shape'\''' \
   'if ! RESTORE_OUT="$(promote 2>&1)"; then' \
   'ROLLBACK_PROMOTION_SUCCEEDED=1' \
   '"${PAIR_COMPOSE[@]}" start wp2' \
@@ -1107,7 +1107,7 @@ block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" 'control_wp_command mai
 grep -Fq 'control_wp_command() {' "$SCRIPT" \
   || fail 'exact v1 rollback has no isolated control-plane maintenance helper'
 grep -Fq 'CodeDeploy::controlArgs(array_slice($argv, 1))' "$SCRIPT" \
-  || fail 'control-plane maintenance helper does not use the isolated Duo control bootstrap'
+  || fail 'control-plane maintenance helper does not use the isolated WPrism control bootstrap'
 grep -Fq 'ROLLBACK_MAINTENANCE_HELD=0' "$SCRIPT" || fail 'rollback maintenance held flag is not initialized/released'
 grep -Fq 'ROLLBACK_PROMOTION_SUCCEEDED=0' "$SCRIPT" || fail 'rollback promotion success guard is not initialized'
 grep -Fq '[ "$ROLLBACK_MAINTENANCE_HELD" = 1 ] && [ "$ROLLBACK_PROMOTION_SUCCEEDED" != 1 ]' "$SCRIPT" \
@@ -1116,18 +1116,18 @@ grep -Fq 'ecommerce rollback maintenance remains held after an incomplete recove
   || fail 'rollback failure cleanup does not report its fail-closed maintenance state'
 
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'source_wp wc product delete "$DELETION_PROBE_SOURCE_ID" --force=true --user=admin >/dev/null' 'fail-closed phase does not execute the public Woo product delete'
-block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'if DELETION_REFUSAL_OUT="$(source_wp duo capture --repo=/siterepo 2>&1)"; then' 'fail-closed phase does not capture the unsupported deletion refusal'
+block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'if DELETION_REFUSAL_OUT="$(source_wp wprism capture --repo=/siterepo 2>&1)"; then' 'fail-closed phase does not capture the unsupported deletion refusal'
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" "deletion intent for post:product is unsupported" 'fail-closed phase does not require the exact unsupported selector diagnostic'
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'DELETION_PROBE_STATE_TREE_BEFORE=' 'fail-closed phase does not snapshot the canonical state tree'
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'DELETION_PROBE_REPO_HEAD_BEFORE=' 'fail-closed phase does not snapshot the local repository revision'
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'DELETION_PROBE_ORIGIN_HEAD_BEFORE=' 'fail-closed phase does not snapshot the published origin revision'
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'DELETION_PROBE_STATUS_BEFORE=' 'fail-closed phase does not snapshot repository status'
-block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'DELETION_PROBE_LEDGER_BEFORE="$(source_duo_ledger_snapshot)"' 'fail-closed phase does not snapshot all source Duo ledgers immediately before capture'
+block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'DELETION_PROBE_LEDGER_BEFORE="$(source_wprism_ledger_snapshot)"' 'fail-closed phase does not snapshot all source WPrism ledgers immediately before capture'
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'assert_eq "$DELETION_PROBE_STATE_TREE_BEFORE" "$(state_tree_hash "$SITE")"' 'fail-closed phase does not compare the state tree after refusal'
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'assert_eq "$DELETION_PROBE_REPO_HEAD_BEFORE" "$(git -C "$SITE" rev-parse HEAD)"' 'fail-closed phase does not compare local HEAD after refusal'
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'assert_eq "$DELETION_PROBE_ORIGIN_HEAD_BEFORE" "$(git --git-dir="$ORIGIN" rev-parse refs/heads/main)"' 'fail-closed phase does not compare origin HEAD after refusal'
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'assert_eq "$DELETION_PROBE_STATUS_BEFORE" "$(git -C "$SITE" status --porcelain=v1 --untracked-files=all)"' 'fail-closed phase does not compare repository status after refusal'
-block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'assert_eq "$DELETION_PROBE_LEDGER_BEFORE" "$(source_duo_ledger_snapshot)"' 'fail-closed phase does not compare all source Duo ledgers after refusal'
+block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'assert_eq "$DELETION_PROBE_LEDGER_BEFORE" "$(source_wprism_ledger_snapshot)"' 'fail-closed phase does not compare all source WPrism ledgers after refusal'
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" '[ -e "$DELETION_PROBE_STATE_FILE" ]' 'fail-closed phase does not retain the canonical product state'
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" '[ ! -e "$SITE/state/deletions/$DELETION_PROBE_UUID.json" ]' 'fail-closed phase does not assert tombstone absence'
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'assert_parent_theme_and_dependencies' 'fail-closed phase does not assert target theme/dependency survival'
@@ -1141,22 +1141,22 @@ block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'assert_runtime_isol
 
 ordered_contract fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" \
   'DELETION_PROBE_STATE_FILE="$(find "$SITE/state/posts/product"' \
-  'DELETION_PROBE_UUID="$(DUO_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r' \
+  'DELETION_PROBE_UUID="$(WPRISM_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r' \
   'DELETION_PROBE_STATE_TREE_BEFORE="$(state_tree_hash "$SITE")"' \
   'DELETION_PROBE_REPO_HEAD_BEFORE="$(git -C "$SITE" rev-parse HEAD)"' \
   'DELETION_PROBE_ORIGIN_HEAD_BEFORE="$(git --git-dir="$ORIGIN" rev-parse refs/heads/main)"' \
   'DELETION_PROBE_STATUS_BEFORE="$(git -C "$SITE" status --porcelain=v1 --untracked-files=all)"' \
   'source_wp wc product delete "$DELETION_PROBE_SOURCE_ID" --force=true --user=admin >/dev/null' \
-  'assert_eq "" "$(source_wp post list --post_type=product --name=duo-grind-delete-probe --field=ID)"' \
-  'DELETION_PROBE_LEDGER_BEFORE="$(source_duo_ledger_snapshot)"' \
-  'if DELETION_REFUSAL_OUT="$(source_wp duo capture --repo=/siterepo 2>&1)"; then' \
+  'assert_eq "" "$(source_wp post list --post_type=product --name=wprism-grind-delete-probe --field=ID)"' \
+  'DELETION_PROBE_LEDGER_BEFORE="$(source_wprism_ledger_snapshot)"' \
+  'if DELETION_REFUSAL_OUT="$(source_wp wprism capture --repo=/siterepo 2>&1)"; then' \
   "fail 'unsupported Woo product deletion capture unexpectedly succeeded'" \
   "grep -Fq 'deletion intent for post:product is unsupported' <<<\"\$DELETION_REFUSAL_OUT\"" \
   'assert_eq "$DELETION_PROBE_STATE_TREE_BEFORE" "$(state_tree_hash "$SITE")"' \
   'assert_eq "$DELETION_PROBE_REPO_HEAD_BEFORE" "$(git -C "$SITE" rev-parse HEAD)"' \
   'assert_eq "$DELETION_PROBE_ORIGIN_HEAD_BEFORE" "$(git --git-dir="$ORIGIN" rev-parse refs/heads/main)"' \
   'assert_eq "$DELETION_PROBE_STATUS_BEFORE" "$(git -C "$SITE" status --porcelain=v1 --untracked-files=all)"' \
-  'assert_eq "$DELETION_PROBE_LEDGER_BEFORE" "$(source_duo_ledger_snapshot)"' \
+  'assert_eq "$DELETION_PROBE_LEDGER_BEFORE" "$(source_wprism_ledger_snapshot)"' \
   '[ -e "$DELETION_PROBE_STATE_FILE" ]' \
   '[ ! -e "$SITE/state/deletions/$DELETION_PROBE_UUID.json" ]' \
   'assert_parent_theme_and_dependencies' \
@@ -1170,14 +1170,14 @@ ordered_contract fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" \
 
 FAIL_CLOSED_REQUIRED_TOKENS=(
   'source_wp wc product delete "$DELETION_PROBE_SOURCE_ID" --force=true --user=admin >/dev/null'
-  'DELETION_PROBE_LEDGER_BEFORE="$(source_duo_ledger_snapshot)"'
-  'if DELETION_REFUSAL_OUT="$(source_wp duo capture --repo=/siterepo 2>&1)"; then'
+  'DELETION_PROBE_LEDGER_BEFORE="$(source_wprism_ledger_snapshot)"'
+  'if DELETION_REFUSAL_OUT="$(source_wp wprism capture --repo=/siterepo 2>&1)"; then'
   "grep -Fq 'deletion intent for post:product is unsupported' <<<\"\$DELETION_REFUSAL_OUT\""
   'assert_eq "$DELETION_PROBE_STATE_TREE_BEFORE" "$(state_tree_hash "$SITE")"'
   'assert_eq "$DELETION_PROBE_REPO_HEAD_BEFORE" "$(git -C "$SITE" rev-parse HEAD)"'
   'assert_eq "$DELETION_PROBE_ORIGIN_HEAD_BEFORE" "$(git --git-dir="$ORIGIN" rev-parse refs/heads/main)"'
   'assert_eq "$DELETION_PROBE_STATUS_BEFORE" "$(git -C "$SITE" status --porcelain=v1 --untracked-files=all)"'
-  'assert_eq "$DELETION_PROBE_LEDGER_BEFORE" "$(source_duo_ledger_snapshot)"'
+  'assert_eq "$DELETION_PROBE_LEDGER_BEFORE" "$(source_wprism_ledger_snapshot)"'
   '[ -e "$DELETION_PROBE_STATE_FILE" ]'
   '[ ! -e "$SITE/state/deletions/$DELETION_PROBE_UUID.json" ]'
   'assert_parent_theme_and_dependencies'
@@ -1299,16 +1299,16 @@ grep -Fq 'woocommerce_default_country' "$SCRIPT" || fail 'Woo default-country op
 grep -Fq 'woocommerce_allowed_countries' "$SCRIPT" || fail 'Woo allowed-countries option assertion missing'
 grep -Fq 'shipping_exact' "$SCRIPT" || fail 'shipping-zone instance exactness assertion missing'
 grep -Fq 'expected_shipping_settings' "$SCRIPT" || fail 'shipping instance diagnostics missing'
-grep -Fq 'Duo Grind Flat Rate' "$SCRIPT" || fail 'flat-rate title assertion missing'
-grep -Fq 'Duo Grind Free Shipping' "$SCRIPT" || fail 'free-shipping title assertion missing'
+grep -Fq 'WPrism Grind Flat Rate' "$SCRIPT" || fail 'flat-rate title assertion missing'
+grep -Fq 'WPrism Grind Free Shipping' "$SCRIPT" || fail 'free-shipping title assertion missing'
 grep -Fq 'tax_exact' "$SCRIPT" || fail 'CA tax-rate exactness assertion missing'
 grep -Fq 'tax_rate_shipping' "$SCRIPT" || fail 'CA tax shipping flag assertion missing'
 grep -Fq '.variations == 4' "$SCRIPT" || fail 'stable variation collection count is not exact'
 grep -Fq '.coupons == 1' "$SCRIPT" || fail 'stable coupon collection count is not exact'
 grep -Fq '.media == 2' "$SCRIPT" || fail 'stable media collection count (Woo placeholder plus authored image) is not exact'
-grep -Fq 'duo-grind-widgets' "$SCRIPT" || fail 'product category seed/assertion missing'
+grep -Fq 'wprism-grind-widgets' "$SCRIPT" || fail 'product category seed/assertion missing'
 grep -Fq 'free_shipping' "$SCRIPT" || fail 'shipping method seed/assertion missing'
-grep -Fq 'Duo Grind Deletion Probe' "$SCRIPT" || fail 'sacrificial deletion product seed missing'
+grep -Fq 'WPrism Grind Deletion Probe' "$SCRIPT" || fail 'sacrificial deletion product seed missing'
 grep -Fq 'wc product delete "$DELETION_PROBE_SOURCE_ID" --force=true --user=admin' "$SCRIPT" || fail 'public Woo product deletion move missing or uses incompatible force syntax'
 grep -Fq '[ ! -e "$SITE/state/deletions/$DELETION_PROBE_UUID.json" ]' "$SCRIPT" || fail 'unsupported product deletion does not assert tombstone absence'
 grep -Fq 'deletion intent for post:product is unsupported' "$SCRIPT" || fail 'unsupported product deletion diagnostic is missing'
@@ -1316,7 +1316,7 @@ grep -Fq 'fetch_artifact "$WOO_SLUG" "$WOO_DOWNGRADE_VERSION"' "$SCRIPT" || fail
 grep -Fq 'PAIR_PATHS_OWNED=1' "$SCRIPT" || fail 'pair paths are not claimed only after collision preflight'
 grep -Fq 'run --rm -T -u root cli1 sh -c' "$SCRIPT" || fail 'source-side ownership normalization is missing'
 grep -Fq 'run --rm -T -u root cli2 sh -c' "$SCRIPT" || fail 'target-side ownership normalization is missing'
-grep -Fq '.duo-woocommerce-next' "$SCRIPT" || fail 'Woo downgrade is not staged beside the current tree'
+grep -Fq '.wprism-woocommerce-next' "$SCRIPT" || fail 'Woo downgrade is not staged beside the current tree'
 grep -Fq 'test "$version" = "$expected_version"' "$SCRIPT" || fail 'staged Woo downgrade header is not version-verified'
 grep -Fq 'mv "$current" "$previous"' "$SCRIPT" || fail 'Woo downgrade does not preserve the prior tree before atomic swap'
 grep -Fq 'command -v unzip >/dev/null' "$SCRIPT" || fail 'container unzip prerequisite is not checked up front'
@@ -1325,21 +1325,21 @@ grep -Fq '"$cli" sh "$runner"' bin/fetch-artifact.sh || fail 'shared artifact ca
 if grep -Eq 'db import .*--porcelain' "$SCRIPT"; then
   fail 'wp db import uses unsupported --porcelain'
 fi
-if grep -Fq 'Duo\\Canon' "$SCRIPT" || grep -Fq 'Duo\\Orchestrator' "$SCRIPT"; then
+if grep -Fq 'WPrism\\Canon' "$SCRIPT" || grep -Fq 'WPrism\\Orchestrator' "$SCRIPT"; then
   fail 'embedded PHP contains an invalid doubled namespace separator'
 fi
-grep -Fq 'env-set target --name=duo_commerce_extension_gateway_secret' "$SCRIPT" || fail 'target env secret is not provisioned through public duo env-set'
+grep -Fq 'env-set target --name=wprism_commerce_extension_gateway_secret' "$SCRIPT" || fail 'target env secret is not provisioned through public wprism env-set'
 grep -Fq '"manifests": ["core", "woocommerce", "acf"]' "$SCRIPT" || fail 'scenario does not pin only externally ratified shipped manifests'
-grep -Fq '"duo_commerce_extension_gateway_secret": {"class": "env", "required": true}' "$SCRIPT" || fail 'custom extension secret is not classified by site-local policy'
-grep -Fq '"duo_commerce_extension_settings": {"class": "authored", "autoload": "preserve"}' "$SCRIPT" || fail 'custom extension authored state does not declare the required portable autoload contract'
-grep -Fq '"duo_commerce_extension_schema": {"class": "runtime"}' "$SCRIPT" || fail 'custom extension schema marker is not kept runtime-local'
-if grep -Eq '"manifests"[^]]*"duo-commerce-extension"' "$SCRIPT"; then
+grep -Fq '"wprism_commerce_extension_gateway_secret": {"class": "env", "required": true}' "$SCRIPT" || fail 'custom extension secret is not classified by site-local policy'
+grep -Fq '"wprism_commerce_extension_settings": {"class": "authored", "autoload": "preserve"}' "$SCRIPT" || fail 'custom extension authored state does not declare the required portable autoload contract'
+grep -Fq '"wprism_commerce_extension_schema": {"class": "runtime"}' "$SCRIPT" || fail 'custom extension schema marker is not kept runtime-local'
+if grep -Eq '"manifests"[^]]*"wprism-commerce-extension"' "$SCRIPT"; then
   fail 'custom extension is incorrectly presented as a shipped manifest ratification claim'
 fi
 grep -Fq 'source_wp plugin activate "$EXT_SLUG"' "$SCRIPT" || fail 'author plugin lifecycle is not exercised through WP API'
 grep -Fq 'source_wp theme activate "$PARENT_THEME"' "$SCRIPT" || fail 'author parent theme switch is missing'
 grep -Fq 'source_wp theme activate "$CHILD_THEME"' "$SCRIPT" || fail 'author child theme switch is missing'
-grep -Fq 'source_wp duo capture --repo=/siterepo' "$SCRIPT" || fail 'ordinary author capture is missing after lifecycle'
+grep -Fq 'source_wp wprism capture --repo=/siterepo' "$SCRIPT" || fail 'ordinary author capture is missing after lifecycle'
 grep -Fq 'source_wp post update "$CAP_ID"' "$SCRIPT" || fail 'real author product update is missing'
 grep -Fq 'source_wp wc product update "$CAP_ID" --regular_price=16.49' "$SCRIPT" || fail 'real grouped-child price update is missing'
 grep -Fq 'assert_derived_indexes 7 instock 16.49 9.99 16.49 1649' "$SCRIPT" || fail 'grouped-root post-child-price convergence assertion missing'
@@ -1348,10 +1348,10 @@ grep -Fq 'promote-$checkpoint.json' "$SCRIPT" || fail 'promote receipts are not 
 grep -Fq 'code_source_outside_version_range' "$SCRIPT" || fail 'source version compatibility assertion missing'
 grep -Fq 'code_source_requires_php_incompatible' "$SCRIPT" || fail 'target PHP compatibility assertion missing'
 grep -Fq 'managed code tree after inactive compatibility refusal' "$SCRIPT" || fail 'target runtime no-mutation evidence missing'
-grep -Fq 'Requires PHP: 8.3' "$FIXTURE/v2/fixed/duo-commerce-extension.php" || fail 'compatible v2 plugin PHP requirement missing'
-grep -Fq 'Requires at least: 6.0' "$FIXTURE/v2/fixed/duo-commerce-extension.php" || fail 'compatible v2 plugin WordPress requirement missing'
-grep -Fq 'Requires PHP: 8.3' "$FIXTURE/v2/wp-content/themes/duo-commerce-child/style.css" || fail 'compatible child-theme PHP requirement missing'
-grep -Fq 'Requires at least: 6.0' "$FIXTURE/v2/wp-content/themes/duo-commerce-child/style.css" || fail 'compatible child-theme WordPress requirement missing'
+grep -Fq 'Requires PHP: 8.3' "$FIXTURE/v2/fixed/wprism-commerce-extension.php" || fail 'compatible v2 plugin PHP requirement missing'
+grep -Fq 'Requires at least: 6.0' "$FIXTURE/v2/fixed/wprism-commerce-extension.php" || fail 'compatible v2 plugin WordPress requirement missing'
+grep -Fq 'Requires PHP: 8.3' "$FIXTURE/v2/wp-content/themes/wprism-commerce-child/style.css" || fail 'compatible child-theme PHP requirement missing'
+grep -Fq 'Requires at least: 6.0' "$FIXTURE/v2/wp-content/themes/wprism-commerce-child/style.css" || fail 'compatible child-theme WordPress requirement missing'
 grep -Fq 'NATIVE_ACTIVE_PLUGINS_JSON' "$SCRIPT" || fail 'native WordPress active_plugins order assertion missing'
 grep -Fq 'provider-first lifecycle planning' "$SCRIPT" || fail 'provider-first activation assertion missing'
 grep -Fq 'code_plugin_dependency_inactive' "$SCRIPT" || fail 'dependency closure assertion missing'
@@ -1429,7 +1429,7 @@ grep -Fq 'TARGET_ORDER_ITEM_IDS="$(jq -r' "$SCRIPT" || fail 'target order item I
 grep -Fq 'unique | join(",")' "$SCRIPT" || fail 'target order item ID capture is not normalized to a unique SQL list'
 grep -Fq 'target-only HPOS order item ID capture is malformed' "$SCRIPT" || fail 'target order item ID capture does not fail closed on malformed IDs'
 grep -Fq 'LEFT JOIN `$order_items_table` AS items' "$SCRIPT" || fail 'rollback absence does not inspect orphaned order-item metadata'
-grep -Fq '$order->add_meta_data("_duo_runtime_marker", "target-order-only", true);' "$SCRIPT" || fail 'target order does not seed an exact HPOS metadata marker'
+grep -Fq '$order->add_meta_data("_wprism_runtime_marker", "target-order-only", true);' "$SCRIPT" || fail 'target order does not seed an exact HPOS metadata marker'
 grep -Fq 'target_wp action-scheduler action list --hook=wc-admin_import_orders --args="[$TARGET_ORDER_ID]" --status=pending --format=ids' "$SCRIPT" || fail 'target order does not resolve its exact pending Woo analytics import action'
 grep -Fq 'target_wp action-scheduler action run "$TARGET_ORDER_IMPORT_ACTION_ID"' "$SCRIPT" || fail 'target order does not execute its exact Woo analytics import action'
 grep -Fq 'target_wp action-scheduler action list --hook=wc-admin_import_orders --args="[$TARGET_ORDER_ID]" --status=complete --format=ids' "$SCRIPT" || fail 'target order does not prove its exact Woo analytics import completed'
@@ -1440,7 +1440,7 @@ grep -Fq 'target_cron_inventory()' "$SCRIPT" || fail 'bounded WordPress cron pro
 grep -Fq 'target_action_scheduler_inventory()' "$SCRIPT" || fail 'bounded WordPress cron proof does not snapshot Action Scheduler inventory'
 grep -Fq 'TARGET_CRON_INVENTORY_BEFORE=' "$SCRIPT" || fail 'bounded WordPress cron proof is missing its pre-seed cron baseline'
 grep -Fq 'TARGET_ACTION_SCHEDULER_INVENTORY_BEFORE=' "$SCRIPT" || fail 'bounded WordPress cron proof is missing its pre-seed Action Scheduler baseline'
-grep -Fq 'TARGET_CRON_FREEZE_CANDIDATE="/var/www/html/wp-content/mu-plugins/duo-cron-freeze-${PAIR}.php"' "$SCRIPT" || fail 'bounded WordPress cron proof does not create a uniquely named freeze file'
+grep -Fq 'TARGET_CRON_FREEZE_CANDIDATE="/var/www/html/wp-content/mu-plugins/wprism-cron-freeze-${PAIR}.php"' "$SCRIPT" || fail 'bounded WordPress cron proof does not create a uniquely named freeze file'
 grep -Fq 'target_root_php_args()' "$SCRIPT" || fail 'bounded WordPress cron freeze filesystem operations are not root-scoped'
 grep -Fq 'run --rm -T -u root cli2 php -r "$code" -- "$@"' "$SCRIPT" || fail 'bounded WordPress cron freeze root helper is not argv-safe'
 grep -Fq 'fopen($path, "xb")' "$SCRIPT" || fail 'bounded WordPress cron freeze is not exclusive-create'
@@ -1468,7 +1468,7 @@ grep -Fq 'assert_extension_runtime_event_excluded()' "$SCRIPT" || fail 'extensio
 grep -Fq 'RUNTIME_EVENT_LABEL=' "$SCRIPT" || fail 'deterministic runtime event label is missing'
 grep -Fq 'RUNTIME_EVENT_CREATED_AT=' "$SCRIPT" || fail 'deterministic runtime event timestamp is missing'
 grep -Fq 'RUNTIME_EVENT_ID="$(target_wp eval' "$SCRIPT" || fail 'runtime event id is not captured from the target insert'
-grep -Fq 'Duo Grind runtime v1 event' "$SCRIPT" || fail 'runtime event seed payload is missing'
+grep -Fq 'WPrism Grind runtime v1 event' "$SCRIPT" || fail 'runtime event seed payload is missing'
 grep -Fq 'SOURCE_RUNTIME_CUSTOMER_ID=' "$SCRIPT" || fail 'source-only runtime customer seed is missing'
 grep -Fq 'SOURCE_RUNTIME_ORDER_ID=' "$SCRIPT" || fail 'source-only runtime order seed is missing'
 grep -Fq 'source-customer@example.invalid' "$SCRIPT" || fail 'source-only runtime customer marker is missing'
@@ -1526,15 +1526,15 @@ grep -Fq '"quantity" => (int) $item->get_quantity()' "$SCRIPT" || fail 'HPOS ord
 grep -Fq '"total" => (string) $item->get_total()' "$SCRIPT" || fail 'HPOS order line-item total assertion missing'
 grep -Fq 'target_tee_snapshot()' "$SCRIPT" || fail 'deterministic target tee snapshot helper missing'
 grep -Fq 'WHERE meta_key = %s AND meta_value = %s LIMIT 1' "$SCRIPT" || fail 'target tee snapshot does not parameterize both metadata identity inputs'
-grep -Fq '"_duo_uuid",' "$SCRIPT" || fail 'target tee snapshot does not bind the exact portable identity key'
-if grep -Fq "meta_key = '_duo_uuid'" "$SCRIPT"; then
+grep -Fq '"_wprism_uuid",' "$SCRIPT" || fail 'target tee snapshot does not bind the exact portable identity key'
+if grep -Fq "meta_key = '_wprism_uuid'" "$SCRIPT"; then
   fail 'target tee snapshot embeds a shell-unsafe single-quoted SQL literal inside its single-quoted PHP program'
 fi
 grep -Fq 'assert_target_tee_unchanged()' "$SCRIPT" || fail 'target tee conflict snapshot equality assertion missing'
 grep -Fq 'TEE_UUID=' "$SCRIPT" || fail 'canonical tee UUID binding missing'
 grep -Fq 'CONFLICT_PRODUCT_PATH=' "$SCRIPT" || fail 'canonical tee path binding missing'
-grep -Fq 'Canon::parse_post_file(Duo\Canon::read_file($path))' "$SCRIPT" || fail 'canonical tee branch edit does not parse the Markdown post envelope'
-grep -Fq 'Duo\Canon::write_file($path, Duo\Canon::post_file($front, $body))' "$SCRIPT" || fail 'canonical tee branch edit does not preserve/re-encode the Markdown post envelope'
+grep -Fq 'Canon::parse_post_file(WPrism\Canon::read_file($path))' "$SCRIPT" || fail 'canonical tee branch edit does not parse the Markdown post envelope'
+grep -Fq 'WPrism\Canon::write_file($path, WPrism\Canon::post_file($front, $body))' "$SCRIPT" || fail 'canonical tee branch edit does not preserve/re-encode the Markdown post envelope'
 if grep -Fq 'canonicalize_json "$PRODUCT_FILE"' "$SCRIPT"; then
   fail 'canonical tee Markdown record is incorrectly routed through the plain JSON canonicalizer'
 fi
@@ -1546,7 +1546,7 @@ fi
 grep -Fq '"authored_hash"' "$SCRIPT" || fail 'target tee authored-content hash diagnostic missing'
 grep -Fq '"meta" => $meta' "$SCRIPT" || fail 'target tee authored metadata snapshot missing'
 grep -Fq '"terms" => $terms' "$SCRIPT" || fail 'target tee term-relation snapshot missing'
-grep -Fq 'wp_duo_state WHERE uuid' "$SCRIPT" || fail 'tee state ledger hash invariant missing'
+grep -Fq 'wp_wprism_state WHERE uuid' "$SCRIPT" || fail 'tee state ledger hash invariant missing'
 grep -Fq 'CONFLICT_APPLIED_REVISION_BEFORE' "$SCRIPT" || fail 'failed conflict apply applied-revision invariant missing'
 grep -Fq 'CONFLICT_APPLY_PROGRESS_BEFORE' "$SCRIPT" || fail 'failed conflict apply progress-marker invariant missing'
 grep -Fq 'target-only order after conflict refusal' "$SCRIPT" || fail 'runtime order conflict-refusal invariant missing'
@@ -1559,15 +1559,15 @@ fi
 grep -Fq 'PREFLIGHT_MANAGED_CODE_TREE_BEFORE' <<<"$PREFLIGHT_BLOCK" || fail 'compile preflight does not snapshot the full managed tree'
 grep -Fq 'PREFLIGHT_SESSION_BEFORE' <<<"$PREFLIGHT_BLOCK" || fail 'compile preflight does not snapshot the promotion session'
 grep -Fq 'PREFLIGHT_LOCK_BEFORE' <<<"$PREFLIGHT_BLOCK" || fail 'compile preflight does not snapshot the promotion lease'
-grep -Fq '.tmp-v1-code/wp-content/themes/duo-commerce-parent' "$SCRIPT" || fail 'v1 parent theme recovery staging missing'
-grep -Fq '.tmp-v1-code/wp-content/themes/duo-commerce-child' "$SCRIPT" || fail 'v1 child theme recovery staging missing'
+grep -Fq '.tmp-v1-code/wp-content/themes/wprism-commerce-parent' "$SCRIPT" || fail 'v1 parent theme recovery staging missing'
+grep -Fq '.tmp-v1-code/wp-content/themes/wprism-commerce-child' "$SCRIPT" || fail 'v1 child theme recovery staging missing'
 
 # The first code opt-in must be a real author workflow.  Later jq edits are
 # deliberate lifecycle/drift fixtures, but the opt-in block itself may not
 # synthesize managed active_plugins/theme state by hand.
 OPT_IN="$(sed -n '/say "opt into code/,/say "publish target-only env registry/p' "$SCRIPT")"
 grep -Fq 'source_wp plugin activate "$EXT_SLUG"' <<<"$OPT_IN" || fail 'opt-in block does not activate the extension'
-grep -Fq 'source_wp duo capture --repo=/siterepo' <<<"$OPT_IN" || fail 'opt-in block does not capture author state'
+grep -Fq 'source_wp wprism capture --repo=/siterepo' <<<"$OPT_IN" || fail 'opt-in block does not capture author state'
 if grep -Fq '.records.active_plugins.value' <<<"$OPT_IN"; then
   fail 'opt-in block hand-edits active_plugins instead of capturing author lifecycle'
 fi
@@ -1577,9 +1577,9 @@ fi
 grep -Fq 'cp -a "$SITE/state" "$V1_INPUTS/state"' "$SCRIPT" || fail 'v1 rollback does not preserve the full canonical state tree outside the checkout'
 grep -Fq 'cp -a "$V1_INPUTS/state" "$SITE/state"' "$SCRIPT" || fail 'v1 rollback does not restore the full canonical state tree'
 
-grep -Fq 'source_wp menu create '\''Duo Grind Primary'\'' --porcelain' "$SCRIPT" || fail 'authored navigation-menu seed is missing'
+grep -Fq 'source_wp menu create '\''WPrism Grind Primary'\'' --porcelain' "$SCRIPT" || fail 'authored navigation-menu seed is missing'
 grep -Fq 'source_wp menu item add-post "$MENU_ID" "$CAP_ID"' "$SCRIPT" || fail 'menu product-reference seed is missing'
-grep -Fq 'source_wp menu item add-custom "$MENU_ID" '\''Duo Grind Support'\''' "$SCRIPT" || fail 'menu target-bound custom-link seed is missing'
+grep -Fq 'source_wp menu item add-custom "$MENU_ID" '\''WPrism Grind Support'\''' "$SCRIPT" || fail 'menu target-bound custom-link seed is missing'
 grep -Fq 'assert_ecommerce_menu()' "$SCRIPT" || fail 'menu convergence helper is missing'
 grep -Fq '.rows[0].object == "product" and .rows[0].object_id == .cap_id' "$SCRIPT" || fail 'menu helper does not bind the product item to the target product identity'
 grep -Fq '.rows[1].object == "custom" and' "$SCRIPT" || fail 'menu helper does not verify the custom menu-item kind'
@@ -1595,28 +1595,28 @@ ACF_UNESCAPED="$(sed 's/\\\$//g' <<<"$ACF_BLOCK" | grep -oE '\$[A-Za-z_][A-Za-z0
 [ "$ACF_UNESCAPED" = '$CAP_ID' ] \
   || fail "unquoted ACF heredoc has unexpected shell-expanded PHP variables: $ACF_UNESCAPED"
 
-grep -Fq 'Requires Plugins: woocommerce' "$FIXTURE/v1/wp-content/plugins/duo-commerce-extension/duo-commerce-extension.php" || fail 'v1 dependency header missing'
-grep -Fq 'Duo Commerce Extension reviewed v2 activation failure' "$FIXTURE/v2/broken/duo-commerce-extension.php" || fail 'broken activation fixture missing'
-grep -Fq 'migrate:v1-to-v2:' "$FIXTURE/v2/fixed/duo-commerce-extension.php" || fail 'fixed v2 migration trace missing'
-REPLACEMENT_FIXTURE="$FIXTURE/replacement/fixed/duo-commerce-replacement.php"
+grep -Fq 'Requires Plugins: woocommerce' "$FIXTURE/v1/wp-content/plugins/wprism-commerce-extension/wprism-commerce-extension.php" || fail 'v1 dependency header missing'
+grep -Fq 'WPrism Commerce Extension reviewed v2 activation failure' "$FIXTURE/v2/broken/wprism-commerce-extension.php" || fail 'broken activation fixture missing'
+grep -Fq 'migrate:v1-to-v2:' "$FIXTURE/v2/fixed/wprism-commerce-extension.php" || fail 'fixed v2 migration trace missing'
+REPLACEMENT_FIXTURE="$FIXTURE/replacement/fixed/wprism-commerce-replacement.php"
 grep -Fq 'Requires Plugins: woocommerce' "$REPLACEMENT_FIXTURE" || fail 'replacement dependency header missing'
-grep -Fq 'function_exists('\''duo_commerce_extension_table'\'')' "$REPLACEMENT_FIXTURE" || fail 'replacement fresh-process guard missing'
-grep -Fq "WP_PLUGIN_DIR . '/duo-commerce-extension'" "$REPLACEMENT_FIXTURE" || fail 'replacement retiring-root guard missing'
+grep -Fq 'function_exists('\''wprism_commerce_extension_table'\'')' "$REPLACEMENT_FIXTURE" || fail 'replacement fresh-process guard missing'
+grep -Fq "WP_PLUGIN_DIR . '/wprism-commerce-extension'" "$REPLACEMENT_FIXTURE" || fail 'replacement retiring-root guard missing'
 grep -Fq 'activate:replacement-fixed:fresh=yes:retiring-root=present' "$REPLACEMENT_FIXTURE" || fail 'replacement lifecycle trace missing'
-grep -Fq "'extension_identity' => 'duo-commerce-replacement'" "$REPLACEMENT_FIXTURE" || fail 'replacement REST identity missing'
+grep -Fq "'extension_identity' => 'wprism-commerce-replacement'" "$REPLACEMENT_FIXTURE" || fail 'replacement REST identity missing'
 
-# DUO-3358 is deliberately test-first.  The existing parent/child install
+# issue #3358 is deliberately test-first.  The existing parent/child install
 # proves only that a static theme can be materialized; it cannot stand in for
 # an upgrade, a target-runtime refusal, a dependency-safe removal, or their
 # recovery/rollback contracts.  Keep this offline seam attached to the live
 # source structure so a comment, matrix-only status change, or unrelated
 # plugin failure cannot masquerade as executable theme coverage.
-[ -f "$MATRIX" ] || fail "DUO-3358 matrix is missing: $MATRIX"
+[ -f "$MATRIX" ] || fail "issue #3358 matrix is missing: $MATRIX"
 THEME_MATRIX_ROW="$(jq -ce '.moves[] | select(.id == "theme-upgrade-downgrade-removal")' "$MATRIX")" \
-  || fail 'DUO-3358 theme lifecycle row is missing or duplicated from the move matrix'
+  || fail 'issue #3358 theme lifecycle row is missing or duplicated from the move matrix'
 jq -e '
   .status == "exercised" and
-  .public_command == "php cli/duo --envs-file=<pair-envs> promote target --force-theirs" and
+  .public_command == "php cli/wprism --envs-file=<pair-envs> promote target --force-theirs" and
   .harness == "sandbox/tests/grind/grind_ecommerce_developer.sh" and
   (.gap == null) and
   (.linear_routing == null) and
@@ -1626,7 +1626,7 @@ jq -e '
   ((.required_capabilities | index("failure retry")) != null) and
   ((.required_capabilities | index("exact rollback")) != null)
 ' <<<"$THEME_MATRIX_ROW" >/dev/null \
-  || fail 'DUO-3358 matrix row is not an exercised public theme lifecycle contract'
+  || fail 'issue #3358 matrix row is not an exercised public theme lifecycle contract'
 
 THEME_REQUIRED_ANCHORS=(
   'theme lifecycle: reviewed upgrade preserves portable relationships'
@@ -1637,7 +1637,7 @@ THEME_REQUIRED_ANCHORS=(
 )
 for theme_anchor in "${THEME_REQUIRED_ANCHORS[@]}"; do
   jq -e --arg anchor "$theme_anchor" '(.evidence_anchors | index($anchor)) != null' <<<"$THEME_MATRIX_ROW" >/dev/null \
-    || fail "DUO-3358 matrix row is missing executable evidence anchor: $theme_anchor"
+    || fail "issue #3358 matrix row is missing executable evidence anchor: $theme_anchor"
 done
 
 THEME_SNAPSHOT_HELPER_BLOCK="$(function_block theme_lifecycle_snapshot | strip_static_comments)"
@@ -1732,7 +1732,7 @@ ordered_contract theme-parent-removal-refusal "$THEME_PARENT_REMOVAL_PHASE_BLOCK
 
 ordered_contract theme-safe-removal-retry "$THEME_SAFE_REMOVAL_PHASE_BLOCK" \
   'source_wp theme activate "$PARENT_THEME"' \
-  'source_wp duo capture --repo=/siterepo' \
+  'source_wp wprism capture --repo=/siterepo' \
   'rm -rf -- "$SITE/code/wp-content/themes/$CHILD_THEME"' \
   'THEME_SAFE_REMOVE_OUT="$(promote --force-theirs 2>&1)"' \
   "assert_theme_child_removed 'theme safe child removal'" \
@@ -1745,7 +1745,7 @@ $THEME_SAFE_REMOVAL_PHASE_BLOCK"
 ordered_contract theme-removal-failure-retry "$THEME_REMOVAL_SEQUENCE" \
   'THEME_PARENT_REMOVE_OUT="$(deploy 2>&1)"' \
   'source_wp theme activate "$PARENT_THEME"' \
-  'source_wp duo capture --repo=/siterepo' \
+  'source_wp wprism capture --repo=/siterepo' \
   'THEME_SAFE_REMOVE_OUT="$(promote --force-theirs 2>&1)"'
 
 block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" "assert_theme_versions 'exact v1 rollback'" \
@@ -1759,7 +1759,7 @@ block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" "assert_theme_portable_
 THEME_UPGRADE_RECEIPT_TOKEN='assert_receipt "$V2_ARTIFACT" '\''reviewed v2 theme upgrade promote'\'' "$V2_REVISION"'
 THEME_UPGRADE_WITHOUT_RECEIPT="$(grep -Fv -- "$THEME_UPGRADE_RECEIPT_TOKEN" <<<"$THEME_UPGRADE_PHASE_BLOCK")"
 if (ordered_contract theme-upgrade-negative "$THEME_UPGRADE_WITHOUT_RECEIPT" "$THEME_UPGRADE_RECEIPT_TOKEN") >/dev/null 2>&1; then
-  fail 'DUO-3358 self-mutation: theme upgrade without its receipt binding unexpectedly passed'
+  fail 'issue #3358 self-mutation: theme upgrade without its receipt binding unexpectedly passed'
 fi
 
 pass 'ecommerce grind syntax, fixture, pin, lifecycle, dependency, rollback, and derived-index contracts pass offline'

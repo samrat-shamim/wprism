@@ -1,13 +1,13 @@
-Duo initialization proposal sha256:5555555555555555555555555555555555555555555555555555555555555555
+WPrism initialization proposal sha256:5555555555555555555555555555555555555555555555555555555555555555
   WordPress ? / PHP ? / database ?
   URL: (unknown)
   code: managed-baseline-proposed (separate 4218-file / 0-byte payload; source 7777777777777777777777777777777777777777777777777777777777777777)
     active theme: stylesheet=twentytwentyone, template=twentytwentyone
-  state: /siterepo (site.duo.json + canonical capture baseline)
+  state: /siterepo (site.wprism.json + canonical capture baseline)
   Git: available (2.47.2)
   Git LFS: prepared for media/** (unknown)
   adapters: core, woocommerce
   media: unknown (0 attachment(s), 0 unavailable)
   redacted risk surfaces: 0 secret-shaped option value(s), 0 PII-shaped user-meta value(s); values are never included
-  UNSUPPORTED ADAPTER wpforms [adapter_source_uncertified]: 'wpforms' is installed from the site adapter source (/siterepo/adapters/wpforms.json) and is uncertified by construction: out-of-tree adapters carry no reviewed certification evidence. certify it with duo adapter certify <site-repo> --name=wpforms, or remove it, then rerun duo init
+  UNSUPPORTED ADAPTER wpforms [adapter_source_uncertified]: 'wpforms' is installed from the site adapter source (/siterepo/adapters/wpforms.json) and is uncertified by construction: out-of-tree adapters carry no reviewed certification evidence. certify it with wprism adapter certify <site-repo> --name=wpforms, or remove it, then rerun wprism init
   result: blocked; no configuration, state, identity, or ledger mutation was made

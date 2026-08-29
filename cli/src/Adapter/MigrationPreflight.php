@@ -1,27 +1,27 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
-use Duo\AdapterCertification;
-use Duo\AdapterLibrary;
-use Duo\AdapterSources;
-use Duo\ArtifactPolicyIdentity;
-use Duo\Canon;
-use Duo\CommandRefusalException;
-use Duo\CompiledRepository;
-use Duo\CompiledArtifactReader;
-use Duo\ManifestDispositions;
-use Duo\PinResolver;
-use Duo\Policy;
-use Duo\RepositoryCompiler;
-use Duo\ScopeContract;
-use Duo\StalePlatformSiteAdapterCertificate;
-use Duo\SupersededSiteAdapterCertificate;
-use Duo\SupersededWireSiteAdapterCertificate;
+use WPrism\AdapterCertification;
+use WPrism\AdapterLibrary;
+use WPrism\AdapterSources;
+use WPrism\ArtifactPolicyIdentity;
+use WPrism\Canon;
+use WPrism\CommandRefusalException;
+use WPrism\CompiledRepository;
+use WPrism\CompiledArtifactReader;
+use WPrism\ManifestDispositions;
+use WPrism\PinResolver;
+use WPrism\Policy;
+use WPrism\RepositoryCompiler;
+use WPrism\ScopeContract;
+use WPrism\StalePlatformSiteAdapterCertificate;
+use WPrism\SupersededSiteAdapterCertificate;
+use WPrism\SupersededWireSiteAdapterCertificate;
 
 /**
- * `duo adapter doctor --migration` — the blast radius of an agent bump, on one
+ * `wprism adapter doctor --migration` — the blast radius of an agent bump, on one
  * site, before the bump.
  *
  * WHAT QUESTION THIS ANSWERS
@@ -68,8 +68,8 @@ use Duo\SupersededWireSiteAdapterCertificate;
  *   pins           `PinResolver::normalize_manifest_pins()` (:61) for the pin
  *                  SHAPE, and `ArtifactPolicyIdentity::resolved_adapters()`
  *                  (:134) for the digest each pin would have to carry after the
- *                  bump — the same call `duo adapter certify`'s `pinObject()`
- *                  (AdapterCertify.php:957-980) and `wp duo manifest-pin` make.
+ *                  bump — the same call `wprism adapter certify`'s `pinObject()`
+ *                  (AdapterCertify.php:957-980) and `wp wprism manifest-pin` make.
  *   identity       `RepositoryCompiler::compile()` for the target's four
  *                  identity values and `CompiledRepository::from_array()` for
  *                  the held artifact's, so held-vs-target is two gate outputs
@@ -86,7 +86,7 @@ use Duo\SupersededWireSiteAdapterCertificate;
  *
  * WHAT "THE TARGET" IS, AND WHY THERE IS NO --target FLAG
  * ------------------------------------------------------
- * A rehearsal state is the pair (`agent/duo.php`'s two `define()`s, the
+ * A rehearsal state is the pair (`agent/wprism.php`'s two `define()`s, the
  * manifest library) — AGENTS.md rule 8, and `spec_migration_estate.php`'s
  * header states why a PHP process can hold exactly one such pair. So the TARGET
  * agent state is the agent state THIS PROCESS RUNS AT: run the preflight from
@@ -131,9 +131,9 @@ use Duo\SupersededWireSiteAdapterCertificate;
  * verb is worth having.
  */
 final class MigrationPreflight {
-    public const FORMAT = 'duo-migration-preflight/v1';
+    public const FORMAT = 'wprism-migration-preflight/v1';
 
-    /** The sub-verb `--migration` belongs to; `duo adapter doctor` is the door. */
+    /** The sub-verb `--migration` belongs to; `wprism adapter doctor` is the door. */
     public const VERB = 'doctor';
 
     /**
@@ -172,7 +172,7 @@ final class MigrationPreflight {
     private const MOVING_CERTIFICATE_SIGNALS = ['stale_platform', 'superseded_wire_format'];
 
     /**
-     * @param list<string> $args everything `duo adapter` was given, including
+     * @param list<string> $args everything `wprism adapter` was given, including
      *        the `doctor` sub-verb — this parser owns the whole tail so
      *        AdapterCatalog's own flag loop keeps its exact refusals.
      * @return int 0 nothing moves and everything classified, 1 a finding, 2 usage/IO
@@ -237,7 +237,7 @@ final class MigrationPreflight {
 
         if ($verb !== self::VERB) {
             return self::fail(
-                '--migration is a mode of `' . self::VERB . '`: duo adapter ' . self::VERB
+                '--migration is a mode of `' . self::VERB . '`: wprism adapter ' . self::VERB
                 . ' --migration --repo=<site-repo>'
             );
         }
@@ -247,17 +247,17 @@ final class MigrationPreflight {
         // false green this verb exists to prevent.
         if ($repoArg === null || $repoArg === '') {
             return self::fail(
-                '--migration needs the site it is about: --repo=<site-repo> (the directory holding site.duo.json)'
+                '--migration needs the site it is about: --repo=<site-repo> (the directory holding site.wprism.json)'
             );
         }
         $repo = is_dir($repoArg) ? realpath($repoArg) : false;
         if ($repo === false) {
             return self::fail("--repo '$repoArg' is not a directory");
         }
-        if (!is_file($repo . '/site.duo.json')) {
+        if (!is_file($repo . '/site.wprism.json')) {
             return self::fail(
-                "--repo '$repo' has no site.duo.json — --migration takes the duo SITE REPO (the directory "
-                . 'holding site.duo.json), whose pins, adapters/ source and contract this preflight classifies'
+                "--repo '$repo' has no site.wprism.json — --migration takes the wprism SITE REPO (the directory "
+                . 'holding site.wprism.json), whose pins, adapters/ source and contract this preflight classifies'
             );
         }
         foreach ($held as $name => $path) {
@@ -324,7 +324,7 @@ final class MigrationPreflight {
     /**
      * The preflight document for one site, as a value.
      *
-     * WP-4.12 needs the ENUMERATION without the rendering: `duo release
+     * WP-4.12 needs the ENUMERATION without the rendering: `wprism release
      * --spec-v3` is the per-repository migration act, and its whole first step
      * is "what does the preflight say about this site". Re-deriving that would
      * be a second answer to the question this file exists to answer once —
@@ -361,7 +361,7 @@ final class MigrationPreflight {
 
         $report = [
             'format' => self::FORMAT,
-            'spec_version' => DUO_SPEC_VERSION,
+            'spec_version' => WPRISM_SPEC_VERSION,
             'repo' => $repo,
             // The target platform digest comes from
             // ContractAttestation::currentPlatformDigest() (:469-493) rather
@@ -369,15 +369,15 @@ final class MigrationPreflight {
             // attestation binds and re-observes, so a preflight computing its
             // own would be a second definition of the value the gate compares.
             'target' => [
-                'agent_version' => DUO_AGENT_VERSION,
-                'spec_version' => DUO_SPEC_VERSION,
+                'agent_version' => WPRISM_AGENT_VERSION,
+                'spec_version' => WPRISM_SPEC_VERSION,
                 'manifests_dir' => $adapterLibrary->root(),
                 'platform_sha256' => ContractAttestation::currentPlatformDigest($adapterLibrary),
                 'registry_sha256' => ManifestDispositions::load_library($adapterLibrary)->sha256(),
             ],
         ];
 
-        // Pins are read from the raw site.duo.json through the engine's own
+        // Pins are read from the raw site.wprism.json through the engine's own
         // normalizer BEFORE Policy::load() runs, and deliberately so: a
         // repository whose load refuses is exactly the repository an operator
         // most needs a pin verdict for, and AdapterCatalog's header states that
@@ -386,7 +386,7 @@ final class MigrationPreflight {
         [$pins, $pinShapeRefusal] = self::declaredPins($repo);
         if ($pinShapeRefusal !== null) {
             $state['unclassified'][] = [
-                'subject' => 'site.duo.json manifests',
+                'subject' => 'site.wprism.json manifests',
                 'what' => 'pin shape',
                 'detail' => $pinShapeRefusal,
                 'why' => 'this preflight cannot say whether a pin it cannot parse would move; the engine\'s own '
@@ -498,7 +498,7 @@ final class MigrationPreflight {
      */
     private static function declaredPins(string $repo): array {
         try {
-            $site = Canon::decode(Canon::read_file($repo . '/site.duo.json'));
+            $site = Canon::decode(Canon::read_file($repo . '/site.wprism.json'));
         } catch (\Throwable $t) {
             return [[], $t->getMessage()];
         }
@@ -1104,7 +1104,7 @@ final class MigrationPreflight {
         // the adapters that govern it, and a host preflight has observed no
         // per-surface attribution — so this run takes the documented
         // no-observed-pins branch, `whole-contract` iff the registry moved
-        // (ContractProjection.php:200-215). `duo assess <env>` is where the
+        // (ContractProjection.php:200-215). `wprism assess <env>` is where the
         // exact flip is available, and the deferred row says so.
         $surfaces = [];
         foreach ((array) ($contract['declarations']['surfaces'] ?? []) as $surface) {
@@ -1121,7 +1121,7 @@ final class MigrationPreflight {
                         'registry_sha256' => $registry,
                         'surfaces' => $surfaces,
                     ],
-                    ['agent_version' => DUO_AGENT_VERSION],
+                    ['agent_version' => WPRISM_AGENT_VERSION],
                     [],
                     gmdate('Y-m-d\TH:i:s\Z', 0)
                 );
@@ -1148,7 +1148,7 @@ final class MigrationPreflight {
         }
         $state['deferred'][] = [
             'question' => 'which SURFACES of this contract does the bump flip?',
-            'answered_by' => 'duo assess <env>',
+            'answered_by' => 'wprism assess <env>',
             'why' => 'the exact per-adapter flip needs the target\'s own surface attribution (governed_by), which '
                 . 'a host process has not observed. This run reports the blunt whole-contract answer the '
                 . 'projection defines for exactly that case',
@@ -1247,7 +1247,7 @@ final class MigrationPreflight {
                 'manifest_hash is manifest_rows() hashed, and each row folds the adapter\'s reviewed disposition '
                 . '(ArtifactPolicyIdentity.php:60-115). A certificate the target withdraws changes the '
                 . 'certificate-derived disposition, so this site\'s manifest identity moves with it',
-                'recompile the repository and re-pin it with the object `wp duo manifest-pin` emits; the held '
+                'recompile the repository and re-pin it with the object `wp wprism manifest-pin` emits; the held '
                 . 'compiled artifact refuses with compiled_artifact_manifest_mismatch until you do',
             ],
             'revision_identity_moved' => [
@@ -1256,20 +1256,20 @@ final class MigrationPreflight {
                 . 'checkpoint binding) must be re-taken against the new one',
             ],
             'site_identity_moved' => [
-                'site_hash addresses site.duo.json. An agent bump does not touch it, so this row means the site '
+                'site_hash addresses site.wprism.json. An agent bump does not touch it, so this row means the site '
                 . 'policy itself moved as well — a second change riding along with the migration',
-                'review the site.duo.json change on its own terms before treating this as migration fallout',
+                'review the site.wprism.json change on its own terms before treating this as migration fallout',
             ],
             'adapter_digest_moved' => [
                 'the adapter\'s digest is its manifest_rows() row hashed, disposition included, so a withdrawn '
                 . 'certificate or edited manifest bytes move it',
-                're-pin this adapter with `duo adapter pin`, and re-certify it first if the certificate is the '
-                . 'thing that moved (`duo adapter certify --pin`)',
+                're-pin this adapter with `wprism adapter pin`, and re-certify it first if the certificate is the '
+                . 'thing that moved (`wprism adapter certify --pin`)',
             ],
             'certificate_withdrawn' => [
                 'the certificate binds the platform boundary it was signed against; the target publishes a '
                 . 'different one, so the claim is withdrawn and the adapter resolves as uncertified support',
-                're-sign it against the target boundary with `duo adapter certify --pin` — certificates are '
+                're-sign it against the target boundary with `wprism adapter certify --pin` — certificates are '
                 . 're-minted symmetrically, never restored, in both directions of the bump',
             ],
             'frozen_certificate_withdrawn' => [
@@ -1280,9 +1280,9 @@ final class MigrationPreflight {
                 . 'place',
             ],
             'content_pin_moved' => [
-                'an exact {name, source, digest} pin in site.duo.json no longer matches the digest the target '
+                'an exact {name, source, digest} pin in site.wprism.json no longer matches the digest the target '
                 . 'resolves for that name',
-                'update the pin with `duo adapter pin` (or the object `wp duo manifest-pin` emits) after the '
+                'update the pin with `wprism adapter pin` (or the object `wp wprism manifest-pin` emits) after the '
                 . 'bump; a shipped or plugin pin that stops matching refuses the whole load',
             ],
             'scope_contract_reassociation' => [
@@ -1294,13 +1294,13 @@ final class MigrationPreflight {
             'contract_attestation_moved' => [
                 'the attestation binds the platform boundary the contract was reviewed against, and an agent '
                 . 'upgrade moves it — the most operator-visible refusal a flag day produces',
-                're-attest with `duo contract <env> attest`; an expired or moved attestation is refused, never '
+                're-attest with `wprism contract <env> attest`; an expired or moved attestation is refused, never '
                 . 'silently downgraded to unsigned',
             ],
             'contract_registry_moved' => [
                 'evidence_pins.registry_sha256 addresses the WHOLE reviewed dispositions document, so any '
                 . 'authored change to any subject moves it and the contract\'s evidence goes stale',
-                're-run `duo assess <env>` and re-accept a fresh proposal; the projection\'s exact per-adapter '
+                're-run `wprism assess <env>` and re-accept a fresh proposal; the projection\'s exact per-adapter '
                 . 'flip needs the target\'s surface attribution, which a host preflight has not observed',
             ],
         };
@@ -1541,7 +1541,7 @@ final class MigrationPreflight {
     private static function encode(array $document): string {
         $json = json_encode($document, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if (!is_string($json)) {
-            throw new \RuntimeException('duo: migration preflight could not encode its report');
+            throw new \RuntimeException('wprism: migration preflight could not encode its report');
         }
         return $json;
     }
@@ -1549,7 +1549,7 @@ final class MigrationPreflight {
     /**
      * Load the engine surface this preflight reaches, exactly as
      * AdapterCatalog::boot() does and for the same reason (Policy::load()
-     * compares a manifest's declared spec_version against DUO_SPEC_VERSION).
+     * compares a manifest's declared spec_version against WPRISM_SPEC_VERSION).
      *
      * The list is longer than the catalog's because a preflight COMPILES:
      * RepositoryCompiler::compile() reaches the whole repository surface, and
@@ -1560,30 +1560,30 @@ final class MigrationPreflight {
      */
     private static function boot(): void {
         $repo = dirname(__DIR__, 3);
-        $agent = $repo . '/agent/duo.php';
+        $agent = $repo . '/agent/wprism.php';
         if (!is_file($agent)) {
             throw new \RuntimeException("adapter: agent source not found at $agent");
         }
         $source = (string) file_get_contents($agent);
-        if (!defined('DUO_AGENT_VERSION')) {
-            if (preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $source, $m) !== 1) {
-                throw new \RuntimeException('adapter: could not resolve DUO_AGENT_VERSION');
+        if (!defined('WPRISM_AGENT_VERSION')) {
+            if (preg_match("/define\('WPRISM_AGENT_VERSION', '([^']+)'\)/", $source, $m) !== 1) {
+                throw new \RuntimeException('adapter: could not resolve WPRISM_AGENT_VERSION');
             }
-            define('DUO_AGENT_VERSION', $m[1]);
+            define('WPRISM_AGENT_VERSION', $m[1]);
         }
-        if (!defined('DUO_SPEC_VERSION')) {
-            if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $source, $m) !== 1) {
-                throw new \RuntimeException('adapter: could not resolve DUO_SPEC_VERSION');
+        if (!defined('WPRISM_SPEC_VERSION')) {
+            if (preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", $source, $m) !== 1) {
+                throw new \RuntimeException('adapter: could not resolve WPRISM_SPEC_VERSION');
             }
-            define('DUO_SPEC_VERSION', (int) $m[1]);
+            define('WPRISM_SPEC_VERSION', (int) $m[1]);
         }
-        $duoAgentClassmap = require $repo . '/agent/duo-classmap.php';
-        if (!is_array($duoAgentClassmap)) {
-            throw new \RuntimeException('adapter: agent/duo-classmap.php did not return a map');
+        $wprismAgentClassmap = require $repo . '/agent/wprism-classmap.php';
+        if (!is_array($wprismAgentClassmap)) {
+            throw new \RuntimeException('adapter: agent/wprism-classmap.php did not return a map');
         }
-        $duoAgentFiles = [];
-        foreach ($duoAgentClassmap as $duoAgentPath) {
-            $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
+        $wprismAgentFiles = [];
+        foreach ($wprismAgentClassmap as $wprismAgentPath) {
+            $wprismAgentFiles[basename((string) $wprismAgentPath, '.php')] = (string) $wprismAgentPath;
         }
         foreach ([
             'Uuid', 'OrderPreserved', 'Canon', 'OptionState', 'UserMetaState', 'Db', 'Secrets', 'PersonalData',
@@ -1594,13 +1594,13 @@ final class MigrationPreflight {
             'ArtifactPolicyIdentity', 'CompiledArtifactReader', 'ScopeClosure', 'CanonicalSurfaces', 'ScopeContract',
             'ScopedStateOverlay', 'ScopedApplySession', 'AdapterCertification', 'PinResolver',
         ] as $class) {
-            $duoAgentFile = $duoAgentFiles[$class] ?? null;
-            if (!is_string($duoAgentFile)) {
+            $wprismAgentFile = $wprismAgentFiles[$class] ?? null;
+            if (!is_string($wprismAgentFile)) {
                 throw new \RuntimeException(
-                    'adapter: agent source ' . $class . '.php is absent from agent/duo-classmap.php'
+                    'adapter: agent source ' . $class . '.php is absent from agent/wprism-classmap.php'
                 );
             }
-            require_once $repo . '/agent/' . $duoAgentFile;
+            require_once $repo . '/agent/' . $wprismAgentFile;
         }
         require_once $repo . '/cli/src/Contract/ApplicationContract.php';
         require_once $repo . '/cli/src/Contract/ContractAttestation.php';
@@ -1610,7 +1610,7 @@ final class MigrationPreflight {
 
     /** Fail closed on this command's own paths: usage, a bad path, an unreadable library. */
     private static function fail(string $message): int {
-        fwrite(STDERR, "duo: adapter: $message\n");
+        fwrite(STDERR, "wprism: adapter: $message\n");
         return 2;
     }
 }

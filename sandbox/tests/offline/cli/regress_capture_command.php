@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../../cli/src/Command/CaptureCommand.php';
 
-use Duo\Orchestrator\DriverCapabilityReport;
-use Duo\Orchestrator\EnvironmentDriver;
-use Duo\Orchestrator\CaptureCommand;
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\EnvironmentDriver;
+use WPrism\Orchestrator\CaptureCommand;
 
 function fail_capture_command(string $message): never {
     fwrite(STDERR, "FAIL: $message\n");
@@ -49,7 +49,7 @@ assert_capture_command($plainExit === 0, 'plain capture with no scope contract s
 assert_capture_command($plain->streamCalls === 1, 'plain capture streams exactly once');
 assert_capture_command(
     $plain->streamedArgs[0] === [
-        'duo', 'capture', '--repo=/fixture/repo', '--set=options:foo=runtime', '--dry-run',
+        'wprism', 'capture', '--repo=/fixture/repo', '--set=options:foo=runtime', '--dry-run',
         '--orchestrator-environment=capture-fixture',
         '--expected-repository-branch=feature/capture-command',
     ],
@@ -86,7 +86,7 @@ $registryExit = CaptureCommand::run($customRegistry, [], '/tmp/custom registry.j
 assert_capture_command(
     $registryExit === 0
         && $customRegistry->streamedArgs[0] === [
-            'duo', 'capture', '--repo=/fixture/repo',
+            'wprism', 'capture', '--repo=/fixture/repo',
             '--expected-repository-branch=feature/capture-command',
         ],
     'an explicit registry remains host-local and does not alter target argv'
@@ -96,7 +96,7 @@ $customRegistryOut = new CaptureCommandDriver();
 assert_capture_command(
     CaptureCommand::run($customRegistryOut, ['--out=/tmp/candidate'], '/tmp/custom.json') === 0
         && $customRegistryOut->streamedArgs[0] === [
-            'duo', 'capture', '--repo=/fixture/repo', '--out=/tmp/candidate',
+            'wprism', 'capture', '--repo=/fixture/repo', '--out=/tmp/candidate',
         ],
     'output-only capture with a custom registry adds no mismatched repository-lint presentation context'
 );
@@ -105,7 +105,7 @@ $explicitBranch = new CaptureCommandDriver();
 assert_capture_command(
     CaptureCommand::run($explicitBranch, ['--target-branch=release/client-a'], null, static fn(): never => throw new RuntimeException('resolver must not run')) === 0
         && $explicitBranch->streamedArgs[0] === [
-            'duo', 'capture', '--repo=/fixture/repo',
+            'wprism', 'capture', '--repo=/fixture/repo',
             '--orchestrator-environment=capture-fixture',
             '--expected-repository-branch=release/client-a',
         ],
@@ -151,13 +151,13 @@ assert_capture_command($empty->streamCalls === 0, 'an empty scope-contract path 
 
 // -- unreadable / malformed contract file --------------------------------------
 
-$missingPath = sys_get_temp_dir() . '/duo_regress_capture_missing_' . bin2hex(random_bytes(6)) . '.json';
+$missingPath = sys_get_temp_dir() . '/wprism_regress_capture_missing_' . bin2hex(random_bytes(6)) . '.json';
 $missing = new CaptureCommandDriver();
 $missingExit = CaptureCommand::run($missing, ["--scope-contract=$missingPath"]);
 assert_capture_command($missingExit === 2, 'a scope-contract path that does not exist refuses (exit 2)');
 assert_capture_command($missing->streamCalls === 0, 'a missing contract file never streams a capture call');
 
-$garbagePath = sys_get_temp_dir() . '/duo_regress_capture_garbage_' . bin2hex(random_bytes(6)) . '.json';
+$garbagePath = sys_get_temp_dir() . '/wprism_regress_capture_garbage_' . bin2hex(random_bytes(6)) . '.json';
 file_put_contents($garbagePath, "not a real scope contract\n");
 $garbage = new CaptureCommandDriver();
 $garbageExit = CaptureCommand::run($garbage, ["--scope-contract=$garbagePath"]);
@@ -177,8 +177,8 @@ $jsonOutput = (string) ob_get_clean();
 assert_capture_command($jsonExit === 1, 'a refusal under --format=json returns the JSON-envelope exit code (1), not the plain-stderr one (2)');
 $decoded = json_decode($jsonOutput, true);
 assert_capture_command(
-    is_array($decoded) && ($decoded['format'] ?? null) === 'duo-command-refusal/v1' && ($decoded['reason_code'] ?? null) === 'invalid_arguments',
-    'a refusal under --format=json emits the real duo-command-refusal/v1 envelope, not the plain stderr line'
+    is_array($decoded) && ($decoded['format'] ?? null) === 'wprism-command-refusal/v1' && ($decoded['reason_code'] ?? null) === 'invalid_arguments',
+    'a refusal under --format=json emits the real wprism-command-refusal/v1 envelope, not the plain stderr line'
 );
 
 echo "PASS: capture command\n";

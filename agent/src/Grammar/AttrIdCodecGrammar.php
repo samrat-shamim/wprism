@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * `attr_id_codecs` — the type-preserving block attribute id codec (WP-6.1).
@@ -87,7 +87,7 @@ final class AttrIdCodecGrammar {
     }
 
     /**
-     * This section's value grammar, published for `duo manifest-validate
+     * This section's value grammar, published for `wprism manifest-validate
      * --emit-schema` (WP-6.6, spec/repo-format.md § v3.21).
      *
      * Two nested key levels and one closed vocabulary is the whole shape, and
@@ -107,7 +107,7 @@ final class AttrIdCodecGrammar {
             'id_type' => self::ID_TYPES,
             'refines' => 'only a scalar entity-ref rule: a rule carrying tokenize, unsupported, lint_ok or '
                 . 'type="int[]" resolves no single id, and a codec over it is refused by name',
-            'validated_by' => 'Duo\\AttrIdCodecGrammar::validate_attr_id_codecs()',
+            'validated_by' => 'WPrism\\AttrIdCodecGrammar::validate_attr_id_codecs()',
         ];
     }
 
@@ -138,7 +138,7 @@ final class AttrIdCodecGrammar {
         $section = $manifest[self::SECTION];
         if (!is_array($section) || array_is_list($section) || $section === []) {
             throw new \RuntimeException(
-                "duo: $label attr_id_codecs must be a non-empty object keyed by block name, each value an object "
+                "wprism: $label attr_id_codecs must be a non-empty object keyed by block name, each value an object "
                 . 'keyed by attribute path — an empty section declares a capability the adapter does not use'
             );
         }
@@ -148,13 +148,13 @@ final class AttrIdCodecGrammar {
             $where = "$label attr_id_codecs.$block";
             if (!is_array($paths) || array_is_list($paths) || $paths === []) {
                 throw new \RuntimeException(
-                    "duo: $where must be a non-empty object keyed by attribute path, each value a codec declaration"
+                    "wprism: $where must be a non-empty object keyed by attribute path, each value a codec declaration"
                 );
             }
             $rules = $registry[$block] ?? null;
             if (!is_array($rules) || !array_is_list($rules) || $rules === []) {
                 throw new \RuntimeException(
-                    "duo: $where names a block this manifest declares no block_attrs rules for — an id codec "
+                    "wprism: $where names a block this manifest declares no block_attrs rules for — an id codec "
                     . 'refines a declared attribute rule, so a codec with no rule beneath it would never run'
                 );
             }
@@ -175,7 +175,7 @@ final class AttrIdCodecGrammar {
         }
         if ($rule === null) {
             throw new \RuntimeException(
-                "duo: $where names an attribute path none of this block's block_attrs rules declares — a codec "
+                "wprism: $where names an attribute path none of this block's block_attrs rules declares — a codec "
                 . 'over an undeclared path is silently skipped at rewrite time, which is exactly the '
                 . 'declared-but-never-applied failure the attribute grammar refuses one level down'
             );
@@ -187,38 +187,38 @@ final class AttrIdCodecGrammar {
         ]));
         if ($blocking !== []) {
             throw new \RuntimeException(
-                "duo: $where refines a rule whose disposition is '" . implode("', '", $blocking)
+                "wprism: $where refines a rule whose disposition is '" . implode("', '", $blocking)
                 . "' rather than an entity ref — an id codec decides the JSON type a RESOLVED ID is written back "
                 . 'as, and that rule resolves no id'
             );
         }
         if (!array_key_exists('kind', $rule) && !array_key_exists('kind_from', $rule)) {
             throw new \RuntimeException(
-                "duo: $where refines a rule that declares neither kind nor kind_from — an id codec decides the "
+                "wprism: $where refines a rule that declares neither kind nor kind_from — an id codec decides the "
                 . 'JSON type a RESOLVED ID is written back as, and that rule resolves no id'
             );
         }
         if (($rule['type'] ?? 'int') !== 'int') {
             throw new \RuntimeException(
-                "duo: $where refines a rule declaring type=" . var_export($rule['type'], true)
+                "wprism: $where refines a rule declaring type=" . var_export($rule['type'], true)
                 . ' — an id codec applies to a scalar id attribute only. A native JSON list of ids has a '
                 . 'per-element stored type this engine has no measured demand for and therefore does not claim'
             );
         }
         if (!is_array($codec) || array_is_list($codec)) {
-            throw new \RuntimeException("duo: $where must be an object declaring exactly {id_type}");
+            throw new \RuntimeException("wprism: $where must be an object declaring exactly {id_type}");
         }
         $keys = array_keys($codec);
         sort($keys, SORT_STRING);
         if ($keys !== self::CODEC_KEYS) {
             throw new \RuntimeException(
-                "duo: $where declares [" . implode(', ', array_map('strval', $keys))
+                "wprism: $where declares [" . implode(', ', array_map('strval', $keys))
                 . '] but an id codec is exactly {id_type}'
             );
         }
         if (!in_array($codec['id_type'], self::ID_TYPES, true)) {
             throw new \RuntimeException(
-                "duo: $where declares id_type=" . var_export($codec['id_type'], true)
+                "wprism: $where declares id_type=" . var_export($codec['id_type'], true)
                 . ' but the stored-id type vocabulary is closed and engine-owned ('
                 . implode(', ', self::ID_TYPES) . ') — an integer id is what every rule already writes back, so '
                 . 'there is no declaration for it to make'
@@ -288,7 +288,7 @@ final class AttrIdCodecGrammar {
             return;
         }
         throw new \RuntimeException(
-            "duo: block '$block' attribute '$path' declares the id codec id_type=string, but this source stores it "
+            "wprism: block '$block' attribute '$path' declares the id codec id_type=string, but this source stores it "
             . 'as ' . get_debug_type($value) . ' — apply writes the DECLARED type, so capturing this value would '
             . 'change the block\'s bytes on a target where nothing was substituted. Refusing before substitution: '
             . 'either the codec is declared for the wrong attribute, or this content predates the plugin version '

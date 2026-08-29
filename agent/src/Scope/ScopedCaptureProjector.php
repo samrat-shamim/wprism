@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Repository/CompiledArtifact.php';
 require_once __DIR__ . '/../Policy/Policy.php';
@@ -22,10 +22,10 @@ final class ScopedCaptureProjector {
         $keys = array_keys($request);
         sort($keys, SORT_STRING);
         if ($keys !== ['format', 'scope_hash', 'selectors']
-            || ($request['format'] ?? null) !== 'duo-scope-request/v1'
+            || ($request['format'] ?? null) !== 'wprism-scope-request/v1'
             || !is_array($request['selectors'] ?? null)
             || !array_is_list($request['selectors'])) {
-            throw new \RuntimeException('duo: scoped capture request has an unexpected schema');
+            throw new \RuntimeException('wprism: scoped capture request has an unexpected schema');
         }
         $selectors = ScopeContract::normalize_selectors($request['selectors']);
         return ScopedStateOverlay::resolve_request(

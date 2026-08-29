@@ -3,9 +3,9 @@
 declare(strict_types=1);
 
 namespace {
-    $duoRoot = dirname(__DIR__, 4);
-    require_once $duoRoot . '/sandbox/tests/lib/check.php';
-    require_once $duoRoot . '/sandbox/tests/support/wp_cli_child_process_fake.php';
+    $wprismRoot = dirname(__DIR__, 4);
+    require_once $wprismRoot . '/sandbox/tests/lib/check.php';
+    require_once $wprismRoot . '/sandbox/tests/support/wp_cli_child_process_fake.php';
 
     define('WC_VERSION', '11.0.1');
     define('ARRAY_A', 'ARRAY_A');
@@ -21,7 +21,7 @@ namespace {
     }
 
     final class WP_CLI {
-        use \DuoTest\WpCliChildRuntime;
+        use \WPrismTest\WpCliChildRuntime;
 
         public static function runcommand(string $command, array $options): mixed {
             $GLOBALS['woo_lifecycle_commands'][] = [$command, $options];
@@ -60,16 +60,16 @@ namespace {
     }
 }
 
-namespace Duo {
+namespace WPrism {
     final class Policy {}
 }
 
 namespace {
-    require_once $duoRoot . '/agent/src/Adapter/ManifestProviderRuntime.php';
-    require_once $duoRoot . '/agent/src/Kernel/WpCliChildProcess.php';
-    require_once $duoRoot . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-lifecycle-migrations.php';
+    require_once $wprismRoot . '/agent/src/Adapter/ManifestProviderRuntime.php';
+    require_once $wprismRoot . '/agent/src/Kernel/WpCliChildProcess.php';
+    require_once $wprismRoot . '/adapter-packages/woocommerce/package/runtime/providers/woocommerce-lifecycle-migrations.php';
 
-    use Duo\Providers\WoocommerceLifecycleMigrations;
+    use WPrism\Providers\WoocommerceLifecycleMigrations;
 
     /** @return array<string,mixed> */
     function woo_lifecycle_declaration(): array {
@@ -108,9 +108,9 @@ namespace {
 
     woo_lifecycle_reset([woo_lifecycle_row('complete', 4)], WC_VERSION, WC_VERSION);
     $already = $provider->invoke('settle_lifecycle_migrations', []);
-    duo_check_same([], $GLOBALS['woo_lifecycle_commands'], 'an already-settled target starts no child process');
-    duo_check_same($already['before'], $already['after'], 'the no-op receipt proves the same closed projection twice');
-    duo_check_same(true, $already['verified'], 'the no-op settlement receipt is verified');
+    wprism_check_same([], $GLOBALS['woo_lifecycle_commands'], 'an already-settled target starts no child process');
+    wprism_check_same($already['before'], $already['after'], 'the no-op receipt proves the same closed projection twice');
+    wprism_check_same(true, $already['verified'], 'the no-op settlement receipt is verified');
 
     woo_lifecycle_reset(
         [woo_lifecycle_row('complete', 3), woo_lifecycle_row('pending', 2)],
@@ -123,9 +123,9 @@ namespace {
         $GLOBALS['woo_lifecycle_options']['woocommerce_version'] = WC_VERSION;
     };
     $settled = $provider->invoke('settle_lifecycle_migrations', []);
-    duo_check_same(1, count($GLOBALS['woo_lifecycle_commands']), 'an unsettled target starts exactly one bounded fresh child');
+    wprism_check_same(1, count($GLOBALS['woo_lifecycle_commands']), 'an unsettled target starts exactly one bounded fresh child');
     $command = (string) $GLOBALS['woo_lifecycle_commands'][0][0];
-    duo_check(
+    wprism_check(
         str_contains($command, 'action-scheduler run')
             && str_contains($command, '--hooks=woocommerce_run_update_callback,woocommerce_update_db_to_current_version')
             && str_contains($command, '--group=woocommerce-db-updates')
@@ -134,22 +134,22 @@ namespace {
             && str_contains($command, '--force'),
         'the child is restricted to WooCommerce DB-update hooks/group and drains every bounded batch'
     );
-    duo_check_same(
+    wprism_check_same(
         ['woocommerce_run_update_callback', 'woocommerce_update_db_to_current_version'],
         $GLOBALS['wpdb']->preparedArgs,
         'both queue projections bind the exact reviewed WooCommerce update hooks'
     );
-    duo_check_same(2, $settled['before']['queue']['pending'], 'the receipt preserves the pre-run pending count');
-    duo_check_same(0, $settled['after']['queue']['pending'], 'the receipt proves no pending update remains');
-    duo_check_same(WC_VERSION, $settled['after']['database_version'], 'the database marker equals the activated code version');
-    duo_check_same(true, $settled['verified'], 'the completed migration receipt is verified');
+    wprism_check_same(2, $settled['before']['queue']['pending'], 'the receipt preserves the pre-run pending count');
+    wprism_check_same(0, $settled['after']['queue']['pending'], 'the receipt proves no pending update remains');
+    wprism_check_same(WC_VERSION, $settled['after']['database_version'], 'the database marker equals the activated code version');
+    wprism_check_same(true, $settled['verified'], 'the completed migration receipt is verified');
 
     woo_lifecycle_reset([woo_lifecycle_row('failed', 1)], WC_VERSION, WC_VERSION);
     try {
         $provider->invoke('settle_lifecycle_migrations', []);
-        duo_check(false, 'a child that leaves a failed update behind must refuse');
+        wprism_check(false, 'a child that leaves a failed update behind must refuse');
     } catch (RuntimeException $failure) {
-        duo_check(
+        wprism_check(
             str_contains($failure->getMessage(), 'remain pending, running, failed, or version-incomplete')
                 && str_contains($failure->getMessage(), 'recovery_required'),
             'post-child queue/version incompleteness is an explicit recovery-required refusal'
@@ -160,20 +160,20 @@ namespace {
     $GLOBALS['woo_lifecycle_result'] = (object) ['return_code' => 17, 'stdout' => 'private', 'stderr' => 'private'];
     try {
         $provider->invoke('settle_lifecycle_migrations', []);
-        duo_check(false, 'a failed scheduler child must refuse');
+        wprism_check(false, 'a failed scheduler child must refuse');
     } catch (RuntimeException $failure) {
-        duo_check(
-            $failure->getMessage() === 'duo: WooCommerce migration queue did not complete cleanly in the bounded fresh process; recovery_required',
+        wprism_check(
+            $failure->getMessage() === 'wprism: WooCommerce migration queue did not complete cleanly in the bounded fresh process; recovery_required',
             'child output stays private while the provider returns one safe recovery-required refusal'
         );
     }
 
     try {
         $provider->invoke('settle_lifecycle_migrations', ['forged' => true]);
-        duo_check(false, 'settlement must reject caller-defined provider arguments');
+        wprism_check(false, 'settlement must reject caller-defined provider arguments');
     } catch (RuntimeException $failure) {
-        duo_check(
-            $failure->getMessage() === 'duo: WooCommerce lifecycle settlement accepts no arguments',
+        wprism_check(
+            $failure->getMessage() === 'wprism: WooCommerce lifecycle settlement accepts no arguments',
             'the manifest-fixed settlement scope cannot be widened by an artifact argument'
         );
     }

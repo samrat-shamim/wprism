@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
 use PHPUnit\Framework\TestCase;
 
 /**
- * Pins tools/modules.json's own internal consistency now that DUO-3493 made
+ * Pins tools/modules.json's own internal consistency now that issue #3493 made
  * it the single per-path {module, layer} source for agent/src. It used to be
  * duplicated into tools/layers.json's hand-maintained path=>layer map, kept
  * current by a second, independent gate
- * (sandbox/tests/offline/guards/regress_agent_src_requires.php's DUO-3481
+ * (sandbox/tests/offline/guards/regress_agent_src_requires.php's issue #3481
  * section); that suite now derives the same map from this file directly
  * instead, which is what retired the second registry and the friction of
  * a new agent/src file needing a hand entry in each of two files, gated
@@ -32,7 +32,7 @@ final class ModulesJsonTest extends TestCase
 {
     private static function repoRoot(): string
     {
-        $env = getenv('DUO_REPO_ROOT');
+        $env = getenv('WPRISM_REPO_ROOT');
         return is_string($env) && $env !== '' ? $env : dirname(__DIR__, 2);
     }
 
@@ -50,7 +50,7 @@ final class ModulesJsonTest extends TestCase
     /**
      * The regression this test exists for: Apply's file_count (26) silently
      * disagreed with its 27-entry files list until this assertion was added
-     * in the same change that fixed it (DUO-3493).
+     * in the same change that fixed it (issue #3493).
      */
     public function testEveryModuleFileCountMatchesItsFilesList(): void
     {
@@ -107,7 +107,7 @@ final class ModulesJsonTest extends TestCase
     }
 
     /**
-     * layer_notes is DUO-3493's migration of tools/layers.json's old "notes"
+     * layer_notes is issue #3493's migration of tools/layers.json's old "notes"
      * section (free-text rationale for a placement a filename suffix would
      * suggest otherwise) into the single source file; a note naming a path
      * no module assigns is exactly the stale prose the deleted layers.json's
@@ -130,7 +130,7 @@ final class ModulesJsonTest extends TestCase
     }
 
     /**
-     * Mutation check (DUO-3493): a file quietly dropped from its module's
+     * Mutation check (issue #3493): a file quietly dropped from its module's
      * files list is exactly the failure mode the old two-registry setup
      * could produce silently (one file edited out of tools/layers.json
      * without the matching tools/modules.json edit, or vice versa). Proves

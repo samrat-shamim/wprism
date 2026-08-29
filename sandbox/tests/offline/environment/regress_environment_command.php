@@ -1,11 +1,11 @@
 <?php
 /**
- * DUO-3351 slice 18: direct host-command boundary coverage for `duo env`.
+ * issue #3351 slice 18: direct host-command boundary coverage for `wprism env`.
  *
  * EnvironmentLifecycle retains the durable provider/journal/recovery state
  * machine, and regress_environment_lifecycle.php continues to exercise the
  * public CLI product path. This test pins the newly extracted command owner:
- * it is callable without cli/duo, keeps the early public-intent refusal ahead
+ * it is callable without cli/wprism, keeps the early public-intent refusal ahead
  * of privileged registry/provider setup, and owns exact reap-source and
  * receipt projection behavior rather than leaving a second copy in the facade.
  */
@@ -13,7 +13,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../../cli/src/Command/EnvironmentCommand.php';
 
-use Duo\Orchestrator\EnvironmentCommand;
+use WPrism\Orchestrator\EnvironmentCommand;
 
 $failures = [];
 $check = static function (bool $condition, string $message) use (&$failures): void {
@@ -117,7 +117,7 @@ $exit = EnvironmentCommand::run(
 );
 $check($exit === 1, 'direct command invocation refuses incomplete intent before registry/provider/journal or promotion work');
 
-$facade = (string) file_get_contents(__DIR__ . '/../../../../cli/duo');
+$facade = (string) file_get_contents(__DIR__ . '/../../../../cli/wprism');
 $command = (string) file_get_contents(__DIR__ . '/../../../../cli/src/Command/EnvironmentCommand.php');
 $facadeStart = strpos($facade, 'function cmd_environment(');
 $facadeEnd = $facadeStart === false ? false : strpos($facade, "\n}\n", $facadeStart);
@@ -127,7 +127,7 @@ $check(
         && str_contains($facadeBody, 'cmd_promote_frozen')
         && !str_contains($facadeBody, 'Registry::load')
         && !str_contains($facadeBody, 'EnvironmentMaterializer::'),
-    'cli/duo is a thin environment facade with only the explicit frozen-promotion handoff'
+    'cli/wprism is a thin environment facade with only the explicit frozen-promotion handoff'
 );
 $check(
     str_contains($command, 'EnvironmentCommandOptions::materialize($args)')

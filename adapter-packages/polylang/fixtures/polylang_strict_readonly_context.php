@@ -31,13 +31,13 @@ namespace {
         'polylang' => serialize($base),
         'pll_language_from_content_available' => 'target-runtime-sentinel',
     ];
-    $interpreter = new \Duo\Interpreters\Polylang(new \Duo\Policy());
+    $interpreter = new \WPrism\Interpreters\Polylang(new \WPrism\Policy());
     $closedRefusal = false;
     try {
-        \Duo\SubKeyGrammar::assert_closed_value(
+        \WPrism\SubKeyGrammar::assert_closed_value(
             'polylang',
             ['closed_sub_keys' => true, 'sub_keys' => $subKeys],
-            ['duo_target_runtime_neighbor' => 'target-preserved-東京-🚀'],
+            ['wprism_target_runtime_neighbor' => 'target-preserved-東京-🚀'],
             'source'
         );
     } catch (\RuntimeException) {

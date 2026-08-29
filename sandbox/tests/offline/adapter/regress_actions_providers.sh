@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression — DUO-3338: structured native actions and the plugin-owned
+# Regression — issue #3338: structured native actions and the plugin-owned
 # provider contract that replaced the free-form `rebuilders` command channel.
 #
 # Two harnesses run under this one target because the contract has two halves
@@ -16,13 +16,13 @@
 #     primitives Deploy::plugin_runtime_state() reads plus apply_filters(),
 #     and the exact transient/cache + checked option-read primitives
 #     NativeActions::execute() reads. It exercises negotiation refusals,
-#     plugin-sourced `duo_providers` discovery, invocation receipts,
+#     plugin-sourced `wprism_providers` discovery, invocation receipts,
 #     value-level verification, persistent-cache false-value handling, and
 #     the post-hoc timeout budget.
 #
 # Both are pure PHP against real engine files under an explicit scratch
 # AdapterLibrary — no docker, no sandbox pair, no WordPress bootstrap. Same
-# idiom as sandbox/tests/offline/adapter/regress_adapter_contract.php (DUO-3222/DUO-3243).
+# idiom as sandbox/tests/offline/adapter/regress_adapter_contract.php (issue #3222/issue #3243).
 #
 # What this does NOT cover, because it genuinely needs a live target: Apply's
 # placement of the negotiation gate ahead of the first mutation and the
@@ -42,11 +42,11 @@ command -v php >/dev/null || fail "php required on PATH"
 
 say "live failure fixture selects executable adapter code without a process-global library"
 LIVE=../../live/regress_fatal_mutations_live.sh
-! grep -Fq 'DUO_''MANIFESTS_DIR' "$LIVE" \
+! grep -Fq 'WPRISM_''MANIFESTS_DIR' "$LIVE" \
   || fail "live provider failure fixture reintroduced process-global manifest selection"
 grep -Fq 'AdapterLibrary::fromSourcePackage' "$LIVE" \
   || fail "live provider failure fixture no longer selects a closed source package explicitly"
-grep -Fq '$SITEREPO/adapters/duo-3338-missing-provider.json' "$LIVE" \
+grep -Fq '$SITEREPO/adapters/provider-probe-missing-provider.json' "$LIVE" \
   || fail "missing plugin-provider declaration no longer travels as a repository-owned site adapter"
 pass "live provider failure fixture has explicit source selection"
 

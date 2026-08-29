@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 /** One adapter's closed set of reviewed and executable shipped bytes. */
 final class AdapterPackage
@@ -44,7 +44,7 @@ final class AdapterPackage
         $legacyLayout = $manifestPath === $canonicalRoot . '/' . $name . '.json'
             && $dispositionPath === $canonicalRoot . '/dispositions/' . $name . '.json';
         if (!$logicalLayout && !$legacyLayout) {
-            throw new \RuntimeException("duo: adapter $name package paths do not match a supported explicit layout");
+            throw new \RuntimeException("wprism: adapter $name package paths do not match a supported explicit layout");
         }
         $runtimePrefix = $logicalLayout ? 'runtime/' : '';
 
@@ -127,7 +127,7 @@ final class AdapterPackage
     {
         self::assertName($provider, 'provider id');
         if (!isset($this->providerPaths[$provider])) {
-            throw new \RuntimeException("duo: adapter {$this->name} does not declare provider $provider");
+            throw new \RuntimeException("wprism: adapter {$this->name} does not declare provider $provider");
         }
         return $this->providerPaths[$provider];
     }
@@ -136,7 +136,7 @@ final class AdapterPackage
     {
         self::assertName($regenerator, 'regenerator id');
         if (!isset($this->regeneratorPaths[$regenerator])) {
-            throw new \RuntimeException("duo: adapter {$this->name} does not declare regenerator $regenerator");
+            throw new \RuntimeException("wprism: adapter {$this->name} does not declare regenerator $regenerator");
         }
         return $this->regeneratorPaths[$regenerator];
     }
@@ -150,14 +150,14 @@ final class AdapterPackage
     private static function canonicalRoot(string $root): string
     {
         if ($root === '' || str_contains($root, "\0")) {
-            throw new \RuntimeException('duo: adapter package root is invalid');
+            throw new \RuntimeException('wprism: adapter package root is invalid');
         }
         if (is_link($root)) {
-            throw new \RuntimeException("duo: adapter package root may not be a symlink: $root");
+            throw new \RuntimeException("wprism: adapter package root may not be a symlink: $root");
         }
         $canonical = realpath($root);
         if ($canonical === false || !is_dir($canonical) || !is_readable($canonical)) {
-            throw new \RuntimeException("duo: adapter package root is not a readable directory: $root");
+            throw new \RuntimeException("wprism: adapter package root is not a readable directory: $root");
         }
         return rtrim($canonical, '/');
     }
@@ -165,17 +165,17 @@ final class AdapterPackage
     private static function packageFile(string $root, string $path, string $relative, string $label): string
     {
         if ($path !== $root . '/' . $relative) {
-            throw new \RuntimeException("duo: $label must resolve to $relative inside its adapter package");
+            throw new \RuntimeException("wprism: $label must resolve to $relative inside its adapter package");
         }
         if (is_link($path)) {
-            throw new \RuntimeException("duo: $label may not be a symlink: $path");
+            throw new \RuntimeException("wprism: $label may not be a symlink: $path");
         }
         $canonical = realpath($path);
         if ($canonical === false || !is_file($canonical) || !is_readable($canonical)) {
-            throw new \RuntimeException("duo: $label is not a readable regular file: $path");
+            throw new \RuntimeException("wprism: $label is not a readable regular file: $path");
         }
         if (!str_starts_with($canonical, $root . '/')) {
-            throw new \RuntimeException("duo: $label escapes the adapter package root: $path");
+            throw new \RuntimeException("wprism: $label escapes the adapter package root: $path");
         }
         return $canonical;
     }
@@ -190,7 +190,7 @@ final class AdapterPackage
         foreach ($paths as $id => $path) {
             self::assertName($id, "$label id");
             if (isset($validated[$id])) {
-                throw new \RuntimeException("duo: $label $id is declared more than once");
+                throw new \RuntimeException("wprism: $label $id is declared more than once");
             }
             $validated[$id] = self::packageFile(
                 $root,
@@ -207,7 +207,7 @@ final class AdapterPackage
     {
         if (preg_match('/^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/D', $name) !== 1
             || preg_match('/[a-z]/D', $name) !== 1) {
-            throw new \RuntimeException("duo: $label is not a canonical lowercase ASCII slug: " . var_export($name, true));
+            throw new \RuntimeException("wprism: $label is not a canonical lowercase ASCII slug: " . var_export($name, true));
         }
     }
 }

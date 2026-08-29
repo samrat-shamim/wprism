@@ -30,7 +30,7 @@
 #
 # Re-run safety: envs r1b1/r1b2 are never torn down (docker compose down/
 # clean is off-limits — other agents share this stack), so every run wipes
-# WP content, the duo ledger tables, the journal, and the site-repo git
+# WP content, the wprism ledger tables, the journal, and the site-repo git
 # state from scratch, mirroring spike_f/spike_g/grind_r1c's exact approach.
 # WordPress core install is the only thing skipped on repeat runs (guarded
 # by `core is-installed`); WooCommerce/Storefront/HPOS/attributes are all
@@ -53,8 +53,8 @@ source "lib/proof_legacy_pair.sh"
 wp_env() { proof_legacy_pair_wp_env "$@"; }
 wp_r1b1() { wp_env r1b1 "$@"; }
 wp_r1b2() { wp_env r1b2 "$@"; }
-GIT_1="git -C siterepo/r1b1 -c user.name=duo-r1b1 -c user.email=r1b1@example.test"
-GIT_2="git -C siterepo/r1b2 -c user.name=duo-r1b2 -c user.email=r1b2@example.test"
+GIT_1="git -C siterepo/r1b1 -c user.name=wprism-r1b1 -c user.email=r1b1@example.test"
+GIT_2="git -C siterepo/r1b2 -c user.name=wprism-r1b2 -c user.email=r1b2@example.test"
 wait_for() { proof_legacy_pair_wait_for "$@"; }
 write_htaccess() { proof_legacy_pair_write_htaccess "$@"; }
 
@@ -96,10 +96,10 @@ reset_env_state() { # reset_env_state <r1b1|r1b2>
   wp_env "$env" db query "TRUNCATE TABLE wp_woocommerce_tax_rates" >/dev/null 2>&1 || true
   wp_env "$env" db query "TRUNCATE TABLE wp_woocommerce_tax_rate_locations" >/dev/null 2>&1 || true
   wp_env "$env" theme activate twentytwentyfive >/dev/null 2>&1 || true
-  wp_env "$env" db query "TRUNCATE TABLE wp_duo_map" >/dev/null 2>&1 || true
-  wp_env "$env" db query "TRUNCATE TABLE wp_duo_state" >/dev/null 2>&1 || true
-  wp_env "$env" db query "TRUNCATE TABLE wp_duo_kv" >/dev/null 2>&1 || true
-  wp_env "$env" db query "TRUNCATE TABLE wp_duo_journal" >/dev/null 2>&1 || true
+  wp_env "$env" db query "TRUNCATE TABLE wp_wprism_map" >/dev/null 2>&1 || true
+  wp_env "$env" db query "TRUNCATE TABLE wp_wprism_state" >/dev/null 2>&1 || true
+  wp_env "$env" db query "TRUNCATE TABLE wp_wprism_kv" >/dev/null 2>&1 || true
+  wp_env "$env" db query "TRUNCATE TABLE wp_wprism_journal" >/dev/null 2>&1 || true
   # `site empty --yes` deletes WooCommerce's own Shop/Cart/Checkout/My-
   # Account/Refund-Returns pages, but a plain `plugin activate` on an
   # ALREADY-active plugin is a WordPress no-op (activate_plugin() skips the
@@ -161,17 +161,17 @@ reset_env_state() { # reset_env_state <r1b1|r1b2>
 say "boot r1b1 (:8816) / r1b2 (:8817)"
 mkdir -p siterepo
 $COMPOSE up -d db-r1b1 wp-r1b1 db-r1b2 wp-r1b2
-install_env r1b1 8816 "Duo R1B1 Shop"
-install_env r1b2 8817 "Duo R1B2 Shop"
+install_env r1b1 8816 "WPrism R1B1 Shop"
+install_env r1b2 8817 "WPrism R1B2 Shop"
 reset_env_state r1b1
 reset_env_state r1b2
 pass "both envs installed (WooCommerce+Storefront present, HPOS on, twentytwentyfive active on both); content/ledger/journal/attribute tables clean"
 
 say "fresh site repo (own origin, own clones)"
-rm -rf siterepo/origin-r1b.git siterepo/r1b1/.git siterepo/r1b2 siterepo/r1b1/state siterepo/r1b1/site.duo.json
+rm -rf siterepo/origin-r1b.git siterepo/r1b1/.git siterepo/r1b2 siterepo/r1b1/state siterepo/r1b1/site.wprism.json
 git init --bare -b main siterepo/origin-r1b.git >/dev/null
 mkdir -p siterepo/r1b1
-cat > siterepo/r1b1/site.duo.json <<'EOF'
+cat > siterepo/r1b1/site.wprism.json <<'EOF'
 {
   "manifests": ["core", "woocommerce"],
   "policy": {
@@ -210,33 +210,33 @@ grep -q 'pa_size' <<<"$REGISTERED" || fail "pa_size did not register"
 grep -q 'pa_color' <<<"$REGISTERED" || fail "pa_color did not register"
 pass "pa_size ($SIZE_ID) / pa_color ($COLOR_ID) registered, 3 terms each"
 
-say "variable product Duo Tee: 4 variations (Small/Red, Small/Blue, Medium/Red sale, Medium/Blue)"
-TEE_ID=$(wp_r1b1 wc product create --name='Duo Tee' --slug=duo-tee --type=variable --status=publish \
+say "variable product WPrism Tee: 4 variations (Small/Red, Small/Blue, Medium/Red sale, Medium/Blue)"
+TEE_ID=$(wp_r1b1 wc product create --name='WPrism Tee' --slug=wprism-tee --type=variable --status=publish \
   --attributes="[{\"id\":$SIZE_ID,\"variation\":true,\"visible\":true,\"options\":[\"Small\",\"Medium\"]},{\"id\":$COLOR_ID,\"variation\":true,\"visible\":true,\"options\":[\"Red\",\"Blue\"]}]" \
   --user=admin --porcelain)
-V1=$(wp_r1b1 wc product_variation create "$TEE_ID" --sku=DUO-TEE-S-RED --regular_price=19.99 \
+V1=$(wp_r1b1 wc product_variation create "$TEE_ID" --sku=WPRISM-TEE-S-RED --regular_price=19.99 \
   --attributes="[{\"id\":$SIZE_ID,\"option\":\"Small\"},{\"id\":$COLOR_ID,\"option\":\"Red\"}]" \
   --manage_stock=true --stock_quantity=15 --user=admin --porcelain)
-wp_r1b1 wc product_variation create "$TEE_ID" --sku=DUO-TEE-S-BLUE --regular_price=19.99 \
+wp_r1b1 wc product_variation create "$TEE_ID" --sku=WPRISM-TEE-S-BLUE --regular_price=19.99 \
   --attributes="[{\"id\":$SIZE_ID,\"option\":\"Small\"},{\"id\":$COLOR_ID,\"option\":\"Blue\"}]" \
   --manage_stock=true --stock_quantity=12 --user=admin --porcelain >/dev/null
-wp_r1b1 wc product_variation create "$TEE_ID" --sku=DUO-TEE-M-RED --regular_price=21.99 --sale_price=18.99 \
+wp_r1b1 wc product_variation create "$TEE_ID" --sku=WPRISM-TEE-M-RED --regular_price=21.99 --sale_price=18.99 \
   --attributes="[{\"id\":$SIZE_ID,\"option\":\"Medium\"},{\"id\":$COLOR_ID,\"option\":\"Red\"}]" \
   --manage_stock=true --stock_quantity=10 --user=admin --porcelain >/dev/null
-wp_r1b1 wc product_variation create "$TEE_ID" --sku=DUO-TEE-M-BLUE --regular_price=21.99 \
+wp_r1b1 wc product_variation create "$TEE_ID" --sku=WPRISM-TEE-M-BLUE --regular_price=21.99 \
   --attributes="[{\"id\":$SIZE_ID,\"option\":\"Medium\"},{\"id\":$COLOR_ID,\"option\":\"Blue\"}]" \
   --manage_stock=true --stock_quantity=8 --user=admin --porcelain >/dev/null
 wp_r1b1 eval "wc_get_product($TEE_ID)->set_default_attributes(['pa_size' => 'small', 'pa_color' => 'red']); wc_get_product($TEE_ID)->save();" >/dev/null
 PRICE_ROWS=$(wp_r1b1 db query "SELECT COUNT(*) FROM wp_postmeta WHERE post_id=$TEE_ID AND meta_key=\"_price\"" --skip-column-names)
 [ "$PRICE_ROWS" -ge 3 ] || fail "expected the variable parent to carry multiple _price rows (got $PRICE_ROWS) — WooCommerce's own multi-row price shape is the whole point of this seed"
-pass "Duo Tee ($TEE_ID) + 4 variations seeded; confirmed WooCommerce wrote $PRICE_ROWS distinct _price rows on the parent — this is exactly the multi-value shape that made _price authored+capture mutually exclusive for variable products; manifests/woocommerce.json now classifies it derived for precisely this reason, which is why the capture below does NOT abort on it"
+pass "WPrism Tee ($TEE_ID) + 4 variations seeded; confirmed WooCommerce wrote $PRICE_ROWS distinct _price rows on the parent — this is exactly the multi-value shape that made _price authored+capture mutually exclusive for variable products; manifests/woocommerce.json now classifies it derived for precisely this reason, which is why the capture below does NOT abort on it"
 
-say "grouped product Duo Bundle (Duo Mug + Duo Sticker Pack) and featured product Duo Cap"
-MUG_ID=$(wp_r1b1 wc product create --name='Duo Mug' --slug=duo-mug --type=simple --status=publish \
-  --sku=DUO-MUG --regular_price=9.99 --manage_stock=true --stock_quantity=40 --user=admin --porcelain)
-STICKER_ID=$(wp_r1b1 wc product create --name='Duo Sticker Pack' --slug=duo-sticker-pack --type=simple --status=publish \
-  --sku=DUO-STICKER --regular_price=4.99 --manage_stock=true --stock_quantity=100 --user=admin --porcelain)
-BUNDLE_ID=$(wp_r1b1 wc product create --name='Duo Bundle' --slug=duo-bundle --type=grouped --status=publish --user=admin --porcelain)
+say "grouped product WPrism Bundle (WPrism Mug + WPrism Sticker Pack) and featured product WPrism Cap"
+MUG_ID=$(wp_r1b1 wc product create --name='WPrism Mug' --slug=wprism-mug --type=simple --status=publish \
+  --sku=WPRISM-MUG --regular_price=9.99 --manage_stock=true --stock_quantity=40 --user=admin --porcelain)
+STICKER_ID=$(wp_r1b1 wc product create --name='WPrism Sticker Pack' --slug=wprism-sticker-pack --type=simple --status=publish \
+  --sku=WPRISM-STICKER --regular_price=4.99 --manage_stock=true --stock_quantity=100 --user=admin --porcelain)
+BUNDLE_ID=$(wp_r1b1 wc product create --name='WPrism Bundle' --slug=wprism-bundle --type=grouped --status=publish --user=admin --porcelain)
 # NOT WC_Product_Grouped::set_children()+save() here — confirmed empirically
 # unreliable in this environment (silently persists an EMPTY _children,
 # a:0:{}, despite the in-memory object correctly reflecting the just-set
@@ -245,9 +245,9 @@ BUNDLE_ID=$(wp_r1b1 wc product create --name='Duo Bundle' --slug=duo-bundle --ty
 # uses (a plain serialized int array) and is 100% reliable.
 wp_r1b1 eval "update_post_meta($BUNDLE_ID, '_children', [$MUG_ID, $STICKER_ID]);" >/dev/null
 CHILDREN_NOW=$(wp_r1b1 db query "SELECT meta_value FROM wp_postmeta WHERE post_id=$BUNDLE_ID AND meta_key=\"_children\"" --skip-column-names)
-[ "$CHILDREN_NOW" != "a:0:{}" ] || fail "Duo Bundle's _children still empty"
-CAP_ID=$(wp_r1b1 wc product create --name='Duo Cap' --slug=duo-cap --type=simple --status=publish \
-  --sku=DUO-CAP --regular_price=14.99 --manage_stock=true --stock_quantity=30 --featured=true --user=admin --porcelain)
+[ "$CHILDREN_NOW" != "a:0:{}" ] || fail "WPrism Bundle's _children still empty"
+CAP_ID=$(wp_r1b1 wc product create --name='WPrism Cap' --slug=wprism-cap --type=simple --status=publish \
+  --sku=WPRISM-CAP --regular_price=14.99 --manage_stock=true --stock_quantity=30 --featured=true --user=admin --porcelain)
 pass "bundle=$BUNDLE_ID (children=$MUG_ID,$STICKER_ID) cap=$CAP_ID (featured)"
 
 say "shipping zone United States: flat_rate (\$5.99) + free_shipping (\$50 min); two tax rates (CA 7.25%, NY 4%)"
@@ -276,7 +276,7 @@ pass "COD payment gateway available"
 
 # NOTE on this section: the ORIGINAL discovery process (the loud gate firing
 # on _price/_children/_default_attributes/_product_attributes/attribute_pa_*/
-# _variation_description, `wp duo pending` surfacing evidence, `wp duo
+# _variation_description, `wp wprism pending` surfacing evidence, `wp wprism
 # classify` resolving each deliberately) happened once, interactively, while
 # manifests/woocommerce.json was still missing these rules; that manifest's
 # own notes carry each decision's reasoning. This script runs against
@@ -292,7 +292,7 @@ pass "COD payment gateway available"
 # product_variation/pa_size/pa_color simply got those entities silently
 # excluded — the asymmetry with post_meta/options (which DID already abort
 # loudly on an unclassified key) that this round's report called out.
-# DUO-3229 (merged after this grind's own escalation, closing that exact
+# issue #3229 (merged after this grind's own escalation, closing that exact
 # asymmetry) since gave post-type/taxonomy scope the SAME loud-and-blocking
 # posture post_meta/options always had — Capture::scope_gaps() now refuses
 # the whole capture the moment ANY registered/adapter-declared post type or
@@ -307,33 +307,33 @@ pass "COD payment gateway available"
 # task #92's taxonomy_patterns against the LIVE database before the gate
 # ever runs — manifests/woocommerce.json's `^pa_` pattern matches both, so
 # they're already in scope BY DECLARATION even though this site's own
-# site.duo.json never lists them by name. product_variation has no such
+# site.wprism.json never lists them by name. product_variation has no such
 # pattern (post types aren't pattern-scoped, only taxonomies are), so it's
 # the only real gap. The positive assertion below (pa_size/pa_color absent
 # from the abort) is what proves #92's pattern mechanism and #3229's gate
 # compose correctly, rather than merely asserting around it.
-say "capture with product_variation deliberately OUT of the site's OWN scope lists (pa_size/pa_color are already in scope via manifests/woocommerce.json's taxonomy_patterns, unaffected by this) — this round's OWN original finding was silent exclusion (no gate, no warning); DUO-3229's whole-entity scope gate (merged after this grind was first written) now aborts loudly instead, the same posture upgrade task #73 got for unscoped refs"
-if OUT_SCOPE=$(wp_r1b1 duo capture --repo=/siterepo 2>&1); then
+say "capture with product_variation deliberately OUT of the site's OWN scope lists (pa_size/pa_color are already in scope via manifests/woocommerce.json's taxonomy_patterns, unaffected by this) — this round's OWN original finding was silent exclusion (no gate, no warning); issue #3229's whole-entity scope gate (merged after this grind was first written) now aborts loudly instead, the same posture upgrade task #73 got for unscoped refs"
+if OUT_SCOPE=$(wp_r1b1 wprism capture --repo=/siterepo 2>&1); then
   echo "$OUT_SCOPE"
-  fail "capture succeeded despite product_variation being absent from policy scope (expected DUO-3229's loud-and-blocking gate)"
+  fail "capture succeeded despite product_variation being absent from policy scope (expected issue #3229's loud-and-blocking gate)"
 fi
 echo "$OUT_SCOPE"
 grep -q "post_type 'product_variation' has 4 capturable entities but is absent from policy.post_types" <<<"$OUT_SCOPE" \
   || fail "abort message does not name product_variation and its entity count (got: $OUT_SCOPE)"
-grep -q "wp duo classify --repo=/siterepo --set='scope:<kind>:<name>=<class>'" <<<"$OUT_SCOPE" \
+grep -q "wp wprism classify --repo=/siterepo --set='scope:<kind>:<name>=<class>'" <<<"$OUT_SCOPE" \
   || fail "abort message does not name the scope-classify remedy (got: $OUT_SCOPE)"
 if grep -q "taxonomy 'pa_size'" <<<"$OUT_SCOPE"; then
-  fail "pa_size unexpectedly appears in the scope-gap abort -- it should already be in scope via manifests/woocommerce.json's taxonomy_patterns (^pa_), independent of site.duo.json's own taxonomies list (got: $OUT_SCOPE)"
+  fail "pa_size unexpectedly appears in the scope-gap abort -- it should already be in scope via manifests/woocommerce.json's taxonomy_patterns (^pa_), independent of site.wprism.json's own taxonomies list (got: $OUT_SCOPE)"
 fi
 if grep -q "taxonomy 'pa_color'" <<<"$OUT_SCOPE"; then
-  fail "pa_color unexpectedly appears in the scope-gap abort -- it should already be in scope via manifests/woocommerce.json's taxonomy_patterns (^pa_), independent of site.duo.json's own taxonomies list (got: $OUT_SCOPE)"
+  fail "pa_color unexpectedly appears in the scope-gap abort -- it should already be in scope via manifests/woocommerce.json's taxonomy_patterns (^pa_), independent of site.wprism.json's own taxonomies list (got: $OUT_SCOPE)"
 fi
 [ ! -d siterepo/r1b1/state/posts/product_variation ] || fail "aborted capture must not have written any product_variation state"
-pass "confirmed: capture ABORTS loudly, naming ONLY product_variation (its exact entity count and the scope-classify remedy) and writing nothing -- pa_size/pa_color are conspicuously ABSENT from the same abort, proving task #92's taxonomy_patterns already satisfies DUO-3229's gate for them without any site.duo.json entry; this grind's own original silent-exclusion finding (no gate, no warning) is DUO-3229's loud-and-blocking gate now, closing the asymmetry with post_meta/options"
+pass "confirmed: capture ABORTS loudly, naming ONLY product_variation (its exact entity count and the scope-classify remedy) and writing nothing -- pa_size/pa_color are conspicuously ABSENT from the same abort, proving task #92's taxonomy_patterns already satisfies issue #3229's gate for them without any site.wprism.json entry; this grind's own original silent-exclusion finding (no gate, no warning) is issue #3229's loud-and-blocking gate now, closing the asymmetry with post_meta/options"
 
 say "add product_variation + pa_color/pa_size to this site's OWN scope lists; recapture"
-jq '.policy.post_types += ["product_variation"] | .policy.taxonomies += ["pa_color", "pa_size"]' siterepo/r1b1/site.duo.json > siterepo/r1b1/.tmp-site.json && mv siterepo/r1b1/.tmp-site.json siterepo/r1b1/site.duo.json
-wp_r1b1 duo capture --repo=/siterepo
+jq '.policy.post_types += ["product_variation"] | .policy.taxonomies += ["pa_color", "pa_size"]' siterepo/r1b1/site.wprism.json > siterepo/r1b1/.tmp-site.json && mv siterepo/r1b1/.tmp-site.json siterepo/r1b1/site.wprism.json
+wp_r1b1 wprism capture --repo=/siterepo
 [ -d siterepo/r1b1/state/posts/product_variation ] || fail "product_variation posts still missing after scoping"
 [ -d siterepo/r1b1/state/terms/pa_size ] || fail "pa_size terms still missing after scoping"
 [ -d siterepo/r1b1/state/terms/pa_color ] || fail "pa_color terms still missing after scoping"
@@ -341,20 +341,20 @@ VARCOUNT=$(ls siterepo/r1b1/state/posts/product_variation | wc -l | tr -d ' ')
 [ "$VARCOUNT" = "4" ] || fail "expected 4 captured variations (got $VARCOUNT)"
 pass "scoping alone (no new classification needed — the graduated manifest already covers every meta key a variation/attribute introduces) captures all 4 variations + pa_size/pa_color term data (Small/Medium/Large, Red/Blue/Black) through the ordinary generic post/taxonomy machinery — zero new engine code"
 
-say "sanity: wp duo pending shows no outstanding WooCommerce-specific gaps against the graduated manifest"
-PENDING_WOO=$(wp_r1b1 duo pending --repo=/siterepo --format=json | tail -1 | jq -e '[.[] | select(.section=="post_meta" and (.key | test("^(_price|_children|_default_attributes|_product_attributes|_variation_description|attribute_pa_)")))] | length')
+say "sanity: wp wprism pending shows no outstanding WooCommerce-specific gaps against the graduated manifest"
+PENDING_WOO=$(wp_r1b1 wprism pending --repo=/siterepo --format=json | tail -1 | jq -e '[.[] | select(.section=="post_meta" and (.key | test("^(_price|_children|_default_attributes|_product_attributes|_variation_description|attribute_pa_)")))] | length')
 [ "$PENDING_WOO" = "0" ] || fail "expected zero pending post_meta items for this round's keys (got $PENDING_WOO) — the manifest graduation should have closed all of them"
 pass "pending: zero outstanding gaps for any key this round introduced — manifests/woocommerce.json fully covers the shop"
 
 # This step originally ended at a lint-only demonstration: drop _children's
 # ref, recapture (bare ids land in state/ untokenized), lint flags them,
-# restore the declaration, recapture again, lint goes clean. DUO-3210 ("make
+# restore the declaration, recapture again, lint goes clean. issue #3210 ("make
 # deletion explicit and drift-safe") gave Capture::run() a NEW precondition
 # that upgrades this from flagged to structurally unshippable — before
 # building anything, capture now compiles whatever is ALREADY on disk
 # (Capture.php: "Compiling before target reads also refuses to build new
 # state on top of an already-invalid repository revision"), to establish
-# the baseline DUO-3210's own deletion-tombstone comparison needs. Once the
+# the baseline issue #3210's own deletion-tombstone comparison needs. Once the
 # declaration is restored below, that pre-check runs against the ON-DISK
 # tree still holding the previous (bad, ref-dropped) capture's raw ints —
 # and RepositoryCompiler::validate_declared_ref() now refuses THAT tree
@@ -363,46 +363,46 @@ pass "pending: zero outstanding gaps for any key this round introduced — manif
 # enough to recover: the tainted on-disk file has to be discarded first
 # (never committed to git at this point in the script, so there is nothing
 # to git-checkout back to) — recapture then rebuilds it fresh, straight
-# from live WordPress data via the SAME identity (_duo_uuid postmeta/the
+# from live WordPress data via the SAME identity (_wprism_uuid postmeta/the
 # ledger row are untouched by deleting just the file), tokenized correctly.
 say "lint demonstration: deliberately drop _children's ref declaration, recapture, expect bare_id findings naming the real products"
-jq '.policy.post_meta._children = {"class":"authored"}' siterepo/r1b1/site.duo.json > siterepo/r1b1/.tmp-site.json && mv siterepo/r1b1/.tmp-site.json siterepo/r1b1/site.duo.json
-wp_r1b1 duo capture --repo=/siterepo >/dev/null
+jq '.policy.post_meta._children = {"class":"authored"}' siterepo/r1b1/site.wprism.json > siterepo/r1b1/.tmp-site.json && mv siterepo/r1b1/.tmp-site.json siterepo/r1b1/site.wprism.json
+wp_r1b1 wprism capture --repo=/siterepo >/dev/null
 set +e
-LINT_BAD=$(wp_r1b1 duo lint --repo=/siterepo --format=json | tail -1)
+LINT_BAD=$(wp_r1b1 wprism lint --repo=/siterepo --format=json | tail -1)
 set -e
 echo "$LINT_BAD" | jq -e '[.[] | select(.locator | test("_children"))] | length == 2' >/dev/null || fail "expected 2 bare_id findings on _children (got: $LINT_BAD)"
-pass "lint caught the deliberately-dropped ref: 2 bare_id findings, correctly naming Duo Mug/Duo Sticker Pack by title (capture-side early-warning layer — capture itself still succeeds pre-compile, since the ACTIVE policy has no ref declared here to violate)"
+pass "lint caught the deliberately-dropped ref: 2 bare_id findings, correctly naming WPrism Mug/WPrism Sticker Pack by title (capture-side early-warning layer — capture itself still succeeds pre-compile, since the ACTIVE policy has no ref declared here to violate)"
 
-say "restore the ref declaration; recapture now hits DUO-3210's pre-build compile gate — assert the STRUCTURAL refusal (the compiler upgraded this class from flagged to unshippable), not a lint warning"
-jq 'del(.policy.post_meta._children)' siterepo/r1b1/site.duo.json > siterepo/r1b1/.tmp-site.json && mv siterepo/r1b1/.tmp-site.json siterepo/r1b1/site.duo.json
-if OUT_COMPILE=$(wp_r1b1 duo capture --repo=/siterepo 2>&1); then
+say "restore the ref declaration; recapture now hits issue #3210's pre-build compile gate — assert the STRUCTURAL refusal (the compiler upgraded this class from flagged to unshippable), not a lint warning"
+jq 'del(.policy.post_meta._children)' siterepo/r1b1/site.wprism.json > siterepo/r1b1/.tmp-site.json && mv siterepo/r1b1/.tmp-site.json siterepo/r1b1/site.wprism.json
+if OUT_COMPILE=$(wp_r1b1 wprism capture --repo=/siterepo 2>&1); then
   echo "$OUT_COMPILE"
-  fail "capture succeeded despite the on-disk tree still holding raw (untokenized) _children ids under the now-restored ref declaration (expected DUO-3210's pre-build compile refusal)"
+  fail "capture succeeded despite the on-disk tree still holding raw (untokenized) _children ids under the now-restored ref declaration (expected issue #3210's pre-build compile refusal)"
 fi
 echo "$OUT_COMPILE"
 grep -qF "repository compilation failed (2 blocking diagnostic(s)); no target contact or mutation attempted" <<<"$OUT_COMPILE" \
   || fail "abort message does not name the compilation-failed gate with 2 diagnostics (got: $OUT_COMPILE)"
 # Diagnostic paths are relative to state/, not the repo root -- glob from
 # inside it so BUNDLEFILE matches the compiler's own path format exactly.
-BUNDLEFILE=$(cd siterepo/r1b1/state && ls posts/product/*duo-bundle*.md)
+BUNDLEFILE=$(cd siterepo/r1b1/state && ls posts/product/*wprism-bundle*.md)
 grep -qF "[nonportable_reference] $BUNDLEFILE:meta._children[0] — declared post reference must be a canonical token, never a raw target id" <<<"$OUT_COMPILE" \
   || fail "abort message does not name _children[0]'s exact diagnostic on the bundle file (got: $OUT_COMPILE)"
 grep -qF "[nonportable_reference] $BUNDLEFILE:meta._children[1] — declared post reference must be a canonical token, never a raw target id" <<<"$OUT_COMPILE" \
   || fail "abort message does not name _children[1]'s exact diagnostic on the bundle file (got: $OUT_COMPILE)"
-pass "confirmed: DUO-3210's pre-build compile gate refuses to capture at all while the on-disk revision is structurally invalid under the now-restored declaration — naming both diagnostics by exact locator, no mutation attempted. Restoring the manifest declaration alone no longer self-heals a tainted revision; this IS the M2 promise (DUO-3208's compiler) reaching capture's own precondition, not just plan/apply"
+pass "confirmed: issue #3210's pre-build compile gate refuses to capture at all while the on-disk revision is structurally invalid under the now-restored declaration — naming both diagnostics by exact locator, no mutation attempted. Restoring the manifest declaration alone no longer self-heals a tainted revision; this IS the M2 promise (issue #3208's compiler) reaching capture's own precondition, not just plan/apply"
 
 say "recover: discard the tainted (never-committed) file so the pre-build compile has nothing invalid left to refuse; recapture rebuilds it fresh from live data under the SAME identity"
 rm -f "siterepo/r1b1/state/$BUNDLEFILE"
-wp_r1b1 duo capture --repo=/siterepo >/dev/null
-LINT_OK=$(wp_r1b1 duo lint --repo=/siterepo --format=json | tail -1)
+wp_r1b1 wprism capture --repo=/siterepo >/dev/null
+LINT_OK=$(wp_r1b1 wprism lint --repo=/siterepo --format=json | tail -1)
 [ "$(echo "$LINT_OK" | jq 'length')" = "0" ] || fail "lint not clean after recovering (got: $LINT_OK)"
-NEW_BUNDLEFILE=$(cd siterepo/r1b1/state && ls posts/product/*duo-bundle*.md)
+NEW_BUNDLEFILE=$(cd siterepo/r1b1/state && ls posts/product/*wprism-bundle*.md)
 [ "$NEW_BUNDLEFILE" = "$BUNDLEFILE" ] || fail "bundle recaptured under a DIFFERENT uuid/filename after recovery — identity should have survived (was: $BUNDLEFILE, now: $NEW_BUNDLEFILE)"
-pass "lint clean again, bundle recaptured under its ORIGINAL uuid (identity untouched — only the file was discarded, not the ledger row or the live post's own _duo_uuid) — manifests/woocommerce.json's declaration (not a site override) is what makes this pass by default now"
+pass "lint clean again, bundle recaptured under its ORIGINAL uuid (identity untouched — only the file was discarded, not the ledger row or the live post's own _wprism_uuid) — manifests/woocommerce.json's declaration (not a site override) is what makes this pass by default now"
 
 say "capture-twice determinism"
-wp_r1b1 duo capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
+wp_r1b1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
 diff -r siterepo/r1b1/state siterepo/r1b1/.tmp-state2 || fail "capture is not deterministic"
 rm -rf siterepo/r1b1/.tmp-state2
 pass "capture-twice diff is empty"
@@ -416,11 +416,11 @@ PARENT_MODIFIED_BEFORE_ORDER=$(wp_r1b1 post get "$TEE_ID" --field=post_modified_
 VARIATION_MODIFIED_BEFORE_ORDER=$(wp_r1b1 post get "$V1" --field=post_modified_gmt)
 # WordPress timestamps have one-second resolution. Make the ownership probe
 # deterministic instead of letting a fast host accidentally put the authored
-# capture and the runtime order in the same second (the historical DUO-3302
+# capture and the runtime order in the same second (the historical issue #3302
 # false green).
 sleep 2
 JAR=$(mktemp)
-curl -s -o /dev/null "$R1B1/product/duo-tee/" -c "$JAR"
+curl -s -o /dev/null "$R1B1/product/wprism-tee/" -c "$JAR"
 CART_HEADERS=$(curl -s -D - -o /dev/null -c "$JAR" -b "$JAR" "$R1B1/wp-json/wc/store/v1/cart")
 NONCE=$(echo "$CART_HEADERS" | grep -i '^Nonce:' | tr -d '\r' | cut -d' ' -f2)
 [ -n "$NONCE" ] || fail "did not get a Store API nonce"
@@ -448,11 +448,11 @@ VARIATION_MODIFIED_AFTER_ORDER=$(wp_r1b1 post get "$V1" --field=post_modified_gm
   || fail "the real order's stock reduction did not advance the variation's modified_gmt ($VARIATION_MODIFIED_AFTER_ORDER)"
 POST_ORDERS=$(wp_r1b1 db query 'SELECT COUNT(*) FROM wp_posts WHERE post_type="shop_order"' --skip-column-names)
 [ "$POST_ORDERS" = "0" ] || fail "HPOS is on but shop_order rows exist in wp_posts"
-pass "stock 15 -> 14 (runtime, r1b1-local); Woo's order reduction advanced both variation and variable-parent modified_gmt; order is a wc_orders row, not a post — HPOS custom tables are outside duo's scope entirely, by construction"
+pass "stock 15 -> 14 (runtime, r1b1-local); Woo's order reduction advanced both variation and variable-parent modified_gmt; order is a wc_orders row, not a post — HPOS custom tables are outside wprism's scope entirely, by construction"
 
-say "round-trip: clone into r1b2, deploy (DUO-3216: code lifecycle before state — real switch_theme() to Storefront, hooks fire), plan, apply (adopt the WooCommerce/core installer collisions)"
+say "round-trip: clone into r1b2, deploy (issue #3216: code lifecycle before state — real switch_theme() to Storefront, hooks fire), plan, apply (adopt the WooCommerce/core installer collisions)"
 git clone -q siterepo/origin-r1b.git siterepo/r1b2
-# DUO-3216 (aa9b36a) gave Deploy::code_mismatch() a new 'inactive_in_environment'
+# issue #3216 (aa9b36a) gave Deploy::code_mismatch() a new 'inactive_in_environment'
 # finding (theme/plugin installed but not active) that Apply::apply()'s
 # refuse-gate (agent/src/Apply/Apply.php:592) hard-blocks on unconditionally, with
 # no subset filtering — every code_mismatch row blocks apply, unlike
@@ -463,17 +463,17 @@ git clone -q siterepo/origin-r1b.git siterepo/r1b2
 # (later) deploy ordering was legal; now r1b2's theme (twentytwentyfive,
 # per reset_env_state) vs r1b1's captured stylesheet (storefront, activated
 # for real at line ~218) is a real mismatch apply refuses outright:
-# "CODE_MISMATCH INACTIVE_IN_ENVIRONMENT storefront ... Run 'duo deploy
+# "CODE_MISMATCH INACTIVE_IN_ENVIRONMENT storefront ... Run 'wprism deploy
 # <env>' before apply so the theme lifecycle completes first." Deploy first,
 # same as r1c's own (already-correct) plugin-activation ordering.
-DEPLOY0_JSON=$(wp_r1b2 duo deploy --repo=/siterepo --format=json | tail -1)
+DEPLOY0_JSON=$(wp_r1b2 wprism deploy --repo=/siterepo --format=json | tail -1)
 echo "$DEPLOY0_JSON" | jq -e '.theme_switched == "storefront"' >/dev/null || fail "deploy did not switch to storefront (got: $DEPLOY0_JSON)"
 [ "$(wp_r1b2 theme list --status=active --field=name)" = "storefront" ] || fail "storefront is not the active theme on r1b2 after deploy"
-pass "r1b2 switched to Storefront via a real wp duo deploy (switch_theme() fired for real) — required BEFORE apply under DUO-3216"
-PLAN_TXT=$(wp_r1b2 duo plan --repo=/siterepo)
+pass "r1b2 switched to Storefront via a real wp wprism deploy (switch_theme() fired for real) — required BEFORE apply under issue #3216"
+PLAN_TXT=$(wp_r1b2 wprism plan --repo=/siterepo)
 grep -q 'COLLISION' <<<"$PLAN_TXT" || fail "expected installer-created page/term collisions in the plan"
 REV=$(git -C siterepo/r1b2 rev-parse HEAD)
-APPLY1_OUT=$($COMPOSE run --rm -T cli-r1b2 wp duo apply --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --revision="$REV" 2>&1)
+APPLY1_OUT=$($COMPOSE run --rm -T cli-r1b2 wp wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --revision="$REV" 2>&1)
 echo "$APPLY1_OUT"
 # Task #92 gave Apply::taxes_by_object_type() (agent/src/Apply/Apply.php) the same
 # pattern_object_type() fallback Capture's own copy already had: when
@@ -490,11 +490,11 @@ grep -q 'not registered on this environment' <<<"$APPLY1_OUT" \
   && fail "unexpected unregistered-taxonomy warning for pa_size/pa_color -- task #92's object_type fallback (Apply.php, mirroring Capture's) should make this unreachable for a declared taxonomy_patterns match (got: $APPLY1_OUT)"
 pass "confirmed: NO unregistered-taxonomy warning on this fresh target -- task #92's object_type fallback closes it on the apply side too, not just capture's"
 
-say "first-apply convergence: Duo Tee's pa_color/pa_size relationships land after the global typed-table/term phase-1 pass"
-TEE_B2=$(wp_r1b2 post list --post_type=product --name=duo-tee --field=ID)
+say "first-apply convergence: WPrism Tee's pa_color/pa_size relationships land after the global typed-table/term phase-1 pass"
+TEE_B2=$(wp_r1b2 post list --post_type=product --name=wprism-tee --field=ID)
 RELS=$(wp_r1b2 db query "SELECT COUNT(*) FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id=tr.term_taxonomy_id WHERE tr.object_id=$TEE_B2 AND tt.taxonomy IN (\"pa_size\",\"pa_color\")" --skip-column-names)
 [ "$RELS" = "4" ] || fail "expected all 4 pa_size/pa_color relationships on the first apply (got $RELS) — every typed-table and term phase-1 insert must precede phase-2 post relationship writes"
-V1_B2=$(wp_r1b2 post list --post_type=product_variation --name=duo-tee-small-red --field=ID)
+V1_B2=$(wp_r1b2 post list --post_type=product_variation --name=wprism-tee-small-red --field=ID)
 ATTR_VAL=$(wp_r1b2 post meta get "$V1_B2" attribute_pa_color)
 [ "$ATTR_VAL" = "red" ] || fail "variation attribute_pa_color did not round-trip (got $ATTR_VAL)"
 IS_PURCHASABLE_BEFORE=$(curl -s "$R1B2/wp-json/wc/store/v1/products/$TEE_B2" | jq -r '.is_purchasable')
@@ -509,7 +509,7 @@ pass "single first apply is converged: all 4 pa_size/pa_color relationships and 
 say "confirm pa_size/pa_color are registered on r1b2 with zero manual steps (task #75's typed-snapshot apply)"
 [ "$(wp_r1b2 eval 'echo get_taxonomy("pa_size") !== false ? "1" : "0";')" = "1" ] || fail "expected pa_size to already be registered on r1b2 (typed-snapshot apply should have created its woocommerce_attribute_taxonomies row)"
 [ "$(wp_r1b2 eval 'echo get_taxonomy("pa_color") !== false ? "1" : "0";')" = "1" ] || fail "expected pa_color to already be registered on r1b2 (typed-snapshot apply should have created its woocommerce_attribute_taxonomies row)"
-pass "pa_size/pa_color both registered on r1b2 already — task #75 closed the attribute-table half; task #92's taxonomy_patterns closed the scope-list half, so this needs no site.duo.json entry either"
+pass "pa_size/pa_color both registered on r1b2 already — task #75 closed the attribute-table half; task #92's taxonomy_patterns closed the scope-list half, so this needs no site.wprism.json entry either"
 
 say "discovered along the way: _stock being runtime/excluded means a freshly-applied stock-managed variation has NO _stock row at all (not zero, ABSENT) — is_purchasable reads true regardless, but the Store API's own cart-add stock check treats the absence as zero and REFUSES the add. Confirmed by trying it broken-first, on purpose:"
 V1_STORE_BEFORE=$(curl -s "$R1B2/wp-json/wc/store/v1/products/$V1_B2")
@@ -524,7 +524,7 @@ grep -q 'partially_out_of_stock\|not enough stock' /tmp/r1b2_cart0.json || fail 
 rm -f /tmp/r1b2_cart0.json
 pass "confirmed: is_purchasable=true but add-to-cart is genuinely refused (400, '0 remaining') until this environment has ITS OWN stock count — exactly the env-local inventory discipline _stock=runtime is meant to enforce, not a bug"
 
-say "the realistic next step: r1b2's own ops team receives stock and records it locally (never through duo — _stock is deliberately runtime/env-local)"
+say "the realistic next step: r1b2's own ops team receives stock and records it locally (never through wprism — _stock is deliberately runtime/env-local)"
 TARGET_PARENT_MODIFIED_BEFORE_STOCK=$(wp_r1b2 post get "$TEE_B2" --field=post_modified_gmt)
 TARGET_VARIATION_MODIFIED_BEFORE_STOCK=$(wp_r1b2 post get "$V1_B2" --field=post_modified_gmt)
 wp_r1b2 post meta update "$V1_B2" _stock 15
@@ -557,8 +557,8 @@ STOCK_A1=$(wp_r1b1 post meta get "$V1" _stock)
 [ "$STOCK_B2" = "15" ] && [ "$STOCK_A1" = "14" ] || fail "expected independently-diverged stock (r1b2=15 set above, r1b1=14 after its sale), got r1b2=$STOCK_B2 r1b1=$STOCK_A1"
 pass "r1b2 has zero orders (r1b1's order #$ORDER_ID never propagated); the two environments' stock counts have already diverged independently (r1b1=14 after its own sale, r1b2=15 set by its own ops team above) and neither will ever overwrite the other via capture/apply"
 
-say "wp duo deploy on r1b2 again — DUO-3216 idempotency contract: already reconciled by the early deploy above (nothing since has touched active_plugins/template/stylesheet), so this must be a genuine no-op, and Storefront's rendered markup must have survived the whole apply sequence in between"
-DEPLOY_JSON=$(wp_r1b2 duo deploy --repo=/siterepo --format=json | tail -1)
+say "wp wprism deploy on r1b2 again — issue #3216 idempotency contract: already reconciled by the early deploy above (nothing since has touched active_plugins/template/stylesheet), so this must be a genuine no-op, and Storefront's rendered markup must have survived the whole apply sequence in between"
+DEPLOY_JSON=$(wp_r1b2 wprism deploy --repo=/siterepo --format=json | tail -1)
 echo "$DEPLOY_JSON" | jq -e '.theme_switched == null' >/dev/null || fail "expected a no-op re-deploy (theme already switched by the early deploy above) — got: $DEPLOY_JSON"
 echo "$DEPLOY_JSON" | jq -e '(.activated | length) == 0 and (.deactivated | length) == 0' >/dev/null || fail "expected zero plugin lifecycle activity on an idempotent re-deploy — got: $DEPLOY_JSON"
 [ "$(wp_r1b2 theme list --status=active --field=name)" = "storefront" ] || fail "storefront is not the active theme on r1b2"
@@ -570,11 +570,11 @@ for _ in 1 2 3; do
 done
 rm -f /tmp/r1b2_home.html /tmp/r1b2_home_code.txt
 [ -n "$HOMEPAGE_OK" ] || fail "r1b2 homepage does not render storefront markup"
-pass "confirmed: re-running wp duo deploy once everything is already reconciled is a true no-op (zero hook fires), and Storefront's rendered markup survived the full apply sequence since the early deploy"
+pass "confirmed: re-running wp wprism deploy once everything is already reconciled is a true no-op (zero hook fires), and Storefront's rendered markup survived the full apply sequence since the early deploy"
 
 say "final apply + byte-identity"
 REV4=$(git -C siterepo/r1b2 rev-parse HEAD)
-wp_r1b2 duo apply --repo=/siterepo --default-author=admin --revision="$REV4" --format=json | tail -1 | jq -e '.canary == "clean"' >/dev/null || fail "final apply canary not clean"
+wp_r1b2 wprism apply --repo=/siterepo --default-author=admin --revision="$REV4" --format=json | tail -1 | jq -e '.canary == "clean"' >/dev/null || fail "final apply canary not clean"
 
 # task #88 closes #72: product_variation.title is now classified 'derived'
 # in manifests/woocommerce.json (a new per-post_type "fields" grammar,
@@ -582,21 +582,21 @@ wp_r1b2 duo apply --repo=/siterepo --default-author=admin --revision="$REV4" --f
 # never mistake a title-only self-heal for authored change — the hash basis
 # argument, criterion 3; (2) once a fix genuinely closes the gap, true byte
 # identity (not a papered-over exclusion) must be achievable — criterion 4.
-say "acceptance (task #88, criterion 3): a title-ONLY self-heal on r1b2 alone (WooCommerce's own wc_get_product() read — hook-free, raw \$wpdb, zero duo involvement, not run inside any apply/capture window) must NOT surface as drift/update/conflict in duo plan"
+say "acceptance (task #88, criterion 3): a title-ONLY self-heal on r1b2 alone (WooCommerce's own wc_get_product() read — hook-free, raw \$wpdb, zero wprism involvement, not run inside any apply/capture window) must NOT surface as drift/update/conflict in wprism plan"
 wp_r1b2 eval 'foreach (get_posts(["post_type"=>"product_variation","numberposts"=>-1,"post_status"=>"any"]) as $p) { wc_get_product($p->ID); }' >/dev/null
-PLAN_AFTER_HEAL=$(wp_r1b2 duo plan --repo=/siterepo --format=json | tail -1)
+PLAN_AFTER_HEAL=$(wp_r1b2 wprism plan --repo=/siterepo --format=json | tail -1)
 echo "$PLAN_AFTER_HEAL" | jq -e '[.drift[], .update[], .conflict[] | select(.path | test("product_variation"))] | length == 0' >/dev/null \
   || fail "a product_variation entity showed up in plan's drift/update/conflict after a title-ONLY self-heal (got: $PLAN_AFTER_HEAL) — Canon::post_hash_basis() should make plan's hash comparison blind to a field classified derived"
 pass "confirmed: plan stays silent on a title-only divergence between the repo file and this environment (product_variation entities remain out of drift/update/conflict) — the classification's hash-basis half is working, not just today's final diff"
 
-say "force WooCommerce's own title self-heal on r1b1 too (same real wc_get_product() mechanism used above — not a duo mechanism, not run inside any apply/canary window; simulates the ordinary admin/Store API reads that would eventually touch every variation in real usage)"
+say "force WooCommerce's own title self-heal on r1b1 too (same real wc_get_product() mechanism used above — not a wprism mechanism, not run inside any apply/canary window; simulates the ordinary admin/Store API reads that would eventually touch every variation in real usage)"
 wp_r1b1 eval 'foreach (get_posts(["post_type"=>"product_variation","numberposts"=>-1,"post_status"=>"any"]) as $p) { wc_get_product($p->ID); }' >/dev/null
-wp_r1b1 duo capture --repo=/siterepo >/dev/null
-wp_r1b2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final >/dev/null
+wp_r1b1 wprism capture --repo=/siterepo >/dev/null
+wp_r1b2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-final >/dev/null
 DIFF_OUT=$(diff -rq siterepo/r1b1/state siterepo/r1b2/.tmp-final || true)
 echo "$DIFF_OUT"
 
-# DUO-3302 closes the remaining false assertion here. A captured file is an
+# issue #3302 closes the remaining false assertion here. A captured file is an
 # honest observation, so manifest-declared derived fields stay visible in its
 # raw bytes. The order above deliberately advanced r1b1's product/variation
 # timestamps while r1b2's independent raw stock provisioning did not; raw
@@ -610,9 +610,9 @@ echo "$DIFF_OUT"
 rm -rf siterepo/r1b2/.tmp-source-final
 cp -R siterepo/r1b1/state siterepo/r1b2/.tmp-source-final
 SEMANTIC_DIFF=$(wp_r1b2 eval '
-$policy = \Duo\Policy::load("/siterepo");
-$left = \Duo\RepositoryCompiler::compile_staged("/siterepo/.tmp-source-final", "/siterepo", $policy)->tree();
-$right = \Duo\RepositoryCompiler::compile_staged("/siterepo/.tmp-final", "/siterepo", $policy)->tree();
+$policy = \WPrism\Policy::load("/siterepo");
+$left = \WPrism\RepositoryCompiler::compile_staged("/siterepo/.tmp-source-final", "/siterepo", $policy)->tree();
+$right = \WPrism\RepositoryCompiler::compile_staged("/siterepo/.tmp-final", "/siterepo", $policy)->tree();
 $project = static function (array $tree): array {
     $out = [];
     foreach ($tree as $entity) {
@@ -631,29 +631,29 @@ foreach ($paths as $path) {
         $diff[] = ["path" => $path, "source_hash" => $a[$path] ?? null, "target_hash" => $b[$path] ?? null];
     }
 }
-echo \Duo\Canon::encode($diff);
+echo \WPrism\Canon::encode($diff);
 ' | tail -1)
 [ "$SEMANTIC_DIFF" = "[]" ] \
   || fail "compiled semantic state differs after ignoring only manifest-declared derived fields (got: $SEMANTIC_DIFF)"
 rm -rf siterepo/r1b2/.tmp-source-final siterepo/r1b2/.tmp-final
-pass "DUO-3302 CLOSED: real order stock reduction advanced product/variation timestamps while raw target-local stock did not; raw captures retain that evidence, but both complete trees compile to identical entity hashes under the shipped derived-field policy (no hand-written diff allowance)"
+pass "issue #3302 CLOSED: real order stock reduction advanced product/variation timestamps while raw target-local stock did not; raw captures retain that evidence, but both complete trees compile to identical entity hashes under the shipped derived-field policy (no hand-written diff allowance)"
 
 say "lint (final, hard gate)"
-LINT_FINAL=$(wp_r1b1 duo lint --repo=/siterepo --format=json | tail -1)
+LINT_FINAL=$(wp_r1b1 wprism lint --repo=/siterepo --format=json | tail -1)
 [ "$(echo "$LINT_FINAL" | jq 'length')" = "0" ] || fail "final lint not clean (got: $LINT_FINAL)"
 pass "lint: 0 findings"
 
 say "divergent-edit merge: conflicting price edits to the same variation on both environments"
 $GIT_1 checkout -qb price-r1b1 main
 wp_r1b1 wc product_variation update "$TEE_ID" "$V1" --regular_price=17.99 --user=admin >/dev/null
-wp_r1b1 duo capture --repo=/siterepo >/dev/null
-$GIT_1 add -A && $GIT_1 commit -qm "price: Small/Red Duo Tee variation -> 17.99" && $GIT_1 push -qu origin price-r1b1
+wp_r1b1 wprism capture --repo=/siterepo >/dev/null
+$GIT_1 add -A && $GIT_1 commit -qm "price: Small/Red WPrism Tee variation -> 17.99" && $GIT_1 push -qu origin price-r1b1
 
 $GIT_2 fetch -q origin
 $GIT_2 checkout -qb price-r1b2 origin/main
 wp_r1b2 wc product_variation update "$TEE_B2" "$V1_B2" --regular_price=22.99 --user=admin >/dev/null
-wp_r1b2 duo capture --repo=/siterepo >/dev/null
-$GIT_2 add -A && $GIT_2 commit -qm "price: Small/Red Duo Tee variation -> 22.99" && $GIT_2 push -qu origin price-r1b2
+wp_r1b2 wprism capture --repo=/siterepo >/dev/null
+$GIT_2 add -A && $GIT_2 commit -qm "price: Small/Red WPrism Tee variation -> 22.99" && $GIT_2 push -qu origin price-r1b2
 
 $GIT_1 checkout -q main
 $GIT_1 merge -q price-r1b1
@@ -663,17 +663,17 @@ $GIT_1 merge origin/price-r1b2 >/tmp/r1b_merge.txt 2>&1
 MERGE_RC=$?
 set -e
 [ "$MERGE_RC" -ne 0 ] || fail "expected a merge conflict on the variation's price"
-grep -q '<<<<<<<' "siterepo/r1b1/state/posts/product_variation/$(basename "$(ls siterepo/r1b1/state/posts/product_variation/*duo-tee-small-red.md)")" || fail "no conflict markers found on the variation file"
+grep -q '<<<<<<<' "siterepo/r1b1/state/posts/product_variation/$(basename "$(ls siterepo/r1b1/state/posts/product_variation/*wprism-tee-small-red.md)")" || fail "no conflict markers found on the variation file"
 pass "conflict surfaced as a plain git conflict on the variation's _regular_price (plus the incidental modified_gmt bump on both the variation and its parent — WooCommerce touches the parent's timestamp when a variation changes)"
 
-VARFILE=$(ls siterepo/r1b1/state/posts/product_variation/*duo-tee-small-red.md)
-PARENTFILE=$(ls siterepo/r1b1/state/posts/product/*--duo-tee.md)
+VARFILE=$(ls siterepo/r1b1/state/posts/product_variation/*wprism-tee-small-red.md)
+PARENTFILE=$(ls siterepo/r1b1/state/posts/product/*--wprism-tee.md)
 python3 - "$VARFILE" <<'PYEOF'
 import re, sys
 p = sys.argv[1]
 s = open(p).read()
 s = re.sub(r'<<<<<<< HEAD\n        "_regular_price": "17\.99",\n=======\n        "_regular_price": "22\.99",\n>>>>>>> origin/price-r1b2\n', '        "_regular_price": "19.99",\n', s)
-# DUO-3207 added a "modified" field (alongside the pre-existing
+# issue #3207 added a "modified" field (alongside the pre-existing
 # "modified_gmt") to Capture.php's post representation -- the timestamp
 # hunk below is now 1-OR-2 lines depending on which fields actually
 # differ between the two branches, not always exactly one. Matches either
@@ -685,7 +685,7 @@ python3 - "$PARENTFILE" <<'PYEOF'
 import re, sys
 p = sys.argv[1]
 s = open(p).read()
-# Same DUO-3207 generalization as VARFILE's own resolution above.
+# Same issue #3207 generalization as VARFILE's own resolution above.
 s = re.sub(r'<<<<<<< HEAD\n((?:    "(?:modified|modified_gmt)": "[^"]+",\n)+)=======\n((?:    "(?:modified|modified_gmt)": "[^"]+",\n)+)>>>>>>> origin/price-r1b2\n', r'\2', s)
 open(p, 'w').write(s)
 PYEOF
@@ -698,13 +698,13 @@ pass "conflict resolved editorially (split the difference: 19.99), committed, pu
 say "apply the merged price to both environments; confirm convergence"
 $GIT_1 checkout -q main
 REV5=$(git -C siterepo/r1b1 rev-parse HEAD)
-wp_r1b1 duo apply --repo=/siterepo --default-author=admin --revision="$REV5" >/dev/null
+wp_r1b1 wprism apply --repo=/siterepo --default-author=admin --revision="$REV5" >/dev/null
 [ "$(wp_r1b1 post meta get "$V1" _regular_price)" = "19.99" ] || fail "r1b1 did not converge to 19.99"
 
 git -C siterepo/r1b2 checkout -q main
 git -C siterepo/r1b2 pull -q origin main
 REV6=$(git -C siterepo/r1b2 rev-parse HEAD)
-wp_r1b2 duo apply --repo=/siterepo --default-author=admin --force-theirs --revision="$REV6" >/dev/null
+wp_r1b2 wprism apply --repo=/siterepo --default-author=admin --force-theirs --revision="$REV6" >/dev/null
 [ "$(wp_r1b2 post meta get "$V1_B2" _regular_price)" = "19.99" ] || fail "r1b2 did not converge to 19.99"
 pass "both environments converged on the editorially-merged price (\$19.99)"
 

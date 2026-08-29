@@ -1,13 +1,13 @@
 <?php
-// Offline regression for DUO-3336's public proposal/confirmation boundary.
+// Offline regression for issue #3336's public proposal/confirmation boundary.
 
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../../../cli/src/Transport/Transport.php';
 require_once __DIR__ . '/../../../../cli/src/Onboarding/Init.php';
 
-use Duo\Orchestrator\Init;
-use Duo\Orchestrator\Transport;
+use WPrism\Orchestrator\Init;
+use WPrism\Orchestrator\Transport;
 
 final class InitTransport extends Transport {
     /** @var list<array{exit:int,stdout:string,stderr:string}> */
@@ -48,18 +48,18 @@ function response(array $body): array {
 
 // The engine's wire version, PARSED from the drop-in rather than written here.
 // This suite used to spell it `2` in the ready-proposal fixture below while
-// using DUO_SPEC_VERSION for the adoption-seed fixtures further down — it
+// using WPRISM_SPEC_VERSION for the adoption-seed fixtures further down — it
 // disagreed with itself, so the corpus stayed green through WP-4.12's 2 -> 3
-// flip while `duo init` could not initialize a single real site (the host pin
+// flip while `wprism init` could not initialize a single real site (the host pin
 // at cli/src/Onboarding/Init.php refused every READY proposal the agent
 // emitted). One derived value, used everywhere, would have failed on the day
 // the define moved, which is the whole point of deriving it.
-$dropIn = (string) file_get_contents(__DIR__ . '/../../../../agent/duo.php');
+$dropIn = (string) file_get_contents(__DIR__ . '/../../../../agent/wprism.php');
 check(
-    preg_match("/define\('DUO_SPEC_VERSION',\s*(\d+)\)/", $dropIn, $specMatch) === 1,
-    'agent/duo.php declares DUO_SPEC_VERSION, the one source this suite spells the wire version from'
+    preg_match("/define\('WPRISM_SPEC_VERSION',\s*(\d+)\)/", $dropIn, $specMatch) === 1,
+    'agent/wprism.php declares WPRISM_SPEC_VERSION, the one source this suite spells the wire version from'
 );
-define('DUO_SPEC_VERSION', (int) $specMatch[1]);
+define('WPRISM_SPEC_VERSION', (int) $specMatch[1]);
 
 $digest = str_repeat('a', 64);
 $stateRevision = str_repeat('b', 64);
@@ -70,7 +70,7 @@ $lifecycle = [
     'code_revision' => $codeRevision,
 ];
 $proposal = [
-    'format' => 'duo-init-plan/v1',
+    'format' => 'wprism-init-plan/v1',
     'digest' => $digest,
     'ready' => true,
     'advisories' => [[
@@ -78,7 +78,7 @@ $proposal = [
         'reason' => 'theme bytes are code-only', 'remediation' => 'install a theme adapter if needed',
     ], [
         'code' => 'repository_external_writer_exclusion', 'extension' => '/srv/shop-state', 'kind' => 'repository',
-        'reason' => 'Duo locks serialize Duo writers only', 'remediation' => 'quiesce non-Duo repository writers',
+        'reason' => 'WPrism locks serialize WPrism writers only', 'remediation' => 'quiesce non-WPrism repository writers',
     ]],
     'environment' => [
         'wordpress' => '7.0.2', 'php' => '8.3.33',
@@ -118,7 +118,7 @@ $proposal = [
             'manifests' => [['digest' => str_repeat('d', 64), 'name' => 'core']],
             'policy' => ['post_types' => ['post'], 'taxonomies' => ['category']],
             // What InitPlanner::plan() really stamps (`agent/src/Init/InitPlanner.php:357`).
-            'spec_version' => DUO_SPEC_VERSION,
+            'spec_version' => WPRISM_SPEC_VERSION,
         ],
         'git' => ['mode' => 'initialize-on-confirm', 'version' => 'git version 2.51.0'],
         'git_lfs' => [
@@ -142,7 +142,7 @@ $proposal = [
     'unsupported' => [],
 ];
 $result = [
-    'format' => 'duo-init-result/v1',
+    'format' => 'wprism-init-result/v1',
     'proposal_digest' => $digest,
     'baseline' => ['kind' => 'state-capture', 'revision_hash' => $stateRevision],
     'capture' => [
@@ -160,16 +160,16 @@ $result = [
     'state' => [
         'git' => 'existing-worktree',
         'repository' => '/srv/shop-state',
-        'site_config' => '/srv/shop-state/site.duo.json',
+        'site_config' => '/srv/shop-state/site.wprism.json',
     ],
     'unsupported' => [],
 ];
 
 $transport = new InitTransport([response($proposal), response($result)]);
 check(Init::proposal($transport) === $proposal, 'proposal JSON is returned without host-side reinterpretation');
-check($transport->calls[0] === ['duo', 'init', '--repo=/srv/shop-state', '--format=json'], 'proposal uses the authenticated target agent and repository path');
+check($transport->calls[0] === ['wprism', 'init', '--repo=/srv/shop-state', '--format=json'], 'proposal uses the authenticated target agent and repository path');
 check(Init::confirm($transport, $digest) === $result, 'confirmation result is returned');
-check($transport->calls[1] === ['duo', 'init', '--repo=/srv/shop-state', '--confirm=' . $digest, '--format=json'], 'confirmation sends only the reviewed digest, never a mutable config payload');
+check($transport->calls[1] === ['wprism', 'init', '--repo=/srv/shop-state', '--confirm=' . $digest, '--format=json'], 'confirmation sends only the reviewed digest, never a mutable config payload');
 $recoveryResult = array_replace($result, ['recovery' => 'committed-finalized']);
 check(
     Init::confirm(new InitTransport([response($recoveryResult)]), $digest) === $recoveryResult,
@@ -193,7 +193,7 @@ check(str_contains($rendered, 'redacted counts are incomplete'), 'rendering disc
 check(!str_contains($rendered, 'sk_live_') && !str_contains($rendered, '@example.'), 'rendering cannot expose secret or PII values from the count-only report');
 
 $next = implode("\n", Init::nextSteps('shop', '/srv/shop-state'));
-foreach (['branch', '"$DUO_CLI" capture \'shop\'', '"$DUO_CLI" plan \'shop\'', '"$DUO_CLI" promote \'shop\'', 'rollback'] as $step) {
+foreach (['branch', '"$WPRISM_CLI" capture \'shop\'', '"$WPRISM_CLI" plan \'shop\'', '"$WPRISM_CLI" promote \'shop\'', 'rollback'] as $step) {
     check(str_contains($next, $step), "workflow guide includes $step");
 }
 check(str_contains($next, 'Coverage outside the selected adapters remains advisory'), 'guide does not turn a managed-scope proof into a whole-site guarantee');
@@ -204,26 +204,26 @@ check(str_contains($next, "remote add origin 'YOUR_GIT_URL'")
     && str_contains($next, "git clone --branch \"\$TARGET_BRANCH\" 'YOUR_GIT_URL' 'YOUR_WORKSPACE'"),
     'guide carries the initialized target repository through publish and developer checkout');
 check(
-    str_contains($next, "Duo commands for 'shop' always operate on its configured repo_path (/srv/shop-state)")
+    str_contains($next, "WPrism commands for 'shop' always operate on its configured repo_path (/srv/shop-state)")
         && str_contains($next, 'never on \'YOUR_WORKSPACE\'')
-        && str_contains($next, 'untracked .duo-envs.json overlay')
+        && str_contains($next, 'untracked .wprism-envs.json overlay')
         && str_contains($next, 'Point or materialize that target environment')
-        && str_contains($next, "export DUO_CLI='YOUR_DUO_CLI'")
+        && str_contains($next, "export WPRISM_CLI='YOUR_WPRISM_CLI'")
         && str_contains($next, 'it is not in the site repo'),
-    'guide distinguishes the developer checkout from the target-bound environment before any Duo mutation'
+    'guide distinguishes the developer checkout from the target-bound environment before any WPrism mutation'
 );
 $hostileNext = implode("\n", Init::nextSteps('prod; echo PWNED', '/srv/shop-state'));
 check(
     str_contains($hostileNext, "capture 'prod; echo PWNED'")
         && !str_contains($hostileNext, 'capture prod; echo PWNED'),
-    'rendered Duo handoff shell-quotes an environment name containing metacharacters'
+    'rendered WPrism handoff shell-quotes an environment name containing metacharacters'
 );
 
 // Run every rendered Git handoff command against paths containing spaces.
 // This keeps the first-run guide copyable and catches shell-significant
 // placeholders or a missing -C/argument quote instead of merely asserting
 // that some promising words were printed.
-$handoffRoot = sys_get_temp_dir() . '/duo-init-handoff-' . bin2hex(random_bytes(6));
+$handoffRoot = sys_get_temp_dir() . '/wprism-init-handoff-' . bin2hex(random_bytes(6));
 $handoffTarget = $handoffRoot . '/target repo';
 $handoffRemote = $handoffRoot . '/remote repo.git';
 $handoffWorkspace = $handoffRoot . '/developer workspace';
@@ -238,17 +238,17 @@ file_put_contents(
     (string) file_get_contents(__DIR__ . '/../../../site-repo.gitignore.template')
 );
 file_put_contents($handoffTarget . '/.gitattributes', "media/** filter=lfs diff=lfs merge=lfs -text\n");
-file_put_contents($handoffTarget . '/site.duo.json', "{}\n");
+file_put_contents($handoffTarget . '/site.wprism.json', "{}\n");
 file_put_contents($handoffTarget . '/code/.keep', "\n");
 file_put_contents($handoffTarget . '/state/.keep', "\n");
 file_put_contents($handoffTarget . '/media/.keep', "\n");
-mkdir($handoffTarget . '/code/wp-content/plugins/acme/.duo', 0777, true);
-file_put_contents($handoffTarget . '/code/wp-content/plugins/acme/.duo/config.json', "{}\n");
-file_put_contents($handoffTarget . '/code/wp-content/plugins/acme/.duo-envs.json', "{}\n");
-file_put_contents($handoffTarget . '/code/wp-content/plugins/acme/.duo-env-values.json', "{}\n");
+mkdir($handoffTarget . '/code/wp-content/plugins/acme/.wprism', 0777, true);
+file_put_contents($handoffTarget . '/code/wp-content/plugins/acme/.wprism/config.json', "{}\n");
+file_put_contents($handoffTarget . '/code/wp-content/plugins/acme/.wprism-envs.json', "{}\n");
+file_put_contents($handoffTarget . '/code/wp-content/plugins/acme/.wprism-env-values.json', "{}\n");
 $nestedProtocolFiles = [
-    '.tmp-cache', '.duo-init-code-example', '.duo-init-attempt', '.duo-init-attempt.next',
-    '.x.duo-init-y', 'state.capture.lock', 'state.capture-staging/payload',
+    '.tmp-cache', '.wprism-init-code-example', '.wprism-init-attempt', '.wprism-init-attempt.next',
+    '.x.wprism-init-y', 'state.capture.lock', 'state.capture-staging/payload',
     'state.capture-backup/payload', 'state.capture-intent', 'state.capture-receipt',
     'state.capture-intent.tmp.1', 'state.capture-receipt.tmp.1',
     'state.capture-intent.previous', 'state.capture-intent.next',
@@ -261,8 +261,8 @@ foreach ($nestedProtocolFiles as $relative) {
 }
 foreach ([
     'git init --initial-branch=develop ' . escapeshellarg($handoffTarget),
-    'git -C ' . escapeshellarg($handoffTarget) . ' config user.name ' . escapeshellarg('Duo Regression'),
-    'git -C ' . escapeshellarg($handoffTarget) . ' config user.email ' . escapeshellarg('duo-regression@example.invalid'),
+    'git -C ' . escapeshellarg($handoffTarget) . ' config user.name ' . escapeshellarg('WPrism Regression'),
+    'git -C ' . escapeshellarg($handoffTarget) . ' config user.email ' . escapeshellarg('wprism-regression@example.invalid'),
     'git init --bare --initial-branch=main ' . escapeshellarg($handoffRemote),
 ] as $setupCommand) {
     exec($setupCommand . ' 2>&1', $setupOutput, $setupExit);
@@ -282,7 +282,7 @@ foreach ($handoffCommands as $number => $command) {
         $command
     );
 }
-$handoffCommands[6] = str_replace("'YOUR_DUO_CLI'", escapeshellarg('/bin/true'), $handoffCommands[6]);
+$handoffCommands[6] = str_replace("'YOUR_WPRISM_CLI'", escapeshellarg('/bin/true'), $handoffCommands[6]);
 exec(implode("\n", $handoffCommands) . ' 2>&1', $commandOutput, $commandExit);
 check($commandExit === 0, 'complete rendered handoff executes after placeholder replacement');
 exec('git -C ' . escapeshellarg($handoffWorkspace) . ' branch --show-current 2>&1', $branchOutput, $branchExit);
@@ -292,9 +292,9 @@ check($developExit === 0, 'rendered handoff publishes the existing non-main bran
 exec('git -C ' . escapeshellarg($handoffWorkspace) . ' merge-base --is-ancestor origin/develop HEAD 2>&1', $baselineOutput, $baselineExit);
 check($baselineExit === 0, 'developer feature branch starts from the exact initialized target baseline');
 check(
-    is_file($handoffWorkspace . '/code/wp-content/plugins/acme/.duo/config.json')
-        && is_file($handoffWorkspace . '/code/wp-content/plugins/acme/.duo-envs.json')
-        && is_file($handoffWorkspace . '/code/wp-content/plugins/acme/.duo-env-values.json'),
+    is_file($handoffWorkspace . '/code/wp-content/plugins/acme/.wprism/config.json')
+        && is_file($handoffWorkspace . '/code/wp-content/plugins/acme/.wprism-envs.json')
+        && is_file($handoffWorkspace . '/code/wp-content/plugins/acme/.wprism-env-values.json'),
     'root-anchored authority ignores preserve legitimate same-named files inside vendored plugin code'
 );
 foreach ($nestedProtocolFiles as $relative) {
@@ -312,14 +312,14 @@ try {
     check(str_contains($expected->getMessage(), 'invalid JSON'), 'invalid target JSON fails closed');
 }
 
-// DUO-3421: the target's refusal envelope arrives on STDOUT while a docker
+// issue #3421: the target's refusal envelope arrives on STDOUT while a docker
 // transport's stderr always carries `docker compose run` progress noise. The
 // stderr-first rule handed the operator that noise and dropped the reason
 // code, the remediation, and the redaction witness — a refusal-transparency
-// loss of exactly the DUO-3398 shape, reproduced here without docker by
+// loss of exactly the issue #3398 shape, reproduced here without docker by
 // planting the noise the live transport really emits.
 $refusalEnvelope = [
-    'format' => 'duo-command-refusal/v1',
+    'format' => 'wprism-command-refusal/v1',
     'ok' => false,
     'command' => 'init',
     'error' => 'init_failed',
@@ -333,7 +333,7 @@ $refusalEnvelope = [
         'remediation' => 'correct the named init blocker, then retry the command',
     ]],
 ];
-$composeNoise = " Container duo-pair-cli1-run-6a2f Creating \n Container duo-pair-cli1-run-6a2f Created\n";
+$composeNoise = " Container wprism-pair-cli1-run-6a2f Creating \n Container wprism-pair-cli1-run-6a2f Created\n";
 foreach (['proposal', 'confirmation'] as $noisyPhase) {
     $noisy = new InitTransport([[
         'exit' => 1,
@@ -345,13 +345,13 @@ foreach (['proposal', 'confirmation'] as $noisyPhase) {
             ? Init::proposal($noisy)
             : Init::confirm($noisy, $digest);
         fail("a refused init $noisyPhase was accepted");
-    } catch (\Duo\Orchestrator\InitRefusalException $refused) {
+    } catch (\WPrism\Orchestrator\InitRefusalException $refused) {
         check(
             $refused->refusal === $refusalEnvelope,
             "a refused init $noisyPhase carries the target's complete v1 envelope for rendering, not a flattened string"
         );
         check(
-            !str_contains($refused->getMessage(), 'Container duo-')
+            !str_contains($refused->getMessage(), 'Container wprism-')
                 && str_contains($refused->getMessage(), "init $noisyPhase failed"),
             "a refused init $noisyPhase names its phase without pasting transport progress noise"
         );
@@ -366,10 +366,10 @@ try {
     Init::proposal(new InitTransport([[
         'exit' => 255,
         'stdout' => '',
-        'stderr' => "Error: 'duo' is not a registered wp command.\n",
+        'stderr' => "Error: 'wprism' is not a registered wp command.\n",
     ]]));
     fail('a non-envelope init failure was accepted');
-} catch (\Duo\Orchestrator\InitRefusalException) {
+} catch (\WPrism\Orchestrator\InitRefusalException) {
     fail('a non-envelope init failure was misread as a refusal envelope');
 } catch (RuntimeException $passthrough) {
     check(
@@ -377,12 +377,12 @@ try {
         'a non-envelope init failure still passes the target stderr through unchanged'
     );
 }
-$initCommandSource = (string) file_get_contents(__DIR__ . '/../../../../cli/duo');
+$initCommandSource = (string) file_get_contents(__DIR__ . '/../../../../cli/wprism');
 $initHandlerSource = (string) file_get_contents(__DIR__ . '/../../../../cli/src/Command/InitCommand.php');
 check(
     substr_count($initCommandSource, 'return InitCommand::run(') === 1
         && substr_count($initCommandSource, 'function cmd_init(EnvironmentDriver $t, array $extra, ?string $envsFileOverride = null): int {') === 1
-        // DUO-3499 made it three target calls, not two: the read-only probe,
+        // issue #3499 made it three target calls, not two: the read-only probe,
         // the re-proposal that carries the host's code classification, and the
         // confirmation. Each can be refused with the same v1 envelope, so each
         // has to reach the same host renderer.
@@ -398,11 +398,11 @@ check(
 // (that is exactly how the spec_version pin below was found, on a live pair).
 foreach ([
     'empty proposal' => [[], 'format'],
-    'wrong proposal format' => [array_replace($proposal, ['format' => 'duo-init-plan/v0']), 'format'],
+    'wrong proposal format' => [array_replace($proposal, ['format' => 'wprism-init-plan/v0']), 'format'],
     'malformed proposal digest' => [array_replace($proposal, ['digest' => 'abc']), 'digest'],
     'non-boolean proposal readiness' => [array_replace($proposal, ['ready' => 1]), 'ready'],
     'sparse ready proposal' => [[
-        'format' => 'duo-init-plan/v1', 'digest' => $digest, 'ready' => true,
+        'format' => 'wprism-init-plan/v1', 'digest' => $digest, 'ready' => true,
         'environment' => [], 'code' => [],
         'state' => ['repository' => '/srv/shop-state', 'repository_identity' => 'sha256:' . str_repeat('d', 64)],
         'unsupported' => [], 'advisories' => [],
@@ -437,15 +437,15 @@ foreach ([
 // The host's spec-version window (the WPForms recon's blocking defect).
 // ==========================================================================
 // `cli/src/Onboarding/Init.php` pinned `($config['spec_version'] ?? null) === 2`
-// while `InitPlanner::plan()` stamps DUO_SPEC_VERSION into the proposed config
+// while `InitPlanner::plan()` stamps WPRISM_SPEC_VERSION into the proposed config
 // (`agent/src/Init/InitPlanner.php:357`). WP-4.12 moved that define 2 -> 3 and
 // moved Adopt::SEED with it, but not the host pin — so from that commit every
-// `duo init <env>` that reached a READY proposal died with "incompatible or
+// `wprism init <env>` that reached a READY proposal died with "incompatible or
 // incomplete contract", unconditionally, on every site. It was invisible
 // offline because this suite's ready fixture spelled `2` by hand.
 //
 // The pin is now the AGENT's own acceptance window, from the agent's own
-// definition of it: {N-1, N} via Duo\SpecVersionWindow, the same rule
+// definition of it: {N-1, N} via WPrism\SpecVersionWindow, the same rule
 // RepositoryCompiler judges a repository by. The floor arm matters as much as
 // the current arm — a host talks to whatever agent the target has installed,
 // and the engine accepts one version back.
@@ -453,14 +453,14 @@ $initSource = (string) file_get_contents(__DIR__ . '/../../../../cli/src/Onboard
 $specProposal = static function (mixed $version) use ($proposal): array {
     return array_replace_recursive($proposal, ['state' => ['config' => ['spec_version' => $version]]]);
 };
-Init::proposal(new InitTransport([response($specProposal(DUO_SPEC_VERSION))]));
-check(true, 'a READY proposal carrying the engine\'s own DUO_SPEC_VERSION (' . DUO_SPEC_VERSION . ') is accepted');
-Init::proposal(new InitTransport([response($specProposal(DUO_SPEC_VERSION - 1))]));
+Init::proposal(new InitTransport([response($specProposal(WPRISM_SPEC_VERSION))]));
+check(true, 'a READY proposal carrying the engine\'s own WPRISM_SPEC_VERSION (' . WPRISM_SPEC_VERSION . ') is accepted');
+Init::proposal(new InitTransport([response($specProposal(WPRISM_SPEC_VERSION - 1))]));
 check(true, 'and so is one at the window floor N-1 — the host accepts what the agent accepts, not one exact value');
 foreach ([
-    'above the window' => DUO_SPEC_VERSION + 1,
-    'two versions behind' => DUO_SPEC_VERSION - 2,
-    'a numeric string, not an integer' => (string) DUO_SPEC_VERSION,
+    'above the window' => WPRISM_SPEC_VERSION + 1,
+    'two versions behind' => WPRISM_SPEC_VERSION - 2,
+    'a numeric string, not an integer' => (string) WPRISM_SPEC_VERSION,
     'absent' => null,
 ] as $label => $version) {
     try {
@@ -475,22 +475,22 @@ foreach ([
 }
 check(
     str_contains($initSource, "require_once dirname(__DIR__, 3) . '/agent/src/Kernel/SpecVersionWindow.php';")
-        && str_contains($initSource, '\Duo\SpecVersionWindow::accepted(DUO_SPEC_VERSION)'),
+        && str_contains($initSource, '\WPrism\SpecVersionWindow::accepted(WPRISM_SPEC_VERSION)'),
     'the host reads the window from the engine\'s own SpecVersionWindow, not from a second copy of the rule'
 );
 check(
     preg_match('/spec_version.{0,40}===\s*\d/s', $initSource) !== 1
-        && !str_contains($initSource, 'DUO_SPEC_VERSION - 1'),
+        && !str_contains($initSource, 'WPRISM_SPEC_VERSION - 1'),
     'no literal spec version and no second [N-1, N] arithmetic survives in the host: the window has one definition'
 );
 check(
-    \Duo\SpecVersionWindow::accepted(DUO_SPEC_VERSION) === [DUO_SPEC_VERSION - 1, DUO_SPEC_VERSION],
+    \WPrism\SpecVersionWindow::accepted(WPRISM_SPEC_VERSION) === [WPRISM_SPEC_VERSION - 1, WPRISM_SPEC_VERSION],
     'and that definition is the kernel\'s {N-1, N}, loaded into this process by Init.php itself'
 );
 
 foreach ([
     'empty result' => [],
-    'wrong result format' => array_replace($result, ['format' => 'duo-init-result/v0']),
+    'wrong result format' => array_replace($result, ['format' => 'wprism-init-result/v0']),
     'mismatched proposal digest' => array_replace($result, ['proposal_digest' => str_repeat('e', 64)]),
     'malformed state baseline hash' => array_replace_recursive($result, ['baseline' => ['revision_hash' => 'bad']]),
     'capture baseline mismatch' => array_replace_recursive($result, ['capture' => ['revision_hash' => str_repeat('d', 64)]]),
@@ -553,7 +553,7 @@ $protocolSource = file_get_contents(__DIR__ . '/../../../../agent/src/Init/InitP
 check(is_string($protocolSource), 'target init protocol source is readable');
 
 require_once __DIR__ . '/../../../../agent/src/Init/Init.php';
-$agentInit = new ReflectionClass(\Duo\Init::class);
+$agentInit = new ReflectionClass(\WPrism\Init::class);
 $proposalMethod = $agentInit->getMethod('proposal');
 $confirmMethod = $agentInit->getMethod('confirm');
 $proposalParameters = $proposalMethod->getParameters();
@@ -568,7 +568,7 @@ check(
     $agentInit->getFileName() === realpath(__DIR__ . '/../../../../agent/src/Init/Init.php')
         && $publicAgentInitMethods === ['archiveInterrupted', 'confirm', 'proposal']
         && $proposalMethod->isPublic() && $proposalMethod->isStatic()
-        // DUO-3499 added exactly one optional trailing parameter to each: the
+        // issue #3499 added exactly one optional trailing parameter to each: the
         // host's code classification. Both stay defaulted, so every existing
         // caller (AssessInventory's read-only probe among them) is unchanged,
         // and both still carry it to their owning collaborator rather than
@@ -614,27 +614,27 @@ check(
 
 require_once __DIR__ . '/../../../../agent/src/Init/InitAttemptJournal.php';
 check(
-    \Duo\Init::FORMAT === 'duo-init-plan/v1'
-        && \Duo\InitPlanner::FORMAT === \Duo\Init::FORMAT
-        && \Duo\InitRecovery::PLAN_FORMAT === \Duo\Init::FORMAT
-        && \Duo\InitProtocol::PLAN_FORMAT === \Duo\Init::FORMAT
-        && \Duo\InitProtocol::ATTEMPT_FORMAT === 'duo-init-attempt/v1'
-        && \Duo\InitAttemptJournal::FILE === '.duo-init-attempt'
-        && \Duo\InitAttemptJournal::NEXT_FILE === '.duo-init-attempt.next'
-        && \Duo\InitAttemptJournal::FILE === \Duo\InitProtocol::ATTEMPT_FILE
-        && \Duo\InitAttemptJournal::NEXT_FILE === \Duo\InitProtocol::ATTEMPT_NEXT_FILE,
+    \WPrism\Init::FORMAT === 'wprism-init-plan/v1'
+        && \WPrism\InitPlanner::FORMAT === \WPrism\Init::FORMAT
+        && \WPrism\InitRecovery::PLAN_FORMAT === \WPrism\Init::FORMAT
+        && \WPrism\InitProtocol::PLAN_FORMAT === \WPrism\Init::FORMAT
+        && \WPrism\InitProtocol::ATTEMPT_FORMAT === 'wprism-init-attempt/v1'
+        && \WPrism\InitAttemptJournal::FILE === '.wprism-init-attempt'
+        && \WPrism\InitAttemptJournal::NEXT_FILE === '.wprism-init-attempt.next'
+        && \WPrism\InitAttemptJournal::FILE === \WPrism\InitProtocol::ATTEMPT_FILE
+        && \WPrism\InitAttemptJournal::NEXT_FILE === \WPrism\InitProtocol::ATTEMPT_NEXT_FILE,
     'init protocol aliases preserve the exact public formats and fixed journal filenames'
 );
 $attemptEnvelope = [
-    'format' => 'duo-init-attempt/v1',
+    'format' => 'wprism-init-attempt/v1',
     'owned' => [],
     'phase' => 'preparing',
     'proposal' => ['digest' => str_repeat('d', 64)],
     'repository' => '/srv/shop-state',
     'repository_identity' => 'sha256:' . str_repeat('e', 64),
 ];
-$preparingAttempt = \Duo\InitAttemptRecord::fromArray($attemptEnvelope, 'typed fixture');
-$lockedAttempt = \Duo\InitAttemptRecord::fromArray(
+$preparingAttempt = \WPrism\InitAttemptRecord::fromArray($attemptEnvelope, 'typed fixture');
+$lockedAttempt = \WPrism\InitAttemptRecord::fromArray(
     array_replace($attemptEnvelope, ['phase' => 'locked']),
     'typed fixture next'
 );
@@ -651,40 +651,40 @@ try {
 }
 
 $archiveFixture = (realpath(sys_get_temp_dir()) ?: sys_get_temp_dir())
-    . '/duo-init-archive-' . bin2hex(random_bytes(6));
+    . '/wprism-init-archive-' . bin2hex(random_bytes(6));
 $archiveRepo = $archiveFixture . '/site';
 $archiveTarget = $archiveFixture . '/site-interrupted-20260829';
-if (!mkdir($archiveRepo . '/.duo-init-code-partial', 0700, true)) {
+if (!mkdir($archiveRepo . '/.wprism-init-code-partial', 0700, true)) {
     fail('could not create the interrupted-init archive fixture');
 }
-file_put_contents($archiveRepo . '/.duo-init-code-partial/payload', "partial\n");
+file_put_contents($archiveRepo . '/.wprism-init-code-partial/payload', "partial\n");
 $archiveStat = lstat($archiveRepo);
 if (!is_array($archiveStat)) fail('could not stat the interrupted-init archive fixture');
-$archiveRootIdentity = 'sha256:' . hash('sha256', \Duo\Canon::encode([
+$archiveRootIdentity = 'sha256:' . hash('sha256', \WPrism\Canon::encode([
     'device' => (string) $archiveStat['dev'],
     'inode' => (string) $archiveStat['ino'],
 ]));
 $archiveAttempt = [
-    'format' => \Duo\InitProtocol::ATTEMPT_FORMAT,
-    'owned' => ['code_stage' => $archiveRepo . '/.duo-init-code-partial'],
+    'format' => \WPrism\InitProtocol::ATTEMPT_FORMAT,
+    'owned' => ['code_stage' => $archiveRepo . '/.wprism-init-code-partial'],
     'phase' => 'code-staging',
     'proposal' => ['digest' => str_repeat('a', 64)],
     'repository' => $archiveRepo,
     'repository_identity' => $archiveRootIdentity,
 ];
-\Duo\InitAttemptJournal::write($archiveRepo, $archiveAttempt, 'absent');
-$archiveReceipt = \Duo\InitRecovery::archive_interrupted_attempt($archiveRepo, $archiveTarget);
+\WPrism\InitAttemptJournal::write($archiveRepo, $archiveAttempt, 'absent');
+$archiveReceipt = \WPrism\InitRecovery::archive_interrupted_attempt($archiveRepo, $archiveTarget);
 check(
-    ($archiveReceipt['format'] ?? null) === \Duo\InitRecovery::ARCHIVE_FORMAT
+    ($archiveReceipt['format'] ?? null) === \WPrism\InitRecovery::ARCHIVE_FORMAT
         && ($archiveReceipt['resumed'] ?? null) === false
         && is_dir($archiveRepo)
         && (scandir($archiveRepo) ?: []) === ['.', '..']
-        && is_file($archiveTarget . '/.duo-init-attempt')
-        && file_get_contents($archiveTarget . '/.duo-init-code-partial/payload') === "partial\n",
+        && is_file($archiveTarget . '/.wprism-init-attempt')
+        && file_get_contents($archiveTarget . '/.wprism-init-code-partial/payload') === "partial\n",
     'ambiguous interrupted init moves the complete exact root to an explicit sibling and recreates an empty configured path'
 );
 rmdir($archiveRepo);
-$resumedArchive = \Duo\InitRecovery::archive_interrupted_attempt($archiveRepo, $archiveTarget);
+$resumedArchive = \WPrism\InitRecovery::archive_interrupted_attempt($archiveRepo, $archiveTarget);
 check(
     ($resumedArchive['resumed'] ?? null) === true && is_dir($archiveRepo),
     'archive recovery resumes the bounded post-rename crash window without touching preserved evidence'
@@ -707,8 +707,8 @@ check(
     ),
     'generic target init has no plugin-name branch'
 );
-// DUO-3495 moved the rule itself into Duo\ScopeAdoption so the post-init
-// opt-in (`duo adapter certify --pin`) reads a manifest the same way init
+// issue #3495 moved the rule itself into WPrism\ScopeAdoption so the post-init
+// opt-in (`wprism adapter certify --pin`) reads a manifest the same way init
 // does. Assert it in its new home AND that init reaches it rather than
 // keeping a second copy: two readings of "declared authored" that drift is
 // exactly the failure this consolidation prevents.
@@ -729,7 +729,7 @@ $lockedRecheck = strrpos($confirmationSource, 'InitPlanner::assert_confirmed_pro
 $siteWrite = $lockedRecheck === false ? false : strpos($confirmationSource, '$sitePublication = InitOwnedArtifacts::publish_owned_file(', $lockedRecheck);
 check($lockedRecheck !== false && $siteWrite !== false && $lockedRecheck < $siteWrite, 'under-lock digest recheck precedes the site-config write');
 check(str_contains($plannerSource, "'code' => \$code['declaration'],"), 'site config declares code independently from state policy');
-// DUO-3499: format 1 is still what the inventory declares by default; the
+// issue #3499: format 1 is still what the inventory declares by default; the
 // planner switches it to format 2 only when the reviewed classification
 // actually locked something.
 $codeInventorySource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Init/InitCodeInventory.php');
@@ -760,7 +760,7 @@ check(
     str_contains($plannerSource, "'existing_state_payload'")
         && str_contains($plannerSource, "'existing_media_payload'")
         && str_contains($plannerSource, "'existing_capture_receipt'")
-        && str_contains($plannerSource, "'existing_duo_ledger'"),
+        && str_contains($plannerSource, "'existing_wprism_ledger'"),
     'stale state, media, capture-receipt, and ledger ownership block initialization'
 );
 check(str_contains($codeInventorySource, 'Secrets::hard_match($window)'), 'every code byte crosses the high-confidence secret matcher');
@@ -823,7 +823,7 @@ check(
 $publishSource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Publication/PublicationJournal.php');
 $captureSource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Capture/CapturePublicationWorkflow.php')
     . (string) file_get_contents(__DIR__ . '/../../../../agent/src/Capture/InitialCaptureBoundary.php');
-$liveHarness = (string) file_get_contents(__DIR__ . '/../../live/regress_duo_init.sh');
+$liveHarness = (string) file_get_contents(__DIR__ . '/../../live/regress_wprism_init.sh');
 check(
     str_contains($publishSource, 'public static function lock_new(')
         && str_contains($publishSource, 'public static function assert_lock_path(')
@@ -840,7 +840,7 @@ check(
 );
 $repoFormat = (string) file_get_contents(__DIR__ . '/../../../../spec/repo-format.md');
 check(
-    str_contains($repoFormat, 'requires non-Duo tools to leave the')
+    str_contains($repoFormat, 'requires non-WPrism tools to leave the')
         && str_contains($repoFormat, 'complete `state.capture*` protocol namespace untouched')
         && str_contains($repoFormat, 'adversarial namespace-race sandbox for these siblings'),
     'ordinary capture states its protocol-namespace exclusion without overclaiming portable PHP race safety'
@@ -848,8 +848,8 @@ check(
 $attemptWrite = strpos($confirmationSource, 'InitAttemptJournal::write($repo, $attemptRecord, \'absent\')');
 $firstPublicationLock = strpos($confirmationSource, '$publicationLock = Publish::lock_new($stateDir);');
 check(
-    str_contains($protocolSource, "public const ATTEMPT_FILE = '.duo-init-attempt';")
-        && str_contains($protocolSource, "public const ATTEMPT_NEXT_FILE = '.duo-init-attempt.next';")
+    str_contains($protocolSource, "public const ATTEMPT_FILE = '.wprism-init-attempt';")
+        && str_contains($protocolSource, "public const ATTEMPT_NEXT_FILE = '.wprism-init-attempt.next';")
         && str_contains($attemptJournalSource, 'public const FILE = InitProtocol::ATTEMPT_FILE;')
         && str_contains($attemptJournalSource, 'public const NEXT_FILE = InitProtocol::ATTEMPT_NEXT_FILE;')
         && str_contains($repositorySource, 'private const ATTEMPT_FILE = InitProtocol::ATTEMPT_FILE;')
@@ -875,10 +875,10 @@ check(
         && str_contains($recoverySource, "'manual-interrupted-init-recovery'")
         && str_contains($recoverySource, "'interrupted_init_manual_recovery'")
         && str_contains($recoverySource, 'state.capture-intent.tmp.')
-        && str_contains($recoverySource, "str_contains(\$entry, '.duo-claim-')")
-        && str_contains($recoverySource, "str_contains(\$entry, '.duo-init-')")
+        && str_contains($recoverySource, "str_contains(\$entry, '.wprism-claim-')")
+        && str_contains($recoverySource, "str_contains(\$entry, '.wprism-init-')")
         && str_contains($recoverySource, 'the interrupted-init repository contains an unjournaled Init temporary or claim artifact')
-        && str_contains($repositorySource, "'.*.duo-init-*'")
+        && str_contains($repositorySource, "'.*.wprism-init-*'")
         && str_contains($recoverySource, "\$proposal['ready'] = false;")
         && str_contains($liveHarness, 'unmanifested state recovery is non-confirmable')
         && str_contains($liveHarness, 'partial code-stage recovery is non-confirmable')
@@ -919,7 +919,7 @@ check(
 check(
     str_contains($initExceptionSource, 'final class InitAttemptRetentionException')
         && str_contains($confirmationSource, 'if ($error instanceof InitAttemptRetentionException)')
-        && str_contains($codeBaselineSource, "DUO_TEST_INIT_FAIL_PHASE') === 'code-copy-after-file'")
+        && str_contains($codeBaselineSource, "WPRISM_TEST_INIT_FAIL_PHASE') === 'code-copy-after-file'")
         && str_contains($liveHarness, 'changed code source left a staging tree, journal, lock, or canonical payload')
         && str_contains($publishSource, 'if ($stillSame) @unlink($name);'),
     'post-create code-copy failures either compensate the exact partial stage or retain sealed recovery authority'
@@ -950,7 +950,7 @@ check(
         && str_contains($recoverySource, 'no longer matches its sealed ownership manifest')
         && str_contains($recoverySource, 'partial state staging tree without a complete deletion manifest')
         && str_contains($recoverySource, 'partial code staging tree without a complete descriptor')
-        && str_contains($liveHarness, 'DUO_TEST_PUBLISH_KILL_PHASE=initial-staging-partial')
+        && str_contains($liveHarness, 'WPRISM_TEST_PUBLISH_KILL_PHASE=initial-staging-partial')
         && str_contains($liveHarness, 'record-create-next intent-written after-state-rename')
         && str_contains($liveHarness, 'partial manifest-bound tree is non-confirmable')
         && str_contains($publishSource, 'recover_initial_unpublished_intent_next')
@@ -978,31 +978,31 @@ check(
         && str_contains($recoverySource, "hash_equals((string) (\$receipt['previous_sha256'] ?? ''), hash('sha256', ''))"),
     'ordinary capture cannot replace a retained initial receipt and committed recovery proves a first publication'
 );
-// DUO-3427: and it says so to a MACHINE caller. A retained init recovery
+// issue #3427: and it says so to a MACHINE caller. A retained init recovery
 // journal is the operator's whole answer — what exists, and the one command
 // that resolves it — in a fixed engine sentence carrying no path, selector, or
 // value. As a bare RuntimeException it reached `--format=json` as "capture
 // refused at an unclassified safety gate" with details_redacted, which sends
 // an operator holding an interrupted init to private evidence for public
-// guidance. Typed now, like the init side's proven rollback (DUO-3421), with
+// guidance. Typed now, like the init side's proven rollback (issue #3421), with
 // the human sentence preserved verbatim as the operator message.
 check(
     str_contains($captureSource, "'interrupted_init_recovery_pending',")
         && str_contains($captureSource, "'capture refused while a sealed init recovery journal exists',")
-        && str_contains($captureSource, "'run duo init for the same environment to verify or roll back that interrupted attempt, then capture again',")
+        && str_contains($captureSource, "'run wprism init for the same environment to verify or roll back that interrupted attempt, then capture again',")
         && !preg_match(
             '/private static function assert_no_interrupted_init.{0,400}throw new \\\\RuntimeException/s',
             $captureSource
         ),
     'the retained init-recovery capture gate is a typed public refusal, not an unclassified redacted envelope'
 );
-// DUO-3427: and it must not answer a LIVE race. The pre-lock arm of that gate
+// issue #3427: and it must not answer a LIVE race. The pre-lock arm of that gate
 // exists for one reason — acquiring the destination lock CREATES its file, and
 // no ordinary capture may write into a repository holding an interrupted init.
 // When the canonical lock already exists nothing can be created, so an
 // unconditional early exit only pre-empted the truth: a live init holds that
 // lock and has already written its journal, so a running race was answered
-// with "run duo init to verify or roll back that interrupted attempt" for an
+// with "run wprism init to verify or roll back that interrupted attempt" for an
 // init that was mid-publication and went on to succeed. Gated on the lock's
 // ABSENCE the no-write guarantee is identical, and a live race falls through
 // to Publish::lock(), whose typed refusal names the held destination lock —
@@ -1062,7 +1062,7 @@ check(str_contains($codeSource, 'complete_initial_baseline_in_active_transaction
 check(str_contains($codeSource, 'lifecycle metadata') && str_contains($codeSource, 'already exists'), 'initial baseline refuses to overwrite existing lifecycle metadata');
 check(str_contains($codeSource, 'self::verify_payload($descriptor)') && str_contains($codeSource, 'self::owned_extra_files($descriptor)'), 'initial baseline verifies live bytes and rejects unrecorded managed files');
 
-$sourceLibrary = \Duo\AdapterLibrary::fromSourceTree(dirname(__DIR__, 4));
+$sourceLibrary = \WPrism\AdapterLibrary::fromSourceTree(dirname(__DIR__, 4));
 $wooPackage = $sourceLibrary->package('woocommerce');
 check($wooPackage !== null, 'source adapter library contains the WooCommerce package');
 $woo = json_decode((string) file_get_contents($wooPackage?->manifestPath() ?? ''), true, 512, JSON_THROW_ON_ERROR);
@@ -1084,27 +1084,27 @@ check(
     'init validates orphan and canonical-plus-next journal shapes before any recovery mutation'
 );
 check(
-    str_contains($liveHarness, 'DUO_TEST_INIT_KILL_PHASE=attempt-remove-pre-unlink')
-        && str_contains($liveHarness, 'DUO_TEST_INIT_KILL_PHASE=attempt-remove-post-unlink')
-        && str_contains($liveHarness, '.duo-init-compensate-*'),
+    str_contains($liveHarness, 'WPRISM_TEST_INIT_KILL_PHASE=attempt-remove-pre-unlink')
+        && str_contains($liveHarness, 'WPRISM_TEST_INIT_KILL_PHASE=attempt-remove-post-unlink')
+        && str_contains($liveHarness, '.wprism-init-compensate-*'),
     'live coverage proves both sides of the completed-journal unlink crash boundary'
 );
 check(
     str_contains($ignoreTemplate, '/.tmp*')
-        && str_contains($ignoreTemplate, '/.duo-init-attempt')
-        && str_contains($ignoreTemplate, '/.duo-init-attempt.next')
-        && str_contains($ignoreTemplate, '/.duo-init-code-*')
-        && str_contains($ignoreTemplate, '/.*.duo-init-*')
-        && str_contains($ignoreTemplate, "/.duo/\n")
-        && str_contains($ignoreTemplate, "/.duo-envs.json\n")
-        && str_contains($ignoreTemplate, "/.duo-env-values.json\n")
+        && str_contains($ignoreTemplate, '/.wprism-init-attempt')
+        && str_contains($ignoreTemplate, '/.wprism-init-attempt.next')
+        && str_contains($ignoreTemplate, '/.wprism-init-code-*')
+        && str_contains($ignoreTemplate, '/.*.wprism-init-*')
+        && str_contains($ignoreTemplate, "/.wprism/\n")
+        && str_contains($ignoreTemplate, "/.wprism-envs.json\n")
+        && str_contains($ignoreTemplate, "/.wprism-env-values.json\n")
         && str_contains($ignoreTemplate, 'state.capture-intent.previous')
         && str_contains($ignoreTemplate, 'state.capture-intent.next')
         && str_contains($ignoreTemplate, 'state.capture-receipt.previous')
         && str_contains($ignoreTemplate, 'state.capture-receipt.next'),
     'canonical site-repo ignore template protects the init journal and fixed capture transition slots'
 );
-$sourceBinding = strpos($liveHarness, 'export DUO_EXPECTED_SOURCE_SHA="$SOURCE_SHA"');
+$sourceBinding = strpos($liveHarness, 'export WPRISM_EXPECTED_SOURCE_SHA="$SOURCE_SHA"');
 $pairUp = strpos($liveHarness, 'bash sandbox/bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" "${PAIR_UP_FLAGS[@]}"');
 check(
     str_contains($liveHarness, "git rev-parse --verify 'HEAD^{commit}'")
@@ -1126,7 +1126,7 @@ check(
     'live harness validates the owned even/adjacent port pair before cleanup is armed'
 );
 $destroyCall = strpos($liveHarness, 'if bash sandbox/bin/pair.sh destroy "$PAIR"');
-$deadReadback = strpos($liveHarness, 'label=com.docker.compose.project=duo-${PAIR}');
+$deadReadback = strpos($liveHarness, 'label=com.docker.compose.project=wprism-${PAIR}');
 $rootRemoval = strpos($liveHarness, 'rm -rf "$HOST_REPO"');
 check(
     $destroyCall !== false && $deadReadback !== false && $rootRemoval !== false
@@ -1138,13 +1138,13 @@ check(
     'live cleanup never suppresses pair-destroy failure before root removal'
 );
 check(
-    substr_count($liveHarness, '-e DUO_TEST_INIT_PUBLICATION_PAUSE_MS=5000') >= 2,
+    substr_count($liveHarness, '-e WPRISM_TEST_INIT_PUBLICATION_PAUSE_MS=5000') >= 2,
     'both concurrent init contenders pause whichever winner holds the publication lock'
 );
 check(
     str_contains($liveHarness, 'wait_for_init_lease /siterepo/swap-link')
         && str_contains($liveHarness, 'wait_for_init_lease /siterepo/swap-directory')
-        && substr_count($liveHarness, '-e DUO_TEST_INIT_PAUSE_MS=10000') >= 2,
+        && substr_count($liveHarness, '-e WPRISM_TEST_INIT_PAUSE_MS=10000') >= 2,
     'live root replacement races wait for the post-proposal init lease before swapping paths'
 );
 check(
@@ -1155,8 +1155,8 @@ check(
     'live root suite covers missing, ancestor-link, symlink-swap, and ordinary-directory replacement boundaries'
 );
 
-// DUO-3428: `completed_within_fifteen_minutes` is exported into the reference
-// bundle as a CERTIFIED member of init_golden_assertions, and DUO-3336 states
+// issue #3428: `completed_within_fifteen_minutes` is exported into the reference
+// bundle as a CERTIFIED member of init_golden_assertions, and issue #3336 states
 // it per init. It was implemented as a whole-suite stopwatch over a harness
 // that installs WooCommerce and drives ~20 injected-failure confirmations, so
 // the certified number described the harness and could only fail once the
@@ -1169,7 +1169,7 @@ check(
         && str_contains($liveHarness, 'time_golden_init() {')
         && str_contains($liveHarness, 'INIT_BUDGET_SECONDS=900')
         && str_contains($liveHarness, 'over the per-init fifteen-minute budget')
-        && str_contains($liveHarness, 'time_golden_init 0 "duo init Woo golden path"')
+        && str_contains($liveHarness, 'time_golden_init 0 "wprism init Woo golden path"')
         && !preg_match('/^STARTED_AT=\$SECONDS$/m', $liveHarness)
         && !str_contains($liveHarness, 'golden path exceeded 15 minutes'),
     'the certified fifteen-minute clock budgets each golden-path init on its own proposal-to-confirmation wall, not the whole suite'
@@ -1187,7 +1187,7 @@ check(
     'the per-init clock refuses a certified set that timed nothing, so the claim cannot go vacuous'
 );
 
-// DUO-3421. The live harness mounts a HERMETIC source adapter library into its
+// issue #3421. The live harness mounts a HERMETIC source adapter library into its
 // pair, never the primary checkout's own packages/platform. It was introduced because the checked-in
 // attestation was expired by construction on any bundle-owing branch — legs
 // 13-14 included — so `evidence_not_current` rode on every certified claim, the
@@ -1197,13 +1197,13 @@ check(
 // its own merit: built and asserted BEFORE the pair exists, and the live
 // library never mounted at all, so no live case can reach the shipped bytes.
 $fixtureBuild = strpos($liveHarness, 'certification_fixture.php --source-tree "$HERMETIC_ROOT"');
-$packageMount = strpos($liveHarness, 'export DUO_ADAPTER_PACKAGES_SRC="$HERMETIC_SOURCE/adapter-packages"');
-$platformMount = strpos($liveHarness, 'export DUO_PLATFORM_SRC="$HERMETIC_SOURCE/platform"');
+$packageMount = strpos($liveHarness, 'export WPRISM_ADAPTER_PACKAGES_SRC="$HERMETIC_SOURCE/adapter-packages"');
+$platformMount = strpos($liveHarness, 'export WPRISM_PLATFORM_SRC="$HERMETIC_SOURCE/platform"');
 check(
     $fixtureBuild !== false && $packageMount !== false && $platformMount !== false && $pairUp !== false
         && $fixtureBuild < $packageMount && $packageMount < $pairUp
         && $fixtureBuild < $platformMount && $platformMount < $pairUp
-        && !str_contains($liveHarness, 'DUO_MANIFESTS_SRC'),
+        && !str_contains($liveHarness, 'WPRISM_MANIFESTS_SRC'),
     'live init builds and mounts hermetic package and platform roots before pair bring-up, never the live ones'
 );
 check(
@@ -1217,14 +1217,14 @@ check(
 // loadable library on this tree, legs 13-14 cannot pass and this says so in
 // seconds rather than an hour into a live pair.
 require_once __DIR__ . '/../adapter/certification_fixture.php';
-$fixtureRoot = sys_get_temp_dir() . '/duo-init-contract-fixture-' . bin2hex(random_bytes(6));
+$fixtureRoot = sys_get_temp_dir() . '/wprism-init-contract-fixture-' . bin2hex(random_bytes(6));
 register_shutdown_function(static function () use ($fixtureRoot): void {
     exec('rm -rf ' . escapeshellarg($fixtureRoot));
 });
-$hermeticRoot = duo_cert_hermetic_source_tree(dirname(__DIR__, 4), $fixtureRoot);
-$sourceLibrary = \Duo\AdapterLibrary::fromSourceTree(dirname(__DIR__, 4));
-$hermeticLibrary = \Duo\AdapterLibrary::fromSourceTree($hermeticRoot);
-$hermeticDispositions = \Duo\ManifestDispositions::load_library($hermeticLibrary);
+$hermeticRoot = wprism_cert_hermetic_source_tree(dirname(__DIR__, 4), $fixtureRoot);
+$sourceLibrary = \WPrism\AdapterLibrary::fromSourceTree(dirname(__DIR__, 4));
+$hermeticLibrary = \WPrism\AdapterLibrary::fromSourceTree($hermeticRoot);
+$hermeticDispositions = \WPrism\ManifestDispositions::load_library($hermeticLibrary);
 $citedTests = [];
 foreach (($hermeticDispositions?->data()['manifests'] ?? []) as $reviewed) {
     if (($reviewed['status'] ?? null) === 'certified') {
@@ -1233,12 +1233,12 @@ foreach (($hermeticDispositions?->data()['manifests'] ?? []) as $reviewed) {
 }
 check(
     $hermeticDispositions !== null && $citedTests !== [] && min($citedTests) > 0
-        && duo_cert_source_library_bytes($hermeticLibrary) === duo_cert_source_library_bytes($sourceLibrary),
+        && wprism_cert_source_library_bytes($hermeticLibrary) === wprism_cert_source_library_bytes($sourceLibrary),
     'the shared fixture reproduces the shipped library byte for byte, and every certified claim in it still names '
     . 'the evidence it was reviewed against'
 );
 
-// DUO-3421. The confirmation logs are the only place a paused confirmation's
+// issue #3421. The confirmation logs are the only place a paused confirmation's
 // own answer is written, so a failed run must keep them; a green one still
 // cleans up after itself, and the owned pair is destroyed either way.
 check(
@@ -1256,7 +1256,7 @@ check(
         && str_contains($liveHarness, 'wait_for_init_lease /siterepo/swap-directory "/tmp/${PAIR}-init-root-directory.log"'),
     'a lease-wait timeout pastes the confirmation log that already holds the diagnosis'
 );
-// DUO-3421 (DUO-3381 family). Every injected-failure case takes a fresh
+// issue #3421 (issue #3381 family). Every injected-failure case takes a fresh
 // proposal and confirms its digest; a compose run starved to empty with exit 0
 // yields an empty digest, a confirmation that refuses before its first
 // mutation, and a case that blames the ENGINE for losing the journal that was
@@ -1267,7 +1267,7 @@ check(
         && str_contains($liveHarness, 'fixture manufacture failed: $label proposal is not ready')
         && str_contains($liveHarness, '[[ "$digest" =~ ^[a-f0-9]{64}$ ]]')
         && substr_count($liveHarness, 'assert_init_plan wp') >= 20
-        && !preg_match('/_PLAN=\$\(wp[12] duo init/', $liveHarness)
+        && !preg_match('/_PLAN=\$\(wp[12] wprism init/', $liveHarness)
         && !str_contains($liveHarness, '_DIGEST=$(jq -r .digest <<<'),
     'every confirmed live proposal asserts its own manufacture before the confirmation consumes the digest'
 );
@@ -1285,13 +1285,13 @@ register_shutdown_function(static function () use ($unsafeSentinel, $unsafeRoot)
 $invalidOutput = [];
 $invalidExit = 0;
 exec(
-    'DUO_INIT_PAIR=' . escapeshellarg('../unsafe') . ' bash '
-        . escapeshellarg(__DIR__ . '/../../live/regress_duo_init.sh') . ' 2>&1',
+    'WPRISM_INIT_PAIR=' . escapeshellarg('../unsafe') . ' bash '
+        . escapeshellarg(__DIR__ . '/../../live/regress_wprism_init.sh') . ' 2>&1',
     $invalidOutput,
     $invalidExit
 );
 check($invalidExit === 2, 'invalid live pair name refuses before Docker or cleanup');
-check(str_contains(implode("\n", $invalidOutput), 'invalid DUO_INIT_PAIR'), 'invalid-pair regression reaches the pair guard');
+check(str_contains(implode("\n", $invalidOutput), 'invalid WPRISM_INIT_PAIR'), 'invalid-pair regression reaches the pair guard');
 check(is_file($unsafeSentinel), 'invalid live pair name cannot escape siterepo and delete the sentinel');
 
 // Exercise the target-only bounded risk probe without WordPress. Query
@@ -1314,20 +1314,20 @@ if (!defined('ARRAY_A')) define('ARRAY_A', 'ARRAY_A');
 // no WordPress.
 // The predicate resolves the fixed capture-record slots through Publish.
 require_once __DIR__ . '/../../../../agent/src/Publication/Publish.php';
-$ignoreFixture = sys_get_temp_dir() . '/duo-init-ignore-' . bin2hex(random_bytes(6));
+$ignoreFixture = sys_get_temp_dir() . '/wprism-init-ignore-' . bin2hex(random_bytes(6));
 if (!mkdir($ignoreFixture, 0777, true)) fail('could not create the init ignore fixture');
 register_shutdown_function(static function () use ($ignoreFixture): void {
     if (is_file($ignoreFixture . '/.gitignore')) unlink($ignoreFixture . '/.gitignore');
     if (is_dir($ignoreFixture)) rmdir($ignoreFixture);
 });
-$ignorePublication = \Duo\InitRepositoryBoundary::ensure_gitignore($ignoreFixture, 'absent');
+$ignorePublication = \WPrism\InitRepositoryBoundary::ensure_gitignore($ignoreFixture, 'absent');
 $generatedIgnore = (string) file_get_contents($ignoreFixture . '/.gitignore');
 check(is_array($ignorePublication)
     && str_contains($generatedIgnore, "/.tmp*\n")
-    && str_contains($generatedIgnore, "/.duo/\n")
-    && str_contains($generatedIgnore, "/.duo-envs.json\n")
-    && str_contains($generatedIgnore, "/.duo-env-values.json\n")
-    && str_contains($generatedIgnore, "/.duo-init-code-*\n")
+    && str_contains($generatedIgnore, "/.wprism/\n")
+    && str_contains($generatedIgnore, "/.wprism-envs.json\n")
+    && str_contains($generatedIgnore, "/.wprism-env-values.json\n")
+    && str_contains($generatedIgnore, "/.wprism-init-code-*\n")
     && str_contains($generatedIgnore, "/state.capture.lock\n"),
     'first init writes every target-local authority and environment overlay ignore rule');
 
@@ -1335,7 +1335,7 @@ check(is_array($ignorePublication)
 // Init owns both halves of that contract: the reviewed media attribute and a
 // repository-local LFS configuration, with exact prior bytes available for
 // compensation if confirmation fails.
-$lfsFixture = sys_get_temp_dir() . '/duo-init-lfs-' . bin2hex(random_bytes(6));
+$lfsFixture = sys_get_temp_dir() . '/wprism-init-lfs-' . bin2hex(random_bytes(6));
 $lfsBin = $lfsFixture . '-bin';
 if (!mkdir($lfsFixture, 0777, true) || !mkdir($lfsBin, 0777, true)) {
     fail('could not create the init Git LFS fixture');
@@ -1353,13 +1353,13 @@ $lfsWrapper = <<<'PHP'
 <?php
 $args = $argv;
 array_shift($args);
-$real = (string) getenv('DUO_TEST_REAL_GIT');
+$real = (string) getenv('WPRISM_TEST_REAL_GIT');
 if ($args === ['lfs', 'version']) {
-    if (getenv('DUO_TEST_LFS_UNAVAILABLE') === '1') {
+    if (getenv('WPRISM_TEST_LFS_UNAVAILABLE') === '1') {
         fwrite(STDERR, "git: 'lfs' is not a git command\n");
         exit(1);
     }
-    fwrite(STDOUT, "git-lfs/3.7.1 (Duo offline fixture)\n");
+    fwrite(STDOUT, "git-lfs/3.7.1 (WPrism offline fixture)\n");
     exit(0);
 }
 if (count($args) >= 4 && $args[0] === '-C' && $args[2] === 'lfs') {
@@ -1389,36 +1389,36 @@ exit($exit);
 PHP;
 file_put_contents($lfsBin . '/git', $lfsWrapper);
 chmod($lfsBin . '/git', 0755);
-putenv('DUO_TEST_REAL_GIT=' . $realGit);
+putenv('WPRISM_TEST_REAL_GIT=' . $realGit);
 putenv('PATH=' . $lfsBin . ':' . $oldPath);
-putenv('DUO_TEST_LFS_UNAVAILABLE=1');
-$missingLfs = \Duo\InitRepositoryBoundary::git_lfs_probe($lfsFixture, true, 'existing-worktree');
+putenv('WPRISM_TEST_LFS_UNAVAILABLE=1');
+$missingLfs = \WPrism\InitRepositoryBoundary::git_lfs_probe($lfsFixture, true, 'existing-worktree');
 check(
     count($missingLfs['blockers']) === 1
         && ($missingLfs['blockers'][0]['code'] ?? null) === 'git_lfs_unavailable',
     'a site with media blocks before init when the target cannot execute Git LFS'
 );
-putenv('DUO_TEST_LFS_UNAVAILABLE');
-$gitattributesPublication = \Duo\InitRepositoryBoundary::ensure_gitattributes($lfsFixture, 'absent');
+putenv('WPRISM_TEST_LFS_UNAVAILABLE');
+$gitattributesPublication = \WPrism\InitRepositoryBoundary::ensure_gitattributes($lfsFixture, 'absent');
 $gitattributes = (string) file_get_contents($lfsFixture . '/.gitattributes');
 check(
     is_array($gitattributesPublication)
         && str_contains($gitattributes, "media/** filter=lfs diff=lfs merge=lfs -text\n"),
     'init publishes the closed Git LFS attribute for every repository media object'
 );
-$lfsProbe = \Duo\InitRepositoryBoundary::git_lfs_probe($lfsFixture, true, 'existing-worktree');
+$lfsProbe = \WPrism\InitRepositoryBoundary::git_lfs_probe($lfsFixture, true, 'existing-worktree');
 check(
     $lfsProbe['required'] === true
-        && $lfsProbe['version'] === 'git-lfs/3.7.1 (Duo offline fixture)'
+        && $lfsProbe['version'] === 'git-lfs/3.7.1 (WPrism offline fixture)'
         && $lfsProbe['blockers'] === [],
     'a material-media proposal proves Git LFS availability before confirmation'
 );
-$priorLfsConfigIdentity = \Duo\InitOwnedArtifacts::regular_file_identity(
+$priorLfsConfigIdentity = \WPrism\InitOwnedArtifacts::regular_file_identity(
     $lfsFixture . '/.git/config',
     'Git local config'
 );
 $priorLfsConfig = (string) file_get_contents($lfsFixture . '/.git/config');
-$lfsPublication = \Duo\InitRepositoryBoundary::configure_git_lfs(
+$lfsPublication = \WPrism\InitRepositoryBoundary::configure_git_lfs(
     $lfsFixture,
     true,
     $priorLfsConfigIdentity
@@ -1435,7 +1435,7 @@ check(
         && implode("\n", $lfsAttributeOutput) === 'media/fixture.bin: filter: lfs',
     'confirmation installs repository-local Git LFS and verifies the effective media attribute'
 );
-\Duo\InitOwnedArtifacts::compensate_owned_file(
+\WPrism\InitOwnedArtifacts::compensate_owned_file(
     $lfsFixture . '/.git/config',
     $lfsPublication,
     'Git local config'
@@ -1446,27 +1446,27 @@ check(
 );
 putenv('PATH=' . $oldPath);
 
-$legacyIgnoreFixture = sys_get_temp_dir() . '/duo-init-legacy-ignore-' . bin2hex(random_bytes(6));
+$legacyIgnoreFixture = sys_get_temp_dir() . '/wprism-init-legacy-ignore-' . bin2hex(random_bytes(6));
 if (!mkdir($legacyIgnoreFixture, 0777, true)) fail('could not create the legacy ignore fixture');
 register_shutdown_function(static function () use ($legacyIgnoreFixture): void {
     if (is_file($legacyIgnoreFixture . '/.gitignore')) unlink($legacyIgnoreFixture . '/.gitignore');
     if (is_dir($legacyIgnoreFixture)) rmdir($legacyIgnoreFixture);
 });
 $legacyRules = [
-    '.tmp*', '.duo/', '.duo-envs.json', '.duo-init-code-*', '.*.duo-init-*',
-    '.duo-init-attempt', '.duo-init-attempt.next', 'state.capture.lock',
+    '.tmp*', '.wprism/', '.wprism-envs.json', '.wprism-init-code-*', '.*.wprism-init-*',
+    '.wprism-init-attempt', '.wprism-init-attempt.next', 'state.capture.lock',
     'state.capture-staging/', 'state.capture-backup/', 'state.capture-intent',
     'state.capture-receipt', 'state.capture-intent.tmp.*', 'state.capture-receipt.tmp.*',
     'state.capture-intent.previous', 'state.capture-intent.next',
-    'state.capture-receipt.previous', 'state.capture-receipt.next', '.duo-env-values.json',
+    'state.capture-receipt.previous', 'state.capture-receipt.next', '.wprism-env-values.json',
 ];
 $legacyIgnore = "vendor/\n" . implode("\n", $legacyRules) . "\n";
 file_put_contents($legacyIgnoreFixture . '/.gitignore', $legacyIgnore);
-$legacyIdentity = \Duo\InitOwnedArtifacts::regular_file_identity(
+$legacyIdentity = \WPrism\InitOwnedArtifacts::regular_file_identity(
     $legacyIgnoreFixture . '/.gitignore',
     '.gitignore'
 );
-\Duo\InitRepositoryBoundary::ensure_gitignore($legacyIgnoreFixture, $legacyIdentity);
+\WPrism\InitRepositoryBoundary::ensure_gitignore($legacyIgnoreFixture, $legacyIdentity);
 $migratedIgnore = (string) file_get_contents($legacyIgnoreFixture . '/.gitignore');
 $migratedLines = preg_split('/\r?\n/', $migratedIgnore);
 check(str_contains($migratedIgnore, "vendor/\n"), 'init ignore migration preserves unrelated rules');
@@ -1475,17 +1475,17 @@ foreach ($legacyRules as $legacyRule) {
         is_array($migratedLines)
             && in_array('/' . $legacyRule, $migratedLines, true)
             && !in_array($legacyRule, $migratedLines, true),
-        "init root-anchors the prior broad Duo rule $legacyRule"
+        "init root-anchors the prior broad WPrism rule $legacyRule"
     );
 }
 $recoveryReason = static fn(string $repo, array $attempt): ?string =>
-    \Duo\InitRecovery::interrupted_attempt_manual_recovery_reason($repo, $attempt);
+    \WPrism\InitRecovery::interrupted_attempt_manual_recovery_reason($repo, $attempt);
 $directoryIdentity = static fn(string $path, string $label): string =>
-    \Duo\InitOwnedArtifacts::directory_identity($path, $label);
+    \WPrism\InitOwnedArtifacts::directory_identity($path, $label);
 $removeOwnedTree = static function (string $path, string $identity, string $label): void {
-    \Duo\InitOwnedArtifacts::remove_owned_tree($path, $identity, $label);
+    \WPrism\InitOwnedArtifacts::remove_owned_tree($path, $identity, $label);
 };
-$treeCleanupFixture = sys_get_temp_dir() . '/duo-init-tree-cleanup-' . bin2hex(random_bytes(6));
+$treeCleanupFixture = sys_get_temp_dir() . '/wprism-init-tree-cleanup-' . bin2hex(random_bytes(6));
 if (!mkdir($treeCleanupFixture, 0777, true)) fail('could not create the exact-owned tree cleanup fixture');
 register_shutdown_function(static function () use ($treeCleanupFixture): void {
     exec('rm -rf ' . escapeshellarg($treeCleanupFixture));
@@ -1513,8 +1513,8 @@ foreach ([
     }
     $ownedIdentity = $directoryIdentity($ownedTree, "exact-owned $description cleanup root");
     $cleanupFailure = null;
-    putenv('DUO_TEST_MODE=1');
-    putenv('DUO_TEST_INIT_FAIL_PHASE=owned-tree-remove-' . $phase);
+    putenv('WPRISM_TEST_MODE=1');
+    putenv('WPRISM_TEST_INIT_FAIL_PHASE=owned-tree-remove-' . $phase);
     try {
         $removeOwnedTree($ownedTree, $ownedIdentity, "exact-owned $description cleanup root");
     } catch (ReflectionException $unexpected) {
@@ -1522,8 +1522,8 @@ foreach ([
     } catch (Throwable $failure) {
         $cleanupFailure = $failure;
     } finally {
-        putenv('DUO_TEST_INIT_FAIL_PHASE');
-        putenv('DUO_TEST_MODE');
+        putenv('WPRISM_TEST_INIT_FAIL_PHASE');
+        putenv('WPRISM_TEST_MODE');
     }
     check(
         $cleanupFailure instanceof RuntimeException
@@ -1537,11 +1537,11 @@ foreach ([
                 $ownedIdentity,
                 $directoryIdentity($ownedTree, "exact-owned $description cleanup root")
             )
-            && glob($treeCleanupFixture . '/.' . $name . '.duo-init-remove-*') === [],
+            && glob($treeCleanupFixture . '/.' . $name . '.wprism-init-remove-*') === [],
         "a failed exact-owned tree $description cleanup restores its canonical authority without a hidden claim"
     );
 }
-$gitFixtureRepo = sys_get_temp_dir() . '/duo-init-git-authority-' . bin2hex(random_bytes(6));
+$gitFixtureRepo = sys_get_temp_dir() . '/wprism-init-git-authority-' . bin2hex(random_bytes(6));
 if (!mkdir($gitFixtureRepo . '/.git', 0777, true)) fail('could not create the Git authority fixture');
 register_shutdown_function(static function () use ($gitFixtureRepo): void {
     exec('rm -rf ' . escapeshellarg($gitFixtureRepo));
@@ -1596,7 +1596,7 @@ check(
 // directly. The live post-Git marker below invokes confirm() through that
 // catch; this ordering pin proves its failure branch sets retention before the
 // journal and both lock teardown paths can run.
-$precommitRetentionMessage = 'duo: init retained its sealed recovery journal and capture lock because pre-COMMIT compensation could not safely complete:';
+$precommitRetentionMessage = 'wprism: init retained its sealed recovery journal and capture lock because pre-COMMIT compensation could not safely complete:';
 $precommitRetentionMessageAt = strpos($confirmationSource, $precommitRetentionMessage);
 $precommitRetainAt = $precommitRetentionMessageAt === false
     ? false
@@ -1620,17 +1620,17 @@ check(
         && $precommitThrowAt < $attemptVerificationAt
         && $precommitThrowAt < $catchLockTeardownAt
         && $precommitThrowAt < $finallyLockTeardownAt
-        && str_contains($liveHarness, 'DUO_TEST_INIT_FAIL_AFTER_GIT_CREATE=1')
+        && str_contains($liveHarness, 'WPRISM_TEST_INIT_FAIL_AFTER_GIT_CREATE=1')
         && str_contains($liveHarness, 'post-Git-create failure left repository artifacts'),
     'a pre-COMMIT cleanup failure retains the sealed journal and capture lock before either teardown; the live post-Git marker covers the enclosing confirm catch'
 );
 
-// DUO-3427: the same asymmetry family, one authority over. Every ownership
+// issue #3427: the same asymmetry family, one authority over. Every ownership
 // manifest a recovery consumes has made a round trip through the sealed init
 // journal, and Canon::encode() ksorts object keys — so a journaled entry comes
 // back {dev,ino,path,sha256,type} while tree_ownership_manifest() builds
 // {type,dev,ino,sha256,path}. PHP's `===` on arrays is order-sensitive, so
-// Publish::assert_owned_tree() reported "changed after Duo created it" for a
+// Publish::assert_owned_tree() reported "changed after WPrism created it" for a
 // tree nothing had touched, and it did so on EVERY fresh-process rollback:
 // the strict first-publication recovery path could only refuse. Its two
 // siblings — the proposal-time gate above and remove_owned_file_initial()'s
@@ -1638,21 +1638,21 @@ check(
 // Exercised against the real predicate with a real tree and a real journal
 // round trip, offline.
 require_once __DIR__ . '/../../../../agent/src/Publication/Publish.php';
-$manifestFixture = sys_get_temp_dir() . '/duo-init-manifest-order-' . bin2hex(random_bytes(6));
+$manifestFixture = sys_get_temp_dir() . '/wprism-init-manifest-order-' . bin2hex(random_bytes(6));
 if (!mkdir($manifestFixture . '/posts/page', 0777, true)) fail('could not create the manifest-order fixture');
 register_shutdown_function(static function () use ($manifestFixture): void {
     exec('rm -rf ' . escapeshellarg($manifestFixture));
 });
 file_put_contents($manifestFixture . '/posts/page/hello.md', "hello\n");
-$liveManifest = \Duo\Publish::tree_ownership_manifest($manifestFixture);
-$sealedManifest = \Duo\Canon::decode(\Duo\Canon::encode($liveManifest));
+$liveManifest = \WPrism\Publish::tree_ownership_manifest($manifestFixture);
+$sealedManifest = \WPrism\Canon::decode(\WPrism\Canon::encode($liveManifest));
 check(
-    $liveManifest !== $sealedManifest && \Duo\Canon::encode($liveManifest) === \Duo\Canon::encode($sealedManifest),
+    $liveManifest !== $sealedManifest && \WPrism\Canon::encode($liveManifest) === \WPrism\Canon::encode($sealedManifest),
     'a journaled ownership manifest really does come back with reordered keys, so the comparison is the whole question'
 );
 $ownedTreeVerdict = static function (array $manifest) use ($manifestFixture): ?string {
     try {
-        \Duo\Publish::assert_owned_tree($manifestFixture, $manifest, 'initial capture staging');
+        \WPrism\Publish::assert_owned_tree($manifestFixture, $manifest, 'initial capture staging');
         return null;
     } catch (\Throwable $refusal) {
         return $refusal->getMessage();
@@ -1665,16 +1665,16 @@ check(
 $changedManifest = $sealedManifest;
 $changedManifest['entries'][0]['ino'] = '999999999999';
 check(
-    $ownedTreeVerdict($changedManifest) === 'duo: initial capture staging changed after Duo created it; preserving it',
+    $ownedTreeVerdict($changedManifest) === 'wprism: initial capture staging changed after WPrism created it; preserving it',
     'a re-inoded entry is still refused and preserved'
 );
 file_put_contents($manifestFixture . '/posts/page/unmanifested.md', "added\n");
 check(
-    $ownedTreeVerdict($sealedManifest) === 'duo: initial capture staging changed after Duo created it; preserving it',
+    $ownedTreeVerdict($sealedManifest) === 'wprism: initial capture staging changed after WPrism created it; preserving it',
     'an entry absent from the sealed manifest is still refused and preserved'
 );
 
-// DUO-3427: the same asymmetry a third time, on the capture-record temporaries.
+// issue #3427: the same asymmetry a third time, on the capture-record temporaries.
 // Publish::remove_matching_record_temps()'s docblock states the rule — resolve
 // only a temp that is a hard link to its sealed next slot carrying that exact
 // record, never sweep "by name pattern" — and the proposal gate swept by name
@@ -1684,7 +1684,7 @@ check(
 // manual archive-and-recreate instead, and the confirmation that would have
 // rolled it back completely was never offered. Exercised against the real
 // shared predicate with real inodes, offline.
-$tempFixture = sys_get_temp_dir() . '/duo-init-record-temp-' . bin2hex(random_bytes(6));
+$tempFixture = sys_get_temp_dir() . '/wprism-init-record-temp-' . bin2hex(random_bytes(6));
 if (!mkdir($tempFixture, 0777, true)) fail('could not create the record-temp fixture');
 register_shutdown_function(static function () use ($tempFixture): void {
     exec('rm -rf ' . escapeshellarg($tempFixture));
@@ -1692,34 +1692,34 @@ register_shutdown_function(static function () use ($tempFixture): void {
 $tempStateDir = $tempFixture . '/state';
 $sealIntent = static function (string $candidate): string {
     $record = [
-        'format' => 'duo-capture-intent/v1',
+        'format' => 'wprism-capture-intent/v1',
         'id' => bin2hex(random_bytes(16)),
         'phase' => 'prepared',
         'candidate_sha256' => $candidate,
         'previous_sha256' => hash('sha256', ''),
         'created_at' => gmdate('c'),
     ];
-    $record['record_sha256'] = hash('sha256', \Duo\Canon::encode($record));
-    return \Duo\Canon::encode($record);
+    $record['record_sha256'] = hash('sha256', \WPrism\Canon::encode($record));
+    return \WPrism\Canon::encode($record);
 };
 // The literal fixed slot name, as the site-repo ignore template pins it.
-$intentNext = \Duo\Publish::intent_path($tempStateDir) . '.next';
-$boundTemp = \Duo\Publish::intent_path($tempStateDir) . '.tmp.4242.' . bin2hex(random_bytes(6));
+$intentNext = \WPrism\Publish::intent_path($tempStateDir) . '.next';
+$boundTemp = \WPrism\Publish::intent_path($tempStateDir) . '.tmp.4242.' . bin2hex(random_bytes(6));
 file_put_contents($boundTemp, $sealIntent(str_repeat('a', 64)));
 if (!link($boundTemp, $intentNext)) fail('could not hard link the record-temp fixture');
 check(
-    \Duo\Publish::record_temp_is_resolvable($tempStateDir, basename($boundTemp)) === true,
+    \WPrism\Publish::record_temp_is_resolvable($tempStateDir, basename($boundTemp)) === true,
     'a record temp hard-linked to its sealed next slot is resolvable, exactly as the removal authority resolves it'
 );
-$strayTemp = \Duo\Publish::intent_path($tempStateDir) . '.tmp.4243.' . bin2hex(random_bytes(6));
+$strayTemp = \WPrism\Publish::intent_path($tempStateDir) . '.tmp.4243.' . bin2hex(random_bytes(6));
 file_put_contents($strayTemp, $sealIntent(str_repeat('b', 64)));
 check(
-    \Duo\Publish::record_temp_is_resolvable($tempStateDir, basename($strayTemp)) === false,
+    \WPrism\Publish::record_temp_is_resolvable($tempStateDir, basename($strayTemp)) === false,
     'a record temp on its own inode is not resolvable and still means manual recovery'
 );
 unlink($intentNext);
 check(
-    \Duo\Publish::record_temp_is_resolvable($tempStateDir, basename($boundTemp)) === false,
+    \WPrism\Publish::record_temp_is_resolvable($tempStateDir, basename($boundTemp)) === false,
     'a record temp with no sealed next slot at all is not resolvable — the record-create-temp crash window is unchanged'
 );
 check(
@@ -1728,14 +1728,14 @@ check(
     'the proposal gate resolves record temporaries through the authority\'s own binding predicate, not a name sweep'
 );
 
-// DUO-3427: committed-init FINALIZATION re-proved the published site.duo.json
+// issue #3427: committed-init FINALIZATION re-proved the published site.wprism.json
 // by comparing its BYTES to a re-encoding of the journal's copy of the
 // confirmed config — and those bytes can never agree. The file is written from
 // the LIVE proposal, where an empty policy map is a JSON object; the journal
 // stores the proposal as JSON and Canon::decode() reads it back with assoc
 // arrays, so `{}` returns as `[]`. Every core-only site has at least one empty
 // policy map, so the crash-after-COMMIT path this function exists for refused
-// unconditionally. Byte-exactness now rides on the publication identity Duo
+// unconditionally. Byte-exactness now rides on the publication identity WPrism
 // recorded (content digest folded with dev/ino, a string the journal carries
 // intact) and the proposal binding is structural, both sides normalized
 // through one decode/encode. The collapse itself is demonstrated here, on the
@@ -1750,32 +1750,32 @@ $liveInitConfig = [
         'taxonomies' => ['category', 'post_tag'],
         'term_meta' => new stdClass(),
     ],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ];
-$committedBytes = \Duo\Canon::encode($liveInitConfig);
-$journaledConfig = \Duo\Canon::decode(
-    \Duo\Canon::encode(['proposal' => ['state' => ['config' => $liveInitConfig]]])
+$committedBytes = \WPrism\Canon::encode($liveInitConfig);
+$journaledConfig = \WPrism\Canon::decode(
+    \WPrism\Canon::encode(['proposal' => ['state' => ['config' => $liveInitConfig]]])
 )['proposal']['state']['config'];
 check(
     str_contains($committedBytes, '"options": {}')
-        && \Duo\Canon::encode($journaledConfig) !== $committedBytes,
+        && \WPrism\Canon::encode($journaledConfig) !== $committedBytes,
     'the sealed journal cannot round-trip an empty policy map, so re-encoding its config never reproduces the committed bytes'
 );
 check(
-    \Duo\Canon::encode(\Duo\Canon::decode($committedBytes)) === \Duo\Canon::encode($journaledConfig),
+    \WPrism\Canon::encode(\WPrism\Canon::decode($committedBytes)) === \WPrism\Canon::encode($journaledConfig),
     'normalizing both sides through one decode/encode makes the proposal binding answerable'
 );
 check(
     str_contains($recoverySource, 'Canon::encode(Canon::decode(Canon::read_file($siteFile))) !== Canon::encode($expectedConfig)')
         && str_contains($recoverySource, "\$sitePublication['published'],")
         && !str_contains($recoverySource, 'Canon::read_file($siteFile) !== Canon::encode($expectedConfig)'),
-    'committed-init finalization proves site.duo.json byte-exactly through its journaled publication identity, and structurally against the confirmed proposal'
+    'committed-init finalization proves site.wprism.json byte-exactly through its journaled publication identity, and structurally against the confirmed proposal'
 );
-// DUO-3427: the second unconditional gate on the same path. The finalization
+// issue #3427: the second unconditional gate on the same path. The finalization
 // compared the compiled payload's `code_revision` to the proposal's
 // `source_revision` — a digest of the LIVE SOURCE inventory, verified against
 // that source in capture_code(), computed over a different root from different
-// inputs (the payload excludes Duo's own loader, which the live suite asserts
+// inputs (the payload excludes WPrism's own loader, which the live suite asserts
 // by name). They are never equal, so this refused every committed
 // finalization on arithmetic. The payload is now proved against the journaled
 // publication identity of the code root, beside the completed_code_mismatch()
@@ -1791,12 +1791,12 @@ check(
 // still refuses when the target's code changed between proposal and capture.
 check(
     str_contains($codeBaselineSource, "if (!hash_equals((string) (\$code['source_revision'] ?? ''), \$revision)) {")
-        && str_contains($codeBaselineSource, 'duo: code changed after proposal review; rerun init and review the new digest'),
+        && str_contains($codeBaselineSource, 'wprism: code changed after proposal review; rerun init and review the new digest'),
     'the live source digest is still enforced where it belongs, against the source it describes'
 );
 
-// DUO-3427: a rolled-back init must leave ZERO Duo ledger rows — a non-pristine
-// ledger is `existing_duo_ledger`, so residue is the difference between a
+// issue #3427: a rolled-back init must leave ZERO WPrism ledger rows — a non-pristine
+// ledger is `existing_wprism_ledger`, so residue is the difference between a
 // retryable environment and one that refuses the next init. Capture's test-only
 // `capture_test_phase` marker is committed outside the consistent snapshot on
 // purpose (its reader must see it while the writer is paused inside the held
@@ -1804,7 +1804,7 @@ check(
 // `finally` does not run through a SIGKILL, and #151 later pointed init's
 // SIGKILL fault seams at this same path. Every killed init committed one row
 // nothing would read and no rollback would clear. It is now written only when
-// a READING seam is requested — the bounded pause, or DUO-3430's
+// a READING seam is requested — the bounded pause, or issue #3430's
 // wait-for-release gate, whose controller (regress_capture_concurrency) polls
 // this exact marker cross-process; a run requesting neither seam writes no
 // marker. Pinned as an ordering, because the behaviour itself needs a
@@ -1824,7 +1824,7 @@ check(
     'the test-only capture phase marker is written only for a reading seam — pause or wait-for-release — so a killed init leaves no ledger residue'
 );
 
-// DUO-3421: the interrupted-init compensation runs over the same artifacts
+// issue #3421: the interrupted-init compensation runs over the same artifacts
 // twice by design — Init::confirm()'s catch compensates its own publications,
 // then re-enters recover_interrupted_attempt() to PROVE the rollback from the
 // sealed journal. Every branch of that proof is presence-guarded and therefore
@@ -1832,34 +1832,34 @@ check(
 // just deleted and refused; the caller turned that into a retained journal,
 // a retained lock, and an unclassified refusal where the contract promises a
 // clean rollback.
-$compensatedFixture = sys_get_temp_dir() . '/duo-init-compensated-' . bin2hex(random_bytes(6));
+$compensatedFixture = sys_get_temp_dir() . '/wprism-init-compensated-' . bin2hex(random_bytes(6));
 if (!mkdir($compensatedFixture, 0777, true)) fail('could not create the compensation fixture');
 register_shutdown_function(static function () use ($compensatedFixture): void {
     exec('rm -rf ' . escapeshellarg($compensatedFixture));
 });
-$absentFile = $compensatedFixture . '/site.duo.json';
+$absentFile = $compensatedFixture . '/site.wprism.json';
 $presentFile = $compensatedFixture . '/.gitignore';
 file_put_contents($presentFile, "published\n");
 check(
-    \Duo\InitOwnedArtifacts::owned_file_already_compensated(
+    \WPrism\InitOwnedArtifacts::owned_file_already_compensated(
         $absentFile,
         ['previous' => null, 'published' => 'x']
     ) === true,
     'a deleted owned file with no prior version to restore reads as already compensated'
 );
 check(
-    \Duo\InitOwnedArtifacts::owned_file_already_compensated(
+    \WPrism\InitOwnedArtifacts::owned_file_already_compensated(
         $absentFile,
         ['previous' => "prior\n", 'published' => 'x']
     ) === false,
     'a deleted owned file whose record carries a prior version is still a compensation to perform'
 );
 check(
-    \Duo\InitOwnedArtifacts::owned_file_already_compensated(
+    \WPrism\InitOwnedArtifacts::owned_file_already_compensated(
         $presentFile,
         ['previous' => null, 'published' => 'x']
     ) === false
-        && \Duo\InitOwnedArtifacts::owned_file_already_compensated(
+        && \WPrism\InitOwnedArtifacts::owned_file_already_compensated(
             $presentFile,
             ['previous' => "prior\n", 'published' => 'x']
         ) === false,
@@ -1869,7 +1869,7 @@ check(
 // catch restores it before the proof pass; the restored bytes must read as
 // already compensated, or every failed init on a seed retains its journal.
 check(
-    \Duo\InitOwnedArtifacts::owned_file_already_compensated(
+    \WPrism\InitOwnedArtifacts::owned_file_already_compensated(
         $presentFile,
         ['previous' => "published\n", 'published' => 'x']
     ) === true,
@@ -1881,14 +1881,14 @@ check(
     'all owned-file publications — site config, Git LFS config, attributes, and ignores — carry the same idempotence guard as their sibling branches'
 );
 
-// DUO-3421: both owned-file publications are strictly write-ahead — the plan,
+// issue #3421: both owned-file publications are strictly write-ahead — the plan,
 // carrying the previous bytes, is journaled BEFORE the path is touched — so an
 // artifact that is present while the journal holds no plan for it predates the
 // attempt and is none of recovery's business. Refusing it made every ordinary
 // pre-existing .gitignore (i.e. every existing Git worktree, which is what the
 // live harness sets up by name) an unprovable ownership situation and demanded
-// manual recovery for a file Duo had never opened.
-$gitignoreFixture = sys_get_temp_dir() . '/duo-init-unbound-' . bin2hex(random_bytes(6));
+// manual recovery for a file WPrism had never opened.
+$gitignoreFixture = sys_get_temp_dir() . '/wprism-init-unbound-' . bin2hex(random_bytes(6));
 if (!mkdir($gitignoreFixture, 0777, true)) fail('could not create the pre-existing-artifact fixture');
 register_shutdown_function(static function () use ($gitignoreFixture): void {
     exec('rm -rf ' . escapeshellarg($gitignoreFixture));
@@ -1898,7 +1898,7 @@ check(
     $recoveryReason($gitignoreFixture, ['owned' => []]) === null,
     'a pre-existing .gitignore with no journaled plan leaves the interrupted attempt automatically recoverable'
 );
-file_put_contents($gitignoreFixture . '/site.duo.json', "{}\n");
+file_put_contents($gitignoreFixture . '/site.wprism.json', "{}\n");
 check(
     $recoveryReason($gitignoreFixture, ['owned' => []]) === null,
     'a pre-existing adoption seed with no journaled plan is likewise not this attempt to prove'
@@ -1910,7 +1910,7 @@ check(
         === 'the sealed attempt has a non-regular .gitignore boundary',
     'a non-regular owned-file boundary is still non-confirmable'
 );
-// DUO-3421: the proposal blocker and the recovery-time refusal describe the
+// issue #3421: the proposal blocker and the recovery-time refusal describe the
 // SAME artifact, and the harness (like both pins above) greps the proposal's
 // words. The proposal said "partial code staging root" while every sibling
 // message, the recovery refusal it precedes, and every pin said "tree", so the
@@ -1923,32 +1923,32 @@ check(
     'the proposal blockers and the recovery refusals name the partial code and state staging trees identically'
 );
 check(
-    !str_contains($recoverySource, 'unbound site.duo.json')
+    !str_contains($recoverySource, 'unbound site.wprism.json')
         && !str_contains($recoverySource, 'unbound .gitignore')
         && substr_count($recoverySource, "is_array(\$owned['site_plan'] ?? null)") >= 1,
     'neither owned-file arm refuses an artifact the journal never planned; both require the plan they compensate against'
 );
 
-// DUO-3421: the pre-COMMIT rollback is a SUCCESSFUL outcome delivered as a
+// issue #3421: the pre-COMMIT rollback is a SUCCESSFUL outcome delivered as a
 // non-zero exit — the interrupted attempt was proven and undone, and the
 // operator simply reruns. Thrown as a bare RuntimeException on a command that
 // is rightly absent from Cli::PUBLIC_REFUSAL_COMMANDS, it reached JSON callers
 // as "init refused at an unclassified safety gate" with details_redacted:
-// DUO-3398's shape on the recovery path. It has a reviewable shape, so per
-// DUO-3399 it carries one.
+// issue #3398's shape on the recovery path. It has a reviewable shape, so per
+// issue #3399 it carries one.
 require_once __DIR__ . '/../../../../agent/src/Kernel/CommandRefusal.php';
 check(
     str_contains($initCompensationSource, "throw new CommandRefusalException(\n                    'interrupted_init_rolled_back',")
         && !str_contains(
             $initCompensationSource,
-            "throw new \\RuntimeException(\n                    'duo: interrupted pre-COMMIT init was safely rolled back"
+            "throw new \\RuntimeException(\n                    'wprism: interrupted pre-COMMIT init was safely rolled back"
         ),
     'the proven pre-COMMIT rollback answers with a reviewed reason code, not the unclassified arm'
 );
-$rolledBack = new \Duo\CommandRefusalException(
+$rolledBack = new \WPrism\CommandRefusalException(
     'interrupted_init_rolled_back',
-    'duo: interrupted pre-COMMIT init was safely rolled back; rerun duo init and confirm the fresh proposal',
-    'rerun duo init and confirm the fresh proposal it prints'
+    'wprism: interrupted pre-COMMIT init was safely rolled back; rerun wprism init and confirm the fresh proposal',
+    'rerun wprism init and confirm the fresh proposal it prints'
 );
 check(
     $rolledBack->reasonCode === 'interrupted_init_rolled_back'
@@ -1957,18 +1957,18 @@ check(
     'the rollback outcome survives the refusal class own sensitivity screen as a public answer'
 );
 
-// DUO-3421: init must be able to STAGE the payload it is certified to manage.
+// issue #3421: init must be able to STAGE the payload it is certified to manage.
 // The staging walk applied safe_component()'s identifier charset — the one for
-// slugs Duo selects — to directory names the SITE owns, so WooCommerce
-// 11.0.0's assets/client/blocks/@woocommerce made `duo init` refuse its own
+// slugs WPrism selects — to directory names the SITE owns, so WooCommerce
+// 11.0.0's assets/client/blocks/@woocommerce made `wprism init` refuse its own
 // golden path after the journal and lock existed. Staging components now use
 // the traversal/control-byte predicate the code half applies to these exact
 // paths for the rest of their lifecycle (Code::safe_relative()).
 require_once __DIR__ . '/../../../../agent/src/Code/Code.php';
 require_once __DIR__ . '/../../../../agent/src/Init/InitCodeInventory.php';
 require_once __DIR__ . '/../../../../agent/src/Init/InitCodeBaseline.php';
-$stageComponent = (new ReflectionClass(\Duo\InitCodeBaseline::class))->getMethod('safe_stage_component');
-$codeComponent = (new ReflectionClass(\Duo\Code::class))->getMethod('safe_component');
+$stageComponent = (new ReflectionClass(\WPrism\InitCodeBaseline::class))->getMethod('safe_stage_component');
+$codeComponent = (new ReflectionClass(\WPrism\Code::class))->getMethod('safe_component');
 $ecosystemNames = [
     '@woocommerce' => true,
     'Inter-VariableFont_slnt,wght.woff2' => true,
@@ -1998,8 +1998,8 @@ check(
     'init stages exactly the components the code half will carry afterwards — one predicate, no init-only refusal'
 );
 check(
-    \Duo\InitCodeInventory::safeIdentifier('@woocommerce') === false
-        && \Duo\InitCodeInventory::safeIdentifier('woocommerce') === true
+    \WPrism\InitCodeInventory::safeIdentifier('@woocommerce') === false
+        && \WPrism\InitCodeInventory::safeIdentifier('woocommerce') === true
         && substr_count($codeBaselineSource, 'self::safe_stage_component($part)') === 1
         && substr_count($codeInventorySource, 'self::safeIdentifier($component)') === 1
         && substr_count($codeInventorySource, 'self::safeIdentifier($theme)') === 1,
@@ -2042,31 +2042,31 @@ final class InitRiskWpdb {
     }
 }
 
-$secretFixture = tempnam(sys_get_temp_dir(), 'duo-init-long-secret-');
+$secretFixture = tempnam(sys_get_temp_dir(), 'wprism-init-long-secret-');
 if (!is_string($secretFixture)) fail('could not create long-secret scanner fixture');
 file_put_contents($secretFixture, "\n" . 'sk_live_' . str_repeat('A', 40000));
-check(\Duo\InitCodeInventory::secretLabel($secretFixture) === 'stripe key', 'overlong boundary-less token is refused during streaming scan');
+check(\WPrism\InitCodeInventory::secretLabel($secretFixture) === 'stripe key', 'overlong boundary-less token is refused during streaming scan');
 unlink($secretFixture);
-$jwtFixture = tempnam(sys_get_temp_dir(), 'duo-init-jwt-shape-');
+$jwtFixture = tempnam(sys_get_temp_dir(), 'wprism-init-jwt-shape-');
 if (!is_string($jwtFixture)) fail('could not create JWT scanner fixture');
 file_put_contents($jwtFixture, "\n" . 'eyJ' . str_repeat('A', 9000));
-check(\Duo\InitCodeInventory::secretLabel($jwtFixture) === null, 'bare bundled base64url payload is not mislabeled as a JWT');
+check(\WPrism\InitCodeInventory::secretLabel($jwtFixture) === null, 'bare bundled base64url payload is not mislabeled as a JWT');
 file_put_contents($jwtFixture, "\n" . 'eyJ' . str_repeat('A', 700) . '.eyJ' . str_repeat('B', 24) . '.signature');
-check(\Duo\InitCodeInventory::secretLabel($jwtFixture) === 'jwt', 'complete long JWT is still labelled jwt by the scanner');
+check(\WPrism\InitCodeInventory::secretLabel($jwtFixture) === 'jwt', 'complete long JWT is still labelled jwt by the scanner');
 unlink($jwtFixture);
 // T7 grind A4: Yoast SEO ships (a) a JOSE bundle whose format check carries
 // the bare string `-----BEGIN PRIVATE KEY-----` with no key material, and
 // (b) an OIDC software statement — a complete, public JWT — as a PHP constant.
-// The old scan refused `duo init` on every Yoast site for both. A private key
+// The old scan refused `wprism init` on every Yoast site for both. A private key
 // is the marker FOLLOWED BY key material; a JWT inside shipped code is an
 // advisory, named and redacted, never a blocker.
-$scanRoot = sys_get_temp_dir() . '/duo-init-scan-' . bin2hex(random_bytes(4));
+$scanRoot = sys_get_temp_dir() . '/wprism-init-scan-' . bin2hex(random_bytes(4));
 mkdir($scanRoot . '/plugins/acme', 0777, true);
 file_put_contents($scanRoot . '/plugins/acme/bundle.js', 'if(!e.includes("-----BEGIN PRIVATE KEY-----"))throw new TypeError("pkcs8 must be PKCS#8 formatted string");');
 file_put_contents($scanRoot . '/plugins/acme/statement.php', "<?php\nconst SOFTWARE_STATEMENT = '" . 'eyJ' . str_repeat('A', 80) . '.eyJ' . str_repeat('B', 80) . '.' . str_repeat('C', 40) . "';\n");
 $scanBlockers = [];
 $scanAdvisories = [];
-$scanned = \Duo\InitCodeInventory::inventory(['plugins' => $scanRoot . '/plugins'], ['plugins' => ['acme']], $scanBlockers, $scanAdvisories);
+$scanned = \WPrism\InitCodeInventory::inventory(['plugins' => $scanRoot . '/plugins'], ['plugins' => ['acme']], $scanBlockers, $scanAdvisories);
 check(count($scanned['files']) === 2 && $scanBlockers === [], 'a bare PEM marker in a JS bundle and a JWT constant in PHP block nothing');
 check(
     count($scanAdvisories) === 1
@@ -2078,7 +2078,7 @@ check(
 file_put_contents($scanRoot . '/plugins/acme/key.pem', "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7abcdefghijkl\n-----END PRIVATE KEY-----\n");
 $scanBlockers = [];
 $scanAdvisories = [];
-\Duo\InitCodeInventory::inventory(['plugins' => $scanRoot . '/plugins'], ['plugins' => ['acme']], $scanBlockers, $scanAdvisories);
+\WPrism\InitCodeInventory::inventory(['plugins' => $scanRoot . '/plugins'], ['plugins' => ['acme']], $scanBlockers, $scanAdvisories);
 check(
     count($scanBlockers) === 1 && $scanBlockers[0]['code'] === 'credential_bearing_code_file'
         && $scanBlockers[0]['extension'] === 'plugins/acme/key.pem'
@@ -2086,11 +2086,11 @@ check(
     'a PEM marker followed by key material still blocks as a private key'
 );
 $scanBlockers = [];
-\Duo\InitCodeInventory::inventory(['plugins' => $scanRoot . '/plugins'], ['plugins' => ['acme']], $scanBlockers);
+\WPrism\InitCodeInventory::inventory(['plugins' => $scanRoot . '/plugins'], ['plugins' => ['acme']], $scanBlockers);
 check(count($scanBlockers) === 1, 'the confirm-time re-walk (no advisories channel) sees the same one blocker and never a JWT');
 check(
-    \Duo\InitCodeInventory::blockingSecretLabel($scanRoot . '/plugins/acme/statement.php') === null
-        && \Duo\InitCodeInventory::blockingSecretLabel($scanRoot . '/plugins/acme/key.pem') === 'private key',
+    \WPrism\InitCodeInventory::blockingSecretLabel($scanRoot . '/plugins/acme/statement.php') === null
+        && \WPrism\InitCodeInventory::blockingSecretLabel($scanRoot . '/plugins/acme/key.pem') === 'private key',
     'blockingSecretLabel() — the staged-code gate\'s reading — draws the same line: a JWT is advisory, a private key blocks'
 );
 foreach (['bundle.js', 'statement.php', 'key.pem'] as $scanFile) {
@@ -2104,7 +2104,7 @@ $fakeWpdb = new InitRiskWpdb();
 $fakeWpdb->oversizedOptions = 2;
 $fakeWpdb->oversizedUserMeta = 3;
 $GLOBALS['wpdb'] = $fakeWpdb;
-$boundedRisk = \Duo\InitSiteProbe::risk();
+$boundedRisk = \WPrism\InitSiteProbe::risk();
 check(($boundedRisk['oversized'] ?? null) === ['options' => 2, 'user_meta' => 3], 'risk probe reports only redacted oversized omission counts');
 check(($boundedRisk['truncated'] ?? false) === true, 'oversized values make risk readback explicitly incomplete');
 
@@ -2117,13 +2117,13 @@ for ($i = 1; $i <= 130; $i++) {
         'option_value' => str_repeat('O', 65536),
     ];
 }
-$byteBoundedRisk = \Duo\InitSiteProbe::risk();
+$byteBoundedRisk = \WPrism\InitSiteProbe::risk();
 check(($byteBoundedRisk['scanned']['options'] ?? null) === 128, 'near-limit values stop at the deterministic 8 MiB surface budget');
 check(($byteBoundedRisk['truncated'] ?? false) === true, 'byte-budget omission is reported as incomplete');
 
 $fakeWpdb->failOptions = true;
 try {
-    \Duo\InitSiteProbe::risk();
+    \WPrism\InitSiteProbe::risk();
     fail('failed risk query was reported as clean');
 } catch (ReflectionException $unexpected) {
     throw $unexpected;
@@ -2134,116 +2134,116 @@ try {
 $GLOBALS['wpdb'] = $originalWpdb;
 
 // ---------------------------------------------------------------------------
-// DUO-3497: the first-run freshness probe, exercised against real rows.
+// issue #3497: the first-run freshness probe, exercised against real rows.
 //
-// A site booted with DUO_JOURNAL on refused `duo init` with
-// `existing_duo_ledger` — "remove the abandoned baseline after review" — while
+// A site booted with WPRISM_JOURNAL on refused `wprism init` with
+// `existing_wprism_ledger` — "remove the abandoned baseline after review" — while
 // holding nothing but observation rows: the journal's first flush calls
 // Ledger::ensure(), which creates all four tables (agent/src/Repository/
 // Ledger.php:81-113), and the probe counted every row in all four as ledger
-// identity. The escape it did not name, `wp duo journal-reset`, then truncated
+// identity. The escape it did not name, `wp wprism journal-reset`, then truncated
 // the only record of the options no adapter declares, so the post-init
-// `duo pending` queue came back empty with those writes still in the database.
+// `wprism pending` queue came back empty with those writes still in the database.
 //
-// The rows are structurally distinguishable and always were: `duo_journal` has
+// The rows are structurally distinguishable and always were: `wprism_journal` has
 // its own table, its own append-only shape (t/op/tbl/item/surface/actor/caps/
 // hook/proposal — no uuid, no content_hash, no key), and exactly one writer in
 // the tree, Journal::flush() (agent/src/Repository/Journal.php:109-113), whose
-// observer refuses every duo_-prefixed table (`:67`). So it is counted apart.
+// observer refuses every wprism_-prefixed table (`:67`). So it is counted apart.
 //
 // This is the shared harness (sandbox/tests/lib/FakeWpdb.php), not the bespoke
 // InitRiskWpdb above: the probe's whole question is which physical tables exist
 // and how many rows each holds, and a fake that holds rows answers it without
 // transcribing the SQL.
 require_once __DIR__ . '/../../lib/FakeWpdb.php';
-$ledgerWpdb = \DuoTest\FakeWpdb::install();
+$ledgerWpdb = \WPrismTest\FakeWpdb::install();
 $journalRow = static fn(int $id, string $item, string $surface, string $proposal): array => [
     'id' => $id, 't' => '2026-08-21 00:00:0' . $id, 'op' => 'UPDATE', 'tbl' => 'options',
     'item' => $item, 'surface' => $surface, 'actor' => 0, 'caps' => '', 'hook' => '',
     'proposal' => $proposal,
 ];
-$ledgerWpdb->seedTable('wp_duo_journal', [
+$ledgerWpdb->seedTable('wp_wprism_journal', [
     $journalRow(1, 'acme_license_key', 'admin', 'authored'),
     $journalRow(2, 'acme_sync_cursor', 'cron', 'runtime'),
     $journalRow(3, 'acme_license_key', 'front', 'runtime'),
 ]);
-$ledgerWpdb->seedTable('wp_duo_kv', []);
-$ledgerWpdb->seedTable('wp_duo_map', []);
-$ledgerWpdb->seedTable('wp_duo_state', []);
-$journalOnly = \Duo\InitSiteProbe::ledger();
+$ledgerWpdb->seedTable('wp_wprism_kv', []);
+$ledgerWpdb->seedTable('wp_wprism_map', []);
+$ledgerWpdb->seedTable('wp_wprism_state', []);
+$journalOnly = \WPrism\InitSiteProbe::ledger();
 check(
     $journalOnly === ['tables' => 4, 'rows' => 0, 'observations' => 3],
     'journal-only state reports zero ledger rows, so init is not blocked, and reports the observations separately'
 );
 // The two halves of the blocker predicate, on the same environment: `rows` is
-// what `existing_duo_ledger` reads, `observations` is what the advisory reads.
+// what `existing_wprism_ledger` reads, `observations` is what the advisory reads.
 check(
     $journalOnly['rows'] === 0 && $journalOnly['observations'] > 0,
-    'a DUO_JOURNAL-from-boot environment is pristine by the ledger question and non-empty by the evidence question'
+    'a WPRISM_JOURNAL-from-boot environment is pristine by the ledger question and non-empty by the evidence question'
 );
 foreach ([
-    ['wp_duo_kv', [['k' => 'applied_revision', 'v' => str_repeat('9', 40)]], 'a captured baseline revision'],
-    ['wp_duo_map', [['uuid' => str_repeat('a', 36), 'entity_type' => 'post', 'id_kind' => 'post', 'local_id' => 12]], 'a durable identity mapping'],
-    ['wp_duo_state', [['uuid' => str_repeat('a', 36), 'entity_type' => 'post', 'content_hash' => str_repeat('b', 64)]], 'a content hash at last sync'],
+    ['wp_wprism_kv', [['k' => 'applied_revision', 'v' => str_repeat('9', 40)]], 'a captured baseline revision'],
+    ['wp_wprism_map', [['uuid' => str_repeat('a', 36), 'entity_type' => 'post', 'id_kind' => 'post', 'local_id' => 12]], 'a durable identity mapping'],
+    ['wp_wprism_state', [['uuid' => str_repeat('a', 36), 'entity_type' => 'post', 'content_hash' => str_repeat('b', 64)]], 'a content hash at last sync'],
 ] as [$identityTable, $identityRows, $identityLabel]) {
     $ledgerWpdb->seedTable($identityTable, $identityRows);
-    $withIdentity = \Duo\InitSiteProbe::ledger();
+    $withIdentity = \WPrism\InitSiteProbe::ledger();
     check(
         $withIdentity === ['tables' => 4, 'rows' => 1, 'observations' => 3],
         "$identityLabel still counts as a ledger row, so a genuine baseline keeps refusing init beside the same observations"
     );
     $ledgerWpdb->seedTable($identityTable, []);
 }
-// Unchanged, and the reason it must stay unchanged: an unknown duo_* table is
+// Unchanged, and the reason it must stay unchanged: an unknown wprism_* table is
 // non-pristine evidence counted WITHOUT its target-controlled name ever
 // reaching SQL, so it never gets a COUNT(*) of its own.
-$ledgerWpdb->seedTable('wp_duo_shadow', [['id' => 1]]);
+$ledgerWpdb->seedTable('wp_wprism_shadow', [['id' => 1]]);
 $ledgerWpdb->resetLog();
-$withUnknown = \Duo\InitSiteProbe::ledger();
+$withUnknown = \WPrism\InitSiteProbe::ledger();
 check(
     $withUnknown === ['tables' => 5, 'rows' => 1, 'observations' => 3],
-    'an unknown duo_ table is still one unit of non-pristine ledger evidence, never an observation'
+    'an unknown wprism_ table is still one unit of non-pristine ledger evidence, never an observation'
 );
 check(
-    !str_contains(implode("\n", $ledgerWpdb->queries()), 'wp_duo_shadow'),
+    !str_contains(implode("\n", $ledgerWpdb->queries()), 'wp_wprism_shadow'),
     'the unknown table name is never interpolated into a query'
 );
 // The probe reads and never repairs: no CREATE/ALTER/DROP/TRUNCATE, and no
 // statement that could remove the evidence it just decided to keep.
 check($ledgerWpdb->ddlLog() === [], 'the freshness probe issues no DDL on the tables it inspects');
-$ledgerWpdb->seedTable('wp_duo_shadow', []);
-$ledgerWpdb->seedTable('wp_duo_journal', []);
+$ledgerWpdb->seedTable('wp_wprism_shadow', []);
+$ledgerWpdb->seedTable('wp_wprism_journal', []);
 check(
-    \Duo\InitSiteProbe::ledger() === ['tables' => 5, 'rows' => 1, 'observations' => 0],
+    \WPrism\InitSiteProbe::ledger() === ['tables' => 5, 'rows' => 1, 'observations' => 0],
     'an empty journal reports no observations while the unknown table still blocks'
 );
 // A failed COUNT is not a zero — on either side of the split. Without this the
 // split would turn an unreadable journal into "no observations to preserve".
-$ledgerWpdb = \DuoTest\FakeWpdb::install();
-$ledgerWpdb->seedTable('wp_duo_journal', [$journalRow(1, 'acme_license_key', 'admin', 'authored')]);
-$ledgerWpdb->seedTable('wp_duo_kv', []);
-$ledgerWpdb->seedTable('wp_duo_map', []);
-$ledgerWpdb->seedTable('wp_duo_state', []);
-$ledgerWpdb->failNextQuery('injected COUNT failure', 'wp_duo_journal');
+$ledgerWpdb = \WPrismTest\FakeWpdb::install();
+$ledgerWpdb->seedTable('wp_wprism_journal', [$journalRow(1, 'acme_license_key', 'admin', 'authored')]);
+$ledgerWpdb->seedTable('wp_wprism_kv', []);
+$ledgerWpdb->seedTable('wp_wprism_map', []);
+$ledgerWpdb->seedTable('wp_wprism_state', []);
+$ledgerWpdb->failNextQuery('injected COUNT failure', 'wp_wprism_journal');
 try {
-    \Duo\InitSiteProbe::ledger();
+    \WPrism\InitSiteProbe::ledger();
     fail('an unreadable journal COUNT was reported as zero observations');
 } catch (ReflectionException $unexpected) {
     throw $unexpected;
 } catch (Throwable $expected) {
     check(
-        str_contains($expected->getMessage(), 'could not verify that the existing Duo ledger is pristine'),
+        str_contains($expected->getMessage(), 'could not verify that the existing WPrism ledger is pristine'),
         'an unreadable observation COUNT fails closed with the existing pristine-check diagnostic'
     );
 }
 $GLOBALS['wpdb'] = $originalWpdb;
 
 // The wire shape is untouched: `state.ledger` still enumerates exactly `rows`
-// and `tables`, so the probe's third key never reaches `duo-init-plan/v1` and
+// and `tables`, so the probe's third key never reaches `wprism-init-plan/v1` and
 // the host's `($ledger['rows'] ?? null) === 0` readiness assertion keeps its
 // exact bytes — it now reads an identity-only count, which is the question it
 // was always asking. Nothing was added to the envelope, so no version bump and
-// no optional field: unlike DUO-3489's duo-apply-in-progress/v2, there is no
+// no optional field: unlike issue #3489's wprism-apply-in-progress/v2, there is no
 // new field whose absence could read as a claim.
 check(
     str_contains($plannerSource, "'ledger' => ['rows' => \$ledger['rows'], 'tables' => \$ledger['tables']],")
@@ -2268,8 +2268,8 @@ check(
     'a journal-only environment produces an advisory rather than a blocker'
 );
 check(
-    str_contains($plannerSource, 'read them with wp duo journal-report and expect them in the post-init duo pending review queue')
-        && str_contains($plannerSource, 'wp duo journal-reset would destroy the only record of writes no adapter declares'),
+    str_contains($plannerSource, 'read them with wp wprism journal-report and expect them in the post-init wprism pending review queue')
+        && str_contains($plannerSource, 'wp wprism journal-reset would destroy the only record of writes no adapter declares'),
     'the advisory names both the evidence command and the cost of the reset that used to be the only escape'
 );
 check(
@@ -2279,21 +2279,21 @@ check(
 );
 check(
     str_contains($plannerSource, "if (\$ledger['rows'] > 0) {")
-        && str_contains($plannerSource, "'reason' => 'Duo ledger rows already exist, so this is not an uninitialized environment',")
+        && str_contains($plannerSource, "'reason' => 'WPrism ledger rows already exist, so this is not an uninitialized environment',")
         && str_contains($plannerSource, "'remediation' => 'use ordinary recovery/capture workflows or explicitly remove the abandoned baseline after review',"),
-    'existing_duo_ledger keeps its exact reviewed bytes; the fix is what feeds it, not what it says'
+    'existing_wprism_ledger keeps its exact reviewed bytes; the fix is what feeds it, not what it says'
 );
 // The survival half of the claim. Observations only reach the post-init
-// `duo pending` queue if nothing between here and there deletes them, and
+// `wprism pending` queue if nothing between here and there deletes them, and
 // Pending's own aggregation (agent/src/Review/Pending.php:405-416) has no
 // time or init predicate — it groups every row in the table. So the invariant
 // worth pinning is tree-wide: exactly one statement anywhere in the shipped
 // runtime removes journal rows, and it is the operator's explicit reset.
 $journalDestroyers = [];
-$duoRepoRoot = (string) realpath(__DIR__ . '/../../../../');
+$wprismRepoRoot = (string) realpath(__DIR__ . '/../../../../');
 foreach (['agent', 'cli', 'recovery'] as $shippedRoot) {
     $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(
-        $duoRepoRoot . '/' . $shippedRoot,
+        $wprismRepoRoot . '/' . $shippedRoot,
         FilesystemIterator::SKIP_DOTS
     ));
     foreach ($iterator as $shippedFile) {
@@ -2301,11 +2301,11 @@ foreach (['agent', 'cli', 'recovery'] as $shippedRoot) {
             continue;
         }
         $body = (string) file_get_contents($shippedFile->getPathname());
-        if (preg_match_all('/(?:TRUNCATE|DELETE|DROP)[^;\n]*duo_journal/i', $body, $hits) === 0) {
+        if (preg_match_all('/(?:TRUNCATE|DELETE|DROP)[^;\n]*wprism_journal/i', $body, $hits) === 0) {
             continue;
         }
         $journalDestroyers[] = [
-            substr($shippedFile->getPathname(), strlen($duoRepoRoot) + 1),
+            substr($shippedFile->getPathname(), strlen($wprismRepoRoot) + 1),
             count($hits[0]),
         ];
     }
@@ -2315,12 +2315,12 @@ check(
     'the only statement in the shipped runtime that removes journal rows is journal-reset, so init and its baseline capture preserve the observations'
 );
 
-$adapterRepo = sys_get_temp_dir() . '/duo-init-adapter-permissions-' . bin2hex(random_bytes(6));
+$adapterRepo = sys_get_temp_dir() . '/wprism-init-adapter-permissions-' . bin2hex(random_bytes(6));
 mkdir($adapterRepo . '/adapters', 0777, true);
 file_put_contents($adapterRepo . '/adapters/foreign.json', "{}\n");
 chmod($adapterRepo . '/adapters', 0000);
 try {
-    \Duo\AdapterSources::discover_library($sourceLibrary, $adapterRepo);
+    \WPrism\AdapterSources::discover_library($sourceLibrary, $adapterRepo);
     fail('unreadable adapter source was silently treated as empty');
 } catch (RuntimeException $expected) {
     check(
@@ -2335,12 +2335,12 @@ try {
     rmdir($adapterRepo);
 }
 
-$nestedAdapterRepo = sys_get_temp_dir() . '/duo-init-nested-adapter-permissions-' . bin2hex(random_bytes(6));
+$nestedAdapterRepo = sys_get_temp_dir() . '/wprism-init-nested-adapter-permissions-' . bin2hex(random_bytes(6));
 mkdir($nestedAdapterRepo . '/adapters/nested', 0777, true);
 file_put_contents($nestedAdapterRepo . '/adapters/nested/hidden.json', "{}\n");
 chmod($nestedAdapterRepo . '/adapters/nested', 0000);
 try {
-    \Duo\AdapterSources::discover_library($sourceLibrary, $nestedAdapterRepo);
+    \WPrism\AdapterSources::discover_library($sourceLibrary, $nestedAdapterRepo);
     fail('unreadable nested adapter content was silently treated as empty');
 } catch (RuntimeException $expected) {
     check(
@@ -2366,7 +2366,7 @@ try {
 // selected, which row each unselected plugin gets, and that the flag relaxes
 // exactly one reason code.
 // =====================================================================
-$pluginSelection = new ReflectionMethod(\Duo\InitPlanner::class, 'plugin_selection');
+$pluginSelection = new ReflectionMethod(\WPrism\InitPlanner::class, 'plugin_selection');
 $activeFixture = ['acme-catalog/acme-catalog.php', 'wpforms-lite/wpforms.php', 'woocommerce/woocommerce.php'];
 $ownersFixture = [
     'woocommerce/woocommerce.php' => ['woocommerce'],
@@ -2387,8 +2387,8 @@ $unmanagedRow = $blocked['unsupported'][1];
 check(
     $unmanagedRow['extension'] === 'wpforms-lite/wpforms.php'
         && $unmanagedRow['remediation']
-            === 'rerun duo init --allow-unmanaged-plugins to leave it unmanaged, or install/certify an '
-                . 'adapter (duo adapter certify)',
+            === 'rerun wprism init --allow-unmanaged-plugins to leave it unmanaged, or install/certify an '
+                . 'adapter (wprism adapter certify)',
     'the blocker names the flag AND the certification verb — before T6 it named only "install or review one '
     . 'versioned adapter", which no operator could finish'
 );
@@ -2420,7 +2420,7 @@ check(
 // refuses any plugin-registered type with rows that no rule names, so
 // "leave the plugin unmanaged" must mean "its types stay local" or init
 // cannot finish (grind_adapter_walk.sh S1 found exactly that).
-$left = \Duo\InitPlanner::unmanaged_scope(
+$left = \WPrism\InitPlanner::unmanaged_scope(
     ['post', 'page', 'attachment', 'product', 'wpforms', 'wpforms-template', 'scheduled-action'],
     ['category', 'post_tag', 'product_cat', 'form_group'],
     ['attachment', 'page', 'post', 'product'],
@@ -2447,7 +2447,7 @@ check(
     'each left-local type is an advisory naming the type, its row count and the classify decision that re-manages it'
 );
 check(
-    \Duo\InitPlanner::unmanaged_scope(['wpforms'], [], [], [], [], [], ['wpforms' => 0], [])
+    \WPrism\InitPlanner::unmanaged_scope(['wpforms'], [], [], [], [], [], ['wpforms' => 0], [])
         === ['advisories' => [], 'scope' => ['post_type' => [], 'taxonomy' => []]],
     'a type with no rows is left alone: nothing is decided about a type that holds nothing yet'
 );
@@ -2459,11 +2459,11 @@ check(
 // any policy edit still does. (grind_adapter_walk.sh S2 found `certify --pin`
 // then `init` refusing existing_configuration.)
 // existing_config() spells the seed with the engine's spec version; this suite
-// runs InitPlanner without duo.php, so DUO_SPEC_VERSION is defined at the top
-// of this file from agent/duo.php's own define.
-$seedRoot = sys_get_temp_dir() . '/duo_init_seed_' . bin2hex(random_bytes(4));
+// runs InitPlanner without wprism.php, so WPRISM_SPEC_VERSION is defined at the top
+// of this file from agent/wprism.php's own define.
+$seedRoot = sys_get_temp_dir() . '/wprism_init_seed_' . bin2hex(random_bytes(4));
 mkdir($seedRoot, 0777, true);
-$existingConfig = new \ReflectionMethod(\Duo\InitPlanner::class, 'existing_config');
+$existingConfig = new \ReflectionMethod(\WPrism\InitPlanner::class, 'existing_config');
 $seedBody = [
     'manifests' => ['core'],
     'policy' => [
@@ -2471,7 +2471,7 @@ $seedBody = [
         'post_types' => ['post', 'page', 'attachment'],
         'taxonomies' => ['category', 'post_tag'],
     ],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ];
 $seedMode = static function (array $manifests, ?callable $edit = null) use ($seedRoot, $seedBody, $existingConfig): string {
     $body = $seedBody;
@@ -2479,7 +2479,7 @@ $seedMode = static function (array $manifests, ?callable $edit = null) use ($see
     if ($edit !== null) {
         $body = $edit($body);
     }
-    \Duo\Canon::write_file($seedRoot . '/site.duo.json', \Duo\Canon::encode($body));
+    \WPrism\Canon::write_file($seedRoot . '/site.wprism.json', \WPrism\Canon::encode($body));
 
     return (string) $existingConfig->invoke(null, $seedRoot)['mode'];
 };
@@ -2508,10 +2508,10 @@ check(
     'and any policy edit beside the pins still reads owned'
 );
 check($seedMode([$sitePin]) === 'owned', 'a pin set without core is not the seed either');
-@unlink($seedRoot . '/site.duo.json');
+@unlink($seedRoot . '/site.wprism.json');
 @rmdir($seedRoot);
 
-// The SCOPE half of the same set-aside (DUO-3515). Since DUO-3495 `--pin` is
+// The SCOPE half of the same set-aside (issue #3515). Since issue #3495 `--pin` is
 // the site's scope opt-in as well as its pin — AdapterCertify::adoptScope()
 // (cli/src/Adapter/AdapterCertify.php:501) writes
 // `policy.scope.<kind>.<name> = {"class":"authored"}` for every surface the
@@ -2523,13 +2523,13 @@ check($seedMode([$sitePin]) === 'owned', 'a pin set without core is not the seed
 // what this suite owns is WHICH rules existing_config() will account for, and
 // that the answer comes from the installed manifest rather than from the file
 // asserting it about itself.
-$scopeRoot = sys_get_temp_dir() . '/duo_init_seed_scope_' . bin2hex(random_bytes(4));
+$scopeRoot = sys_get_temp_dir() . '/wprism_init_seed_scope_' . bin2hex(random_bytes(4));
 mkdir($scopeRoot . '/adapters', 0777, true);
-\Duo\Canon::write_file($scopeRoot . '/adapters/acme-widgets.json', \Duo\Canon::encode([
+\WPrism\Canon::write_file($scopeRoot . '/adapters/acme-widgets.json', \WPrism\Canon::encode([
     'name' => 'acme-widgets',
     'option_autoload' => 'preserve',
     'post_types' => ['acme_log' => ['class' => 'runtime'], 'acme_widget' => ['class' => 'authored']],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'taxonomies' => ['acme_widget_kind' => new stdClass()],
 ]));
 // The digest is not the engine's here: PinResolver compares its VALUE on
@@ -2542,7 +2542,7 @@ $scopeMode = static function (array $manifests, ?array $scope) use ($scopeRoot, 
     if ($scope !== null) {
         $body['policy']['scope'] = $scope;
     }
-    \Duo\Canon::write_file($scopeRoot . '/site.duo.json', \Duo\Canon::encode($body));
+    \WPrism\Canon::write_file($scopeRoot . '/site.wprism.json', \WPrism\Canon::encode($body));
 
     return (string) $existingConfig->invoke(null, $scopeRoot)['mode'];
 };
@@ -2581,7 +2581,7 @@ check(
     $scopeMode(['core', $widgetPin], ['post_type' => ['post' => ['class' => 'authored']]]) === 'owned',
     'a rule for a type the seed already carries in its flat list is one the pin would have skipped as settled, so it too reads owned'
 );
-@unlink($scopeRoot . '/site.duo.json');
+@unlink($scopeRoot . '/site.wprism.json');
 @unlink($scopeRoot . '/adapters/acme-widgets.json');
 @rmdir($scopeRoot . '/adapters');
 @rmdir($scopeRoot);
@@ -2595,8 +2595,8 @@ $fseProfiles = ['fse' => ['status' => 'certified', 'scope' => [
     'post_types' => ['wp_block', 'wp_navigation', 'wp_template', 'wp_template_part'],
     'taxonomies' => ['wp_pattern_category', 'wp_template_part_area', 'wp_theme'],
 ]]];
-check(\Duo\InitPlanner::fse_profile_scope(false, $fseProfiles) === null, 'a classic theme proposes no FSE scope and says nothing');
-$fseSelected = \Duo\InitPlanner::fse_profile_scope(true, $fseProfiles);
+check(\WPrism\InitPlanner::fse_profile_scope(false, $fseProfiles) === null, 'a classic theme proposes no FSE scope and says nothing');
+$fseSelected = \WPrism\InitPlanner::fse_profile_scope(true, $fseProfiles);
 check(
     is_array($fseSelected)
         && $fseSelected['scope'] === $fseProfiles['fse']['scope']
@@ -2605,13 +2605,13 @@ check(
         && str_contains($fseSelected['advisory']['reason'], 'wp_template_part'),
     'a block theme proposes the certified FSE profile scope and prints which types it selected'
 );
-$fseMissing = \Duo\InitPlanner::fse_profile_scope(true, []);
+$fseMissing = \WPrism\InitPlanner::fse_profile_scope(true, []);
 check(
     is_array($fseMissing) && $fseMissing['scope'] === null
         && $fseMissing['advisory']['code'] === 'fse_profile_not_certified',
     'a block theme with no certified FSE profile proposes nothing and names the gap'
 );
-$fseUncertified = \Duo\InitPlanner::fse_profile_scope(true, ['fse' => ['status' => 'candidate', 'scope' => $fseProfiles['fse']['scope']]]);
+$fseUncertified = \WPrism\InitPlanner::fse_profile_scope(true, ['fse' => ['status' => 'candidate', 'scope' => $fseProfiles['fse']['scope']]]);
 check(
     is_array($fseUncertified) && $fseUncertified['scope'] === null
         && $fseUncertified['advisory']['code'] === 'fse_profile_not_certified',
@@ -2633,13 +2633,13 @@ $fseTargeted = ['fse' => [
     'scope' => $fseProfiles['fse']['scope'],
     'status' => 'certified',
 ]];
-$fseResolved = \Duo\InitPlanner::fse_profile_scope(true, $fseTargeted, ['core', 'woocommerce']);
+$fseResolved = \WPrism\InitPlanner::fse_profile_scope(true, $fseTargeted, ['core', 'woocommerce']);
 check(
     is_array($fseResolved) && $fseResolved['scope'] === $fseTargeted['fse']['scope']
         && $fseResolved['advisory']['code'] === 'fse_profile_scope_selected',
     'a certified FSE profile whose manifest IS installed proposes its scope exactly as before'
 );
-$fseGhost = \Duo\InitPlanner::fse_profile_scope(true, $fseTargeted, ['woocommerce']);
+$fseGhost = \WPrism\InitPlanner::fse_profile_scope(true, $fseTargeted, ['woocommerce']);
 check(
     is_array($fseGhost) && $fseGhost['scope'] === null
         && $fseGhost['advisory']['code'] === 'fse_profile_not_certified'
@@ -2649,7 +2649,7 @@ check(
     . "core's site-editor types under a profile whose adapter is absent"
 );
 check(
-    is_array(\Duo\InitPlanner::fse_profile_scope(true, $fseTargeted)['scope']),
+    is_array(\WPrism\InitPlanner::fse_profile_scope(true, $fseTargeted)['scope']),
     'and with no manifest set in hand there is nothing to resolve against, so the profile is honoured as it was — '
     . 'the guard bounds a library it can see, it does not refuse for want of one'
 );
@@ -2659,7 +2659,7 @@ check(
 // four taxonomies — and init proposes it into scope exactly like an explicit
 // authored one; runtime/derived/env declarations stay out; a shipped adapter
 // not selected contributes nothing.
-$adapterScope = \Duo\InitPlanner::adapter_scope(['core', 'contact-form-7', 'polylang', 'wpforms'], [
+$adapterScope = \WPrism\InitPlanner::adapter_scope(['core', 'contact-form-7', 'polylang', 'wpforms'], [
     'core' => ['name' => 'core'],
     'contact-form-7' => ['name' => 'contact-form-7', 'post_types' => ['wpcf7_contact_form' => []]],
     'polylang' => ['name' => 'polylang', 'taxonomies' => [
@@ -2680,7 +2680,7 @@ check(
 );
 
 check(
-    \Duo\InitPlanner::ALLOW_UNMANAGED_PLUGINS === 'allow-unmanaged-plugins'
+    \WPrism\InitPlanner::ALLOW_UNMANAGED_PLUGINS === 'allow-unmanaged-plugins'
         && str_contains(
             (string) file_get_contents(__DIR__ . '/../../../../agent/src/Command/Cli.php'),
             '[--allow-unmanaged-plugins]'
@@ -2694,7 +2694,7 @@ check(
     . 'opens it, and this check is what keeps the two from drifting'
 );
 
-$blockerRow = new ReflectionMethod(\Duo\InitPlanner::class, 'capability_blocker_row');
+$blockerRow = new ReflectionMethod(\WPrism\InitPlanner::class, 'capability_blocker_row');
 $uncertified = $blockerRow->invoke(null, [
     'code' => 'adapter_source_uncertified',
     'name' => 'acme-catalog',
@@ -2705,25 +2705,25 @@ $uncertified = $blockerRow->invoke(null, [
 ]);
 check(
     $uncertified['remediation']
-        === 'certify it with duo adapter certify <site-repo> --name=acme-catalog, or remove it, then rerun duo init',
+        === 'certify it with wprism adapter certify <site-repo> --name=acme-catalog, or remove it, then rerun wprism init',
     'an installed-but-uncertified adapter blocks init with the certify-or-remove instruction, in that order'
 );
 // A PLUGIN-bundled adapter cannot be certified in place (the certificate
 // binds source "site" and adapters/<name>.json), so its row keeps the
 // registry's promotion-path remediation and only appends the rerun (walk S3
-// read "certify it with duo adapter certify" against a bundled copy the verb
+// read "certify it with wprism adapter certify" against a bundled copy the verb
 // would refuse).
 $bundled = $blockerRow->invoke(null, [
     'code' => 'adapter_source_uncertified',
     'name' => 'acme-catalog',
-    'reason' => "'acme-catalog' is installed from the plugin adapter source (plugins/acme-catalog/duo-adapter.json) and is uncertified by construction",
-    'remediation' => 'install this adapter as a repository package at adapters/acme-catalog.json, obtain a certificate signed by an authority this agent trusts at adapters/certifications/acme-catalog.json, then run `wp duo manifest-pin --repo=... --name=acme-catalog` and commit the emitted {name,source:"site",digest} pin. The site copy wins by precedence and the bundled copy reports as not installed; the plugin stays active throughout',
+    'reason' => "'acme-catalog' is installed from the plugin adapter source (plugins/acme-catalog/wprism-adapter.json) and is uncertified by construction",
+    'remediation' => 'install this adapter as a repository package at adapters/acme-catalog.json, obtain a certificate signed by an authority this agent trusts at adapters/certifications/acme-catalog.json, then run `wp wprism manifest-pin --repo=... --name=acme-catalog` and commit the emitted {name,source:"site",digest} pin. The site copy wins by precedence and the bundled copy reports as not installed; the plugin stays active throughout',
     'source' => 'plugin',
     'trust_tier' => 'declarative_manifest',
 ]);
 check(
     str_starts_with((string) $bundled['remediation'], 'install this adapter as a repository package at adapters/acme-catalog.json')
-        && str_ends_with((string) $bundled['remediation'], ' — then rerun duo init (duo adapter certify <site-repo> --name=acme-catalog --pin signs and pins the promoted copy)'),
+        && str_ends_with((string) $bundled['remediation'], ' — then rerun wprism init (wprism adapter certify <site-repo> --name=acme-catalog --pin signs and pins the promoted copy)'),
     'a plugin-bundled uncertified adapter keeps the promotion path as its remediation and appends the rerun'
 );
 $otherBlocker = $blockerRow->invoke(null, [

@@ -1,10 +1,10 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/Deploy.php';
 
 /**
- * DUO-3350 slice 8: the "LifecycleExecutor" half of the "LifecyclePlanner /
+ * issue #3350 slice 8: the "LifecycleExecutor" half of the "LifecyclePlanner /
  * LifecycleExecutor" target seam -- LifecyclePlanner.php (slice 6) and
  * StateHandoffVerifier.php (slice 7) both already named this the
  * still-unextracted counterpart. Deploy::run() reconciles activation/theme
@@ -30,7 +30,7 @@ require_once __DIR__ . '/Deploy.php';
  * require two of those helpers (order_deactivations()/order_activations())
  * to remain private facades on Deploy.php calling DeployPlanner:: directly.
  * dependency_ordered_activations()/dependency_ordered_deactivations() widen
- * from private to public on Deploy (DUO-3350 slice 8) so this class, their
+ * from private to public on Deploy (issue #3350 slice 8) so this class, their
  * only production caller now, can reach them as a normal cross-class call.
  */
 final class LifecycleExecutor {
@@ -79,7 +79,7 @@ final class LifecycleExecutor {
             $afterRetire = Deploy::current_active_plugins();
             foreach ($deactivated as $plugin) {
                 if (in_array($plugin, $afterRetire, true)) {
-                    throw new \RuntimeException("duo: plugin deactivation did not persist for '$plugin'");
+                    throw new \RuntimeException("wprism: plugin deactivation did not persist for '$plugin'");
                 }
             }
         }
@@ -101,14 +101,14 @@ final class LifecycleExecutor {
                 }
                 $result = activate_plugin($plugin); // hooks fire deliberately — this is the point of this class
                 if (is_wp_error($result)) {
-                    throw new \RuntimeException("duo: required plugin activation failed for '$plugin'");
+                    throw new \RuntimeException("wprism: required plugin activation failed for '$plugin'");
                 }
                 $activated[] = $plugin;
             }
             $after = Deploy::current_active_plugins();
             foreach ($toActivate as $plugin) {
                 if (!in_array($plugin, $missingPlugins, true) && !in_array($plugin, $after, true)) {
-                    throw new \RuntimeException("duo: plugin activation did not persist for '$plugin'");
+                    throw new \RuntimeException("wprism: plugin activation did not persist for '$plugin'");
                 }
             }
             if ($desiredActive !== null && !$missingPlugins && $after !== $desiredActive) {
@@ -120,7 +120,7 @@ final class LifecycleExecutor {
                 update_option('active_plugins', $desiredActive);
                 $after = Deploy::current_active_plugins();
                 if ($after !== $desiredActive) {
-                    throw new \RuntimeException('duo: exact active plugin order did not persist');
+                    throw new \RuntimeException('wprism: exact active plugin order did not persist');
                 }
                 $orderCorrected = true;
             }
@@ -133,12 +133,12 @@ final class LifecycleExecutor {
                     switch_theme($desiredStylesheet); // hooks fire deliberately (switch_theme/after_switch_theme)
                     $themeSwitched = $desiredStylesheet;
                     if (get_option('stylesheet') !== $desiredStylesheet) {
-                        throw new \RuntimeException("duo: theme switch did not persist for '$desiredStylesheet'");
+                        throw new \RuntimeException("wprism: theme switch did not persist for '$desiredStylesheet'");
                     }
                     if ($desiredTemplate !== null && get_option('template') !== $desiredTemplate) {
                         $actualTemplate = (string) get_option('template');
                         throw new \RuntimeException(
-                            "duo: canonical template '$desiredTemplate' cannot be realized by stylesheet "
+                            "wprism: canonical template '$desiredTemplate' cannot be realized by stylesheet "
                             . "'$desiredStylesheet': WordPress resolved '$actualTemplate'. Check this theme's Template "
                             . 'header and state/options/core.json; refusing to write template directly because that would '
                             . 'bypass WordPress theme lifecycle.'

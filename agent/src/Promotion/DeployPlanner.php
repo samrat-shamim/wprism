@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Plans lifecycle order for one already-scoped plugin transition.
@@ -49,7 +49,7 @@ final class DeployPlanner {
                 $cycle = array_keys($nodes);
                 sort($cycle, SORT_STRING);
                 throw new \RuntimeException(
-                    'duo: plugin dependency cycle prevents safe teardown: ' . implode(', ', $cycle)
+                    'wprism: plugin dependency cycle prevents safe teardown: ' . implode(', ', $cycle)
                 );
             }
             $ordered[] = $next;
@@ -97,7 +97,7 @@ final class DeployPlanner {
                 $cycle = array_keys($nodes);
                 sort($cycle, SORT_STRING);
                 throw new \RuntimeException(
-                    'duo: plugin dependency cycle prevents safe activation: ' . implode(', ', $cycle)
+                    'wprism: plugin dependency cycle prevents safe activation: ' . implode(', ', $cycle)
                 );
             }
             $ordered[] = $next;

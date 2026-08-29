@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Regression — DUO-3338, live pair: a CUSTOM plugin implements and advertises
-# its OWN provider, and Duo negotiates, invokes, and verifies it end to end
-# through the ordinary `wp duo` product path.
+# Regression — issue #3338, live pair: a CUSTOM plugin implements and advertises
+# its OWN provider, and WPrism negotiates, invokes, and verifies it end to end
+# through the ordinary `wp wprism` product path.
 #
 # Pair "claudemacb3338", ports 8930/8931 (owned by this script; headless — no
 # render checks, pure wp-cli). Code-bound to the sandbox agency fixture plugin
 # via pair.sh's --codebind mode (sandbox/pair.codebind.yml): the plugin is
 # authored into the site repo's own code/ tree BEFORE the containers are
-# created, then travels to the second environment through git + `duo deploy`,
+# created, then travels to the second environment through git + `wprism deploy`,
 # never a direct `wp plugin install` on the target.
 #
 # The whole point of this file is the half no offline harness can reach. The
@@ -19,25 +19,25 @@
 # What it proves, in order:
 #
 #  (1) A plugin nobody in the engine knows about registers a provider on the
-#      `duo_providers` filter and Duo finds it BY ITS OWN DECLARED IDENTITY.
+#      `wprism_providers` filter and WPrism finds it BY ITS OWN DECLARED IDENTITY.
 #      The declaring manifest pins no plugin/version_range at all, so this also
 #      exercises the documented path where negotiation checks installed +
 #      active and skips the range comparison.
 #  (2) The provider repairs generated data the engine could not have repaired:
-#      duo_agency_project_index is rebuilt on conf2 from conf2's OWN project
-#      ids. Duo wrote those rows with direct SQL and fired no save_post, so a
+#      wprism_agency_project_index is rebuilt on conf2 from conf2's OWN project
+#      ids. WPrism wrote those rows with direct SQL and fired no save_post, so a
 #      correct index there is only possible if the capability actually ran
 #      against target data.
 #  (3) The engine's own closed native action clears a plugin's stale WordPress
 #      transient, and both declarations report back per-declaration receipts
-#      (DUO-3282's unconditional confirmation lines plus the DUO-3338
+#      (issue #3282's unconditional confirmation lines plus the issue #3338
 #      machine-readable `actions` array).
 #  (4) FAIL BEFORE MUTATION: with the owning plugin deactivated, apply refuses
 #      before it writes anything, names the provider and its plugin, carries a
 #      remediation, and leaves conf2 byte-for-byte unchanged. The refusal is
 #      NOT forceable: this run passes --force-code-mismatch, which gets past
 #      the lifecycle gate and still cannot get past the capability gate.
-#  (5) Recovery: `duo deploy` reactivates the plugin and the identical apply
+#  (5) Recovery: `wprism deploy` reactivates the plugin and the identical apply
 #      converges, re-firing the same idempotent capability.
 #
 # The pair is destroyed when every assertion is green; a failed run leaves it
@@ -54,15 +54,15 @@ command -v jq >/dev/null || fail "jq required"
 PAIR="${PROVIDER_CONTRACT_PAIR:-claudemacb3338}"
 PORT1="${PROVIDER_CONTRACT_PORT1:-8930}"
 PORT2="${PROVIDER_CONTRACT_PORT2:-8931}"
-PLUGIN_DIR=duo-agency-cpt
+PLUGIN_DIR=wprism-agency-cpt
 PLUGIN_BASENAME="$PLUGIN_DIR/$PLUGIN_DIR.php"
 PLUGIN_FILE="code/wp-content/plugins/$PLUGIN_DIR/$PLUGIN_DIR.php"
-export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2" DUO_CODEBIND_PLUGIN="$PLUGIN_DIR"
-COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.codebind.yml)
+export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2" WPRISM_CODEBIND_PLUGIN="$PLUGIN_DIR"
+COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml -f pair.codebind.yml)
 wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
-GIT1=(git -C "siterepo/${PAIR}1" -c user.name=duo-3338-a -c user.email=a1@example.test)
-GIT2=(git -C "siterepo/${PAIR}2" -c user.name=duo-3338-b -c user.email=a2@example.test)
+GIT1=(git -C "siterepo/${PAIR}1" -c user.name=provider-probe-a -c user.email=a1@example.test)
+GIT2=(git -C "siterepo/${PAIR}2" -c user.name=provider-probe-b -c user.email=a2@example.test)
 
 GREEN=0
 cleanup() {
@@ -101,9 +101,9 @@ rm -rf "siterepo/origin-$PAIR.git"
 git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
 mkdir -p "siterepo/${PAIR}1/code/wp-content/plugins/$PLUGIN_DIR"
 cp "fixtures/$PLUGIN_DIR/$PLUGIN_DIR.php" "siterepo/${PAIR}1/$PLUGIN_FILE"
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
-  "manifests": ["core", "duo-agency-cpt"],
+  "manifests": ["core", "wprism-agency-cpt"],
   "policy": {
     "options": {},
     "post_meta": {},
@@ -117,7 +117,7 @@ cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 git -C "siterepo/${PAIR}1" init -q -b main
 git -C "siterepo/${PAIR}1" remote add origin "../origin-$PAIR.git"
 "${GIT1[@]}" add -A
-"${GIT1[@]}" commit -qm "init: duo-agency-cpt in code/ + site.duo.json pinning the duo-agency-cpt manifest"
+"${GIT1[@]}" commit -qm "init: wprism-agency-cpt in code/ + site.wprism.json pinning the wprism-agency-cpt manifest"
 git -C "siterepo/${PAIR}1" push -qu origin main
 git clone -q "siterepo/origin-$PAIR.git" "siterepo/${PAIR}2"
 bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --codebind "$PLUGIN_DIR" --headless
@@ -141,7 +141,7 @@ wp1 post create --post_type=project --post_status=publish --post_title="Meridian
 wp1 post create --post_type=project --post_status=publish --post_title="Northwind Report" --porcelain >/dev/null
 IDS1=$(wp1 post list --post_type=project --post_status=publish --orderby=ID --order=ASC --format=ids | tr -d '\r')
 IDS1_JSON=$(jq -cn '$ARGS.positional | map(tonumber)' --args $IDS1)
-INDEX1=$(wp1 option get duo_agency_project_index --format=json | tail -1)
+INDEX1=$(wp1 option get wprism_agency_project_index --format=json | tail -1)
 echo "conf1 project ids: $IDS1"
 echo "conf1 index: $INDEX1"
 jq -e --argjson ids "$IDS1_JSON" '.ids == $ids and (.titles | length) == 3' <<<"$INDEX1" >/dev/null \
@@ -149,8 +149,8 @@ jq -e --argjson ids "$IDS1_JSON" '.ids == $ids and (.titles | length) == 3' <<<"
 pass "conf1's generated index is correct under the ordinary hook path"
 
 say "capture conf1 and push; the generated index must NOT travel as canonical state"
-wp1 duo capture --repo=/siterepo >/dev/null
-grep -q duo_agency_project_index "siterepo/${PAIR}1/state/options/core.json" \
+wp1 wprism capture --repo=/siterepo >/dev/null
+grep -q wprism_agency_project_index "siterepo/${PAIR}1/state/options/core.json" \
   && fail "the derived project index leaked into canonical state — it is classified 'derived' precisely so it cannot"
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "capture: three projects on conf1"
@@ -161,24 +161,24 @@ pass "conf1 captured; the derived index stayed target-local"
 
 say "conf2: deploy activates the plugin (so its provider can register at all), then a stale project cache is warmed to stand in for conf2's own pre-promotion runtime state"
 "${GIT2[@]}" pull -q origin main
-DEPLOY_JSON=$(wp2 duo deploy --repo=/siterepo --format=json | tail -1)
+DEPLOY_JSON=$(wp2 wprism deploy --repo=/siterepo --format=json | tail -1)
 echo "$DEPLOY_JSON" | jq -e --arg p "$PLUGIN_BASENAME" '.activated | any(. == $p)' >/dev/null \
   || fail "deploy did not activate $PLUGIN_BASENAME on conf2 (got: $DEPLOY_JSON)"
-wp2 eval 'duo_agency_cpt_store_project_index();' >/dev/null
-STALE_CACHE=$(wp2 eval 'var_export(get_transient("duo_agency_project_cache"));' | tr -d '\r' | tail -1)
+wp2 eval 'wprism_agency_cpt_store_project_index();' >/dev/null
+STALE_CACHE=$(wp2 eval 'var_export(get_transient("wprism_agency_project_cache"));' | tr -d '\r' | tail -1)
 [ "$STALE_CACHE" != "false" ] || fail "could not warm conf2's project cache transient before apply"
 echo "conf2 stale cache before apply: $STALE_CACHE"
 pass "conf2 has the plugin active and a warm, now-stale project cache"
 
 say "conf2: apply — the provider capability and the native action both fire during the rebuild pass"
 REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-APPLY_JSON=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" --format=json | tail -1)
+APPLY_JSON=$(wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" --format=json | tail -1)
 echo "$APPLY_JSON" | jq . >/dev/null 2>&1 || fail "apply did not emit JSON: $APPLY_JSON"
 echo "$APPLY_JSON" | jq -e '.canary == "clean"' >/dev/null || fail "apply canary was not clean: $APPLY_JSON"
 
 echo "$APPLY_JSON" | jq -e '
-  .warnings | any(test("^provider capability fired: duo-agency-index@1\\.0\\.0 rebuild_project_index \\([0-9.]+s, verified\\)$"))
-' >/dev/null || fail "apply printed no provider confirmation line for duo-agency-index: $(echo "$APPLY_JSON" | jq -c .warnings)"
+  .warnings | any(test("^provider capability fired: wprism-agency-index@1\\.0\\.0 rebuild_project_index \\([0-9.]+s, verified\\)$"))
+' >/dev/null || fail "apply printed no provider confirmation line for wprism-agency-index: $(echo "$APPLY_JSON" | jq -c .warnings)"
 echo "$APPLY_JSON" | jq -e '
   .warnings | any(. == "native action fired: transient.delete (verified)")
 ' >/dev/null || fail "apply printed no native confirmation line for transient.delete: $(echo "$APPLY_JSON" | jq -c .warnings)"
@@ -191,15 +191,15 @@ echo "$APPLY_JSON" | jq -e --argjson ids "$IDS2_JSON" '
   (.actions | length) == 2
   and (.actions | any(
         .kind == "provider"
-        and .source == "provider:duo-agency-index/rebuild_project_index"
-        and .manifest == "duo-agency-cpt"
+        and .source == "provider:wprism-agency-index/rebuild_project_index"
+        and .manifest == "wprism-agency-cpt"
         and .provider_version == "1.0.0"
         and .verified == true
         and (.after.ids == $ids)))
   and (.actions | any(
         .kind == "native"
         and .source == "native:transient.delete"
-        and .manifest == "duo-agency-cpt"
+        and .manifest == "wprism-agency-cpt"
         and .verified == true
         and .before.value_row == true
         and .after.value_row == false))
@@ -207,7 +207,7 @@ echo "$APPLY_JSON" | jq -e --argjson ids "$IDS2_JSON" '
 pass "structured receipts carry the provider identity, the observed after-state, and the transient's before/after rows"
 
 say "(2) conf2's generated index describes CONF2's own project ids, not conf1's"
-INDEX2=$(wp2 option get duo_agency_project_index --format=json | tail -1)
+INDEX2=$(wp2 option get wprism_agency_project_index --format=json | tail -1)
 echo "conf2 index: $INDEX2"
 jq -e --argjson ids "$IDS2_JSON" '.ids == $ids and (.titles | length) == 3' <<<"$INDEX2" >/dev/null \
   || fail "conf2's index does not describe conf2's own projects (index: $INDEX2, ids: $IDS2_JSON)"
@@ -223,13 +223,13 @@ else
 fi
 
 say "(3) the stale project cache transient is gone on conf2"
-CACHE_AFTER=$(wp2 eval 'var_export(get_transient("duo_agency_project_cache"));' | tr -d '\r' | tail -1)
+CACHE_AFTER=$(wp2 eval 'var_export(get_transient("wprism_agency_project_cache"));' | tr -d '\r' | tail -1)
 [ "$CACHE_AFTER" = "false" ] \
-  || fail "the native transient.delete action did not clear duo_agency_project_cache on conf2 (got: $CACHE_AFTER)"
+  || fail "the native transient.delete action did not clear wprism_agency_project_cache on conf2 (got: $CACHE_AFTER)"
 # Last NON-empty line: `wp db query --skip-column-names` emits a trailing
 # blank line, so a bare `tail -1` reads the blank and a passing "0" would
 # false-fail with an empty count (caught live on this script's first run).
-ROWS=$(wp2 db query "SELECT COUNT(*) FROM wp_options WHERE option_name IN ('_transient_duo_agency_project_cache','_transient_timeout_duo_agency_project_cache')" --skip-column-names | tr -d '\r' | awk 'NF {last=$0} END {print last}')
+ROWS=$(wp2 db query "SELECT COUNT(*) FROM wp_options WHERE option_name IN ('_transient_wprism_agency_project_cache','_transient_timeout_wprism_agency_project_cache')" --skip-column-names | tr -d '\r' | awk 'NF {last=$0} END {print last}')
 [ "$ROWS" = "0" ] || fail "transient option rows survived the native action on conf2 (count: $ROWS)"
 pass "both transient option rows are gone and the cache no longer answers"
 
@@ -238,7 +238,7 @@ pass "both transient option rows are gone and the cache no longer answers"
 say "(4) author a change on conf1 that WOULD trigger the provider action, then deactivate the owning plugin on conf2"
 FIRST_ID1=$(awk '{print $1}' <<<"$IDS1")
 wp1 post update "$FIRST_ID1" --post_title="Harbour Rebrand (phase two)" >/dev/null
-wp1 duo capture --repo=/siterepo >/dev/null
+wp1 wprism capture --repo=/siterepo >/dev/null
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "capture: retitle the first project"
 "${GIT1[@]}" push -q origin main
@@ -246,23 +246,23 @@ wp1 duo capture --repo=/siterepo >/dev/null
 REV2=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
 
 wp2 plugin deactivate "$PLUGIN_DIR" >/dev/null
-INDEX_BEFORE_REFUSAL=$(wp2 db query "SELECT option_value FROM wp_options WHERE option_name='duo_agency_project_index'" --skip-column-names | tr -d '\r')
+INDEX_BEFORE_REFUSAL=$(wp2 db query "SELECT option_value FROM wp_options WHERE option_name='wprism_agency_project_index'" --skip-column-names | tr -d '\r')
 TITLES_BEFORE_REFUSAL=$(wp2 db query "SELECT post_title FROM wp_posts WHERE post_type='project' ORDER BY ID" --skip-column-names | tr -d '\r')
 
 # --force-code-mismatch deliberately: it gets past the lifecycle gate that
 # would otherwise refuse first for the deactivated plugin, which is what makes
 # this a test of the CAPABILITY gate rather than a re-test of the code gate.
 # The capability gate is not forceable and must refuse anyway.
-if OUT=$(wp2 duo apply --repo=/siterepo --default-author=admin --revision="$REV2" --force-code-mismatch 2>&1); then
+if OUT=$(wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$REV2" --force-code-mismatch 2>&1); then
   echo "$OUT"
   fail "apply succeeded with the provider's owning plugin deactivated — the capability gate did not hold"
 fi
 echo "$OUT"
 grep -Fq "refused before target mutation" <<<"$OUT" || fail "refusal did not name the pre-mutation gate"
-grep -Fq "duo-agency-index" <<<"$OUT" || fail "refusal did not name the provider"
+grep -Fq "wprism-agency-index" <<<"$OUT" || fail "refusal did not name the provider"
 grep -Fq "$PLUGIN_BASENAME" <<<"$OUT" || fail "refusal did not name the owning plugin"
-grep -Fq "duo-agency-cpt" <<<"$OUT" || fail "refusal did not name the declaring manifest"
-grep -Fq "duo deploy" <<<"$OUT" || fail "refusal carried no remediation path"
+grep -Fq "wprism-agency-cpt" <<<"$OUT" || fail "refusal did not name the declaring manifest"
+grep -Fq "wprism deploy" <<<"$OUT" || fail "refusal carried no remediation path"
 pass "apply refused, naming the provider, its owning plugin, the declaring manifest, and what to do about it"
 
 say "(4) conf2 is byte-for-byte unmutated by the refused apply"
@@ -270,9 +270,9 @@ grep -Fq "Harbour Rebrand (phase two)" <<<"$(wp2 db query "SELECT post_title FRO
   && fail "the refused apply wrote the authored title anyway — it mutated before negotiating"
 [ "$(wp2 db query "SELECT post_title FROM wp_posts WHERE post_type='project' ORDER BY ID" --skip-column-names | tr -d '\r')" = "$TITLES_BEFORE_REFUSAL" ] \
   || fail "project rows changed during a refused apply"
-[ "$(wp2 db query "SELECT option_value FROM wp_options WHERE option_name='duo_agency_project_index'" --skip-column-names | tr -d '\r')" = "$INDEX_BEFORE_REFUSAL" ] \
+[ "$(wp2 db query "SELECT option_value FROM wp_options WHERE option_name='wprism_agency_project_index'" --skip-column-names | tr -d '\r')" = "$INDEX_BEFORE_REFUSAL" ] \
   || fail "the generated index changed during a refused apply"
-MARKER=$(wp2 eval "echo \\Duo\\Ledger::kv_get('apply_in_progress') ?? 'NULL';" 2>/dev/null | tr -d '\r' | tail -1)
+MARKER=$(wp2 eval "echo \\WPrism\\Ledger::kv_get('apply_in_progress') ?? 'NULL';" 2>/dev/null | tr -d '\r' | tail -1)
 [ "$MARKER" = NULL ] \
   || fail "a refused apply wrote the incomplete-apply retry marker despite attempting no mutation (got: $MARKER)"
 pass "no post row, no option, and no retry marker moved — the refusal happened before the first write"
@@ -280,19 +280,19 @@ pass "no post row, no option, and no retry marker moved — the refusal happened
 # ============================================================ (5) recovery
 
 say "(5) deploy reactivates the plugin and the identical apply converges, re-firing the same idempotent capability"
-wp2 duo deploy --repo=/siterepo --format=json >/dev/null
+wp2 wprism deploy --repo=/siterepo --format=json >/dev/null
 wp2 plugin list --status=active --field=name | grep -qx "$PLUGIN_DIR" \
   || fail "deploy did not reactivate $PLUGIN_DIR on conf2"
-RECOVER_JSON=$(wp2 duo apply --repo=/siterepo --default-author=admin --revision="$REV2" --format=json | tail -1)
+RECOVER_JSON=$(wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$REV2" --format=json | tail -1)
 echo "$RECOVER_JSON" | jq -e '.canary == "clean"' >/dev/null || fail "recovery apply canary was not clean: $RECOVER_JSON"
 echo "$RECOVER_JSON" | jq -e '
-  .warnings | any(test("^provider capability fired: duo-agency-index@1\\.0\\.0 rebuild_project_index \\([0-9.]+s, verified\\)$"))
+  .warnings | any(test("^provider capability fired: wprism-agency-index@1\\.0\\.0 rebuild_project_index \\([0-9.]+s, verified\\)$"))
 ' >/dev/null || fail "recovery apply did not re-fire the provider capability: $(echo "$RECOVER_JSON" | jq -c .warnings)"
 grep -Fq "Harbour Rebrand (phase two)" <<<"$(wp2 db query "SELECT post_title FROM wp_posts WHERE post_type='project'" --skip-column-names)" \
   || fail "recovery apply did not land the authored title on conf2"
 RECOVER_IDS_JSON=$(ids_json_2)
 jq -e --argjson ids "$RECOVER_IDS_JSON" '.ids == $ids and (.titles | to_entries | map(.value) | any(. == "Harbour Rebrand (phase two)"))' \
-  <<<"$(wp2 option get duo_agency_project_index --format=json | tail -1)" >/dev/null \
+  <<<"$(wp2 option get wprism_agency_project_index --format=json | tail -1)" >/dev/null \
   || fail "conf2's index was not rebuilt from the newly applied titles"
 pass "the identical apply converged after deploy, and the idempotent capability re-fired and re-verified"
 

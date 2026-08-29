@@ -1,4 +1,4 @@
-# AGENTS.md — operating notes for coding agents in duo-wp
+# AGENTS.md — operating notes for coding agents in wprism
 
 Read this before your first edit. It is the short, factual version; the setup
 walkthrough is [docs/dev-setup.md](docs/dev-setup.md) and the dispatch/evidence
@@ -11,15 +11,15 @@ about CI belongs in a PR, an issue, or this file.
 
 | path | what it is | ships? |
 | --- | --- | --- |
-| `agent/` | the WordPress drop-in. Source files keep explicit dependency loads; the generated additive `agent/duo-classmap.php` is only a fallback (rule 1). Adoption assembles the selected platform and adapter packages into `agent/adapter-library/`; that embedded directory is an output, not a second checked-in source. | yes |
-| `cli/` | the `duo` orchestrator (`cli/duo` is an extensionless `#!/usr/bin/env php` executable) | yes |
+| `agent/` | the WordPress drop-in. Source files keep explicit dependency loads; the generated additive `agent/wprism-classmap.php` is only a fallback (rule 1). Adoption assembles the selected platform and adapter packages into `agent/adapter-library/`; that embedded directory is an output, not a second checked-in source. | yes |
+| `cli/` | the `wprism` orchestrator (`cli/wprism` is an extensionless `#!/usr/bin/env php` executable) | yes |
 | `recovery/` | the recovery runtime (canonical JSON, atomic store, Ed25519 rollback control) | yes |
 | `adapter-packages/` | one self-contained capsule per plugin adapter: `package/manifest.json`, `package/disposition.json`, named runtime hooks, and its own `tests/`, `fixtures/`, and `evidence/`. Only `package/` is assembled into the installed library; authoring or testing one adapter stays inside its capsule. | package bytes only |
 | `platform/adapter-library/` | the non-plugin library source: core manifest/disposition, profiles, platform compatibility, and adapter-authority trust roots. The assembler combines this with adapter packages. | yes, embedded |
 | `integration-scenarios/` | explicitly participant-declared cross-adapter evidence. A scenario is not owned by any one capsule and therefore selects the global aggregate gate. | no |
 | `sandbox/` | shared engine/test infrastructure: pair management, global offline/live/grind/certify/spike suites, shared libraries, site repositories, and gitignored scratch. Adapter-owned tests and conformance assets live in their capsules. | no |
 | `tools/` | dev entry points, package assembly/validation/testing, generated-document checks, affected-test analysis, and the generated global offline-corpus include. `regress-adapter-packages` dynamically discovers capsule-local offline tests, so a new package test adds no Makefile row. | no |
-| `tests/` | PHPUnit 11 self-tests for `tools/` (`Duo\Tests\…`, PSR-4) | no |
+| `tests/` | PHPUnit 11 self-tests for `tools/` (`WPrism\Tests\…`, PSR-4) | no |
 | `scripts/` | `adapter-certification.php` (reviewer-facing adapter certificate sign/verify), `agent-bootstrap.sh`, `close-gate-check.sh` | mixed |
 
 `cli/src/Onboarding/Adopt.php` assembles `adapter-packages/*/package/` and
@@ -31,11 +31,11 @@ reach a managed site.
 
 1. **The drop-in is dependency-free.** No composer, no vendored packages,
    nothing fetched at runtime inside `agent/`, `cli/`, `recovery/`. A new file
-   in `agent/src` requires its own dependencies, exactly like its 246 siblings.
-   `agent/duo-classmap.php` does not change that contract: it is a *generated
+   in `agent/src` requires its own dependencies, exactly like its 259 siblings.
+   `agent/wprism-classmap.php` does not change that contract: it is a *generated
    additive fallback* that only ever fires for a class still undeclared at the
    moment it is referenced, so it resolves nothing on the production path and
-   exists for partially-loaded contexts (`agent/duo.php:106-138` states the
+   exists for partially-loaded contexts (`agent/wprism.php:149-159` states the
    three properties that keep it behaviour-neutral). Regenerate it with
    `php tools/classmap-generate.php`; `make release-gate` byte-checks it.
    `vendor/` is dev-only and structurally unreachable from a site.
@@ -47,13 +47,12 @@ reach a managed site.
    and each adapter's `digest` are that one row hashed (`:127`, `:147`). So a
    one-byte edit to a capsule's `package/` identity inputs, or to the platform
    library inputs that participate in an identity, is fleet-visible: a deployed
-   site
-   holding a compiled artifact refuses with
+   site holding a compiled artifact refuses with
    `compiled_artifact_manifest_mismatch` — "compiled manifest/interpreter set
    does not match active pins"
    (`agent/src/Repository/CompiledArtifactReader.php:39-42`) — and every
-   `site.duo.json` content pin stops matching. The remedy is recompile and
-   re-pin (`wp duo manifest-pin` emits the copy-pasteable object), never a
+   `site.wprism.json` content pin stops matching. The remedy is recompile and
+   re-pin (`wp wprism manifest-pin` emits the copy-pasteable object), never a
    fallback. Nothing under `agent/src` or `cli/src` has this property: a
    namespace or class-file move there moves no digest and costs nothing.
 3. **Never leave scratch under `agent/`, `adapter-packages/`, or `platform/`.**
@@ -83,8 +82,8 @@ reach a managed site.
 8. **Keep byte-identical unless the issue is explicitly about changing them:**
    canonical JSON output, refusal envelopes and their messages, WP-CLI output,
    lock acquisition order, adapter `package/` bytes (rule 2 — they *are*
-   adapter identity), and the `define('DUO_AGENT_VERSION', …)` /
-   `define('DUO_SPEC_VERSION', …)` lines in `agent/duo.php`.
+   adapter identity), and the `define('WPRISM_AGENT_VERSION', …)` /
+   `define('WPRISM_SPEC_VERSION', …)` lines in `agent/wprism.php`.
    `platform/adapter-library/capabilities/platform.json` restates both defines,
    and
    `ManifestDispositions::platform_boundary()` throws "platform version
@@ -138,7 +137,7 @@ explicit participant-declared integration scenario). It does not
 mean a digest binds that claim to an artifact set or a specific run.
 
 `tools/capability-doc.php render` projects the current matrix from the adapter
-packages, `platform/adapter-library/`, and `agent/duo.php` to stdout. `make
+packages, `platform/adapter-library/`, and `agent/wprism.php` to stdout. `make
 release-gate` runs its source check without checking in an aggregate adapter
 inventory, so an ordinary adapter edit remains capsule-local. Its four
 cross-checks mirror rules `ManifestDispositions` enforces at agent load time;
@@ -152,7 +151,7 @@ before reaching for a live pair. Then scope the live set to the **minimal
 reasonably-safe** one per
 [docs/agents/linear-loop.md](docs/agents/linear-loop.md) §Evidence scoping —
 often zero sweeps, never the manifest matrix by habit. Pair discipline (budget,
-release-when-idle, destroy-when-done, `DUO_EXPECTED_SOURCE_SHA`) is in the same
+release-when-idle, destroy-when-done, `WPRISM_EXPECTED_SOURCE_SHA`) is in the same
 document and in [docs/sandbox.md](docs/sandbox.md); the pair model itself is
 `sandbox/bin/pair.sh`.
 

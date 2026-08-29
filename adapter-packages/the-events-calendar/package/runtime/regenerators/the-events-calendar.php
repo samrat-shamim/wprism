@@ -1,10 +1,10 @@
 <?php
-namespace Duo\Regenerators;
+namespace WPrism\Regenerators;
 
-use Duo\Policy;
+use WPrism\Policy;
 
 /**
- * TEC (The Events Calendar) regenerator — DUO-3234, task #124's proving
+ * TEC (The Events Calendar) regenerator — issue #3234, task #124's proving
  * fixture. Wraps the exact, verified-live two-call synthesis path
  * `TEC\Events\Custom_Tables\V1\Migration\Strategies\Single_Event_Migration_
  * Strategy::apply()` itself uses (that class is built for the SAME recovery
@@ -243,13 +243,13 @@ final class TheEventsCalendar {
         $eventClass = '\\TEC\\Events\\Custom_Tables\\V1\\Models\\Event';
         if (!class_exists($eventClass)) {
             throw new \RuntimeException(
-                "duo: TEC regenerator: $eventClass not found — The Events Calendar's Custom Tables v1 "
+                "wprism: TEC regenerator: $eventClass not found — The Events Calendar's Custom Tables v1 "
                 . 'architecture may have been restructured in a version outside this manifest\'s pinned range'
             );
         }
         if (!method_exists($eventClass, 'data_from_post')) {
             throw new \RuntimeException(
-                "duo: TEC regenerator: $eventClass::data_from_post() not found — cannot regenerate tec_occurrences"
+                "wprism: TEC regenerator: $eventClass::data_from_post() not found — cannot regenerate tec_occurrences"
             );
         }
 
@@ -257,7 +257,7 @@ final class TheEventsCalendar {
         $preflightSession = $this->transactionSession('before regeneration');
         if ($preflightSession['in_transaction']) {
             throw new \RuntimeException(
-                'duo: TEC derived-state transaction continuity was lost before regeneration; recovery_required'
+                'wprism: TEC derived-state transaction continuity was lost before regeneration; recovery_required'
             );
         }
         $preflightConnectionId = $preflightSession['connection_id'];
@@ -322,7 +322,7 @@ final class TheEventsCalendar {
                     $optionNameIndex,
                 ]) {
                 throw new \RuntimeException(
-                    'duo: TEC derived-state table identities changed while owner ranges were acquired'
+                    'wprism: TEC derived-state table identities changed while owner ranges were acquired'
                 );
             }
             $this->assertPluginCallBoundary(
@@ -356,7 +356,7 @@ final class TheEventsCalendar {
             );
             if (!is_array($eventData)) {
                 throw new \RuntimeException(
-                    'duo: TEC Event::data_from_post() returned a non-array value'
+                    'wprism: TEC Event::data_from_post() returned a non-array value'
                 );
             }
             $expectedEvent = $this->expectedEventData($eventData, $localId);
@@ -385,7 +385,7 @@ final class TheEventsCalendar {
                 );
                 if (hash_equals($lastSaveOptionWitness, $upsertOptionWitness)) {
                     throw new \RuntimeException(
-                        'duo: TEC Event::upsert() did not advance the exact native save-post cache marker'
+                        'wprism: TEC Event::upsert() did not advance the exact native save-post cache marker'
                     );
                 }
                 $this->assertLastSaveAutoloadTransition(
@@ -410,7 +410,7 @@ final class TheEventsCalendar {
                     false
                 );
                 throw new \RuntimeException(
-                    'duo: TEC Event::upsert() failed with ' . count($errors) . ' model error(s)'
+                    'wprism: TEC Event::upsert() failed with ' . count($errors) . ' model error(s)'
                 );
             }
 
@@ -431,13 +431,13 @@ final class TheEventsCalendar {
             );
             if (!($event instanceof $eventClass)) {
                 throw new \RuntimeException(
-                    "duo: TEC Event::find(\$localId, 'post_id') could not locate the just-upserted event"
+                    "wprism: TEC Event::find(\$localId, 'post_id') could not locate the just-upserted event"
                 );
             }
             $eventId = $event->event_id;
             if (!is_int($eventId) || $eventId <= 0) {
                 throw new \RuntimeException(
-                    'duo: TEC Event::find() returned an event without one positive integer event_id'
+                    'wprism: TEC Event::find() returned an event without one positive integer event_id'
                 );
             }
             $this->lockDerivedOwnerRanges(
@@ -555,7 +555,7 @@ final class TheEventsCalendar {
                 $transactionMayBeOpen = false;
                 if ($commitOutcome === 'preimage') {
                     throw new \RuntimeException(
-                        'duo: TEC derived-state transaction commit failed without server apply',
+                        'wprism: TEC derived-state transaction commit failed without server apply',
                         0,
                         $commitFailure
                     );
@@ -629,7 +629,7 @@ final class TheEventsCalendar {
             )));
             if ($commitCommandSucceeded || $cleanupFailures !== []) {
                 throw new \RuntimeException(
-                    'duo: TEC derived-state '
+                    'wprism: TEC derived-state '
                         . ($commitCommandSucceeded ? 'committed outcome' : 'rollback')
                         . '/runtime cleanup requires recovery ('
                         . implode(',', $cleanupFailures === [] ? ['post_commit'] : $cleanupFailures)
@@ -643,7 +643,7 @@ final class TheEventsCalendar {
         $runtimeCleanupFailures = $this->restoreNativeRuntime($nativeRuntime);
         if ($runtimeCleanupFailures !== []) {
             throw new \RuntimeException(
-                'duo: TEC derived-state committed but runtime cleanup failed ('
+                'wprism: TEC derived-state committed but runtime cleanup failed ('
                     . implode(',', $runtimeCleanupFailures)
                     . '); recovery_required'
             );
@@ -669,7 +669,7 @@ final class TheEventsCalendar {
         ] as $function) {
             if (!function_exists($function)) {
                 throw new \RuntimeException(
-                    "duo: TEC derived-state regeneration requires $function()"
+                    "wprism: TEC derived-state regeneration requires $function()"
                 );
             }
         }
@@ -677,14 +677,14 @@ final class TheEventsCalendar {
         $supportsGroupFlush = wp_cache_supports('flush_group');
         if (!is_bool($supportsGroupFlush) || !$supportsGroupFlush) {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration requires exact local object-cache group flushing'
+                'wprism: TEC derived-state regeneration requires exact local object-cache group flushing'
             );
         }
         global $wpdb;
         foreach (['get_results', 'get_row', 'get_var', 'prepare', 'query', 'esc_like'] as $method) {
             if (!is_object($wpdb) || !is_callable([$wpdb, $method])) {
                 throw new \RuntimeException(
-                    'duo: TEC derived-state regeneration requires the exact WordPress database connection'
+                    'wprism: TEC derived-state regeneration requires the exact WordPress database connection'
                 );
             }
         }
@@ -713,20 +713,20 @@ final class TheEventsCalendar {
             || !class_exists('Tribe__Cache_Listener')
             || !class_exists('Tribe\\Log\\Service_Provider')) {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration requires the exact free-plugin cache and logger classes'
+                'wprism: TEC derived-state regeneration requires the exact free-plugin cache and logger classes'
             );
         }
         $container = $this->assertNativeContainerServices();
         $cache = tribe_cache();
         if (!is_object($cache) || get_class($cache) !== 'Tribe__Cache') {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration rejected an overridden Tribe cache singleton'
+                'wprism: TEC derived-state regeneration rejected an overridden Tribe cache singleton'
             );
         }
         $listener = \Tribe__Cache_Listener::instance();
         if (!is_object($listener) || get_class($listener) !== 'Tribe__Cache_Listener') {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration rejected an overridden cache listener singleton'
+                'wprism: TEC derived-state regeneration rejected an overridden cache listener singleton'
             );
         }
         $listenerCache = $this->listenerCache($listener);
@@ -736,7 +736,7 @@ final class TheEventsCalendar {
         // supported artifact. Both distinct mutable registries are tracked.
         if ($listenerCache === $cache) {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration rejected the cache listener service identity'
+                'wprism: TEC derived-state regeneration rejected the cache listener service identity'
             );
         }
 
@@ -780,7 +780,7 @@ final class TheEventsCalendar {
             // add_action again is idempotent for the same object/method key.
             add_action('tribe_log', $logCallback, 10, 3);
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration could not suppress failure logging safely'
+                'wprism: TEC derived-state regeneration could not suppress failure logging safely'
             );
         }
 
@@ -882,7 +882,7 @@ final class TheEventsCalendar {
             $container = tribe();
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration could not resolve the native service container',
+                'wprism: TEC derived-state regeneration could not resolve the native service container',
                 0,
                 $failure
             );
@@ -893,7 +893,7 @@ final class TheEventsCalendar {
             || !is_callable([$container, 'isBound'])
             || !is_callable([$container, 'make'])) {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration rejected the native service container identity'
+                'wprism: TEC derived-state regeneration rejected the native service container identity'
             );
         }
         foreach ([self::CONFIGURATION_CLASS, self::OCCURRENCES_GENERATOR_CLASS] as $service) {
@@ -901,14 +901,14 @@ final class TheEventsCalendar {
                 $bound = $container->isBound($service);
             } catch (\Throwable $failure) {
                 throw new \RuntimeException(
-                    'duo: TEC derived-state regeneration could not prove the native service binding state',
+                    'wprism: TEC derived-state regeneration could not prove the native service binding state',
                     0,
                     $failure
                 );
             }
             if (!is_bool($bound) || $bound) {
                 throw new \RuntimeException(
-                    'duo: TEC derived-state regeneration rejected an overridden native service binding'
+                    'wprism: TEC derived-state regeneration rejected an overridden native service binding'
                 );
             }
         }
@@ -917,7 +917,7 @@ final class TheEventsCalendar {
             $generator = $container->make(self::OCCURRENCES_GENERATOR_CLASS);
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration could not resolve the exact free-plugin services',
+                'wprism: TEC derived-state regeneration could not resolve the exact free-plugin services',
                 0,
                 $failure
             );
@@ -929,7 +929,7 @@ final class TheEventsCalendar {
             || !is_object($generator)
             || get_class($generator) !== self::OCCURRENCES_GENERATOR_CLASS) {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration rejected an overridden free-plugin service'
+                'wprism: TEC derived-state regeneration rejected an overridden free-plugin service'
             );
         }
         try {
@@ -937,14 +937,14 @@ final class TheEventsCalendar {
             $memoizeFlag = $configuration->get('TEC_NO_MEMOIZE_CT1_MODELS');
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration could not prove the model memoization configuration',
+                'wprism: TEC derived-state regeneration could not prove the model memoization configuration',
                 0,
                 $failure
             );
         }
         if (!is_bool($memoizeFlagPresent) || $memoizeFlagPresent || $memoizeFlag !== null) {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration rejected a non-default model memoization configuration'
+                'wprism: TEC derived-state regeneration rejected a non-default model memoization configuration'
             );
         }
         return $container;
@@ -956,12 +956,12 @@ final class TheEventsCalendar {
             $cache = $property->getValue($listener);
         } catch (\Throwable) {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration could not prove the cache listener service identity'
+                'wprism: TEC derived-state regeneration could not prove the cache listener service identity'
             );
         }
         if (!is_object($cache) || get_class($cache) !== 'Tribe__Cache') {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration rejected the cache listener service identity'
+                'wprism: TEC derived-state regeneration rejected the cache listener service identity'
             );
         }
         return $cache;
@@ -974,12 +974,12 @@ final class TheEventsCalendar {
             $value = $property->getValue($cache);
         } catch (\Throwable) {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration could not inspect the native cache registry'
+                'wprism: TEC derived-state regeneration could not inspect the native cache registry'
             );
         }
         if (!is_array($value) || count($value) > 10000) {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration rejected the native cache registry frontier'
+                'wprism: TEC derived-state regeneration rejected the native cache registry frontier'
             );
         }
         foreach ($value as $key => $entry) {
@@ -988,7 +988,7 @@ final class TheEventsCalendar {
                 || !hash_equals($key, $entry)
                 || strlen($key) > 1024) {
                 throw new \RuntimeException(
-                    'duo: TEC derived-state regeneration rejected a malformed native cache registry entry'
+                    'wprism: TEC derived-state regeneration rejected a malformed native cache registry entry'
                 );
             }
         }
@@ -1001,7 +1001,7 @@ final class TheEventsCalendar {
         $property->setValue($cache, $keys);
         if ($this->cacheNonPersistentKeys($cache) !== $keys) {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration could not restore the native cache registry'
+                'wprism: TEC derived-state regeneration could not restore the native cache registry'
             );
         }
     }
@@ -1014,11 +1014,11 @@ final class TheEventsCalendar {
             if (has_filter($hook) !== false) {
                 if ($hook === self::EVENT_DATA_FILTER) {
                     throw new \RuntimeException(
-                        'duo: TEC free-plugin derived-state contract does not admit the event-data filter'
+                        'wprism: TEC free-plugin derived-state contract does not admit the event-data filter'
                     );
                 }
                 throw new \RuntimeException(
-                    "duo: TEC free-plugin derived-state contract does not admit callback hook $hook"
+                    "wprism: TEC free-plugin derived-state contract does not admit callback hook $hook"
                 );
             }
         }
@@ -1030,7 +1030,7 @@ final class TheEventsCalendar {
             || ($defaultAutoload[0]['accepted_args'] ?? null) !== 4
             || !function_exists('wp_filter_default_autoload_value_via_option_size')) {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration requires the exact WordPress default-autoload callback'
+                'wprism: TEC derived-state regeneration requires the exact WordPress default-autoload callback'
             );
         }
         foreach (self::ALLOWED_OPTION_HOOKS as $hook => $allowed) {
@@ -1054,7 +1054,7 @@ final class TheEventsCalendar {
                         $identity = $rule['class'] . '::' . $rule['method'];
                         if (isset($seen[$identity])) {
                             throw new \RuntimeException(
-                                "duo: TEC derived-state option hook $hook has a duplicated native callback"
+                                "wprism: TEC derived-state option hook $hook has a duplicated native callback"
                             );
                         }
                         $seen[$identity] = true;
@@ -1064,7 +1064,7 @@ final class TheEventsCalendar {
                 }
                 if (!$matched) {
                     throw new \RuntimeException(
-                        "duo: TEC derived-state option hook $hook contains an unreviewed callback"
+                        "wprism: TEC derived-state option hook $hook contains an unreviewed callback"
                     );
                 }
             }
@@ -1086,14 +1086,14 @@ final class TheEventsCalendar {
         if ($logSuppressed) {
             if ($logs !== []) {
                 throw new \RuntimeException(
-                    'duo: TEC derived-state failure logger changed while native calls were in progress'
+                    'wprism: TEC derived-state failure logger changed while native calls were in progress'
                 );
             }
             return [new \stdClass(), 'suppressed'];
         }
         if (count($logs) !== 1) {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration requires one exact free-plugin failure logger'
+                'wprism: TEC derived-state regeneration requires one exact free-plugin failure logger'
             );
         }
         $log = $logs[0];
@@ -1106,7 +1106,7 @@ final class TheEventsCalendar {
             || $log['priority'] !== 10
             || $log['accepted_args'] !== 3) {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration rejected the free-plugin failure logger topology'
+                'wprism: TEC derived-state regeneration rejected the free-plugin failure logger topology'
             );
         }
         return [$function[0], 'dispatch_log'];
@@ -1130,14 +1130,14 @@ final class TheEventsCalendar {
             }
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration could not resolve one native option-hook service',
+                'wprism: TEC derived-state regeneration could not resolve one native option-hook service',
                 0,
                 $failure
             );
         }
         if (!is_object($service) || get_class($service) !== $class) {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration rejected one native option-hook service identity'
+                'wprism: TEC derived-state regeneration rejected one native option-hook service identity'
             );
         }
         return $service;
@@ -1160,7 +1160,7 @@ final class TheEventsCalendar {
         }
         if ($matches !== 1) {
             throw new \RuntimeException(
-                "duo: TEC derived-state regeneration rejected required native hook $hook"
+                "wprism: TEC derived-state regeneration rejected required native hook $hook"
             );
         }
     }
@@ -1176,14 +1176,14 @@ final class TheEventsCalendar {
             || !isset($node->callbacks)
             || !is_array($node->callbacks)) {
             throw new \RuntimeException(
-                "duo: TEC derived-state regeneration rejected malformed hook registry $hook"
+                "wprism: TEC derived-state regeneration rejected malformed hook registry $hook"
             );
         }
         $result = [];
         foreach ($node->callbacks as $priority => $records) {
             if (!is_int($priority) || !is_array($records) || count($records) > 1000) {
                 throw new \RuntimeException(
-                    "duo: TEC derived-state regeneration rejected hook registry frontier $hook"
+                    "wprism: TEC derived-state regeneration rejected hook registry frontier $hook"
                 );
             }
             foreach ($records as $record) {
@@ -1194,7 +1194,7 @@ final class TheEventsCalendar {
                     || $record['accepted_args'] < 0
                     || $record['accepted_args'] > 100) {
                     throw new \RuntimeException(
-                        "duo: TEC derived-state regeneration rejected malformed hook callback $hook"
+                        "wprism: TEC derived-state regeneration rejected malformed hook callback $hook"
                     );
                 }
                 $result[] = [
@@ -1214,14 +1214,14 @@ final class TheEventsCalendar {
             $result = $wpdb->query($sql);
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                "duo: TEC derived-state transaction $phase raised a driver exception; recovery_required",
+                "wprism: TEC derived-state transaction $phase raised a driver exception; recovery_required",
                 0,
                 $failure
             );
         }
         if ($result === false || $wpdb->last_error !== '') {
             throw new \RuntimeException(
-                "duo: TEC derived-state transaction $phase failed; recovery_required"
+                "wprism: TEC derived-state transaction $phase failed; recovery_required"
             );
         }
     }
@@ -1255,7 +1255,7 @@ final class TheEventsCalendar {
             $settled = $this->settleRollback($connectionId);
             if (!$settled || !$this->consumePendingIsolation($connectionId)) {
                 throw new \RuntimeException(
-                    "duo: TEC derived-state $phase isolation cleanup requires recovery",
+                    "wprism: TEC derived-state $phase isolation cleanup requires recovery",
                     0,
                     $failure
                 );
@@ -1297,7 +1297,7 @@ final class TheEventsCalendar {
             $session = $wpdb->get_row(self::SESSION_STATE_QUERY, ARRAY_A);
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                "duo: TEC derived-state transaction continuity probe raised during $phase; recovery_required",
+                "wprism: TEC derived-state transaction continuity probe raised during $phase; recovery_required",
                 0,
                 $failure
             );
@@ -1311,7 +1311,7 @@ final class TheEventsCalendar {
             || !is_string($session['in_transaction'])
             || !in_array($session['in_transaction'], ['0', '1'], true)) {
             throw new \RuntimeException(
-                "duo: TEC derived-state transaction continuity was unavailable $phase; recovery_required"
+                "wprism: TEC derived-state transaction continuity was unavailable $phase; recovery_required"
             );
         }
         return [
@@ -1328,12 +1328,12 @@ final class TheEventsCalendar {
         $session = $this->transactionSession($phase);
         if (!hash_equals($expectedConnectionId, $session['connection_id'])) {
             throw new \RuntimeException(
-                "duo: TEC derived-state database connection changed $phase; recovery_required"
+                "wprism: TEC derived-state database connection changed $phase; recovery_required"
             );
         }
         if ($session['in_transaction'] !== $expectedTransaction) {
             throw new \RuntimeException(
-                "duo: TEC derived-state transaction continuity was lost $phase; recovery_required"
+                "wprism: TEC derived-state transaction continuity was lost $phase; recovery_required"
             );
         }
     }
@@ -1393,13 +1393,13 @@ final class TheEventsCalendar {
             $session = $this->transactionSession('after ambiguous commit');
             if (!hash_equals($connectionId, $session['connection_id'])) {
                 throw new \RuntimeException(
-                    'duo: TEC derived-state database connection changed after ambiguous commit; recovery_required'
+                    'wprism: TEC derived-state database connection changed after ambiguous commit; recovery_required'
                 );
             }
             $wasActive = $session['in_transaction'];
             if ($wasActive && !$this->settleRollback($connectionId)) {
                 throw new \RuntimeException(
-                    'duo: TEC derived-state ambiguous commit left an uncloseable transaction'
+                    'wprism: TEC derived-state ambiguous commit left an uncloseable transaction'
                 );
             }
             $outcome = $this->classifyInactiveCommitOutcome(
@@ -1420,13 +1420,13 @@ final class TheEventsCalendar {
             );
             if ($wasActive && $outcome !== 'preimage') {
                 throw new \RuntimeException(
-                    'duo: TEC derived-state rollback after ambiguous commit did not restore its preimage'
+                    'wprism: TEC derived-state rollback after ambiguous commit did not restore its preimage'
                 );
             }
             return $outcome;
         } catch (\Throwable $classificationFailure) {
             throw new \RuntimeException(
-                'duo: TEC derived-state commit outcome is ambiguous; recovery_required',
+                'wprism: TEC derived-state commit outcome is ambiguous; recovery_required',
                 0,
                 $classificationFailure === $commitFailure ? null : $commitFailure
             );
@@ -1468,7 +1468,7 @@ final class TheEventsCalendar {
                     $optionNameIndex,
                 ]) {
                 throw new \RuntimeException(
-                    'duo: TEC derived-state commit-outcome table identities changed'
+                    'wprism: TEC derived-state commit-outcome table identities changed'
                 );
             }
             $currentSourceWitness = $this->sourceWitness(
@@ -1495,7 +1495,7 @@ final class TheEventsCalendar {
             );
             if (!hash_equals($sourceWitness, $currentSourceWitness)) {
                 throw new \RuntimeException(
-                    'duo: TEC derived-state source changed across ambiguous commit'
+                    'wprism: TEC derived-state source changed across ambiguous commit'
                 );
             }
 
@@ -1506,7 +1506,7 @@ final class TheEventsCalendar {
                 if ($currentEventId !== $eventId
                     || hash_equals($initialOptionWitness, $currentOptionWitness)) {
                     throw new \RuntimeException(
-                        'duo: TEC derived-state ambiguous commit exposed a mixed physical outcome'
+                        'wprism: TEC derived-state ambiguous commit exposed a mixed physical outcome'
                     );
                 }
                 $this->lastSaveOptionWitness($optionsTable, $optionNameIndex, true);
@@ -1521,7 +1521,7 @@ final class TheEventsCalendar {
             }
             if (!$this->settleRollback($connectionId)) {
                 throw new \RuntimeException(
-                    'duo: TEC derived-state commit-outcome verification could not release its read locks'
+                    'wprism: TEC derived-state commit-outcome verification could not release its read locks'
                 );
             }
             $verificationOpen = false;
@@ -1550,7 +1550,7 @@ final class TheEventsCalendar {
             || !in_array(strtoupper($isolation), ['REPEATABLE-READ', 'SERIALIZABLE'], true)
             || $wpdb->last_error !== '') {
             throw new \RuntimeException(
-                'duo: TEC derived-state locking requires REPEATABLE-READ or SERIALIZABLE isolation'
+                'wprism: TEC derived-state locking requires REPEATABLE-READ or SERIALIZABLE isolation'
             );
         }
         $this->assertTransactionSession(
@@ -1571,7 +1571,7 @@ final class TheEventsCalendar {
             || !hash_equals($wpdb->prefix . 'postmeta', $wpdb->postmeta)
             || !hash_equals($wpdb->prefix . 'options', $wpdb->options)) {
             throw new \RuntimeException(
-                'duo: TEC derived-state source locking rejected the WordPress table identities'
+                'wprism: TEC derived-state source locking rejected the WordPress table identities'
             );
         }
         foreach ([
@@ -1581,7 +1581,7 @@ final class TheEventsCalendar {
         ] as $table => $label) {
             if (preg_match('/^[A-Za-z0-9_]{1,64}$/D', $table) !== 1) {
                 throw new \RuntimeException(
-                    "duo: TEC derived-state source locking rejected the $label table identifier"
+                    "wprism: TEC derived-state source locking rejected the $label table identifier"
                 );
             }
             $status = $this->schemaRows(
@@ -1595,7 +1595,7 @@ final class TheEventsCalendar {
                 || !is_string($status[0]['Engine'] ?? null)
                 || strcasecmp($status[0]['Engine'], 'InnoDB') !== 0) {
                 throw new \RuntimeException(
-                    "duo: TEC derived-state source locking rejected the $label table identity or engine"
+                    "wprism: TEC derived-state source locking rejected the $label table identity or engine"
                 );
             }
         }
@@ -1615,7 +1615,7 @@ final class TheEventsCalendar {
         $rows = $this->schemaRows("SHOW INDEX FROM `$table`", "$context source indexes");
         if (count($rows) > self::MAX_INDEX_ROWS) {
             throw new \RuntimeException(
-                "duo: TEC derived-state source locking rejected the $context index frontier"
+                "wprism: TEC derived-state source locking rejected the $context index frontier"
             );
         }
         $matched = [];
@@ -1628,7 +1628,7 @@ final class TheEventsCalendar {
                 || !array_key_exists('Sub_part', $row)
                 || !is_string($row['Index_type'] ?? null)) {
                 throw new \RuntimeException(
-                    "duo: TEC derived-state source locking rejected one malformed $context index row"
+                    "wprism: TEC derived-state source locking rejected one malformed $context index row"
                 );
             }
             if ($row['Key_name'] === $index) {
@@ -1642,7 +1642,7 @@ final class TheEventsCalendar {
             || $matched[0]['Sub_part'] !== null
             || strcasecmp($matched[0]['Index_type'], 'BTREE') !== 0) {
             throw new \RuntimeException(
-                "duo: TEC derived-state source locking requires full-width $context index $index"
+                "wprism: TEC derived-state source locking requires full-width $context index $index"
             );
         }
     }
@@ -1668,7 +1668,7 @@ final class TheEventsCalendar {
             $autoload = null;
             if ($required) {
                 throw new \RuntimeException(
-                    'duo: TEC native save-post cache marker is absent after native mutation'
+                    'wprism: TEC native save-post cache marker is absent after native mutation'
                 );
             }
             return hash('sha256', 'absent');
@@ -1696,7 +1696,7 @@ final class TheEventsCalendar {
                 'auto-off',
             ], true)) {
             throw new \RuntimeException(
-                'duo: TEC derived-state native save-post cache marker returned a malformed row'
+                'wprism: TEC derived-state native save-post cache marker returned a malformed row'
             );
         }
         $this->positiveDriverInt($row['option_id'], 'native save-post cache marker identity');
@@ -1713,7 +1713,7 @@ final class TheEventsCalendar {
             || !is_finite((float) $value)
             || (float) $value <= 0) {
             throw new \RuntimeException(
-                'duo: TEC derived-state native save-post cache marker is malformed or oversized'
+                'wprism: TEC derived-state native save-post cache marker is malformed or oversized'
             );
         }
         return hash(
@@ -1728,13 +1728,13 @@ final class TheEventsCalendar {
     ): void {
         if ($currentAutoload === null) {
             throw new \RuntimeException(
-                'duo: TEC native save-post cache marker lost its physical autoload state'
+                'wprism: TEC native save-post cache marker lost its physical autoload state'
             );
         }
         if ($initialAutoload === null) {
             if (!hash_equals('auto', $currentAutoload)) {
                 throw new \RuntimeException(
-                    'duo: TEC native save-post cache marker used a non-native default autoload state'
+                    'wprism: TEC native save-post cache marker used a non-native default autoload state'
                 );
             }
             return;
@@ -1742,7 +1742,7 @@ final class TheEventsCalendar {
         if (in_array($initialAutoload, ['yes', 'no', 'on', 'off'], true)) {
             if (!hash_equals($initialAutoload, $currentAutoload)) {
                 throw new \RuntimeException(
-                    'duo: TEC native save-post cache marker changed a fixed physical autoload state'
+                    'wprism: TEC native save-post cache marker changed a fixed physical autoload state'
                 );
             }
             return;
@@ -1750,7 +1750,7 @@ final class TheEventsCalendar {
         if (!in_array($initialAutoload, ['auto', 'auto-on', 'auto-off'], true)
             || !hash_equals('auto', $currentAutoload)) {
             throw new \RuntimeException(
-                'duo: TEC native save-post cache marker returned an invalid computed autoload state'
+                'wprism: TEC native save-post cache marker returned an invalid computed autoload state'
             );
         }
     }
@@ -1776,7 +1776,7 @@ final class TheEventsCalendar {
             || $postRows[0]['ID'] !== (string) $localId
             || $postRows[0]['post_type'] !== 'tribe_events') {
             throw new \RuntimeException(
-                'duo: TEC derived-state source locking requires one exact tribe_events post row'
+                'wprism: TEC derived-state source locking requires one exact tribe_events post row'
             );
         }
 
@@ -1796,7 +1796,7 @@ final class TheEventsCalendar {
         );
         if (count($rows) > self::MAX_SOURCE_META_ROWS) {
             throw new \RuntimeException(
-                'duo: TEC derived-state source metadata exceeds the bounded owner-row frontier'
+                'wprism: TEC derived-state source metadata exceeds the bounded owner-row frontier'
             );
         }
         $previousId = 0;
@@ -1810,7 +1810,7 @@ final class TheEventsCalendar {
                     'meta_value_bytes',
                 ]) {
                 throw new \RuntimeException(
-                    "duo: TEC derived-state source metadata returned a malformed row at position $position"
+                    "wprism: TEC derived-state source metadata returned a malformed row at position $position"
                 );
             }
             $metaId = $this->positiveDriverInt($row['meta_id'], 'source metadata identity');
@@ -1820,13 +1820,13 @@ final class TheEventsCalendar {
                 || $keyBytes !== null && $keyBytes > self::MAX_SOURCE_META_KEY_BYTES
                 || $valueBytes !== null && $valueBytes > self::MAX_SOURCE_META_VALUE_BYTES) {
                 throw new \RuntimeException(
-                    "duo: TEC derived-state source metadata row $position is unordered, malformed, or oversized"
+                    "wprism: TEC derived-state source metadata row $position is unordered, malformed, or oversized"
                 );
             }
             $rowBytes = strlen($row['meta_id']) + ($keyBytes ?? 0) + ($valueBytes ?? 0);
             if ($rowBytes > self::MAX_SOURCE_META_OWNER_BYTES - $ownerBytes) {
                 throw new \RuntimeException(
-                    'duo: TEC derived-state source metadata exceeds the bounded owner-byte frontier'
+                    'wprism: TEC derived-state source metadata exceeds the bounded owner-byte frontier'
                 );
             }
             $ownerBytes += $rowBytes;
@@ -1846,7 +1846,7 @@ final class TheEventsCalendar {
         );
         if (count($hashRows) !== count($witnessRows)) {
             throw new \RuntimeException(
-                'duo: TEC derived-state source metadata changed between its locked shape and hash passes'
+                'wprism: TEC derived-state source metadata changed between its locked shape and hash passes'
             );
         }
         foreach ($hashRows as $position => $hashRow) {
@@ -1863,7 +1863,7 @@ final class TheEventsCalendar {
                     $this->nullableDriverSize($shapeRow['meta_value_bytes'], 'source metadata value length')
                 )) {
                 throw new \RuntimeException(
-                    "duo: TEC derived-state source metadata hash row $position is malformed or mismatched"
+                    "wprism: TEC derived-state source metadata hash row $position is malformed or mismatched"
                 );
             }
             $witnessRows[$position] += $hashRow;
@@ -1880,7 +1880,7 @@ final class TheEventsCalendar {
         }
         if (array_values($requiredHashes) !== array_fill(0, count($requiredHashes), 1)) {
             throw new \RuntimeException(
-                'duo: TEC derived-state source locking requires one physical row for every required event key'
+                'wprism: TEC derived-state source locking requires one physical row for every required event key'
             );
         }
         return hash('sha256', (string) json_encode($witnessRows, JSON_UNESCAPED_SLASHES));
@@ -1906,7 +1906,7 @@ final class TheEventsCalendar {
             || $this->listenerCache($nativeRuntime['listener']) !== $nativeRuntime['listener_cache']
             || $nativeRuntime['listener_cache'] === $nativeRuntime['cache']) {
             throw new \RuntimeException(
-                "duo: TEC derived-state native service identity changed during $call; recovery_required"
+                "wprism: TEC derived-state native service identity changed during $call; recovery_required"
             );
         }
         $this->assertNativeHookTopology(true, $nativeRuntime['listener']);
@@ -1917,7 +1917,7 @@ final class TheEventsCalendar {
             $this->sourceWitness($localId, $postsTable, $postMetaTable, $postMetaIndex)
         )) {
             throw new \RuntimeException(
-                "duo: TEC derived-state source rows changed during $call; recovery_required"
+                "wprism: TEC derived-state source rows changed during $call; recovery_required"
             );
         }
         $optionWitness = $this->lastSaveOptionWitness(
@@ -1928,7 +1928,7 @@ final class TheEventsCalendar {
         if ($expectedOptionWitness !== null
             && !hash_equals($expectedOptionWitness, $optionWitness)) {
             throw new \RuntimeException(
-                "duo: TEC native save-post cache marker changed during $call; recovery_required"
+                "wprism: TEC native save-post cache marker changed during $call; recovery_required"
             );
         }
         // The source and option witnesses are separate statements. Re-prove
@@ -1959,21 +1959,21 @@ final class TheEventsCalendar {
         }
         if ($call !== null) {
             throw new \RuntimeException(
-                "duo: TEC derived-state local object-cache topology changed during $call; recovery_required"
+                "wprism: TEC derived-state local object-cache topology changed during $call; recovery_required"
             );
         }
         if ($externalCache === true) {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration does not admit an external object-cache topology'
+                'wprism: TEC derived-state regeneration does not admit an external object-cache topology'
             );
         }
         if ($externalCache !== null && $externalCache !== false) {
             throw new \RuntimeException(
-                'duo: TEC derived-state regeneration rejected a malformed external object-cache signal'
+                'wprism: TEC derived-state regeneration rejected a malformed external object-cache signal'
             );
         }
         throw new \RuntimeException(
-            'duo: TEC derived-state regeneration requires the exact local WordPress object-cache topology'
+            'wprism: TEC derived-state regeneration requires the exact local WordPress object-cache topology'
         );
     }
 
@@ -1992,12 +1992,12 @@ final class TheEventsCalendar {
             'timezone',
         ]) {
             throw new \RuntimeException(
-                'duo: TEC Event::data_from_post() returned an unexpected field set'
+                'wprism: TEC Event::data_from_post() returned an unexpected field set'
             );
         }
         if (($eventData['post_id'] ?? null) !== $localId) {
             throw new \RuntimeException(
-                'duo: TEC Event::data_from_post() returned a mismatched post_id'
+                'wprism: TEC Event::data_from_post() returned a mismatched post_id'
             );
         }
         $expected = ['post_id' => (string) $localId];
@@ -2010,7 +2010,7 @@ final class TheEventsCalendar {
         ] as $field) {
             if (!is_string($eventData[$field] ?? null) || $eventData[$field] === '') {
                 throw new \RuntimeException(
-                    "duo: TEC Event::data_from_post() returned a malformed $field"
+                    "wprism: TEC Event::data_from_post() returned a malformed $field"
                 );
             }
             $expected[$field] = $eventData[$field];
@@ -2018,7 +2018,7 @@ final class TheEventsCalendar {
         foreach (['start_date', 'end_date', 'start_date_utc', 'end_date_utc'] as $field) {
             if (!$this->validDatabaseTimestamp($expected[$field])) {
                 throw new \RuntimeException(
-                    "duo: TEC Event::data_from_post() returned a malformed $field"
+                    "wprism: TEC Event::data_from_post() returned a malformed $field"
                 );
             }
         }
@@ -2026,7 +2026,7 @@ final class TheEventsCalendar {
             new \DateTimeZone($expected['timezone']);
         } catch (\Throwable) {
             throw new \RuntimeException(
-                'duo: TEC Event::data_from_post() returned a malformed timezone'
+                'wprism: TEC Event::data_from_post() returned a malformed timezone'
             );
         }
         $duration = $eventData['duration'] ?? null;
@@ -2035,12 +2035,12 @@ final class TheEventsCalendar {
             || strlen((string) $duration) > 7
             || (int) $duration > 8388607) {
             throw new \RuntimeException(
-                'duo: TEC Event::data_from_post() returned a malformed duration'
+                'wprism: TEC Event::data_from_post() returned a malformed duration'
             );
         }
         if (($eventData['hash'] ?? null) !== '') {
             throw new \RuntimeException(
-                'duo: TEC Event::data_from_post() returned a non-native hash'
+                'wprism: TEC Event::data_from_post() returned a non-native hash'
             );
         }
         $expected['duration'] = (string) $duration;
@@ -2066,7 +2066,7 @@ final class TheEventsCalendar {
         );
         if (count($eventRows) > 1) {
             throw new \RuntimeException(
-                'duo: TEC derived-state locking rejected duplicate tec_events owner rows'
+                'wprism: TEC derived-state locking rejected duplicate tec_events owner rows'
             );
         }
         $currentEventId = null;
@@ -2076,19 +2076,19 @@ final class TheEventsCalendar {
                 || array_keys($row) !== ['event_id', 'post_id']
                 || $row['post_id'] !== (string) $localId) {
                 throw new \RuntimeException(
-                    'duo: TEC derived-state locking rejected a malformed tec_events owner row'
+                    'wprism: TEC derived-state locking rejected a malformed tec_events owner row'
                 );
             }
             $currentEventId = $this->positiveDriverInt($row['event_id'], 'tec_events identity');
         }
         if ($eventId !== null && $currentEventId !== $eventId) {
             throw new \RuntimeException(
-                'duo: TEC derived-state locking found event identity drift after native upsert'
+                'wprism: TEC derived-state locking found event identity drift after native upsert'
             );
         }
         if ($expectedExistingEventId !== null && $currentEventId !== $expectedExistingEventId) {
             throw new \RuntimeException(
-                'duo: TEC derived-state locking found an unexpected event identity replacement'
+                'wprism: TEC derived-state locking found an unexpected event identity replacement'
             );
         }
 
@@ -2120,7 +2120,7 @@ final class TheEventsCalendar {
                 || $currentEventId === null
                 || $row['event_id'] !== (string) $currentEventId) {
                 throw new \RuntimeException(
-                    'duo: TEC derived-state locking rejected a cross-linked occurrence row'
+                    'wprism: TEC derived-state locking rejected a cross-linked occurrence row'
                 );
             }
             $occurrenceId = $this->positiveDriverInt($row['occurrence_id'], 'occurrence identity');
@@ -2128,7 +2128,7 @@ final class TheEventsCalendar {
         }
         if (count($occurrences) > 1) {
             throw new \RuntimeException(
-                'duo: TEC derived-state locking rejected duplicate free-event occurrence rows'
+                'wprism: TEC derived-state locking rejected duplicate free-event occurrence rows'
             );
         }
         return $currentEventId;
@@ -2185,7 +2185,7 @@ final class TheEventsCalendar {
         $rows = $wpdb->get_results($sql, ARRAY_A);
         if (!is_array($rows) || !array_is_list($rows) || $wpdb->last_error !== '') {
             throw new \RuntimeException(
-                "duo: TEC derived-state locking could not read $context"
+                "wprism: TEC derived-state locking could not read $context"
             );
         }
         return $rows;
@@ -2198,7 +2198,7 @@ final class TheEventsCalendar {
             || strlen($value) === strlen((string) PHP_INT_MAX)
                 && strcmp($value, (string) PHP_INT_MAX) > 0) {
             throw new \RuntimeException(
-                "duo: TEC derived-state $context is not a bounded positive driver integer"
+                "wprism: TEC derived-state $context is not a bounded positive driver integer"
             );
         }
         return (int) $value;
@@ -2214,7 +2214,7 @@ final class TheEventsCalendar {
             || strlen($value) === strlen((string) PHP_INT_MAX)
                 && strcmp($value, (string) PHP_INT_MAX) > 0) {
             throw new \RuntimeException(
-                "duo: TEC derived-state $context is not a bounded driver size"
+                "wprism: TEC derived-state $context is not a bounded driver size"
             );
         }
         return (int) $value;
@@ -2258,7 +2258,7 @@ final class TheEventsCalendar {
         }
         if ($failed) {
             throw new \RuntimeException(
-                'duo: TEC derived-state native cache effects could not be purged; recovery_required'
+                'wprism: TEC derived-state native cache effects could not be purged; recovery_required'
             );
         }
     }
@@ -2287,12 +2287,12 @@ final class TheEventsCalendar {
         );
         if ($wpdb->last_error !== '') {
             throw new \RuntimeException(
-                'duo: TEC derived-state verification query failed for tec_events'
+                'wprism: TEC derived-state verification query failed for tec_events'
             );
         }
         if (!is_array($eventRows)) {
             throw new \RuntimeException(
-                'duo: TEC derived-state verification query returned a non-array for tec_events'
+                'wprism: TEC derived-state verification query returned a non-array for tec_events'
             );
         }
         $eventRows = $this->checkedDriverRows($eventRows, self::EVENT_ROW_FIELDS, 'tec_events');
@@ -2303,7 +2303,7 @@ final class TheEventsCalendar {
         }
         if ($eventMismatches !== []) {
             throw new \RuntimeException(
-                'duo: TEC derived-state verification failed for tec_events fields: '
+                'wprism: TEC derived-state verification failed for tec_events fields: '
                 . implode(',', $eventMismatches)
             );
         }
@@ -2321,12 +2321,12 @@ final class TheEventsCalendar {
         );
         if ($wpdb->last_error !== '') {
             throw new \RuntimeException(
-                'duo: TEC derived-state verification query failed for tec_occurrences'
+                'wprism: TEC derived-state verification query failed for tec_occurrences'
             );
         }
         if (!is_array($occurrenceRows)) {
             throw new \RuntimeException(
-                'duo: TEC derived-state verification query returned a non-array for tec_occurrences'
+                'wprism: TEC derived-state verification query returned a non-array for tec_occurrences'
             );
         }
         $occurrenceRows = $this->checkedDriverRows(
@@ -2355,7 +2355,7 @@ final class TheEventsCalendar {
         }
         if ($occurrenceMismatches !== []) {
             throw new \RuntimeException(
-                'duo: TEC derived-state verification failed for tec_occurrences fields: '
+                'wprism: TEC derived-state verification failed for tec_occurrences fields: '
                 . implode(',', $occurrenceMismatches)
             );
         }
@@ -2372,7 +2372,7 @@ final class TheEventsCalendar {
             || !is_string($wpdb->prefix)
             || preg_match('/^[A-Za-z0-9_]{0,44}$/D', $wpdb->prefix) !== 1) {
             throw new \RuntimeException(
-                'duo: TEC derived-state schema preflight requires one safe WordPress table prefix and database reader'
+                'wprism: TEC derived-state schema preflight requires one safe WordPress table prefix and database reader'
             );
         }
         $tables = [];
@@ -2380,7 +2380,7 @@ final class TheEventsCalendar {
             $table = $wpdb->prefix . $suffix;
             if (strlen($table) > 64 || preg_match('/^[A-Za-z0-9_]{1,64}$/D', $table) !== 1) {
                 throw new \RuntimeException(
-                    "duo: TEC derived-state schema preflight rejected the $suffix table identifier"
+                    "wprism: TEC derived-state schema preflight rejected the $suffix table identifier"
                 );
             }
             $tables[$suffix] = $table;
@@ -2408,14 +2408,14 @@ final class TheEventsCalendar {
             || !is_string($status[0]['Engine'] ?? null)
             || strcasecmp($status[0]['Engine'], 'InnoDB') !== 0) {
             throw new \RuntimeException(
-                "duo: TEC derived-state schema preflight rejected the $suffix table identity or engine"
+                "wprism: TEC derived-state schema preflight rejected the $suffix table identity or engine"
             );
         }
 
         $columns = $this->schemaRows("SHOW FULL COLUMNS FROM `$table`", "$suffix columns");
         if (count($columns) !== count($expected['columns'])) {
             throw new \RuntimeException(
-                "duo: TEC derived-state schema preflight rejected the $suffix column count"
+                "wprism: TEC derived-state schema preflight rejected the $suffix column count"
             );
         }
         foreach (array_values($expected['columns']) as $position => $columnExpected) {
@@ -2433,7 +2433,7 @@ final class TheEventsCalendar {
                 || !is_string($column['Extra'] ?? null)
                 || !hash_equals($columnExpected['Extra'], strtolower($column['Extra']))) {
                 throw new \RuntimeException(
-                    "duo: TEC derived-state schema preflight rejected $suffix column $columnName"
+                    "wprism: TEC derived-state schema preflight rejected $suffix column $columnName"
                 );
             }
         }
@@ -2441,7 +2441,7 @@ final class TheEventsCalendar {
         $indexRows = $this->schemaRows("SHOW INDEX FROM `$table`", "$suffix indexes");
         if (count($indexRows) > self::MAX_INDEX_ROWS) {
             throw new \RuntimeException(
-                "duo: TEC derived-state schema preflight rejected the $suffix index row frontier"
+                "wprism: TEC derived-state schema preflight rejected the $suffix index row frontier"
             );
         }
         $indexes = [];
@@ -2461,7 +2461,7 @@ final class TheEventsCalendar {
                 || !is_string($row['Index_type'] ?? null)
                 || strcasecmp($row['Index_type'], 'BTREE') !== 0) {
                 throw new \RuntimeException(
-                    "duo: TEC derived-state schema preflight rejected one $suffix index row"
+                    "wprism: TEC derived-state schema preflight rejected one $suffix index row"
                 );
             }
             $name = $row['Key_name'];
@@ -2470,7 +2470,7 @@ final class TheEventsCalendar {
             if (isset($indexes[$name]['columns'][$sequence])
                 || isset($indexes[$name]) && $indexes[$name]['unique'] !== $unique) {
                 throw new \RuntimeException(
-                    "duo: TEC derived-state schema preflight rejected duplicated $suffix index metadata"
+                    "wprism: TEC derived-state schema preflight rejected duplicated $suffix index metadata"
                 );
             }
             $indexes[$name]['unique'] = $unique;
@@ -2480,13 +2480,13 @@ final class TheEventsCalendar {
             ksort($index['columns'], SORT_NUMERIC);
             if (array_keys($index['columns']) !== range(1, count($index['columns']))) {
                 throw new \RuntimeException(
-                    "duo: TEC derived-state schema preflight rejected non-contiguous $suffix index metadata"
+                    "wprism: TEC derived-state schema preflight rejected non-contiguous $suffix index metadata"
                 );
             }
             $index['columns'] = array_values($index['columns']);
             if ($index['unique'] && !isset($expected['indexes'][$name])) {
                 throw new \RuntimeException(
-                    "duo: TEC derived-state schema preflight rejected an unknown unique $suffix index"
+                    "wprism: TEC derived-state schema preflight rejected an unknown unique $suffix index"
                 );
             }
         }
@@ -2494,7 +2494,7 @@ final class TheEventsCalendar {
         foreach ($expected['indexes'] as $name => $indexExpected) {
             if (($indexes[$name] ?? null) !== $indexExpected) {
                 throw new \RuntimeException(
-                    "duo: TEC derived-state schema preflight rejected required $suffix index $name"
+                    "wprism: TEC derived-state schema preflight rejected required $suffix index $name"
                 );
             }
         }
@@ -2507,7 +2507,7 @@ final class TheEventsCalendar {
         $rows = $wpdb->get_results($sql, ARRAY_A);
         if (!is_array($rows) || !array_is_list($rows) || $wpdb->last_error !== '') {
             throw new \RuntimeException(
-                "duo: TEC derived-state schema preflight could not read $context"
+                "wprism: TEC derived-state schema preflight could not read $context"
             );
         }
         return $rows;
@@ -2517,7 +2517,7 @@ final class TheEventsCalendar {
         $value = get_post_meta($localId, $key, true);
         if (!is_string($value)) {
             throw new \RuntimeException(
-                "duo: TEC derived-state verification requires $key to be one scalar string"
+                "wprism: TEC derived-state verification requires $key to be one scalar string"
             );
         }
         return $value;
@@ -2543,7 +2543,7 @@ final class TheEventsCalendar {
         $date = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $wire, $utc);
         if (!$date instanceof \DateTimeImmutable || $date->format('Y-m-d H:i:s') !== $wire) {
             throw new \RuntimeException(
-                "duo: TEC derived-state verification requires $key to be one exact UTC database timestamp"
+                "wprism: TEC derived-state verification requires $key to be one exact UTC database timestamp"
             );
         }
         return $date;
@@ -2597,19 +2597,19 @@ final class TheEventsCalendar {
     private function checkedDriverRows(array $rows, array $fields, string $table): array {
         if (!array_is_list($rows)) {
             throw new \RuntimeException(
-                "duo: TEC derived-state verification query returned a non-list for $table"
+                "wprism: TEC derived-state verification query returned a non-list for $table"
             );
         }
         foreach ($rows as $row) {
             if (!is_array($row) || array_keys($row) !== $fields) {
                 throw new \RuntimeException(
-                    "duo: TEC derived-state verification query returned a malformed driver row for $table"
+                    "wprism: TEC derived-state verification query returned a malformed driver row for $table"
                 );
             }
             foreach ($row as $value) {
                 if (!is_string($value)) {
                     throw new \RuntimeException(
-                        "duo: TEC derived-state verification query returned a non-string driver value for $table"
+                        "wprism: TEC derived-state verification query returned a non-string driver value for $table"
                     );
                 }
             }
@@ -2628,7 +2628,7 @@ final class TheEventsCalendar {
     ): void {
         if ($deletionContext !== []) {
             throw new \RuntimeException(
-                'duo: TEC deletion regeneration is unsupported; event/venue/organizer cascade semantics '
+                'wprism: TEC deletion regeneration is unsupported; event/venue/organizer cascade semantics '
                 . 'must be certified before deletion context can be consumed'
             );
         }

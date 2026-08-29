@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for MenuMaterializer (DUO-3347 slice 4: the menu entity
+ * Offline regression for MenuMaterializer (issue #3347 slice 4: the menu entity
  * materializer extracted from Apply.php). Deliberately narrow: the full
  * behavioral proof of finalize_menu()/assign_locations() -- exact serialized
  * merge semantics, scalar/object rejection, menu-item field/meta
@@ -20,15 +20,15 @@
 declare(strict_types=1);
 
 /** @var array<string,object> exact runtime taxonomy registrations for one fixture pass */
-$GLOBALS['duo_menu_materializer_taxonomies'] = [];
+$GLOBALS['wprism_menu_materializer_taxonomies'] = [];
 if (!function_exists('get_taxonomy')) {
     function get_taxonomy(string $taxonomy): object|false {
-        return $GLOBALS['duo_menu_materializer_taxonomies'][$taxonomy] ?? false;
+        return $GLOBALS['wprism_menu_materializer_taxonomies'][$taxonomy] ?? false;
     }
 }
 
 /**
- * Each extracted materializer must be loadable without relying on duo.php's
+ * Each extracted materializer must be loadable without relying on wprism.php's
  * bootstrap order.  Run the probes in fresh PHP processes so the classes
  * loaded by this test's own fixture setup cannot mask a missing require_once.
  */
@@ -36,13 +36,13 @@ $standaloneProbes = [
     [
         'label' => 'ApplyFieldMaterializer self-requires Policy and Tokens',
         'file' => __DIR__ . '/../../../../agent/src/Apply/ApplyFieldMaterializer.php',
-        'classes' => ['Duo\\Policy', 'Duo\\Tokens'],
+        'classes' => ['WPrism\\Policy', 'WPrism\\Tokens'],
     ],
     [
         'label' => 'MenuMaterializer self-requires its constructor dependencies',
         'file' => __DIR__ . '/../../../../agent/src/Apply/MenuMaterializer.php',
         'classes' => [
-            'Duo\\Policy', 'Duo\\Tokens', 'Duo\\ApplyFieldMaterializer', 'Duo\\RelationshipMaterializer',
+            'WPrism\\Policy', 'WPrism\\Tokens', 'WPrism\\ApplyFieldMaterializer', 'WPrism\\RelationshipMaterializer',
         ],
     ],
 ];
@@ -111,10 +111,10 @@ require_once __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/MenuMaterializer.php';
 
-use Duo\ApplyFieldMaterializer;
-use Duo\MenuMaterializer;
-use Duo\Policy;
-use Duo\Tokens;
+use WPrism\ApplyFieldMaterializer;
+use WPrism\MenuMaterializer;
+use WPrism\Policy;
+use WPrism\Tokens;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -153,12 +153,12 @@ $check(
 $constructorParams = (new ReflectionClass(MenuMaterializer::class))->getConstructor()->getParameters();
 $check(
     array_map(static fn(ReflectionParameter $p): string => (string) $p->getType(), $constructorParams)
-        === ['Duo\\Policy', 'Duo\\Tokens', 'Duo\\ApplyFieldMaterializer'],
+        === ['WPrism\\Policy', 'WPrism\\Tokens', 'WPrism\\ApplyFieldMaterializer'],
     'constructor depends on exactly Policy, Tokens, and ApplyFieldMaterializer -- no Apply instance'
 );
 
 // Core dirty-target conformance found that an explicitly adopted menu kept a
-// target-only custom item because the item had no _duo_uuid and the cleanup
+// target-only custom item because the item had no _wprism_uuid and the cleanup
 // projection indexed UUID-bearing rows only. Exercise the real private
 // projection used by finalize_menu(): every physical id is retained, while
 // only UUID-bearing rows enter the canonical lookup.
@@ -203,7 +203,7 @@ foreach ([
         $check(false, "$label refuses before choosing an owner");
     } catch (RuntimeException $failure) {
         $check(
-            str_contains($failure->getMessage(), 'duo: menu main:'),
+            str_contains($failure->getMessage(), 'wprism: menu main:'),
             "$label refuses before choosing an owner"
         );
     }
@@ -269,12 +269,12 @@ $menuDb = static function (
     bool $mapItem = true,
     array $extraTerms = [],
     array $extraTaxonomies = []
-) use ($menuUuid, $itemUuid): \DuoTest\LockingFakeWpdb {
+) use ($menuUuid, $itemUuid): \WPrismTest\LockingFakeWpdb {
     // The owner-range LEFT JOIN this suite depends on is the one join form the
     // fake interprets generally (FakeWpdb header, parseLeftEquiJoin()); the
     // per-query opt-in it once required was retired for that general form.
-    $inner = new \DuoTest\FakeWpdb();
-    $db = new \DuoTest\LockingFakeWpdb($inner);
+    $inner = new \WPrismTest\FakeWpdb();
+    $db = new \WPrismTest\LockingFakeWpdb($inner);
     $db->setColumns('terms', ['term_id' => 'bigint unsigned', 'name' => 'varchar(200)', 'slug' => 'varchar(200)']);
     $db->setColumns('term_taxonomy', [
         'term_taxonomy_id' => 'bigint unsigned', 'term_id' => 'bigint unsigned',
@@ -288,7 +288,7 @@ $menuDb = static function (
         'meta_id' => 'bigint unsigned', 'post_id' => 'bigint unsigned',
         'meta_key' => 'varchar(255)', 'meta_value' => 'longtext',
     ]);
-    $db->setColumns('duo_map', [
+    $db->setColumns('wprism_map', [
         'uuid' => 'char(36)', 'entity_type' => 'varchar(64)',
         'id_kind' => 'varchar(64)', 'local_id' => 'bigint unsigned',
     ]);
@@ -309,9 +309,9 @@ $menuDb = static function (
     if ($mapItem) {
         $map[] = ['uuid' => $itemUuid, 'entity_type' => 'menu_item', 'id_kind' => 'post', 'local_id' => 30];
     }
-    $db->seedTable('duo_map', $map)
-        ->setUniqueKey('duo_map', ['uuid', 'id_kind'])
-        ->setUniqueKey('duo_map', ['id_kind', 'local_id']);
+    $db->seedTable('wprism_map', $map)
+        ->setUniqueKey('wprism_map', ['uuid', 'id_kind'])
+        ->setUniqueKey('wprism_map', ['id_kind', 'local_id']);
     foreach ([$db->terms, $db->term_taxonomy, $db->term_relationships, $db->posts, $db->postmeta] as $table) {
         $db->addInnoDbTable($table);
     }
@@ -324,22 +324,22 @@ $menuDb = static function (
     return $db;
 };
 
-$runMenu = static function (\DuoTest\LockingFakeWpdb $db, array $taxonomies = []) use (
+$runMenu = static function (\WPrismTest\LockingFakeWpdb $db, array $taxonomies = []) use (
     $runtimePolicy,
     $runtimeTokens,
     $front
 ): array {
     $GLOBALS['wpdb'] = $db;
-    $GLOBALS['duo_menu_materializer_taxonomies'] = $taxonomies + [
+    $GLOBALS['wprism_menu_materializer_taxonomies'] = $taxonomies + [
         'nav_menu' => (object) ['object_type' => ['nav_menu_item']],
     ];
-    \DuoTest\WpStore::reset();
+    \WPrismTest\WpStore::reset();
     $field = new ApplyFieldMaterializer($runtimePolicy, $runtimeTokens);
     $subject = new MenuMaterializer($runtimePolicy, $runtimeTokens, $field);
-    \Duo\Db::start_repeatable_read('menu fixture transaction');
+    \WPrism\Db::start_repeatable_read('menu fixture transaction');
     $field->begin_authored_transaction();
-    \Duo\CacheInvalidationTransaction::begin();
-    \Duo\CacheInvalidationTransaction::prepare_term_hierarchy_options(['nav_menu' => false]);
+    \WPrism\CacheInvalidationTransaction::begin();
+    \WPrism\CacheInvalidationTransaction::prepare_term_hierarchy_options(['nav_menu' => false]);
     try {
         $subject->finalize_menu($front);
         return ['failure' => null, 'rows' => [
@@ -347,7 +347,7 @@ $runMenu = static function (\DuoTest\LockingFakeWpdb $db, array $taxonomies = []
             'posts' => $db->rows('posts'),
             'postmeta' => $db->rows('postmeta'),
             'relationships' => $db->rows('term_relationships'),
-            'map' => $db->rows('duo_map'),
+            'map' => $db->rows('wprism_map'),
         ]];
     } catch (Throwable $failure) {
         return ['failure' => $failure, 'rows' => [
@@ -355,19 +355,19 @@ $runMenu = static function (\DuoTest\LockingFakeWpdb $db, array $taxonomies = []
             'posts' => $db->rows('posts'),
             'postmeta' => $db->rows('postmeta'),
             'relationships' => $db->rows('term_relationships'),
-            'map' => $db->rows('duo_map'),
+            'map' => $db->rows('wprism_map'),
         ]];
     } finally {
-        \Duo\Db::rollback('menu fixture rollback');
+        \WPrism\Db::rollback('menu fixture rollback');
         $field->end_authored_transaction();
-        \Duo\CacheInvalidationTransaction::end();
+        \WPrism\CacheInvalidationTransaction::end();
     }
 };
 
 $orphanDb = $menuDb(
     [['ID' => 30, 'post_type' => 'nav_menu_item']],
     [
-        ['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_duo_uuid', 'meta_value' => $itemUuid],
+        ['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_wprism_uuid', 'meta_value' => $itemUuid],
         ['meta_id' => 2, 'post_id' => 30, 'meta_key' => '_MENU_BADGES', 'meta_value' => 'target-alias'],
         ['meta_id' => 3, 'post_id' => 30, 'meta_key' => '_menu_badges', 'meta_value' => 'stale'],
     ],
@@ -415,7 +415,7 @@ $check(
 
 $wrongTypeResult = $runMenu($menuDb(
     [['ID' => 30, 'post_type' => 'post']],
-    [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_duo_uuid', 'meta_value' => $itemUuid]],
+    [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_wprism_uuid', 'meta_value' => $itemUuid]],
     []
 ));
 $check(
@@ -427,7 +427,7 @@ $check(
 
 $aliasResult = $runMenu($menuDb(
     [['ID' => 30, 'post_type' => 'nav_menu_item']],
-    [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_DUO_UUID', 'meta_value' => $itemUuid]],
+    [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_WPRISM_UUID', 'meta_value' => $itemUuid]],
     []
 ));
 $check(
@@ -440,8 +440,8 @@ $check(
 $duplicateIdentityResult = $runMenu($menuDb(
     [['ID' => 30, 'post_type' => 'nav_menu_item']],
     [
-        ['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_duo_uuid', 'meta_value' => $itemUuid],
-        ['meta_id' => 2, 'post_id' => 30, 'meta_key' => '_duo_uuid', 'meta_value' => $itemUuid],
+        ['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_wprism_uuid', 'meta_value' => $itemUuid],
+        ['meta_id' => 2, 'post_id' => 30, 'meta_key' => '_wprism_uuid', 'meta_value' => $itemUuid],
     ],
     []
 ));
@@ -455,7 +455,7 @@ $check(
 $wrongIdentityResult = $runMenu($menuDb(
     [['ID' => 30, 'post_type' => 'nav_menu_item']],
     [[
-        'meta_id' => 1, 'post_id' => 30, 'meta_key' => '_duo_uuid',
+        'meta_id' => 1, 'post_id' => 30, 'meta_key' => '_wprism_uuid',
         'meta_value' => '33333333-3333-4333-8333-333333333333',
     ]],
     []
@@ -469,7 +469,7 @@ $check(
 
 $crossMenuResult = $runMenu($menuDb(
     [['ID' => 30, 'post_type' => 'nav_menu_item']],
-    [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_duo_uuid', 'meta_value' => $itemUuid]],
+    [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_wprism_uuid', 'meta_value' => $itemUuid]],
     [['object_id' => 30, 'term_taxonomy_id' => 21, 'term_order' => 0]],
     true,
     [],
@@ -488,7 +488,7 @@ $check(
 
 $currentResult = $runMenu($menuDb(
     [['ID' => 30, 'post_type' => 'nav_menu_item']],
-    [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_duo_uuid', 'meta_value' => $itemUuid]],
+    [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_wprism_uuid', 'meta_value' => $itemUuid]],
     [['object_id' => 30, 'term_taxonomy_id' => 20, 'term_order' => 0]]
 ));
 $check(
@@ -500,7 +500,7 @@ $check(
 $newResult = $runMenu($menuDb([], [], [], false));
 $newIdentityRows = array_values(array_filter(
     $newResult['rows']['postmeta'],
-    static fn(array $row): bool => ($row['meta_key'] ?? null) === '_duo_uuid'
+    static fn(array $row): bool => ($row['meta_key'] ?? null) === '_wprism_uuid'
 ));
 $check(
     $newResult['failure'] === null
@@ -568,7 +568,7 @@ $check(
 
 $postKeyspaceResult = $runMenu($menuDb(
     [['ID' => 30, 'post_type' => 'nav_menu_item']],
-    [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_duo_uuid', 'meta_value' => $itemUuid]],
+    [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_wprism_uuid', 'meta_value' => $itemUuid]],
     [['object_id' => 30, 'term_taxonomy_id' => 24, 'term_order' => 0]],
     true,
     [],
@@ -600,7 +600,7 @@ foreach ([
     $taxonomy = $case['taxonomy'];
     $invalidTaxonomyResult = $runMenu($menuDb(
         [['ID' => 30, 'post_type' => 'nav_menu_item']],
-        [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_duo_uuid', 'meta_value' => $itemUuid]],
+        [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_wprism_uuid', 'meta_value' => $itemUuid]],
         [['object_id' => 30, 'term_taxonomy_id' => 25, 'term_order' => 0]],
         true,
         [],
@@ -620,11 +620,11 @@ foreach ([
 
 $driftDb = $menuDb(
     [['ID' => 30, 'post_type' => 'nav_menu_item']],
-    [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_duo_uuid', 'meta_value' => $itemUuid]],
+    [['meta_id' => 1, 'post_id' => 30, 'meta_key' => '_wprism_uuid', 'meta_value' => $itemUuid]],
     []
 );
 $relationshipReads = 0;
-$driftDb->inner()->onQuery(static function (string $sql, string $method, \DuoTest\FakeWpdb $db) use (&$relationshipReads): mixed {
+$driftDb->inner()->onQuery(static function (string $sql, string $method, \WPrismTest\FakeWpdb $db) use (&$relationshipReads): mixed {
     if ($method === 'get_results'
         && str_contains($sql, 'FROM wp_term_relationships')
         && str_contains($sql, 'WHERE tr.object_id = 30')) {

@@ -1,10 +1,10 @@
 # -----------------------------------------------------------------------------
 # Override: mount a shared, gitignored, content-addressed artifact cache into
-# cli1/cli2 (DUO-3223's version-boundary matrix / the owner ruling on
+# cli1/cli2 (issue #3223's version-boundary matrix / the owner ruling on
 # artifact sourcing, issue comment 0ec1d2e3). Layered in via `docker compose
 # -f pair.yml -f pair.artifacts.yml ...`.
 #
-# Deliberately NOT per-pair (unlike pair.yml's own ./siterepo/${DUO_PAIR}1
+# Deliberately NOT per-pair (unlike pair.yml's own ./siterepo/${WPRISM_PAIR}1
 # mounts): sandbox/conformance/artifacts-cache/ is one shared directory
 # across every pair and every run, keyed by content hash inside
 # sandbox/bin/fetch-artifact.sh — a typed plugin/theme ZIP fetched once for
@@ -23,10 +23,10 @@ services:
   cli1:
     volumes:
       - ./conformance/artifacts-cache:/artifacts-cache
-      - ./bin/artifact-cache-fetch.sh:/duo-harness/artifact-cache-fetch.sh:ro
-      - ./bin/artifact-archive-root.sh:/duo-harness/artifact-archive-root.sh:ro
+      - ./bin/artifact-cache-fetch.sh:/wprism-harness/artifact-cache-fetch.sh:ro
+      - ./bin/artifact-archive-root.sh:/wprism-harness/artifact-archive-root.sh:ro
   cli2:
     volumes:
       - ./conformance/artifacts-cache:/artifacts-cache
-      - ./bin/artifact-cache-fetch.sh:/duo-harness/artifact-cache-fetch.sh:ro
-      - ./bin/artifact-archive-root.sh:/duo-harness/artifact-archive-root.sh:ro
+      - ./bin/artifact-cache-fetch.sh:/wprism-harness/artifact-cache-fetch.sh:ro
+      - ./bin/artifact-archive-root.sh:/wprism-harness/artifact-archive-root.sh:ro

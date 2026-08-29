@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Interpreters;
+namespace WPrism\Interpreters;
 
-use Duo\Canon;
-use Duo\Policy;
+use WPrism\Canon;
+use WPrism\Policy;
 
 /**
  * Contact Form 7 stores five form properties in either current underscored
@@ -50,7 +50,7 @@ final class ContactForm7 {
         if (isset(self::PROPERTY_RULES[$key])) {
             if (array_key_exists('_' . $key, $allMeta)) {
                 throw new \RuntimeException(
-                    "duo: Contact Form 7 form has both '$key' and '_$key'; current CF7 prefers the underscored "
+                    "wprism: Contact Form 7 form has both '$key' and '_$key'; current CF7 prefers the underscored "
                     . 'property, so the legacy duplicate must be removed before capture'
                 );
             }

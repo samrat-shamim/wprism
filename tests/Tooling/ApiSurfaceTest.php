@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
 use PHPUnit\Framework\TestCase;
 
@@ -32,7 +32,7 @@ use PHPUnit\Framework\TestCase;
  * The CLI-level cases (1, 2) run tools/api-surface.php out-of-process via
  * `proc_open` — it is a CLI entry point that spawns its own child
  * `PHP_BINARY` subprocess and shells out to a fresh reflected load of the
- * entire Duo\* class graph, none of which belongs happening as a side
+ * entire WPrism\* class graph, none of which belongs happening as a side
  * effect of requiring a test file in-process (mirrors
  * tests/Tooling/AffectedTest.php's own invoke() helper and its stated
  * rationale). The comparator case (3) requires tools/api-surface.php
@@ -47,7 +47,7 @@ final class ApiSurfaceTest extends TestCase
 {
     private static function repoRoot(): string
     {
-        $env = getenv('DUO_REPO_ROOT');
+        $env = getenv('WPRISM_REPO_ROOT');
         return is_string($env) && $env !== '' ? $env : dirname(__DIR__, 2);
     }
 
@@ -181,7 +181,7 @@ final class ApiSurfaceTest extends TestCase
         self::assertIsArray($committed['classes'] ?? null);
 
         $mutated = $committed;
-        $mutated['classes']['Duo\\__SyntheticTestClass__'] = [
+        $mutated['classes']['WPrism\\__SyntheticTestClass__'] = [
             'kind' => 'class',
             'final' => true,
             'abstract' => false,
@@ -195,6 +195,6 @@ final class ApiSurfaceTest extends TestCase
 
         $diff = as_diff($committed, $mutated);
 
-        self::assertContains('+ Duo\\__SyntheticTestClass__ (added)', $diff);
+        self::assertContains('+ WPrism\\__SyntheticTestClass__ (added)', $diff);
     }
 }

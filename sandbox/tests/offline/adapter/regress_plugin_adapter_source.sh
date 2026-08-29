@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression — DUO-3339/B2: the THIRD adapter source, `<plugin-dir>/duo-adapter
+# Regression — issue #3339/B2: the THIRD adapter source, `<plugin-dir>/wprism-adapter
 # .json`, bundled by an ACTIVE plugin. Precedence (shipped > site > plugin) and
 # a per-adapter refusal scope, both of which are decisions AGAINST the obvious
 # implementation and both of which are load-bearing for sites that will never

@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tooling;
+namespace WPrism\Tooling;
 
 use RuntimeException;
 
 require_once __DIR__ . '/AdapterPackageTestDiscovery.php';
 
-/** Resolve a legacy make target from convention-discovered package suites. */
+/** Resolve a basename-derived make target from convention-discovered package suites. */
 final class AdapterPackageMakeTarget
 {
     private const DIRECTORY_MODE = 0040000;
@@ -29,7 +29,7 @@ final class AdapterPackageMakeTarget
      */
     public static function resolve(string $repoRoot, string $target): array
     {
-        if (preg_match('/^regress-[a-z0-9][a-z0-9.-]*$/D', $target) !== 1) {
+        if (preg_match('/^(?:regress|spike)-[a-z0-9][a-z0-9.-]*$/D', $target) !== 1) {
             throw new RuntimeException("Adapter package make target is not canonical: $target");
         }
         $root = self::ordinaryRoot($repoRoot);

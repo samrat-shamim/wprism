@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Regression — DUO-3401: the core sweep's NON-duo wp-cli OBSERVATION reads must
+# Regression — issue #3401: the core sweep's NON-wprism wp-cli OBSERVATION reads must
 # name infrastructure, not the engine, when a load-starved `docker compose run`
-# returns EMPTY at exit 0 (the DUO-3381 signature). Two shapes in
+# returns EMPTY at exit 0 (the issue #3381 signature). Two shapes in
 # conformance/checks/core.sh consumed such an empty read into an engine
 # accusation:
 #   1. compare family  `[ "$(wp_conf2 … get/list …)" = "$BEFORE" ] || fail "… mutated …"`
@@ -9,8 +9,8 @@
 #   2. `|| fail` observation `wp_conf2 comment get … >/dev/null || fail "… removed …"`
 #      — a compose death trips the guard with an engine-accusing message.
 # The fix captures each read into a var, premise-asserts it carried bytes with
-# require_observed_nonempty (DUO-3413's "infrastructure failure:" domain, never
-# an accusation against Duo), and only THEN compares. A healthy (non-empty,
+# require_observed_nonempty (issue #3413's "infrastructure failure:" domain, never
+# an accusation against WPrism), and only THEN compares. A healthy (non-empty,
 # correct) read reaches the exact same outcome; a real mutation (a different
 # non-empty value) still reaches the engine accusation. For the two comment-get
 # existence checks the guard is gated on exit code, so a genuine (non-zero)
@@ -79,30 +79,30 @@ GUARD_WHATS=(
   'require_observed_nonempty "conf2 widget_$TYPE identity ledger"'
   'require_observed_nonempty "conf2 sidebar-1 widget keys (target observation)"'
   'require_observed_nonempty "conf2 branch-a post_title (unforced-conflict target baseline)"'
-  'require_observed_nonempty "conf2 wp_duo_state content_hash (unforced-conflict base baseline)"'
+  'require_observed_nonempty "conf2 wp_wprism_state content_hash (unforced-conflict base baseline)"'
   'require_observed_nonempty "conf2 branch-a post_title (unforced-conflict target)"'
-  'require_observed_nonempty "conf2 wp_duo_state content_hash (unforced-conflict base)"'
+  'require_observed_nonempty "conf2 wp_wprism_state content_hash (unforced-conflict base)"'
   'require_observed_nonempty "conf2 branch-a post_title (forced-conflict convergence)"'
   'require_observed_nonempty "conf2 post get post_content (guard-blocked deletion target baseline)"'
-  'require_observed_nonempty "conf2 wp_duo_state content_hash (guard-blocked deletion base baseline)"'
+  'require_observed_nonempty "conf2 wp_wprism_state content_hash (guard-blocked deletion base baseline)"'
   'require_observed_nonempty "conf2 comment get (preserved runtime comment)"'
   'require_observed_nonempty "conf2 post get post_content (guard-blocked deletion target)"'
-  'require_observed_nonempty "conf2 wp_duo_state content_hash (guard-blocked deletion base)"'
+  'require_observed_nonempty "conf2 wp_wprism_state content_hash (guard-blocked deletion base)"'
   'require_observed_nonempty "conf2 comment get (guard-blocked deletion runtime reference)"'
   'require_observed_nonempty "conf2 post get post_content (force-theirs-only deletion-conflict target baseline)"'
-  'require_observed_nonempty "conf2 wp_duo_state content_hash (force-theirs-only deletion-conflict base baseline)"'
+  'require_observed_nonempty "conf2 wp_wprism_state content_hash (force-theirs-only deletion-conflict base baseline)"'
   'require_observed_nonempty "conf2 post get post_content (force-theirs-only deletion-conflict target)"'
-  'require_observed_nonempty "conf2 wp_duo_state content_hash (force-theirs-only deletion-conflict base)"'
+  'require_observed_nonempty "conf2 wp_wprism_state content_hash (force-theirs-only deletion-conflict base)"'
 )
 for what in "${GUARD_WHATS[@]}"; do
   grep -Fq "$what" "$CORE" \
     || fail "$CORE no longer premise-guards an observation read: missing [$what]"
 done
-pass "all ${#GUARD_WHATS[@]} DUO-3401/DUO-3426 observation reads are premise-guarded with require_observed_nonempty"
+pass "all ${#GUARD_WHATS[@]} issue #3401/issue #3426 observation reads are premise-guarded with require_observed_nonempty"
 
-grep -Fq "__duo_missing__" "$CORE" \
+grep -Fq "__wprism_missing__" "$CORE" \
   || fail "$CORE no longer distinguishes a genuine missing Ledger mapping from an empty infrastructure observation"
-grep -Fq '[ "$SOURCE_LOCAL" != '\''__duo_missing__'\'' ]' "$CORE" \
+grep -Fq '[ "$SOURCE_LOCAL" != '\''__wprism_missing__'\'' ]' "$CORE" \
   || fail "$CORE no longer routes a genuine missing Ledger mapping to the engine assertion"
 pass "Ledger null mappings retain the engine accusation while compose-empty observations remain infrastructure failures"
 

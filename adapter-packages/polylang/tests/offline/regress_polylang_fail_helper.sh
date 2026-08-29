@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Regression — DUO-3394: the polylang conformance seed + checks must route every
+# Regression — issue #3394: the polylang conformance seed + checks must route every
 # failure through the exported `fail` helper (which emits the harness's
 # `FAIL: …` line the sweep driver and log scrapers key on), never a bare
-# `echo "FAIL: …" >&2; exit 1`. Found during DUO-3381's 26-file conformance
+# `echo "FAIL: …" >&2; exit 1`. Found during issue #3381's 26-file conformance
 # audit. Offline static check — no docker, no pair. (Scoped to the two polylang
 # files this issue owns; a family-wide sweep is separate.)
 set -euo pipefail

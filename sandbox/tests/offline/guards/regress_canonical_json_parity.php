@@ -7,7 +7,7 @@
  * WHY THIS SUITE EXISTS
  * ---------------------
  * "Canonical JSON" is implemented at least eleven times in this tree and
- * `duo-command-refusal/v1` is produced at three sites and parsed at three
+ * `wprism-command-refusal/v1` is produced at three sites and parsed at three
  * more. Every one of those is a wire/hash format under AGENTS.md §9 ("keep
  * byte-identical"), and until now each was pinned only through whatever
  * end-to-end suite happened to exercise its caller. A refactor that "unifies
@@ -31,78 +31,78 @@
  * F1 — canonical pretty repository/file bytes.
  *   JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE over a
  *   recursively ksort(SORT_STRING)ed structure, plus exactly one trailing "\n".
- *   REFERENCE: \Duo\Canon::encode() (agent/src/Kernel/Canon.php).
+ *   REFERENCE: \WPrism\Canon::encode() (agent/src/Kernel/Canon.php).
  *   Members, all required byte-identical to the reference:
- *     - \Duo\ScopedApplySession::canonical_encode()  agent/src/Scope/ScopedApplySession.php:1660
- *     - \Duo\ScopedApplySession::canonical_copy()    …:1664 (decode∘encode round trip)
- *     - \Duo\ScopedApplySession::digest()            …:1656 (sha256 of the reference bytes)
- *     - \Duo\AdapterCertification::bundlePretty()    agent/src/Adapter/AdapterCertification.php:523
- *     - \Duo\AdapterCertification::canonicalHash()   …:572 (sha256 of the reference bytes)
+ *     - \WPrism\ScopedApplySession::canonical_encode()  agent/src/Scope/ScopedApplySession.php:1660
+ *     - \WPrism\ScopedApplySession::canonical_copy()    …:1664 (decode∘encode round trip)
+ *     - \WPrism\ScopedApplySession::digest()            …:1656 (sha256 of the reference bytes)
+ *     - \WPrism\AdapterCertification::bundlePretty()    agent/src/Adapter/AdapterCertification.php:523
+ *     - \WPrism\AdapterCertification::canonicalHash()   …:572 (sha256 of the reference bytes)
  *
  * F2 — canonical compact hashing/wire bytes.
  *   JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE over the same recursive
  *   ksort, no pretty-printing, no trailing newline.
- *   REFERENCE: \Duo\Orchestrator\EnvironmentLifecycleCanon::encode()
+ *   REFERENCE: \WPrism\Orchestrator\EnvironmentLifecycleCanon::encode()
  *   (cli/src/Environment/EnvironmentLifecycle.php:2207) — chosen because it is the widest
  *   domain (public, `mixed`, no value-class restriction), so it can encode
  *   every vector the narrower members accept.
  *   Members:
- *     - \Duo\Orchestrator\BootstrapEligibilityReport::canonicalJson()  cli/src/Onboarding/BootstrapEligibility.php:480
- *     - \Duo\Orchestrator\DriverCapabilityReport::canonicalJson()      cli/src/Transport/EnvironmentDriver.php:249
- *     - \Duo\Orchestrator\ClassificationBatch::queueHash()             cli/src/Onboarding/ClassificationBatch.php:48 (sha256 of the reference bytes)
- *     - \Duo\Recovery\CanonicalJson::encode()                          recovery/CanonicalJson.php:47, on its narrowed domain
- *     - \Duo\AdapterCertification::bundleDigest()                      agent/src/Adapter/AdapterCertification.php:1041 (sha256 of reference bytes . "\n")
+ *     - \WPrism\Orchestrator\BootstrapEligibilityReport::canonicalJson()  cli/src/Onboarding/BootstrapEligibility.php:480
+ *     - \WPrism\Orchestrator\DriverCapabilityReport::canonicalJson()      cli/src/Transport/EnvironmentDriver.php:249
+ *     - \WPrism\Orchestrator\ClassificationBatch::queueHash()             cli/src/Onboarding/ClassificationBatch.php:48 (sha256 of the reference bytes)
+ *     - \WPrism\Recovery\CanonicalJson::encode()                          recovery/CanonicalJson.php:47, on its narrowed domain
+ *     - \WPrism\AdapterCertification::bundleDigest()                      agent/src/Adapter/AdapterCertification.php:1041 (sha256 of reference bytes . "\n")
  *
- * F3 — the `duo-command-refusal/v1` envelope.
- *   Producers: \Duo\Cli::halt_json_failure() (agent/src/Command/Cli.php:28),
- *   \Duo\Orchestrator\CommandOutput::renderRefusalJson() (cli/src/Command/CommandOutput.php:44),
- *   \Duo\Orchestrator\AdapterObservation::refusal() (cli/src/Adapter/AdapterObservation.php:576).
+ * F3 — the `wprism-command-refusal/v1` envelope.
+ *   Producers: \WPrism\Cli::halt_json_failure() (agent/src/Command/Cli.php:28),
+ *   \WPrism\Orchestrator\CommandOutput::renderRefusalJson() (cli/src/Command/CommandOutput.php:44),
+ *   \WPrism\Orchestrator\AdapterObservation::refusal() (cli/src/Adapter/AdapterObservation.php:576).
  *   Parsers: cli/src/Command/StatusCommand.php:42, cli/src/Command/PendingCommand.php:17,
  *   cli/src/Onboarding/Init.php:159 — all three the same `is_array() && format === …` test.
  *
  * F4 — the plan-row human label.
- *   REFERENCE: \Duo\PlanView::humanLabel() (agent/src/Review/PlanView.php:444).
- *   Members: \Duo\Orchestrator\PlanView::humanLabel() (cli/src/Plan/PlanView.php:676),
- *   \Duo\Orchestrator\PlanSummary::label() (cli/src/Plan/PlanSummary.php:590).
+ *   REFERENCE: \WPrism\PlanView::humanLabel() (agent/src/Review/PlanView.php:444).
+ *   Members: \WPrism\Orchestrator\PlanView::humanLabel() (cli/src/Plan/PlanView.php:676),
+ *   \WPrism\Orchestrator\PlanSummary::label() (cli/src/Plan/PlanSummary.php:590).
  *
  * F5 — cli/src/Plan/PlanSummary.php's five "keep lockstep with agent/src/Command/Cli.php"
  *   comments (lines 211, 280, 388, 406, 598). See the section body for the
  *   agent fragment each one names and how it is pinned.
  *
- * F6 — the version-range predicate: \Duo\Deploy::in_range()
- *   (agent/src/Promotion/Deploy.php:819) vs \Duo\Orchestrator\Doctor::in_range()
+ * F6 — the version-range predicate: \WPrism\Deploy::in_range()
+ *   (agent/src/Promotion/Deploy.php:819) vs \WPrism\Orchestrator\Doctor::in_range()
  *   (cli/src/Onboarding/Doctor.php:289), an intentional independent copy.
  *
- * F7 — the relative-path safety predicate: \Duo\PathSafety::safe_relative()
+ * F7 — the relative-path safety predicate: \WPrism\PathSafety::safe_relative()
  *   (agent/src/Kernel/PathSafety.php:68) vs its one verbatim copy,
- *   \Duo\CodeCompatibility::safe_relative() (agent/src/Code/CodeCompatibility.php:806).
+ *   \WPrism\CodeCompatibility::safe_relative() (agent/src/Code/CodeCompatibility.php:806).
  *
  * DELIBERATELY NOT PINNED AS EQUAL (asserted as DIFFERENT, so a unification
  * has to come here and say so on purpose)
  * -------------------------------------------------------------------------
- *  1. \Duo\PromotionSessionJournal::canonical() (agent/src/Promotion/PromotionSessionJournal.php:250)
+ *  1. \WPrism\PromotionSessionJournal::canonical() (agent/src/Promotion/PromotionSessionJournal.php:250)
  *     is a hand-rolled compact serializer that omits JSON_UNESCAPED_UNICODE
  *     and runs object KEYS through a bare json_encode() (so a key's "/" comes
  *     back "\/"). It is an equality basis for self::same() only — never
  *     persisted, never hashed — so it is pinned as byte-equal to F2 on ASCII,
  *     slash-free-key vectors and pinned as DIFFERENT on the unicode and
  *     slash-key vectors.
- *  2. \Duo\Orchestrator\AdapterCatalog::encode() (cli/src/Adapter/AdapterCatalog.php:981),
- *     ::inline() (…:969) and \Duo\Orchestrator\ManifestValidate::encode()
+ *  2. \WPrism\Orchestrator\AdapterCatalog::encode() (cli/src/Adapter/AdapterCatalog.php:981),
+ *     ::inline() (…:969) and \WPrism\Orchestrator\ManifestValidate::encode()
  *     (cli/src/Adapter/ManifestValidate.php:710) pretty-print or compact WITHOUT any
  *     key sort: their own docblocks state that declared/engine key order is
  *     load-bearing in the refusal messages that print the same sets. They are
  *     pinned as F1/F2 minus the sort (equal on pre-sorted input, different on
  *     unsorted input) and minus F1's trailing newline.
- *  3. \Duo\Orchestrator\ClassificationBatch::encode() (cli/src/Onboarding/ClassificationBatch.php:56)
+ *  3. \WPrism\Orchestrator\ClassificationBatch::encode() (cli/src/Onboarding/ClassificationBatch.php:56)
  *     is F1's flags plus the trailing newline but no normalize() — the batch
  *     document's key order is built by ::build(). Pinned the same way.
- *  4. \Duo\Recovery\CanonicalJson::encode() narrows the domain: floats,
+ *  4. \WPrism\Recovery\CanonicalJson::encode() narrows the domain: floats,
  *     objects and resources are refused outright and object keys must be
  *     strings (so a PHP array whose keys the language coerced to int is
  *     refused too). Those refusals are pinned as refusals.
  *  5. Every cli-side canonicalize()/normalize() descends only into PHP
- *     ARRAYS; \Duo\Canon::normalize() also sorts \stdClass properties. The
+ *     ARRAYS; \WPrism\Canon::normalize() also sorts \stdClass properties. The
  *     `stdclass-vs-array` and `empty-array-vs-empty-object` vectors pin that
  *     split (it is the same PHP-type-vs-JSON-shape asymmetry Canon's own
  *     post_hash_basis() docblock documents).
@@ -141,7 +141,7 @@
  *  - agent/src/Adapter/AdapterCertification.php:527 — bundlePretty()'s sibling
  *    four-space pretty asset writer is reached only through a signed bundle
  *    import; bundlePretty() itself IS pinned and is the byte authority.
- *  - The open-coded relative-path checks that \Duo\PathSafety should
+ *  - The open-coded relative-path checks that \WPrism\PathSafety should
  *    eventually own. They are not callable uniformly (most are inline `if`
  *    guards inside larger validators), so this suite pins PathSafety's own
  *    vectors and its one verbatim copy, and records the migration target as a
@@ -164,7 +164,7 @@
  * ------------------------
  * There is deliberately no generator script to keep in sync: every golden in
  * sandbox/tests/fixtures/parity/ was captured from the same entry point this
- * suite drives, and duo_check_same() prints both sides on failure. A
+ * suite drives, and wprism_check_same() prints both sides on failure. A
  * DELIBERATE format change is therefore "read the reported `actual:` and
  * paste it into the fixture" — which forces whoever makes it to look at the
  * exact bytes they are changing, one implementation at a time.
@@ -177,7 +177,7 @@
  * sandbox/tests/offline_diagnostics_guard.sh refuses. Nothing here writes to
  * the filesystem, opens a socket, or needs WordPress; the minimal WP_CLI stub
  * below is declared BEFORE agent/src/Command/Cli.php is required because that file's
- * last statement is WP_CLI::add_command('duo', Cli::class).
+ * last statement is WP_CLI::add_command('wprism', Cli::class).
  */
 declare(strict_types=1);
 
@@ -211,7 +211,7 @@ final class WP_CLI {
 
     /** @return never */
     public static function halt(int $code): void {
-        throw new DuoParityHalt('WP_CLI::halt(' . $code . ')');
+        throw new WPrismParityHalt('WP_CLI::halt(' . $code . ')');
     }
 
     public static function add_command(string $name, mixed $handler, array $args = []): void {
@@ -223,61 +223,61 @@ final class WP_CLI {
 }
 
 /** Distinguishes the stub's halt() from a genuine failure in the code under test. */
-final class DuoParityHalt extends RuntimeException {
+final class WPrismParityHalt extends RuntimeException {
 }
 
-$duoRoot = dirname(__DIR__, 4);
+$wprismRoot = dirname(__DIR__, 4);
 
-require_once $duoRoot . '/agent/src/Kernel/Canon.php';
-require_once $duoRoot . '/agent/src/Kernel/OrderPreserved.php';
-require_once $duoRoot . '/agent/src/Command/Cli.php';
-require_once $duoRoot . '/agent/src/Review/PlanView.php';
-require_once $duoRoot . '/agent/src/Kernel/PathSafety.php';
-require_once $duoRoot . '/agent/src/Code/CodeCompatibility.php';
-require_once $duoRoot . '/agent/src/Promotion/Deploy.php';
-require_once $duoRoot . '/agent/src/Scope/ScopedApplySession.php';
-require_once $duoRoot . '/agent/src/Promotion/PromotionSessionJournal.php';
-require_once $duoRoot . '/agent/src/Adapter/AdapterCertification.php';
-require_once $duoRoot . '/recovery/CanonicalJson.php';
-require_once $duoRoot . '/cli/src/Environment/EnvironmentLifecycle.php';
-require_once $duoRoot . '/cli/src/Onboarding/BootstrapEligibility.php';
-require_once $duoRoot . '/cli/src/Transport/EnvironmentDriver.php';
-require_once $duoRoot . '/cli/src/Onboarding/ClassificationBatch.php';
-require_once $duoRoot . '/cli/src/Adapter/AdapterCatalog.php';
-require_once $duoRoot . '/cli/src/Adapter/ManifestValidate.php';
-require_once $duoRoot . '/cli/src/Command/CommandOutput.php';
-require_once $duoRoot . '/cli/src/Adapter/AdapterObservation.php';
-require_once $duoRoot . '/cli/src/Plan/PlanSummary.php';
-require_once $duoRoot . '/cli/src/Plan/PlanView.php';
-require_once $duoRoot . '/cli/src/Onboarding/Doctor.php';
-require_once $duoRoot . '/cli/src/Command/StatusCommand.php';
-require_once $duoRoot . '/cli/src/Command/PendingCommand.php';
+require_once $wprismRoot . '/agent/src/Kernel/Canon.php';
+require_once $wprismRoot . '/agent/src/Kernel/OrderPreserved.php';
+require_once $wprismRoot . '/agent/src/Command/Cli.php';
+require_once $wprismRoot . '/agent/src/Review/PlanView.php';
+require_once $wprismRoot . '/agent/src/Kernel/PathSafety.php';
+require_once $wprismRoot . '/agent/src/Code/CodeCompatibility.php';
+require_once $wprismRoot . '/agent/src/Promotion/Deploy.php';
+require_once $wprismRoot . '/agent/src/Scope/ScopedApplySession.php';
+require_once $wprismRoot . '/agent/src/Promotion/PromotionSessionJournal.php';
+require_once $wprismRoot . '/agent/src/Adapter/AdapterCertification.php';
+require_once $wprismRoot . '/recovery/CanonicalJson.php';
+require_once $wprismRoot . '/cli/src/Environment/EnvironmentLifecycle.php';
+require_once $wprismRoot . '/cli/src/Onboarding/BootstrapEligibility.php';
+require_once $wprismRoot . '/cli/src/Transport/EnvironmentDriver.php';
+require_once $wprismRoot . '/cli/src/Onboarding/ClassificationBatch.php';
+require_once $wprismRoot . '/cli/src/Adapter/AdapterCatalog.php';
+require_once $wprismRoot . '/cli/src/Adapter/ManifestValidate.php';
+require_once $wprismRoot . '/cli/src/Command/CommandOutput.php';
+require_once $wprismRoot . '/cli/src/Adapter/AdapterObservation.php';
+require_once $wprismRoot . '/cli/src/Plan/PlanSummary.php';
+require_once $wprismRoot . '/cli/src/Plan/PlanView.php';
+require_once $wprismRoot . '/cli/src/Onboarding/Doctor.php';
+require_once $wprismRoot . '/cli/src/Command/StatusCommand.php';
+require_once $wprismRoot . '/cli/src/Command/PendingCommand.php';
 
-use Duo\AdapterCertification;
-use Duo\Canon;
-use Duo\Cli;
-use Duo\CodeCompatibility;
-use Duo\CommandRefusalException;
-use Duo\Deploy;
-use Duo\OrderPreserved;
-use Duo\PathSafety;
-use Duo\PromotionSessionJournal;
-use Duo\ScopedApplySession;
-use Duo\Orchestrator\AdapterCatalog;
-use Duo\Orchestrator\AdapterObservation;
-use Duo\Orchestrator\BootstrapEligibilityReport;
-use Duo\Orchestrator\ClassificationBatch;
-use Duo\Orchestrator\CommandOutput;
-use Duo\Orchestrator\Doctor;
-use Duo\Orchestrator\DriverCapabilityReport;
-use Duo\Orchestrator\EnvironmentDriver;
-use Duo\Orchestrator\EnvironmentLifecycleCanon;
-use Duo\Orchestrator\ManifestValidate;
-use Duo\Orchestrator\PendingCommand;
-use Duo\Orchestrator\PlanContract;
-use Duo\Orchestrator\PlanSummary;
-use Duo\Orchestrator\StatusCommand;
-use Duo\Recovery\CanonicalJson;
+use WPrism\AdapterCertification;
+use WPrism\Canon;
+use WPrism\Cli;
+use WPrism\CodeCompatibility;
+use WPrism\CommandRefusalException;
+use WPrism\Deploy;
+use WPrism\OrderPreserved;
+use WPrism\PathSafety;
+use WPrism\PromotionSessionJournal;
+use WPrism\ScopedApplySession;
+use WPrism\Orchestrator\AdapterCatalog;
+use WPrism\Orchestrator\AdapterObservation;
+use WPrism\Orchestrator\BootstrapEligibilityReport;
+use WPrism\Orchestrator\ClassificationBatch;
+use WPrism\Orchestrator\CommandOutput;
+use WPrism\Orchestrator\Doctor;
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\EnvironmentDriver;
+use WPrism\Orchestrator\EnvironmentLifecycleCanon;
+use WPrism\Orchestrator\ManifestValidate;
+use WPrism\Orchestrator\PendingCommand;
+use WPrism\Orchestrator\PlanContract;
+use WPrism\Orchestrator\PlanSummary;
+use WPrism\Orchestrator\StatusCommand;
+use WPrism\Recovery\CanonicalJson;
 
 // ---------------------------------------------------------------------------
 // fixtures and shared helpers
@@ -303,7 +303,7 @@ function parity_fixture(string $name): array {
 
 /**
  * Hydrate the fixture's two-marker value grammar into live PHP values:
- * `{"$op": v}` becomes \Duo\OrderPreserved, `{"$obj": {…}}` becomes
+ * `{"$op": v}` becomes \WPrism\OrderPreserved, `{"$obj": {…}}` becomes
  * \stdClass. Everything else is the plain json_decode(assoc) shape, which is
  * exactly what Apply::load_tree() hands Canon in production.
  */
@@ -425,7 +425,7 @@ function parity_wp_cli_line_expression(string $file, string $needle): string {
  * concatenation of `$r[...] ?? '…'` reads and strtoupper(), so evaluating one
  * has no effect beyond producing the line the agent would have printed.
  * sandbox/tests/offline/cli/regress_plan_contract_trust.php uses the same idiom to reach
- * cli/duo's functions without running its main().
+ * cli/wprism's functions without running its main().
  */
 function parity_eval_row_expression(string $expression, array $row): string {
     if ($expression === '') {
@@ -513,7 +513,7 @@ $agentRefusal = \Closure::bind(
         WP_CLI::$lines = [];
         try {
             Cli::halt_json_failure($e, ['format' => 'json'], $command);
-        } catch (DuoParityHalt $halt) {
+        } catch (WPrismParityHalt $halt) {
             // halt_json_failure() always ends in WP_CLI::halt(1).
         }
         return WP_CLI::$lines[0] ?? '';
@@ -531,9 +531,9 @@ $observationRefusal = \Closure::bind(
     AdapterObservation::class
 );
 $cliPlanViewLabel = \Closure::bind(
-    static fn(array $row): string => \Duo\Orchestrator\PlanView::humanLabel($row),
+    static fn(array $row): string => \WPrism\Orchestrator\PlanView::humanLabel($row),
     null,
-    \Duo\Orchestrator\PlanView::class
+    \WPrism\Orchestrator\PlanView::class
 );
 $planSummaryLabel = \Closure::bind(
     static fn(array $row): string => PlanSummary::label($row),
@@ -556,40 +556,40 @@ $codeCompatibilitySafeRelative = \Closure::bind(
 // ---------------------------------------------------------------------------
 
 $canonicalVectors = parity_fixture('canonical-json-vectors');
-duo_check_same(
-    'duo-parity-canonical-json/v1',
+wprism_check_same(
+    'wprism-parity-canonical-json/v1',
     $canonicalVectors['format'] ?? null,
     'the canonical-JSON vector fixture declares its versioned format'
 );
-duo_check(count($canonicalVectors['vectors']) >= 12, 'the fixture carries at least twelve canonical-JSON vectors');
+wprism_check(count($canonicalVectors['vectors']) >= 12, 'the fixture carries at least twelve canonical-JSON vectors');
 
 foreach ($canonicalVectors['vectors'] as $vector) {
     $name = (string) $vector['name'];
     $value = parity_hydrate($vector['value']);
     $golden = (string) $vector['canon'];
 
-    duo_check_same($golden, Canon::encode($value), "F1 reference Canon::encode is byte-stable [$name]");
-    duo_check_same($golden, $canonicalEncode($value), "F1 ScopedApplySession::canonical_encode [$name]");
-    duo_check_same($golden, $bundlePretty($value), "F1 AdapterCertification::bundlePretty [$name]");
-    duo_check_same(
+    wprism_check_same($golden, Canon::encode($value), "F1 reference Canon::encode is byte-stable [$name]");
+    wprism_check_same($golden, $canonicalEncode($value), "F1 ScopedApplySession::canonical_encode [$name]");
+    wprism_check_same($golden, $bundlePretty($value), "F1 AdapterCertification::bundlePretty [$name]");
+    wprism_check_same(
         hash('sha256', $golden),
         $certCanonicalHash($value),
         "F1 AdapterCertification::canonicalHash hashes exactly the reference bytes [$name]"
     );
-    duo_check_same(
+    wprism_check_same(
         Canon::decode($golden),
         $canonicalCopy($value),
         "F1 ScopedApplySession::canonical_copy round-trips through the reference bytes [$name]"
     );
     if (is_array($value)) {
-        duo_check_same(
+        wprism_check_same(
             hash('sha256', $golden),
             $sessionDigest($value),
             "F1 ScopedApplySession::digest hashes exactly the reference bytes [$name]"
         );
     }
-    duo_check(str_ends_with($golden, "\n"), "F1 bytes end with exactly one newline [$name]");
-    duo_check(!str_ends_with($golden, "\n\n"), "F1 bytes end with exactly one newline, not two [$name]");
+    wprism_check(str_ends_with($golden, "\n"), "F1 bytes end with exactly one newline [$name]");
+    wprism_check(!str_ends_with($golden, "\n\n"), "F1 bytes end with exactly one newline, not two [$name]");
 }
 
 // ---------------------------------------------------------------------------
@@ -600,7 +600,7 @@ foreach ($canonicalVectors['vectors'] as $vector) {
     $name = (string) $vector['name'];
     $value = parity_hydrate($vector['value']);
     if (!($vector['f2'] ?? false)) {
-        duo_check(
+        wprism_check(
             isset($vector['f2_skip']),
             "F2 does not apply to [$name] and the fixture says why"
         );
@@ -608,13 +608,13 @@ foreach ($canonicalVectors['vectors'] as $vector) {
     }
     $compact = (string) $vector['compact'];
 
-    duo_check_same($compact, EnvironmentLifecycleCanon::encode($value), "F2 reference EnvironmentLifecycleCanon::encode is byte-stable [$name]");
-    duo_check(!str_contains($compact, "\n"), "F2 bytes are one line with no trailing newline [$name]");
+    wprism_check_same($compact, EnvironmentLifecycleCanon::encode($value), "F2 reference EnvironmentLifecycleCanon::encode is byte-stable [$name]");
+    wprism_check(!str_contains($compact, "\n"), "F2 bytes are one line with no trailing newline [$name]");
 
     if (is_array($value)) {
-        duo_check_same($compact, $bootstrapCanonical($value), "F2 BootstrapEligibilityReport::canonicalJson [$name]");
-        duo_check_same($compact, $driverCanonical($value), "F2 DriverCapabilityReport::canonicalJson [$name]");
-        duo_check_same(
+        wprism_check_same($compact, $bootstrapCanonical($value), "F2 BootstrapEligibilityReport::canonicalJson [$name]");
+        wprism_check_same($compact, $driverCanonical($value), "F2 DriverCapabilityReport::canonicalJson [$name]");
+        wprism_check_same(
             hash('sha256', $compact),
             ClassificationBatch::queueHash($value),
             "F2 ClassificationBatch::queueHash hashes exactly the reference bytes [$name]"
@@ -625,7 +625,7 @@ foreach ($canonicalVectors['vectors'] as $vector) {
     // it normalizes through Canon::normalize(), which also sorts stdClass
     // properties — so the two agree only where no object is present.
     if (is_array($value) && !parity_has_object($value)) {
-        duo_check_same(
+        wprism_check_same(
             hash('sha256', $compact . "\n"),
             $bundleDigest($value),
             "F2 AdapterCertification::bundleDigest hashes the reference bytes plus one newline [$name]"
@@ -635,25 +635,25 @@ foreach ($canonicalVectors['vectors'] as $vector) {
     // recovery/CanonicalJson::encode() on its narrowed domain.
     $recovery = (string) ($vector['recovery'] ?? 'ok');
     if ($recovery === 'ok') {
-        duo_check_same($compact, CanonicalJson::encode($value), "F2 recovery CanonicalJson::encode [$name]");
-        duo_check_same(
+        wprism_check_same($compact, CanonicalJson::encode($value), "F2 recovery CanonicalJson::encode [$name]");
+        wprism_check_same(
             json_decode($compact, true),
-            CanonicalJson::decode($compact . "\n", 'vector', 'duo parity'),
+            CanonicalJson::decode($compact . "\n", 'vector', 'wprism parity'),
             "F2 recovery CanonicalJson::decode accepts its own bytes plus one newline [$name]"
         );
-        duo_check_same(
+        wprism_check_same(
             'RuntimeException',
-            parity_thrown(static fn() => CanonicalJson::decode($compact, 'vector', 'duo parity')),
+            parity_thrown(static fn() => CanonicalJson::decode($compact, 'vector', 'wprism parity')),
             "F2 recovery CanonicalJson::decode refuses the same bytes WITHOUT the trailing newline [$name]"
         );
     } elseif ($recovery === 'refuses') {
-        duo_check_same(
+        wprism_check_same(
             'RuntimeException',
             parity_thrown(static fn() => CanonicalJson::encode($value)),
             "F2 recovery CanonicalJson::encode refuses its out-of-domain vector [$name]"
         );
     } else {
-        duo_check_same(
+        wprism_check_same(
             'TypeError',
             parity_thrown(static fn() => CanonicalJson::encode($value)),
             "F2 recovery CanonicalJson::encode rejects a non-array root [$name]"
@@ -664,7 +664,7 @@ foreach ($canonicalVectors['vectors'] as $vector) {
 // The one recovery refusal worth naming: a PHP array whose keys the language
 // coerced to int is not a canonical JSON object to the recovery codec, even
 // though every other family encodes it happily.
-duo_check_same(
+wprism_check_same(
     'RuntimeException',
     parity_thrown(static fn() => CanonicalJson::encode(['10' => 'ten', '2' => 'two'])),
     'F2 recovery CanonicalJson refuses integer-coerced object keys that F1 and the cli sites accept'
@@ -679,7 +679,7 @@ foreach ($canonicalVectors['vectors'] as $vector) {
         continue;
     }
     $name = (string) $vector['name'];
-    duo_check_json_equal(
+    wprism_check_json_equal(
         (string) $vector['canon'],
         (string) $vector['compact'],
         "F1 and F2 decode to the same structure [$name]"
@@ -689,13 +689,13 @@ foreach ($canonicalVectors['vectors'] as $vector) {
         JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
     ) . "\n";
     if ($vector['reencode'] ?? false) {
-        duo_check_same(
+        wprism_check_same(
             (string) $vector['canon'],
             $reencoded,
             "F2 bytes re-pretty-printed are F1 bytes — the two differ only in whitespace [$name]"
         );
     } else {
-        duo_check(
+        wprism_check(
             $reencoded !== (string) $vector['canon'],
             "F2 bytes do NOT survive a PHP decode/re-encode round trip, and the fixture says so [$name]"
         );
@@ -706,8 +706,8 @@ foreach ($canonicalVectors['vectors'] as $vector) {
 // PHP round trip, both pinned so a "just re-encode it" refactor cannot land
 // quietly: JSON -0 decodes to the integer 0, and an empty JSON object decodes
 // to a PHP array, which re-encodes as [].
-duo_check_same('{"n":-0}', EnvironmentLifecycleCanon::encode(['n' => -0.0]), 'a negative zero encodes as -0');
-duo_check_same('{"n":0}', EnvironmentLifecycleCanon::encode(json_decode('{"n":-0}', true)), 'and decodes back as the integer 0');
+wprism_check_same('{"n":-0}', EnvironmentLifecycleCanon::encode(['n' => -0.0]), 'a negative zero encodes as -0');
+wprism_check_same('{"n":0}', EnvironmentLifecycleCanon::encode(json_decode('{"n":-0}', true)), 'and decodes back as the integer 0');
 
 // The documented split: a cli-side canonicalize() descends only into PHP
 // arrays, so a \stdClass keeps its authored property order while Canon sorts
@@ -715,12 +715,12 @@ duo_check_same('{"n":0}', EnvironmentLifecycleCanon::encode(json_decode('{"n":-0
 $objectVector = new stdClass();
 $objectVector->zeta = 1;
 $objectVector->alpha = 2;
-duo_check_same(
+wprism_check_same(
     '{"zeta":1,"alpha":2}',
     EnvironmentLifecycleCanon::encode($objectVector),
     'F2 leaves stdClass property order exactly as authored'
 );
-duo_check_same(
+wprism_check_same(
     "{\n    \"alpha\": 2,\n    \"zeta\": 1\n}\n",
     Canon::encode($objectVector),
     'F1 sorts stdClass properties — the deliberate F1/F2 split for objects'
@@ -729,9 +729,9 @@ duo_check_same(
 // The empty-{} vs empty-[] asymmetry Canon::post_hash_basis()'s own docblock
 // names as the reason it round-trips through encode()/decode() first.
 $emptyObject = new stdClass();
-duo_check_same("{}\n", Canon::encode($emptyObject), 'F1 renders an empty stdClass as {}');
-duo_check_same("[]\n", Canon::encode([]), 'F1 renders an empty PHP array as [] — array_is_list() calls it a list');
-duo_check_same(
+wprism_check_same("{}\n", Canon::encode($emptyObject), 'F1 renders an empty stdClass as {}');
+wprism_check_same("[]\n", Canon::encode([]), 'F1 renders an empty PHP array as [] — array_is_list() calls it a list');
+wprism_check_same(
     [],
     Canon::decode(Canon::encode($emptyObject)),
     'F1 decode() collapses {} back to a PHP array, which is why a hash basis must round-trip first'
@@ -741,27 +741,27 @@ duo_check_same(
 // Deliberate divergence 1 — PromotionSessionJournal::canonical()
 // ---------------------------------------------------------------------------
 
-duo_check_same(
+wprism_check_same(
     EnvironmentLifecycleCanon::encode(['b' => 1, 'a' => ['d' => 2, 'c' => [3, 4]]]),
     $journalCanonical(['b' => 1, 'a' => ['d' => 2, 'c' => [3, 4]]]),
     'PromotionSessionJournal::canonical equals F2 on ASCII, slash-free-key values'
 );
-duo_check_same(
+wprism_check_same(
     '{"emoji":"\\ud83d\\ude80"}',
     $journalCanonical(['emoji' => '🚀']),
     'PromotionSessionJournal::canonical escapes unicode — it omits JSON_UNESCAPED_UNICODE'
 );
-duo_check_same(
+wprism_check_same(
     '{"emoji":"🚀"}',
     EnvironmentLifecycleCanon::encode(['emoji' => '🚀']),
     'F2 does not escape unicode — the pinned difference from the journal basis'
 );
-duo_check_same(
+wprism_check_same(
     '{"a\\/b":"x/y"}',
     $journalCanonical(['a/b' => 'x/y']),
     'PromotionSessionJournal::canonical escapes a slash in a KEY but not in a value — its keys go through a bare json_encode()'
 );
-duo_check_same(
+wprism_check_same(
     '{"a/b":"x/y"}',
     EnvironmentLifecycleCanon::encode(['a/b' => 'x/y']),
     'F2 leaves slashes raw in keys and values alike'
@@ -774,54 +774,54 @@ duo_check_same(
 $unsorted = ['zeta' => 1, 'alpha' => ['nested_z' => true, 'nested_a' => 2]];
 $presorted = ['alpha' => ['nested_a' => 2, 'nested_z' => true], 'zeta' => 1];
 
-duo_check_same(
+wprism_check_same(
     rtrim(Canon::encode($presorted), "\n"),
     $catalogEncode($presorted),
     'AdapterCatalog::encode is F1 minus the trailing newline when the document is already in canonical order'
 );
-duo_check_same(
+wprism_check_same(
     rtrim(Canon::encode($presorted), "\n"),
     $manifestValidateEncode($presorted),
     'ManifestValidate::encode is F1 minus the trailing newline when the document is already in canonical order'
 );
-duo_check(
+wprism_check(
     $catalogEncode($unsorted) !== rtrim(Canon::encode($unsorted), "\n"),
     'AdapterCatalog::encode does NOT sort — engine key order is load-bearing in its own refusal messages'
 );
-duo_check(
+wprism_check(
     $manifestValidateEncode($unsorted) !== rtrim(Canon::encode($unsorted), "\n"),
     'ManifestValidate::encode does NOT sort — declared key order is load-bearing in its own refusal messages'
 );
-duo_check_same(
+wprism_check_same(
     EnvironmentLifecycleCanon::encode($presorted),
     $catalogInline($presorted),
     'AdapterCatalog::inline is F2 when the value is already in canonical order'
 );
-duo_check(
+wprism_check(
     $catalogInline($unsorted) !== EnvironmentLifecycleCanon::encode($unsorted),
     'AdapterCatalog::inline does NOT sort either'
 );
-duo_check_same(
+wprism_check_same(
     Canon::encode($presorted),
     ClassificationBatch::encode($presorted),
     'ClassificationBatch::encode is F1 including the trailing newline when the batch is already in canonical order'
 );
-duo_check(
+wprism_check(
     ClassificationBatch::encode($unsorted) !== Canon::encode($unsorted),
     'ClassificationBatch::encode does NOT sort — ::build() owns the batch document key order'
 );
 
 // ---------------------------------------------------------------------------
-// F3 — the duo-command-refusal/v1 envelope
+// F3 — the wprism-command-refusal/v1 envelope
 // ---------------------------------------------------------------------------
 
 $refusalVectors = parity_fixture('refusal-envelope-vectors');
-duo_check_same(
-    'duo-parity-refusal-envelope/v1',
+wprism_check_same(
+    'wprism-parity-refusal-envelope/v1',
     $refusalVectors['format'] ?? null,
     'the refusal-envelope vector fixture declares its versioned format'
 );
-duo_check(count($refusalVectors['tuples']) >= 6, 'the fixture carries at least six refusal tuples');
+wprism_check(count($refusalVectors['tuples']) >= 6, 'the fixture carries at least six refusal tuples');
 
 foreach ($refusalVectors['tuples'] as $tuple) {
     $name = (string) $tuple['name'];
@@ -839,45 +839,45 @@ foreach ($refusalVectors['tuples'] as $tuple) {
     $hostExit = CommandOutput::renderRefusalJson($command, $reasonCode, $message, $remediation, $diagnostics);
     $hostBytes = (string) ob_get_clean();
 
-    duo_check_same((string) $tuple['agent'], $agentBytes, "F3 agent envelope is byte-stable [$name]");
-    duo_check_same((string) $tuple['host'] . "\n", $hostBytes, "F3 host envelope is byte-stable [$name]");
-    duo_check_same(1, $hostExit, "F3 the host envelope reports the failure exit code [$name]");
-    duo_check(!str_contains($agentBytes, "\n"), "F3 the agent envelope is exactly one line [$name]");
+    wprism_check_same((string) $tuple['agent'], $agentBytes, "F3 agent envelope is byte-stable [$name]");
+    wprism_check_same((string) $tuple['host'] . "\n", $hostBytes, "F3 host envelope is byte-stable [$name]");
+    wprism_check_same(1, $hostExit, "F3 the host envelope reports the failure exit code [$name]");
+    wprism_check(!str_contains($agentBytes, "\n"), "F3 the agent envelope is exactly one line [$name]");
 
     $decoded = json_decode($agentBytes, true);
-    duo_check_same('duo-command-refusal/v1', $decoded['format'] ?? null, "F3 the agent envelope names the versioned format [$name]");
-    duo_check_same(false, $decoded['ok'] ?? null, "F3 ok is the JSON literal false [$name]");
-    duo_check_same($command, $decoded['command'] ?? null, "F3 the envelope carries the command [$name]");
-    duo_check_same($reasonCode, $decoded['error'] ?? null, "F3 error keeps the reason code [$name]");
-    duo_check_same($reasonCode, $decoded['reason_code'] ?? null, "F3 reason_code keeps the reason code [$name]");
-    duo_check_same(
+    wprism_check_same('wprism-command-refusal/v1', $decoded['format'] ?? null, "F3 the agent envelope names the versioned format [$name]");
+    wprism_check_same(false, $decoded['ok'] ?? null, "F3 ok is the JSON literal false [$name]");
+    wprism_check_same($command, $decoded['command'] ?? null, "F3 the envelope carries the command [$name]");
+    wprism_check_same($reasonCode, $decoded['error'] ?? null, "F3 error keeps the reason code [$name]");
+    wprism_check_same($reasonCode, $decoded['reason_code'] ?? null, "F3 reason_code keeps the reason code [$name]");
+    wprism_check_same(
         ['format', 'ok', 'command', 'error', 'reason_code', 'message', 'remediation'],
         array_slice(array_keys((array) $decoded), 0, 7),
         "F3 the seven leading envelope keys keep their exact order [$name]"
     );
 
     if ($redacted) {
-        duo_check_same(true, $decoded['details_redacted'] ?? null, "F3 a sensitive tuple is marked details_redacted [$name]");
-        duo_check_same(
+        wprism_check_same(true, $decoded['details_redacted'] ?? null, "F3 a sensitive tuple is marked details_redacted [$name]");
+        wprism_check_same(
             'structured refusal details were redacted',
             $decoded['message'] ?? null,
             "F3 a sensitive tuple's message is replaced, not rewritten [$name]"
         );
-        duo_check(!isset($decoded['diagnostics']), "F3 a sensitive tuple drops the whole diagnostics batch [$name]");
-        duo_check(
+        wprism_check(!isset($decoded['diagnostics']), "F3 a sensitive tuple drops the whole diagnostics batch [$name]");
+        wprism_check(
             $agentBytes . "\n" !== $hostBytes,
             "F3 the host envelope has no sensitivity screen and therefore differs from the agent's on a sensitive tuple [$name]"
         );
     } else {
-        duo_check_same(
+        wprism_check_same(
             $agentBytes . "\n",
             $hostBytes,
             "F3 agent and host producers emit identical bytes for a publishable tuple [$name]"
         );
-        duo_check_same($message, $decoded['message'] ?? null, "F3 a publishable message survives verbatim [$name]");
-        duo_check_same($remediation, $decoded['remediation'] ?? null, "F3 a publishable remediation survives verbatim [$name]");
+        wprism_check_same($message, $decoded['message'] ?? null, "F3 a publishable message survives verbatim [$name]");
+        wprism_check_same($remediation, $decoded['remediation'] ?? null, "F3 a publishable remediation survives verbatim [$name]");
         if ($diagnostics !== []) {
-            duo_check_same($diagnostics, $decoded['diagnostics'] ?? null, "F3 diagnostics survive in order [$name]");
+            wprism_check_same($diagnostics, $decoded['diagnostics'] ?? null, "F3 diagnostics survive in order [$name]");
         }
     }
 
@@ -886,12 +886,12 @@ foreach ($refusalVectors['tuples'] as $tuple) {
     ob_start();
     CommandOutput::renderRefusalJson('adapter-observe', $reasonCode, $message, $remediation);
     $hostAsObserve = rtrim((string) ob_get_clean(), "\n");
-    duo_check_same(
+    wprism_check_same(
         substr($hostAsObserve, 0, -1) . ',"details_redacted":true}',
         $observationRefusal($reasonCode, $message, $remediation),
         "F3 AdapterObservation::refusal is the host envelope plus a constant details_redacted tail [$name]"
     );
-    duo_check_same(
+    wprism_check_same(
         (string) $tuple['adapter_observe'],
         $observationRefusal($reasonCode, $message, $remediation),
         "F3 the adapter-observe envelope is byte-stable [$name]"
@@ -907,8 +907,8 @@ $infRefusal = new CommandRefusalException(
     'resolve the reported findings and rerun plan',
     [['code' => 'unencodable', 'value' => INF]]
 );
-duo_check_same(
-    '{"format":"duo-command-refusal/v1","ok":false,"command":"apply","error":"refusal_serialization_failed",'
+wprism_check_same(
+    '{"format":"wprism-command-refusal/v1","ok":false,"command":"apply","error":"refusal_serialization_failed",'
         . '"reason_code":"refusal_serialization_failed","message":"structured refusal serialization failed",'
         . '"remediation":"inspect private operator evidence before another attempt","details_redacted":true}',
     $agentRefusal($infRefusal, 'apply'),
@@ -916,8 +916,8 @@ duo_check_same(
 );
 ob_start();
 CommandOutput::renderRefusalJson('apply', 'apply_refused', 'm', 'r', [['value' => INF]]);
-duo_check_same(
-    '{"format":"duo-command-refusal/v1","ok":false,"command":"host",'
+wprism_check_same(
+    '{"format":"wprism-command-refusal/v1","ok":false,"command":"host",'
         . '"error":"refusal_serialization_failed","reason_code":"refusal_serialization_failed",'
         . '"message":"structured refusal serialization failed",'
         . '"remediation":"inspect private operator evidence before another attempt","details_redacted":true}' . "\n",
@@ -930,7 +930,7 @@ duo_check_same(
 // ---------------------------------------------------------------------------
 
 /**
- * Replays a recorded agent refusal as a failing `wp duo …` call, which is
+ * Replays a recorded agent refusal as a failing `wp wprism …` call, which is
  * exactly what StatusCommand/PendingCommand see across the transport: the
  * envelope on STDOUT, transport chatter on STDERR, non-zero exit.
  */
@@ -962,7 +962,7 @@ final class ParityRefusalDriver implements EnvironmentDriver {
         return [
             'exit' => 1,
             'stdout' => $this->envelope . "\n",
-            'stderr' => "Container duo-parity-cli1-run Creating\n",
+            'stderr' => "Container wprism-parity-cli1-run Creating\n",
         ];
     }
 
@@ -1002,8 +1002,8 @@ foreach ($refusalVectors['tuples'] as $tuple) {
         static fn(EnvironmentDriver $d): bool => true
     );
     ob_end_clean();
-    duo_check_same(1, $statusExit, "F3 status preserves the agent's refusal exit code [$name]");
-    duo_check_same(
+    wprism_check_same(1, $statusExit, "F3 status preserves the agent's refusal exit code [$name]");
+    wprism_check_same(
         json_decode((string) $tuple['agent'], true),
         $statusSeen,
         "F3 cli/src/Command/StatusCommand.php routes the agent envelope to the refusal renderer, not the stderr fallback [$name]"
@@ -1015,8 +1015,8 @@ foreach ($refusalVectors['tuples'] as $tuple) {
         $pendingSeen = $refusal;
     });
     ob_end_clean();
-    duo_check_same(false, $pendingResult['ok'], "F3 pending reports the fetch as failed [$name]");
-    duo_check_same(
+    wprism_check_same(false, $pendingResult['ok'], "F3 pending reports the fetch as failed [$name]");
+    wprism_check_same(
         json_decode((string) $tuple['agent'], true),
         $pendingSeen,
         "F3 cli/src/Command/PendingCommand.php routes the agent envelope to the refusal renderer [$name]"
@@ -1028,9 +1028,9 @@ foreach ($refusalVectors['tuples'] as $tuple) {
 // predicate as source text: all three parsers must keep testing the same
 // literal, and none of them may drift to a different format string.
 foreach (['Command/StatusCommand', 'Command/PendingCommand', 'Onboarding/Init'] as $parser) {
-    duo_check(
-        in_array('duo-command-refusal/v1', parity_literals($duoRoot . '/cli/src/' . $parser . '.php'), true),
-        "F3 cli/src/$parser.php still tests for the literal duo-command-refusal/v1 (source-text pin)"
+    wprism_check(
+        in_array('wprism-command-refusal/v1', parity_literals($wprismRoot . '/cli/src/' . $parser . '.php'), true),
+        "F3 cli/src/$parser.php still tests for the literal wprism-command-refusal/v1 (source-text pin)"
     );
 }
 
@@ -1039,17 +1039,17 @@ foreach (['Command/StatusCommand', 'Command/PendingCommand', 'Onboarding/Init'] 
 // ---------------------------------------------------------------------------
 
 $planVectors = parity_fixture('plan-summary-vectors');
-duo_check_same(
-    'duo-parity-plan-summary/v1',
+wprism_check_same(
+    'wprism-parity-plan-summary/v1',
     $planVectors['format'] ?? null,
     'the plan-summary vector fixture declares its versioned format'
 );
 
 foreach ($planVectors['label_vectors'] as $index => $row) {
-    $reference = \Duo\PlanView::humanLabel((array) $row);
-    duo_check_same($reference, $cliPlanViewLabel((array) $row), "F4 cli PlanView::humanLabel matches the agent reference [row $index]");
-    duo_check_same($reference, $planSummaryLabel((array) $row), "F4 cli PlanSummary::label matches the agent reference [row $index]");
-    duo_check(
+    $reference = \WPrism\PlanView::humanLabel((array) $row);
+    wprism_check_same($reference, $cliPlanViewLabel((array) $row), "F4 cli PlanView::humanLabel matches the agent reference [row $index]");
+    wprism_check_same($reference, $planSummaryLabel((array) $row), "F4 cli PlanSummary::label matches the agent reference [row $index]");
+    wprism_check(
         preg_match('/[\x00-\x1F\x7F]/', $reference) !== 1,
         "F4 no C0 or DEL byte survives into a rendered plan row [row $index]"
     );
@@ -1059,8 +1059,8 @@ foreach ($planVectors['label_vectors'] as $index => $row) {
 // whitespace but does not strip C0/DEL, by its own comment. Pinned as the
 // absence of the strip literal there and its presence in all three
 // oneLine() copies.
-duo_check(
-    !in_array('/[\x00-\x1F\x7F]/', parity_literals($duoRoot . '/agent/src/Command/Cli.php'), true),
+wprism_check(
+    !in_array('/[\x00-\x1F\x7F]/', parity_literals($wprismRoot . '/agent/src/Command/Cli.php'), true),
     'F4 agent/src/Command/Cli.php has no C0/DEL strip — its unfiltered plan renderer is deliberately unchanged (source-text pin)'
 );
 foreach ([
@@ -1068,8 +1068,8 @@ foreach ([
     'cli/src/Plan/PlanView.php',
     'cli/src/Plan/PlanSummary.php',
 ] as $oneLineOwner) {
-    duo_check(
-        in_array('/[\x00-\x1F\x7F]/', parity_literals($duoRoot . '/' . $oneLineOwner), true),
+    wprism_check(
+        in_array('/[\x00-\x1F\x7F]/', parity_literals($wprismRoot . '/' . $oneLineOwner), true),
         "F4 $oneLineOwner still strips C0/DEL in oneLine() (source-text pin)"
     );
 }
@@ -1086,28 +1086,28 @@ foreach ((array) $planVectors['plan'] as $bucket => $rows) {
     $plan[$bucket] = $rows;
 }
 $rendered = PlanSummary::render($plan);
-duo_check_same($planVectors['expected_lines'], $rendered['lines'], 'F5 PlanSummary::render is byte-stable over the plan fixture');
-duo_check_same($planVectors['expected_ok'], $rendered['ok'], 'F5 the plan fixture keeps readiness blocked');
+wprism_check_same($planVectors['expected_lines'], $rendered['lines'], 'F5 PlanSummary::render is byte-stable over the plan fixture');
+wprism_check_same($planVectors['expected_ok'], $rendered['ok'], 'F5 the plan fixture keeps readiness blocked');
 $renderedText = implode("\n", $rendered['lines']);
 
-$agentCli = $duoRoot . '/agent/src/Command/Cli.php';
-$planSummary = $duoRoot . '/cli/src/Plan/PlanSummary.php';
+$agentCli = $wprismRoot . '/agent/src/Command/Cli.php';
+$planSummary = $wprismRoot . '/cli/src/Plan/PlanSummary.php';
 $agentLiterals = parity_literals($agentCli);
 
 // Comment 1 (cli/src/Plan/PlanSummary.php:211) — "Verbatim match of
 // agent/src/Command/Cli.php's plan() warning for the identical condition".
 // Agent fragment: agent/src/Command/Cli.php:1228, WP_CLI::warning(...) under $plan['drift'].
 $driftWarning = 'environment drift detected — capture-first workflow recommended';
-duo_check(in_array($driftWarning, $agentLiterals, true), 'F5.1 the agent drift warning literal is still in agent/src/Command/Cli.php');
-duo_check(in_array($driftWarning, $rendered['lines'], true), 'F5.1 cli/src/Plan/PlanSummary.php emits that exact drift warning line');
+wprism_check(in_array($driftWarning, $agentLiterals, true), 'F5.1 the agent drift warning literal is still in agent/src/Command/Cli.php');
+wprism_check(in_array($driftWarning, $rendered['lines'], true), 'F5.1 cli/src/Plan/PlanSummary.php emits that exact drift warning line');
 
 // Comment 2 (cli/src/Plan/PlanSummary.php:280) — "Verbatim match of
 // agent/src/Command/Cli.php's plan() warning". Agent fragment: agent/src/Command/Cli.php:1234.
-$codeMismatchWarning = 'code_mismatch findings — duo apply will refuse until resolved (or run with --force-code-mismatch)';
-duo_check(in_array($codeMismatchWarning, $agentLiterals, true), 'F5.2 the agent code_mismatch warning literal is still in agent/src/Command/Cli.php');
-duo_check(in_array($codeMismatchWarning, $rendered['lines'], true), 'F5.2 cli/src/Plan/PlanSummary.php emits that exact code_mismatch warning line');
+$codeMismatchWarning = 'code_mismatch findings — wprism apply will refuse until resolved (or run with --force-code-mismatch)';
+wprism_check(in_array($codeMismatchWarning, $agentLiterals, true), 'F5.2 the agent code_mismatch warning literal is still in agent/src/Command/Cli.php');
+wprism_check(in_array($codeMismatchWarning, $rendered['lines'], true), 'F5.2 cli/src/Plan/PlanSummary.php emits that exact code_mismatch warning line');
 
-// Comment 3 (cli/src/Plan/PlanSummary.php:388, DUO-3314) — the adapter-disposition
+// Comment 3 (cli/src/Plan/PlanSummary.php:388, issue #3314) — the adapter-disposition
 // row. Agent fragment: the WP_CLI::line() call at agent/src/Command/Cli.php:1134-1140.
 // The two rows differ only in their leading label — the agent puts the status
 // in a 'CAPABILITY_<STATUS>' prefix, the host renders '  - <name> [<status>]'
@@ -1122,33 +1122,33 @@ foreach ($rendered['lines'] as $line) {
         $cliDispositionLine = $line;
     }
 }
-duo_check(
+wprism_check(
     $agentDispositionExpression !== '',
     'F5.3 the agent adapter-disposition renderer is still a WP_CLI::line() over a $r row'
 );
-duo_check_same(
+wprism_check_same(
     strstr($agentDispositionLine, ' [source='),
     strstr($cliDispositionLine, ' [source='),
     'F5.3 host and agent adapter-disposition rows are byte-identical from " [source=" onwards'
 );
-duo_check_same(
+wprism_check_same(
     'CAPABILITY_UNSUPPORTED outfitters [source=out_of_tree tier=community certification=registry] '
         . '[not_certified]: no certification evidence for this revision',
     $agentDispositionLine,
     'F5.3 the agent adapter-disposition row is byte-stable'
 );
-duo_check_same(
+wprism_check_same(
     '  - outfitters [unsupported] [source=out_of_tree tier=community certification=registry] '
         . '[not_certified]: no certification evidence for this revision',
     $cliDispositionLine,
     'F5.3 the host adapter-disposition row is byte-stable'
 );
-duo_check(
+wprism_check(
     in_array('    remediation: certify the adapter or unpin it', $rendered['lines'], true),
     'F5.3 the adapter-disposition remediation gets its own line (host indents four spaces, the agent two — both are nested one level deeper than their row)'
 );
 
-// Comment 4 (cli/src/Plan/PlanSummary.php:406, DUO-3339) — the provider-problem
+// Comment 4 (cli/src/Plan/PlanSummary.php:406, issue #3339) — the provider-problem
 // row. Agent fragment: the WP_CLI::line() call at agent/src/Command/Cli.php:1153-1158.
 $providerRow = (array) $planVectors['plan']['provider_problems'][0];
 $agentProviderExpression = parity_wp_cli_line_expression($agentCli, ' [manifest=');
@@ -1159,22 +1159,22 @@ foreach ($rendered['lines'] as $line) {
         $cliProviderLine = $line;
     }
 }
-duo_check(
+wprism_check(
     $agentProviderExpression !== '',
     'F5.4 the agent provider-problem renderer is still a WP_CLI::line() over a $r row'
 );
-duo_check_same(
+wprism_check_same(
     strstr($agentProviderLine, ' [manifest='),
     strstr($cliProviderLine, ' [manifest='),
     'F5.4 host and agent provider-problem rows are byte-identical from " [manifest=" onwards'
 );
-duo_check_same(
+wprism_check_same(
     'PROVIDER_PROBLEM woocommerce_regen [manifest=woocommerce plugin=woocommerce/woocommerce.php] '
         . '[provider_version_unsupported]: expected >=9.0.0, found 8.4.0',
     $agentProviderLine,
     'F5.4 the agent provider-problem row is byte-stable'
 );
-duo_check_same(
+wprism_check_same(
     '  - woocommerce_regen [manifest=woocommerce plugin=woocommerce/woocommerce.php] '
         . '[provider_version_unsupported]: expected >=9.0.0, found 8.4.0',
     $cliProviderLine,
@@ -1186,8 +1186,8 @@ duo_check_same(
 // agent/src/Command/Cli.php:1037 delegates to), which F4 above pins directly; here we
 // only pin that PlanSummary's own rows go through that same label.
 foreach ((array) $planVectors['plan']['drift'] as $driftRow) {
-    duo_check(
-        in_array('  - ' . \Duo\PlanView::humanLabel((array) $driftRow), $rendered['lines'], true),
+    wprism_check(
+        in_array('  - ' . \WPrism\PlanView::humanLabel((array) $driftRow), $rendered['lines'], true),
         'F5.5 a rendered plan row is exactly "  - " plus the agent PlanView::humanLabel of that row'
     );
 }
@@ -1213,7 +1213,7 @@ foreach ([
 ] as $vector) {
     [$installed, $min, $max] = $vector;
     $label = "$installed in [$min, $max)";
-    duo_check_same(
+    wprism_check_same(
         Deploy::in_range($installed, $min, $max),
         $doctorInRange($installed, $min, $max),
         "F6 Doctor::in_range agrees with Deploy::in_range [$label]"
@@ -1227,7 +1227,7 @@ foreach ([
 foreach ([
     'plugins/woocommerce/woocommerce.php',
     'themes/storefront',
-    'mu-plugins/duo-loader.php',
+    'mu-plugins/wprism-loader.php',
     '',
     '/absolute/path',
     '../escape',
@@ -1247,14 +1247,14 @@ foreach ([
 ] as $candidate) {
     $label = addcslashes($candidate, "\0..\37\177");
     $reference = PathSafety::safe_relative($candidate);
-    duo_check_same(
+    wprism_check_same(
         $reference,
         $codeCompatibilitySafeRelative($candidate),
         "F7 CodeCompatibility::safe_relative agrees with PathSafety::safe_relative ['$label']"
     );
 }
 
-duo_check_same(
+wprism_check_same(
     [true, true, false, false, false, false],
     [
         PathSafety::safe_component('woocommerce'),
@@ -1266,22 +1266,22 @@ duo_check_same(
     ],
     'F7 the component and component-root predicates keep their established answers'
 );
-duo_check_same(
+wprism_check_same(
     [true, true, true, false],
     [
-        PathSafety::reserved_path('mu-plugins/duo'),
-        PathSafety::reserved_path('mu-plugins/duo/x.php'),
-        PathSafety::reserved_path('mu-plugins/duo-loader.php'),
-        PathSafety::reserved_path('mu-plugins/duotone.php'),
+        PathSafety::reserved_path('mu-plugins/wprism'),
+        PathSafety::reserved_path('mu-plugins/wprism/x.php'),
+        PathSafety::reserved_path('mu-plugins/wprism-loader.php'),
+        PathSafety::reserved_path('mu-plugins/wprismtone.php'),
     ],
-    'F7 reserved_path still matches only the two Duo roots, prefix-safely'
+    'F7 reserved_path still matches only the two WPrism roots, prefix-safely'
 );
 
 // The two open-coded checks that are deliberately NARROWER than PathSafety —
 // migrating them without widening the callers would be a behaviour change.
-duo_check(
+wprism_check(
     !PathSafety::safe_relative('a\\b') && !PathSafety::safe_relative("a\x01b"),
     'F7 PathSafety::safe_relative refuses a backslash and a control byte, which cli/src/Refresh/RefreshPlan.php:1082 accepts'
 );
 
-duo_check_summary('canonical json parity');
+wprism_check_summary('canonical json parity');

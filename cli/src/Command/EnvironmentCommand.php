@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Environment/Registry.php';
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
@@ -35,13 +35,13 @@ final class EnvironmentCommand {
         ?callable $receiptObserver = null
     ): int {
         if (count($args) < 2) {
-            fwrite(STDERR, "duo: env requires materialize|reap|provider-check and a target <env>\n");
+            fwrite(STDERR, "wprism: env requires materialize|reap|provider-check and a target <env>\n");
             return 1;
         }
         $action = array_shift($args);
         $targetName = array_shift($args);
         if (!in_array($action, ['materialize', 'reap', 'provider-check'], true)) {
-            fwrite(STDERR, "duo: env: unknown action '$action' (expected materialize, reap or provider-check)\n");
+            fwrite(STDERR, "wprism: env: unknown action '$action' (expected materialize, reap or provider-check)\n");
             return 1;
         }
         // provider-check owns no journal, no promotion handoff and (in its
@@ -53,7 +53,7 @@ final class EnvironmentCommand {
             try {
                 $options = EnvironmentCommandOptions::providerCheck($args);
             } catch (\Throwable $e) {
-                fwrite(STDERR, "duo: env provider-check: {$e->getMessage()}\n");
+                fwrite(STDERR, "wprism: env provider-check: {$e->getMessage()}\n");
                 return 1;
             }
             return EnvironmentProviderCheckCommand::run($targetName, $options, $envsFileOverride);
@@ -113,7 +113,7 @@ final class EnvironmentCommand {
             self::renderReceipt($receipt, $options['json'], 'materialize');
             return 0;
         } catch (\Throwable $e) {
-            fwrite(STDERR, "duo: env $action: {$e->getMessage()}\n");
+            fwrite(STDERR, "wprism: env $action: {$e->getMessage()}\n");
             return 1;
         }
     }
@@ -162,7 +162,7 @@ final class EnvironmentCommand {
         if (proc_close($process) !== 0 || trim($stdout) === '') {
             throw new \RuntimeException('env materialize/reap must run inside a Git worktree');
         }
-        return new EnvironmentLifecycleJournal(rtrim(trim($stdout), '/') . '/duo-environments');
+        return new EnvironmentLifecycleJournal(rtrim(trim($stdout), '/') . '/wprism-environments');
     }
 
     /** @param array<string,mixed> $receipt */

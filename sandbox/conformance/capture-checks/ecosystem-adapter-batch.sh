@@ -12,12 +12,12 @@ wp_set_current_user(1);
 
 $snippet = null;
 foreach (Code_Snippets\get_snippets() as $candidate) {
-    if ($candidate->name === 'Duo conformance content') {
+    if ($candidate->name === 'WPrism conformance content') {
         $snippet = $candidate;
         break;
     }
 }
-$original = get_page_by_path('duo-original-article', OBJECT, 'post');
+$original = get_page_by_path('wprism-original-article', OBJECT, 'post');
 $duplicates = get_posts([
     'post_type' => 'post',
     'post_status' => 'any',
@@ -62,13 +62,13 @@ printf '%s\n' "$RUNTIME_JSON" | jq -e '
   .classic_replace == "classic" and
   .classic_allow_users == "disallow" and
   .classic_post_type_uses_blocks == false and
-  (.content_render | contains("duo-code-snippet-marker")) and
-  (.source_render | contains("duo-code-snippet-marker")) and
+  (.content_render | contains("wprism-code-snippet-marker")) and
+  (.source_render | contains("wprism-code-snippet-marker")) and
   .snippet_id > 1 and
   .original_id > 0 and .duplicate_original == .original_id and
-  .duplicate_title == "Replica Duo Original Article Evidence" and
-  .whl_page == "duo-login" and .whl_redirect_admin == "duo-missing" and
-  (.login_url | contains("duo-login"))
+  .duplicate_title == "Replica WPrism Original Article Evidence" and
+  .whl_page == "wprism-login" and .whl_redirect_admin == "wprism-missing" and
+  (.login_url | contains("wprism-login"))
 ' >/dev/null || fail "one or more plugin APIs did not consume the captured source values: $RUNTIME_JSON"
 rm -f "$CHECK_FILE"
 pass "all five live plugins consume the exact persisted settings/row/reference fixture"
@@ -79,8 +79,8 @@ jq -e '
   .records.tadv_admin_settings.value.options == "no_autop" and
   .records["classic-editor-replace"].value == "classic" and
   .records["classic-editor-allow-users"].value == "disallow" and
-  .records.whl_page.value == "duo-login" and
-  .records.whl_redirect_admin.value == "duo-missing" and
+  .records.whl_page.value == "wprism-login" and
+  .records.whl_redirect_admin.value == "wprism-missing" and
   .records.duplicate_post_title_prefix.value == "Replica" and
   .records.duplicate_post_title_suffix.value == "Evidence" and
   (.records | has("tadv_version") | not) and
@@ -94,7 +94,7 @@ pass "canonical options contain the portable settings and exclude every sampled 
 mapfile -t SNIPPET_FILES < <(find "${CONF_REPO1:-siterepo/conf1}/state/tables/snippets" -maxdepth 1 -type f -name '*.json' -print | sort)
 [ "${#SNIPPET_FILES[@]}" -eq 5 ] \
   || fail "expected four packaged samples plus one proving snippet after the API deletion probe, got ${#SNIPPET_FILES[@]}"
-mapfile -t PROVING_SNIPPET_FILES < <(jq -r 'select(.columns.name == "Duo conformance content") | input_filename' "${SNIPPET_FILES[@]}")
+mapfile -t PROVING_SNIPPET_FILES < <(jq -r 'select(.columns.name == "WPrism conformance content") | input_filename' "${SNIPPET_FILES[@]}")
 [ "${#PROVING_SNIPPET_FILES[@]}" -eq 1 ] \
   || fail "expected exactly one proving snippet by its plugin-owned name, got ${#PROVING_SNIPPET_FILES[@]}"
 if jq -e 'select(.columns.name == "Discarded identity spacer")' "${SNIPPET_FILES[@]}" >/dev/null; then
@@ -102,10 +102,10 @@ if jq -e 'select(.columns.name == "Discarded identity spacer")' "${SNIPPET_FILES
 fi
 jq -e '
   .table == "snippets" and
-  .columns.name == "Duo conformance content" and
+  .columns.name == "WPrism conformance content" and
   .columns.description == "Portable HTML rendered by both shortcode aliases." and
-  .columns.code == "<strong class=\"duo-code-snippet-marker\">portable snippet</strong>" and
-  .columns.tags == "duo, conformance" and
+  .columns.code == "<strong class=\"wprism-code-snippet-marker\">portable snippet</strong>" and
+  .columns.tags == "wprism, conformance" and
   .columns.scope == "content" and
   .columns.priority == "17" and .columns.active == "1" and
   (.columns | has("cloud_id") | not) and

@@ -1,13 +1,13 @@
-Duo initialization proposal sha256:5555555555555555555555555555555555555555555555555555555555555555
+WPrism initialization proposal sha256:5555555555555555555555555555555555555555555555555555555555555555
   WordPress ? / PHP ? / database ?
   URL: (unknown)
   code: managed-baseline-proposed (separate 4218-file / 0-byte payload; source 7777777777777777777777777777777777777777777777777777777777777777)
     active theme: stylesheet=twentytwentyone, template=twentytwentyone
-  state: /siterepo (site.duo.json + canonical capture baseline)
+  state: /siterepo (site.wprism.json + canonical capture baseline)
   Git: available (2.47.2)
   Git LFS: prepared for media/** (unknown)
   adapters: core, woocommerce
   media: unknown (0 attachment(s), 0 unavailable)
   redacted risk surfaces: 0 secret-shaped option value(s), 0 PII-shaped user-meta value(s); values are never included
-  UNSUPPORTED PLUGIN wpforms-lite/wpforms.php [active_plugin_without_adapter]: no installed manifest declares this active plugin identity. install or review one versioned adapter, then rerun duo init, or proceed with --allow-unmanaged-plugins and record the decision in the contract
+  UNSUPPORTED PLUGIN wpforms-lite/wpforms.php [active_plugin_without_adapter]: no installed manifest declares this active plugin identity. install or review one versioned adapter, then rerun wprism init, or proceed with --allow-unmanaged-plugins and record the decision in the contract
   result: blocked; no configuration, state, identity, or ledger mutation was made

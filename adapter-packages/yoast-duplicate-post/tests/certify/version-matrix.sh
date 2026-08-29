@@ -17,8 +17,8 @@ postdeploy_yoast_duplicate_post_content() {
 check_yoast_duplicate_post_boundary_content() {
   local source_ids target_out target_json source_original source_copy
   source_ids=$(wp1 eval '
-    $o=get_page_by_path("duo-duplicate-original", OBJECT, "post");
-    $c=get_page_by_path("duo-duplicate-copy", OBJECT, "post");
+    $o=get_page_by_path("wprism-duplicate-original", OBJECT, "post");
+    $c=get_page_by_path("wprism-duplicate-copy", OBJECT, "post");
     echo $o->ID . "|" . $c->ID;
   ')
   require_observed_nonempty "Yoast Duplicate Post boundary source IDs" "$source_ids"
@@ -26,12 +26,12 @@ check_yoast_duplicate_post_boundary_content() {
   require_fixture_ids source_original source_copy
   target_out=$(wp2 eval '
     wp_set_current_user(1);
-    $o=get_page_by_path("duo-duplicate-original", OBJECT, "post");
-    $c=get_page_by_path("duo-duplicate-copy", OBJECT, "post");
+    $o=get_page_by_path("wprism-duplicate-original", OBJECT, "post");
+    $c=get_page_by_path("wprism-duplicate-copy", OBJECT, "post");
     if (!$o || !$c) throw new RuntimeException("Duplicate Post boundary posts missing");
     $api=duplicate_post_get_original($c);
     $roles=[];
-    foreach (["administrator","duo_reviewer","editor","subscriber"] as $name) {
+    foreach (["administrator","wprism_reviewer","editor","subscriber"] as $name) {
       $role=get_role($name); $roles[$name]=$role ? $role->has_cap("copy_posts") : null;
     }
     echo wp_json_encode([
@@ -59,9 +59,9 @@ check_yoast_duplicate_post_boundary_content() {
     .copy_original == .original and .copy_original_api == .original and
     .copy_status == "draft" and .copy_menu_order == 24 and
     .copy_content_hash == .original_content_hash and
-    (.copy_title | contains("Duo Duplicate Original 東京 🚀")) and
+    (.copy_title | contains("WPrism Duplicate Original 東京 🚀")) and
     (.clone_link | contains("duplicate_post")) and
-    .roles.administrator == true and .roles.duo_reviewer == true and
+    .roles.administrator == true and .roles.wprism_reviewer == true and
     .roles.editor == false and .roles.subscriber == false and
     (.runtime_copy | tonumber) == .copy and .runtime_creation == "not-a-date-東京-🚀" and
     .version == "4.7"
@@ -81,7 +81,7 @@ version_matrix_reset_after_delete() {
     foreach (wp_roles()->roles as $name => $_row) {
       $role=get_role($name); if ($role && $role->has_cap("copy_posts")) $role->remove_cap("copy_posts");
     }
-    foreach (["duo_reviewer","duo_source_only"] as $name) if (get_role($name)) remove_role($name);
+    foreach (["wprism_reviewer","wprism_source_only"] as $name) if (get_role($name)) remove_role($name);
   ' >/dev/null
 }
 
@@ -103,7 +103,7 @@ YDP_INSTALLED_1=$(wp1 plugin get duplicate-post --field=version)
   || fail "side 1 installed version mismatch: expected $YDP_VERSION, got $YDP_INSTALLED_1"
 pass "side 1: duplicate-post $YDP_VERSION installed from verified artifact, active"
 
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "yoast-duplicate-post"],
   "policy": {
@@ -123,8 +123,8 @@ cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 "${GIT1[@]}" push -qu origin main
 
 seed_yoast_duplicate_post_content
-wp1 duo capture --repo=/siterepo
-wp1 duo lint --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
+wp1 wprism lint --repo=/siterepo
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "capture: Yoast Duplicate Post $YDP_VERSION settings and clone state"
 "${GIT1[@]}" push -q origin main
@@ -135,17 +135,17 @@ INSTALLED_2=$(wp2 plugin get duplicate-post --field=version)
 require_fixture_values INSTALLED_2
 [ "$INSTALLED_2" = "$YDP_VERSION" ] \
   || fail "side 2 installed version mismatch: expected $YDP_VERSION, got $INSTALLED_2"
-wp2 duo deploy --repo=/siterepo
+wp2 wprism deploy --repo=/siterepo
 postdeploy_yoast_duplicate_post_content
 REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
+wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" 2>&1 | tee "$VMATRIX_APPLY_LOG"
 grep -q 'canary clean' "$VMATRIX_APPLY_LOG" \
   || fail "apply canary not clean at duplicate-post $YDP_VERSION"
 grep -q 'provider capability fired: yoast-duplicate-post-role-capabilities@1.0.0 reconcile_role_capabilities' "$VMATRIX_APPLY_LOG" \
   || fail "Yoast Duplicate Post role provider did not fire at $YDP_VERSION"
 check_yoast_duplicate_post_boundary_content
 
-wp2 duo capture --repo=/siterepo --out=/siterepo/.tmp-final
+wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-final
 YDP_DIFF=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
 rm -rf "siterepo/${PAIR}2/.tmp-final"
 [ -z "$YDP_DIFF" ] \
@@ -162,7 +162,7 @@ NEGATIVE_INSTALLED=$(wp1 plugin get duplicate-post --field=version)
 require_fixture_values NEGATIVE_INSTALLED
 [ "$NEGATIVE_INSTALLED" = 4.7 ] \
   || fail "negative control premise did not install exact duplicate-post 4.7 bytes"
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core", "yoast-duplicate-post"],
   "policy": {
@@ -181,7 +181,7 @@ cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 "${GIT1[@]}" commit -qm "policy: Yoast Duplicate Post negative-control pin"
 "${GIT1[@]}" push -qu origin main
 seed_yoast_duplicate_post_content
-wp1 duo capture --repo=/siterepo
+wp1 wprism capture --repo=/siterepo
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "capture: valid Yoast Duplicate Post state for negative control"
 "${GIT1[@]}" push -q origin main
@@ -194,14 +194,14 @@ INSTALLED_OOR=$(wp1 plugin get duplicate-post --field=version)
 [ "$INSTALLED_OOR" = 4.6 ] \
   || fail "negative control: expected duplicate-post 4.6 installed, got $INSTALLED_OOR"
 YDP_REFUSAL_BEFORE=$(wp1 eval '
-  $o=get_page_by_path("duo-duplicate-original", OBJECT, "post");
-  $c=get_page_by_path("duo-duplicate-copy", OBJECT, "post");
-  $roles=[]; foreach (["administrator","duo_reviewer","editor","subscriber"] as $name) { $r=get_role($name); $roles[$name]=$r ? $r->has_cap("copy_posts") : null; }
+  $o=get_page_by_path("wprism-duplicate-original", OBJECT, "post");
+  $c=get_page_by_path("wprism-duplicate-copy", OBJECT, "post");
+  $roles=[]; foreach (["administrator","wprism_reviewer","editor","subscriber"] as $name) { $r=get_role($name); $roles[$name]=$r ? $r->has_cap("copy_posts") : null; }
   echo hash("sha256", wp_json_encode([get_option("duplicate_post_title_prefix",null),get_option("duplicate_post_roles",null),$o?$o->post_content:null,$c?get_post_meta($c->ID,"_dp_original",true):null,$roles]));
 ')
 require_observed_nonempty "Yoast Duplicate Post refusal state baseline" "$YDP_REFUSAL_BEFORE"
 set +e
-DEPLOY_OUT=$(wp1 duo deploy --repo=/siterepo 2>&1)
+DEPLOY_OUT=$(wp1 wprism deploy --repo=/siterepo 2>&1)
 DEPLOY_RC=$?
 set -e
 [ "$DEPLOY_RC" -ne 0 ] \
@@ -216,9 +216,9 @@ if wp1 plugin is-active duplicate-post >/dev/null 2>&1; then
   fail "outside-range duplicate-post 4.6 was activated before refusal"
 fi
 YDP_REFUSAL_AFTER=$(wp1 eval '
-  $o=get_page_by_path("duo-duplicate-original", OBJECT, "post");
-  $c=get_page_by_path("duo-duplicate-copy", OBJECT, "post");
-  $roles=[]; foreach (["administrator","duo_reviewer","editor","subscriber"] as $name) { $r=get_role($name); $roles[$name]=$r ? $r->has_cap("copy_posts") : null; }
+  $o=get_page_by_path("wprism-duplicate-original", OBJECT, "post");
+  $c=get_page_by_path("wprism-duplicate-copy", OBJECT, "post");
+  $roles=[]; foreach (["administrator","wprism_reviewer","editor","subscriber"] as $name) { $r=get_role($name); $roles[$name]=$r ? $r->has_cap("copy_posts") : null; }
   echo hash("sha256", wp_json_encode([get_option("duplicate_post_title_prefix",null),get_option("duplicate_post_roles",null),$o?$o->post_content:null,$c?get_post_meta($c->ID,"_dp_original",true):null,$roles]));
 ')
 [ "$YDP_REFUSAL_AFTER" = "$YDP_REFUSAL_BEFORE" ] \

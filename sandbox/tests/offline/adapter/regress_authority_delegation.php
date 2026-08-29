@@ -27,7 +27,7 @@
  *
  * THE FLAG-DAY INVARIANT THIS SUITE IS MEASURED AGAINST
  * ----------------------------------------------------
- * `DUO_SPEC_VERSION` stays 2 and no shipped byte moves. Everything below reads
+ * `WPRISM_SPEC_VERSION` stays 2 and no shipped byte moves. Everything below reads
  * structures that do not exist anywhere today — `adapters/delegations.json` and
  * `capabilities/adapter-revocations.json` — so an agent that meets neither
  * behaves exactly as it does now. Both facts are re-checked on every run: the
@@ -39,11 +39,11 @@
  */
 declare(strict_types=1);
 
-if (!defined('DUO_AGENT_VERSION')) {
-    define('DUO_AGENT_VERSION', '0.5.0');
+if (!defined('WPRISM_AGENT_VERSION')) {
+    define('WPRISM_AGENT_VERSION', '0.5.0');
 }
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 2);
 }
 
 require_once __DIR__ . '/../../lib/check.php';
@@ -52,8 +52,8 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterSources.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterCertification.php';
 
-use Duo\AdapterCertification;
-use Duo\Canon;
+use WPrism\AdapterCertification;
+use WPrism\Canon;
 
 $repo = dirname(__DIR__, 4);
 $root = $repo . '/sandbox/tmp/authority-delegation-' . getmypid();
@@ -275,25 +275,25 @@ $setClock = static function (?string $instant) use ($clock): void {
 
 echo "\n== the shipped preconditions, re-checked on every run ==\n";
 
-duo_check_same(
-    ['format' => 'duo-adapter-authorities/v1', 'keys' => []],
+wprism_check_same(
+    ['format' => 'wprism-adapter-authorities/v1', 'keys' => []],
     (array) json_decode((string) file_get_contents($repo . '/platform/adapter-library/capabilities/adapter-authorities.json'), true),
     'platform/adapter-library/capabilities/adapter-authorities.json is still the EMPTY v1 registry — no platform key exists to '
     . 'delegate FROM, so nothing this suite builds can be reached by any site in the field'
 );
-duo_check(
+wprism_check(
     !file_exists($repo . '/platform/adapter-library/capabilities/adapter-revocations.json'),
     'and the shipped manifest library carries NO revocation document: the out-of-band channel ships absent, '
     . 'which is what makes its absence the meaning "nothing is revoked" rather than a default'
 );
-duo_check_same(
+wprism_check_same(
     2,
-    (int) DUO_SPEC_VERSION,
-    'DUO_SPEC_VERSION is still 2: § v3.8 gates on structures that do not exist rather than on the wire version, '
+    (int) WPRISM_SPEC_VERSION,
+    'WPRISM_SPEC_VERSION is still 2: § v3.8 gates on structures that do not exist rather than on the wire version, '
     . 'so the flip stays WP-4.12\'s alone'
 );
-duo_check(
-    AdapterCertification::SIGNATURE_DOMAIN_DELEGATION === "duo-adapter-authority-delegation-signature/v1\0"
+wprism_check(
+    AdapterCertification::SIGNATURE_DOMAIN_DELEGATION === "wprism-adapter-authority-delegation-signature/v1\0"
         && AdapterCertification::SIGNATURE_DOMAIN_DELEGATION !== AdapterCertification::SIGNATURE_DOMAIN
         && str_ends_with(AdapterCertification::SIGNATURE_DOMAIN_DELEGATION, "\0"),
     'a delegation is its OWN domain-separated statement kind, NUL-terminated like every other (register rows '
@@ -320,14 +320,14 @@ $installDelegations([$vendorId => $goodDelegation]);
 
 $setClock('2026-06-01T00:00:00Z');
 [$record, $resolvedId, , $trustRoot] = $resolve($vendorId);
-duo_check_same($vendorId, $resolvedId, 'a valid depth-1 delegation resolves the vendor key by its own id');
-duo_check_same(
+wprism_check_same($vendorId, $resolvedId, 'a valid depth-1 delegation resolves the vendor key by its own id');
+wprism_check_same(
     AdapterCertification::TRUST_ROOT_SITE,
     $trustRoot,
     'and it resolves under trust root `site`, not a third word: a delegated key certifies ONE repository, which '
     . 'is what `site` already means in the signed statement (R-13\'s third-value channel stays unspent)'
 );
-duo_check_same(
+wprism_check_same(
     [
         'adapter_names' => ['acme-forms', 'acme-invoices-*'],
         'algorithm' => 'ed25519',
@@ -343,18 +343,18 @@ duo_check_same(
     'the derived record is a plain `record_version: 2` authority record — the grant, the delegate\'s own key '
     . 'material and the delegation\'s window, and nothing a v2 record could not already carry'
 );
-duo_check_same(
+wprism_check_same(
     null,
     $refusal(static fn() => $scope->invoke(null, $record, $vendorId, 'acme-forms', 'declarative_manifest')),
     'and the derived record certifies inside its grant, through the SAME scope check every installed record is '
     . 'judged by — a delegation mints no second reading of the scope rules'
 );
-duo_check_same(
+wprism_check_same(
     null,
     $refusal(static fn() => $scope->invoke(null, $record, $vendorId, 'acme-invoices-pro', 'declarative_manifest')),
     'including inside the narrowed namespace it was granted'
 );
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => $scope->invoke(null, $record, $vendorId, 'acme-catalog', 'declarative_manifest')),
         "is not scoped to site adapter 'acme-catalog'"
@@ -362,7 +362,7 @@ duo_check(
     'and NOT outside it, even though its delegator holds `acme-*`: the grant is the delegate\'s scope, never the '
     . 'delegator\'s'
 );
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => $scope->invoke(null, $record, $vendorId, 'acme-forms', 'plugin_provider')),
         "is not scoped to derived trust tier 'plugin_provider'"
@@ -386,18 +386,18 @@ $chainStatement = $statement(
 $chainDelegation = $sign($chainStatement, $vendorId, $vendorKey['secret']);
 $installDelegations([$vendorId => $goodDelegation, $otherVendorId => $chainDelegation]);
 $chainRefusal = (string) $refusal(static fn() => $resolve($otherVendorId));
-duo_check(
+wprism_check(
     str_contains($chainRefusal, "is delegated by '$vendorId', which is itself a delegate")
         && str_contains($chainRefusal, 'verification chains exactly 1 level and a delegate may not delegate'),
     'a two-level chain refuses BY NAME — the finding is "a delegate delegated", never the honest-but-useless '
     . '"that delegator is not in the platform root" (' . $chainRefusal . ')'
 );
-duo_check(
+wprism_check(
     !str_contains($chainRefusal, 'is not installed in'),
     'and the depth test runs BEFORE the platform lookup, which is what keeps the two findings distinguishable: '
     . 'resolving first would report a missing key and hide the chain'
 );
-duo_check(
+wprism_check(
     (string) $refusal(static fn() => $resolve($vendorId)) !== null,
     'the whole document refuses while it carries a chain, rather than silently keeping the level-1 half: a '
     . 'delegation document with a forbidden edge in it is not partly trustworthy'
@@ -431,7 +431,7 @@ foreach ($wideningCases as $label => [$names, $tiers, $needle]) {
         $platformKey['secret']
     );
     $installDelegations([$vendorId => $widened]);
-    duo_check(
+    wprism_check(
         str_contains((string) $refusal(static fn() => $resolve($vendorId)), $needle),
         "$label is refused by name, and the message says which grant exceeded which delegator — a delegation "
         . 'may only narrow the scope it was given, never widen it'
@@ -452,7 +452,7 @@ $patternFromExact = $sign(
     $platformKey['secret']
 );
 $installDelegations([$vendorId => $patternFromExact]);
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => $resolve($vendorId)),
         "grants 'acme-forms-*', which its delegator '$platformId' does not hold"
@@ -471,7 +471,7 @@ $narrowedPattern = $sign(
     $platformKey['secret']
 );
 $installDelegations([$vendorId => $narrowedPattern]);
-duo_check_same(
+wprism_check_same(
     ['acme-forms-*'],
     $resolve($vendorId)[0]['adapter_names'],
     'while `acme-*` DOES narrow to `acme-forms-*` — the pattern rule admits a longer prefix and nothing else'
@@ -499,7 +499,7 @@ $vendorReserved = $sign(
 );
 $installDelegations([$vendorId => $vendorReserved]);
 $reservedRefusal = (string) $refusal(static fn() => $resolve($vendorId));
-duo_check(
+wprism_check(
     str_contains($reservedRefusal, "entry 'ninja-*' covers 'ninja-forms'")
         && str_contains($reservedRefusal, 'adapter names the shipped library reserves')
         && str_contains($reservedRefusal, 'inherits that adapter\'s interpreter, regenerator and'),
@@ -514,7 +514,7 @@ $installPlatformRootRaw(
     $platformId,
     $platformKey['secret']
 );
-duo_check_same(
+wprism_check_same(
     null,
     $refusal(static fn() => (new ReflectionMethod(AdapterCertification::class, 'authorityKeys'))
         ->invoke(null, $library . '/capabilities/adapter-authorities.json', 'adapter certification authorities', true)),
@@ -544,7 +544,7 @@ $widenedForgery = $forge(
 );
 $installDelegations([$vendorId => $widenedForgery]);
 $orderRefusal = (string) $refusal(static fn() => $resolve($vendorId));
-duo_check(
+wprism_check(
     str_contains($orderRefusal, "does not verify under delegator '$platformId'")
         && !str_contains($orderRefusal, "grants 'zeta-forms'"),
     'a statement that BOTH widens its grant and was signed by the wrong key answers with the SIGNATURE: the '
@@ -559,7 +559,7 @@ $installDelegations([$vendorId => $sign(
     $platformId,
     $platformKey['secret']
 )]);
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => $resolve($vendorId)),
         "grants 'zeta-forms', which its delegator '$platformId' does not hold"
@@ -587,7 +587,7 @@ $outsideWindow = $sign(
 );
 $installDelegations([$vendorId => $outsideWindow]);
 $windowRefusal = (string) $refusal(static fn() => $resolve($vendorId));
-duo_check(
+wprism_check(
     str_contains($windowRefusal, "outside its delegator '$platformId' window 2026-01-01T00:00:00Z/2028-01-01T00:00:00Z")
         && str_contains($windowRefusal, 'time is a scope like any other and narrows the same way'),
     'a grant that outlives its delegator\'s own window is refused, naming both windows (' . $windowRefusal . ')'
@@ -600,14 +600,14 @@ $installDelegations([$vendorId => $goodDelegation]);
 $live = $resolve($vendorId)[0];
 $setClock('2027-01-01T00:00:00Z');
 $expired = (string) $refusal(static fn() => $scope->invoke(null, $live, $vendorId, 'acme-forms', 'declarative_manifest'));
-duo_check(
+wprism_check(
     str_contains($expired, "authority key '$vendorId' expired at 2027-01-01T00:00:00Z")
         && str_contains($expired, 'no skew allowance in either direction'),
     'an EXPIRED delegation refuses at the delegation\'s own not_after, through the shipped window check, naming '
     . 'the host clock it was judged against (' . $expired . ')'
 );
 $setClock('2026-01-15T00:00:00Z');
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => $scope->invoke(null, $live, $vendorId, 'acme-forms', 'declarative_manifest')),
         'implausible clock'
@@ -649,7 +649,7 @@ $siteRooted = $sign(
 );
 $installDelegations([$vendorId => $siteRooted]);
 $siteRootRefusal = (string) $refusal(static fn() => $resolve($vendorId));
-duo_check(
+wprism_check(
     str_contains($siteRootRefusal, "names trust root 'site'")
         && str_contains($siteRootRefusal, 'a delegation is made by a platform key')
         && str_contains($siteRootRefusal, 'certifies its own repository and delegates nothing'),
@@ -666,7 +666,7 @@ $mislabelled = $sign(
 );
 $installDelegations([$vendorId => $mislabelled]);
 $lookupRefusal = (string) $refusal(static fn() => $resolve($vendorId));
-duo_check(
+wprism_check(
     str_contains($lookupRefusal, "is delegated by '$operatorId', which is not installed in capabilities/adapter-authorities.json")
         && str_contains($lookupRefusal, 'never in the site\'s own'),
     'and writing `platform` over a site key changes nothing: the delegator is looked up ONLY in the shipped, '
@@ -693,7 +693,7 @@ $installPlatformRoot(
     $otherVendorKey['secret']
 );
 $revokedDelegator = (string) $refusal(static fn() => $resolve($vendorId));
-duo_check(
+wprism_check(
     str_contains($revokedDelegator, "authority key '$platformId' is revoked and cannot certify adapters")
         && str_contains($revokedDelegator, "the delegation it made to '$vendorId' grants nothing"),
     'revoking the DELEGATOR in the shipped root invalidates its delegates at once, with no site file touched — '
@@ -704,7 +704,7 @@ $installPlatformRoot(
     $platformId,
     $platformKey['secret']
 );
-duo_check_same(
+wprism_check_same(
     $vendorId,
     $resolve($vendorId)[1],
     'and restoring the delegator restores its delegates: the delegator is read LIVE on every resolution, never '
@@ -723,7 +723,7 @@ $grammar = [
     ],
     'a statement format this agent does not implement' => [
         static function (array $stmt): array {
-            $stmt['format'] = 'duo-adapter-authority-delegation/v9';
+            $stmt['format'] = 'wprism-adapter-authority-delegation/v9';
             return $stmt;
         },
         'the envelope\'s format is outside every signature and proves nothing',
@@ -750,12 +750,12 @@ foreach ($grammar as $label => [$mutate, $needle]) {
     // asserted beside each one so a regression in either is visible.
     $mutatedStatement = $mutate($goodStatement);
     $installDelegations([$vendorId => $forge($mutatedStatement, $platformId, $platformKey['secret'])]);
-    duo_check(
+    wprism_check(
         str_contains((string) $refusal(static fn() => $resolve($vendorId)), $needle),
         "$label is refused BY THE VERIFIER, inside the signature that covers it"
     );
 }
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => AdapterCertification::signDelegation(
             Canon::encode(['version' => 2] + $goodStatement),
@@ -772,7 +772,7 @@ duo_check(
 $squatted = $goodStatement;
 $squatted['delegate']['key_id'] = 'wordpress-security-team';
 $installDelegations(['wordpress-security-team' => $sign($squatted, $platformId, $platformKey['secret'])]);
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => $resolve('wordpress-security-team')),
         'does not derive from its own key material'
@@ -782,7 +782,7 @@ duo_check(
 );
 $mismatched = $sign($goodStatement, $platformId, $platformKey['secret']);
 $installDelegations([$otherVendorId => $mismatched]);
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => $resolve($otherVendorId)),
         'the map key and the delegated identity are one value, not two'
@@ -803,14 +803,14 @@ $installPlatformRoot(
 );
 $installDelegations([$vendorId => $goodDelegation]);
 [, , , $shippedWins] = $resolve($vendorId);
-duo_check_same(
+wprism_check_same(
     AdapterCertification::TRUST_ROOT_PLATFORM,
     $shippedWins,
     'a key the SHIPPED root carries resolves there and never through a delegation claiming the same id — the '
     . 'reviewed record is a decision, the grant is someone else\'s'
 );
 $delegationsPath = $site . '/adapters/delegations.json';
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => AdapterCertification::assert_site_delegations($library, $site)),
         'is reviewed and shipped by this agent, so a delegation cannot claim it'
@@ -836,7 +836,7 @@ file_put_contents($site . '/adapters/authorities.json', Canon::encode((object) [
         ],
     ],
 ]));
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => AdapterCertification::assert_site_delegations($library, $site)),
         'one identity has one record, never a written one and a granted one that could disagree'
@@ -854,7 +854,7 @@ $tamperedDelegations = (array) $tampered['delegations'];
 $tamperedDelegations[$vendorId]['statement']['adapter_names'] = ['acme-*'];
 $tampered['delegations'] = (object) $tamperedDelegations;
 file_put_contents($delegationsPath, Canon::encode($tampered));
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => $resolve($vendorId)),
         "does not verify under delegator '$platformId'"
@@ -873,7 +873,7 @@ $foreignDelegations[$vendorId]['signature'] = (object) [
 ];
 $foreign['delegations'] = (object) $foreignDelegations;
 file_put_contents($delegationsPath, Canon::encode($foreign));
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => $resolve($vendorId)),
         'the signer and the delegator are one key'
@@ -881,7 +881,7 @@ duo_check(
     'a signature naming a key other than the delegator refuses by name, rather than by failing to verify against '
     . 'a key nobody claimed'
 );
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static function () use ($library, $site): void {
             file_put_contents($site . '/adapters/delegations.json', Canon::encode((object) [
@@ -896,11 +896,11 @@ duo_check(
     . 'operator believes in are the failure mode this source refuses everywhere else'
 );
 $installDelegations([$vendorId => $goodDelegation]);
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static function () use ($delegationsPath, $library, $site): void {
             $document = Canon::decode((string) file_get_contents($delegationsPath));
-            $document['format'] = 'duo-adapter-authority-delegations/v9';
+            $document['format'] = 'wprism-adapter-authority-delegations/v9';
             file_put_contents($delegationsPath, Canon::encode($document));
             AdapterCertification::assert_site_delegations($library, $site);
         }),
@@ -937,19 +937,19 @@ if (is_resource($process)) {
     fclose($pipes[2]);
     $cliExit = proc_close($process);
 }
-duo_check(
+wprism_check(
     $cliExit === 0 && $cliOut !== '',
     'the reviewer verb `delegation-sign` signs a statement and prints the installable object ('
     . trim($cliErr === '' ? substr($cliOut, 0, 120) : $cliErr) . ')'
 );
 $installDelegations([$vendorId => Canon::decode($cliOut)]);
-duo_check_same(
+wprism_check_same(
     $vendorId,
     $resolve($vendorId)[1],
     'and the SHIPPED READER accepts exactly what that verb wrote — the producer and the verifier agree on the '
     . 'bytes, which is the only way a signature means anything'
 );
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => AdapterCertification::signDelegation(
             Canon::encode($goodStatement),
@@ -960,7 +960,7 @@ duo_check(
     ),
     'the producer refuses to sign a statement it is not the delegator of, before a private key is touched'
 );
-duo_check(
+wprism_check(
     str_contains(
         (string) $refusal(static fn() => AdapterCertification::signDelegation(
             Canon::encode($goodStatement),
@@ -974,4 +974,4 @@ duo_check(
 );
 
 $setClock(null);
-duo_check_summary('authority delegation');
+wprism_check_summary('authority delegation');

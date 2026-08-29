@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline characterization for `duo code-import` — the host verb that makes a
+ * Offline characterization for `wprism code-import` — the host verb that makes a
  * component with no wp.org release lockable instead of carried in Git.
  *
  * The store's own semantics (import, idempotence, corruption, the lookup the
@@ -24,12 +24,12 @@ require_once __DIR__ . '/../../../../cli/src/Code/WpOrgReleases.php';
 require_once __DIR__ . '/../../../../cli/src/Code/ImportedArchives.php';
 require_once __DIR__ . '/../../../../cli/src/Command/CodeImportCommand.php';
 
-use Duo\CodeSourceLock;
-use Duo\Orchestrator\CodeImportCommand;
-use Duo\Orchestrator\ImportedArchives;
-use Duo\Orchestrator\WpOrgReleases;
+use WPrism\CodeSourceLock;
+use WPrism\Orchestrator\CodeImportCommand;
+use WPrism\Orchestrator\ImportedArchives;
+use WPrism\Orchestrator\WpOrgReleases;
 
-$scratch = sys_get_temp_dir() . '/duo_regress_code_import_' . bin2hex(random_bytes(6));
+$scratch = sys_get_temp_dir() . '/wprism_regress_code_import_' . bin2hex(random_bytes(6));
 $cache = $scratch . '/cache';
 mkdir($cache, 0775, true);
 
@@ -70,7 +70,7 @@ function import_write_archive(string $archivePath, string $componentRoot, array 
 function import_run(array $args): array {
     $root = dirname(__DIR__, 4);
     $script = 'require ' . var_export($root . '/cli/src/Command/CodeImportCommand.php', true) . ';'
-        . ' exit(\Duo\Orchestrator\CodeImportCommand::run(json_decode($argv[1], true)));';
+        . ' exit(\WPrism\Orchestrator\CodeImportCommand::run(json_decode($argv[1], true)));';
     $process = proc_open(
         [PHP_BINARY, '-r', $script, json_encode($args, JSON_UNESCAPED_SLASHES)],
         [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
@@ -87,14 +87,14 @@ function import_run(array $args): array {
 }
 
 if (!class_exists(ZipArchive::class)) {
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => (new WpOrgReleases($cache))->unpack($scratch . '/absent.zip', $scratch . '/out'),
         RuntimeException::class,
         'without ZipArchive the host refuses loudly and names the remedy instead of guessing',
         'install the php-zip extension'
     );
     import_remove_tree($scratch);
-    duo_check_summary('regress_code_import');
+    wprism_check_summary('regress_code_import');
 }
 
 $premiumFiles = [
@@ -115,41 +115,41 @@ $premiumDigest = (string) hash_file('sha256', $premiumZip);
 // ---------------------------------------------------------------------------
 
 $result = import_run([]);
-duo_check_same(1, $result['exit'], 'no archive refuses');
-duo_check(str_contains($result['stderr'], 'requires the path of one release archive'), 'and says an archive is required');
+wprism_check_same(1, $result['exit'], 'no archive refuses');
+wprism_check(str_contains($result['stderr'], 'requires the path of one release archive'), 'and says an archive is required');
 $result = import_run([$premiumZip, $themeZip, '--cache-dir=' . $cache]);
-duo_check_same(1, $result['exit'], 'two archives refuse');
-duo_check(str_contains($result['stderr'], 'exactly one archive per run'), 'and say why');
+wprism_check_same(1, $result['exit'], 'two archives refuse');
+wprism_check(str_contains($result['stderr'], 'exactly one archive per run'), 'and say why');
 $result = import_run([$premiumZip, '--force', '--cache-dir=' . $cache]);
-duo_check_same(1, $result['exit'], 'an unsupported flag refuses');
-duo_check(str_contains($result['stderr'], "unsupported argument '--force'"), 'naming the argument rather than printing usage');
+wprism_check_same(1, $result['exit'], 'an unsupported flag refuses');
+wprism_check(str_contains($result['stderr'], "unsupported argument '--force'"), 'naming the argument rather than printing usage');
 $result = import_run([$premiumZip, '--cache-dir=relative/cache']);
-duo_check_same(1, $result['exit'], 'a relative --cache-dir refuses: the cache is shared across checkouts');
+wprism_check_same(1, $result['exit'], 'a relative --cache-dir refuses: the cache is shared across checkouts');
 $result = import_run([$premiumZip, '--component=', '--cache-dir=' . $cache]);
-duo_check_same(1, $result['exit'], 'an empty --component refuses');
+wprism_check_same(1, $result['exit'], 'an empty --component refuses');
 $result = import_run([$premiumZip, '--root=mu-plugins', '--cache-dir=' . $cache]);
-duo_check_same(1, $result['exit'], 'a root that is not plugins or themes refuses');
-duo_check(
+wprism_check_same(1, $result['exit'], 'a root that is not plugins or themes refuses');
+wprism_check(
     str_contains($result['stderr'], '[' . ImportedArchives::REASON_IMPORT_REFUSED . ']')
         && str_contains($result['stderr'], 'remedy: pass --root=plugins or --root=themes'),
     'with a reason code and the remedy'
 );
 $result = import_run([$scratch . '/missing.zip', '--cache-dir=' . $cache]);
-duo_check_same(1, $result['exit'], 'an archive that does not exist refuses');
-duo_check(str_contains($result['stderr'], '[' . ImportedArchives::REASON_IMPORT_REFUSED . ']'), 'with the import reason code');
-duo_check(!is_dir($cache . '/imported'), 'and no refusal above created the store');
+wprism_check_same(1, $result['exit'], 'an archive that does not exist refuses');
+wprism_check(str_contains($result['stderr'], '[' . ImportedArchives::REASON_IMPORT_REFUSED . ']'), 'with the import reason code');
+wprism_check(!is_dir($cache . '/imported'), 'and no refusal above created the store');
 
 // ---------------------------------------------------------------------------
 // The import: what the operator reads, and what the store now holds.
 // ---------------------------------------------------------------------------
 
 $result = import_run([$premiumZip, '--cache-dir=' . $cache]);
-duo_check_same(0, $result['exit'], 'a wp.org-shaped archive (one directory named after the component) imports with no flags');
-duo_check(
-    str_contains($result['stdout'], 'duo: code-import: imported plugins/premium 1.2.0'),
+wprism_check_same(0, $result['exit'], 'a wp.org-shaped archive (one directory named after the component) imports with no flags');
+wprism_check(
+    str_contains($result['stdout'], 'wprism: code-import: imported plugins/premium 1.2.0'),
     'the report names the component, its root and the Version header it declares'
 );
-duo_check(str_contains($result['stdout'], 'archive_sha256: ' . $premiumDigest), 'and the archive digest the lock will record');
+wprism_check(str_contains($result['stdout'], 'archive_sha256: ' . $premiumDigest), 'and the archive digest the lock will record');
 $store = ImportedArchives::forReleases(new WpOrgReleases($cache, true));
 $treeDigest = WpOrgReleases::treeDigest((static function () use ($scratch, $premiumFiles): string {
     $probe = $scratch . '/probe';
@@ -161,57 +161,57 @@ $treeDigest = WpOrgReleases::treeDigest((static function () use ($scratch, $prem
     }
     return $probe;
 })());
-duo_check(str_contains($result['stdout'], 'tree_sha256:    ' . $treeDigest), 'and the tree digest an installed component must hash to');
-duo_check(!str_contains($result['stdout'], 'archive_root:'), 'and no archive_root line when the directory is named after the component');
-duo_check(str_contains($result['stdout'], 'stored at:      ' . $store->archivePathFor($premiumDigest)), 'and where the archive now lives');
-duo_check(
+wprism_check(str_contains($result['stdout'], 'tree_sha256:    ' . $treeDigest), 'and the tree digest an installed component must hash to');
+wprism_check(!str_contains($result['stdout'], 'archive_root:'), 'and no archive_root line when the directory is named after the component');
+wprism_check(str_contains($result['stdout'], 'stored at:      ' . $store->archivePathFor($premiumDigest)), 'and where the archive now lives');
+wprism_check(
     str_contains($result['stdout'], 'move the archive to every host that resolves, with this same command'),
-    'and tells the operator the one thing Duo will not do for them'
+    'and tells the operator the one thing WPrism will not do for them'
 );
-duo_check(is_file($store->archivePathFor($premiumDigest)), 'the archive is in the store under its digest');
-duo_check_same(
+wprism_check(is_file($store->archivePathFor($premiumDigest)), 'the archive is in the store under its digest');
+wprism_check_same(
     ['archive_sha256' => $premiumDigest, 'kind' => 'imported-archive'],
     (static function (?array $o): ?array { if ($o !== null) ksort($o, SORT_STRING); return $o; })($store->originForTree($treeDigest, 'plugins', 'premium')),
     'and the classifier can now look the installed tree up and get the lock origin — digest only, no url, no path'
 );
-duo_check_same(null, $store->originForTree($treeDigest, 'themes', 'premium'), 'but not under a different root');
-duo_check_same(null, $store->originForTree($treeDigest, 'plugins', 'other'), 'nor under a different component name');
+wprism_check_same(null, $store->originForTree($treeDigest, 'themes', 'premium'), 'but not under a different root');
+wprism_check_same(null, $store->originForTree($treeDigest, 'plugins', 'other'), 'nor under a different component name');
 CodeSourceLock::assert_lock(['format' => CodeSourceLock::FORMAT, 'first_party' => [], 'components' => [[
     'root' => 'plugins', 'component' => 'premium', 'version' => '1.2.0',
     'origin' => $store->originForTree($treeDigest, 'plugins', 'premium'), 'tree_sha256' => $treeDigest,
 ]]]);
-duo_check(true, 'the origin the import produces is one the lock grammar accepts unchanged');
+wprism_check(true, 'the origin the import produces is one the lock grammar accepts unchanged');
 
 $again = import_run([$premiumZip, '--cache-dir=' . $cache]);
-duo_check_same(0, $again['exit'], 'importing the same archive again succeeds');
-duo_check(str_contains($again['stdout'], 'already imported plugins/premium'), 'and says it was already imported');
+wprism_check_same(0, $again['exit'], 'importing the same archive again succeeds');
+wprism_check(str_contains($again['stdout'], 'already imported plugins/premium'), 'and says it was already imported');
 
 // A tag archive whose directory is not named after the component needs
 // --component, and records archive_root.
 $tagged = import_run([$taggedZip, '--cache-dir=' . $cache]);
-duo_check_same(0, $tagged['exit'], 'a single-directory archive imports without --component: its one directory names the component');
-duo_check(str_contains($tagged['stdout'], 'imported plugins/premium-1.2.0'), 'but as the directory it unpacks to, which is NOT the slug here');
+wprism_check_same(0, $tagged['exit'], 'a single-directory archive imports without --component: its one directory names the component');
+wprism_check(str_contains($tagged['stdout'], 'imported plugins/premium-1.2.0'), 'but as the directory it unpacks to, which is NOT the slug here');
 $taggedAs = import_run([$taggedZip, '--component=premium', '--cache-dir=' . $cache]);
-duo_check_same(0, $taggedAs['exit'], '--component=premium imports the same archive under the right identity');
-duo_check(str_contains($taggedAs['stdout'], 'imported plugins/premium 1.2.0'), 'naming the component');
-duo_check(str_contains($taggedAs['stdout'], 'archive_root:   premium-1.2.0'), 'and recording the archive_root the resolver will unpack');
-duo_check(
+wprism_check_same(0, $taggedAs['exit'], '--component=premium imports the same archive under the right identity');
+wprism_check(str_contains($taggedAs['stdout'], 'imported plugins/premium 1.2.0'), 'naming the component');
+wprism_check(str_contains($taggedAs['stdout'], 'archive_root:   premium-1.2.0'), 'and recording the archive_root the resolver will unpack');
+wprism_check(
     str_contains($taggedAs['stdout'], 'already imported plugins/premium 1.2.0'),
     'the archive bytes are recognised as already stored, and the corrected identity is what the operator passed'
 );
 
 // A theme.
 $theme = import_run([$themeZip, '--root=themes', '--cache-dir=' . $cache]);
-duo_check_same(0, $theme['exit'], 'a theme imports under --root=themes');
-duo_check(str_contains($theme['stdout'], 'imported themes/agency-child 3.1.0'), 'with the Version header read from style.css');
+wprism_check_same(0, $theme['exit'], 'a theme imports under --root=themes');
+wprism_check(str_contains($theme['stdout'], 'imported themes/agency-child 3.1.0'), 'with the Version header read from style.css');
 
 // --format=json carries the same facts for scripts.
 $json = import_run([$premiumZip, '--cache-dir=' . $cache, '--format=json']);
-duo_check_same(0, $json['exit'], '--format=json succeeds');
+wprism_check_same(0, $json['exit'], '--format=json succeeds');
 $decoded = json_decode(trim($json['stdout']), true);
-duo_check_same('duo-code-import/v1', $decoded['format'] ?? null, 'and declares its format');
-duo_check_same(
-    ['archive_root' => 'premium', 'archive_sha256' => $premiumDigest, 'component' => 'premium', 'format' => 'duo-code-import/v1',
+wprism_check_same('wprism-code-import/v1', $decoded['format'] ?? null, 'and declares its format');
+wprism_check_same(
+    ['archive_root' => 'premium', 'archive_sha256' => $premiumDigest, 'component' => 'premium', 'format' => 'wprism-code-import/v1',
         'path' => $store->archivePathFor($premiumDigest), 'root' => 'plugins', 'state' => 'already-imported',
         'tree_sha256' => $treeDigest, 'version' => '1.2.0'],
     (static function (array $d): array { ksort($d, SORT_STRING); return $d; })($decoded),
@@ -220,11 +220,11 @@ duo_check_same(
 
 // The store is a subdirectory of the same content-addressed cache wp.org
 // releases are fetched into, so `--cache-dir` moves both together.
-duo_check_same($cache . '/imported', $store->directory(), 'the imported store lives under the code-artifact cache');
-duo_check(
+wprism_check_same($cache . '/imported', $store->directory(), 'the imported store lives under the code-artifact cache');
+wprism_check(
     !is_file($cache . '/' . hash('sha256', 'anything') . '.zip') && glob($cache . '/*.zip') === [],
     'and nothing was written beside it: the import fetched no release and warmed no wp.org entry'
 );
 
 import_remove_tree($scratch);
-duo_check_summary('regress_code_import');
+wprism_check_summary('regress_code_import');

@@ -30,13 +30,13 @@ else
 fi
 
 # --- images (pre-pull so first pair.sh up is not a cold multi-minute pull) --
-for img in mariadb:11 "${DUO_WP_IMAGE:-wordpress:7.1-php8.3-apache}" wordpress:cli-php8.3; do
+for img in mariadb:11 "${WPRISM_WP_IMAGE:-wordpress:7.1-php8.3-apache}" wordpress:cli-php8.3; do
     docker pull -q "$img" >/dev/null && ok "image present: $img"
 done
 
 # --- sanity: the sandbox tooling itself parses --------------------------------
 bash -n sandbox/bin/pair.sh && ok "pair.sh parses"
-DUO_PAIR=x DUO_PORT1=1 DUO_PORT2=2 docker compose -f sandbox/pair.yml config >/dev/null \
+WPRISM_PAIR=x WPRISM_PORT1=1 WPRISM_PORT2=2 docker compose -f sandbox/pair.yml config >/dev/null \
     && ok "pair.yml valid"
 
 # --- current sandbox load (agents must respect the dynamic pair budget) ------

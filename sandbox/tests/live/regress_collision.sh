@@ -46,7 +46,7 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
 say "clean-room: removing any existing fx1/fx2 containers + volumes"
 $COMPOSE rm -sf wp-fx1 cli-fx1 db-fx1 wp-fx2 cli-fx2 db-fx2 >/dev/null 2>&1 || true
-docker volume rm -f duo-sandbox_dbfx1 duo-sandbox_wpfx1 duo-sandbox_dbfx2 duo-sandbox_wpfx2 >/dev/null 2>&1 || true
+docker volume rm -f wprism-sandbox_dbfx1 wprism-sandbox_wpfx1 wprism-sandbox_dbfx2 wprism-sandbox_wpfx2 >/dev/null 2>&1 || true
 rm -rf siterepo/fx1 siterepo/fx2 siterepo/origin-fx.git
 mkdir -p siterepo/fx1 siterepo/fx2
 
@@ -94,8 +94,8 @@ install_env() { # install_env <fx1|fx2> <port> <title>
   wp_env "$env" plugin install polylang --activate
   echo "env $env installed (Polylang $(wp_env "$env" plugin get polylang --field=version))"
 }
-install_env fx1 8810 "Duo FX1"
-install_env fx2 8811 "Duo FX2"
+install_env fx1 8810 "WPrism FX1"
+install_env fx2 8811 "WPrism FX2"
 pass "both envs installed, Polylang active on both (fx2 needs it active too: Apply's object-type filter must be able to resolve the same taxonomies on the target)"
 
 say "init the site repo — Polylang's own taxonomies deliberately in scope"
@@ -103,7 +103,7 @@ say "init the site repo — Polylang's own taxonomies deliberately in scope"
 # the bug; language/post_translations are post-object taxonomies that must
 # keep working normally (proves the fix doesn't over-filter).
 git init --bare -b main siterepo/origin-fx.git >/dev/null
-cat > siterepo/fx1/site.duo.json <<'EOF'
+cat > siterepo/fx1/site.wprism.json <<'EOF'
 {
   "manifests": ["core", "polylang"],
   "policy": {
@@ -149,11 +149,11 @@ for i in $(seq 1 "$FILLERS_NEEDED"); do
 done
 echo "inserted $FILLERS_NEEDED unrelated filler post(s) between language setup and the translated content"
 
-POST_EN=$(wp_fx1 post create --post_type=post --post_title='Hello Duo' --post_name=post-en --post_status=publish \
-  --post_content='<!-- wp:paragraph --><p>Hello from Duo (English).</p><!-- /wp:paragraph -->' --porcelain)
+POST_EN=$(wp_fx1 post create --post_type=post --post_title='Hello WPrism' --post_name=post-en --post_status=publish \
+  --post_content='<!-- wp:paragraph --><p>Hello from WPrism (English).</p><!-- /wp:paragraph -->' --porcelain)
 [ "$POST_EN" = "$NEWS_TERM_ID" ] || fail "fixture assumption broke: post_en id ($POST_EN) != News term_id ($NEWS_TERM_ID) — collision was not engineered"
-POST_FR=$(wp_fx1 post create --post_type=post --post_title='Bonjour Duo' --post_name=post-fr --post_status=publish \
-  --post_content='<!-- wp:paragraph --><p>Bonjour de Duo (Francais).</p><!-- /wp:paragraph -->' --porcelain)
+POST_FR=$(wp_fx1 post create --post_type=post --post_title='Bonjour WPrism' --post_name=post-fr --post_status=publish \
+  --post_content='<!-- wp:paragraph --><p>Bonjour de WPrism (Francais).</p><!-- /wp:paragraph -->' --porcelain)
 pass "post_en (id=$POST_EN) now collides with News's own term_id ($NEWS_TERM_ID); post_fr=$POST_FR"
 
 say "translate the posts and tag them (language BEFORE category: Polylang swaps a term for its same-language translation on assignment otherwise)"
@@ -172,7 +172,7 @@ CATS_FR=$(wp_fx1 eval "echo implode(',', wp_list_pluck(wp_get_post_terms($POST_F
 pass "post_en=news, post_fr=actualites (correctly language-matched, not swapped)"
 
 say "capture fx1 — must NOT fabricate News's term-to-term relationships onto post_en"
-wp_fx1 duo capture --repo=/siterepo
+wp_fx1 wprism capture --repo=/siterepo
 POST_EN_FILE=$(find siterepo/fx1/state/posts -name '*post-en*')
 [ -n "$POST_EN_FILE" ] || fail "post-en captured file not found"
 POST_EN_JSON=$(cat "$POST_EN_FILE")
@@ -197,21 +197,21 @@ grep -q '"term_translations"' <<<"$NEWS_JSON" || fail "News lost its OWN term_tr
 pass "News's term file correctly captures its own term_language + term_translations relationships"
 
 say "acceptance: capture is deterministic (capture twice, zero diff)"
-wp_fx1 duo capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
+wp_fx1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
 diff -r siterepo/fx1/state siterepo/fx1/.tmp-state2 || fail "capture is not deterministic"
 rm -rf siterepo/fx1/.tmp-state2
 pass "capture-twice diff is empty"
 
 say "commit fx1, clone to fx2, apply"
 git -C siterepo/fx1 add -A
-git -C siterepo/fx1 -c user.name=duo -c user.email=duo@example.test commit -qm "capture: Polylang object-id collision fixture"
+git -C siterepo/fx1 -c user.name=wprism -c user.email=wprism@example.test commit -qm "capture: Polylang object-id collision fixture"
 git -C siterepo/fx1 push -q origin main
 git clone -q siterepo/origin-fx.git siterepo/fx2
 REV=$(git -C siterepo/fx2 rev-parse HEAD)
-wp_fx2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV"
+wp_fx2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV"
 
 say "acceptance (a): canonical(fx2) == canonical(fx1), byte for byte"
-wp_fx2 duo capture --repo=/siterepo --out=/siterepo/.tmp-fx2state >/dev/null
+wp_fx2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-fx2state >/dev/null
 diff -r siterepo/fx1/state siterepo/fx2/.tmp-fx2state || fail "round-trip mismatch between fx1 and fx2"
 pass "canonical state identical across environments"
 
@@ -233,7 +233,7 @@ grep -q '"term_translations"' <<<"$FX2_POST_EN_JSON" && fail "fx2's re-captured 
 pass "fx2's re-captured post_en matches fx1's — no fabricated entries introduced by apply"
 rm -rf siterepo/fx2/.tmp-fx2state
 
-say "acceptance (d): pll_get_term_translations() on fx2 returns the correct pair using fx2's OWN local ids — the report's sharpest finding (this exact call used to return an EMPTY array on the target) — proven live via Polylang's own API, not just Duo's state tree"
+say "acceptance (d): pll_get_term_translations() on fx2 returns the correct pair using fx2's OWN local ids — the report's sharpest finding (this exact call used to return an EMPTY array on the target) — proven live via Polylang's own API, not just WPrism's state tree"
 NEWS_FX2=$(wp_fx2 eval "echo get_term_by('slug', 'news', 'category')->term_id;")
 ACT_FX2=$(wp_fx2 eval "echo get_term_by('slug', 'actualites', 'category')->term_id;")
 [ "$NEWS_FX2" != "$NEWS_TERM_ID" ] || echo "note: News's fx1 and fx2 local ids coincidentally match ($NEWS_FX2) — the assertion below still holds, it's just not exercising a genuine id divergence this time"
@@ -246,7 +246,7 @@ pass "pll_get_term_translations() on fx2 returns the correct pair using fx2's ow
 say "posture check: a policy-scoped taxonomy that's NOT registered at runtime warns loudly (names the taxonomy) and skips, never aborts or silently trusts"
 wp_fx1 plugin deactivate polylang >/dev/null
 set +e
-UNREG_OUT=$(wp_fx1 duo capture --repo=/siterepo --out=/siterepo/.tmp-unreg-state 2>&1)
+UNREG_OUT=$(wp_fx1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-unreg-state 2>&1)
 UNREG_RC=$?
 set -e
 echo "$UNREG_OUT"

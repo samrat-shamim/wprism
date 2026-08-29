@@ -195,7 +195,7 @@ require_once ABSPATH . 'wp-admin/includes/media.php';
 $attachments = [];
 $colors = ['en' => [30, 120, 210], 'fr' => [210, 50, 80], 'ar' => [40, 170, 90]];
 foreach (['en', 'fr', 'ar'] as $language) {
-    $path = "/tmp/duo-polylang-media-$language.png";
+    $path = "/tmp/wprism-polylang-media-$language.png";
     $image = imagecreatetruecolor(72, 48);
     if (!$image) {
         throw new RuntimeException('Polylang media image allocation failed');
@@ -205,7 +205,7 @@ foreach (['en', 'fr', 'ar'] as $language) {
     imagepng($image, $path);
     imagedestroy($image);
     $attachmentId = media_handle_sideload(
-        ['name' => "duo-polylang-media-$language.png", 'tmp_name' => $path],
+        ['name' => "wprism-polylang-media-$language.png", 'tmp_name' => $path],
         $posts[$language],
         "Polylang Media $language 東京 🚀"
     );
@@ -215,7 +215,7 @@ foreach (['en', 'fr', 'ar'] as $language) {
     $attachments[$language] = (int) $attachmentId;
     $renamed = wp_update_post([
         'ID' => (int) $attachmentId,
-        'post_name' => "duo-polylang-media-$language",
+        'post_name' => "wprism-polylang-media-$language",
     ], true);
     if (is_wp_error($renamed)) {
         throw new RuntimeException('Polylang media identity normalization failed: ' . $renamed->get_error_message());

@@ -13,8 +13,8 @@ if (!function_exists('duplicate_post_create_duplicate')) {
 }
 duplicate_post_admin_init();
 
-if (!get_role('duo_reviewer')) {
-    add_role('duo_reviewer', 'Duo Reviewer', ['read' => true, 'edit_posts' => true]);
+if (!get_role('wprism_reviewer')) {
+    add_role('wprism_reviewer', 'WPrism Reviewer', ['read' => true, 'edit_posts' => true]);
 }
 
 $prefix = str_repeat('複製✨', 14) . ' |';
@@ -37,7 +37,7 @@ $settings = [
     'duplicate_post_copythumbnail' => '0',
     'duplicate_post_copytitle' => '1',
     'duplicate_post_increase_menu_order_by' => '17',
-    'duplicate_post_roles' => ['administrator', 'duo_reviewer'],
+    'duplicate_post_roles' => ['administrator', 'wprism_reviewer'],
     'duplicate_post_show_link' => ['new_draft' => '1', 'clone' => '1', 'rewrite_republish' => '1'],
     'duplicate_post_show_link_in' => ['row' => '1', 'adminbar' => '1', 'submitbox' => '1', 'bulkactions' => '1'],
     'duplicate_post_show_notice' => '0',
@@ -80,8 +80,8 @@ if (false === $wpdb->query("ALTER TABLE {$wpdb->posts} AUTO_INCREMENT = 3100001"
     throw new RuntimeException('could not establish the large source post-id boundary');
 }
 
-$category = wp_insert_term('Duo Duplicate Category 東京', 'category', ['slug' => 'duo-duplicate-category']);
-$tag = wp_insert_term('Duo Duplicate Tag 🚀', 'post_tag', ['slug' => 'duo-duplicate-tag']);
+$category = wp_insert_term('WPrism Duplicate Category 東京', 'category', ['slug' => 'wprism-duplicate-category']);
+$tag = wp_insert_term('WPrism Duplicate Tag 🚀', 'post_tag', ['slug' => 'wprism-duplicate-tag']);
 if (is_wp_error($category) || is_wp_error($tag)) {
     throw new RuntimeException('could not create Duplicate Post taxonomy fixtures');
 }
@@ -89,10 +89,10 @@ $long = str_repeat("東京🚀|comma,quote\"apostrophe'backslash\\\n", 700);
 $original = wp_insert_post([
     'post_type' => 'post',
     'post_status' => 'publish',
-    'post_title' => 'Duo Duplicate Original 東京 🚀',
-    'post_name' => 'duo-duplicate-original',
+    'post_title' => 'WPrism Duplicate Original 東京 🚀',
+    'post_name' => 'wprism-duplicate-original',
     'post_excerpt' => 'Portable excerpt 東京 🚀',
-    'post_content' => "<!-- wp:paragraph --><p>Duo original marker 東京 🚀</p><!-- /wp:paragraph -->\n$long",
+    'post_content' => "<!-- wp:paragraph --><p>WPrism original marker 東京 🚀</p><!-- /wp:paragraph -->\n$long",
     'menu_order' => 7,
 ], true);
 if (is_wp_error($original) || !$original) {
@@ -106,11 +106,11 @@ $copy = duplicate_post_create_duplicate(get_post((int) $original));
 if (is_wp_error($copy) || !$copy) {
     throw new RuntimeException('Yoast Duplicate Post native clone failed');
 }
-wp_update_post(['ID' => (int) $copy, 'post_name' => 'duo-duplicate-copy']);
+wp_update_post(['ID' => (int) $copy, 'post_name' => 'wprism-duplicate-copy']);
 
 $originalPost = duplicate_post_get_original((int) $copy);
 $roles = [];
-foreach (['administrator', 'duo_reviewer', 'editor', 'subscriber'] as $roleName) {
+foreach (['administrator', 'wprism_reviewer', 'editor', 'subscriber'] as $roleName) {
     $role = get_role($roleName);
     $roles[$roleName] = $role ? $role->has_cap('copy_posts') : null;
 }
@@ -142,10 +142,10 @@ SEED_JSON=$(printf '%s\n' "$SEED_OUT" | awk 'NF { line=$0 } END { print line }')
 printf '%s\n' "$SEED_JSON" | jq -e '
   .settings_count == 28 and .original_id >= 3100001 and .copy_id > .original_id and
   .original_via_api == .original_id and .copy_status == "draft" and
-  .copy_menu_order == 24 and (.copy_title | contains("Duo Duplicate Original")) and
-  .copied_category == ["duo-duplicate-category"] and .copied_tag == ["duo-duplicate-tag"] and
+  .copy_menu_order == 24 and (.copy_title | contains("WPrism Duplicate Original")) and
+  .copied_category == ["wprism-duplicate-category"] and .copied_tag == ["wprism-duplicate-tag"] and
   .excluded_runtime_meta == "" and
-  .roles.administrator == true and .roles.duo_reviewer == true and
+  .roles.administrator == true and .roles.wprism_reviewer == true and
   .roles.editor == false and .roles.subscriber == false and .version == "4.7"
 ' >/dev/null || fail "Yoast Duplicate Post source fixture did not establish the native/settings/reference premises: $SEED_JSON"
 pass "Yoast Duplicate Post authored all settings, native role policy, hostile bytes, native clone semantics, and _dp_original through exact 4.7 APIs"

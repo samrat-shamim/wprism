@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/ScopedApplyCoordinator.php';
 require_once __DIR__ . '/ScopedApplySession.php';
@@ -29,7 +29,7 @@ final class ScopedApplyWorkflow {
         string $promotionArtifact
     ): array {
         if ($this->scopeContract === null || $this->observation === null) {
-            throw new \RuntimeException('duo: scoped mutation authority has no complete source/target evidence');
+            throw new \RuntimeException('wprism: scoped mutation authority has no complete source/target evidence');
         }
         return ScopedApplyCoordinator::authority(
             $plan,
@@ -65,11 +65,11 @@ final class ScopedApplyWorkflow {
         try {
             $result = $observer();
             if (!is_array($result)) {
-                throw new \RuntimeException('duo: scoped target observation returned a malformed result');
+                throw new \RuntimeException('wprism: scoped target observation returned a malformed result');
             }
             return $result;
         } catch (\Throwable $failure) {
-            $this->recover_once('duo:scoped-target-observation-failed');
+            $this->recover_once('wprism:scoped-target-observation-failed');
             throw $failure;
         }
     }
@@ -80,12 +80,12 @@ final class ScopedApplyWorkflow {
 
     public function assert_recovery_selection(array $selectedActions, array $negotiation): void {
         if ($this->session === null) {
-            throw new \RuntimeException('duo: scoped action recovery has no durable authority');
+            throw new \RuntimeException('wprism: scoped action recovery has no durable authority');
         }
         try {
             ScopedApplyCoordinator::assert_recovery_selection($this->session, $selectedActions, $negotiation);
         } catch (\RuntimeException $failure) {
-            $this->recover_once('duo:scoped-action-capability-drift');
+            $this->recover_once('wprism:scoped-action-capability-drift');
             throw $failure;
         }
     }
@@ -103,7 +103,7 @@ final class ScopedApplyWorkflow {
         string $currentGuardWitnessesHash
     ): string {
         if ($this->session === null) {
-            throw new \RuntimeException('duo: scoped authored recovery has no durable authority');
+            throw new \RuntimeException('wprism: scoped authored recovery has no durable authority');
         }
         $recordedPhase = $this->session->recorded_recovery_phase();
         $effectivePhase = $recordedPhase ?? $this->session->phase();
@@ -116,8 +116,8 @@ final class ScopedApplyWorkflow {
             ScopedApplySession::PHASE_EFFECTS_PENDING,
             ScopedApplySession::PHASE_VERIFYING,
         ], true)) {
-            $this->recover_once('duo:scoped-authored-phase-invalid');
-            throw new \RuntimeException('duo: scoped apply recovery has no resumable authored boundary');
+            $this->recover_once('wprism:scoped-authored-phase-invalid');
+            throw new \RuntimeException('wprism: scoped apply recovery has no resumable authored boundary');
         }
 
         $authority = $this->session->authority();
@@ -125,12 +125,12 @@ final class ScopedApplyWorkflow {
         $existingIntent = $intents[0] ?? null;
         if (is_array($existingIntent)
             && hash_equals(
-                hash('sha256', 'duo-scoped-authored-transaction/v1'),
+                hash('sha256', 'wprism-scoped-authored-transaction/v1'),
                 (string) ($existingIntent['action_hash'] ?? '')
             )) {
-            $this->recover_once('duo:scoped-obsolete-author-evidence');
+            $this->recover_once('wprism:scoped-obsolete-author-evidence');
             throw new \RuntimeException(
-                'duo: scoped apply recovery found obsolete v1 author evidence; '
+                'wprism: scoped apply recovery found obsolete v1 author evidence; '
                 . 'restore the retained checkpoint or start a fresh scoped apply before target effects'
             );
         }
@@ -139,9 +139,9 @@ final class ScopedApplyWorkflow {
                 (string) ($authority['target']['selected_before_ledger_map_hash'] ?? ''),
                 (string) ($observation['selected_ledger_map_root'] ?? '')
             )) {
-                $this->recover_once('duo:scoped-selected-ledger-drift');
+                $this->recover_once('wprism:scoped-selected-ledger-drift');
                 throw new \RuntimeException(
-                    'duo: scoped apply recovery found selected identity-map drift before authored mutation'
+                    'wprism: scoped apply recovery found selected identity-map drift before authored mutation'
                 );
             }
             if (!hash_equals(
@@ -151,9 +151,9 @@ final class ScopedApplyWorkflow {
                 (string) ($authority['plan']['guard_witnesses_hash'] ?? ''),
                 $currentGuardWitnessesHash
             )) {
-                $this->recover_once('duo:scoped-plan-or-guard-drift');
+                $this->recover_once('wprism:scoped-plan-or-guard-drift');
                 throw new \RuntimeException(
-                    'duo: scoped apply recovery found changed locked plan or deletion-guard evidence'
+                    'wprism: scoped apply recovery found changed locked plan or deletion-guard evidence'
                 );
             }
             return $effectivePhase;
@@ -163,9 +163,9 @@ final class ScopedApplyWorkflow {
             if ($effectivePhase !== ScopedApplySession::PHASE_PLANNED
                 || $existingIntent !== null
                 || $this->receipt_at(1) !== null) {
-                $this->recover_once('duo:scoped-unreceipted-authored-state');
+                $this->recover_once('wprism:scoped-unreceipted-authored-state');
                 throw new \RuntimeException(
-                    'duo: scoped apply recovery found desired authored state without its atomic author receipt; '
+                    'wprism: scoped apply recovery found desired authored state without its atomic author receipt; '
                     . 'restore the retained checkpoint before retrying'
                 );
             }
@@ -182,9 +182,9 @@ final class ScopedApplyWorkflow {
                 (string) ($authority['plan']['guard_witnesses_hash'] ?? ''),
                 $currentGuardWitnessesHash
             )) {
-                $this->recover_once('duo:scoped-noop-authority-drift');
+                $this->recover_once('wprism:scoped-noop-authority-drift');
                 throw new \RuntimeException(
-                    'duo: scoped apply no-op recovery no longer matches its exact pre-author state, map, plan, and guards'
+                    'wprism: scoped apply no-op recovery no longer matches its exact pre-author state, map, plan, and guards'
                 );
             }
             return $effectivePhase;
@@ -192,32 +192,32 @@ final class ScopedApplyWorkflow {
 
         if ($authoredState !== 'desired') {
             $cause = $preAuthor
-                ? 'duo:scoped-authored-boundary-mixed'
-                : 'duo:scoped-authored-state-regressed';
+                ? 'wprism:scoped-authored-boundary-mixed'
+                : 'wprism:scoped-authored-state-regressed';
             $this->recover_once($cause);
             throw new \RuntimeException($preAuthor
-                ? 'duo: scoped apply recovery found a mixed authored boundary; no replay was attempted'
-                : 'duo: scoped apply recovery found selected target drift after authored commit');
+                ? 'wprism: scoped apply recovery found a mixed authored boundary; no replay was attempted'
+                : 'wprism: scoped apply recovery found selected target drift after authored commit');
         }
 
         try {
             $authoredReadbackHash = ScopedApplyCoordinator::authored_ledger_map_hash($observation);
         } catch (\RuntimeException $failure) {
-            $this->recover_once('duo:scoped-authored-receipt-drift');
+            $this->recover_once('wprism:scoped-authored-receipt-drift');
             throw $failure;
         }
         $expectedReceipt = $this->receipt($authorIntent, $authoredReadbackHash);
         if ($existingIntent === null
             || Canon::encode((array) $existingIntent) !== Canon::encode($authorIntent)) {
-            $this->recover_once('duo:scoped-authored-intent-drift');
-            throw new \RuntimeException('duo: scoped apply recovery author intent no longer matches');
+            $this->recover_once('wprism:scoped-authored-intent-drift');
+            throw new \RuntimeException('wprism: scoped apply recovery author intent no longer matches');
         }
         $existingReceipt = $this->receipt_at(1);
         if ($existingReceipt === null
             || Canon::encode($existingReceipt) !== Canon::encode($expectedReceipt)) {
-            $this->recover_once('duo:scoped-authored-receipt-drift');
+            $this->recover_once('wprism:scoped-authored-receipt-drift');
             throw new \RuntimeException(
-                'duo: scoped apply recovery author receipt does not match selected state and identity map'
+                'wprism: scoped apply recovery author receipt does not match selected state and identity map'
             );
         }
         return $effectivePhase;
@@ -232,7 +232,7 @@ final class ScopedApplyWorkflow {
         string $beforeHash
     ): array {
         if ($this->session === null) {
-            throw new \RuntimeException('duo: scoped mutation intent has no durable session');
+            throw new \RuntimeException('wprism: scoped mutation intent has no durable session');
         }
         return ScopedApplyCoordinator::intent(
             $this->session,

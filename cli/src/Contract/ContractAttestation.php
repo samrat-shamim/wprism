@@ -1,17 +1,17 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Policy/AdapterLibrary.php';
 require_once __DIR__ . '/ApplicationContract.php';
 
-use Duo\AdapterLibrary;
-use Duo\Canon;
-use Duo\CommandRefusalException;
-use Duo\Policy;
+use WPrism\AdapterLibrary;
+use WPrism\Canon;
+use WPrism\CommandRefusalException;
+use WPrism\Policy;
 
 /**
  * Sign and verify `attestation.state: "signed"` on the application contract,
@@ -19,7 +19,7 @@ use Duo\Policy;
  *
  * ## The shape of the claim
  *
- * `duo adapter certify` already lets a customer organization vouch for its own
+ * `wprism adapter certify` already lets a customer organization vouch for its own
  * adapter bytes under its own Ed25519 key (AdapterCertify.php:15-45). The
  * contract had no equivalent: `ContractStore::writeContract()` refused every
  * signed document with `attestation_signing_unsupported`, so the honest
@@ -27,7 +27,7 @@ use Duo\Policy;
  * unsigned` and there was no command that could ever change it. This class is
  * that command's engine. It changes nothing for a site that has not
  * provisioned a key — and no shipped site has, because the trust root is a
- * file in the SITE repository that nothing creates but `duo contract <env>
+ * file in the SITE repository that nothing creates but `wprism contract <env>
  * attest`.
  *
  * ## Three properties, and each one is why a line here reads as it does
@@ -47,8 +47,8 @@ use Duo\Policy;
  * signature binds `attested_digest`: the same rule, applied to the document
  * minus `contract_digest` AND with `attestation.signature` forced to null —
  * a signature is never inside its own input. `contract_digest`'s definition
- * and value semantics do not move at all, which is what keeps `duo release`'s
- * frozen authorization plan and every `site.duo.json` content pin correct.
+ * and value semantics do not move at all, which is what keeps `wprism release`'s
+ * frozen authorization plan and every `site.wprism.json` content pin correct.
  *
  * **3. The signed statement carries the digest and the format, and nothing
  * else.** Every fact an operator would want inside the signed bytes — who
@@ -76,8 +76,8 @@ use Duo\Policy;
  *
  * ## The trust root
  *
- * `.duo/contract/authorities.json`, format
- * `duo-contract-attestation-authorities/v1`, scope `contract_attestation`, in
+ * `.wprism/contract/authorities.json`, format
+ * `wprism-contract-attestation-authorities/v1`, scope `contract_attestation`, in
  * the site repository beside the contract it authorizes. It is a SEPARATE file
  * from `adapters/authorities.json` and that is forced, not preferred:
  * `AdapterCertification::validateAuthorityRecord()` (:1305-1336) requires
@@ -105,10 +105,10 @@ final class ContractAttestation {
      * domain's independence from every other statement is the point of it
      * existing, so borrowing it here would be the one thing it forbids.
      */
-    public const SIGNATURE_DOMAIN = "duo-contract-attestation-signature/v1\0";
+    public const SIGNATURE_DOMAIN = "wprism-contract-attestation-signature/v1\0";
 
-    public const STATEMENT_FORMAT = 'duo-contract-attestation-statement/v1';
-    public const AUTHORITIES_FORMAT = 'duo-contract-attestation-authorities/v1';
+    public const STATEMENT_FORMAT = 'wprism-contract-attestation-statement/v1';
+    public const AUTHORITIES_FORMAT = 'wprism-contract-attestation-authorities/v1';
 
     /**
      * Beside `contract.json`, in the repository the contract is about.
@@ -118,7 +118,7 @@ final class ContractAttestation {
      * pointing the other way would make the two require lines a cycle that
      * only fires for whichever file a partially-loaded context reached first.
      */
-    public const AUTHORITIES_RELATIVE = '.duo/contract/authorities.json';
+    public const AUTHORITIES_RELATIVE = '.wprism/contract/authorities.json';
 
     /** The one scope word a record in this file may carry. */
     public const SCOPE = 'contract_attestation';
@@ -177,7 +177,7 @@ final class ContractAttestation {
         return 'sha256:' . hash('sha256', Canon::encode($document));
     }
 
-    /** `<siteRepo>/.duo/contract/authorities.json`. */
+    /** `<siteRepo>/.wprism/contract/authorities.json`. */
     public static function authoritiesPath(string $siteRepo): string {
         return rtrim($siteRepo, '/') . '/' . self::AUTHORITIES_RELATIVE;
     }
@@ -374,7 +374,7 @@ final class ContractAttestation {
             throw self::refuse(
                 'contract_attestation_signature_invalid',
                 'the contract attestation is not signed, so there is nothing to verify',
-                'attest the contract with duo contract <env> attest, or read it as the unsigned document it is'
+                'attest the contract with wprism contract <env> attest, or read it as the unsigned document it is'
             );
         }
         $trustRoot = (string) ($attestation['trust_root'] ?? '');
@@ -412,7 +412,7 @@ final class ContractAttestation {
             throw self::refuse(
                 'contract_attestation_signature_invalid',
                 'the contract attestation signature does not verify against this contract',
-                'restore .duo/contract/contract.json from git; an edited contract drops its attestation '
+                'restore .wprism/contract/contract.json from git; an edited contract drops its attestation '
                     . 'rather than degrading it, and re-attesting is the only way to restore one',
                 [['key_id' => self::safe($keyId)]]
             );
@@ -424,7 +424,7 @@ final class ContractAttestation {
             throw self::refuse(
                 'contract_attestation_platform_moved',
                 'the contract was attested against a different agent capability boundary than this one',
-                're-attest the contract with duo contract <env> attest; the attestation binds the platform '
+                're-attest the contract with wprism contract <env> attest; the attestation binds the platform '
                     . 'boundary it was reviewed against, and an agent upgrade moves it',
                 [['attested' => substr($signedPlatform, 0, 12), 'current' => substr($currentPlatform, 0, 12)]]
             );
@@ -444,7 +444,7 @@ final class ContractAttestation {
             throw self::refuse(
                 'contract_attestation_expired',
                 'the contract attestation expired on ' . self::safe($expiresAt),
-                're-attest the contract with duo contract <env> attest; an expired attestation is refused, '
+                're-attest the contract with wprism contract <env> attest; an expired attestation is refused, '
                     . 'never silently downgraded to unsigned',
                 [['expires_at' => self::safe($expiresAt)]]
             );
@@ -476,7 +476,7 @@ final class ContractAttestation {
             throw self::refuse(
                 'contract_attestation_platform_moved',
                 'the agent capability platform boundary is absent, so an attestation cannot be bound to it',
-                'run this command from a complete duo checkout; capabilities/platform.json is what an '
+                'run this command from a complete wprism checkout; capabilities/platform.json is what an '
                     . 'attestation binds'
             );
         }
@@ -599,7 +599,7 @@ final class ContractAttestation {
             throw self::refuse(
                 'contract_attestation_unsupported',
                 'contract attestation requires the PHP sodium extension',
-                'install the PHP sodium extension on the machine running duo'
+                'install the PHP sodium extension on the machine running wprism'
             );
         }
     }
@@ -609,7 +609,7 @@ final class ContractAttestation {
         if (!is_dir($directory) && !@mkdir($directory, 0777, true) && !is_dir($directory)) {
             throw self::refuseAuthorities('the contract attestation trust root directory could not be created');
         }
-        $temporary = @tempnam($directory, '.duo-authorities-');
+        $temporary = @tempnam($directory, '.wprism-authorities-');
         if (!is_string($temporary) || $temporary === '') {
             throw self::refuseAuthorities('a temporary file could not be created beside the trust root');
         }
@@ -637,7 +637,7 @@ final class ContractAttestation {
         return self::refuse(
             'contract_attestation_unsigned_anchor',
             'this site repository has no contract attestation trust root, so nothing can be attested',
-            'provision a key with duo adapter keygen and attest with duo contract <env> attest '
+            'provision a key with wprism adapter keygen and attest with wprism contract <env> attest '
                 . '--secret-key-file=<path>; ' . self::AUTHORITIES_RELATIVE . ' is written by that command '
                 . 'and ships with no key'
         );

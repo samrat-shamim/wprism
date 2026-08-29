@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression — DUO-3345 (plan naming slice): plan rows that carry an
+ * Offline regression — issue #3345 (plan naming slice): plan rows that carry an
  * authored WordPress display name (`title` for posts, `name` for terms and
  * menus, projected by Apply::entity_display_title() into the row's `title`
  * key) must be rendered with that name beside the repository path, and rows
@@ -13,16 +13,16 @@
  *   1. the raw authored title is displayed in single quotes after the path;
  *   2. whitespace runs collapse so one plan row stays one output line
  *      (exactly-one-line assertions elsewhere depend on rows never wrapping);
- *   3. a row without a title renders byte-identically to the pre-DUO-3345
+ *   3. a row without a title renders byte-identically to the pre-issue #3345
  *      form — absence of authored naming is never decorated or guessed.
  *
- * These assertions fail against the pre-DUO-3345 renderer, which showed only
+ * These assertions fail against the pre-issue #3345 renderer, which showed only
  * identifier-bearing paths.
  */
 
 require_once __DIR__ . '/../../../../cli/src/Plan/PlanSummary.php';
 
-use Duo\Orchestrator\PlanSummary;
+use WPrism\Orchestrator\PlanSummary;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -110,10 +110,10 @@ $check(
     'display trims the collapsed title; JSON keeps the raw authored value'
 );
 
-// The `duo status` boundary this renderer deliberately keeps (independent
+// The `wprism status` boundary this renderer deliberately keeps (independent
 // review of PR #148): clean create/update/adopt/unchanged/deleted rows are
 // never itemized here — they exist only as summary-line counts — so a title
-// on such a row must produce no itemized line. `wp duo plan`'s own renderer
+// on such a row must produce no itemized line. `wp wprism plan`'s own renderer
 // itemizes every bucket and is proven live by the core conformance
 // plan-naming scenario. This case pins the boundary so the README's
 // description of the asymmetry cannot silently drift.
@@ -127,7 +127,7 @@ $updateOnly['update'] = [[
 $renderedUpdate = PlanSummary::render($updateOnly);
 $check(
     !str_contains(implode("\n", $renderedUpdate['lines']), 'Clean Update Title'),
-    'duo status keeps clean update rows as counts only; titles never conjure an itemized line'
+    'wprism status keeps clean update rows as counts only; titles never conjure an itemized line'
 );
 $check(
     str_contains($renderedUpdate['lines'][0] ?? '', '1 update'),

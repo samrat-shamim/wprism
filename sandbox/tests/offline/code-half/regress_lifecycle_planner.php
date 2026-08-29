@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for LifecyclePlanner (DUO-3350 slice 6: the lifecycle
+ * Offline regression for LifecyclePlanner (issue #3350 slice 6: the lifecycle
  * detection/reporting collaborator extracted from Deploy). Deliberately
  * narrow, the same wiring/shape idiom the earlier slices in this issue
  * established: this file does not re-implement or re-assert code_mismatch/
@@ -44,7 +44,7 @@ check(str_contains($plannerSource, 'final class LifecyclePlanner'), 'LifecyclePl
 // code_drift()/record_code_versions() each keep a thin Deploy facade (each
 // had an external caller beyond Deploy::run() itself at extraction time --
 // Apply::build_plan() for the first three, Capture::run() for the fourth;
-// DUO-3507 later moved capture onto observe_code_versions(), so
+// issue #3507 later moved capture onto observe_code_versions(), so
 // record_code_versions()'s facade is now Deploy-internal and is kept only
 // because run() still spells it self::); compiled_code_revision()
 // and check_theme_range() had no caller anywhere outside their own moved
@@ -77,11 +77,11 @@ check(
 );
 
 // The four public entry points keep exactly their original parameter shapes
-// -- no change was needed here, unlike DUO-3350 slice 5's DeleteExecutor-
+// -- no change was needed here, unlike issue #3350 slice 5's DeleteExecutor-
 // style $roots threading, since none of these four methods needed a new
 // explicit dependency once moved.
 require_once $root . '/agent/src/Promotion/LifecyclePlanner.php';
-$planner = new ReflectionClass(\Duo\LifecyclePlanner::class);
+$planner = new ReflectionClass(\WPrism\LifecyclePlanner::class);
 check(
     array_map(static fn(ReflectionParameter $p): string => $p->getName(), $planner->getMethod('code_mismatch')->getParameters()) === ['policy', 'desired'],
     'code_mismatch() keeps its original two parameters'
@@ -105,7 +105,7 @@ foreach (['compiled_code_revision', 'check_theme_range'] as $private) {
     check($planner->getMethod($private)->isPrivate(), "$private() stays private -- an internal collaborator, not a shared API");
 }
 
-// DUO-3507: observe_code_versions() is capture's baseline write -- the same
+// issue #3507: observe_code_versions() is capture's baseline write -- the same
 // single-$policy shape as the record_code_versions() it wraps, but returning
 // the code_drift rows it declined to accept instead of nothing. That return
 // type IS the fix: a void observe() could not tell capture there was

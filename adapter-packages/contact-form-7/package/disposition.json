@@ -32,7 +32,7 @@
     },
     "default_authored_keyspaces": [],
     "evidence": {
-        "bundle_schema": "duo-subject-certification-bundle/v1",
+        "bundle_schema": "wprism-subject-certification-bundle/v1",
         "tests": [
             "conformance-contact-form-7",
             "exact-artifact-version-matrix"
@@ -75,7 +75,7 @@
         },
         {
             "operation": "all",
-            "reason": "Duo v1 refuses multisite; Contact Form 7 network/global behavior is outside this single-site adapter.",
+            "reason": "WPrism v1 refuses multisite; Contact Form 7 network/global behavior is outside this single-site adapter.",
             "surface": "multisite"
         }
     ]

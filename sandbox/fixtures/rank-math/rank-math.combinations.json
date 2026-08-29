@@ -34,7 +34,7 @@
             "signature": "Exact site and shipped digest pins loaded together. After explicit posts,terms adoption, the first hostile-target apply handled 43 entities (create 9, update 5, adopt 29) with clean canary; the corrected Polylang separate-request lifecycle applied 3 updates; repeat plan reported create 0, update 0, unchanged 43, drift 0, conflict 0, collision 0 and incomplete_apply 0. Source product ids 10/11 became target ids 15/16; source primary product-category ids 23/25 became target ids 29/27 and retained en/de term translations. Woo lookup prices were 29.0000/31.0000, ACF badges were language-specific, the target-only product/SEO/ACF state survived, the source-only scheduler action was absent, and the target-only scheduler action remained. English and German HTTP rendered distinct Rank Math title/description/canonical/OpenGraph output with reciprocal hreflang links."
         }
     ],
-    "format": "duo-adapter-combination-outcomes/v1",
+    "format": "wprism-adapter-combination-outcomes/v1",
     "limitations": [
         "The Rank Math redirections module must be enabled through RankMath\\Helper::update_modules before capture or target planning; copying rank_math_modules alone does not create its declared tables.",
         "Polylang product/taxonomy translation settings must be written in a fresh request after language creation; the same-request write was discarded by plugin shutdown bookkeeping and produced no source relationship to transfer.",
@@ -47,7 +47,7 @@
         {
             "outcome": "refused",
             "scenario": "An ACF post_object field used the physical name rank_math_title and stored _rank_math_title=field_rmcombo_rank_title on a WooCommerce product.",
-            "signature": "Live source capture refused before publication: duo: post_meta 'rank_math_title' has multiple classification owners: 'acf' via acf (interpreter acf), 'rank-math' via static declaration; dynamic interpreter dispatch cannot resolve cross-manifest ownership. Offline coverage runs the same fact under both manifest pin orders."
+            "signature": "Live source capture refused before publication: wprism: post_meta 'rank_math_title' has multiple classification owners: 'acf' via acf (interpreter acf), 'rank-math' via static declaration; dynamic interpreter dispatch cannot resolve cross-manifest ownership. Offline coverage runs the same fact under both manifest pin orders."
         }
     ],
     "subject": {

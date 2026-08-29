@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // WP-6.5: the feature name and the body-mode value `structured-body-refs/v1`
 // admits, read from the one file that defines them rather than restated here —
@@ -8,7 +8,7 @@ require_once __DIR__ . '/BodyRefGrammar.php';
 
 /**
  * The pure post-type behavior grammar extracted from Policy.php
- * (DUO-3348): the closed `post_types.<type>.body` and `.phase` switches and
+ * (issue #3348): the closed `post_types.<type>.body` and `.phase` switches and
  * the direct `post_types.<parent>.children` relationship declaration, and
  * the `post_types.<type>.regen_dependency` shape declaration.
  *
@@ -39,14 +39,14 @@ final class PostTypeGrammar {
             if (!is_string($parentPostType)
                 || !preg_match('/^[a-z0-9_-]{1,20}$/', $parentPostType)) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' post_types key " . var_export($parentPostType, true)
+                    "wprism: manifest '$name' post_types key " . var_export($parentPostType, true)
                     . ' cannot declare children: expected a WordPress post-type name'
                 );
             }
             $children = $decl['children'];
             if (!is_array($children) || !array_is_list($children) || !$children) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' post_types.$parentPostType.children must be a non-empty list"
+                    "wprism: manifest '$name' post_types.$parentPostType.children must be a non-empty list"
                 );
             }
             $seen = [];
@@ -54,25 +54,25 @@ final class PostTypeGrammar {
                 if (!is_string($childPostType)
                     || !preg_match('/^[a-z0-9_-]{1,20}$/', $childPostType)) {
                     throw new \RuntimeException(
-                        "duo: manifest '$name' post_types.$parentPostType.children[$index] "
+                        "wprism: manifest '$name' post_types.$parentPostType.children[$index] "
                         . 'must be a WordPress post-type name'
                     );
                 }
                 if ($childPostType === $parentPostType) {
                     throw new \RuntimeException(
-                        "duo: manifest '$name' post_types.$parentPostType.children "
+                        "wprism: manifest '$name' post_types.$parentPostType.children "
                         . 'cannot declare a CPT as its own child'
                     );
                 }
                 if (!array_key_exists($childPostType, $postTypes)) {
                     throw new \RuntimeException(
-                        "duo: manifest '$name' post_types.$parentPostType.children[$index] "
+                        "wprism: manifest '$name' post_types.$parentPostType.children[$index] "
                         . "names undeclared child CPT '$childPostType'"
                     );
                 }
                 if (isset($seen[$childPostType])) {
                     throw new \RuntimeException(
-                        "duo: manifest '$name' post_types.$parentPostType.children "
+                        "wprism: manifest '$name' post_types.$parentPostType.children "
                         . "contains duplicate child CPT '$childPostType'"
                     );
                 }
@@ -83,7 +83,7 @@ final class PostTypeGrammar {
 
     /**
      * Validate `post_types.<type>.regen_dependency` shape at load time
-     * (DUO-3234). This checks only declaration shape: required keys, scalar
+     * (issue #3234). This checks only declaration shape: required keys, scalar
      * types, and the strict top-level/batch key sets. It deliberately never
      * touches the regenerator PHP file; regenerators() keeps that lazy-load
      * and callable-contract responsibility for declarations actually used.
@@ -99,20 +99,20 @@ final class PostTypeGrammar {
             }
             if (!is_array($regen) || array_is_list($regen)) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' post_types.$postType.regen_dependency must be an object"
+                    "wprism: manifest '$name' post_types.$postType.regen_dependency must be an object"
                 );
             }
             $regenerator = $regen['regenerator'] ?? null;
             if (!is_string($regenerator) || $regenerator === '') {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' post_types.$postType.regen_dependency needs a non-empty string 'regenerator'"
+                    "wprism: manifest '$name' post_types.$postType.regen_dependency needs a non-empty string 'regenerator'"
                 );
             }
             $verify = $regen['verify'] ?? null;
             if (!is_array($verify) || !is_string($verify['table'] ?? null) || ($verify['table'] ?? '') === ''
                 || !is_string($verify['column'] ?? null) || ($verify['column'] ?? '') === '') {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' post_types.$postType.regen_dependency needs "
+                    "wprism: manifest '$name' post_types.$postType.regen_dependency needs "
                     . 'verify: {table: <non-empty string>, column: <non-empty string>}'
                 );
             }
@@ -123,23 +123,23 @@ final class PostTypeGrammar {
             );
             if ($unknown) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' post_types.$postType.regen_dependency contains unknown key(s): "
+                    "wprism: manifest '$name' post_types.$postType.regen_dependency contains unknown key(s): "
                     . implode(', ', $unknown)
                 );
             }
             if (array_key_exists('batch', $regen) && array_key_exists('refresh', $regen)) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' post_types.$postType.regen_dependency cannot declare both 'batch' and 'refresh'"
+                    "wprism: manifest '$name' post_types.$postType.regen_dependency cannot declare both 'batch' and 'refresh'"
                 );
             }
             if (array_key_exists('always_on_write', $regen)
                 && (array_key_exists('batch', $regen) || array_key_exists('refresh', $regen))) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' post_types.$postType.regen_dependency.always_on_write is ambiguous beside batch/refresh"
+                    "wprism: manifest '$name' post_types.$postType.regen_dependency.always_on_write is ambiguous beside batch/refresh"
                 );
             }
 
-            // DUO-329x: batch/refresh is deliberately opt-in. Existing
+            // x: batch/refresh is deliberately opt-in. Existing
             // declarations (TEC included) retain the missing-row,
             // regenerate(int) behavior above. Accept both names as a small
             // compatibility affordance for manifest authors: "refresh"
@@ -153,7 +153,7 @@ final class PostTypeGrammar {
                 $batch = $regen[$batchKey];
                 if ($batch !== true && $batch !== false && !is_array($batch)) {
                     throw new \RuntimeException(
-                        "duo: manifest '$name' post_types.$postType.regen_dependency.$batchKey must be "
+                        "wprism: manifest '$name' post_types.$postType.regen_dependency.$batchKey must be "
                         . 'a boolean or object'
                     );
                 }
@@ -161,14 +161,14 @@ final class PostTypeGrammar {
                     $unknownBatch = array_diff(array_keys($batch), ['enabled', 'always_on_write']);
                     if ($unknownBatch) {
                         throw new \RuntimeException(
-                            "duo: manifest '$name' post_types.$postType.regen_dependency.$batchKey contains unknown key(s): "
+                            "wprism: manifest '$name' post_types.$postType.regen_dependency.$batchKey contains unknown key(s): "
                             . implode(', ', $unknownBatch)
                         );
                     }
                     foreach (['enabled', 'always_on_write'] as $flag) {
                         if (array_key_exists($flag, $batch) && !is_bool($batch[$flag])) {
                             throw new \RuntimeException(
-                                "duo: manifest '$name' post_types.$postType.regen_dependency.$batchKey.$flag must be boolean"
+                                "wprism: manifest '$name' post_types.$postType.regen_dependency.$batchKey.$flag must be boolean"
                             );
                         }
                     }
@@ -176,7 +176,7 @@ final class PostTypeGrammar {
             }
             if (array_key_exists('always_on_write', $regen) && !is_bool($regen['always_on_write'])) {
                 throw new \RuntimeException(
-                    "duo: manifest '$name' post_types.$postType.regen_dependency.always_on_write must be boolean"
+                    "wprism: manifest '$name' post_types.$postType.regen_dependency.always_on_write must be boolean"
                 );
             }
         }
@@ -335,7 +335,7 @@ final class PostTypeGrammar {
                     continue; // recognised; the feature gate answers for it later
                 }
                 throw new \RuntimeException(
-                    "duo: manifest '$name' declares post_types.$postType.$key="
+                    "wprism: manifest '$name' declares post_types.$postType.$key="
                     . var_export($decl[$key], true) . ' but the vocabulary is closed ('
                     . implode(', ', $legal) . ') — it is engine-owned, because each value names engine '
                     . 'behavior the engine implements; a new one is an engine change with a spec bump, not a '

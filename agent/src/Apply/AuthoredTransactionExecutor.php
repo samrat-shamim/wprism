@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/ApplyPlanner.php';
 require_once __DIR__ . '/AuthoredTransactionRequest.php';
@@ -104,7 +104,7 @@ final class AuthoredTransactionExecutor {
         $requiresScopedParticipant = $scoped && $performTransaction;
         if (($commitScopedAuthoring !== null) !== $requiresScopedParticipant
             || ($rollbackScopedAuthoring !== null) !== $requiresScopedParticipant) {
-            throw new \RuntimeException('duo: authored transaction received an invalid scoped commit participant');
+            throw new \RuntimeException('wprism: authored transaction received an invalid scoped commit participant');
         }
         $attachmentIds = $this->attachmentMaterializer->pending_attachment_ids();
         $regenContext = [];
@@ -255,7 +255,7 @@ final class AuthoredTransactionExecutor {
                 } elseif ($entity['type'] === SidebarState::ENTITY_TYPE) {
                     $sidebar = SidebarState::sidebar_from_path((string) $entity['path']);
                     if ($sidebar === null) {
-                        throw new \RuntimeException("duo: invalid compiled sidebar path {$entity['path']}");
+                        throw new \RuntimeException("wprism: invalid compiled sidebar path {$entity['path']}");
                     }
                     SidebarState::finalize_sidebar(
                         $this->policy,
@@ -311,7 +311,7 @@ final class AuthoredTransactionExecutor {
             $violations = Canary::violations();
             if ($violations) {
                 throw new \RuntimeException(
-                    "duo: side-effect canary tripped:\n  - " . implode("\n  - ", $violations)
+                    "wprism: side-effect canary tripped:\n  - " . implode("\n  - ", $violations)
                 );
             }
             DeleteGuardEvaluator::assert_transaction_isolation(
@@ -321,7 +321,7 @@ final class AuthoredTransactionExecutor {
                 // This participant updates the scoped session row through the
                 // same wpdb connection and transaction as authored state. Its
                 // one CAS therefore cannot certify a map generation that the
-                // authored COMMIT later rolls back (DUO-3618).
+                // authored COMMIT later rolls back (issue #3618).
                 $scopedCommitParticipantStarted = true;
                 $commitScopedAuthoring();
             }
@@ -347,7 +347,7 @@ final class AuthoredTransactionExecutor {
                 }
                 $firstPostCommitFailure = array_values($postCommitFailures)[0];
                 throw new \RuntimeException(
-                    'duo: authored transaction committed but a post-commit participant failed; '
+                    'wprism: authored transaction committed but a post-commit participant failed; '
                     . 'recovery_required (' . implode('; ', $fingerprints) . ')',
                     0,
                     $firstPostCommitFailure
@@ -364,7 +364,7 @@ final class AuthoredTransactionExecutor {
                 } catch (\Throwable $preparationFailure) {
                     Canary::disarm();
                     throw new \RuntimeException(
-                        'duo: attachment preparation cleanup failed before the authored transaction; recovery_required; '
+                        'wprism: attachment preparation cleanup failed before the authored transaction; recovery_required; '
                         . 'original=' . self::failure_fingerprint($failure)
                         . '; attachment=' . self::failure_fingerprint($preparationFailure),
                         0,
@@ -400,7 +400,7 @@ final class AuthoredTransactionExecutor {
                         $recovery[] = 'cache-purge=' . self::failure_fingerprint($cacheFailure);
                     }
                     throw new \RuntimeException(
-                        'duo: authored transaction ended or changed connection before recovery; '
+                        'wprism: authored transaction ended or changed connection before recovery; '
                         . 'rollback participants were not run through autocommit; recovery_required; '
                         . implode('; ', $recovery),
                         0,
@@ -470,7 +470,7 @@ final class AuthoredTransactionExecutor {
                         }
                     }
                     throw new \RuntimeException(
-                        'duo: authored transaction recovery failed; recovery_required; '
+                        'wprism: authored transaction recovery failed; recovery_required; '
                         . 'original=' . self::failure_fingerprint($failure)
                         . '; ' . implode('; ', $recovery),
                         0,
@@ -498,7 +498,7 @@ final class AuthoredTransactionExecutor {
     /**
      * Exact table roster the authored transaction can read-lock or mutate.
      * This intentionally includes users (the owner row for authored usermeta)
-     * and declared invalidation tables: proving only duo_kv/duo_map would let
+     * and declared invalidation tables: proving only wprism_kv/wprism_map would let
      * an ALTER ENGINE race one of the earlier core/plugin mutations while the
      * later atomic scoped receipt still committed successfully.
      *
@@ -516,9 +516,9 @@ final class AuthoredTransactionExecutor {
             $wpdb->options,
             $wpdb->users,
             $wpdb->usermeta,
-            $wpdb->prefix . 'duo_map',
-            $wpdb->prefix . 'duo_state',
-            $wpdb->prefix . 'duo_kv',
+            $wpdb->prefix . 'wprism_map',
+            $wpdb->prefix . 'wprism_state',
+            $wpdb->prefix . 'wprism_kv',
         ];
         foreach ($this->snapshotRowTables as $name => $declaration) {
             $tables[] = $wpdb->prefix . (string) $name;
@@ -571,14 +571,14 @@ final class AuthoredTransactionExecutor {
                     ? ($entity['data']['taxonomy'] ?? null)
                     : null;
                 if (!is_string($taxonomy)) {
-                    throw new \RuntimeException('duo: authored apply term tree lacks an exact taxonomy cache identity');
+                    throw new \RuntimeException('wprism: authored apply term tree lacks an exact taxonomy cache identity');
                 }
                 $names[$taxonomy] = true;
             }
         }
         foreach ($deleteWork as $row) {
             if (!is_array($row)) {
-                throw new \RuntimeException('duo: authored apply deletion roster is malformed');
+                throw new \RuntimeException('wprism: authored apply deletion roster is malformed');
             }
             $type = $row['type'] ?? null;
             if ($type === 'menu') {
@@ -586,7 +586,7 @@ final class AuthoredTransactionExecutor {
             } elseif ($type === 'term') {
                 $taxonomy = $row['deletion_type'] ?? null;
                 if (!is_string($taxonomy)) {
-                    throw new \RuntimeException('duo: authored apply term deletion lacks an exact taxonomy cache identity');
+                    throw new \RuntimeException('wprism: authored apply term deletion lacks an exact taxonomy cache identity');
                 }
                 $names[$taxonomy] = true;
             }
@@ -595,13 +595,13 @@ final class AuthoredTransactionExecutor {
         $roster = [];
         foreach (array_keys($names) as $taxonomy) {
             if (!is_string($taxonomy) || preg_match('/^[A-Za-z0-9_-]{1,32}$/D', $taxonomy) !== 1) {
-                throw new \RuntimeException('duo: authored apply resolved a malformed taxonomy cache roster');
+                throw new \RuntimeException('wprism: authored apply resolved a malformed taxonomy cache roster');
             }
             $runtime = get_taxonomy($taxonomy);
             if ($runtime !== false) {
                 if (!is_object($runtime) || !is_bool($runtime->hierarchical ?? null)) {
                     throw new \RuntimeException(
-                        "duo: authored apply taxonomy '$taxonomy' has malformed native hierarchy registration"
+                        "wprism: authored apply taxonomy '$taxonomy' has malformed native hierarchy registration"
                     );
                 }
                 $roster[$taxonomy] = $runtime->hierarchical;
@@ -610,7 +610,7 @@ final class AuthoredTransactionExecutor {
             $declared = $this->policy->declared_taxonomy_hierarchical($taxonomy);
             if (!is_bool($declared)) {
                 throw new \RuntimeException(
-                    "duo: authored apply taxonomy '$taxonomy' is unregistered and lacks a reviewed hierarchical declaration"
+                    "wprism: authored apply taxonomy '$taxonomy' is unregistered and lacks a reviewed hierarchical declaration"
                 );
             }
             $roster[$taxonomy] = $declared;

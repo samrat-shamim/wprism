@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# DUO-3324 live product-path regression.
+# issue #3324 live product-path regression.
 #
-# This exercises only `duo env materialize` and `duo env reap` for lifecycle
+# This exercises only `wprism env materialize` and `wprism env reap` for lifecycle
 # transitions.  A machine-local fixture provider owns the physical pair
 # resources: source snapshot prepare/create/read/abort, target restore and
 # repository materialization, URL/TTL receipts, exclusive mutation fences,
@@ -13,21 +13,21 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$ROOT"
 
-PAIR=codexmacb3324
+PAIR=environment-materializer
 PORT1=9100
 PORT2=9101
-SOURCE_CONTAINER="duo-${PAIR}-wp1-1"
-TARGET_CONTAINER="duo-${PAIR}-wp2-1"
-DB_CONTAINER=duo-shared-db
+SOURCE_CONTAINER="wprism-${PAIR}-wp1-1"
+TARGET_CONTAINER="wprism-${PAIR}-wp2-1"
+DB_CONTAINER=wprism-shared-db
 SITE1="$ROOT/sandbox/siterepo/${PAIR}1"
 SITE2="$ROOT/sandbox/siterepo/${PAIR}2"
-DUO="$ROOT/cli/duo"
-PROVIDER="$ROOT/sandbox/tests/fixtures/duo3324-live-provider.php"
-DRIVER_COMPOSE="$ROOT/sandbox/tests/fixtures/duo3324-live-driver.yml"
-DRIVER_DOCKERFILE="$ROOT/sandbox/tests/fixtures/duo3324-live-cli.Dockerfile"
+WPRISM="$ROOT/cli/wprism"
+PROVIDER="$ROOT/sandbox/tests/fixtures/environment-materializer-live-provider.php"
+DRIVER_COMPOSE="$ROOT/sandbox/tests/fixtures/environment-materializer-live-driver.yml"
+DRIVER_DOCKERFILE="$ROOT/sandbox/tests/fixtures/environment-materializer-live-cli.Dockerfile"
 PHP_BIN="$(command -v php)"
-IMAGE="duo3324-live-${PAIR}:fixture"
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo3324-live.XXXXXX")"
+IMAGE="environment-materializer-live-${PAIR}:fixture"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/environment-materializer-live.XXXXXX")"
 ENVS="$TMP/envs.json"
 PROVIDER_CONFIG="$TMP/provider.json"
 CONTROLLER="$TMP/controller"
@@ -44,7 +44,7 @@ target_wp() { docker compose -f "$DRIVER_COMPOSE" run --rm -T target wp "$@"; }
 
 # `pair.sh list` deliberately reports bare pair names (`  - foo`), not
 # Docker project names.  Keep this parser strict so a leaked/other-owner pair
-# can never be mistaken for absent merely because its project is `duo-foo`.
+# can never be mistaken for absent merely because its project is `wprism-foo`.
 pair_list_has_exact() { # pair_list_has_exact <bare-pair-name>; reads list on stdin
   local pair=$1
   grep -Eq "^[[:space:]]*-[[:space:]]*${pair}[[:space:]]*$"
@@ -52,8 +52,8 @@ pair_list_has_exact() { # pair_list_has_exact <bare-pair-name>; reads list on st
 
 assert_pair_list_parser() {
   local sample near
-  sample=$'== live sandbox pairs ==\n  - codexmacb3324\n== stopped pairs ==\n  - r3b'
-  near=$'  - duo-codexmacb3324\n  - codexmacb33240'
+  sample=$'== live sandbox pairs ==\n  - environment-materializer\n== stopped pairs ==\n  - r3b'
+  near=$'  - wprism-environment-materializer\n  - environment-materializer-zero'
   pair_list_has_exact "$PAIR" <<<"$sample" || fail "pair-list parser missed its exact live/stopped entry"
   if pair_list_has_exact "$PAIR" <<<"$near"; then
     fail "pair-list parser accepts a Docker project prefix or pair-name prefix"
@@ -118,7 +118,7 @@ trap 'exit 130' INT TERM
 
 # Zero-allocation parser regression for the safety boundary above.  It is kept
 # opt-in so normal live runs exercise the same self-check in their preflight.
-if [ "${DUO3324_SELF_TEST_PAIR_PARSER:-0}" = 1 ]; then
+if [ "${WPRISM_ENVIRONMENT_MATERIALIZER_SELF_TEST_PAIR_PARSER:-0}" = 1 ]; then
   assert_pair_list_parser
   pass "exact bare pair-list parser rejects project/prefix lookalikes"
   exit 0
@@ -137,11 +137,11 @@ extract_final_json() { # extract_final_json <mixed-output-file> <receipt-file>
   ' "$1" "$2" || fail "could not extract final JSON receipt from $1"
 }
 
-run_duo_json() { # run_duo_json <label> <receipt-file> <duo args...>
+run_wprism_json() { # run_wprism_json <label> <receipt-file> <wprism args...>
   local label=$1 receipt=$2
   shift 2
   local output="$TMP/${label}.out"
-  if ! (cd "$CONTROLLER" && "$DUO" --envs-file="$ENVS" "$@") >"$output" 2>&1; then
+  if ! (cd "$CONTROLLER" && "$WPRISM" --envs-file="$ENVS" "$@") >"$output" 2>&1; then
     cat "$output" >&2
     if [ -f "$STATE/provider-errors.log" ]; then
       printf '%s\n' 'fixture provider diagnostic (never product output):' >&2
@@ -230,7 +230,7 @@ assert_promotion_release_evidence() { # <materialize-receipt>
     }
     $promotion=$events["promotion-applied"] ?? null;
     if (!is_array($promotion)
-      || ($promotion["format"] ?? null) !== "duo-branch-environment-promotion-receipt/v1"
+      || ($promotion["format"] ?? null) !== "wprism-branch-environment-promotion-receipt/v1"
       || ($promotion["status"] ?? null) !== "completed"
       || !is_string($promotion["owner"] ?? null) || $promotion["owner"] === ""
       || ($promotion["operation_id"] ?? null) !== $op
@@ -271,7 +271,7 @@ assert_preparing_snapshot_abort() {
       "expected_source_lease_generation"=>1,"expected_source_lease_id"=>$argv[4],
       "expected_source_lease_receipt_sha256"=>$argv[5]
     ];
-    echo json_encode(["action"=>"snapshot-abort","environment"=>"production","format"=>"duo-branch-environment-provider-request/v1","input"=>$input,"operation_id"=>$argv[1]],JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR),"\n";
+    echo json_encode(["action"=>"snapshot-abort","environment"=>"production","format"=>"wprism-branch-environment-provider-request/v1","input"=>$input,"operation_id"=>$argv[1]],JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR),"\n";
   ' "$operation" "$session" "source-environment-${PAIR}" "$lease_id" "$lease_receipt" >"$request"
   "$PHP_BIN" "$PROVIDER" "$PROVIDER_CONFIG" <"$request" >"$response" \
     || fail "provider did not abort the exact preparing source session"
@@ -293,11 +293,11 @@ php -l "$PROVIDER" >/dev/null || fail "provider PHP syntax failed"
 bash -n "$0" || fail "live harness shell syntax failed"
 bash -n "$ROOT/sandbox/bin/pair.sh" || fail "pair lifecycle shell syntax failed"
 git diff --check || fail "working tree has whitespace errors"
-! grep -Fq 'DUO_''MANIFESTS_DIR' "$DRIVER_COMPOSE" \
+! grep -Fq 'WPRISM_''MANIFESTS_DIR' "$DRIVER_COMPOSE" \
   || fail "fixture driver reintroduced process-global adapter-library selection"
-grep -Fq '${DUO3324_ADAPTER_PACKAGES_SRC}:/var/www/html/wp-content/mu-plugins/adapter-packages:ro' "$DRIVER_COMPOSE" \
+grep -Fq '${WPRISM_ENVIRONMENT_MATERIALIZER_ADAPTER_PACKAGES_SRC}:/var/www/html/wp-content/mu-plugins/adapter-packages:ro' "$DRIVER_COMPOSE" \
   || fail "fixture driver does not mount packaged adapters beside the agent"
-grep -Fq '${DUO3324_PLATFORM_SRC}:/var/www/html/wp-content/mu-plugins/platform:ro' "$DRIVER_COMPOSE" \
+grep -Fq '${WPRISM_ENVIRONMENT_MATERIALIZER_PLATFORM_SRC}:/var/www/html/wp-content/mu-plugins/platform:ro' "$DRIVER_COMPOSE" \
   || fail "fixture driver does not mount the platform contract beside the agent"
 assert_pair_list_parser
 if docker image inspect "$IMAGE" >/dev/null 2>&1; then
@@ -323,20 +323,20 @@ pass "pair is ready and owns independent wp_${PAIR}1/wp_${PAIR}2 databases"
 say "build the Git-capable ephemeral DockerTransport image"
 IMAGE_OWNED=1
 docker build -q -t "$IMAGE" -f "$DRIVER_DOCKERFILE" "$ROOT" >/dev/null
-export DUO3324_DRIVER_IMAGE="$IMAGE"
-export DUO3324_PAIR="$PAIR"
-export DUO3324_AGENT_SRC="$ROOT/agent"
-export DUO3324_ADAPTER_PACKAGES_SRC="$ROOT/adapter-packages"
-export DUO3324_PLATFORM_SRC="$ROOT/platform"
-export DUO3324_SITE1="$SITE1"
-export DUO3324_SITE2="$SITE2"
+export WPRISM_ENVIRONMENT_MATERIALIZER_DRIVER_IMAGE="$IMAGE"
+export WPRISM_ENVIRONMENT_MATERIALIZER_PAIR="$PAIR"
+export WPRISM_ENVIRONMENT_MATERIALIZER_AGENT_SRC="$ROOT/agent"
+export WPRISM_ENVIRONMENT_MATERIALIZER_ADAPTER_PACKAGES_SRC="$ROOT/adapter-packages"
+export WPRISM_ENVIRONMENT_MATERIALIZER_PLATFORM_SRC="$ROOT/platform"
+export WPRISM_ENVIRONMENT_MATERIALIZER_SITE1="$SITE1"
+export WPRISM_ENVIRONMENT_MATERIALIZER_SITE2="$SITE2"
 docker compose -f "$DRIVER_COMPOSE" config >/dev/null || fail "fixture driver compose configuration is invalid"
 source_wp core is-installed >/dev/null || fail "source custom DockerTransport is not reachable"
 target_wp core is-installed >/dev/null || fail "target custom DockerTransport is not reachable"
 pass "public Docker drivers use current worktree agent code and independent pair volumes"
 
 say "seed independent source repository, authored state, media, and runtime code sentinel"
-cat >"$SITE1/site.duo.json" <<'EOF'
+cat >"$SITE1/site.wprism.json" <<'EOF'
 {
   "manifests": ["core"],
   "policy": {
@@ -350,8 +350,8 @@ cat >"$SITE1/site.duo.json" <<'EOF'
 EOF
 cp "$ROOT/sandbox/site-repo.gitignore.template" "$SITE1/.gitignore"
 git -C "$SITE1" init -q -b production
-git -C "$SITE1" config user.name 'DUO-3324 live fixture'
-git -C "$SITE1" config user.email 'duo3324@example.invalid'
+git -C "$SITE1" config user.name 'issue #3324 live fixture'
+git -C "$SITE1" config user.email 'environment-materializer@example.invalid'
 # Pair bootstrap creates WordPress's mutable sample post/pages independently
 # on each side.  Remove only that source fixture residue before capture so
 # the test asserts its own authored record rather than timestamp-dependent
@@ -362,18 +362,18 @@ if [ -n "$SOURCE_BOOTSTRAP_POSTS" ]; then
   source_wp post delete $SOURCE_BOOTSTRAP_POSTS --force >/dev/null
 fi
 source_wp option delete wp_page_for_privacy_policy >/dev/null 2>&1 || true
-SOURCE_POST_ID="$(source_wp post create --post_title='DUO-3324 coherent source' --post_content='immutable source truth' --post_status=publish --porcelain)"
-docker exec "$SOURCE_CONTAINER" sh -c 'mkdir -p /var/www/html/wp-content/uploads/duo3324 && printf source-media-duo3324 > /var/www/html/wp-content/uploads/duo3324/source-media.txt && printf source-only-code-duo3324 > /var/www/html/wp-content/plugins/duo3324-source-only.php'
-source_wp duo capture --repo=/siterepo --format=json >/dev/null
+SOURCE_POST_ID="$(source_wp post create --post_title='issue #3324 coherent source' --post_content='immutable source truth' --post_status=publish --porcelain)"
+docker exec "$SOURCE_CONTAINER" sh -c 'mkdir -p /var/www/html/wp-content/uploads/environment-materializer && printf source-media-environment-materializer > /var/www/html/wp-content/uploads/environment-materializer/source-media.txt && printf source-only-code-environment-materializer > /var/www/html/wp-content/plugins/environment-materializer-source-only.php'
+source_wp wprism capture --repo=/siterepo --format=json >/dev/null
 git -C "$SITE1" add -A
 git -C "$SITE1" commit -qm 'production source captured'
 SOURCE_HEAD="$(git -C "$SITE1" rev-parse HEAD)"
 SOURCE_DB_BEFORE="$(source_dump_hash before)"
-SOURCE_MEDIA_BEFORE="$(docker exec "$SOURCE_CONTAINER" sha256sum /var/www/html/wp-content/uploads/duo3324/source-media.txt | awk '{print $1}')"
+SOURCE_MEDIA_BEFORE="$(docker exec "$SOURCE_CONTAINER" sha256sum /var/www/html/wp-content/uploads/environment-materializer/source-media.txt | awk '{print $1}')"
 git clone -q --no-hardlinks "$SITE1" "$CONTROLLER"
 git -C "$CONTROLLER" switch -q -c feature
 git -C "$CONTROLLER" remote remove origin
-JOURNAL="$(git -C "$CONTROLLER" rev-parse --path-format=absolute --git-common-dir)/duo-environments"
+JOURNAL="$(git -C "$CONTROLLER" rev-parse --path-format=absolute --git-common-dir)/wprism-environments"
 pass "source and controller repositories have exact independent Git storage at $SOURCE_HEAD"
 
 mkdir -p "$STATE"
@@ -454,26 +454,26 @@ assert_preparing_snapshot_abort
 
 say "materialize attached target exclusively through the public CLI"
 ATTACH_RECEIPT="$TMP/attach.json"
-run_duo_json attach "$ATTACH_RECEIPT" env materialize branchattach --from production --branch feature --format=json
-assert_receipt "$ATTACH_RECEIPT" duo-branch-environment-receipt/v1 attach
+run_wprism_json attach "$ATTACH_RECEIPT" env materialize branchattach --from production --branch feature --format=json
+assert_receipt "$ATTACH_RECEIPT" wprism-branch-environment-receipt/v1 attach
 assert_snapshot_evidence "$ATTACH_RECEIPT"
 assert_promotion_release_evidence "$ATTACH_RECEIPT"
-[ "$(target_wp post get "$SOURCE_POST_ID" --field=post_title)" = 'DUO-3324 coherent source' ] \
+[ "$(target_wp post get "$SOURCE_POST_ID" --field=post_title)" = 'issue #3324 coherent source' ] \
   || fail "target did not converge to the source semantic state"
-[ "$(docker exec "$TARGET_CONTAINER" sha256sum /var/www/html/wp-content/uploads/duo3324/source-media.txt | awk '{print $1}')" = "$SOURCE_MEDIA_BEFORE" ] \
+[ "$(docker exec "$TARGET_CONTAINER" sha256sum /var/www/html/wp-content/uploads/environment-materializer/source-media.txt | awk '{print $1}')" = "$SOURCE_MEDIA_BEFORE" ] \
   || fail "target did not receive the exact provider-owned media snapshot"
 [ "$(source_dump_hash after)" = "$SOURCE_DB_BEFORE" ] \
   || fail "source database changed during materialization"
-[ "$(docker exec "$SOURCE_CONTAINER" sha256sum /var/www/html/wp-content/uploads/duo3324/source-media.txt | awk '{print $1}')" = "$SOURCE_MEDIA_BEFORE" ] \
+[ "$(docker exec "$SOURCE_CONTAINER" sha256sum /var/www/html/wp-content/uploads/environment-materializer/source-media.txt | awk '{print $1}')" = "$SOURCE_MEDIA_BEFORE" ] \
   || fail "source media changed during materialization"
-target_wp eval 'exit(file_exists(ABSPATH . "wp-content/plugins/duo3324-source-only.php") ? 1 : 0);' \
+target_wp eval 'exit(file_exists(ABSPATH . "wp-content/plugins/environment-materializer-source-only.php") ? 1 : 0);' \
   || fail "target runtime received a source checkout code bind"
 TARGET_SITEREPO_MOUNT="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/siterepo"}}{{.Source}}{{end}}{{end}}' "$TARGET_CONTAINER")"
 [ "$TARGET_SITEREPO_MOUNT" = "$SITE2" ] && ! grep -Fq "$SITE1" <<<"$TARGET_SITEREPO_MOUNT" \
   || fail "target runtime /siterepo mount is not its independent target storage"
-if ! (cd "$CONTROLLER" && "$DUO" --envs-file="$ENVS" status branchattach) >"$TMP/status.out" 2>&1; then
+if ! (cd "$CONTROLLER" && "$WPRISM" --envs-file="$ENVS" status branchattach) >"$TMP/status.out" 2>&1; then
   cat "$TMP/status.out" >&2
-  fail "materialized target is not converged under public duo status"
+  fail "materialized target is not converged under public wprism status"
 fi
 curl -fsSL --max-time 20 -o "$TMP/target.html" "http://127.0.0.1:${PORT2}/" || fail "target HTTP endpoint did not serve after URL restore"
 [ -s "$TMP/target.html" ] || fail "target HTTP endpoint returned no body"
@@ -481,25 +481,25 @@ pass "coherent snapshot ids/hashes, target convergence, source immutability, and
 
 say "reap attached target exclusively through the public CLI"
 ATTACH_REAP="$TMP/attach-reap.json"
-run_duo_json attach-reap "$ATTACH_REAP" env reap branchattach --format=json
-assert_receipt "$ATTACH_REAP" duo-branch-environment-reap/v1 detached
+run_wprism_json attach-reap "$ATTACH_REAP" env reap branchattach --format=json
+assert_receipt "$ATTACH_REAP" wprism-branch-environment-reap/v1 detached
 grep -Fxq detach <<<"$(provider_actions)" || fail "attached target was not detached by the provider"
 if grep -Fxq destroy <<<"$(provider_actions)"; then fail "attached target was incorrectly destroyed"; fi
 [ "$(source_dump_hash after-attach-reap)" = "$SOURCE_DB_BEFORE" ] \
   || fail "source database changed during attached target reap"
-[ "$(docker exec "$SOURCE_CONTAINER" sha256sum /var/www/html/wp-content/uploads/duo3324/source-media.txt | awk '{print $1}')" = "$SOURCE_MEDIA_BEFORE" ] \
+[ "$(docker exec "$SOURCE_CONTAINER" sha256sum /var/www/html/wp-content/uploads/environment-materializer/source-media.txt | awk '{print $1}')" = "$SOURCE_MEDIA_BEFORE" ] \
   || fail "source media changed during attached target reap"
 pass "attach cleanup is an exact detach, never destroy"
 
 say "publish a TTL, prove changed-TTL reap refusal, then restore exact lease and detach"
 TTL_RECEIPT="$TMP/ttl.json"
-run_duo_json ttl "$TTL_RECEIPT" env materialize branchattach --from production --branch feature --ttl 600 --format=json
-assert_receipt "$TTL_RECEIPT" duo-branch-environment-receipt/v1 attach
+run_wprism_json ttl "$TTL_RECEIPT" env materialize branchattach --from production --branch feature --ttl 600 --format=json
+assert_receipt "$TTL_RECEIPT" wprism-branch-environment-receipt/v1 attach
 assert_snapshot_evidence "$TTL_RECEIPT"
 assert_promotion_release_evidence "$TTL_RECEIPT"
 TTL_ACTIONS_BEFORE="$(provider_actions | wc -l | tr -d ' ')"
 "$PHP_BIN" "$PROVIDER" --mutate-ttl "$PROVIDER_CONFIG" branchattach
-if TTL_REFUSAL="$(cd "$CONTROLLER" && "$DUO" --envs-file="$ENVS" env reap branchattach --format=json 2>&1)"; then
+if TTL_REFUSAL="$(cd "$CONTROLLER" && "$WPRISM" --envs-file="$ENVS" env reap branchattach --format=json 2>&1)"; then
   fail "reap accepted a changed TTL lease"
 fi
 TTL_ACTIONS_AFTER="$(provider_actions | sed -n "$((TTL_ACTIONS_BEFORE + 1)),\$p")"
@@ -510,20 +510,20 @@ if grep -Exq 'detach|destroy' <<<"$TTL_ACTIONS_AFTER"; then
 fi
 "$PHP_BIN" "$PROVIDER" --restore-ttl "$PROVIDER_CONFIG" branchattach
 TTL_REAP="$TMP/ttl-reap.json"
-run_duo_json ttl-reap "$TTL_REAP" env reap branchattach --format=json
-assert_receipt "$TTL_REAP" duo-branch-environment-reap/v1 detached
+run_wprism_json ttl-reap "$TTL_REAP" env reap branchattach --format=json
+assert_receipt "$TTL_REAP" wprism-branch-environment-reap/v1 detached
 pass "TTL generation change refuses before cleanup; restored exact receipt permits detach"
 
 say "materialize an explicit created target and prove exact destroy cleanup"
 CREATE_RECEIPT="$TMP/create.json"
-run_duo_json create "$CREATE_RECEIPT" env materialize branchcreate --from production --branch feature --create --format=json
-assert_receipt "$CREATE_RECEIPT" duo-branch-environment-receipt/v1 create
+run_wprism_json create "$CREATE_RECEIPT" env materialize branchcreate --from production --branch feature --create --format=json
+assert_receipt "$CREATE_RECEIPT" wprism-branch-environment-receipt/v1 create
 assert_snapshot_evidence "$CREATE_RECEIPT"
 assert_promotion_release_evidence "$CREATE_RECEIPT"
 grep -Fxq create <<<"$(provider_actions)" || fail "explicit create never reached provider create"
 CREATE_REAP="$TMP/create-reap.json"
-run_duo_json create-reap "$CREATE_REAP" env reap branchcreate --format=json
-assert_receipt "$CREATE_REAP" duo-branch-environment-reap/v1 destroyed
+run_wprism_json create-reap "$CREATE_REAP" env reap branchcreate --format=json
+assert_receipt "$CREATE_REAP" wprism-branch-environment-reap/v1 destroyed
 grep -Fxq destroy <<<"$(provider_actions)" || fail "created target was not destroyed by the provider"
 if docker exec "$DB_CONTAINER" mariadb -N -uroot -proot "wp_${PAIR}2" -e 'SHOW TABLES' | grep -q .; then
   fail "provider destroy left target database tables behind"
@@ -543,4 +543,4 @@ if pair_list_has_exact "$PAIR" <<<"$FINAL_LIST"; then
 fi
 pass "all pair containers, volumes, databases, site repositories, fixture state, and image are cleanup-owned"
 
-printf '\nPASS: DUO-3324 live public CLI environment materialization regression\n'
+printf '\nPASS: issue #3324 live public CLI environment materialization regression\n'

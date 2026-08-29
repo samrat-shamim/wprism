@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /** Normalization rules for durable/current derived-state context receipts. */
 final class RegenerationContext {

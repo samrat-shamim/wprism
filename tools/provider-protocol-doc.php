@@ -15,17 +15,17 @@ declare(strict_types=1);
  * ---------------------
  * Same posture as tools/capability-doc.php (:11-12): a hand-written protocol
  * document is a second implementation of the boundary, and the one that is
- * never executed is the one that rots. `duo env materialize` refuses on a
+ * never executed is the one that rots. `wprism env materialize` refuses on a
  * frozen production source, so a stale sentence here is not a documentation
  * bug — it is an operator learning the real contract mid-freeze.
  *
  * THE SINGLE SOURCE IS THREE CLASSES IN ONE SHIPPED FILE
  * -----------------------------------------------------
- *   Duo\Orchestrator\EnvironmentProviderProtocol   the closed actions, their
+ *   WPrism\Orchestrator\EnvironmentProviderProtocol   the closed actions, their
  *       gating capability, their request input and their closed result key
  *       sets with per-field types
- *   Duo\Orchestrator\EnvironmentProviderCapability the 19 capability ids
- *   Duo\Orchestrator\CommandEnvironmentProvider    the two wire format ids
+ *   WPrism\Orchestrator\EnvironmentProviderCapability the 19 capability ids
+ *   WPrism\Orchestrator\CommandEnvironmentProvider    the two wire format ids
  *
  * Nothing below invents a field name, a type, a capability id or a bound: each
  * is projected. The ONE thing this file states in its own bytes is the
@@ -39,9 +39,9 @@ declare(strict_types=1);
 $repo = dirname(__DIR__);
 require_once $repo . '/cli/src/Environment/EnvironmentLifecycle.php';
 
-use Duo\Orchestrator\CommandEnvironmentProvider;
-use Duo\Orchestrator\EnvironmentProviderCapability;
-use Duo\Orchestrator\EnvironmentProviderProtocol;
+use WPrism\Orchestrator\CommandEnvironmentProvider;
+use WPrism\Orchestrator\EnvironmentProviderCapability;
+use WPrism\Orchestrator\EnvironmentProviderProtocol;
 
 function provider_doc_fail(string $message): never {
     fwrite(STDERR, "provider-protocol-doc: $message\n");
@@ -58,8 +58,8 @@ function provider_doc_refusals(): array {
     return [
         ["env '<env>': branch materialization requires machine-local environment_provider configuration",
             'the environment has no `environment_provider` object at all'],
-        ["env '<env>': environment_provider is privileged host configuration and is allowed only in .duo-envs.json",
-            'the block was found in the shared, committed `site.duo.json`'],
+        ["env '<env>': environment_provider is privileged host configuration and is allowed only in .wprism-envs.json",
+            'the block was found in the shared, committed `site.wprism.json`'],
         ["env '<env>': environment_provider has missing or unknown fields",
             'the block is not exactly `{command, timeout_seconds}`'],
         ["env '<env>': environment_provider.command must be a non-empty argv array",
@@ -177,17 +177,17 @@ function provider_doc_build(string $repo): string {
     $out .= "and `CommandEnvironmentProvider`; `make release-gate` byte-compares it. Edit the code,\n";
     $out .= "then run `php tools/provider-protocol-doc.php generate`.\n\n";
 
-    $out .= "Duo orchestrates providers; it does not supply hosting. A **branch-environment\n";
-    $out .= "provider** is a program on the machine that runs `duo`, which can snapshot a source\n";
+    $out .= "WPrism orchestrates providers; it does not supply hosting. A **branch-environment\n";
+    $out .= "provider** is a program on the machine that runs `wprism`, which can snapshot a source\n";
     $out .= "environment, acquire a disposable target, materialize a repository into it, and reap\n";
-    $out .= "it again. `duo env materialize`, `duo env reap` and `duo rehearse` refuse without one.\n";
+    $out .= "it again. `wprism env materialize`, `wprism env reap` and `wprism rehearse` refuse without one.\n";
     $out .= "This document is the whole contract; `tools/reference-env-provider.php` is a worked\n";
     $out .= "example of it, not a second specification.\n\n";
 
-    $out .= "Before pointing `duo env materialize` at production, run the harness:\n\n";
+    $out .= "Before pointing `wprism env materialize` at production, run the harness:\n\n";
     $out .= "```\n";
-    $out .= "duo env provider-check <env>                      # non-mutating: config, capabilities, one inspect\n";
-    $out .= "duo env provider-check <env> --cycle --from <disposable-src> --confirm-disposable\n";
+    $out .= "wprism env provider-check <env>                      # non-mutating: config, capabilities, one inspect\n";
+    $out .= "wprism env provider-check <env> --cycle --from <disposable-src> --confirm-disposable\n";
     $out .= "```\n\n";
     $out .= "The harness drives your provider through the same `CommandEnvironmentProvider` the\n";
     $out .= "orchestrator uses, so it cannot send a request the product would not send.\n";
@@ -196,8 +196,8 @@ function provider_doc_build(string $repo): string {
 
     $out .= "## 1. Where a provider is configured\n\n";
     $out .= "The `environment_provider` block is privileged host configuration. It is accepted\n";
-    $out .= "**only** from the machine-local `.duo-envs.json`, never from the shared, committed\n";
-    $out .= "`site.duo.json`:\n\n";
+    $out .= "**only** from the machine-local `.wprism-envs.json`, never from the shared, committed\n";
+    $out .= "`site.wprism.json`:\n\n";
     $out .= "```json\n";
     $out .= "{\n";
     $out .= "  \"envs\": {\n";
@@ -312,7 +312,7 @@ function provider_doc_build(string $repo): string {
         $out .= '| `' . str_replace('|', '\\|', $refusal) . "` | $cause |\n";
     }
     $out .= "\n## 7. The worked example\n\n";
-    $out .= '`tools/reference-env-provider.php` implements all ' . count($actions) . " actions against Duo's own\n";
+    $out .= '`tools/reference-env-provider.php` implements all ' . count($actions) . " actions against WPrism's own\n";
     $out .= "sandbox pair (`sandbox/bin/pair.sh` over the shared MariaDB). It is **DEV-ONLY** —\n";
     $out .= "`tools/` never ships, and `cli/src/Onboarding/Adopt.php` tars only `agent`,\n";
     $out .= "`manifests` and `recovery` — so read it as a demonstration of this document, not as\n";

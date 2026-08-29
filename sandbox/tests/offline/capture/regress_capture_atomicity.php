@@ -163,7 +163,7 @@ final class CaptureAtomicityFakeWpdb {
         }
 
         if (preg_match(
-            "/INSERT INTO wp_duo_map .* VALUES \\('([^']*)', '([^']*)', '([^']*)', ([0-9]+)\\)/i",
+            "/INSERT INTO wp_wprism_map .* VALUES \\('([^']*)', '([^']*)', '([^']*)', ([0-9]+)\\)/i",
             $sql,
             $m
         )) {
@@ -174,7 +174,7 @@ final class CaptureAtomicityFakeWpdb {
             return 1;
         }
         if (preg_match(
-            "/INSERT INTO wp_duo_state .* VALUES \\('([^']*)', '([^']*)', '([^']*)'\\)/i",
+            "/INSERT INTO wp_wprism_state .* VALUES \\('([^']*)', '([^']*)', '([^']*)'\\)/i",
             $sql,
             $m
         )) {
@@ -182,7 +182,7 @@ final class CaptureAtomicityFakeWpdb {
             return 1;
         }
         if (preg_match(
-            "/INSERT INTO wp_duo_kv .* VALUES \\('([^']*)', '([^']*)'\\)/i",
+            "/INSERT INTO wp_wprism_kv .* VALUES \\('([^']*)', '([^']*)'\\)/i",
             $sql,
             $m
         )) {
@@ -190,7 +190,7 @@ final class CaptureAtomicityFakeWpdb {
             return 1;
         }
 
-        if (preg_match("/DELETE FROM wp_duo_map WHERE uuid = '([^']*)'/i", $sql, $m)) {
+        if (preg_match("/DELETE FROM wp_wprism_map WHERE uuid = '([^']*)'/i", $sql, $m)) {
             foreach (array_keys($this->map) as $key) {
                 if ($this->map[$key]['uuid'] === $m[1]) {
                     unset($this->map[$key]);
@@ -198,11 +198,11 @@ final class CaptureAtomicityFakeWpdb {
             }
             return 1;
         }
-        if (preg_match("/DELETE FROM wp_duo_state WHERE uuid = '([^']*)'/i", $sql, $m)) {
+        if (preg_match("/DELETE FROM wp_wprism_state WHERE uuid = '([^']*)'/i", $sql, $m)) {
             unset($this->state[$m[1]]);
             return 1;
         }
-        if (preg_match("/DELETE FROM wp_duo_kv WHERE k = '([^']*)'/i", $sql, $m)) {
+        if (preg_match("/DELETE FROM wp_wprism_kv WHERE k = '([^']*)'/i", $sql, $m)) {
             unset($this->kv[$m[1]]);
             return 1;
         }
@@ -213,7 +213,7 @@ final class CaptureAtomicityFakeWpdb {
     public function get_row(string $sql, $output = null): ?array {
         $this->last_error = '';
         if (preg_match(
-            "/SELECT entity_type, local_id FROM wp_duo_map WHERE uuid = '([^']*)' AND id_kind = '([^']*)'/i",
+            "/SELECT entity_type, local_id FROM wp_wprism_map WHERE uuid = '([^']*)' AND id_kind = '([^']*)'/i",
             $sql,
             $m
         )) {
@@ -221,7 +221,7 @@ final class CaptureAtomicityFakeWpdb {
             return $row === null ? null : ['entity_type' => $row['entity_type'], 'local_id' => $row['local_id']];
         }
         if (preg_match(
-            "/SELECT uuid, entity_type FROM wp_duo_map WHERE id_kind = '([^']*)' AND local_id = ([0-9]+)/i",
+            "/SELECT uuid, entity_type FROM wp_wprism_map WHERE id_kind = '([^']*)' AND local_id = ([0-9]+)/i",
             $sql,
             $m
         )) {
@@ -263,10 +263,10 @@ final class CaptureAtomicityFakeWpdb {
             return $released ? 1 : 0;
         }
         if (stripos($sql, 'information_schema.TABLES') !== false
-            && stripos($sql, "TABLE_NAME = 'wp_duo_kv'") !== false) {
-            return $this->kvTableExists ? 'wp_duo_kv' : null;
+            && stripos($sql, "TABLE_NAME = 'wp_wprism_kv'") !== false) {
+            return $this->kvTableExists ? 'wp_wprism_kv' : null;
         }
-        if (preg_match("/SELECT v FROM wp_duo_kv WHERE k = '([^']*)'/i", $sql, $m)) {
+        if (preg_match("/SELECT v FROM wp_wprism_kv WHERE k = '([^']*)'/i", $sql, $m)) {
             return $this->kv[$m[1]] ?? null;
         }
         if (stripos($sql, 'INFORMATION_SCHEMA.COLUMNS') !== false) {
@@ -285,7 +285,7 @@ final class CaptureAtomicityFakeWpdb {
         if (stripos($sql, 'information_schema.COLUMNS') !== false
             && stripos($sql, 'TABLE_NAME, COLUMN_NAME') !== false) {
             $rows = [];
-            foreach (Duo\TableSchema::core_capture_required_columns() as $property => $columns) {
+            foreach (WPrism\TableSchema::core_capture_required_columns() as $property => $columns) {
                 $table = (string) $this->$property;
                 if (!str_contains($sql, "'" . $table . "'")) {
                     continue;
@@ -340,21 +340,21 @@ require_once "$root/agent/src/Delete/Deletion.php";
 require_once "$root/agent/src/Publication/Publish.php";
 require_once "$root/agent/src/Capture/Capture.php";
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 2);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 2);
 }
 
-use Duo\Capture;
-use Duo\CapturePublicationWorkflow;
-use Duo\CaptureTransaction;
-use Duo\CommandRefusalException;
-use Duo\CompiledRepository;
-use Duo\Db;
-use Duo\Deletion;
-use Duo\Ledger;
-use Duo\Policy;
-use Duo\ProcessFence;
-use Duo\Snapshot;
+use WPrism\Capture;
+use WPrism\CapturePublicationWorkflow;
+use WPrism\CaptureTransaction;
+use WPrism\CommandRefusalException;
+use WPrism\CompiledRepository;
+use WPrism\Db;
+use WPrism\Deletion;
+use WPrism\Ledger;
+use WPrism\Policy;
+use WPrism\ProcessFence;
+use WPrism\Snapshot;
 
 $wpdb = new CaptureAtomicityFakeWpdb();
 
@@ -738,15 +738,15 @@ Db::forget_transaction_tracking();
 $publicationKey = new ReflectionMethod(Capture::class, 'publication_marker_key');
 $publicationMarker = new ReflectionMethod(Capture::class, 'publication_marker');
 $publicationStatus = new ReflectionMethod(Capture::class, 'publication_commit_status');
-$protocolRoot = sys_get_temp_dir() . '/duo_capture_atomicity_protocol_' . bin2hex(random_bytes(4));
+$protocolRoot = sys_get_temp_dir() . '/wprism_capture_atomicity_protocol_' . bin2hex(random_bytes(4));
 $protocolState = $protocolRoot . '/state';
 register_shutdown_function(static function () use ($protocolRoot): void {
     if (is_dir($protocolRoot)) {
-        Duo\Publish::rrmdir($protocolRoot);
+        WPrism\Publish::rrmdir($protocolRoot);
     }
 });
-Duo\Canon::write_file($protocolState . '/revision.txt', "old\n");
-Duo\Canon::write_file(Duo\Publish::stage_dir($protocolState) . '/revision.txt', "candidate\n");
+WPrism\Canon::write_file($protocolState . '/revision.txt', "old\n");
+WPrism\Canon::write_file(WPrism\Publish::stage_dir($protocolState) . '/revision.txt', "candidate\n");
 $wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
 $wpdb->kv = ['prior' => 'keep'];
 $phase = [];
@@ -754,11 +754,11 @@ $result = $invokeConsistentSnapshot(
     static function () use (
         $protocolState, $publicationKey, $publicationMarker, &$phase
     ): array {
-        $intent = Duo\Publish::begin_intent($protocolState, Duo\Publish::stage_dir($protocolState));
+        $intent = WPrism\Publish::begin_intent($protocolState, WPrism\Publish::stage_dir($protocolState));
         $phase['filesystem_swapped'] = true;
-        Duo\Publish::swap($protocolState, true);
-        $intent = Duo\Publish::mark_swapped($protocolState, $intent);
-        $intent = Duo\Publish::mark_commit_ready($protocolState, $intent);
+        WPrism\Publish::swap($protocolState, true);
+        $intent = WPrism\Publish::mark_swapped($protocolState, $intent);
+        $intent = WPrism\Publish::mark_commit_ready($protocolState, $intent);
         $key = $publicationKey->invoke(null, $protocolState);
         $marker = $publicationMarker->invoke(null, $protocolState, $intent);
         Ledger::kv_set($key, $marker);
@@ -768,10 +768,10 @@ $result = $invokeConsistentSnapshot(
     },
     $phase
 );
-$diskIntent = Duo\Canon::decode((string) file_get_contents(Duo\Publish::intent_path($protocolState)));
+$diskIntent = WPrism\Canon::decode((string) file_get_contents(WPrism\Publish::intent_path($protocolState)));
 assert_capture_atomicity($wpdb->starts === 1 && $wpdb->commits === 1 && $wpdb->rollbacks === 0, 'filesystem publication and commit marker share one committed snapshot');
 assert_capture_atomicity(($diskIntent['phase'] ?? null) === 'committing', 'durable intent advances immediately before database COMMIT');
-assert_capture_atomicity(is_dir(Duo\Publish::backup_dir($protocolState)), 'previous tree remains retained after COMMIT until receipt cleanup');
+assert_capture_atomicity(is_dir(WPrism\Publish::backup_dir($protocolState)), 'previous tree remains retained after COMMIT until receipt cleanup');
 assert_capture_atomicity($publicationStatus->invoke(null, $protocolState, $diskIntent) === true, 'transaction-bound database marker proves the exact on-disk intent committed');
 $markerKey = $publicationKey->invoke(null, $protocolState);
 assert_capture_atomicity(
@@ -779,11 +779,11 @@ assert_capture_atomicity(
     'destination marker identity is stable across equivalent lexical paths'
 );
 $validMarker = $wpdb->kv[$markerKey];
-$malformedMarker = Duo\Canon::decode($validMarker);
+$malformedMarker = WPrism\Canon::decode($validMarker);
 $malformedMarker['intent_id'] = 'not-an-intent-id';
 unset($malformedMarker['record_sha256']);
-$malformedMarker['record_sha256'] = hash('sha256', Duo\Canon::encode($malformedMarker));
-$wpdb->kv[$markerKey] = Duo\Canon::encode($malformedMarker);
+$malformedMarker['record_sha256'] = hash('sha256', WPrism\Canon::encode($malformedMarker));
+$wpdb->kv[$markerKey] = WPrism\Canon::encode($malformedMarker);
 $malformedMarkerFailure = null;
 try {
     $publicationStatus->invoke(null, $protocolState, $diskIntent);
@@ -796,34 +796,34 @@ assert_capture_atomicity(
     'self-hashed but malformed database commit marker fails closed'
 );
 $wpdb->kv[$markerKey] = $validMarker;
-$recovery = Duo\Publish::recover(
+$recovery = WPrism\Publish::recover(
     $protocolState,
     static fn(array $intent): bool => $publicationStatus->invoke(null, $protocolState, $intent)
 );
 assert_capture_atomicity(file_get_contents($protocolState . '/revision.txt') === "candidate\n", 'marker-backed recovery keeps the committed candidate');
-assert_capture_atomicity(!is_dir(Duo\Publish::backup_dir($protocolState)) && !is_file(Duo\Publish::intent_path($protocolState)), 'marker-backed recovery finalizes backup and intent artifacts');
+assert_capture_atomicity(!is_dir(WPrism\Publish::backup_dir($protocolState)) && !is_file(WPrism\Publish::intent_path($protocolState)), 'marker-backed recovery finalizes backup and intent artifacts');
 
 // A deterministic failure after swap but before COMMIT must roll back the DB
 // marker and leave a hash-bound filesystem backup for the next lock holder.
-Duo\Publish::rrmdir($protocolRoot);
-Duo\Canon::write_file($protocolState . '/revision.txt', "stable\n");
-Duo\Canon::write_file(Duo\Publish::stage_dir($protocolState) . '/revision.txt', "refused\n");
+WPrism\Publish::rrmdir($protocolRoot);
+WPrism\Canon::write_file($protocolState . '/revision.txt', "stable\n");
+WPrism\Canon::write_file(WPrism\Publish::stage_dir($protocolState) . '/revision.txt', "refused\n");
 $wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
 $wpdb->kv = ['prior' => 'keep'];
 $phase = [];
 $preCommitFailure = null;
-putenv('DUO_TEST_MODE=1');
-putenv('DUO_TEST_PUBLISH_FAIL_PHASE=commit-attempt');
+putenv('WPRISM_TEST_MODE=1');
+putenv('WPRISM_TEST_PUBLISH_FAIL_PHASE=commit-attempt');
 try {
     $invokeConsistentSnapshot(
         static function () use (
             $protocolState, $publicationKey, $publicationMarker, &$phase
         ): array {
-            $intent = Duo\Publish::begin_intent($protocolState, Duo\Publish::stage_dir($protocolState));
+            $intent = WPrism\Publish::begin_intent($protocolState, WPrism\Publish::stage_dir($protocolState));
             $phase['filesystem_swapped'] = true;
-            Duo\Publish::swap($protocolState, true);
-            $intent = Duo\Publish::mark_swapped($protocolState, $intent);
-            $intent = Duo\Publish::mark_commit_ready($protocolState, $intent);
+            WPrism\Publish::swap($protocolState, true);
+            $intent = WPrism\Publish::mark_swapped($protocolState, $intent);
+            $intent = WPrism\Publish::mark_commit_ready($protocolState, $intent);
             Ledger::kv_set(
                 $publicationKey->invoke(null, $protocolState),
                 $publicationMarker->invoke(null, $protocolState, $intent)
@@ -839,15 +839,15 @@ try {
 } catch (Throwable $e) {
     $preCommitFailure = $e;
 } finally {
-    putenv('DUO_TEST_PUBLISH_FAIL_PHASE');
-    putenv('DUO_TEST_MODE');
+    putenv('WPRISM_TEST_PUBLISH_FAIL_PHASE');
+    putenv('WPRISM_TEST_MODE');
 }
-$diskIntent = Duo\Canon::decode((string) file_get_contents(Duo\Publish::intent_path($protocolState)));
+$diskIntent = WPrism\Canon::decode((string) file_get_contents(WPrism\Publish::intent_path($protocolState)));
 assert_capture_atomicity($preCommitFailure instanceof RuntimeException && str_contains($preCommitFailure->getMessage(), 'commit-attempt'), 'deterministic pre-COMMIT fault propagates without retry');
 assert_capture_atomicity($wpdb->rollbacks === 1 && $wpdb->commits === 0, 'deterministic pre-COMMIT fault rolls back the database snapshot');
 assert_capture_atomicity(($diskIntent['phase'] ?? null) === 'ready', 'pre-COMMIT exception does not falsely record that COMMIT was attempted');
 assert_capture_atomicity($publicationStatus->invoke(null, $protocolState, $diskIntent) === false, 'rolled-back transaction leaves no current-intent commit proof');
-Duo\Publish::recover(
+WPrism\Publish::recover(
     $protocolState,
     static fn(array $intent): bool => $publicationStatus->invoke(null, $protocolState, $intent)
 );
@@ -877,14 +877,14 @@ $previous = CompiledRepository::create([
         ],
     ],
 ]);
-$policy = Duo\Policy::load(null, ['core']);
+$policy = WPrism\Policy::load(null, ['core']);
 $refused = null;
 try {
     $invokeConsistentSnapshot(static function () use ($uuid, $previous, $policy): array {
         global $wpdb;
         Db::query(
             $wpdb->prepare(
-                "DELETE FROM {$wpdb->prefix}duo_map WHERE uuid = %s",
+                "DELETE FROM {$wpdb->prefix}wprism_map WHERE uuid = %s",
                 'stale'
             ),
             'ledger prune dead post identities'
@@ -919,9 +919,9 @@ assert_capture_atomicity(
     'unsupported deletion public evidence names the exact generic selector'
 );
 assert_capture_atomicity($refused !== null && str_contains($refused->getMessage(), 'post:product'), 'unsupported deletion names the refused selector');
-assert_capture_atomicity($wpdb->map === $beforeRefusal['map'], 'refusal rolls back duo_map pruning and identity minting');
-assert_capture_atomicity($wpdb->state === $beforeRefusal['state'], 'refusal rolls back duo_state mutation');
-assert_capture_atomicity($wpdb->kv === $beforeRefusal['kv'], 'refusal rolls back duo_kv mutation');
+assert_capture_atomicity($wpdb->map === $beforeRefusal['map'], 'refusal rolls back wprism_map pruning and identity minting');
+assert_capture_atomicity($wpdb->state === $beforeRefusal['state'], 'refusal rolls back wprism_state mutation');
+assert_capture_atomicity($wpdb->kv === $beforeRefusal['kv'], 'refusal rolls back wprism_kv mutation');
 assert_capture_atomicity($wpdb->rollbacks === 1 && $wpdb->commits === 0, 'refusal rolls back once and never commits a candidate');
 assert_capture_atomicity($wpdb->ddlQueries === 0, 'transactional capture performs no implicit-commit schema DDL');
 

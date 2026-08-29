@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for DUO-3349's live typed-table schema seam.
+ * Offline regression for issue #3349's live typed-table schema seam.
  *
  * TableSchema is loaded directly before Policy, Ledger, or Snapshot. A tiny
  * wpdb fake drives only SHOW TABLES/SHOW COLUMNS so the suite can pin live
@@ -15,12 +15,12 @@ if (!defined('ARRAY_A')) {
 
 require_once __DIR__ . '/../../../../agent/src/Kernel/TableSchema.php';
 
-use Duo\Ledger;
-use Duo\Policy;
-use Duo\Snapshot;
-use Duo\CoreCaptureSchemaException;
-use Duo\TableGraph;
-use Duo\TableSchema;
+use WPrism\Ledger;
+use WPrism\Policy;
+use WPrism\Snapshot;
+use WPrism\CoreCaptureSchemaException;
+use WPrism\TableGraph;
+use WPrism\TableSchema;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {

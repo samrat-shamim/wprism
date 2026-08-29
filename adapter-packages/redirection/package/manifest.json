@@ -30,7 +30,7 @@
     "tables.redirection_groups": {
       "evidence": [
         {
-          "locator": "database/schema/latest.php, models/group.php, and wp duo adapter-probe",
+          "locator": "database/schema/latest.php, models/group.php, and wp wprism adapter-probe",
           "observation": "The native group API authored three WordPress-module groups with divergent auto-increment ids. Names are editable and not unique, so ids require mapped identity; name, tracking, module_id, status and position are the persisted rule-group definition.",
           "source": "official Redirection 5.9.0 artifact and dogfood pair redauth, 2026-08-27"
         }
@@ -126,7 +126,7 @@
           ],
           "scope": "site",
           "scoped": {
-            "operation_envelope": "duo-scoped-effect-operation/v1",
+            "operation_envelope": "wprism-scoped-effect-operation/v1",
             "reconcile": true
           },
           "timeout_seconds": 60,

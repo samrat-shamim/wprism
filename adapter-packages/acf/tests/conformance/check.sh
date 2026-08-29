@@ -20,8 +20,8 @@ $term = get_term_by('slug', 'conf-cat-one', 'category');
 $menu = wp_get_nav_menu_object('Conformance ACF Menu');
 $items = $menu ? wp_get_nav_menu_items($menu->term_id) : [];
 $menuItem = $items ? $items[0] : null;
-$field = acf_get_field('field_duo_hero');
-$group = acf_get_field_group('group_duo_post');
+$field = acf_get_field('field_wprism_hero');
+$group = acf_get_field_group('group_wprism_post');
 if (!$post || !$editor || !$term || !$menuItem || !$field || !$group) {
     throw new RuntimeException('ACF runtime fixture is incomplete');
 }
@@ -57,16 +57,16 @@ $idsToTerms = static function ($ids): array {
     sort($names, SORT_STRING);
     return $names;
 };
-$hero = (int) get_field('field_duo_hero', $post->ID);
-$icon = get_field('field_duo_icon', $post->ID);
+$hero = (int) get_field('field_wprism_hero', $post->ID);
+$icon = get_field('field_wprism_icon', $post->ID);
 $iconId = is_array($icon) && is_array($icon['value'] ?? null)
     ? (int) ($icon['value']['ID'] ?? 0)
     : (int) ($icon['value'] ?? 0);
-$termImage = (int) get_field('field_duo_term_image', 'category_' . (int) $term->term_id);
-$userImage = (int) get_field('field_duo_user_image', 'user_' . (int) $editor->ID);
-$optionImage = (int) get_field('field_duo_option_image', 'option');
-$menuImage = (int) get_field('field_duo_menu_image', (int) $menuItem->ID);
-$link = get_field('field_duo_link', $post->ID);
+$termImage = (int) get_field('field_wprism_term_image', 'category_' . (int) $term->term_id);
+$userImage = (int) get_field('field_wprism_user_image', 'user_' . (int) $editor->ID);
+$optionImage = (int) get_field('field_wprism_option_image', 'option');
+$menuImage = (int) get_field('field_wprism_menu_image', (int) $menuItem->ID);
+$link = get_field('field_wprism_link', $post->ID);
 $runtimeHealth = get_option('acf_site_health');
 if (is_string($runtimeHealth)) {
     $decodedHealth = json_decode($runtimeHealth, true);
@@ -77,8 +77,8 @@ if (is_string($runtimeHealth)) {
 echo wp_json_encode([
     'content_id' => (int) $post->ID,
     'editor_id' => (int) $editor->ID,
-    'feature_title' => $idsToTitles([get_field('field_duo_feature', $post->ID)])[0],
-    'features' => $idsToTitles(get_field('field_duo_features', $post->ID)),
+    'feature_title' => $idsToTitles([get_field('field_wprism_feature', $post->ID)])[0],
+    'features' => $idsToTitles(get_field('field_wprism_features', $post->ID)),
     'field_id' => (int) $field['ID'],
     'group_id' => (int) $group['ID'],
     'hero_id' => $hero,
@@ -91,23 +91,23 @@ echo wp_json_encode([
     'menu_image_title' => (string) get_the_title($menuImage),
     'option_image_id' => $optionImage,
     'option_image_title' => (string) get_the_title($optionImage),
-    'option_note' => get_field('field_duo_option_note', 'option'),
-    'owner' => $idsToLogins([get_field('field_duo_owner', $post->ID)])[0],
-    'owners' => $idsToLogins(get_field('field_duo_owners', $post->ID)),
-    'page' => get_field('field_duo_page', $post->ID),
-    'pages' => get_field('field_duo_pages', $post->ID),
-    'primary_category' => $idsToTerms([get_field('field_duo_cat', $post->ID)])[0],
-    'related' => $idsToTitles(get_field('field_duo_related', $post->ID)),
+    'option_note' => get_field('field_wprism_option_note', 'option'),
+    'owner' => $idsToLogins([get_field('field_wprism_owner', $post->ID)])[0],
+    'owners' => $idsToLogins(get_field('field_wprism_owners', $post->ID)),
+    'page' => get_field('field_wprism_page', $post->ID),
+    'pages' => get_field('field_wprism_pages', $post->ID),
+    'primary_category' => $idsToTerms([get_field('field_wprism_cat', $post->ID)])[0],
+    'related' => $idsToTitles(get_field('field_wprism_related', $post->ID)),
     'schema_home' => str_contains((string) ($schema['instructions'] ?? ''), home_url('/')),
     'schema_length' => strlen((string) ($schema['instructions'] ?? '')),
     'schema_unicode' => str_contains((string) ($schema['instructions'] ?? ''), '東京 🚀 | delimiter ::'),
     'term_id' => (int) $term->term_id,
     'term_image_id' => $termImage,
     'term_image_title' => (string) get_the_title($termImage),
-    'term_note' => get_field('field_duo_term_note', 'category_' . (int) $term->term_id),
+    'term_note' => get_field('field_wprism_term_note', 'category_' . (int) $term->term_id),
     'user_image_id' => $userImage,
     'user_image_title' => (string) get_the_title($userImage),
-    'user_note' => get_field('field_duo_user_note', 'user_' . (int) $editor->ID),
+    'user_note' => get_field('field_wprism_user_note', 'user_' . (int) $editor->ID),
     'runtime_first' => get_option('acf_first_activated_version'),
     'runtime_health' => $runtimeHealth,
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
@@ -172,12 +172,12 @@ jq -e --argjson observed "$TARGET" '
   || fail "ACF apply replaced instead of adopting the hostile target identities: premise=$TARGET_PREMISE observed=$TARGET"
 pass "ACF schemas and values converge through native APIs across divergent post/term/user/menu/option identities, long UTF-8 data, nested URLs, and hostile target state"
 
-ZERO_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "ACF zero-change plan" json "$ZERO_PLAN"
+ZERO_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "ACF zero-change plan" json "$ZERO_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$ZERO_PLAN" >/dev/null \
   || fail "ACF retry retained work: $ZERO_PLAN"
-ZERO_APPLY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "ACF zero-change apply" json "$ZERO_APPLY"
+ZERO_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "ACF zero-change apply" json "$ZERO_APPLY"
 jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$ZERO_APPLY" >/dev/null \
   || fail "ACF no-op retry was not clean/idempotent: $ZERO_APPLY"
 pass "ACF zero-change plan and apply are idempotent"
@@ -194,8 +194,8 @@ wp_conf2 eval '
   clean_user_cache((int)$user->ID);
 ' >/dev/null
 MISSING_USER_RC=0
-MISSING_USER_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || MISSING_USER_RC=$?
-require_duo_answered "ACF missing exact user-meta owner" human "$MISSING_USER_OUT"
+MISSING_USER_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || MISSING_USER_RC=$?
+require_wprism_answered "ACF missing exact user-meta owner" human "$MISSING_USER_OUT"
 [ "$MISSING_USER_RC" -ne 0 ] \
   && grep -q "exact login 'acf-editor'" <<<"$MISSING_USER_OUT" \
   && grep -Eqi 'missing|required|refused' <<<"$MISSING_USER_OUT" \
@@ -208,8 +208,8 @@ wp_conf2 eval '
   }
   clean_user_cache((int)$user->ID);
 ' >/dev/null
-MISSING_USER_RECOVERY=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "ACF plan after exact user restoration" json "$MISSING_USER_RECOVERY"
+MISSING_USER_RECOVERY=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "ACF plan after exact user restoration" json "$MISSING_USER_RECOVERY"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict,.missing_user] | map(length) | add) == 0' <<<"$MISSING_USER_RECOVERY" >/dev/null \
   || fail "ACF exact user restoration did not return to a clean plan: $MISSING_USER_RECOVERY"
 pass "a missing exact-login ACF user-meta owner blocks preflight and restoring that login recovers cleanly"
@@ -221,30 +221,30 @@ cat > "$LOCAL_FILE" <<'PHPEOF'
 <?php
 add_action('acf/init', static function () {
     acf_add_local_field_group([
-        'key' => 'group_duo_post', 'title' => 'Target local collision',
+        'key' => 'group_wprism_post', 'title' => 'Target local collision',
         'location' => [[['param' => 'post_type', 'operator' => '==', 'value' => 'page']]],
     ]);
     acf_add_local_field([
-        'key' => 'field_duo_hero', 'label' => 'Target local collision',
-        'name' => 'duo_hero', 'type' => 'true_false', 'parent' => 'group_duo_post',
+        'key' => 'field_wprism_hero', 'label' => 'Target local collision',
+        'name' => 'wprism_hero', 'type' => 'true_false', 'parent' => 'group_wprism_post',
     ]);
 }, 1);
 PHPEOF
 $COMPOSE exec -T --user root wp2 install -D -m 0644 \
   /siterepo/.tmp-acf-local-collision.php \
-  /var/www/html/wp-content/mu-plugins/duo-acf-local-collision.php
+  /var/www/html/wp-content/mu-plugins/wprism-acf-local-collision.php
 rm -f "$LOCAL_FILE"
 LOCAL_RC=0
-LOCAL_OUT=$(wp_conf2 duo plan --repo=/siterepo 2>&1) || LOCAL_RC=$?
-require_duo_answered "ACF local-schema collision plan" human "$LOCAL_OUT"
+LOCAL_OUT=$(wp_conf2 wprism plan --repo=/siterepo 2>&1) || LOCAL_RC=$?
+require_wprism_answered "ACF local-schema collision plan" human "$LOCAL_OUT"
 [ "$LOCAL_RC" -ne 0 ] \
   && grep -q 'acf_local_schema_collision' <<<"$LOCAL_OUT" \
-  && grep -q 'field_duo_hero' <<<"$LOCAL_OUT" \
-  && grep -q 'group_duo_post' <<<"$LOCAL_OUT" \
+  && grep -q 'field_wprism_hero' <<<"$LOCAL_OUT" \
+  && grep -q 'group_wprism_post' <<<"$LOCAL_OUT" \
   || fail "ACF local schema did not refuse with both exact collision diagnostics: $LOCAL_OUT"
-$COMPOSE exec -T --user root wp2 rm -f /var/www/html/wp-content/mu-plugins/duo-acf-local-collision.php
-RECOVERED_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "ACF plan after local-schema removal" json "$RECOVERED_PLAN"
+$COMPOSE exec -T --user root wp2 rm -f /var/www/html/wp-content/mu-plugins/wprism-acf-local-collision.php
+RECOVERED_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "ACF plan after local-schema removal" json "$RECOVERED_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$RECOVERED_PLAN" >/dev/null \
   || fail "ACF did not recover after the local schema was removed: $RECOVERED_PLAN"
 pass "local PHP/JSON schema precedence refuses loudly and removal returns to a clean plan"
@@ -253,17 +253,17 @@ pass "local PHP/JSON schema precedence refuses loudly and removal returns to a c
 # post types are outside this adapter and must remain an atomic scope refusal.
 UI_OUT=$(wp_conf2 eval '
   $row=acf_update_post_type([
-    "key"=>"post_type_duo_scope_probe", "title"=>"Duo Scope Probe",
-    "post_type"=>"duo_scope_probe", "active"=>true,
+    "key"=>"post_type_wprism_scope_probe", "title"=>"WPrism Scope Probe",
+    "post_type"=>"wprism_scope_probe", "active"=>true,
   ]);
   if (empty($row["ID"])) { throw new RuntimeException("ACF UI CPT was not created"); }
   echo (int)$row["ID"];
 ')
 require_fixture_ids UI_OUT
 SCOPE_RC=0
-SCOPE_OUT=$(wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-acf-ui-scope 2>&1) || SCOPE_RC=$?
+SCOPE_OUT=$(wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-acf-ui-scope 2>&1) || SCOPE_RC=$?
 rm -rf "${CONF_REPO2:-siterepo/conf2}/.tmp-acf-ui-scope"
-require_duo_answered "ACF UI CPT capture" human "$SCOPE_OUT"
+require_wprism_answered "ACF UI CPT capture" human "$SCOPE_OUT"
 [ "$SCOPE_RC" -ne 0 ] \
   && grep -Eq 'incomplete_policy_scope|policy_scope_gap|outside policy scope' <<<"$SCOPE_OUT" \
   && grep -q 'acf-post-type' <<<"$SCOPE_OUT" \
@@ -275,20 +275,20 @@ pass "ACF free UI-created post types stay explicitly unsupported and refuse capt
 # PHP unserialize() silently accept a valid prefix.
 BODY_FILE="${CONF_REPO2:-siterepo/conf2}/.tmp-acf-schema-body"
 wp_conf2 eval '
-  $field=acf_get_field("field_duo_hero"); $post=get_post((int)$field["ID"]);
+  $field=acf_get_field("field_wprism_hero"); $post=get_post((int)$field["ID"]);
   file_put_contents("/siterepo/.tmp-acf-schema-body", $post->post_content);
   global $wpdb;
   $wpdb->update($wpdb->posts, ["post_content"=>$post->post_content . "trailing-payload"], ["ID"=>(int)$post->ID]);
 ' >/dev/null
 MALFORMED_RC=0
-MALFORMED_OUT=$(wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-acf-malformed 2>&1) || MALFORMED_RC=$?
+MALFORMED_OUT=$(wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-acf-malformed 2>&1) || MALFORMED_RC=$?
 rm -rf "${CONF_REPO2:-siterepo/conf2}/.tmp-acf-malformed"
-require_duo_answered "ACF malformed serialized schema capture" human "$MALFORMED_OUT"
+require_wprism_answered "ACF malformed serialized schema capture" human "$MALFORMED_OUT"
 [ "$MALFORMED_RC" -ne 0 ] \
   && grep -Eqi 'serialized|trailing|plain data|unserialize' <<<"$MALFORMED_OUT" \
   || fail "ACF trailing serialized payload was not refused: $MALFORMED_OUT"
 wp_conf2 eval '
-  $field=acf_get_field("field_duo_hero");
+  $field=acf_get_field("field_wprism_hero");
   global $wpdb;
   $body=file_get_contents("/siterepo/.tmp-acf-schema-body");
   $wpdb->update($wpdb->posts, ["post_content"=>$body], ["ID"=>(int)$field["ID"]]);
@@ -302,13 +302,13 @@ pass "malformed serialized ACF schema refuses before publication and exact bytes
 # cleanup cannot disturb repository identity.
 FAKE_TOKEN='ghp_1234567890abcdefghij'
 SECRET_ID=$(wp_conf1 eval '
-  foreach (get_posts(["post_type"=>"acf-field", "name"=>"field_duo_secret_probe", "post_status"=>"any", "posts_per_page"=>-1, "fields"=>"ids"]) as $prior) {
+  foreach (get_posts(["post_type"=>"acf-field", "name"=>"field_wprism_secret_probe", "post_status"=>"any", "posts_per_page"=>-1, "fields"=>"ids"]) as $prior) {
     acf_delete_field((int)$prior);
   }
-  $group=acf_get_field_group("group_duo_post");
+  $group=acf_get_field_group("group_wprism_post");
   $field=acf_update_field([
-    "key"=>"field_duo_secret_probe", "label"=>"Secret Probe",
-    "name"=>"duo_secret_probe", "type"=>"text", "parent"=>(int)$group["ID"],
+    "key"=>"field_wprism_secret_probe", "label"=>"Secret Probe",
+    "name"=>"wprism_secret_probe", "type"=>"text", "parent"=>(int)$group["ID"],
     "api_token"=>"ghp_1234567890abcdefghij",
   ]);
   if (empty($field["ID"])) { throw new RuntimeException("secret probe field was not created"); }
@@ -317,8 +317,8 @@ SECRET_ID=$(wp_conf1 eval '
 require_fixture_ids SECRET_ID
 SECRET_STATUS_BEFORE=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
 SECRET_RC=0
-SECRET_OUT=$(wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-acf-secret 2>&1) || SECRET_RC=$?
-require_duo_answered "ACF credential-shaped schema capture" human "$SECRET_OUT"
+SECRET_OUT=$(wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-acf-secret 2>&1) || SECRET_RC=$?
+require_wprism_answered "ACF credential-shaped schema capture" human "$SECRET_OUT"
 [ "$SECRET_RC" -ne 0 ] \
   && grep -Eq 'secret guard tripped|contains a github token' <<<"$SECRET_OUT" \
   && ! grep -Fq "$FAKE_TOKEN" <<<"$SECRET_OUT" \
@@ -328,7 +328,7 @@ require_duo_answered "ACF credential-shaped schema capture" human "$SECRET_OUT"
 rm -rf "$CONF_REPO1/.tmp-acf-secret"
 wp_conf1 eval '
   $deleted=0;
-  foreach (get_posts(["post_type"=>"acf-field", "name"=>"field_duo_secret_probe", "post_status"=>"any", "posts_per_page"=>-1, "fields"=>"ids"]) as $id) {
+  foreach (get_posts(["post_type"=>"acf-field", "name"=>"field_wprism_secret_probe", "post_status"=>"any", "posts_per_page"=>-1, "fields"=>"ids"]) as $id) {
     $deleted += acf_delete_field((int)$id) ? 1 : 0;
   }
   if ($deleted < 1) { throw new RuntimeException("secret probe cleanup failed"); }
@@ -341,7 +341,7 @@ pass "credential-shaped ACF schema refuses atomically and the public diagnostic 
 # restore the exact row and identity bytes.
 DELETE_BACKUP="${CONF_REPO1:-siterepo/conf1}/.tmp-acf-delete-row.json"
 DELETE_ID=$(wp_conf1 eval '
-  $field=acf_get_field("field_duo_delete_probe");
+  $field=acf_get_field("field_wprism_delete_probe");
   if (!$field) { throw new RuntimeException("delete probe field is absent"); }
   global $wpdb;
   $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->posts} WHERE ID=%d", (int)$field["ID"]), ARRAY_A);
@@ -353,10 +353,10 @@ DELETE_ID=$(wp_conf1 eval '
 require_fixture_ids DELETE_ID
 DELETE_STATUS_BEFORE=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
 DELETE_RC=0
-DELETE_OUT=$(wp_conf1 duo capture --repo=/siterepo --format=json) || DELETE_RC=$?
-require_duo_answered "ACF unsupported field deletion capture" json "$DELETE_OUT"
+DELETE_OUT=$(wp_conf1 wprism capture --repo=/siterepo --format=json) || DELETE_RC=$?
+require_wprism_answered "ACF unsupported field deletion capture" json "$DELETE_OUT"
 [ "$DELETE_RC" -ne 0 ] && jq -e '
-  .format == "duo-command-refusal/v1" and .reason_code == "unsupported_deletion" and
+  .format == "wprism-command-refusal/v1" and .reason_code == "unsupported_deletion" and
   any(.diagnostics[]?; .code == "unsupported_deletion" and .surface == "post:acf-field")
 ' <<<"$DELETE_OUT" >/dev/null \
   || fail "ACF field deletion did not refuse at exact post:acf-field: $DELETE_OUT"
@@ -379,18 +379,18 @@ wp_conf1 eval '
   $post=get_page_by_path("conf-acf-content", OBJECT, "post");
   $editor=get_user_by("login", "acf-editor");
   $term=get_term_by("slug", "conf-cat-one", "category");
-  update_field("field_duo_link", [
+  update_field("field_wprism_link", [
     "title"=>"Repository transaction intent 東京 🚀",
     "url"=>home_url("/conf-linked-page-two/?from=acf-transaction"),
     "target"=>"_self",
   ], $post->ID);
-  update_field("field_duo_term_note", "Repository term transaction " . home_url("/"), "category_" . $term->term_id);
-  update_field("field_duo_user_note", "Repository user transaction " . home_url("/"), "user_" . $editor->ID);
-  update_field("field_duo_option_note", "Repository option transaction " . home_url("/"), "option");
+  update_field("field_wprism_term_note", "Repository term transaction " . home_url("/"), "category_" . $term->term_id);
+  update_field("field_wprism_user_note", "Repository user transaction " . home_url("/"), "user_" . $editor->ID);
+  update_field("field_wprism_option_note", "Repository option transaction " . home_url("/"), "option");
 ' >/dev/null
-wp_conf1 duo capture --repo=/siterepo >/dev/null
+wp_conf1 wprism capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
-git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: ACF transaction recovery intent'
+git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: ACF transaction recovery intent'
 git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
 
@@ -398,39 +398,39 @@ TARGET_HASH_BEFORE=$(wp_conf2 eval '
   global $wpdb;
   $rows=[
     "posts"=>$wpdb->get_results("SELECT * FROM {$wpdb->posts} WHERE post_type IN (\"acf-field\",\"acf-field-group\",\"post\",\"page\",\"attachment\",\"nav_menu_item\") ORDER BY ID", ARRAY_A),
-    "postmeta"=>$wpdb->get_results("SELECT * FROM {$wpdb->postmeta} WHERE meta_key LIKE \"duo\\_%\" OR meta_key LIKE \"\\_duo\\_%\" ORDER BY meta_id", ARRAY_A),
-    "termmeta"=>$wpdb->get_results("SELECT * FROM {$wpdb->termmeta} WHERE meta_key LIKE \"duo\\_%\" OR meta_key LIKE \"\\_duo\\_%\" ORDER BY meta_id", ARRAY_A),
-    "usermeta"=>$wpdb->get_results("SELECT * FROM {$wpdb->usermeta} WHERE meta_key LIKE \"duo\\_%\" OR meta_key LIKE \"\\_duo\\_%\" ORDER BY umeta_id", ARRAY_A),
-    "options"=>$wpdb->get_results("SELECT * FROM {$wpdb->options} WHERE option_name LIKE \"options\\_duo\\_%\" OR option_name LIKE \"\\_options\\_duo\\_%\" ORDER BY option_id", ARRAY_A),
+    "postmeta"=>$wpdb->get_results("SELECT * FROM {$wpdb->postmeta} WHERE meta_key LIKE \"wprism\\_%\" OR meta_key LIKE \"\\_wprism\\_%\" ORDER BY meta_id", ARRAY_A),
+    "termmeta"=>$wpdb->get_results("SELECT * FROM {$wpdb->termmeta} WHERE meta_key LIKE \"wprism\\_%\" OR meta_key LIKE \"\\_wprism\\_%\" ORDER BY meta_id", ARRAY_A),
+    "usermeta"=>$wpdb->get_results("SELECT * FROM {$wpdb->usermeta} WHERE meta_key LIKE \"wprism\\_%\" OR meta_key LIKE \"\\_wprism\\_%\" ORDER BY umeta_id", ARRAY_A),
+    "options"=>$wpdb->get_results("SELECT * FROM {$wpdb->options} WHERE option_name LIKE \"options\\_wprism\\_%\" OR option_name LIKE \"\\_options\\_wprism\\_%\" ORDER BY option_id", ARRAY_A),
   ];
   echo hash("sha256", wp_json_encode($rows, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 ')
 wp_conf2 db query '
-  DROP TRIGGER IF EXISTS duo_acf_fail_user_meta;
-  CREATE TRIGGER duo_acf_fail_user_meta BEFORE UPDATE ON wp_usermeta
-  FOR EACH ROW SIGNAL SQLSTATE "45000" SET MESSAGE_TEXT = "duo injected ACF user-meta failure"
+  DROP TRIGGER IF EXISTS wprism_acf_fail_user_meta;
+  CREATE TRIGGER wprism_acf_fail_user_meta BEFORE UPDATE ON wp_usermeta
+  FOR EACH ROW SIGNAL SQLSTATE "45000" SET MESSAGE_TEXT = "wprism injected ACF user-meta failure"
 ' >/dev/null
 FAULT_RC=0
-FAULT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || FAULT_RC=$?
-require_duo_answered "ACF injected transaction failure" human "$FAULT_OUT"
-[ "$FAULT_RC" -ne 0 ] && grep -q 'duo injected ACF user-meta failure' <<<"$FAULT_OUT" \
+FAULT_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || FAULT_RC=$?
+require_wprism_answered "ACF injected transaction failure" human "$FAULT_OUT"
+[ "$FAULT_RC" -ne 0 ] && grep -q 'wprism injected ACF user-meta failure' <<<"$FAULT_OUT" \
   || fail "ACF injected database failure did not surface exactly: $FAULT_OUT"
 TARGET_HASH_AFTER=$(wp_conf2 eval '
   global $wpdb;
   $rows=[
     "posts"=>$wpdb->get_results("SELECT * FROM {$wpdb->posts} WHERE post_type IN (\"acf-field\",\"acf-field-group\",\"post\",\"page\",\"attachment\",\"nav_menu_item\") ORDER BY ID", ARRAY_A),
-    "postmeta"=>$wpdb->get_results("SELECT * FROM {$wpdb->postmeta} WHERE meta_key LIKE \"duo\\_%\" OR meta_key LIKE \"\\_duo\\_%\" ORDER BY meta_id", ARRAY_A),
-    "termmeta"=>$wpdb->get_results("SELECT * FROM {$wpdb->termmeta} WHERE meta_key LIKE \"duo\\_%\" OR meta_key LIKE \"\\_duo\\_%\" ORDER BY meta_id", ARRAY_A),
-    "usermeta"=>$wpdb->get_results("SELECT * FROM {$wpdb->usermeta} WHERE meta_key LIKE \"duo\\_%\" OR meta_key LIKE \"\\_duo\\_%\" ORDER BY umeta_id", ARRAY_A),
-    "options"=>$wpdb->get_results("SELECT * FROM {$wpdb->options} WHERE option_name LIKE \"options\\_duo\\_%\" OR option_name LIKE \"\\_options\\_duo\\_%\" ORDER BY option_id", ARRAY_A),
+    "postmeta"=>$wpdb->get_results("SELECT * FROM {$wpdb->postmeta} WHERE meta_key LIKE \"wprism\\_%\" OR meta_key LIKE \"\\_wprism\\_%\" ORDER BY meta_id", ARRAY_A),
+    "termmeta"=>$wpdb->get_results("SELECT * FROM {$wpdb->termmeta} WHERE meta_key LIKE \"wprism\\_%\" OR meta_key LIKE \"\\_wprism\\_%\" ORDER BY meta_id", ARRAY_A),
+    "usermeta"=>$wpdb->get_results("SELECT * FROM {$wpdb->usermeta} WHERE meta_key LIKE \"wprism\\_%\" OR meta_key LIKE \"\\_wprism\\_%\" ORDER BY umeta_id", ARRAY_A),
+    "options"=>$wpdb->get_results("SELECT * FROM {$wpdb->options} WHERE option_name LIKE \"options\\_wprism\\_%\" OR option_name LIKE \"\\_options\\_wprism\\_%\" ORDER BY option_id", ARRAY_A),
   ];
   echo hash("sha256", wp_json_encode($rows, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 ')
 [ "$TARGET_HASH_AFTER" = "$TARGET_HASH_BEFORE" ] \
   || fail "ACF failed apply left a partial database mutation (before=$TARGET_HASH_BEFORE after=$TARGET_HASH_AFTER)"
-wp_conf2 db query 'DROP TRIGGER duo_acf_fail_user_meta' >/dev/null
-RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "ACF retry after injected failure" json "$RETRY"
+wp_conf2 db query 'DROP TRIGGER wprism_acf_fail_user_meta' >/dev/null
+RETRY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "ACF retry after injected failure" json "$RETRY"
 jq -e '.canary == "clean" and .verification.result == "pass" and .applied >= 4' <<<"$RETRY" >/dev/null \
   || fail "ACF retry did not consume the durable intent cleanly: $RETRY"
 RETRIED_TARGET=$(observe_acf conf2)
@@ -447,18 +447,18 @@ pass "an injected late ACF write failure rolls back every authored table and the
 # Two real wp-cli processes now race the same new repository intent. Exactly
 # one may own the lock at a time; the loser may wait and observe no work or
 # refuse with the named lock, but final state and the next plan must be clean.
-wp_conf1 eval 'update_field("field_duo_option_note", "Concurrent ACF intent " . home_url("/"), "option");' >/dev/null
-wp_conf1 duo capture --repo=/siterepo >/dev/null
+wp_conf1 eval 'update_field("field_wprism_option_note", "Concurrent ACF intent " . home_url("/"), "option");' >/dev/null
+wp_conf1 wprism capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
-git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: concurrent ACF apply intent'
+git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: concurrent ACF apply intent'
 git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
 CONCURRENT_A="${CONF_REPO2:-siterepo/conf2}/.tmp-acf-concurrent-a.log"
 CONCURRENT_B="${CONF_REPO2:-siterepo/conf2}/.tmp-acf-concurrent-b.log"
 set +e
-wp_conf2 duo apply --repo=/siterepo --default-author=admin >"$CONCURRENT_A" 2>&1 &
+wp_conf2 wprism apply --repo=/siterepo --default-author=admin >"$CONCURRENT_A" 2>&1 &
 PID_A=$!
-wp_conf2 duo apply --repo=/siterepo --default-author=admin >"$CONCURRENT_B" 2>&1 &
+wp_conf2 wprism apply --repo=/siterepo --default-author=admin >"$CONCURRENT_B" 2>&1 &
 PID_B=$!
 wait "$PID_A"; RC_A=$?
 wait "$PID_B"; RC_B=$?
@@ -478,11 +478,11 @@ for result in A B; do
   fi
 done
 rm -f "$CONCURRENT_A" "$CONCURRENT_B"
-CONCURRENT_VALUE=$(wp_conf2 eval 'echo get_field("field_duo_option_note", "option");')
+CONCURRENT_VALUE=$(wp_conf2 eval 'echo get_field("field_wprism_option_note", "option");')
 [[ "$CONCURRENT_VALUE" == "Concurrent ACF intent "* ]] \
   || fail "competing ACF applies did not preserve repository intent: $CONCURRENT_VALUE"
-CONCURRENT_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "ACF plan after competing applies" json "$CONCURRENT_PLAN"
+CONCURRENT_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "ACF plan after competing applies" json "$CONCURRENT_PLAN"
 jq -e '([.create,.update,.drift,.conflict,.collision,.delete,.delete_conflict] | map(length) | add) == 0' <<<"$CONCURRENT_PLAN" >/dev/null \
   || fail "ACF competing applies left retained work: $CONCURRENT_PLAN"
 pass "competing ACF applies serialize at the promotion lock and leave one clean, idempotent result"
@@ -494,17 +494,17 @@ wp_conf2 plugin deactivate advanced-custom-fields >/dev/null
 if wp_conf2 plugin is-active advanced-custom-fields >/dev/null 2>&1; then
   fail "ACF deactivation premise did not land"
 fi
-REACTIVATE=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "ACF deploy after deactivation" json "$REACTIVATE"
+REACTIVATE=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "ACF deploy after deactivation" json "$REACTIVATE"
 wp_conf2 plugin is-active advanced-custom-fields >/dev/null \
-  || fail "Duo deploy did not reactivate exact ACF code"
+  || fail "WPrism deploy did not reactivate exact ACF code"
 wp_conf2 plugin uninstall advanced-custom-fields --deactivate >/dev/null
 if wp_conf2 plugin is-installed advanced-custom-fields >/dev/null 2>&1; then
   fail "ACF uninstall left plugin code installed"
 fi
 MISSING_RC=0
-MISSING_OUT=$(wp_conf2 duo deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
-require_duo_answered "ACF deploy with code absent" human "$MISSING_OUT"
+MISSING_OUT=$(wp_conf2 wprism deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
+require_wprism_answered "ACF deploy with code absent" human "$MISSING_OUT"
 [ "$MISSING_RC" -ne 0 ] && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$MISSING_OUT" \
   || fail "missing ACF code did not refuse at compatibility: $MISSING_OUT"
 ACF_SHA=f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2
@@ -514,10 +514,10 @@ ACF_ARTIFACT="/artifacts-cache/plugin-advanced-custom-fields-6.8.7-${ACF_SHA}.zi
 wp_conf2 plugin install "$ACF_ARTIFACT" --force >/dev/null
 [ "$(wp_conf2 plugin get advanced-custom-fields --field=version)" = '6.8.7' ] \
   || fail "ACF exact reinstall reported the wrong version"
-REINSTALL_DEPLOY=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "ACF deploy after exact reinstall" json "$REINSTALL_DEPLOY"
-REINSTALL_APPLY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "ACF apply after exact reinstall" json "$REINSTALL_APPLY"
+REINSTALL_DEPLOY=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "ACF deploy after exact reinstall" json "$REINSTALL_DEPLOY"
+REINSTALL_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "ACF apply after exact reinstall" json "$REINSTALL_APPLY"
 jq -e '.canary == "clean" and .verification.result == "pass"' <<<"$REINSTALL_APPLY" >/dev/null \
   || fail "ACF exact reinstall did not recover canonical state: $REINSTALL_APPLY"
 REINSTALLED=$(observe_acf conf2)
@@ -531,37 +531,37 @@ pass "deactivate/reactivate, absent-code refusal, digest-bound reinstall, and ca
 
 # ACF option-page values are ordinary authored options even though entity
 # deletes remain unsupported. Removing one value through ACF's API removes
-# value+shadow as a pair; Duo must require --with-deletes, preserve sibling
+# value+shadow as a pair; WPrism must require --with-deletes, preserve sibling
 # and runtime rows, and recapture the authorized result byte-identically.
 wp_conf1 eval '
-  if (!delete_field("field_duo_option_note", "option")) {
+  if (!delete_field("field_wprism_option_note", "option")) {
     throw new RuntimeException("ACF option value+shadow deletion did not land");
   }
 ' >/dev/null
-wp_conf1 duo capture --repo=/siterepo >/dev/null
+wp_conf1 wprism capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
-git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: delete one ACF option-page value'
+git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: delete one ACF option-page value'
 git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
 OPTION_DELETE_RC=0
-OPTION_DELETE_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || OPTION_DELETE_RC=$?
-require_duo_answered "ACF option deletion without authorization" human "$OPTION_DELETE_OUT"
+OPTION_DELETE_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || OPTION_DELETE_RC=$?
+require_wprism_answered "ACF option deletion without authorization" human "$OPTION_DELETE_OUT"
 [ "$OPTION_DELETE_RC" -ne 0 ] \
   && grep -q 'authored option deletion intent requires --with-deletes' <<<"$OPTION_DELETE_OUT" \
   || fail "ACF option deletion did not require explicit authorization: $OPTION_DELETE_OUT"
-[ "$(wp_conf2 option get options_duo_option_note)" = "$CONCURRENT_VALUE" ] \
+[ "$(wp_conf2 option get options_wprism_option_note)" = "$CONCURRENT_VALUE" ] \
   || fail "unauthorized ACF option deletion partially mutated the target"
-OPTION_DELETE=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "ACF authorized option deletion" json "$OPTION_DELETE"
-if wp_conf2 option get options_duo_option_note >/dev/null 2>&1 \
-  || wp_conf2 option get _options_duo_option_note >/dev/null 2>&1; then
+OPTION_DELETE=$(wp_conf2 wprism apply --repo=/siterepo --with-deletes --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "ACF authorized option deletion" json "$OPTION_DELETE"
+if wp_conf2 option get options_wprism_option_note >/dev/null 2>&1 \
+  || wp_conf2 option get _options_wprism_option_note >/dev/null 2>&1; then
   fail "authorized ACF option deletion left the value or shadow row present"
 fi
-[ "$(wp_conf2 eval 'echo get_field("field_duo_option_image", "option") ? "image-present" : "image-missing";')" = image-present ] \
+[ "$(wp_conf2 eval 'echo get_field("field_wprism_option_image", "option") ? "image-present" : "image-missing";')" = image-present ] \
   || fail "authorized ACF option deletion removed a sibling field value"
 OPTION_DELETE_HEALTH=$(wp_conf2 option get acf_site_health --format=json)
 require_observed_nonempty "ACF target runtime option after authored deletion" "$OPTION_DELETE_HEALTH"
-wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-acf-option-delete >/dev/null
+wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-acf-option-delete >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-acf-option-delete" \
   || fail "authorized ACF option deletion did not recapture byte-identically"
 rm -rf "$CONF_REPO2/.tmp-acf-option-delete"

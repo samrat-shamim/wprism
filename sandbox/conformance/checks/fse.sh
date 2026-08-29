@@ -20,9 +20,9 @@ set -euo pipefail
 CONF1_PORT="${CONF1_PORT:-8806}"
 CONF2_PORT="${CONF2_PORT:-8807}"
 
-# DUO-3238: retry the whole front-page render as one unit. Two documented
+# issue #3238: retry the whole front-page render as one unit. Two documented
 # load-flake instances against exactly this assertion set motivated
-# _retry_helper.sh (grind round R3-B; DUO-3228 task 0's
+# _retry_helper.sh (grind round R3-B; issue #3228 task 0's
 # About-permalink failure) — this is its first wiring. front_page_checks()
 # bundles every assertion below against the SAME curled body (a stale or
 # incomplete render is a property of the page as a whole, not any single
@@ -43,7 +43,7 @@ front_page_checks() { # front_page_checks <body> — sets FSE_FRONT_FAIL on any 
     FSE_FRONT_FAIL="conf2's rendered front page links back to conf1 (localhost:${CONF1_PORT}) — navigation-link id/url not rebound"
     return 1
   fi
-  if ! grep -q 'href="http://localhost:'"$CONF2_PORT"'/duo-fse-about/"' <<<"$body"; then
+  if ! grep -q 'href="http://localhost:'"$CONF2_PORT"'/wprism-fse-about/"' <<<"$body"; then
     FSE_FRONT_FAIL="post-type navigation-link (kind_from -> post ref) did not resolve to conf2's own About permalink"
     return 1
   fi
@@ -51,7 +51,7 @@ front_page_checks() { # front_page_checks <body> — sets FSE_FRONT_FAIL on any 
     FSE_FRONT_FAIL="taxonomy navigation-link (kind_from -> term ref) did not resolve to conf2's own category archive"
     return 1
   fi
-  if ! grep -q 'href="https://duo-conformance-external.example.test/features"' <<<"$body"; then
+  if ! grep -q 'href="https://wprism-conformance-external.example.test/features"' <<<"$body"; then
     FSE_FRONT_FAIL="custom navigation-link's genuinely external URL was altered (should pass through unchanged)"
     return 1
   fi
@@ -59,7 +59,7 @@ front_page_checks() { # front_page_checks <body> — sets FSE_FRONT_FAIL on any 
     FSE_FRONT_FAIL="reusable block's image did not load from conf2's own uploads"
     return 1
   fi
-  if ! grep -q 'href="http://localhost:'"$CONF2_PORT"'/duo-fse-contact/"' <<<"$body"; then
+  if ! grep -q 'href="http://localhost:'"$CONF2_PORT"'/wprism-fse-contact/"' <<<"$body"; then
     FSE_FRONT_FAIL="customized footer template-part's Contact link did not resolve to conf2's own permalink"
     return 1
   fi
@@ -84,8 +84,8 @@ pass "conf2 renders its own nav (post/term/custom links), reusable-block image, 
 say "guard: switch conf2 to a different bundled theme, plan must name both themes"
 wp_conf2 theme activate twentytwentyfour >/dev/null || fail "could not activate twentytwentyfour on conf2"
 
-MISMATCH_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | tail -1)
-require_duo_answered "conf2 duo plan after active-theme mismatch" json "$MISMATCH_PLAN"
+MISMATCH_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | tail -1)
+require_wprism_answered "conf2 wprism plan after active-theme mismatch" json "$MISMATCH_PLAN"
 MISMATCH_WARNINGS=$(echo "$MISMATCH_PLAN" | jq -r '.warnings[]?')
 echo "$MISMATCH_WARNINGS" | grep -q 'active-theme mismatch' \
   || fail "plan did not warn about the active-theme mismatch after switching conf2 to twentytwentyfour"
@@ -101,8 +101,8 @@ pass "plan loudly warns: conf2 active theme 'twentytwentyfour' vs. captured 'twe
 
 say "guard: restore conf2's active theme, plan must be warning-free again"
 wp_conf2 theme activate twentytwentyfive >/dev/null || fail "could not restore twentytwentyfive on conf2"
-CLEAN_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | tail -1)
-require_duo_answered "conf2 duo plan after restoring active theme" json "$CLEAN_PLAN"
+CLEAN_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | tail -1)
+require_wprism_answered "conf2 wprism plan after restoring active theme" json "$CLEAN_PLAN"
 CLEAN_WARNING_COUNT=$(echo "$CLEAN_PLAN" | jq '.warnings | length')
 [ "$CLEAN_WARNING_COUNT" = "0" ] \
   || fail "plan still warned after restoring the matching theme: $(echo "$CLEAN_PLAN" | jq -c '.warnings')"

@@ -23,9 +23,9 @@ function apply_filters(string $tag, $source, ...$args) {
 $root = dirname(__DIR__, 4);
 require_once "$root/agent/src/Capture/MediaCapture.php";
 
-use Duo\CommandRefusalException;
-use Duo\MediaCapture;
-use Duo\MediaPayloadAuthority;
+use WPrism\CommandRefusalException;
+use WPrism\MediaCapture;
+use WPrism\MediaPayloadAuthority;
 
 $failures = 0;
 $check = static function (bool $condition, string $message) use (&$failures): void {
@@ -37,7 +37,7 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
     $failures++;
 };
 
-$tmp = sys_get_temp_dir() . '/duo-media-capture-' . bin2hex(random_bytes(6));
+$tmp = sys_get_temp_dir() . '/wprism-media-capture-' . bin2hex(random_bytes(6));
 $uploadRoot = "$tmp/uploads";
 $localDir = "$uploadRoot/2026/08";
 mkdir($localDir, 0777, true);
@@ -49,10 +49,10 @@ $physicalLocalPath = realpath($localPath);
 
 $capture = new MediaCapture();
 $check(class_exists(MediaCapture::class, false), 'MediaCapture loads as a direct offline boundary');
-$check(!class_exists(Duo\Capture::class, false), 'MediaCapture does not load Duo\\Capture');
-$check(!class_exists(Duo\Policy::class, false), 'MediaCapture does not load Duo\\Policy');
-$check(!class_exists(Duo\Tokens::class, false), 'MediaCapture does not load Duo\\Tokens');
-$check(!class_exists(Duo\Ledger::class, false), 'MediaCapture does not load Duo\\Ledger');
+$check(!class_exists(WPrism\Capture::class, false), 'MediaCapture does not load WPrism\\Capture');
+$check(!class_exists(WPrism\Policy::class, false), 'MediaCapture does not load WPrism\\Policy');
+$check(!class_exists(WPrism\Tokens::class, false), 'MediaCapture does not load WPrism\\Tokens');
+$check(!class_exists(WPrism\Ledger::class, false), 'MediaCapture does not load WPrism\\Ledger');
 
 $GLOBALS['media_capture_filter_calls'] = [];
 $GLOBALS['media_capture_filter'] = static fn($source) => $source;
@@ -74,7 +74,7 @@ $check(
 );
 $check(
     $GLOBALS['media_capture_filter_calls'] === [[
-        'duo_attachment_capture_source',
+        'wprism_attachment_capture_source',
         ['path' => $physicalLocalPath],
         [17, '2026/08/photo.TXT', $physicalLocalPath],
     ]],
@@ -82,7 +82,7 @@ $check(
 );
 
 $GLOBALS['media_capture_filter_calls'] = [];
-$GLOBALS['wp_filter']['duo_attachment_capture_source'] = (object) [
+$GLOBALS['wp_filter']['wprism_attachment_capture_source'] = (object) [
     'callbacks' => [
         10 => ['throwing-provider-premise' => ['function' => static function (): void {
             throw new RuntimeException('strict local observation invoked the provider');
@@ -94,7 +94,7 @@ $check($strict['media_ref'] === ["$localSha.TXT", ['path' => $physicalLocalPath,
     'strict observation captures an available local source even when an offload provider is registered');
 $check($GLOBALS['media_capture_filter_calls'] === [],
     'strict observation never invokes the external offload hook');
-unset($GLOBALS['wp_filter']['duo_attachment_capture_source']);
+unset($GLOBALS['wp_filter']['wprism_attachment_capture_source']);
 
 $offloadPath = "$tmp/materialized.epub";
 $offloadPathBytes = 'provider-path-bytes';
@@ -207,7 +207,7 @@ $providerLinkRejected = false;
 try {
     $capture->capture(204, 'remote/provider.txt', 'text/plain', '', false);
 } catch (Throwable $e) {
-    $providerLinkRejected = $e->getMessage() === 'duo: attachment 204 offload provider path is not a readable file';
+    $providerLinkRejected = $e->getMessage() === 'wprism: attachment 204 offload provider path is not a readable file';
 }
 $check($providerLinkRejected, 'an offload provider final symlink is refused before its bytes are observed');
 
@@ -230,7 +230,7 @@ $missingAttached = false;
 try {
     $capture->capture(21, null, 'image/png', '', false);
 } catch (Throwable $e) {
-    $missingAttached = $e->getMessage() === 'duo: attachment 21 has no _wp_attached_file';
+    $missingAttached = $e->getMessage() === 'wprism: attachment 21 has no _wp_attached_file';
 }
 $check($missingAttached, 'a missing _wp_attached_file refuses with the historical exact message');
 
@@ -245,7 +245,7 @@ $check(
     $strictMissing instanceof CommandRefusalException
         && $strictMissing->reasonCode === 'explain_observation_precondition_failed'
         && $strictMissing->getPrevious()?->getMessage()
-            === 'duo: strict attachment observation has no local media source; the external offload hook is deliberately not invoked by explain',
+            === 'wprism: strict attachment observation has no local media source; the external offload hook is deliberately not invoked by explain',
     'strict missing media maps to the stable value-free explain precondition with private exact cause'
 );
 $check($GLOBALS['media_capture_filter_calls'] === [],
@@ -257,30 +257,30 @@ try {
     $capture->capture(23, 'remote/missing.png', 'image/png', '', false);
 } catch (Throwable $e) {
     $noProvider = $e->getMessage()
-        === "duo: attachment 23 file 'remote/missing.png' is not present locally and no offload provider supplied bytes via duo_attachment_capture_source; capture cannot proceed for this attachment";
+        === "wprism: attachment 23 file 'remote/missing.png' is not present locally and no offload provider supplied bytes via wprism_attachment_capture_source; capture cannot proceed for this attachment";
 }
 $check($noProvider, 'ordinary missing media names the absent local/provider contract exactly');
 
 $invalidCases = [
     'non-array' => [
         'source' => 'raw-string',
-        'message' => "duo: attachment 24 offload provider returned an invalid duo_attachment_capture_source value; expected exactly ['path' => <readable path>] or ['bytes' => <raw bytes>]",
+        'message' => "wprism: attachment 24 offload provider returned an invalid wprism_attachment_capture_source value; expected exactly ['path' => <readable path>] or ['bytes' => <raw bytes>]",
     ],
     'neither-key' => [
         'source' => [],
-        'message' => "duo: attachment 24 offload provider returned an invalid duo_attachment_capture_source value; expected exactly one of 'path' or 'bytes'",
+        'message' => "wprism: attachment 24 offload provider returned an invalid wprism_attachment_capture_source value; expected exactly one of 'path' or 'bytes'",
     ],
     'both-keys' => [
         'source' => ['path' => $offloadPath, 'bytes' => $offloadBytes],
-        'message' => "duo: attachment 24 offload provider returned an invalid duo_attachment_capture_source value; expected exactly one of 'path' or 'bytes'",
+        'message' => "wprism: attachment 24 offload provider returned an invalid wprism_attachment_capture_source value; expected exactly one of 'path' or 'bytes'",
     ],
     'bad-path' => [
         'source' => ['path' => "$tmp/absent.file"],
-        'message' => 'duo: attachment 24 offload provider path is not a readable file',
+        'message' => 'wprism: attachment 24 offload provider path is not a readable file',
     ],
     'bad-bytes' => [
         'source' => ['bytes' => 42],
-        'message' => 'duo: attachment 24 offload provider bytes must be a string',
+        'message' => 'wprism: attachment 24 offload provider bytes must be a string',
     ],
 ];
 foreach ($invalidCases as $label => $case) {
@@ -318,8 +318,8 @@ $check(
     'PostCapture delegates attachment source projection and retains its historical media result'
 );
 $check(
-    !str_contains($captureSource, "apply_filters(\n                    'duo_attachment_capture_source'")
-        && !str_contains($captureSource, 'offload provider returned an invalid duo_attachment_capture_source value'),
+    !str_contains($captureSource, "apply_filters(\n                    'wprism_attachment_capture_source'")
+        && !str_contains($captureSource, 'offload provider returned an invalid wprism_attachment_capture_source value'),
     'Capture no longer owns duplicate attachment source validation'
 );
 

@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline (no docker, no WordPress bootstrap) regression harness for
- * DUO-3235's composite_ref identity mode (agent/src/Repository/Snapshot.php, task
+ * issue #3235's composite_ref identity mode (agent/src/Repository/Snapshot.php, task
  * #125): the typed-snapshot grammar's representation for a PURE JOIN table
  * with no surrogate primary key, where every PK column is itself a ref into
  * another keyspace — proving fixture PMPro's pmpro_memberships_pages
@@ -51,7 +51,7 @@ if (!function_exists('wp_upload_dir')) {
     function wp_upload_dir($time = null, $create_dir = true, $refresh_cache = false) {
         return [
             'baseurl' => 'http://example.test/wp-content/uploads',
-            'basedir' => sys_get_temp_dir() . '/duo-regress-uploads',
+            'basedir' => sys_get_temp_dir() . '/wprism-regress-uploads',
         ];
     }
 }
@@ -80,7 +80,7 @@ if (!function_exists('sanitize_title')) {
  *     SHOW TABLES LIKE / SHOW COLUMNS FROM / a plain SELECT *, AND is
  *     mutated by real insert()/update()/delete() METHOD calls (matching
  *     $wpdb's own API shape) rather than string-parsed SQL for those three.
- *   - query() interprets the two duo_map statements Ledger::set()/forget()
+ *   - query() interprets the two wprism_map statements Ledger::set()/forget()
  *     issue well enough to keep $this->identity self-consistent across a
  *     capture-then-apply-then-delete sequence in ONE test run.
  */
@@ -89,9 +89,9 @@ final class FakeWpdb {
     public $insert_id = 0;
     public $last_error = '';
 
-    /** @var array<string, array<int, string>> id_kind => [local_id => uuid] (duo_map) */
+    /** @var array<string, array<int, string>> id_kind => [local_id => uuid] (wprism_map) */
     public $identity = [];
-    /** @var array<string, array<int, string>> id_kind => [local_id => entity_type] (duo_map) */
+    /** @var array<string, array<int, string>> id_kind => [local_id => entity_type] (wprism_map) */
     public $identityType = [];
     /** @var array<string, array{columns: array<string,string>, rows: array<int, array<string,mixed>>}> unprefixed table => shape */
     public $tables = [];
@@ -117,7 +117,7 @@ final class FakeWpdb {
             $unprefixed = str_starts_with($prefixed, $this->prefix) ? substr($prefixed, strlen($this->prefix)) : $prefixed;
             return isset($this->tables[$unprefixed]) ? $prefixed : null;
         }
-        if (str_contains($sql, 'SELECT local_id FROM') && str_contains($sql, 'duo_map')) {
+        if (str_contains($sql, 'SELECT local_id FROM') && str_contains($sql, 'wprism_map')) {
             [$uuid, $kind] = $args;
             foreach ($this->identity[$kind] ?? [] as $localId => $u) {
                 if ($u === $uuid) {
@@ -126,7 +126,7 @@ final class FakeWpdb {
             }
             return null;
         }
-        if (str_contains($sql, 'SELECT uuid FROM') && str_contains($sql, 'duo_map')) {
+        if (str_contains($sql, 'SELECT uuid FROM') && str_contains($sql, 'wprism_map')) {
             [$kind, $localId] = $args;
             return $this->identity[$kind][(int) $localId] ?? null;
         }
@@ -146,7 +146,7 @@ final class FakeWpdb {
 
     public function get_row($prepared, $output = ARRAY_A) {
         [$sql, $args] = $this->unwrap($prepared);
-        if (str_contains($sql, 'SELECT entity_type, local_id FROM') && str_contains($sql, 'duo_map')) {
+        if (str_contains($sql, 'SELECT entity_type, local_id FROM') && str_contains($sql, 'wprism_map')) {
             [$uuid, $kind] = $args;
             foreach ($this->identity[$kind] ?? [] as $localId => $candidate) {
                 if ($candidate === $uuid) {
@@ -158,7 +158,7 @@ final class FakeWpdb {
             }
             return null;
         }
-        if (str_contains($sql, 'SELECT uuid, entity_type FROM') && str_contains($sql, 'duo_map')) {
+        if (str_contains($sql, 'SELECT uuid, entity_type FROM') && str_contains($sql, 'wprism_map')) {
             [$kind, $localId] = $args;
             $localId = (int) $localId;
             if (!isset($this->identity[$kind][$localId])) {
@@ -193,7 +193,7 @@ final class FakeWpdb {
     public function query($prepared) {
         [$sql, $args] = $this->unwrap($prepared);
         $sql = trim($sql);
-        if (str_starts_with($sql, 'DELETE FROM') && str_contains($sql, 'duo_map') && str_contains($sql, 'uuid <>')) {
+        if (str_starts_with($sql, 'DELETE FROM') && str_contains($sql, 'wprism_map') && str_contains($sql, 'uuid <>')) {
             [$kind, $localId, $uuid] = $args;
             foreach ($this->identity[$kind] ?? [] as $lid => $u) {
                 if ($lid === (int) $localId && $u !== $uuid) {
@@ -203,13 +203,13 @@ final class FakeWpdb {
             }
             return 1;
         }
-        if (str_starts_with($sql, 'INSERT INTO') && str_contains($sql, 'duo_map')) {
+        if (str_starts_with($sql, 'INSERT INTO') && str_contains($sql, 'wprism_map')) {
             [$uuid, $entityType, $kind, $localId] = $args; // (uuid, entity_type, id_kind, local_id)
             $this->identity[$kind][(int) $localId] = $uuid;
             $this->identityType[$kind][(int) $localId] = $entityType;
             return 1;
         }
-        if (str_starts_with($sql, 'DELETE FROM') && str_contains($sql, 'duo_map')) {
+        if (str_starts_with($sql, 'DELETE FROM') && str_contains($sql, 'wprism_map')) {
             // Ledger::forget()'s uuid-keyed delete
             $uuid = $args[0];
             foreach ($this->identity as $kind => $byId) {
@@ -222,8 +222,8 @@ final class FakeWpdb {
             }
             return 1;
         }
-        if (str_starts_with($sql, 'DELETE FROM') && str_contains($sql, 'duo_state')) {
-            return 1; // duo_state not modeled — nothing this file's tests read back
+        if (str_starts_with($sql, 'DELETE FROM') && str_contains($sql, 'wprism_state')) {
+            return 1; // wprism_state not modeled — nothing this file's tests read back
         }
         return 1; // generic no-op fallback (e.g. Ledger::ensure()'s CREATE TABLE, never issued here but harmless)
     }
@@ -300,12 +300,12 @@ require_once __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/IdentityNotes.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/Snapshot.php';
 
-use Duo\Canon;
-use Duo\Ledger;
-use Duo\Policy;
-use Duo\Snapshot;
-use Duo\Tokens;
-use Duo\Uuid;
+use WPrism\Canon;
+use WPrism\Ledger;
+use WPrism\Policy;
+use WPrism\Snapshot;
+use WPrism\Tokens;
+use WPrism\Uuid;
 
 $failures = 0;
 function check(bool $cond, string $msg): void {
@@ -616,7 +616,7 @@ if (count($rowsAfterFinalize) === 1) {
     check((int) $r['page_id'] === 88, 'C2: page_id resolved to environment C\'s OWN local id (88), not the source\'s (14 or 4242)');
 }
 $packedAfterFinalize = Ledger::id_for($capturedEntity['uuid'], 'pmpro_restrict');
-check($packedAfterFinalize !== null, 'C2: finalize_composite_row() recorded a duo_map entry for this environment (bookkeeping only, never consulted for identity — see docblock)');
+check($packedAfterFinalize !== null, 'C2: finalize_composite_row() recorded a wprism_map entry for this environment (bookkeeping only, never consulted for identity — see docblock)');
 
 // C3 — idempotency: finalize the SAME entity again (as a real re-apply of
 // an unchanged file would eventually call it) must not duplicate the row.

@@ -4,16 +4,16 @@ A failed release is not a mystery to be poked at with SQL. It is a documented
 sequence with one entry point:
 
 ```sh
-duo recover production --list
-duo recover production --restore=<receipt-id> --writers-excluded
+wprism recover production --list
+wprism recover production --restore=<receipt-id> --writers-excluded
 ```
 
-`duo recover` is a thin, literal front end over the recovery runtime. The
+`wprism recover` is a thin, literal front end over the recovery runtime. The
 runtime is unchanged — the same rollback authority, the same profiles, the
 same transitions in the same order. What changed is who types it. Driving
 `recovery/rollback-control.php` by hand is no longer an operator path; the
 raw actions are named in [internals.md](internals.md) for the people who
-maintain the runtime, and `duo` never needs them.
+maintain the runtime, and `wprism` never needs them.
 
 This guide is what to do *after* a release told you `recover`. If it told you
 `resume`, `reconcile`, `retry`, `requalify` or `escalate`, read
@@ -30,16 +30,16 @@ which means **recovery cannot be protected by a lock stored inside the
 database being imported**.
 
 The protection has to be external to that database: a real maintenance window
-that keeps every Duo writer, every package manager, every self-updater and
+that keeps every WPrism writer, every package manager, every self-updater and
 every piece of shell automation out of the site for the whole recovery window.
 `--writers-excluded` is your assertion that such a window exists. Without it
-`duo recover` refuses before the first transition, and that refusal is the
+`wprism recover` refuses before the first transition, and that refusal is the
 feature.
 
 ## List what the target actually holds
 
 ```sh
-duo recover production --list
+wprism recover production --list
 ```
 
 ```text
@@ -75,12 +75,12 @@ consumes them — and stay in `--format=json`.
 
 The signed receipt above is one source of rows. The other is the encrypted
 database checkpoint a release **retained**: `promote`
-exports the pre-release database to an encrypted `.duo/checkpoints/promote-<owner>.sql.enc`
+exports the pre-release database to an encrypted `.wprism/checkpoints/promote-<owner>.sql.enc`
 right after taking its lease and prints `database checkpoint retained: …` on
-success. A standalone `duo deploy` does the same under its own lease, at
-`.duo/checkpoints/deploy-<owner>.sql.enc` (`duo deploy --no-checkpoint` opts out).
+success. A standalone `wprism deploy` does the same under its own lease, at
+`.wprism/checkpoints/deploy-<owner>.sql.enc` (`wprism deploy --no-checkpoint` opts out).
 That file is what the frozen authorization plan's `operator-directed`
-claim (`restores: database checkpoint`) refers to, so `duo recover` lists it
+claim (`restores: database checkpoint`) refers to, so `wprism recover` lists it
 and restores it on **every** transport — local, docker and SSH alike:
 
 ```text
@@ -90,7 +90,7 @@ checkpoints: 2
   deploy-20260817-085500-abcdefabcdefabcdefabcdefabcdefab  retained  retained-release-checkpoint  3200s old
     covers: database checkpoint
 note: this transport carries no rollback authority runtime, so only the database checkpoints its releases retained are listed
-note: retained release checkpoints are the plain database checkpoints promote and deploy kept under .duo/checkpoints; restoring one drives the operator-directed path (abort, begin, isolated import, final abort)
+note: retained release checkpoints are the plain database checkpoints promote and deploy kept under .wprism/checkpoints; restoring one drives the operator-directed path (abort, begin, isolated import, final abort)
 note: a retained checkpoint older than the target's latest begun promotion session is refused at step 1 with promotion_abort_session_superseded; an obsolete checkpoint is not a safe recovery source, so recover that release through the provider that owns the target's backups instead
 ```
 
@@ -99,7 +99,7 @@ The id is the file name the release verb wrote, and it is what
 has none: it is a file, not a signed receipt. Its lease identity — the owner
 and the artifact hash the release used — is read from the retained compiled
 artifact beside it, the file that shares its stem
-(`.duo/artifacts/promote-<owner>.json`, or `deploy-<owner>.json`); a checkpoint
+(`.wprism/artifacts/promote-<owner>.json`, or `deploy-<owner>.json`); a checkpoint
 whose artifact is gone is still listed, with a note that it cannot be restored
 by this command. Both rows restore identically: the prefix names which verb
 wrote the dump and nothing else, and the four ordered steps below are the same
@@ -108,7 +108,7 @@ four steps for either.
 ### Pruning retained checkpoints
 
 Every promote and every standalone deploy leaves one more whole-database dump
-under `.duo/checkpoints`, and **nothing removes one on its own**. Duo has no
+under `.wprism/checkpoints`, and **nothing removes one on its own**. WPrism has no
 automatic retention anywhere: a `.sql` on a target's disk carries no expiry, so
 `retention_until` on a retained row is `null` rather than a number the file
 does not actually promise. Removing them is an explicit operator verb, and it
@@ -117,22 +117,22 @@ is the only thing in the product that deletes a checkpoint.
 It is two steps, because the first one deletes nothing:
 
 ```console
-$ duo recover prod --prune-retained=3
+$ wprism recover prod --prune-retained=3
 prune retained checkpoints on prod: keep 3 per verb
   WOULD-PRUNE deploy-20260702-104500-ab12cd34ab12cd34ab12cd34ab12cd34  2026-07-02T10:45:00Z
   WOULD-PRUNE promote-20260628-091402-0123456789abcdef0123456789abcdef  2026-06-28T09:14:02Z
 would prune 2, keep 6
 nothing was removed: re-run with --confirm-prune to remove exactly the rows above
-note: Duo prunes nothing on its own: retained checkpoints are removed only by this explicit operator verb
+note: WPrism prunes nothing on its own: retained checkpoints are removed only by this explicit operator verb
 note: the newest retained checkpoints are never deletable: the keep count applies separately to the promote and deploy files, so the most recent before-image of each verb survives every prune
-note: only the retained .sql under .duo/checkpoints is removed; the sibling .duo/artifacts/<stem>.json and the frozen authorization plan under .duo/releases are kept, because those are what the code-first gate reads for the checkpoints this prune left in place
+note: only the retained .sql under .wprism/checkpoints is removed; the sibling .wprism/artifacts/<stem>.json and the frozen authorization plan under .wprism/releases are kept, because those are what the code-first gate reads for the checkpoints this prune left in place
 ```
 
 Read those rows against the `--list` you just took — they are literally the
 same catalog — and then remove exactly them:
 
 ```console
-$ duo recover prod --prune-retained=3 --confirm-prune
+$ wprism recover prod --prune-retained=3 --confirm-prune
 prune retained checkpoints on prod: keep 3 per verb
   REMOVED deploy-20260702-104500-ab12cd34ab12cd34ab12cd34ab12cd34  2026-07-02T10:45:00Z
   REMOVED promote-20260628-091402-0123456789abcdef0123456789abcdef  2026-06-28T09:14:02Z
@@ -151,7 +151,7 @@ Five things it refuses or will not do, and why:
 2. **The keep count is per verb.** `promote-` and `deploy-` files are counted
    separately, so a month of deploys can never age out your last promote.
 3. **Signed receipts are never touched.** A receipt lives in the rollback
-   authority, not in `.duo/checkpoints`, and its id is a receipt id rather
+   authority, not in `.wprism/checkpoints`, and its id is a receipt id rather
    than a file name.
 4. **It refuses entirely while a signed generation is nonterminal**
    (`checkpoint_prune_generation_active`). Pruning mid-rollback is pruning
@@ -161,8 +161,8 @@ Five things it refuses or will not do, and why:
    import. A prune imports nothing and takes no lease, so passing it is
    `invalid_arguments` rather than an accepted no-op.
 
-Only the `.sql` is removed. The sibling `.duo/artifacts/<stem>.json` and the
-frozen plan under `.duo/releases/` stay, because those are what the code-first
+Only the `.sql` is removed. The sibling `.wprism/artifacts/<stem>.json` and the
+frozen plan under `.wprism/releases/` stay, because those are what the code-first
 gate reads for the checkpoints that **remain** — deleting them would quietly
 degrade recovery for the rows you just chose to keep.
 
@@ -172,7 +172,7 @@ authority runtime the adoption installed) and driving a **signed** rollback.
 The requirement is the configuration, not the transport — an `ssh` environment
 has it, and so does a `local` one that set `rollback_key_id`,
 `rollback_signing_key` and `rollback_recovery` in its machine-local
-`.duo-envs.json`. Anywhere else a signed rollback refuses with
+`.wprism-envs.json`. Anywhere else a signed rollback refuses with
 `recovery_authority_unavailable` and points you at `--restore=<retained id>` or
 the provider that owns that environment's backups. On a `local` target the
 signing key lives on the target machine, so the signature proves the runtime
@@ -220,7 +220,7 @@ When the checkpoint's artifact hash matches a frozen authorization plan in
 your site repository, the claim printed here is **that plan's claim, byte for
 byte**. The claim you read at authorization is the claim you read at recovery;
 that is a checkable property, not a coincidence, and it is why the frozen plan
-under `.duo/releases/` is worth committing.
+under `.wprism/releases/` is worth committing.
 
 ### `restores` versus `does_not_restore`
 
@@ -258,7 +258,7 @@ instant — every order, every session, every comment written by live traffic
 while the release was failing — is inside the boundary and does not survive
 the restore.
 
-That is not a caveat printed to cover Duo. It is the number to plan the
+That is not a caveat printed to cover WPrism. It is the number to plan the
 maintenance window around, and it is the assertion an end-to-end recovery test
 checks literally: the post-checkpoint row's fate has to match this line
 exactly, or the claim is wrong and the test fails.
@@ -266,7 +266,7 @@ exactly, or the claim is wrong and the test fails.
 ## Restore
 
 ```sh
-duo recover production --restore=4b1f0c92e7a3 --writers-excluded
+wprism recover production --restore=4b1f0c92e7a3 --writers-excluded
 ```
 
 Which path runs is a fact about your controller, not a preference. A
@@ -274,7 +274,7 @@ Which path runs is a fact about your controller, not a preference. A
 runs the profile's own signed rollback, which restores effects, uploads, code
 and the database in its own proven order. Anything else runs the
 operator-directed path — the same four ordered steps a human used to type,
-driven by Duo instead: abort the old owner/artifact pair, begin the same pair
+driven by WPrism instead: abort the old owner/artifact pair, begin the same pair
 again, perform the isolated database import, and abort the row the import
 restored.
 
@@ -326,14 +326,14 @@ The remedy is the last line, and it is not a retry — the gate is deterministic
 and a second run refuses identically. Either recover the release that owns the
 latest begun session (its own checkpoint is the one that matches the current
 database), or, if what you need is the state this obsolete checkpoint holds,
-recover this target through the provider that owns its backups. `duo recover`
+recover this target through the provider that owns its backups. `wprism recover`
 deliberately has no flag that forces past this.
 
 `--format=json` carries the same three facts on the failed step —
 `reason_code`, the public `detail`, and `remediation` — inside
-`duo-recovery-outcome/v1`, so a pipeline reads the reason rather than a
+`wprism-recovery-outcome/v1`, so a pipeline reads the reason rather than a
 generic failure. The target's own sentence names the superseding lease owner
-and artifact hash; those are internal identifiers no `duo` command consumes,
+and artifact hash; those are internal identifiers no `wprism` command consumes,
 so they stay in the target's private operator evidence rather than in either
 view.
 
@@ -342,7 +342,7 @@ the target that belongs to a different owner and artifact. Both are listed with
 their remedies in
 [capabilities-and-limits.md](capabilities-and-limits.md#refusal-to-remedy).
 
-`duo recover <env> --list` prints this property as a note beside the retained
+`wprism recover <env> --list` prints this property as a note beside the retained
 rows. It is a note and not a per-row marker for a reason: the durable session
 row lives on the target and no host verb reads it, so the listing cannot say
 *which* checkpoint is superseded without inventing an answer — and an older
@@ -362,14 +362,14 @@ So the operator-directed path refuses:
 recover_code_not_reconciled: this checkpoint was taken around a code phase, so importing its
 database before code is reconciled would leave a database describing one code revision
 underneath another
-next: reconcile or restore the target code to e2f1a09c4b2d first, confirm with duo status,
-then re-run duo recover with the same --restore id
+next: reconcile or restore the target code to e2f1a09c4b2d first, confirm with wprism status,
+then re-run wprism recover with the same --restore id
 ```
 
 The refusal names the exact revision when the receipt or the frozen plan
 records it, and says where to find it when it does not. Reconcile the code
 through the path that owns it — see [code-updates.md](code-updates.md) — then
-confirm with `duo status` and re-run the identical `--restore` command.
+confirm with `wprism status` and re-run the identical `--restore` command.
 
 The signed profile does not need this gate, because it restores code itself,
 in its own order, before the database. That is not an exception to the rule;
@@ -378,19 +378,19 @@ it is the rule being satisfied by the profile instead of by you.
 ## After the recovery
 
 ```sh
-duo status production
-duo assess production
+wprism status production
+wprism assess production
 ```
 
-`duo status` is the readiness question: a clean plan is the receipt that code
-and state agree again. `duo assess` is the honesty question: the post-recovery
+`wprism status` is the readiness question: a clean plan is the receipt that code
+and state agree again. `wprism assess` is the honesty question: the post-recovery
 projection should match the projection you had before the release, and a
 surface that moved is a surface worth understanding before you try again.
 
 Then reconcile the ledger of what did *not* come back. Everything on the
 `does NOT restore` list is now a task for a human: mail that went out, payments
 that were taken, webhooks that fired, and the writes inside the maximum loss
-boundary. Duo told you that list twice on purpose.
+boundary. WPrism told you that list twice on purpose.
 
 ## An `incomplete_lifecycle` receipt is the strict case
 

@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Repository/Journal.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
@@ -101,7 +101,7 @@ require_once __DIR__ . '/../Policy/Policy.php';
  * coordinates, so they are deliberately not mapped.
  */
 final class EffectDeclarationCoverage {
-    public const FORMAT = 'duo-effect-declaration-coverage/v1';
+    public const FORMAT = 'wprism-effect-declaration-coverage/v1';
 
     /** Closed verdict set for one observed `(table, item)` surface. */
     public const WRITE_VERDICTS = ['classified', 'declared', 'outside_declaration'];
@@ -119,7 +119,7 @@ final class EffectDeclarationCoverage {
      * read back as "this site performed no writes".
      *
      * @param list<string> $manifestNames the same `--manifests` selection
-     *        `wp duo journal-report` takes, resolved the same way.
+     *        `wp wprism journal-report` takes, resolved the same way.
      * @return array<string,mixed>
      */
     public static function report(array $manifestNames): array {
@@ -464,7 +464,7 @@ final class EffectDeclarationCoverage {
                     'message' => 'a failed journal read is not evidence that no write was observed',
                     'remediation' => 'repair the journal through the existing controlled workflow before scoring effect declarations',
                 ]],
-                'duo: effect declaration coverage refused because the provenance journal probe failed'
+                'wprism: effect declaration coverage refused because the provenance journal probe failed'
             );
         }
         if ($state !== 'present') {
@@ -477,7 +477,7 @@ final class EffectDeclarationCoverage {
                     'message' => 'an absent journal cannot be scored as an adapter that wrote nothing outside its declarations',
                     'remediation' => 'install or repair the agent through the existing controlled workflow before scoring effect declarations',
                 ]],
-                'duo: effect declaration coverage refused because its provenance journal prerequisite is absent'
+                'wprism: effect declaration coverage refused because its provenance journal prerequisite is absent'
             );
         }
     }
@@ -493,7 +493,7 @@ final class EffectDeclarationCoverage {
                 'message' => 'a failed journal read is not evidence that no write was observed',
                 'remediation' => 'repair the journal through the existing controlled workflow before scoring effect declarations',
             ]],
-            'duo: effect declaration coverage refused because the provenance journal SELECT failed',
+            'wprism: effect declaration coverage refused because the provenance journal SELECT failed',
             $previous
         );
     }
@@ -509,7 +509,7 @@ final class EffectDeclarationCoverage {
                 'message' => 'the scorer will not guess at a journal row it cannot read',
                 'remediation' => 'supply the exact read-only journal aggregate this report consumes',
             ]],
-            'duo: effect declaration coverage refused a malformed journal aggregate'
+            'wprism: effect declaration coverage refused a malformed journal aggregate'
         );
     }
 }

@@ -1,4 +1,4 @@
-name: duo-db-mysql
+name: wprism-db-mysql
 
 # -----------------------------------------------------------------------------
 # The MySQL 8.4 evidence lane's shared server — a SECOND long-lived database
@@ -9,16 +9,16 @@ name: duo-db-mysql
 # would move every pair — including other agents' in-flight evidence runs —
 # onto MySQL mid-flight, and db.yml's own env/binary names are MariaDB-specific
 # anyway (MARIADB_ROOT_PASSWORD at db.yml:50, `healthcheck.sh` at db.yml:68).
-# Two projects means `docker compose -p duo-db -f db.yml` and
-# `docker compose -p duo-db-mysql -f db.mysql.yml` have disjoint blast radii,
-# and a pair selects between them with DUO_DB_ENGINE (sandbox/bin/pair.sh).
+# Two projects means `docker compose -p wprism-db -f db.yml` and
+# `docker compose -p wprism-db-mysql -f db.mysql.yml` have disjoint blast radii,
+# and a pair selects between them with WPRISM_DB_ENGINE (sandbox/bin/pair.sh).
 #
 # THIS FILE STILL CLAIMS NOTHING BY ITSELF -- but the contract it used to be
 # refused by has moved. manifests/capabilities/platform.json's database axis is
 # now an engine-keyed map (`compatibility.database.engines`) naming
 # MySQL [8.4.0, 8.5.0) beside MariaDB [11.0.0, 12.0.0), so a pair on this
 # server is no longer answered with `platform_database_engine_unsupported`
-# before it does anything: `wp duo ...` runs, and this lane is what decides
+# before it does anything: `wp wprism ...` runs, and this lane is what decides
 # whether it should have. The claim's own note carries a PENDING saying the
 # live proof has NOT run and names the remedy if it fails (drop the MySQL
 # entry, restore a MariaDB-only map -- never widen around a failure). The
@@ -26,7 +26,7 @@ name: duo-db-mysql
 # sandbox/tests/live/regress_core_scope_database.sh's, drawn verbatim from
 # docs/mysql-dialect-audit.md.
 #
-# Network: attach-only. db.yml:37-39 is the sole creator of `duo-shared` (it
+# Network: attach-only. db.yml:37-39 is the sole creator of `wprism-shared` (it
 # declares the network WITHOUT `external: true`); every other file in this
 # redesign references it as external. So `db.yml` must have been brought up at
 # least once before this file's first `up`, exactly as sandbox/pair.yml already
@@ -45,24 +45,24 @@ name: duo-db-mysql
 #
 # Cost: this adds a SECOND 2g / 2.0-cpu long-lived container to the same
 # daemon accounting db.yml:4-12 records as having wedged OrbStack under three
-# concurrent stacks. Bring it down (`docker compose -p duo-db-mysql
+# concurrent stacks. Bring it down (`docker compose -p wprism-db-mysql
 # -f db.mysql.yml down -v`) whenever the MySQL matrix is not running, and never
 # leave it up alongside a full conformance sweep.
 # -----------------------------------------------------------------------------
 
 networks:
-  duo-shared:
-    name: duo-shared
+  wprism-shared:
+    name: wprism-shared
     external: true
 
 volumes:
-  duo-db-mysql-data: {}
+  wprism-db-mysql-data: {}
 
 services:
   db:
     image: mysql:8.4
-    container_name: duo-shared-mysql
-    networks: [duo-shared]
+    container_name: wprism-shared-mysql
+    networks: [wprism-shared]
     # --mysql-native-password=ON: the wordpress:cli image's MariaDB 11.8 shell
     # client ships NO caching_sha2_password client plugin (measured 2026-08-24:
     # "Plugin caching_sha2_password could not be loaded ... No such file or
@@ -86,12 +86,12 @@ services:
     # Loopback only, and deliberately NOT db.yml:58's 3316 — both servers are
     # up at once during a matrix run, so a shared host port would make the
     # second one fail to bind. Nothing in this repo's tooling reads this port;
-    # admin SQL goes through `docker exec duo-shared-mysql mysql -uroot`
+    # admin SQL goes through `docker exec wprism-shared-mysql mysql -uroot`
     # (lib/pair_db.sh's pair_db_sql), same as the MariaDB side.
     ports:
       - "127.0.0.1:3326:3306"
     volumes:
-      - duo-db-mysql-data:/var/lib/mysql
+      - wprism-db-mysql-data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysql", "-uroot", "-proot", "-e", "SELECT 1"]
       interval: 3s

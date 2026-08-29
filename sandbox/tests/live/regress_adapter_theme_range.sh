@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Regression — DUO-3222: Deploy::code_mismatch()'s new THEME version_range
+# Regression — issue #3222: Deploy::code_mismatch()'s new THEME version_range
 # check, live. Everything in sandbox/tests/offline/adapter/regress_adapter_contract.php is
 # provably offline; this one piece genuinely cannot be (it calls
 # wp_get_theme()->get('Version'), a real WordPress/filesystem read) — the
 # one live leg this issue's design explicitly called out as needing a real
-# environment (see the DUO-3222 design comment's own "Evidence shape"
+# environment (see the issue #3222 design comment's own "Evidence shape"
 # section).
 #
 # Technique is the one the code-half spikes proved for the PLUGIN side
@@ -17,7 +17,7 @@
 # git machinery, only a live theme to read.
 #
 # Uses a BUNDLED-by-default WordPress theme (twentytwentyfour — zero network
-# installs). Each case activates the stylesheet it declares so DUO-3216's
+# installs). Each case activates the stylesheet it declares so issue #3216's
 # lifecycle mismatch detection cannot mask the version-range assertion.
 # Policy's own $manifests array is populated directly in the eval snippet
 # (public property, no manifests-dir file I/O needed) — deliberately not a
@@ -28,7 +28,7 @@
 # go stale. This test reads the theme's REAL live version and computes its
 # range relative to that, every run.
 #
-# Own sandbox/bin/pair.sh pair (asub3222cf, ports from DUO-3222's own
+# Own sandbox/bin/pair.sh pair (asub3222cf, ports from issue #3222's own
 # range) — never the legacy sandbox/docker-compose.yml profiles.
 set -euo pipefail
 cd "$(dirname "$0")/../.."   # -> sandbox/
@@ -39,15 +39,15 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 PAIR=asub3222tr
 P1=8918
 P2=8919
-export DUO_PAIR="$PAIR"
-COMPOSE="docker compose -p duo-$PAIR -f pair.yml"
+export WPRISM_PAIR="$PAIR"
+COMPOSE="docker compose -p wprism-$PAIR -f pair.yml"
 
 say "reset + bring up own pair ($PAIR, $P1/$P2)"
 bash bin/pair.sh reset "$PAIR" >/dev/null 2>&1 || true
 bash bin/pair.sh up "$PAIR" "$P1" "$P2" >/dev/null || fail "pair up failed"
 
 wp1() { $COMPOSE run --rm -T cli1 wp "$@"; }
-CONTAINER="duo-${PAIR}-wp1-1"
+CONTAINER="wprism-${PAIR}-wp1-1"
 
 say "read twentytwentyfour's REAL installed version (bundled, zero network install)"
 REAL_VERSION=$(wp1 theme get twentytwentyfour --field=version)
@@ -63,13 +63,13 @@ BUMPED_VERSION="20.0.0"   # >= RANGE_MAX -> outside_version_range
 wp1 theme activate twentytwentyfour >/dev/null
 say "(control) real version ($REAL_VERSION) inside the declared range [$RANGE_MIN, $RANGE_MAX) -> zero findings"
 EVAL_SNIPPET=$(cat <<PHP
-\$p = new \Duo\Policy();
+\$p = new \WPrism\Policy();
 \$p->manifests = [[
     'name' => 'theme-range-test',
     'theme' => 'twentytwentyfour',
     'theme_version_range' => ['min' => '$RANGE_MIN', 'max' => '$RANGE_MAX'],
 ]];
-\$rows = \Duo\Deploy::code_mismatch(\$p, ['stylesheet' => 'twentytwentyfour', 'template' => 'twentytwentyfour']);
+\$rows = \WPrism\Deploy::code_mismatch(\$p, ['stylesheet' => 'twentytwentyfour', 'template' => 'twentytwentyfour']);
 echo json_encode(\$rows);
 PHP
 )
@@ -106,13 +106,13 @@ pass "(e) outside_version_range correctly flagged for the THEME slot — $MSG"
 wp1 theme activate twentytwentyone >/dev/null
 say "template slot gets the identical version treatment while the independent parent-template invariant also stays loud"
 EVAL_SNIPPET_DIFF=$(cat <<PHP
-\$p = new \Duo\Policy();
+\$p = new \WPrism\Policy();
 \$p->manifests = [[
     'name' => 'theme-range-test',
     'theme' => 'twentytwentyfour',
     'theme_version_range' => ['min' => '$RANGE_MIN', 'max' => '$RANGE_MAX'],
 ]];
-\$rows = \Duo\Deploy::code_mismatch(\$p, ['stylesheet' => 'twentytwentyone', 'template' => 'twentytwentyfour']);
+\$rows = \WPrism\Deploy::code_mismatch(\$p, ['stylesheet' => 'twentytwentyone', 'template' => 'twentytwentyfour']);
 echo json_encode(\$rows);
 PHP
 )
@@ -138,8 +138,8 @@ pass "restored cleanly"
 
 say "regression: a genuinely MISSING theme still produces missing_in_code (the refactor in Deploy::code_mismatch() did not disturb the pre-existing existence-check path)"
 EVAL_MISSING=$(cat <<'PHP'
-$p = new \Duo\Policy();
-$rows = \Duo\Deploy::code_mismatch($p, ['stylesheet' => 'this-theme-does-not-exist-anywhere']);
+$p = new \WPrism\Policy();
+$rows = \WPrism\Deploy::code_mismatch($p, ['stylesheet' => 'this-theme-does-not-exist-anywhere']);
 echo json_encode($rows);
 PHP
 )

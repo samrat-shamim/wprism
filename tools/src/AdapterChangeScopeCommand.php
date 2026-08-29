@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tooling;
+namespace WPrism\Tooling;
 
 require_once __DIR__ . '/AdapterChangeScopeDecision.php';
 

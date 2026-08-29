@@ -46,14 +46,14 @@ if (is_wp_error($editor)) {
 }
 
 acf_update_field_group([
-    'key' => 'group_duo_post',
+    'key' => 'group_wprism_post',
     'title' => 'Hostile target schema',
     'fields' => [],
     'location' => [[['param' => 'post_type', 'operator' => '==', 'value' => 'page']]],
     'active' => false,
 ]);
 $groupPosts = get_posts([
-    'post_type' => 'acf-field-group', 'name' => 'group_duo_post',
+    'post_type' => 'acf-field-group', 'name' => 'group_wprism_post',
     'posts_per_page' => 1, 'fields' => 'ids', 'post_status' => 'any',
 ]);
 $group = $groupPosts ? (int) $groupPosts[0] : 0;
@@ -61,7 +61,7 @@ if (!$group) {
     throw new RuntimeException('hostile ACF group was not created');
 }
 acf_update_field([
-    'key' => 'field_duo_hero', 'label' => 'Hostile Boolean', 'name' => 'duo_hero',
+    'key' => 'field_wprism_hero', 'label' => 'Hostile Boolean', 'name' => 'wprism_hero',
     'type' => 'true_false', 'parent' => $group,
 ]);
 
@@ -93,10 +93,10 @@ foreach (['one', 'two', 'three'] as $suffix) {
     $termIds[$suffix] = (int) $term['term_id'];
 }
 
-update_field('field_duo_hero', 1, $postIds['conf-acf-content']);
-update_field('field_duo_user_note', 'target-only stale user value', 'user_' . (int) $editor);
-update_option('options_duo_option_note', 'target-only stale option value');
-update_option('_options_duo_option_note', 'field_duo_option_note');
+update_field('field_wprism_hero', 1, $postIds['conf-acf-content']);
+update_field('field_wprism_user_note', 'target-only stale user value', 'user_' . (int) $editor);
+update_option('options_wprism_option_note', 'target-only stale option value');
+update_option('_options_wprism_option_note', 'field_wprism_option_note');
 update_option('acf_first_activated_version', 'target-runtime-first-activation');
 update_option('acf_site_health', [
     'target' => true,
@@ -107,7 +107,7 @@ echo wp_json_encode([
     'content' => $postIds['conf-acf-content'],
     'editor' => (int) $editor,
     'group' => $group,
-    'hero_field' => (int) acf_get_field('field_duo_hero')['ID'],
+    'hero_field' => (int) acf_get_field('field_wprism_hero')['ID'],
     'posts' => $postIds,
     'terms' => $termIds,
     'runtime_first' => get_option('acf_first_activated_version'),

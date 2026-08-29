@@ -1,8 +1,8 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // The typed refusal both gates below throw. Required here rather than left to
-// agent/duo.php's bootstrap order: this file declares no other dependency, the
+// agent/wprism.php's bootstrap order: this file declares no other dependency, the
 // offline lock suites load it directly, and the direct-require contract
 // (sandbox/tests/offline/guards/regress_agent_src_requires.php) wants every
 // engine class this file names to be loaded by it.
@@ -70,7 +70,7 @@ final class ProcessFence {
                 'another live process on this target holds the promotion fence; concurrent target mutation was refused',
                 'wait for the capture, apply, or promotion already running on this target to finish or release its fence, then retry this command',
                 [],
-                'duo: promotion lock held by another live target process; concurrent target mutation refused'
+                'wprism: promotion lock held by another live target process; concurrent target mutation refused'
             );
         }
         self::$name = $name;
@@ -102,7 +102,7 @@ final class ProcessFence {
                 'the promotion process fence is no longer continuously held by this command\'s database connection; target mutation was refused',
                 'do not retry in place: rerun the command so it acquires a fresh fence, and inspect the recorded apply, promotion, and recovery evidence first if a mutation was already in flight',
                 [],
-                'duo: promotion process fence is not continuously held by this database connection'
+                'wprism: promotion process fence is not continuously held by this database connection'
             );
         }
     }
@@ -120,6 +120,6 @@ final class ProcessFence {
     public static function name(): string {
         global $wpdb;
         $database = is_string($wpdb->dbname ?? null) ? $wpdb->dbname : '';
-        return 'duo:' . substr(hash('sha256', $database . '|' . $wpdb->prefix), 0, 59);
+        return 'wprism:' . substr(hash('sha256', $database . '|' . $wpdb->prefix), 0, 59);
     }
 }

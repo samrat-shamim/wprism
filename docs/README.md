@@ -10,23 +10,23 @@ The normative wire contract is not here — it is
 | Path | What it is | Who reads it |
 |---|---|---|
 | [guides/](guides/README.md) | Twelve task-shaped operator guides (quickstart → assess → daily-workflow → release → limits; recovery, flag-day, code-updates, adapter-authoring, coverage-cohort, trust-enrollment, internals). Every command in them is mechanically checked against the shipped CLI. | Operators, first |
-| [capabilities.md](capabilities.md) | Stable explanation of the reviewed capability model and its package-owned authorities. `php tools/capability-doc.php render` prints the exact current matrix; `make release-gate` validates the same sources without creating a central adapter edit point. | Anyone asking "will Duo manage this?" |
+| [capabilities.md](capabilities.md) | Stable explanation of the reviewed capability model and its package-owned authorities. `php tools/capability-doc.php render` prints the exact current matrix; `make release-gate` validates the same sources without creating a central adapter edit point. | Anyone asking "will WPrism manage this?" |
 | [adapter-grades.md](adapter-grades.md) | Stable definition of the computed evidence grade beside each reviewed status. `php tools/adapter-grade.php render` prints current rows from package-owned evidence; a grade qualifies no status. | Anyone comparing two adapters that share a status |
-| [adoption.md](adoption.md) | The SSH adoption contract in full: installing and upgrading Duo on an existing WordPress host. | Operators adopting a real host |
-| [product-spec.md](product-spec.md) | The product specification — customer operations, the versionability contract, the vocabularies, safety invariants, non-goals. Carries its own amendment record. | Anyone arguing about what Duo *is* |
+| [adoption.md](adoption.md) | The SSH adoption contract in full: installing and upgrading WPrism on an existing WordPress host. | Operators adopting a real host |
+| [product-spec.md](product-spec.md) | The product specification — customer operations, the versionability contract, the vocabularies, safety invariants, non-goals. Carries its own amendment record. | Anyone arguing about what WPrism *is* |
 | [roadmap.md](roadmap.md) | Owner roadmap: thesis, horizons, standing decisions. Changes only by owner commit. | Direction, not detail |
 
 ## Runtime and format references
 
 | Path | What it is |
 |---|---|
-| [branch-environment-provider.md](branch-environment-provider.md) | **Generated** — the `duo-branch-environment-provider-request/v1` wire contract every customer's own provider must satisfy: where it is configured, the canonical-JSON framing, the 19 actions with their closed field sets, and every refusal a violation produces. Written by `tools/provider-protocol-doc.php`; `make release-gate` byte-compares it. Never hand-edited. |
-| [wire-surface.md](wire-surface.md) | **Generated** — the irreversibility register: every wire decision that becomes permanent the moment an external party holds a signed artifact (the signature domains and what each covers, the closed statement/authority/receipt key sets, the three disagreeing key-id grammars, expiry, revocation) — plus the three that are permanent without a signature: the flat `id_kind` namespace, the engine-feature vocabulary, and the `spec_version` acceptance window whose floor the checker holds at exactly `DUO_SPEC_VERSION - 1`. Each row carries what a change would cost a holder and what it reserves. Written by `tools/wire-surface.php` out of the same constants and refusals the engine consults; `make release-gate` byte-compares it. Never hand-edited. |
+| [branch-environment-provider.md](branch-environment-provider.md) | **Generated** — the `wprism-branch-environment-provider-request/v1` wire contract every customer's own provider must satisfy: where it is configured, the canonical-JSON framing, the 19 actions with their closed field sets, and every refusal a violation produces. Written by `tools/provider-protocol-doc.php`; `make release-gate` byte-compares it. Never hand-edited. |
+| [wire-surface.md](wire-surface.md) | **Generated** — the irreversibility register: every wire decision that becomes permanent the moment an external party holds a signed artifact (the signature domains and what each covers, the closed statement/authority/receipt key sets, the three disagreeing key-id grammars, expiry, revocation) — plus the three that are permanent without a signature: the flat `id_kind` namespace, the engine-feature vocabulary, and the `spec_version` acceptance window whose floor the checker holds at exactly `WPRISM_SPEC_VERSION - 1`. Each row carries what a change would cost a holder and what it reserves. Written by `tools/wire-surface.php` out of the same constants and refusals the engine consults; `make release-gate` byte-compares it. Never hand-edited. |
 | [recovery-runtime.md](recovery-runtime.md) | The WordPress-independent PHP recovery runtime, its maintenance-exclusion provider contract, and the two-primitive transport boundary it needs. |
 | [checkpoint-bundle.md](checkpoint-bundle.md) · [code-release-runtime.md](code-release-runtime.md) · [upload-bundle.md](upload-bundle.md) · [effect-bundle.md](effect-bundle.md) | The four provider slices of verified SSH rollback: database before-image, code before-image, uploads/media, lifecycle-and-rebuild effects. |
 | [ssh-rollback-certification.md](ssh-rollback-certification.md) | The local certification harness that gates that design. |
-| [assess-vocabulary.md](assess-vocabulary.md) | The six product words `duo assess`, `.duo/contract/projection.json`, the frozen authorization plan and a release refusal all speak. `sandbox/tests/offline/assess-contract/regress_assess_projection.php` is the gate on every cell. |
-| [adapter-walk-bundle.md](adapter-walk-bundle.md) | The wire contract for a site-adapter certification bundle: what `duo adapter certify` must produce and `\Duo\AdapterCertification` verifies, rule by rule. |
+| [assess-vocabulary.md](assess-vocabulary.md) | The six product words `wprism assess`, `.wprism/contract/projection.json`, the frozen authorization plan and a release refusal all speak. `sandbox/tests/offline/assess-contract/regress_assess_projection.php` is the gate on every cell. |
+| [adapter-walk-bundle.md](adapter-walk-bundle.md) | The wire contract for a site-adapter certification bundle: what `wprism adapter certify` must produce and `\WPrism\AdapterCertification` verifies, rule by rule. |
 | [compatibility-baseline.json](compatibility-baseline.json) | **Data, not prose** — read at runtime by `cli/src/Onboarding/Doctor.php`. Do not treat it as a document. |
 
 ## Working in this repo
@@ -46,7 +46,7 @@ so their section numbering is load-bearing: extend it, never renumber it.
 
 | Path | What it is |
 |---|---|
-| [code-half.md](code-half.md) | The `code/` half in full: layout and dependency modes, deploy semantics per transport, the cross-partition invariant (`active_plugins ⊆ plugins in code/`), the plugin-upgrade workflow, engine touchpoints, and the risk register. Nine shipped source citation sites across eight files, `platform/adapter-library/core/manifest.json`'s own note and a `duo doctor` warning string all cite its § numbers. |
+| [code-half.md](code-half.md) | The `code/` half in full: layout and dependency modes, deploy semantics per transport, the cross-partition invariant (`active_plugins ⊆ plugins in code/`), the plugin-upgrade workflow, engine touchpoints, and the risk register. Nine shipped source citation sites across eight files, `platform/adapter-library/core/manifest.json`'s own note and a `wprism doctor` warning string all cite its § numbers. |
 | [adapter-boundary.md](adapter-boundary.md) | The owner ruling on where engine core stops and an adapter package starts: the four extension surfaces, the provider contract, the trust tiers. Six shipped source sites cite it by name. |
 
 ## Engineering history

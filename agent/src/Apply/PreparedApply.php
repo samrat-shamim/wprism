@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /** Immutable, fully rechecked authority inputs handed to mutation execution. */
 final readonly class PreparedApply {

@@ -1,5 +1,5 @@
 {
-    "_provenance": "round-3-adapter-walk.md §3.3: an explicit {name,source:\"site\",digest} pin selects the site copy for a shipped name; the shipped copy is reported as `shadowed_by_site` on every catalog row and in `duo adapter list`, and the site copy carries the site certification words.",
+    "_provenance": "round-3-adapter-walk.md §3.3: an explicit {name,source:\"site\",digest} pin selects the site copy for a shipped name; the shipped copy is reported as `shadowed_by_site` on every catalog row and in `wprism adapter list`, and the site copy carries the site certification words.",
     "adapters": [
         {
             "certification": "registry",
@@ -9,7 +9,7 @@
                 "status": "ok"
             },
             "name": "core",
-            "path": "/duo-manifests/core.json",
+            "path": "/wprism-manifests/core.json",
             "principal": null,
             "sha256": "0d45f5fd462b8c70bffb10021ac1bcff3f58f29b1faf7568595095427d42812c",
             "source": "shipped",
@@ -43,13 +43,13 @@
             "why": "certification is a reviewed claim evaluated against one target: whether the plugin the claim is authored for is installed, active, and inside the reviewed version window"
         }
     ],
-    "format": "duo-adapter-catalog/v2",
-    "manifests_dir": "/duo-manifests",
+    "format": "wprism-adapter-catalog/v2",
+    "manifests_dir": "/wprism-manifests",
     "not_installed": [
         {
-            "message": "adapter 'woocommerce' is shipped at /duo-manifests/woocommerce.json, and the site repository carries an explicit {name,source:\"site\",digest} pin for that name, so the site copy answers to it and the shipped copy is not loaded",
+            "message": "adapter 'woocommerce' is shipped at /wprism-manifests/woocommerce.json, and the site repository carries an explicit {name,source:\"site\",digest} pin for that name, so the site copy answers to it and the shipped copy is not loaded",
             "name": "woocommerce",
-            "path": "/duo-manifests/woocommerce.json",
+            "path": "/wprism-manifests/woocommerce.json",
             "reason_code": "shadowed_by_site",
             "source": "shipped",
             "winner": {
@@ -63,7 +63,7 @@
     "sources": [
         {
             "note": "the agent manifest library that deploys with the agent",
-            "path": "/duo-manifests",
+            "path": "/wprism-manifests",
             "scanned": true,
             "source": "shipped"
         },
@@ -74,7 +74,7 @@
             "source": "site"
         },
         {
-            "note": "an active plugin's bundled duo-adapter.json; not reachable from a WordPress-free host process",
+            "note": "an active plugin's bundled wprism-adapter.json; not reachable from a WordPress-free host process",
             "path": null,
             "scanned": false,
             "source": "plugin"

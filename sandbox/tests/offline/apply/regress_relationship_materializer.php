@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for RelationshipMaterializer (DUO-3347 slice 8: the
+ * Offline regression for RelationshipMaterializer (issue #3347 slice 8: the
  * relationship materializer extracted from Apply.php). Deliberately narrow,
  * the same wiring/shape idiom Menu/UserMeta/Term/Options's own regressions
  * already established: this file does not re-implement or re-assert
@@ -27,10 +27,10 @@ require_once __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/RelationshipMaterializer.php';
 
-use Duo\ApplyFieldMaterializer;
-use Duo\Policy;
-use Duo\RelationshipMaterializer;
-use Duo\Tokens;
+use WPrism\ApplyFieldMaterializer;
+use WPrism\Policy;
+use WPrism\RelationshipMaterializer;
+use WPrism\Tokens;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -67,7 +67,7 @@ $check(
 $constructorParams = (new ReflectionClass(RelationshipMaterializer::class))->getConstructor()->getParameters();
 $check(
     array_map(static fn(ReflectionParameter $p): string => (string) $p->getType(), $constructorParams)
-        === ['Duo\\Policy', 'Duo\\ApplyFieldMaterializer'],
+        === ['WPrism\\Policy', 'WPrism\\ApplyFieldMaterializer'],
     'constructor depends on Policy plus the shared transaction-scoped lock materializer -- no Apply instance'
 );
 
@@ -89,7 +89,7 @@ $check(
 );
 
 // === Prove the extraction itself. reconcile_relationships() lost its only
-// caller when DUO-3347 slice 11 moved finalize_post() itself to
+// caller when issue #3347 slice 11 moved finalize_post() itself to
 // PostMaterializer -- the new PostMaterializer::finalize_post() calls
 // RelationshipMaterializer::reconcile_relationships() directly (calling
 // back through Apply's own facade would be circular), so Apply's
@@ -99,7 +99,7 @@ $check(
 // reconcile_term_relationships() already established (slice 6).
 // delete_post_relationships()/delete_term_relationships() outlived that
 // slice as thin Apply facades because delete_entity() -- their one
-// remaining caller -- was still on Apply itself. DUO-3347 slice 12 moved
+// remaining caller -- was still on Apply itself. issue #3347 slice 12 moved
 // delete_entity() to DeleteExecutor, which calls RelationshipMaterializer
 // directly the same way PostMaterializer does; grepping repo-wide
 // (including reflection-based callers, not just bare method-name mentions)

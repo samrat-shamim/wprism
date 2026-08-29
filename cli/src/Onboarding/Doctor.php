@@ -1,12 +1,12 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Transport/Transport.php';
 
 /**
- * `duo doctor <env>` — eleven rendered rows over exactly four target round
+ * `wprism doctor <env>` — eleven rendered rows over exactly four target round
  * trips, because a row and a round trip are not the same thing.
  *
  * Two of the four are true gates: the raw reachability echo (nothing
@@ -17,17 +17,17 @@ require_once __DIR__ . '/../Transport/Transport.php';
  * in ONE `wp eval`:
  * those three were never gates on each other, only siblings under the same
  * `if ($installed)`. One raw script answers the repo-path row and the
- * `.duo-env-values.json` tracked-status row that genuinely IS gated on it —
+ * `.wprism-env-values.json` tracked-status row that genuinely IS gated on it —
  * one call because that gate is a shell test, not a decision this host has
- * to make in between. DUO-3511 measured what the old one-call-per-row shape
+ * to make in between. issue #3511 measured what the old one-call-per-row shape
  * cost: a per-call transport floor of ~1.24 s on the docker-compose.yml
  * estate (~0.73 s on pair.yml), paid seven times for four answers.
  *
  * Rows still fail independently, and their order here is the render order.
  * Every compatibility axis is blocking (it folds into the overall `ok`);
- * `.duo-env-values.json` is blocking when it can be checked and advisory
- * when the target ships no git binary; DISALLOW_FILE_MODS (DUO-3231), the
- * coverage pointer (DUO-3290) is always advisory — each check below states
+ * `.wprism-env-values.json` is blocking when it can be checked and advisory
+ * when the target ships no git binary; DISALLOW_FILE_MODS (issue #3231), the
+ * coverage pointer (issue #3290) is always advisory — each check below states
  * its own reason.
  */
 final class Doctor {
@@ -53,37 +53,37 @@ final class Doctor {
      * separates a value from the thrown-field sentinel below.
      */
     private const SITE_FACTS = 'global $wpdb; '
-        . '$duo = ["agent" => null, "file_mods" => null, "php" => null, '
+        . '$wprism = ["agent" => null, "file_mods" => null, "php" => null, '
         . '"db_version" => null, "db_engine" => null, "filesystem" => null, '
         . '"process" => null, "wp" => null, "site_mode" => null]; '
-        . 'try { $duo["agent"] = class_exists("\\Duo\\Capture") ? "duo-ok" : "duo-missing"; } '
+        . 'try { $wprism["agent"] = class_exists("\\WPrism\\Capture") ? "wprism-ok" : "wprism-missing"; } '
         . 'catch (\Throwable $e) {} '
-        . 'try { $duo["file_mods"] = (defined("DISALLOW_FILE_MODS") && DISALLOW_FILE_MODS) '
-        . '? "duo-set" : "duo-unset"; } catch (\Throwable $e) {} '
-        . 'try { $duo["php"] = PHP_VERSION; } catch (\Throwable $e) {} '
-        . 'try { $duo["db_version"] = (string) $wpdb->db_version(); } catch (\Throwable $e) {} '
-        . 'try { $duo["db_engine"] = stripos((string) $wpdb->db_server_info(), "mariadb") !== false '
+        . 'try { $wprism["file_mods"] = (defined("DISALLOW_FILE_MODS") && DISALLOW_FILE_MODS) '
+        . '? "wprism-set" : "wprism-unset"; } catch (\Throwable $e) {} '
+        . 'try { $wprism["php"] = PHP_VERSION; } catch (\Throwable $e) {} '
+        . 'try { $wprism["db_version"] = (string) $wpdb->db_version(); } catch (\Throwable $e) {} '
+        . 'try { $wprism["db_engine"] = stripos((string) $wpdb->db_server_info(), "mariadb") !== false '
         . '? "mariadb" : "mysql"; } catch (\Throwable $e) {} '
-        . 'try { $duo["filesystem"] = ["directory_separator" => DIRECTORY_SEPARATOR, '
+        . 'try { $wprism["filesystem"] = ["directory_separator" => DIRECTORY_SEPARATOR, '
         . '"os_family" => PHP_OS_FAMILY, "functions" => ['
         . '"chmod" => function_exists("chmod"), "flock" => function_exists("flock"), '
         . '"fsync" => function_exists("fsync"), "lstat" => function_exists("lstat"), '
         . '"rename" => function_exists("rename")]]; } catch (\Throwable $e) {} '
-        . 'try { $duo["process"] = ["os_family" => PHP_OS_FAMILY, "functions" => ['
+        . 'try { $wprism["process"] = ["os_family" => PHP_OS_FAMILY, "functions" => ['
         . '"passthru" => function_exists("passthru"), "posix_kill" => function_exists("posix_kill"), '
         . '"posix_setsid" => function_exists("posix_setsid"), "proc_close" => function_exists("proc_close"), '
         . '"proc_get_status" => function_exists("proc_get_status"), "proc_open" => function_exists("proc_open"), '
         . '"proc_terminate" => function_exists("proc_terminate")], "shell" => ['
         . '"executable" => function_exists("is_executable") && @is_executable("/bin/sh"), '
         . '"path" => "/bin/sh"]]; } catch (\Throwable $e) {} '
-        . 'try { $duo["wp"] = (string) get_bloginfo("version"); } catch (\Throwable $e) {} '
+        . 'try { $wprism["wp"] = (string) get_bloginfo("version"); } catch (\Throwable $e) {} '
         // Its own try/catch like every sibling above, and function_exists()
         // rather than a bare call: this snippet also runs under the isolated
         // control bootstrap, where a caller can reach it before WordPress has
         // defined is_multisite().
-        . 'try { $duo["site_mode"] = (function_exists("is_multisite") && is_multisite()) '
+        . 'try { $wprism["site_mode"] = (function_exists("is_multisite") && is_multisite()) '
         . '? "multisite" : "single-site"; } catch (\Throwable $e) {} '
-        . 'echo json_encode($duo);';
+        . 'echo json_encode($wprism);';
 
     /** @return array{ok:bool, checks: list<array{label:string, ok:bool, detail:string, advisory?:bool}>} */
     public static function run(EnvironmentDriver $t, ?callable $wpArgs = null): array {
@@ -92,8 +92,8 @@ final class Doctor {
         };
         $checks = [];
 
-        $r = $t->captureRaw('echo duo-reachable');
-        $reachable = $r['exit'] === 0 && trim($r['stdout']) === 'duo-reachable';
+        $r = $t->captureRaw('echo wprism-reachable');
+        $reachable = $r['exit'] === 0 && trim($r['stdout']) === 'wprism-reachable';
         $checks[] = self::check('transport reachable', $reachable, $reachable ? '' : self::reason($r));
 
         $installed = false;
@@ -105,7 +105,7 @@ final class Doctor {
             $checks[] = self::check('WordPress installed', false, 'skipped: transport unreachable');
         }
 
-        // DUO-3511: one round trip, three rows. $facts is null whenever the
+        // issue #3511: one round trip, three rows. $facts is null whenever the
         // call failed or its payload was not a JSON object — the exact
         // condition each of those rows already had to survive when it owned
         // an eval of its own, so each one falls back to the bytes it printed
@@ -122,7 +122,7 @@ final class Doctor {
         $agentPresent = false;
         if ($installed) {
             $out = self::field($facts, 'agent', $factsCall);
-            $agentPresent = $factsCall['exit'] === 0 && $out === 'duo-ok';
+            $agentPresent = $factsCall['exit'] === 0 && $out === 'wprism-ok';
             if ($agentPresent) {
                 $detail = '';
             } elseif ($factsCall['exit'] !== 0) {
@@ -130,25 +130,25 @@ final class Doctor {
             } else {
                 $adoption = $t instanceof AdoptionTransport ? $t->capabilityReport('adopt') : null;
                 if ($adoption !== null && $adoption->ready()) {
-                    $detail = "agent class not found (wp eval returned '$out'); next step: duo adopt "
+                    $detail = "agent class not found (wp eval returned '$out'); next step: wprism adopt "
                         . escapeshellarg($t->name());
                 } elseif ($adoption !== null) {
                     $remediation = array_values(array_unique(array_map(
                         static fn(array $row): string => (string) $row['remediation'],
                         $adoption->blockers()
                     )));
-                    $detail = "agent class not found (wp eval returned '$out'); host-side duo adopt is not ready "
+                    $detail = "agent class not found (wp eval returned '$out'); host-side wprism adopt is not ready "
                         . "for driver '" . $t->driverId() . "': " . implode('; ', $remediation)
-                        . '; then rerun duo doctor ' . escapeshellarg($t->name());
+                        . '; then rerun wprism doctor ' . escapeshellarg($t->name());
                 } else {
-                    $detail = "agent class not found (wp eval returned '$out'); host-side duo adopt is unavailable "
-                        . "for driver '" . $t->driverId() . "'; install or mount the Duo agent through that "
-                        . "environment's control plane, then rerun duo doctor " . escapeshellarg($t->name());
+                    $detail = "agent class not found (wp eval returned '$out'); host-side wprism adopt is unavailable "
+                        . "for driver '" . $t->driverId() . "'; install or mount the WPrism agent through that "
+                        . "environment's control plane, then rerun wprism doctor " . escapeshellarg($t->name());
                 }
             }
-            $checks[] = self::check('duo agent present', $agentPresent, $detail);
+            $checks[] = self::check('wprism agent present', $agentPresent, $detail);
         } else {
-            $checks[] = self::check('duo agent present', false, 'skipped: WordPress not installed');
+            $checks[] = self::check('wprism agent present', false, 'skipped: WordPress not installed');
         }
 
         $repo = $t->repoPath();
@@ -156,8 +156,8 @@ final class Doctor {
         $gitOut = '';
         if ($reachable) {
             $repoEsc = escapeshellarg($repo);
-            $fileEsc = escapeshellarg(rtrim($repo, '/') . '/site.duo.json');
-            // DUO-3511: one script, two answers — line 1 the repo-path
+            $fileEsc = escapeshellarg(rtrim($repo, '/') . '/site.wprism.json');
+            // issue #3511: one script, two answers — line 1 the repo-path
             // answer, line 2 the tracked-status answer the block below reads.
             // These two compose (where the three evals merely coexisted)
             // because the git half is genuinely gated on the repo half, and
@@ -169,11 +169,11 @@ final class Doctor {
             // every non-error case (each half already ended in an `echo`), so
             // a non-zero exit still means the transport failed rather than
             // that some answer was "no".
-            $script = "if [ -d $repoEsc ] && [ -f $fileEsc ]; then echo duo-repo-ok; cd $repoEsc && "
-                . '{ command -v git >/dev/null 2>&1 || { echo duo-nogit; exit 0; }; } && '
-                . 'git ls-files --error-unmatch .duo-env-values.json >/dev/null 2>&1 '
-                . '&& echo duo-tracked || echo duo-untracked; '
-                . 'else echo duo-repo-missing; fi';
+            $script = "if [ -d $repoEsc ] && [ -f $fileEsc ]; then echo wprism-repo-ok; cd $repoEsc && "
+                . '{ command -v git >/dev/null 2>&1 || { echo wprism-nogit; exit 0; }; } && '
+                . 'git ls-files --error-unmatch .wprism-env-values.json >/dev/null 2>&1 '
+                . '&& echo wprism-tracked || echo wprism-untracked; '
+                . 'else echo wprism-repo-missing; fi';
             $r = $t->captureRaw($script);
             // trim() first, then split: the pre-composition read was
             // trim($r['stdout']), so a transport that pads the payload with a
@@ -181,18 +181,18 @@ final class Doctor {
             $lines = explode("\n", trim($r['stdout']));
             $out = trim($lines[0]);
             $gitOut = trim($lines[1] ?? '');
-            $repoOk = $r['exit'] === 0 && $out === 'duo-repo-ok';
-            $detail = $repoOk ? '' : ($out === 'duo-repo-missing' ? "$repo: path missing or no site.duo.json" : self::reason($r));
-            $checks[] = self::check("repo path has site.duo.json ($repo)", $repoOk, $detail);
+            $repoOk = $r['exit'] === 0 && $out === 'wprism-repo-ok';
+            $detail = $repoOk ? '' : ($out === 'wprism-repo-missing' ? "$repo: path missing or no site.wprism.json" : self::reason($r));
+            $checks[] = self::check("repo path has site.wprism.json ($repo)", $repoOk, $detail);
         } else {
-            $checks[] = self::check("repo path has site.duo.json ($repo)", false, 'skipped: transport unreachable');
+            $checks[] = self::check("repo path has site.wprism.json ($repo)", false, 'skipped: transport unreachable');
         }
 
-        // DUO-3232: .duo-env-values.json is this environment's gitignored
-        // intended-value authority, published by `wp duo env-set` before it
+        // issue #3232: .wprism-env-values.json is this environment's gitignored
+        // intended-value authority, published by `wp wprism env-set` before it
         // mutates WordPress (see sandbox/site-repo.gitignore.template and
         // cli/README.md). It is a secrets-bearing file living right next to
-        // site.duo.json inside the repo checkout. When it CAN be checked,
+        // site.wprism.json inside the repo checkout. When it CAN be checked,
         // this is BLOCKING, not advisory: a tracked secrets file isn't a
         // hardening gap to note for later, it is already-committed (and
         // possibly already-pushed) secret material the moment `git
@@ -205,7 +205,7 @@ final class Doctor {
         // "When it CAN be checked" is doing real work above, not hedging:
         // verified live against this project's OWN sandbox images
         // (wordpress:cli-php8.3) that they ship with NO git binary at all
-        // — a target environment materializing `wp duo` commands has no
+        // — a target environment materializing `wp wprism` commands has no
         // structural reason to need one (the agent itself never shells out
         // to git; only an operator's own machine or CI runner does). A
         // naive "git ls-files || echo untracked" would silently read
@@ -216,35 +216,35 @@ final class Doctor {
         // "could not verify" honestly (advisory, not a false clean bill of
         // health) rather than silently trusting an absent tool.
         //
-        // DUO-3511: that answer now arrives as line 2 of the composed repo
+        // issue #3511: that answer now arrives as line 2 of the composed repo
         // script above instead of from a probe of its own, so every branch
         // below switches on $gitOut — line 2 — and never on $out, which holds
-        // the repo half's own `duo-repo-ok`. DUO-3512's sibling branch below
+        // the repo half's own `wprism-repo-ok`. issue #3512's sibling branch below
         // is what closes the "probe never ran" false PASS; under composition
-        // its reachable trigger is exactly "line 1 said duo-repo-ok but line 2
+        // its reachable trigger is exactly "line 1 said wprism-repo-ok but line 2
         // is none of the three sentinels", because a non-zero exit sinks
         // $repoOk above and this block is gated on it — a failed call renders
         // the repo row's FAIL plus `skipped: repo path unavailable`, both
         // blocking, which is louder than this WARN and byte-identical to what
         // a failed repo probe rendered before either issue.
         if ($reachable && $repoOk) {
-            if ($gitOut === 'duo-nogit') {
+            if ($gitOut === 'wprism-nogit') {
                 $checks[] = self::check(
-                    '.duo-env-values.json not git-tracked', false,
+                    '.wprism-env-values.json not git-tracked', false,
                     'could not verify — this environment has no git binary, so tracked-status cannot be '
                         . 'checked from inside it. Verify manually (from a machine with a checkout of this '
-                        . 'repo): git -C <checkout> ls-files --error-unmatch .duo-env-values.json (should '
+                        . 'repo): git -C <checkout> ls-files --error-unmatch .wprism-env-values.json (should '
                         . 'exit non-zero, meaning untracked/absent).',
                     true
                 );
-            } elseif ($r['exit'] !== 0 || ($gitOut !== 'duo-tracked' && $gitOut !== 'duo-untracked')) {
-                // DUO-3512: the script above is built entirely from shell && / ||, so a
+            } elseif ($r['exit'] !== 0 || ($gitOut !== 'wprism-tracked' && $gitOut !== 'wprism-untracked')) {
+                // issue #3512: the script above is built entirely from shell && / ||, so a
                 // transport/shell failure (non-zero exit, empty or truncated stdout) reaches
                 // here having produced none of the three sentinels the two branches around
                 // this one assume. Before this branch existed, `$tracked = ($out ===
-                // 'duo-tracked')` read that as false and this whole check rendered [PASS] —
+                // 'wprism-tracked')` read that as false and this whole check rendered [PASS] —
                 // a false clean bill of health from a probe that never actually ran, exactly
-                // the failure mode the duo-nogit branch's own comment above (:98-110) exists
+                // the failure mode the wprism-nogit branch's own comment above (:98-110) exists
                 // to rule out for the git-absent case specifically. That comment's "when it
                 // CAN be checked" covers "git is missing"; it does not cover "the probe
                 // errored out or returned garbage", so this is a second, sibling branch
@@ -252,49 +252,49 @@ final class Doctor {
                 // verification remedy, naming that the probe didn't complete rather than
                 // that git is absent.
                 //
-                // DUO-3511: the sentinel is line 2 of the composed repo/git
+                // issue #3511: the sentinel is line 2 of the composed repo/git
                 // script now, so the reason is built from the git half's OWN
                 // answer. self::reason($r) would otherwise return the whole
-                // payload — `duo-repo-ok` and a newline folded into this
-                // one-line detail — where DUO-3512 rendered just what the
+                // payload — `wprism-repo-ok` and a newline folded into this
+                // one-line detail — where issue #3512 rendered just what the
                 // tracked-status probe printed. stderr still wins over stdout
                 // exactly as before, so a transport error keeps naming itself.
                 // The `$r['exit'] !== 0` clause is kept verbatim and is
-                // belt-and-braces here: see this block's DUO-3511 note above
+                // belt-and-braces here: see this block's issue #3511 note above
                 // for why a failed call cannot reach it.
                 $checks[] = self::check(
-                    '.duo-env-values.json not git-tracked', false,
+                    '.wprism-env-values.json not git-tracked', false,
                     'could not verify — the tracked-status probe did not run ('
                         . self::reason(['exit' => $r['exit'], 'stdout' => $gitOut, 'stderr' => $r['stderr']])
                         . '). Verify manually (from a machine with a checkout of this repo): git -C <checkout> '
-                        . 'ls-files --error-unmatch .duo-env-values.json (should exit non-zero, meaning '
+                        . 'ls-files --error-unmatch .wprism-env-values.json (should exit non-zero, meaning '
                         . 'untracked/absent).',
                     true
                 );
             } else {
-                $tracked = $gitOut === 'duo-tracked';
+                $tracked = $gitOut === 'wprism-tracked';
                 $detail = $tracked
-                    ? '.duo-env-values.json is committed to this repo. It exists to hold provisioned secret '
-                        . 'values and must never be tracked. Run `git rm --cached .duo-env-values.json`, add it '
+                    ? '.wprism-env-values.json is committed to this repo. It exists to hold provisioned secret '
+                        . 'values and must never be tracked. Run `git rm --cached .wprism-env-values.json`, add it '
                         . 'to .gitignore if missing, commit that removal, and rotate any value it may have held '
                         . '— removing it from the working tree alone does not remove it from git history.'
                     : '';
-                $checks[] = self::check('.duo-env-values.json not git-tracked', !$tracked, $detail);
+                $checks[] = self::check('.wprism-env-values.json not git-tracked', !$tracked, $detail);
             }
         } else {
             $checks[] = self::check(
-                '.duo-env-values.json not git-tracked', false,
+                '.wprism-env-values.json not git-tracked', false,
                 $reachable ? 'skipped: repo path unavailable' : 'skipped: transport unreachable'
             );
         }
 
-        // DUO-3231 (docs/code-half.md risk register #1):
+        // issue #3231 (docs/code-half.md risk register #1):
         // DISALLOW_FILE_MODS closes wp-admin's file-mod UI at the source —
         // the recommended mitigation for silent code drift, alongside (not
         // instead of) code_drift's after-the-fact DETECTION
         // (Deploy::code_drift()). Deliberately ADVISORY, never blocking:
         // unlike the four checks above (a broken transport/install/agent/
-        // repo makes every subsequent `duo` command fail outright), a
+        // repo makes every subsequent `wprism` command fail outright), a
         // missing DISALLOW_FILE_MODS is a real but non-fatal hardening gap
         // — plenty of environments run without it today, and doctor's job
         // is to surface that honestly, not manufacture a false "broken"
@@ -303,18 +303,18 @@ final class Doctor {
         // against: friction that teaches people to ignore the check).
         if ($installed) {
             $out = self::field($facts, 'file_mods', $factsCall);
-            $set = $factsCall['exit'] === 0 && $out === 'duo-set';
+            $set = $factsCall['exit'] === 0 && $out === 'wprism-set';
             $detail = $set ? '' : 'DISALLOW_FILE_MODS is not set (or false) in wp-config.php — wp-admin plugin/theme '
                 . 'install/update/delete UI stays open, so a one-click update can silently drift this '
                 . "environment's code out from under git (docs/code-half.md risk #1). Recommended: "
-                . "define('DISALLOW_FILE_MODS', true); — `duo deploy`'s code_drift check still catches an update "
+                . "define('DISALLOW_FILE_MODS', true); — `wprism deploy`'s code_drift check still catches an update "
                 . 'after the fact, but this closes the hole at the source.';
             $checks[] = self::check('DISALLOW_FILE_MODS set', $set, $detail, true);
         } else {
             $checks[] = self::check('DISALLOW_FILE_MODS set', false, 'skipped: WordPress not installed', true);
         }
 
-        // DUO-3222: the ONE project-level WP/PHP/database compatibility
+        // issue #3222: the ONE project-level WP/PHP/database compatibility
         // statement, per that issue's adversarial review's reshape ruling —
         // deliberately NOT a per-adapter manifest field (combinatorial cost,
         // no matching risk; the manifest-treadmill risk DESIGN.md names is
@@ -355,7 +355,7 @@ final class Doctor {
                     'baseline file missing or malformed — cannot verify platform compatibility'
                 );
             } else {
-                // DUO-3511: the same refusal the pipe-separated read produced,
+                // issue #3511: the same refusal the pipe-separated read produced,
                 // now reached by three routes that were one route before — a
                 // failed call, an undecodable payload, and a field whose
                 // target-side try/catch caught a throw. reason() quotes what
@@ -379,7 +379,7 @@ final class Doctor {
                     // observed value that is not a plain dotted version
                     // (PlatformCompatibility::inside_range()), so a
                     // pre-release engine ('8.5.0RC1') must not pass here
-                    // while `wp duo` refuses it.
+                    // while `wp wprism` refuses it.
                     $phpOk = is_array($php)
                         && preg_match('/^\d+(?:\.\d+){1,3}$/D', $phpVersion) === 1
                         && self::in_range($phpVersion, (string) $php['min'], (string) $php['max'])
@@ -427,7 +427,7 @@ final class Doctor {
                     // pre-release core ('7.1-alpha-59000') is refused there.
                     // Without the same guard here version_compare would rank
                     // it inside the window and doctor would call a core
-                    // compatible that a direct `wp duo` command refuses.
+                    // compatible that a direct `wp wprism` command refuses.
                     $wordpressOk = is_array($wordpress)
                         && preg_match('/^\d+(?:\.\d+){1,3}$/D', $wpVersion) === 1
                         && self::in_range($wpVersion, (string) ($wordpress['min'] ?? ''), (string) ($wordpress['max'] ?? ''))
@@ -524,7 +524,7 @@ final class Doctor {
         // load-bearing, so a fifth key there would sink three unrelated rows.
         //
         // A FAIL, not an advisory, because docs/compatibility-baseline.json's
-        // own _comment already claims "the agent pre-policy gate and duo doctor
+        // own _comment already claims "the agent pre-policy gate and wprism doctor
         // block outside these values" and until now that sentence was false for
         // topology. 'single-site' is hard-coded rather than read from that file:
         // tools/capability-doc.php's baseline comparison byte-compares the object
@@ -542,13 +542,13 @@ final class Doctor {
                 . 'gate refuses every mutating command on a network (docs/compatibility-baseline.json).'
         );
 
-        // DUO-3290: surfaced, not run — doctor stays fast and never
+        // issue #3290: surfaced, not run — doctor stays fast and never
         // triggers coverage's own table-enumeration/row-count queries on
         // every routine health check. Purely a discoverability pointer,
         // always present, never affects doctor's own pass/fail.
         $checks[] = self::check(
             'coverage report available', true,
-            'run `wp duo coverage --repo=<repo>` to see what this site has vs what Duo actually captures (options, custom tables) — never blocking, purely informational',
+            'run `wp wprism coverage --repo=<repo>` to see what this site has vs what WPrism actually captures (options, custom tables) — never blocking, purely informational',
             true
         );
 
@@ -563,7 +563,7 @@ final class Doctor {
     }
 
     /**
-     * Run the same public doctor checks through the installed out-of-band Duo
+     * Run the same public doctor checks through the installed out-of-band WPrism
      * control plane. Local adoption uses this before transaction commit so
      * ordinary plugins, themes, MU plugins, and the provenance journal cannot
      * turn verification into an unrollbackable application/ledger mutation.
@@ -595,7 +595,7 @@ final class Doctor {
      * One field of the composed payload, or — when the payload could not be
      * decoded or does not carry that field as a string — the raw stdout the
      * row read when it owned its own eval. So `agent class not found (wp eval
-     * returned 'duo-missing')` stays byte-identical on the decoded path, and
+     * returned 'wprism-missing')` stays byte-identical on the decoded path, and
      * a target that printed something else still gets that something quoted
      * back at its operator instead of a blob it never sent.
      *

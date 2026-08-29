@@ -6,10 +6,10 @@
  * WHAT THIS SUITE ANSWERS
  * -----------------------
  * The migration this program was building toward moves two files together — the
- * two `define()` lines in `agent/duo.php` and
+ * two `define()` lines in `agent/wprism.php` and
  * `manifests/capabilities/platform.json`, which restates them (AGENTS.md rule
- * 8). WP-4.12 PERFORMED IT: `DUO_SPEC_VERSION` 2 -> 3, `DUO_AGENT_VERSION`
- * 0.5.0 -> 0.6.0. So this estate no longer rehearses a hypothesis one minor
+ * 8). WP-4.12 PERFORMED IT: `WPRISM_SPEC_VERSION` 2 -> 3, `WPRISM_AGENT_VERSION`
+ * 0.6.0 -> 0.7.0. So this estate no longer rehearses a hypothesis one minor
  * ahead of the tree — the tree IS the far end now, and state A is the release
  * the fleet is coming FROM (`spec_migration_estate.php:122-141` states why the
  * derivation can only run downward).
@@ -46,7 +46,7 @@
  * a reason a reviewer can check, and the ratchet runs both ways — a gap that
  * starts being exercised fails the suite until it is removed from the list, and
  * a gate that stops being exercised fails until it is either fixed or written
- * down. Same shape as `duo manifest-validate` stamping `deferred` rows on every
+ * down. Same shape as `wprism manifest-validate` stamping `deferred` rows on every
  * run: the unproven half is visible, not absent.
  *
  * WP-1.1's BRICK, REPRODUCED AS A RECORDED EXPECTATION
@@ -96,7 +96,7 @@
  *     mistaken for the other. WP-1.1's `source:"site"` + uncertified pin
  *     concession (PinResolver.php:206) is what keeps such a site off the rocks
  *     while it is withdrawn: it degrades to `uncertified` and keeps loading,
- *     which is what makes `duo adapter recertify` reachable on it at all.
+ *     which is what makes `wprism adapter recertify` reachable on it at all.
  *   - Zero unloadable sites: every site that loaded before the bump loads after
  *     it, including the promoted site that verifies only from its frozen
  *     snapshot.
@@ -108,8 +108,8 @@
  *     same command that minted it.
  *
  * THE SCOPE LIMIT IS GONE, AND WHAT REPLACED IT. This header used to record
- * that state B moved `DUO_AGENT_VERSION` and `platform.json` but NOT
- * `DUO_SPEC_VERSION` — first because `AdapterContractGrammar` was exact
+ * that state B moved `WPRISM_AGENT_VERSION` and `platform.json` but NOT
+ * `WPRISM_SPEC_VERSION` — first because `AdapterContractGrammar` was exact
  * equality (a v3 agent refused every v2 manifest by name, so every site here
  * would have been unloadable, which is why the acceptance window was the one
  * rider that could not be cut), and afterwards as a scope choice deferred to
@@ -142,7 +142,7 @@ $driver = __DIR__ . '/spec_migration_estate.php';
  * the agent under it moved, before WP-1.1: `verifyCertificate()` threw this
  * message as a bare RuntimeException, `scan_site_source()` did not catch it,
  * and the whole site source refused — taking every command on the site with it,
- * including the `duo adapter certify --pin` that repairs it.
+ * including the `wprism adapter certify --pin` that repairs it.
  *
  * ASSERTED AT STATE A SINCE WP-4.12, and the move is not a demotion. This is a
  * refusal about a moved CELL, so it is only reachable where the certificate's
@@ -155,7 +155,7 @@ $driver = __DIR__ . '/spec_migration_estate.php';
  * and the case (d) assertions below it); `<name>` is this estate's adapter.
  */
 const REHEARSAL_PREFIX_REFUSAL =
-    "duo: site adapter '<name>' certification binds compatibility axis 'database', whose exercised cells the "
+    "wprism: site adapter '<name>' certification binds compatibility axis 'database', whose exercised cells the "
     . 'agent-owned platform boundary now states differently';
 
 /**
@@ -168,7 +168,7 @@ const REHEARSAL_PREFIX_REFUSAL =
  * exercised nor listed (drive it, or write down why it cannot be driven).
  */
 const REHEARSAL_GAPS = [
-    // WP-1.5's `duo adapter doctor --migration`. These four gates CONSUME this
+    // WP-1.5's `wprism adapter doctor --migration`. These four gates CONSUME this
     // estate rather than living inside it: the preflight predicts what a bump
     // will move for one site, and the suite that drives it —
     // sandbox/tests/offline/cli/regress_migration_preflight.php — builds THIS
@@ -215,7 +215,7 @@ const REHEARSAL_GAPS = [
     'agent/src/Policy/ManifestDispositions.php::narrowed_environment' =>
         'WP-4.6\'s narrowing refusal is reachable only from a manifest declaring BOTH `spec_version: 3` and an '
         . '`environment` block, and this estate is stamped v2 end to end by construction — state B moves '
-        . 'DUO_AGENT_VERSION and platform.json, never DUO_SPEC_VERSION (the scope limit in this file\'s header), '
+        . 'WPRISM_AGENT_VERSION and platform.json, never WPRISM_SPEC_VERSION (the scope limit in this file\'s header), '
         . 'and no shipped or fixture manifest here declares the channel. Its inert half IS driven by every pass: '
         . 'the estate\'s claims are projected through this function at both states and their environment_assumptions '
         . 'are part of the digests compared across the transition. The refusal itself is exercised by '
@@ -281,7 +281,7 @@ const REHEARSAL_GAPS = [
         'needs a git production ref and a refresh plan built against it. Exercised by '
         . 'sandbox/tests/offline/refresh/regress_refresh_orchestration.php.',
     // WP-4.8's four authority-record-v2 gates. Every authorities document this
-    // estate builds is a well-formed `duo-adapter-authorities/v1` one — which
+    // estate builds is a well-formed `wprism-adapter-authorities/v1` one — which
     // is the point of the estate, since the flag day must not move a v1 byte —
     // so none of the four v2 rules has a subject here. They are exercised, rule
     // by rule and against a v1 CONTROL that proves each one is gated, by
@@ -346,13 +346,13 @@ const REHEARSAL_GAPS = [
     // WP-5.6's two distribution gates. This estate is a fleet of sites that
     // ALREADY hold their adapters — that is what makes it a rehearsal of a
     // version transition rather than of an installation — and both of these
-    // gates are reached only by resolving a duo-adapter-index/v1 document the
+    // gates are reached only by resolving a wprism-adapter-index/v1 document the
     // estate does not have and must not acquire: an estate that installed a
     // package mid-transition would be measuring two moves at once and could
     // not attribute a digest change to the bump.
     'cli/src/Adapter/AdapterDistribution.php::enrolledFingerprints' =>
         'reads the installing repository\'s adapters/authorities.json to answer "is this package\'s signer '
-        . 'enrolled here", a question only `duo adapter install` asks. The estate\'s sites build and edit that '
+        . 'enrolled here", a question only `wprism adapter install` asks. The estate\'s sites build and edit that '
         . 'exact file — the authority probes below drive it — but never through this seam. Its whole-root '
         . 'refusal and its unenrolled-signer answer are exercised by '
         . 'sandbox/tests/offline/cli/regress_adapter_distribution.php.',
@@ -417,7 +417,7 @@ if (!function_exists('sodium_crypto_sign_seed_keypair')) {
 // `sandbox/bin/pair.sh:355` gates on `git status --untracked-files=all -- agent
 // manifests` and an untracked file there blocks every concurrent live package.
 // A unique root per run, because `make -j8` runs this corpus concurrently.
-$estate = sys_get_temp_dir() . '/duo-spec-migration-rehearsal-' . bin2hex(random_bytes(6));
+$estate = sys_get_temp_dir() . '/wprism-spec-migration-rehearsal-' . bin2hex(random_bytes(6));
 register_shutdown_function(static fn() => rehearsal_remove_tree($estate));
 
 echo "\n== the estate, built by the pre-flag agent ==\n";
@@ -428,7 +428,7 @@ $materialized = rehearsal_pass($driver, $estate, 'A', 'materialize');
 // seven manifests still at v2; otherwise state A would be asked to load bytes
 // that were deliberately authored after it ceased to be current.
 $multilingualSite = json_decode(
-    (string) file_get_contents($estate . '/sites/multilingual/site.duo.json'),
+    (string) file_get_contents($estate . '/sites/multilingual/site.wprism.json'),
     true,
     512,
     JSON_THROW_ON_ERROR
@@ -437,7 +437,7 @@ $multilingualPins = array_map(
     static fn(array $pin): string => (string) ($pin['name'] ?? ''),
     (array) ($multilingualSite['manifests'] ?? [])
 );
-duo_check_same(
+wprism_check_same(
     ['core', 'contact-form-7', 'wps-hide-login'],
     $multilingualPins,
     'the historical flag-day cohort pins only retained-v2 adapters, keeping later per-adapter restamps out of this drill'
@@ -455,7 +455,7 @@ $shipped = (array) $materialized['libraries']['shipped'];
 // can only ever run downward from the tree. The premise this assertion carries
 // is unchanged: one end of the rehearsal must be the real library, or the whole
 // estate is a differently-built tree that happens to load.
-duo_check_same(
+wprism_check_same(
     $shipped,
     $libraryB,
     'the POST-flag library IS the shipped library, file for file and byte for byte — state B is not a '
@@ -467,13 +467,13 @@ foreach ($libraryA as $path => $digest) {
         $movedPaths[] = $path;
     }
 }
-duo_check_same(
+wprism_check_same(
     ['capabilities/platform.json'],
     $movedPaths,
     'the flag day moves exactly ONE file in the library: the platform boundary. Every manifest, every hook file '
     . 'and the reviewed dispositions are untouched, which is the premise digest neutrality rests on (rule 2)'
 );
-duo_check(
+wprism_check(
     $observedA['agent_version'] !== $observedB['agent_version']
     && $observedB['spec_version'] === $observedA['spec_version'] + 1
     && $observedA['platform_sha256'] !== $observedB['platform_sha256'],
@@ -490,7 +490,7 @@ duo_check(
 // here rather than argued. Had the estate been driven the other way, a state
 // one spec AHEAD of the tree would put the window at {3, 4} and every site
 // would be unloadable for a reason about the fixture, not about the migration.
-duo_check(
+wprism_check(
     in_array($observedA['spec_version'], [$observedB['spec_version'] - 1, $observedB['spec_version']], true),
     'and state A is INSIDE state B\'s acceptance window {' . ($observedB['spec_version'] - 1) . ', '
     . $observedB['spec_version'] . '} — the one rider that could not be cut (§ v3.1), without which a v'
@@ -498,14 +498,14 @@ duo_check(
     . 'no flag day to rehearse, only a brick'
 );
 $authorities = json_decode((string) file_get_contents($root . '/platform/adapter-library/capabilities/adapter-authorities.json'), true);
-duo_check_same(
+wprism_check_same(
     [],
     (array) ($authorities['keys'] ?? ['unreadable']),
     'the SHIPPED platform trust root is still empty, so every certificate this rehearsal invalidates is an '
     . 'operator\'s own site-rooted signature — G2\'s scoping precondition, re-checked here rather than assumed'
 );
 
-duo_check_same(
+wprism_check_same(
     (string) $observedA['platform_sha256'],
     (string) $materialized['contract']['attested_platform_sha256'],
     'the application contract attested before the bump binds state A\'s platform digest byte for byte — the '
@@ -522,33 +522,33 @@ foreach ($materialized['sites'] as $id => $plan) {
         $controls[] = (string) $id;
     }
 }
-duo_check(count($cohort) >= 7 && count($controls) === 2, 'the estate is ' . count($cohort) . ' cohort sites and '
+wprism_check(count($cohort) >= 7 && count($controls) === 2, 'the estate is ' . count($cohort) . ' cohort sites and '
     . count($controls) . ' deliberate controls');
 foreach ($cohort as $id) {
     $row = $observedA['sites'][$id];
-    duo_check_same('ok', $row['load'], "state A: $id loads (" . $materialized['sites'][$id]['about'] . ')');
+    wprism_check_same('ok', $row['load'], "state A: $id loads (" . $materialized['sites'][$id]['about'] . ')');
 }
-duo_check_same(
+wprism_check_same(
     'verified',
     $observedA['sites']['pinned-shop']['artifact'] ?? null,
     'state A: the digest-pinned site\'s compiled artifact verifies against its own policy'
 );
-duo_check_same(
+wprism_check_same(
     'associated',
     $observedA['sites']['pinned-shop']['scope_contract'] ?? null,
     'state A: its scope contract is associated with that exact artifact'
 );
-duo_check_same(
+wprism_check_same(
     'binds',
     $observedA['sites']['pinned-shop']['identity_sidecar'] ?? null,
     'state A: its identity sidecar binds the active repository identity'
 );
-duo_check_same(
+wprism_check_same(
     'binds',
     $observedA['sites']['pinned-shop']['checkpoint'] ?? null,
     'state A: its recovery checkpoint binds the same manifest inputs'
 );
-duo_check_same(
+wprism_check_same(
     'rehydrated',
     $observedA['sites']['promoted-frozen']['snapshot'] ?? null,
     'state A: the promoted site rehydrates from its frozen snapshot'
@@ -560,14 +560,14 @@ foreach (['certified-alpha' => 'estate-forms', 'certified-beta' => 'estate-shop'
             && $row['certified'] === false
             && $row['capability'] === 'experimental');
     }
-    duo_check($signedApproval, "state A: $id's site adapter '$adapter' is signed but remains experimental without exercise evidence");
+    wprism_check($signedApproval, "state A: $id's site adapter '$adapter' is signed but remains experimental without exercise evidence");
 }
-duo_check(
+wprism_check(
     str_contains((string) $observedA['sites']['drifted-pin']['refusal'], 'digest mismatch'),
     'CONTROL state A: a drifted content pin refuses with a digest mismatch, so a moved digest anywhere in this '
     . 'estate would be visible as a refusal rather than as a silent difference'
 );
-duo_check_same(
+wprism_check_same(
     'compiled_artifact_manifest_mismatch',
     $observedA['sites']['artifact-drift']['artifact_reason'] ?? null,
     'CONTROL state A: an artifact compiled against a library whose reviewed disposition moved by one sentence '
@@ -581,7 +581,7 @@ foreach ($cohort as $id) {
         $unloadable[] = $id . ': ' . (string) ($observedB['sites'][$id]['refusal'] ?? '');
     }
 }
-duo_check_same(
+wprism_check_same(
     [],
     $unloadable,
     'ZERO UNLOADABLE SITES: every site that loaded before the bump loads after it — the frozen-snapshot site and '
@@ -609,7 +609,7 @@ duo_check_same(
 // is asserted for the holders too, one block down.
 $digestNeutral = ['core-only', 'editorial', 'multilingual', 'pinned-shop'];
 foreach ($digestNeutral as $id) {
-    duo_check_same(
+    wprism_check_same(
         [
             'manifest_hash' => $observedA['sites'][$id]['manifest_hash'],
             'site_hash' => $observedA['sites'][$id]['site_hash'],
@@ -631,7 +631,7 @@ foreach ($digestNeutral as $id) {
         "DIGEST NEUTRALITY: $id keeps every shipped adapter digest, its manifest_hash, its site_hash and its "
         . 'revision_hash byte-identical across the bump'
     );
-    duo_check_same(
+    wprism_check_same(
         'verified',
         $observedB['sites'][$id]['artifact'] ?? null,
         "state B: $id's compiled artifact still verifies — read_artifact() compares site_hash, manifest_hash, "
@@ -661,7 +661,7 @@ foreach ($certificateHolders as $id => $adapter) {
         ksort($out, SORT_STRING);
         return $out;
     };
-    duo_check_same(
+    wprism_check_same(
         [
             'site_hash' => $observedA['sites'][$id]['site_hash'],
             'shipped_digests' => $shippedDigests($observedA['sites'][$id]['adapters']),
@@ -674,12 +674,12 @@ foreach ($certificateHolders as $id => $adapter) {
         . 'no-restamp rule covers a certificate-holding site exactly as it covers any other, so nothing it pins '
         . 'from the shipped library moves'
     );
-    duo_check(
+    wprism_check(
         $observedA['sites'][$id]['manifest_hash'] !== $observedB['sites'][$id]['manifest_hash']
         && $observedA['sites'][$id]['revision_hash'] !== $observedB['sites'][$id]['revision_hash'],
         "...AND $id's manifest_hash and revision_hash BOTH MOVE, because the withdrawn certificate moves the "
         . 'certificate-derived row manifest_rows() folds (ArtifactPolicyIdentity.php:75-140). This is the flag '
-        . "day's one non-neutral cohort, and `duo adapter doctor --migration` predicts it per site before the bump"
+        . "day's one non-neutral cohort, and `wprism adapter doctor --migration` predicts it per site before the bump"
     );
     if ($id === 'promoted-frozen') {
         // Its artifact was removed at materialization on purpose — that site
@@ -687,7 +687,7 @@ foreach ($certificateHolders as $id => $adapter) {
         // artifact to refuse and asserting one would be asserting the fixture.
         continue;
     }
-    duo_check_same(
+    wprism_check_same(
         'compiled_artifact_manifest_mismatch',
         $observedB['sites'][$id]['artifact_reason'] ?? null,
         "...and $id's held compiled artifact therefore REFUSES with rule 2's own refusal "
@@ -707,7 +707,7 @@ foreach ($cohort as $id) {
         $artifactMoved[] = $id;
     }
 }
-duo_check_same(
+wprism_check_same(
     $cohort,
     $artifactMoved,
     'MEASURED CONSEQUENCE: artifact_hash moves for EVERY site — including sites pinning nothing but shipped '
@@ -715,13 +715,13 @@ duo_check_same(
     . 'Anything that PINS artifact_hash (scope contracts, scoped mutation authorities, scoped rollback claims) '
     . 'needs re-projection on the flag day; anything that pins manifest_hash does not'
 );
-duo_check_same(
+wprism_check_same(
     'refused',
     $observedB['sites']['pinned-shop']['scope_contract'] ?? null,
     'and that is exactly what a held scope contract reports: assert_associated() refuses after the bump on a site '
     . 'whose manifest identity never moved (' . (string) ($observedB['sites']['pinned-shop']['scope_contract_reason'] ?? '') . ')'
 );
-duo_check_same(
+wprism_check_same(
     'binds',
     $observedB['sites']['pinned-shop']['checkpoint'] ?? null,
     'while the recovery checkpoint, which binds MANIFEST inputs rather than the artifact document, still binds — '
@@ -754,19 +754,19 @@ foreach ($certificateHolders as $id => $adapter) {
             $held = $row;
         }
     }
-    duo_check(
+    wprism_check(
         is_array($held) && $held['certified'] === false
         && str_contains((string) ($held['reason'] ?? ''), 'no longer publishes'),
         "THE M6 CONSEQUENCE: $id's certified adapter '$adapter' WITHDRAWS to uncertified across the flip, by name "
         . 'and with the reason attached (' . (string) ($held['reason'] ?? 'no row') . ')'
     );
-    duo_check(
+    wprism_check(
         is_array($held) && ($observedB['sites'][$id]['load'] ?? '') === 'ok',
         "...and $id STILL LOADS with it: the withdrawal is a degradation to `uncertified`, never the whole-source "
-        . 'refusal WP-1.1 removed, so `plan`, `apply` and the `duo adapter recertify` that repairs it all stay '
+        . 'refusal WP-1.1 removed, so `plan`, `apply` and the `wprism adapter recertify` that repairs it all stay '
         . 'reachable on the degraded site — the precondition G2 condition (1) gates the flag day on'
     );
-    duo_check(
+    wprism_check(
         (static function (array $rows, string $name): string {
             foreach ($rows as $row) {
                 if ($row['name'] === $name) {
@@ -779,7 +779,7 @@ foreach ($certificateHolders as $id => $adapter) {
         . 'independent effect — by which this site\'s manifest_hash and revision_hash moved two blocks above'
     );
 }
-duo_check_same(
+wprism_check_same(
     'rehydrated',
     $observedB['sites']['promoted-frozen']['snapshot'] ?? null,
     'THE FROZEN PATH (G2 names it explicitly): a promoted site that may not reopen its mutable repository still '
@@ -791,7 +791,7 @@ foreach ((array) ($observedB['sites']['promoted-frozen']['snapshot_adapters'] ??
         $frozenWithdrawn = $row;
     }
 }
-duo_check(
+wprism_check(
     ($frozenWithdrawn['certified'] ?? null) === false,
     'and the frozen record is RE-DERIVED rather than trusted: verifyFrozen() re-binds the certificate to the '
     . 'boundary installed NOW on every rehydration, so a snapshot taken before the flip does not carry a stale '
@@ -806,7 +806,7 @@ $prefixB = $observedB['prefix_reproduction'];
 // The recorded artifact is asserted AT STATE A, where the certificate's era and
 // the engine's agree and the moved cell is therefore the only variable. That is
 // the condition WP-1.1 bricked on, reproduced rather than described.
-duo_check_same(
+wprism_check_same(
     str_replace('<name>', 'estate-forms', REHEARSAL_PREFIX_REFUSAL),
     (string) $prefixA['verify'],
     'the platform comparison still raises the RECORDED pre-fix refusal, byte for byte: the condition the pre-fix '
@@ -818,8 +818,8 @@ duo_check_same(
 // comparison at :3753). Recording the pre-emption is the point: it is why
 // § v3.6's axis binding does not spare a spec bump, and a reviewer who only saw
 // the state-A row would conclude the opposite.
-duo_check_same(
-    "duo: site adapter 'estate-forms' certification was signed under spec version "
+wprism_check_same(
+    "wprism: site adapter 'estate-forms' certification was signed under spec version "
     . $observedA['spec_version'] . ', which is not the spec version ' . $observedB['spec_version']
     . ' this agent publishes',
     (string) $prefixB['verify'],
@@ -827,30 +827,30 @@ duo_check_same(
     . 'cell comparison, so a certificate cannot survive a spec bump by having been exercised against cells that '
     . 'did not move — the deliberate consequence of putting a version inside the signed statement (R7)'
 );
-duo_check_same(
-    'Duo\\StalePlatformSiteAdapterCertificate',
+wprism_check_same(
+    'WPrism\\StalePlatformSiteAdapterCertificate',
     (string) $prefixA['verify_class'],
     'both sentences are the SAME TYPED SIGNAL — state A\'s cell refusal is a StalePlatformSiteAdapterCertificate '
     . 'too, so WP-1.1\'s degradation covers the flag day\'s refusal without a new arm being added for it'
 );
-duo_check_same(
+wprism_check_same(
     false,
     $prefixB['caught_by_prefix_catch_set'],
     'and the PRE-FIX catch set (one class, SupersededSiteAdapterCertificate) does not cover it — so before WP-1.1 '
     . 'this escaped scan_site_source() (:1115-1122), refuse() re-threw at SCOPE_SOURCE (:2028-2036) and '
     . 'Policy::load() propagated it uncaught (Policy.php:400): the whole site source refused'
 );
-duo_check_same(
-    'Duo\\StalePlatformSiteAdapterCertificate',
+wprism_check_same(
+    'WPrism\\StalePlatformSiteAdapterCertificate',
     (string) $prefixB['verify_class'],
     'today the identical condition raises the TYPED withdrawal signal instead of a bare RuntimeException'
 );
-duo_check(
+wprism_check(
     $prefixB['load'] === 'ok' && $prefixB['certified'] === false
     && str_contains((string) $prefixB['reason'], 'no longer publishes'),
     'so the site loads with one claim withdrawn where it used to lose every command it had'
 );
-duo_check_same(
+wprism_check_same(
     'refused',
     (string) $prefixB['forged_source'],
     'CONTROL: a FORGED companion under the identical stale boundary still refuses the whole source ('
@@ -859,33 +859,33 @@ duo_check_same(
 );
 
 echo "\n== forward, then back ==\n";
-duo_check_same(
+wprism_check_same(
     $observedA['sites'],
     $rolledBack['sites'],
     'ROLLBACK: the estate observed at state A after a full pass at state B is byte-identical to the estate '
     . 'observed before it — every digest, pin, certificate verification, compiled artifact, frozen snapshot, '
     . 'scope contract, identity sidecar and checkpoint binding returns to its exact pre-flag value'
 );
-duo_check(
+wprism_check(
     ($observedB['remedy']['certify_exit'] ?? 1) === 0
     && ($observedB['remedy']['certified'] ?? true) === false
     && ($observedB['remedy']['capability'] ?? null) === 'experimental',
-    'the remedy is invocable ON the post-bump fleet: `duo adapter certify --pin` re-signs the approval against '
+    'the remedy is invocable ON the post-bump fleet: `wprism adapter certify --pin` re-signs the approval against '
     . 'the new boundary while keeping the unexercised claim experimental'
 );
-duo_check(
+wprism_check(
     ($rolledBack['remedy']['certified'] ?? true) === false
     && str_contains((string) ($rolledBack['remedy']['reason'] ?? ''), 'no longer publishes'),
     'and the symmetry the rollback plan names is real: a certificate minted WHILE at state B is withdrawn again '
     . 'after the rollback, for the same reason and by the same mechanism'
 );
-duo_check_same(
+wprism_check_same(
     'experimental',
     $rolledBack['remedy']['re_capability'] ?? null,
     'with the same command restoring the signed experimental approval: certificates are RE-MINTED symmetrically, '
     . 'never restored, and exercise evidence remains a separate requirement'
 );
-duo_check_same(
+wprism_check_same(
     'not yet remedied',
     $observedA['remedy']['observed'] ?? null,
     'and the first state-A pass says so rather than reporting a fixture that did not exist yet'
@@ -955,7 +955,7 @@ foreach ([$observedA, $observedB, $rolledBack] as $pass) {
         }
     }
 }
-duo_check_same(
+wprism_check_same(
     [],
     $unmatched,
     'every probe the estate ran observed what it declared it would: a probe whose refusal message or verdict moved '
@@ -991,7 +991,7 @@ printf(
     $gaps
 );
 
-duo_check_same(
+wprism_check_same(
     [],
     $missing,
     'every register gate this estate does not exercise is a NAMED GAP with a reviewed reason — an unexercised '
@@ -1006,13 +1006,13 @@ foreach (REHEARSAL_GAPS as $gate => $_reason) {
         $staleGaps[] = $gate;
     }
 }
-duo_check_same(
+wprism_check_same(
     [],
     $strayGaps,
     'and every declared gap names a gate the register actually carries, so a renamed entry point cannot leave a '
     . 'reason attached to nothing'
 );
-duo_check_same(
+wprism_check_same(
     [],
     $staleGaps,
     'and the ratchet runs the other way too: a gap the estate started exercising must be deleted from the list, '
@@ -1024,16 +1024,16 @@ foreach (array_keys($exercised) as $gate) {
         $strayProbes[] = $gate;
     }
 }
-duo_check_same(
+wprism_check_same(
     [],
     $strayProbes,
     'and no probe claims a gate the register does not carry as a gate — the enumeration is a join, not two lists '
     . 'that agree by hand'
 );
-duo_check(
+wprism_check(
     count($registerGates) - $gaps >= 37,
     'the estate exercises ' . (count($registerGates) - $gaps) . ' of ' . count($registerGates)
     . ' register gates end to end'
 );
 
-duo_check_summary('flag-day spec migration rehearsal');
+wprism_check_summary('flag-day spec migration rehearsal');

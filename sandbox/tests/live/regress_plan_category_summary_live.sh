@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Live regression — DUO-3345 category-summary menu evidence.
+# Live regression — issue #3345 category-summary menu evidence.
 #
 # The offline projection suite proves the closed schema and the pure count
 # arithmetic.  It cannot prove that the count comes from Capture's one MVCC
@@ -22,7 +22,7 @@
 #     PLAN_CATEGORY_SUMMARY_PAIR=codexsma3345 \
 #     PLAN_CATEGORY_SUMMARY_PORT1=9060 \
 #     PLAN_CATEGORY_SUMMARY_PORT2=9061 \
-#     DUO_EXPECTED_SOURCE_SHA="$(git rev-parse HEAD)"
+#     WPRISM_EXPECTED_SOURCE_SHA="$(git rev-parse HEAD)"
 #
 # The fixture uses only the shipped core manifest and generic WordPress menu
 # APIs.  It carries no plugin-specific engine branch or test-only provider.
@@ -44,8 +44,8 @@ command -v git >/dev/null || fail "git required"
   || fail "PLAN_CATEGORY_SUMMARY_PORT1 is required; choose an owned even port at or above 8900"
 [ -n "${PLAN_CATEGORY_SUMMARY_PORT2:-}" ] \
   || fail "PLAN_CATEGORY_SUMMARY_PORT2 is required; it must be PLAN_CATEGORY_SUMMARY_PORT1 + 1"
-[ -n "${DUO_EXPECTED_SOURCE_SHA:-}" ] \
-  || fail "DUO_EXPECTED_SOURCE_SHA is required; set it to git rev-parse HEAD in the standalone candidate clone"
+[ -n "${WPRISM_EXPECTED_SOURCE_SHA:-}" ] \
+  || fail "WPRISM_EXPECTED_SOURCE_SHA is required; set it to git rev-parse HEAD in the standalone candidate clone"
 
 PAIR="$PLAN_CATEGORY_SUMMARY_PAIR"
 PORT1="$PLAN_CATEGORY_SUMMARY_PORT1"
@@ -64,16 +64,16 @@ PORT2_NUM=$((10#$PORT2))
 [ "$PORT2_NUM" -eq $((PORT1_NUM + 1)) ] \
   || fail "PLAN_CATEGORY_SUMMARY_PORT2 must equal PLAN_CATEGORY_SUMMARY_PORT1 + 1 (got $PORT1/$PORT2)"
 
-[[ "$DUO_EXPECTED_SOURCE_SHA" =~ ^[0-9A-Fa-f]{7,40}$ ]] \
-  || fail "DUO_EXPECTED_SOURCE_SHA must be a 7-40 character commit SHA"
-EXPECTED_SHA="$(git -C "$REPO_ROOT" rev-parse --verify "${DUO_EXPECTED_SOURCE_SHA}^{commit}" 2>/dev/null)" \
-  || fail "DUO_EXPECTED_SOURCE_SHA does not resolve in this checkout: $DUO_EXPECTED_SOURCE_SHA"
+[[ "$WPRISM_EXPECTED_SOURCE_SHA" =~ ^[0-9A-Fa-f]{7,40}$ ]] \
+  || fail "WPRISM_EXPECTED_SOURCE_SHA must be a 7-40 character commit SHA"
+EXPECTED_SHA="$(git -C "$REPO_ROOT" rev-parse --verify "${WPRISM_EXPECTED_SOURCE_SHA}^{commit}" 2>/dev/null)" \
+  || fail "WPRISM_EXPECTED_SOURCE_SHA does not resolve in this checkout: $WPRISM_EXPECTED_SOURCE_SHA"
 HEAD_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 [ "$EXPECTED_SHA" = "$HEAD_SHA" ] \
-  || fail "DUO_EXPECTED_SOURCE_SHA resolves to $EXPECTED_SHA, but this harness checkout is $HEAD_SHA; run from the exact candidate clone"
+  || fail "WPRISM_EXPECTED_SOURCE_SHA resolves to $EXPECTED_SHA, but this harness checkout is $HEAD_SHA; run from the exact candidate clone"
 
-export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2" DUO_EXPECTED_SOURCE_SHA="$EXPECTED_SHA"
-COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml)
+export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2" WPRISM_EXPECTED_SOURCE_SHA="$EXPECTED_SHA"
+COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml)
 SITE1="siterepo/${PAIR}1"
 SITE2="siterepo/${PAIR}2"
 ORIGIN="siterepo/origin-${PAIR}.git"
@@ -114,7 +114,7 @@ if (!\$post) {
     echo 'missing';
 } else {
     \$uuid = \$wpdb->get_var(\$wpdb->prepare(
-        \"SELECT meta_value FROM {\$wpdb->postmeta} WHERE post_id = %d AND meta_key = '_duo_uuid' ORDER BY meta_id ASC LIMIT 1\", $id
+        \"SELECT meta_value FROM {\$wpdb->postmeta} WHERE post_id = %d AND meta_key = '_wprism_uuid' ORDER BY meta_id ASC LIMIT 1\", $id
     ));
     echo \$post->post_status . '|' . (\$uuid === null ? '' : \$uuid);
 }
@@ -140,7 +140,7 @@ echo (int) \$wpdb->get_var(\$wpdb->prepare(
 menu_term_uuid() { # menu_term_uuid <side> <menu-term-id>
   local side="$1" term_id="$2" out
   assert_positive_id "menu_term_uuid term id" "$term_id"
-  out="$(wp_side "$side" eval "echo (string) get_term_meta($term_id, '_duo_uuid', true);")" \
+  out="$(wp_side "$side" eval "echo (string) get_term_meta($term_id, '_wprism_uuid', true);")" \
     || fail "fixture manufacture failed: could not read menu identity for term $term_id on side $side: $out"
   printf '%s\n' "${out//$'\r'/}"
 }
@@ -163,7 +163,7 @@ menu_item_id_by_uuid() { # menu_item_id_by_uuid <side> <uuid>
   out="$(wp_side "$side" eval "
 global \$wpdb;
 echo (int) \$wpdb->get_var(\$wpdb->prepare(
-    \"SELECT p.ID FROM {\$wpdb->posts} p JOIN {\$wpdb->postmeta} pm ON pm.post_id = p.ID WHERE p.post_type = 'nav_menu_item' AND pm.meta_key = '_duo_uuid' AND pm.meta_value = %s ORDER BY p.ID ASC LIMIT 1\", '$uuid'
+    \"SELECT p.ID FROM {\$wpdb->posts} p JOIN {\$wpdb->postmeta} pm ON pm.post_id = p.ID WHERE p.post_type = 'nav_menu_item' AND pm.meta_key = '_wprism_uuid' AND pm.meta_value = %s ORDER BY p.ID ASC LIMIT 1\", '$uuid'
 ));
 ")" || fail "fixture manufacture failed: could not resolve menu item UUID $uuid on side $side: $out"
   printf '%s\n' "${out//$'\r'/}"
@@ -227,29 +227,29 @@ menu_item_uuid_from_file() { # menu_item_uuid_from_file <file> <title>
   printf '%s\n' "$uuid"
 }
 
-duo_json() { # duo_json <label> <duo-subcommand-and-arguments...>
+wprism_json() { # wprism_json <label> <wprism-subcommand-and-arguments...>
   local label="$1" out rc=0 json
   shift
-  out="$(wp2 duo "$@" --format=json 2>&1)" || rc=$?
-  [ "$rc" -eq 0 ] || fail "$label did not return a successful Duo JSON response (exit $rc): $out"
+  out="$(wp2 wprism "$@" --format=json 2>&1)" || rc=$?
+  [ "$rc" -eq 0 ] || fail "$label did not return a successful WPrism JSON response (exit $rc): $out"
   json="$(tail -n 1 <<<"$out")"
   jq -e . <<<"$json" >/dev/null \
     || fail "$label did not emit a final JSON document: $out"
   printf '%s\n' "$json"
 }
 
-duo_human() { # duo_human <label> <duo-subcommand-and-arguments...>
+wprism_human() { # wprism_human <label> <wprism-subcommand-and-arguments...>
   local label="$1" out rc=0
   shift
-  out="$(wp2 duo "$@" 2>&1)" || rc=$?
-  [ "$rc" -eq 0 ] || fail "$label did not return a successful Duo human response (exit $rc): $out"
+  out="$(wp2 wprism "$@" 2>&1)" || rc=$?
+  [ "$rc" -eq 0 ] || fail "$label did not return a successful WPrism human response (exit $rc): $out"
   printf '%s\n' "$out"
 }
 
 assert_summary_candidates() { # assert_summary_candidates <label> <json> <expected>
   local label="$1" json="$2" expected="$3"
   jq -e --argjson expected "$expected" '
-    .category_summary.format == "duo-plan-category-summary/v1"
+    .category_summary.format == "wprism-plan-category-summary/v1"
     and ([.category_summary.categories[]
           | select(.id == "deletions")
           | .metrics.nested_menu_item_delete_candidates] == [$expected])
@@ -286,15 +286,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-RECON_NAME='DUO 3345 Reconcile'
-RECON_SLUG='duo-3345-reconcile'
-RECON_TITLE_V1='DUO 3345 Reconcile Desired v1'
-RECON_TITLE_V2='DUO 3345 Reconcile Desired v2'
-RECON_URL='https://example.invalid/duo-3345/reconcile'
-ADOPT_NAME='DUO 3345 Adopt'
-ADOPT_SLUG='duo-3345-adopt'
-ADOPT_TITLE='DUO 3345 Adopt Desired'
-ADOPT_URL='https://example.invalid/duo-3345/adopt'
+RECON_NAME='plan category Reconcile'
+RECON_SLUG='plan-category-reconcile'
+RECON_TITLE_V1='plan category Reconcile Desired v1'
+RECON_TITLE_V2='plan category Reconcile Desired v2'
+RECON_URL='https://example.invalid/plan-category/reconcile'
+ADOPT_NAME='plan category Adopt'
+ADOPT_SLUG='plan-category-adopt'
+ADOPT_TITLE='plan category Adopt Desired'
+ADOPT_URL='https://example.invalid/plan-category/adopt'
 
 # Each manual UUID is deliberately a valid v4-shaped durable identity.  The
 # source-captured UUIDs remain data-derived; these fixtures only establish
@@ -307,7 +307,7 @@ NORMAL_STALE_DRAFT_UUID='55555555-5555-4555-8555-555555555555'
 TOMBSTONE_DRAFT_UUID='66666666-6666-4666-8666-666666666666'
 
 say "candidate-bound clean room ($PAIR, $PORT1/$PORT2, source $EXPECTED_SHA)"
-# Both calls inherit DUO_EXPECTED_SOURCE_SHA.  pair.sh verifies the mounted
+# Both calls inherit WPRISM_EXPECTED_SOURCE_SHA.  pair.sh verifies the mounted
 # agent/manifests source before reset can DROP/CREATE anything and again before
 # up creates the pair.
 bash bin/pair.sh reset "$PAIR"
@@ -318,7 +318,7 @@ say "source and target start from real empty WordPress sites"
 wp1 site empty --yes >/dev/null
 wp2 site empty --yes >/dev/null
 git init --bare -q -b main "$ORIGIN"
-cat > "$SITE1/site.duo.json" <<'JSON'
+cat > "$SITE1/site.wprism.json" <<'JSON'
 {
   "manifests": ["core"],
   "policy": {
@@ -334,8 +334,8 @@ JSON
 cp site-repo.gitignore.template "$SITE1/.gitignore"
 git -C "$SITE1" init -q -b main
 git -C "$SITE1" remote add origin "../origin-${PAIR}.git"
-git -C "$SITE1" config user.name duo-category-summary
-git -C "$SITE1" config user.email duo-category-summary@example.test
+git -C "$SITE1" config user.name wprism-category-summary
+git -C "$SITE1" config user.email wprism-category-summary@example.test
 pass "two isolated WordPress databases and a core-only source repository are ready"
 
 say "source capture: published canonical menu item, plus a durable draft item that must stay out of canonical state"
@@ -343,9 +343,9 @@ SRC_RECON_TERM_ID="$(wp1 menu create "$RECON_NAME" --porcelain)"
 assert_positive_id "source reconcile menu" "$SRC_RECON_TERM_ID"
 SRC_RECON_DESIRED_ID="$(wp1 menu item add-custom "$SRC_RECON_TERM_ID" "$RECON_TITLE_V1" "$RECON_URL" --porcelain)"
 assert_positive_id "source reconcile published item" "$SRC_RECON_DESIRED_ID"
-SRC_RECON_DRAFT_ID="$(wp1 menu item add-custom "$SRC_RECON_TERM_ID" 'DUO 3345 source durable draft' 'https://example.invalid/duo-3345/source-draft' --porcelain)"
+SRC_RECON_DRAFT_ID="$(wp1 menu item add-custom "$SRC_RECON_TERM_ID" 'plan category source durable draft' 'https://example.invalid/plan-category/source-draft' --porcelain)"
 assert_positive_id "source reconcile draft item" "$SRC_RECON_DRAFT_ID"
-wp1 post meta add "$SRC_RECON_DRAFT_ID" _duo_uuid "$SOURCE_DRAFT_UUID" >/dev/null
+wp1 post meta add "$SRC_RECON_DRAFT_ID" _wprism_uuid "$SOURCE_DRAFT_UUID" >/dev/null
 wp1 post update "$SRC_RECON_DRAFT_ID" --post_status=draft >/dev/null
 
 SRC_ADOPT_TERM_ID="$(wp1 menu create "$ADOPT_NAME" --porcelain)"
@@ -353,7 +353,7 @@ assert_positive_id "source adopt menu" "$SRC_ADOPT_TERM_ID"
 SRC_ADOPT_DESIRED_ID="$(wp1 menu item add-custom "$SRC_ADOPT_TERM_ID" "$ADOPT_TITLE" "$ADOPT_URL" --porcelain)"
 assert_positive_id "source adopt published item" "$SRC_ADOPT_DESIRED_ID"
 
-wp1 duo capture --repo=/siterepo >/dev/null
+wp1 wprism capture --repo=/siterepo >/dev/null
 RECON_FILE="$(menu_file_by_slug "$SITE1" "$RECON_SLUG")"
 ADOPT_FILE="$(menu_file_by_slug "$SITE1" "$ADOPT_SLUG")"
 RECON_MENU_UUID="$(jq -r '.uuid' "$RECON_FILE")"
@@ -372,7 +372,7 @@ jq -e --arg title "$RECON_TITLE_V1" --arg draft_uuid "$SOURCE_DRAFT_UUID" '
 pass "canonical menu state contains only the published item; the durable draft is a real target observation, not source state"
 
 git -C "$SITE1" add -A
-git -C "$SITE1" commit -qm 'capture: DUO-3345 category-summary menu fixture'
+git -C "$SITE1" commit -qm 'capture: issue #3345 category-summary menu fixture'
 git -C "$SITE1" push -qu origin main
 git clone -q "$ORIGIN" "$SITE2"
 
@@ -381,20 +381,20 @@ TARGET_ADOPT_TERM_ID="$(wp2 menu create "$ADOPT_NAME" --porcelain)"
 assert_positive_id "target unmanaged adopt menu" "$TARGET_ADOPT_TERM_ID"
 TARGET_ADOPT_KEEP_ID="$(wp2 menu item add-custom "$TARGET_ADOPT_TERM_ID" "$ADOPT_TITLE" "$ADOPT_URL" --porcelain)"
 assert_positive_id "target adoption desired item" "$TARGET_ADOPT_KEEP_ID"
-wp2 post meta add "$TARGET_ADOPT_KEEP_ID" _duo_uuid "$ADOPT_DESIRED_UUID" >/dev/null
-TARGET_ADOPT_STALE_PUBLISHED_ID="$(wp2 menu item add-custom "$TARGET_ADOPT_TERM_ID" 'DUO 3345 adopt stale published' 'https://example.invalid/duo-3345/adopt-stale-published' --porcelain)"
+wp2 post meta add "$TARGET_ADOPT_KEEP_ID" _wprism_uuid "$ADOPT_DESIRED_UUID" >/dev/null
+TARGET_ADOPT_STALE_PUBLISHED_ID="$(wp2 menu item add-custom "$TARGET_ADOPT_TERM_ID" 'plan category adopt stale published' 'https://example.invalid/plan-category/adopt-stale-published' --porcelain)"
 assert_positive_id "target adoption stale published item" "$TARGET_ADOPT_STALE_PUBLISHED_ID"
-wp2 post meta add "$TARGET_ADOPT_STALE_PUBLISHED_ID" _duo_uuid "$ADOPT_STALE_PUBLISHED_UUID" >/dev/null
-TARGET_ADOPT_STALE_DRAFT_ID="$(wp2 menu item add-custom "$TARGET_ADOPT_TERM_ID" 'DUO 3345 adopt stale draft' 'https://example.invalid/duo-3345/adopt-stale-draft' --porcelain)"
+wp2 post meta add "$TARGET_ADOPT_STALE_PUBLISHED_ID" _wprism_uuid "$ADOPT_STALE_PUBLISHED_UUID" >/dev/null
+TARGET_ADOPT_STALE_DRAFT_ID="$(wp2 menu item add-custom "$TARGET_ADOPT_TERM_ID" 'plan category adopt stale draft' 'https://example.invalid/plan-category/adopt-stale-draft' --porcelain)"
 assert_positive_id "target adoption stale draft item" "$TARGET_ADOPT_STALE_DRAFT_ID"
-wp2 post meta add "$TARGET_ADOPT_STALE_DRAFT_ID" _duo_uuid "$ADOPT_STALE_DRAFT_UUID" >/dev/null
+wp2 post meta add "$TARGET_ADOPT_STALE_DRAFT_ID" _wprism_uuid "$ADOPT_STALE_DRAFT_UUID" >/dev/null
 wp2 post update "$TARGET_ADOPT_STALE_DRAFT_ID" --post_status=draft >/dev/null
-TARGET_ADOPT_UNMANAGED_DRAFT_ID="$(wp2 menu item add-custom "$TARGET_ADOPT_TERM_ID" 'DUO 3345 adopt unmanaged draft' 'https://example.invalid/duo-3345/adopt-unmanaged-draft' --porcelain)"
+TARGET_ADOPT_UNMANAGED_DRAFT_ID="$(wp2 menu item add-custom "$TARGET_ADOPT_TERM_ID" 'plan category adopt unmanaged draft' 'https://example.invalid/plan-category/adopt-unmanaged-draft' --porcelain)"
 assert_positive_id "target adoption unmanaged draft item" "$TARGET_ADOPT_UNMANAGED_DRAFT_ID"
 wp2 post update "$TARGET_ADOPT_UNMANAGED_DRAFT_ID" --post_status=draft >/dev/null
 
 [ -z "$(menu_term_uuid 2 "$TARGET_ADOPT_TERM_ID")" ] \
-  || fail "fixture manufacture failed: target adoption menu unexpectedly already has a Duo term UUID"
+  || fail "fixture manufacture failed: target adoption menu unexpectedly already has a WPrism term UUID"
 assert_count "unmanaged adoption menu premise" 2 "$TARGET_ADOPT_TERM_ID" 4
 assert_shape "adoption desired managed item premise" 2 "$TARGET_ADOPT_KEEP_ID" publish "$ADOPT_DESIRED_UUID"
 assert_shape "adoption stale published item premise" 2 "$TARGET_ADOPT_STALE_PUBLISHED_ID" publish "$ADOPT_STALE_PUBLISHED_UUID"
@@ -402,17 +402,17 @@ assert_shape "adoption stale draft item premise" 2 "$TARGET_ADOPT_STALE_DRAFT_ID
 assert_shape "adoption UUID-less draft premise" 2 "$TARGET_ADOPT_UNMANAGED_DRAFT_ID" draft ''
 pass "fixture premise is exact before plan: unmanaged term, two stale managed items across statuses, one UUID-less draft survivor"
 
-ADOPTION_PLAN="$(duo_json 'adoption plan' plan --repo=/siterepo --adopt-by-slug=terms,menus)"
+ADOPTION_PLAN="$(wprism_json 'adoption plan' plan --repo=/siterepo --adopt-by-slug=terms,menus)"
 assert_plan_menu_bucket "adoption plan" "$ADOPTION_PLAN" adopt "$ADOPT_MENU_UUID"
 assert_summary_candidates "adoption plan" "$ADOPTION_PLAN" 2
-ADOPTION_HUMAN="$(duo_human 'adoption human plan' plan --repo=/siterepo --adopt-by-slug=terms,menus)"
-grep -Fq 'SUMMARY [duo-plan-category-summary/v1]' <<<"$ADOPTION_HUMAN" \
+ADOPTION_HUMAN="$(wprism_human 'adoption human plan' plan --repo=/siterepo --adopt-by-slug=terms,menus)"
+grep -Fq 'SUMMARY [wprism-plan-category-summary/v1]' <<<"$ADOPTION_HUMAN" \
   || fail "agent human plan omitted the category-summary header: $ADOPTION_HUMAN"
 grep -Fq 'nested_menu_item_delete_candidates=2' <<<"$ADOPTION_HUMAN" \
   || fail "agent human plan did not render the exact adoption candidate count: $ADOPTION_HUMAN"
 pass "adoption reports exactly two managed candidates; the summary is present in both JSON and human plan output"
 
-duo_json 'initial apply with menu adoption' apply --repo=/siterepo --adopt-by-slug=terms,menus --default-author=admin >/dev/null
+wprism_json 'initial apply with menu adoption' apply --repo=/siterepo --adopt-by-slug=terms,menus --default-author=admin >/dev/null
 [ "$(menu_term_uuid 2 "$TARGET_ADOPT_TERM_ID")" = "$ADOPT_MENU_UUID" ] \
   || fail "adoption did not assign the source menu UUID to the same-slug target term"
 assert_count "post-adoption menu" 2 "$TARGET_ADOPT_TERM_ID" 2
@@ -427,14 +427,14 @@ TARGET_RECON_TERM_ID="$(menu_id_by_slug 2 "$RECON_SLUG")"
 assert_positive_id "target reconcile menu created by baseline apply" "$TARGET_RECON_TERM_ID"
 TARGET_RECON_DESIRED_ID="$(menu_item_id_by_uuid 2 "$RECON_DESIRED_UUID")"
 assert_positive_id "target reconcile desired item" "$TARGET_RECON_DESIRED_ID"
-TARGET_NORMAL_STALE_PUBLISHED_ID="$(wp2 menu item add-custom "$TARGET_RECON_TERM_ID" 'DUO 3345 normal stale published' 'https://example.invalid/duo-3345/normal-stale-published' --porcelain)"
+TARGET_NORMAL_STALE_PUBLISHED_ID="$(wp2 menu item add-custom "$TARGET_RECON_TERM_ID" 'plan category normal stale published' 'https://example.invalid/plan-category/normal-stale-published' --porcelain)"
 assert_positive_id "target normal stale published item" "$TARGET_NORMAL_STALE_PUBLISHED_ID"
-wp2 post meta add "$TARGET_NORMAL_STALE_PUBLISHED_ID" _duo_uuid "$NORMAL_STALE_PUBLISHED_UUID" >/dev/null
-TARGET_NORMAL_STALE_DRAFT_ID="$(wp2 menu item add-custom "$TARGET_RECON_TERM_ID" 'DUO 3345 normal stale draft' 'https://example.invalid/duo-3345/normal-stale-draft' --porcelain)"
+wp2 post meta add "$TARGET_NORMAL_STALE_PUBLISHED_ID" _wprism_uuid "$NORMAL_STALE_PUBLISHED_UUID" >/dev/null
+TARGET_NORMAL_STALE_DRAFT_ID="$(wp2 menu item add-custom "$TARGET_RECON_TERM_ID" 'plan category normal stale draft' 'https://example.invalid/plan-category/normal-stale-draft' --porcelain)"
 assert_positive_id "target normal stale draft item" "$TARGET_NORMAL_STALE_DRAFT_ID"
-wp2 post meta add "$TARGET_NORMAL_STALE_DRAFT_ID" _duo_uuid "$NORMAL_STALE_DRAFT_UUID" >/dev/null
+wp2 post meta add "$TARGET_NORMAL_STALE_DRAFT_ID" _wprism_uuid "$NORMAL_STALE_DRAFT_UUID" >/dev/null
 wp2 post update "$TARGET_NORMAL_STALE_DRAFT_ID" --post_status=draft >/dev/null
-TARGET_NORMAL_UNMANAGED_DRAFT_ID="$(wp2 menu item add-custom "$TARGET_RECON_TERM_ID" 'DUO 3345 normal unmanaged draft' 'https://example.invalid/duo-3345/normal-unmanaged-draft' --porcelain)"
+TARGET_NORMAL_UNMANAGED_DRAFT_ID="$(wp2 menu item add-custom "$TARGET_RECON_TERM_ID" 'plan category normal unmanaged draft' 'https://example.invalid/plan-category/normal-unmanaged-draft' --porcelain)"
 assert_positive_id "target normal unmanaged draft item" "$TARGET_NORMAL_UNMANAGED_DRAFT_ID"
 wp2 post update "$TARGET_NORMAL_UNMANAGED_DRAFT_ID" --post_status=draft >/dev/null
 assert_count "concurrent reconciliation premise" 2 "$TARGET_RECON_TERM_ID" 4
@@ -444,15 +444,15 @@ assert_shape "normal stale draft item premise" 2 "$TARGET_NORMAL_STALE_DRAFT_ID"
 assert_shape "normal UUID-less draft premise" 2 "$TARGET_NORMAL_UNMANAGED_DRAFT_ID" draft ''
 
 wp1 post update "$SRC_RECON_DESIRED_ID" --post_title="$RECON_TITLE_V2" >/dev/null
-wp1 duo capture --repo=/siterepo >/dev/null
-publish_source_update 'capture: change DUO-3345 reconcile menu desired title'
+wp1 wprism capture --repo=/siterepo >/dev/null
+publish_source_update 'capture: change issue #3345 reconcile menu desired title'
 
-NORMAL_PLAN="$(duo_json 'concurrent reconciliation plan' plan --repo=/siterepo --adopt-by-slug=terms,menus)"
+NORMAL_PLAN="$(wprism_json 'concurrent reconciliation plan' plan --repo=/siterepo --adopt-by-slug=terms,menus)"
 assert_plan_menu_bucket "concurrent reconciliation plan" "$NORMAL_PLAN" conflict "$RECON_MENU_UUID"
 assert_summary_candidates "concurrent reconciliation plan" "$NORMAL_PLAN" 2
 pass "the three-way conflict still reports exactly the two target-owned candidates across published and draft statuses"
 
-duo_json 'explicit repository-choice reconciliation apply' apply --repo=/siterepo --adopt-by-slug=terms,menus --default-author=admin --force-theirs >/dev/null
+wprism_json 'explicit repository-choice reconciliation apply' apply --repo=/siterepo --adopt-by-slug=terms,menus --default-author=admin --force-theirs >/dev/null
 assert_count "post-normal-reconciliation menu" 2 "$TARGET_RECON_TERM_ID" 2
 assert_shape "normal desired item after apply" 2 "$TARGET_RECON_DESIRED_ID" publish "$RECON_DESIRED_UUID"
 [ "$(wp2 post get "$TARGET_RECON_DESIRED_ID" --field=post_title)" = "$RECON_TITLE_V2" ] \
@@ -463,9 +463,9 @@ assert_shape "normal UUID-less draft survivor" 2 "$TARGET_NORMAL_UNMANAGED_DRAFT
 pass "the explicit repository choice reconciles only managed items across statuses and preserves the UUID-less draft"
 
 say "menu tombstone: preserve a canonical matching published item, add one durable draft and retain the UUID-less draft (three all-status/ownership rows)"
-TARGET_TOMBSTONE_DRAFT_ID="$(wp2 menu item add-custom "$TARGET_ADOPT_TERM_ID" 'DUO 3345 tombstone durable draft' 'https://example.invalid/duo-3345/tombstone-draft' --porcelain)"
+TARGET_TOMBSTONE_DRAFT_ID="$(wp2 menu item add-custom "$TARGET_ADOPT_TERM_ID" 'plan category tombstone durable draft' 'https://example.invalid/plan-category/tombstone-draft' --porcelain)"
 assert_positive_id "target tombstone durable draft item" "$TARGET_TOMBSTONE_DRAFT_ID"
-wp2 post meta add "$TARGET_TOMBSTONE_DRAFT_ID" _duo_uuid "$TOMBSTONE_DRAFT_UUID" >/dev/null
+wp2 post meta add "$TARGET_TOMBSTONE_DRAFT_ID" _wprism_uuid "$TOMBSTONE_DRAFT_UUID" >/dev/null
 wp2 post update "$TARGET_TOMBSTONE_DRAFT_ID" --post_status=draft >/dev/null
 assert_count "menu tombstone premise" 2 "$TARGET_ADOPT_TERM_ID" 3
 assert_shape "tombstone matching published managed item premise" 2 "$TARGET_ADOPT_KEEP_ID" publish "$ADOPT_DESIRED_UUID"
@@ -476,18 +476,18 @@ pass "tombstone premise is exact: published managed, draft managed, and draft UU
 DELETE_RESULT="$(wp1 eval "echo wp_delete_nav_menu($SRC_ADOPT_TERM_ID) ? 'deleted' : 'failed';")"
 [ "$DELETE_RESULT" = 'deleted' ] \
   || fail "fixture manufacture failed: source WordPress API did not delete the adoption menu (got '$DELETE_RESULT')"
-wp1 duo capture --repo=/siterepo >/dev/null
+wp1 wprism capture --repo=/siterepo >/dev/null
 ADOPT_TOMBSTONE_FILE="$(tombstone_file_by_uuid "$SITE1" "$ADOPT_MENU_UUID")"
-jq -e '.format == "duo-deletion/v1" and .kind == "menu" and .type == "nav_menu"' "$ADOPT_TOMBSTONE_FILE" >/dev/null \
+jq -e '.format == "wprism-deletion/v1" and .kind == "menu" and .type == "nav_menu"' "$ADOPT_TOMBSTONE_FILE" >/dev/null \
   || fail "source menu disappearance did not publish the expected menu tombstone: $ADOPT_TOMBSTONE_FILE"
-publish_source_update 'capture: delete DUO-3345 adoption menu'
+publish_source_update 'capture: delete issue #3345 adoption menu'
 
-TOMBSTONE_PLAN="$(duo_json 'menu tombstone plan' plan --repo=/siterepo --adopt-by-slug=terms,menus)"
+TOMBSTONE_PLAN="$(wprism_json 'menu tombstone plan' plan --repo=/siterepo --adopt-by-slug=terms,menus)"
 assert_plan_menu_bucket "menu tombstone plan" "$TOMBSTONE_PLAN" delete "$ADOPT_MENU_UUID"
 assert_summary_candidates "menu tombstone plan" "$TOMBSTONE_PLAN" 3
 pass "menu tombstone counts all three assigned items, not just published or ledger-owned rows"
 
-duo_json 'menu tombstone apply' apply --repo=/siterepo --with-deletes --adopt-by-slug=terms,menus --default-author=admin >/dev/null
+wprism_json 'menu tombstone apply' apply --repo=/siterepo --with-deletes --adopt-by-slug=terms,menus --default-author=admin >/dev/null
 [ "$(menu_id_by_slug 2 "$ADOPT_SLUG")" = '0' ] \
   || fail "menu tombstone apply left the target nav_menu term present"
 assert_missing "tombstone matching published managed item" 2 "$TARGET_ADOPT_KEEP_ID"
@@ -495,7 +495,7 @@ assert_missing "tombstone durable draft managed item" 2 "$TARGET_TOMBSTONE_DRAFT
 assert_missing "tombstone UUID-less draft item" 2 "$TARGET_ADOPT_UNMANAGED_DRAFT_ID"
 pass "menu tombstone deleted every assigned status/ownership shape from the real target database"
 
-TOMBSTONE_RETRY="$(duo_json 'menu tombstone retry plan' plan --repo=/siterepo --adopt-by-slug=terms,menus)"
+TOMBSTONE_RETRY="$(wprism_json 'menu tombstone retry plan' plan --repo=/siterepo --adopt-by-slug=terms,menus)"
 assert_plan_menu_bucket "menu tombstone retry plan" "$TOMBSTONE_RETRY" deleted "$ADOPT_MENU_UUID"
 assert_summary_candidates "menu tombstone retry plan" "$TOMBSTONE_RETRY" 0
 pass "tombstone retry is settled and reports zero nested menu candidates"

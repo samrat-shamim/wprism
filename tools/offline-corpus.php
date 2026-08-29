@@ -3,7 +3,7 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tooling;
+namespace WPrism\Tooling;
 
 /**
  * Derive the offline corpus from the tree and emit it as a generated Makefile
@@ -20,7 +20,7 @@ namespace Duo\Tooling;
  *      same two lines, so any two of them conflict deterministically. The
  *      adapter-decentralization program alone adds ~30 suites.
  *   2. The integers drift. `git log -L` on the two lines shows both were
- *      introduced equal at 207/207 in 1ef9577c (DUO-3469) and are 294/293
+ *      introduced equal at 207/207 in 1ef9577c (issue #3469) and are 294/293
  *      today: the corpus line has been one short for many commits, printing a
  *      count no suite ever produced. Nothing consumed it, so nothing caught
  *      it -- `regress_bundle_coverage.sh:201-213` checks the
@@ -30,7 +30,7 @@ namespace Duo\Tooling;
  *      than derivation, which makes one impossible.
  *
  * So the list and both counts are now a pure function of the tree, following
- * the discipline agent/duo-classmap.php and tools/capability-doc.php already
+ * the discipline agent/wprism-classmap.php and tools/capability-doc.php already
  * use here: generate, commit the output, and byte-compare it under
  * `make release-gate` so the artifact cannot drift from its source.
  *

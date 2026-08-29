@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tooling;
+namespace WPrism\Tooling;
 
 use RuntimeException;
 use Throwable;
@@ -20,10 +20,10 @@ require_once dirname(__DIR__, 2) . '/agent/src/Policy/AdapterLibrary.php';
  */
 final class AdapterLibraryAssembler
 {
-    public const FORMAT = 'duo-embedded-adapter-library-assembly/v1';
+    public const FORMAT = 'wprism-embedded-adapter-library-assembly/v1';
     public const DEPLOYMENT_MARKER = 'adapter-library.deployed';
 
-    private const DEPLOYMENT_MARKER_BYTES = "duo-embedded-adapter-library-assembly/v1\n";
+    private const DEPLOYMENT_MARKER_BYTES = "wprism-embedded-adapter-library-assembly/v1\n";
 
     private const DIRECTORY_MODE = 0040000;
     private const FILE_MODE = 0100000;
@@ -112,9 +112,9 @@ final class AdapterLibraryAssembler
     /** Validate the exact projected layout through the production runtime reader before publication. */
     private static function validateEmbeddedLibrary(string $build, string $agent): void
     {
-        \Duo\AdapterLibrary::fromEmbeddedDirectory(
+        \WPrism\AdapterLibrary::fromEmbeddedDirectory(
             $build,
-            dirname($agent) . '/duo-control/adapter-revocations.json'
+            dirname($agent) . '/wprism-control/adapter-revocations.json'
         );
     }
 

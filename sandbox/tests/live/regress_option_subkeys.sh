@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression — DUO-3233: sub-key option classification. Manifest grammar to
+# Regression — issue #3233: sub-key option classification. Manifest grammar to
 # classify NAMED sub-keys of one option blob independently (capture some
 # keys, exclude the rest), with apply-side SUB-KEY-LEVEL merge into the live
 # blob that never clobbers excluded sibling keys. Closes the long-documented
@@ -10,7 +10,7 @@
 # swap broke on every fresh target.
 #
 # Covers, against a fresh, from-scratch pair (own pair.sh-managed pair,
-# default `asub3233`/:8910/:8911, parameterized -- see DUO-3276 note below
+# default `asub3233`/:8910/:8911, parameterized -- see issue #3276 note below
 # -- the driver never tears it down):
 #   (1) capture carves out ONLY the declared portable sub-keys of `polylang`
 #       (browser/default_lang/force_lang/hide_default/media_support/nav_menus/
@@ -26,12 +26,12 @@
 #       term ids resolve to the TARGET's own local ids (proven to differ
 #       from the source's).
 #   (3) the well-documented, architecture-level Polylang timing hazard
-#       (manifests/polylang.json's own note, task #121) -- CLOSED (DUO-3280).
+#       (manifests/polylang.json's own note, task #121) -- CLOSED.
 #       PRECISE mechanism, traced against Polylang 3.8.6's real source: see
 #       src/translated-post.php: `PLL_Model::get_translated_object_types()`
 #       reads `$this->options['post_types']` (Polylang's OWN in-memory copy
 #       of the polylang option, snapshotted once per process, well before
-#       ANY of duo's apply code runs) through `PLL_Cache` (confirmed
+#       ANY of wprism's apply code runs) through `PLL_Cache` (confirmed
 #       in-process-only, manifests/polylang.json's earlier note); it is
 #       WordPress's `registered_post_type` action (fired when the CPT
 #       fixture's own `register_post_type()` call runs, itself on `init`)
@@ -40,26 +40,26 @@
 #       language-taxonomy registration is fixed for that process's lifetime
 #       the moment ITS 'init' fires, using WHATEVER `post_types` value
 #       Polylang's model had already snapshotted -- unaffected by anything
-#       duo's OWN phase-2 entity-apply ordering does afterward (options
+#       wprism's OWN phase-2 entity-apply ordering does afterward (options
 #       before or after posts makes no difference: this snapshot predates
-#       duo's code entirely), and unaffected by which PROCESS eventually
-#       re-verifies convergence (DUO-3220's fresh-subprocess verification
+#       wprism's code entirely), and unaffected by which PROCESS eventually
+#       re-verifies convergence (issue #3220's fresh-subprocess verification
 #       was never the bug -- there is exactly one verify_convergence_local()
 #       call site in the whole engine, always reached via a spawned fresh
 #       process; that path was correct before this fix and unchanged by it).
 #       Two candidate mechanisms were RULED OUT, empirically, not assumed,
-#       before landing on the real one: (a) DUO-3272's polylang.json
+#       before landing on the real one: (a) issue #3272's polylang.json
 #       rebuild action -- read directly, it recomputes ONLY the theme_mods
 #       `nav_menu_locations` slot, nothing taxonomy- or post_types-related;
 #       (b) the `pll_languages_list` transient (team-lead's first suspect)
 #       -- this manifest's OWN pre-existing note already recorded it
-#       "resilient to Duo's hook-free $wpdb writes (no rebuild/flush step
+#       "resilient to WPrism's hook-free $wpdb writes (no rebuild/flush step
 #       needed after apply for THAT cache)" from an earlier task,
 #       re-confirmed live -- it caches the LANGUAGE list (en/de/...), a
 #       genuinely different concern from post_types-to-taxonomy
 #       registration. A THIRD candidate -- a phase-ordering / ref-resolved-
 #       before-term-exists / warn-and-drop mechanism, which would have
-#       exonerated DUO-3220's convergence gate as catching a genuinely
+#       exonerated issue #3220's convergence gate as catching a genuinely
 #       different pre-existing bug rather than a false failure -- was also
 #       ruled out by direct code trace: Apply::reconcile_relationships()'s
 #       ref-resolution loop HARD-THROWS (`?? throw new \RuntimeException`)
@@ -87,11 +87,11 @@
 #       (run() wraps everything in one transaction that only commits
 #       after convergence verification passes) -- see Apply::
 #       option_driven_object_type()'s own comment for the full argument.
-#       Proven below: a SINGLE, unretried `wp duo apply` (no more
-#       apply_with_retry() -- DUO-3276's stopgap wrapper, deleted now
+#       Proven below: a SINGLE, unretried `wp wprism apply` (no more
+#       apply_with_retry() -- issue #3276's stopgap wrapper, deleted now
 #       that this landed) writes the `language`/`post_translations`
 #       relationships correctly and passes post-apply convergence
-#       verification (DUO-3220) on the very first attempt. DUO-3220's own
+#       verification (issue #3220) on the very first attempt. issue #3220's own
 #       gate was never the bug: it TRUE-failed, immediately and loudly, on
 #       a genuinely incomplete apply that the pre-3220 world used to ship
 #       silently as easy-to-miss "drift" -- see manifests/polylang.json's
@@ -113,7 +113,7 @@
 #       value carrying an UNDECLARED sub-key (a hand-edited or stale repo
 #       file) — the same "unknown field refuses" discipline every other
 #       entity surface already gets, applied to option sub-keys.
-#   (9) negative: `wp duo lint` flags a bare numeric id smuggled into a
+#   (9) negative: `wp wprism lint` flags a bare numeric id smuggled into a
 #       PLAIN (no json_refs) sub-key value (post_types) — exercises
 #       scan_option_sub_keys()'s shallow branch directly. A companion,
 #       NOT-asserted note documents a separate, pre-existing Lint.php
@@ -128,20 +128,20 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."   # -> sandbox/
 
-# DUO-3276: the pair NAME/PORTS are parameterized so this regression can run
+# issue #3276: the pair NAME/PORTS are parameterized so this regression can run
 # on its own pair instead of colliding with whoever else is using the
-# hardcoded default -- the identical footgun class DUO-3252 (PR #35, commit
+# hardcoded default -- the identical footgun class issue #3252 (PR #35, commit
 # 414a577) fixed for regress_option_reconciliation.sh, which already reset a
 # FOREIGN pair live once (an agent ran that script unread as an ancillary
 # check; its unconditional `pair.sh reset` wiped that pair's database and
 # host state with zero warning). `asub3233` here is the same shape: dead
-# residue naming from asub's own long-closed DUO-3233 work, sitting in a
+# residue naming from asub's own long-closed issue #3233 work, sitting in a
 # script anyone might run. Default PAIR=asub3233/PORT1=8910/PORT2=8911 keeps
 # existing single-user/CI behavior byte-identical; run your own copy with
 #   PAIR=acore3276 PORT1=8930 PORT2=8931 bash regress_option_subkeys.sh
 # A custom PAIR REQUIRES explicit PORT1/PORT2 (mirrors sandbox/conformance/
 # run.sh's own CONF_PAIR mechanism, commit 3aab875 -- the same precedent
-# DUO-3252 itself cites): defaulting a custom pair name onto the SAME
+# issue #3252 itself cites): defaulting a custom pair name onto the SAME
 # hardcoded ports would just relocate the collision risk from the pair name
 # to the port numbers instead of removing it.
 PAIR="${PAIR:-asub3233}"
@@ -153,8 +153,8 @@ if [ "$PAIR" != "asub3233" ] && { [ -z "${PORT1:-}" ] || [ -z "${PORT2:-}" ]; };
 fi
 PORT1="${PORT1:-8910}"
 PORT2="${PORT2:-8911}"
-export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
-COMPOSE="docker compose -p duo-$PAIR -f pair.yml -f pair.http.yml"
+export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2"
+COMPOSE="docker compose -p wprism-$PAIR -f pair.yml -f pair.http.yml"
 
 wp_env() { local side="$1"; shift; $COMPOSE run --rm -T "cli${side}" wp "$@"; }
 wp1() { wp_env 1 "$@"; }
@@ -176,7 +176,7 @@ normalize_repo_permissions() {
   $COMPOSE run --rm -T -u root cli2 sh -c "chown -R ${host_uid}:${host_gid} /siterepo && chmod -R ugo+rwX /siterepo" >/dev/null 2>&1 || true
 }
 
-# DUO-3300's focused owning-layer regression. Polylang stores each language's
+# issue #3300's focused owning-layer regression. Polylang stores each language's
 # locale configuration as a PHP-serialized `language` term description. Read
 # the raw column (not WP_Term's cache) and refuse the empty/malformed state
 # that previously reached WP_Translation_Controller::set_locale(NULL).
@@ -254,10 +254,10 @@ install_env 1
 install_env 2
 pass "both envs installed on a genuinely fresh database"
 
-say "the project CPT fixture (sandbox/fixtures/duo-agency-cpt, R1-C's own fixture): drop in as an mu-plugin on both sides -- registered unconditionally, no activation step needed"
+say "the project CPT fixture (sandbox/fixtures/wprism-agency-cpt, R1-C's own fixture): drop in as an mu-plugin on both sides -- registered unconditionally, no activation step needed"
 for side in 1 2; do
   $COMPOSE exec -T "wp${side}" mkdir -p /var/www/html/wp-content/mu-plugins
-  $COMPOSE exec -T "wp${side}" tee /var/www/html/wp-content/mu-plugins/duo-agency-cpt.php >/dev/null < fixtures/duo-agency-cpt/duo-agency-cpt.php
+  $COMPOSE exec -T "wp${side}" tee /var/www/html/wp-content/mu-plugins/wprism-agency-cpt.php >/dev/null < fixtures/wprism-agency-cpt/wprism-agency-cpt.php
   wp_env "$side" eval 'var_export(post_type_exists("project"));' | grep -q true || fail "project CPT did not register on side $side"
 done
 pass "project CPT registered both sides"
@@ -268,7 +268,7 @@ PLL()->model->languages->add(['locale'=>'en_US','slug'=>'en','name'=>'English'])
 PLL()->model->languages->add(['locale'=>'de_DE','slug'=>'de','name'=>'Deutsch']);
 "
 
-say "side1: enable project/project_type for translation via the polylang option's post_types/taxonomies sub-keys (a real admin action, done ONCE here -- the fresh target below gets this AUTOMATICALLY via duo apply, never by hand)"
+say "side1: enable project/project_type for translation via the polylang option's post_types/taxonomies sub-keys (a real admin action, done ONCE here -- the fresh target below gets this AUTOMATICALLY via wprism apply, never by hand)"
 wp1 eval "
 \$o = get_option('polylang');
 \$o['browser'] = false;
@@ -293,9 +293,9 @@ pass "en/de added; project/project_type enabled for translation on side1"
 
 say "side1: translated project pair (English + German) -- language tag via wp_set_object_terms directly (pll_set_post_language()'s documented silent no-op, task #121 finding 7), translations linked via pll_save_post_translations()"
 PROJ_JSON=$(wp1 eval "
-\$en = wp_insert_post(['post_type'=>'project','post_status'=>'publish','post_title'=>'Duo Website Revamp','post_author'=>1], true);
+\$en = wp_insert_post(['post_type'=>'project','post_status'=>'publish','post_title'=>'WPrism Website Revamp','post_author'=>1], true);
 wp_set_object_terms(\$en, 'en', 'language');
-\$de = wp_insert_post(['post_type'=>'project','post_status'=>'publish','post_title'=>'Duo Website Neugestaltung','post_author'=>1], true);
+\$de = wp_insert_post(['post_type'=>'project','post_status'=>'publish','post_title'=>'WPrism Website Neugestaltung','post_author'=>1], true);
 wp_set_object_terms(\$de, 'de', 'language');
 pll_save_post_translations(['en'=>\$en, 'de'=>\$de]);
 echo json_encode(['en'=>\$en, 'de'=>\$de]);
@@ -306,7 +306,7 @@ PROJ_DE=$(echo "$PROJ_JSON" | python3 -c "import json,sys; print(json.load(sys.s
 LANG_CHECK=$(wp1 eval "echo json_encode(['en'=>pll_get_post_language($PROJ_EN),'de'=>pll_get_post_language($PROJ_DE),'trans'=>pll_get_post_translations($PROJ_EN)]);")
 grep -q '"en":"en"' <<<"$LANG_CHECK" || fail "source-side language tag did not land (got: $LANG_CHECK)"
 grep -q '"de":"de"' <<<"$LANG_CHECK" || fail "source-side language tag did not land for German project (got: $LANG_CHECK)"
-pass "Duo Website Revamp ($PROJ_EN) / Duo Website Neugestaltung ($PROJ_DE) -- translated pair confirmed live on the SOURCE before capture"
+pass "WPrism Website Revamp ($PROJ_EN) / WPrism Website Neugestaltung ($PROJ_DE) -- translated pair confirmed live on the SOURCE before capture"
 
 say "side1: per-language menus -- Main Menu(en)/Hauptmenu(de), flat theme_mods location=Main Menu (language-blind), polylang's OWN nav_menus sub-key names BOTH per language"
 MENU_EN=$(wp1 menu create "Main Menu" --porcelain)
@@ -330,10 +330,10 @@ update_option('wpseo', \$o);
 
 say "init site repo (own origin, own clones)"
 normalize_repo_permissions
-rm -rf siterepo/origin-${PAIR}.git siterepo/${PAIR}1/.git siterepo/${PAIR}1/state siterepo/${PAIR}1/site.duo.json siterepo/${PAIR}2
+rm -rf siterepo/origin-${PAIR}.git siterepo/${PAIR}1/.git siterepo/${PAIR}1/state siterepo/${PAIR}1/site.wprism.json siterepo/${PAIR}2
 git init --bare -b main siterepo/origin-${PAIR}.git >/dev/null
 mkdir -p siterepo/${PAIR}1
-cat > siterepo/${PAIR}1/site.duo.json <<'EOF'
+cat > siterepo/${PAIR}1/site.wprism.json <<'EOF'
 {
   "manifests": ["core", "polylang", "yoast"],
   "policy": {
@@ -348,13 +348,13 @@ EOF
 cp site-repo.gitignore.template siterepo/${PAIR}1/.gitignore
 git -C siterepo/${PAIR}1 init -q -b main
 git -C siterepo/${PAIR}1 remote add origin ../origin-${PAIR}.git
-git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test add -A
-git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test commit -qm "policy: DUO-3233 regression scope" >/dev/null
-git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test push -qu origin main
+git -C siterepo/${PAIR}1 -c user.name=wprism-${PAIR}1 -c user.email=a1@example.test add -A
+git -C siterepo/${PAIR}1 -c user.name=wprism-${PAIR}1 -c user.email=a1@example.test commit -qm "policy: issue #3233 regression scope" >/dev/null
+git -C siterepo/${PAIR}1 -c user.name=wprism-${PAIR}1 -c user.email=a1@example.test push -qu origin main
 pass "site repo initialized"
 
 say "(1) capture: sub_keys carves out ONLY the declared keys"
-wp1 duo capture --repo=/siterepo >/dev/null
+wp1 wprism capture --repo=/siterepo >/dev/null
 assert_language_descriptions 1 "after source capture"
 POLYLANG_KEYS=$(python3 -c "import json; d=json.load(open('siterepo/${PAIR}1/state/options/core.json'))['records']; print(sorted(d['polylang']['value'].keys()))")
 [ "$POLYLANG_KEYS" = "['browser', 'default_lang', 'force_lang', 'hide_default', 'media_support', 'nav_menus', 'post_types', 'redirect_lang', 'rewrite', 'sync', 'taxonomies']" ] || fail "expected captured polylang option to carry EXACTLY its eleven reviewed portable keys, got: $POLYLANG_KEYS"
@@ -373,17 +373,17 @@ grep -q '{{term:' <<<"$NAV_TOKENS" || fail "expected nav_menus term ids tokenize
 pass "nav_menus per-language menu-term-ids correctly tokenized via json_refs"
 
 say "hard lint gate + capture-twice determinism (positive path)"
-wp1 duo lint --repo=/siterepo
-wp1 duo capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
+wp1 wprism lint --repo=/siterepo
+wp1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-state2 >/dev/null
 assert_language_descriptions 1 "after deterministic second source capture"
 diff -r siterepo/${PAIR}1/state siterepo/${PAIR}1/.tmp-state2 || fail "capture is not deterministic"
 normalize_repo_permissions
 rm -rf siterepo/${PAIR}1/.tmp-state2
 pass "lint clean, capture-twice diff empty"
 
-git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test add -A
-git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test commit -qm "capture: DUO-3233 fixture"
-git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test push -q origin main
+git -C siterepo/${PAIR}1 -c user.name=wprism-${PAIR}1 -c user.email=a1@example.test add -A
+git -C siterepo/${PAIR}1 -c user.name=wprism-${PAIR}1 -c user.email=a1@example.test commit -qm "capture: issue #3233 fixture"
+git -C siterepo/${PAIR}1 -c user.name=wprism-${PAIR}1 -c user.email=a1@example.test push -q origin main
 
 say "(2)/(3) round-trip onto a GENUINELY FRESH target: side2 has Polylang+Yoast active, but ZERO manual language/Settings config"
 normalize_repo_permissions
@@ -396,15 +396,15 @@ echo "side2 polylang option BEFORE apply (fresh activation defaults): $POLYLANG_
 echo "$POLYLANG_BEFORE" | python3 -c "import json,sys; d=json.load(sys.stdin); sys.exit(1 if d['post_types'] else 0)" \
   || fail "side2 should start with an EMPTY post_types (genuinely fresh, no manual config)"
 
-APPLY1=$($COMPOSE run --rm -T cli2 wp duo apply --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --revision="$REV" 2>&1) \
-  || { echo "$APPLY1"; fail "single-attempt apply did not pass convergence on the fresh Polylang target -- DUO-3280's fix (taxes_by_object_type()'s manifest-declared option supplement, see header note (3)) is expected to make this pass on the FIRST and ONLY attempt now, no retry"; }
+APPLY1=$($COMPOSE run --rm -T cli2 wp wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --revision="$REV" 2>&1) \
+  || { echo "$APPLY1"; fail "single-attempt apply did not pass convergence on the fresh Polylang target -- issue #3280's fix (taxes_by_object_type()'s manifest-declared option supplement, see header note (3)) is expected to make this pass on the FIRST and ONLY attempt now, no retry"; }
 echo "$APPLY1"
 grep -qiE '"canary":"clean"|canary clean' <<<"$APPLY1" || fail "apply canary was not clean"
 assert_language_descriptions 1 "after source capture and target apply"
 assert_language_descriptions 2 "after first target apply"
 pass "single-attempt apply succeeded on a fresh target, canary clean -- no retry wrapper involved"
 
-say "DUO-3282/DUO-3338: this apply's own polylang.json action (DUO-3272's nav_menu_locations synchronization, now the polylang-nav-menus provider capability) fired -- a DIFFERENT declaration than DUO-3267/grind_r1a_forms.sh's own nf3_upgrades probe, same per-declaration confirmation-line mechanism in Apply::rebuild()"
+say "issue #3282/issue #3338: this apply's own polylang.json action (issue #3272's nav_menu_locations synchronization, now the polylang-nav-menus provider capability) fired -- a DIFFERENT declaration than issue #3267/grind_r1a_forms.sh's own nf3_upgrades probe, same per-declaration confirmation-line mechanism in Apply::rebuild()"
 grep -q "provider capability fired: polylang-nav-menus@" <<<"$APPLY1" || fail "expected an unconditional 'provider capability fired' confirmation line in apply's warnings (got no match in: $APPLY1)"
 pass "confirmed: Apply::rebuild() reports back per-declaration with the provider identity and its value-level verification, no more inferring it indirectly from a declaration's own side-effect table"
 
@@ -446,25 +446,25 @@ print('wpseo merge OK:', d['disableadvanced_meta'], d['version'])
 " || fail "wpseo sub-key merge check failed"
 pass "wpseo.disableadvanced_meta merged correctly; version/first_activated_on (target's OWN) preserved -- second real-plugin proof of the same grammar"
 
-say "(3) the documented Polylang timing hazard (manifests/polylang.json's own CLOSED note, task #121/DUO-3280): taxes_by_object_type()'s manifest-declared option supplement (Policy::object_type_option_refs(), reading polylang.post_types from THIS apply's own compiled tree, not a live DB read -- see Apply::option_driven_object_type()'s comment for why) means the SAME single apply that first writes post_types now ALSO sees it for relationship-writing purposes -- no second process, no retry required. Checked below on the output of the single APPLY1 attempt above, not a subsequent process's read of it."
+say "(3) the documented Polylang timing hazard (manifests/polylang.json's own CLOSED note, task #121/issue #3280): taxes_by_object_type()'s manifest-declared option supplement (Policy::object_type_option_refs(), reading polylang.post_types from THIS apply's own compiled tree, not a live DB read -- see Apply::option_driven_object_type()'s comment for why) means the SAME single apply that first writes post_types now ALSO sees it for relationship-writing purposes -- no second process, no retry required. Checked below on the output of the single APPLY1 attempt above, not a subsequent process's read of it."
 OBJTYPE_B2=$(wp2 eval "\$t=get_taxonomy('language'); echo implode(',', (array) \$t->object_type);")
 echo "side2 language taxonomy object_type in a fresh process after the single apply attempt: $OBJTYPE_B2"
 grep -q "project" <<<"$OBJTYPE_B2" || fail "expected 'project' in language's object_type after the single apply attempt (got: $OBJTYPE_B2) -- the post_types write itself did not land"
-# DUO-3276 follow-up: was `sort -n | head -1`/`tail -1` -- lowest/highest
+# issue #3276 follow-up: was `sort -n | head -1`/`tail -1` -- lowest/highest
 # LOCAL id is NOT a safe EN/DE proxy (live-caught, acore3276 pair, 2026-08:
 # a second run assigned the German post the lower id, silently flipping
 # which post this script treated as "the English one" for every check
 # below). Look up by the SAME distinctive titles asserted against the
 # source above (line ~233) -- content, not id-assignment-order luck.
-PROJ_EN_B2=$(wp2 post list --post_type=project --title="Duo Website Revamp" --field=ID)
-PROJ_DE_B2=$(wp2 post list --post_type=project --title="Duo Website Neugestaltung" --field=ID)
+PROJ_EN_B2=$(wp2 post list --post_type=project --title="WPrism Website Revamp" --field=ID)
+PROJ_DE_B2=$(wp2 post list --post_type=project --title="WPrism Website Neugestaltung" --field=ID)
 [ "$PROJ_EN_B2" != "" ] && [ "$PROJ_DE_B2" != "" ] && [ "$PROJ_EN_B2" != "$PROJ_DE_B2" ] \
   || fail "expected exactly one distinct target-local id per title (got EN=$PROJ_EN_B2 DE=$PROJ_DE_B2)"
 LANG_BEFORE_FIX=$(wp2 eval "var_export(pll_get_post_language($PROJ_EN_B2));")
 echo "pll_get_post_language immediately after the SINGLE, unretried apply attempt: $LANG_BEFORE_FIX"
-# DUO-3280 (this fix): this used to read `false` here on an unretried
+# issue #3280 (this fix): this used to read `false` here on an unretried
 # single attempt -- the suite's ORIGINAL characterization, and exactly the
-# failure DUO-3276's now-deleted apply_with_retry() wrapper papered over by
+# failure issue #3276's now-deleted apply_with_retry() wrapper papered over by
 # forcing a second, fresh-process attempt. taxes_by_object_type() now sees
 # 'project' as in scope for `language`/`post_translations` DURING attempt
 # 1's own single pass (via the option-driven supplement, not get_taxonomy()),
@@ -473,20 +473,20 @@ echo "pll_get_post_language immediately after the SINGLE, unretried apply attemp
 # pll_get_post_language(), which hits the DB directly and would report the
 # same answer whether checked in-process or, as here, from a separate
 # `wp2 eval` process; a fresh process was never what made this pass.
-[ "$LANG_BEFORE_FIX" = "'en'" ] || fail "expected pll_get_post_language already resolved to 'en' after the single, unretried apply attempt (got: $LANG_BEFORE_FIX) -- DUO-3280's fix did not close the gap; re-check taxes_by_object_type()/object_type_option_refs()"
+[ "$LANG_BEFORE_FIX" = "'en'" ] || fail "expected pll_get_post_language already resolved to 'en' after the single, unretried apply attempt (got: $LANG_BEFORE_FIX) -- issue #3280's fix did not close the gap; re-check taxes_by_object_type()/object_type_option_refs()"
 pass "confirmed: the SINGLE, unretried apply attempt already resolved the documented Polylang object_type timing gap -- zero manual Settings replication, zero retry, zero drift left for the checks below to find"
 
 say "confirming the above leaves nothing to self-heal: a no-op re-apply -- ZERO content changes anywhere -- should show ZERO drift, not the 'drift (env ahead, untouched)' this suite originally documented here (that characterization described the pre-fix apply's own gap; see note (3) above for why the single apply above already closed it). Kept as a real assertion, not just a description, precisely because a regression back to the old behavior should fail loudly here, not slide by unnoticed."
 REV_NOOP=$(git -C siterepo/${PAIR}2 rev-parse HEAD)
-APPLY_NOOP=$($COMPOSE run --rm -T cli2 wp duo apply --repo=/siterepo --default-author=admin --revision="$REV_NOOP" 2>&1) \
+APPLY_NOOP=$($COMPOSE run --rm -T cli2 wp wprism apply --repo=/siterepo --default-author=admin --revision="$REV_NOOP" 2>&1) \
   || { echo "$APPLY_NOOP"; fail "single-attempt no-op re-apply failed"; }
 echo "$APPLY_NOOP"
 grep -q '"drift":0' <<<"$APPLY_NOOP" || fail "expected ZERO drift on a no-op re-apply -- the language relationship should already be fully resolved by this point (got: $APPLY_NOOP)"
 assert_language_descriptions 2 "after no-op target apply"
-# DUO-3280 follow-up: was 16 -- stale relative to DUO-3264 (#67, landed on
+# issue #3280 follow-up: was 16 -- stale relative to issue #3264 (#67, landed on
 # main after PR #61), which gave theme_mods_<stylesheet> its own tracked
 # dynamic_options entity; APPLY1's own plan (create:11 + update:2 + adopt:4)
-# now totals 17, all correctly unchanged here. Not a DUO-3280 regression --
+# now totals 17, all correctly unchanged here. Not a issue #3280 regression --
 # every OTHER assertion in this run (byte-identical sub-key merge, drift:0,
 # canary clean) is unaffected; only this one entity-count literal needed to
 # catch up to what already landed on main independently.
@@ -496,14 +496,14 @@ pass "confirmed: no drift left to find -- the relationship was already fully res
 say "a genuine content change on BOTH posts, + a SECOND, still fully automated apply -- zero manual Settings replication. Not fixing anything at this point (nothing is broken -- see above); this now proves the ORDINARY case: a real content update on a Polylang-translated post applies correctly and the already-resolved language relationship survives untouched, matching task #92's own established playbook for pa_* attribute relationships (a genuine content change is what forces Apply's plan to reprocess an entity at all -- 'unchanged' entities never are, regardless of what a sibling option write just changed)."
 wp1 post update "$PROJ_EN" --post_excerpt="A ground-up rebuild of the marketing site." >/dev/null
 wp1 post update "$PROJ_DE" --post_excerpt="Eine grundlegende Neugestaltung der Marketing-Website." >/dev/null
-wp1 duo capture --repo=/siterepo >/dev/null
+wp1 wprism capture --repo=/siterepo >/dev/null
 assert_language_descriptions 1 "after source content-update capture"
-git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test add -A
-git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test commit -qm "content: force reprocessing"
-git -C siterepo/${PAIR}1 -c user.name=duo-${PAIR}1 -c user.email=a1@example.test push -q origin main
+git -C siterepo/${PAIR}1 -c user.name=wprism-${PAIR}1 -c user.email=a1@example.test add -A
+git -C siterepo/${PAIR}1 -c user.name=wprism-${PAIR}1 -c user.email=a1@example.test commit -qm "content: force reprocessing"
+git -C siterepo/${PAIR}1 -c user.name=wprism-${PAIR}1 -c user.email=a1@example.test push -q origin main
 git -C siterepo/${PAIR}2 pull -q origin main
 REV2=$(git -C siterepo/${PAIR}2 rev-parse HEAD)
-APPLY2=$($COMPOSE run --rm -T cli2 wp duo apply --repo=/siterepo --default-author=admin --force-theirs --revision="$REV2" 2>&1) \
+APPLY2=$($COMPOSE run --rm -T cli2 wp wprism apply --repo=/siterepo --default-author=admin --force-theirs --revision="$REV2" 2>&1) \
   || { echo "$APPLY2"; fail "single-attempt content-update apply failed"; }
 echo "$APPLY2"
 grep -qiE '"canary":"clean"|canary clean' <<<"$APPLY2" || fail "second apply canary was not clean"
@@ -548,13 +548,13 @@ grep -qi "localhost:${PORT1}" <<<"$BODY_DE" && fail "host:port leak: side1's por
 pass "confirmed via real HTTP requests: EN shows Main Menu, DE shows Hauptmenu, at the SAME 'primary' location, zero manual reassignment; no host:port leaks"
 
 say "(8) negative: RepositoryAuthorization refuses an UNDECLARED sub-key smuggled into a captured polylang value"
-BAD_REPO=/siterepo/.tmp-duo3233-badsubkey
-HOST_BAD_REPO=siterepo/${PAIR}2/.tmp-duo3233-badsubkey
+BAD_REPO=/siterepo/.tmp-option-subkeys-badsubkey
+HOST_BAD_REPO=siterepo/${PAIR}2/.tmp-option-subkeys-badsubkey
 normalize_repo_permissions
 rm -rf "$HOST_BAD_REPO"
 mkdir -p "$HOST_BAD_REPO"
-cp siterepo/${PAIR}2/site.duo.json "$HOST_BAD_REPO/site.duo.json"
-# DUO-3276 follow-up: copy the FULL state/ tree (posts/terms/menus/options),
+cp siterepo/${PAIR}2/site.wprism.json "$HOST_BAD_REPO/site.wprism.json"
+# issue #3276 follow-up: copy the FULL state/ tree (posts/terms/menus/options),
 # not just state/options/ -- live-caught (acore3276 pair, 2026-08): an
 # options-only fixture leaves core.json's own OTHER records dangling.
 # state/options/core.json's polylang.nav_menus sub-key and its
@@ -573,8 +573,8 @@ cp siterepo/${PAIR}2/site.duo.json "$HOST_BAD_REPO/site.duo.json"
 # ONLY difference from a genuinely valid repo -- matching the "based on the
 # REAL, already-captured state" intent the note below already commits to.
 cp -r siterepo/${PAIR}2/state "$HOST_BAD_REPO/state"
-# DUO-3276: was `jq -n` building a single-record file from scratch (only
-# polylang's own record, nothing else) -- that shape predates DUO-3211's
+# issue #3276: was `jq -n` building a single-record file from scratch (only
+# polylang's own record, nothing else) -- that shape predates issue #3211's
 # absent-record contract becoming mandatory for every authored-exact
 # option (RepositoryCompiler.php:506-519: $required is EVERY authored_
 # options()/sub_keyed_options() name plus the three managed options,
@@ -595,9 +595,9 @@ cp -r siterepo/${PAIR}2/state "$HOST_BAD_REPO/state"
 # a fabricated single-record fixture reproduces the exact reported
 # symptom byte-for-byte; the SAME fixture with every required option
 # given an explicit record instead correctly reaches assert_tree() and
-# throws `[repository_field_not_authored] ... field=polylang.duo_unreviewed_key
+# throws `[repository_field_not_authored] ... field=polylang.wprism_unreviewed_key
 # classification=unclassified declared_by=polylang` -- matching this
-# step's own existing assertion (`polylang.duo_unreviewed_key\|option_sub_key`)
+# step's own existing assertion (`polylang.wprism_unreviewed_key\|option_sub_key`)
 # unchanged below.
 #
 # Fix: base the smuggled-key fixture on the REAL, already-captured
@@ -605,37 +605,37 @@ cp -r siterepo/${PAIR}2/state "$HOST_BAD_REPO/state"
 # already has a correct record, from the actual capture pipeline --
 # `git -C siterepo/${PAIR}2 pull` a few lines above this step is the
 # last write to this file, and nothing between there and here touches
-# it again) and inject ONLY the undeclared `duo_unreviewed_key` into polylang's
+# it again) and inject ONLY the undeclared `wprism_unreviewed_key` into polylang's
 # own value, rather than hand-reconstructing every option's record --
 # robust against this option set changing later, unlike a hardcoded
 # snapshot would be.
-jq '.records.polylang.value.duo_unreviewed_key = ["taxonomies"]' siterepo/${PAIR}2/state/options/core.json > "$HOST_BAD_REPO/state/options/core.json"
+jq '.records.polylang.value.wprism_unreviewed_key = ["taxonomies"]' siterepo/${PAIR}2/state/options/core.json > "$HOST_BAD_REPO/state/options/core.json"
 set +e
-BAD_OUT=$($COMPOSE run --rm -T cli2 wp duo apply --repo="$BAD_REPO" --format=json 2>&1)
+BAD_OUT=$($COMPOSE run --rm -T cli2 wp wprism apply --repo="$BAD_REPO" --format=json 2>&1)
 BAD_RC=$?
 set -e
 echo "$BAD_OUT"
-[ "$BAD_RC" -ne 0 ] || fail "expected apply to REFUSE an undeclared polylang sub-key ('duo_unreviewed_key'), got exit 0"
-grep -qE "polylang.duo_unreviewed_key|option_sub_key" <<<"$BAD_OUT" || fail "refusal doesn't name the undeclared sub-key (got: $BAD_OUT)"
+[ "$BAD_RC" -ne 0 ] || fail "expected apply to REFUSE an undeclared polylang sub-key ('wprism_unreviewed_key'), got exit 0"
+grep -qE "polylang.wprism_unreviewed_key|option_sub_key" <<<"$BAD_OUT" || fail "refusal doesn't name the undeclared sub-key (got: $BAD_OUT)"
 normalize_repo_permissions
 rm -rf "$HOST_BAD_REPO"
-pass "an undeclared sub-key ('duo_unreviewed_key') smuggled into a captured polylang value is refused loudly, naming the offending key"
+pass "an undeclared sub-key ('wprism_unreviewed_key') smuggled into a captured polylang value is refused loudly, naming the offending key"
 
-say "(9) negative: wp duo lint flags a bare numeric id smuggled into a PLAIN (no json_refs) sub-key's own value"
+say "(9) negative: wp wprism lint flags a bare numeric id smuggled into a PLAIN (no json_refs) sub-key's own value"
 # post_types/taxonomies declare no ref/json_refs/key_refs, so
 # scan_option_sub_keys()'s SHALLOW Pending::numeric_candidates() branch is
 # what must catch this -- exercised directly, not the deep
 # scan_structured_bare_ids() path (see the note below on why nav_menus
 # itself is a DIFFERENT, NOT-asserted case here).
-BAD_REPO2=/siterepo/.tmp-duo3233-badlint
-HOST_BAD_REPO2=siterepo/${PAIR}1/.tmp-duo3233-badlint
+BAD_REPO2=/siterepo/.tmp-option-subkeys-badlint
+HOST_BAD_REPO2=siterepo/${PAIR}1/.tmp-option-subkeys-badlint
 normalize_repo_permissions
 rm -rf "$HOST_BAD_REPO2"
 mkdir -p "$HOST_BAD_REPO2/state/options"
-cp siterepo/${PAIR}1/site.duo.json "$HOST_BAD_REPO2/site.duo.json"
-jq -n --argjson pid "$PROJ_EN" '{format:"duo-options/v1",records:{polylang:{state:"present",autoload:"yes",value:{post_types:[($pid | tostring)]}}}}' > "$HOST_BAD_REPO2/state/options/core.json"
+cp siterepo/${PAIR}1/site.wprism.json "$HOST_BAD_REPO2/site.wprism.json"
+jq -n --argjson pid "$PROJ_EN" '{format:"wprism-options/v1",records:{polylang:{state:"present",autoload:"yes",value:{post_types:[($pid | tostring)]}}}}' > "$HOST_BAD_REPO2/state/options/core.json"
 set +e
-LINT_OUT=$(wp1 duo lint --repo="$BAD_REPO2" 2>&1)
+LINT_OUT=$(wp1 wprism lint --repo="$BAD_REPO2" 2>&1)
 set -e
 echo "$LINT_OUT"
 grep -qi "bare_id" <<<"$LINT_OUT" || fail "expected lint to flag the bare numeric post_types entry as bare_id (got: $LINT_OUT)"
@@ -646,8 +646,8 @@ pass "lint correctly flags a bare id smuggled into a sub_keys-declared PLAIN val
 echo "note (characterized, not asserted -- a genuine, PRE-EXISTING Lint.php limitation unrelated to sub_keys, filed separately): the DEEP branch (scan_structured_bare_ids(), used for json_refs-declared sub-keys like nav_menus) only flags an id-shaped VALUE sitting under an id-NAMED key (looks_like_id_key() -- e.g. wpseo_taxonomy_meta's 'wpseo-opengraph-image-id'). nav_menus' own shape keys its ids by LANGUAGE SLUG ('en'/'de'), which no id-naming heuristic could safely recognize (2-letter slugs are far too generic to add to that heuristic without mass false positives) -- so an unrewritten nav_menus id would currently pass lint silently. The rewrite itself is unaffected (Tokens::struct_capture()'s json_refs path rewrites by declared PATH, never by key-name matching) -- this is purely a lint-detection blind spot for the negative/audit case, the same species of gap task #11's original wave discovered and wave 2 partially closed."
 
 say "final hard lint gate, both sides, on the real (non-fixture) state"
-wp1 duo lint --repo=/siterepo
-wp2 duo lint --repo=/siterepo
+wp1 wprism lint --repo=/siterepo
+wp2 wprism lint --repo=/siterepo
 pass "lint clean both sides"
 
-pass "DUO-3233 regression: sub-key carve-out (capture), sub-key-level merge without clobbering excluded siblings (apply), pll_get_post_language/translations resolving with zero manual Settings replication, correct per-language menu rendering, the second (Yoast) real-plugin proof, and both negative gates (repository authorization + lint) -- all confirmed"
+pass "issue #3233 regression: sub-key carve-out (capture), sub-key-level merge without clobbering excluded siblings (apply), pll_get_post_language/translations resolving with zero manual Settings replication, correct per-language menu rendering, the second (Yoast) real-plugin proof, and both negative gates (repository authorization + lint) -- all confirmed"

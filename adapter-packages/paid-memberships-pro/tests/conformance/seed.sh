@@ -9,7 +9,7 @@ read -r -d '' SEED_PHP <<'PHPEOF' || true
 <?php
 global $wpdb;
 
-function duo_pmpro_level(array $values): PMPro_Membership_Level {
+function wprism_pmpro_level(array $values): PMPro_Membership_Level {
     $level = new PMPro_Membership_Level();
     foreach ($values as $key => $value) {
         $level->{$key} = $value;
@@ -40,19 +40,19 @@ if (is_wp_error($term)) {
 $categoryId = (int) $term['term_id'];
 
 $long = str_repeat('Portable PMPro 東京 🚀 | commas, colons: and quotes "stay data". ', 320);
-$builder = duo_pmpro_level([
+$builder = wprism_pmpro_level([
     'name' => 'Builder 東京 🚀', 'description' => $long, 'confirmation' => 'Builder confirmation 東京 🚀',
     'initial_payment' => 19.95, 'billing_amount' => 7.25, 'cycle_number' => 2, 'cycle_period' => 'Month',
     'billing_limit' => 12, 'trial_amount' => 1.25, 'trial_limit' => 2, 'allow_signups' => 1,
     'expiration_number' => 2, 'expiration_period' => 'Year', 'categories' => [$categoryId],
 ]);
-$agency = duo_pmpro_level([
+$agency = wprism_pmpro_level([
     'name' => 'Agency Plan', 'description' => 'Agency recurring plan', 'confirmation' => 'Agency confirmation',
     'initial_payment' => 99.99, 'billing_amount' => 49.50, 'cycle_number' => 1, 'cycle_period' => 'Month',
     'billing_limit' => 0, 'trial_amount' => 0, 'trial_limit' => 0, 'allow_signups' => 1,
     'expiration_number' => 0, 'expiration_period' => '', 'categories' => [],
 ]);
-$deleteProbe = duo_pmpro_level([
+$deleteProbe = wprism_pmpro_level([
     'name' => 'Unsafe Delete Probe', 'description' => 'Parent deletion must refuse', 'confirmation' => '',
     'initial_payment' => 0, 'billing_amount' => 0, 'cycle_number' => 0, 'cycle_period' => 'Month',
     'billing_limit' => 0, 'trial_amount' => 0, 'trial_limit' => 0, 'allow_signups' => 0,
@@ -75,7 +75,7 @@ pmpro_add_level_to_group($builder->id, $groupId);
 pmpro_add_level_to_group($agency->id, $secondGroupId);
 
 $discount = new PMPro_Discount_Code();
-$discount->code = 'DUO-PORTABLE-25';
+$discount->code = 'WPRISM-PORTABLE-25';
 $discount->starts = '2025-01-02';
 $discount->expires = '2035-12-30';
 $discount->uses = 125;
@@ -103,7 +103,7 @@ if (!$restrictedPageId || !$categoryPostId || is_wp_error($restrictedPageId) || 
 pmpro_update_post_level_restrictions($restrictedPageId, [$builder->id, $agency->id]);
 
 update_option('pmpro_currency', 'JPY');
-update_option('pmpro_business_address', ['name' => 'Duo 東京 Office', 'street' => "1-2-3 Portable\nSuite | 4", 'city' => '東京', 'state' => 'Tokyo', 'zip' => '100-0001', 'country' => 'JP', 'phone' => '+81-03-0000-0000']);
+update_option('pmpro_business_address', ['name' => 'WPrism 東京 Office', 'street' => "1-2-3 Portable\nSuite | 4", 'city' => '東京', 'state' => 'Tokyo', 'zip' => '100-0001', 'country' => 'JP', 'phone' => '+81-03-0000-0000']);
 update_option('pmpro_colors', ['base' => '#112233', 'accent' => '#aabbcc', 'contrast' => '#fefefe']);
 update_option('pmpro_level_order', implode(',', [$agency->id, $builder->id, $deleteProbe->id]));
 update_option('pmpro_hideadslevels', implode(',', [$builder->id, $agency->id]));

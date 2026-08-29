@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Regression — DUO-3374: close-gate-check.sh's squash-parent count must read
+# Regression — issue #3374: close-gate-check.sh's squash-parent count must read
 # only the commit HEADER. `git cat-file -p` prints the whole object including
 # the MESSAGE, and a squash message legitimately wraps lines that begin with
-# "parent " — DUO-3318's close (PR #155, a change about parent-scoped natural
+# "parent " — issue #3318's close (PR #155, a change about parent-scoped natural
 # keys) was failed live by the unscoped count (2 under POSIX grep on that
 # object; the live run printed 3 under this host's laxer-anchoring grep
 # flavor) while `git rev-list --parents` and the API showed exactly one.
@@ -35,15 +35,15 @@ count_parents() { # runs the SHIPPED expression, not a transcription
   printf '%s' "$PARENTS"
 }
 
-SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/duo-3374.XXXXXX")
+SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/close-gate-parent.XXXXXX")
 trap 'rm -rf -- "$SCRATCH"' EXIT
 git -C "$SCRATCH" init -q -b main
-git -C "$SCRATCH" -c user.name=duo-3374 -c user.email=t@example.test \
+git -C "$SCRATCH" -c user.name=close-gate-parent -c user.email=t@example.test \
   commit -q --allow-empty -m "root"
 
 say "a squash whose MESSAGE BODY wraps onto 'parent '-leading lines counts exactly 1"
-git -C "$SCRATCH" -c user.name=duo-3374 -c user.email=t@example.test \
-  commit -q --allow-empty -m "DUO-3374: fixture squash
+git -C "$SCRATCH" -c user.name=close-gate-parent -c user.email=t@example.test \
+  commit -q --allow-empty -m "issue #3374: fixture squash
 
 The tuple-aware guard refuses when the
 parent component is not participating, and the
@@ -52,17 +52,17 @@ parent headers only ever appear before the blank line."
 SQUASH=$(git -C "$SCRATCH" rev-parse HEAD)
 BODY_MATCHES=$(git -C "$SCRATCH" cat-file -p "$SQUASH" | grep -c '^parent ' || true)
 [ "$BODY_MATCHES" -ge 2 ] \
-  || fail "fixture lost its point — the unscoped grep must see >=2 'parent ' lines (got $BODY_MATCHES); DUO-3318's live object measures 2 under POSIX grep, and this fixture is a deliberate superset of that shape"
+  || fail "fixture lost its point — the unscoped grep must see >=2 'parent ' lines (got $BODY_MATCHES); issue #3318's live object measures 2 under POSIX grep, and this fixture is a deliberate superset of that shape"
 GOT=$(cd "$SCRATCH" && count_parents "$SQUASH")
 [ "$GOT" = "1" ] || fail "header-scoped count on the body-bearing squash was $GOT, expected 1"
 pass "body-bearing squash counts 1 (unscoped grep would have said $BODY_MATCHES)"
 
 say "a real two-parent merge still counts 2 — the check keeps refusing genuine merge commits"
 git -C "$SCRATCH" checkout -q -b side "$SQUASH"
-git -C "$SCRATCH" -c user.name=duo-3374 -c user.email=t@example.test \
+git -C "$SCRATCH" -c user.name=close-gate-parent -c user.email=t@example.test \
   commit -q --allow-empty -m "side work"
 git -C "$SCRATCH" checkout -q main
-git -C "$SCRATCH" -c user.name=duo-3374 -c user.email=t@example.test \
+git -C "$SCRATCH" -c user.name=close-gate-parent -c user.email=t@example.test \
   merge -q --no-ff -m "merge side" side
 MERGE=$(git -C "$SCRATCH" rev-parse HEAD)
 GOT=$(cd "$SCRATCH" && count_parents "$MERGE")

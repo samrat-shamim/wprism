@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Offline regression — DUO-3355's extracted pair-budget resource lock.
+# Offline regression — issue #3355's extracted pair-budget resource lock.
 #
 # This exercises the shipped lock library directly, without Docker or a
 # pair lifecycle: one holder blocks a second process, release wakes exactly
@@ -8,7 +8,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo-pair-budget-lock.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/wprism-pair-budget-lock.XXXXXX")"
 trap 'rm -rf -- "$TMP"' EXIT
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }

@@ -6,7 +6,7 @@ showing the release projection; every operation is in --format=json
 
 surface                   class         handling        readiness      certification       containment  recovery
 post_type:product         authored      manage          Ready          Platform-certified  prevented    provider-state restorable
-  meaning: authored catalog content Duo manages end to end
+  meaning: authored catalog content WPrism manages end to end
 post_type:shop_order      runtime       preserve local  Unsupported    Platform-certified  prevented    not applicable
   meaning: live operational state is never copied
 plugin:wpforms-lite       unclassified  block           Not qualified  Uncertified         unknown      unknown
@@ -23,7 +23,7 @@ table:wpforms_payments    unclassified  block           Not qualified  Uncertifi
   next action: install adapter (release)
 
 unknown: 37 option name(s) invisible to every installed adapter
-         0 pending classification(s) (duo pending awalk1)
+         0 pending classification(s) (wprism pending awalk1)
          3 undeclared table(s) (no installed adapter declares them)
          - option-prefix:wpforms
          - table:wpforms_logs
@@ -41,5 +41,5 @@ next actions:
       0  attest contract
       2  nothing — supported
 evidence: reviewed dispositions 8f8f8f8f8f8f
-proposed contract written: .duo/contract/awalk1/proposed.json (accept with duo contract awalk1 accept)
+proposed contract written: .wprism/contract/awalk1/proposed.json (accept with wprism contract awalk1 accept)
 operation: 7b1c9a02-4f6d-4c3e-9b21-0a5d3e8c7f14

@@ -1,38 +1,38 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once __DIR__ . '/ApplicationContract.php';
 require_once __DIR__ . '/ContractAttestation.php';
 
-use Duo\Canon;
-use Duo\CommandRefusalException;
+use WPrism\Canon;
+use WPrism\CommandRefusalException;
 
 /**
- * The `<siteRepo>/.duo/contract/` directory as an object (round-3 MUP §3.1).
+ * The `<siteRepo>/.wprism/contract/` directory as an object (round-3 MUP §3.1).
  *
  * Three documents live here — `contract.json` (reviewed authority),
  * `proposed.json` (assess output, never authoritative) and `projection.json`
  * (generated, a review artifact). All three are canonical JSON through
- * `\Duo\Canon` so they diff and merge like the rest of `state/`.
+ * `\WPrism\Canon` so they diff and merge like the rest of `state/`.
  *
  * **Two tiers, and the directory says which.** `contract.json` and
- * `projection.json` are PER SITE and sit directly in `.duo/contract/`: the
+ * `projection.json` are PER SITE and sit directly in `.wprism/contract/`: the
  * contract is one reviewed statement about this repository, and
  * `environment_bindings.required[]` is how it says what varies per
  * environment (ApplicationContract.php:428-441). `proposed.json` is PER
- * ENVIRONMENT and sits in `.duo/contract/<env>/`, because the document is
+ * ENVIRONMENT and sits in `.wprism/contract/<env>/`, because the document is
  * environment-specific in two independent ways: it stamps `environment`
  * from the report (ContractProposal.php:185), and the `assess_digest` it
  * binds itself with covers `env` plus `target.home`/`target.siteurl`
  * (AssessReport.php:103, ContractProposal.php:113). One slot for N
- * environments meant `duo assess <other-env>` silently overwrote a
- * reviewed-but-unaccepted proposal — unrecoverably, since `/.duo/` is
+ * environments meant `wprism assess <other-env>` silently overwrote a
+ * reviewed-but-unaccepted proposal — unrecoverably, since `/.wprism/` is
  * inside the site repo's own ignore (InitRepositoryBoundary.php:247) — and
- * the next accept blamed the site with `contract_proposal_stale` (DUO-3503).
+ * the next accept blamed the site with `contract_proposal_stale` (issue #3503).
  * That is why the three proposal methods take the environment as a REQUIRED
  * argument: a default would let the shared slot back in by omission.
  *
@@ -43,12 +43,12 @@ use Duo\CommandRefusalException;
  * reader either sees the whole previous document or the whole new one, never
  * a truncated middle. `file_put_contents()` straight onto the destination
  * has a real window in which `contract.json` is zero bytes, and the file it
- * would truncate is the document `duo release` cites in a frozen
+ * would truncate is the document `wprism release` cites in a frozen
  * authorization plan.
  *
  * **Compare-and-swap on `contract_digest`.** Accepting a contract is a
  * read-modify-write across a human review step that can take minutes, and
- * `.duo/contract/` is a git working tree two operators (or an operator and
+ * `.wprism/contract/` is a git working tree two operators (or an operator and
  * an agent) can both be sitting in. The caller states the digest it read;
  * if the on-disk digest has moved since, the write refuses instead of
  * silently discarding the other writer's review. A refusal here is cheap —
@@ -62,14 +62,14 @@ use Duo\CommandRefusalException;
  * — refuses every signed document with `attestation_signing_unsupported`, and
  * `writeAttestedContract()` opens only for bytes `ContractAttestation::verify()`
  * accepts under a key the operator provisioned in
- * `.duo/contract/authorities.json`. `readContract()` re-verifies on the way
+ * `.wprism/contract/authorities.json`. `readContract()` re-verifies on the way
  * out, once, for every consumer, so a contract whose bytes moved under a
  * signature drops the claim at all of them rather than degrading at some.
  * Nothing here can mint on a site with no trust root, and no shipped site has
- * one — the file is created by `duo contract <env> attest` and by nothing else.
+ * one — the file is created by `wprism contract <env> attest` and by nothing else.
  */
 final class ContractStore {
-    public const DIRECTORY = '.duo/contract';
+    public const DIRECTORY = '.wprism/contract';
     public const CONTRACT_FILE = 'contract.json';
     public const PROPOSAL_FILE = 'proposed.json';
     public const PROJECTION_FILE = 'projection.json';
@@ -109,7 +109,7 @@ final class ContractStore {
         return $this->directory() . '/' . self::CONTRACT_FILE;
     }
 
-    /** The proposal for one environment: `.duo/contract/<env>/proposed.json`. */
+    /** The proposal for one environment: `.wprism/contract/<env>/proposed.json`. */
     public function proposalPath(string $environment): string {
         return $this->directory() . '/' . self::segment($environment) . '/' . self::PROPOSAL_FILE;
     }
@@ -161,7 +161,7 @@ final class ContractStore {
     /**
      * The stored contract, shape-validated but NOT attestation-verified.
      *
-     * Exactly one caller: `duo contract <env> attest`. Every verification
+     * Exactly one caller: `wprism contract <env> attest`. Every verification
      * refusal this build can raise — a moved platform boundary, an expired
      * attestation, a revoked key — has re-attesting as its remedy, so the verb
      * that re-attests has to be able to read the document it is about to
@@ -197,7 +197,7 @@ final class ContractStore {
             throw new CommandRefusalException(
                 'contract_unreadable',
                 'the stored application contract has no readable contract_digest',
-                'restore .duo/contract/contract.json from git, or remove it and re-accept a fresh proposal'
+                'restore .wprism/contract/contract.json from git, or remove it and re-accept a fresh proposal'
             );
         }
 
@@ -241,7 +241,7 @@ final class ContractStore {
             throw new CommandRefusalException(
                 'contract_digest_stale',
                 'the stored application contract changed since it was read',
-                're-run duo assess and duo contract propose, review the fresh proposal, then accept it',
+                're-run wprism assess and wprism contract propose, review the fresh proposal, then accept it',
                 [['expected' => $expectedDigest ?? 'none', 'stored' => $current ?? 'none']]
             );
         }
@@ -279,7 +279,7 @@ final class ContractStore {
             throw new CommandRefusalException(
                 'contract_attestation_signature_invalid',
                 'this entry point writes a signed contract attestation only',
-                'accept an unsigned contract with duo contract <env> accept, or attest a signed one'
+                'accept an unsigned contract with wprism contract <env> accept, or attest a signed one'
             );
         }
         ContractAttestation::verify($document, $this->siteRepo, $manifestDir);
@@ -289,7 +289,7 @@ final class ContractStore {
             throw new CommandRefusalException(
                 'contract_digest_stale',
                 'the stored application contract changed since it was read',
-                're-run duo assess and duo contract propose, review the fresh proposal, then accept it',
+                're-run wprism assess and wprism contract propose, review the fresh proposal, then accept it',
                 [['expected' => $expectedDigest ?? 'none', 'stored' => $current ?? 'none']]
             );
         }
@@ -300,7 +300,7 @@ final class ContractStore {
     /** @param array<string,mixed> $document */
     public function writeProposal(string $environment, array $document): void {
         // writeAtomic() creates the directory it is handed (:273), so the
-        // new `.duo/contract/<env>/` level needs no separate mkdir here.
+        // new `.wprism/contract/<env>/` level needs no separate mkdir here.
         $this->writeAtomic($this->proposalPath($environment), Canon::encode($document));
     }
 
@@ -324,7 +324,7 @@ final class ContractStore {
             throw new CommandRefusalException(
                 'contract_environment_invalid',
                 'the environment name is not a legal path segment',
-                'rename the environment in site.duo.json to match [A-Za-z0-9][A-Za-z0-9._-]{0,63}',
+                'rename the environment in site.wprism.json to match [A-Za-z0-9][A-Za-z0-9._-]{0,63}',
                 [],
                 "illegal environment path segment: $environment"
             );
@@ -343,8 +343,8 @@ final class ContractStore {
         if (!is_array($decoded)) {
             throw new CommandRefusalException(
                 'contract_document_unreadable',
-                'a document under .duo/contract/ is not a JSON object',
-                'restore the file from git, or regenerate it with duo contract propose',
+                'a document under .wprism/contract/ is not a JSON object',
+                'restore the file from git, or regenerate it with wprism contract propose',
                 [['file' => basename($path)]]
             );
         }
@@ -360,8 +360,8 @@ final class ContractStore {
         if ($raw === false) {
             throw new CommandRefusalException(
                 'contract_document_unreadable',
-                'a document under .duo/contract/ could not be read',
-                'check the file permissions on the .duo/contract directory',
+                'a document under .wprism/contract/ could not be read',
+                'check the file permissions on the .wprism/contract directory',
                 [['file' => basename($path)]]
             );
         }
@@ -379,11 +379,11 @@ final class ContractStore {
         if (!is_dir($directory) && !@mkdir($directory, 0777, true) && !is_dir($directory)) {
             throw new CommandRefusalException(
                 'contract_directory_unwritable',
-                'the .duo/contract directory could not be created',
+                'the .wprism/contract directory could not be created',
                 'check write permission on the site repository working tree'
             );
         }
-        $temporary = @tempnam($directory, '.duo-contract-');
+        $temporary = @tempnam($directory, '.wprism-contract-');
         if (!is_string($temporary) || $temporary === '') {
             throw new CommandRefusalException(
                 'contract_write_failed',
@@ -407,7 +407,7 @@ final class ContractStore {
                 throw new CommandRefusalException(
                     'contract_write_failed',
                     'the contract document could not be published atomically',
-                    'check write permission on the .duo/contract directory'
+                    'check write permission on the .wprism/contract directory'
                 );
             }
             $temporary = null;

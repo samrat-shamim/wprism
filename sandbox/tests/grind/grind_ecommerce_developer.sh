@@ -4,7 +4,7 @@
 # This scenario uses WooCommerce 11.0.0 from the shared digest-checked
 # artifact cache, seeds a synthetic catalog on pair side 1, then materializes
 # that state and a vendored in-house extension/theme onto side 2 through
-# public Duo operations. Synthetic runtime customer/order/event rows are
+# public WPrism operations. Synthetic runtime customer/order/event rows are
 # deliberately authored on each side only to prove they remain site-local;
 # production data and secrets are never used.
 #
@@ -26,9 +26,9 @@ require mktemp
 REPO_ROOT="$(cd .. && pwd)"
 # shellcheck source=../../bin/artifact-library.sh
 . "$REPO_ROOT/sandbox/bin/artifact-library.sh"
-DUO="$REPO_ROOT/cli/duo"
+WPRISM="$REPO_ROOT/cli/wprism"
 CODE_DEPLOY="$REPO_ROOT/cli/src/Transport/CodeDeploy.php"
-FIXTURE="$REPO_ROOT/sandbox/fixtures/duo-ecommerce-developer-grind"
+FIXTURE="$REPO_ROOT/sandbox/fixtures/wprism-ecommerce-developer-grind"
 PAIR="${ECOMMERCE_PAIR:-ecomgrind${BASHPID}${RANDOM}}"
 [[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] \
   || fail "pair name '$PAIR' invalid — lowercase letters/digits only, starting with a letter"
@@ -80,9 +80,9 @@ assert_clean_live_checkout() {
   expected_platform="$checkout_root/platform"
   env_file="$checkout_root/sandbox/.env"
   if [ -e "$env_file" ]; then
-    mounted_agent="$(sed -n 's/^DUO_AGENT_SRC=//p' "$env_file" | head -1)"
-    mounted_packages="$(sed -n 's/^DUO_ADAPTER_PACKAGES_SRC=//p' "$env_file" | head -1)"
-    mounted_platform="$(sed -n 's/^DUO_PLATFORM_SRC=//p' "$env_file" | head -1)"
+    mounted_agent="$(sed -n 's/^WPRISM_AGENT_SRC=//p' "$env_file" | head -1)"
+    mounted_packages="$(sed -n 's/^WPRISM_ADAPTER_PACKAGES_SRC=//p' "$env_file" | head -1)"
+    mounted_platform="$(sed -n 's/^WPRISM_PLATFORM_SRC=//p' "$env_file" | head -1)"
     if [ "$mounted_agent" != "$expected_agent" ] \
         || [ "$mounted_packages" != "$expected_packages" ] \
         || [ "$mounted_platform" != "$expected_platform" ]; then
@@ -93,9 +93,9 @@ assert_clean_live_checkout() {
   [ -d "$expected_packages" ] || fail "refusing live mutation: canonical adapter-package mount source is absent: $expected_packages"
   [ -d "$expected_platform" ] || fail "refusing live mutation: canonical platform mount source is absent: $expected_platform"
 }
-ENVS_FILE="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-envs.XXXXXX")"
-V1_INPUTS="$(mktemp -d "${TMPDIR:-/tmp}/duo-ecommerce-v1.XXXXXX")"
-V1_DB_DUMP="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-db.XXXXXX")"
+ENVS_FILE="$(mktemp "${TMPDIR:-/tmp}/wprism-ecommerce-envs.XXXXXX")"
+V1_INPUTS="$(mktemp -d "${TMPDIR:-/tmp}/wprism-ecommerce-v1.XXXXXX")"
+V1_DB_DUMP="$(mktemp "${TMPDIR:-/tmp}/wprism-ecommerce-db.XXXXXX")"
 V1_DB_DUMP_SHA256=""
 SOURCE_RUNTIME_EVENT_V2_BASELINE=""
 SOURCE_RUNTIME_IDENTITY_BASELINE=""
@@ -114,18 +114,18 @@ WOO_BASENAME="woocommerce/woocommerce.php"
 ACF_SLUG="advanced-custom-fields"
 ACF_VERSION="6.8.7"
 ACF_BASENAME="advanced-custom-fields/acf.php"
-EXT_SLUG="duo-commerce-extension"
-EXT_FILE="duo-commerce-extension.php"
+EXT_SLUG="wprism-commerce-extension"
+EXT_FILE="wprism-commerce-extension.php"
 EXT_BASENAME="$EXT_SLUG/$EXT_FILE"
-REPLACEMENT_SLUG="duo-commerce-replacement"
-REPLACEMENT_FILE="duo-commerce-replacement.php"
+REPLACEMENT_SLUG="wprism-commerce-replacement"
+REPLACEMENT_FILE="wprism-commerce-replacement.php"
 REPLACEMENT_BASENAME="$REPLACEMENT_SLUG/$REPLACEMENT_FILE"
 NATIVE_ACTIVE_PLUGINS_JSON="[\"$ACF_BASENAME\",\"$EXT_BASENAME\",\"$WOO_BASENAME\"]"
 AUTHORED_ACTIVE_PLUGINS_JSON="[\"$WOO_BASENAME\",\"$ACF_BASENAME\",\"$EXT_BASENAME\"]"
 EXTENSION_INACTIVE_ACTIVE_PLUGINS_JSON="[\"$WOO_BASENAME\",\"$ACF_BASENAME\"]"
 REPLACEMENT_ACTIVE_PLUGINS_JSON="[\"$WOO_BASENAME\",\"$ACF_BASENAME\",\"$REPLACEMENT_BASENAME\"]"
-PARENT_THEME="duo-commerce-parent"
-CHILD_THEME="duo-commerce-child"
+PARENT_THEME="wprism-commerce-parent"
+CHILD_THEME="wprism-commerce-child"
 CONTENT="/var/www/html/wp-content"
 EXT_TARGET="$CONTENT/plugins/$EXT_SLUG/$EXT_FILE"
 REPLACEMENT_TARGET="$CONTENT/plugins/$REPLACEMENT_SLUG/$REPLACEMENT_FILE"
@@ -172,18 +172,18 @@ cleanup() {
       status=1
       teardown_verified=0
     fi
-    if ! pair_containers="$(docker ps -aq --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null)" \
-      || ! pair_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null)" \
-      || ! pair_networks="$(docker network ls -q --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null)"; then
+    if ! pair_containers="$(docker ps -aq --filter "label=com.docker.compose.project=wprism-$PAIR" 2>/dev/null)" \
+      || ! pair_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=wprism-$PAIR" 2>/dev/null)" \
+      || ! pair_networks="$(docker network ls -q --filter "label=com.docker.compose.project=wprism-$PAIR" 2>/dev/null)"; then
       printf 'FAIL: ecommerce cleanup could not verify Docker resource removal for %s\n' "$PAIR" >&2
       status=1
       teardown_verified=0
     elif [ -n "$pair_containers$pair_volumes$pair_networks" ]; then
-      printf 'FAIL: ecommerce cleanup left Docker resources for duo-%s\n' "$PAIR" >&2
+      printf 'FAIL: ecommerce cleanup left Docker resources for wprism-%s\n' "$PAIR" >&2
       status=1
       teardown_verified=0
     fi
-    if ! remaining_dbs="$(docker exec -e MYSQL_PWD=root duo-shared-db mariadb -uroot -N -B --raw -e "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME IN ('wp_${PAIR}1','wp_${PAIR}2')" 2>/dev/null)"; then
+    if ! remaining_dbs="$(docker exec -e MYSQL_PWD=root wprism-shared-db mariadb -uroot -N -B --raw -e "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME IN ('wp_${PAIR}1','wp_${PAIR}2')" 2>/dev/null)"; then
       printf 'FAIL: ecommerce cleanup could not verify database removal for %s\n' "$PAIR" >&2
       status=1
       teardown_verified=0
@@ -243,18 +243,18 @@ assert_phase_order() {
 }
 canonicalize_json() {
   local path="$1" tmp="${1}.canon.${BASHPID}"
-  DUO_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
-require getenv("DUO_CANON");
+  WPRISM_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
+require getenv("WPRISM_CANON");
 $path = $argv[1];
 $raw = file_get_contents($path);
 if ($raw === false) { throw new RuntimeException("cannot read " . $path); }
-echo Duo\Canon::encode(Duo\Canon::decode($raw));
+echo WPrism\Canon::encode(WPrism\Canon::decode($raw));
 ' "$path" > "$tmp"
   mv "$tmp" "$path"
 }
 deploy_artifact_files() {
-  [ -d "$OTHER_SITE/.duo/artifacts" ] || return 0
-  find "$OTHER_SITE/.duo/artifacts" -type f -name 'deploy-*.json' -print | sort
+  [ -d "$OTHER_SITE/.wprism/artifacts" ] || return 0
+  find "$OTHER_SITE/.wprism/artifacts" -type f -name 'deploy-*.json' -print | sort
 }
 artifact_for_new_deploy() {
   local before="$1" after added artifact count
@@ -270,15 +270,15 @@ artifact_for_new_deploy() {
 }
 artifact_for_promote_output() {
   local output="$1" checkpoint run_id artifact
-  checkpoint="$(sed -n 's#^database checkpoint: /siterepo/\.duo/checkpoints/promote-\(.*\)\.sql\.enc$#\1#p' <<<"$output" | tail -1)"
+  checkpoint="$(sed -n 's#^database checkpoint: /siterepo/\.wprism/checkpoints/promote-\(.*\)\.sql\.enc$#\1#p' <<<"$output" | tail -1)"
   [ -n "$checkpoint" ] || fail 'promote output did not expose its exact database checkpoint run'
-  artifact="$OTHER_SITE/.duo/artifacts/promote-$checkpoint.json"
+  artifact="$OTHER_SITE/.wprism/artifacts/promote-$checkpoint.json"
   [ -f "$artifact" ] || fail "promote receipt for checkpoint run '$checkpoint' is missing: $artifact"
   printf '%s\n' "$artifact"
 }
 
-export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
-PAIR_COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml -f pair.journal.yml)
+export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2"
+PAIR_COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml -f pair.artifacts.yml -f pair.journal.yml)
 # pair.sh publishes the sites under localhost; using the same host avoids a
 # redirect that would make the bounded body/status assertions inspect only a
 # 301 response instead of the rendered frontend.
@@ -296,13 +296,13 @@ target_root_php_args() {
   "${PAIR_COMPOSE[@]}" run --rm -T -u root cli2 php -r "$code" -- "$@"
 }
 prepare_v1_checkpoint_target() {
-  # The target CLI runs as uid 33 and may leave .duo/checkpoints host-owned
+  # The target CLI runs as uid 33 and may leave .wprism/checkpoints host-owned
   # but non-writable. Prepare only this disposable checkpoint directory
   # through the pair's root service; the dump bytes remain host-retained and
   # are still copied and hashed at the host boundary below.
   "${PAIR_COMPOSE[@]}" run --rm -T -u root cli2 sh -c '
-    mkdir -p /siterepo/.duo/checkpoints
-    chmod 0777 /siterepo/.duo/checkpoints
+    mkdir -p /siterepo/.wprism/checkpoints
+    chmod 0777 /siterepo/.wprism/checkpoints
   ' >/dev/null
 }
 remove_target_cron_freeze() {
@@ -319,48 +319,48 @@ if (!is_file($path) || is_link($path) || !hash_equals($expected, (string) @hash_
   TARGET_CRON_FREEZE_SHA=""
 }
 source_db_scalar() {
-  docker exec -e MYSQL_PWD=root duo-shared-db mariadb -uroot -N -B --raw "wp_${PAIR}1" -e "$1" | tr -d '\r'
+  docker exec -e MYSQL_PWD=root wprism-shared-db mariadb -uroot -N -B --raw "wp_${PAIR}1" -e "$1" | tr -d '\r'
 }
 target_db_scalar() {
-  docker exec -e MYSQL_PWD=root duo-shared-db mariadb -uroot -N -B --raw "wp_${PAIR}2" -e "$1" | tr -d '\r'
+  docker exec -e MYSQL_PWD=root wprism-shared-db mariadb -uroot -N -B --raw "wp_${PAIR}2" -e "$1" | tr -d '\r'
 }
-ledger_value() { target_db_scalar "SELECT v FROM wp_duo_kv WHERE k = '$1'"; }
+ledger_value() { target_db_scalar "SELECT v FROM wp_wprism_kv WHERE k = '$1'"; }
 ledger_revision() { ledger_value code_revision; }
-source_duo_ledger_snapshot() {
+source_wprism_ledger_snapshot() {
   source_wp eval '
 global $wpdb;
 $queries = [
-    "duo_map" => "SELECT uuid, entity_type, id_kind, local_id FROM {$wpdb->prefix}duo_map ORDER BY uuid, id_kind",
-    "duo_state" => "SELECT uuid, entity_type, content_hash FROM {$wpdb->prefix}duo_state ORDER BY uuid",
-    "duo_kv" => "SELECT k, v FROM {$wpdb->prefix}duo_kv ORDER BY k",
+    "wprism_map" => "SELECT uuid, entity_type, id_kind, local_id FROM {$wpdb->prefix}wprism_map ORDER BY uuid, id_kind",
+    "wprism_state" => "SELECT uuid, entity_type, content_hash FROM {$wpdb->prefix}wprism_state ORDER BY uuid",
+    "wprism_kv" => "SELECT k, v FROM {$wpdb->prefix}wprism_kv ORDER BY k",
 ];
 $snapshot = [];
 foreach ($queries as $name => $sql) {
     $wpdb->last_error = "";
     $rows = $wpdb->get_results($sql, ARRAY_A);
     if (!is_array($rows) || (string) $wpdb->last_error !== "") {
-        throw new RuntimeException("Duo ledger snapshot failed for " . $name);
+        throw new RuntimeException("WPrism ledger snapshot failed for " . $name);
     }
     $snapshot[$name] = $rows;
 }
 echo wp_json_encode($snapshot, JSON_UNESCAPED_SLASHES);
 '
 }
-promote() { php "$DUO" --envs-file="$ENVS_FILE" promote target "$@"; }
-deploy() { php "$DUO" --envs-file="$ENVS_FILE" deploy target "$@"; }
-apply_state() { php "$DUO" --envs-file="$ENVS_FILE" apply target "$@"; }
-status() { php "$DUO" --envs-file="$ENVS_FILE" status target; }
-plan_json() { target_wp duo plan --repo=/siterepo --format=json; }
+promote() { php "$WPRISM" --envs-file="$ENVS_FILE" promote target "$@"; }
+deploy() { php "$WPRISM" --envs-file="$ENVS_FILE" deploy target "$@"; }
+apply_state() { php "$WPRISM" --envs-file="$ENVS_FILE" apply target "$@"; }
+status() { php "$WPRISM" --envs-file="$ENVS_FILE" status target; }
+plan_json() { target_wp wprism plan --repo=/siterepo --format=json; }
 
-# Execute the exact fatal-safe checkpoint commands printed by `duo promote`.
+# Execute the exact fatal-safe checkpoint commands printed by `wprism promote`.
 control_wp() {
   local method="$1"
   shift
   local encoded
-  encoded="$(DUO_CODE_DEPLOY="$CODE_DEPLOY" php -r '
-require getenv("DUO_CODE_DEPLOY");
+  encoded="$(WPRISM_CODE_DEPLOY="$CODE_DEPLOY" php -r '
+require getenv("WPRISM_CODE_DEPLOY");
 $method = $argv[1];
-$args = Duo\Orchestrator\CodeDeploy::$method(...array_slice($argv, 2));
+$args = WPrism\Orchestrator\CodeDeploy::$method(...array_slice($argv, 2));
 echo json_encode($args, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 ' "$method" "$@")"
   local -a args
@@ -373,9 +373,9 @@ echo json_encode($args, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 # the target worker stopped.
 control_wp_command() {
   local encoded
-  encoded="$(DUO_CODE_DEPLOY="$CODE_DEPLOY" php -r '
-require getenv("DUO_CODE_DEPLOY");
-$args = Duo\Orchestrator\CodeDeploy::controlArgs(array_slice($argv, 1));
+  encoded="$(WPRISM_CODE_DEPLOY="$CODE_DEPLOY" php -r '
+require getenv("WPRISM_CODE_DEPLOY");
+$args = WPrism\Orchestrator\CodeDeploy::controlArgs(array_slice($argv, 1));
 echo json_encode($args, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 ' "$@")"
   local -a args
@@ -409,11 +409,11 @@ state_tree_hash() {
 }
 final_compiled_state_diff() {
   target_wp eval '
-$policy = \Duo\Policy::load("/siterepo");
-$canonical = \Duo\RepositoryCompiler::compile_staged("/siterepo/state", "/siterepo", $policy);
-$recaptured = \Duo\RepositoryCompiler::compile_staged("/siterepo/.tmp-final-state", "/siterepo", $policy);
+$policy = \WPrism\Policy::load("/siterepo");
+$canonical = \WPrism\RepositoryCompiler::compile_staged("/siterepo/state", "/siterepo", $policy);
+$recaptured = \WPrism\RepositoryCompiler::compile_staged("/siterepo/.tmp-final-state", "/siterepo", $policy);
 $ordered_post_hash = static function (string $root, string $path) use ($policy): string {
-    $text = \Duo\Canon::read_file($root . "/" . $path);
+    $text = \WPrism\Canon::read_file($root . "/" . $path);
     if (!str_starts_with($text, "---\n")) {
         throw new RuntimeException("bad post file (missing front matter fence): " . $path);
     }
@@ -473,7 +473,7 @@ foreach ($paths as $path) {
         ];
     }
 }
-echo \Duo\Canon::encode($diff);
+echo \WPrism\Canon::encode($diff);
 '
 }
 target_plugin_tree_hash() {
@@ -498,10 +498,10 @@ $root = "/var/www/html/wp-content";
 $roots = [
     "plugins/woocommerce",
     "plugins/advanced-custom-fields",
-    "plugins/duo-commerce-extension",
-    "plugins/duo-commerce-replacement",
-    "themes/duo-commerce-parent",
-    "themes/duo-commerce-child",
+    "plugins/wprism-commerce-extension",
+    "plugins/wprism-commerce-replacement",
+    "themes/wprism-commerce-parent",
+    "themes/wprism-commerce-child",
 ];
 $rows = [];
 foreach ($roots as $relativeRoot) {
@@ -523,15 +523,15 @@ echo hash("sha256", implode("\\n", $rows));
 '
 }
 source_managed_code_tree_hash() {
-  DUO_SOURCE_CODE_ROOT="$SITE/code/wp-content" php -r '
-$root = rtrim((string) getenv("DUO_SOURCE_CODE_ROOT"), "/");
+  WPRISM_SOURCE_CODE_ROOT="$SITE/code/wp-content" php -r '
+$root = rtrim((string) getenv("WPRISM_SOURCE_CODE_ROOT"), "/");
 $roots = [
     "plugins/woocommerce",
     "plugins/advanced-custom-fields",
-    "plugins/duo-commerce-extension",
-    "plugins/duo-commerce-replacement",
-    "themes/duo-commerce-parent",
-    "themes/duo-commerce-child",
+    "plugins/wprism-commerce-extension",
+    "plugins/wprism-commerce-replacement",
+    "themes/wprism-commerce-parent",
+    "themes/wprism-commerce-child",
 ];
 $rows = [];
 foreach ($roots as $relativeRoot) {
@@ -677,7 +677,7 @@ assert_target_order_snapshot() {
     (any(.hpos_addresses[]; .address_type == "shipping" and .first_name == "Target" and .last_name == "Runtime" and .address_1 == "201 Target Fulfillment Way" and .city == "Targetville" and .state == "CA" and .postcode == "90210" and .country == "US")) and
     (.hpos_meta | length) >= 1 and
     (all(.hpos_meta[]; ((.id | tonumber) > 0) and ((.order_id | tonumber) == $expected_order) and ((.meta_key | tostring | length) > 0) and ((.meta_value | type) == "string"))) and
-    (any(.hpos_meta[]; .meta_key == "_duo_runtime_marker" and .meta_value == "target-order-only")) and
+    (any(.hpos_meta[]; .meta_key == "_wprism_runtime_marker" and .meta_value == "target-order-only")) and
     (.customer_lookup | length) == 1 and
     ($analytics_customer_id > 0) and
     ((.customer_lookup[0].user_id | tonumber) == $expected_customer) and
@@ -724,7 +724,7 @@ assert_target_order_snapshot() {
     (any(.order_itemmeta[]; (.order_item_id | tonumber) == $line_item_id and .meta_key == "_line_subtotal" and (.meta_value | tonumber) > 0)) and
     (any(.order_itemmeta[]; (.order_item_id | tonumber) == $line_item_id and .meta_key == "_line_total" and (.meta_value | tonumber) > 0)) and
     (any(.order_itemmeta[]; (.order_item_id | tonumber) == $tax_item_id and .meta_key == "rate_id" and (.meta_value | tonumber) > 0)) and
-    (any(.order_itemmeta[]; (.order_item_id | tonumber) == $tax_item_id and .meta_key == "label" and .meta_value == "Duo Grind CA Sales Tax")) and
+    (any(.order_itemmeta[]; (.order_item_id | tonumber) == $tax_item_id and .meta_key == "label" and .meta_value == "WPrism Grind CA Sales Tax")) and
     (any(.order_itemmeta[]; (.order_item_id | tonumber) == $tax_item_id and .meta_key == "tax_amount" and (.meta_value | tonumber) > 0))
   ' <<<"$snapshot" >/dev/null || fail "$label order identity/line-item/totals acceptance failed: $snapshot"
 }
@@ -825,12 +825,12 @@ source_runtime_event_snapshot() {
   local event_id="$1"
   local context_columns
   [[ "$event_id" =~ ^[0-9]+$ ]] || fail "source runtime event id is not numeric: $event_id"
-  context_columns="$(source_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_duo_commerce_extension_events' AND COLUMN_NAME = 'context'")"
+  context_columns="$(source_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_wprism_commerce_extension_events' AND COLUMN_NAME = 'context'")"
   [[ "$context_columns" =~ ^[01]$ ]] || fail "source runtime event context-column shape is not binary: $context_columns"
   if [ "$context_columns" = 1 ]; then
-    source_db_scalar "SELECT CONCAT('1|', id, '|', label, '|', DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), '|', context) FROM wp_duo_commerce_extension_events WHERE id = $event_id"
+    source_db_scalar "SELECT CONCAT('1|', id, '|', label, '|', DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), '|', context) FROM wp_wprism_commerce_extension_events WHERE id = $event_id"
   else
-    source_db_scalar "SELECT CONCAT(0, '|', id, '|', label, '|', DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s')) FROM wp_duo_commerce_extension_events WHERE id = $event_id"
+    source_db_scalar "SELECT CONCAT(0, '|', id, '|', label, '|', DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s')) FROM wp_wprism_commerce_extension_events WHERE id = $event_id"
   fi
 }
 runtime_identity_inventory() {
@@ -859,7 +859,7 @@ $orders = $wpdb->get_results(
 if (!is_array($orders) || (string) $wpdb->last_error !== "") {
     throw new RuntimeException("runtime identity inventory could not read HPOS orders");
 }
-$events_table = $wpdb->prefix . "duo_commerce_extension_events";
+$events_table = $wpdb->prefix . "wprism_commerce_extension_events";
 $wpdb->last_error = "";
 $events_exists = (string) $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $events_table));
 if ((string) $wpdb->last_error !== "") {
@@ -948,20 +948,20 @@ assert_runtime_isolation() {
 }
 assert_env_secret_isolation() {
   local label="$1"
-  assert_eq source-only-synthetic-secret "$(source_wp option get duo_commerce_extension_gateway_secret)" "$label source env-owned gateway secret"
-  assert_eq target-only-synthetic-secret "$(target_wp option get duo_commerce_extension_gateway_secret)" "$label target env-owned gateway secret"
+  assert_eq source-only-synthetic-secret "$(source_wp option get wprism_commerce_extension_gateway_secret)" "$label source env-owned gateway secret"
+  assert_eq target-only-synthetic-secret "$(target_wp option get wprism_commerce_extension_gateway_secret)" "$label target env-owned gateway secret"
 }
 assert_source_runtime_absent_from_target() {
   local label="$1"
   assert_eq 0 "$(target_wp eval 'echo get_user_by("email", "source-customer@example.invalid") ? 1 : 0;')" "$label source customer absent from target"
   assert_eq 0 "$(target_wp eval 'echo count(wc_get_orders(["billing_email" => "source-order@example.invalid", "limit" => -1, "return" => "ids"]));')" "$label source order absent from target"
-  assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM wp_duo_commerce_extension_events WHERE label = 'Duo Grind source-only runtime event'")" "$label source extension event absent from target"
+  assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM wp_wprism_commerce_extension_events WHERE label = 'WPrism Grind source-only runtime event'")" "$label source extension event absent from target"
 }
 assert_target_runtime_absent_from_source() {
   local label="$1"
   assert_eq 0 "$(source_wp eval 'echo get_user_by("email", "runtime-customer@example.invalid") ? 1 : 0;')" "$label target customer absent from source"
   assert_eq 0 "$(source_wp eval 'echo count(wc_get_orders(["billing_email" => "runtime-only@example.invalid", "limit" => -1, "return" => "ids"]));')" "$label target order absent from source"
-  assert_eq 0 "$(source_db_scalar "SELECT COUNT(*) FROM wp_duo_commerce_extension_events WHERE label = 'Duo Grind runtime v1 event'")" "$label target extension event absent from source"
+  assert_eq 0 "$(source_db_scalar "SELECT COUNT(*) FROM wp_wprism_commerce_extension_events WHERE label = 'WPrism Grind runtime v1 event'")" "$label target extension event absent from source"
 }
 assert_runtime_state_excluded() {
   local label="$1" path marker
@@ -970,13 +970,13 @@ assert_runtime_state_excluded() {
     for marker in \
       'source-customer@example.invalid' \
       'source-order@example.invalid' \
-      'Duo Grind source-only runtime event' \
+      'WPrism Grind source-only runtime event' \
       'runtime-customer@example.invalid' \
       'runtime-only@example.invalid' \
       'target-order-only' \
       '200 Target Runtime Way' \
       '201 Target Fulfillment Way' \
-      'Duo Grind runtime v1 event' \
+      'WPrism Grind runtime v1 event' \
       'activate:replacement-fixed:fresh=yes:retiring-root=present' \
       'source-only-synthetic-secret' \
       'target-only-synthetic-secret'; do
@@ -995,7 +995,7 @@ global $wpdb;
 $uuid = '"'"$uuid"'"';
 $postId = (int) $wpdb->get_var($wpdb->prepare(
     "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = %s AND meta_value = %s LIMIT 1",
-    "_duo_uuid",
+    "_wprism_uuid",
     $uuid
 ));
 if (!$postId) { throw new RuntimeException("target tee identity missing: " . $uuid); }
@@ -1036,17 +1036,17 @@ assert_target_tee_unchanged() {
 assert_extension_runtime_event() {
   local expected_context_column="$1" expected_context="$2" label="$3"
   local context_columns row_count total_rows actual_row expected_row
-  context_columns="$(target_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_duo_commerce_extension_events' AND COLUMN_NAME = 'context'")"
-  row_count="$(target_db_scalar "SELECT COUNT(*) FROM wp_duo_commerce_extension_events WHERE id = $RUNTIME_EVENT_ID")"
-  total_rows="$(target_db_scalar "SELECT COUNT(*) FROM wp_duo_commerce_extension_events")"
+  context_columns="$(target_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_wprism_commerce_extension_events' AND COLUMN_NAME = 'context'")"
+  row_count="$(target_db_scalar "SELECT COUNT(*) FROM wp_wprism_commerce_extension_events WHERE id = $RUNTIME_EVENT_ID")"
+  total_rows="$(target_db_scalar "SELECT COUNT(*) FROM wp_wprism_commerce_extension_events")"
   assert_eq "$expected_context_column" "$context_columns" "$label runtime table context column"
   assert_eq 1 "$row_count" "$label runtime event identity"
   assert_eq 1 "$total_rows" "$label runtime event total row count"
   if [ "$expected_context_column" = 1 ]; then
-    actual_row="$(target_db_scalar "SELECT CONCAT(id, '|', label, '|', DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), '|', context) FROM wp_duo_commerce_extension_events WHERE id = $RUNTIME_EVENT_ID")"
+    actual_row="$(target_db_scalar "SELECT CONCAT(id, '|', label, '|', DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s'), '|', context) FROM wp_wprism_commerce_extension_events WHERE id = $RUNTIME_EVENT_ID")"
     expected_row="$RUNTIME_EVENT_ID|$RUNTIME_EVENT_LABEL|$RUNTIME_EVENT_CREATED_AT|$expected_context"
   else
-    actual_row="$(target_db_scalar "SELECT CONCAT(id, '|', label, '|', DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s')) FROM wp_duo_commerce_extension_events WHERE id = $RUNTIME_EVENT_ID")"
+    actual_row="$(target_db_scalar "SELECT CONCAT(id, '|', label, '|', DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s')) FROM wp_wprism_commerce_extension_events WHERE id = $RUNTIME_EVENT_ID")"
     expected_row="$RUNTIME_EVENT_ID|$RUNTIME_EVENT_LABEL|$RUNTIME_EVENT_CREATED_AT"
   fi
   assert_eq "$expected_row" "$actual_row" "$label runtime event row"
@@ -1067,10 +1067,10 @@ acf_schema_snapshot() {
 if (!function_exists("acf_get_field_group") || !function_exists("acf_get_field") || !function_exists("acf_get_fields")) {
     throw new RuntimeException("ACF schema APIs are unavailable");
 }
-$group = acf_get_field_group("group_duo_commerce_catalog");
+$group = acf_get_field_group("group_wprism_commerce_catalog");
 $group_id = (int) ($group["ID"] ?? ($group["id"] ?? 0));
 $fields = acf_get_fields($group);
-$field = acf_get_field("field_duo_inventory_note");
+$field = acf_get_field("field_wprism_inventory_note");
 if (!$group || !$group_id || !is_array($fields) || !$field) {
     throw new RuntimeException("exact ACF group/field schema could not be loaded");
 }
@@ -1114,14 +1114,14 @@ assert_acf_schema() {
   echo "ACF schema: $label $schema"
   jq -e '
     .group.id > 0 and
-    .group.key == "group_duo_commerce_catalog" and
-    .group.title == "Duo Commerce Catalog" and
+    .group.key == "group_wprism_commerce_catalog" and
+    .group.title == "WPrism Commerce Catalog" and
     .group.location == [[{"param":"post_type","operator":"==","value":"product"}]] and
     .group.menu_order == 0 and .group.position == "normal" and .group.style == "default" and
     .group.label_placement == "top" and .group.instruction_placement == "label" and
     .group.active == true and .field_count == 1 and
-    .field.key == "field_duo_inventory_note" and .field.label == "Inventory Note" and
-    .field.name == "duo_inventory_note" and .field.type == "text" and
+    .field.key == "field_wprism_inventory_note" and .field.label == "Inventory Note" and
+    .field.name == "wprism_inventory_note" and .field.type == "text" and
     .field.parent == .group.id and .field.menu_order == 0 and
     .field.required == false and .field.conditional_logic == false
   ' <<<"$schema" >/dev/null || fail "$label exact ACF group/field schema acceptance failed: $schema"
@@ -1129,7 +1129,7 @@ assert_acf_schema() {
 }
 assert_frontend_child_parent() {
   local label="$1" expected_v2="${2:-0}" body_file body http parent_offset child_offset
-  body_file="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-front.XXXXXX")"
+  body_file="$(mktemp "${TMPDIR:-/tmp}/wprism-ecommerce-front.XXXXXX")"
   if ! http="$(curl --connect-timeout 3 --max-time 10 --silent --show-error -o "$body_file" -w '%{http_code}' "$TARGET_URL/")"; then
     rm -f -- "$body_file"
     fail "$label frontend request failed"
@@ -1137,22 +1137,22 @@ assert_frontend_child_parent() {
   body="$(<"$body_file")"
   rm -f -- "$body_file"
   assert_eq 200 "$http" "$label frontend HTTP status"
-  grep -Eiq '<body[^>]*duo-commerce-storefront' <<<"$body" || fail "$label frontend body is missing the parent body_class marker"
-  grep -Fq 'duo-commerce-child-catalog' <<<"$body" || fail "$label frontend body did not execute the child theme template"
-  parent_offset="$(grep -bo -m1 'duo-commerce-parent-css' <<<"$body" | cut -d: -f1 || true)"
-  child_offset="$(grep -bo -m1 'duo-commerce-child-css' <<<"$body" | cut -d: -f1 || true)"
+  grep -Eiq '<body[^>]*wprism-commerce-storefront' <<<"$body" || fail "$label frontend body is missing the parent body_class marker"
+  grep -Fq 'wprism-commerce-child-catalog' <<<"$body" || fail "$label frontend body did not execute the child theme template"
+  parent_offset="$(grep -bo -m1 'wprism-commerce-parent-css' <<<"$body" | cut -d: -f1 || true)"
+  child_offset="$(grep -bo -m1 'wprism-commerce-child-css' <<<"$body" | cut -d: -f1 || true)"
   [ -n "$parent_offset" ] || fail "$label frontend did not enqueue the parent stylesheet"
   [ -n "$child_offset" ] || fail "$label frontend did not enqueue the child stylesheet"
   [ "$parent_offset" -lt "$child_offset" ] || fail "$label frontend enqueued child stylesheet before its parent"
   if [ "$expected_v2" = 1 ]; then
-    grep -Fq 'duo-commerce-v2' <<<"$body" || fail "$label frontend did not execute the v2 parent/child body marker"
+    grep -Fq 'wprism-commerce-v2' <<<"$body" || fail "$label frontend did not execute the v2 parent/child body marker"
   fi
   pass "$label frontend exercised parent body_class, child template, and dependency-ordered parent/child enqueues"
 }
 
 assert_frontend_parent() {
   local label="$1" body_file body http
-  body_file="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-parent-front.XXXXXX")"
+  body_file="$(mktemp "${TMPDIR:-/tmp}/wprism-ecommerce-parent-front.XXXXXX")"
   if ! http="$(curl --connect-timeout 3 --max-time 10 --silent --show-error -o "$body_file" -w '%{http_code}' "$TARGET_URL/")"; then
     rm -f -- "$body_file"
     fail "$label standalone-parent frontend request failed"
@@ -1160,15 +1160,15 @@ assert_frontend_parent() {
   body="$(<"$body_file")"
   rm -f -- "$body_file"
   assert_eq 200 "$http" "$label frontend HTTP status"
-  grep -Eiq '<body[^>]*duo-commerce-storefront' <<<"$body" || fail "$label frontend is missing the parent body_class marker"
-  grep -Fq 'duo-commerce-v2' <<<"$body" || fail "$label frontend did not execute the v2 parent template"
-  assert_absent "$body" 'duo-commerce-child-catalog' "$label standalone parent frontend"
+  grep -Eiq '<body[^>]*wprism-commerce-storefront' <<<"$body" || fail "$label frontend is missing the parent body_class marker"
+  grep -Fq 'wprism-commerce-v2' <<<"$body" || fail "$label frontend did not execute the v2 parent template"
+  assert_absent "$body" 'wprism-commerce-child-catalog' "$label standalone parent frontend"
   pass "$label frontend runs the reviewed standalone parent after child removal"
 }
 assert_extension_rest_status() {
   local expected_version="$1" expected_schema="$2" label="$3" body_file body http
-  body_file="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-rest.XXXXXX")"
-  if ! http="$(curl --connect-timeout 3 --max-time 10 --silent --show-error -o "$body_file" -w '%{http_code}' "$TARGET_URL/wp-json/duo-commerce/v1/status")"; then
+  body_file="$(mktemp "${TMPDIR:-/tmp}/wprism-ecommerce-rest.XXXXXX")"
+  if ! http="$(curl --connect-timeout 3 --max-time 10 --silent --show-error -o "$body_file" -w '%{http_code}' "$TARGET_URL/wp-json/wprism-commerce/v1/status")"; then
     rm -f -- "$body_file"
     fail "$label extension REST request failed"
   fi
@@ -1181,15 +1181,15 @@ assert_extension_rest_status() {
 }
 assert_replacement_rest_status() {
   local label="$1" body_file body http
-  body_file="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-replacement-rest.XXXXXX")"
-  if ! http="$(curl --connect-timeout 3 --max-time 10 --silent --show-error -o "$body_file" -w '%{http_code}' "$TARGET_URL/wp-json/duo-commerce/v1/status")"; then
+  body_file="$(mktemp "${TMPDIR:-/tmp}/wprism-ecommerce-replacement-rest.XXXXXX")"
+  if ! http="$(curl --connect-timeout 3 --max-time 10 --silent --show-error -o "$body_file" -w '%{http_code}' "$TARGET_URL/wp-json/wprism-commerce/v1/status")"; then
     rm -f -- "$body_file"
     fail "$label replacement REST request failed"
   fi
   body="$(<"$body_file")"
   rm -f -- "$body_file"
   assert_eq 200 "$http" "$label replacement REST HTTP status"
-  jq -e '.extension_identity == "duo-commerce-replacement" and .extension_version == "1.0.0" and .schema == 2 and .woocommerce == true' <<<"$body" >/dev/null \
+  jq -e '.extension_identity == "wprism-commerce-replacement" and .extension_version == "1.0.0" and .schema == 2 and .woocommerce == true' <<<"$body" >/dev/null \
     || fail "$label replacement REST status payload is not exact: $body"
   pass "$label replacement REST status identifies the distinct implementation and reviewed runtime schema"
 }
@@ -1199,7 +1199,7 @@ assert_store_api_http() {
   local price_http attribute_http price_negative_http attribute_negative_http
   if ! price_response="$(curl --connect-timeout 3 --max-time 10 --silent --show-error --get --write-out '%{http_code}' \
     "$TARGET_URL/wp-json/wc/store/v1/products" \
-    --data-urlencode 'slug=duo-grind-cap' \
+    --data-urlencode 'slug=wprism-grind-cap' \
     --data-urlencode 'min_price=0' \
     --data-urlencode 'max_price=100000')"; then
     fail "$label external Store API price request failed"
@@ -1209,7 +1209,7 @@ assert_store_api_http() {
   assert_eq 200 "$price_http" "$label external Store API price HTTP status"
   if ! attribute_response="$(curl --connect-timeout 3 --max-time 10 --silent --show-error --get --write-out '%{http_code}' \
     "$TARGET_URL/wp-json/wc/store/v1/products" \
-    --data-urlencode 'slug=duo-grind-tee' \
+    --data-urlencode 'slug=wprism-grind-tee' \
     --data-urlencode 'attributes[0][attribute]=pa_grind-size' \
     --data-urlencode 'attributes[0][slug]=small')"; then
     fail "$label external Store API attribute request failed"
@@ -1219,7 +1219,7 @@ assert_store_api_http() {
   assert_eq 200 "$attribute_http" "$label external Store API attribute HTTP status"
   if ! price_negative_response="$(curl --connect-timeout 3 --max-time 10 --silent --show-error --get --write-out '%{http_code}' \
     "$TARGET_URL/wp-json/wc/store/v1/products" \
-    --data-urlencode 'slug=duo-grind-cap' \
+    --data-urlencode 'slug=wprism-grind-cap' \
     --data-urlencode 'min_price=999900' \
     --data-urlencode 'max_price=1000000')"; then
     fail "$label external Store API negative-price request failed"
@@ -1229,7 +1229,7 @@ assert_store_api_http() {
   assert_eq 200 "$price_negative_http" "$label external Store API negative-price HTTP status"
   if ! attribute_negative_response="$(curl --connect-timeout 3 --max-time 10 --silent --show-error --get --write-out '%{http_code}' \
     "$TARGET_URL/wp-json/wc/store/v1/products" \
-    --data-urlencode 'slug=duo-grind-tee' \
+    --data-urlencode 'slug=wprism-grind-tee' \
     --data-urlencode 'attributes[0][attribute]=pa_grind-size' \
     --data-urlencode 'attributes[0][slug]=not-a-real-size')"; then
     fail "$label external Store API negative-attribute request failed"
@@ -1238,10 +1238,10 @@ assert_store_api_http() {
   attribute_negative_body="${attribute_negative_response:0:${#attribute_negative_response}-3}"
   assert_eq 200 "$attribute_negative_http" "$label external Store API negative-attribute HTTP status"
   jq -e --arg expected "$expected_cap_cents" '
-    type == "array" and length == 1 and .[0].slug == "duo-grind-cap" and .[0].prices.price == $expected
+    type == "array" and length == 1 and .[0].slug == "wprism-grind-cap" and .[0].prices.price == $expected
   ' <<<"$price_body" >/dev/null || fail "$label external Store API price payload is not exact: $price_body"
   jq -e '
-    type == "array" and length == 1 and .[0].slug == "duo-grind-tee"
+    type == "array" and length == 1 and .[0].slug == "wprism-grind-tee"
   ' <<<"$attribute_body" >/dev/null || fail "$label external Store API attribute payload is not exact: $attribute_body"
   jq -e 'type == "array" and length == 0' <<<"$price_negative_body" >/dev/null \
     || fail "$label external Store API negative price filter leaked a product: $price_negative_body"
@@ -1259,8 +1259,8 @@ assert_trace_has() {
 assert_ecommerce_menu() {
   local label="$1" out
   out="$(target_wp eval '
-$menu = wp_get_nav_menu_object("duo-grind-primary");
-$cap = get_page_by_path("duo-grind-cap", OBJECT, "product");
+$menu = wp_get_nav_menu_object("wprism-grind-primary");
+$cap = get_page_by_path("wprism-grind-cap", OBJECT, "product");
 $items = $menu ? wp_get_nav_menu_items((int) $menu->term_id) : [];
 $items = is_array($items) ? array_values($items) : [];
 $rows = [];
@@ -1283,13 +1283,13 @@ echo wp_json_encode([
 ], JSON_UNESCAPED_SLASHES);
 ')"
   jq -e '
-    .cap_id > 0 and .menu_name == "Duo Grind Primary" and .menu_slug == "duo-grind-primary" and
+    .cap_id > 0 and .menu_name == "WPrism Grind Primary" and .menu_slug == "wprism-grind-primary" and
     (.rows | length) == 2 and
     .rows[0].object == "product" and .rows[0].object_id == .cap_id and
-    .rows[0].position == 1 and .rows[0].title == "Shop the Duo Grind Cap" and
+    .rows[0].position == 1 and .rows[0].title == "Shop the WPrism Grind Cap" and
     .rows[0].type == "post_type" and
     .rows[1].object == "custom" and
-    .rows[1].position == 2 and .rows[1].title == "Duo Grind Support" and
+    .rows[1].position == 2 and .rows[1].title == "WPrism Grind Support" and
     .rows[1].type == "custom" and .rows[1].url == .support_url
   ' <<<"$out" >/dev/null || fail "$label ecommerce menu did not converge: $out"
   pass "$label menu retained ordered product identity and target-bound custom URL"
@@ -1307,22 +1307,22 @@ assert_receipt() {
     promote-*.json)
       run_id="${basename#promote-}"
       run_id="${run_id%.json}"
-      checkpoint="$OTHER_SITE/.duo/checkpoints/promote-$run_id.sql.enc"
+      checkpoint="$OTHER_SITE/.wprism/checkpoints/promote-$run_id.sql.enc"
       [ -s "$checkpoint" ] || fail "$label receipt is not bound to a non-empty pair-local checkpoint: $checkpoint"
       ;;
     *) fail "$label artifact is not a deploy/promote receipt: $artifact" ;;
   esac
-  jq -e --arg code "$expected_code" '(.artifact_hash | test("^[0-9a-f]{64}$")) and (.revision_hash | test("^[0-9a-f]{64}$")) and .code.format == "duo-code/v1" and .code.code_revision == $code' "$artifact" >/dev/null || fail "$label artifact receipt malformed"
-  recomputed_hash="$(DUO_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
-require getenv("DUO_CANON");
-$payload = Duo\Canon::decode(file_get_contents($argv[1]));
+  jq -e --arg code "$expected_code" '(.artifact_hash | test("^[0-9a-f]{64}$")) and (.revision_hash | test("^[0-9a-f]{64}$")) and .code.format == "wprism-code/v1" and .code.code_revision == $code' "$artifact" >/dev/null || fail "$label artifact receipt malformed"
+  recomputed_hash="$(WPRISM_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
+require getenv("WPRISM_CANON");
+$payload = WPrism\Canon::decode(file_get_contents($argv[1]));
 unset($payload["artifact_hash"]);
-echo hash("sha256", Duo\Canon::encode($payload));
+echo hash("sha256", WPrism\Canon::encode($payload));
 ' "$artifact")"
   assert_eq "$(jq -r '.artifact_hash' "$artifact")" "$recomputed_hash" "$label exact canonical artifact content hash"
   assert_eq "$expected_code" "$(ledger_revision)" "$label completed code revision"
   assert_eq "$(jq -r '.revision_hash' "$artifact")" "$(ledger_value applied_revision)" "$label applied state revision"
-  assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM wp_duo_kv WHERE k = 'promotion_lock'")" "$label released promotion lease"
+  assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM wp_wprism_kv WHERE k = 'promotion_lock'")" "$label released promotion lease"
 }
 
 require docker
@@ -1334,7 +1334,7 @@ require git
 require jq
 require php
 require sha256sum
-[ -f "$DUO" ] || fail "host Duo CLI missing: $DUO"
+[ -f "$WPRISM" ] || fail "host WPrism CLI missing: $WPRISM"
 [ -f "$FIXTURE/v1/wp-content/plugins/$EXT_SLUG/$EXT_FILE" ] || fail "v1 extension fixture missing"
 [ -f "$FIXTURE/v2/broken/$EXT_FILE" ] || fail "broken v2 extension fixture missing"
 [ -f "$FIXTURE/v2/fixed/$EXT_FILE" ] || fail "fixed v2 extension fixture missing"
@@ -1347,13 +1347,13 @@ artifact_library_jq -e --arg version "$ACF_VERSION" '.plugins["advanced-custom-f
 # other agents' pairs here: a zero-other-pairs rule needlessly serializes a
 # distributed run, and an unlocked check would race the authoritative budget
 # reservation inside pair.sh up.
-PAIR_CONTAINERS="$(docker ps -aq --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null || true)"
-PAIR_VOLUMES="$(docker volume ls -q --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null || true)"
-PAIR_NETWORKS="$(docker network ls -q --filter "label=com.docker.compose.project=duo-$PAIR" 2>/dev/null || true)"
+PAIR_CONTAINERS="$(docker ps -aq --filter "label=com.docker.compose.project=wprism-$PAIR" 2>/dev/null || true)"
+PAIR_VOLUMES="$(docker volume ls -q --filter "label=com.docker.compose.project=wprism-$PAIR" 2>/dev/null || true)"
+PAIR_NETWORKS="$(docker network ls -q --filter "label=com.docker.compose.project=wprism-$PAIR" 2>/dev/null || true)"
 [ -z "$PAIR_CONTAINERS$PAIR_VOLUMES$PAIR_NETWORKS" ] \
-  || fail "refusing to reuse existing Docker resources for duo-$PAIR"
-if docker inspect duo-shared-db >/dev/null 2>&1; then
-  if ! PAIR_DATABASES="$(docker exec -e MYSQL_PWD=root duo-shared-db mariadb -uroot -N -B --raw -e "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME IN ('wp_${PAIR}1','wp_${PAIR}2')" 2>/dev/null)"; then
+  || fail "refusing to reuse existing Docker resources for wprism-$PAIR"
+if docker inspect wprism-shared-db >/dev/null 2>&1; then
+  if ! PAIR_DATABASES="$(docker exec -e MYSQL_PWD=root wprism-shared-db mariadb -uroot -N -B --raw -e "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME IN ('wp_${PAIR}1','wp_${PAIR}2')" 2>/dev/null)"; then
     fail "cannot verify that pair databases for $PAIR are absent"
   fi
   [ -z "$PAIR_DATABASES" ] || fail "refusing to reuse existing pair database(s): $PAIR_DATABASES"
@@ -1388,14 +1388,14 @@ source_wp wc hpos enable >/dev/null
 pass "WooCommerce $WOO_VERSION and ACF $ACF_VERSION installed from independently verified cache artifacts; only author extensions are active"
 
 say "seed synthetic author catalog/config plus source-only runtime probes"
-CAT_ID="$(source_wp term create product_cat 'Duo Grind Widgets' --slug=duo-grind-widgets --porcelain)"
+CAT_ID="$(source_wp term create product_cat 'WPrism Grind Widgets' --slug=wprism-grind-widgets --porcelain)"
 cat > "$SITE/.tmp-make-commerce-media.php" <<'PHPEOF'
 <?php
 $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=');
-file_put_contents('/siterepo/duo-commerce-widget.png', $png);
+file_put_contents('/siterepo/wprism-commerce-widget.png', $png);
 PHPEOF
 source_wp eval-file /siterepo/.tmp-make-commerce-media.php >/dev/null
-MEDIA_ID="$(source_wp media import /siterepo/duo-commerce-widget.png --title='Duo Grind Widget Image' --porcelain)"
+MEDIA_ID="$(source_wp media import /siterepo/wprism-commerce-widget.png --title='WPrism Grind Widget Image' --porcelain)"
 source_wp term meta update "$CAT_ID" thumbnail_id "$MEDIA_ID" >/dev/null
 SIZE_ATTR_ID="$(source_wp wc product_attribute create --name='Grind Size' --slug=grind-size --type=select --order_by=menu_order --has_archives=false --porcelain --user=admin)"
 COLOR_ATTR_ID="$(source_wp wc product_attribute create --name='Grind Color' --slug=grind-color --type=select --order_by=menu_order --has_archives=false --porcelain --user=admin)"
@@ -1403,14 +1403,14 @@ source_wp wc product_attribute_term create "$SIZE_ATTR_ID" --name=Small --user=a
 source_wp wc product_attribute_term create "$SIZE_ATTR_ID" --name=Large --user=admin >/dev/null
 source_wp wc product_attribute_term create "$COLOR_ATTR_ID" --name=Red --user=admin >/dev/null
 source_wp wc product_attribute_term create "$COLOR_ATTR_ID" --name=Blue --user=admin >/dev/null
-MUG_ID="$(source_wp wc product create --name='Duo Grind Mug' --slug=duo-grind-mug --type=simple --regular_price=9.99 --sku=GRIND-MUG --status=publish --user=admin --porcelain)"
-CAP_ID="$(source_wp wc product create --name='Duo Grind Cap' --slug=duo-grind-cap --type=simple --regular_price=14.99 --sku=GRIND-CAP --manage_stock=true --status=publish --user=admin --porcelain)"
-TEE_ID="$(source_wp wc product create --name='Duo Grind Tee' --slug=duo-grind-tee --type=variable --attributes="[{\"id\":$SIZE_ATTR_ID,\"variation\":true,\"visible\":true,\"options\":[\"Small\",\"Large\"]},{\"id\":$COLOR_ATTR_ID,\"variation\":true,\"visible\":true,\"options\":[\"Red\",\"Blue\"]}]" --status=publish --user=admin --porcelain)"
+MUG_ID="$(source_wp wc product create --name='WPrism Grind Mug' --slug=wprism-grind-mug --type=simple --regular_price=9.99 --sku=GRIND-MUG --status=publish --user=admin --porcelain)"
+CAP_ID="$(source_wp wc product create --name='WPrism Grind Cap' --slug=wprism-grind-cap --type=simple --regular_price=14.99 --sku=GRIND-CAP --manage_stock=true --status=publish --user=admin --porcelain)"
+TEE_ID="$(source_wp wc product create --name='WPrism Grind Tee' --slug=wprism-grind-tee --type=variable --attributes="[{\"id\":$SIZE_ATTR_ID,\"variation\":true,\"visible\":true,\"options\":[\"Small\",\"Large\"]},{\"id\":$COLOR_ATTR_ID,\"variation\":true,\"visible\":true,\"options\":[\"Red\",\"Blue\"]}]" --status=publish --user=admin --porcelain)"
 source_wp wc product_variation create "$TEE_ID" --attributes="[{\"id\":$SIZE_ATTR_ID,\"option\":\"Small\"},{\"id\":$COLOR_ATTR_ID,\"option\":\"Red\"}]" --regular_price=19.99 --sku=GRIND-TEE-S-RED --manage_stock=true --stock_quantity=10 --user=admin --porcelain >/dev/null
 source_wp wc product_variation create "$TEE_ID" --attributes="[{\"id\":$SIZE_ATTR_ID,\"option\":\"Large\"},{\"id\":$COLOR_ATTR_ID,\"option\":\"Blue\"}]" --regular_price=21.99 --sale_price=18.99 --sku=GRIND-TEE-L-BLUE --manage_stock=true --stock_quantity=8 --user=admin --porcelain >/dev/null
 source_wp wc product_variation create "$TEE_ID" --attributes="[{\"id\":$SIZE_ATTR_ID,\"option\":\"Small\"},{\"id\":$COLOR_ATTR_ID,\"option\":\"Blue\"}]" --regular_price=20.99 --sku=GRIND-TEE-S-BLUE --manage_stock=true --stock_quantity=7 --user=admin --porcelain >/dev/null
 source_wp wc product_variation create "$TEE_ID" --attributes="[{\"id\":$SIZE_ATTR_ID,\"option\":\"Large\"},{\"id\":$COLOR_ATTR_ID,\"option\":\"Red\"}]" --regular_price=22.99 --sku=GRIND-TEE-L-RED --manage_stock=true --stock_quantity=6 --user=admin --porcelain >/dev/null
-DELETION_PROBE_SOURCE_ID="$(source_wp wc product create --name='Duo Grind Deletion Probe' --slug=duo-grind-delete-probe --type=simple --regular_price=5.55 --sku=GRIND-DELETE-PROBE --attributes="[{\"id\":$SIZE_ATTR_ID,\"variation\":false,\"visible\":true,\"options\":[\"Small\"]}]" --status=publish --user=admin --porcelain)"
+DELETION_PROBE_SOURCE_ID="$(source_wp wc product create --name='WPrism Grind Deletion Probe' --slug=wprism-grind-delete-probe --type=simple --regular_price=5.55 --sku=GRIND-DELETE-PROBE --attributes="[{\"id\":$SIZE_ATTR_ID,\"variation\":false,\"visible\":true,\"options\":[\"Small\"]}]" --status=publish --user=admin --porcelain)"
 source_wp eval "
 \$probe = wc_get_product($DELETION_PROBE_SOURCE_ID);
 \$term = get_term_by('slug', 'small', 'pa_grind-size');
@@ -1424,19 +1424,19 @@ if (!\$probe || !\$term) { throw new RuntimeException('deletion probe global att
 \$probe->set_attributes(['pa_grind-size' => \$attribute]);
 \$probe->save();
 " >/dev/null
-source_wp post term add "$MUG_ID" product_cat duo-grind-widgets --by=slug >/dev/null
-source_wp post term add "$CAP_ID" product_cat duo-grind-widgets --by=slug >/dev/null
-source_wp post term add "$TEE_ID" product_cat duo-grind-widgets --by=slug >/dev/null
-source_wp post term add "$DELETION_PROBE_SOURCE_ID" product_cat duo-grind-widgets --by=slug >/dev/null
-TAG_ID="$(source_wp term create product_tag 'Duo Grind Featured' --slug=duo-grind-featured --porcelain)"
-source_wp post term add "$CAP_ID" product_tag duo-grind-featured --by=slug >/dev/null
-GROUP_ID="$(source_wp wc product create --name='Duo Grind Bundle' --slug=duo-grind-bundle --type=grouped --status=publish --user=admin --porcelain)"
+source_wp post term add "$MUG_ID" product_cat wprism-grind-widgets --by=slug >/dev/null
+source_wp post term add "$CAP_ID" product_cat wprism-grind-widgets --by=slug >/dev/null
+source_wp post term add "$TEE_ID" product_cat wprism-grind-widgets --by=slug >/dev/null
+source_wp post term add "$DELETION_PROBE_SOURCE_ID" product_cat wprism-grind-widgets --by=slug >/dev/null
+TAG_ID="$(source_wp term create product_tag 'WPrism Grind Featured' --slug=wprism-grind-featured --porcelain)"
+source_wp post term add "$CAP_ID" product_tag wprism-grind-featured --by=slug >/dev/null
+GROUP_ID="$(source_wp wc product create --name='WPrism Grind Bundle' --slug=wprism-grind-bundle --type=grouped --status=publish --user=admin --porcelain)"
 source_wp eval "update_post_meta($GROUP_ID, '_children', [$MUG_ID, $CAP_ID]);" >/dev/null
-COUPON_ID="$(source_wp wc shop_coupon create --code=DUO-GRIND10 --discount_type=percent --amount=10 --product_ids="$CAP_ID" --product_categories="$CAT_ID" --usage_limit=25 --minimum_amount=10.00 --free_shipping=true --date_expires=2027-06-30T00:00:00 --status=publish --user=admin --porcelain)"
-MENU_ID="$(source_wp menu create 'Duo Grind Primary' --porcelain)"
-MENU_PRODUCT_ITEM_ID="$(source_wp menu item add-post "$MENU_ID" "$CAP_ID" --title='Shop the Duo Grind Cap' --position=1 --porcelain)"
+COUPON_ID="$(source_wp wc shop_coupon create --code=WPRISM-GRIND10 --discount_type=percent --amount=10 --product_ids="$CAP_ID" --product_categories="$CAT_ID" --usage_limit=25 --minimum_amount=10.00 --free_shipping=true --date_expires=2027-06-30T00:00:00 --status=publish --user=admin --porcelain)"
+MENU_ID="$(source_wp menu create 'WPrism Grind Primary' --porcelain)"
+MENU_PRODUCT_ITEM_ID="$(source_wp menu item add-post "$MENU_ID" "$CAP_ID" --title='Shop the WPrism Grind Cap' --position=1 --porcelain)"
 SOURCE_HOME="$(source_wp option get home)"
-MENU_CUSTOM_ITEM_ID="$(source_wp menu item add-custom "$MENU_ID" 'Duo Grind Support' "${SOURCE_HOME%/}/support/" --position=2 --porcelain)"
+MENU_CUSTOM_ITEM_ID="$(source_wp menu item add-custom "$MENU_ID" 'WPrism Grind Support' "${SOURCE_HOME%/}/support/" --position=2 --porcelain)"
 [[ "$MENU_ID" =~ ^[0-9]+$ ]] || fail "source menu id is not numeric: $MENU_ID"
 [[ "$MENU_PRODUCT_ITEM_ID" =~ ^[0-9]+$ ]] || fail "source product menu-item id is not numeric: $MENU_PRODUCT_ITEM_ID"
 [[ "$MENU_CUSTOM_ITEM_ID" =~ ^[0-9]+$ ]] || fail "source custom menu-item id is not numeric: $MENU_CUSTOM_ITEM_ID"
@@ -1446,8 +1446,8 @@ if (!function_exists('acf_update_field_group')) {
     throw new RuntimeException('ACF 6.8.7 API is not active on the author side');
 }
 acf_update_field_group([
-    'key' => 'group_duo_commerce_catalog',
-    'title' => 'Duo Commerce Catalog',
+    'key' => 'group_wprism_commerce_catalog',
+    'title' => 'WPrism Commerce Catalog',
     'fields' => [],
     'location' => [[['param' => 'post_type', 'operator' => '==', 'value' => 'product']]],
     'menu_order' => 0,
@@ -1457,17 +1457,17 @@ acf_update_field_group([
     'instruction_placement' => 'label',
     'active' => true,
 ]);
-\$group_posts = get_posts(['post_type' => 'acf-field-group', 'name' => 'group_duo_commerce_catalog', 'posts_per_page' => 1, 'fields' => 'ids', 'post_status' => 'any']);
+\$group_posts = get_posts(['post_type' => 'acf-field-group', 'name' => 'group_wprism_commerce_catalog', 'posts_per_page' => 1, 'fields' => 'ids', 'post_status' => 'any']);
 \$group_id = \$group_posts ? (int) \$group_posts[0] : 0;
 if (!\$group_id) { throw new RuntimeException('ACF commerce field group was not created'); }
 acf_update_field([
-    'key' => 'field_duo_inventory_note',
+    'key' => 'field_wprism_inventory_note',
     'label' => 'Inventory Note',
-    'name' => 'duo_inventory_note',
+    'name' => 'wprism_inventory_note',
     'type' => 'text',
     'parent' => \$group_id,
 ]);
-update_field('duo_inventory_note', 'managed-stock', $CAP_ID);
+update_field('wprism_inventory_note', 'managed-stock', $CAP_ID);
 echo json_encode(['group' => \$group_id, 'product' => $CAP_ID]) . "\\n";
 PHP
 ACF_SEED_JSON="$(source_wp eval-file /siterepo/.tmp-seed-acf-commerce.php)"
@@ -1475,7 +1475,7 @@ rm -f -- "$SITE/.tmp-seed-acf-commerce.php"
 assert_acf_schema source 'source author seed'
 source_wp option update woocommerce_calc_taxes yes >/dev/null
 source_wp option update --format=json woocommerce_cod_settings \
-  '{"enabled":"yes","title":"Duo Grind COD Desk","description":"Pay at the Duo Grind desk.","instructions":"Use code GRIND-COD-7 at pickup.","enable_for_methods":[],"enable_for_virtual":"yes"}' >/dev/null
+  '{"enabled":"yes","title":"WPrism Grind COD Desk","description":"Pay at the WPrism Grind desk.","instructions":"Use code GRIND-COD-7 at pickup.","enable_for_methods":[],"enable_for_virtual":"yes"}' >/dev/null
 SOURCE_COD_SETTINGS="$(source_wp eval '
 $settings = (array) get_option("woocommerce_cod_settings", []);
 $gateways = WC()->payment_gateways()->get_available_payment_gateways();
@@ -1484,19 +1484,19 @@ $methods = $settings["enable_for_methods"] ?? [];
 if (!is_array($methods)) { $methods = ["__invalid__"]; }
 echo json_encode(["calc_taxes" => (string) get_option("woocommerce_calc_taxes", ""), "enabled" => (string) ($settings["enabled"] ?? ""), "title" => (string) ($settings["title"] ?? ""), "description" => (string) ($settings["description"] ?? ""), "instructions" => (string) ($settings["instructions"] ?? ""), "enable_for_methods" => array_values($methods), "enable_for_virtual" => (string) ($settings["enable_for_virtual"] ?? ""), "gateway_enabled" => $cod ? (string) $cod->enabled : "missing"], JSON_UNESCAPED_SLASHES);
 ')"
-jq -e '.calc_taxes == "yes" and .enabled == "yes" and .title == "Duo Grind COD Desk" and .description == "Pay at the Duo Grind desk." and .instructions == "Use code GRIND-COD-7 at pickup." and .enable_for_methods == [] and .enable_for_virtual == "yes" and .gateway_enabled == "yes"' <<<"$SOURCE_COD_SETTINGS" >/dev/null || fail "source COD merchant setting did not reach Woo's gateway API: $SOURCE_COD_SETTINGS"
+jq -e '.calc_taxes == "yes" and .enabled == "yes" and .title == "WPrism Grind COD Desk" and .description == "Pay at the WPrism Grind desk." and .instructions == "Use code GRIND-COD-7 at pickup." and .enable_for_methods == [] and .enable_for_virtual == "yes" and .gateway_enabled == "yes"' <<<"$SOURCE_COD_SETTINGS" >/dev/null || fail "source COD merchant setting did not reach Woo's gateway API: $SOURCE_COD_SETTINGS"
 source_wp option update woocommerce_currency USD >/dev/null
 source_wp option update woocommerce_default_country US:CA >/dev/null
 source_wp option update woocommerce_allowed_countries specific >/dev/null
 source_wp option update woocommerce_store_address '100 Demo Way' >/dev/null
 source_wp option update woocommerce_store_city 'Testville' >/dev/null
 source_wp option update woocommerce_store_postcode '90210' >/dev/null
-ZONE_ID="$(source_wp wc shipping_zone create --name='Duo Grind United States' --order=1 --user=admin --porcelain)"
+ZONE_ID="$(source_wp wc shipping_zone create --name='WPrism Grind United States' --order=1 --user=admin --porcelain)"
 source_wp eval "\$z = new WC_Shipping_Zone($ZONE_ID); \$z->add_location('US', 'country'); \$z->save();" >/dev/null
 FLAT_INSTANCE="$(source_wp wc shipping_zone_method create "$ZONE_ID" --method_id=flat_rate --enabled=true --order=1 --user=admin --porcelain)"
 FREE_INSTANCE="$(source_wp wc shipping_zone_method create "$ZONE_ID" --method_id=free_shipping --enabled=true --order=2 --user=admin --porcelain)"
-source_wp eval "\$flat = WC_Shipping_Zones::get_shipping_method($FLAT_INSTANCE); \$flat->instance_settings['title'] = 'Duo Grind Flat Rate'; \$flat->instance_settings['cost'] = '5.99'; \$flat->instance_settings['tax_status'] = 'taxable'; update_option(\$flat->get_instance_option_key(), \$flat->instance_settings); \$free = WC_Shipping_Zones::get_shipping_method($FREE_INSTANCE); \$free->instance_settings['title'] = 'Duo Grind Free Shipping'; \$free->instance_settings['requires'] = 'min_amount'; \$free->instance_settings['min_amount'] = '50.00'; update_option(\$free->get_instance_option_key(), \$free->instance_settings);" >/dev/null
-TAX_ID="$(source_wp wc tax create --country=US --state=CA --rate=7.2500 --name='Duo Grind CA Sales Tax' --priority=1 --shipping=true --order=1 --class=standard --porcelain --user=admin)"
+source_wp eval "\$flat = WC_Shipping_Zones::get_shipping_method($FLAT_INSTANCE); \$flat->instance_settings['title'] = 'WPrism Grind Flat Rate'; \$flat->instance_settings['cost'] = '5.99'; \$flat->instance_settings['tax_status'] = 'taxable'; update_option(\$flat->get_instance_option_key(), \$flat->instance_settings); \$free = WC_Shipping_Zones::get_shipping_method($FREE_INSTANCE); \$free->instance_settings['title'] = 'WPrism Grind Free Shipping'; \$free->instance_settings['requires'] = 'min_amount'; \$free->instance_settings['min_amount'] = '50.00'; update_option(\$free->get_instance_option_key(), \$free->instance_settings);" >/dev/null
+TAX_ID="$(source_wp wc tax create --country=US --state=CA --rate=7.2500 --name='WPrism Grind CA Sales Tax' --priority=1 --shipping=true --order=1 --class=standard --porcelain --user=admin)"
 SOURCE_RUNTIME_CUSTOMER_ID="$(source_wp eval '
 $customer = wc_create_new_customer("source-customer@example.invalid", "source-runtime", "source-runtime-password", ["first_name" => "Source", "last_name" => "Runtime"]);
 if (is_wp_error($customer)) { throw new RuntimeException("source runtime customer seed failed: " . $customer->get_error_message()); }
@@ -1518,23 +1518,23 @@ SOURCE_RUNTIME_CUSTOMER_BASELINE="$(source_runtime_customer_snapshot "$SOURCE_RU
 SOURCE_RUNTIME_ORDER_BASELINE="$(source_runtime_order_snapshot "$SOURCE_RUNTIME_ORDER_ID")"
 source_wp eval 'if (count(wc_get_orders(["limit" => -1, "return" => "ids"])) !== 1) { throw new RuntimeException("fixture must contain exactly one source-only runtime order"); }' >/dev/null
 rm -f -- "$SITE/.tmp-make-commerce-media.php"
-rm -f -- "$SITE/duo-commerce-widget.png"
+rm -f -- "$SITE/wprism-commerce-widget.png"
 pass "catalog seeded: category=$CAT_ID image=$MEDIA_ID products=$MUG_ID,$CAP_ID,$TEE_ID,$GROUP_ID coupon=$COUPON_ID menu=$MENU_ID attrs=$SIZE_ATTR_ID,$COLOR_ATTR_ID zone=$ZONE_ID methods=$FLAT_INSTANCE,$FREE_INSTANCE tax=$TAX_ID; source-only customer=$SOURCE_RUNTIME_CUSTOMER_ID order=$SOURCE_RUNTIME_ORDER_ID are runtime-only"
 
 say "initialize repository policy and perform initial state-only capture"
 git init --bare -b main "$ORIGIN" >/dev/null
 mkdir -p "$SITE"
-cat > "$SITE/site.duo.json" <<'JSON'
+cat > "$SITE/site.wprism.json" <<'JSON'
 {
   "manifests": ["core", "woocommerce", "acf"],
   "policy": {
     "options": {
-      "duo_commerce_extension_activations": {"class": "runtime"},
-      "duo_commerce_extension_deactivations": {"class": "runtime"},
-      "duo_commerce_extension_gateway_secret": {"class": "env", "required": true},
-      "duo_commerce_extension_schema": {"class": "runtime"},
-      "duo_commerce_extension_settings": {"class": "authored", "autoload": "preserve"},
-      "duo_commerce_extension_trace": {"class": "runtime"}
+      "wprism_commerce_extension_activations": {"class": "runtime"},
+      "wprism_commerce_extension_deactivations": {"class": "runtime"},
+      "wprism_commerce_extension_gateway_secret": {"class": "env", "required": true},
+      "wprism_commerce_extension_schema": {"class": "runtime"},
+      "wprism_commerce_extension_settings": {"class": "authored", "autoload": "preserve"},
+      "wprism_commerce_extension_trace": {"class": "runtime"}
     },
     "post_meta": {},
     "post_types": ["post", "page", "attachment", "product", "product_variation", "shop_coupon", "acf-field-group", "acf-field"],
@@ -1545,15 +1545,15 @@ cat > "$SITE/site.duo.json" <<'JSON'
 }
 JSON
 cp site-repo.gitignore.template "$SITE/.gitignore"
-printf '\n# Duo operational promotion receipts never belong to the branchable repo.\n.duo/\n' >> "$SITE/.gitignore"
+printf '\n# WPrism operational promotion receipts never belong to the branchable repo.\n.wprism/\n' >> "$SITE/.gitignore"
 git -C "$SITE" init -q -b main
 git -C "$SITE" remote add origin "../origin-${PAIR}.git"
-git -C "$SITE" add site.duo.json .gitignore
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'policy: WooCommerce ecommerce clean-room'
+git -C "$SITE" add site.wprism.json .gitignore
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'policy: WooCommerce ecommerce clean-room'
 git -C "$SITE" push -qu origin main
-source_wp duo capture --repo=/siterepo >/dev/null
+source_wp wprism capture --repo=/siterepo >/dev/null
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'capture: state-only synthetic catalog'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'capture: state-only synthetic catalog'
 git -C "$SITE" push -qu origin main
 [ ! -d "$SITE/code" ] || fail "initial state-only capture unexpectedly materialized code"
 assert_runtime_state_excluded 'initial state-only capture'
@@ -1584,21 +1584,21 @@ $store_city = (string) get_option("woocommerce_store_city", "");
 $store_postcode = (string) get_option("woocommerce_store_postcode", "");
 $store_exact = $currency === "USD" && $default_country === "US:CA" && $allowed_countries === "specific"
     && $store_address === "100 Demo Way" && $store_city === "Testville" && $store_postcode === "90210";
-$cap = get_page_by_path("duo-grind-cap", OBJECT, "product");
-$mug = get_page_by_path("duo-grind-mug", OBJECT, "product");
-$bundle = get_page_by_path("duo-grind-bundle", OBJECT, "product");
+$cap = get_page_by_path("wprism-grind-cap", OBJECT, "product");
+$mug = get_page_by_path("wprism-grind-mug", OBJECT, "product");
+$bundle = get_page_by_path("wprism-grind-bundle", OBJECT, "product");
 $categories = $cap ? array_values((array) wp_get_post_terms((int) $cap->ID, "product_cat", ["fields" => "slugs"])) : [];
 $tags = $cap ? array_values((array) wp_get_post_terms((int) $cap->ID, "product_tag", ["fields" => "slugs"])) : [];
 sort($categories, SORT_STRING);
 sort($tags, SORT_STRING);
-$category = get_term_by("slug", "duo-grind-widgets", "product_cat");
+$category = get_term_by("slug", "wprism-grind-widgets", "product_cat");
 $category_id = $category ? (int) $category->term_id : 0;
 $thumbnail_id = $category_id ? (int) get_term_meta($category_id, "thumbnail_id", true) : 0;
 $thumbnail = $thumbnail_id ? get_post($thumbnail_id) : null;
 $thumbnail_file = $thumbnail_id ? (string) get_attached_file($thumbnail_id) : "";
 $thumbnail_hash = $thumbnail_file !== "" && is_file($thumbnail_file) ? (string) hash_file("sha256", $thumbnail_file) : "";
 $thumbnail_exact = $thumbnail && $thumbnail->post_type === "attachment"
-    && (string) $thumbnail->post_title === "Duo Grind Widget Image"
+    && (string) $thumbnail->post_title === "WPrism Grind Widget Image"
     && (string) $thumbnail->post_mime_type === "image/png"
     && $thumbnail_hash === "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460";
 $bundle_children = [];
@@ -1610,7 +1610,7 @@ sort($bundle_children, SORT_NUMERIC);
 $expected_bundle_children = [$mug ? (int) $mug->ID : 0, $cap ? (int) $cap->ID : 0];
 sort($expected_bundle_children, SORT_NUMERIC);
 $bundle_children_exact = $bundle && $mug && $cap && $bundle_children === $expected_bundle_children;
-$coupon_id = function_exists("wc_get_coupon_id_by_code") ? (int) wc_get_coupon_id_by_code("DUO-GRIND10") : 0;
+$coupon_id = function_exists("wc_get_coupon_id_by_code") ? (int) wc_get_coupon_id_by_code("WPRISM-GRIND10") : 0;
 $coupon = $coupon_id ? new WC_Coupon($coupon_id) : null;
 $coupon_products = $coupon ? array_values(array_unique(array_map("absint", (array) $coupon->get_product_ids()))) : [];
 $coupon_categories = $coupon ? array_values(array_unique(array_map("absint", (array) $coupon->get_product_categories()))) : [];
@@ -1618,7 +1618,7 @@ sort($coupon_products, SORT_NUMERIC);
 sort($coupon_categories, SORT_NUMERIC);
 $coupon_expiry_date = $coupon ? $coupon->get_date_expires() : null;
 $coupon_expiry = $coupon_expiry_date ? $coupon_expiry_date->format("Y-m-d") : "";
-$coupon_exact = $coupon && strtoupper((string) $coupon->get_code()) === "DUO-GRIND10"
+$coupon_exact = $coupon && strtoupper((string) $coupon->get_code()) === "WPRISM-GRIND10"
     && (string) $coupon->get_discount_type() === "percent"
     && (float) $coupon->get_amount() === 10.0
     && $coupon_products === [$cap ? (int) $cap->ID : 0]
@@ -1627,7 +1627,7 @@ $coupon_exact = $coupon && strtoupper((string) $coupon->get_code()) === "DUO-GRI
     && (float) $coupon->get_minimum_amount() === 10.0
     && (bool) $coupon->get_free_shipping()
     && $coupon_expiry === "2027-06-30";
-$zone_id = (int) $wpdb->get_var($wpdb->prepare("SELECT zone_id FROM {$wpdb->prefix}woocommerce_shipping_zones WHERE zone_name = %s LIMIT 1", "Duo Grind United States"));
+$zone_id = (int) $wpdb->get_var($wpdb->prepare("SELECT zone_id FROM {$wpdb->prefix}woocommerce_shipping_zones WHERE zone_name = %s LIMIT 1", "WPrism Grind United States"));
 $shipping_methods = $zone_id ? array_values(array_map("strval", (array) $wpdb->get_col($wpdb->prepare("SELECT method_id FROM {$wpdb->prefix}woocommerce_shipping_zone_methods WHERE zone_id = %d ORDER BY method_order", $zone_id)))) : [];
 $zone_locations = [];
 $shipping_settings = [];
@@ -1653,22 +1653,22 @@ if ($zone_id) {
 }
 ksort($shipping_settings, SORT_STRING);
 $expected_shipping_settings = [
-    "flat_rate" => ["enabled" => "yes", "title" => "Duo Grind Flat Rate", "cost" => "5.99", "tax_status" => "taxable", "requires" => "", "min_amount" => ""],
-    "free_shipping" => ["enabled" => "yes", "title" => "Duo Grind Free Shipping", "cost" => "", "tax_status" => "", "requires" => "min_amount", "min_amount" => "50.00"],
+    "flat_rate" => ["enabled" => "yes", "title" => "WPrism Grind Flat Rate", "cost" => "5.99", "tax_status" => "taxable", "requires" => "", "min_amount" => ""],
+    "free_shipping" => ["enabled" => "yes", "title" => "WPrism Grind Free Shipping", "cost" => "", "tax_status" => "", "requires" => "min_amount", "min_amount" => "50.00"],
 ];
 $shipping_exact = $zone_locations === [["code" => "US", "type" => "country"]] && $shipping_settings === $expected_shipping_settings;
 $tax_table = $wpdb->prefix . "woocommerce_tax_rates";
-$tax_row = (array) $wpdb->get_row($wpdb->prepare("SELECT tax_rate_country, tax_rate_state, tax_rate, tax_rate_name, tax_rate_priority, tax_rate_shipping, tax_rate_order, tax_rate_class FROM `$tax_table` WHERE tax_rate_name = %s LIMIT 1", "Duo Grind CA Sales Tax"), ARRAY_A);
+$tax_row = (array) $wpdb->get_row($wpdb->prepare("SELECT tax_rate_country, tax_rate_state, tax_rate, tax_rate_name, tax_rate_priority, tax_rate_shipping, tax_rate_order, tax_rate_class FROM `$tax_table` WHERE tax_rate_name = %s LIMIT 1", "WPrism Grind CA Sales Tax"), ARRAY_A);
 $tax_exact = count($rates) === 1 && $tax_row
     && (string) ($tax_row["tax_rate_country"] ?? "") === "US"
     && (string) ($tax_row["tax_rate_state"] ?? "") === "CA"
     && (float) ($tax_row["tax_rate"] ?? 0) === 7.25
-    && (string) ($tax_row["tax_rate_name"] ?? "") === "Duo Grind CA Sales Tax"
+    && (string) ($tax_row["tax_rate_name"] ?? "") === "WPrism Grind CA Sales Tax"
     && (int) ($tax_row["tax_rate_priority"] ?? 0) === 1
     && (int) ($tax_row["tax_rate_shipping"] ?? 0) === 1
     && (int) ($tax_row["tax_rate_order"] ?? 0) === 1
     && (string) ($tax_row["tax_rate_class"] ?? "") === "";
-$acf_note = function_exists("get_field") && $cap ? get_field("duo_inventory_note", $cap->ID) : null;
+$acf_note = function_exists("get_field") && $cap ? get_field("wprism_inventory_note", $cap->ID) : null;
 $cod_settings = (array) get_option("woocommerce_cod_settings", []);
 $cod_methods = $cod_settings["enable_for_methods"] ?? [];
 if (!is_array($cod_methods)) {
@@ -1714,17 +1714,17 @@ echo json_encode([
   echo "catalog acceptance: $out"
   jq -e --argjson expected "$expected_orders" --argjson expected_products "$expected_products" '
     .products == $expected_products and .variations == 4 and .coupons == 1 and
-    .attrs == ["grind-color", "grind-size"] and .zones == ["Duo Grind United States"] and
-    .categories == ["duo-grind-widgets", "uncategorized"] and .tags == ["duo-grind-featured"] and
+    .attrs == ["grind-color", "grind-size"] and .zones == ["WPrism Grind United States"] and
+    .categories == ["wprism-grind-widgets", "uncategorized"] and .tags == ["wprism-grind-featured"] and
     .shipping_methods == ["flat_rate", "free_shipping"] and .tax_rates == 1 and .media == 2 and
     .orders == $expected and .acf_note == "managed-stock" and .calc_taxes == "yes" and
     .store_exact == true and .thumbnail_exact == true and .bundle_children_exact == true and
     .coupon_exact == true and .shipping_exact == true and .tax_exact == true and
-    .cod_enabled == "yes" and .cod_title == "Duo Grind COD Desk" and
-    .cod_description == "Pay at the Duo Grind desk." and
+    .cod_enabled == "yes" and .cod_title == "WPrism Grind COD Desk" and
+    .cod_description == "Pay at the WPrism Grind desk." and
     .cod_instructions == "Use code GRIND-COD-7 at pickup." and
     .cod_enable_for_methods == [] and .cod_enable_for_virtual == "yes" and
-    .cod_gateway_enabled == "yes" and .cod_gateway_title == "Duo Grind COD Desk"
+    .cod_gateway_enabled == "yes" and .cod_gateway_title == "WPrism Grind COD Desk"
   ' <<<"$out" >/dev/null || fail "catalog/config/runtime policy acceptance failed: $out"
   pass "products, variations, categories, global attributes, coupon, shipping, tax, media and Woo config round-tripped; orders remain runtime-excluded"
 }
@@ -1749,12 +1749,12 @@ if ($last > 0) {
 
 assert_deletion_probe_lookup_present() {
   local id="$1" meta_rows attribute_rows
-  # DUO-3411: this table is outside Duo's verified provider authority. Build
+  # issue #3411: this table is outside WPrism's verified provider authority. Build
   # the fixture through Woo's own explicit whole-table maintenance boundary
-  # before auditing it; none of the assertions below are evidence of Duo repair.
+  # before auditing it; none of the assertions below are evidence of WPrism repair.
   manual_regenerate_attribute_lookup
   [[ "$id" =~ ^[0-9]+$ ]] || fail "deletion probe target id is not numeric: $id"
-  assert_eq "$id" "$(target_wp post list --post_type=product --name=duo-grind-delete-probe --field=ID)" "deletion probe target product id"
+  assert_eq "$id" "$(target_wp post list --post_type=product --name=wprism-grind-delete-probe --field=ID)" "deletion probe target product id"
   meta_rows="$(target_db_scalar "SELECT COUNT(*) FROM wp_wc_product_meta_lookup WHERE product_id = $id AND sku = 'GRIND-DELETE-PROBE'")"
   attribute_rows="$(target_db_scalar "SELECT COUNT(*) FROM wp_wc_product_attributes_lookup WHERE (product_id = $id OR product_or_parent_id = $id) AND taxonomy = 'pa_grind-size'")"
   [ "$meta_rows" -ge 1 ] || fail "deletion probe has no wc_product_meta_lookup row for target id $id"
@@ -1789,7 +1789,7 @@ assert_theme_and_dependency() {
   assert_eq "$PARENT_THEME" "$(target_wp option get template)" "active parent theme"
   target_wp plugin is-active "$WOO_SLUG" >/dev/null || fail "WooCommerce is inactive"
   target_wp plugin is-active "$ACF_SLUG" >/dev/null || fail "ACF is inactive"
-  target_wp plugin is-active "$EXT_SLUG" >/dev/null || fail "Duo Commerce Extension is inactive"
+  target_wp plugin is-active "$EXT_SLUG" >/dev/null || fail "WPrism Commerce Extension is inactive"
   assert_eq "$expected_active" "$(active_plugins_json)" "exact authored active_plugins order"
   target_wp eval 'if (!class_exists("WooCommerce")) { exit(1); } if (!function_exists("woocommerce_content")) { exit(1); }' || fail "custom storefront did not load WooCommerce integration"
 }
@@ -1799,8 +1799,8 @@ assert_replacement_and_dependencies() {
   assert_eq absent "$(target_directory "$CHILD_TARGET")" "replacement keeps the reviewed child-theme removal"
   target_wp plugin is-active "$WOO_SLUG" >/dev/null || fail "replacement WooCommerce dependency is inactive"
   target_wp plugin is-active "$ACF_SLUG" >/dev/null || fail "replacement ACF extension is inactive"
-  target_wp plugin is-active "$EXT_SLUG" >/dev/null && fail "outgoing Duo Commerce Extension remained active"
-  target_wp plugin is-active "$REPLACEMENT_SLUG" >/dev/null || fail "Duo Commerce Replacement is inactive"
+  target_wp plugin is-active "$EXT_SLUG" >/dev/null && fail "outgoing WPrism Commerce Extension remained active"
+  target_wp plugin is-active "$REPLACEMENT_SLUG" >/dev/null || fail "WPrism Commerce Replacement is inactive"
   assert_eq "$REPLACEMENT_ACTIVE_PLUGINS_JSON" "$(active_plugins_json)" "exact replacement active_plugins order"
   target_wp eval 'if (!class_exists("WooCommerce")) { exit(1); } if (!function_exists("woocommerce_content")) { exit(1); }' \
     || fail "replacement storefront did not retain WooCommerce integration"
@@ -1810,8 +1810,8 @@ theme_lifecycle_snapshot() {
   target_wp eval '
 $stylesheet = (string) get_option("stylesheet");
 $template = (string) get_option("template");
-$parent = wp_get_theme("duo-commerce-parent");
-$child = wp_get_theme("duo-commerce-child");
+$parent = wp_get_theme("wprism-commerce-parent");
+$child = wp_get_theme("wprism-commerce-child");
 $logo_id = (int) get_theme_mod("custom_logo");
 $logo = $logo_id > 0 ? get_post($logo_id) : null;
 $logo_file = $logo_id > 0 ? (string) get_attached_file($logo_id) : "";
@@ -1851,9 +1851,9 @@ assert_theme_portable_relationships() {
     --arg background "1f4b6e" '
       .stylesheet == $stylesheet and .template == $template and
       .background_color == $background and
-      .logo_title == "Duo Grind Widget Image" and .logo_mime == "image/png" and
+      .logo_title == "WPrism Grind Widget Image" and .logo_mime == "image/png" and
       .logo_hash == "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460" and
-      .menu_name == "Duo Grind Primary" and .menu_slug == "duo-grind-primary"
+      .menu_name == "WPrism Grind Primary" and .menu_slug == "wprism-grind-primary"
     ' <<<"$out" >/dev/null \
     || fail "$label did not preserve portable theme settings, navigation, or media: $out"
   pass "$label preserves background, mapped custom-logo media, and the primary navigation relationship"
@@ -1885,7 +1885,7 @@ assert_parent_theme_and_dependencies() {
   assert_eq "$PARENT_THEME" "$(target_wp option get template)" "active parent template"
   target_wp plugin is-active "$WOO_SLUG" >/dev/null || fail "WooCommerce is inactive"
   target_wp plugin is-active "$ACF_SLUG" >/dev/null || fail "ACF is inactive"
-  target_wp plugin is-active "$EXT_SLUG" >/dev/null || fail "Duo Commerce Extension is inactive"
+  target_wp plugin is-active "$EXT_SLUG" >/dev/null || fail "WPrism Commerce Extension is inactive"
   assert_eq "$AUTHORED_ACTIVE_PLUGINS_JSON" "$(active_plugins_json)" "exact authored active_plugins order"
 }
 
@@ -1897,14 +1897,14 @@ assert_derived_indexes() {
   local expected_bundle_max="${5:-14.99}"
   local expected_cap_cents="${6:-1499}"
   local out
-  # Product-meta/price assertions below prove Duo's bounded provider. Attribute
+  # Product-meta/price assertions below prove WPrism's bounded provider. Attribute
   # row assertions are a separate manual Woo maintenance baseline only.
   manual_regenerate_attribute_lookup
   out="$(target_wp eval '
 global $wpdb;
-$cap = get_page_by_path("duo-grind-cap", OBJECT, "product");
-$tee = get_page_by_path("duo-grind-tee", OBJECT, "product");
-$bundle = get_page_by_path("duo-grind-bundle", OBJECT, "product");
+$cap = get_page_by_path("wprism-grind-cap", OBJECT, "product");
+$tee = get_page_by_path("wprism-grind-tee", OBJECT, "product");
+$bundle = get_page_by_path("wprism-grind-bundle", OBJECT, "product");
 $meta_table = $wpdb->prefix . "wc_product_meta_lookup";
 $attributes_table = $wpdb->prefix . "wc_product_attributes_lookup";
 $cap_meta = $cap ? (array) $wpdb->get_row($wpdb->prepare("SELECT sku, min_price, max_price, onsale, stock_quantity, stock_status, tax_class FROM `$meta_table` WHERE product_id = %d", $cap->ID), ARRAY_A) : [];
@@ -2028,7 +2028,7 @@ foreach ($expected_variation_meta as $sku => $expected) {
 }
 $cap_stock = array_key_exists("stock_quantity", $cap_meta) && $cap_meta["stock_quantity"] !== null ? (int) $cap_meta["stock_quantity"] : null;
 $price_request = new WP_REST_Request("GET", "/wc/store/v1/products");
-$price_request->set_query_params(["slug" => "duo-grind-cap", "min_price" => "0", "max_price" => "100000"]);
+$price_request->set_query_params(["slug" => "wprism-grind-cap", "min_price" => "0", "max_price" => "100000"]);
 $price_response = rest_do_request($price_request);
 $normalize_store_value = static function ($value) use (&$normalize_store_value) {
     if (is_object($value)) {
@@ -2050,17 +2050,17 @@ if (isset($price_rows[0]) && is_array($price_rows[0]) && isset($price_rows[0]["p
     $price_api = (string) $price_rows[0]["prices"]["price"];
 }
 $attribute_request = new WP_REST_Request("GET", "/wc/store/v1/products");
-$attribute_request->set_query_params(["slug" => "duo-grind-tee", "attributes" => [["attribute" => "pa_grind-size", "slug" => "small"]]]);
+$attribute_request->set_query_params(["slug" => "wprism-grind-tee", "attributes" => [["attribute" => "pa_grind-size", "slug" => "small"]]]);
 $attribute_response = rest_do_request($attribute_request);
 $attribute_data = $normalize_store_value($attribute_response->get_data());
 $attribute_api_rows = is_array($attribute_data) ? array_values($attribute_data) : [];
 $price_negative_request = new WP_REST_Request("GET", "/wc/store/v1/products");
-$price_negative_request->set_query_params(["slug" => "duo-grind-cap", "min_price" => "999900", "max_price" => "1000000"]);
+$price_negative_request->set_query_params(["slug" => "wprism-grind-cap", "min_price" => "999900", "max_price" => "1000000"]);
 $price_negative_response = rest_do_request($price_negative_request);
 $price_negative_data = $normalize_store_value($price_negative_response->get_data());
 $price_negative_rows = is_array($price_negative_data) ? array_values($price_negative_data) : [];
 $attribute_negative_request = new WP_REST_Request("GET", "/wc/store/v1/products");
-$attribute_negative_request->set_query_params(["slug" => "duo-grind-tee", "attributes" => [["attribute" => "pa_grind-size", "slug" => "not-a-real-size"]]]);
+$attribute_negative_request->set_query_params(["slug" => "wprism-grind-tee", "attributes" => [["attribute" => "pa_grind-size", "slug" => "not-a-real-size"]]]);
 $attribute_negative_response = rest_do_request($attribute_negative_request);
 $attribute_negative_data = $normalize_store_value($attribute_negative_response->get_data());
 $attribute_negative_rows = is_array($attribute_negative_data) ? array_values($attribute_negative_data) : [];
@@ -2124,7 +2124,7 @@ echo json_encode([
     --arg expected_cap_cents "$expected_cap_cents" \
     '.meta_rows >= 1 and .attribute_rows == 8 and .variation_attribute_rows == 8 and .attribute_exact == true and .variation_ids_exact == true and (.variation_ids | length) == 4 and (.loaded_variation_ids | length) == 4 and (.variation_ids_missing | length) == 0 and (.variation_ids_unexpected | length) == 0 and (.variation_load_errors | length) == 0 and (.duplicate_variation_skus | length) == 0 and (.attribute_missing_keys | length) == 0 and (.attribute_unexpected_keys | length) == 0 and (.attribute_duplicate_keys | length) == 0 and (.attribute_unknown_product_ids | length) == 0 and (.attribute_actual_keys | length) == 8 and (.attribute_expected_keys | length) == 8 and .cap_exact == true and (.cap_meta.min_price | tonumber) == $expected_cap_price and (.cap_meta.max_price | tonumber) == $expected_cap_price and .cap_status == $expected_cap_status and .cap_manage_stock == true and .cap_stock == $expected_cap_stock and .tee_exact == true and .bundle_rows == 1 and (.bundle_meta.min_price | tonumber) == $expected_bundle_min and (.bundle_meta.max_price | tonumber) == $expected_bundle_max and (.bundle_meta.onsale | tonumber) == 0 and .variation_exact == true and .blue_exact == true and .price_matches >= 1 and .price_api == $expected_cap_cents and .attribute_matches >= 1 and .price_negative_matches == 0 and .attribute_negative_matches == 0 and .tax_725 == true' \
     <<<"$out" >/dev/null || fail "Woo derived indexes, exact simple/grouped/variable price/SKU/stock/tax rows, or positive/negative Store API filters did not converge: $out"
-  pass "Duo product-meta/price rows converge; separately, manual Woo attribute regeneration yields exact attribute rows and Store API price/attribute filters resolve"
+  pass "WPrism product-meta/price rows converge; separately, manual Woo attribute regeneration yields exact attribute rows and Store API price/attribute filters resolve"
 }
 
 ROLLBACK_MAINTENANCE_HELD=0
@@ -2148,16 +2148,16 @@ mkdir -p "$SITE/code/wp-content/plugins" "$SITE/code/wp-content/themes"
 cp -a "$FIXTURE/v1/wp-content/plugins/$EXT_SLUG" "$SITE/code/wp-content/plugins/"
 cp -a "$FIXTURE/v1/wp-content/themes/$PARENT_THEME" "$SITE/code/wp-content/themes/"
 cp -a "$FIXTURE/v1/wp-content/themes/$CHILD_THEME" "$SITE/code/wp-content/themes/"
-jq '.code = {format: 1, layout: "wp-content", source: "code/wp-content"}' "$SITE/site.duo.json" > "$SITE/site.duo.next.json"
-mv "$SITE/site.duo.next.json" "$SITE/site.duo.json"
-canonicalize_json "$SITE/site.duo.json"
+jq '.code = {format: 1, layout: "wp-content", source: "code/wp-content"}' "$SITE/site.wprism.json" > "$SITE/site.wprism.next.json"
+mv "$SITE/site.wprism.next.json" "$SITE/site.wprism.json"
+canonicalize_json "$SITE/site.wprism.json"
 
 # Materialize the author checkout into the author WordPress installation and
 # use ordinary public WordPress lifecycle APIs.  Capture observes these real
 # activation/theme-switch side effects; it does not hand-edit managed state.
-source_wp option update duo_commerce_extension_gateway_secret 'source-only-synthetic-secret' >/dev/null
-"${PAIR_COMPOSE[@]}" run --rm -T cli1 sh -c 'cp -a /siterepo/code/wp-content/plugins/duo-commerce-extension /var/www/html/wp-content/plugins/'
-"${PAIR_COMPOSE[@]}" run --rm -T cli1 sh -c 'cp -a /siterepo/code/wp-content/themes/duo-commerce-parent /var/www/html/wp-content/themes/ && cp -a /siterepo/code/wp-content/themes/duo-commerce-child /var/www/html/wp-content/themes/'
+source_wp option update wprism_commerce_extension_gateway_secret 'source-only-synthetic-secret' >/dev/null
+"${PAIR_COMPOSE[@]}" run --rm -T cli1 sh -c 'cp -a /siterepo/code/wp-content/plugins/wprism-commerce-extension /var/www/html/wp-content/plugins/'
+"${PAIR_COMPOSE[@]}" run --rm -T cli1 sh -c 'cp -a /siterepo/code/wp-content/themes/wprism-commerce-parent /var/www/html/wp-content/themes/ && cp -a /siterepo/code/wp-content/themes/wprism-commerce-child /var/www/html/wp-content/themes/'
 source_wp plugin activate "$EXT_SLUG" >/dev/null
 source_wp theme activate "$PARENT_THEME" >/dev/null
 source_wp theme activate "$CHILD_THEME" >/dev/null
@@ -2171,12 +2171,12 @@ set_theme_mod("nav_menu_locations", $locations);
 assert_eq "$NATIVE_ACTIVE_PLUGINS_JSON" "$(source_wp option get active_plugins --format=json | jq -c '.')" "author native active_plugins order"
 assert_eq "$PARENT_THEME" "$(source_wp option get template)" "author parent theme after public switch"
 assert_eq "$CHILD_THEME" "$(source_wp option get stylesheet)" "author child theme after public switch"
-SOURCE_RUNTIME_EVENT_LABEL='Duo Grind source-only runtime event'
+SOURCE_RUNTIME_EVENT_LABEL='WPrism Grind source-only runtime event'
 SOURCE_RUNTIME_EVENT_CREATED_AT='2026-01-01 02:03:04'
 SOURCE_RUNTIME_EVENT_ID="$(source_wp eval '
 global $wpdb;
-$table = $wpdb->prefix . "duo_commerce_extension_events";
-if (!$wpdb->insert($table, ["label" => "Duo Grind source-only runtime event", "created_at" => "2026-01-01 02:03:04"], ["%s", "%s"])) {
+$table = $wpdb->prefix . "wprism_commerce_extension_events";
+if (!$wpdb->insert($table, ["label" => "WPrism Grind source-only runtime event", "created_at" => "2026-01-01 02:03:04"], ["%s", "%s"])) {
     throw new RuntimeException("source-only runtime extension event seed failed: " . $wpdb->last_error);
 }
 echo (int) $wpdb->insert_id;
@@ -2186,25 +2186,25 @@ SOURCE_RUNTIME_EVENT_BASELINE="$(source_runtime_event_snapshot "$SOURCE_RUNTIME_
 SOURCE_RUNTIME_IDENTITY_BASELINE="$(runtime_identity_inventory source_wp)"
 assert_source_runtime_baseline 'source-only runtime seed before capture'
 assert_runtime_state_excluded 'source-only runtime seed before capture'
-source_wp duo capture --repo=/siterepo >/dev/null
+source_wp wprism capture --repo=/siterepo >/dev/null
 assert_source_runtime_baseline 'source code capture'
 assert_runtime_state_excluded 'source code capture'
 mkdir -p "$V1_INPUTS"
 cp -a "$SITE/code" "$V1_INPUTS/code"
 cp -a "$SITE/state" "$V1_INPUTS/state"
-cp "$SITE/site.duo.json" "$V1_INPUTS/site.duo.json"
+cp "$SITE/site.wprism.json" "$V1_INPUTS/site.wprism.json"
 cp "$SITE/state/options/core.json" "$V1_INPUTS/core.json"
 V1_SOURCE_MANAGED_CODE_TREE_HASH="$(source_managed_code_tree_hash)"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'code: opt in WooCommerce extension and storefront v1'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'code: opt in WooCommerce extension and storefront v1'
 git -C "$SITE" push -qu origin main
 git clone -q "$ORIGIN" "$OTHER_SITE"
 if ! printf '%s\n' 'target-only-synthetic-secret' \
-  | php "$DUO" --envs-file="$ENVS_FILE" env-set target --name=duo_commerce_extension_gateway_secret --stdin >/dev/null; then
-  fail "target env-owned gateway secret could not be provisioned through duo env-set"
+  | php "$WPRISM" --envs-file="$ENVS_FILE" env-set target --name=wprism_commerce_extension_gateway_secret --stdin >/dev/null; then
+  fail "target env-owned gateway secret could not be provisioned through wprism env-set"
 fi
-assert_eq source-only-synthetic-secret "$(source_wp option get duo_commerce_extension_gateway_secret)" "source env-owned gateway secret"
-assert_eq target-only-synthetic-secret "$(target_wp option get duo_commerce_extension_gateway_secret)" "target env-owned gateway secret"
+assert_eq source-only-synthetic-secret "$(source_wp option get wprism_commerce_extension_gateway_secret)" "source env-owned gateway secret"
+assert_eq target-only-synthetic-secret "$(target_wp option get wprism_commerce_extension_gateway_secret)" "target env-owned gateway secret"
 if grep -R -Fq 'source-only-synthetic-secret' "$SITE/state"; then
   fail "env-owned source gateway secret leaked into canonical state"
 fi
@@ -2217,7 +2217,7 @@ say "publish target-only env registry and materialize v1 code/lifecycle"
 V1_DEPLOY_ARTIFACTS_BEFORE="$(deploy_artifact_files)"
 if ! V1_DEPLOY_OUT="$(deploy 2>&1)"; then
   echo "$V1_DEPLOY_OUT" >&2
-  fail "v1 duo deploy failed"
+  fail "v1 wprism deploy failed"
 fi
 echo "$V1_DEPLOY_OUT"
 V1_ARTIFACT="$(artifact_for_new_deploy "$V1_DEPLOY_ARTIFACTS_BEFORE")"
@@ -2230,7 +2230,7 @@ if ! V1_APPLY_OUT="$(apply_state --adopt-by-slug=terms,posts --default-author=ad
   fail "v1 state apply failed"
 fi
 echo "$V1_APPLY_OUT"
-target_wp duo capture --repo=/siterepo --out=/siterepo/.tmp-v1-recapture >/dev/null
+target_wp wprism capture --repo=/siterepo --out=/siterepo/.tmp-v1-recapture >/dev/null
 if ! diff -r "$OTHER_SITE/state" "$OTHER_SITE/.tmp-v1-recapture" >/dev/null; then
   diff -ru "$OTHER_SITE/state" "$OTHER_SITE/.tmp-v1-recapture" >&2 || true
   fail 'initial v1 target recapture did not match canonical state byte-for-byte'
@@ -2248,14 +2248,14 @@ assert_frontend_child_parent 'v1 target apply'
 assert_theme_versions 'v1 target apply' '1.0.0' '1.0.0'
 assert_theme_portable_relationships 'v1 target apply'
 assert_extension_rest_status '1.0.0' 1 'v1 target apply'
-assert_eq retail "$(target_wp option get duo_commerce_extension_settings)" "v1 authored extension setting"
-assert_eq 1 "$(target_wp option get duo_commerce_extension_schema)" "v1 extension schema"
-assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_duo_commerce_extension_events' AND COLUMN_NAME = 'context'")" "v1 extension table shape"
+assert_eq retail "$(target_wp option get wprism_commerce_extension_settings)" "v1 authored extension setting"
+assert_eq 1 "$(target_wp option get wprism_commerce_extension_schema)" "v1 extension schema"
+assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_wprism_commerce_extension_events' AND COLUMN_NAME = 'context'")" "v1 extension table shape"
 assert_woo_catalog 0 5
 assert_ecommerce_menu 'v1 target apply'
-TARGET_CAP_ID="$(target_wp post list --post_type=product --name=duo-grind-cap --field=ID)"
+TARGET_CAP_ID="$(target_wp post list --post_type=product --name=wprism-grind-cap --field=ID)"
 [[ "$TARGET_CAP_ID" =~ ^[0-9]+$ ]] || fail "target cap id is not numeric: $TARGET_CAP_ID"
-DELETION_PROBE_TARGET_ID="$(target_wp post list --post_type=product --name=duo-grind-delete-probe --field=ID)"
+DELETION_PROBE_TARGET_ID="$(target_wp post list --post_type=product --name=wprism-grind-delete-probe --field=ID)"
 assert_deletion_probe_lookup_present "$DELETION_PROBE_TARGET_ID"
 DELETION_PROBE_V1_TARGET_ID="$DELETION_PROBE_TARGET_ID"
 # Product quantities/statuses are deliberately runtime-only in the Woo
@@ -2263,7 +2263,7 @@ DELETION_PROBE_V1_TARGET_ID="$DELETION_PROBE_TARGET_ID"
 # apply so the exact lookup assertions prove that authored prices/SKUs and
 # attributes round-tripped without copying source inventory values.
 target_wp eval '
-$tee = get_page_by_path("duo-grind-tee", OBJECT, "product");
+$tee = get_page_by_path("wprism-grind-tee", OBJECT, "product");
 if (!$tee) { throw new RuntimeException("target tee missing before runtime variation inventory setup"); }
 $stock = [
     "GRIND-TEE-S-RED" => 15,
@@ -2323,12 +2323,12 @@ foreach ($updates as [$variation, $sku]) {
 assert_product_visibility_projection
 assert_derived_indexes 0 ""
 assert_store_api_http 1499 'v1 target runtime setup'
-RUNTIME_EVENT_LABEL='Duo Grind runtime v1 event'
+RUNTIME_EVENT_LABEL='WPrism Grind runtime v1 event'
 RUNTIME_EVENT_CREATED_AT='2026-01-02 03:04:05'
 RUNTIME_EVENT_ID="$(target_wp eval '
 global $wpdb;
-$table = $wpdb->prefix . "duo_commerce_extension_events";
-if (!$wpdb->insert($table, ["label" => "Duo Grind runtime v1 event", "created_at" => "2026-01-02 03:04:05"], ["%s", "%s"])) {
+$table = $wpdb->prefix . "wprism_commerce_extension_events";
+if (!$wpdb->insert($table, ["label" => "WPrism Grind runtime v1 event", "created_at" => "2026-01-02 03:04:05"], ["%s", "%s"])) {
     throw new RuntimeException("runtime extension event seed failed: " . $wpdb->last_error);
 }
 echo (int) $wpdb->insert_id;
@@ -2345,19 +2345,19 @@ assert_receipt "$V1_ARTIFACT" 'v1 deploy/apply' "$V1_REVISION"
 V1_TARGET_MANAGED_CODE_TREE_HASH="$(target_managed_code_tree_hash)"
 assert_eq "$V1_SOURCE_MANAGED_CODE_TREE_HASH" "$V1_TARGET_MANAGED_CODE_TREE_HASH" 'v1 source/target managed code tree checkpoint'
 assert_eq "$V1_REVISION" "$(ledger_revision)" 'recorded v1 target code revision'
-assert_eq retail "$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'duo_commerce_extension_settings' LIMIT 1")" 'raw v1 setting before database checkpoint export'
+assert_eq retail "$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'wprism_commerce_extension_settings' LIMIT 1")" 'raw v1 setting before database checkpoint export'
 target_wp db export /siterepo/.tmp-ecommerce-v1-db.sql --porcelain >/dev/null
 cp "$OTHER_SITE/.tmp-ecommerce-v1-db.sql" "$V1_DB_DUMP"
 [ -s "$V1_DB_DUMP" ] || fail "v1 exact rollback checkpoint was not exported"
 V1_DB_DUMP_SHA256="$(sha256sum "$V1_DB_DUMP" | awk '{print $1}')"
 [[ "$V1_DB_DUMP_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail "v1 pair-local database checkpoint SHA-256 is malformed"
 assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$OTHER_SITE/.tmp-ecommerce-v1-db.sql" | awk '{print $1}')" 'pair-local v1 database checkpoint bytes before runtime order'
-grep -Eq "'duo_commerce_extension_settings','retail'," "$V1_DB_DUMP" \
+grep -Eq "'wprism_commerce_extension_settings','retail'," "$V1_DB_DUMP" \
   || fail 'v1 database checkpoint does not contain the raw scalar option value'
 TARGET_ORDER_ID="$(target_wp eval '
 $customer = wc_create_new_customer("runtime-customer@example.invalid", "runtime-customer", "runtime-customer-password", ["first_name" => "Target", "last_name" => "Runtime"]);
 if (is_wp_error($customer)) { throw new RuntimeException("target runtime customer seed failed: " . $customer->get_error_message()); }
-$p = get_page_by_path("duo-grind-cap", OBJECT, "product");
+$p = get_page_by_path("wprism-grind-cap", OBJECT, "product");
 if (!$p) { throw new RuntimeException("target cap missing before runtime order"); }
 $order = wc_create_order(["customer_id" => (int) $customer]);
 $order->set_address([
@@ -2380,7 +2380,7 @@ $order->set_address([
     "postcode" => "90210",
     "country" => "US",
 ], "shipping");
-$order->add_meta_data("_duo_runtime_marker", "target-order-only", true);
+$order->add_meta_data("_wprism_runtime_marker", "target-order-only", true);
 $order->add_product(wc_get_product($p->ID), 1);
 $order->calculate_totals();
 $order->save();
@@ -2408,7 +2408,7 @@ TARGET_ORDER_ITEM_IDS="$(jq -r '[.order_items[] | .order_item_id | tonumber] | u
 TARGET_RUNTIME_IDENTITY_BASELINE="$(runtime_identity_inventory target_wp)"
 assert_target_order_snapshot "$TARGET_ORDER_BASELINE" 'target-only HPOS order'
 assert_runtime_isolation 'target-only runtime seed' 0
-assert_eq 7 "$(target_wp eval '$p = get_page_by_path("duo-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" "target-only stock adjustment"
+assert_eq 7 "$(target_wp eval '$p = get_page_by_path("wprism-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" "target-only stock adjustment"
 pass "v1 code/state materialized and checkpointed; synthetic target-only HPOS order $TARGET_ORDER_ID and stock=7 are runtime data, never canonical"
 
 say "bounded WordPress cron move: execute one named future-post event"
@@ -2416,7 +2416,7 @@ say "bounded WordPress cron move: execute one named future-post event"
 # contract, not a harness-specific engine branch.  The fixture only supplies
 # one runtime-only post so the public WP-Cron action can be observed without
 # changing canonical authored state.
-TARGET_CRON_FREEZE_CANDIDATE="/var/www/html/wp-content/mu-plugins/duo-cron-freeze-${PAIR}.php"
+TARGET_CRON_FREEZE_CANDIDATE="/var/www/html/wp-content/mu-plugins/wprism-cron-freeze-${PAIR}.php"
 TARGET_CRON_FREEZE_SHA="$(target_root_php_args '
 $path = $argv[1] ?? "";
 $bytes = "<?php\nif (!defined(\"DISABLE_WP_CRON\")) { define(\"DISABLE_WP_CRON\", true); }\n";
@@ -2451,13 +2451,13 @@ TARGET_ACTION_SCHEDULER_INVENTORY_BEFORE="$(target_action_scheduler_inventory)"
 TARGET_CRON_POST_ID="$(target_wp eval '
 $timestamp = time() + 3600;
 $post_id = wp_insert_post([
-    "post_title" => "Duo Grind bounded cron move",
-    "post_name" => "duo-grind-bounded-cron-move",
+    "post_title" => "WPrism Grind bounded cron move",
+    "post_name" => "wprism-grind-bounded-cron-move",
     "post_type" => "page",
     "post_status" => "future",
     "post_date_gmt" => gmdate("Y-m-d H:i:s", $timestamp),
     "post_date" => get_date_from_gmt(gmdate("Y-m-d H:i:s", $timestamp), "Y-m-d H:i:s"),
-    "post_content" => "Duo-3359 named WordPress cron transition.",
+    "post_content" => "ecommerce-developer named WordPress cron transition.",
 ], true);
 if (is_wp_error($post_id)) {
     throw new RuntimeException("bounded cron post seed failed: " . $post_id->get_error_message());
@@ -2545,7 +2545,7 @@ PREFLIGHT_SESSION_BEFORE="$(ledger_value promotion_session)"
 PREFLIGHT_LOCK_BEFORE="$(ledger_value promotion_lock)"
 rm -f -- "$SITE/code/wp-content/plugins/$EXT_SLUG/$EXT_FILE"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: remove active extension main file'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: remove active extension main file'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 if PREFLIGHT_OUT="$(deploy 2>&1)"; then
@@ -2561,11 +2561,11 @@ assert_eq "$REV_BEFORE" "$(ledger_revision)" 'completed revision after compile p
 assert_eq "$PREFLIGHT_SESSION_BEFORE" "$(ledger_value promotion_session)" 'promotion session after compile preflight refusal'
 assert_eq "$PREFLIGHT_LOCK_BEFORE" "$(ledger_value promotion_lock)" 'promotion lease after compile preflight refusal'
 if [ -z "$PREFLIGHT_SESSION_BEFORE$PREFLIGHT_LOCK_BEFORE" ]; then
-  assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM wp_duo_kv WHERE k IN ('promotion_session', 'promotion_lock')")" 'promotion lease/session absence after compile preflight refusal'
+  assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM wp_wprism_kv WHERE k IN ('promotion_session', 'promotion_lock')")" 'promotion lease/session absence after compile preflight refusal'
 fi
 cp "$FIXTURE/v1/wp-content/plugins/$EXT_SLUG/$EXT_FILE" "$SITE/code/wp-content/plugins/$EXT_SLUG/$EXT_FILE"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: retry extension main file'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: retry extension main file'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 pass "missing active code was rejected before lease/checkpoint; restoring the exact file keeps target and revision unchanged"
@@ -2575,7 +2575,7 @@ jq --arg woo "$WOO_BASENAME" --arg acf "$ACF_BASENAME" '.records.active_plugins.
 mv "$STATE.next" "$STATE"
 canonicalize_json "$STATE"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'lifecycle: deactivate custom extension only'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'lifecycle: deactivate custom extension only'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 if ! V1_DEACTIVATE_OUT="$(promote 2>&1)"; then
@@ -2586,7 +2586,7 @@ echo "$V1_DEACTIVATE_OUT"
 target_wp plugin is-active "$WOO_SLUG" >/dev/null || fail 'WooCommerce was deactivated with the custom extension'
 target_wp plugin is-active "$ACF_SLUG" >/dev/null || fail 'ACF was deactivated with the custom extension'
 target_wp plugin is-active "$EXT_SLUG" >/dev/null && fail 'custom extension remained active after lifecycle removal'
-assert_trace_has "$(target_wp option get duo_commerce_extension_trace --format=json)" 'deactivate:commerce-v1:woo=yes'
+assert_trace_has "$(target_wp option get wprism_commerce_extension_trace --format=json)" 'deactivate:commerce-v1:woo=yes'
 assert_runtime_isolation 'v1 extension deactivation' 0
 V1_DEACTIVATE_ARTIFACT="$(artifact_for_promote_output "$V1_DEACTIVATE_OUT")"
 assert_receipt "$V1_DEACTIVATE_ARTIFACT" 'v1 extension deactivation promote' "$V1_REVISION"
@@ -2606,7 +2606,7 @@ INACTIVE_COMPAT_TREE_BEFORE="$(target_managed_code_tree_hash)"
 INACTIVE_COMPAT_PLUGIN_TREE_BEFORE="$(target_plugin_tree_hash)"
 INACTIVE_COMPAT_REVISION_BEFORE="$(ledger_revision)"
 INACTIVE_COMPAT_ACTIVE_BEFORE="$(active_plugins_json)"
-INACTIVE_COMPAT_TRACE_BEFORE="$(target_wp option get duo_commerce_extension_trace --format=json)"
+INACTIVE_COMPAT_TRACE_BEFORE="$(target_wp option get wprism_commerce_extension_trace --format=json)"
 INACTIVE_COMPAT_SESSION_BEFORE="$(ledger_value promotion_session)"
 INACTIVE_COMPAT_LOCK_BEFORE="$(ledger_value promotion_lock)"
 php -r '
@@ -2618,7 +2618,7 @@ $next = str_replace($needle, $needle . " * Requires PHP: 99.0\n", $bytes);
 if (file_put_contents($path, $next) === false) { exit(3); }
 ' "$INACTIVE_COMPAT_SOURCE"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: inactive extension requires a newer target PHP'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: inactive extension requires a newer target PHP'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 INACTIVE_COMPAT_PLAN="$(plan_json)"
@@ -2654,13 +2654,13 @@ assert_eq "$INACTIVE_COMPAT_TREE_BEFORE" "$(target_managed_code_tree_hash)" 'man
 assert_eq "$INACTIVE_COMPAT_PLUGIN_TREE_BEFORE" "$(target_plugin_tree_hash)" 'plugin tree after inactive compatibility refusal'
 assert_eq "$INACTIVE_COMPAT_REVISION_BEFORE" "$(ledger_revision)" 'code revision after inactive compatibility refusal'
 assert_eq "$INACTIVE_COMPAT_ACTIVE_BEFORE" "$(active_plugins_json)" 'active plugin order after inactive compatibility refusal'
-assert_eq "$INACTIVE_COMPAT_TRACE_BEFORE" "$(target_wp option get duo_commerce_extension_trace --format=json)" 'lifecycle trace after inactive compatibility refusal'
+assert_eq "$INACTIVE_COMPAT_TRACE_BEFORE" "$(target_wp option get wprism_commerce_extension_trace --format=json)" 'lifecycle trace after inactive compatibility refusal'
 assert_eq "$INACTIVE_COMPAT_SESSION_BEFORE" "$(ledger_value promotion_session)" 'promotion session after inactive compatibility refusal'
 assert_eq "$INACTIVE_COMPAT_LOCK_BEFORE" "$(ledger_value promotion_lock)" 'promotion lock after inactive compatibility refusal'
 target_wp plugin is-active "$EXT_SLUG" >/dev/null && fail 'runtime compatibility refusal activated the inactive extension'
 cp "$FIXTURE/v1/wp-content/plugins/$EXT_SLUG/$EXT_FILE" "$INACTIVE_COMPAT_SOURCE"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: restore headerless inactive extension compatibility control'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: restore headerless inactive extension compatibility control'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 pass "inactive incompatible plugin produced an exact non-forceable plan/refusal with no lease, replacement, or lifecycle effect; headerless control restored"
@@ -2669,11 +2669,11 @@ say "v2 reviewed change: migrate scalar setting/table and deliberately fail acti
 cp "$FIXTURE/v2/broken/$EXT_FILE" "$SITE/code/wp-content/plugins/$EXT_SLUG/$EXT_FILE"
 cp -a "$FIXTURE/v2/wp-content/themes/$PARENT_THEME" "$SITE/code/wp-content/themes/"
 cp -a "$FIXTURE/v2/wp-content/themes/$CHILD_THEME" "$SITE/code/wp-content/themes/"
-jq --arg woo "$WOO_BASENAME" --arg acf "$ACF_BASENAME" --arg extension "$EXT_BASENAME" '.records.active_plugins.value = [$woo, $acf, $extension] | .records.duo_commerce_extension_settings = {autoload: "off", state: "present", value: {schema: 2, channel: "retail", catalog_mode: "managed"}}' "$STATE" > "$STATE.next"
+jq --arg woo "$WOO_BASENAME" --arg acf "$ACF_BASENAME" --arg extension "$EXT_BASENAME" '.records.active_plugins.value = [$woo, $acf, $extension] | .records.wprism_commerce_extension_settings = {autoload: "off", state: "present", value: {schema: 2, channel: "retail", catalog_mode: "managed"}}' "$STATE" > "$STATE.next"
 mv "$STATE.next" "$STATE"
 canonicalize_json "$STATE"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'code: reviewed v2 migration with activation failure fixture'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'code: reviewed v2 migration with activation failure fixture'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 if V2_BROKEN_OUT="$(promote 2>&1)"; then
@@ -2682,7 +2682,7 @@ if V2_BROKEN_OUT="$(promote 2>&1)"; then
 fi
 echo "$V2_BROKEN_OUT"
 assert_phase_order "$V2_BROKEN_OUT" 'promote phase: compile' 'promote phase: code-preflight' 'promote phase: promotion-begin' 'promote phase: checkpoint' 'promote phase: code-stage' 'promote phase: lifecycle-retire' 'promote phase: lifecycle-activate'
-grep -Fq 'Duo Commerce Extension reviewed v2 activation failure' <<<"$V2_BROKEN_OUT" || fail 'controlled v2 activation failure did not reach reviewed hook'
+grep -Fq 'WPrism Commerce Extension reviewed v2 activation failure' <<<"$V2_BROKEN_OUT" || fail 'controlled v2 activation failure did not reach reviewed hook'
 assert_absent "$V2_BROKEN_OUT" 'promote phase: code-finalize' 'broken v2 activation'
 assert_absent "$V2_BROKEN_OUT" 'promote phase: apply' 'broken v2 activation'
 grep -Fq 'promotion lease cleanup confirmed' <<<"$V2_BROKEN_OUT" || fail 'broken v2 activation did not abort its lease'
@@ -2693,19 +2693,19 @@ V2_FAILED_RUN_ID="$(basename "$V2_FAILED_CHECKPOINT")"
 V2_FAILED_RUN_ID="${V2_FAILED_RUN_ID#promote-}"
 V2_FAILED_RUN_ID="${V2_FAILED_RUN_ID%.sql.enc}"
 [[ "$V2_FAILED_RUN_ID" =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{32}$ ]] || fail "failed v2 checkpoint run identity is malformed: $V2_FAILED_RUN_ID"
-assert_eq "/siterepo/.duo/checkpoints/promote-$V2_FAILED_RUN_ID.sql.enc" "$V2_FAILED_CHECKPOINT" 'failed v2 checkpoint path/run identity'
-V2_FAILED_CHECKPOINT_HOST="$OTHER_SITE/.duo/checkpoints/promote-$V2_FAILED_RUN_ID.sql.enc"
-V2_FAILED_ARTIFACT_FILE="$OTHER_SITE/.duo/artifacts/promote-$V2_FAILED_RUN_ID.json"
+assert_eq "/siterepo/.wprism/checkpoints/promote-$V2_FAILED_RUN_ID.sql.enc" "$V2_FAILED_CHECKPOINT" 'failed v2 checkpoint path/run identity'
+V2_FAILED_CHECKPOINT_HOST="$OTHER_SITE/.wprism/checkpoints/promote-$V2_FAILED_RUN_ID.sql.enc"
+V2_FAILED_ARTIFACT_FILE="$OTHER_SITE/.wprism/artifacts/promote-$V2_FAILED_RUN_ID.json"
 [ -s "$V2_FAILED_CHECKPOINT_HOST" ] || fail 'failed v2 checkpoint not target-visible and non-empty'
 [ -f "$V2_FAILED_ARTIFACT_FILE" ] || fail 'failed v2 compiled artifact does not share the checkpoint run identity'
 V2_FAILED_CHECKPOINT_SHA256="$(sha256sum "$V2_FAILED_CHECKPOINT_HOST" | awk '{print $1}')"
 [[ "$V2_FAILED_CHECKPOINT_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail 'failed v2 checkpoint SHA-256 is malformed'
 V2_FAILED_COMPILED_HASH="$(jq -r '.artifact_hash' "$V2_FAILED_ARTIFACT_FILE")"
-V2_FAILED_RECOMPUTED_HASH="$(DUO_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
-require getenv("DUO_CANON");
-$payload = Duo\Canon::decode(file_get_contents($argv[1]));
+V2_FAILED_RECOMPUTED_HASH="$(WPRISM_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
+require getenv("WPRISM_CANON");
+$payload = WPrism\Canon::decode(file_get_contents($argv[1]));
 unset($payload["artifact_hash"]);
-echo hash("sha256", Duo\Canon::encode($payload));
+echo hash("sha256", WPrism\Canon::encode($payload));
 ' "$V2_FAILED_ARTIFACT_FILE")"
 assert_eq "$V2_FAILED_COMPILED_HASH" "$V2_FAILED_RECOMPUTED_HASH" 'failed v2 exact canonical artifact content hash'
 V2_FAILED_SESSION="$(ledger_value promotion_session)"
@@ -2727,12 +2727,12 @@ mkdir -p "$OTHER_SITE/.tmp-v1-code/wp-content/plugins" "$OTHER_SITE/.tmp-v1-code
 cp -a "$FIXTURE/v1/wp-content/plugins/$EXT_SLUG" "$OTHER_SITE/.tmp-v1-code/wp-content/plugins/"
 cp -a "$FIXTURE/v1/wp-content/themes/$PARENT_THEME" "$OTHER_SITE/.tmp-v1-code/wp-content/themes/"
 cp -a "$FIXTURE/v1/wp-content/themes/$CHILD_THEME" "$OTHER_SITE/.tmp-v1-code/wp-content/themes/"
-"${PAIR_COMPOSE[@]}" run --rm -T cli2 sh -c 'cp -a /siterepo/.tmp-v1-code/wp-content/plugins/duo-commerce-extension /var/www/html/wp-content/plugins/ && cp -a /siterepo/.tmp-v1-code/wp-content/themes/duo-commerce-parent /var/www/html/wp-content/themes/ && cp -a /siterepo/.tmp-v1-code/wp-content/themes/duo-commerce-child /var/www/html/wp-content/themes/'
+"${PAIR_COMPOSE[@]}" run --rm -T cli2 sh -c 'cp -a /siterepo/.tmp-v1-code/wp-content/plugins/wprism-commerce-extension /var/www/html/wp-content/plugins/ && cp -a /siterepo/.tmp-v1-code/wp-content/themes/wprism-commerce-parent /var/www/html/wp-content/themes/ && cp -a /siterepo/.tmp-v1-code/wp-content/themes/wprism-commerce-child /var/www/html/wp-content/themes/'
 rm -rf -- "$OTHER_SITE/.tmp-v1-code"
 assert_eq "$V1_TARGET_MANAGED_CODE_TREE_HASH" "$(target_managed_code_tree_hash)" 'full managed v1 code tree before checkpoint recovery'
 assert_eq "$V1_REVISION" "$(ledger_revision)" 'v1 code revision before checkpoint recovery'
 assert_eq "$V2_FAILED_CHECKPOINT_SHA256" "$(sha256sum "$V2_FAILED_CHECKPOINT_HOST" | awk '{print $1}')" 'failed v2 checkpoint bytes before recovery import'
-if ! V2_RECOVERY_OUT="$(php "$DUO" --envs-file="$ENVS_FILE" recover target \
+if ! V2_RECOVERY_OUT="$(php "$WPRISM" --envs-file="$ENVS_FILE" recover target \
   --restore="$V2_FAILED_RUN_ID" --writers-excluded --operator-directed 2>&1)"; then
   echo "$V2_RECOVERY_OUT" >&2
   fail 'failed v2 encrypted checkpoint recovery did not complete'
@@ -2740,8 +2740,8 @@ fi
 assert_phase_order "$V2_RECOVERY_OUT" '  abort: ok' '  begin: ok' '  import: ok' '  final-abort: ok'
 assert_eq "$V1_TARGET_MANAGED_CODE_TREE_HASH" "$(target_managed_code_tree_hash)" 'full managed v1 code tree after checkpoint recovery'
 assert_eq "$V1_REVISION" "$(ledger_revision)" 'v1 revision after failed-v2 checkpoint restore'
-assert_eq retail "$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'duo_commerce_extension_settings' LIMIT 1")" 'v1 scalar after checkpoint restore'
-assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_duo_commerce_extension_events' AND COLUMN_NAME = 'context'")" 'v1 table shape after checkpoint restore'
+assert_eq retail "$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'wprism_commerce_extension_settings' LIMIT 1")" 'v1 scalar after checkpoint restore'
+assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_wprism_commerce_extension_events' AND COLUMN_NAME = 'context'")" 'v1 table shape after checkpoint restore'
 assert_extension_runtime_event 0 "" 'v1 runtime row after checkpoint restore'
 # The failed-v2 checkpoint was intentionally taken after the preceding
 # public deactivation milestone. Recovery must therefore restore that exact
@@ -2757,7 +2757,7 @@ V2_SOURCE_MANAGED_CODE_TREE_HASH="$(source_managed_code_tree_hash)"
 [ "$V2_SOURCE_MANAGED_CODE_TREE_HASH" != "$V1_TARGET_MANAGED_CODE_TREE_HASH" ] \
   || fail 'fixed v2 repository managed code tree did not differ from v1'
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'code: fixed v2 migration retry'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'code: fixed v2 migration retry'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 if ! V2_OUT="$(promote 2>&1)"; then
@@ -2771,14 +2771,14 @@ assert_frontend_child_parent 'fixed v2 retry' 1
 assert_theme_versions 'reviewed v2 theme upgrade' '1.1.0' '2.0.0'
 assert_theme_portable_relationships 'reviewed v2 theme upgrade'
 assert_extension_rest_status '2.0.0' 2 'fixed v2 retry'
-target_wp option get duo_commerce_extension_settings --format=json | jq -e '.schema == 2 and .channel == "retail" and .catalog_mode == "managed"' >/dev/null || fail 'v2 migration/state object did not converge'
-assert_eq 2 "$(target_wp option get duo_commerce_extension_schema)" 'v2 extension schema'
-assert_eq 1 "$(target_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_duo_commerce_extension_events' AND COLUMN_NAME = 'context'")" 'v2 migrated table shape'
+target_wp option get wprism_commerce_extension_settings --format=json | jq -e '.schema == 2 and .channel == "retail" and .catalog_mode == "managed"' >/dev/null || fail 'v2 migration/state object did not converge'
+assert_eq 2 "$(target_wp option get wprism_commerce_extension_schema)" 'v2 extension schema'
+assert_eq 1 "$(target_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_wprism_commerce_extension_events' AND COLUMN_NAME = 'context'")" 'v2 migrated table shape'
 assert_extension_runtime_event 1 "" 'fixed v2 migrated runtime row'
-assert_trace_has "$(target_wp option get duo_commerce_extension_trace --format=json)" 'migrate:v1-to-v2:retail'
-assert_trace_has "$(target_wp option get duo_commerce_extension_trace --format=json)" 'activate:commerce-v2'
-assert_eq target-only-synthetic-secret "$(target_wp option get duo_commerce_extension_gateway_secret)" 'env-owned target gateway secret survives v2'
-assert_eq "$DELETION_PROBE_V1_TARGET_ID" "$(target_wp post list --post_type=product --name=duo-grind-delete-probe --field=ID)" 'deletion probe id survives v2'
+assert_trace_has "$(target_wp option get wprism_commerce_extension_trace --format=json)" 'migrate:v1-to-v2:retail'
+assert_trace_has "$(target_wp option get wprism_commerce_extension_trace --format=json)" 'activate:commerce-v2'
+assert_eq target-only-synthetic-secret "$(target_wp option get wprism_commerce_extension_gateway_secret)" 'env-owned target gateway secret survives v2'
+assert_eq "$DELETION_PROBE_V1_TARGET_ID" "$(target_wp post list --post_type=product --name=wprism-grind-delete-probe --field=ID)" 'deletion probe id survives v2'
 assert_deletion_probe_lookup_present "$DELETION_PROBE_V1_TARGET_ID"
 V2_ARTIFACT="$(artifact_for_promote_output "$V2_OUT")"
 V2_REVISION="$(jq -r '.code.code_revision' "$V2_ARTIFACT")"
@@ -2790,14 +2790,14 @@ assert_woo_catalog 1 5
 assert_product_visibility_projection
 assert_derived_indexes 7 instock
 assert_store_api_http 1499 'fixed v2 retry'
-assert_eq 7 "$(target_wp eval '$p = get_page_by_path("duo-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" 'target-only stock survives v2 promote'
+assert_eq 7 "$(target_wp eval '$p = get_page_by_path("wprism-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" 'target-only stock survives v2 promote'
 assert_target_order_unchanged 'target-only order survives v2 promote'
 
 say "source author v2 runtime migration: load the reviewed plugin and derive the evolved event baseline"
-"${PAIR_COMPOSE[@]}" run --rm -T cli1 sh -c 'cp -a /siterepo/code/wp-content/plugins/duo-commerce-extension/. /var/www/html/wp-content/plugins/duo-commerce-extension/'
-source_wp option get duo_commerce_extension_schema >/dev/null
-assert_eq 2 "$(source_wp option get duo_commerce_extension_schema)" 'source v2 runtime migration schema'
-assert_eq 1 "$(source_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_duo_commerce_extension_events' AND COLUMN_NAME = 'context'")" 'source v2 runtime migration table shape'
+"${PAIR_COMPOSE[@]}" run --rm -T cli1 sh -c 'cp -a /siterepo/code/wp-content/plugins/wprism-commerce-extension/. /var/www/html/wp-content/plugins/wprism-commerce-extension/'
+source_wp option get wprism_commerce_extension_schema >/dev/null
+assert_eq 2 "$(source_wp option get wprism_commerce_extension_schema)" 'source v2 runtime migration schema'
+assert_eq 1 "$(source_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_wprism_commerce_extension_events' AND COLUMN_NAME = 'context'")" 'source v2 runtime migration table shape'
 source_wp option update --format=json active_plugins "$AUTHORED_ACTIVE_PLUGINS_JSON" >/dev/null
 assert_eq "$AUTHORED_ACTIVE_PLUGINS_JSON" "$(source_wp option get active_plugins --format=json | jq -c '.')" 'source v2 runtime migration authored plugin order'
 assert_source_runtime_baseline 'source v2 runtime migration'
@@ -2808,9 +2808,9 @@ pass "exact v1 checkpoint recovery removed failed migration effects; fixed v2 ac
 say "real author product update: change grouped child price/merchandising, capture, and promote the state delta"
 source_wp wc product update "$CAP_ID" --regular_price=16.49 --user=admin >/dev/null
 source_wp post update "$CAP_ID" --post_excerpt='Managed stock copy after v2 review' >/dev/null
-source_wp duo capture --repo=/siterepo >/dev/null
+source_wp wprism capture --repo=/siterepo >/dev/null
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'catalog: author updates cap merchandising excerpt'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'catalog: author updates cap merchandising excerpt'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 if ! PRODUCT_UPDATE_OUT="$(promote 2>&1)"; then
@@ -2818,11 +2818,11 @@ if ! PRODUCT_UPDATE_OUT="$(promote 2>&1)"; then
   fail 'author product update promote failed'
 fi
 echo "$PRODUCT_UPDATE_OUT"
-assert_eq 'Managed stock copy after v2 review' "$(target_wp eval '$p = get_page_by_path("duo-grind-cap", OBJECT, "product"); echo $p ? $p->post_excerpt : "";')" 'author product excerpt after promote'
+assert_eq 'Managed stock copy after v2 review' "$(target_wp eval '$p = get_page_by_path("wprism-grind-cap", OBJECT, "product"); echo $p ? $p->post_excerpt : "";')" 'author product excerpt after promote'
 assert_deletion_probe_lookup_present "$DELETION_PROBE_V1_TARGET_ID"
 assert_derived_indexes 7 instock 16.49 9.99 16.49 1649
 assert_store_api_http 1649 'author product update promote'
-assert_eq 7 "$(target_wp eval '$p = get_page_by_path("duo-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" 'runtime stock survives author product promote'
+assert_eq 7 "$(target_wp eval '$p = get_page_by_path("wprism-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" 'runtime stock survives author product promote'
 assert_target_order_unchanged 'runtime order survives author product promote'
 assert_runtime_isolation 'author product update promote' 1
 PRODUCT_UPDATE_ARTIFACT="$(artifact_for_promote_output "$PRODUCT_UPDATE_OUT")"
@@ -2851,7 +2851,7 @@ $next = str_replace($needle, $needle . "Requires PHP: 99.0\n", $bytes);
 if (file_put_contents($path, $next) === false) { exit(3); }
 ' "$SITE/code/wp-content/themes/$CHILD_THEME/style.css"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: reject incompatible child-theme downgrade'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: reject incompatible child-theme downgrade'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 THEME_DOWNGRADE_PLAN="$(plan_json)"
@@ -2893,7 +2893,7 @@ rm -rf -- "$SITE/code/wp-content/themes/$CHILD_THEME"
 cp -a "$FIXTURE/v2/wp-content/themes/$PARENT_THEME" "$SITE/code/wp-content/themes/"
 cp -a "$FIXTURE/v2/wp-content/themes/$CHILD_THEME" "$SITE/code/wp-content/themes/"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: restore reviewed v2 themes after downgrade refusal'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: restore reviewed v2 themes after downgrade refusal'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 pass "theme lifecycle: incompatible downgrade refuses before target mutation"
@@ -2906,7 +2906,7 @@ THEME_PARENT_REMOVE_SESSION_BEFORE="$(ledger_value promotion_session)"
 THEME_PARENT_REMOVE_LOCK_BEFORE="$(ledger_value promotion_lock)"
 rm -rf -- "$SITE/code/wp-content/themes/$PARENT_THEME"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: reject child theme without its canonical parent'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: reject child theme without its canonical parent'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 if THEME_PARENT_REMOVE_OUT="$(deploy 2>&1)"; then
@@ -2926,7 +2926,7 @@ assert_eq "$THEME_PARENT_REMOVE_SESSION_BEFORE" "$(ledger_value promotion_sessio
 assert_eq "$THEME_PARENT_REMOVE_LOCK_BEFORE" "$(ledger_value promotion_lock)" 'promotion lock after unsafe parent removal refusal'
 cp -a "$FIXTURE/v2/wp-content/themes/$PARENT_THEME" "$SITE/code/wp-content/themes/"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: restore parent after dependency refusal'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: restore parent after dependency refusal'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 pass "theme lifecycle: unsafe parent removal refuses before target mutation"
@@ -2945,11 +2945,11 @@ set_theme_mod("nav_menu_locations", $locations);
 ' >/dev/null
 assert_eq "$PARENT_THEME" "$(source_wp option get template)" 'source template before safe child removal'
 assert_eq "$PARENT_THEME" "$(source_wp option get stylesheet)" 'source stylesheet before safe child removal'
-source_wp duo capture --repo=/siterepo >/dev/null
+source_wp wprism capture --repo=/siterepo >/dev/null
 rm -rf -- "$SITE/code/wp-content/themes/$CHILD_THEME"
 THEME_SAFE_REMOVE_SOURCE_TREE="$(source_managed_code_tree_hash)"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'lifecycle: switch to parent and remove child theme'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'lifecycle: switch to parent and remove child theme'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 if ! THEME_SAFE_REMOVE_OUT="$(promote --force-theirs 2>&1)"; then
@@ -2975,7 +2975,7 @@ assert_frontend_parent 'safe child-theme removal'
 assert_eq "$THEME_SAFE_REMOVE_SOURCE_TREE" "$(target_managed_code_tree_hash)" 'exact managed code tree after safe child-theme removal'
 assert_ecommerce_menu 'safe child-theme removal'
 assert_target_order_unchanged 'target-only order survives safe child-theme removal'
-assert_eq 7 "$(target_wp eval '$p = get_page_by_path("duo-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" 'target-only stock survives safe child-theme removal'
+assert_eq 7 "$(target_wp eval '$p = get_page_by_path("wprism-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" 'target-only stock survives safe child-theme removal'
 assert_runtime_isolation 'safe child-theme removal' 1
 THEME_SAFE_REMOVE_ARTIFACT="$(artifact_for_promote_output "$THEME_SAFE_REMOVE_OUT")"
 THEME_SAFE_REMOVE_REVISION="$(jq -r '.code.code_revision' "$THEME_SAFE_REMOVE_ARTIFACT")"
@@ -2986,12 +2986,12 @@ pass "theme lifecycle: explicit safe child removal failure/retry"
 # Keep this boundary after every ordinary source capture. Once a public Woo delete
 # removes the probe from the source database, every later capture would
 # correctly encounter the unsupported disappearance again.
-say "Woo deletion boundary: public product delete is refused before Duo capture mutation"
-DELETION_PROBE_STATE_FILE="$(find "$SITE/state/posts/product" -type f -name '*--duo-grind-delete-probe.md' -print -quit)"
+say "Woo deletion boundary: public product delete is refused before WPrism capture mutation"
+DELETION_PROBE_STATE_FILE="$(find "$SITE/state/posts/product" -type f -name '*--wprism-grind-delete-probe.md' -print -quit)"
 [ -n "$DELETION_PROBE_STATE_FILE" ] || fail 'source deletion probe state file was not captured before deletion'
-DELETION_PROBE_UUID="$(DUO_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
-require getenv("DUO_CANON");
-[$front] = Duo\Canon::parse_post_file(file_get_contents($argv[1]));
+DELETION_PROBE_UUID="$(WPRISM_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
+require getenv("WPRISM_CANON");
+[$front] = WPrism\Canon::parse_post_file(file_get_contents($argv[1]));
 echo $front["uuid"];
 ' "$DELETION_PROBE_STATE_FILE")"
 [[ "$DELETION_PROBE_UUID" =~ ^[0-9a-f-]{36}$ ]] || fail "source deletion probe UUID is malformed: $DELETION_PROBE_UUID"
@@ -3000,9 +3000,9 @@ DELETION_PROBE_REPO_HEAD_BEFORE="$(git -C "$SITE" rev-parse HEAD)"
 DELETION_PROBE_ORIGIN_HEAD_BEFORE="$(git --git-dir="$ORIGIN" rev-parse refs/heads/main)"
 DELETION_PROBE_STATUS_BEFORE="$(git -C "$SITE" status --porcelain=v1 --untracked-files=all)"
 source_wp wc product delete "$DELETION_PROBE_SOURCE_ID" --force=true --user=admin >/dev/null
-assert_eq "" "$(source_wp post list --post_type=product --name=duo-grind-delete-probe --field=ID)" 'source product is gone after public Woo delete'
-DELETION_PROBE_LEDGER_BEFORE="$(source_duo_ledger_snapshot)"
-if DELETION_REFUSAL_OUT="$(source_wp duo capture --repo=/siterepo 2>&1)"; then
+assert_eq "" "$(source_wp post list --post_type=product --name=wprism-grind-delete-probe --field=ID)" 'source product is gone after public Woo delete'
+DELETION_PROBE_LEDGER_BEFORE="$(source_wprism_ledger_snapshot)"
+if DELETION_REFUSAL_OUT="$(source_wp wprism capture --repo=/siterepo 2>&1)"; then
   echo "$DELETION_REFUSAL_OUT" >&2
   fail 'unsupported Woo product deletion capture unexpectedly succeeded'
 fi
@@ -3013,7 +3013,7 @@ assert_eq "$DELETION_PROBE_STATE_TREE_BEFORE" "$(state_tree_hash "$SITE")" 'stat
 assert_eq "$DELETION_PROBE_REPO_HEAD_BEFORE" "$(git -C "$SITE" rev-parse HEAD)" 'repository revision after unsupported Woo product deletion refusal'
 assert_eq "$DELETION_PROBE_ORIGIN_HEAD_BEFORE" "$(git --git-dir="$ORIGIN" rev-parse refs/heads/main)" 'published origin after unsupported Woo product deletion refusal'
 assert_eq "$DELETION_PROBE_STATUS_BEFORE" "$(git -C "$SITE" status --porcelain=v1 --untracked-files=all)" 'repository status after unsupported Woo product deletion refusal'
-assert_eq "$DELETION_PROBE_LEDGER_BEFORE" "$(source_duo_ledger_snapshot)" 'Duo ledgers after unsupported Woo product deletion refusal'
+assert_eq "$DELETION_PROBE_LEDGER_BEFORE" "$(source_wprism_ledger_snapshot)" 'WPrism ledgers after unsupported Woo product deletion refusal'
 [ -e "$DELETION_PROBE_STATE_FILE" ] || fail 'unsupported Woo product deletion refusal removed the canonical product state'
 [ ! -e "$SITE/state/deletions/$DELETION_PROBE_UUID.json" ] || fail 'unsupported Woo product deletion refusal published a tombstone'
 assert_parent_theme_and_dependencies
@@ -3024,12 +3024,12 @@ assert_deletion_probe_lookup_present "$DELETION_PROBE_V1_TARGET_ID"
 assert_derived_indexes 7 instock 16.49 9.99 16.49 1649
 assert_store_api_http 1649 'unsupported Woo product deletion refusal'
 assert_eq "$THEME_SAFE_REMOVE_REVISION" "$(ledger_revision)" 'code revision survives unsupported Woo product deletion refusal'
-assert_eq target-only-synthetic-secret "$(target_wp option get duo_commerce_extension_gateway_secret)" 'env-owned secret survives unsupported Woo product deletion refusal'
+assert_eq target-only-synthetic-secret "$(target_wp option get wprism_commerce_extension_gateway_secret)" 'env-owned secret survives unsupported Woo product deletion refusal'
 assert_target_order_unchanged 'target-only order survives unsupported Woo product deletion refusal'
-assert_eq 7 "$(target_wp eval '$p = get_page_by_path("duo-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" 'target-only cap stock survives unsupported Woo product deletion refusal'
+assert_eq 7 "$(target_wp eval '$p = get_page_by_path("wprism-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" 'target-only cap stock survives unsupported Woo product deletion refusal'
 assert_product_visibility_projection
 assert_runtime_isolation 'unsupported Woo product deletion refusal' 1
-pass 'public Woo product deletion reached the source boundary, but Duo capture failed closed with no tombstone, repository mutation, or target change'
+pass 'public Woo product deletion reached the source boundary, but WPrism capture failed closed with no tombstone, repository mutation, or target change'
 
 say "source compatibility guard: pinned WooCommerce 10.9.4 downgrade is rejected before promotion-begin"
 "${PAIR_COMPOSE[@]}" run --rm -T -u root cli1 sh -c '
@@ -3040,9 +3040,9 @@ say "source compatibility guard: pinned WooCommerce 10.9.4 downgrade is rejected
   host_gid="$4"
   plugin_root=/siterepo/code/wp-content/plugins
   current="$plugin_root/woocommerce"
-  next="$plugin_root/.duo-woocommerce-next"
-  previous="$plugin_root/.duo-woocommerce-previous"
-  unpack=/tmp/duo-woo-1094
+  next="$plugin_root/.wprism-woocommerce-next"
+  previous="$plugin_root/.wprism-woocommerce-previous"
+  unpack=/tmp/wprism-woo-1094
   cleanup_stage() {
     rm -rf "$unpack" "$next"
     if [ ! -e "$current" ] && [ -e "$previous" ]; then
@@ -3075,7 +3075,7 @@ say "source compatibility guard: pinned WooCommerce 10.9.4 downgrade is rejected
 TARGET_PLUGIN_TREE_BEFORE_WOO_DOWNGRADE="$(target_plugin_tree_hash)"
 REV_BEFORE_WOO_DOWNGRADE="$(ledger_revision)"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: reject pinned WooCommerce 10.9.4 source downgrade'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: reject pinned WooCommerce 10.9.4 source downgrade'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 if WOO_DOWNGRADE_OUT="$(deploy 2>&1)"; then
@@ -3090,7 +3090,7 @@ assert_eq "$REV_BEFORE_WOO_DOWNGRADE" "$(ledger_revision)" 'target code revision
 rm -rf -- "$SITE/code/wp-content/plugins/$WOO_SLUG"
 cp -a "$V1_INPUTS/code/wp-content/plugins/$WOO_SLUG" "$SITE/code/wp-content/plugins/"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: restore pinned WooCommerce 11.0.0 after downgrade refusal'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: restore pinned WooCommerce 11.0.0 after downgrade refusal'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 pass "pinned WooCommerce 10.9.4 was rejected at source compile with the target plugin tree and code revision untouched; 11.0.0 restored"
@@ -3102,7 +3102,7 @@ jq --arg woo "$WOO_BASENAME" --arg acf "$ACF_BASENAME" --arg extension "$EXT_BAS
 mv "$STATE.next" "$STATE"
 canonicalize_json "$STATE"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: accept native active plugin order with dependency topology'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: accept native active plugin order with dependency topology'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 if ! NATIVE_ORDER_OUT="$(deploy 2>&1)"; then
@@ -3118,7 +3118,7 @@ jq --arg acf "$ACF_BASENAME" --arg extension "$EXT_BASENAME" '.records.active_pl
 mv "$STATE.next" "$STATE"
 canonicalize_json "$STATE"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: reject custom plugin without Woo dependency closure'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: reject custom plugin without Woo dependency closure'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 if DEPENDENCY_CLOSURE_OUT="$(deploy 2>&1)"; then
@@ -3135,7 +3135,7 @@ jq --arg woo "$WOO_BASENAME" --arg acf "$ACF_BASENAME" --arg extension "$EXT_BAS
 mv "$STATE.next" "$STATE"
 canonicalize_json "$STATE"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: restore Woo dependency closure and order'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: restore Woo dependency closure and order'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 if ! DEPENDENCY_ORDER_RESTORE_OUT="$(deploy 2>&1)"; then
@@ -3146,36 +3146,36 @@ assert_eq "$AUTHORED_ACTIVE_PLUGINS_JSON" "$(active_plugins_json)" 'authored act
 pass "native active_plugins order was accepted after provider-first lifecycle planning; missing Woo provider was rejected before promotion-begin and authored order restored"
 
 say "state drift then conflict: target edit is visible before an intentional branch edit"
-PRODUCT_FILE="$(find "$SITE/state/posts/product" -type f -name '*--duo-grind-tee.md' -print -quit)"
+PRODUCT_FILE="$(find "$SITE/state/posts/product" -type f -name '*--wprism-grind-tee.md' -print -quit)"
 [ -n "$PRODUCT_FILE" ] || fail 'canonical variable product file missing'
-TEE_UUID="$(DUO_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
-require getenv("DUO_CANON");
-[$front] = Duo\Canon::parse_post_file(file_get_contents($argv[1]));
+TEE_UUID="$(WPRISM_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
+require getenv("WPRISM_CANON");
+[$front] = WPrism\Canon::parse_post_file(file_get_contents($argv[1]));
 echo $front["uuid"];
 ' "$PRODUCT_FILE")"
 CONFLICT_PRODUCT_PATH="${PRODUCT_FILE#"$SITE/state/"}"
 [[ "$TEE_UUID" =~ ^[0-9a-f-]{36}$ ]] || fail "canonical tee UUID is malformed: $TEE_UUID"
 [[ "$CONFLICT_PRODUCT_PATH" == posts/product/* ]] || fail "canonical tee path is malformed: $CONFLICT_PRODUCT_PATH"
 cp "$PRODUCT_FILE" "$V1_INPUTS/product-before-conflict.md"
-target_wp eval 'if ($p = get_page_by_path("duo-grind-tee", OBJECT, "product")) { wp_update_post(["ID" => $p->ID, "post_title" => "Duo Grind Tee (target drift)"]); } else { throw new RuntimeException("target tee missing"); }' >/dev/null
+target_wp eval 'if ($p = get_page_by_path("wprism-grind-tee", OBJECT, "product")) { wp_update_post(["ID" => $p->ID, "post_title" => "WPrism Grind Tee (target drift)"]); } else { throw new RuntimeException("target tee missing"); }' >/dev/null
 if DRIFT_STATUS="$(status 2>&1)"; then
   echo "$DRIFT_STATUS" >&2
   fail 'status unexpectedly accepted target product drift'
 fi
 echo "$DRIFT_STATUS"
 grep -Eqi 'drift' <<<"$DRIFT_STATUS" || fail 'status did not report ordinary state drift'
-DUO_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
-require getenv("DUO_CANON");
+WPRISM_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
+require getenv("WPRISM_CANON");
 $path = $argv[1];
-[$front, $body] = Duo\Canon::parse_post_file(Duo\Canon::read_file($path));
-if (($front["title"] ?? null) !== "Duo Grind Tee") {
+[$front, $body] = WPrism\Canon::parse_post_file(WPrism\Canon::read_file($path));
+if (($front["title"] ?? null) !== "WPrism Grind Tee") {
     throw new RuntimeException("unexpected canonical tee title before branch edit");
 }
-$front["title"] = "Duo Grind Tee (branch change)";
-Duo\Canon::write_file($path, Duo\Canon::post_file($front, $body));
+$front["title"] = "WPrism Grind Tee (branch change)";
+WPrism\Canon::write_file($path, WPrism\Canon::post_file($front, $body));
 ' "$PRODUCT_FILE"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'state: intentional product branch edit against target drift'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'state: intentional product branch edit against target drift'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 if ! CONFLICT_PLAN="$(plan_json)"; then
@@ -3183,13 +3183,13 @@ if ! CONFLICT_PLAN="$(plan_json)"; then
 fi
 echo "$CONFLICT_PLAN" | jq -e --arg uuid "$TEE_UUID" --arg path "$CONFLICT_PRODUCT_PATH" '(.conflict // []) | length == 1 and .[0].uuid == $uuid and .[0].path == $path' >/dev/null || fail "plan did not expose exactly the tee conflict ($TEE_UUID, $CONFLICT_PRODUCT_PATH): $CONFLICT_PLAN"
 CONFLICT_TEE_BEFORE="$(target_tee_snapshot "$TEE_UUID")"
-CONFLICT_TEE_STATE_BEFORE="$(target_db_scalar "SELECT CONCAT(entity_type, '|', content_hash) FROM wp_duo_state WHERE uuid = '$TEE_UUID'")"
+CONFLICT_TEE_STATE_BEFORE="$(target_db_scalar "SELECT CONCAT(entity_type, '|', content_hash) FROM wp_wprism_state WHERE uuid = '$TEE_UUID'")"
 CONFLICT_LEDGER_REVISION_BEFORE="$(ledger_revision)"
 CONFLICT_APPLIED_REVISION_BEFORE="$(ledger_value applied_revision)"
 CONFLICT_APPLY_PROGRESS_BEFORE="$(ledger_value apply_in_progress)"
-CONFLICT_CAP_STOCK_BEFORE="$(target_wp eval '$p = get_page_by_path("duo-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')"
+CONFLICT_CAP_STOCK_BEFORE="$(target_wp eval '$p = get_page_by_path("wprism-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')"
 assert_target_order_unchanged 'target-only order before conflict refusal'
-jq -e '.id > 0 and .title == "Duo Grind Tee (target drift)" and (.content | type) == "string" and (.excerpt | type) == "string" and .status == "publish" and (.meta | type) == "array" and (.terms | type) == "array" and (.authored_hash | test("^[0-9a-f]{64}$"))' <<<"$CONFLICT_TEE_BEFORE" >/dev/null || fail "target tee conflict snapshot diagnostics failed: $CONFLICT_TEE_BEFORE"
+jq -e '.id > 0 and .title == "WPrism Grind Tee (target drift)" and (.content | type) == "string" and (.excerpt | type) == "string" and .status == "publish" and (.meta | type) == "array" and (.terms | type) == "array" and (.authored_hash | test("^[0-9a-f]{64}$"))' <<<"$CONFLICT_TEE_BEFORE" >/dev/null || fail "target tee conflict snapshot diagnostics failed: $CONFLICT_TEE_BEFORE"
 if CONFLICT_APPLY="$(apply_state --adopt-by-slug=terms,posts --default-author=admin 2>&1)"; then
   echo "$CONFLICT_APPLY" >&2
   fail 'apply unexpectedly overwrote a conflicted WooCommerce product'
@@ -3197,21 +3197,21 @@ fi
 echo "$CONFLICT_APPLY"
 grep -Eqi 'conflict' <<<"$CONFLICT_APPLY" || fail 'conflict refusal did not name conflict'
 assert_target_tee_unchanged "$CONFLICT_TEE_BEFORE" "$TEE_UUID" 'conflict refusal'
-assert_eq "$CONFLICT_TEE_STATE_BEFORE" "$(target_db_scalar "SELECT CONCAT(entity_type, '|', content_hash) FROM wp_duo_state WHERE uuid = '$TEE_UUID'")" 'tee state hash after conflict refusal'
+assert_eq "$CONFLICT_TEE_STATE_BEFORE" "$(target_db_scalar "SELECT CONCAT(entity_type, '|', content_hash) FROM wp_wprism_state WHERE uuid = '$TEE_UUID'")" 'tee state hash after conflict refusal'
 assert_eq "$CONFLICT_LEDGER_REVISION_BEFORE" "$(ledger_revision)" 'code revision after conflict refusal'
 assert_eq "$CONFLICT_APPLIED_REVISION_BEFORE" "$(ledger_value applied_revision)" 'applied revision after conflict refusal'
 assert_eq "$CONFLICT_APPLY_PROGRESS_BEFORE" "$(ledger_value apply_in_progress)" 'apply progress marker after conflict refusal'
 assert_runtime_isolation 'conflict refusal' 1
 if [ -z "$CONFLICT_APPLY_PROGRESS_BEFORE" ]; then
-  assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM wp_duo_kv WHERE k = 'apply_in_progress'")" 'apply progress marker absence after conflict refusal'
+  assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM wp_wprism_kv WHERE k = 'apply_in_progress'")" 'apply progress marker absence after conflict refusal'
 fi
-assert_eq "$CONFLICT_CAP_STOCK_BEFORE" "$(target_wp eval '$p = get_page_by_path("duo-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" 'target-only stock after conflict refusal'
+assert_eq "$CONFLICT_CAP_STOCK_BEFORE" "$(target_wp eval '$p = get_page_by_path("wprism-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" 'target-only stock after conflict refusal'
 assert_target_order_unchanged 'target-only order after conflict refusal'
 cp "$V1_INPUTS/product-before-conflict.md" "$PRODUCT_FILE"
 rm -f -- "$V1_INPUTS/product-before-conflict.md"
-target_wp eval 'if ($p = get_page_by_path("duo-grind-tee", OBJECT, "product")) { wp_update_post(["ID" => $p->ID, "post_title" => "Duo Grind Tee"]); } else { throw new RuntimeException("target tee missing"); }' >/dev/null
+target_wp eval 'if ($p = get_page_by_path("wprism-grind-tee", OBJECT, "product")) { wp_update_post(["ID" => $p->ID, "post_title" => "WPrism Grind Tee"]); } else { throw new RuntimeException("target tee missing"); }' >/dev/null
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'state: resolve product conflict to canonical v2'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'state: resolve product conflict to canonical v2'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 apply_state --adopt-by-slug=terms,posts --default-author=admin >/dev/null
@@ -3234,7 +3234,7 @@ fi
 echo "$DRIFT_HEAL_OUT"
 assert_eq "$(source_hash "$SITE/code/wp-content/plugins/$EXT_SLUG/$EXT_FILE")" "$(target_hash "$EXT_TARGET")" 'healed extension bytes'
 assert_eq "$THEME_SAFE_REMOVE_REVISION" "$(ledger_revision)" 'code revision after byte-drift healing'
-assert_eq target-only-synthetic-secret "$(target_wp option get duo_commerce_extension_gateway_secret)" 'env-owned secret after code-drift healing'
+assert_eq target-only-synthetic-secret "$(target_wp option get wprism_commerce_extension_gateway_secret)" 'env-owned secret after code-drift healing'
 DRIFT_HEAL_ARTIFACT="$(artifact_for_promote_output "$DRIFT_HEAL_OUT")"
 assert_receipt "$DRIFT_HEAL_ARTIFACT" 'target code-drift healing promote' "$THEME_SAFE_REMOVE_REVISION"
 assert_runtime_isolation 'target code-drift healing' 1
@@ -3245,12 +3245,12 @@ REPLACEMENT_PRIOR_INPUTS="$V1_INPUTS/replacement-prior"
 mkdir -p "$REPLACEMENT_PRIOR_INPUTS"
 cp -a "$SITE/code" "$REPLACEMENT_PRIOR_INPUTS/code"
 cp -a "$SITE/state" "$REPLACEMENT_PRIOR_INPUTS/state"
-cp "$SITE/site.duo.json" "$REPLACEMENT_PRIOR_INPUTS/site.duo.json"
-OPTION_RECORD="$(jq -c '.records.duo_commerce_extension_settings' "$STATE")"
-OPTION_EXPECTED_HASH="$(DUO_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
-require getenv("DUO_CANON");
+cp "$SITE/site.wprism.json" "$REPLACEMENT_PRIOR_INPUTS/site.wprism.json"
+OPTION_RECORD="$(jq -c '.records.wprism_commerce_extension_settings' "$STATE")"
+OPTION_EXPECTED_HASH="$(WPRISM_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
+require getenv("WPRISM_CANON");
 $record = json_decode($argv[1], true, 512, JSON_THROW_ON_ERROR);
-echo hash("sha256", Duo\Canon::encode($record));
+echo hash("sha256", WPrism\Canon::encode($record));
 ' "$OPTION_RECORD")"
 REPLACEMENT_PLUGIN_TREE_BEFORE="$(target_plugin_tree_hash)"
 REPLACEMENT_MANAGED_TREE_BEFORE="$(target_managed_code_tree_hash)"
@@ -3267,12 +3267,12 @@ cp "$FIXTURE/replacement/fixed/$REPLACEMENT_FILE" \
   "$SITE/code/wp-content/plugins/$REPLACEMENT_SLUG/$REPLACEMENT_FILE"
 jq --arg acf "$ACF_BASENAME" --arg replacement "$REPLACEMENT_BASENAME" --arg expected "$OPTION_EXPECTED_HASH" '
   .records.active_plugins.value = [$acf, $replacement]
-  | .records.duo_commerce_extension_settings = {expected_hash: $expected, state: "deleted"}
+  | .records.wprism_commerce_extension_settings = {expected_hash: $expected, state: "deleted"}
 ' "$STATE" > "$STATE.next"
 mv "$STATE.next" "$STATE"
 canonicalize_json "$STATE"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'replacement: reject replacement without its Woo provider'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'replacement: reject replacement without its Woo provider'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 if REPLACEMENT_PREFLIGHT_OUT="$(deploy 2>&1)"; then
@@ -3304,7 +3304,7 @@ jq --arg woo "$WOO_BASENAME" --arg acf "$ACF_BASENAME" --arg replacement "$REPLA
 mv "$STATE.next" "$STATE"
 canonicalize_json "$STATE"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'replacement: declare reviewed Woo-backed plugin identity'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'replacement: declare reviewed Woo-backed plugin identity'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 
@@ -3314,7 +3314,7 @@ REPLACEMENT_PLAN_REVISION_BEFORE="$(ledger_revision)"
 REPLACEMENT_PLAN_SESSION_BEFORE="$(ledger_value promotion_session)"
 REPLACEMENT_PLAN_LOCK_BEFORE="$(ledger_value promotion_lock)"
 REPLACEMENT_PLAN_ACTIVE_BEFORE="$(active_plugins_json)"
-REPLACEMENT_PLAN_SETTING_BEFORE="$(target_wp option get duo_commerce_extension_settings --format=json)"
+REPLACEMENT_PLAN_SETTING_BEFORE="$(target_wp option get wprism_commerce_extension_settings --format=json)"
 if ! REPLACEMENT_PLAN="$(plan_json)"; then
   fail 'replacement semantic plan command failed before returning machine-readable JSON'
 fi
@@ -3324,8 +3324,8 @@ jq -e --arg outgoing "$EXT_BASENAME" --arg incoming "$REPLACEMENT_BASENAME" --ar
   and ([.code_mismatch[] | select(.issue == "code_revision_stale" and .kind == "code" and .completed_revision == $completed)] | length) == 1
   and ([.update[] | select(
     .uuid == "options/core"
-    and .rebuild_option_names == ["duo_commerce_extension_settings"]
-    and (.option_deletes | index("duo_commerce_extension_settings") != null)
+    and .rebuild_option_names == ["wprism_commerce_extension_settings"]
+    and (.option_deletes | index("wprism_commerce_extension_settings") != null)
   )] | length) == 1
   and (.adapter_dispositions == [])
   and (.provider_problems == [])
@@ -3339,7 +3339,7 @@ assert_eq "$REPLACEMENT_PLAN_REVISION_BEFORE" "$(ledger_revision)" 'completed re
 assert_eq "$REPLACEMENT_PLAN_SESSION_BEFORE" "$(ledger_value promotion_session)" 'promotion session after replacement plan'
 assert_eq "$REPLACEMENT_PLAN_LOCK_BEFORE" "$(ledger_value promotion_lock)" 'promotion lease after replacement plan'
 assert_eq "$REPLACEMENT_PLAN_ACTIVE_BEFORE" "$(active_plugins_json)" 'active plugins after replacement plan'
-assert_eq "$REPLACEMENT_PLAN_SETTING_BEFORE" "$(target_wp option get duo_commerce_extension_settings --format=json)" 'authored extension setting after replacement plan'
+assert_eq "$REPLACEMENT_PLAN_SETTING_BEFORE" "$(target_wp option get wprism_commerce_extension_settings --format=json)" 'authored extension setting after replacement plan'
 assert_runtime_isolation 'replacement semantic plan' 1
 
 REPLACEMENT_SOURCE_MANAGED_CODE_TREE_HASH="$(source_managed_code_tree_hash)"
@@ -3363,8 +3363,8 @@ assert_eq absent "$(target_path "$CONTENT/plugins/$EXT_SLUG")" 'outgoing extensi
 assert_eq present "$(target_path "$CONTENT/plugins/$REPLACEMENT_SLUG")" 'incoming replacement root after finalization'
 assert_replacement_and_dependencies
 assert_replacement_rest_status 'reviewed replacement'
-assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM wp_options WHERE option_name = 'duo_commerce_extension_settings'")" 'retired outgoing authored setting'
-REPLACEMENT_TRACE="$(target_wp option get duo_commerce_extension_trace --format=json)"
+assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM wp_options WHERE option_name = 'wprism_commerce_extension_settings'")" 'retired outgoing authored setting'
+REPLACEMENT_TRACE="$(target_wp option get wprism_commerce_extension_trace --format=json)"
 jq -e '
   (index("deactivate:commerce-v2:woo=yes")) as $retired
   | (index("activate:replacement-fixed:fresh=yes:retiring-root=present")) as $activated
@@ -3372,9 +3372,9 @@ jq -e '
 ' <<<"$REPLACEMENT_TRACE" >/dev/null \
   || fail "replacement lifecycle trace did not retire old before fresh activation while its root remained: $REPLACEMENT_TRACE"
 assert_eq "$REPLACEMENT_SOURCE_MANAGED_CODE_TREE_HASH" "$(target_managed_code_tree_hash)" 'exact replacement managed code tree'
-assert_eq target-only-synthetic-secret "$(target_wp option get duo_commerce_extension_gateway_secret)" 'env-owned target secret survives replacement'
+assert_eq target-only-synthetic-secret "$(target_wp option get wprism_commerce_extension_gateway_secret)" 'env-owned target secret survives replacement'
 assert_target_order_unchanged 'target-only order survives replacement'
-assert_eq 7 "$(target_wp eval '$p = get_page_by_path("duo-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" 'target-only stock survives replacement'
+assert_eq 7 "$(target_wp eval '$p = get_page_by_path("wprism-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" 'target-only stock survives replacement'
 assert_derived_indexes 7 instock 16.49 9.99 16.49 1649
 assert_store_api_http 1649 'reviewed replacement'
 assert_runtime_isolation 'reviewed replacement' 1
@@ -3399,9 +3399,9 @@ rm -rf -- "$SITE/code"
 rm -rf -- "$SITE/state"
 cp -a "$REPLACEMENT_PRIOR_INPUTS/code" "$SITE/code"
 cp -a "$REPLACEMENT_PRIOR_INPUTS/state" "$SITE/state"
-cp "$REPLACEMENT_PRIOR_INPUTS/site.duo.json" "$SITE/site.duo.json"
+cp "$REPLACEMENT_PRIOR_INPUTS/site.wprism.json" "$SITE/site.wprism.json"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'rollback: restore exact pre-replacement v2 descriptors'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'rollback: restore exact pre-replacement v2 descriptors'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 if ! target_wp maintenance-mode activate >/dev/null; then
@@ -3428,7 +3428,7 @@ assert_eq absent "$(target_file "$REPLACEMENT_TARGET")" 'replacement after exact
 assert_eq present "$(target_path "$CONTENT/plugins/$EXT_SLUG")" 'outgoing extension root after replacement rollback'
 assert_eq absent "$(target_path "$CONTENT/plugins/$REPLACEMENT_SLUG")" 'replacement root after exact immediate-prior rollback'
 assert_eq "$REPLACEMENT_CHECKPOINT_SHA256" "$(sha256sum "$REPLACEMENT_CHECKPOINT_HOST" | awk '{print $1}')" 'superseded replacement checkpoint remains immutable evidence after reverse promotion'
-assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM wp_duo_kv WHERE k = 'promotion_lock'")" 'replacement reverse promotion released its lease'
+assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM wp_wprism_kv WHERE k = 'promotion_lock'")" 'replacement reverse promotion released its lease'
 assert_eq "$AUTHORED_ACTIVE_PLUGINS_JSON" "$(active_plugins_json)" 'pre-replacement active plugin order after reverse promotion'
 if ! target_wp maintenance-mode deactivate >/dev/null; then
   fail 'could not release target maintenance after replacement rollback'
@@ -3441,11 +3441,11 @@ assert_theme_versions 'replacement rollback' '1.1.0' 'absent'
 assert_theme_portable_relationships 'replacement rollback' "$PARENT_THEME"
 assert_frontend_parent 'replacement rollback'
 assert_extension_rest_status '2.0.0' 2 'replacement rollback'
-target_wp option get duo_commerce_extension_settings --format=json | jq -e '.schema == 2 and .channel == "retail" and .catalog_mode == "managed"' >/dev/null \
+target_wp option get wprism_commerce_extension_settings --format=json | jq -e '.schema == 2 and .channel == "retail" and .catalog_mode == "managed"' >/dev/null \
   || fail 'replacement rollback did not restore the exact v2 authored setting'
-assert_eq target-only-synthetic-secret "$(target_wp option get duo_commerce_extension_gateway_secret)" 'env-owned target secret after replacement rollback'
+assert_eq target-only-synthetic-secret "$(target_wp option get wprism_commerce_extension_gateway_secret)" 'env-owned target secret after replacement rollback'
 assert_target_order_unchanged 'target-only order after replacement rollback'
-assert_eq 7 "$(target_wp eval '$p = get_page_by_path("duo-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" 'target-only stock after replacement rollback'
+assert_eq 7 "$(target_wp eval '$p = get_page_by_path("wprism-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" 'target-only stock after replacement rollback'
 assert_derived_indexes 7 instock 16.49 9.99 16.49 1649
 assert_store_api_http 1649 'replacement rollback'
 assert_runtime_isolation 'replacement rollback' 1
@@ -3464,9 +3464,9 @@ rm -rf -- "$SITE/code"
 rm -rf -- "$SITE/state"
 cp -a "$V1_INPUTS/code" "$SITE/code"
 cp -a "$V1_INPUTS/state" "$SITE/state"
-cp "$V1_INPUTS/site.duo.json" "$SITE/site.duo.json"
+cp "$V1_INPUTS/site.wprism.json" "$SITE/site.wprism.json"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'rollback: restore exact v1 code and state descriptors'
+git -C "$SITE" -c user.name=wprism-ecommerce -c user.email=ecommerce@example.test commit -qm 'rollback: restore exact v1 code and state descriptors'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 ROLLBACK_MAINTENANCE_HELD=0
@@ -3491,10 +3491,10 @@ mkdir -p "$(dirname "$V1_CHECKPOINT_TARGET")"
 cp "$V1_DB_DUMP" "$V1_CHECKPOINT_TARGET"
 chmod 0644 "$V1_CHECKPOINT_TARGET"
 assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_CHECKPOINT_TARGET" | awk '{print $1}')" 'immutable v1 database checkpoint bytes before rollback import'
-grep -Eq "'duo_commerce_extension_settings','retail'," "$V1_CHECKPOINT_TARGET" \
+grep -Eq "'wprism_commerce_extension_settings','retail'," "$V1_CHECKPOINT_TARGET" \
   || fail 'immutable v1 database checkpoint lost the raw scalar option value before rollback import'
 control_wp recoveryDbImportArgs "/siterepo/.tmp-ecommerce-v1.sql" >/dev/null
-ROLLBACK_SETTING_AFTER_IMPORT="$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'duo_commerce_extension_settings' LIMIT 1")"
+ROLLBACK_SETTING_AFTER_IMPORT="$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'wprism_commerce_extension_settings' LIMIT 1")"
 printf 'exact v1 raw setting immediately after checkpoint import: %s\n' "$ROLLBACK_SETTING_AFTER_IMPORT" >&2
 ROLLBACK_ACTIVE_PLUGINS_RAW="$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'active_plugins' LIMIT 1")"
 if ! ROLLBACK_ACTIVE_PLUGINS_JSON="$(php -r '
@@ -3508,7 +3508,7 @@ assert_eq "$NATIVE_ACTIVE_PLUGINS_JSON" "$ROLLBACK_ACTIVE_PLUGINS_JSON" 'v1 chec
 assert_eq "$REPLACEMENT_OLD_FILE_HASH_BEFORE" "$(target_hash "$EXT_TARGET")" 'exact v2 extension bytes before v1 control-plane staging'
 assert_eq "$V1_REVISION" "$(ledger_revision)" 'exact v1 code revision after checkpoint import'
 assert_eq retail "$ROLLBACK_SETTING_AFTER_IMPORT" 'exact v1 setting after checkpoint import'
-assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_duo_commerce_extension_events' AND COLUMN_NAME = 'context'")" 'exact v1 runtime table shape'
+assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_wprism_commerce_extension_events' AND COLUMN_NAME = 'context'")" 'exact v1 runtime table shape'
 assert_extension_runtime_event 0 "" 'exact v1 runtime row after rollback'
 if ! RESTORE_OUT="$(promote 2>&1)"; then
   echo "$RESTORE_OUT" >&2
@@ -3540,7 +3540,7 @@ assert_theme_and_dependency "$NATIVE_ACTIVE_PLUGINS_JSON"
 assert_theme_versions 'exact v1 rollback' '1.0.0' '1.0.0'
 assert_theme_portable_relationships 'exact v1 rollback'
 assert_frontend_child_parent 'exact v1 rollback'
-assert_eq target-only-synthetic-secret "$(target_wp option get duo_commerce_extension_gateway_secret)" 'env-owned target secret after rollback'
+assert_eq target-only-synthetic-secret "$(target_wp option get wprism_commerce_extension_gateway_secret)" 'env-owned target secret after rollback'
 assert_target_order_absent 'checkpoint rollback restores pre-runtime-order baseline'
 assert_eq 0 "$(target_wp eval 'echo get_user_by("email", "runtime-customer@example.invalid") ? 1 : 0;')" 'checkpoint rollback removes target-only runtime customer'
 assert_source_runtime_baseline 'exact v1 rollback source runtime baseline'
@@ -3549,7 +3549,7 @@ assert_target_runtime_absent_from_source 'exact v1 rollback target runtime absen
 assert_runtime_state_excluded 'exact v1 rollback generated state exclusion'
 assert_woo_catalog 0 5
 assert_ecommerce_menu 'exact v1 rollback'
-assert_eq "$DELETION_PROBE_V1_TARGET_ID" "$(target_wp post list --post_type=product --name=duo-grind-delete-probe --field=ID)" 'checkpoint rollback restores the v1 probe id'
+assert_eq "$DELETION_PROBE_V1_TARGET_ID" "$(target_wp post list --post_type=product --name=wprism-grind-delete-probe --field=ID)" 'checkpoint rollback restores the v1 probe id'
 assert_deletion_probe_lookup_present "$DELETION_PROBE_V1_TARGET_ID"
 assert_product_visibility_projection
 assert_derived_indexes 0 ""
@@ -3562,7 +3562,7 @@ assert_eq "$V1_STATE_REVISION" "$(jq -r '.revision_hash' "$RESTORED_ARTIFACT")" 
 pass "code, active dependency/theme lifecycle, authored setting, runtime table shape, and promotion identities returned to exact v1 values"
 
 say "final recapture/status and exact clean-room cleanup"
-target_wp duo capture --repo=/siterepo --out=/siterepo/.tmp-final-state >/dev/null
+target_wp wprism capture --repo=/siterepo --out=/siterepo/.tmp-final-state >/dev/null
 if FINAL_RAW_DIFF="$(diff -rq "$OTHER_SITE/state" "$OTHER_SITE/.tmp-final-state")"; then
   FINAL_RAW_DIFF_STATUS=0
 else

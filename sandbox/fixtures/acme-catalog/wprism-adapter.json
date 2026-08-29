@@ -1,0 +1,54 @@
+{
+    "deletions": {
+        "post:acme_item": {
+            "cascades": [
+                "postmeta",
+                "post_revisions",
+                "term_relationships"
+            ],
+            "guards": []
+        }
+    },
+    "name": "acme-catalog",
+    "notes": {
+        "bundled source (T6 S3)": "This file is the plugin-bundled adapter source: exactly one wprism-adapter.json at the root of the plugin's own directory, scanned only while the plugin is ACTIVE (docs/guides/adapter-authoring.md, 'Adapters a plugin bundles'). The file name is a constant and therefore carries no identity, so `name` is the identity and `plugin` MUST name the exact plugin basename that bundles it — the file, not the directory. `version_range` is mandatory for the same reason: `plugin` is declared, and a declared plugin without a bounded range is refused at load as unbounded support.",
+        "deletions (round-3 T6)": "post:acme_item declares the required post cascade set and no guards: a catalog item is referenced by nothing WPrism manages, and without the declaration a capture that finds an item deleted refuses the deletion intent as unsupported (walk S3 deletes the preview-authored item on the target so the release has it to apply).",
+        "option_autoload preserve": "An authored option must declare an autoload disposition or the manifest is refused at load: insertion may never guess (agent/src/Policy/ManifestGrammar.php). `preserve` is the honest answer for this plugin — it calls add_option() with core's default and never sets autoload itself, so WPrism carries the target's existing value across rather than asserting one.",
+        "options (verified against acme-catalog.php)": "The namespace claim ^acme_catalog_ takes OWNERSHIP of both option names this plugin writes, and both are classified here, so nothing in the namespace falls through to the pending queue. acme_catalog_settings is written once at activation and thereafter only by an operator (authored). acme_catalog_cache is bumped by the template_redirect hook on every front-end request and by nothing else (runtime): it is target-local traffic state, never branchable, and the walk asserts it does not reach captured state.",
+        "post_types/taxonomies": "acme_item and acme_kind are both `authored`. A manifest cannot declare post-type SCOPE — that list is site-local policy — but `wprism init` seeds policy.post_types/policy.taxonomies from every authored declaration in the manifests it selects (agent/src/Init/InitPlanner.php), which is how these two reach scope without a hand edit.",
+        "tables deliberately undeclared": "acme_catalog_index is created by this plugin's activation hook and is intentionally absent from this manifest. It is the walk's undeclared-table subject: coverage finds it, assess mints its `table:acme_catalog_index` row, and the release's database checkpoint is the only thing that restores it. Declaring it `runtime` here would remove exactly the finding S3 exists to observe."
+    },
+    "option_autoload": "preserve",
+    "option_namespaces": [
+        {
+            "match": "^acme_catalog_"
+        }
+    ],
+    "options": {
+        "acme_catalog_cache": {
+            "class": "runtime"
+        },
+        "acme_catalog_settings": {
+            "class": "authored"
+        }
+    },
+    "plugin": "acme-catalog/acme-catalog.php",
+    "post_types": {
+        "acme_item": {
+            "class": "authored"
+        }
+    },
+    "spec_version": 2,
+    "taxonomies": {
+        "acme_kind": {
+            "class": "authored",
+            "object_type": [
+                "acme_item"
+            ]
+        }
+    },
+    "version_range": {
+        "max": "2.0.0",
+        "min": "1.0.0"
+    }
+}

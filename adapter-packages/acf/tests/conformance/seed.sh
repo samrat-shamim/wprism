@@ -11,7 +11,7 @@ if (!function_exists('acf_update_field_group')) {
     throw new RuntimeException('ACF functions not available');
 }
 
-function duo_acf_group(array $group): int {
+function wprism_acf_group(array $group): int {
     acf_update_field_group($group);
     $posts = get_posts([
         'post_type' => 'acf-field-group',
@@ -26,7 +26,7 @@ function duo_acf_group(array $group): int {
     return (int) $posts[0];
 }
 
-function duo_acf_field(int $parent, array $field): void {
+function wprism_acf_field(int $parent, array $field): void {
     $field['parent'] = $parent;
     acf_update_field($field);
     if (!acf_get_field($field['key'])) {
@@ -34,7 +34,7 @@ function duo_acf_field(int $parent, array $field): void {
     }
 }
 
-function duo_acf_attachment(string $basename, string $title, array $rgb): int {
+function wprism_acf_attachment(string $basename, string $title, array $rgb): int {
     require_once ABSPATH . 'wp-admin/includes/image.php';
     require_once ABSPATH . 'wp-admin/includes/file.php';
     require_once ABSPATH . 'wp-admin/includes/media.php';
@@ -61,9 +61,9 @@ function duo_acf_attachment(string $basename, string $title, array $rgb): int {
 
 $sourceHome = home_url('/');
 $longInstruction = str_repeat("ACF schema 東京 🚀 | delimiter :: $sourceHome\n", 1200);
-$postGroup = duo_acf_group([
-    'key' => 'group_duo_post',
-    'title' => 'Duo Post Fields 東京 🚀',
+$postGroup = wprism_acf_group([
+    'key' => 'group_wprism_post',
+    'title' => 'WPrism Post Fields 東京 🚀',
     'fields' => [],
     'location' => [[['param' => 'post_type', 'operator' => '==', 'value' => 'post']]],
     'menu_order' => 0,
@@ -74,113 +74,113 @@ $postGroup = duo_acf_group([
     'active' => true,
 ]);
 
-duo_acf_field($postGroup, [
-    'key' => 'field_duo_hero', 'label' => 'Hero Image', 'name' => 'duo_hero',
+wprism_acf_field($postGroup, [
+    'key' => 'field_wprism_hero', 'label' => 'Hero Image', 'name' => 'wprism_hero',
     'type' => 'image', 'return_format' => 'id', 'instructions' => $longInstruction,
 ]);
-duo_acf_field($postGroup, [
-    'key' => 'field_duo_related', 'label' => 'Related', 'name' => 'duo_related',
+wprism_acf_field($postGroup, [
+    'key' => 'field_wprism_related', 'label' => 'Related', 'name' => 'wprism_related',
     'type' => 'relationship', 'post_type' => ['post'], 'return_format' => 'id',
 ]);
-duo_acf_field($postGroup, [
-    'key' => 'field_duo_feature', 'label' => 'Feature', 'name' => 'duo_feature',
+wprism_acf_field($postGroup, [
+    'key' => 'field_wprism_feature', 'label' => 'Feature', 'name' => 'wprism_feature',
     'type' => 'post_object', 'post_type' => ['post'], 'multiple' => 0, 'return_format' => 'id',
 ]);
-duo_acf_field($postGroup, [
-    'key' => 'field_duo_features', 'label' => 'Features', 'name' => 'duo_features',
+wprism_acf_field($postGroup, [
+    'key' => 'field_wprism_features', 'label' => 'Features', 'name' => 'wprism_features',
     'type' => 'post_object', 'post_type' => ['post'], 'multiple' => 1, 'return_format' => 'id',
 ]);
-duo_acf_field($postGroup, [
-    'key' => 'field_duo_page', 'label' => 'Page Link', 'name' => 'duo_page',
+wprism_acf_field($postGroup, [
+    'key' => 'field_wprism_page', 'label' => 'Page Link', 'name' => 'wprism_page',
     'type' => 'page_link', 'post_type' => ['page'], 'multiple' => 0, 'allow_archives' => 0,
 ]);
-duo_acf_field($postGroup, [
-    'key' => 'field_duo_pages', 'label' => 'Page Links', 'name' => 'duo_pages',
+wprism_acf_field($postGroup, [
+    'key' => 'field_wprism_pages', 'label' => 'Page Links', 'name' => 'wprism_pages',
     'type' => 'page_link', 'post_type' => ['page'], 'multiple' => 1, 'allow_archives' => 0,
 ]);
-duo_acf_field($postGroup, [
-    'key' => 'field_duo_cats', 'label' => 'Categories', 'name' => 'duo_cats',
+wprism_acf_field($postGroup, [
+    'key' => 'field_wprism_cats', 'label' => 'Categories', 'name' => 'wprism_cats',
     'type' => 'taxonomy', 'taxonomy' => 'category', 'field_type' => 'checkbox',
     'add_term' => 0, 'save_terms' => 0, 'load_terms' => 0, 'return_format' => 'id',
 ]);
-duo_acf_field($postGroup, [
-    'key' => 'field_duo_cat', 'label' => 'Primary Category', 'name' => 'duo_cat',
+wprism_acf_field($postGroup, [
+    'key' => 'field_wprism_cat', 'label' => 'Primary Category', 'name' => 'wprism_cat',
     'type' => 'taxonomy', 'taxonomy' => 'category', 'field_type' => 'radio',
     'add_term' => 0, 'save_terms' => 0, 'load_terms' => 0, 'return_format' => 'id',
 ]);
-duo_acf_field($postGroup, [
-    'key' => 'field_duo_owner', 'label' => 'Owner', 'name' => 'duo_owner',
+wprism_acf_field($postGroup, [
+    'key' => 'field_wprism_owner', 'label' => 'Owner', 'name' => 'wprism_owner',
     'type' => 'user', 'role' => '', 'multiple' => 0, 'return_format' => 'id',
 ]);
-duo_acf_field($postGroup, [
-    'key' => 'field_duo_owners', 'label' => 'Owners', 'name' => 'duo_owners',
+wprism_acf_field($postGroup, [
+    'key' => 'field_wprism_owners', 'label' => 'Owners', 'name' => 'wprism_owners',
     'type' => 'user', 'role' => '', 'multiple' => 1, 'return_format' => 'id',
 ]);
-duo_acf_field($postGroup, [
-    'key' => 'field_duo_link', 'label' => 'Portable Link', 'name' => 'duo_link',
+wprism_acf_field($postGroup, [
+    'key' => 'field_wprism_link', 'label' => 'Portable Link', 'name' => 'wprism_link',
     'type' => 'link', 'return_format' => 'array',
 ]);
-duo_acf_field($postGroup, [
-    'key' => 'field_duo_icon', 'label' => 'Media Icon', 'name' => 'duo_icon',
+wprism_acf_field($postGroup, [
+    'key' => 'field_wprism_icon', 'label' => 'Media Icon', 'name' => 'wprism_icon',
     'type' => 'icon_picker', 'tabs' => ['media_library'], 'return_format' => 'array',
 ]);
 // This unused field is removed later to prove the unsupported delete boundary.
-duo_acf_field($postGroup, [
-    'key' => 'field_duo_delete_probe', 'label' => 'Delete Probe', 'name' => 'duo_delete_probe',
+wprism_acf_field($postGroup, [
+    'key' => 'field_wprism_delete_probe', 'label' => 'Delete Probe', 'name' => 'wprism_delete_probe',
     'type' => 'text',
 ]);
 
-$termGroup = duo_acf_group([
-    'key' => 'group_duo_term', 'title' => 'Duo Term Fields', 'fields' => [],
+$termGroup = wprism_acf_group([
+    'key' => 'group_wprism_term', 'title' => 'WPrism Term Fields', 'fields' => [],
     'location' => [[['param' => 'taxonomy', 'operator' => '==', 'value' => 'category']]],
     'active' => true,
 ]);
-duo_acf_field($termGroup, [
-    'key' => 'field_duo_term_note', 'label' => 'Term Note', 'name' => 'duo_term_note', 'type' => 'textarea',
+wprism_acf_field($termGroup, [
+    'key' => 'field_wprism_term_note', 'label' => 'Term Note', 'name' => 'wprism_term_note', 'type' => 'textarea',
 ]);
-duo_acf_field($termGroup, [
-    'key' => 'field_duo_term_image', 'label' => 'Term Image', 'name' => 'duo_term_image',
+wprism_acf_field($termGroup, [
+    'key' => 'field_wprism_term_image', 'label' => 'Term Image', 'name' => 'wprism_term_image',
     'type' => 'image', 'return_format' => 'id',
 ]);
 
-$userGroup = duo_acf_group([
-    'key' => 'group_duo_user', 'title' => 'Duo User Fields', 'fields' => [],
+$userGroup = wprism_acf_group([
+    'key' => 'group_wprism_user', 'title' => 'WPrism User Fields', 'fields' => [],
     'location' => [[['param' => 'user_form', 'operator' => '==', 'value' => 'all']]],
     'active' => true,
 ]);
-duo_acf_field($userGroup, [
-    'key' => 'field_duo_user_note', 'label' => 'User Note', 'name' => 'duo_user_note', 'type' => 'text',
+wprism_acf_field($userGroup, [
+    'key' => 'field_wprism_user_note', 'label' => 'User Note', 'name' => 'wprism_user_note', 'type' => 'text',
 ]);
-duo_acf_field($userGroup, [
-    'key' => 'field_duo_user_image', 'label' => 'User Image', 'name' => 'duo_user_image',
+wprism_acf_field($userGroup, [
+    'key' => 'field_wprism_user_image', 'label' => 'User Image', 'name' => 'wprism_user_image',
     'type' => 'image', 'return_format' => 'id',
 ]);
 
-$optionsGroup = duo_acf_group([
-    'key' => 'group_duo_options', 'title' => 'Duo Options Fields', 'fields' => [],
+$optionsGroup = wprism_acf_group([
+    'key' => 'group_wprism_options', 'title' => 'WPrism Options Fields', 'fields' => [],
     'location' => [[['param' => 'post_type', 'operator' => '==', 'value' => 'post']]],
     'active' => true,
 ]);
-duo_acf_field($optionsGroup, [
-    'key' => 'field_duo_option_note', 'label' => 'Option Note', 'name' => 'duo_option_note', 'type' => 'text',
+wprism_acf_field($optionsGroup, [
+    'key' => 'field_wprism_option_note', 'label' => 'Option Note', 'name' => 'wprism_option_note', 'type' => 'text',
 ]);
-duo_acf_field($optionsGroup, [
-    'key' => 'field_duo_option_image', 'label' => 'Option Image', 'name' => 'duo_option_image',
+wprism_acf_field($optionsGroup, [
+    'key' => 'field_wprism_option_image', 'label' => 'Option Image', 'name' => 'wprism_option_image',
     'type' => 'image', 'return_format' => 'id',
 ]);
 
-$menuGroup = duo_acf_group([
-    'key' => 'group_duo_menu', 'title' => 'Duo Menu Item Fields', 'fields' => [],
+$menuGroup = wprism_acf_group([
+    'key' => 'group_wprism_menu', 'title' => 'WPrism Menu Item Fields', 'fields' => [],
     'location' => [[['param' => 'nav_menu_item', 'operator' => '==', 'value' => 'all']]],
     'active' => true,
 ]);
-duo_acf_field($menuGroup, [
-    'key' => 'field_duo_menu_image', 'label' => 'Menu Image', 'name' => 'duo_menu_image',
+wprism_acf_field($menuGroup, [
+    'key' => 'field_wprism_menu_image', 'label' => 'Menu Image', 'name' => 'wprism_menu_image',
     'type' => 'image', 'return_format' => 'id',
 ]);
 
-$hero = duo_acf_attachment('conf-acf-hero.png', 'Conformance ACF Hero', [90, 60, 200]);
-$secondary = duo_acf_attachment('conf-acf-secondary.png', 'Conformance ACF Secondary', [20, 150, 90]);
+$hero = wprism_acf_attachment('conf-acf-hero.png', 'Conformance ACF Hero', [90, 60, 200]);
+$secondary = wprism_acf_attachment('conf-acf-secondary.png', 'Conformance ACF Secondary', [20, 150, 90]);
 
 $targets = [];
 foreach (['One', 'Two'] as $suffix) {
@@ -256,29 +256,29 @@ if (is_wp_error($menuItem)) {
     throw new RuntimeException($menuItem->get_error_message());
 }
 
-update_field('field_duo_hero', $hero, $content);
-update_field('field_duo_related', $targets, $content);
-update_field('field_duo_feature', $targets[0], $content);
-update_field('field_duo_features', $targets, $content);
-update_field('field_duo_page', $pages[0], $content);
-update_field('field_duo_pages', $pages, $content);
-update_field('field_duo_cats', [$terms[0], $terms[1]], $content);
-update_field('field_duo_cat', $terms[2], $content);
-update_field('field_duo_owner', (int) $admin->ID, $content);
-update_field('field_duo_owners', [(int) $admin->ID, (int) $editorId], $content);
-update_field('field_duo_link', [
+update_field('field_wprism_hero', $hero, $content);
+update_field('field_wprism_related', $targets, $content);
+update_field('field_wprism_feature', $targets[0], $content);
+update_field('field_wprism_features', $targets, $content);
+update_field('field_wprism_page', $pages[0], $content);
+update_field('field_wprism_pages', $pages, $content);
+update_field('field_wprism_cats', [$terms[0], $terms[1]], $content);
+update_field('field_wprism_cat', $terms[2], $content);
+update_field('field_wprism_owner', (int) $admin->ID, $content);
+update_field('field_wprism_owners', [(int) $admin->ID, (int) $editorId], $content);
+update_field('field_wprism_link', [
     'title' => 'Portable source link 東京 🚀',
     'url' => home_url('/conf-linked-page-one/?from=acf&mode=real-world'),
     'target' => '_blank',
 ], $content);
-update_field('field_duo_icon', ['type' => 'media_library', 'value' => $secondary], $content);
-update_field('field_duo_term_note', "Term 東京 🚀 $sourceHome", 'category_' . $terms[0]);
-update_field('field_duo_term_image', $secondary, 'category_' . $terms[0]);
-update_field('field_duo_user_note', "User 東京 🚀 $sourceHome", 'user_' . (int) $editorId);
-update_field('field_duo_user_image', $hero, 'user_' . (int) $editorId);
-update_field('field_duo_option_note', "Option 東京 🚀 $sourceHome", 'option');
-update_field('field_duo_option_image', $secondary, 'option');
-update_field('field_duo_menu_image', $hero, (int) $menuItem);
+update_field('field_wprism_icon', ['type' => 'media_library', 'value' => $secondary], $content);
+update_field('field_wprism_term_note', "Term 東京 🚀 $sourceHome", 'category_' . $terms[0]);
+update_field('field_wprism_term_image', $secondary, 'category_' . $terms[0]);
+update_field('field_wprism_user_note', "User 東京 🚀 $sourceHome", 'user_' . (int) $editorId);
+update_field('field_wprism_user_image', $hero, 'user_' . (int) $editorId);
+update_field('field_wprism_option_note', "Option 東京 🚀 $sourceHome", 'option');
+update_field('field_wprism_option_image', $secondary, 'option');
+update_field('field_wprism_menu_image', $hero, (int) $menuItem);
 
 echo wp_json_encode([
     'admin' => (int) $admin->ID,

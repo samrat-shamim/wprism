@@ -1,10 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 /**
- * `site.duo.json` `policy.adapter_claims` — the operator's explicit resolution
+ * `site.wprism.json` `policy.adapter_claims` — the operator's explicit resolution
  * of a plugin or theme claim that two pinned manifests both make (WP-5.5,
  * spec/repo-format.md § v3.13).
  *
@@ -15,11 +15,11 @@ namespace Duo;
  * authority over another adapter's state" ruling that
  * CrossManifestGuards.php:22-24 states for five other surfaces). The only
  * party who can decide is the one who pinned both, and the file they already
- * own is `site.duo.json`. That is exactly the precedent
+ * own is `site.wprism.json`. That is exactly the precedent
  * `validate_no_conflicting_option_rules()` set for two manifests contradicting
  * each other about one option name: "a site policy rule for the colliding name
  * is the explicit resolution path" (CrossManifestGuards.php:214-217), and its
- * own refusal already ends "Add an explicit site.duo.json policy.options.<name>
+ * own refusal already ends "Add an explicit site.wprism.json policy.options.<name>
  * override to resolve this option" (`:265`).
  *
  * RESOLUTION, NEVER COMPOSITION. Exactly one manifest's claim is in force for
@@ -107,7 +107,7 @@ final class AdapterClaimResolutions {
         $declared = $sitePolicy['adapter_claims'];
         if (!is_array($declared) || (array_is_list($declared) && $declared !== [])) {
             throw new \RuntimeException(
-                "duo: $label policy.adapter_claims must be a JSON object keyed by claim kind ("
+                "wprism: $label policy.adapter_claims must be a JSON object keyed by claim kind ("
                 . implode(', ', array_map(static fn(string $k): string => '"' . $k . '"', array_keys(self::CLAIM_ARMS)))
                 . ')'
             );
@@ -116,7 +116,7 @@ final class AdapterClaimResolutions {
             $kind = (string) $kind;
             if (!array_key_exists($kind, self::CLAIM_ARMS)) {
                 throw new \RuntimeException(
-                    "duo: $label policy.adapter_claims declares claim kind '$kind' — the claims a manifest can "
+                    "wprism: $label policy.adapter_claims declares claim kind '$kind' — the claims a manifest can "
                     . 'make about installed code, and therefore the only ones a resolution can be about, are '
                     . implode(' and ', array_map(
                         static fn(string $k): string => '"' . $k . '"',
@@ -126,7 +126,7 @@ final class AdapterClaimResolutions {
             }
             if (!is_array($arm) || (array_is_list($arm) && $arm !== [])) {
                 throw new \RuntimeException(
-                    "duo: $label policy.adapter_claims.$kind must be a JSON object keyed by the claimed $kind"
+                    "wprism: $label policy.adapter_claims.$kind must be a JSON object keyed by the claimed $kind"
                 );
             }
             foreach ($arm as $id => $row) {
@@ -139,13 +139,13 @@ final class AdapterClaimResolutions {
     private static function validate_row(string $label, string $kind, string $id, $row): void {
         if ($id === '') {
             throw new \RuntimeException(
-                "duo: $label policy.adapter_claims.$kind declares an empty $kind identity — a resolution names "
+                "wprism: $label policy.adapter_claims.$kind declares an empty $kind identity — a resolution names "
                 . "the claimed $kind exactly as the manifests claiming it name it"
             );
         }
         if (!is_array($row) || array_is_list($row)) {
             throw new \RuntimeException(
-                "duo: $label policy.adapter_claims.$kind." . $id . ' must be an object with a non-empty string '
+                "wprism: $label policy.adapter_claims.$kind." . $id . ' must be an object with a non-empty string '
                 . 'in_force naming the manifest whose claim is in force, and an optional note'
             );
         }
@@ -153,7 +153,7 @@ final class AdapterClaimResolutions {
         if ($unknown !== []) {
             sort($unknown, SORT_STRING);
             throw new \RuntimeException(
-                "duo: $label policy.adapter_claims.$kind.$id declares unknown key(s) "
+                "wprism: $label policy.adapter_claims.$kind.$id declares unknown key(s) "
                 . implode(', ', $unknown) . ' — a claim resolution accepts exactly '
                 . implode(' and ', self::ROW_KEYS) . '. It names which claim is IN FORCE; it never states a '
                 . 'range of its own, because a resolution that could restate a range would be a second, '
@@ -162,13 +162,13 @@ final class AdapterClaimResolutions {
         }
         if (!isset($row['in_force']) || !is_string($row['in_force']) || $row['in_force'] === '') {
             throw new \RuntimeException(
-                "duo: $label policy.adapter_claims.$kind.$id must declare a non-empty string in_force naming "
+                "wprism: $label policy.adapter_claims.$kind.$id must declare a non-empty string in_force naming "
                 . "the manifest whose $kind claim is in force"
             );
         }
         if (array_key_exists('note', $row) && !is_string($row['note'])) {
             throw new \RuntimeException(
-                "duo: $label policy.adapter_claims.$kind.$id declares a non-string note"
+                "wprism: $label policy.adapter_claims.$kind.$id declares a non-string note"
             );
         }
     }
@@ -267,7 +267,7 @@ final class AdapterClaimResolutions {
                 $names = $claimants[$kind][$id] ?? [];
                 if (count($names) < 2) {
                     throw new \RuntimeException(
-                        "duo: $label policy.adapter_claims.$kind.$id resolves nothing — " . count($names)
+                        "wprism: $label policy.adapter_claims.$kind.$id resolves nothing — " . count($names)
                         . " pinned manifest(s) claim $kind '$id', and a resolution decides which of SEVERAL "
                         . 'claims is in force. Remedy: remove the resolution, or pin the manifests it was '
                         . 'written for'
@@ -275,7 +275,7 @@ final class AdapterClaimResolutions {
                 }
                 if (!in_array($row['in_force'], $names, true)) {
                     throw new \RuntimeException(
-                        "duo: $label policy.adapter_claims.$kind.$id puts manifest '{$row['in_force']}' in "
+                        "wprism: $label policy.adapter_claims.$kind.$id puts manifest '{$row['in_force']}' in "
                         . "force, but the pinned manifests claiming $kind '$id' are "
                         . implode(', ', array_map(static fn(string $n): string => "'" . $n . "'", $names))
                         . ' — a resolution may only choose among the claims that were made, never install one'

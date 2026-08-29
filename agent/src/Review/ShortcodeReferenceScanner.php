@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Grammar/Shortcodes.php';
 require_once __DIR__ . '/Pending.php';
@@ -35,7 +35,7 @@ final class ShortcodeReferenceScanner {
         $pattern = '/' . get_shortcode_regex(array_keys($shortcodeRules)) . '/';
         $matched = preg_match_all($pattern, $body, $matches, PREG_SET_ORDER);
         if ($matched === false) {
-            throw new \RuntimeException('duo: shortcode lint regex failed; refusing unproven content');
+            throw new \RuntimeException('wprism: shortcode lint regex failed; refusing unproven content');
         }
         if ($matched === 0) {
             return [];

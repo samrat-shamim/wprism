@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# DUO-3209: copied/invalid embedded identity blocks before state publication.
+# issue #3209: copied/invalid embedded identity blocks before state publication.
 set -euo pipefail
 
-# DUO-3409: concurrency-safe allocation of the host `duo explain` envs registry
-# used at the DUO-3345 explain slice below (sourced like _retry_helper.sh).
+# issue #3409: concurrency-safe allocation of the host `wprism explain` envs registry
+# used at the issue #3345 explain slice below (sourced like _retry_helper.sh).
 source "$(dirname "${BASH_SOURCE[0]}")/_explain_registry.sh"
 
-# DUO-3509: the initial apply must run core's native rewrite repair, publish a
+# issue #3509: the initial apply must run core's native rewrite repair, publish a
 # bounded receipt, and leave both WordPress's API and the public HTTP route on
 # the source grammar. Canonical byte equality cannot see rewrite_rules because
 # that row is deliberately derived, so this is the independent behavior gate.
@@ -45,7 +45,7 @@ echo wp_json_encode([
   "resolved_id" => $post ? url_to_postid(get_permalink($post)) : 0,
 ]);
 ')
-require_duo_answered "conf2 core rewrite state" json "$CORE_REWRITE_STATE"
+require_wprism_answered "conf2 core rewrite state" json "$CORE_REWRITE_STATE"
 jq -e --arg port "$CONF2_PORT" '
   .structure == "/journal/%postname%/" and
   .stored_type == "array" and .stored_count > 0 and .rules_match == true and
@@ -91,10 +91,10 @@ core_json_uuid() {
 
 core_assert_adopted() {
   local uuid="$1" kind="$2" expected_target="$3" label="$4" source_local="" target_local=""
-  source_local=$(wp_conf1 eval "echo (\\Duo\\Ledger::id_for('$uuid', '$kind') ?? '__duo_missing__');")
-  target_local=$(wp_conf2 eval "echo (\\Duo\\Ledger::id_for('$uuid', '$kind') ?? '__duo_missing__');")
+  source_local=$(wp_conf1 eval "echo (\\WPrism\\Ledger::id_for('$uuid', '$kind') ?? '__wprism_missing__');")
+  target_local=$(wp_conf2 eval "echo (\\WPrism\\Ledger::id_for('$uuid', '$kind') ?? '__wprism_missing__');")
   require_fixture_values source_local target_local
-  [ "$source_local" != '__duo_missing__' ] && [ "$target_local" != '__duo_missing__' ] \
+  [ "$source_local" != '__wprism_missing__' ] && [ "$target_local" != '__wprism_missing__' ] \
     || fail "$label identity was not installed in both ledgers"
   [ "$target_local" = "$expected_target" ] \
     || fail "$label was recreated/copied as local id $target_local instead of adopting target id $expected_target"
@@ -189,7 +189,7 @@ echo wp_json_encode([
   ], is_array(\$items) ? \$items : []),
 ]);
 ")
-require_duo_answered "conf2 core adopted authored values" json "$DIRTY_AUTHORED"
+require_wprism_answered "conf2 core adopted authored values" json "$DIRTY_AUTHORED"
 jq -e --argjson news "$TARGET_NEWS" '
   .hello_title == "Hello world!" and
   (.hello_content | contains("Welcome to WordPress")) and
@@ -199,7 +199,7 @@ jq -e --argjson news "$TARGET_NEWS" '
   .news_description == "Conformance news" and
   .topic_description == "Conformance topic" and
   .default_category == $news and
-  .blogname == "Duo Conformance" and
+  .blogname == "WPrism Conformance" and
   .custom_css == "body { background: #3c8c3c; }" and
   (.menu_items | length) == 1 and
   .menu_items[0].title == "Home" and .menu_items[0].type == "post_type" and
@@ -207,7 +207,7 @@ jq -e --argjson news "$TARGET_NEWS" '
 ' <<<"$DIRTY_AUTHORED" >/dev/null \
   || fail "explicit adoption retained hostile target-authored values: $DIRTY_AUTHORED"
 
-SOURCE_ATTACHMENT_HASH=$(wp_conf1 eval "echo hash_file('sha256', get_attached_file(\\Duo\\Ledger::id_for('$UUID_ATTACHMENT', 'post')));")
+SOURCE_ATTACHMENT_HASH=$(wp_conf1 eval "echo hash_file('sha256', get_attached_file(\\WPrism\\Ledger::id_for('$UUID_ATTACHMENT', 'post')));")
 TARGET_ATTACHMENT_HASH_AFTER=$(wp_conf2 eval "echo hash_file('sha256', get_attached_file($TARGET_ATTACHMENT));")
 require_fixture_values SOURCE_ATTACHMENT_HASH TARGET_ATTACHMENT_HASH_AFTER
 [ "$TARGET_ATTACHMENT_HASH_AFTER" = "$SOURCE_ATTACHMENT_HASH" ] \
@@ -233,7 +233,7 @@ echo wp_json_encode([
   'comment' => \$comment,
 ]);
 ")
-require_duo_answered "conf2 core target-runtime sovereignty" json "$DIRTY_RUNTIME"
+require_wprism_answered "conf2 core target-runtime sovereignty" json "$DIRTY_RUNTIME"
 jq -e --argjson hello "$TARGET_HELLO" --argjson comment "$TARGET_COMMENT" '
   .branch_lock == "target-lock:77" and
   .branch_old_slug == "target-old-branch-a" and
@@ -260,15 +260,15 @@ global $wp_rewrite;
 $wp_rewrite->set_permalink_structure("/dispatch/%postname%/");
 $wp_rewrite->flush_rules(false);
 ' >/dev/null
-wp_conf1 duo capture --repo=/siterepo >/dev/null
+wp_conf1 wprism capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
-git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: core permalink retry intent'
+git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: core permalink retry intent'
 git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
 
 CORE_REWRITE_MU_MAY_EXIST=1
 remove_core_rewrite_fault() {
-  $COMPOSE exec -T --user root wp2 rm -f -- /var/www/html/wp-content/mu-plugins/duo-core-rewrite-fault.php >/dev/null 2>&1
+  $COMPOSE exec -T --user root wp2 rm -f -- /var/www/html/wp-content/mu-plugins/wprism-core-rewrite-fault.php >/dev/null 2>&1
 }
 cleanup_core_rewrite_fault() {
   local status=$?
@@ -280,14 +280,14 @@ cleanup_core_rewrite_fault() {
 }
 trap cleanup_core_rewrite_fault EXIT
 $COMPOSE exec -T --user root wp2 sh -c \
-  'printf "%s\n" "<?php" "add_filter(\"pre_update_option_rewrite_rules\", static function (\$new, \$old) { return \$old; }, PHP_INT_MAX, 2);" > /var/www/html/wp-content/mu-plugins/duo-core-rewrite-fault.php'
+  'printf "%s\n" "<?php" "add_filter(\"pre_update_option_rewrite_rules\", static function (\$new, \$old) { return \$old; }, PHP_INT_MAX, 2);" > /var/www/html/wp-content/mu-plugins/wprism-core-rewrite-fault.php'
 [ "$(wp_conf2 eval 'echo has_filter("pre_update_option_rewrite_rules") ? "registered" : "missing";')" = registered ] \
   || fail "core rewrite dropped-write fault filter was not registered"
-CORE_REWRITE_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
+CORE_REWRITE_REV_BEFORE=$(wp_conf2 db query "SELECT v FROM wp_wprism_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
 require_observed_nonempty "conf2 applied revision before rewrite fault" "$CORE_REWRITE_REV_BEFORE"
 CORE_REWRITE_FAIL_RC=0
-CORE_REWRITE_FAIL=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || CORE_REWRITE_FAIL_RC=$?
-require_duo_answered "conf2 core rewrite topology-fault apply" human "$CORE_REWRITE_FAIL"
+CORE_REWRITE_FAIL=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || CORE_REWRITE_FAIL_RC=$?
+require_wprism_answered "conf2 core rewrite topology-fault apply" human "$CORE_REWRITE_FAIL"
 [ "$CORE_REWRITE_FAIL_RC" -ne 0 ] \
   && grep -Fq "apply refused before target mutation — native action 'rewrite.flush' runtime is unsupported" <<<"$CORE_REWRITE_FAIL" \
   && grep -Fq 'native rewrite found extended rewrite_rules option topology' <<<"$CORE_REWRITE_FAIL" \
@@ -297,23 +297,23 @@ require_duo_answered "conf2 core rewrite topology-fault apply" human "$CORE_REWR
   || fail "rewrite failure diagnostic leaked source or previous permalink plaintext: $CORE_REWRITE_FAIL"
 [ "$(wp_conf2 option get permalink_structure)" = '/journal/%postname%/' ] \
   || fail "rewrite topology refusal crossed its before-target-mutation boundary"
-[ "$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$CORE_REWRITE_REV_BEFORE" ] \
+[ "$(wp_conf2 db query "SELECT v FROM wp_wprism_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$CORE_REWRITE_REV_BEFORE" ] \
   || fail "failed required rewrite action advanced applied_revision"
-[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "missing" : "retained";')" = missing ] \
+[ "$(wp_conf2 eval 'echo null === \WPrism\Ledger::kv_get("apply_in_progress") ? "missing" : "retained";')" = missing ] \
   || fail "rewrite topology refusal published apply_in_progress before mutation"
 
 remove_core_rewrite_fault
 CORE_REWRITE_MU_MAY_EXIST=0
 trap - EXIT
-CORE_REWRITE_RETRY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "conf2 core rewrite retry" json "$CORE_REWRITE_RETRY"
+CORE_REWRITE_RETRY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "conf2 core rewrite retry" json "$CORE_REWRITE_RETRY"
 jq -e '
   .canary == "clean" and
   (.warnings | any(. == "native action fired: rewrite.flush (verified)")) and
   ([.actions[]? | select(.source == "native:rewrite.flush" and .verified == true and .after.rules_hash == .after.runtime_rules_hash)] | length) == 1
 ' <<<"$CORE_REWRITE_RETRY" >/dev/null \
   || fail "core rewrite retry did not converge with one verified action receipt: $CORE_REWRITE_RETRY"
-[ "$(wp_conf2 eval 'echo null === \Duo\Ledger::kv_get("apply_in_progress") ? "cleared" : "retained";')" = cleared ] \
+[ "$(wp_conf2 eval 'echo null === \WPrism\Ledger::kv_get("apply_in_progress") ? "cleared" : "retained";')" = cleared ] \
   || fail "successful core rewrite retry retained apply_in_progress"
 CORE_DISPATCH_URL=$(wp_conf2 eval '$p=get_page_by_path("hello-conformance", OBJECT, "post"); echo $p ? get_permalink($p) : "";')
 require_observed_nonempty "conf2 dispatch permalink after rewrite retry" "$CORE_DISPATCH_URL"
@@ -323,22 +323,22 @@ CORE_DISPATCH_BODY=$(curl -fsSL "$CORE_DISPATCH_URL") \
   || fail "rewrite retry route did not return HTTP success"
 grep -Fq 'Hello from the core conformance seed.' <<<"$CORE_DISPATCH_BODY" \
   || fail "rewrite retry route did not render the repository post"
-CORE_REWRITE_ZERO=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "conf2 core rewrite zero-change retry" json "$CORE_REWRITE_ZERO"
+CORE_REWRITE_ZERO=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "conf2 core rewrite zero-change retry" json "$CORE_REWRITE_ZERO"
 jq -e '.canary == "clean" and .actions == []' <<<"$CORE_REWRITE_ZERO" >/dev/null \
   || fail "zero-change core retry fired rewrite.flush or dirtied the canary: $CORE_REWRITE_ZERO"
 pass "unreviewed native rewrite hook fails before mutation, then removal permits exact convergence and a zero-change apply fires nothing"
 
-# DUO-3264: dynamic_options.theme_mods -- proof beyond the generic
+# issue #3264: dynamic_options.theme_mods -- proof beyond the generic
 # byte-diff already run above in run.sh (which only proves conf1's
 # captured tokens equal conf2's captured tokens; it can't see whether the
 # target's LIVE blob merged sub-keys into conf2's own pre-existing content
 # correctly, or whether a previously-active theme's own row genuinely
 # never entered state/ at all). Deliberately placed FIRST in this file,
-# before any of the DUO-3209/3210 tests below delete the shared
+# before any of the issue #3209/3210 tests below delete the shared
 # conformance-logo attachment (the "branch edit" block) -- that later
 # deletion is what exercises Apply::apply_option_sub_keys()'s sub-key
-# tombstone fix (also DUO-3264, found live via this exact interaction: a
+# tombstone fix (also issue #3264, found live via this exact interaction: a
 # stale custom_logo/header_image/header_image_data left behind on conf2
 # after conf1's own recapture correctly stopped reporting them), so this
 # block intentionally runs against the fully-populated, pre-deletion state
@@ -379,15 +379,15 @@ jq -e '.records | has("theme_mods_twentytwentyone") | not' "$CONF_REPO1/state/op
   || fail "theme_mods_twentytwentyone (a previously-active theme's own row) leaked into captured state -- residue exclusion failed"
 pass "theme_mods_twentytwentyone (residue: a previously-active, now-inactive theme's own row) never entered captured state, exactly as declared"
 
-PENDING2=$(wp_conf2 duo pending --repo=/siterepo --format=json)
-require_duo_answered "conf2 duo pending after apply" json "$PENDING2"
+PENDING2=$(wp_conf2 wprism pending --repo=/siterepo --format=json)
+require_wprism_answered "conf2 wprism pending after apply" json "$PENDING2"
 [ "$PENDING2" = "[]" ] \
-  || fail "wp duo pending on conf2 is no longer empty: $PENDING2"
-pass "wp duo pending remains empty post-apply -- empty, auto-registered widget_<type> rows (every core type not covered by widgets{}) stay unscanned by design (contentless scaffolding, never captured before this issue, not captured now); DUO-3278's own declared block/nav_menu/text content applied cleanly"
+  || fail "wp wprism pending on conf2 is no longer empty: $PENDING2"
+pass "wp wprism pending remains empty post-apply -- empty, auto-registered widget_<type> rows (every core type not covered by widgets{}) stay unscanned by design (contentless scaffolding, never captured before this issue, not captured now); issue #3278's own declared block/nav_menu/text content applied cleanly"
 
-# DUO-3264 <-> DUO-3278 cross-PR finding, full evolution (see manifests/
+# issue #3264 <-> issue #3278 cross-PR finding, full evolution (see manifests/
 # core.json's own note at dynamic_options for the complete walk-back):
-# DUO-3264 first shipped its OWN blocking net here (core.json
+# issue #3264 first shipped its OWN blocking net here (core.json
 # option_namespaces for ^sidebars_widgets$/^widget_, ~18 per-name `runtime`
 # classifications) believing gate_scan()'s widgets section was informational
 # only. Reverted: SidebarState::capture()'s own load_widget_options() ALREADY
@@ -399,7 +399,7 @@ pass "wp duo pending remains empty post-apply -- empty, auto-registered widget_<
 # build_options() in build()'s own call order. The options-layer net was
 # therefore provably unreachable dead weight for this family and is gone.
 # What's tested below is what remains true: SidebarState's own guard is
-# sufficient on its own, AND (a second, separate finding, also DUO-3264)
+# sufficient on its own, AND (a second, separate finding, also issue #3264)
 # its FIRST shipped message advertised a remedy that didn't work --
 # "classify options:widget_<type>=runtime" did nothing, since the guard
 # only ever consulted widgets{}, never options.* classification. Fixed at
@@ -407,64 +407,64 @@ pass "wp duo pending remains empty post-apply -- empty, auto-registered widget_<
 # explicit runtime/env options classification as first-class
 # acknowledgment, same tier as a widgets{} entry) rather than dropping the
 # remedy from the message -- both are asserted below, live, not assumed.
-say "(DUO-3264 <-> DUO-3278) live probe: an unknown, non-core widget type gates loudly (SidebarState's own guard), names a remedy that actually works, then classifies clean"
+say "(issue #3264 <-> issue #3278) live probe: an unknown, non-core widget type gates loudly (SidebarState's own guard), names a remedy that actually works, then classifies clean"
 wp_conf1 option update widget_regress_fake_type '{"2":{"title":"Regress Fake"}}' --format=json >/dev/null
 
-FAKE_PENDING=$(wp_conf1 duo pending --repo=/siterepo --format=json)
-require_duo_answered "conf1 duo pending unknown-widget probe" json "$FAKE_PENDING"
+FAKE_PENDING=$(wp_conf1 wprism pending --repo=/siterepo --format=json)
+require_wprism_answered "conf1 wprism pending unknown-widget probe" json "$FAKE_PENDING"
 echo "$FAKE_PENDING" | jq -e 'any(.section == "widgets" and .key == "regress_fake_type")' >/dev/null \
-  || fail "unknown widget type regress_fake_type did not surface in wp duo pending's own widgets section (DUO-3278's gate_scan() diagnostic): $FAKE_PENDING"
+  || fail "unknown widget type regress_fake_type did not surface in wp wprism pending's own widgets section (issue #3278's gate_scan() diagnostic): $FAKE_PENDING"
 
 FAKE_RC=0
-FAKE_CAPTURE_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || FAKE_RC=$?
-# DUO-3391: the `|| FAKE_RC=$?` that lets the three assertions below read
+FAKE_CAPTURE_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || FAKE_RC=$?
+# issue #3391: the `|| FAKE_RC=$?` that lets the three assertions below read
 # $FAKE_CAPTURE_OUT is the same thing that keeps `set -e` from firing on a
 # compose-layer death. Assert this invocation was answered at all before
 # asserting anything about the answer (all three assertions read one capture).
-require_duo_answered "conf1 duo capture (unknown widget type probe)" human "$FAKE_CAPTURE_OUT"
+require_wprism_answered "conf1 wprism capture (unknown widget type probe)" human "$FAKE_CAPTURE_OUT"
 [ "$FAKE_RC" -ne 0 ] && echo "$FAKE_CAPTURE_OUT" | grep -q "widget option 'widget_regress_fake_type' contains instances but type 'regress_fake_type' is undeclared" \
   || fail "capture did not loudly refuse the unknown widget type via SidebarState's own guard: $FAKE_CAPTURE_OUT"
 # team-lead's own requirement: this refusal must read as widgets-aware, not
 # a generic "go classify it" -- both real remedies named inline.
 echo "$FAKE_CAPTURE_OUT" | grep -q "add \"regress_fake_type\" to a pinned manifest's widgets{} grammar" \
   || fail "refusal did not name the first remedy (extend widgets{} grammar), or misidentified the type: $FAKE_CAPTURE_OUT"
-echo "$FAKE_CAPTURE_OUT" | grep -q "declare it a deliberate exclusion (wp duo classify --set='options:widget_regress_fake_type=runtime')" \
+echo "$FAKE_CAPTURE_OUT" | grep -q "declare it a deliberate exclusion (wp wprism classify --set='options:widget_regress_fake_type=runtime')" \
   || fail "refusal did not name the second remedy (deliberate exclusion): $FAKE_CAPTURE_OUT"
 
 # The substantive gate: does the second remedy the message names ACTUALLY
 # work? (Team-lead's own requirement, after the first shipped version of
 # this message was proven to advertise a dead remedy.) Classify via site
 # policy exactly as the message instructs, then confirm capture proceeds.
-cp "$CONF_REPO1/site.duo.json" "$CONF_REPO1/.tmp-site-backup.json"
-jq '.policy.options.widget_regress_fake_type = {"class": "runtime"}' "$CONF_REPO1/site.duo.json" > "$CONF_REPO1/.tmp-site-new.json"
-mv "$CONF_REPO1/.tmp-site-new.json" "$CONF_REPO1/site.duo.json"
-# DUO-3391: the only NON-refusal assertion in this family, and at risk for the
+cp "$CONF_REPO1/site.wprism.json" "$CONF_REPO1/.tmp-site-backup.json"
+jq '.policy.options.widget_regress_fake_type = {"class": "runtime"}' "$CONF_REPO1/site.wprism.json" > "$CONF_REPO1/.tmp-site-new.json"
+mv "$CONF_REPO1/.tmp-site-new.json" "$CONF_REPO1/site.wprism.json"
+# issue #3391: the only NON-refusal assertion in this family, and at risk for the
 # identical reason — `|| fail` consumes the exit status, so a compose-layer
 # death reaches this engine-accusing message instead of `set -e`. Captured
 # (rather than discarded) purely so the answer can be asserted first; the
 # accusation itself is unchanged and still keyed on the exit status alone.
 REMEDY_RC=0
-REMEDY_OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || REMEDY_RC=$?
-require_duo_answered "conf1 duo capture after the classify-runtime remedy" human "$REMEDY_OUT"
+REMEDY_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || REMEDY_RC=$?
+require_wprism_answered "conf1 wprism capture after the classify-runtime remedy" human "$REMEDY_OUT"
 if [ "$REMEDY_RC" -ne 0 ]; then
   # Capturing must not cost the operator the refusal text the uncaptured
   # shape left in the sweep log; the accusation itself is byte-unchanged.
   printf '%s\n' "$REMEDY_OUT" >&2
   fail "capture still refused widget_regress_fake_type after following the message's own stated remedy (site policy classified it runtime) -- the escape hatch does not function"
 fi
-mv "$CONF_REPO1/.tmp-site-backup.json" "$CONF_REPO1/site.duo.json"
+mv "$CONF_REPO1/.tmp-site-backup.json" "$CONF_REPO1/site.wprism.json"
 wp_conf1 option delete widget_regress_fake_type >/dev/null
-wp_conf1 duo capture --repo=/siterepo >/dev/null
+wp_conf1 wprism capture --repo=/siterepo >/dev/null
 pass "unknown widget type: SidebarState's own guard refuses naming BOTH remedies, the deliberate-exclusion remedy it names actually works (verified, not assumed -- the operator-path-dishonesty class this project refuses to ship), clean again once the fake type is fully removed"
 
-# DUO-3278: the core fixture's three declared widget kinds round-trip through
+# issue #3278: the core fixture's three declared widget kinds round-trip through
 # the sidebar wire format with ledger-only identity and target-local counters.
 SIDEBAR_FILE="$CONF_REPO1/state/sidebars/sidebar-1.json"
 [ -f "$SIDEBAR_FILE" ] || fail "canonical sidebar-1 file is missing"
 jq -e '
   ([.widgets[].type] == ["block","text","nav_menu"])
   and (.widgets | length == 3)
-  and ([.widgets[].settings | has("_duo_uuid")] | any | not)
+  and ([.widgets[].settings | has("_wprism_uuid")] | any | not)
   and (.widgets[0].settings.content | contains("{{post:"))
   and (.widgets[0].settings.content | contains("{{uploads}}"))
   and (.widgets[1].settings.text | contains("{{home}}"))
@@ -476,11 +476,11 @@ for TYPE in block text nav_menu; do
   # Ledger::id_for() legitimately returns null for a missing mapping. Emit a
   # non-empty engine sentinel for that case so an exit-0 empty from a dead
   # compose invocation remains distinguishable and routes to infrastructure.
-  SOURCE_LOCAL=$(wp_conf1 eval "echo (\\Duo\\Ledger::id_for('$UUID', 'widget_$TYPE') ?? '__duo_missing__');") || true
+  SOURCE_LOCAL=$(wp_conf1 eval "echo (\\WPrism\\Ledger::id_for('$UUID', 'widget_$TYPE') ?? '__wprism_missing__');") || true
   require_observed_nonempty "conf1 widget_$TYPE identity ledger" "$SOURCE_LOCAL"
-  TARGET_LOCAL=$(wp_conf2 eval "echo (\\Duo\\Ledger::id_for('$UUID', 'widget_$TYPE') ?? '__duo_missing__');") || true
+  TARGET_LOCAL=$(wp_conf2 eval "echo (\\WPrism\\Ledger::id_for('$UUID', 'widget_$TYPE') ?? '__wprism_missing__');") || true
   require_observed_nonempty "conf2 widget_$TYPE identity ledger" "$TARGET_LOCAL"
-  [ "$SOURCE_LOCAL" != '__duo_missing__' ] && [ "$TARGET_LOCAL" != '__duo_missing__' ] \
+  [ "$SOURCE_LOCAL" != '__wprism_missing__' ] && [ "$TARGET_LOCAL" != '__wprism_missing__' ] \
     || fail "widget_$TYPE identity is absent from one environment's ledger"
   [ "$SOURCE_LOCAL" != "$TARGET_LOCAL" ] \
     || fail "widget_$TYPE copied source counter $SOURCE_LOCAL instead of allocating target-locally"
@@ -492,7 +492,7 @@ wp_conf2 eval '
 foreach (["block","text","nav_menu"] as $type) {
   $stored=get_option("widget_".$type);
   foreach ($stored as $settings) {
-    if (is_array($settings) && array_key_exists("_duo_uuid", $settings)) {
+    if (is_array($settings) && array_key_exists("_wprism_uuid", $settings)) {
       throw new RuntimeException("settings UUID leaked into widget_".$type);
     }
   }
@@ -502,44 +502,44 @@ pass "block/text/nav-menu widgets use portable refs, ledger-only identity, free 
 
 A=$(wp_conf1 post list --post_type=page --name=branch-a --field=ID | tr -d '[:space:]')
 B=$(wp_conf1 post list --post_type=page --name=branch-b --field=ID | tr -d '[:space:]')
-UA=$(wp_conf1 post meta get "$A" _duo_uuid | tr -d '[:space:]')
-UB=$(wp_conf1 post meta get "$B" _duo_uuid | tr -d '[:space:]')
-# DUO-3381: the duplicate-identity condition below is manufactured from
+UA=$(wp_conf1 post meta get "$A" _wprism_uuid | tr -d '[:space:]')
+UB=$(wp_conf1 post meta get "$B" _wprism_uuid | tr -d '[:space:]')
+# issue #3381: the duplicate-identity condition below is manufactured from
 # these four READS, and `post list --field=ID` on no match — like a
 # load-starved `docker compose run` — returns empty with exit 0, while
-# `post meta update <id> _duo_uuid ""` then succeeds just as silently. The
+# `post meta update <id> _wprism_uuid ""` then succeeds just as silently. The
 # refusal being asserted afterwards would legitimately not fire, and its
 # message would report the ENGINE for a corruption this check never managed
 # to author. Asserted before the write, so a failure names the right domain.
 require_fixture_ids A B
 require_fixture_values UA UB
 
-wp_conf1 post meta update "$B" _duo_uuid "$UA" >/dev/null
+wp_conf1 post meta update "$B" _wprism_uuid "$UA" >/dev/null
 RC=0
-OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || RC=$?
-require_duo_answered "conf1 duo capture (duplicate _duo_uuid probe)" human "$OUT"
-[ "$RC" -ne 0 ] && grep -q "duplicate _duo_uuid $UA.*post:$A, post:$B" <<<"$OUT" \
+OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || RC=$?
+require_wprism_answered "conf1 wprism capture (duplicate _wprism_uuid probe)" human "$OUT"
+[ "$RC" -ne 0 ] && grep -q "duplicate _wprism_uuid $UA.*post:$A, post:$B" <<<"$OUT" \
   || fail "copied page identity did not fail with both owners: $OUT"
 [ -z "$(git -C "$CONF_REPO1" status --porcelain -- state)" ] \
   || fail "failed duplicate-identity capture changed the published state tree"
 
-wp_conf1 post meta update "$B" _duo_uuid 'NOT-A-UUID' >/dev/null
+wp_conf1 post meta update "$B" _wprism_uuid 'NOT-A-UUID' >/dev/null
 RC=0
-OUT=$(wp_conf1 duo capture --repo=/siterepo 2>&1) || RC=$?
-require_duo_answered "conf1 duo capture (invalid _duo_uuid probe)" human "$OUT"
-[ "$RC" -ne 0 ] && grep -q "invalid _duo_uuid 'NOT-A-UUID'.*post:$B" <<<"$OUT" \
+OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || RC=$?
+require_wprism_answered "conf1 wprism capture (invalid _wprism_uuid probe)" human "$OUT"
+[ "$RC" -ne 0 ] && grep -q "invalid _wprism_uuid 'NOT-A-UUID'.*post:$B" <<<"$OUT" \
   || fail "invalid embedded identity was not rejected: $OUT"
 [ -z "$(git -C "$CONF_REPO1" status --porcelain -- state)" ] \
   || fail "failed invalid-identity capture changed the published state tree"
 
-wp_conf1 post meta update "$B" _duo_uuid "$UB" >/dev/null
-wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-identity-recovered >/dev/null
+wp_conf1 post meta update "$B" _wprism_uuid "$UB" >/dev/null
+wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-identity-recovered >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO1/.tmp-identity-recovered" \
   || fail "restoring the page's original UUID did not restore deterministic capture"
 
-pass "copied and invalid _duo_uuid metadata block before atomic state publication; original identities recover deterministically"
+pass "copied and invalid _wprism_uuid metadata block before atomic state publication; original identities recover deterministically"
 
-# DUO-3345 (plan naming + three-way conflict slices): both sides edit the
+# issue #3345 (plan naming + three-way conflict slices): both sides edit the
 # same named WordPress entity after their shared base. The public JSON must
 # identify base/repository/target roles and safe choices without serializing
 # raw entity values; the human renderer must make those roles actionable.
@@ -548,22 +548,22 @@ pass "copied and invalid _duo_uuid metadata block before atomic state publicatio
 wp_conf2 post update "$(wp_conf2 post list --post_type=page --name=branch-a --field=ID | tr -d '[:space:]')" \
   --post_title='Target Environment Intent For Conflict' >/dev/null
 wp_conf1 post update "$A" --post_title='Branch Repository Intent For Conflict' >/dev/null
-wp_conf1 duo capture --repo=/siterepo >/dev/null
+wp_conf1 wprism capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
-git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: branch-vs-target conflict intent'
+git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: branch-vs-target conflict intent'
 git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
-TITLE_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "conf2 duo plan unforced conflict" json "$TITLE_PLAN"
+TITLE_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "conf2 wprism plan unforced conflict" json "$TITLE_PLAN"
 jq -e --arg uuid "$UA" \
   '.conflict | any(
     .uuid == $uuid
     and .title == "Branch Repository Intent For Conflict"
-    and .conflict_view.format == "duo-plan-conflict/v1"
+    and .conflict_view.format == "wprism-plan-conflict/v1"
     and .conflict_view.kind == "concurrent_change"
     and .conflict_view.reason_code == "repository_and_target_changed_since_base"
     and .conflict_view.base.role == "last_synced"
-    and .conflict_view.base.source == "duo_state"
+    and .conflict_view.base.source == "wprism_state"
     and .conflict_view.base.state == "present"
     and (.conflict_view.base.content_hash | test("^[a-f0-9]{64}$"))
     and .conflict_view.repository.role == "repository_intent"
@@ -587,8 +587,8 @@ jq -e --arg uuid "$UA" \
   || fail "planned conflict row does not carry exact base/repository/target intent and safe choices: $TITLE_PLAN"
 ! grep -q 'Target Environment Intent For Conflict' <<<"$TITLE_PLAN" \
   || fail "plan JSON leaked the target's raw conflicting title instead of hash-only evidence: $TITLE_PLAN"
-TITLE_HUMAN=$(wp_conf2 duo plan --repo=/siterepo)
-require_duo_answered "conf2 duo plan unforced conflict human view" human "$TITLE_HUMAN"
+TITLE_HUMAN=$(wp_conf2 wprism plan --repo=/siterepo)
+require_wprism_answered "conf2 wprism plan unforced conflict human view" human "$TITLE_HUMAN"
 grep -qE "^CONFLICT +.*'Branch Repository Intent For Conflict'" <<<"$TITLE_HUMAN" \
   || fail "human plan line does not show the WordPress title: $TITLE_HUMAN"
 for NEEDLE in \
@@ -602,15 +602,15 @@ for NEEDLE in \
     || fail "human conflict view is missing '$NEEDLE': $TITLE_HUMAN"
 done
 
-# DUO-3345 slice 4: the host-level public explain path re-observes this exact
+# issue #3345 slice 4: the host-level public explain path re-observes this exact
 # conflict under a strict SELECT-only boundary. The selector printed by human
 # plan is hash-safe; the explanation is a separate value-free schema and may
 # not inherit plan's ledger maintenance or provider/action authority.
 EXPLAIN_ENTITY_HASH=$(printf '%s' "$UA" | shasum -a 256 | awk '{print $1}')
 EXPLAIN_SELECTOR="conflict:sha256:$EXPLAIN_ENTITY_HASH"
-grep -Fq "EXPLAIN wp duo explain $EXPLAIN_SELECTOR --repo=<repo>" <<<"$TITLE_HUMAN" \
+grep -Fq "EXPLAIN wp wprism explain $EXPLAIN_SELECTOR --repo=<repo>" <<<"$TITLE_HUMAN" \
   || fail "human plan did not print the copyable hash-safe explain selector: $TITLE_HUMAN"
-# DUO-3409: a per-run private directory (portable across GNU/BSD mktemp — see
+# issue #3409: a per-run private directory (portable across GNU/BSD mktemp — see
 # _explain_registry.sh), with the trap installed BEFORE the first write so an
 # interrupt cannot leave the temp namespace occupied for a later sweep.
 EXPLAIN_REGISTRY_DIR=$(alloc_explain_registry_dir)
@@ -622,7 +622,7 @@ remove_strict_explain_mu() {
   # start a one-shot, dependency-free root command against the same volume so
   # cleanup still works when the cli service is the failed leg.
   if output=$($COMPOSE exec -T --user root wp2 sh -c \
-    'rm -f -- /var/www/html/wp-content/mu-plugins/duo-explain-offload-guard.php /var/www/html/wp-content/mu-plugins/duo-explain-cron-freeze.php; printf "%s\\n" cleaned' 2>/dev/null); then
+    'rm -f -- /var/www/html/wp-content/mu-plugins/wprism-explain-offload-guard.php /var/www/html/wp-content/mu-plugins/wprism-explain-cron-freeze.php; printf "%s\\n" cleaned' 2>/dev/null); then
     rc=0
   else
     rc=$?
@@ -631,7 +631,7 @@ remove_strict_explain_mu() {
     return 0
   fi
   if output=$($COMPOSE run --rm -T --no-deps --user root wp2 sh -c \
-    'rm -f -- /var/www/html/wp-content/mu-plugins/duo-explain-offload-guard.php /var/www/html/wp-content/mu-plugins/duo-explain-cron-freeze.php; printf "%s\\n" cleaned' 2>/dev/null); then
+    'rm -f -- /var/www/html/wp-content/mu-plugins/wprism-explain-offload-guard.php /var/www/html/wp-content/mu-plugins/wprism-explain-cron-freeze.php; printf "%s\\n" cleaned' 2>/dev/null); then
     rc=0
   else
     rc=$?
@@ -648,7 +648,7 @@ cleanup_strict_explain() {
   # exec-then-one-shot cleanup attempt; if the Docker daemon itself is dead,
   # only pair destroy (not pair reset) removes their persistent webroot volume.
   if [ "${EXPLAIN_TOOTH_OPTION_MAY_EXIST:-0}" -eq 1 ]; then
-    wp_conf2 option delete duo_explain_mutation_tooth >/dev/null 2>&1 || true
+    wp_conf2 option delete wprism_explain_mutation_tooth >/dev/null 2>&1 || true
   fi
   if [ "${EXPLAIN_MU_MAY_EXIST:-0}" -eq 1 ]; then
     remove_strict_explain_mu || true
@@ -668,15 +668,15 @@ jq -n --arg compose "$PWD/pair.yml" '{envs:{target:{transport:"docker",compose_f
 # the negative invocation assertion.
 EXPLAIN_MU_MAY_EXIST=1
 $COMPOSE exec -T --user root wp2 sh -c \
-  'printf "%s\n" "<?php" "add_filter(\"duo_attachment_capture_source\", static function () { throw new RuntimeException(\"DUO_EXPLAIN_OFFLOAD_HOOK_WAS_INVOKED\"); });" > /var/www/html/wp-content/mu-plugins/duo-explain-offload-guard.php'
-[ "$(wp_conf2 eval 'echo has_filter("duo_attachment_capture_source") ? "registered" : "missing";')" = 'registered' ] \
+  'printf "%s\n" "<?php" "add_filter(\"wprism_attachment_capture_source\", static function () { throw new RuntimeException(\"WPRISM_EXPLAIN_OFFLOAD_HOOK_WAS_INVOKED\"); });" > /var/www/html/wp-content/mu-plugins/wprism-explain-offload-guard.php'
+[ "$(wp_conf2 eval 'echo has_filter("wprism_attachment_capture_source") ? "registered" : "missing";')" = 'registered' ] \
   || fail "the throwing attachment-offload premise hook was not registered"
-# DUO-3410: this proof hashes the WHOLE target database before/after two host
-# `duo explain` invocations and asserts equality to show explain is SELECT-only.
+# issue #3410: this proof hashes the WHOLE target database before/after two host
+# `wprism explain` invocations and asserts equality to show explain is SELECT-only.
 # It false-failed intermittently ("strict explain changed the target database")
 # because UNRELATED asynchronous WordPress state — not any explain write —
 # entered the hash window. Two WP-core mechanisms were identified live (see the
-# DUO-3410 reproduction), both firing on ANY wp-cli WordPress boot, and every
+# issue #3410 reproduction), both firing on ANY wp-cli WordPress boot, and every
 # hash and every explain here IS a wp-cli boot of conf2:
 #   1. WP-Cron: with due events pending (a fresh install has several), spawn_cron()
 #      rewrites the `_transient_doing_cron` option with a fresh microtime() on each
@@ -696,10 +696,10 @@ $COMPOSE exec -T --user root wp2 sh -c \
 wp_conf2 transient delete --expired >/dev/null 2>&1 || true
 wp_conf2 transient delete --expired --network >/dev/null 2>&1 || true
 $COMPOSE exec -T --user root wp2 sh -c \
-  'printf "%s\n" "<?php" "if (!defined(\"DISABLE_WP_CRON\")) { define(\"DISABLE_WP_CRON\", true); }" > /var/www/html/wp-content/mu-plugins/duo-explain-cron-freeze.php'
+  'printf "%s\n" "<?php" "if (!defined(\"DISABLE_WP_CRON\")) { define(\"DISABLE_WP_CRON\", true); }" > /var/www/html/wp-content/mu-plugins/wprism-explain-cron-freeze.php'
 [ "$(wp_conf2 eval 'echo (defined("DISABLE_WP_CRON") && DISABLE_WP_CRON) ? "frozen" : "live";')" = 'frozen' ] \
   || fail "the WP-Cron freeze premise (DISABLE_WP_CRON) was not active for the strict-explain read-only window"
-# DUO-3413: premise-assert the before-export carried bytes BEFORE hashing, so an
+# issue #3413: premise-assert the before-export carried bytes BEFORE hashing, so an
 # empty-at-exit-0 compose run is named as infrastructure rather than silently
 # hashing to the empty-string digest and later reading as an engine mutation.
 EXPLAIN_DB_BEFORE_SQL=$(wp_conf2 db export - --skip-comments --single-transaction 2>/dev/null)
@@ -707,28 +707,28 @@ require_observed_nonempty "conf2 db export (before strict explain)" "$EXPLAIN_DB
 EXPLAIN_DB_BEFORE=$(printf '%s' "$EXPLAIN_DB_BEFORE_SQL" | shasum -a 256 | awk '{print $1}')
 EXPLAIN_REPO_BEFORE=$(git -C "$CONF_REPO2" status --porcelain --untracked-files=all)
 EXPLAIN_RC=0
-# DUO-3413: capture each explain invocation's stderr (into the DUO-3409 per-run
+# issue #3413: capture each explain invocation's stderr (into the issue #3409 per-run
 # registry dir, cleaned below) and read it into a var immediately, so the
 # refusal accusation can paste rc+stdout+stderr instead of dropping stderr to
 # /dev/null. The human invocation's refusals land ONLY on stderr (its healthy
 # framing is `EXPLAIN CONFLICT …`, not wp-cli's), so without this a refusal is
 # undiagnosable from the sweep log.
-EXPLAIN_JSON=$(php ../cli/duo --envs-file="$EXPLAIN_REGISTRY" explain target "$EXPLAIN_SELECTOR" --format=json 2>"$EXPLAIN_REGISTRY_DIR/json.stderr") \
+EXPLAIN_JSON=$(php ../cli/wprism --envs-file="$EXPLAIN_REGISTRY" explain target "$EXPLAIN_SELECTOR" --format=json 2>"$EXPLAIN_REGISTRY_DIR/json.stderr") \
   || EXPLAIN_RC=$?
 EXPLAIN_JSON_ERR=$(cat "$EXPLAIN_REGISTRY_DIR/json.stderr" 2>/dev/null || true)
 EXPLAIN_HUMAN=''
 EXPLAIN_HUMAN_ERR=''
 if [ "$EXPLAIN_RC" -eq 0 ]; then
-  EXPLAIN_HUMAN=$(php ../cli/duo --envs-file="$EXPLAIN_REGISTRY" explain target "$EXPLAIN_SELECTOR" 2>"$EXPLAIN_REGISTRY_DIR/human.stderr") \
+  EXPLAIN_HUMAN=$(php ../cli/wprism --envs-file="$EXPLAIN_REGISTRY" explain target "$EXPLAIN_SELECTOR" 2>"$EXPLAIN_REGISTRY_DIR/human.stderr") \
     || EXPLAIN_RC=$?
   EXPLAIN_HUMAN_ERR=$(cat "$EXPLAIN_REGISTRY_DIR/human.stderr" 2>/dev/null || true)
 fi
-$COMPOSE exec -T --user root wp2 rm -f -- /var/www/html/wp-content/mu-plugins/duo-explain-offload-guard.php
-# DUO-3410: fingerprint the target while WP-Cron is STILL frozen (a db export is
+$COMPOSE exec -T --user root wp2 rm -f -- /var/www/html/wp-content/mu-plugins/wprism-explain-offload-guard.php
+# issue #3410: fingerprint the target while WP-Cron is STILL frozen (a db export is
 # itself a wp-cli boot), so no post-window boot can churn `_transient_doing_cron`
 # back into the AFTER hash. Then stage the mutation-tooth positive control under
 # the SAME quiescing, and only THEN lift the freeze — so every fail-prone
-# assertion below runs after the window is fully closed. (DUO-3413 premise still
+# assertion below runs after the window is fully closed. (issue #3413 premise still
 # applies: an empty-at-exit-0 export is named infrastructure, not a mutation.)
 EXPLAIN_DB_AFTER_SQL=$(wp_conf2 db export - --skip-comments --single-transaction 2>/dev/null)
 require_observed_nonempty "conf2 db export (after strict explain)" "$EXPLAIN_DB_AFTER_SQL"
@@ -744,8 +744,8 @@ EXPLAIN_TOOTH_BEFORE_SQL=$(wp_conf2 db export - --skip-comments --single-transac
 require_observed_nonempty "conf2 db export (mutation-tooth before)" "$EXPLAIN_TOOTH_BEFORE_SQL"
 EXPLAIN_TOOTH_BEFORE=$(printf '%s' "$EXPLAIN_TOOTH_BEFORE_SQL" | shasum -a 256 | awk '{print $1}')
 EXPLAIN_TOOTH_OPTION_MAY_EXIST=1
-wp_conf2 option update duo_explain_mutation_tooth duo-3410 >/dev/null \
-  || fail "DUO-3410 mutation-tooth self-test could not stage its durable probe write"
+wp_conf2 option update wprism_explain_mutation_tooth conformance-check >/dev/null \
+  || fail "issue #3410 mutation-tooth self-test could not stage its durable probe write"
 EXPLAIN_TOOTH_AFTER_RC=0
 EXPLAIN_TOOTH_AFTER_SQL=$(wp_conf2 db export - --skip-comments --single-transaction 2>/dev/null) \
   || EXPLAIN_TOOTH_AFTER_RC=$?
@@ -753,7 +753,7 @@ EXPLAIN_TOOTH_AFTER_SQL=$(wp_conf2 db export - --skip-comments --single-transact
 # premise check below can abort on an empty-at-exit-0 observation. The EXIT
 # cleanup above covers the separate non-zero/partial-write failure shape.
 EXPLAIN_TOOTH_DELETE_RC=0
-EXPLAIN_TOOTH_DELETE_OUT=$(wp_conf2 option delete duo_explain_mutation_tooth 2>/dev/null) \
+EXPLAIN_TOOTH_DELETE_OUT=$(wp_conf2 option delete wprism_explain_mutation_tooth 2>/dev/null) \
   || EXPLAIN_TOOTH_DELETE_RC=$?
 [ "$EXPLAIN_TOOTH_DELETE_RC" -eq 0 ] && [ -n "$EXPLAIN_TOOTH_DELETE_OUT" ] \
   || fail "infrastructure failure: conf2 mutation-tooth cleanup was not answered (rc=$EXPLAIN_TOOTH_DELETE_RC)"
@@ -762,7 +762,7 @@ EXPLAIN_TOOTH_OPTION_MAY_EXIST=0
   || fail "infrastructure failure: conf2 db export (mutation-tooth after) failed (rc=$EXPLAIN_TOOTH_AFTER_RC)"
 require_observed_nonempty "conf2 db export (mutation-tooth after)" "$EXPLAIN_TOOTH_AFTER_SQL"
 EXPLAIN_TOOTH_AFTER=$(printf '%s' "$EXPLAIN_TOOTH_AFTER_SQL" | shasum -a 256 | awk '{print $1}')
-# DUO-3410/3424: lift both MU files only after the strict-explain and tooth
+# issue #3410/3424: lift both MU files only after the strict-explain and tooth
 # observations have answered. The helper verifies that either the running
 # container or a one-shot root fallback actually executed the removal.
 remove_strict_explain_mu \
@@ -771,18 +771,18 @@ EXPLAIN_MU_MAY_EXIST=0
 rm -rf -- "$EXPLAIN_REGISTRY_DIR"
 trap - EXIT
 # The json invocation is safe to gate: the host CLI's refusal envelope goes to
-# STDOUT (cli/duo's wants_agent_refusal_json path), so a genuine refusal still
+# STDOUT (cli/wprism's wants_agent_refusal_json path), so a genuine refusal still
 # reaches the accusation below while a compose-layer death (empty stdout)
 # names infrastructure. The HUMAN invocation above is deliberately ungated —
 # its healthy framing is `EXPLAIN CONFLICT …`, not wp-cli's, and its refusals
-# land on the dropped stderr (DUO-3413 owns capturing that).
-require_duo_answered "host duo explain (json envelope)" json "$EXPLAIN_JSON"
-# DUO-3413: paste rc + both streams of both invocations so a refusal is
+# land on the dropped stderr (issue #3413 owns capturing that).
+require_wprism_answered "host wprism explain (json envelope)" json "$EXPLAIN_JSON"
+# issue #3413: paste rc + both streams of both invocations so a refusal is
 # diagnosable from the sweep log (the human refusal lands on stderr).
 [ "$EXPLAIN_RC" -eq 0 ] \
-  || fail "public host duo explain refused a valid current selector (rc=$EXPLAIN_RC) -- json=${EXPLAIN_JSON:-<empty>} | json-stderr=${EXPLAIN_JSON_ERR:-<empty>} | human=${EXPLAIN_HUMAN:-<empty>} | human-stderr=${EXPLAIN_HUMAN_ERR:-<empty>}"
+  || fail "public host wprism explain refused a valid current selector (rc=$EXPLAIN_RC) -- json=${EXPLAIN_JSON:-<empty>} | json-stderr=${EXPLAIN_JSON_ERR:-<empty>} | human=${EXPLAIN_HUMAN:-<empty>} | human-stderr=${EXPLAIN_HUMAN_ERR:-<empty>}"
 jq -e --arg selector "$EXPLAIN_SELECTOR" --arg entity_hash "$EXPLAIN_ENTITY_HASH" '
-  .format == "duo-explain/v1"
+  .format == "wprism-explain/v1"
   and .ok == true
   and .selector.bucket == "conflict"
   and .selector.entity_identity_sha256 == $entity_hash
@@ -822,35 +822,35 @@ for NEEDLE in \
   grep -Fq "$NEEDLE" <<<"$EXPLAIN_HUMAN" \
     || fail "human explain is missing '$NEEDLE': $EXPLAIN_HUMAN"
 done
-# DUO-3413: paste both digests into the mutation accusation so it is diagnosable
+# issue #3413: paste both digests into the mutation accusation so it is diagnosable
 # (was neither hash nor diff). EXPLAIN_DB_AFTER was captured above under the same
-# WP-Cron/transient quiescing as EXPLAIN_DB_BEFORE (DUO-3410), while frozen.
+# WP-Cron/transient quiescing as EXPLAIN_DB_BEFORE (issue #3410), while frozen.
 [ "$EXPLAIN_DB_AFTER" = "$EXPLAIN_DB_BEFORE" ] \
   || fail "strict explain changed the target database: before=$EXPLAIN_DB_BEFORE after=$EXPLAIN_DB_AFTER"
 EXPLAIN_REPO_AFTER=$(git -C "$CONF_REPO2" status --porcelain --untracked-files=all)
 [ "$EXPLAIN_REPO_AFTER" = "$EXPLAIN_REPO_BEFORE" ] \
   || fail "strict explain changed the target repository: $(diff <(printf '%s\n' "$EXPLAIN_REPO_BEFORE") <(printf '%s\n' "$EXPLAIN_REPO_AFTER") | tr '\n' ' ')"
-# DUO-3410 mutation-tooth positive control, deferred to here so the freeze is
+# issue #3410 mutation-tooth positive control, deferred to here so the freeze is
 # already lifted before any fail: under the SAME quiescing this proof used, a real
 # durable write to a non-transient option must still move the whole-database
 # fingerprint — proving the quiescing removed the async WP-Cron/transient churn
 # WITHOUT removing the read-only tooth.
 [ "$EXPLAIN_TOOTH_AFTER" != "$EXPLAIN_TOOTH_BEFORE" ] \
-  || fail "DUO-3410 mutation-tooth regression: under the SAME async-churn quiescing this proof uses, a real durable write to a non-transient option no longer moves the whole-database fingerprint — the SELECT-only tooth is gone, and a genuine explain write could pass unseen"
-pass "public duo explain traces one current row through a deterministic value-free contract with zero database/repository/provider/action mutation (DUO-3410: WP-Cron/expired-transient churn quiesced across the window; whole-database mutation tooth verified live under that same quiescing)"
+  || fail "issue #3410 mutation-tooth regression: under the SAME async-churn quiescing this proof uses, a real durable write to a non-transient option no longer moves the whole-database fingerprint — the SELECT-only tooth is gone, and a genuine explain write could pass unseen"
+pass "public wprism explain traces one current row through a deterministic value-free contract with zero database/repository/provider/action mutation (issue #3410: WP-Cron/expired-transient churn quiesced across the window; whole-database mutation tooth verified live under that same quiescing)"
 
 CONFLICT_TARGET_BEFORE=$(wp_conf2 post list --post_type=page --name=branch-a --field=post_title) || true
 require_observed_nonempty "conf2 branch-a post_title (unforced-conflict target baseline)" "$CONFLICT_TARGET_BEFORE"
-CONFLICT_BASE_BEFORE=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$UA'" --skip-column-names | tr -d '[:space:]') || true
-require_observed_nonempty "conf2 wp_duo_state content_hash (unforced-conflict base baseline)" "$CONFLICT_BASE_BEFORE"
+CONFLICT_BASE_BEFORE=$(wp_conf2 db query "SELECT content_hash FROM wp_wprism_state WHERE uuid = '$UA'" --skip-column-names | tr -d '[:space:]') || true
+require_observed_nonempty "conf2 wp_wprism_state content_hash (unforced-conflict base baseline)" "$CONFLICT_BASE_BEFORE"
 CONFLICT_RC=0
-CONFLICT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || CONFLICT_RC=$?
-require_duo_answered "conf2 duo apply (unforced three-way conflict probe)" human "$CONFLICT_OUT"
+CONFLICT_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || CONFLICT_RC=$?
+require_wprism_answered "conf2 wprism apply (unforced three-way conflict probe)" human "$CONFLICT_OUT"
 [ "$CONFLICT_RC" -ne 0 ] && grep -qi 'conflicts (env and repo both changed' <<<"$CONFLICT_OUT" \
   || fail "unforced three-way conflict did not refuse before mutation: $CONFLICT_OUT"
-# DUO-3401: capture each target OBSERVATION into a var and name an
+# issue #3401: capture each target OBSERVATION into a var and name an
 # empty-at-exit-0 compose death as infrastructure BEFORE comparing, so the
-# DUO-3381 signature (a load-starved `docker compose run` returning EMPTY at
+# issue #3381 signature (a load-starved `docker compose run` returning EMPTY at
 # exit 0) is named at the read site instead of reading as an engine mutation.
 # A healthy (non-empty) read reaches the exact same compare; a real mutation
 # (a different non-empty value) still reaches the accusation.
@@ -858,21 +858,21 @@ CONFLICT_TARGET_AFTER=$(wp_conf2 post list --post_type=page --name=branch-a --fi
 require_observed_nonempty "conf2 branch-a post_title (unforced-conflict target)" "$CONFLICT_TARGET_AFTER"
 [ "$CONFLICT_TARGET_AFTER" = "$CONFLICT_TARGET_BEFORE" ] \
   || fail "unforced conflict mutated the target title (before=$CONFLICT_TARGET_BEFORE after=$CONFLICT_TARGET_AFTER)"
-CONFLICT_BASE_AFTER=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$UA'" --skip-column-names | tr -d '[:space:]') || true
-require_observed_nonempty "conf2 wp_duo_state content_hash (unforced-conflict base)" "$CONFLICT_BASE_AFTER"
+CONFLICT_BASE_AFTER=$(wp_conf2 db query "SELECT content_hash FROM wp_wprism_state WHERE uuid = '$UA'" --skip-column-names | tr -d '[:space:]') || true
+require_observed_nonempty "conf2 wp_wprism_state content_hash (unforced-conflict base)" "$CONFLICT_BASE_AFTER"
 [ "$CONFLICT_BASE_AFTER" = "$CONFLICT_BASE_BEFORE" ] \
   || fail "unforced conflict advanced the target's last-synced base (before=$CONFLICT_BASE_BEFORE after=$CONFLICT_BASE_AFTER)"
-FORCED_CONFLICT=$(wp_conf2 duo apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "conf2 duo apply --force-theirs conflict override" json "$FORCED_CONFLICT"
+FORCED_CONFLICT=$(wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "conf2 wprism apply --force-theirs conflict override" json "$FORCED_CONFLICT"
 jq -e --arg uuid "$UA" '.warnings | any(contains("FORCED conflict " + $uuid))' <<<"$FORCED_CONFLICT" >/dev/null \
   || fail "--force-theirs did not report the overridden conflict in machine output: $FORCED_CONFLICT"
 CONFLICT_TARGET_CONVERGED=$(wp_conf2 post list --post_type=page --name=branch-a --field=post_title) || true
 require_observed_nonempty "conf2 branch-a post_title (forced-conflict convergence)" "$CONFLICT_TARGET_CONVERGED"
 [ "$CONFLICT_TARGET_CONVERGED" = 'Branch Repository Intent For Conflict' ] \
   || fail "forced repository intent did not converge on target (after=$CONFLICT_TARGET_CONVERGED)"
-pass "plan conflicts speak WordPress names, expose hash-only base/repository/target intent, recommend reconciliation, and report destructive override (DUO-3345)"
+pass "plan conflicts speak WordPress names, expose hash-only base/repository/target intent, recommend reconciliation, and report destructive override (issue #3345)"
 
-# DUO-3210: absence alone is not authority; capture replaces the prior Home
+# issue #3210: absence alone is not authority; capture replaces the prior Home
 # page with a versioned tombstone. A target-only comment blocks deletion,
 # the explicit force path stays loud, comments are preserved, and the
 # tombstone receipt makes retry a no-op.
@@ -886,45 +886,45 @@ require_fixture_ids HOME1 HOME2
 COMMENT2=$(wp_conf2 comment create --comment_post_ID="$HOME2" --comment_content='runtime deletion guard' --comment_author='Runtime Visitor' --porcelain)
 require_fixture_ids COMMENT2
 wp_conf1 post delete "$HOME1" --force >/dev/null
-DELETE_CAPTURE=$(wp_conf1 duo capture --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "conf1 duo capture page deletion" json "$DELETE_CAPTURE"
+DELETE_CAPTURE=$(wp_conf1 wprism capture --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "conf1 wprism capture page deletion" json "$DELETE_CAPTURE"
 [ "$(jq -r '.counts.deletion' <<<"$DELETE_CAPTURE")" -ge 1 ] \
   || fail "page deletion did not emit a tombstone: $DELETE_CAPTURE"
 [ -f "$CONF_REPO1/state/deletions/$HOME_UUID.json" ] || fail "Home tombstone was not published"
 git -C "$CONF_REPO1" add -A
-git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: explicit page deletion'
+git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: explicit page deletion'
 git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
 
-DELETE_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "conf2 duo plan referential page deletion" json "$DELETE_PLAN"
+DELETE_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "conf2 wprism plan referential page deletion" json "$DELETE_PLAN"
 jq -e --arg uuid "$HOME_UUID" '.delete | any(.uuid == $uuid and (.blocked | contains("comments reference")))' \
   <<<"$DELETE_PLAN" >/dev/null || fail "target-only comment did not block the explicit page deletion: $DELETE_PLAN"
 DELETE_RC=0
-DELETE_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || DELETE_RC=$?
-require_duo_answered "conf2 duo apply --with-deletes (referential guard probe)" human "$DELETE_OUT"
+DELETE_OUT=$(wp_conf2 wprism apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || DELETE_RC=$?
+require_wprism_answered "conf2 wprism apply --with-deletes (referential guard probe)" human "$DELETE_OUT"
 [ "$DELETE_RC" -ne 0 ] && grep -qi 'referential guard' <<<"$DELETE_OUT" \
   || fail "guarded page delete was not refused: $DELETE_OUT"
-DELETE_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --force-delete-referenced --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "conf2 duo apply forced page deletion" json "$DELETE_OUT"
+DELETE_OUT=$(wp_conf2 wprism apply --repo=/siterepo --with-deletes --force-delete-referenced --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "conf2 wprism apply forced page deletion" json "$DELETE_OUT"
 jq -e '.canary == "clean" and (.warnings | any(contains("FORCED delete")))' <<<"$DELETE_OUT" >/dev/null \
   || fail "forced page deletion was not loud and clean: $DELETE_OUT"
 [ -z "$(wp_conf2 post list --post_type=page --name=home --field=ID)" ] || fail "Home page survived exact deletion"
-# DUO-3401: `comment get` on a genuine cascade exits NON-zero, but a
-# compose-death empty arrives at exit 0 (DUO-3381). Capture, name only the
+# issue #3401: `comment get` on a genuine cascade exits NON-zero, but a
+# compose-death empty arrives at exit 0 (issue #3381). Capture, name only the
 # exit-0 empty as infrastructure, and let a real (non-zero) cascade still
 # reach the engine accusation below.
 COMMENT2_REF_RC=0
 COMMENT2_REF=$(wp_conf2 comment get "$COMMENT2" --field=comment_ID 2>/dev/null) || COMMENT2_REF_RC=$?
 [ "$COMMENT2_REF_RC" -ne 0 ] || require_observed_nonempty "conf2 comment get (preserved runtime comment)" "$COMMENT2_REF"
 [ "$COMMENT2_REF" = "$COMMENT2" ] || fail "runtime comment was cascaded or lost (expected=$COMMENT2 got=${COMMENT2_REF:-<empty>})"
-RETRY_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "conf2 duo plan page deletion retry" json "$RETRY_PLAN"
+RETRY_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "conf2 wprism plan page deletion retry" json "$RETRY_PLAN"
 jq -e --arg uuid "$HOME_UUID" '(.delete | length) == 0 and (.delete_conflict | length) == 0 and (.deleted | any(.uuid == $uuid))' \
   <<<"$RETRY_PLAN" >/dev/null || fail "page tombstone retry did not settle as deleted: $RETRY_PLAN"
 pass "explicit page tombstone guards and preserves comments, verifies exact deletion, and retries idempotently"
 
-# Local edit: the tombstone expected base matches duo_state, but the live
+# Local edit: the tombstone expected base matches wprism_state, but the live
 # hash does not. Editing creates a derived revision child; the adapter
 # explicitly cascades and verifies revisions while --force-theirs reports
 # the overridden delete conflict.
@@ -939,13 +939,13 @@ wp_conf2 post update "$HELLO2" --post_content='target-only deletion conflict' >/
 HELLO_COMMENT=$(wp_conf2 comment create --comment_post_ID="$HELLO2" --comment_content='runtime conflict guard' --comment_author='Runtime Visitor' --porcelain)
 require_fixture_ids HELLO_COMMENT
 wp_conf1 post delete "$HELLO1" --force >/dev/null
-wp_conf1 duo capture --repo=/siterepo >/dev/null
+wp_conf1 wprism capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
-git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: delete against target local edit'
+git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: delete against target local edit'
 git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
-BLOCKED_LOCAL_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "conf2 duo plan guard-blocked deletion conflict" json "$BLOCKED_LOCAL_PLAN"
+BLOCKED_LOCAL_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "conf2 wprism plan guard-blocked deletion conflict" json "$BLOCKED_LOCAL_PLAN"
 jq -e --arg uuid "$HELLO_UUID" '.delete_conflict | any(
   .uuid == $uuid
   and (.blocked | contains("comments reference"))
@@ -953,30 +953,30 @@ jq -e --arg uuid "$HELLO_UUID" '.delete_conflict | any(
   and (.conflict_view.choices | any(.id == "reconcile_in_repository" and .destructive == false))
 )' <<<"$BLOCKED_LOCAL_PLAN" >/dev/null \
   || fail "guard-blocked deletion conflict advertised a destructive repository choice: $BLOCKED_LOCAL_PLAN"
-BLOCKED_LOCAL_HUMAN=$(wp_conf2 duo plan --repo=/siterepo)
-require_duo_answered "conf2 duo plan guard-blocked deletion human view" human "$BLOCKED_LOCAL_HUMAN"
+BLOCKED_LOCAL_HUMAN=$(wp_conf2 wprism plan --repo=/siterepo)
+require_wprism_answered "conf2 wprism plan guard-blocked deletion human view" human "$BLOCKED_LOCAL_HUMAN"
 ! grep -Fq 'DESTRUCTIVE OVERRIDE apply_repository' <<<"$BLOCKED_LOCAL_HUMAN" \
   || fail "guard-blocked deletion conflict advertised a destructive override in human output: $BLOCKED_LOCAL_HUMAN"
 BLOCKED_CONTENT_BEFORE=$(wp_conf2 post get "$HELLO2" --field=post_content) || true
 require_observed_nonempty "conf2 post get post_content (guard-blocked deletion target baseline)" "$BLOCKED_CONTENT_BEFORE"
-BLOCKED_BASE_BEFORE=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$HELLO_UUID'" --skip-column-names | tr -d '[:space:]') || true
-require_observed_nonempty "conf2 wp_duo_state content_hash (guard-blocked deletion base baseline)" "$BLOCKED_BASE_BEFORE"
+BLOCKED_BASE_BEFORE=$(wp_conf2 db query "SELECT content_hash FROM wp_wprism_state WHERE uuid = '$HELLO_UUID'" --skip-column-names | tr -d '[:space:]') || true
+require_observed_nonempty "conf2 wp_wprism_state content_hash (guard-blocked deletion base baseline)" "$BLOCKED_BASE_BEFORE"
 BLOCKED_FORCE_RC=0
-BLOCKED_FORCE_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --force-theirs --default-author=admin --format=json 2>/dev/null) \
+BLOCKED_FORCE_OUT=$(wp_conf2 wprism apply --repo=/siterepo --with-deletes --force-theirs --default-author=admin --format=json 2>/dev/null) \
   || BLOCKED_FORCE_RC=$?
-# DUO-3391: json mode, and stderr is deliberately dropped — a compose-layer
+# issue #3391: json mode, and stderr is deliberately dropped — a compose-layer
 # death therefore leaves $BLOCKED_FORCE_OUT EMPTY while satisfying the
 # non-zero-exit assertion below vacuously, and the typed-evidence assertion
 # after it then accuses the engine of losing its refusal envelope.
-require_duo_answered "conf2 duo apply --with-deletes --force-theirs (json refusal envelope)" json "$BLOCKED_FORCE_OUT"
+require_wprism_answered "conf2 wprism apply --with-deletes --force-theirs (json refusal envelope)" json "$BLOCKED_FORCE_OUT"
 [ "$BLOCKED_FORCE_RC" -ne 0 ] \
   || fail "guard-blocked deletion conflict accepted incomplete force authorization: $BLOCKED_FORCE_OUT"
 BLOCKED_FORCE_JSON=$(awk 'NF { line=$0 } END { print line }' <<<"$BLOCKED_FORCE_OUT")
 BLOCKED_ENTITY_HASH=$(printf '%s' "$HELLO_UUID" | shasum -a 256 | awk '{print $1}')
-jq -e --arg entity_hash "$BLOCKED_ENTITY_HASH" '.format == "duo-command-refusal/v1"
+jq -e --arg entity_hash "$BLOCKED_ENTITY_HASH" '.format == "wprism-command-refusal/v1"
   and .error == "apply_conflict_override_incomplete"
   and (.forced_overrides | length) == 1
-  and .forced_overrides[0].format == "duo-forced-plan-override/v1"
+  and .forced_overrides[0].format == "wprism-forced-plan-override/v1"
   and .forced_overrides[0].plan_bucket == "delete_conflict"
   and .forced_overrides[0].entity_identity_sha256 == $entity_hash
   and .forced_overrides[0].conflict_kind == "tombstone_conflict"
@@ -991,18 +991,18 @@ jq -e --arg entity_hash "$BLOCKED_ENTITY_HASH" '.format == "duo-command-refusal/
   || fail "guard-blocked deletion refusal leaked the raw entity identity: $BLOCKED_FORCE_JSON"
 ! grep -Fq 'runtime conflict guard' <<<"$BLOCKED_FORCE_JSON" \
   || fail "guard-blocked deletion refusal leaked raw guard detail: $BLOCKED_FORCE_JSON"
-# DUO-3401: post get exits non-zero on a genuinely deleted target, so a
+# issue #3401: post get exits non-zero on a genuinely deleted target, so a
 # compose-death empty (exit 0) is distinguished from a real deletion.
 BLOCKED_CONTENT_AFTER_RC=0
 BLOCKED_CONTENT_AFTER=$(wp_conf2 post get "$HELLO2" --field=post_content 2>/dev/null) || BLOCKED_CONTENT_AFTER_RC=$?
 [ "$BLOCKED_CONTENT_AFTER_RC" -ne 0 ] || require_observed_nonempty "conf2 post get post_content (guard-blocked deletion target)" "$BLOCKED_CONTENT_AFTER"
 [ "$BLOCKED_CONTENT_AFTER" = "$BLOCKED_CONTENT_BEFORE" ] \
   || fail "guard-blocked forced deletion mutated the target post (before=$BLOCKED_CONTENT_BEFORE after=$BLOCKED_CONTENT_AFTER)"
-BLOCKED_BASE_AFTER=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$HELLO_UUID'" --skip-column-names | tr -d '[:space:]') || true
-require_observed_nonempty "conf2 wp_duo_state content_hash (guard-blocked deletion base)" "$BLOCKED_BASE_AFTER"
+BLOCKED_BASE_AFTER=$(wp_conf2 db query "SELECT content_hash FROM wp_wprism_state WHERE uuid = '$HELLO_UUID'" --skip-column-names | tr -d '[:space:]') || true
+require_observed_nonempty "conf2 wp_wprism_state content_hash (guard-blocked deletion base)" "$BLOCKED_BASE_AFTER"
 [ "$BLOCKED_BASE_AFTER" = "$BLOCKED_BASE_BEFORE" ] \
   || fail "guard-blocked forced deletion advanced the last-synced base (before=$BLOCKED_BASE_BEFORE after=$BLOCKED_BASE_AFTER)"
-# DUO-3401: was `comment get … >/dev/null || fail` — a compose-death empty
+# issue #3401: was `comment get … >/dev/null || fail` — a compose-death empty
 # tripped this engine accusation. Capture, name an exit-0 empty as
 # infrastructure, and keep the accusation for a genuine (non-zero) removal.
 HELLO_COMMENT_REF_RC=0
@@ -1012,13 +1012,13 @@ HELLO_COMMENT_REF=$(wp_conf2 comment get "$HELLO_COMMENT" --field=comment_ID 2>/
   || fail "guard-blocked forced deletion removed its runtime reference (expected=$HELLO_COMMENT got=${HELLO_COMMENT_REF:-<empty>})"
 pass "guard-blocked deletion conflict refuses incomplete force authorization with truthful typed evidence and zero target/ledger mutation"
 wp_conf2 comment delete "$HELLO_COMMENT" --force >/dev/null
-LOCAL_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "conf2 duo plan local deletion conflict" json "$LOCAL_PLAN"
+LOCAL_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "conf2 wprism plan local deletion conflict" json "$LOCAL_PLAN"
 jq -e --arg uuid "$HELLO_UUID" '.delete_conflict | any(
   .uuid == $uuid
   and (.reason | contains("changed locally"))
   and (has("blocked") | not)
-  and .conflict_view.format == "duo-plan-conflict/v1"
+  and .conflict_view.format == "wprism-plan-conflict/v1"
   and .conflict_view.kind == "tombstone_conflict"
   and .conflict_view.reason_code == "target_changed_since_delete_base"
   and .conflict_view.base.role == "last_synced"
@@ -1030,8 +1030,8 @@ jq -e --arg uuid "$HELLO_UUID" '.delete_conflict | any(
   and (.conflict_view.choices | any(.id == "apply_repository" and .requires == ["--with-deletes","--force-theirs"] and .effect == "delete_target_authored_state" and .destructive == true))
 )' \
   <<<"$LOCAL_PLAN" >/dev/null || fail "local edit did not become a deletion conflict: $LOCAL_PLAN"
-LOCAL_HUMAN=$(wp_conf2 duo plan --repo=/siterepo)
-require_duo_answered "conf2 duo plan local deletion conflict human view" human "$LOCAL_HUMAN"
+LOCAL_HUMAN=$(wp_conf2 wprism plan --repo=/siterepo)
+require_wprism_answered "conf2 wprism plan local deletion conflict human view" human "$LOCAL_HUMAN"
 for NEEDLE in \
   'WHY target_changed_since_delete_base' \
   'REPOSITORY intent=delete state=none expected-base=sha256:' \
@@ -1041,16 +1041,16 @@ for NEEDLE in \
 done
 LOCAL_FORCE_ONLY_CONTENT=$(wp_conf2 post get "$HELLO2" --field=post_content) || true
 require_observed_nonempty "conf2 post get post_content (force-theirs-only deletion-conflict target baseline)" "$LOCAL_FORCE_ONLY_CONTENT"
-LOCAL_FORCE_ONLY_BASE=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$HELLO_UUID'" --skip-column-names | tr -d '[:space:]') || true
-require_observed_nonempty "conf2 wp_duo_state content_hash (force-theirs-only deletion-conflict base baseline)" "$LOCAL_FORCE_ONLY_BASE"
+LOCAL_FORCE_ONLY_BASE=$(wp_conf2 db query "SELECT content_hash FROM wp_wprism_state WHERE uuid = '$HELLO_UUID'" --skip-column-names | tr -d '[:space:]') || true
+require_observed_nonempty "conf2 wp_wprism_state content_hash (force-theirs-only deletion-conflict base baseline)" "$LOCAL_FORCE_ONLY_BASE"
 LOCAL_FORCE_ONLY_RC=0
-LOCAL_FORCE_ONLY_OUT=$(wp_conf2 duo apply --repo=/siterepo --force-theirs --default-author=admin --format=json 2>/dev/null) \
+LOCAL_FORCE_ONLY_OUT=$(wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json 2>/dev/null) \
   || LOCAL_FORCE_ONLY_RC=$?
-require_duo_answered "conf2 duo apply --force-theirs (json refusal envelope)" json "$LOCAL_FORCE_ONLY_OUT"
+require_wprism_answered "conf2 wprism apply --force-theirs (json refusal envelope)" json "$LOCAL_FORCE_ONLY_OUT"
 [ "$LOCAL_FORCE_ONLY_RC" -ne 0 ] \
   || fail "entity tombstone conflict accepted --force-theirs without --with-deletes: $LOCAL_FORCE_ONLY_OUT"
 LOCAL_FORCE_ONLY_JSON=$(awk 'NF { line=$0 } END { print line }' <<<"$LOCAL_FORCE_ONLY_OUT")
-jq -e --arg entity_hash "$BLOCKED_ENTITY_HASH" '.format == "duo-command-refusal/v1"
+jq -e --arg entity_hash "$BLOCKED_ENTITY_HASH" '.format == "wprism-command-refusal/v1"
   and .error == "apply_conflict_override_incomplete"
   and (.forced_overrides | length) == 1
   and .forced_overrides[0].entity_identity_sha256 == $entity_hash
@@ -1060,25 +1060,25 @@ jq -e --arg entity_hash "$BLOCKED_ENTITY_HASH" '.format == "duo-command-refusal/
   and .forced_overrides[0].supplied_flags == ["--force-theirs"]
   and .forced_overrides[0].status == "incomplete"' <<<"$LOCAL_FORCE_ONLY_JSON" >/dev/null \
   || fail "entity tombstone conflict did not report the missing --with-deletes authorization honestly: $LOCAL_FORCE_ONLY_JSON"
-# DUO-3401: same guard as the guard-blocked region above — name a
+# issue #3401: same guard as the guard-blocked region above — name a
 # compose-death empty as infrastructure before the mutation compare.
 LOCAL_FORCE_ONLY_CONTENT_AFTER_RC=0
 LOCAL_FORCE_ONLY_CONTENT_AFTER=$(wp_conf2 post get "$HELLO2" --field=post_content 2>/dev/null) || LOCAL_FORCE_ONLY_CONTENT_AFTER_RC=$?
 [ "$LOCAL_FORCE_ONLY_CONTENT_AFTER_RC" -ne 0 ] || require_observed_nonempty "conf2 post get post_content (force-theirs-only deletion-conflict target)" "$LOCAL_FORCE_ONLY_CONTENT_AFTER"
 [ "$LOCAL_FORCE_ONLY_CONTENT_AFTER" = "$LOCAL_FORCE_ONLY_CONTENT" ] \
   || fail "--force-theirs without --with-deletes mutated the deletion-conflict target (before=$LOCAL_FORCE_ONLY_CONTENT after=$LOCAL_FORCE_ONLY_CONTENT_AFTER)"
-LOCAL_FORCE_ONLY_BASE_AFTER=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$HELLO_UUID'" --skip-column-names | tr -d '[:space:]') || true
-require_observed_nonempty "conf2 wp_duo_state content_hash (force-theirs-only deletion-conflict base)" "$LOCAL_FORCE_ONLY_BASE_AFTER"
+LOCAL_FORCE_ONLY_BASE_AFTER=$(wp_conf2 db query "SELECT content_hash FROM wp_wprism_state WHERE uuid = '$HELLO_UUID'" --skip-column-names | tr -d '[:space:]') || true
+require_observed_nonempty "conf2 wp_wprism_state content_hash (force-theirs-only deletion-conflict base)" "$LOCAL_FORCE_ONLY_BASE_AFTER"
 [ "$LOCAL_FORCE_ONLY_BASE_AFTER" = "$LOCAL_FORCE_ONLY_BASE" ] \
   || fail "--force-theirs without --with-deletes advanced the deletion-conflict base (before=$LOCAL_FORCE_ONLY_BASE after=$LOCAL_FORCE_ONLY_BASE_AFTER)"
 pass "entity tombstone conflicts require both advertised flags and refuse incomplete authorization without mutation"
 LOCAL_RC=0
-LOCAL_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || LOCAL_RC=$?
-require_duo_answered "conf2 duo apply --with-deletes (unforced delete conflict probe)" human "$LOCAL_OUT"
+LOCAL_OUT=$(wp_conf2 wprism apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || LOCAL_RC=$?
+require_wprism_answered "conf2 wprism apply --with-deletes (unforced delete conflict probe)" human "$LOCAL_OUT"
 [ "$LOCAL_RC" -ne 0 ] && grep -qi 'deletion conflicts' <<<"$LOCAL_OUT" \
   || fail "unforced delete conflict was not refused: $LOCAL_OUT"
-LOCAL_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "conf2 duo apply forced local deletion conflict" json "$LOCAL_OUT"
+LOCAL_OUT=$(wp_conf2 wprism apply --repo=/siterepo --with-deletes --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "conf2 wprism apply forced local deletion conflict" json "$LOCAL_OUT"
 jq -e '.canary == "clean" and (.warnings | any(contains("FORCED deletion conflict")))' <<<"$LOCAL_OUT" >/dev/null \
   || fail "forced local-edit deletion did not report its override: $LOCAL_OUT"
 [ -z "$(wp_conf2 post list --post_type=post --name=hello-conformance --field=ID)" ] || fail "locally edited post survived forced deletion"
@@ -1094,21 +1094,21 @@ require_fixture_values ATT_UUID
 ATT1=$(wp_conf1 post list --post_type=attachment --name=conformance-logo --field=ID | tr -d '[:space:]')
 require_fixture_ids ATT1
 wp_conf1 post update "$ATT1" --post_title='Conformance Logo Branch Edit' >/dev/null
-wp_conf1 duo capture --repo=/siterepo >/dev/null
+wp_conf1 wprism capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
-git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: branch edits attachment'
+git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: branch edits attachment'
 git -C "$CONF_REPO1" push -q origin main
 wp_conf1 post delete "$ATT1" --force >/dev/null
-wp_conf1 duo capture --repo=/siterepo >/dev/null
+wp_conf1 wprism capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
-git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: delete branch-edited attachment'
+git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: delete branch-edited attachment'
 git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
-BRANCH_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "conf2 duo plan branch deletion conflict" json "$BRANCH_PLAN"
+BRANCH_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "conf2 wprism plan branch deletion conflict" json "$BRANCH_PLAN"
 jq -e --arg uuid "$ATT_UUID" '.delete_conflict | any(.uuid == $uuid and (.reason | contains("expected hash")))' \
   <<<"$BRANCH_PLAN" >/dev/null || fail "delete-vs-branch-edit did not conflict on its expected base: $BRANCH_PLAN"
-wp_conf2 duo apply --repo=/siterepo --with-deletes --force-theirs --default-author=admin --format=json >/dev/null
+wp_conf2 wprism apply --repo=/siterepo --with-deletes --force-theirs --default-author=admin --format=json >/dev/null
 [ -z "$(wp_conf2 post list --post_type=attachment --name=conformance-logo --field=ID)" ] || fail "branch-conflicted attachment survived forced deletion"
 pass "delete-vs-branch-edit conflicts on the tombstone expected base"
 
@@ -1117,21 +1117,21 @@ CHILD_FILE=$(find "$CONF_REPO1/state/posts/page" -name '*--shared-child.md' -pri
 require_fixture_values CHILD_FILE
 CHILD_UUID=$(basename "$CHILD_FILE" | sed -E 's/--shared-child\.md$//')
 require_fixture_values CHILD_UUID
-CHILD1=$(wp_conf1 eval "echo \\Duo\\Ledger::id_for('$CHILD_UUID', \\Duo\\Ledger::KIND_POST);")
+CHILD1=$(wp_conf1 eval "echo \\WPrism\\Ledger::id_for('$CHILD_UUID', \\WPrism\\Ledger::KIND_POST);")
 require_fixture_ids CHILD1
 wp_conf1 post delete "$CHILD1" --force >/dev/null
-wp_conf1 duo capture --repo=/siterepo >/dev/null
+wp_conf1 wprism capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
-git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: missing deletion guard table'
+git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: missing deletion guard table'
 git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
-wp_conf2 db query 'RENAME TABLE wp_comments TO wp_comments_duo_hold' >/dev/null
-MISSING_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "conf2 duo plan missing guard table" json "$MISSING_PLAN"
+wp_conf2 db query 'RENAME TABLE wp_comments TO wp_comments_wprism_hold' >/dev/null
+MISSING_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "conf2 wprism plan missing guard table" json "$MISSING_PLAN"
 jq -e --arg uuid "$CHILD_UUID" '.delete | any(.uuid == $uuid and (.blocked | contains("required guard table")))' \
   <<<"$MISSING_PLAN" >/dev/null || fail "missing guard table did not fail closed: $MISSING_PLAN"
-wp_conf2 db query 'RENAME TABLE wp_comments_duo_hold TO wp_comments' >/dev/null
-wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin --format=json >/dev/null
+wp_conf2 db query 'RENAME TABLE wp_comments_wprism_hold TO wp_comments' >/dev/null
+wp_conf2 wprism apply --repo=/siterepo --with-deletes --default-author=admin --format=json >/dev/null
 pass "missing reverse-reference guard infrastructure fails closed"
 
 # Transaction rollback: two safe deletions, but an external FK refuses the
@@ -1140,12 +1140,12 @@ pass "missing reverse-reference guard infrastructure fails closed"
 ROLL_A1=$(wp_conf1 post create --post_type=page --post_title='Rollback Alpha' --post_name=rollback-alpha --post_status=publish --porcelain)
 ROLL_B1=$(wp_conf1 post create --post_type=page --post_title='Rollback Beta' --post_name=rollback-beta --post_status=publish --porcelain)
 require_fixture_ids ROLL_A1 ROLL_B1
-wp_conf1 duo capture --repo=/siterepo >/dev/null
+wp_conf1 wprism capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
-git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: seed transactional deletion pair'
+git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: seed transactional deletion pair'
 git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
-wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin --format=json >/dev/null
+wp_conf2 wprism apply --repo=/siterepo --with-deletes --default-author=admin --format=json >/dev/null
 ROLL_A_FILE=$(find "$CONF_REPO1/state/posts/page" -name '*--rollback-alpha.md' -print -quit)
 ROLL_B_FILE=$(find "$CONF_REPO1/state/posts/page" -name '*--rollback-beta.md' -print -quit)
 ROLL_A_UUID=$(basename "$ROLL_A_FILE" | sed -E 's/--rollback-alpha\.md$//')
@@ -1155,23 +1155,23 @@ ROLL_A2=$(wp_conf2 post list --post_type=page --name=rollback-alpha --field=ID |
 ROLL_B2=$(wp_conf2 post list --post_type=page --name=rollback-beta --field=ID | tr -d '[:space:]')
 require_fixture_ids ROLL_A1 ROLL_B1 ROLL_A2 ROLL_B2
 wp_conf1 post delete "$ROLL_A1" "$ROLL_B1" --force >/dev/null
-wp_conf1 duo capture --repo=/siterepo >/dev/null
+wp_conf1 wprism capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
-git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: transactional deletion pair'
+git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: transactional deletion pair'
 git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
 if [[ "$ROLL_A_UUID" < "$ROLL_B_UUID" ]]; then BLOCK_ID=$ROLL_B2; else BLOCK_ID=$ROLL_A2; fi
-wp_conf2 db query 'DROP TABLE IF EXISTS wp_duo_delete_block' >/dev/null
-wp_conf2 db query 'CREATE TABLE wp_duo_delete_block (post_id bigint(20) unsigned NOT NULL PRIMARY KEY, CONSTRAINT duo_delete_block_fk FOREIGN KEY (post_id) REFERENCES wp_posts(ID)) ENGINE=InnoDB' >/dev/null
-wp_conf2 db query "INSERT INTO wp_duo_delete_block (post_id) VALUES ($BLOCK_ID)" >/dev/null
+wp_conf2 db query 'DROP TABLE IF EXISTS wp_wprism_delete_block' >/dev/null
+wp_conf2 db query 'CREATE TABLE wp_wprism_delete_block (post_id bigint(20) unsigned NOT NULL PRIMARY KEY, CONSTRAINT wprism_delete_block_fk FOREIGN KEY (post_id) REFERENCES wp_posts(ID)) ENGINE=InnoDB' >/dev/null
+wp_conf2 db query "INSERT INTO wp_wprism_delete_block (post_id) VALUES ($BLOCK_ID)" >/dev/null
 ROLL_RC=0
-ROLL_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || ROLL_RC=$?
-# DUO-3391: this assertion is satisfied by ANY non-zero exit, so a
+ROLL_OUT=$(wp_conf2 wprism apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || ROLL_RC=$?
+# issue #3391: this assertion is satisfied by ANY non-zero exit, so a
 # compose-layer death passes it VACUOUSLY — and the rollback assertions that
 # follow then also pass, because a delete that never ran leaves both pages
 # exactly where the rollback proof expects to find them. Assert the answer
 # exists so a dead invocation reports itself instead of reporting green.
-require_duo_answered "conf2 duo apply --with-deletes (injected FK rollback probe)" human "$ROLL_OUT"
+require_wprism_answered "conf2 wprism apply --with-deletes (injected FK rollback probe)" human "$ROLL_OUT"
 [ "$ROLL_RC" -ne 0 ] || fail "injected second-row deletion failure unexpectedly applied"
 # The two post-conditions below read the TARGET, not $ROLL_OUT, so the broad
 # answered-marker above cannot protect them. Pasting the apply capture makes
@@ -1187,8 +1187,8 @@ ROLL_B_AFTER=$(wp_conf2 post list --post_type=page --name=rollback-beta --field=
 require_observed_nonempty "conf2 rollback-beta post after injected deletion failure" "$ROLL_B_AFTER"
 [ "$ROLL_B_AFTER" = "$ROLL_B2" ] \
   || fail "partial deletion failure lost the blocked page: $ROLL_OUT"
-wp_conf2 db query 'DROP TABLE wp_duo_delete_block' >/dev/null
-wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin --format=json >/dev/null
+wp_conf2 db query 'DROP TABLE wp_wprism_delete_block' >/dev/null
+wp_conf2 wprism apply --repo=/siterepo --with-deletes --default-author=admin --format=json >/dev/null
 [ -z "$(wp_conf2 post list --post_type=page --name=rollback-alpha --field=ID)" ] \
   && [ -z "$(wp_conf2 post list --post_type=page --name=rollback-beta --field=ID)" ] \
   || fail "transactional deletion pair did not complete after removing injected failure"
@@ -1198,9 +1198,9 @@ pass "partial delete failure rolls the transaction back; retry completes exactly
 # remain `deleted`, never reinterpret absence through ledger history.
 TOMBSTONES=$(find "$CONF_REPO1/state/deletions" -type f -name '*.json' | wc -l | tr -d '[:space:]')
 require_observed_nonempty "repository tombstone count before fresh-target plan" "$TOMBSTONES"
-wp_conf2 db query 'TRUNCATE TABLE wp_duo_map; TRUNCATE TABLE wp_duo_state' >/dev/null
-FRESH_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "conf2 duo plan fresh target deletion interpretation" json "$FRESH_PLAN"
+wp_conf2 db query 'TRUNCATE TABLE wp_wprism_map; TRUNCATE TABLE wp_wprism_state' >/dev/null
+FRESH_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "conf2 wprism plan fresh target deletion interpretation" json "$FRESH_PLAN"
 jq -e --argjson count "$TOMBSTONES" '(.deleted | length) == $count and (.delete | length) == 0 and (.delete_conflict | length) == 0' \
   <<<"$FRESH_PLAN" >/dev/null || fail "fresh target interpreted repository deletion intent differently: $FRESH_PLAN"
 pass "fresh and previously mapped targets make the same repository-level deletion decision"

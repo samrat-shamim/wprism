@@ -2,11 +2,11 @@
 declare(strict_types=1);
 
 namespace {
-    $duoRoot = dirname(__DIR__, 4);
-    require_once $duoRoot . '/sandbox/tests/lib/check.php';
-    require_once $duoRoot . '/sandbox/tests/lib/FakeWpdb.php';
-    require_once $duoRoot . '/sandbox/tests/support/wp_cli_child_process_fake.php';
-    require_once $duoRoot . '/agent/src/Kernel/PlainData.php';
+    $wprismRoot = dirname(__DIR__, 4);
+    require_once $wprismRoot . '/sandbox/tests/lib/check.php';
+    require_once $wprismRoot . '/sandbox/tests/lib/FakeWpdb.php';
+    require_once $wprismRoot . '/sandbox/tests/support/wp_cli_child_process_fake.php';
+    require_once $wprismRoot . '/agent/src/Kernel/PlainData.php';
 
     $GLOBALS['nf_provider_multisite'] = false;
     $GLOBALS['nf_provider_command_calls'] = [];
@@ -20,7 +20,7 @@ namespace {
     }
 
     final class WP_CLI {
-        use \DuoTest\WpCliChildRuntime;
+        use \WPrismTest\WpCliChildRuntime;
 
         public static function runcommand(string $command, array $options): mixed {
             $GLOBALS['nf_provider_command_calls'][] = [$command, $options];
@@ -42,11 +42,11 @@ namespace {
     }
 }
 
-namespace Duo {
+namespace WPrism {
     final class Policy {}
 
     final class Providers {
-        public const SCOPED_OPERATION_FORMAT = 'duo-scoped-effect-operation/v1';
+        public const SCOPED_OPERATION_FORMAT = 'wprism-scoped-effect-operation/v1';
     }
 }
 
@@ -56,8 +56,8 @@ namespace {
     require_once dirname(__DIR__, 4) . '/agent/src/Kernel/WpCliChildProcess.php';
     require_once dirname(__DIR__, 4) . '/adapter-packages/ninja-forms/package/runtime/providers/ninja-forms-form-cache.php';
 
-    use Duo\Providers\NinjaFormsFormCache;
-    use DuoTest\FakeWpdb;
+    use WPrism\Providers\NinjaFormsFormCache;
+    use WPrismTest\FakeWpdb;
 
     /** @return array<string,array<string,string>> */
     function nf_provider_columns(): array {
@@ -128,7 +128,7 @@ namespace {
         return (object) [
             'return_code' => 0,
             'stdout' => json_encode([
-                'format' => 'duo-ninja-forms-cache-rebuild/v1',
+                'format' => 'wprism-ninja-forms-cache-rebuild/v1',
                 'form_count' => $forms,
                 'rebuilt_form_count' => $forms,
                 'cache_fingerprint' => $cacheFingerprint ?? nf_provider_cache_fingerprint(),
@@ -200,7 +200,7 @@ namespace {
         $GLOBALS['nf_provider_command_calls'] = [];
         $GLOBALS['nf_provider_command_throw'] = null;
         $GLOBALS['nf_provider_wakeup_count'] = 0;
-        $GLOBALS['duo_wp_cli_child_fake_stderr_first'] = false;
+        $GLOBALS['wprism_wp_cli_child_fake_stderr_first'] = false;
         $GLOBALS['nf_provider_after_command'] = static function (): void {
             nf_provider_rebuild();
         };
@@ -324,7 +324,7 @@ namespace {
     /** @return array<string,string> */
     function nf_provider_operation(): array {
         return [
-            'format' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
+            'format' => \WPrism\Providers::SCOPED_OPERATION_FORMAT,
             'authority_hash' => str_repeat('a', 64),
             'lease_session_id' => 'ninja-readiness-session',
             'operation_id' => 'ninja-readiness-operation',
@@ -363,7 +363,7 @@ namespace {
         $GLOBALS['nf_provider_after_command'] = static function () use ($mutate): void {
             nf_provider_mutate_cache_after_child($mutate);
         };
-        duo_check_throws(
+        wprism_check_throws(
             static fn(): array => $provider->invoke('rebuild_form_caches', []),
             \RuntimeException::class,
             $label,
@@ -372,12 +372,12 @@ namespace {
     }
 
     $provider = nf_provider_reset();
-    duo_check_same(
+    wprism_check_same(
         ['id' => 'ninja-forms-form-cache', 'plugin' => 'ninja-forms/ninja-forms.php', 'version' => '2.2.0'],
         $provider->identity(),
         'provider identity makes the strengthened fresh-process contract fleet-visible'
     );
-    duo_check_same(
+    wprism_check_same(
         [
             'args' => [],
             'reads' => [
@@ -390,20 +390,20 @@ namespace {
             'idempotent' => true,
             'timeout_seconds' => 300,
             'scoped' => [
-                'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
+                'operation_envelope' => \WPrism\Providers::SCOPED_OPERATION_FORMAT,
                 'reconcile' => true,
             ],
         ],
         $provider->capabilities()['rebuild_form_caches'] ?? null,
         'provider declares every authored read, derived write, scope, timeout and recovery property'
     );
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('unknown', []),
         \RuntimeException::class,
         'unknown full invocation capability refuses',
         'does not implement capability'
     );
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->reconcile_scoped('unknown', [], nf_provider_operation()),
         \RuntimeException::class,
         'unknown reconciliation capability refuses',
@@ -411,29 +411,29 @@ namespace {
     );
 
     $receipt = $provider->invoke_scoped('rebuild_form_caches', [], nf_provider_operation());
-    duo_check_same(true, $receipt['verified'] ?? null, 'scoped cache rebuild verifies its postcondition');
-    duo_check_same(nf_provider_operation(), $receipt['operation'] ?? null, 'receipt binds the exact scoped operation');
-    duo_check_same(2, $receipt['before']['forms'] ?? null, 'before receipt counts the bounded form population');
-    duo_check_same(3, $receipt['before']['form_meta_rows'] ?? null, 'native mirrored SQL NULL form metadata is admitted exactly');
-    duo_check_same(2, $receipt['before']['cache_rows'] ?? null, 'before receipt records stale plus orphan cache rows');
-    duo_check_same(1, $receipt['before']['missing_form_caches'] ?? null, 'before receipt detects the missing large-id cache');
-    duo_check_same(1, $receipt['before']['orphan_form_caches'] ?? null, 'before receipt detects orphan target cache state');
-    duo_check_same(2, $receipt['before']['invalid_form_caches'] ?? null, 'before receipt detects stale and orphan cache content');
-    duo_check_same(2, $receipt['before']['legacy_form_caches'] ?? null, 'before receipt detects current-id and orphan legacy option caches');
+    wprism_check_same(true, $receipt['verified'] ?? null, 'scoped cache rebuild verifies its postcondition');
+    wprism_check_same(nf_provider_operation(), $receipt['operation'] ?? null, 'receipt binds the exact scoped operation');
+    wprism_check_same(2, $receipt['before']['forms'] ?? null, 'before receipt counts the bounded form population');
+    wprism_check_same(3, $receipt['before']['form_meta_rows'] ?? null, 'native mirrored SQL NULL form metadata is admitted exactly');
+    wprism_check_same(2, $receipt['before']['cache_rows'] ?? null, 'before receipt records stale plus orphan cache rows');
+    wprism_check_same(1, $receipt['before']['missing_form_caches'] ?? null, 'before receipt detects the missing large-id cache');
+    wprism_check_same(1, $receipt['before']['orphan_form_caches'] ?? null, 'before receipt detects orphan target cache state');
+    wprism_check_same(2, $receipt['before']['invalid_form_caches'] ?? null, 'before receipt detects stale and orphan cache content');
+    wprism_check_same(2, $receipt['before']['legacy_form_caches'] ?? null, 'before receipt detects current-id and orphan legacy option caches');
     foreach (['missing_form_caches', 'orphan_form_caches', 'invalid_form_caches', 'maintenance_form_caches', 'legacy_form_caches'] as $field) {
-        duo_check_same(0, $receipt['after'][$field] ?? null, "after receipt closes $field");
+        wprism_check_same(0, $receipt['after'][$field] ?? null, "after receipt closes $field");
     }
-    duo_check_same(2, $receipt['after']['cache_rows'] ?? null, 'after receipt has exactly one cache per authored form');
-    duo_check_same(3, $receipt['after']['fields'] ?? null, 'after receipt binds the full field inventory');
-    duo_check_same(2, $receipt['after']['actions'] ?? null, 'after receipt binds the full action inventory');
-    duo_check(
+    wprism_check_same(2, $receipt['after']['cache_rows'] ?? null, 'after receipt has exactly one cache per authored form');
+    wprism_check_same(3, $receipt['after']['fields'] ?? null, 'after receipt binds the full field inventory');
+    wprism_check_same(2, $receipt['after']['actions'] ?? null, 'after receipt binds the full action inventory');
+    wprism_check(
         preg_match('/^[a-f0-9]{64}$/D', (string) ($receipt['after']['source_fingerprint'] ?? '')) === 1
             && preg_match('/^[a-f0-9]{64}$/D', (string) ($receipt['after']['cache_fingerprint'] ?? '')) === 1
             && preg_match('/^[a-f0-9]{64}$/D', (string) ($receipt['after']['legacy_cache_fingerprint'] ?? '')) === 1,
         'receipt exposes only bounded source/cache fingerprints'
     );
     $published = json_encode($receipt, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-    duo_check(
+    wprism_check(
         is_string($published)
             && !str_contains($published, 'nf-live-secret')
             && !str_contains($published, 'Job Application')
@@ -442,25 +442,25 @@ namespace {
     );
     $childPublished = (string) nf_provider_result()->stdout;
     $childReceipt = json_decode($childPublished, true, 16, JSON_THROW_ON_ERROR);
-    duo_check_same(
+    wprism_check_same(
         ['format', 'form_count', 'rebuilt_form_count', 'cache_fingerprint', 'verified'],
         array_keys($childReceipt),
         'child receipt exposes only counts, a bounded exact cache fingerprint, and verification state'
     );
-    duo_check(
+    wprism_check(
         preg_match('/^[a-f0-9]{64}$/D', (string) ($childReceipt['cache_fingerprint'] ?? '')) === 1
             && !str_contains($childPublished, 'nf-live-secret')
             && !str_contains($childPublished, 'Job Application')
             && !str_contains($childPublished, 'こんにちは'),
         'child receipt is hash-only and never exposes cache settings or authored values'
     );
-    duo_check_same(1, count($GLOBALS['nf_provider_command_calls']), 'provider launches exactly one fresh process');
+    wprism_check_same(1, count($GLOBALS['nf_provider_command_calls']), 'provider launches exactly one fresh process');
     [$command, $options] = $GLOBALS['nf_provider_command_calls'][0];
-    duo_check(
+    wprism_check(
         str_starts_with($command, 'exec ') && str_contains($command, ' eval '),
         'provider uses the bounded fresh wp-cli eval process'
     );
-    duo_check(
+    wprism_check(
         str_contains($command, 'DELETE FROM `$cache`')
             && str_contains($command, 'WPN_Helper::build_nf_cache')
             && str_contains($command, 'serialize($expected)')
@@ -473,16 +473,16 @@ namespace {
             && strpos($command, 'DELETE FROM `$cache`') < strpos($command, 'WPN_Helper::build_nf_cache'),
         'child purges before native build and binds its exact normalized cache projection into the receipt'
     );
-    duo_check_same(
+    wprism_check_same(
         ['launch' => true, 'return' => 'all', 'exit_error' => false],
         $options,
         'child invocation uses the isolated checked process receipt boundary'
     );
-    duo_check_same([1, 900000001], array_map(
+    wprism_check_same([1, 900000001], array_map(
         static fn(array $row): int => (int) $row['id'],
         $GLOBALS['wpdb']->rows('nf3_upgrades')
     ), 'stale and orphan caches are replaced by exact small and large form identities');
-    duo_check_same(
+    wprism_check_same(
         ['ninja_forms_target_runtime'],
         array_map(static fn(array $row): string => (string) $row['option_name'], $GLOBALS['wpdb']->rows('options')),
         'legacy cache purge leaves unrelated target runtime options untouched'
@@ -490,11 +490,11 @@ namespace {
 
     $firstFingerprint = $receipt['after']['cache_fingerprint'];
     $retry = $provider->invoke_scoped('rebuild_form_caches', [], nf_provider_operation());
-    duo_check_same($firstFingerprint, $retry['before']['cache_fingerprint'] ?? null, 'retry starts from the verified cache bytes');
-    duo_check_same($firstFingerprint, $retry['after']['cache_fingerprint'] ?? null, 'idempotent retry preserves the exact cache projection');
+    wprism_check_same($firstFingerprint, $retry['before']['cache_fingerprint'] ?? null, 'retry starts from the verified cache bytes');
+    wprism_check_same($firstFingerprint, $retry['after']['cache_fingerprint'] ?? null, 'idempotent retry preserves the exact cache projection');
     $reconciled = $provider->reconcile_scoped('rebuild_form_caches', [], nf_provider_operation());
-    duo_check_same(true, $reconciled['verified'] ?? null, 'read-only recovery reconciliation verifies a healthy projection');
-    duo_check_same($firstFingerprint, $reconciled['after']['cache_fingerprint'] ?? null, 'reconciliation observes the same exact cache projection');
+    wprism_check_same(true, $reconciled['verified'] ?? null, 'read-only recovery reconciliation verifies a healthy projection');
+    wprism_check_same($firstFingerprint, $reconciled['after']['cache_fingerprint'] ?? null, 'reconciliation observes the same exact cache projection');
 
     $provider = nf_provider_reset();
     nf_provider_rebuild();
@@ -505,7 +505,7 @@ namespace {
     unset($row);
     $GLOBALS['wpdb']->seedTable('nf3_upgrades', $rows);
     $binaryZero = $provider->reconcile_scoped('rebuild_form_caches', [], nf_provider_operation());
-    duo_check_same(
+    wprism_check_same(
         0,
         $binaryZero['after']['maintenance_form_caches'] ?? null,
         'MariaDB BIT(1) binary zero is read as an exact non-maintenance flag'
@@ -514,7 +514,7 @@ namespace {
     $rows = $GLOBALS['wpdb']->rows('nf3_upgrades');
     $rows[0]['maintenance'] = "\1";
     $GLOBALS['wpdb']->seedTable('nf3_upgrades', $rows);
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->reconcile_scoped('rebuild_form_caches', [], nf_provider_operation()),
         \RuntimeException::class,
         'MariaDB BIT(1) binary one blocks recovery reconciliation',
@@ -523,13 +523,13 @@ namespace {
 
     $provider = nf_provider_reset();
     $GLOBALS['nf_provider_multisite'] = true;
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_form_caches', []),
         \RuntimeException::class,
         'multisite scope refuses before any child process',
         'single-site tables only'
     );
-    duo_check_same([], $GLOBALS['nf_provider_command_calls'], 'multisite refusal performs no mutation');
+    wprism_check_same([], $GLOBALS['nf_provider_command_calls'], 'multisite refusal performs no mutation');
 
     $provider = nf_provider_reset();
     $columns = nf_provider_columns()['nf3_upgrades'];
@@ -541,7 +541,7 @@ namespace {
     }
     unset($row);
     $GLOBALS['wpdb']->seedTable('nf3_upgrades', $rows);
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_form_caches', []),
         \RuntimeException::class,
         'schema drift refuses before cache mutation',
@@ -551,18 +551,18 @@ namespace {
     $provider = nf_provider_reset();
     $GLOBALS['wpdb']->failNextQuery('schema probe token sk_schema_must_not_escape', 'SHOW COLUMNS FROM `wp_nf3_fields`');
     $message = nf_provider_throw_message(static fn(): array => $provider->invoke('rebuild_form_caches', []));
-    duo_check(str_contains($message, 'schema probe failed') && !str_contains($message, 'sk_schema'), 'schema probe failures are loud and value-redacted');
+    wprism_check(str_contains($message, 'schema probe failed') && !str_contains($message, 'sk_schema'), 'schema probe failures are loud and value-redacted');
 
     $provider = nf_provider_reset();
     $GLOBALS['wpdb']->failNextQuery('source query token sk_source_must_not_escape', 'SELECT * FROM `wp_nf3_field_meta`');
     $message = nf_provider_throw_message(static fn(): array => $provider->invoke('rebuild_form_caches', []));
-    duo_check(str_contains($message, 'source inventory query failed') && !str_contains($message, 'sk_source'), 'authored source read failures are loud and value-redacted');
+    wprism_check(str_contains($message, 'source inventory query failed') && !str_contains($message, 'sk_source'), 'authored source read failures are loud and value-redacted');
 
     $provider = nf_provider_reset();
     $rows = $GLOBALS['wpdb']->rows('nf3_fields');
     $rows[0]['parent_id'] = 999999;
     $GLOBALS['wpdb']->seedTable('nf3_fields', $rows);
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_form_caches', []),
         \RuntimeException::class,
         'orphan authored child identities refuse before rebuild',
@@ -573,7 +573,7 @@ namespace {
     $rows = $GLOBALS['wpdb']->rows('nf3_field_meta');
     $rows[0]['meta_value'] = 'diverged-current-value';
     $GLOBALS['wpdb']->seedTable('nf3_field_meta', $rows);
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_form_caches', []),
         \RuntimeException::class,
         'legacy/current metadata divergence refuses before rebuild',
@@ -584,7 +584,7 @@ namespace {
     $rows = $GLOBALS['wpdb']->rows('nf3_form_meta');
     $rows[2]['meta_value'] = '';
     $GLOBALS['wpdb']->seedTable('nf3_form_meta', $rows);
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_form_caches', []),
         \RuntimeException::class,
         'one-sided native NULL metadata still refuses before rebuild',
@@ -595,13 +595,13 @@ namespace {
     $rows = $GLOBALS['wpdb']->rows('nf3_upgrades');
     $rows[0]['maintenance'] = 1;
     $GLOBALS['wpdb']->seedTable('nf3_upgrades', $rows);
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_form_caches', []),
         \RuntimeException::class,
         'plugin maintenance mode refuses instead of racing an upgrade',
         'maintenance mode'
     );
-    duo_check_same([], $GLOBALS['nf_provider_command_calls'], 'maintenance refusal performs no mutation');
+    wprism_check_same([], $GLOBALS['nf_provider_command_calls'], 'maintenance refusal performs no mutation');
 
     $provider = nf_provider_reset();
     $GLOBALS['nf_provider_after_command'] = static function (): void {
@@ -611,7 +611,7 @@ namespace {
             return serialize($cache);
         });
     };
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_form_caches', []),
         \RuntimeException::class,
         'wrong cached child identity refuses after native process success',
@@ -622,7 +622,7 @@ namespace {
     $GLOBALS['nf_provider_after_command'] = static function (): void {
         nf_provider_mutate_cache_after_child(static fn(string $raw): string => str_repeat('x', 16777217));
     };
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_form_caches', []),
         \RuntimeException::class,
         'cache larger than the reviewed 16 MiB boundary refuses before unserialize',
@@ -637,7 +637,7 @@ namespace {
         $rows[0]['title'] = 'concurrent source edit';
         $GLOBALS['wpdb']->seedTable('nf3_forms', $rows);
     };
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_form_caches', []),
         \RuntimeException::class,
         'authored source race during child regeneration refuses recovery-required',
@@ -654,7 +654,7 @@ namespace {
             return serialize($cache);
         });
     };
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_form_caches', []),
         \RuntimeException::class,
         'same-count same-identity retained cache rewrite cannot be blessed by the parent',
@@ -668,7 +668,7 @@ namespace {
             return $rows;
         });
     };
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_form_caches', []),
         \RuntimeException::class,
         'retained stage rewrite cannot drift between child proof and parent readback',
@@ -680,7 +680,7 @@ namespace {
         2,
         str_repeat('d', 64)
     );
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_form_caches', []),
         \RuntimeException::class,
         'success-shaped child receipt with a different exact projection refuses',
@@ -710,7 +710,7 @@ namespace {
             return serialize($cache);
         }
     );
-    duo_check_same(0, $GLOBALS['nf_provider_wakeup_count'], 'object refusal executes no __wakeup side effect');
+    wprism_check_same(0, $GLOBALS['nf_provider_wakeup_count'], 'object refusal executes no __wakeup side effect');
     nf_provider_expect_invalid_cache(
         'shared-reference serialized settings refuse as non-portable cache data',
         static function (string $raw): string {
@@ -726,7 +726,7 @@ namespace {
         static function (string $raw): string {
             $cache = unserialize($raw, ['allowed_classes' => false]);
             $deep = 'leaf';
-            for ($depth = 0; $depth <= \Duo\PlainData::MAX_DEPTH + 2; $depth++) {
+            for ($depth = 0; $depth <= \WPrism\PlainData::MAX_DEPTH + 2; $depth++) {
                 $deep = ['next' => $deep];
             }
             $cache['settings']['deep'] = $deep;
@@ -742,9 +742,9 @@ namespace {
         'stdout' => '{}',
         'stderr' => str_repeat('credential-shaped-warning-', 4000),
     ];
-    $GLOBALS['duo_wp_cli_child_fake_stderr_first'] = true;
+    $GLOBALS['wprism_wp_cli_child_fake_stderr_first'] = true;
     $stderrFirstMessage = nf_provider_throw_message(static fn(): array => $provider->invoke('rebuild_form_caches', []));
-    duo_check(
+    wprism_check(
         str_contains($stderrFirstMessage, 'emitted stderr despite exit 0')
             && !str_contains($stderrFirstMessage, 'credential-shaped'),
         'stderr-first output larger than a pipe reaches Ninja warning policy without leaking bytes'
@@ -757,7 +757,7 @@ namespace {
         'stderr' => '',
     ];
     $overflowMessage = nf_provider_throw_message(static fn(): array => $provider->invoke('rebuild_form_caches', []));
-    duo_check(
+    wprism_check(
         str_contains($overflowMessage, 'fresh cache-rebuild process could not start')
             && !str_contains($overflowMessage, 'credential-shaped'),
         'Ninja wraps helper overflow in its stable command failure without a verified receipt or output leak'
@@ -772,7 +772,7 @@ namespace {
         'extra receipt key' => ['result' => (object) [
             'return_code' => 0,
             'stdout' => json_encode([
-                'format' => 'duo-ninja-forms-cache-rebuild/v1', 'form_count' => 2,
+                'format' => 'wprism-ninja-forms-cache-rebuild/v1', 'form_count' => 2,
                 'rebuilt_form_count' => 2, 'cache_fingerprint' => $validFingerprint,
                 'verified' => true, 'secret' => $hostile,
             ]),
@@ -781,7 +781,7 @@ namespace {
         'missing fingerprint' => ['result' => (object) [
             'return_code' => 0,
             'stdout' => json_encode([
-                'format' => 'duo-ninja-forms-cache-rebuild/v1', 'form_count' => 2,
+                'format' => 'wprism-ninja-forms-cache-rebuild/v1', 'form_count' => 2,
                 'rebuilt_form_count' => 2, 'verified' => true,
             ]),
             'stderr' => '',
@@ -789,7 +789,7 @@ namespace {
         'malformed fingerprint' => ['result' => (object) [
             'return_code' => 0,
             'stdout' => json_encode([
-                'format' => 'duo-ninja-forms-cache-rebuild/v1', 'form_count' => 2,
+                'format' => 'wprism-ninja-forms-cache-rebuild/v1', 'form_count' => 2,
                 'rebuilt_form_count' => 2, 'cache_fingerprint' => 'not-a-hash',
                 'verified' => true,
             ]),
@@ -798,7 +798,7 @@ namespace {
         'negative count' => ['result' => (object) [
             'return_code' => 0,
             'stdout' => json_encode([
-                'format' => 'duo-ninja-forms-cache-rebuild/v1', 'form_count' => -1,
+                'format' => 'wprism-ninja-forms-cache-rebuild/v1', 'form_count' => -1,
                 'rebuilt_form_count' => -1, 'cache_fingerprint' => $validFingerprint,
                 'verified' => true,
             ]),
@@ -807,7 +807,7 @@ namespace {
         'rebuilt count mismatch' => ['result' => (object) [
             'return_code' => 0,
             'stdout' => json_encode([
-                'format' => 'duo-ninja-forms-cache-rebuild/v1', 'form_count' => 2,
+                'format' => 'wprism-ninja-forms-cache-rebuild/v1', 'form_count' => 2,
                 'rebuilt_form_count' => 1, 'cache_fingerprint' => $validFingerprint,
                 'verified' => true,
             ]),
@@ -822,7 +822,7 @@ namespace {
         $provider = nf_provider_reset();
         $GLOBALS['nf_provider_command_result'] = $case['result'];
         $message = nf_provider_throw_message(static fn(): array => $provider->invoke('rebuild_form_caches', []));
-        duo_check(
+        wprism_check(
             str_contains($message, $case['needle']) && !str_contains($message, 'sk_child'),
             "$label refuses without exposing child output"
         );
@@ -831,7 +831,7 @@ namespace {
     $provider = nf_provider_reset();
     $GLOBALS['nf_provider_command_throw'] = new \RuntimeException($hostile);
     $message = nf_provider_throw_message(static fn(): array => $provider->invoke('rebuild_form_caches', []));
-    duo_check(str_contains($message, 'could not start') && !str_contains($message, 'sk_child'), 'child launch exception is wrapped and value-redacted');
+    wprism_check(str_contains($message, 'could not start') && !str_contains($message, 'sk_child'), 'child launch exception is wrapped and value-redacted');
 
     $provider = nf_provider_reset();
     foreach (['nf3_forms', 'nf3_form_meta', 'nf3_fields', 'nf3_field_meta', 'nf3_actions', 'nf3_action_meta'] as $table) {
@@ -839,8 +839,8 @@ namespace {
     }
     $GLOBALS['nf_provider_command_result'] = static fn(): object => nf_provider_result(0);
     $receipt = $provider->invoke('rebuild_form_caches', []);
-    duo_check_same(0, $receipt['after']['forms'] ?? null, 'zero-form population is a valid exact projection');
-    duo_check_same(0, $receipt['after']['cache_rows'] ?? null, 'zero-form rebuild removes all stale/orphan cache rows');
+    wprism_check_same(0, $receipt['after']['forms'] ?? null, 'zero-form population is a valid exact projection');
+    wprism_check_same(0, $receipt['after']['cache_rows'] ?? null, 'zero-form rebuild removes all stale/orphan cache rows');
 
     $provider = nf_provider_reset();
     nf_provider_rebuild();
@@ -852,12 +852,12 @@ namespace {
         'maintenance' => 0,
     ];
     $GLOBALS['wpdb']->seedTable('nf3_upgrades', $rows);
-    duo_check_throws(
+    wprism_check_throws(
         static fn(): array => $provider->reconcile_scoped('rebuild_form_caches', [], nf_provider_operation()),
         \RuntimeException::class,
         'recovery reconciliation refuses an orphan cache instead of blessing it',
         'orphan_form_caches'
     );
 
-    duo_check_summary('Ninja Forms cache provider');
+    wprism_check_summary('Ninja Forms cache provider');
 }

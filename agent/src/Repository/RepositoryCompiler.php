@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Code/CodeCompatibility.php';
 // WP-4.12: the repository's own `spec_version` is judged against the one
@@ -7,23 +7,23 @@ require_once __DIR__ . '/../Code/CodeCompatibility.php';
 // file rather than AdapterContractGrammar, which owns the manifest half:
 // Adapter is layer 5 and this file is layer 3, so referencing the grammar
 // here is the upward edge regress_agent_src_requires.php refuses by name.
-// Required here rather than left to duo.php's order, exactly as the siblings
+// Required here rather than left to wprism.php's order, exactly as the siblings
 // below are, so this file's load graph stays closed (AGENTS.md rule 1).
 require_once __DIR__ . '/../Kernel/SpecVersionWindow.php';
 require_once __DIR__ . '/ReferenceGraph.php';
-// DUO-3348 slice 2: CompiledRepository and RepositoryCompilationException moved
+// issue #3348 slice 2: CompiledRepository and RepositoryCompilationException moved
 // to their own file (the "CompiledArtifact value object" target seam). Required
-// here, not just left to duo.php's bootstrap order, so every existing caller of
+// here, not just left to wprism.php's bootstrap order, so every existing caller of
 // THIS file keeps getting both classes transitively with no change on its part.
 require_once __DIR__ . '/CompiledArtifact.php';
-// DUO-3348 slice 30: policy/manifest artifact identity is independent of the
+// issue #3348 slice 30: policy/manifest artifact identity is independent of the
 // repository tree builder. Keep the long-lived RepositoryCompiler methods as
 // compatibility facades while the extracted collaborator owns byte projection.
 require_once __DIR__ . '/../Policy/ArtifactPolicyIdentity.php';
-// DUO-3348 slice 35: persisted-artifact validation is independent of the
+// issue #3348 slice 35: persisted-artifact validation is independent of the
 // compiler builder. Keep read_artifact() below as the compatibility facade.
 require_once __DIR__ . '/CompiledArtifactReader.php';
-// DUO-3348 slice 31: repository-owned attachment/blob validation and full
+// issue #3348 slice 31: repository-owned attachment/blob validation and full
 // media cataloguing are independent of tree parsing and Policy. Required
 // directly so existing RepositoryCompiler consumers keep one closed load graph.
 require_once __DIR__ . '/RepositoryMediaCatalog.php';
@@ -42,7 +42,7 @@ require_once __DIR__ . '/RepositoryStateFileCatalog.php';
  * decoding, schema validation, and attachment reference checks; this compiler
  * retains tree traversal, identity-registry orchestration, graph closure,
  * full media cataloguing, conflict markers, adapter constraints, and
- * DUO-3203's active-policy authorization pass.
+ * issue #3203's active-policy authorization pass.
  */
 final class RepositoryCompiler {
     private const CONFLICT_RE = '/^(<{7}|={7}|>{7})(?: .*|)$/m';
@@ -50,7 +50,7 @@ final class RepositoryCompiler {
     private string $repo;
     private string $stateDir;
     private Policy $policy;
-    // DUO-3287: this compiler serves two structurally different callers.
+    // issue #3287: this compiler serves two structurally different callers.
     // Most (Apply, Deploy, Cli's verify command, RepositoryAuthorization,
     // IdentityBackup) compile the tree they are about to ACT on — apply it,
     // deploy it, export it, authorize it — under the CURRENT policy, and
@@ -63,10 +63,10 @@ final class RepositoryCompiler {
     // under whatever policy was active AT THAT TIME, specifically so it can
     // be diffed against live/new state — and the current policy is often
     // wider than the one that produced it, e.g. a manifest was added to
-    // site.duo.json since the last capture. Demanding CURRENT-policy
+    // site.wprism.json since the last capture. Demanding CURRENT-policy
     // completeness from a HISTORICAL revision doesn't detect corruption;
     // it makes ordinary incremental adoption (start narrow, expand
-    // coverage later, the entire premise of DUO-3257) impossible — verified
+    // coverage later, the entire premise of issue #3257) impossible — verified
     // live: every required-option-missing name across 13-17 diagnostics
     // was a genuinely NEW authored-exact option the previous revision had
     // never seen, not a hole in an already-known one. That can include the
@@ -179,7 +179,7 @@ final class RepositoryCompiler {
     }
 
     /**
-     * DUO-3287: same as compile(), for the two callers reading a
+     * issue #3287: same as compile(), for the two callers reading a
      * historical/comparison revision rather than one about to be acted on
      * — see $completenessOptional's own docblock above for the exact
      * distinction and why it must not apply to every caller.
@@ -195,7 +195,7 @@ final class RepositoryCompiler {
     }
 
     /**
-     * DUO-3236: validate an arbitrary staged tree — e.g. Publish's
+     * issue #3236: validate an arbitrary staged tree — e.g. Publish's
      * state.capture-staging, before it is ever promoted to state/ — against
      * the repository's REAL media/ directory. This is not a compromise:
      * Publish.php's own class docblock is explicit that media writes are
@@ -252,7 +252,7 @@ final class RepositoryCompiler {
     }
 
     /**
-     * DUO-3222: the resolved adapter compatibility contract — see
+     * issue #3222: the resolved adapter compatibility contract — see
      * CompiledRepository::resolved_adapters()'s docblock for what this
      * proves and what it deliberately does not (declaration validity, not
      * a live-environment match). `digest` is `manifest_rows()`'s own
@@ -262,13 +262,13 @@ final class RepositoryCompiler {
      * independently checkable without needing every OTHER pinned
      * manifest's bytes too.
      *
-     * DUO-3314 adds `source`/`trust_tier`: which adapter source installed this
+     * issue #3314 adds `source`/`trust_tier`: which adapter source installed this
      * manifest and how much executable authority it reaches. `digest` is
      * deliberately unchanged for shipped adapters — provenance reaches the
      * digest through the `disposition` slot manifest_rows() already hashes
      * (Policy::manifest_disposition() answers with the synthesized provenance
      * record for an out-of-tree adapter), so no shipped adapter's digest, and
-     * therefore no existing site.duo.json pin or registry claim, moves.
+     * therefore no existing site.wprism.json pin or registry claim, moves.
      *
      * @return list<array{name:string, digest:string, source:string, trust_tier:string, spec_version:?int, plugin:?string, version_range:?array, theme:?string, theme_version_range:?array, disposition:?array, capability:?array}>
      */
@@ -279,7 +279,7 @@ final class RepositoryCompiler {
     private function run(): CompiledRepository {
         SidebarState::assert_policy($this->policy);
         $codeDescriptor = null;
-        // DUO-3499: `{root}/{component}` => lock entry for a format-2 (split)
+        // issue #3499: `{root}/{component}` => lock entry for a format-2 (split)
         // repository, `[]` otherwise. Code::compile() above is the blocking
         // gate that already refused an unresolved or mismatched component;
         // this map exists only so CodeStateContract's absence refusal can name
@@ -307,10 +307,10 @@ final class RepositoryCompiler {
         }
         // WP-4.12 — THE FLIP's repository half. This gate was `$spec !==
         // $supported`, and that exact equality was invisible for as long as
-        // DUO_SPEC_VERSION never moved: every repository in the field declares
+        // WPRISM_SPEC_VERSION never moved: every repository in the field declares
         // the version of the agent that adopted it, so the first bump would
         // have refused compilation on EVERY deployed site at once, on
-        // `site.duo.json:spec_version`, with no remedy but a hand edit per
+        // `site.wprism.json:spec_version`, with no remedy but a hand edit per
         // repository. That is the fleet-wide event the no-restamp rule exists
         // to prevent (spec/repo-format.md § v3.12), arriving through a
         // different door than the manifest one it guards.
@@ -336,16 +336,16 @@ final class RepositoryCompiler {
         // for the same reason: it is not a version, so there is no window for
         // it to be outside of.
         $spec = $this->policy->site['spec_version'] ?? null;
-        $supported = defined('DUO_SPEC_VERSION') ? DUO_SPEC_VERSION : 0;
+        $supported = defined('WPRISM_SPEC_VERSION') ? WPRISM_SPEC_VERSION : 0;
         $accepted = SpecVersionWindow::accepted($supported);
         if (!is_int($spec)) {
             $this->add(
-                'manifest_compatibility', 'site.duo.json', 'spec_version',
+                'manifest_compatibility', 'site.wprism.json', 'spec_version',
                 'repository spec_version ' . var_export($spec, true) . " is incompatible with compiler version $supported"
             );
         } elseif (!in_array($spec, $accepted, true)) {
             $this->add(
-                'manifest_compatibility', 'site.duo.json', 'spec_version',
+                'manifest_compatibility', 'site.wprism.json', 'spec_version',
                 'repository spec_version ' . var_export($spec, true) . ' is outside the acceptance window '
                 . SpecVersionWindow::text($accepted) . " this compiler version $supported publishes"
                 . ' (spec/repo-format.md § v3.1)'
@@ -512,7 +512,7 @@ final class RepositoryCompiler {
             $this->fail();
         }
 
-        // Authorization is part of compilation. Preserve DUO-3203's exact
+        // Authorization is part of compilation. Preserve issue #3203's exact
         // exception/payload when it is the only failing layer so existing
         // CLI/CI consumers do not lose their stable contract.
         RepositoryAuthorization::assert_tree($this->policy, $tree);
@@ -536,7 +536,7 @@ final class RepositoryCompiler {
             'spec_version' => $supported,
             'site_hash' => $siteHash,
             'manifest_hash' => $manifestHash,
-            // DUO-3222: derived entirely from bytes manifest_hash() already
+            // issue #3222: derived entirely from bytes manifest_hash() already
             // folds in above (manifest_rows() -> the full $manifest array
             // per entry) — reshaped for per-adapter consumption, not new
             // input, so it deliberately does NOT also feed revision_hash's
@@ -544,7 +544,7 @@ final class RepositoryCompiler {
             // still tamper-evident via CompiledRepository::create()'s own
             // artifact_hash over the complete payload.
             'resolved_adapters' => self::resolved_adapters($this->policy),
-            // DUO-3298: immutable and target-independent. The recovery
+            // issue #3298: immutable and target-independent. The recovery
             // provider resolves target before-images/adapters only after this
             // complete declaration has blocked unknown/irreversible effects.
             'effects_inventory' => $this->policy->effects_inventory(),

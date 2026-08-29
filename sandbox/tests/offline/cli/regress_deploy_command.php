@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../../cli/src/Command/DeployCommand.php';
 
-use Duo\Orchestrator\DeployCommand;
-use Duo\Orchestrator\DriverCapabilityReport;
-use Duo\Orchestrator\EnvironmentDriver;
+use WPrism\Orchestrator\DeployCommand;
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\EnvironmentDriver;
 
 function fail_deploy_command(string $message): never {
     fwrite(STDERR, "FAIL: $message\n");
@@ -36,8 +36,8 @@ final class DeployCommandDriver implements EnvironmentDriver {
     }
     public function captureWp(array $wpArgs): array {
         $this->calls[] = $wpArgs;
-        // The deploy checkpoint is a `wp db export`, not a `wp duo <verb>`, so
-        // it is recognised by shape before the duo-command lookup below.
+        // The deploy checkpoint is a `wp db export`, not a `wp wprism <verb>`, so
+        // it is recognised by shape before the wprism-command lookup below.
         if (($wpArgs[0] ?? null) === 'db' && ($wpArgs[1] ?? null) === 'export') {
             $this->events[] = 'capture:db-export';
             return ['exit' => $this->exportExit, 'stdout' => (string) ($wpArgs[2] ?? ''), 'stderr' => ''];
@@ -69,7 +69,7 @@ final class DeployCommandDriver implements EnvironmentDriver {
                 return ['exit' => $this->preflightExit, 'stdout' => 'runtime refusal', 'stderr' => ''];
             }
             return ['exit' => 0, 'stdout' => json_encode([
-                'format' => 'duo-code-runtime/v1', 'enabled' => true,
+                'format' => 'wprism-code-runtime/v1', 'enabled' => true,
                 'change_required' => $this->codeChangeRequired, 'compatible' => true,
                 'code_revision' => $revision,
                 'target' => ['php' => '8.3', 'wordpress' => '6.8', 'source' => 'target-control-plane'],
@@ -97,8 +97,8 @@ final class DeployCommandDriver implements EnvironmentDriver {
         return DriverCapabilityReport::forDriver('deploy-fixture', 'deploy-fixture', $operation, []);
     }
     private function command(array $args): string {
-        $index = array_search('duo', $args, true);
-        if (!is_int($index) || !isset($args[$index + 1])) fail_deploy_command('driver did not receive a duo command');
+        $index = array_search('wprism', $args, true);
+        if (!is_int($index) || !isset($args[$index + 1])) fail_deploy_command('driver did not receive a wprism command');
         return $args[$index + 1];
     }
     private function option(array $args, string $prefix): ?string {
@@ -134,8 +134,8 @@ function run_deploy_command(DeployCommandDriver $driver, array $extra, ?int $sco
             $callbacks[] = "abort:$owner:$hash";
             return true;
         },
-        // DUO-3525: the recovery callback takes no owner/hash any more — the
-        // guidance names `duo recover <env> --restore=<id>`, whose `<id>` is
+        // issue #3525: the recovery callback takes no owner/hash any more — the
+        // guidance names `wprism recover <env> --restore=<id>`, whose `<id>` is
         // the checkpoint basename, so nothing PRINTED needs the lease pair.
         static function (
             EnvironmentDriver $transport,
@@ -156,7 +156,7 @@ function option_deploy_command(array $args, string $prefix): ?string {
 }
 
 // Direct execution proves the extracted handler still owns the full public
-// deploy phase graph without loading cli/duo or starting a shell process.
+// deploy phase graph without loading cli/wprism or starting a shell process.
 $happy = new DeployCommandDriver();
 $happyResult = run_deploy_command($happy, ['--force-code-mismatch', '--force-code-drift']);
 assert_deploy_command($happyResult['exit'] === 0, 'code-enabled deploy command succeeds');
@@ -172,7 +172,7 @@ assert_deploy_command(
 assert_deploy_command(
     $happy->calls[3] === ['db', 'export', '-']
         && in_array(
-            '--output=/fixture/repo/.duo/checkpoints/deploy-deploy-command-test.sql.enc',
+            '--output=/fixture/repo/.wprism/checkpoints/deploy-deploy-command-test.sql.enc',
             $happy->calls[4],
             true
         ),
@@ -303,7 +303,7 @@ assert_deploy_command(
     $stageResult['callbacks'] === [
         'scope', 'fence:deploy-fixture', 'run-id',
         'abort:deploy-command-test:' . str_repeat('a', 64),
-        'recovery:/fixture/repo/.duo/checkpoints/deploy-deploy-command-test.sql.enc:code',
+        'recovery:/fixture/repo/.wprism/checkpoints/deploy-deploy-command-test.sql.enc:code',
     ],
     'stage failure delegates exact cleanup to the shared promotion primitive, then guides recovery of its checkpoint'
 );

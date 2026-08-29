@@ -1,16 +1,16 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once dirname(__DIR__) . '/Plan/HumanViewLimit.php';
 require_once __DIR__ . '/AuthorizationPlan.php';
 
-use Duo\CommandRefusalException;
+use WPrism\CommandRefusalException;
 
 /**
- * The human rendering of `duo-authorization-plan/v1` — "a page of WordPress
+ * The human rendering of `wprism-authorization-plan/v1` — "a page of WordPress
  * language ending in a single question" (round-3 MUP §2.3.1, §4.3, §4.6).
  *
  * ## The order is the specification
@@ -51,7 +51,7 @@ use Duo\CommandRefusalException;
  * `refuseLimit()` throws stays this class's own, so no envelope byte moves.
  */
 final class AuthorizationPlanRenderer {
-    /** MUP §4.6: default rows per section. One source (DUO-3521). */
+    /** MUP §4.6: default rows per section. One source (issue #3521). */
     public const DEFAULT_LIMIT = HumanViewLimit::DEFAULT_LIMIT;
 
     /** MUP §4.6: the same closed ceiling every human view publishes. */
@@ -87,7 +87,7 @@ final class AuthorizationPlanRenderer {
     /**
      * Render the whole plan.
      *
-     * @param array<string,mixed> $document a `duo-authorization-plan/v1`
+     * @param array<string,mixed> $document a `wprism-authorization-plan/v1`
      * @return list<string>
      */
     public static function render(array $document, int $limit = self::DEFAULT_LIMIT): array {
@@ -276,7 +276,7 @@ final class AuthorizationPlanRenderer {
         }
         $exclusion = is_array($claim['writer_exclusion'] ?? null) ? $claim['writer_exclusion'] : [];
         $lines[] = '  writer exclusion: '
-            . (($exclusion['required'] ?? false) === true ? 'required — ' : 'held by Duo — ')
+            . (($exclusion['required'] ?? false) === true ? 'required — ' : 'held by WPrism — ')
             . (string) ($exclusion['mechanism'] ?? '');
         $lines[] = '  maximum loss boundary: ' . (string) ($claim['maximum_loss_boundary'] ?? '');
         // The boundary sentence names the checkpoint without naming its
@@ -284,7 +284,7 @@ final class AuthorizationPlanRenderer {
         // clock value there makes the plan's identity change every second
         // (AuthorizationPlan::digest()). The instant is printed on the next
         // line instead — same page, same breath, outside the digest — and
-        // `duo recover` prints the same pair before it acts.
+        // `wprism recover` prints the same pair before it acts.
         // The absent case is split rather than smoothed over: under the
         // `none` profile there is no checkpoint to date, and under any other
         // profile an absent instant is a plan that did not record one. Saying
@@ -392,10 +392,10 @@ final class AuthorizationPlanRenderer {
 
     /**
      * MUP §5.2: a human view prints an internal identifier only when a
-     * documented command consumes one. `duo verify --plan=<digest>` does, so
+     * documented command consumes one. `wprism verify --plan=<digest>` does, so
      * the digest prints — abbreviated, because the full 64 hex characters
      * are for the JSON view and the abbreviation still names the file under
-     * `.duo/releases/`.
+     * `.wprism/releases/`.
      */
     private static function shortDigest(string $digest): string {
         $hex = str_starts_with($digest, 'sha256:') ? substr($digest, 7) : $digest;

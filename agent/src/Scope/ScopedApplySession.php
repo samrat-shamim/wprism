@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 
@@ -11,7 +11,7 @@ require_once __DIR__ . '/../Kernel/Canon.php';
  * The value passed to compare_and_swap() is the exact canonical byte string
  * returned by read(). A null replacement removes the key. Implementations
  * must make the comparison and write one atomic operation. A Ledger adapter
- * can map the keys to duo_kv while keeping that database-specific
+ * can map the keys to wprism_kv while keeping that database-specific
  * transaction/CAS detail outside this protocol.
  */
 interface ScopedApplySessionStorage {
@@ -29,12 +29,12 @@ interface ScopedApplySessionStorage {
  * read-only evidence; this class is the later, target-bound mutation witness.
  */
 final class ScopedApplySession {
-    public const AUTHORITY_FORMAT = 'duo-scoped-mutation-authority/v1';
-    public const EXTERNAL_AUTHORITY_FORMAT = 'duo-scoped-mutation-authority/v2';
-    public const PROMOTION_BINDING_FORMAT = 'duo-scoped-promotion-binding/v1';
-    public const SESSION_FORMAT = 'duo-scoped-apply-session/v1';
-    public const TERMINAL_REQUEST_FORMAT = 'duo-scoped-terminal-request/v1';
-    public const EXTERNAL_TERMINAL_REQUEST_FORMAT = 'duo-scoped-terminal-request/v2';
+    public const AUTHORITY_FORMAT = 'wprism-scoped-mutation-authority/v1';
+    public const EXTERNAL_AUTHORITY_FORMAT = 'wprism-scoped-mutation-authority/v2';
+    public const PROMOTION_BINDING_FORMAT = 'wprism-scoped-promotion-binding/v1';
+    public const SESSION_FORMAT = 'wprism-scoped-apply-session/v1';
+    public const TERMINAL_REQUEST_FORMAT = 'wprism-scoped-terminal-request/v1';
+    public const EXTERNAL_TERMINAL_REQUEST_FORMAT = 'wprism-scoped-terminal-request/v2';
     public const STORAGE_KEY = 'scoped_apply_session';
     public const TERMINAL_KEY_PREFIX = 'scoped_apply_terminal:';
     public const TERMINAL_REQUEST_KEY_PREFIX = 'scoped_apply_terminal_request:';
@@ -143,7 +143,7 @@ final class ScopedApplySession {
 
     /**
      * Build the hash-only external generation binding retained by scoped
-     * authority. Raw receipt/target/key identifiers never enter Duo's ledger.
+     * authority. Raw receipt/target/key identifiers never enter WPrism's ledger.
      *
      * @param array<string,mixed> $witness
      * @return array<string,mixed>
@@ -155,14 +155,14 @@ final class ScopedApplySession {
         foreach (['receipt_id', 'target_id', 'signing_key_id'] as $key) {
             $value = $witness[$key] ?? null;
             if (!is_string($value) || $value === '') {
-                throw new \RuntimeException("duo: external promotion $key is malformed");
+                throw new \RuntimeException("wprism: external promotion $key is malformed");
             }
         }
         if (!is_int($witness['generation'] ?? null) || (int) $witness['generation'] < 1) {
-            throw new \RuntimeException('duo: external promotion generation is malformed');
+            throw new \RuntimeException('wprism: external promotion generation is malformed');
         }
         if (($witness['allow_deletes'] ?? null) !== $allowDeletes) {
-            throw new \RuntimeException('duo: external promotion deletion authority does not match this apply');
+            throw new \RuntimeException('wprism: external promotion deletion authority does not match this apply');
         }
         $binding = [
             'allow_deletes' => $allowDeletes,
@@ -191,7 +191,7 @@ final class ScopedApplySession {
                 self::external_promotion_binding($witness, $allowDeletes)
             )) {
             throw new \RuntimeException(
-                'duo: scoped terminal authority does not match the current external checkpoint generation'
+                'wprism: scoped terminal authority does not match the current external checkpoint generation'
             );
         }
     }
@@ -219,7 +219,7 @@ final class ScopedApplySession {
         if ($providedHash !== null) {
             self::assert_hash($providedHash, 'authority_hash');
             if (!hash_equals((string) $providedHash, (string) $authority['authority_hash'])) {
-                throw new \RuntimeException('duo: scoped mutation authority hash does not verify');
+                throw new \RuntimeException('wprism: scoped mutation authority hash does not verify');
             }
         }
         return self::canonical_copy($authority);
@@ -251,7 +251,7 @@ final class ScopedApplySession {
             self::AUTHORITY_FORMAT,
             self::EXTERNAL_AUTHORITY_FORMAT,
         ], true)) {
-            throw new \RuntimeException('duo: scoped mutation authority has an unsupported format');
+            throw new \RuntimeException('wprism: scoped mutation authority has an unsupported format');
         }
         self::assert_hash($authority['scope_hash'] ?? null, 'scope_hash');
         self::assert_hash($authority['code_witness_hash'] ?? null, 'code_witness_hash');
@@ -267,13 +267,13 @@ final class ScopedApplySession {
         $withoutHash = $authority;
         unset($withoutHash['authority_hash']);
         if (!hash_equals(self::digest($withoutHash), (string) $authority['authority_hash'])) {
-            throw new \RuntimeException('duo: scoped mutation authority hash does not verify');
+            throw new \RuntimeException('wprism: scoped mutation authority hash does not verify');
         }
         if (!hash_equals(
             (string) $authority['source']['artifact_hash'],
             (string) $authority['lease']['artifact_hash']
         )) {
-            throw new \RuntimeException('duo: scoped mutation authority lease artifact does not match source artifact');
+            throw new \RuntimeException('wprism: scoped mutation authority lease artifact does not match source artifact');
         }
         return self::canonical_copy($authority);
     }
@@ -329,7 +329,7 @@ final class ScopedApplySession {
             $record = self::decode_record($archived);
             self::assert_same_authority($record, $authority);
             if ($record['phase'] !== self::PHASE_COMPLETE) {
-                throw new \RuntimeException('duo: scoped apply terminal archive is not complete');
+                throw new \RuntimeException('wprism: scoped apply terminal archive is not complete');
             }
             $session->storageKey = $terminalKey;
             $session->adopt($record, $archived);
@@ -341,7 +341,7 @@ final class ScopedApplySession {
         if (!$storage->compare_and_swap(self::STORAGE_KEY, null, $encoded)) {
             $after = $storage->read(self::STORAGE_KEY);
             if ($after === null) {
-                throw new \RuntimeException('duo: scoped apply session storage CAS conflict');
+                throw new \RuntimeException('wprism: scoped apply session storage CAS conflict');
             }
             $winner = self::decode_record($after);
             self::assert_same_authority($winner, $authority);
@@ -350,7 +350,7 @@ final class ScopedApplySession {
         }
         $readback = $storage->read(self::STORAGE_KEY);
         if ($readback !== $encoded) {
-            throw new \RuntimeException('duo: scoped apply session storage write was not durable');
+            throw new \RuntimeException('wprism: scoped apply session storage write was not durable');
         }
         $session->adopt($record, $encoded);
         return $session;
@@ -406,17 +406,17 @@ final class ScopedApplySession {
         try {
             $index = Canon::decode($rawIndex);
         } catch (\Throwable $_failure) {
-            throw new \RuntimeException('duo: scoped apply terminal request index is not valid canonical JSON');
+            throw new \RuntimeException('wprism: scoped apply terminal request index is not valid canonical JSON');
         }
         self::assert_terminal_request_index($index, $scopeHash, $artifactHash, $promotionBindingHash);
         if (Canon::encode($index) !== $rawIndex) {
-            throw new \RuntimeException('duo: scoped apply terminal request index is not canonical');
+            throw new \RuntimeException('wprism: scoped apply terminal request index is not canonical');
         }
         $authorityHash = (string) $index['authority_hash'];
         $archiveKey = self::terminal_storage_key($authorityHash);
         $archived = $storage->read($archiveKey);
         if ($archived === null) {
-            throw new \RuntimeException('duo: scoped apply terminal request archive is missing');
+            throw new \RuntimeException('wprism: scoped apply terminal request archive is missing');
         }
         $record = self::decode_record($archived);
         if ($record['phase'] !== self::PHASE_COMPLETE
@@ -429,7 +429,7 @@ final class ScopedApplySession {
                     (string) ($record['authority']['promotion']['binding_hash'] ?? '')
                 ))
             || !hash_equals((string) $index['terminal_hash'], (string) $record['terminal_receipt']['terminal_hash'])) {
-            throw new \RuntimeException('duo: scoped apply terminal request index does not bind its immutable archive');
+            throw new \RuntimeException('wprism: scoped apply terminal request index does not bind its immutable archive');
         }
         $session = new self($storage);
         $session->storageKey = $archiveKey;
@@ -445,17 +445,17 @@ final class ScopedApplySession {
     public function archive_terminal(?string $expectedCanonical = null): self {
         $record = $this->current();
         if ($record['phase'] !== self::PHASE_COMPLETE) {
-            throw new \RuntimeException('duo: only a complete scoped apply session can be archived');
+            throw new \RuntimeException('wprism: only a complete scoped apply session can be archived');
         }
         $active = $this->storage->read(self::STORAGE_KEY);
         if ($active === null) {
             $archivedKey = self::terminal_storage_key((string) $record['authority_hash']);
             $archived = $this->storage->read($archivedKey);
             if ($archived === null) {
-                throw new \RuntimeException('duo: scoped apply terminal archive is missing');
+                throw new \RuntimeException('wprism: scoped apply terminal archive is missing');
             }
             if ($expectedCanonical !== null && $archived !== $expectedCanonical) {
-                throw new \RuntimeException('duo: scoped apply terminal archive expected bytes do not match');
+                throw new \RuntimeException('wprism: scoped apply terminal archive expected bytes do not match');
             }
             $this->ensure_terminal_request_index($record);
             $this->storageKey = $archivedKey;
@@ -465,20 +465,20 @@ final class ScopedApplySession {
         $activeRecord = self::decode_record($active);
         $this->assert_owned($activeRecord);
         if ($expectedCanonical !== null && $active !== $expectedCanonical) {
-            throw new \RuntimeException('duo: scoped apply terminal archive expected bytes do not match');
+            throw new \RuntimeException('wprism: scoped apply terminal archive expected bytes do not match');
         }
         $archivedKey = self::terminal_storage_key((string) $activeRecord['authority_hash']);
         $archived = $this->storage->read($archivedKey);
         if ($archived === null) {
             if (!$this->storage->compare_and_swap($archivedKey, null, $active)) {
-                throw new \RuntimeException('duo: scoped apply terminal archive storage CAS conflict');
+                throw new \RuntimeException('wprism: scoped apply terminal archive storage CAS conflict');
             }
         } elseif ($archived !== $active) {
-            throw new \RuntimeException('duo: scoped apply terminal archive identity is immutable');
+            throw new \RuntimeException('wprism: scoped apply terminal archive identity is immutable');
         }
         $this->ensure_terminal_request_index($activeRecord);
         if (!$this->storage->compare_and_swap(self::STORAGE_KEY, $active, null)) {
-            throw new \RuntimeException('duo: scoped apply terminal clear storage CAS conflict');
+            throw new \RuntimeException('wprism: scoped apply terminal clear storage CAS conflict');
         }
         $this->storageKey = $archivedKey;
         $this->adopt($activeRecord, $active);
@@ -522,14 +522,14 @@ final class ScopedApplySession {
         }
         $session = self::open($storage);
         if ($session === null || $session->phase() !== self::PHASE_VERIFYING) {
-            throw new \RuntimeException('duo: scoped verifier found no exact active verifying session');
+            throw new \RuntimeException('wprism: scoped verifier found no exact active verifying session');
         }
         $authority = $session->authority();
         if (!hash_equals($authorityHash, $session->authority_hash_value())
             || !hash_equals($effectsRoot, self::hash_value($session->receipts()))
             || !hash_equals($scopeHash, (string) ($authority['scope_hash'] ?? ''))
             || !hash_equals($artifactHash, (string) ($authority['source']['artifact_hash'] ?? ''))) {
-            throw new \RuntimeException('duo: scoped verifier session authority/effect evidence mismatch');
+            throw new \RuntimeException('wprism: scoped verifier session authority/effect evidence mismatch');
         }
         return $session;
     }
@@ -540,7 +540,7 @@ final class ScopedApplySession {
         if ($outerReceipt === null
             || !hash_equals($readbackHash, (string) ($outerReceipt['after_hash'] ?? ''))) {
             throw new \RuntimeException(
-                'duo: scoped effect postcondition no longer matches its durable outer receipt; recovery_required'
+                'wprism: scoped effect postcondition no longer matches its durable outer receipt; recovery_required'
             );
         }
     }
@@ -588,24 +588,24 @@ final class ScopedApplySession {
             'terminal_receipt',
         ], 'scoped apply session');
         if (($record['format'] ?? null) !== self::SESSION_FORMAT) {
-            throw new \RuntimeException('duo: scoped apply session has an unsupported format');
+            throw new \RuntimeException('wprism: scoped apply session has an unsupported format');
         }
         self::assert_token($record['session_id'] ?? null, 'session_id');
         $authority = self::validate_authority($record['authority'] ?? []);
         self::assert_hash($record['authority_hash'] ?? null, 'session authority_hash');
         if (!hash_equals((string) $authority['authority_hash'], (string) $record['authority_hash'])) {
-            throw new \RuntimeException('duo: scoped apply session authority mismatch');
+            throw new \RuntimeException('wprism: scoped apply session authority mismatch');
         }
         self::assert_lease_shape($record['lease'] ?? null);
         if (self::canonical_encode($record['lease']) !== self::canonical_encode($authority['lease'])) {
-            throw new \RuntimeException('duo: scoped apply session lease mismatch');
+            throw new \RuntimeException('wprism: scoped apply session lease mismatch');
         }
         if (!hash_equals((string) $record['session_id'], (string) $authority['lease']['session_id'])) {
-            throw new \RuntimeException('duo: scoped apply session id does not match its lease');
+            throw new \RuntimeException('wprism: scoped apply session id does not match its lease');
         }
         $phase = $record['phase'] ?? null;
         if (!is_string($phase) || !in_array($phase, self::PHASES, true)) {
-            throw new \RuntimeException('duo: scoped apply session has an invalid phase');
+            throw new \RuntimeException('wprism: scoped apply session has an invalid phase');
         }
         self::assert_phase_history($record['phase_history'] ?? null, $phase, $record['recovery'] ?? null);
         self::assert_intents($record['intents'] ?? null, (string) $record['authority_hash'], $record['lease']);
@@ -620,7 +620,7 @@ final class ScopedApplySession {
         $withoutHash = $record;
         unset($withoutHash['session_hash']);
         if (!hash_equals(self::digest($withoutHash), (string) $record['session_hash'])) {
-            throw new \RuntimeException('duo: scoped apply session hash does not verify');
+            throw new \RuntimeException('wprism: scoped apply session hash does not verify');
         }
         return self::canonical_copy($record);
     }
@@ -656,7 +656,7 @@ final class ScopedApplySession {
                         (string) $record['terminal_receipt']['convergence_hash'],
                         $convergenceHash
                     )) {
-                    throw new \RuntimeException('duo: scoped apply terminal convergence identity mismatch');
+                    throw new \RuntimeException('wprism: scoped apply terminal convergence identity mismatch');
                 }
                 if ($current === self::PHASE_COMPLETE && $terminalTarget !== null
                     && (!hash_equals(
@@ -666,34 +666,34 @@ final class ScopedApplySession {
                         (string) $record['terminal_receipt']['protected_ledger_map_hash'],
                         (string) $terminalTarget['protected_ledger_map_hash']
                     ))) {
-                    throw new \RuntimeException('duo: scoped apply terminal target identity mismatch');
+                    throw new \RuntimeException('wprism: scoped apply terminal target identity mismatch');
                 }
                 return $record;
             }
             if ($current === self::PHASE_COMPLETE) {
-                throw new \RuntimeException('duo: scoped apply session is terminal; phase transition refused');
+                throw new \RuntimeException('wprism: scoped apply session is terminal; phase transition refused');
             }
             if ($current === self::PHASE_RECOVERY_REQUIRED) {
-                throw new \RuntimeException('duo: scoped apply session requires its exact recovery resume phase');
+                throw new \RuntimeException('wprism: scoped apply session requires its exact recovery resume phase');
             }
             if ($nextPhase === self::PHASE_RECOVERY_REQUIRED) {
-                throw new \RuntimeException('duo: recovery requires the recover() API and a cause hash');
+                throw new \RuntimeException('wprism: recovery requires the recover() API and a cause hash');
             }
             if ($current === self::PHASE_AUTHORING
                 && $nextPhase === self::PHASE_AUTHORED_COMMITTED) {
                 throw new \RuntimeException(
-                    'duo: authored commit requires the atomic author-receipt API'
+                    'wprism: authored commit requires the atomic author-receipt API'
                 );
             }
             if ($nextPhase === self::PHASE_COMPLETE
                 && ($convergenceHash === null || $terminalTarget === null)) {
                 throw new \RuntimeException(
-                    'duo: complete requires convergence and post-finalization target witness hashes'
+                    'wprism: complete requires convergence and post-finalization target witness hashes'
                 );
             }
             $expected = self::NEXT_PHASE[$current] ?? null;
             if ($expected !== $nextPhase) {
-                throw new \RuntimeException('duo: scoped apply session phase transition skipped or moved backward');
+                throw new \RuntimeException('wprism: scoped apply session phase transition skipped or moved backward');
             }
             if ($nextPhase === self::PHASE_VERIFYING) {
                 self::assert_receipts_complete($record['intents'], $record['receipts']);
@@ -741,7 +741,7 @@ final class ScopedApplySession {
         $this->mutate(function (array $record) use ($causeHash): array {
             $current = (string) $record['phase'];
             if ($current === self::PHASE_COMPLETE) {
-                throw new \RuntimeException('duo: scoped apply session is terminal; recovery is refused');
+                throw new \RuntimeException('wprism: scoped apply session is terminal; recovery is refused');
             }
             if ($current === self::PHASE_RECOVERY_REQUIRED) {
                 $recovery = $record['recovery'];
@@ -749,7 +749,7 @@ final class ScopedApplySession {
                     && hash_equals((string) $recovery['cause_hash'], $causeHash)) {
                     return $record;
                 }
-                throw new \RuntimeException('duo: scoped apply session already has a different recovery witness');
+                throw new \RuntimeException('wprism: scoped apply session already has a different recovery witness');
             }
             $record['phase'] = self::PHASE_RECOVERY_REQUIRED;
             $record['phase_history'][] = self::PHASE_RECOVERY_REQUIRED;
@@ -770,11 +770,11 @@ final class ScopedApplySession {
         $this->mutate(function (array $record) use ($phase): array {
             if ((string) $record['phase'] !== self::PHASE_RECOVERY_REQUIRED
                 || !is_array($record['recovery'])) {
-                throw new \RuntimeException('duo: scoped apply session has no recovery gate to resume');
+                throw new \RuntimeException('wprism: scoped apply session has no recovery gate to resume');
             }
             $from = (string) ($record['recovery']['from_phase'] ?? '');
             if ($phase !== $from) {
-                throw new \RuntimeException('duo: scoped apply recovery resume phase is not exact');
+                throw new \RuntimeException('wprism: scoped apply recovery resume phase is not exact');
             }
             $record['phase'] = $from;
             $record['phase_history'][] = $from;
@@ -802,11 +802,11 @@ final class ScopedApplySession {
         $this->mutate(function (array $record): array {
             if ((string) $record['phase'] !== self::PHASE_RECOVERY_REQUIRED
                 || !is_array($record['recovery'])) {
-                throw new \RuntimeException('duo: scoped apply session has no recovery gate to resume');
+                throw new \RuntimeException('wprism: scoped apply session has no recovery gate to resume');
             }
             $from = (string) ($record['recovery']['from_phase'] ?? '');
             if (!isset(self::NEXT_PHASE[$from])) {
-                throw new \RuntimeException('duo: scoped apply recovery retained an invalid resume phase');
+                throw new \RuntimeException('wprism: scoped apply recovery retained an invalid resume phase');
             }
             $record['phase'] = $from;
             $record['phase_history'][] = $from;
@@ -830,18 +830,18 @@ final class ScopedApplySession {
                 if (self::canonical_encode($existing) === self::canonical_encode($row)) {
                     return $record;
                 }
-                throw new \RuntimeException('duo: duplicate intent ordinal has mismatched hashes');
+                throw new \RuntimeException('wprism: duplicate intent ordinal has mismatched hashes');
             }
             if (!in_array((string) $record['phase'], [
                 self::PHASE_AUTHORING,
                 self::PHASE_AUTHORED_COMMITTED,
                 self::PHASE_EFFECTS_PENDING,
             ], true)) {
-                throw new \RuntimeException('duo: scoped apply intent is out of phase');
+                throw new \RuntimeException('wprism: scoped apply intent is out of phase');
             }
             $expected = count($record['intents']) + 1;
             if ((int) $row['ordinal'] !== $expected) {
-                throw new \RuntimeException('duo: scoped apply intent ordinal is not append-only');
+                throw new \RuntimeException('wprism: scoped apply intent ordinal is not append-only');
             }
             $record['intents'][] = $row;
             return $record;
@@ -869,27 +869,27 @@ final class ScopedApplySession {
                 if (self::canonical_encode($existing) === self::canonical_encode($row)) {
                     return $record;
                 }
-                throw new \RuntimeException('duo: duplicate receipt ordinal has mismatched hashes');
+                throw new \RuntimeException('wprism: duplicate receipt ordinal has mismatched hashes');
             }
             if (!in_array((string) $record['phase'], [
                 self::PHASE_AUTHORED_COMMITTED,
                 self::PHASE_EFFECTS_PENDING,
                 self::PHASE_VERIFYING,
             ], true)) {
-                throw new \RuntimeException('duo: scoped apply receipt is out of phase');
+                throw new \RuntimeException('wprism: scoped apply receipt is out of phase');
             }
             $intent = self::row_at($record['intents'], (int) $row['ordinal']);
             if ($intent === null) {
-                throw new \RuntimeException('duo: scoped apply receipt has no matching intent');
+                throw new \RuntimeException('wprism: scoped apply receipt has no matching intent');
             }
             foreach (['authority_hash', 'lease_hash', 'action_hash', 'operation_hash', 'input_hash', 'effect_hash', 'before_hash'] as $key) {
                 if (!hash_equals((string) $intent[$key], (string) $row[$key])) {
-                    throw new \RuntimeException('duo: receipt does not match its intent hashes');
+                    throw new \RuntimeException('wprism: receipt does not match its intent hashes');
                 }
             }
             $expected = count($record['receipts']) + 1;
             if ((int) $row['ordinal'] !== $expected) {
-                throw new \RuntimeException('duo: scoped apply receipt ordinal is not append-only');
+                throw new \RuntimeException('wprism: scoped apply receipt ordinal is not append-only');
             }
             $record['receipts'][] = $row;
             return $record;
@@ -902,7 +902,7 @@ final class ScopedApplySession {
      *
      * LedgerScopedApplySessionStorage uses the authored transaction's exact
      * wpdb connection, so this one replacement commits or rolls back with the
-     * selected rows and their duo_map bindings. No later retry may infer this
+     * selected rows and their wprism_map bindings. No later retry may infer this
      * boundary from desired content alone.
      */
     public function commit_authored_receipt(array $receipt): self {
@@ -910,19 +910,19 @@ final class ScopedApplySession {
             if ((string) $record['phase'] !== self::PHASE_AUTHORING
                 || count($record['intents']) !== 1
                 || $record['receipts'] !== []) {
-                throw new \RuntimeException('duo: scoped authored receipt is outside its atomic commit boundary');
+                throw new \RuntimeException('wprism: scoped authored receipt is outside its atomic commit boundary');
             }
             $row = self::normalize_receipt($receipt, $record);
             if ((int) $row['ordinal'] !== 1) {
-                throw new \RuntimeException('duo: scoped authored receipt ordinal is not one');
+                throw new \RuntimeException('wprism: scoped authored receipt ordinal is not one');
             }
             $intent = self::row_at($record['intents'], 1);
             if ($intent === null) {
-                throw new \RuntimeException('duo: scoped authored receipt has no matching intent');
+                throw new \RuntimeException('wprism: scoped authored receipt has no matching intent');
             }
             foreach (['authority_hash', 'lease_hash', 'action_hash', 'operation_hash', 'input_hash', 'effect_hash', 'before_hash'] as $key) {
                 if (!hash_equals((string) $intent[$key], (string) $row[$key])) {
-                    throw new \RuntimeException('duo: scoped authored receipt does not match its intent hashes');
+                    throw new \RuntimeException('wprism: scoped authored receipt does not match its intent hashes');
                 }
             }
             $record['receipts'][] = $row;
@@ -939,16 +939,16 @@ final class ScopedApplySession {
             if ((string) $record['phase'] !== self::PHASE_PLANNED
                 || $record['intents'] !== []
                 || $record['receipts'] !== []) {
-                throw new \RuntimeException('duo: scoped desired authoring is outside its atomic no-op boundary');
+                throw new \RuntimeException('wprism: scoped desired authoring is outside its atomic no-op boundary');
             }
             $intentRow = self::normalize_intent($intent, $record);
             $receiptRow = self::normalize_receipt($receipt, $record);
             if ((int) $intentRow['ordinal'] !== 1 || (int) $receiptRow['ordinal'] !== 1) {
-                throw new \RuntimeException('duo: scoped desired authoring ordinal is not one');
+                throw new \RuntimeException('wprism: scoped desired authoring ordinal is not one');
             }
             foreach (['authority_hash', 'lease_hash', 'action_hash', 'operation_hash', 'input_hash', 'effect_hash', 'before_hash'] as $key) {
                 if (!hash_equals((string) $intentRow[$key], (string) $receiptRow[$key])) {
-                    throw new \RuntimeException('duo: scoped desired authoring receipt does not match its intent hashes');
+                    throw new \RuntimeException('wprism: scoped desired authoring receipt does not match its intent hashes');
                 }
             }
             $record['intents'][] = $intentRow;
@@ -975,7 +975,7 @@ final class ScopedApplySession {
         if (!hash_equals($owner, (string) $expected['owner'])
             || !hash_equals($artifactHash, (string) $expected['artifact_hash'])
             || !hash_equals($sessionId, (string) $expected['session_id'])) {
-            throw new \RuntimeException('duo: scoped apply session lease mismatch');
+            throw new \RuntimeException('wprism: scoped apply session lease mismatch');
         }
     }
 
@@ -996,7 +996,7 @@ final class ScopedApplySession {
         $recovery = $record['recovery'];
         $from = is_array($recovery) ? ($recovery['from_phase'] ?? null) : null;
         if (!is_string($from) || !isset(self::NEXT_PHASE[$from])) {
-            throw new \RuntimeException('duo: scoped apply recovery retained an invalid resume phase');
+            throw new \RuntimeException('wprism: scoped apply recovery retained an invalid resume phase');
         }
         return $from;
     }
@@ -1044,7 +1044,7 @@ final class ScopedApplySession {
     public function reload(): self {
         $raw = $this->storage->read($this->storageKey);
         if ($raw === null) {
-            throw new \RuntimeException('duo: scoped apply session disappeared from storage');
+            throw new \RuntimeException('wprism: scoped apply session disappeared from storage');
         }
         $record = self::decode_record($raw);
         $this->assert_owned($record);
@@ -1106,14 +1106,14 @@ final class ScopedApplySession {
         try {
             $decoded = Canon::decode($raw);
         } catch (\Throwable $e) {
-            throw new \RuntimeException('duo: scoped apply session storage record is not valid canonical JSON');
+            throw new \RuntimeException('wprism: scoped apply session storage record is not valid canonical JSON');
         }
         if (!is_array($decoded)) {
-            throw new \RuntimeException('duo: scoped apply session storage record is not an object');
+            throw new \RuntimeException('wprism: scoped apply session storage record is not an object');
         }
         $record = self::validate_session($decoded);
         if (Canon::encode($record) !== $raw) {
-            throw new \RuntimeException('duo: scoped apply session storage record is not canonical');
+            throw new \RuntimeException('wprism: scoped apply session storage record is not canonical');
         }
         return $record;
     }
@@ -1121,7 +1121,7 @@ final class ScopedApplySession {
     /** @param array<string,mixed> $record */
     private function ensure_terminal_request_index(array $record): void {
         if (($record['phase'] ?? null) !== self::PHASE_COMPLETE) {
-            throw new \RuntimeException('duo: scoped apply terminal request index requires a complete session');
+            throw new \RuntimeException('wprism: scoped apply terminal request index requires a complete session');
         }
         $authority = (array) $record['authority'];
         $scopeHash = (string) $authority['scope_hash'];
@@ -1153,7 +1153,7 @@ final class ScopedApplySession {
             }
         }
         if ($stored !== $encoded) {
-            throw new \RuntimeException('duo: scoped apply terminal request identity is immutable');
+            throw new \RuntimeException('wprism: scoped apply terminal request identity is immutable');
         }
     }
 
@@ -1174,7 +1174,7 @@ final class ScopedApplySession {
             ? self::TERMINAL_REQUEST_FORMAT
             : self::EXTERNAL_TERMINAL_REQUEST_FORMAT;
         if (($index['format'] ?? null) !== $expectedFormat) {
-            throw new \RuntimeException('duo: scoped apply terminal request index has an unsupported format');
+            throw new \RuntimeException('wprism: scoped apply terminal request index has an unsupported format');
         }
         foreach (['artifact_hash', 'authority_hash', 'scope_hash', 'terminal_hash'] as $field) {
             self::assert_hash($index[$field] ?? null, "terminal request index $field");
@@ -1186,7 +1186,7 @@ final class ScopedApplySession {
             || !hash_equals($artifactHash, (string) $index['artifact_hash'])
             || ($promotionBindingHash !== null
                 && !hash_equals($promotionBindingHash, (string) $index['promotion_binding_hash']))) {
-            throw new \RuntimeException('duo: scoped apply terminal request index identity mismatch');
+            throw new \RuntimeException('wprism: scoped apply terminal request index identity mismatch');
         }
     }
 
@@ -1199,7 +1199,7 @@ final class ScopedApplySession {
     private function mutate(callable $operation): void {
         $raw = $this->storage->read($this->storageKey);
         if ($raw === null) {
-            throw new \RuntimeException('duo: scoped apply session is missing from storage');
+            throw new \RuntimeException('wprism: scoped apply session is missing from storage');
         }
         $record = self::decode_record($raw);
         $this->assert_owned($record);
@@ -1211,11 +1211,11 @@ final class ScopedApplySession {
             return;
         }
         if (!$this->storage->compare_and_swap($this->storageKey, $raw, $replacement)) {
-            throw new \RuntimeException('duo: scoped apply session storage CAS conflict');
+            throw new \RuntimeException('wprism: scoped apply session storage CAS conflict');
         }
         $readback = $this->storage->read($this->storageKey);
         if ($readback !== $replacement) {
-            throw new \RuntimeException('duo: scoped apply session storage write was not durable');
+            throw new \RuntimeException('wprism: scoped apply session storage write was not durable');
         }
         $this->adopt($next, $replacement);
     }
@@ -1241,17 +1241,17 @@ final class ScopedApplySession {
         }
         if (!hash_equals((string) $this->record['session_id'], (string) $record['session_id'])
             || !hash_equals((string) $this->record['authority_hash'], (string) $record['authority_hash'])) {
-            throw new \RuntimeException('duo: scoped apply session identity changed in storage');
+            throw new \RuntimeException('wprism: scoped apply session identity changed in storage');
         }
     }
 
     /** @param array<string,mixed> $record @param array<string,mixed> $authority */
     private static function assert_same_authority(array $record, array $authority): void {
         if (!hash_equals((string) $record['authority_hash'], (string) $authority['authority_hash'])) {
-            throw new \RuntimeException('duo: a different scoped apply session is already active');
+            throw new \RuntimeException('wprism: a different scoped apply session is already active');
         }
         if (self::canonical_encode($record['lease']) !== self::canonical_encode($authority['lease'])) {
-            throw new \RuntimeException('duo: active scoped apply session has a lease mismatch');
+            throw new \RuntimeException('wprism: active scoped apply session has a lease mismatch');
         }
     }
 
@@ -1288,11 +1288,11 @@ final class ScopedApplySession {
     private static function assert_phase_history(mixed $history, string $phase, mixed $recovery): void {
         if (!is_array($history) || !array_is_list($history) || $history === []
             || $history[0] !== self::PHASE_PLANNED || $history[count($history) - 1] !== $phase) {
-            throw new \RuntimeException('duo: scoped apply session phase history is malformed');
+            throw new \RuntimeException('wprism: scoped apply session phase history is malformed');
         }
         foreach ($history as $item) {
             if (!is_string($item) || !in_array($item, self::PHASES, true)) {
-                throw new \RuntimeException('duo: scoped apply session phase history contains an invalid phase');
+                throw new \RuntimeException('wprism: scoped apply session phase history contains an invalid phase');
             }
         }
         for ($i = 1, $n = count($history); $i < $n; $i++) {
@@ -1300,19 +1300,19 @@ final class ScopedApplySession {
             $next = $history[$i];
             if ($next === self::PHASE_RECOVERY_REQUIRED) {
                 if ($previous === self::PHASE_COMPLETE || $previous === self::PHASE_RECOVERY_REQUIRED) {
-                    throw new \RuntimeException('duo: scoped apply session recovery transition is not monotonic');
+                    throw new \RuntimeException('wprism: scoped apply session recovery transition is not monotonic');
                 }
                 continue;
             }
             if ($previous === self::PHASE_RECOVERY_REQUIRED) {
                 $from = $i >= 2 ? $history[$i - 2] : null;
                 if (!is_string($from) || $next !== $from) {
-                    throw new \RuntimeException('duo: scoped apply recovery transition is not phase-exact');
+                    throw new \RuntimeException('wprism: scoped apply recovery transition is not phase-exact');
                 }
                 continue;
             }
             if ((self::NEXT_PHASE[$previous] ?? null) !== $next) {
-                throw new \RuntimeException('duo: scoped apply session phase history skipped a phase');
+                throw new \RuntimeException('wprism: scoped apply session phase history skipped a phase');
             }
         }
         if ($phase === self::PHASE_RECOVERY_REQUIRED) {
@@ -1320,26 +1320,26 @@ final class ScopedApplySession {
             self::assert_hash($recovery['cause_hash'] ?? null, 'recovery cause hash');
             $from = count($history) >= 2 ? $history[count($history) - 2] : null;
             if ($recovery['from_phase'] !== $from || $from === self::PHASE_COMPLETE) {
-                throw new \RuntimeException('duo: scoped apply recovery phase witness is not exact');
+                throw new \RuntimeException('wprism: scoped apply recovery phase witness is not exact');
             }
         } elseif ($recovery !== null) {
-            throw new \RuntimeException('duo: scoped apply session has recovery metadata outside recovery_required');
+            throw new \RuntimeException('wprism: scoped apply session has recovery metadata outside recovery_required');
         }
     }
 
     /** @param list<array<string,mixed>> $intents @param list<array<string,mixed>> $receipts */
     private static function assert_receipts_complete(array $intents, array $receipts): void {
         if (count($intents) !== count($receipts)) {
-            throw new \RuntimeException('duo: scoped apply session has unreceipted mutation intents');
+            throw new \RuntimeException('wprism: scoped apply session has unreceipted mutation intents');
         }
         foreach ($intents as $intent) {
             $receipt = self::row_at($receipts, (int) $intent['ordinal']);
             if ($receipt === null) {
-                throw new \RuntimeException('duo: scoped apply session has a missing receipt ordinal');
+                throw new \RuntimeException('wprism: scoped apply session has a missing receipt ordinal');
             }
             foreach (['authority_hash', 'lease_hash', 'action_hash', 'operation_hash', 'input_hash', 'effect_hash', 'before_hash'] as $key) {
                 if (!hash_equals((string) $intent[$key], (string) $receipt[$key])) {
-                    throw new \RuntimeException('duo: scoped apply receipt no longer matches its intent');
+                    throw new \RuntimeException('wprism: scoped apply receipt no longer matches its intent');
                 }
             }
         }
@@ -1349,12 +1349,12 @@ final class ScopedApplySession {
     private static function assert_terminal(mixed $terminal, string $phase, array $record): void {
         if ($phase !== self::PHASE_COMPLETE) {
             if ($terminal !== null) {
-                throw new \RuntimeException('duo: scoped apply terminal receipt exists before complete');
+                throw new \RuntimeException('wprism: scoped apply terminal receipt exists before complete');
             }
             return;
         }
         if (!is_array($terminal)) {
-            throw new \RuntimeException('duo: scoped apply complete session has no terminal receipt');
+            throw new \RuntimeException('wprism: scoped apply complete session has no terminal receipt');
         }
         self::assert_keys($terminal, [
             'authority_hash', 'convergence_hash', 'intents_hash', 'lease_hash', 'phase',
@@ -1364,7 +1364,7 @@ final class ScopedApplySession {
         if (($terminal['phase'] ?? null) !== self::PHASE_COMPLETE
             || ($terminal['session_id'] ?? null) !== ($record['session_id'] ?? null)
             || ($terminal['authority_hash'] ?? null) !== ($record['authority_hash'] ?? null)) {
-            throw new \RuntimeException('duo: scoped apply terminal receipt identity mismatch');
+            throw new \RuntimeException('wprism: scoped apply terminal receipt identity mismatch');
         }
         self::assert_hash($terminal['convergence_hash'] ?? null, 'terminal convergence_hash');
         self::assert_hash($terminal['intents_hash'] ?? null, 'terminal intents_hash');
@@ -1376,12 +1376,12 @@ final class ScopedApplySession {
         if (!hash_equals((string) $terminal['intents_hash'], self::hash_value($record['intents']))
             || !hash_equals((string) $terminal['receipts_hash'], self::hash_value($record['receipts']))
             || !hash_equals((string) $terminal['lease_hash'], self::lease_hash($record['lease']))) {
-            throw new \RuntimeException('duo: scoped apply terminal receipt evidence mismatch');
+            throw new \RuntimeException('wprism: scoped apply terminal receipt evidence mismatch');
         }
         $withoutHash = $terminal;
         unset($withoutHash['terminal_hash']);
         if (!hash_equals(self::digest($withoutHash), (string) $terminal['terminal_hash'])) {
-            throw new \RuntimeException('duo: scoped apply terminal receipt hash does not verify');
+            throw new \RuntimeException('wprism: scoped apply terminal receipt hash does not verify');
         }
     }
 
@@ -1398,14 +1398,14 @@ final class ScopedApplySession {
     /** @param mixed $intents @param array<string,mixed> $lease */
     private static function assert_intents(mixed $intents, string $authorityHash, array $lease): void {
         if (!is_array($intents) || !array_is_list($intents)) {
-            throw new \RuntimeException('duo: scoped apply intents must be an append-only list');
+            throw new \RuntimeException('wprism: scoped apply intents must be an append-only list');
         }
         $expected = 1;
         $leaseHash = self::lease_hash($lease);
         foreach ($intents as $row) {
             self::assert_intent_row($row);
             if ($row['ordinal'] !== $expected) {
-                throw new \RuntimeException('duo: scoped apply intents have a skipped or duplicate ordinal');
+                throw new \RuntimeException('wprism: scoped apply intents have a skipped or duplicate ordinal');
             }
             self::assert_row_binding($row, $authorityHash, $leaseHash, 'intent');
             $expected++;
@@ -1415,23 +1415,23 @@ final class ScopedApplySession {
     /** @param mixed $receipts @param array<string,mixed> $lease @param mixed $intents */
     private static function assert_receipts(mixed $receipts, string $authorityHash, array $lease, mixed $intents): void {
         if (!is_array($receipts) || !array_is_list($receipts)) {
-            throw new \RuntimeException('duo: scoped apply receipts must be an append-only list');
+            throw new \RuntimeException('wprism: scoped apply receipts must be an append-only list');
         }
         $expected = 1;
         $leaseHash = self::lease_hash($lease);
         foreach ($receipts as $row) {
             self::assert_receipt_row($row);
             if ($row['ordinal'] !== $expected) {
-                throw new \RuntimeException('duo: scoped apply receipts have a skipped or duplicate ordinal');
+                throw new \RuntimeException('wprism: scoped apply receipts have a skipped or duplicate ordinal');
             }
             self::assert_row_binding($row, $authorityHash, $leaseHash, 'receipt');
             $intent = self::row_at((array) $intents, (int) $row['ordinal']);
             if ($intent === null) {
-                throw new \RuntimeException('duo: scoped apply receipt has no intent ordinal');
+                throw new \RuntimeException('wprism: scoped apply receipt has no intent ordinal');
             }
             foreach (['authority_hash', 'lease_hash', 'action_hash', 'operation_hash', 'input_hash', 'effect_hash', 'before_hash'] as $key) {
                 if (!hash_equals((string) $intent[$key], (string) $row[$key])) {
-                    throw new \RuntimeException('duo: scoped apply receipt does not match its intent');
+                    throw new \RuntimeException('wprism: scoped apply receipt does not match its intent');
                 }
             }
             $expected++;
@@ -1444,7 +1444,7 @@ final class ScopedApplySession {
             'action_hash', 'authority_hash', 'before_hash', 'effect_hash', 'input_hash', 'lease_hash', 'operation_hash', 'ordinal',
         ], 'scoped apply intent');
         if (!is_int($row['ordinal']) || $row['ordinal'] < 1) {
-            throw new \RuntimeException('duo: scoped apply intent ordinal is invalid');
+            throw new \RuntimeException('wprism: scoped apply intent ordinal is invalid');
         }
         foreach (['authority_hash', 'lease_hash', 'action_hash', 'operation_hash', 'input_hash', 'effect_hash', 'before_hash'] as $key) {
             self::assert_hash($row[$key], "intent $key");
@@ -1457,7 +1457,7 @@ final class ScopedApplySession {
             'action_hash', 'after_hash', 'authority_hash', 'before_hash', 'effect_hash', 'input_hash', 'lease_hash', 'operation_hash', 'ordinal',
         ], 'scoped apply receipt');
         if (!is_int($row['ordinal']) || $row['ordinal'] < 1) {
-            throw new \RuntimeException('duo: scoped apply receipt ordinal is invalid');
+            throw new \RuntimeException('wprism: scoped apply receipt ordinal is invalid');
         }
         foreach (['authority_hash', 'lease_hash', 'action_hash', 'operation_hash', 'input_hash', 'effect_hash', 'before_hash', 'after_hash'] as $key) {
             self::assert_hash($row[$key], "receipt $key");
@@ -1467,10 +1467,10 @@ final class ScopedApplySession {
     /** @param array<string,mixed> $row */
     private static function assert_row_binding(array $row, string $authorityHash, string $leaseHash, string $kind): void {
         if (!hash_equals($authorityHash, (string) $row['authority_hash'])) {
-            throw new \RuntimeException("duo: scoped apply $kind authority mismatch");
+            throw new \RuntimeException("wprism: scoped apply $kind authority mismatch");
         }
         if (!hash_equals($leaseHash, (string) $row['lease_hash'])) {
-            throw new \RuntimeException("duo: scoped apply $kind lease mismatch");
+            throw new \RuntimeException("wprism: scoped apply $kind lease mismatch");
         }
     }
 
@@ -1589,7 +1589,7 @@ final class ScopedApplySession {
             self::assert_keys($row, ['declaration_hash', 'index', 'manifest'], 'scoped selection action item');
             self::assert_hash($row['declaration_hash'], 'action item declaration_hash');
             if (!is_int($row['index']) || $row['index'] < 0) {
-                throw new \RuntimeException('duo: scoped selection action item index is invalid');
+                throw new \RuntimeException('wprism: scoped selection action item index is invalid');
             }
             self::assert_manifest_token($row['manifest'], 'action item manifest');
         });
@@ -1604,7 +1604,7 @@ final class ScopedApplySession {
             foreach ($selection[$key] as $row) {
                 $encoded = self::canonical_encode($row);
                 if ($previous !== null && strcmp($previous, $encoded) >= 0) {
-                    throw new \RuntimeException("duo: scoped selection $key must be canonically sorted and unique");
+                    throw new \RuntimeException("wprism: scoped selection $key must be canonically sorted and unique");
                 }
                 $previous = $encoded;
             }
@@ -1617,7 +1617,7 @@ final class ScopedApplySession {
             'ledger_map_identity_set_hash' => 'ledger_map_identity_hashes',
         ] as $hashKey => $itemsKey) {
             if (!hash_equals((string) $selection[$hashKey], self::hash_value($selection[$itemsKey]))) {
-                throw new \RuntimeException("duo: scoped selection $hashKey does not match its retained items");
+                throw new \RuntimeException("wprism: scoped selection $hashKey does not match its retained items");
             }
         }
     }
@@ -1630,7 +1630,7 @@ final class ScopedApplySession {
         ], 'scoped mutation authority selection');
         foreach (['work_items', 'deletion_items', 'action_items', 'effect_items'] as $key) {
             if (!is_array($selection[$key]) || !array_is_list($selection[$key])) {
-                throw new \RuntimeException("duo: scoped selection $key must be a list");
+                throw new \RuntimeException("wprism: scoped selection $key must be a list");
             }
             usort(
                 $selection[$key],
@@ -1638,7 +1638,7 @@ final class ScopedApplySession {
             );
         }
         if (!is_array($selection['ledger_map_identity_hashes']) || !array_is_list($selection['ledger_map_identity_hashes'])) {
-            throw new \RuntimeException('duo: scoped selection ledger_map_identity_hashes must be a list');
+            throw new \RuntimeException('wprism: scoped selection ledger_map_identity_hashes must be a list');
         }
         sort($selection['ledger_map_identity_hashes'], SORT_STRING);
         self::assert_selection($selection);
@@ -1648,7 +1648,7 @@ final class ScopedApplySession {
     /** @param mixed $items @param callable(mixed):void $validator */
     private static function assert_item_list(mixed $items, string $field, callable $validator): void {
         if (!is_array($items) || !array_is_list($items)) {
-            throw new \RuntimeException("duo: scoped selection $field must be a list");
+            throw new \RuntimeException("wprism: scoped selection $field must be a list");
         }
         foreach ($items as $row) {
             $validator($row);
@@ -1658,15 +1658,15 @@ final class ScopedApplySession {
     /** @param mixed $identities */
     private static function assert_hash_identity_list(mixed $identityHashes, string $field): void {
         if (!is_array($identityHashes) || !array_is_list($identityHashes)) {
-            throw new \RuntimeException("duo: scoped selection $field must be a list");
+            throw new \RuntimeException("wprism: scoped selection $field must be a list");
         }
         $previous = null;
         foreach ($identityHashes as $identityHash) {
             if (!is_string($identityHash) || preg_match(self::HASH_RE, $identityHash) !== 1) {
-                throw new \RuntimeException("duo: scoped selection $field has an invalid opaque identity hash");
+                throw new \RuntimeException("wprism: scoped selection $field has an invalid opaque identity hash");
             }
             if ($previous !== null && strcmp($previous, $identityHash) >= 0) {
-                throw new \RuntimeException("duo: scoped selection $field must be sorted and unique");
+                throw new \RuntimeException("wprism: scoped selection $field must be sorted and unique");
             }
             $previous = $identityHash;
         }
@@ -1675,28 +1675,28 @@ final class ScopedApplySession {
     /** @param mixed $value */
     private static function assert_hash(mixed $value, string $field): void {
         if (!is_string($value) || preg_match(self::HASH_RE, $value) !== 1) {
-            throw new \RuntimeException("duo: scoped apply $field must be a lowercase SHA-256 hash");
+            throw new \RuntimeException("wprism: scoped apply $field must be a lowercase SHA-256 hash");
         }
     }
 
     /** @param mixed $value */
     private static function assert_token(mixed $value, string $field): void {
         if (!is_string($value) || preg_match(self::TOKEN_RE, $value) !== 1) {
-            throw new \RuntimeException("duo: scoped apply $field is not a bounded identity token");
+            throw new \RuntimeException("wprism: scoped apply $field is not a bounded identity token");
         }
     }
 
     /** @param mixed $value */
     private static function assert_type_token(mixed $value, string $field): void {
         if (!is_string($value) || preg_match(self::TYPE_RE, $value) !== 1) {
-            throw new \RuntimeException("duo: scoped apply $field is not a bounded type token");
+            throw new \RuntimeException("wprism: scoped apply $field is not a bounded type token");
         }
     }
 
     /** @param mixed $value */
     private static function assert_manifest_token(mixed $value, string $field): void {
         if (!is_string($value) || preg_match(self::MANIFEST_RE, $value) !== 1) {
-            throw new \RuntimeException("duo: scoped apply $field is not a bounded manifest token");
+            throw new \RuntimeException("wprism: scoped apply $field is not a bounded manifest token");
         }
     }
 
@@ -1713,7 +1713,7 @@ final class ScopedApplySession {
             self::AUTHORITY_FORMAT,
             self::EXTERNAL_AUTHORITY_FORMAT,
         ], true)) {
-            throw new \RuntimeException('duo: scoped mutation authority has an unsupported format');
+            throw new \RuntimeException('wprism: scoped mutation authority has an unsupported format');
         }
         self::assert_hash($authority['scope_hash'], 'scope_hash');
         self::assert_hash($authority['code_witness_hash'], 'code_witness_hash');
@@ -1726,7 +1726,7 @@ final class ScopedApplySession {
             self::assert_promotion_binding($authority['promotion'] ?? null);
         }
         if (!hash_equals((string) $authority['source']['artifact_hash'], (string) $authority['lease']['artifact_hash'])) {
-            throw new \RuntimeException('duo: scoped mutation authority lease artifact does not match source artifact');
+            throw new \RuntimeException('wprism: scoped mutation authority lease artifact does not match source artifact');
         }
     }
 
@@ -1739,7 +1739,7 @@ final class ScopedApplySession {
         if (($promotion['format'] ?? null) !== self::PROMOTION_BINDING_FORMAT
             || !is_bool($promotion['allow_deletes'] ?? null)
             || !is_int($promotion['generation'] ?? null) || (int) $promotion['generation'] < 1) {
-            throw new \RuntimeException('duo: scoped external promotion binding is malformed');
+            throw new \RuntimeException('wprism: scoped external promotion binding is malformed');
         }
         foreach ([
             'binding_hash', 'receipt_id_hash', 'receipt_payload_sha256',
@@ -1750,20 +1750,20 @@ final class ScopedApplySession {
         $withoutHash = $promotion;
         unset($withoutHash['binding_hash']);
         if (!hash_equals(self::digest($withoutHash), (string) $promotion['binding_hash'])) {
-            throw new \RuntimeException('duo: scoped external promotion binding hash does not verify');
+            throw new \RuntimeException('wprism: scoped external promotion binding hash does not verify');
         }
     }
 
     /** @param mixed $value @param list<string> $expected */
     private static function assert_keys(mixed $value, array $expected, string $where): void {
         if (!is_array($value) || array_is_list($value)) {
-            throw new \RuntimeException("duo: $where must be a closed object");
+            throw new \RuntimeException("wprism: $where must be a closed object");
         }
         $actual = array_keys($value);
         sort($actual, SORT_STRING);
         sort($expected, SORT_STRING);
         if ($actual !== $expected) {
-            throw new \RuntimeException("duo: $where has an unexpected schema");
+            throw new \RuntimeException("wprism: $where has an unexpected schema");
         }
     }
 

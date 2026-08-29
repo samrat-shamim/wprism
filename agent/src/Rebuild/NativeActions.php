@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/WpCliChildProcess.php';
 require_once __DIR__ . '/NativeRewriteEffects.php';
@@ -28,8 +28,8 @@ require_once __DIR__ . '/NativeRewriteEffects.php';
  */
 final class NativeActions {
     private const SCOPED_OWNER = 'native-actions';
-    private const REWRITE_FRESH_FORMAT = 'duo-rewrite-flush-fresh/v1';
-    private const REWRITE_FRESH_COMMAND = 'eval \'define("DUO_REWRITE_FLUSH_FRESH_PROCESS", true); $receipt = \\Duo\\NativeActions::execute("rewrite.flush", []); echo json_encode(["format" => "duo-rewrite-flush-fresh/v1", "after" => $receipt["after"]], JSON_THROW_ON_ERROR);\'';
+    private const REWRITE_FRESH_FORMAT = 'wprism-rewrite-flush-fresh/v1';
+    private const REWRITE_FRESH_COMMAND = 'eval \'define("WPRISM_REWRITE_FLUSH_FRESH_PROCESS", true); $receipt = \\WPrism\\NativeActions::execute("rewrite.flush", []); echo json_encode(["format" => "wprism-rewrite-flush-fresh/v1", "after" => $receipt["after"]], JSON_THROW_ON_ERROR);\'';
     private const REWRITE_PARENT_CACHE_KEYS = [
         'rewrite_rules',
         'tribe_last_generate_rewrite_rules',
@@ -76,7 +76,7 @@ final class NativeActions {
     }
 
     /**
-     * The per-action argument schemas validate() checks against (DUO-3327).
+     * The per-action argument schemas validate() checks against (issue #3327).
      *
      * Additive and read-only. vocabulary() answers "which names exist"; an
      * offline authoring aid also has to answer "which arguments does this one
@@ -131,17 +131,17 @@ final class NativeActions {
         $schema = self::ACTIONS[$action] ?? null;
         if ($schema === null) {
             throw new \RuntimeException(
-                "duo: $where names unknown native action '$action' — the engine vocabulary is closed ("
+                "wprism: $where names unknown native action '$action' — the engine vocabulary is closed ("
                 . implode(', ', self::vocabulary()) . '); a plugin-specific operation belongs in a provider'
             );
         }
         if (array_is_list($args) && $args !== []) {
-            throw new \RuntimeException("duo: $where.args must be an object");
+            throw new \RuntimeException("wprism: $where.args must be an object");
         }
         $unknown = array_diff(array_keys($args), array_keys($schema));
         if ($unknown !== []) {
             throw new \RuntimeException(
-                "duo: $where.args contains unknown key(s) for native action '$action': "
+                "wprism: $where.args contains unknown key(s) for native action '$action': "
                 . implode(', ', $unknown)
             );
         }
@@ -149,7 +149,7 @@ final class NativeActions {
             if (!array_key_exists($key, $args)) {
                 if ($rule['required']) {
                     throw new \RuntimeException(
-                        "duo: $where.args is missing required key '$key' for native action '$action'"
+                        "wprism: $where.args is missing required key '$key' for native action '$action'"
                     );
                 }
                 continue;
@@ -158,7 +158,7 @@ final class NativeActions {
             if ($rule['type'] === 'string'
                 && (!is_string($value) || preg_match($rule['pattern'], $value) !== 1)) {
                 throw new \RuntimeException(
-                    "duo: $where.args.$key must be a bounded string matching {$rule['pattern']}"
+                    "wprism: $where.args.$key must be a bounded string matching {$rule['pattern']}"
                 );
             }
         }
@@ -200,7 +200,7 @@ final class NativeActions {
             || !function_exists('get_option')
             || !is_object($wp_rewrite)) {
             throw new \RuntimeException(
-                "duo: native action 'rewrite.flush' read-only evidence requires a loaded WordPress rewrite runtime"
+                "wprism: native action 'rewrite.flush' read-only evidence requires a loaded WordPress rewrite runtime"
             );
         }
         $structure = self::permalink_structure_state();
@@ -212,7 +212,7 @@ final class NativeActions {
             || !self::valid_rewrite_rules_value($rules['value'], $structure)
             || !self::valid_rewrite_rules_value($runtimeRules, $structure)) {
             throw new \RuntimeException(
-                "duo: native action 'rewrite.flush' read-only evidence found an invalid postcondition; recovery_required"
+                "wprism: native action 'rewrite.flush' read-only evidence found an invalid postcondition; recovery_required"
             );
         }
         return self::validated_rewrite_evidence($evidence);
@@ -267,14 +267,14 @@ final class NativeActions {
         $inputHash = self::scoped_input_hash($action, $args);
         if (!hash_equals($inputHash, $operation['input_hash'])) {
             throw new \RuntimeException(
-                "duo: scoped native action '$action' operation input_hash does not bind the exact typed invocation"
+                "wprism: scoped native action '$action' operation input_hash does not bind the exact typed invocation"
             );
         }
         Providers::begin_scoped_operation(self::SCOPED_OWNER, $action, $operation);
         try {
             $receipt = self::execute($action, $args);
         } catch (\Throwable $t) {
-            throw new \RuntimeException("duo: scoped native action '$action' invocation failed");
+            throw new \RuntimeException("wprism: scoped native action '$action' invocation failed");
         }
         $stored = Providers::complete_scoped_operation(
             self::SCOPED_OWNER,
@@ -303,7 +303,7 @@ final class NativeActions {
         $inputHash = self::scoped_input_hash($action, $args);
         if (!hash_equals($inputHash, $operation['input_hash'])) {
             throw new \RuntimeException(
-                "duo: scoped native action '$action' operation input_hash does not bind the exact typed invocation"
+                "wprism: scoped native action '$action' operation input_hash does not bind the exact typed invocation"
             );
         }
         $stored = Providers::scoped_operation_state(self::SCOPED_OWNER, $action, $operation);
@@ -316,7 +316,7 @@ final class NativeActions {
         };
         if (!hash_equals($stored['after_hash'], Providers::scoped_evidence_digest($after))) {
             throw new \RuntimeException(
-                "duo: scoped native action '$action' effect readback does not match its durable operation receipt; recovery_required"
+                "wprism: scoped native action '$action' effect readback does not match its durable operation receipt; recovery_required"
             );
         }
         return self::reviewed_scoped_result($action, $operation, $stored, true);
@@ -332,7 +332,7 @@ final class NativeActions {
         $digest = self::scoped_action_digest($action);
         if (!$verified) {
             if (($state['status'] ?? null) !== 'not_started') {
-                throw new \RuntimeException('duo: scoped native action receipt has an invalid not_started state');
+                throw new \RuntimeException('wprism: scoped native action receipt has an invalid not_started state');
             }
             return [
                 'format' => Providers::SCOPED_RECEIPT_FORMAT,
@@ -347,7 +347,7 @@ final class NativeActions {
         if (($state['status'] ?? null) !== 'verified'
             || !is_string($state['before_hash'] ?? null)
             || !is_string($state['after_hash'] ?? null)) {
-            throw new \RuntimeException('duo: scoped native action receipt has an invalid verified state');
+            throw new \RuntimeException('wprism: scoped native action receipt has an invalid verified state');
         }
         return [
             'format' => Providers::SCOPED_RECEIPT_FORMAT,
@@ -375,7 +375,7 @@ final class NativeActions {
         }
         if ($survivors !== []) {
             throw new \RuntimeException(
-                "duo: scoped native action 'transient.delete' left '$name' present during read-only reconciliation ("
+                "wprism: scoped native action 'transient.delete' left '$name' present during read-only reconciliation ("
                 . implode(', ', $survivors) . ') — recovery_required'
             );
         }
@@ -412,8 +412,8 @@ final class NativeActions {
      */
     private static function flush_rewrite_action(): array {
         global $wp_rewrite;
-        if (defined('DUO_REWRITE_FLUSH_FRESH_PROCESS')
-            && constant('DUO_REWRITE_FLUSH_FRESH_PROCESS') === true) {
+        if (defined('WPRISM_REWRITE_FLUSH_FRESH_PROCESS')
+            && constant('WPRISM_REWRITE_FLUSH_FRESH_PROCESS') === true) {
             return self::flush_rewrite_in_fresh_process();
         }
         if (!class_exists('\WP_CLI')
@@ -422,7 +422,7 @@ final class NativeActions {
             || !function_exists('wp_cache_delete')
             || !is_object($wp_rewrite)) {
             throw new \RuntimeException(
-                "duo: native action 'rewrite.flush' requires a loaded WordPress/WP-CLI rewrite runtime; "
+                "wprism: native action 'rewrite.flush' requires a loaded WordPress/WP-CLI rewrite runtime; "
                 . 'run it through the ordinary apply path'
             );
         }
@@ -433,7 +433,7 @@ final class NativeActions {
             $result = WpCliChildProcess::capture(self::REWRITE_FRESH_COMMAND, 120, 262144, 131072);
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                "duo: native action 'rewrite.flush' could not launch its fresh WordPress process; recovery_required"
+                "wprism: native action 'rewrite.flush' could not launch its fresh WordPress process; recovery_required"
             );
         }
 
@@ -442,13 +442,13 @@ final class NativeActions {
         if ($result['return_code'] !== 0) {
             self::throw_known_rewrite_child_failure($stdout . "\n" . $stderr);
             throw new \RuntimeException(
-                "duo: native action 'rewrite.flush' fresh WordPress process exited "
+                "wprism: native action 'rewrite.flush' fresh WordPress process exited "
                 . $result['return_code'] . '; recovery_required'
             );
         }
         if ($stderr !== '') {
             throw new \RuntimeException(
-                "duo: native action 'rewrite.flush' fresh WordPress process emitted a warning; recovery_required"
+                "wprism: native action 'rewrite.flush' fresh WordPress process emitted a warning; recovery_required"
             );
         }
         $lines = preg_split('/\R/', $stdout) ?: [];
@@ -457,7 +457,7 @@ final class NativeActions {
             $fresh = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                "duo: native action 'rewrite.flush' fresh WordPress process returned malformed evidence; "
+                "wprism: native action 'rewrite.flush' fresh WordPress process returned malformed evidence; "
                 . 'recovery_required'
             );
         }
@@ -465,7 +465,7 @@ final class NativeActions {
             || ($fresh['format'] ?? null) !== self::REWRITE_FRESH_FORMAT
             || !is_array($fresh['after'] ?? null)) {
             throw new \RuntimeException(
-                "duo: native action 'rewrite.flush' fresh WordPress process returned the wrong evidence envelope; "
+                "wprism: native action 'rewrite.flush' fresh WordPress process returned the wrong evidence envelope; "
                 . 'recovery_required'
             );
         }
@@ -504,7 +504,7 @@ final class NativeActions {
                 $after['runtime_rules_hash']
             )) {
             throw new \RuntimeException(
-                "duo: native action 'rewrite.flush' fresh-process evidence disagrees with checked durable storage; "
+                "wprism: native action 'rewrite.flush' fresh-process evidence disagrees with checked durable storage; "
                 . 'recovery_required'
             );
         }
@@ -533,12 +533,12 @@ final class NativeActions {
             || !method_exists($wp_rewrite, 'flush_rules')
             || !method_exists($wp_rewrite, 'wp_rewrite_rules')) {
             throw new \RuntimeException(
-                "duo: native action 'rewrite.flush' requires a loaded WordPress rewrite runtime in its fresh process"
+                "wprism: native action 'rewrite.flush' requires a loaded WordPress rewrite runtime in its fresh process"
             );
         }
         if ((int) did_action('wp_loaded') < 1) {
             throw new \RuntimeException(
-                "duo: native action 'rewrite.flush' refused before wp_loaded; WordPress would defer "
+                "wprism: native action 'rewrite.flush' refused before wp_loaded; WordPress would defer "
                 . 'the rewrite mutation beyond the verified apply boundary'
             );
         }
@@ -551,7 +551,7 @@ final class NativeActions {
             $structure = self::permalink_structure_state();
             if (!self::runtime_structure_matches($wp_rewrite->permalink_structure ?? null, $structure)) {
                 throw new \RuntimeException(
-                    "duo: native action 'rewrite.flush' fresh WordPress process loaded a permalink runtime "
+                    "wprism: native action 'rewrite.flush' fresh WordPress process loaded a permalink runtime "
                     . 'which disagrees with the checked database row; recovery_required'
                 );
             }
@@ -559,7 +559,7 @@ final class NativeActions {
             $generatedRules = $wp_rewrite->rules ?? null;
             if (!self::valid_rewrite_rules_value($generatedRules, $structure)) {
                 throw new \RuntimeException(
-                    "duo: native action 'rewrite.flush' did not generate a valid rewrite runtime; "
+                    "wprism: native action 'rewrite.flush' did not generate a valid rewrite runtime; "
                     . 'recovery_required'
                 );
             }
@@ -568,7 +568,7 @@ final class NativeActions {
             $desired = $structure['present'] ? $structure['value'] : '';
             if (!hash_equals(hash('sha256', $desired), $after['permalink_hash'])) {
                 throw new \RuntimeException(
-                    "duo: native action 'rewrite.flush' permalink readback changed during regeneration; "
+                    "wprism: native action 'rewrite.flush' permalink readback changed during regeneration; "
                     . 'recovery_required'
                 );
             }
@@ -593,7 +593,7 @@ final class NativeActions {
                 ? 'none'
                 : get_class($primary) . ':' . substr(hash('sha256', $primary->getMessage()), 0, 16);
             throw new \RuntimeException(
-                'duo: native rewrite could not restore the proven shipped-plugin runtime; primary='
+                'wprism: native rewrite could not restore the proven shipped-plugin runtime; primary='
                 . $primaryFingerprint . '; restore=' . get_class($restoreFailure) . ':'
                 . substr(hash('sha256', $restoreFailure->getMessage()), 0, 16)
                 . '; recovery_required',
@@ -605,7 +605,7 @@ final class NativeActions {
             throw $primary;
         }
         if (!is_array($result)) {
-            throw new \LogicException('duo: native rewrite completed without a result');
+            throw new \LogicException('wprism: native rewrite completed without a result');
         }
         return $result;
     }
@@ -643,7 +643,7 @@ final class NativeActions {
             || !is_string($after['runtime_rules_hash'] ?? null)
             || preg_match('/^[a-f0-9]{64}$/D', $after['runtime_rules_hash']) !== 1) {
             throw new \RuntimeException(
-                "duo: native action 'rewrite.flush' fresh WordPress process returned invalid hash/count evidence; "
+                "wprism: native action 'rewrite.flush' fresh WordPress process returned invalid hash/count evidence; "
                 . 'recovery_required'
             );
         }
@@ -653,15 +653,15 @@ final class NativeActions {
     /** Re-emit only reviewed child diagnostics; arbitrary stderr stays private. */
     private static function throw_known_rewrite_child_failure(string $output): void {
         $known = [
-            "duo: native action 'rewrite.flush' requires a loaded WordPress rewrite runtime in its fresh process",
-            "duo: native action 'rewrite.flush' refused before wp_loaded; WordPress would defer the rewrite mutation beyond the verified apply boundary",
-            "duo: native action 'rewrite.flush' fresh WordPress process loaded a permalink runtime which disagrees with the checked database row; recovery_required",
-            "duo: native action 'rewrite.flush' did not generate a valid rewrite runtime; recovery_required",
-            "duo: native action 'rewrite.flush' generated rewrite rules disagree with the checked database row; recovery_required",
-            "duo: native action 'rewrite.flush' did not persist a valid rewrite_rules postcondition; recovery_required",
-            "duo: native action 'rewrite.flush' generated rewrite rules disagree with the loaded effective rules; recovery_required",
-            "duo: native action 'rewrite.flush' loaded permalink structure disagrees with the checked database row; recovery_required",
-            "duo: native action 'rewrite.flush' permalink readback changed during regeneration; recovery_required",
+            "wprism: native action 'rewrite.flush' requires a loaded WordPress rewrite runtime in its fresh process",
+            "wprism: native action 'rewrite.flush' refused before wp_loaded; WordPress would defer the rewrite mutation beyond the verified apply boundary",
+            "wprism: native action 'rewrite.flush' fresh WordPress process loaded a permalink runtime which disagrees with the checked database row; recovery_required",
+            "wprism: native action 'rewrite.flush' did not generate a valid rewrite runtime; recovery_required",
+            "wprism: native action 'rewrite.flush' generated rewrite rules disagree with the checked database row; recovery_required",
+            "wprism: native action 'rewrite.flush' did not persist a valid rewrite_rules postcondition; recovery_required",
+            "wprism: native action 'rewrite.flush' generated rewrite rules disagree with the loaded effective rules; recovery_required",
+            "wprism: native action 'rewrite.flush' loaded permalink structure disagrees with the checked database row; recovery_required",
+            "wprism: native action 'rewrite.flush' permalink readback changed during regeneration; recovery_required",
         ];
         foreach ($known as $message) {
             if (str_contains($output, $message)) {
@@ -693,7 +693,7 @@ final class NativeActions {
             if ($expectedStoredRules !== null
                 && !self::same_rewrite_rules_value($expectedStoredRules, $rules['value'])) {
                 throw new \RuntimeException(
-                    "duo: native action 'rewrite.flush' generated rewrite rules disagree with the checked "
+                    "wprism: native action 'rewrite.flush' generated rewrite rules disagree with the checked "
                     . 'database row; recovery_required'
                 );
             }
@@ -702,7 +702,7 @@ final class NativeActions {
                 || !self::valid_rewrite_rules_value($rules['value'], $structure)
                 || !self::valid_rewrite_rules_value($runtimeRules, $structure)) {
                 throw new \RuntimeException(
-                    "duo: native action 'rewrite.flush' did not persist a valid rewrite_rules "
+                    "wprism: native action 'rewrite.flush' did not persist a valid rewrite_rules "
                     . 'postcondition; recovery_required'
                 );
             }
@@ -710,13 +710,13 @@ final class NativeActions {
             if ($effectiveExpectation !== null
                 && !self::same_rewrite_rules_value($effectiveExpectation, $runtimeRules)) {
                 throw new \RuntimeException(
-                    "duo: native action 'rewrite.flush' generated rewrite rules disagree with the loaded "
+                    "wprism: native action 'rewrite.flush' generated rewrite rules disagree with the loaded "
                     . 'effective rules; recovery_required'
                 );
             }
             if (!self::runtime_structure_matches($wp_rewrite->permalink_structure ?? null, $structure)) {
                 throw new \RuntimeException(
-                    "duo: native action 'rewrite.flush' loaded permalink structure disagrees with the "
+                    "wprism: native action 'rewrite.flush' loaded permalink structure disagrees with the "
                     . 'checked database row; recovery_required'
                 );
             }
@@ -754,7 +754,7 @@ final class NativeActions {
         $state = self::raw_option_state('permalink_structure');
         if ($state['present'] && !is_string($state['value'])) {
             throw new \RuntimeException(
-                "duo: native action 'rewrite.flush' requires permalink_structure to be a plain string; "
+                "wprism: native action 'rewrite.flush' requires permalink_structure to be a plain string; "
                 . 'the target row is malformed'
             );
         }
@@ -782,7 +782,7 @@ final class NativeActions {
         ), ARRAY_A);
         if (($row !== null && !is_array($row)) || (string) ($wpdb->last_error ?? '') !== '') {
             throw new \RuntimeException(
-                "duo: native action 'rewrite.flush' checked option read failed for '$name'"
+                "wprism: native action 'rewrite.flush' checked option read failed for '$name'"
             );
         }
         if ($row === null) {
@@ -791,7 +791,7 @@ final class NativeActions {
         $raw = $row['option_value'] ?? null;
         if (!is_string($raw)) {
             throw new \RuntimeException(
-                "duo: native action 'rewrite.flush' checked option read returned a non-string value for '$name'"
+                "wprism: native action 'rewrite.flush' checked option read returned a non-string value for '$name'"
             );
         }
         return ['present' => true, 'value' => maybe_unserialize($raw)];
@@ -842,7 +842,7 @@ final class NativeActions {
         $name = (string) $args['name'];
         if (!function_exists('delete_transient') || !function_exists('wp_cache_get')) {
             throw new \RuntimeException(
-                "duo: native action 'transient.delete' requires a loaded WordPress runtime; "
+                "wprism: native action 'transient.delete' requires a loaded WordPress runtime; "
                 . 'run it through the ordinary apply path'
             );
         }
@@ -861,7 +861,7 @@ final class NativeActions {
         }
         if ($survivors !== []) {
             throw new \RuntimeException(
-                "duo: native action 'transient.delete' left '$name' present after deletion ("
+                "wprism: native action 'transient.delete' left '$name' present after deletion ("
                 . implode(', ', $survivors) . ') — the target still serves the stale value; '
                 . 'check for a persistent object cache that refused the delete, then retry the apply'
             );
@@ -890,7 +890,7 @@ final class NativeActions {
         wp_cache_get($name, 'transient', false, $found);
         if (!is_bool($found)) {
             throw new \RuntimeException(
-                "duo: native action 'transient.delete' object-cache presence read failed for transient '$name'; "
+                "wprism: native action 'transient.delete' object-cache presence read failed for transient '$name'; "
                 . 'wp_cache_get() did not provide its required found flag'
             );
         }
@@ -916,7 +916,7 @@ final class NativeActions {
         ));
         if ($found === false || (string) ($wpdb->last_error ?? '') !== '') {
             throw new \RuntimeException(
-                "duo: native action 'transient.delete' option-row read failed for transient '$transient'"
+                "wprism: native action 'transient.delete' option-row read failed for transient '$transient'"
             );
         }
         return $found !== null;

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../Code/CodeClassifier.php';
@@ -10,12 +10,12 @@ require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Code/CodeDescriptorCompiler.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Code/CodeSourceLock.php';
 
-use Duo\Canon;
-use Duo\CodeDescriptorCompiler;
-use Duo\CodeSourceLock;
+use WPrism\Canon;
+use WPrism\CodeDescriptorCompiler;
+use WPrism\CodeSourceLock;
 
 /**
- * `duo code-classify <env>` — (re)declare an initialized repository's code
+ * `wprism code-classify <env>` — (re)declare an initialized repository's code
  * half: which components Git does not carry (locked), which it carries by
  * declaration (first-party), and the refusal for anything else.
  *
@@ -29,17 +29,17 @@ use Duo\CodeSourceLock;
  * This command asserts that equality itself, before and after it writes, and
  * refuses rather than leaving a repository whose next compile would differ.
  *
- * It runs on format-1 repositories (the pre-DUO-3499 fully vendored shape) and
+ * It runs on format-1 repositories (the pre-issue #3499 fully vendored shape) and
  * on format-2 ones alike — the second case is how a repository gains a newly
  * imported archive's lock entry, a first-party declaration, or a
- * `duo-code-lock/v2` after a v1 — and it refuses the whole run when any
+ * `wprism-code-lock/v2` after a v1 — and it refuses the whole run when any
  * component classifies UNSOURCED, because there is no third state for Git to
  * hold a third-party component in.
  *
- * It runs from inside the site repository, exactly as `duo assess` and
- * `duo contract` do, and writes only into that local checkout. `<env>` is used
+ * It runs from inside the site repository, exactly as `wprism assess` and
+ * `wprism contract` do, and writes only into that local checkout. `<env>` is used
  * for one thing: asking the target for its own component inventory
- * (`wp duo code-inventory`) so a checkout that disagrees with the target it
+ * (`wp wprism code-inventory`) so a checkout that disagrees with the target it
  * deploys to is refused BEFORE `git rm --cached` runs on anything.
  */
 final class CodeClassifyCommand {
@@ -65,14 +65,14 @@ final class CodeClassifyCommand {
             if (str_starts_with($arg, '--cache-dir=')) {
                 $cacheDir = substr($arg, strlen('--cache-dir='));
                 if ($cacheDir === '' || !str_starts_with($cacheDir, '/')) {
-                    fwrite(STDERR, "duo: code-classify --cache-dir requires an absolute path\n");
+                    fwrite(STDERR, "wprism: code-classify --cache-dir requires an absolute path\n");
                     return 1;
                 }
                 continue;
             }
             fwrite(
                 STDERR,
-                'duo: code-classify accepts only --dry-run, ' . CodeClassifier::FIRST_PARTY_FLAG
+                'wprism: code-classify accepts only --dry-run, ' . CodeClassifier::FIRST_PARTY_FLAG
                 . "<root>/<slug>, --offline and --cache-dir=<path>; unsupported argument '$arg'\n"
             );
             return 1;
@@ -83,7 +83,7 @@ final class CodeClassifyCommand {
             $repo = AssessCommand::siteRepo(getcwd() ?: '.');
             return self::classify($transport, $repo, $dryRun, $offline, $cacheDir, $firstParty);
         } catch (\Throwable $e) {
-            fwrite(STDERR, 'duo: code-classify: ' . $e->getMessage() . "\n");
+            fwrite(STDERR, 'wprism: code-classify: ' . $e->getMessage() . "\n");
             return 1;
         }
     }
@@ -97,7 +97,7 @@ final class CodeClassifyCommand {
         ?string $cacheDir,
         array $firstParty
     ): int {
-        $sitePath = $repo . '/site.duo.json';
+        $sitePath = $repo . '/site.wprism.json';
         $raw = (string) @file_get_contents($sitePath);
         $document = json_decode($raw, false);
         if (!is_object($document)) {
@@ -108,20 +108,20 @@ final class CodeClassifyCommand {
         // Canon produces, rewriting it would move bytes nobody asked to move.
         if (Canon::encode($document) !== $raw) {
             throw new \RuntimeException(
-                'site.duo.json is not canonical, so rewriting one key would move bytes nobody reviewed; '
+                'site.wprism.json is not canonical, so rewriting one key would move bytes nobody reviewed; '
                 . 'restore the canonical file first'
             );
         }
         $code = $document->code ?? null;
         if (!is_object($code)) {
             throw new \RuntimeException(
-                'this repository has no code half to classify (site.duo.json declares no code); '
+                'this repository has no code half to classify (site.wprism.json declares no code); '
                 . 'it is a state-only repository and nothing needs to change'
             );
         }
         $format = $code->format ?? null;
         if ($format !== 1 && $format !== 2) {
-            throw new \RuntimeException('site.duo.json declares an unsupported code format');
+            throw new \RuntimeException('site.wprism.json declares an unsupported code format');
         }
 
         // Read-only facts first, the Git precondition second: a repository
@@ -137,13 +137,13 @@ final class CodeClassifyCommand {
                     . 'plugin or theme component'
                 );
             }
-            echo "duo: this repository carries no lockable plugin or theme component; nothing to classify.\n";
+            echo "wprism: this repository carries no lockable plugin or theme component; nothing to classify.\n";
             return 0;
         }
 
         // A format-2 repository already declares a lock. Its locked components
         // must be ON DISK for this run to classify them again (a fresh clone
-        // without `duo code-resolve` would otherwise drop them from the lock
+        // without `wprism code-resolve` would otherwise drop them from the lock
         // by omission), and its first-party declarations carry forward so the
         // operator states each one once, not on every run.
         $existingLocked = [];
@@ -152,7 +152,7 @@ final class CodeClassifyCommand {
             $lockPath = $repo . '/' . CodeSourceLock::PATH;
             if (is_link($lockPath) || !is_file($lockPath)) {
                 throw new \RuntimeException(
-                    'site.duo.json declares code format 2 but ' . CodeSourceLock::PATH . ' is not a regular file here'
+                    'site.wprism.json declares code format 2 but ' . CodeSourceLock::PATH . ' is not a regular file here'
                 );
             }
             $existing = CodeSourceLock::parse((string) @file_get_contents($lockPath));
@@ -169,7 +169,7 @@ final class CodeClassifyCommand {
             if ($absent !== []) {
                 throw new \RuntimeException(
                     'the lock declares ' . implode(', ', $absent) . ' but the component is not on disk; run '
-                    . '`duo code-resolve <env>` first so this run classifies every component the lock names'
+                    . '`wprism code-resolve <env>` first so this run classifies every component the lock names'
                 );
             }
             $relocked = array_values(array_filter(
@@ -210,9 +210,9 @@ final class CodeClassifyCommand {
         if ($unsourced !== []) {
             fwrite(
                 STDERR,
-                'duo: code-classify: ' . count($unsourced) . ' component(s) could not be sourced and Git must not carry '
+                'wprism: code-classify: ' . count($unsourced) . ' component(s) could not be sourced and Git must not carry '
                 . 'third-party code; nothing was written. For each: import its release archive on this host with '
-                . '`duo code-import <archive.zip>` and rerun, or declare it the site\'s own code with '
+                . '`wprism code-import <archive.zip>` and rerun, or declare it the site\'s own code with '
                 . CodeClassifier::FIRST_PARTY_FLAG . "<root>/<slug>.\n"
             );
             return 1;
@@ -230,13 +230,13 @@ final class CodeClassifyCommand {
             CodeSourceLock::sort_components($lockRows)
         );
         if ($dryRun) {
-            echo "duo: --dry-run: nothing was written. The declaration would be\n";
+            echo "wprism: --dry-run: nothing was written. The declaration would be\n";
             echo '  ' . CodeSourceLock::PATH . ' (' . count($lockRows) . ' locked, ' . count($firstPartyIdentities)
                 . ' first-party; ' . count($newlyLocked) . " newly locked tree(s) untracked)\n";
             foreach ($ignoreLines as $line) {
                 echo "  .gitignore $line\n";
             }
-            echo "  site.duo.json code format 2\n";
+            echo "  site.wprism.json code format 2\n";
             return 0;
         }
 
@@ -259,15 +259,15 @@ final class CodeClassifyCommand {
         // does Git stop tracking the newly locked trees.
         self::untrack($repo, $newlyLocked);
 
-        echo 'duo: declared ' . count($lockRows) . ' locked and ' . count($firstPartyIdentities) . ' first-party component(s) in '
+        echo 'wprism: declared ' . count($lockRows) . ' locked and ' . count($firstPartyIdentities) . ' first-party component(s) in '
             . CodeSourceLock::PATH . '; code_revision is unchanged at ' . $after['code_revision'] . ".\n";
-        echo 'duo: the bytes are still on disk and still compile; Git no longer tracks the ' . count($newlyLocked)
+        echo 'wprism: the bytes are still on disk and still compile; Git no longer tracks the ' . count($newlyLocked)
             . " newly locked tree(s). Review and commit:\n";
-        echo '  git -C ' . escapeshellarg($repo) . ' add .gitignore site.duo.json ' . CodeSourceLock::PATH . "\n";
-        echo '  git -C ' . escapeshellarg($repo) . " commit -m 'duo: declare the code half in duo-code.lock.json'\n";
+        echo '  git -C ' . escapeshellarg($repo) . ' add .gitignore site.wprism.json ' . CodeSourceLock::PATH . "\n";
+        echo '  git -C ' . escapeshellarg($repo) . " commit -m 'wprism: declare the code half in wprism-code.lock.json'\n";
         if ($lockRows !== []) {
-            echo 'duo: a fresh clone of this repository needs `duo code-resolve` before it can compile; an imported-archive '
-                . "component resolves only on a host where `duo code-import` stored its archive.\n";
+            echo 'wprism: a fresh clone of this repository needs `wprism code-resolve` before it can compile; an imported-archive '
+                . "component resolves only on a host where `wprism code-import` stored its archive.\n";
         }
         return 0;
     }
@@ -309,7 +309,7 @@ final class CodeClassifyCommand {
      */
     private static function assertTargetAgrees(EnvironmentDriver $transport, array $inventory): void {
         $result = $transport->captureWp([
-            'duo', 'code-inventory', '--repo=' . $transport->repoPath(), '--format=json',
+            'wprism', 'code-inventory', '--repo=' . $transport->repoPath(), '--format=json',
         ]);
         if ($result['exit'] !== 0) {
             throw new \RuntimeException(
@@ -318,7 +318,7 @@ final class CodeClassifyCommand {
             );
         }
         $decoded = json_decode(trim($result['stdout']), true);
-        if (!is_array($decoded) || ($decoded['format'] ?? null) !== 'duo-code-inventory/v1'
+        if (!is_array($decoded) || ($decoded['format'] ?? null) !== 'wprism-code-inventory/v1'
             || !is_array($decoded['components'] ?? null)) {
             throw new \RuntimeException('the target returned an unrecognized code inventory');
         }
@@ -362,7 +362,7 @@ final class CodeClassifyCommand {
         // The same block heading InitRepositoryBoundary::ensure_gitignore()
         // writes, so an initialized repository and a migrated one are
         // indistinguishable afterwards.
-        $next .= '# Duo code lock: these components are declared in ' . CodeSourceLock::PATH
+        $next .= '# WPrism code lock: these components are declared in ' . CodeSourceLock::PATH
             . ", not carried in Git\n" . implode("\n", $missing) . "\n";
         if (file_put_contents($path, $next) === false) {
             throw new \RuntimeException("could not write $path");

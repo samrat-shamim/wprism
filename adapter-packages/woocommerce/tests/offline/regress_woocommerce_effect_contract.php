@@ -14,7 +14,7 @@ declare(strict_types=1);
  * observer, and automatic-profile refusal against an irreversible row.
  */
 
-define('DUO_SPEC_VERSION', 3);
+define('WPRISM_SPEC_VERSION', 3);
 $repoRoot = dirname(__DIR__, 4);
 require dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
 require dirname(__DIR__, 4) . '/agent/src/Kernel/OptionState.php';
@@ -22,11 +22,11 @@ require dirname(__DIR__, 4) . '/agent/src/Policy/Policy.php';
 require dirname(__DIR__, 4) . '/recovery/rollback-control.php';
 require dirname(__DIR__, 4) . '/sandbox/tests/lib/frozen_policy.php';
 
-use Duo\Policy;
-use DuoTest\FrozenPolicy;
-use Duo\Recovery\EffectBundle;
-use Duo\Recovery\RecoveryExecutor;
-use Duo\Recovery\RollbackControl;
+use WPrism\Policy;
+use WPrismTest\FrozenPolicy;
+use WPrism\Recovery\EffectBundle;
+use WPrism\Recovery\RecoveryExecutor;
+use WPrism\Recovery\RollbackControl;
 
 $failures = 0;
 
@@ -475,7 +475,7 @@ function woo_effect_hierarchy_action(string $prefix, bool $rewrite): array {
 /** @return list<array<string,mixed>> */
 function woo_effect_analytics_scheduler_action(): array {
     return [
-        woo_effect_db_option('woocommerce-analytics-scheduler-marker', '_duo_woocommerce_scheduler_settings_state'),
+        woo_effect_db_option('woocommerce-analytics-scheduler-marker', '_wprism_woocommerce_scheduler_settings_state'),
         woo_effect_db_option('woocommerce-analytics-scheduler-date-cursor', 'woocommerce_admin_scheduler_last_processed_order_modified_date'),
         woo_effect_db_option('woocommerce-analytics-scheduler-id-cursor', 'woocommerce_admin_scheduler_last_processed_order_id'),
         woo_effect_db_table('woocommerce-analytics-scheduler-actions', 'actionscheduler_actions'),
@@ -515,43 +515,43 @@ function woo_effect_analytics_scheduler_action(): array {
             [
                 'exact' => [
                     'add_option',
-                    'add_option__duo_woocommerce_scheduler_settings_state',
+                    'add_option__wprism_woocommerce_scheduler_settings_state',
                     'add_option_woocommerce_admin_scheduler_last_processed_order_id',
                     'add_option_woocommerce_admin_scheduler_last_processed_order_modified_date',
                     'added_option',
                     'alloptions',
                     'default_option',
-                    'default_option__duo_woocommerce_scheduler_settings_state',
+                    'default_option__wprism_woocommerce_scheduler_settings_state',
                     'default_option_schema-ActionScheduler_StoreSchema',
                     'default_option_woocommerce_admin_scheduler_last_processed_order_id',
                     'default_option_woocommerce_admin_scheduler_last_processed_order_modified_date',
                     'default_option_woocommerce_analytics_scheduled_import',
-                    'option__duo_woocommerce_scheduler_settings_state',
+                    'option__wprism_woocommerce_scheduler_settings_state',
                     'option_schema-ActionScheduler_StoreSchema',
                     'option_woocommerce_admin_scheduler_last_processed_order_id',
                     'option_woocommerce_admin_scheduler_last_processed_order_modified_date',
                     'option_woocommerce_analytics_scheduled_import',
                     'pre_add_option',
-                    'pre_add_option__duo_woocommerce_scheduler_settings_state',
+                    'pre_add_option__wprism_woocommerce_scheduler_settings_state',
                     'pre_add_option_woocommerce_admin_scheduler_last_processed_order_id',
                     'pre_add_option_woocommerce_admin_scheduler_last_processed_order_modified_date',
                     'pre_option',
-                    'pre_option__duo_woocommerce_scheduler_settings_state',
+                    'pre_option__wprism_woocommerce_scheduler_settings_state',
                     'pre_option_schema-ActionScheduler_StoreSchema',
                     'pre_option_woocommerce_admin_scheduler_last_processed_order_id',
                     'pre_option_woocommerce_admin_scheduler_last_processed_order_modified_date',
                     'pre_option_woocommerce_analytics_scheduled_import',
                     'pre_update_option',
-                    'pre_update_option__duo_woocommerce_scheduler_settings_state',
+                    'pre_update_option__wprism_woocommerce_scheduler_settings_state',
                     'pre_update_option_woocommerce_admin_scheduler_last_processed_order_id',
                     'pre_update_option_woocommerce_admin_scheduler_last_processed_order_modified_date',
                     'pre_wp_load_alloptions',
                     'sanitize_option',
-                    'sanitize_option__duo_woocommerce_scheduler_settings_state',
+                    'sanitize_option__wprism_woocommerce_scheduler_settings_state',
                     'sanitize_option_woocommerce_admin_scheduler_last_processed_order_id',
                     'sanitize_option_woocommerce_admin_scheduler_last_processed_order_modified_date',
                     'update_option',
-                    'update_option__duo_woocommerce_scheduler_settings_state',
+                    'update_option__wprism_woocommerce_scheduler_settings_state',
                     'update_option_woocommerce_admin_scheduler_last_processed_order_id',
                     'update_option_woocommerce_admin_scheduler_last_processed_order_modified_date',
                     'updated_option',
@@ -609,15 +609,15 @@ function woo_effect_policy_for_manifest(array $manifest): Policy {
     global $repoRoot;
     return FrozenPolicy::policy(
         [$manifest],
-        FrozenPolicy::site([$manifest], DUO_SPEC_VERSION),
+        FrozenPolicy::site([$manifest], WPRISM_SPEC_VERSION),
         null,
-        \Duo\AdapterLibrary::fromSourcePackage($repoRoot, 'woocommerce')
+        \WPrism\AdapterLibrary::fromSourcePackage($repoRoot, 'woocommerce')
     );
 }
 
 /** @return array<string,mixed> */
 function woo_effect_signed_request(string $root, array $payload, string $keyId, string $secret, bool $effects): array {
-    $path = tempnam(sys_get_temp_dir(), 'duo-woo-effect-request-');
+    $path = tempnam(sys_get_temp_dir(), 'wprism-woo-effect-request-');
     if ($path === false) {
         throw new RuntimeException('could not allocate signed request path');
     }
@@ -653,7 +653,7 @@ echo "\n== committed WooCommerce manifest inventory ==\n";
 $wooPolicy = Policy::load(
     null,
     ['woocommerce'],
-    adapterLibrary: \Duo\AdapterLibrary::fromSourcePackage($repoRoot, 'woocommerce')
+    adapterLibrary: \WPrism\AdapterLibrary::fromSourcePackage($repoRoot, 'woocommerce')
 );
 $wooRows = array_values(array_filter(
     $wooPolicy->effects_inventory(),
@@ -661,7 +661,7 @@ $wooRows = array_values(array_filter(
 ));
 $manifestPath = $repoRoot . '/adapter-packages/woocommerce/package/manifest.json';
 $wooManifest = json_decode((string) file_get_contents($manifestPath), true, 512, JSON_THROW_ON_ERROR);
-// DUO-3338: the effect inventory's `source` is now each action's closed
+// issue #3338: the effect inventory's `source` is now each action's closed
 // identity (the native vocabulary entry, or provider/capability) rather than
 // the wp-cli command text the retired channel carried.
 $attributeSource = 'native:transient.delete';
@@ -720,7 +720,7 @@ foreach (woo_effect_retention_scheduler_action() as $effect) {
         'effect' => $effect,
     ];
 }
-// DUO-3342: these effects moved with the dispatch. Exact Woo 11.0.0/11.0.1's
+// issue #3342: these effects moved with the dispatch. Exact Woo 11.0.0/11.0.1's
 // public scoped attribute writer and raw readback now close the two attribute-
 // lookup table writes as verified capability effects.
 // post_types.<type>.regen_dependency.effects lists, inventoried under the
@@ -796,7 +796,7 @@ woo_effect_check(
         )),
     'Woo rebuild actions are structured data bounded by exact authored surfaces, with no executable command string'
 );
-// The DUO-3338 migration had to preserve the retired channel's scoping
+// The issue #3338 migration had to preserve the retired channel's scoping
 // BYTE-FOR-BYTE except for the two exact Woo 11.0.x local-pickup REST records:
 // ShippingController attaches the same shipping-version bump to both
 // pre_update hooks. Keeping the complete trigger inventory pinned here makes
@@ -895,7 +895,7 @@ woo_effect_check(
         && ($wooManifest['actions'][6]['effects'] ?? null) === woo_effect_retention_scheduler_action(),
     'Woo actions keep exact cache, hierarchy, fulfillment, scheduler, and review-route effect/trigger shapes'
 );
-// DUO-3342: the lookup entry carries NO arguments at all. Every input it
+// issue #3342: the lookup entry carries NO arguments at all. Every input it
 // receives is engine-assembled (the entity batch and the declared channels),
 // and a capability may not declare the reserved `entities` argument, so an
 // args map here would be a claim the contract cannot honor.
@@ -1296,7 +1296,7 @@ foreach (['product', 'product_variation'] as $postType) {
             ]),
         "$postType aggregate matcher rejects wildcard, leading-zero, unknown-family, and namespace broadening"
     );
-    // DUO-3437: WooCommerce >=11.0.0 permits multibyte attribute taxonomy
+    // issue #3437: WooCommerce >=11.0.0 permits multibyte attribute taxonomy
     // names (pa_<slug> within register_taxonomy()'s 32-byte limit, 29 bytes
     // after the pa_ prefix) -- a real WooCommerce install can reach every
     // one of these concrete cache effects from a non-ASCII attribute, not
@@ -1431,7 +1431,7 @@ foreach (['product', 'product_variation'] as $postType) {
 // The key gate must admit effects, then let the existing effect validator
 // reject a malformed entry. An unrelated key must still fail at the strict
 // regen_dependency boundary.
-// DUO-3342 moved Woo off the regen_dependency channel, so the channel's own
+// issue #3342 moved Woo off the regen_dependency channel, so the channel's own
 // key gate is exercised against a synthesized declaration rather than a shipped
 // one. The grammar is still engine-owned and still reachable by any manifest,
 // so dropping these two would retire a validator's coverage as a side effect of
@@ -1519,12 +1519,12 @@ woo_effect_expect_throw(
 // ======================================================================
 echo "\n== automatic-profile refusal ==\n";
 
-$tmp = sys_get_temp_dir() . '/duo-woocommerce-effect-contract-' . bin2hex(random_bytes(6));
+$tmp = sys_get_temp_dir() . '/wprism-woocommerce-effect-contract-' . bin2hex(random_bytes(6));
 $keyPair = sodium_crypto_sign_keypair();
 $secret = sodium_crypto_sign_secretkey($keyPair);
 $public = sodium_crypto_sign_publickey($keyPair);
 $keyId = 'woo-effect-test';
-$root = $tmp . '/site/.duo/control';
+$root = $tmp . '/site/.wprism/control';
 $receiptId = str_repeat('w', 48);
 $artifactHash = hash('sha256', 'woocommerce-effect-contract');
 $timestamp = '2030-01-01T00:00:00Z';
@@ -1542,7 +1542,7 @@ try {
             dirname(__DIR__, 4) . '/sandbox/tests/fixtures/recovery-exclusion-provider.php',
             $tmp . '/exclusion.json',
         ],
-        'format' => 'duo-recovery-config/v1',
+        'format' => 'wprism-recovery-config/v1',
         'timeout_seconds' => 5,
     ];
     $configPath = $tmp . '/recovery.json';
@@ -1554,7 +1554,7 @@ try {
         'artifact_hash' => $artifactHash,
         'claim_epoch' => 1,
         'claimant' => 'worker-woo',
-        'format' => 'duo-exclusion-request/v1',
+        'format' => 'wprism-exclusion-request/v1',
         'generation' => 1,
         'owner' => 'controller:woo-effects',
         'receipt_id' => $receiptId,
@@ -1572,7 +1572,7 @@ try {
             'artifact_hash' => $artifactHash,
             'claim_epoch' => 1,
             'claimant' => 'worker-woo',
-            'format' => 'duo-effect-bundle-request/v1',
+            'format' => 'wprism-effect-bundle-request/v1',
             'generation' => 1,
             'inventory' => $regenInventory,
             'owner' => 'controller:woo-effects',

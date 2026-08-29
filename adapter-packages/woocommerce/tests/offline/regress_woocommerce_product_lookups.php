@@ -7,7 +7,7 @@
  * manifest/Policy dispatch boundary and the adapter's public API choices from
  * being silently replaced with an asynchronous hook or a blanket rebuild action.
  *
- * DUO-3342 moved that dispatch boundary from the regenerator channel to the
+ * issue #3342 moved that dispatch boundary from the regenerator channel to the
  * provider contract. The adapter's own public-API choices below are unchanged
  * (same needles, same package-owned file); what changed is
  * which engine channel reaches it, so the declaration half of this suite now
@@ -15,8 +15,8 @@
  * that used to claim the same two post types.
  */
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 3);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 3);
 }
 $root = dirname(__DIR__, 4);
 
@@ -25,7 +25,7 @@ require $root . '/agent/src/Kernel/OptionState.php';
 require $root . '/agent/src/Policy/Policy.php';
 require $root . '/agent/src/Adapter/Providers.php';
 
-use Duo\Policy;
+use WPrism\Policy;
 
 $failures = 0;
 function check(bool $condition, string $message): void {
@@ -43,7 +43,7 @@ $policy = Policy::load(
     ['woocommerce'],
     false,
     null,
-    \Duo\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
+    \WPrism\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
 );
 check($policy->regen_dependency('product') === null
     && $policy->regen_dependency('product_variation') === null,
@@ -105,7 +105,7 @@ check(is_file($providerFile), 'provider code ships beside its manifest, under pr
 check(!is_file($root . '/adapter-packages/woocommerce/package/runtime/regenerators/woocommerce-product-lookups.php'),
     'and the retired regenerator file is gone, not left behind as a second copy of the same adapter');
 require $providerFile;
-$adapter = new \Duo\Providers\WoocommerceProductLookups($declaration);
+$adapter = new \WPrism\Providers\WoocommerceProductLookups($declaration);
 check($adapter->identity() === [
     'id' => 'woocommerce-product-lookups',
     'plugin' => 'woocommerce/woocommerce.php',
@@ -125,7 +125,7 @@ check(is_array($capability) && $capability['args'] === [],
     . 'may not be declared at all');
 // The engine's OWN declaration validator, not a restatement of it: a
 // declaration this suite calls well-formed must be one negotiation accepts.
-$validate = new \ReflectionMethod(\Duo\Providers::class, 'validate_capability_declaration');
+$validate = new \ReflectionMethod(\WPrism\Providers::class, 'validate_capability_declaration');
 $declarationValid = true;
 $declarationError = '';
 try {
@@ -152,18 +152,18 @@ if (is_string($source)) {
     }
 }
 preg_match_all('/checked_get_(?:var|col|row|results)\\s*\\(/', $code, $allCheckedReads);
-preg_match_all('/\\\\Duo\\\\ProviderSdk::checked_get_(?:var|col|row|results)\\s*\\(/', $code, $sdkCheckedReads);
+preg_match_all('/\\\\WPrism\\\\ProviderSdk::checked_get_(?:var|col|row|results)\\s*\\(/', $code, $sdkCheckedReads);
 check(!preg_match('/\\bfunction\\s+checked_get_(?:var|col|row|results)\\s*\\(/', $code),
     'Woo provider owns no private checked_get_* helper');
 check(!str_contains($code, 'assert_runtime_contract'),
     'Woo provider owns no adapter-specific assert_runtime_contract gate');
 check(count($allCheckedReads[0] ?? []) > 0
     && count($allCheckedReads[0] ?? []) === count($sdkCheckedReads[0] ?? []),
-    'every provider checked read call site uses the generic \\Duo\\ProviderSdk boundary');
+    'every provider checked read call site uses the generic \\WPrism\\ProviderSdk boundary');
 check(!preg_match('/\\$this\\s*->\\s*checked_get_(?:var|col|row|results)\\s*\\(/', $code)
     && !preg_match('/\\$wpdb\\s*->\\s*get_(?:var|col|row|results)\\s*\\(/', $code),
     'Woo provider has no private or direct wpdb checked-read call sites left');
-check(str_contains($code, '\\Duo\\PlainData::decode_serialized(')
+check(str_contains($code, '\\WPrism\\PlainData::decode_serialized(')
     && !str_contains($code, 'maybe_unserialize('),
     'raw downloadable metadata crosses the shared class-disabled plain-data boundary before native product hooks');
 $needles = [
@@ -174,7 +174,7 @@ $needles = [
     'refresh_grouped_children_for_sync' => 'grouped children are reloaded after variable price synthesis',
     "meta_key = '_children'" => 'grouped parent discovery is restricted to the _children meta relation',
     'find_grouped_parent_ids' => 'changed children discover grouped roots through a bounded reverse lookup',
-    '\\Duo\\ProviderSdk::checked_get_col' => 'grouped reverse discovery reads only candidate parent ids through the generic provider SDK',
+    '\\WPrism\\ProviderSdk::checked_get_col' => 'grouped reverse discovery reads only candidate parent ids through the generic provider SDK',
     '$wpdb->posts' => 'grouped reverse discovery validates product post candidates in SQL',
     'delete_from_lookup_table' => 'product lookup deletion uses the public delete API',
     'wc_get_attribute_taxonomies' => 'Woo attribute definitions are refreshed through the public API',
@@ -214,8 +214,8 @@ $needles = [
     'as_get_scheduled_actions' => 'sale action verification detects duplicate active rows with bounded public queries',
     'as_next_scheduled_action' => 'sale actions have exact Action Scheduler readback',
     'verify_sale_schedules' => 'sale schedule verification is explicit and separate from lookup verification',
-    // DUO-3342: meta-lookup verification is WooCommerce's own derivation read
-    // back against the stored row, not a Duo-authored rebuild of Woo's column
+    // issue #3342: meta-lookup verification is WooCommerce's own derivation read
+    // back against the stored row, not a WPrism-authored rebuild of Woo's column
     // rules. get_data_for_lookup_table() is protected, so the `lookup_table`
     // object-cache entry update_lookup_table() publishes is the only channel
     // through which Woo can state what it derived.
@@ -232,7 +232,7 @@ $needles = [
     // refresh. Pin the order separately below: the refresh runs with a
     // cleared cache, so it always REPLACEs, and a row read only afterwards
     // would be one this verification had just written. The sibling-variation
-    // case below covers the separate DUO-3373 finite-set decision.
+    // case below covers the separate issue #3373 finite-set decision.
     'read_lookup_row($table, $id)' => 'the stored-row read has a single named boundary',
     'create_data_for_product($root, false)' => 'attribute rows use Woo public synchronous scoped synthesis',
     'get_last_create_operation_failed' => 'Woo native attribute insert failures remain loud and retryable',
@@ -274,14 +274,14 @@ check($verifyStart !== false && $beforeRead !== false && $forcedRefresh !== fals
 // is the RIGHT helper for any future price math here, so its absence is not a
 // property worth pinning.
 $retired = [
-    'lookup_values_equal' => 'no Duo-authored per-column tolerance table for lookup values',
+    'lookup_values_equal' => 'no WPrism-authored per-column tolerance table for lookup values',
     "get_option('woocommerce_schema_version'" => 'no copied global_unique_id schema-version gate',
-    'recompute_simple_price' => 'no Duo-authored simple-price sale/date rule',
+    'recompute_simple_price' => 'no WPrism-authored simple-price sale/date rule',
     'sync_price_preserving_authored_meta' => 'no snapshot/restore copy around Woo parent price synthesis',
-    'restore_authored_price_meta' => 'no Duo-authored metadata restore loop around Woo parent price synthesis',
-    'expected_attribute_rows' => 'no Duo-authored attribute lookup row synthesis',
-    'append_attribute_rows' => 'no Duo-authored attribute lookup row builder',
-    'term_slug_ids' => 'no Duo-authored variation term fallback map',
+    'restore_authored_price_meta' => 'no WPrism-authored metadata restore loop around Woo parent price synthesis',
+    'expected_attribute_rows' => 'no WPrism-authored attribute lookup row synthesis',
+    'append_attribute_rows' => 'no WPrism-authored attribute lookup row builder',
+    'term_slug_ids' => 'no WPrism-authored variation term fallback map',
     'wp_set_post_terms' => 'no full-taxonomy writer can overwrite concurrent merchant visibility intent',
 ];
 foreach ($retired as $needle => $message) {
@@ -298,12 +298,12 @@ $refreshGrouped = is_string($source) ? strpos($source, 'refresh_grouped_children
 $groupedStoreLoad = is_string($source) ? strpos($source, "WC_Data_Store::load('product-grouped')") : false;
 check($refreshGrouped !== false && $groupedStoreLoad !== false && $refreshGrouped < $groupedStoreLoad,
     'grouped child cache refresh runs before the grouped public sync_price() call');
-// DUO-3338: the whole-catalog projection can no longer be dispatched at all,
+// issue #3338: the whole-catalog projection can no longer be dispatched at all,
 // not merely "is not declared" — the structured action channel has no field
 // that can carry a PHP callable or command string for the engine to run.
 $actions = $policy->actions();
 $sources = array_map(
-    static fn(array $row): string => \Duo\Policy::action_source($row, (int) $row['index']),
+    static fn(array $row): string => \WPrism\Policy::action_source($row, (int) $row['index']),
     $actions
 );
 check($sources === [

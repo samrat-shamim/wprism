@@ -1,20 +1,20 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 
-use Duo\AdapterCertification;
-use Duo\AdapterLibrary;
-use Duo\AdapterSources;
-use Duo\ArtifactPolicyIdentity;
-use Duo\Canon;
-use Duo\Policy;
+use WPrism\AdapterCertification;
+use WPrism\AdapterLibrary;
+use WPrism\AdapterSources;
+use WPrism\ArtifactPolicyIdentity;
+use WPrism\Canon;
+use WPrism\Policy;
 
 /**
  * The two flag-day migration verbs (WP-4.12, spec/repo-format.md § v3.12):
- * `duo adapter recertify <site-repo>` and `duo release --spec-v3 <site-repo>`.
+ * `wprism adapter recertify <site-repo>` and `wprism release --spec-v3 <site-repo>`.
  *
  * WHAT THEY ARE FOR
  * -----------------
@@ -37,7 +37,7 @@ use Duo\Policy;
  *
  * WHAT THEY DELIBERATELY DO NOT DO
  * --------------------------------
- * Neither verb re-stamps anything. `site.duo.json`'s own `spec_version` is
+ * Neither verb re-stamps anything. `site.wprism.json`'s own `spec_version` is
  * judged against the acceptance window (§ v3.1), so a repository declaring N-1
  * compiles unchanged; re-stamping it to N would move `site_hash` and
  * `revision_hash` for no capability gained AND would strand a rollback,
@@ -45,35 +45,35 @@ use Duo\Policy;
  * gate G3 forbids (docs/guides/flag-day.md), and no verb performs it.
  *
  * `release --spec-v3` likewise does not WRITE pins. It emits the objects and
- * journals the prior ones; `duo adapter pin` is the verb that mutates
- * `site.duo.json`, and updating a pin stays an explicit review act exactly as
- * the spec's `site.duo.json` section has always said.
+ * journals the prior ones; `wprism adapter pin` is the verb that mutates
+ * `site.wprism.json`, and updating a pin stays an explicit review act exactly as
+ * the spec's `site.wprism.json` section has always said.
  */
 final class SpecMigration {
-    /** The sub-verb `duo adapter` routes here. */
+    /** The sub-verb `wprism adapter` routes here. */
     public const VERBS = ['recertify'];
 
-    /** The flag that turns `duo release` into the repository-local migration verb. */
+    /** The flag that turns `wprism release` into the repository-local migration verb. */
     public const RELEASE_FLAG = '--spec-v3';
 
-    public const RECERTIFY_FORMAT = 'duo-adapter-recertify/v1';
-    public const RELEASE_FORMAT = 'duo-spec-migration/v1';
-    public const JOURNAL_FORMAT = 'duo-spec-migration-journal/v1';
+    public const RECERTIFY_FORMAT = 'wprism-adapter-recertify/v1';
+    public const RELEASE_FORMAT = 'wprism-spec-migration/v1';
+    public const JOURNAL_FORMAT = 'wprism-spec-migration-journal/v1';
 
     /**
      * Where a site's PRIOR pin objects are journaled, beside the frozen
-     * authorization plans `.duo/releases/` already holds.
+     * authorization plans `.wprism/releases/` already holds.
      *
-     * A separate directory rather than a row inside `.duo/releases/`: an
+     * A separate directory rather than a row inside `.wprism/releases/`: an
      * authorization plan is content-addressed by `AuthorizationPlan::DIRECTORY`
-     * and read back by `duo verify --plan=<digest>`, and dropping a document of
+     * and read back by `wprism verify --plan=<digest>`, and dropping a document of
      * another shape in there would put bytes that gate cannot parse in the
      * directory it globs.
      */
-    public const JOURNAL_RELATIVE = '.duo/migrations';
+    public const JOURNAL_RELATIVE = '.wprism/migrations';
 
     /**
-     * @param list<string> $args everything after `duo adapter`, including the sub-verb
+     * @param list<string> $args everything after `wprism adapter`, including the sub-verb
      */
     public static function run(array $args): int {
         $verb = $args[0] ?? '';
@@ -88,11 +88,11 @@ final class SpecMigration {
     }
 
     // -----------------------------------------------------------------
-    // duo adapter recertify
+    // wprism adapter recertify
     // -----------------------------------------------------------------
 
     /**
-     * `duo adapter recertify <site-repo> --secret-key-file=<f> [--format=json] [--adapter-library=<root>]`
+     * `wprism adapter recertify <site-repo> --secret-key-file=<f> [--format=json] [--adapter-library=<root>]`
      *
      * Re-sign every certified site adapter in one invocation, under the key
      * each certificate already names.
@@ -159,7 +159,7 @@ final class SpecMigration {
             $repoArg = $arg;
         }
         if ($repoArg === null || $repoArg === '') {
-            return self::fail('recertify needs the site it is about: duo adapter recertify <site-repo> --secret-key-file=<f>');
+            return self::fail('recertify needs the site it is about: wprism adapter recertify <site-repo> --secret-key-file=<f>');
         }
         if ($secretFile === null || $secretFile === '') {
             return self::fail('--secret-key-file=<path> is required: re-certification is an Ed25519 signature');
@@ -168,8 +168,8 @@ final class SpecMigration {
         if ($repo === false) {
             return self::fail("'$repoArg' is not a directory");
         }
-        if (!is_file($repo . '/site.duo.json')) {
-            return self::fail("'$repo' has no site.duo.json — recertify takes the duo SITE REPO");
+        if (!is_file($repo . '/site.wprism.json')) {
+            return self::fail("'$repo' has no site.wprism.json — recertify takes the wprism SITE REPO");
         }
 
         AdapterCertify::bootPublic();
@@ -216,7 +216,7 @@ final class SpecMigration {
                         'outcome' => 'blocked',
                         'detail' => 'the installed certificate is not a readable ' . AdapterCertification::FORMAT
                             . ' document, so the key and reason it was signed under cannot be re-used; '
-                            . 're-sign it explicitly with `duo adapter certify`',
+                            . 're-sign it explicitly with `wprism adapter certify`',
                     ];
                     continue;
                 }
@@ -257,7 +257,7 @@ final class SpecMigration {
                             . 'the site AUTHORED it (spec/repo-format.md § v3.17) or the adapter\'s own '
                             . 'declarations have moved since it was signed. Re-signing here would replace that '
                             . 'claim with the derived floor and report nothing about it — re-sign this one '
-                            . "with `duo adapter certify <site-repo> --name=$name`, adding "
+                            . "with `wprism adapter certify <site-repo> --name=$name`, adding "
                             . '`--ratification-file=<the document the site wrote>` if it authored one',
                     ];
                     continue;
@@ -320,11 +320,11 @@ final class SpecMigration {
     }
 
     // -----------------------------------------------------------------
-    // duo release --spec-v3
+    // wprism release --spec-v3
     // -----------------------------------------------------------------
 
     /**
-     * `duo release --spec-v3 <site-repo> [--artifact=<f>] [--scope-contract=<f>]
+     * `wprism release --spec-v3 <site-repo> [--artifact=<f>] [--scope-contract=<f>]
      *  [--snapshot=<f>] [--format=json]`
      *
      * The per-repository migration act: enumerate what the bump reaches on THIS
@@ -344,7 +344,7 @@ final class SpecMigration {
      * likely to run it is mid-migration, which is exactly when an
      * environment-bound verb is least reachable.
      *
-     * @param list<string> $args everything after `duo release`, `--spec-v3` included
+     * @param list<string> $args everything after `wprism release`, `--spec-v3` included
      */
     public static function runRelease(array $args): int {
         $repoArg = null;
@@ -388,16 +388,16 @@ final class SpecMigration {
         }
         if ($repoArg === null || $repoArg === '') {
             return self::fail(
-                self::RELEASE_FLAG . ' needs the site it is about: duo release ' . self::RELEASE_FLAG
-                . ' <site-repo> (the directory holding site.duo.json)'
+                self::RELEASE_FLAG . ' needs the site it is about: wprism release ' . self::RELEASE_FLAG
+                . ' <site-repo> (the directory holding site.wprism.json)'
             );
         }
         $repo = is_dir($repoArg) ? realpath($repoArg) : false;
         if ($repo === false) {
             return self::fail("'$repoArg' is not a directory");
         }
-        if (!is_file($repo . '/site.duo.json')) {
-            return self::fail("'$repo' has no site.duo.json — " . self::RELEASE_FLAG . ' takes the duo SITE REPO');
+        if (!is_file($repo . '/site.wprism.json')) {
+            return self::fail("'$repo' has no site.wprism.json — " . self::RELEASE_FLAG . ' takes the wprism SITE REPO');
         }
         foreach ($held as $name => $path) {
             if ($path === null) {
@@ -417,7 +417,7 @@ final class SpecMigration {
             // row below is its verdict; deriving a second answer here is the
             // drift that turns a controlled bump into an incident.
             $preflight = MigrationPreflight::enumerate($repo, $manifestDir, $held);
-            $site = Canon::decode(Canon::read_file($repo . '/site.duo.json'));
+            $site = Canon::decode(Canon::read_file($repo . '/site.wprism.json'));
             $priorPins = self::priorPins($site);
             $proposedPins = self::proposedPins($repo);
         } catch (\Throwable $t) {
@@ -428,7 +428,7 @@ final class SpecMigration {
             'format' => self::JOURNAL_FORMAT,
             'prior' => [
                 'pins' => $priorPins,
-                'site_sha256' => hash('sha256', Canon::read_file($repo . '/site.duo.json')),
+                'site_sha256' => hash('sha256', Canon::read_file($repo . '/site.wprism.json')),
                 'spec_version' => $site['spec_version'] ?? null,
             ],
             'proposed' => ['pins' => $proposedPins],
@@ -548,7 +548,7 @@ final class SpecMigration {
     }
 
     /**
-     * The pin objects exactly as `site.duo.json` holds them today.
+     * The pin objects exactly as `site.wprism.json` holds them today.
      *
      * The legacy string form is kept as a string rather than normalised into an
      * object: the journal's job is to record what the site HAD, and rewriting
@@ -568,7 +568,7 @@ final class SpecMigration {
      * The `{name, source, digest}` objects the post-flip library resolves.
      *
      * Taken from `ArtifactPolicyIdentity::resolved_adapters()` — the same call
-     * `duo adapter pin` and `wp duo manifest-pin` make — so the digest is the
+     * `wprism adapter pin` and `wp wprism manifest-pin` make — so the digest is the
      * one the engine will check and not a second hash of the same file. Under a
      * digest-neutral flip these are expected to EQUAL the prior objects for
      * every shipped adapter; a site holding a certified site adapter is where
@@ -591,7 +591,7 @@ final class SpecMigration {
     }
 
     /**
-     * Write the record content-addressed under `.duo/migrations/`.
+     * Write the record content-addressed under `.wprism/migrations/`.
      *
      * Content-addressed rather than timestamped so the verb is idempotent: an
      * operator who runs it twice on an unchanged site rewrites one path with
@@ -630,9 +630,9 @@ final class SpecMigration {
     /** @return array<string,mixed> */
     private static function target(string|AdapterLibrary $manifestDir): array {
         return [
-            'agent_version' => DUO_AGENT_VERSION,
+            'agent_version' => WPRISM_AGENT_VERSION,
             'manifests_dir' => $manifestDir instanceof AdapterLibrary ? $manifestDir->root() : $manifestDir,
-            'spec_version' => DUO_SPEC_VERSION,
+            'spec_version' => WPRISM_SPEC_VERSION,
         ];
     }
 
@@ -667,7 +667,7 @@ final class SpecMigration {
         }
         $format = (string) ($report['format'] ?? '');
         echo "repo:   {$report['repo']}\n";
-        echo 'target: agent ' . DUO_AGENT_VERSION . ' / spec ' . DUO_SPEC_VERSION . "\n";
+        echo 'target: agent ' . WPRISM_AGENT_VERSION . ' / spec ' . WPRISM_SPEC_VERSION . "\n";
         if ($format === self::RECERTIFY_FORMAT) {
             $summary = (array) $report['summary'];
             echo "\n";
@@ -685,14 +685,14 @@ final class SpecMigration {
             echo "\n{$summary['certificates']} certificate(s): {$summary['resigned']} re-signed, "
                 . "{$summary['unchanged']} unchanged, {$summary['blocked']} blocked\n";
             if ((int) $summary['resigned'] > 0) {
-                echo "\nA re-signed certificate binds spec_version " . DUO_SPEC_VERSION . ", which the previous\n"
+                echo "\nA re-signed certificate binds spec_version " . WPRISM_SPEC_VERSION . ", which the previous\n"
                     . "agent does not verify. This site can no longer be rolled back without running\n"
                     . "recertify again against the restored boundary (gate G3 — docs/guides/flag-day.md).\n";
             }
             return $exit;
         }
         echo 'journal: ' . $report['journal'] . " (prior pin objects, written before any new one)\n";
-        echo "\nproposed pin objects for site.duo.json manifests[]:\n";
+        echo "\nproposed pin objects for site.wprism.json manifests[]:\n";
         echo rtrim(Canon::encode($report['proposed_pins'])) . "\n";
         $movements = (array) $report['movements'];
         echo "\n" . count($movements) . " surface(s) this bump reaches on this site:\n";
@@ -704,13 +704,13 @@ final class SpecMigration {
             $row = (array) $row;
             echo '  [unclassified] ' . ($row['subject'] ?? ($row['id'] ?? '?')) . "\n";
         }
-        echo "\nNothing was written to site.duo.json. Updating a pin is an explicit review act:\n"
-            . "  duo adapter pin <site-repo> --name=<n> [--source=site]\n";
+        echo "\nNothing was written to site.wprism.json. Updating a pin is an explicit review act:\n"
+            . "  wprism adapter pin <site-repo> --name=<n> [--source=site]\n";
         return $exit;
     }
 
     private static function fail(string $message): int {
-        fwrite(STDERR, "duo adapter: $message\n");
+        fwrite(STDERR, "wprism adapter: $message\n");
         return 2;
     }
 }

@@ -127,7 +127,7 @@ const WIRING_SHAPE_EXCEPTIONS = [
     'grind-adoption',
     'grind-ecommerce-developer-live',
     'grind-mup',
-    // live targets with an explicit pair plus a DUO_EXPECTED_SOURCE_SHA
+    // live targets with an explicit pair plus a WPRISM_EXPECTED_SOURCE_SHA
     // candidate gate, all passed as environment.
     'regress-scope-chain-stability',
     'regress-scoped-apply-live',
@@ -718,7 +718,7 @@ function wiring_fixture_makefile(): string
  */
 function wiring_fixture_root(array $extra = []): string
 {
-    $root = (string) tempnam(sys_get_temp_dir(), 'duo-wiring-');
+    $root = (string) tempnam(sys_get_temp_dir(), 'wprism-wiring-');
     unlink($root);
     $files = [
         '/sandbox/tests/offline_diagnostics_guard.sh' => null,
@@ -782,7 +782,7 @@ try {
     $base = wiring_fixture_makefile();
     $clean = wiring_violations($fixtureRoot, $base);
 
-    duo_check_same(
+    wprism_check_same(
         [
             'variables' => [], 'shape' => [], 'missing' => [],
             'name' => [], 'class' => [], 'unwired' => [],
@@ -794,12 +794,12 @@ try {
         ],
         'self-test: a correctly wired synthetic Makefile produces no violations'
     );
-    duo_check_same(5, $clean['recipes'], 'self-test: the synthetic scan reached all five suite recipes');
-    duo_check_same(2, $clean['nested'], 'self-test: two synthetic suites are in class directories');
+    wprism_check_same(5, $clean['recipes'], 'self-test: the synthetic scan reached all five suite recipes');
+    wprism_check_same(2, $clean['nested'], 'self-test: two synthetic suites are in class directories');
     // The base tree carries live/pair_helper.sh and grind/grind_data.matrix.json,
     // both unwired: the clean result above is also the proof that neither was
     // asked for a target.
-    duo_check_same(2, $clean['helpers'], 'self-test: both synthetic helpers were classified as helpers');
+    wprism_check_same(2, $clean['helpers'], 'self-test: both synthetic helpers were classified as helpers');
 
     // regress-flat-orphan is in neither the offline closure nor the live list,
     // and produced no violation above: that is the root exemption. Move the
@@ -814,7 +814,7 @@ try {
         ['/sandbox/tests/offline/domain/regress_flat_orphan.php' => null],
         static function (string $root) use ($orphanNested): void {
             $nested = wiring_violations($root, $orphanNested);
-            duo_check(
+            wprism_check(
                 count($nested['class']) === 1
                     && str_contains($nested['class'][0], 'regress-flat-orphan')
                     && str_contains($nested['class'][0], 'not in'),
@@ -831,7 +831,7 @@ try {
         $base
     );
     $both = wiring_violations($fixtureRoot, $liveInCorpus);
-    duo_check(
+    wprism_check(
         count($both['class']) === 1 && str_contains($both['class'][0], 'is under live/ but is in'),
         'self-test: a suite under live/ that is also an offline prerequisite is refused'
     );
@@ -843,7 +843,7 @@ try {
         ['/sandbox/tests/grind/regress_wrong_class.sh' => null],
         static function (string $root) use ($wrongClass): void {
             $classViolations = wiring_violations($root, $wrongClass)['class'];
-            duo_check(
+            wprism_check(
                 count($classViolations) === 1 && str_contains($classViolations[0], "start with 'grind-'"),
                 'self-test: a suite under grind/ wired to a non-grind target is refused'
             );
@@ -856,7 +856,7 @@ try {
     // every fixture tree; this asserts the disk-side loop SAW it and let it
     // be, rather than never having looked -- the same reason `nested` and
     // `recipes` are counted.
-    duo_check(
+    wprism_check(
         $clean['unwired'] === [] && $clean['helpers'] === 2,
         'self-test: an unwired helper under live/ is not required to have a target'
     );
@@ -871,7 +871,7 @@ try {
         $base
     ) . "\npair-helper:\n\tbash sandbox/tests/live/pair_helper.sh\n";
     $helperClaimed = wiring_violations($fixtureRoot, $offlineNamesLiveHelper)['class'];
-    duo_check(
+    wprism_check(
         count($helperClaimed) === 1
             && str_contains($helperClaimed[0], 'is a helper under live/')
             && str_contains($helperClaimed[0], 'is offline'),
@@ -885,7 +885,7 @@ try {
         ['/sandbox/tests/live/regress_unwired_live.sh' => null],
         static function (string $root) use ($base): void {
             $unwired = wiring_violations($root, $base)['unwired'];
-            duo_check(
+            wprism_check(
                 count($unwired) === 1 && str_contains($unwired[0], 'live/regress_unwired_live.sh'),
                 'self-test: a suite-shaped file under live/ that no recipe names is refused'
             );
@@ -903,7 +903,7 @@ try {
         ],
         static function (string $root) use ($base): void {
             $found = wiring_violations($root, $base);
-            duo_check(
+            wprism_check(
                 $found['unwired'] === [] && $found['helpers'] === 3,
                 'self-test: a suite-shaped file another suite runs needs no target of its own'
             );
@@ -919,7 +919,7 @@ try {
         $base
     );
     $variables = wiring_violations($fixtureRoot, $variablePath)['variables'];
-    duo_check(
+    wprism_check(
         count($variables) === 1 && str_contains($variables[0], '$(DOMAIN)'),
         'self-test: a make variable inside a sandbox/tests recipe path is refused'
     );
@@ -931,7 +931,7 @@ try {
         $base
     );
     $shape = wiring_violations($fixtureRoot, $envPrefixed)['shape'];
-    duo_check(
+    wprism_check(
         count($shape) === 1 && str_contains($shape[0], 'regress-flat-root'),
         'self-test: a non-canonical recipe shape on an unlisted target is refused'
     );
@@ -939,7 +939,7 @@ try {
     // ... and the same shape IS accepted for a listed exception, which is what
     // keeps the exception list meaningful rather than decorative.
     $exceptionShaped = $base . "\nregress-ssh-adopt:\n\tADOPT_FIXTURE=x bash sandbox/tests/regress_flat_other.php\n";
-    duo_check_same(
+    wprism_check_same(
         [],
         wiring_violations($fixtureRoot, $exceptionShaped)['shape'],
         'self-test: a listed shape exception may carry an env prefix'
@@ -948,7 +948,7 @@ try {
     // Clause 2: a recipe naming a file that does not exist.
     $absent = str_replace('regress_flat_root.php', 'regress_flat_absent.php', $base);
     $missing = wiring_violations($fixtureRoot, $absent)['missing'];
-    duo_check(
+    wprism_check(
         count($missing) === 1 && str_contains($missing[0], 'regress_flat_absent.php'),
         'self-test: a recipe naming a file that does not exist is refused'
     );
@@ -974,7 +974,7 @@ try {
         ['include fixture-corpus.mk', ''],
         $base
     );
-    duo_check(
+    wprism_check(
         str_contains($viaInclude, 'include fixture-corpus.mk')
             && !str_contains($viaInclude, 'regress-offline-corpus: code-half-unit'),
         'self-test: the include fixture actually moved the corpus rule out of the Makefile'
@@ -983,7 +983,7 @@ try {
     // under offline/ would be reported as outside its own class's closure.
     // This is the failure the fold exists to prevent, asserted before the
     // scenario that must not show it.
-    duo_check(
+    wprism_check(
         wiring_closure(wiring_parse_makefile($viaInclude)['prereqs'], 'regress-offline-corpus')
             === ['regress-offline-corpus' => true],
         'self-test: an unfolded include leaves the corpus closure empty'
@@ -992,11 +992,11 @@ try {
         ['/fixture-corpus.mk' => $corpusInclude],
         static function (string $root) use ($viaInclude): void {
             $folded = wiring_violations($root, $viaInclude);
-            duo_check(
+            wprism_check(
                 $folded['class'] === [] && $folded['unwired'] === [] && $folded['missing'] === [],
                 'self-test: a suite wired only inside an included Makefile fragment is accepted'
             );
-            duo_check_same(2, $folded['nested'], 'self-test: the folded scan still reached both nested suites');
+            wprism_check_same(2, $folded['nested'], 'self-test: the folded scan still reached both nested suites');
         }
     );
 
@@ -1007,7 +1007,7 @@ try {
         $base
     );
     $names = wiring_violations($fixtureRoot, $misnamed)['name'];
-    duo_check(
+    wprism_check(
         count($names) === 1 && str_contains($names[0], "expected target 'regress-flat-other'"),
         'self-test: a target whose name disagrees with its suite file is refused'
     );
@@ -1023,22 +1023,22 @@ $parsed = wiring_parse_makefile(wiring_resolve_includes($root, $makefile));
 $found = wiring_violations($root, $makefile);
 
 // A scan that reached nothing must not read as a clean bill of health.
-duo_check(
+wprism_check(
     $found['recipes'] > 300,
     "the scan reached the Makefile's recipes ({$found['recipes']} name a sandbox/tests path)"
 );
 
 $report = static function (string $key, string $message) use ($found): void {
-    duo_check($found[$key] === [], $message);
+    wprism_check($found[$key] === [], $message);
     foreach ($found[$key] as $violation) {
-        duo_check_detail($violation);
+        wprism_check_detail($violation);
     }
 };
 
 $report('variables', 'no sandbox/tests recipe path contains a make variable');
 if ($found['variables'] !== []) {
-    duo_check_detail('tools/offline.php:250 matches literal paths against UNEXPANDED `make -p`');
-    duo_check_detail('recipes; a variable there hides the suite from its serial-group collision scan');
+    wprism_check_detail('tools/offline.php:250 matches literal paths against UNEXPANDED `make -p`');
+    wprism_check_detail('recipes; a variable there hides the suite from its serial-group collision scan');
 }
 $report('shape', 'every sandbox/tests recipe is `php <file>.php` / `bash <file>.sh` or a named exception');
 $report('missing', 'every sandbox/tests path a recipe names exists on disk');
@@ -1050,13 +1050,13 @@ $report('unwired', 'every suite in a class directory is named by some recipe');
 // names a real target is a stale exemption: it would keep exempting nothing
 // while the reader believes it still covers something.
 foreach (WIRING_SHAPE_EXCEPTIONS as $target) {
-    duo_check(
+    wprism_check(
         isset($parsed['recipes'][$target]),
         "shape exception '$target' still names a real Makefile target"
     );
 }
 foreach (WIRING_NAME_EXCEPTIONS as $target) {
-    duo_check(
+    wprism_check(
         isset($parsed['recipes'][$target]),
         "name exception '$target' still names a real Makefile target"
     );
@@ -1067,20 +1067,20 @@ foreach (WIRING_NAME_EXCEPTIONS as $target) {
 // offline/, so the clause-4 branch ran against it, and it is a
 // regress-offline-corpus prerequisite, so the whole scan runs on every
 // `make regress-offline-all`.
-duo_check(
+wprism_check(
     $found['nested'] > 0,
     "clause 4 saw at least one real suite in a class directory ({$found['nested']})"
 );
 // The disk-side half has no recipe to start from, so nothing else would notice
 // if it enumerated an empty tree: state the count it actually walked.
-duo_check(
+wprism_check(
     count(wiring_class_files($root)) > 0,
     'clause 4 walked the class directories on disk ('
         . count(wiring_class_files($root)) . " files, {$found['helpers']} of them helpers)"
 );
-duo_check(
+wprism_check(
     isset(wiring_closure($parsed['prereqs'], 'regress-offline-corpus')['regress-suite-wiring']),
     "this suite is itself in regress-offline-corpus's prerequisite closure"
 );
 
-duo_check_summary('regress-suite-wiring');
+wprism_check_summary('regress-suite-wiring');

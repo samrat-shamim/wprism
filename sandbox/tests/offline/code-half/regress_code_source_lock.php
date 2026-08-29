@@ -1,14 +1,14 @@
 <?php
 /**
- * Offline grammar characterization for `duo-code-lock/v2` (DUO-3499, then the
+ * Offline grammar characterization for `wprism-code-lock/v2` (issue #3499, then the
  * no-third-party-bytes invariant).
  *
  * The lock is the only wire the code-half split adds, and everything
- * downstream — the compile gate, `duo init`, `duo code-classify`, and the
+ * downstream — the compile gate, `wprism init`, `wprism code-classify`, and the
  * resolver — trusts it to have already refused a malformed declaration by
  * name. This suite pins each refusal to the fact it names, pins the v2 shape
  * (`components` Git does not carry + `first_party` it carries by declaration),
- * pins that the DUO-3499 `vendored-archive` origin is refused BY NAME with its
+ * pins that the issue #3499 `vendored-archive` origin is refused BY NAME with its
  * remedy and that a legacy v1 document still parses, and pins the two
  * identities that would otherwise drift silently: the payload source prefix
  * CodeSourceLock spells as a literal, and the tree digest algorithm it shares
@@ -24,9 +24,9 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/PathSafety.php';
 require_once __DIR__ . '/../../../../agent/src/Code/CodeSourceLock.php';
 require_once __DIR__ . '/../../../../agent/src/Code/CodeDescriptorCompiler.php';
 
-use Duo\Canon;
-use Duo\CodeDescriptorCompiler;
-use Duo\CodeSourceLock;
+use WPrism\Canon;
+use WPrism\CodeDescriptorCompiler;
+use WPrism\CodeSourceLock;
 
 /** @return array<string,mixed> */
 function lock_entry(array $overrides = []): array {
@@ -56,7 +56,7 @@ function lock_of(array $components, array $firstParty = []): array {
     return ['format' => CodeSourceLock::FORMAT, 'components' => $components, 'first_party' => $firstParty];
 }
 
-/** The DUO-3499 shape: components only. @param list<array<string,mixed>> $components @return array<string,mixed> */
+/** The issue #3499 shape: components only. @param list<array<string,mixed>> $components @return array<string,mixed> */
 function legacy_lock_of(array $components): array {
     return ['format' => CodeSourceLock::LEGACY_FORMAT, 'components' => $components];
 }
@@ -67,7 +67,7 @@ function imported_origin(array $overrides = []): array {
 }
 
 function refuses(array $lock, string $needle, string $message): void {
-    duo_check_throws(
+    wprism_check_throws(
         static fn() => CodeSourceLock::assert_lock($lock),
         RuntimeException::class,
         $message,
@@ -79,46 +79,46 @@ function refuses(array $lock, string $needle, string $message): void {
 // The two identities that must not drift.
 // ---------------------------------------------------------------------------
 
-duo_check_same(
+wprism_check_same(
     CodeDescriptorCompiler::SOURCE,
     CodeSourceLock::SOURCE,
     'CodeSourceLock::SOURCE is the descriptor compiler payload prefix, spelled out to keep the grammar loadable alone'
 );
-duo_check_same('duo-code-lock/v2', CodeSourceLock::FORMAT, 'the lock wire format is duo-code-lock/v2');
-duo_check_same('duo-code-lock/v1', CodeSourceLock::LEGACY_FORMAT, 'the DUO-3499 format is still named, as the legacy it reads');
-duo_check_same('code/duo-code.lock.json', CodeSourceLock::PATH, 'exactly one lock path is legal');
-duo_check_same(['plugins', 'themes'], CodeSourceLock::ROOTS, 'only plugins/ and themes/ components are lockable');
-duo_check_same(['imported-archive', 'wp-org-release'], CodeSourceLock::KINDS, 'two origin kinds: a wp.org release, or an archive imported on the host');
-duo_check_same('vendored-archive', CodeSourceLock::REMOVED_KIND, 'the removed kind is named, so its refusal can carry the remedy');
+wprism_check_same('wprism-code-lock/v2', CodeSourceLock::FORMAT, 'the lock wire format is wprism-code-lock/v2');
+wprism_check_same('wprism-code-lock/v1', CodeSourceLock::LEGACY_FORMAT, 'the issue #3499 format is still named, as the legacy it reads');
+wprism_check_same('code/wprism-code.lock.json', CodeSourceLock::PATH, 'exactly one lock path is legal');
+wprism_check_same(['plugins', 'themes'], CodeSourceLock::ROOTS, 'only plugins/ and themes/ components are lockable');
+wprism_check_same(['imported-archive', 'wp-org-release'], CodeSourceLock::KINDS, 'two origin kinds: a wp.org release, or an archive imported on the host');
+wprism_check_same('vendored-archive', CodeSourceLock::REMOVED_KIND, 'the removed kind is named, so its refusal can carry the remedy');
 
 // ---------------------------------------------------------------------------
 // Accepted shapes.
 // ---------------------------------------------------------------------------
 
 CodeSourceLock::assert_lock(lock_of([lock_entry()]));
-duo_check(true, 'a minimal wp-org-release entry is accepted');
+wprism_check(true, 'a minimal wp-org-release entry is accepted');
 
 CodeSourceLock::assert_lock(lock_of([
     lock_entry(['origin' => imported_origin(['archive_root' => 'acme-premium-1.4.2']), 'component' => 'acme-premium']),
 ]));
-duo_check(true, 'an imported-archive entry with an archive_root is accepted');
+wprism_check(true, 'an imported-archive entry with an archive_root is accepted');
 CodeSourceLock::assert_lock(lock_of([lock_entry(['origin' => imported_origin(), 'component' => 'acme-premium'])]));
-duo_check(true, 'an imported-archive entry is identified by archive_sha256 alone: no url, no path');
+wprism_check(true, 'an imported-archive entry is identified by archive_sha256 alone: no url, no path');
 
-CodeSourceLock::assert_lock(lock_of([], ['plugins/duo-agency', 'themes/agency-child']));
-duo_check(true, 'a lock with no locked component and only first-party declarations is accepted: the declaration is the point');
-CodeSourceLock::assert_lock(lock_of([lock_entry()], ['plugins/duo-agency']));
-duo_check(true, 'locked components and first-party declarations coexist');
+CodeSourceLock::assert_lock(lock_of([], ['plugins/wprism-agency', 'themes/agency-child']));
+wprism_check(true, 'a lock with no locked component and only first-party declarations is accepted: the declaration is the point');
+CodeSourceLock::assert_lock(lock_of([lock_entry()], ['plugins/wprism-agency']));
+wprism_check(true, 'locked components and first-party declarations coexist');
 
 CodeSourceLock::assert_lock(legacy_lock_of([lock_entry()]));
-duo_check(true, 'a legacy duo-code-lock/v1 document (components only) still parses');
-duo_check_same([], CodeSourceLock::first_party(legacy_lock_of([lock_entry()])), 'a legacy v1 lock declares no first-party component');
-duo_check_same(
-    ['plugins/duo-agency' => true],
-    CodeSourceLock::first_party(lock_of([], ['plugins/duo-agency'])),
+wprism_check(true, 'a legacy wprism-code-lock/v1 document (components only) still parses');
+wprism_check_same([], CodeSourceLock::first_party(legacy_lock_of([lock_entry()])), 'a legacy v1 lock declares no first-party component');
+wprism_check_same(
+    ['plugins/wprism-agency' => true],
+    CodeSourceLock::first_party(lock_of([], ['plugins/wprism-agency'])),
     'first_party() indexes the declarations by identity'
 );
-duo_check(CodeSourceLock::is_identity('plugins/woocommerce') && !CodeSourceLock::is_identity('mu-plugins/duo')
+wprism_check(CodeSourceLock::is_identity('plugins/woocommerce') && !CodeSourceLock::is_identity('mu-plugins/wprism')
     && !CodeSourceLock::is_identity('plugins/../x') && !CodeSourceLock::is_identity('woocommerce'),
     'is_identity() admits exactly <lockable root>/<safe component>');
 
@@ -127,7 +127,7 @@ CodeSourceLock::assert_lock(lock_of([
     lock_entry(['root' => 'plugins', 'component' => 'woocommerce']),
     lock_entry(['root' => 'themes', 'component' => 'storefront']),
 ]));
-duo_check(true, 'entries sorted by root then component are accepted');
+wprism_check(true, 'entries sorted by root then component are accepted');
 
 // ---------------------------------------------------------------------------
 // Every malformed shape, refused by the fact it names.
@@ -149,17 +149,17 @@ refuses(
     'a v1 lock carrying first_party is refused: the legacy shape is read exactly as written'
 );
 refuses(
-    ['format' => 'duo-code-lock/v3', 'components' => [], 'first_party' => []],
-    'format must be "duo-code-lock/v2" (or the legacy "duo-code-lock/v1")',
+    ['format' => 'wprism-code-lock/v3', 'components' => [], 'first_party' => []],
+    'format must be "wprism-code-lock/v2" (or the legacy "wprism-code-lock/v1")',
     'an unknown lock format is refused by name'
 );
 refuses(
-    ['format' => CodeSourceLock::FORMAT, 'components' => [], 'first_party' => 'plugins/duo-agency'],
+    ['format' => CodeSourceLock::FORMAT, 'components' => [], 'first_party' => 'plugins/wprism-agency'],
     'first_party must be a list',
     'a non-list first_party is refused'
 );
 refuses(
-    lock_of([], ['mu-plugins/duo']),
+    lock_of([], ['mu-plugins/wprism']),
     "first_party[0] must be one '{root}/{component}' identity",
     'a first-party identity outside the lockable roots is refused'
 );
@@ -169,12 +169,12 @@ refuses(
     'a traversing first-party identity is refused'
 );
 refuses(
-    lock_of([], ['plugins/duo-agency', 'plugins/duo-agency']),
-    "first_party declares 'plugins/duo-agency' more than once",
+    lock_of([], ['plugins/wprism-agency', 'plugins/wprism-agency']),
+    "first_party declares 'plugins/wprism-agency' more than once",
     'a duplicate first-party identity is refused'
 );
 refuses(
-    lock_of([], ['themes/agency-child', 'plugins/duo-agency']),
+    lock_of([], ['themes/agency-child', 'plugins/wprism-agency']),
     'first_party is not deterministically sorted',
     'an unsorted first_party list is refused'
 );
@@ -240,8 +240,8 @@ refuses(
         'archive_sha256' => str_repeat('c', 64),
     ]])]),
     "origin.kind 'vendored-archive' is no longer a lock origin: Git must not carry third-party code, archives included; "
-    . 'import the archive on the host with `duo code-import <archive.zip>` and re-lock the component with `duo code-classify`',
-    'the DUO-3499 vendored-archive origin is refused by name with its remedy, in a v2 lock'
+    . 'import the archive on the host with `wprism code-import <archive.zip>` and re-lock the component with `wprism code-classify`',
+    'the issue #3499 vendored-archive origin is refused by name with its remedy, in a v2 lock'
 );
 refuses(
     legacy_lock_of([lock_entry(['origin' => [
@@ -341,13 +341,13 @@ refuses(
     'components unsorted within one root are refused'
 );
 
-duo_check_throws(
+wprism_check_throws(
     static fn() => CodeSourceLock::parse('[1,2,3]'),
     RuntimeException::class,
     'a JSON array is not a lock',
     'code lock is not a JSON object'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn() => CodeSourceLock::parse('{'),
     RuntimeException::class,
     'unparseable JSON is not a lock',
@@ -362,36 +362,36 @@ $encoded = CodeSourceLock::encode([
     lock_entry(['root' => 'themes', 'component' => 'storefront']),
     lock_entry(['root' => 'plugins', 'component' => 'woocommerce']),
     lock_entry(['root' => 'plugins', 'component' => 'akismet']),
-], ['themes/agency-child', 'plugins/duo-agency', 'plugins/duo-agency']);
+], ['themes/agency-child', 'plugins/wprism-agency', 'plugins/wprism-agency']);
 $reparsed = CodeSourceLock::parse($encoded);
-duo_check_same(
+wprism_check_same(
     ['plugins/akismet', 'plugins/woocommerce', 'themes/storefront'],
     array_keys(CodeSourceLock::index($reparsed)),
     'encode() sorts entries deterministically, so an unsorted caller list still round-trips'
 );
-duo_check_same(
-    ['plugins/duo-agency', 'themes/agency-child'],
+wprism_check_same(
+    ['plugins/wprism-agency', 'themes/agency-child'],
     $reparsed['first_party'],
     'encode() sorts and dedupes first_party, so a writer cannot emit a declaration list its reader refuses'
 );
-duo_check_same(CodeSourceLock::FORMAT, $reparsed['format'], 'encode() always writes the current format, never the legacy one');
-duo_check_same(
+wprism_check_same(CodeSourceLock::FORMAT, $reparsed['format'], 'encode() always writes the current format, never the legacy one');
+wprism_check_same(
     ['components' => [], 'first_party' => [], 'format' => CodeSourceLock::FORMAT],
     CodeSourceLock::parse(CodeSourceLock::encode([])),
     'a lock with nothing locked and nothing declared still encodes as a complete v2 document'
 );
-duo_check_same(
+wprism_check_same(
     $encoded,
     Canon::encode($reparsed),
     'lock bytes are canonical: re-encoding the parsed lock reproduces them exactly'
 );
-duo_check(str_ends_with($encoded, "}\n"), 'canonical lock bytes end with a newline, like every other canonical artifact');
+wprism_check(str_ends_with($encoded, "}\n"), 'canonical lock bytes end with a newline, like every other canonical artifact');
 
 // ---------------------------------------------------------------------------
 // tree_sha256: one algorithm, shared with the descriptor's per-file rows.
 // ---------------------------------------------------------------------------
 
-$root = sys_get_temp_dir() . '/duo_regress_code_source_lock_' . bin2hex(random_bytes(6));
+$root = sys_get_temp_dir() . '/wprism_regress_code_source_lock_' . bin2hex(random_bytes(6));
 $source = $root . '/code/wp-content';
 mkdir($source . '/plugins/woocommerce/includes', 0775, true);
 mkdir($source . '/plugins/akismet', 0775, true);
@@ -403,22 +403,22 @@ file_put_contents($source . '/themes/storefront/style.css', "/*\nTheme Name: Sto
 
 $descriptor = CodeDescriptorCompiler::descriptor_from_source($source);
 $rows = CodeSourceLock::component_rows($descriptor['files'], 'plugins', 'woocommerce');
-duo_check_same(
+wprism_check_same(
     ['includes/class-wc.php', 'woocommerce.php'],
     array_column($rows, 'path'),
     'component_rows() re-roots the descriptor rows at the component, sorted'
 );
-duo_check_same(
+wprism_check_same(
     hash('sha256', Canon::encode($rows)),
     CodeSourceLock::tree_sha256_from_descriptor($descriptor, 'plugins', 'woocommerce'),
     'tree_sha256 is sha256 over the canonical sorted {path,sha256} rows of the component subtree'
 );
-duo_check_same(
+wprism_check_same(
     null,
     CodeSourceLock::tree_sha256_from_descriptor($descriptor, 'plugins', 'absent-plugin'),
     'a component the descriptor owns no bytes for has no tree digest — the compile gate reads that as unresolved'
 );
-duo_check(
+wprism_check(
     CodeSourceLock::tree_sha256_from_descriptor($descriptor, 'plugins', 'woocommerce')
         !== CodeSourceLock::tree_sha256_from_descriptor($descriptor, 'plugins', 'akismet'),
     'two components with different bytes hash differently'
@@ -431,7 +431,7 @@ $after = CodeSourceLock::tree_sha256_from_descriptor(
     'plugins',
     'woocommerce'
 );
-duo_check($before !== $after, 'one changed byte inside a component moves its tree_sha256');
+wprism_check($before !== $after, 'one changed byte inside a component moves its tree_sha256');
 
 // A sibling component's bytes never leak into another component's digest.
 $akismetBefore = CodeSourceLock::tree_sha256_from_descriptor($descriptor, 'plugins', 'akismet');
@@ -440,72 +440,72 @@ $akismetAfter = CodeSourceLock::tree_sha256_from_descriptor(
     'plugins',
     'akismet'
 );
-duo_check_same($akismetBefore, $akismetAfter, 'editing one component leaves its siblings\' tree digests untouched');
+wprism_check_same($akismetBefore, $akismetAfter, 'editing one component leaves its siblings\' tree digests untouched');
 
 // ---------------------------------------------------------------------------
 // .gitignore: the only supported placement, and the two the compiler refuses.
 // ---------------------------------------------------------------------------
 
-duo_check_same(
+wprism_check_same(
     '/code/wp-content/plugins/woocommerce/',
     CodeSourceLock::gitignore_line('plugins', 'woocommerce'),
     'a locked component ignore line is root-anchored under code/wp-content'
 );
-duo_check_throws(
-    static fn() => CodeSourceLock::gitignore_line('mu-plugins', 'duo'),
+wprism_check_throws(
+    static fn() => CodeSourceLock::gitignore_line('mu-plugins', 'wprism'),
     RuntimeException::class,
     'an unlockable root cannot produce an ignore line',
     'unsafe component identity'
 );
-duo_check_throws(
+wprism_check_throws(
     static fn() => CodeSourceLock::gitignore_line('plugins', '../etc'),
     RuntimeException::class,
     'an unsafe component cannot produce an ignore line',
     'unsafe component identity'
 );
 
-duo_check_same(
+wprism_check_same(
     ['plugins/woocommerce' => true, 'themes/storefront' => true],
     CodeSourceLock::ignored_components(implode("\n", [
-        '# Duo local publication and environment artifacts',
-        '/.duo/',
+        '# WPrism local publication and environment artifacts',
+        '/.wprism/',
         '/code/wp-content/plugins/woocommerce/',
         '/code/wp-content/themes/storefront/',
         '',
     ])),
     'ignored_components() reads exactly the root-anchored component lines'
 );
-duo_check_same(
+wprism_check_same(
     [],
     CodeSourceLock::ignored_components(implode("\n", [
         'code/wp-content/plugins/woocommerce/',
         '/code/wp-content/plugins/woocommerce',
         '/code/wp-content/plugins/',
         '/code/wp-content/plugins/*/',
-        '/code/wp-content/mu-plugins/duo/',
+        '/code/wp-content/mu-plugins/wprism/',
         '/code/wp-content/plugins/woocommerce/includes/',
     ])),
     'an unanchored, unterminated, glob, deeper or unlockable-root line is not a component exclusion'
 );
 
 // ---------------------------------------------------------------------------
-// site.duo.json `code`: format 2 is additive; format 1 keeps its exact bytes.
+// site.wprism.json `code`: format 2 is additive; format 1 keeps its exact bytes.
 // ---------------------------------------------------------------------------
 
 $format1 = ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content'];
 $format2 = ['format' => 2, 'layout' => 'wp-content', 'lock' => CodeSourceLock::PATH, 'source' => 'code/wp-content'];
 
 CodeDescriptorCompiler::assert_config($format1);
-duo_check(true, 'the format-1 declaration is still accepted verbatim');
+wprism_check(true, 'the format-1 declaration is still accepted verbatim');
 CodeDescriptorCompiler::assert_config($format2);
-duo_check(true, 'the format-2 split declaration is accepted');
+wprism_check(true, 'the format-2 split declaration is accepted');
 
-duo_check_same(null, CodeDescriptorCompiler::lock_path($format1), 'format 1 declares no lock');
-duo_check_same(CodeSourceLock::PATH, CodeDescriptorCompiler::lock_path($format2), 'format 2 exposes the declared lock path');
+wprism_check_same(null, CodeDescriptorCompiler::lock_path($format1), 'format 1 declares no lock');
+wprism_check_same(CodeSourceLock::PATH, CodeDescriptorCompiler::lock_path($format2), 'format 2 exposes the declared lock path');
 
 // Rule 8: the pre-existing refusal bytes must not move for any shape that is
 // not the new format. This is asserted as a WHOLE string, not a fragment.
-$format1Message = 'duo: site.duo.json code must contain exactly {"format":1,"layout":"wp-content","source":"code/wp-content"}';
+$format1Message = 'wprism: site.wprism.json code must contain exactly {"format":1,"layout":"wp-content","source":"code/wp-content"}';
 foreach ([
     'a wrong layout' => ['format' => 1, 'layout' => 'custom', 'source' => 'code/wp-content'],
     'a wrong source' => ['format' => 1, 'layout' => 'wp-content', 'source' => 'code'],
@@ -519,11 +519,11 @@ foreach ([
     } catch (RuntimeException $e) {
         $actual = $e->getMessage();
     }
-    duo_check_same($format1Message, $actual, "$label still refuses with the historical format-1 message, byte for byte");
+    wprism_check_same($format1Message, $actual, "$label still refuses with the historical format-1 message, byte for byte");
 }
 
-$format2Message = 'duo: site.duo.json code format 2 must contain exactly '
-    . '{"format":2,"layout":"wp-content","lock":"code/duo-code.lock.json","source":"code/wp-content"}';
+$format2Message = 'wprism: site.wprism.json code format 2 must contain exactly '
+    . '{"format":2,"layout":"wp-content","lock":"code/wprism-code.lock.json","source":"code/wp-content"}';
 foreach ([
     'a second lock path' => ['format' => 2, 'layout' => 'wp-content', 'lock' => 'code/other.lock.json', 'source' => 'code/wp-content'],
     'a lock key on format 1' => ['format' => 1, 'layout' => 'wp-content', 'lock' => CodeSourceLock::PATH, 'source' => 'code/wp-content'],
@@ -536,7 +536,7 @@ foreach ([
     } catch (RuntimeException $e) {
         $actual = $e->getMessage();
     }
-    duo_check_same($format2Message, $actual, "$label refuses with the format-2 message");
+    wprism_check_same($format2Message, $actual, "$label refuses with the format-2 message");
 }
 
 // Teardown: the suite's own scratch tree, never anything it did not create.
@@ -549,4 +549,4 @@ foreach ($it as $item) {
 }
 @rmdir($root);
 
-duo_check_summary('regress_code_source_lock');
+wprism_check_summary('regress_code_source_lock');

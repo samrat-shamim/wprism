@@ -1,26 +1,26 @@
 <?php
-namespace Duo\Providers;
+namespace WPrism\Providers;
 
-use Duo\ManifestProviderRuntime;
-use Duo\WpCliChildProcess;
+use WPrism\ManifestProviderRuntime;
+use WPrism\WpCliChildProcess;
 
 if (!class_exists(WpCliChildProcess::class, false)) {
-    $duoLayoutRoot = dirname(__DIR__, 5);
-    $duoAgentRoot = is_dir($duoLayoutRoot . '/agent/src')
-        ? $duoLayoutRoot . '/agent'
-        : (basename($duoLayoutRoot) === 'agent' && is_dir($duoLayoutRoot . '/src') ? $duoLayoutRoot : null);
-    if ($duoAgentRoot === null) {
-        throw new \RuntimeException('duo: Elementor provider cannot resolve the explicit source or embedded agent layout');
+    $wprismLayoutRoot = dirname(__DIR__, 5);
+    $wprismAgentRoot = is_dir($wprismLayoutRoot . '/agent/src')
+        ? $wprismLayoutRoot . '/agent'
+        : (basename($wprismLayoutRoot) === 'agent' && is_dir($wprismLayoutRoot . '/src') ? $wprismLayoutRoot : null);
+    if ($wprismAgentRoot === null) {
+        throw new \RuntimeException('wprism: Elementor provider cannot resolve the explicit source or embedded agent layout');
     }
-    require_once $duoAgentRoot . '/src/Kernel/WpCliChildProcess.php';
-    unset($duoLayoutRoot, $duoAgentRoot);
+    require_once $wprismAgentRoot . '/src/Kernel/WpCliChildProcess.php';
+    unset($wprismLayoutRoot, $wprismAgentRoot);
 }
 
 /**
  * Elementor generated-CSS regeneration provider.
  *
  * Elementor compiles each builder document's styles into its own CSS cache.
- * Duo writes `_elementor_data` with SQL, so Elementor's save path — which is
+ * WPrism writes `_elementor_data` with SQL, so Elementor's save path — which is
  * what normally recompiles that CSS — never runs, and a promoted page renders
  * with the SOURCE environment's URLs baked into stale CSS (the exact symptom
  * sandbox/conformance/checks/elementor.sh exists to catch).
@@ -28,8 +28,8 @@ if (!class_exists(WpCliChildProcess::class, false)) {
  * This provider deliberately invokes Elementor's own documented CLI command,
  * `elementor flush-css --regenerate`, rather than reproducing the regeneration
  * loop in adapter code. That is the boundary doctrine's point: the executable
- * semantics stay the plugin's, because a Duo-side reimplementation of
- * Elementor's compile-and-write pipeline would be plugin business logic Duo
+ * semantics stay the plugin's, because a WPrism-side reimplementation of
+ * Elementor's compile-and-write pipeline would be plugin business logic WPrism
  * would then own forever and have to track across Elementor releases. What
  * this provider adds is identity, structured invocation, and receipts.
  */
@@ -46,7 +46,7 @@ final class ElementorCss extends ManifestProviderRuntime {
      * the cached rendered widget HTML, `_elementor_page_assets` the derived
      * asset list. Both are `derived` in manifests/elementor.json and are
      * regenerated lazily on the next front-end render — but only if they are
-     * ABSENT. Duo's apply writes `_elementor_data` with raw SQL (see
+     * ABSENT. WPrism's apply writes `_elementor_data` with raw SQL (see
      * ApplyFieldMaterializer::upsert_meta), so Elementor's own updated_post_
      * meta/save_post hooks — which normally invalidate these on an edit —
      * never fire, and `flush-css --regenerate` re-renders documents to rebuild
@@ -84,7 +84,7 @@ final class ElementorCss extends ManifestProviderRuntime {
     protected function invoke_regenerate_css(array $args): array {
         if (!class_exists('\WP_CLI')) {
             throw new \RuntimeException(
-                "duo: Elementor CSS regeneration runs the plugin's own '" . self::COMMAND
+                "wprism: Elementor CSS regeneration runs the plugin's own '" . self::COMMAND
                 . "' command and is unavailable outside wp-cli"
             );
         }
@@ -95,27 +95,27 @@ final class ElementorCss extends ManifestProviderRuntime {
             $result = WpCliChildProcess::capture(self::COMMAND, 600, 524288, 131072);
         } catch (\Throwable $t) {
             throw new \RuntimeException(
-                "duo: Elementor '" . self::COMMAND . "' could not start",
+                "wprism: Elementor '" . self::COMMAND . "' could not start",
                 0,
                 $t
             );
         }
         if ($result['return_code'] !== 0) {
             throw new \RuntimeException(
-                "duo: Elementor '" . self::COMMAND . "' exited {$result['return_code']}"
+                "wprism: Elementor '" . self::COMMAND . "' exited {$result['return_code']}"
             );
         }
         $out = trim($result['stdout']);
         $err = trim($result['stderr']);
         if ($err !== '') {
             throw new \RuntimeException(
-                "duo: Elementor '" . self::COMMAND
+                "wprism: Elementor '" . self::COMMAND
                 . "' emitted stderr despite exit 0; recovery_required"
             );
         }
         if (!str_contains($out, 'Success: Flushed the Elementor CSS Cache')) {
             throw new \RuntimeException(
-                "duo: Elementor '" . self::COMMAND
+                "wprism: Elementor '" . self::COMMAND
                 . "' exited 0 without its native success receipt; recovery_required"
             );
         }
@@ -136,7 +136,7 @@ final class ElementorCss extends ManifestProviderRuntime {
         $afterDetail = $this->projection_detail();
         if ($beforeDetail['builder_document_ids'] !== $afterDetail['builder_document_ids']) {
             throw new \RuntimeException(
-                'duo: Elementor builder-document population changed during CSS regeneration; recovery_required'
+                'wprism: Elementor builder-document population changed during CSS regeneration; recovery_required'
             );
         }
         $after = $this->projection_summary($afterDetail, true);
@@ -225,7 +225,7 @@ final class ElementorCss extends ManifestProviderRuntime {
             ] as $field) {
                 if ($summary[$field] !== 0) {
                     throw new \RuntimeException(
-                        "duo: Elementor CSS readback found {$summary[$field]} $field; recovery_required"
+                        "wprism: Elementor CSS readback found {$summary[$field]} $field; recovery_required"
                     );
                 }
             }
@@ -237,7 +237,7 @@ final class ElementorCss extends ManifestProviderRuntime {
     private function builder_css_statuses(array $documents): array {
         if (!function_exists('get_post_meta')) {
             throw new \RuntimeException(
-                'duo: Elementor CSS verification requires get_post_meta()'
+                'wprism: Elementor CSS verification requires get_post_meta()'
             );
         }
         $statuses = [];
@@ -253,7 +253,7 @@ final class ElementorCss extends ManifestProviderRuntime {
     private function clear_css_receipt_caches(array $documents): void {
         if (!function_exists('wp_cache_delete')) {
             throw new \RuntimeException(
-                'duo: Elementor CSS verification requires wp_cache_delete()'
+                'wprism: Elementor CSS verification requires wp_cache_delete()'
             );
         }
         foreach ($documents as $id) {
@@ -266,17 +266,17 @@ final class ElementorCss extends ManifestProviderRuntime {
         foreach (self::REQUIRED_COLUMNS as $property => $required) {
             $table = (string) ($wpdb->{$property} ?? '');
             if ($table === '') {
-                throw new \RuntimeException("duo: Elementor $property table is unavailable; recovery_required");
+                throw new \RuntimeException("wprism: Elementor $property table is unavailable; recovery_required");
             }
             $wpdb->last_error = '';
             $columns = $wpdb->get_col("SHOW COLUMNS FROM `$table`");
             if ((string) ($wpdb->last_error ?? '') !== '' || !is_array($columns)) {
-                throw new \RuntimeException("duo: Elementor $property schema probe failed; recovery_required");
+                throw new \RuntimeException("wprism: Elementor $property schema probe failed; recovery_required");
             }
             $missing = array_values(array_diff($required, array_map('strval', $columns)));
             if ($missing !== []) {
                 throw new \RuntimeException(
-                    "duo: Elementor $property table is missing required column(s): "
+                    "wprism: Elementor $property table is missing required column(s): "
                     . implode(', ', $missing) . '; recovery_required'
                 );
             }
@@ -295,7 +295,7 @@ final class ElementorCss extends ManifestProviderRuntime {
         $in = "'" . implode("','", array_map('esc_sql', self::RENDER_CACHE_META_KEYS)) . "'";
         $count = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key IN ($in)");
         if ($count === null || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException('duo: Elementor render-cache count query failed');
+            throw new \RuntimeException('wprism: Elementor render-cache count query failed');
         }
         return (int) $count;
     }
@@ -308,7 +308,7 @@ final class ElementorCss extends ManifestProviderRuntime {
     private function clear_render_caches(): void {
         if (!function_exists('delete_post_meta_by_key')) {
             throw new \RuntimeException(
-                'duo: Elementor render-cache invalidation requires delete_post_meta_by_key()'
+                'wprism: Elementor render-cache invalidation requires delete_post_meta_by_key()'
             );
         }
         foreach (self::RENDER_CACHE_META_KEYS as $key) {
@@ -326,19 +326,19 @@ final class ElementorCss extends ManifestProviderRuntime {
     private function css_inventory(): array {
         if (!function_exists('wp_upload_dir')) {
             throw new \RuntimeException(
-                'duo: Elementor CSS verification requires wp_upload_dir()'
+                'wprism: Elementor CSS verification requires wp_upload_dir()'
             );
         }
         $uploads = wp_upload_dir();
         if (!is_array($uploads) || (string) ($uploads['error'] ?? '') !== '') {
             throw new \RuntimeException(
-                'duo: Elementor CSS verification could not resolve the uploads base directory'
+                'wprism: Elementor CSS verification could not resolve the uploads base directory'
             );
         }
         $base = rtrim((string) ($uploads['basedir'] ?? ''), '/');
         if ($base === '') {
             throw new \RuntimeException(
-                'duo: Elementor CSS verification could not resolve the uploads base directory'
+                'wprism: Elementor CSS verification could not resolve the uploads base directory'
             );
         }
         $dir = $base . '/elementor/css';
@@ -346,11 +346,11 @@ final class ElementorCss extends ManifestProviderRuntime {
             return [];
         }
         if (is_link($dir)) {
-            throw new \RuntimeException('duo: Elementor CSS directory is a symbolic link; recovery_required');
+            throw new \RuntimeException('wprism: Elementor CSS directory is a symbolic link; recovery_required');
         }
         $entries = scandir($dir);
         if ($entries === false) {
-            throw new \RuntimeException("duo: Elementor CSS directory $dir is unreadable");
+            throw new \RuntimeException("wprism: Elementor CSS directory $dir is unreadable");
         }
         $out = [];
         foreach ($entries as $entry) {
@@ -360,14 +360,14 @@ final class ElementorCss extends ManifestProviderRuntime {
             }
             if (is_link($path) || !is_file($path)) {
                 throw new \RuntimeException(
-                    "duo: Elementor CSS inventory contains unsupported entry $entry; recovery_required"
+                    "wprism: Elementor CSS inventory contains unsupported entry $entry; recovery_required"
                 );
             }
             $size = filesize($path);
             $mtime = filemtime($path);
             $sha256 = hash_file('sha256', $path);
             if ($size === false || $mtime === false || $sha256 === false) {
-                throw new \RuntimeException("duo: Elementor CSS file $entry is unreadable");
+                throw new \RuntimeException("wprism: Elementor CSS file $entry is unreadable");
             }
             $out[$entry] = [
                 'bytes' => (int) $size,
@@ -397,7 +397,7 @@ final class ElementorCss extends ManifestProviderRuntime {
         ));
         if (!is_array($ids) || (string) ($wpdb->last_error ?? '') !== '') {
             throw new \RuntimeException(
-                'duo: Elementor builder-document inventory query failed; recovery_required'
+                'wprism: Elementor builder-document inventory query failed; recovery_required'
             );
         }
         return array_values(array_map('intval', $ids));

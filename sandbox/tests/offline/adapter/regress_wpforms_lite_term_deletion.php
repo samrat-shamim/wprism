@@ -74,7 +74,7 @@ require_once __DIR__ . '/../../lib/wp_stubs.php';
 require_once __DIR__ . '/../../lib/LockingFakeWpdb.php';
 require_once __DIR__ . '/../../lib/agent_version.php';
 
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 
 $root = dirname(__DIR__, 4);
 
@@ -101,28 +101,28 @@ require_once $root . '/agent/src/Delete/DeleteGuardEvaluator.php';
 require_once $root . '/agent/src/Delete/DeleteGuardLockCoordinator.php';
 require_once $root . '/agent/src/Delete/DeleteGuardReferenceScanner.php';
 
-use Duo\ApplyFieldMaterializer;
-use Duo\ApplyPreparationCoordinator;
-use Duo\ApplyPreparationRequest;
-use Duo\ApplyServiceCallbacks;
-use Duo\ApplyServices;
-use Duo\Canon;
-use Duo\CommandRefusalException;
-use Duo\CompiledRepository;
-use Duo\DeleteExecutor;
-use Duo\DeleteGuardEvaluator;
-use Duo\DeleteGuardLockCoordinator;
-use Duo\DeleteGuardReferenceScanner;
-use Duo\Deletion;
-use Duo\MenuMaterializer;
-use Duo\Policy;
-use Duo\RebuildSelection;
-use Duo\RelationshipMaterializer;
-use Duo\ScopedApplyWorkflow;
-use Duo\Tokens;
-use DuoTest\FakeWpdb;
-use DuoTest\LockingFakeWpdb;
-use DuoTest\WpStore;
+use WPrism\ApplyFieldMaterializer;
+use WPrism\ApplyPreparationCoordinator;
+use WPrism\ApplyPreparationRequest;
+use WPrism\ApplyServiceCallbacks;
+use WPrism\ApplyServices;
+use WPrism\Canon;
+use WPrism\CommandRefusalException;
+use WPrism\CompiledRepository;
+use WPrism\DeleteExecutor;
+use WPrism\DeleteGuardEvaluator;
+use WPrism\DeleteGuardLockCoordinator;
+use WPrism\DeleteGuardReferenceScanner;
+use WPrism\Deletion;
+use WPrism\MenuMaterializer;
+use WPrism\Policy;
+use WPrism\RebuildSelection;
+use WPrism\RelationshipMaterializer;
+use WPrism\ScopedApplyWorkflow;
+use WPrism\Tokens;
+use WPrismTest\FakeWpdb;
+use WPrismTest\LockingFakeWpdb;
+use WPrismTest\WpStore;
 
 // ---------------------------------------------------------------------------
 // The runtime taxonomy registry. RelationshipMaterializer reads it through
@@ -171,7 +171,7 @@ $adapter = Canon::decode((string) file_get_contents($adapterFile));
  * @param array<string,mixed> $manifest
  */
 $loadSite = static function (array $manifest) use ($root): Policy {
-    $dir = sys_get_temp_dir() . '/duo_wpforms_del_' . bin2hex(random_bytes(8));
+    $dir = sys_get_temp_dir() . '/wprism_wpforms_del_' . bin2hex(random_bytes(8));
     if (!mkdir($dir . '/adapters', 0700, true) && !is_dir($dir . '/adapters')) {
         throw new RuntimeException("could not create scratch site repository $dir");
     }
@@ -179,20 +179,20 @@ $loadSite = static function (array $manifest) use ($root): Policy {
         foreach (glob($dir . '/adapters/*.json') ?: [] as $file) {
             @unlink($file);
         }
-        @unlink($dir . '/site.duo.json');
+        @unlink($dir . '/site.wprism.json');
         @rmdir($dir . '/adapters');
         @rmdir($dir);
     });
     Canon::write_file($dir . '/adapters/wpforms-lite.json', Canon::encode($manifest));
-    Canon::write_file($dir . '/site.duo.json', Canon::encode([
+    Canon::write_file($dir . '/site.wprism.json', Canon::encode([
         'manifests' => [['name' => 'wpforms-lite', 'source' => 'site']],
         'policy' => new stdClass(),
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ]));
     return Policy::load(
         $dir,
         ['wpforms-lite'],
-        adapterLibrary: \Duo\AdapterLibrary::fromSourceTree($root)
+        adapterLibrary: \WPrism\AdapterLibrary::fromSourceTree($root)
     );
 };
 
@@ -211,7 +211,7 @@ $policy = $loadSite($adapter);
 
 // ---------------------------------------------------------------------------
 // The target. One managed tag, three forms tagged with it, one locally-created
-// tag of the same taxonomy that duo never mapped, and one orphaned
+// tag of the same taxonomy that wprism never mapped, and one orphaned
 // relationship row pointing at a term_taxonomy row that no longer exists.
 // ---------------------------------------------------------------------------
 
@@ -229,7 +229,7 @@ $attached = [
 ];
 
 /**
- * The dirty rows §3 is about. Neither is duo's: term 11 was created in
+ * The dirty rows §3 is about. Neither is wprism's: term 11 was created in
  * wp-admin and never captured, and the term_relationships row points at
  * term_taxonomy 99, which no term_taxonomy row backs -- the residue a
  * half-finished plugin uninstall leaves behind.
@@ -246,7 +246,7 @@ $orphanRelationship = ['object_id' => 900, 'term_taxonomy_id' => 99, 'term_order
  *
  * @param list<array<string,mixed>> $relationships term_relationships seed
  * @param bool                      $dirty         include the two dirty rows
- * @param int                       $mappedTt      the term_taxonomy id duo_map binds to $tagUuid
+ * @param int                       $mappedTt      the term_taxonomy id wprism_map binds to $tagUuid
  */
 $target = static function (
     array $relationships,
@@ -279,7 +279,7 @@ $target = static function (
         'option_id' => 'bigint unsigned', 'option_name' => 'varchar(191)',
         'option_value' => 'longtext', 'autoload' => 'varchar(20)',
     ]);
-    $db->setColumns('duo_map', [
+    $db->setColumns('wprism_map', [
         'uuid' => 'char(36)', 'entity_type' => 'varchar(64)',
         'id_kind' => 'varchar(64)', 'local_id' => 'bigint unsigned',
     ]);
@@ -316,11 +316,11 @@ $target = static function (
     $db->seedTable('options', [
         ['option_id' => 1, 'option_name' => 'wpforms_settings', 'option_value' => 'a:0:{}', 'autoload' => 'yes'],
     ]);
-    $db->seedTable('duo_map', [
+    $db->seedTable('wprism_map', [
         ['uuid' => $tagUuid, 'entity_type' => 'term', 'id_kind' => 'term', 'local_id' => 10],
         ['uuid' => $tagUuid, 'entity_type' => 'term', 'id_kind' => 'term_taxonomy', 'local_id' => $mappedTt],
     ]);
-    $db->setUniqueKey('duo_map', ['uuid', 'id_kind']);
+    $db->setUniqueKey('wprism_map', ['uuid', 'id_kind']);
 
     foreach ([
         $db->terms, $db->term_taxonomy, $db->term_relationships,
@@ -350,7 +350,7 @@ $census = static function (LockingFakeWpdb $db): array {
     $out = [];
     foreach ([
         'terms', 'term_taxonomy', 'term_relationships', 'termmeta',
-        'posts', 'postmeta', 'options', 'duo_map',
+        'posts', 'postmeta', 'options', 'wprism_map',
     ] as $table) {
         $out[$table] = $db->rows($table);
     }
@@ -418,19 +418,19 @@ $runDelete = static function (
     $before = $census($db);
     $warnings = [];
     $failure = null;
-    \Duo\Db::start_repeatable_read('wpforms tag deletion fixture');
+    \WPrism\Db::start_repeatable_read('wpforms tag deletion fixture');
     $field->begin_authored_transaction();
-    \Duo\CacheInvalidationTransaction::begin();
-    \Duo\CacheInvalidationTransaction::prepare_term_hierarchy_options(['wpforms_form_tag' => false]);
+    \WPrism\CacheInvalidationTransaction::begin();
+    \WPrism\CacheInvalidationTransaction::prepare_term_hierarchy_options(['wpforms_form_tag' => false]);
     try {
         $executor->delete_entity($uuid, 'term', [], $warnings);
     } catch (Throwable $thrown) {
         $failure = $thrown;
     }
     $after = $census($db);
-    \Duo\Db::rollback('wpforms tag deletion fixture rollback');
+    \WPrism\Db::rollback('wpforms tag deletion fixture rollback');
     $field->end_authored_transaction();
-    \Duo\CacheInvalidationTransaction::end();
+    \WPrism\CacheInvalidationTransaction::end();
 
     return ['failure' => $failure, 'warnings' => $warnings, 'before' => $before, 'after' => $after];
 };
@@ -479,7 +479,7 @@ $guardFindings = static function (
         },
         // term_relationships is not a declared authored-snapshot row table, so
         // the warning tail must say "resolve it through its owning content
-        // workflow" rather than offer `wp duo orphans`.
+        // workflow" rather than offer `wp wprism orphans`.
         static fn(string $table): bool => false,
         hash('sha256', Canon::encode([]))
     );
@@ -563,7 +563,7 @@ $prepare = static function (array $deleteRow, array $opts, Policy $runPolicy): a
         scopedPromotion: false,
         recoveringScoped: false,
         retryingIncompleteApply: false,
-        promotionOwner: 'duo-test-owner',
+        promotionOwner: 'wprism-test-owner',
         promotionArtifact: str_repeat('e', 64)
     );
     try {
@@ -585,12 +585,12 @@ $prepare = static function (array $deleteRow, array $opts, Policy $runPolicy): a
 // here because every case below depends on it resolving to exactly this, so a
 // reader should not have to take another suite's word for what is under test.
 $capability = Deletion::capability($policy, 'term', 'wpforms_form_tag');
-duo_check_same(
+wprism_check_same(
     ['term_relationships', 'term_taxonomy', 'termmeta'],
     $capability['cascades'],
     'the committed fixture declares exactly the three cascade effects a term deletion requires'
 );
-duo_check_same(
+wprism_check_same(
     [[
         'column' => 'term_taxonomy_id',
         'id_kind' => 'term_taxonomy',
@@ -600,7 +600,7 @@ duo_check_same(
     $capability['guards'],
     'one guard, on term_relationships.term_taxonomy_id -- the whole matrix hangs off this row'
 );
-duo_check_same(
+wprism_check_same(
     ['wpforms-lite'],
     $capability['declared_by'],
     'the capability is owned by the site adapter, not inherited from a shipped manifest'
@@ -613,12 +613,12 @@ duo_check_same(
 // 1a — the guard read. Three forms carry the tag, so the guard finds three
 // rows and names each of them by its full PRIMARY key.
 $attachedRow = $guardFindings($target($attached), $policy, $tagUuid);
-duo_check_same(
+wprism_check_same(
     'forms are still tagged with this form tag — 3 row(s)',
     $attachedRow['blocked'] ?? null,
     'the block string is the manifest\'s own `reason` plus the measured row count'
 );
-duo_check_same(
+wprism_check_same(
     [[
         'table' => 'term_relationships',
         'rows' => [
@@ -636,7 +636,7 @@ duo_check_same(
 // over the text protocol, so every column arrives as a string. Recomputing it
 // here rather than pasting a hex literal is what keeps this assertion about
 // the witness contract instead of about one fixture's digest.
-duo_check_same(
+wprism_check_same(
     ['0' => hash('sha256', Canon::encode(array_map(
         static fn(array $row): array => array_map('strval', $row),
         $attached
@@ -648,18 +648,18 @@ duo_check_same(
 // 1b — THE REFUSAL. --with-deletes authorizes deletion; it does not authorize
 // deleting THROUGH a declared guard. Pinned as the operator sees it.
 $blockedApply = $prepare($attachedRow, ['with_deletes' => true], $policy);
-duo_check(
+wprism_check(
     $blockedApply['refusal'] instanceof RuntimeException,
     'an authorized deletion of an attached tag is refused before any target mutation'
 );
-duo_check_same(
-    "duo: deletes blocked by referential guards (this environment's runtime data references them; "
+wprism_check_same(
+    "wprism: deletes blocked by referential guards (this environment's runtime data references them; "
         . "--force-delete-referenced to override):\n"
         . "  - term $tagUuid: forms are still tagged with this form tag — 3 row(s)",
     $blockedApply['refusal']?->getMessage(),
     'the refusal names the entity, the declared reason, the count, and the one flag that overrides it'
 );
-duo_check_same(
+wprism_check_same(
     [],
     $blockedApply['warnings'],
     'a refused delete emits no warning: nothing happened, so there is nothing to report'
@@ -675,16 +675,16 @@ $unguarded = $loadSite($withDeletions([
     ],
 ]));
 $unguardedRow = $guardFindings($target($attached), $unguarded, $tagUuid);
-duo_check(
+wprism_check(
     !isset($unguardedRow['blocked']) && !isset($unguardedRow['guard_refs']),
     'MUTATION: with the guard dropped, the same three attached rows produce no block at all'
 );
-duo_check_same(
+wprism_check_same(
     [],
     $unguardedRow['guard_witnesses'],
     'MUTATION: and no witness, so the locked recheck has nothing to compare either'
 );
-duo_check_same(
+wprism_check_same(
     null,
     $prepare($unguardedRow, ['with_deletes' => true], $unguarded)['refusal'],
     'MUTATION: the apply that §1b refused now prepares — the guard was the whole refusal'
@@ -695,8 +695,8 @@ duo_check_same(
 // attachments. This is the cascade §1b prevented, measured rather than
 // asserted, and it is why the guard is not decoration.
 $unlocked = $runDelete($target($attached), $policy, $tagUuid);
-duo_check_same(null, $unlocked['failure'], 'the executor itself performs an attached-term deletion without complaint');
-duo_check_same(
+wprism_check_same(null, $unlocked['failure'], 'the executor itself performs an attached-term deletion without complaint');
+wprism_check_same(
     $attached,
     $delta($unlocked['before'], $unlocked['after'])['term_relationships']['removed'] ?? null,
     'past the guard, all three form attachments are destroyed — the guard is the only thing that stops it'
@@ -708,20 +708,20 @@ duo_check_same(
 
 // 2a — the run, and the whole eight-table delta it produced.
 $clean = $runDelete($target([]), $policy, $tagUuid);
-duo_check_same(null, $clean['failure'], 'an unattached managed tag deletes through the shipped executor');
-duo_check_same(
+wprism_check_same(null, $clean['failure'], 'an unattached managed tag deletes through the shipped executor');
+wprism_check_same(
     ["deleted term $tagUuid"],
     $clean['warnings'],
     'a clean deletion reports exactly one thing: what it deleted'
 );
 
 $cleanDelta = $delta($clean['before'], $clean['after']);
-duo_check_same(
+wprism_check_same(
     ['terms', 'term_taxonomy', 'termmeta'],
     array_keys($cleanDelta),
-    'exactly three tables move. posts, postmeta, options, duo_map and term_relationships are untouched'
+    'exactly three tables move. posts, postmeta, options, wprism_map and term_relationships are untouched'
 );
-duo_check_same(
+wprism_check_same(
     [
         'terms' => [
             'removed' => [['term_id' => 10, 'name' => 'Sales', 'slug' => 'sales', 'term_group' => 0]],
@@ -745,7 +745,7 @@ duo_check_same(
     $cleanDelta,
     'the delta is the selected term, its one taxonomy row, and its one meta row — nothing else, nothing added'
 );
-duo_check_same(
+wprism_check_same(
     [],
     $clean['after']['term_relationships'],
     'term_relationships is empty on both sides: the declared cascade ran and had nothing to remove'
@@ -754,9 +754,9 @@ duo_check_same(
 // .php:129-133 forgets the uuid AFTER the authored transaction, alongside the
 // deletion receipt hash. A cascade that pruned it here would strand that
 // finalizer with nothing to record.
-duo_check_same(
-    $clean['before']['duo_map'],
-    $clean['after']['duo_map'],
+wprism_check_same(
+    $clean['before']['wprism_map'],
+    $clean['after']['wprism_map'],
     'the identity map is NOT part of a term cascade; forgetting it is the finalizer\'s separate step'
 );
 
@@ -764,12 +764,12 @@ duo_check_same(
 // OTHER wpforms_form_tag term, and the cascade refuses rather than widening:
 // scope is bounded by the exact mapped identity, never by the taxonomy name.
 $misMapped = $runDelete($target([], true, 21), $policy, $tagUuid);
-duo_check(
+wprism_check(
     $misMapped['failure'] instanceof RuntimeException
-        && $misMapped['failure']->getMessage() === 'duo: term deletion requires one exact unshared taxonomy row',
+        && $misMapped['failure']->getMessage() === 'wprism: term deletion requires one exact unshared taxonomy row',
     'MUTATION: a term_taxonomy mapping that does not belong to the term refuses instead of cascading'
 );
-duo_check_same(
+wprism_check_same(
     [],
     $delta($misMapped['before'], $misMapped['after']),
     'MUTATION: and refuses with zero rows moved, on any of the eight tables'
@@ -781,29 +781,29 @@ duo_check_same(
 
 // 3a — the dirty rows survive the cascade byte-for-byte.
 $dirty = $runDelete($target([], true), $policy, $tagUuid);
-duo_check_same(null, $dirty['failure'], 'the dirty target does not stop the selected term\'s deletion');
+wprism_check_same(null, $dirty['failure'], 'the dirty target does not stop the selected term\'s deletion');
 $dirtyDelta = $delta($dirty['before'], $dirty['after']);
-duo_check_same(
+wprism_check_same(
     ['terms', 'term_taxonomy', 'termmeta'],
     array_keys($dirtyDelta),
     'the dirty target moves the same three tables as the clean one — residue changes nothing about scope'
 );
-duo_check_same(
+wprism_check_same(
     [$dirtyTerm],
     $dirty['after']['terms'],
     'the locally-created wpforms_form_tag term survives byte-for-byte; same taxonomy is not same entity'
 );
-duo_check_same(
+wprism_check_same(
     [$dirtyTaxonomy],
     $dirty['after']['term_taxonomy'],
     'so does its term_taxonomy row'
 );
-duo_check_same(
+wprism_check_same(
     [$orphanRelationship],
     $dirty['after']['term_relationships'],
     'and so does the orphaned relationship row — the cascade deletes by term_taxonomy_id, not by table'
 );
-duo_check_same(
+wprism_check_same(
     [['meta_id' => 2, 'term_id' => 11, 'meta_key' => 'wpforms_tag_color', 'meta_value' => '#c0392b']],
     $dirty['after']['termmeta'],
     'the untracked term keeps its own meta: termmeta is cascaded by term_id, not truncated'
@@ -814,8 +814,8 @@ duo_check_same(
 // referenced converts the §1 refusal into an enumeration of every row the
 // deletion is about to strand, by name, with the repair that owns it.
 $forced = $prepare($attachedRow, ['with_deletes' => true, 'force_delete_referenced' => true], $policy);
-duo_check_same(null, $forced['refusal'], 'the override is honoured — report, do not hide');
-duo_check_same(
+wprism_check_same(null, $forced['refusal'], 'the override is honoured — report, do not hide');
+wprism_check_same(
     [
         "FORCED delete of guarded term $tagUuid: 3 rows in term_relationships will be orphaned; "
             . 'term_relationships is not a declared authored-snapshot table and must be resolved through its '
@@ -835,7 +835,7 @@ $adoptedOrphan = $guardFindings(
     $policy,
     $tagUuid
 );
-duo_check_same(
+wprism_check_same(
     'forms are still tagged with this form tag — 1 row(s)',
     $adoptedOrphan['blocked'] ?? null,
     'MUTATION: repoint the orphan at the selected term and the same row that survived §3 now blocks the delete'
@@ -852,11 +852,11 @@ try {
 } catch (CommandRefusalException $thrown) {
     $refusal = $thrown;
 }
-duo_check(
+wprism_check(
     $refusal instanceof CommandRefusalException,
     'post:wpforms is deliberately absent from the manifest, so the engine refuses the selector'
 );
-duo_check_same(
+wprism_check_same(
     [
         'error' => 'unsupported_deletion',
         'message' => 'deletion intent for post:wpforms is unsupported because no pinned adapter owns its '
@@ -885,14 +885,14 @@ $advertised = $loadSite($withDeletions([
         'guards' => [],
     ],
 ]));
-duo_check_same(
+wprism_check_same(
     // Sorted, because DeletionCapabilityResolver.php:41-42 normalizes the
     // declared list before any consumer sees it.
     ['post_revisions', 'postmeta', 'term_relationships'],
     Deletion::capability($advertised, 'post', 'wpforms')['cascades'],
     'MUTATION: advertise the selector and the identical call resolves — the omission is what refuses'
 );
-duo_check_same(
+wprism_check_same(
     ['column' => 'term_taxonomy_id', 'id_kind' => 'term_taxonomy'],
     array_intersect_key(
         Deletion::capability($advertised, 'term', 'wpforms_form_tag')['guards'][0],
@@ -901,4 +901,4 @@ duo_check_same(
     'MUTATION: and the tag selector is unaffected — the two selectors are independent declarations'
 );
 
-duo_check_summary('regress_wpforms_lite_term_deletion');
+wprism_check_summary('regress_wpforms_lite_term_deletion');

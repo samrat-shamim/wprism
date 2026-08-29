@@ -1,8 +1,8 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // Most production/bootstrap paths load Canon before Code. A few offline
-// contract fixtures deliberately install a local Duo\\Canon seam first, so
+// contract fixtures deliberately install a local WPrism\\Canon seam first, so
 // only load the production implementation when no Canon class exists yet.
 if (!class_exists(Canon::class, false)) {
     require_once __DIR__ . '/../Kernel/Canon.php';
@@ -29,7 +29,7 @@ final class CodeCompilationException extends \RuntimeException {
             return '[' . $d['code'] . '] ' . $where . ' — ' . $d['message'];
         }, $this->diagnostics);
         parent::__construct(
-            'duo: code payload validation failed (' . count($this->diagnostics)
+            'wprism: code payload validation failed (' . count($this->diagnostics)
             . " blocking diagnostic(s)); no target code was staged:\n  - "
             . implode("\n  - ", $lines)
         );
@@ -53,7 +53,7 @@ final class CodeCompilationException extends \RuntimeException {
  * thin facades and owns all materialization side effects.
  */
 final class CodeDescriptorCompiler {
-    public const DESCRIPTOR_FORMAT = 'duo-code/v1';
+    public const DESCRIPTOR_FORMAT = 'wprism-code/v1';
     public const LAYOUT = 'wp-content';
     public const SOURCE = 'code/wp-content';
 
@@ -67,7 +67,7 @@ final class CodeDescriptorCompiler {
         }
         self::assert_config($config);
         $descriptor = self::descriptor_from_source(rtrim($repo, '/') . '/' . self::SOURCE);
-        // DUO-3499: the lock is a PRECONDITION gate, never an indirection the
+        // issue #3499: the lock is a PRECONDITION gate, never an indirection the
         // descriptor follows. descriptor_from_source() above still hashes only
         // the bytes on disk, so code_revision, artifact_hash and
         // assert_verified_staged() keep meaning exactly what they meant before
@@ -109,12 +109,12 @@ final class CodeDescriptorCompiler {
         $path = rtrim($repo, '/') . '/' . $relative;
         if (is_link($path) || !is_file($path)) {
             throw new \RuntimeException(
-                "duo: site.duo.json code format 2 declares $relative, but it is not a regular file in this repository"
+                "wprism: site.wprism.json code format 2 declares $relative, but it is not a regular file in this repository"
             );
         }
         $raw = @file_get_contents($path);
         if (!is_string($raw)) {
-            throw new \RuntimeException("duo: $relative could not be read");
+            throw new \RuntimeException("wprism: $relative could not be read");
         }
         return CodeSourceLock::parse($raw);
     }
@@ -136,9 +136,9 @@ final class CodeDescriptorCompiler {
      * (Git carries it because the operator said it is the site's own code).
      * A component in neither list is exactly the "vendored by omission" shape
      * a premium plugin dropped into `code/wp-content/plugins/` would take, and
-     * it is refused by name. A legacy `duo-code-lock/v1` declares no
+     * it is refused by name. A legacy `wprism-code-lock/v1` declares no
      * first-party list, so a v1 repository that still carries such a
-     * component reaches this refusal and its remedy, `duo code-classify`.
+     * component reaches this refusal and its remedy, `wprism code-classify`.
      *
      * @param array<string,mixed> $lock
      * @param array<string,mixed> $descriptor
@@ -160,7 +160,7 @@ final class CodeDescriptorCompiler {
                     '',
                     "the lock declares $key version $version, but this repository carries none of its bytes; "
                     . 'run the materialization step documented in docs/guides/code-updates.md '
-                    . '(composer install, unzip the locked release archive, or duo code-resolve) before compiling'
+                    . '(composer install, unzip the locked release archive, or wprism code-resolve) before compiling'
                 );
                 continue;
             }
@@ -171,7 +171,7 @@ final class CodeDescriptorCompiler {
                     self::SOURCE . '/' . $key,
                     '',
                     "the present bytes of $key hash to $actual, but the lock declares $declared for version $version; "
-                    . 're-materialize the locked release, or re-lock the component with duo code-classify if these '
+                    . 're-materialize the locked release, or re-lock the component with wprism code-classify if these '
                     . 'bytes are the intended ones'
                 );
             }
@@ -217,8 +217,8 @@ final class CodeDescriptorCompiler {
                 '',
                 "this repository carries $key but the lock neither declares it as a locked component nor as "
                 . 'first-party, and Git must not carry third-party code; if it is the site\'s own code, declare it '
-                . 'with `duo code-classify --first-party=' . $key . '`; otherwise import its release archive on '
-                . 'the host with `duo code-import <archive.zip>` and re-lock it with `duo code-classify`'
+                . 'with `wprism code-classify --first-party=' . $key . '`; otherwise import its release archive on '
+                . 'the host with `wprism code-import <archive.zip>` and re-lock it with `wprism code-classify`'
             );
         }
         return $diagnostics;
@@ -254,7 +254,7 @@ final class CodeDescriptorCompiler {
         if (is_link($source)) {
             self::diagnostic($diagnostics, 'unsafe_code_path', self::SOURCE, '', 'the code payload root is a symbolic link');
         } elseif (!is_dir($source)) {
-            self::diagnostic($diagnostics, 'code_source_missing', self::SOURCE, '', 'site.duo.json opts into code materialization but code/wp-content is missing');
+            self::diagnostic($diagnostics, 'code_source_missing', self::SOURCE, '', 'site.wprism.json opts into code materialization but code/wp-content is missing');
         }
 
         $files = [];
@@ -313,7 +313,7 @@ final class CodeDescriptorCompiler {
                             continue;
                         }
                         if (PathSafety::reserved_path($componentRelative)) {
-                            self::diagnostic($diagnostics, 'code_loader_collision', $componentRelative, '', 'payload may not own mu-plugins/duo or mu-plugins/duo-loader.php');
+                            self::diagnostic($diagnostics, 'code_loader_collision', $componentRelative, '', 'payload may not own mu-plugins/wprism or mu-plugins/wprism-loader.php');
                             continue;
                         }
                         $ownedRoots[] = $componentRelative;
@@ -371,14 +371,14 @@ final class CodeDescriptorCompiler {
 
     /**
      * Per-component identity for one already-published `code/wp-content` tree
-     * (DUO-3499): what each lockable component is, and what its bytes hash to.
+     * (issue #3499): what each lockable component is, and what its bytes hash to.
      *
      * This is the repository-side twin of InitCodeInventory::probe()'s
      * `component_inventory`, which reports the same shape for a LIVE site. Both
      * derive `tree_sha256` through CodeSourceLock from the same descriptor rows,
      * so a component classified from one is the same component the compile gate
-     * checks against the other. `wp duo code-inventory` publishes this, and
-     * `duo code-classify` consumes it.
+     * checks against the other. `wp wprism code-inventory` publishes this, and
+     * `wprism code-classify` consumes it.
      *
      * @return list<array{bytes:int,component:string,files:int,root:string,tree_sha256:string,version:string}>
      */
@@ -443,7 +443,7 @@ final class CodeDescriptorCompiler {
     }
 
     public static function assert_config(array $config): void {
-        // DUO-3499: format 2 is the split declaration. It is selected by its
+        // issue #3499: format 2 is the split declaration. It is selected by its
         // own format integer OR by the presence of the `lock` key, so a
         // format-1 declaration that grew a stray key still reaches the
         // original refusal below with its exact historical bytes.
@@ -458,7 +458,7 @@ final class CodeDescriptorCompiler {
             || $config['layout'] !== self::LAYOUT
             || $config['source'] !== self::SOURCE) {
             throw new \RuntimeException(
-                'duo: site.duo.json code must contain exactly '
+                'wprism: site.wprism.json code must contain exactly '
                 . '{"format":1,"layout":"wp-content","source":"code/wp-content"}'
             );
         }
@@ -480,7 +480,7 @@ final class CodeDescriptorCompiler {
             || $config['lock'] !== CodeSourceLock::PATH
             || $config['source'] !== self::SOURCE) {
             throw new \RuntimeException(
-                'duo: site.duo.json code format 2 must contain exactly '
+                'wprism: site.wprism.json code format 2 must contain exactly '
                 . '{"format":2,"layout":"wp-content","lock":"' . CodeSourceLock::PATH . '","source":"code/wp-content"}'
             );
         }
@@ -504,16 +504,16 @@ final class CodeDescriptorCompiler {
             || !is_array($descriptor['theme_slugs']) || !array_is_list($descriptor['theme_slugs'])
             || ($hasThemeTemplates && !is_array($descriptor['theme_templates']))
             || !preg_match('/^[0-9a-f]{64}$/', (string) $descriptor['code_revision'])) {
-            throw new \RuntimeException('duo: compiled code descriptor has an unsupported or malformed shape');
+            throw new \RuntimeException('wprism: compiled code descriptor has an unsupported or malformed shape');
         }
 
         $ownedRoots = [];
         foreach ($descriptor['owned_roots'] as $i => $root) {
             if (!is_string($root) || !PathSafety::safe_component_root($root, self::ROOTS) || PathSafety::reserved_path($root)) {
-                throw new \RuntimeException("duo: compiled code descriptor owned_roots[$i] is malformed");
+                throw new \RuntimeException("wprism: compiled code descriptor owned_roots[$i] is malformed");
             }
             if (isset($ownedRoots[$root])) {
-                throw new \RuntimeException("duo: compiled code descriptor contains duplicate owned root '$root'");
+                throw new \RuntimeException("wprism: compiled code descriptor contains duplicate owned root '$root'");
             }
             $ownedRoots[$root] = true;
         }
@@ -521,7 +521,7 @@ final class CodeDescriptorCompiler {
         $expectedRoots = $sortedRoots;
         sort($expectedRoots, SORT_STRING);
         if ($descriptor['owned_roots'] !== $expectedRoots) {
-            throw new \RuntimeException('duo: compiled code descriptor owned_roots are not deterministically sorted');
+            throw new \RuntimeException('wprism: compiled code descriptor owned_roots are not deterministically sorted');
         }
 
         $files = [];
@@ -530,25 +530,25 @@ final class CodeDescriptorCompiler {
             if (!is_array($row) || array_keys($row) !== ['path', 'sha256']
                 || !PathSafety::safe_relative((string) ($row['path'] ?? ''))
                 || !preg_match('/^[0-9a-f]{64}$/', (string) ($row['sha256'] ?? ''))) {
-                throw new \RuntimeException("duo: compiled code descriptor files[$i] is malformed");
+                throw new \RuntimeException("wprism: compiled code descriptor files[$i] is malformed");
             }
             $path = (string) $row['path'];
             if (isset($files[$path])) {
-                throw new \RuntimeException("duo: compiled code descriptor contains duplicate file '$path'");
+                throw new \RuntimeException("wprism: compiled code descriptor contains duplicate file '$path'");
             }
             $files[$path] = (string) $row['sha256'];
             $fileRows[] = $path;
             if (!PathSafety::owned_path($path, $ownedRoots)) {
-                throw new \RuntimeException("duo: compiled code descriptor contains file outside owned roots '$path'");
+                throw new \RuntimeException("wprism: compiled code descriptor contains file outside owned roots '$path'");
             }
             if (PathSafety::reserved_path($path)) {
-                throw new \RuntimeException("duo: compiled code descriptor collides with the Duo loader '$path'");
+                throw new \RuntimeException("wprism: compiled code descriptor collides with the WPrism loader '$path'");
             }
         }
         $expectedFileRows = $fileRows;
         sort($expectedFileRows, SORT_STRING);
         if ($fileRows !== $expectedFileRows) {
-            throw new \RuntimeException('duo: compiled code descriptor files are not deterministically sorted');
+            throw new \RuntimeException('wprism: compiled code descriptor files are not deterministically sorted');
         }
         $pluginSeen = [];
         foreach ($descriptor['plugin_main_files'] as $i => $row) {
@@ -556,7 +556,7 @@ final class CodeDescriptorCompiler {
                 || !PathSafety::safe_relative((string) ($row['basename'] ?? ''))
                 || !str_starts_with((string) ($row['path'] ?? ''), 'plugins/')
                 || !preg_match('/^[0-9a-f]{64}$/', (string) ($row['sha256'] ?? ''))) {
-                throw new \RuntimeException("duo: compiled code descriptor plugin_main_files[$i] is malformed");
+                throw new \RuntimeException("wprism: compiled code descriptor plugin_main_files[$i] is malformed");
             }
             $basename = (string) $row['basename'];
             $path = (string) $row['path'];
@@ -565,37 +565,37 @@ final class CodeDescriptorCompiler {
                 || isset($pluginSeen[$basename])
                 || !isset($files[$path])
                 || !PathSafety::owned_path($path, $ownedRoots)) {
-                throw new \RuntimeException("duo: compiled code descriptor plugin_main_files[$i] is inconsistent");
+                throw new \RuntimeException("wprism: compiled code descriptor plugin_main_files[$i] is inconsistent");
             }
             $pluginSeen[$basename] = true;
             if (!hash_equals($files[$path], (string) $row['sha256'])) {
-                throw new \RuntimeException("duo: compiled code descriptor plugin_main_files[$i] hash disagrees with files inventory");
+                throw new \RuntimeException("wprism: compiled code descriptor plugin_main_files[$i] hash disagrees with files inventory");
             }
         }
         $pluginBasenames = array_keys($pluginSeen);
         $expectedPluginBasenames = $pluginBasenames;
         sort($expectedPluginBasenames, SORT_STRING);
         if ($pluginBasenames !== $expectedPluginBasenames) {
-            throw new \RuntimeException('duo: compiled code descriptor plugin_main_files are not deterministically sorted');
+            throw new \RuntimeException('wprism: compiled code descriptor plugin_main_files are not deterministically sorted');
         }
         $themesSeen = [];
         foreach ($descriptor['theme_slugs'] as $i => $slug) {
             if (!is_string($slug) || $slug === '' || !PathSafety::safe_component($slug)) {
-                throw new \RuntimeException("duo: compiled code descriptor theme_slugs[$i] is malformed");
+                throw new \RuntimeException("wprism: compiled code descriptor theme_slugs[$i] is malformed");
             }
             if (isset($themesSeen[$slug]) || !isset($ownedRoots['themes/' . $slug])) {
-                throw new \RuntimeException("duo: compiled code descriptor theme_slugs[$i] is not an owned theme component");
+                throw new \RuntimeException("wprism: compiled code descriptor theme_slugs[$i] is not an owned theme component");
             }
             $style = 'themes/' . $slug . '/style.css';
             if (!isset($files[$style])) {
-                throw new \RuntimeException("duo: compiled code descriptor theme '$slug' has no style.css inventory entry");
+                throw new \RuntimeException("wprism: compiled code descriptor theme '$slug' has no style.css inventory entry");
             }
             $themesSeen[$slug] = true;
         }
         $expectedThemes = array_keys($themesSeen);
         sort($expectedThemes, SORT_STRING);
         if ($descriptor['theme_slugs'] !== $expectedThemes) {
-            throw new \RuntimeException('duo: compiled code descriptor theme_slugs are not deterministically sorted');
+            throw new \RuntimeException('wprism: compiled code descriptor theme_slugs are not deterministically sorted');
         }
         $ownedThemes = [];
         foreach (array_keys($ownedRoots) as $root) {
@@ -605,17 +605,17 @@ final class CodeDescriptorCompiler {
         }
         sort($ownedThemes, SORT_STRING);
         if ($descriptor['theme_slugs'] !== $ownedThemes) {
-            throw new \RuntimeException('duo: compiled code descriptor theme ownership is inconsistent');
+            throw new \RuntimeException('wprism: compiled code descriptor theme ownership is inconsistent');
         }
         if ($hasThemeTemplates) {
             $themeTemplates = $descriptor['theme_templates'];
             if (array_keys($themeTemplates) !== $descriptor['theme_slugs']) {
-                throw new \RuntimeException('duo: compiled code descriptor theme_templates must map every theme slug in deterministic order');
+                throw new \RuntimeException('wprism: compiled code descriptor theme_templates must map every theme slug in deterministic order');
             }
             foreach ($themeTemplates as $slug => $template) {
                 if (!is_string($slug) || !PathSafety::safe_component($slug)
                     || ($template !== null && (!is_string($template) || !PathSafety::safe_component($template)))) {
-                    throw new \RuntimeException("duo: compiled code descriptor theme_templates['$slug'] is malformed");
+                    throw new \RuntimeException("wprism: compiled code descriptor theme_templates['$slug'] is malformed");
                 }
             }
         }
@@ -623,7 +623,7 @@ final class CodeDescriptorCompiler {
         $revision = (string) $copy['code_revision'];
         unset($copy['code_revision']);
         if (!hash_equals(self::revision_for($copy), $revision)) {
-            throw new \RuntimeException('duo: compiled code descriptor revision does not verify');
+            throw new \RuntimeException('wprism: compiled code descriptor revision does not verify');
         }
     }
 
@@ -678,7 +678,7 @@ final class CodeDescriptorCompiler {
                 continue;
             }
             if (PathSafety::reserved_path($relative)) {
-                self::diagnostic($diagnostics, 'code_loader_collision', $relative, '', 'payload may not own mu-plugins/duo or mu-plugins/duo-loader.php');
+                self::diagnostic($diagnostics, 'code_loader_collision', $relative, '', 'payload may not own mu-plugins/wprism or mu-plugins/wprism-loader.php');
                 continue;
             }
             if ($info->isLink()) {

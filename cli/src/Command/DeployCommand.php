@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/CommandOutput.php';
@@ -16,9 +16,9 @@ require_once __DIR__ . '/../Transport/CodeDeploy.php';
  * so deploy becomes independently callable without duplicating recovery law.
  *
  * Deploy takes its own whole-database checkpoint under its own lease, at the
- * position promote takes one (cli/duo:2385-2388), and retains it as
+ * position promote takes one (cli/wprism:2385-2388), and retains it as
  * `deploy-<runId>.sql` beside the `deploy-<runId>.json` artifact — the naming
- * that lets `RetainedCheckpoints` list and `duo recover` restore it with no
+ * that lets `RetainedCheckpoints` list and `wprism recover` restore it with no
  * second recovery mechanism. `--no-checkpoint` opts out and reproduces the
  * pre-checkpoint stream and wp-call sequence exactly.
  */
@@ -31,11 +31,11 @@ final class DeployCommand {
      * @param callable(EnvironmentDriver,array<string,mixed>,string,string):void $compensateUncertainBegin
      * @param callable(EnvironmentDriver,string,string):bool $abort
      * @param callable(EnvironmentDriver,string,bool):void $printRecovery
-     *        a verb-aware `print_promotion_recovery` (cli/duo:3311-3384). It
+     *        a verb-aware `print_promotion_recovery` (cli/wprism:3311-3384). It
      *        arrives as a collaborator for the same reason the other five do:
-     *        this handler stays callable without loading cli/duo's globals.
-     *        It takes no owner and no artifact hash: since DUO-3525 the
-     *        recovery guidance names one verb — `duo recover <env>
+     *        this handler stays callable without loading cli/wprism's globals.
+     *        It takes no owner and no artifact hash: since issue #3525 the
+     *        recovery guidance names one verb — `wprism recover <env>
      *        --restore=<id> --writers-excluded --operator-directed` — whose
      *        `<id>` is the checkpoint's own basename, so the lease identity is
      *        no longer an input to what gets PRINTED. `$abort` above still
@@ -56,24 +56,24 @@ final class DeployCommand {
         try {
             $deployExtra = self::forceFlags($extra, 'deploy');
         } catch (\Throwable $e) {
-            fwrite(STDERR, 'duo: ' . $e->getMessage() . "\n");
+            fwrite(STDERR, 'wprism: ' . $e->getMessage() . "\n");
             return 1;
         }
         if (!$rollbackFence($transport)) return 1;
 
         $repo = rtrim($transport->repoPath(), '/');
         $runId = $runIdFactory();
-        $artifact = "$repo/.duo/artifacts/deploy-$runId.json";
+        $artifact = "$repo/.wprism/artifacts/deploy-$runId.json";
         // The checkpoint is the SIBLING of the artifact, stem for stem. That is
         // what makes `RetainedCheckpoints::script()`'s existing
         // `artifacts/$b.json` identity grep (RetainedCheckpoints.php:180) find
         // this deploy's lease identity with no second mechanism; a
         // `promote-<runId>.sql` here would list with an empty artifact_hash and
         // then refuse `checkpoint_identity_unknown` at --restore time.
-        $checkpoint = "$repo/.duo/checkpoints/deploy-$runId.sql.enc";
+        $checkpoint = "$repo/.wprism/checkpoints/deploy-$runId.sql.enc";
         $wantCheckpoint = self::checkpointRequested($extra);
         // One mkdir, two directories when a checkpoint is wanted — the shape
-        // promote uses (cli/duo:2190-2192). The message below names a failed
+        // promote uses (cli/wprism:2190-2192). The message below names a failed
         // precondition, not a directory count, so it stays byte-identical in
         // both arms; `--no-checkpoint` must reproduce today's stream exactly.
         $mkdir = $transport->captureRaw(
@@ -82,7 +82,7 @@ final class DeployCommand {
                 : 'mkdir -p ' . escapeshellarg(dirname($artifact))
         );
         if ($mkdir['exit'] !== 0) {
-            fwrite(STDERR, "duo: deploy: could not create target artifact directory\n");
+            fwrite(STDERR, "wprism: deploy: could not create target artifact directory\n");
             CommandOutput::renderTransportDetail($mkdir);
             return $mkdir['exit'] !== 0 ? $mkdir['exit'] : 1;
         }
@@ -104,20 +104,20 @@ final class DeployCommand {
         }
         $compile = $compiled;
         if ($compile['exit'] !== 0) {
-            fwrite(STDERR, "duo: deploy: compile failed; no lifecycle or code materialization occurred\n");
+            fwrite(STDERR, "wprism: deploy: compile failed; no lifecycle or code materialization occurred\n");
             CommandOutput::renderTransportDetail($compile);
             return $compile['exit'] !== 0 ? $compile['exit'] : 1;
         }
         if ($compile['summary'] === null) {
-            fwrite(STDERR, "duo: deploy: compile returned no valid artifact hash; no lifecycle or code materialization occurred\n");
+            fwrite(STDERR, "wprism: deploy: compile returned no valid artifact hash; no lifecycle or code materialization occurred\n");
             return 1;
         }
         $dispositionBlockers = CodeDeploy::dispositionBlockers($compile['summary']);
         if ($dispositionBlockers) {
             foreach ($dispositionBlockers as $row) {
-                fwrite(STDERR, "duo: deploy: adapter {$row['name']} is {$row['status']}: {$row['reason']}\n");
+                fwrite(STDERR, "wprism: deploy: adapter {$row['name']} is {$row['status']}: {$row['reason']}\n");
             }
-            fwrite(STDERR, "duo: deploy: refusing before promotion-begin; only certified adapters may enter deployment\n");
+            fwrite(STDERR, "wprism: deploy: refusing before promotion-begin; only certified adapters may enter deployment\n");
             return 1;
         }
 
@@ -145,7 +145,7 @@ final class DeployCommand {
         echo "deploy phase: promotion-begin\n";
         $begin = $transport->captureWp(CodeDeploy::beginArgs($runId, $artifactHash));
         if ($begin['exit'] !== 0) {
-            fwrite(STDERR, "duo: deploy: promotion-begin failed; lifecycle and code materialization were not started\n");
+            fwrite(STDERR, "wprism: deploy: promotion-begin failed; lifecycle and code materialization were not started\n");
             CommandOutput::renderTransportDetail($begin);
             $compensateUncertainBegin($transport, $begin, $runId, $artifactHash);
             return $begin['exit'] !== 0 ? $begin['exit'] : 1;
@@ -153,9 +153,9 @@ final class DeployCommand {
 
         if ($wantCheckpoint) {
             // Under the lease, exactly where promote takes it
-            // (cli/duo:2385-2388). The dump therefore contains the promotion
+            // (cli/wprism:2385-2388). The dump therefore contains the promotion
             // lease row this deploy just took, which is the whole reason
-            // `duo recover`'s four steps re-take that same (owner,
+            // `wprism recover`'s four steps re-take that same (owner,
             // artifact_hash) pair before importing
             // (RecoverCommand.php:113 ORDERED_STEPS). Taken
             // before promotion-begin the dump would carry no lease row or a
@@ -164,10 +164,10 @@ final class DeployCommand {
             echo "deploy phase: checkpoint\n";
             $export = CodeDeploy::encryptedCheckpoint($transport, $repo, $checkpoint);
             if ($export['exit'] !== 0) {
-                fwrite(STDERR, "duo: deploy: database checkpoint failed; code and lifecycle phases were not started\n");
+                fwrite(STDERR, "wprism: deploy: database checkpoint failed; code and lifecycle phases were not started\n");
                 CommandOutput::renderTransportDetail($export);
                 if ($abort($transport, $runId, $artifactHash)) {
-                    fwrite(STDERR, "duo: deploy: promotion lease cleanup confirmed; no usable checkpoint was produced\n");
+                    fwrite(STDERR, "wprism: deploy: promotion lease cleanup confirmed; no usable checkpoint was produced\n");
                 }
                 return $export['exit'] !== 0 ? $export['exit'] : 1;
             }
@@ -178,7 +178,7 @@ final class DeployCommand {
             echo "deploy phase: code-stage\n";
             $stage = $transport->streamWp(CodeDeploy::stageArgs($repo, $artifact, $runId, $artifactHash));
             if ($stage !== 0) {
-                fwrite(STDERR, "duo: deploy: code-stage failed (exit $stage); lifecycle phases and code-finalize were not run\n");
+                fwrite(STDERR, "wprism: deploy: code-stage failed (exit $stage); lifecycle phases and code-finalize were not run\n");
                 self::cleanupAndGuide(
                     $transport, $abort, $printRecovery, $wantCheckpoint, $checkpoint, true, $runId, $artifactHash
                 );
@@ -191,9 +191,9 @@ final class DeployCommand {
             $repo, $artifact, $runId, $artifactHash, true, true, false, 'retire', $deployExtra
         ));
         if ($retire !== 0) {
-            fwrite(STDERR, "duo: deploy: lifecycle retirement failed (exit $retire); later phases were not run\n");
+            fwrite(STDERR, "wprism: deploy: lifecycle retirement failed (exit $retire); later phases were not run\n");
             // $codeEnabled, not true: with no code descriptor this phase staged
-            // nothing, which is the same boolean promote passes (cli/duo:2430).
+            // nothing, which is the same boolean promote passes (cli/wprism:2430).
             self::cleanupAndGuide(
                 $transport, $abort, $printRecovery, $wantCheckpoint, $checkpoint, true, $runId, $artifactHash
             );
@@ -205,7 +205,7 @@ final class DeployCommand {
             $repo, $artifact, $runId, $artifactHash, true, true, false, 'activate', $deployExtra
         ));
         if ($activate !== 0) {
-            fwrite(STDERR, "duo: deploy: lifecycle activation failed (exit $activate); later phases were not run\n");
+            fwrite(STDERR, "wprism: deploy: lifecycle activation failed (exit $activate); later phases were not run\n");
             self::cleanupAndGuide(
                 $transport, $abort, $printRecovery, $wantCheckpoint, $checkpoint, true, $runId, $artifactHash
             );
@@ -217,7 +217,7 @@ final class DeployCommand {
             $repo, $artifact, $artifactHash, $runId
         ));
         if ($settle !== 0) {
-            fwrite(STDERR, "duo: deploy: asynchronous lifecycle settlement failed (exit $settle); code-finalize was not run\n");
+            fwrite(STDERR, "wprism: deploy: asynchronous lifecycle settlement failed (exit $settle); code-finalize was not run\n");
             self::cleanupAndGuide(
                 $transport, $abort, $printRecovery, $wantCheckpoint, $checkpoint, true, $runId, $artifactHash
             );
@@ -228,14 +228,14 @@ final class DeployCommand {
             echo "deploy phase: code-finalize\n";
             $finalize = $transport->streamWp(CodeDeploy::finalizeArgs($repo, $artifact, $runId, $artifactHash, false));
             if ($finalize !== 0) {
-                fwrite(STDERR, "duo: deploy: code-finalize failed (exit $finalize); later phases were not run\n");
+                fwrite(STDERR, "wprism: deploy: code-finalize failed (exit $finalize); later phases were not run\n");
                 self::cleanupAndGuide(
                     $transport, $abort, $printRecovery, $wantCheckpoint, $checkpoint, true, $runId, $artifactHash
                 );
                 return $finalize;
             }
             // The completion line is unchanged; the retained line is a separate
-            // fact, in the position and wording promote uses (cli/duo:2465).
+            // fact, in the position and wording promote uses (cli/wprism:2465).
             echo "deploy complete: code-stage -> lifecycle-retire -> lifecycle-activate -> lifecycle-settle -> code-finalize\n";
             if ($wantCheckpoint) {
                 echo "database checkpoint retained: $checkpoint\n";
@@ -251,7 +251,7 @@ final class DeployCommand {
      * only when a checkpoint exists — the four numbered instructions that make
      * it usable.
      *
-     * This mirrors `promote_failed()` (cli/duo:3310-3316) rather than
+     * This mirrors `promote_failed()` (cli/wprism:3310-3316) rather than
      * discarding the abort's result: a checkpoint an operator is never told how
      * to use is not a recovery story, and the code-first ordering
      * `RecoverCommand::assertCodeFirst()` enforces has to be announced at
@@ -277,11 +277,11 @@ final class DeployCommand {
             return;
         }
         if ($clean) {
-            fwrite(STDERR, "duo: deploy: promotion lease cleanup confirmed\n");
+            fwrite(STDERR, "wprism: deploy: promotion lease cleanup confirmed\n");
             $printRecovery($transport, $checkpoint, $codeMayHaveChanged);
             return;
         }
-        fwrite(STDERR, "duo: deploy: do not begin checkpoint recovery until the exact lease cleanup command above succeeds. Expiry lets a different promotion owner recover the target; it does not authorize this checkpoint restore.\n");
+        fwrite(STDERR, "wprism: deploy: do not begin checkpoint recovery until the exact lease cleanup command above succeeds. Expiry lets a different promotion owner recover the target; it does not authorize this checkpoint restore.\n");
     }
 
     /** @return list<string> force flags that may also be passed to both lifecycle phases. */
@@ -306,7 +306,7 @@ final class DeployCommand {
                 continue;
             }
             throw new \RuntimeException(
-                "duo $verb: unsupported deploy flag '$arg' (only --force-code-mismatch, --force-code-drift and --no-checkpoint are accepted)"
+                "wprism $verb: unsupported deploy flag '$arg' (only --force-code-mismatch, --force-code-drift and --no-checkpoint are accepted)"
             );
         }
         return $allowed;
@@ -341,20 +341,20 @@ final class DeployCommand {
     ): bool|int {
         $codeRevision = $compiledSummary['code']['code_revision'] ?? null;
         if (!is_string($codeRevision) || preg_match('/^[0-9a-f]{64}$/', $codeRevision) !== 1) {
-            fwrite(STDERR, "duo: $verb: compiled code descriptor has no valid revision; refusing before promotion-begin\n");
+            fwrite(STDERR, "wprism: $verb: compiled code descriptor has no valid revision; refusing before promotion-begin\n");
             return 1;
         }
         echo "$verb phase: code-preflight\n";
         $preflight = CodeDeploy::preflight($transport, $repo, $artifact, $artifactHash, $codeRevision);
         if ($preflight['exit'] !== 0) {
             $boundary = $verb === 'promote' ? 'promotion-begin/checkpoint' : 'promotion-begin';
-            fwrite(STDERR, "duo: $verb: code runtime preflight failed; refusing before $boundary\n");
+            fwrite(STDERR, "wprism: $verb: code runtime preflight failed; refusing before $boundary\n");
             CommandOutput::renderTransportDetail($preflight);
             return $preflight['exit'] !== 0 ? $preflight['exit'] : 1;
         }
         if ($preflight['summary'] === null) {
             $boundary = $verb === 'promote' ? 'promotion-begin/checkpoint' : 'promotion-begin';
-            fwrite(STDERR, "duo: $verb: code runtime preflight returned no valid target evidence; refusing before $boundary\n");
+            fwrite(STDERR, "wprism: $verb: code runtime preflight returned no valid target evidence; refusing before $boundary\n");
             CommandOutput::renderTransportDetail($preflight);
             return 1;
         }

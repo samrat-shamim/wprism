@@ -82,7 +82,7 @@
           "idempotent": true,
           "timeout_seconds": 600,
           "scoped": {
-            "operation_envelope": "duo-scoped-effect-operation/v1",
+            "operation_envelope": "wprism-scoped-effect-operation/v1",
             "reconcile": true
           }
         }

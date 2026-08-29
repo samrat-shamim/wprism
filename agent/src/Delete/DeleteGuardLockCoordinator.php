@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/DeleteGuardReferenceScanner.php';
@@ -99,7 +99,7 @@ final class DeleteGuardLockCoordinator {
         if ($invalidGuards) {
             sort($invalidGuards, SORT_STRING);
             throw new \RuntimeException(
-                'duo: deletion guard locking refused — guard declaration has no usable table name: '
+                'wprism: deletion guard locking refused — guard declaration has no usable table name: '
                 . implode(', ', $invalidGuards)
             );
         }
@@ -176,7 +176,7 @@ final class DeleteGuardLockCoordinator {
             if (!empty($finding['option_name_ref'])) {
                 $message .= 'the matching options/core tombstone is the supported repair; ';
             } elseif (!empty($finding['repairable'])) {
-                $message .= "wp duo plan/capture on $table will refuse until resolved (wp duo orphans $table). ";
+                $message .= "wp wprism plan/capture on $table will refuse until resolved (wp wprism orphans $table). ";
             } else {
                 $message .= "$table is not a declared authored-snapshot table and must be resolved through its owning content workflow. ";
             }

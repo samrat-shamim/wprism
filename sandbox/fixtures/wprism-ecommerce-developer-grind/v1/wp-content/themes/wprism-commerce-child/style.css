@@ -1,0 +1,11 @@
+/*
+Theme Name: WPrism Commerce Child
+Description: The branchable storefront skin for the ecommerce grind.
+Template: wprism-commerce-parent
+Version: 1.0.0
+*/
+
+.wprism-commerce-catalog {
+    border-top: 4px solid #2f6fed;
+    padding-top: 1rem;
+}

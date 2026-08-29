@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 // Certification-only target-owned probe: prove a real database connection
-// loss without placing credentials in Duo configuration, argv, or output.
+// loss without placing credentials in WPrism configuration, argv, or output.
 
 $path = $argv[1] ?? '';
 if ($path === '' || is_link($path) || !is_file($path)) {

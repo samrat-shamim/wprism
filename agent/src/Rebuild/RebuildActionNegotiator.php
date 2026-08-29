@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Repository/CanonicalSurfaces.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
@@ -33,7 +33,7 @@ final class RebuildActionNegotiator {
             foreach ($selectedActions as $action) {
                 if (!array_key_exists('triggers', $action)) {
                     throw new \RuntimeException(
-                        'duo: scoped apply refused before target mutation — an untriggered global action has no bounded scope authority'
+                        'wprism: scoped apply refused before target mutation — an untriggered global action has no bounded scope authority'
                     );
                 }
             }
@@ -44,12 +44,12 @@ final class RebuildActionNegotiator {
                     : '';
                 if ($postType === 'attachment') {
                     throw new \RuntimeException(
-                        'duo: scoped apply refused before target mutation — attachment metadata generation has no operation-bound reconciliation contract in this slice'
+                        'wprism: scoped apply refused before target mutation — attachment metadata generation has no operation-bound reconciliation contract in this slice'
                     );
                 }
                 if ($postType !== '' && $this->policy->regen_dependency($postType) !== null) {
                     throw new \RuntimeException(
-                        "duo: scoped apply refused before target mutation — post type '$postType' selects a legacy regenerator without operation-bound reconciliation"
+                        "wprism: scoped apply refused before target mutation — post type '$postType' selects a legacy regenerator without operation-bound reconciliation"
                     );
                 }
             }
@@ -59,7 +59,7 @@ final class RebuildActionNegotiator {
                     : '';
                 if ($postType !== '' && $this->policy->regen_dependency($postType) !== null) {
                     throw new \RuntimeException(
-                        "duo: scoped apply refused before target mutation — deleted post type '$postType' "
+                        "wprism: scoped apply refused before target mutation — deleted post type '$postType' "
                         . 'selects a legacy regenerator without operation-bound reconciliation'
                     );
                 }
@@ -80,7 +80,7 @@ final class RebuildActionNegotiator {
             : Providers::negotiate($this->policy, $selectedActions);
         if ($negotiation['problems'] !== []) {
             throw new \RuntimeException(
-                'duo: apply refused before target mutation — declared provider capabilities are unavailable '
+                'wprism: apply refused before target mutation — declared provider capabilities are unavailable '
                 . "or incompatible in this environment:\n  - "
                 . implode("\n  - ", array_column($negotiation['problems'], 'message'))
             );
@@ -99,7 +99,7 @@ final class RebuildActionNegotiator {
                 foreach (['deletions', 'reparents'] as $channel) {
                     if (Providers::declares_channel($declaration, $channel)) {
                         throw new \RuntimeException(
-                            "duo: scoped apply refused before target mutation — provider channel '$channel' "
+                            "wprism: scoped apply refused before target mutation — provider channel '$channel' "
                             . 'requires durable environment-local recovery input not carried by this scoped protocol version'
                         );
                     }
@@ -127,7 +127,7 @@ final class RebuildActionNegotiator {
                 NativeRewriteEffects::prepare();
             } catch (\Throwable $failure) {
                 throw new \RuntimeException(
-                    "duo: apply refused before target mutation — native action 'rewrite.flush' runtime is unsupported: "
+                    "wprism: apply refused before target mutation — native action 'rewrite.flush' runtime is unsupported: "
                     . $failure->getMessage(),
                     0,
                     $failure
@@ -170,7 +170,7 @@ final class RebuildActionNegotiator {
             throw CommandRefusalException::applyRefused(
                 'scoped promotion selected a manifest/provider/native effect without a scoped inverse contract',
                 'use ordinary scoped apply or narrow the contract to DB-contained state without declared actions',
-                'duo: scoped promotion external effect refused'
+                'wprism: scoped promotion external effect refused'
             );
         }
         foreach ($work as $entry) {
@@ -180,7 +180,7 @@ final class RebuildActionNegotiator {
                 throw CommandRefusalException::applyRefused(
                     'scoped promotion selected a post/term/menu surface whose derived effects are not checkpoint-only',
                     'narrow the contract to options, sidebars, user meta, or declared authored snapshot tables',
-                    'duo: scoped promotion selected unsupported derived effects'
+                    'wprism: scoped promotion selected unsupported derived effects'
                 );
             }
         }
@@ -190,7 +190,7 @@ final class RebuildActionNegotiator {
                 throw CommandRefusalException::applyRefused(
                     'scoped promotion selected a deletion outside its checkpoint-only state profile',
                     'narrow the contract to option or declared authored snapshot-table tombstones',
-                    'duo: scoped promotion selected unsupported deletion effects'
+                    'wprism: scoped promotion selected unsupported deletion effects'
                 );
             }
         }

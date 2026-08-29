@@ -1,12 +1,12 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/FleetCensus.php';
 
 /**
- * `duo census --baseline=` — the cohort re-baseline: what moved between two
+ * `wprism census --baseline=` — the cohort re-baseline: what moved between two
  * censuses, and whether an adapter cohort is the thing that moved it.
  *
  * ## The question this exists to make answerable
@@ -74,7 +74,7 @@ require_once __DIR__ . '/FleetCensus.php';
  *     submissions are eligible at all (`FleetCensus::project()`'s excluded
  *     population), so two censuses taken under different boundaries divide by
  *     denominators that were built by different rules;
- *   - a document that is not `duo-fleet-census/v1`, or one missing a block
+ *   - a document that is not `wprism-fleet-census/v1`, or one missing a block
  *     every delta below reads.
  *
  * An engine move is NOT a refusal and is deliberately not one: the program
@@ -93,7 +93,7 @@ require_once __DIR__ . '/FleetCensus.php';
  * vocabulary precisely so that it can.
  */
 final class CohortRebaseline {
-    public const FORMAT = 'duo-cohort-rebaseline/v1';
+    public const FORMAT = 'wprism-cohort-rebaseline/v1';
 
     /**
      * The closed verdict vocabulary. A reader may switch on this; a value
@@ -137,9 +137,9 @@ final class CohortRebaseline {
      * the attribution and the verdict are the subject, and a suite that had to
      * write files to reach them would be testing `file_get_contents`.
      *
-     * @param array<string,mixed> $baseline a `duo-fleet-census/v1` document
-     * @param array<string,mixed> $current  a `duo-fleet-census/v1` document
-     * @return array<string,mixed> a `duo-cohort-rebaseline/v1` document
+     * @param array<string,mixed> $baseline a `wprism-fleet-census/v1` document
+     * @param array<string,mixed> $current  a `wprism-fleet-census/v1` document
+     * @return array<string,mixed> a `wprism-cohort-rebaseline/v1` document
      */
     public static function project(array $baseline, array $current): array {
         $before = self::census('baseline', $baseline);
@@ -160,8 +160,8 @@ final class CohortRebaseline {
 
         return [
             'format' => self::FORMAT,
-            'spec_version' => defined('DUO_SPEC_VERSION') ? (int) DUO_SPEC_VERSION : 0,
-            'agent_version' => defined('DUO_AGENT_VERSION') ? (string) DUO_AGENT_VERSION : 'unknown',
+            'spec_version' => defined('WPRISM_SPEC_VERSION') ? (int) WPRISM_SPEC_VERSION : 0,
+            'agent_version' => defined('WPRISM_AGENT_VERSION') ? (string) WPRISM_AGENT_VERSION : 'unknown',
             'comparability' => $comparability,
             'coverage' => self::coverage($before, $after),
             'funnel' => self::funnel($before['funnel'], $after['funnel']),
@@ -185,7 +185,7 @@ final class CohortRebaseline {
             throw new FleetCensusRefusal(
                 'rebaseline_document_unsupported',
                 "the $side document is not a " . FleetCensus::FORMAT . ' document',
-                'produce both sides with `duo census --format=json` and pass those documents unmodified'
+                'produce both sides with `wprism census --format=json` and pass those documents unmodified'
             );
         }
         foreach (['library', 'fleet', 'funnel', 'demand', 'sites', 'basis'] as $block) {

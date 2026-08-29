@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for DeleteExecutor (DUO-3347 slice 12: the executor
+ * Offline regression for DeleteExecutor (issue #3347 slice 12: the executor
  * half of the "DeleteGuardEvaluator/DeleteExecutor" target seam).
  * Deliberately narrow, the same wiring/shape idiom the earlier materializer
  * extractions in this series established: this file does not re-implement
@@ -36,12 +36,12 @@ require_once __DIR__ . '/../../../../agent/src/Apply/RelationshipMaterializer.ph
 require_once __DIR__ . '/../../../../agent/src/Apply/MenuMaterializer.php';
 require_once __DIR__ . '/../../../../agent/src/Delete/DeleteExecutor.php';
 
-use Duo\ApplyFieldMaterializer;
-use Duo\DeleteExecutor;
-use Duo\MenuMaterializer;
-use Duo\Policy;
-use Duo\RelationshipMaterializer;
-use Duo\Tokens;
+use WPrism\ApplyFieldMaterializer;
+use WPrism\DeleteExecutor;
+use WPrism\MenuMaterializer;
+use WPrism\Policy;
+use WPrism\RelationshipMaterializer;
+use WPrism\Tokens;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -76,7 +76,7 @@ $check(
 $constructorParams = (new ReflectionClass(DeleteExecutor::class))->getConstructor()->getParameters();
 $check(
     array_map(static fn(ReflectionParameter $p): string => (string) $p->getType(), $constructorParams) === [
-        'Duo\\Policy', 'Duo\\RelationshipMaterializer', 'Duo\\MenuMaterializer', 'Duo\\ApplyFieldMaterializer',
+        'WPrism\\Policy', 'WPrism\\RelationshipMaterializer', 'WPrism\\MenuMaterializer', 'WPrism\\ApplyFieldMaterializer',
     ],
     'constructor adds the shared lock materializer without scopeContract or an Apply instance'
 );

@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for DUO-3350 slice 1: PathSafety extracted from Code's
+ * Offline regression for issue #3350 slice 1: PathSafety extracted from Code's
  * path-traversal/symlink-crossing guards (the same guards a materialization
  * bug would let escape WP_CONTENT_DIR, so this suite is deliberately more
  * exhaustive than a typical facade check).
@@ -16,8 +16,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../../agent/src/Kernel/PathSafety.php';
 require_once __DIR__ . '/../../../../agent/src/Code/Code.php';
 
-use Duo\Code;
-use Duo\PathSafety;
+use WPrism\Code;
+use WPrism\PathSafety;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -107,16 +107,16 @@ $check(
     'owned_path() matches exact or path-below an owned root, not a naive string prefix'
 );
 
-// ---- 6. reserved_path(): Duo's own mu-plugin identity is reserved,
+// ---- 6. reserved_path(): WPrism's own mu-plugin identity is reserved,
 // case-insensitively; nothing else is.
 $check(
-    PathSafety::reserved_path('mu-plugins/duo') === true
-        && PathSafety::reserved_path('MU-PLUGINS/DUO') === true
-        && PathSafety::reserved_path('mu-plugins/duo/x.php') === true
-        && PathSafety::reserved_path('mu-plugins/duo-loader.php') === true
-        && PathSafety::reserved_path('mu-plugins/duo-other') === false
-        && PathSafety::reserved_path('plugins/duo') === false,
-    'reserved_path() protects exactly Duo\'s own mu-plugin identity, case-insensitively'
+    PathSafety::reserved_path('mu-plugins/wprism') === true
+        && PathSafety::reserved_path('MU-PLUGINS/WPRISM') === true
+        && PathSafety::reserved_path('mu-plugins/wprism/x.php') === true
+        && PathSafety::reserved_path('mu-plugins/wprism-loader.php') === true
+        && PathSafety::reserved_path('mu-plugins/wprism-other') === false
+        && PathSafety::reserved_path('plugins/wprism') === false,
+    'reserved_path() protects exactly WPrism\'s own mu-plugin identity, case-insensitively'
 );
 
 // ---- 7. safe_join(): joins a safe relative path, refuses an unsafe one
@@ -135,9 +135,9 @@ try {
 
 // ---- 8. same_target_path(): exact string match after trailing-slash
 // trim, OR realpath-equal (so a symlinked-but-legitimate alias -- e.g. a
-// host's own /var -> /private/var, DUO-3438's finding -- still compares
+// host's own /var -> /private/var, issue #3438's finding -- still compares
 // equal). Uses real temp directories, not string fixtures.
-$tmp = sys_get_temp_dir() . '/duo-path-safety-' . bin2hex(random_bytes(8));
+$tmp = sys_get_temp_dir() . '/wprism-path-safety-' . bin2hex(random_bytes(8));
 mkdir($tmp, 0777, true);
 mkdir("$tmp/real-target", 0777, true);
 symlink("$tmp/real-target", "$tmp/alias-target");
@@ -235,7 +235,7 @@ $codeReflection = new ReflectionClass(Code::class);
 $crossCheck = static function (string $method, array $args) use ($codeReflection): void {
     $rm = $codeReflection->getMethod($method);
     $viaCode = $rm->invokeArgs(null, $args);
-    $viaPathSafety = call_user_func_array(['Duo\\PathSafety', $method], $args);
+    $viaPathSafety = call_user_func_array(['WPrism\\PathSafety', $method], $args);
     if ($viaCode !== $viaPathSafety) {
         throw new \RuntimeException("Code::$method() and PathSafety::$method() disagree for the same input");
     }
@@ -246,7 +246,7 @@ try {
     $crossCheck('plugin_main_candidate', ['plugins/a/hello.php']);
     $crossCheck('has_current_path_at_or_below', ['plugins/foo', $current]);
     $crossCheck('owned_path', ['plugins/foo/bar.php', $owned]);
-    $crossCheck('reserved_path', ['mu-plugins/duo']);
+    $crossCheck('reserved_path', ['mu-plugins/wprism']);
     $crossCheck('same_target_path', ["$tmp/alias-target", "$tmp/real-target"]);
     $crossCheckOk = true;
 } catch (\RuntimeException $e) {

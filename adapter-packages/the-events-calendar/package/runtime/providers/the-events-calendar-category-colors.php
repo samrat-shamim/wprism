@@ -1,17 +1,17 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Providers;
+namespace WPrism\Providers;
 
-use Duo\ManifestProviderRuntime;
-use Duo\ProviderSdk;
+use WPrism\ManifestProviderRuntime;
+use WPrism\ProviderSdk;
 
 /**
  * The Events Calendar Category Colors derived-CSS regeneration provider.
  *
  * TEC writes category colors as term metadata, then regenerates the
  * `tec_events_category_color_css` option only from its wp-admin save hook.
- * Duo materializes term metadata directly, so that hook is unreachable and a
+ * WPrism materializes term metadata directly, so that hook is unreachable and a
  * target otherwise keeps its old colors indefinitely. The native CSS
  * generator remains the sole CSS writer here. The provider executes the exact
  * two-service body audited from Controller::generate_css() in both pins, then
@@ -125,7 +125,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
         $before = $this->projection(self::PROJECTION_BEFORE);
 
         if (!is_array($services)) {
-            throw new \LogicException('duo: Category Colors invocation lost its prepared native services');
+            throw new \LogicException('wprism: Category Colors invocation lost its prepared native services');
         }
         $generator = $services['generator'];
         $dropdown = $services['dropdown'];
@@ -191,7 +191,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
         ] as $required) {
             if (!function_exists($required)) {
                 throw new \RuntimeException(
-                    "duo: The Events Calendar Category Colors regeneration requires $required()"
+                    "wprism: The Events Calendar Category Colors regeneration requires $required()"
                 );
             }
         }
@@ -214,7 +214,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
         }
         if (wp_using_ext_object_cache()) {
             throw new \RuntimeException(
-                'duo: The Events Calendar Category Colors regeneration does not admit an external object-cache topology'
+                'wprism: The Events Calendar Category Colors regeneration does not admit an external object-cache topology'
             );
         }
         global $wpdb;
@@ -223,7 +223,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
             || !is_callable([$wpdb, 'prepare'])
             || !isset($wpdb->options, $wpdb->term_taxonomy, $wpdb->termmeta, $wpdb->terms)) {
             throw new \RuntimeException(
-                'duo: The Events Calendar Category Colors regeneration requires the WordPress database reader'
+                'wprism: The Events Calendar Category Colors regeneration requires the WordPress database reader'
             );
         }
         $this->assert_hook_contract();
@@ -236,7 +236,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
         ] as $required) {
             if (!class_exists($required)) {
                 throw new \RuntimeException(
-                    "duo: The Events Calendar Category Colors regeneration requires class $required"
+                    "wprism: The Events Calendar Category Colors regeneration requires class $required"
                 );
             }
         }
@@ -250,7 +250,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
             self::PROJECTION_AFTER_INVOKE,
             self::PROJECTION_RECONCILE,
         ], true)) {
-            throw new \LogicException('duo: invalid Category Colors projection mode');
+            throw new \LogicException('wprism: invalid Category Colors projection mode');
         }
         $verify = $mode !== self::PROJECTION_BEFORE;
         $this->assert_runtime_contract(false);
@@ -259,7 +259,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
         if ($rawStored === null) {
             if ($verify) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar Category Colors CSS option is absent after regeneration; '
+                    'wprism: The Events Calendar Category Colors CSS option is absent after regeneration; '
                     . 'recovery_required'
                 );
             }
@@ -282,7 +282,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
         $storedWitness = $this->raw_css_option();
         if ($inventoryWitness !== $inventory || $storedWitness !== $rawStored) {
             throw new \RuntimeException(
-                'duo: The Events Calendar Category Colors inputs or output changed during verification; '
+                'wprism: The Events Calendar Category Colors inputs or output changed during verification; '
                 . 'recovery_required'
             );
         }
@@ -296,7 +296,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
             if (($cacheProjection['dropdown_cache_mismatch_count'] ?? 1) !== 0
                 || ($cacheProjection['dropdown_cache_malformed_count'] ?? 1) !== 0) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar Category Colors dropdown cache readback is stale or malformed; '
+                    'wprism: The Events Calendar Category Colors dropdown cache readback is stale or malformed; '
                     . 'recovery_required'
                 );
             }
@@ -307,7 +307,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
             || $orderMismatchCount > 0
             || $exactMismatchCount > 0)) {
             throw new \RuntimeException(
-                'duo: The Events Calendar Category Colors CSS readback has '
+                'wprism: The Events Calendar Category Colors CSS readback has '
                 . $selectorMismatchCount . ' selector-set mismatch(es) and '
                 . $valueMismatchCount . ' value mismatch(es), '
                 . $orderMismatchCount . ' priority-order mismatch(es), '
@@ -350,7 +350,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
             );
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: The Events Calendar Category Colors dropdown cache is unreadable',
+                'wprism: The Events Calendar Category Colors dropdown cache is unreadable',
                 0,
                 $failure
             );
@@ -366,7 +366,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
         }
         if ($requireAbsent) {
             throw new \RuntimeException(
-                'duo: The Events Calendar Category Colors dropdown cache remains populated after the native bust; '
+                'wprism: The Events Calendar Category Colors dropdown cache remains populated after the native bust; '
                 . 'recovery_required'
             );
         }
@@ -381,7 +381,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
         }
         if (count($rows) > self::MAX_DROPDOWN_ROWS) {
             throw new \RuntimeException(
-                'duo: The Events Calendar Category Colors dropdown exceeds the bounded row frontier'
+                'wprism: The Events Calendar Category Colors dropdown exceeds the bounded row frontier'
             );
         }
 
@@ -519,24 +519,24 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
             ),
             'taxonomy identities',
             $wpdb,
-            'duo: The Events Calendar Category Colors taxonomy identities is unreadable'
+            'wprism: The Events Calendar Category Colors taxonomy identities is unreadable'
         );
         if (count($taxonomyRows) > self::MAX_CATEGORY_COUNT) {
             throw new \RuntimeException(
-                'duo: The Events Calendar Category Colors taxonomy exceeds the bounded category frontier'
+                'wprism: The Events Calendar Category Colors taxonomy exceeds the bounded category frontier'
             );
         }
         $termIds = [];
         foreach ($taxonomyRows as $row) {
             if (!is_array($row) || array_keys($row) !== ['term_id']) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar Category Colors taxonomy identity row is malformed'
+                    'wprism: The Events Calendar Category Colors taxonomy identity row is malformed'
                 );
             }
             $termId = $this->positive_driver_int($row['term_id'], 'taxonomy identity');
             if (isset($termIds[$termId])) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar Category Colors taxonomy identity is duplicated'
+                    'wprism: The Events Calendar Category Colors taxonomy identity is duplicated'
                 );
             }
             $termIds[$termId] = true;
@@ -559,7 +559,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
             ),
             'term values',
             $wpdb,
-            'duo: The Events Calendar Category Colors term values is unreadable'
+            'wprism: The Events Calendar Category Colors term values is unreadable'
         );
         $categories = [];
         foreach ($termRows as $row) {
@@ -568,7 +568,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
                 || !is_string($row['slug_prefix'])
                 || !is_string($row['name_prefix'])) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar Category Colors term value row is malformed or oversized'
+                    'wprism: The Events Calendar Category Colors term value row is malformed or oversized'
                 );
             }
             $termId = $this->positive_driver_int($row['term_id'], 'term value identity');
@@ -580,12 +580,12 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
                 || strlen($row['slug_prefix']) !== $slugBytes
                 || strlen($row['name_prefix']) !== $nameBytes) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar Category Colors term value row is malformed or oversized'
+                    'wprism: The Events Calendar Category Colors term value row is malformed or oversized'
                 );
             }
             if (!isset($termIds[$termId]) || isset($categories[$termId])) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar Category Colors term value identity is missing or duplicated'
+                    'wprism: The Events Calendar Category Colors term value identity is missing or duplicated'
                 );
             }
             $categories[$termId] = [
@@ -598,7 +598,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
         }
         if (count($categories) !== count($termIds)) {
             throw new \RuntimeException(
-                'duo: The Events Calendar Category Colors taxonomy references a missing term value row'
+                'wprism: The Events Calendar Category Colors taxonomy references a missing term value row'
             );
         }
 
@@ -611,11 +611,11 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
             ),
             'term metadata bounds',
             $wpdb,
-            'duo: The Events Calendar Category Colors term metadata bounds is unreadable'
+            'wprism: The Events Calendar Category Colors term metadata bounds is unreadable'
         );
         if (count($metaBounds) > self::MAX_TERM_META_ROWS) {
             throw new \RuntimeException(
-                'duo: The Events Calendar Category Colors term metadata exceeds the bounded row frontier'
+                'wprism: The Events Calendar Category Colors term metadata exceeds the bounded row frontier'
             );
         }
         $metaBytes = 0;
@@ -624,20 +624,20 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
                 || array_keys($row) !== ['meta_id', 'term_id', 'meta_key', 'value_bytes']
                 || !is_string($row['meta_key'])) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar Category Colors term metadata bound row is malformed'
+                    'wprism: The Events Calendar Category Colors term metadata bound row is malformed'
                 );
             }
             $this->positive_driver_int($row['meta_id'], 'term metadata identity');
             $termId = $this->positive_driver_int($row['term_id'], 'term metadata owner');
             if (!isset($termIds[$termId])) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar Category Colors term metadata owner is outside the taxonomy'
+                    'wprism: The Events Calendar Category Colors term metadata owner is outside the taxonomy'
                 );
             }
             $valueBytes = $this->nonnegative_driver_int($row['value_bytes'], 'term metadata byte length');
             if ($valueBytes > self::MAX_TERM_META_BYTES - $metaBytes) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar Category Colors term metadata exceeds the bounded byte frontier'
+                    'wprism: The Events Calendar Category Colors term metadata exceeds the bounded byte frontier'
                 );
             }
             $metaBytes += $valueBytes;
@@ -658,16 +658,16 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
             ),
             'category color metadata',
             $wpdb,
-            'duo: The Events Calendar Category Colors category color metadata is unreadable'
+            'wprism: The Events Calendar Category Colors category color metadata is unreadable'
         );
         if (count($relevantRows) > self::MAX_NATIVE_GENERATOR_META_ROWS) {
             throw new \RuntimeException(
-                'duo: The Events Calendar native Category Colors Generator exceeds its safe one-page metadata frontier'
+                'wprism: The Events Calendar native Category Colors Generator exceeds its safe one-page metadata frontier'
             );
         }
         if (count($relevantRows) >= $uniqueRowFrontier) {
             throw new \RuntimeException(
-                'duo: The Events Calendar Category Colors native metadata exceeds its unique-row frontier'
+                'wprism: The Events Calendar Category Colors native metadata exceeds its unique-row frontier'
             );
         }
         $seenMeta = [];
@@ -678,7 +678,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
                 || !is_string($row['meta_key'])
                 || !is_string($row['value_prefix'])) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar Category Colors native metadata row is malformed or oversized'
+                    'wprism: The Events Calendar Category Colors native metadata row is malformed or oversized'
                 );
             }
             $this->positive_driver_int($row['meta_id'], 'category color metadata identity');
@@ -690,14 +690,14 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
             if ($valueBytes > self::MAX_RELEVANT_META_VALUE_BYTES
                 || strlen($row['value_prefix']) !== $valueBytes) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar Category Colors native metadata row is malformed or oversized'
+                    'wprism: The Events Calendar Category Colors native metadata row is malformed or oversized'
                 );
             }
             $metaValue = $row['value_prefix'];
             $pair = $termId . ':' . $row['meta_key'];
             if (!isset($categories[$termId]) || isset($seenMeta[$pair])) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar Category Colors native metadata row is duplicated or ownerless'
+                    'wprism: The Events Calendar Category Colors native metadata row is duplicated or ownerless'
                 );
             }
             $seenMeta[$pair] = true;
@@ -727,7 +727,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
                     . sanitize_html_class(sanitize_title($category['slug']));
                 if ($selector === '.tribe_events_cat-' || isset($expectedCss[$selector])) {
                     throw new \RuntimeException(
-                        'duo: The Events Calendar Category Colors selector identity is empty or duplicated'
+                        'wprism: The Events Calendar Category Colors selector identity is empty or duplicated'
                     );
                 }
                 $expectedCss[$selector] = [
@@ -739,7 +739,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
                 $slug = $category['slug'];
                 if (isset($expectedDropdown[$slug])) {
                     throw new \RuntimeException(
-                        'duo: The Events Calendar Category Colors dropdown slug identity is duplicated'
+                        'wprism: The Events Calendar Category Colors dropdown slug identity is duplicated'
                     );
                 }
                 $expectedDropdown[$slug] = [
@@ -776,19 +776,19 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
         );
         $expected = false;
         if ($raw !== null) {
-            $settings = \Duo\PlainData::decode_serialized(
+            $settings = \WPrism\PlainData::decode_serialized(
                 $raw,
                 'The Events Calendar main settings option'
             );
             if (!is_array($settings)) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar Category Colors main settings option is not a native array'
+                    'wprism: The Events Calendar Category Colors main settings option is not a native array'
                 );
             }
             if (array_key_exists('category-color-show-hidden-categories', $settings)) {
                 if (!is_bool($settings['category-color-show-hidden-categories'])) {
                     throw new \RuntimeException(
-                        'duo: The Events Calendar Category Colors show-hidden setting is not a native boolean'
+                        'wprism: The Events Calendar Category Colors show-hidden setting is not a native boolean'
                     );
                 }
                 $expected = $settings['category-color-show-hidden-categories'];
@@ -797,7 +797,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
         $effective = tribe_get_option('category-color-show-hidden-categories', false);
         if (!is_bool($effective) || $effective !== $expected) {
             throw new \RuntimeException(
-                'duo: The Events Calendar Category Colors show-hidden setting disagrees with bounded raw storage'
+                'wprism: The Events Calendar Category Colors show-hidden setting disagrees with bounded raw storage'
             );
         }
         return $expected;
@@ -815,11 +815,11 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
             ),
             "$context value",
             $wpdb,
-            "duo: The Events Calendar Category Colors $context value is unreadable"
+            "wprism: The Events Calendar Category Colors $context value is unreadable"
         );
         if (count($rows) > 1) {
             throw new \RuntimeException(
-                "duo: The Events Calendar Category Colors $context identity is duplicated"
+                "wprism: The Events Calendar Category Colors $context identity is duplicated"
             );
         }
         if ($rows === []) {
@@ -832,19 +832,19 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
             || !is_string($row['value_prefix'])
             || !hash_equals($name, $row['option_name'])) {
             throw new \RuntimeException(
-                "duo: The Events Calendar Category Colors $context value row is malformed or aliased"
+                "wprism: The Events Calendar Category Colors $context value row is malformed or aliased"
             );
         }
         $this->positive_driver_int($row['option_id'], "$context identity");
         $valueBytes = $this->nonnegative_driver_int($row['value_bytes'], "$context byte length");
         if ($valueBytes > $maxBytes) {
             throw new \RuntimeException(
-                "duo: The Events Calendar Category Colors $context exceeds the bounded byte frontier"
+                "wprism: The Events Calendar Category Colors $context exceeds the bounded byte frontier"
             );
         }
         if (strlen($row['value_prefix']) !== $valueBytes) {
             throw new \RuntimeException(
-                "duo: The Events Calendar Category Colors $context byte witness is inconsistent"
+                "wprism: The Events Calendar Category Colors $context byte witness is inconsistent"
             );
         }
         return $row['value_prefix'];
@@ -854,7 +854,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
         $parsed = $this->nonnegative_driver_int($value, $context);
         if ($parsed < 1) {
             throw new \RuntimeException(
-                "duo: The Events Calendar Category Colors $context is not a positive driver integer"
+                "wprism: The Events Calendar Category Colors $context is not a positive driver integer"
             );
         }
         return $parsed;
@@ -866,7 +866,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
             || strlen($value) > strlen((string) PHP_INT_MAX)
             || strlen($value) === strlen((string) PHP_INT_MAX) && strcmp($value, (string) PHP_INT_MAX) > 0) {
             throw new \RuntimeException(
-                "duo: The Events Calendar Category Colors $context is not a bounded driver integer"
+                "wprism: The Events Calendar Category Colors $context is not a bounded driver integer"
             );
         }
         return (int) $value;
@@ -918,7 +918,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
     ): void {
         if (!is_object($service) || get_class($service) !== $class || !is_callable([$service, $method])) {
             throw new \RuntimeException(
-                "duo: The Events Calendar 6.17.x Category Colors $label identity is unavailable or overridden"
+                "wprism: The Events Calendar 6.17.x Category Colors $label identity is unavailable or overridden"
             );
         }
         try {
@@ -934,14 +934,14 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
             ksort($properties, SORT_STRING);
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                "duo: The Events Calendar 6.17.x Category Colors $label state is unreadable or overridden",
+                "wprism: The Events Calendar 6.17.x Category Colors $label state is unreadable or overridden",
                 0,
                 $failure
             );
         }
         if ($actual !== $properties) {
             throw new \RuntimeException(
-                "duo: The Events Calendar 6.17.x Category Colors $label state is unavailable or overridden"
+                "wprism: The Events Calendar 6.17.x Category Colors $label state is unavailable or overridden"
             );
         }
     }
@@ -956,13 +956,13 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
             $signal = has_filter($hook);
             if (!is_bool($signal) && !is_int($signal)) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar free Category Colors hook signal is malformed'
+                    'wprism: The Events Calendar free Category Colors hook signal is malformed'
                 );
             }
             $records[$hook] = $this->hook_records($hook);
             if (($signal === false) !== ($records[$hook] === [])) {
                 throw new \RuntimeException(
-                    "duo: The Events Calendar free Category Colors hook topology is malformed for '$hook'"
+                    "wprism: The Events Calendar free Category Colors hook topology is malformed for '$hook'"
                 );
             }
         }
@@ -972,7 +972,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
             }
             if ($hookRecords !== []) {
                 throw new \RuntimeException(
-                    "duo: The Events Calendar free Category Colors output contract does not admit filter '$hook'"
+                    "wprism: The Events Calendar free Category Colors output contract does not admit filter '$hook'"
                 );
             }
         }
@@ -985,7 +985,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
         ] as $hook) {
             if ($this->hook_records($hook) !== []) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar free Category Colors cache-listener trigger topology is extended'
+                    'wprism: The Events Calendar free Category Colors cache-listener trigger topology is extended'
                 );
             }
         }
@@ -996,21 +996,21 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
         if (count($records) !== 3
             || !class_exists('Tribe\\Events\\Views\\V2\\Hooks', false)) {
             throw new \RuntimeException(
-                'duo: The Events Calendar free Category Colors tribe_get_option topology is incomplete'
+                'wprism: The Events Calendar free Category Colors tribe_get_option topology is incomplete'
             );
         }
         try {
             $views = tribe('Tribe\\Events\\Views\\V2\\Hooks');
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: The Events Calendar free Category Colors option service is unavailable',
+                'wprism: The Events Calendar free Category Colors option service is unavailable',
                 0,
                 $failure
             );
         }
         if (!is_object($views) || get_class($views) !== 'Tribe\\Events\\Views\\V2\\Hooks') {
             throw new \RuntimeException(
-                'duo: The Events Calendar free Category Colors option service is substituted'
+                'wprism: The Events Calendar free Category Colors option service is substituted'
             );
         }
         $this->assert_exact_object_callbacks($records, [
@@ -1018,10 +1018,10 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
             [$views, 'filter_live_filters_option_value', 10, 2],
             [$views, 'filter_date_escaping', 10, 2],
         ], 'tribe_get_option');
-        $sentinel = ['duo_category_colors' => true];
+        $sentinel = ['wprism_category_colors' => true];
         if (apply_filters('tribe_get_option', $sentinel, self::CATEGORY_OPTION) !== $sentinel) {
             throw new \RuntimeException(
-                'duo: The Events Calendar free Category Colors option callbacks changed the reviewed category setting'
+                'wprism: The Events Calendar free Category Colors option callbacks changed the reviewed category setting'
             );
         }
     }
@@ -1036,7 +1036,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
             || !is_callable(['Tribe__Events__Aggregator', 'instance'])
             || !is_callable(['Tribe__Cache_Listener', 'instance'])) {
             throw new \RuntimeException(
-                'duo: The Events Calendar free Category Colors updated_option topology is incomplete'
+                'wprism: The Events Calendar free Category Colors updated_option topology is incomplete'
             );
         }
         try {
@@ -1046,7 +1046,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
             $views = tribe('Tribe\\Events\\Views\\V2\\Hooks');
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: The Events Calendar free Category Colors updated_option services are unavailable',
+                'wprism: The Events Calendar free Category Colors updated_option services are unavailable',
                 0,
                 $failure
             );
@@ -1059,7 +1059,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
         ] as [$service, $class]) {
             if (!is_object($service) || get_class($service) !== $class) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar free Category Colors updated_option service is substituted'
+                    'wprism: The Events Calendar free Category Colors updated_option service is substituted'
                 );
             }
         }
@@ -1089,14 +1089,14 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
             }
             if ($match === null) {
                 throw new \RuntimeException(
-                    "duo: The Events Calendar free Category Colors $hook topology is extended or substituted"
+                    "wprism: The Events Calendar free Category Colors $hook topology is extended or substituted"
                 );
             }
             unset($expected[$match]);
         }
         if ($expected !== []) {
             throw new \RuntimeException(
-                "duo: The Events Calendar free Category Colors $hook topology is incomplete"
+                "wprism: The Events Calendar free Category Colors $hook topology is incomplete"
             );
         }
     }
@@ -1112,14 +1112,14 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
             || get_class($hook) !== 'WP_Hook'
             || !is_array($hook->callbacks ?? null)) {
             throw new \RuntimeException(
-                'duo: The Events Calendar free Category Colors found malformed WordPress hook topology'
+                'wprism: The Events Calendar free Category Colors found malformed WordPress hook topology'
             );
         }
         $records = [];
         foreach ($hook->callbacks as $priority => $atPriority) {
             if (!is_int($priority) || !is_array($atPriority)) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar free Category Colors found malformed WordPress hook topology'
+                    'wprism: The Events Calendar free Category Colors found malformed WordPress hook topology'
                 );
             }
             foreach ($atPriority as $record) {
@@ -1128,7 +1128,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
                     || array_keys($record) !== ['function', 'accepted_args']
                     || !is_int($record['accepted_args'] ?? null)) {
                     throw new \RuntimeException(
-                        'duo: The Events Calendar free Category Colors found malformed or oversized hook topology'
+                        'wprism: The Events Calendar free Category Colors found malformed or oversized hook topology'
                     );
                 }
                 $records[] = [$priority, $record];
@@ -1143,7 +1143,7 @@ final class TheEventsCalendarCategoryColors extends ManifestProviderRuntime {
             || get_class($cache) !== \Tribe__Cache::class
             || !is_callable([$cache, 'get'])) {
             throw new \RuntimeException(
-                'duo: The Events Calendar 6.17.x Category Colors cache identity is unavailable or overridden'
+                'wprism: The Events Calendar 6.17.x Category Colors cache identity is unavailable or overridden'
             );
         }
         return $cache;

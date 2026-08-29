@@ -52,19 +52,19 @@ require_once __DIR__ . '/../../lib/FakeWpdb.php';
 
 $root = dirname(__DIR__, 4);
 
-// The engine's two version constants come from agent/duo.php's own source, the
+// The engine's two version constants come from agent/wprism.php's own source, the
 // way every offline harness resolves them — never a literal here.
-$agentSource = (string) file_get_contents($root . '/agent/duo.php');
-if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", $agentSource, $m) !== 1) {
-    fwrite(STDERR, "FAIL: could not resolve DUO_SPEC_VERSION from agent/duo.php\n");
+$agentSource = (string) file_get_contents($root . '/agent/wprism.php');
+if (preg_match("/define\('WPRISM_SPEC_VERSION', ([0-9]+)\)/", $agentSource, $m) !== 1) {
+    fwrite(STDERR, "FAIL: could not resolve WPRISM_SPEC_VERSION from agent/wprism.php\n");
     exit(1);
 }
-define('DUO_SPEC_VERSION', (int) $m[1]);
-if (preg_match("/define\('DUO_AGENT_VERSION', '([^']+)'\)/", $agentSource, $m) !== 1) {
-    fwrite(STDERR, "FAIL: could not resolve DUO_AGENT_VERSION from agent/duo.php\n");
+define('WPRISM_SPEC_VERSION', (int) $m[1]);
+if (preg_match("/define\('WPRISM_AGENT_VERSION', '([^']+)'\)/", $agentSource, $m) !== 1) {
+    fwrite(STDERR, "FAIL: could not resolve WPRISM_AGENT_VERSION from agent/wprism.php\n");
     exit(1);
 }
-define('DUO_AGENT_VERSION', $m[1]);
+define('WPRISM_AGENT_VERSION', $m[1]);
 
 require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/agent/src/Kernel/OptionState.php';
@@ -78,22 +78,22 @@ require_once $root . '/agent/src/Adapter/AdapterProbe.php';
 require_once $root . '/agent/src/Capture/CapturePublicationWorkflow.php';
 require_once __DIR__ . '/../../lib/frozen_policy.php';
 
-use Duo\AdapterProbe;
-use Duo\AdapterSources;
-use Duo\Canon;
-use Duo\CapturePublicationWorkflow;
-use Duo\CommandRefusalException;
-use Duo\Lint;
-use Duo\LintEnvironment;
-use Duo\LintTrustGate;
-use Duo\Policy;
-use DuoTest\FakeWpdb;
-use DuoTest\FrozenPolicy;
-use DuoTest\WpStore;
+use WPrism\AdapterProbe;
+use WPrism\AdapterSources;
+use WPrism\Canon;
+use WPrism\CapturePublicationWorkflow;
+use WPrism\CommandRefusalException;
+use WPrism\Lint;
+use WPrism\LintEnvironment;
+use WPrism\LintTrustGate;
+use WPrism\Policy;
+use WPrismTest\FakeWpdb;
+use WPrismTest\FrozenPolicy;
+use WPrismTest\WpStore;
 
 // ---------------------------------------------------------------- fixtures
 
-$tmp = sys_get_temp_dir() . '/duo_lint_trust_tier_' . bin2hex(random_bytes(6));
+$tmp = sys_get_temp_dir() . '/wprism_lint_trust_tier_' . bin2hex(random_bytes(6));
 mkdir($tmp . '/state/tables/acme_rows', 0777, true);
 mkdir($tmp . '/state/posts/post', 0777, true);
 register_shutdown_function(static function () use ($tmp): void {
@@ -135,7 +135,7 @@ function acme_manifest(bool $lintOk = false): array {
             // is observable as a wrong ADAPTER rather than as nothing at all.
             'acme_ref_map' => ['class' => 'authored'],
         ],
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
         'tables' => [
             'acme_rows' => [
                 'class' => 'authored_snapshot',
@@ -164,7 +164,7 @@ function bystander_manifest(): array {
     return [
         'name' => 'acme-bystander',
         'post_meta' => ['acme_ref' => ['class' => 'authored']],
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ];
 }
 
@@ -198,7 +198,7 @@ $wpdb->seedTable('wp_posts', [
 ]);
 
 /**
- * A `duo-adapter-probe/v1` document naming `acme_rows.is_featured` BIT(1) —
+ * A `wprism-adapter-probe/v1` document naming `acme_rows.is_featured` BIT(1) —
  * the type WP-2.4 turns into a proposal. Self-hashed with the emitter's own
  * function, never a re-spelling of it.
  *
@@ -219,7 +219,7 @@ function acme_probe(): array {
                 'present' => true,
             ],
         ],
-        'target' => ['agent_version' => DUO_AGENT_VERSION, 'spec_version' => DUO_SPEC_VERSION],
+        'target' => ['agent_version' => WPRISM_AGENT_VERSION, 'spec_version' => WPRISM_SPEC_VERSION],
     ];
     $document['probe_hash'] = AdapterProbe::hash_document($document);
     return $document;
@@ -290,7 +290,7 @@ $withdrawnRecord = acme_record(acme_manifest(), AdapterSources::WITHDRAWN_STALE_
 
 // ------------------------------------------- 0. the two records are one state
 
-duo_check_same(
+wprism_check_same(
     ['reason'],
     array_keys(array_diff_assoc(
         array_map(static fn($v): string => Canon::encode($v), $withdrawnRecord),
@@ -299,7 +299,7 @@ duo_check_same(
     'a WITHDRAWN out-of-tree record differs from a never-certified one in `reason` and nothing else — so no '
     . 'predicate can tell them apart, and this gate must not pretend to'
 );
-duo_check(
+wprism_check(
     str_contains((string) $withdrawnRecord['reason'], 're-signed'),
     'the withdrawal record carries the engine\'s own re-signature clause, which is the remedy an operator whose '
     . 'certificate went stale actually needs'
@@ -309,7 +309,7 @@ duo_check(
 
 $shipped = acme_policy(acme_manifest(), false);
 $shippedFindings = Lint::scan_tree($state, $shipped, LintEnvironment::live());
-duo_check_same(
+wprism_check_same(
     [
         'bare_id posts/post/22222222-2222-5222-8222-222222222222--hello.md meta.acme_ref_map[0]',
         'bare_id tables/acme_rows/11111111-1111-5111-8111-111111111111--row.json columns.is_featured',
@@ -319,20 +319,20 @@ duo_check_same(
     'the fixture produces three bare_id findings: two undeclared table columns and one undeclared post-meta list '
     . 'element'
 );
-duo_check_same(
+wprism_check_same(
     [],
     LintTrustGate::blocking($shippedFindings, $shipped, $state),
     'under a SHIPPED adapter not one of them blocks — a digest-bound, reviewed declaration is the tier this gate '
     . 'deliberately does not move (AGENTS.md rule 2)'
 );
-duo_check_same(
+wprism_check_same(
     null,
     refusal_of(static fn() => LintTrustGate::assert($shippedFindings, $shipped, $state)),
     'and the capture-path assertion returns, so the advisory warning below is still what capture appends'
 );
-duo_check_same(
+wprism_check_same(
     '3 suspicious unrewritten ref(s) in captured state — run directly on the target: '
-    . '`wp duo lint --repo=/srv/site`',
+    . '`wp wprism lint --repo=/srv/site`',
     CapturePublicationWorkflow::lintWarning(count($shippedFindings), '/srv/site', null, true),
     'the advisory warning is byte-identical to the text that stood before this gate (AGENTS.md rule 8) — the '
     . 'shipped path captures exactly as it did'
@@ -340,27 +340,27 @@ duo_check_same(
 
 $site = acme_policy(acme_manifest(), true);
 $siteFindings = Lint::scan_tree($state, $site, LintEnvironment::live());
-duo_check_same(
+wprism_check_same(
     finding_keys($shippedFindings),
     finding_keys($siteFindings),
     'the SCAN is identical across the tiers: the same bytes produce the same findings, so the only thing that '
     . 'moved is what the capture path does with them'
 );
-duo_check_same(
+wprism_check_same(
     ['class', 'path', 'locator', 'value', 'note', 'matches'],
     array_keys($siteFindings[0]),
-    'and a finding still carries exactly the six keys `wp duo lint --format=json` emits verbatim (Cli.php:2919) — '
+    'and a finding still carries exactly the six keys `wp wprism lint --format=json` emits verbatim (Cli.php:2919) — '
     . 'attribution is resolved in the gate precisely so those wire bytes do not move'
 );
 
 $refusal = refusal_of(static fn() => LintTrustGate::assert($siteFindings, $site, $state));
-duo_check($refusal !== null, 'the identical findings under an UNCERTIFIED OUT-OF-TREE adapter refuse the capture');
-duo_check_same(
+wprism_check($refusal !== null, 'the identical findings under an UNCERTIFIED OUT-OF-TREE adapter refuse the capture');
+wprism_check_same(
     'uncertified_adapter_lint_findings',
     $refusal?->reasonCode,
     'the refusal carries a stable machine-readable reason code, not just prose'
 );
-duo_check_same(
+wprism_check_same(
     [
         'posts/post/22222222-2222-5222-8222-222222222222--hello.md meta.acme_ref_map[0]',
         'tables/acme_rows/11111111-1111-5111-8111-111111111111--row.json columns.is_featured',
@@ -370,16 +370,16 @@ duo_check_same(
     'every blocked finding is NAMED by a locator an operator can go open — a refusal that only counted would be '
     . 'the warning it replaces with a worse exit code'
 );
-duo_check_same(
+wprism_check_same(
     ['acme-tables', 'acme-tables', 'acme-tables'],
     array_column($refusal?->diagnostics ?? [], 'adapter'),
     'and each names the adapter that declared the surface, so the operator knows whose manifest to go edit'
 );
-duo_check(
+wprism_check(
     str_contains((string) $refusal?->remediation, 'lint_ok'),
     'the public remediation names the reviewed escape, which is the only way out that is not a code change'
 );
-duo_check(
+wprism_check(
     str_contains((string) $refusal?->getMessage(), (string) $plainRecord['reason']),
     'the operator message quotes the adapter record\'s OWN reason — the engine\'s sentence about why nothing '
     . 'vouches for it, not a second one composed here'
@@ -391,7 +391,7 @@ $postDiagnostic = array_values(array_filter(
     $refusal?->diagnostics ?? [],
     static fn(array $d): bool => str_contains((string) $d['surface'], 'meta.acme_ref_map')
 ));
-duo_check_same(
+wprism_check_same(
     'acme-tables',
     $postDiagnostic[0]['adapter'] ?? null,
     'a `meta.acme_ref_map[0]` locator resolves to the manifest declaring `acme_ref_map`, not to the shipped '
@@ -401,30 +401,30 @@ duo_check_same(
 // ------------------------------------------- 2. the withdrawn certification
 
 $withdrawnPolicy = acme_policy(acme_manifest(), true, AdapterSources::WITHDRAWN_STALE_PLATFORM);
-duo_check_same(
+wprism_check_same(
     'uncertified',
     $withdrawnPolicy->adapter_sources()->certification_word('acme-tables'),
     'a WITHDRAWN certification resolves to the word `uncertified`: the claim is gone, and no projection may keep '
     . 'reporting the signature that no longer confers it'
 );
-duo_check(
+wprism_check(
     $withdrawnPolicy->adapter_sources()->is_uncertified_out_of_tree('acme-tables'),
     'so it sits at the risk tier exactly as an adapter nobody ever signed does'
 );
 $withdrawnFindings = Lint::scan_tree($state, $withdrawnPolicy, LintEnvironment::live());
 $withdrawnRefusal = refusal_of(static fn() => LintTrustGate::assert($withdrawnFindings, $withdrawnPolicy, $state));
-duo_check_same(
+wprism_check_same(
     'uncertified_adapter_lint_findings',
     $withdrawnRefusal?->reasonCode,
     'and its findings refuse the capture with the same reason code — an agent upgrade that withdrew a claim must '
     . 'not leave the gate it was holding open'
 );
-duo_check(
+wprism_check(
     str_contains((string) $withdrawnRefusal?->getMessage(), (string) $withdrawnRecord['reason']),
     'while the operator message carries the WITHDRAWAL sentence, so the remedy read is "re-sign against the '
     . 'current boundary" rather than "obtain a first certificate"'
 );
-duo_check(
+wprism_check(
     !str_contains((string) $withdrawnRefusal?->getMessage(), 'carries no reviewed certification evidence'),
     'and does NOT also carry the never-signed clause: two reasons printed at once is how an operator picks the '
     . 'wrong remedy'
@@ -434,7 +434,7 @@ duo_check(
 
 $probe = acme_probe();
 $shippedProposed = Lint::scan_tree($state, $shipped, LintEnvironment::live($probe));
-duo_check_same(
+wprism_check_same(
     [
         'bare_id posts/post/22222222-2222-5222-8222-222222222222--hello.md meta.acme_ref_map[0]',
         'proposed_lint_ok tables/acme_rows/11111111-1111-5111-8111-111111111111--row.json columns.is_featured',
@@ -444,7 +444,7 @@ duo_check_same(
     'WP-2.4 re-classes the BIT(1) column to `proposed_lint_ok` and leaves the int column and the post meta alone '
     . '— the type awareness this gate depends on is live in the fixture'
 );
-duo_check_same(
+wprism_check_same(
     [],
     LintTrustGate::blocking($shippedProposed, $shipped, $state),
     'under a shipped adapter the proposal is advisory, like everything else on that tier'
@@ -452,14 +452,14 @@ duo_check_same(
 
 $siteProposed = Lint::scan_tree($state, $site, LintEnvironment::live($probe));
 $proposedRefusal = refusal_of(static fn() => LintTrustGate::assert($siteProposed, $site, $state));
-duo_check_same(
+wprism_check_same(
     'uncertified_adapter_lint_findings',
     $proposedRefusal?->reasonCode,
     'THE DECISION: a type-decidable BIT(1) column carrying a PROPOSED exemption still refuses at the risk tier. A '
     . 'proposal is evidence for a review, not the review — clearing the gate with one would let a fact about the '
     . 'third party\'s own database stand in for a reviewer'
 );
-duo_check_same(
+wprism_check_same(
     ['bare_id', 'proposed_lint_ok', 'bare_id'],
     array_column($proposedRefusal?->diagnostics ?? [], 'finding_class'),
     'and the refusal keeps each finding\'s class, so the operator can see which one the tool already proposed an '
@@ -474,7 +474,7 @@ foreach ([
     'uncertified out-of-tree' => acme_policy($reviewed, true),
 ] as $tier => $policy) {
     $findings = Lint::scan_tree($state, $policy, LintEnvironment::live($probe));
-    duo_check_same(
+    wprism_check_same(
         [
             'bare_id posts/post/22222222-2222-5222-8222-222222222222--hello.md meta.acme_ref_map[0]',
             'proposed_lint_ok tables/acme_rows/11111111-1111-5111-8111-111111111111--row.json columns.is_featured',
@@ -487,13 +487,13 @@ foreach ([
         $findings,
         static fn(array $f): bool => str_contains($f['locator'], 'related_id')
     ));
-    duo_check_same([], $only, "and nothing about `related_id` survives to be judged at the $tier tier");
+    wprism_check_same([], $only, "and nothing about `related_id` survives to be judged at the $tier tier");
 }
 
 // The exemption is per-COLUMN, not per-capture: the siblings still block.
 $reviewedSite = acme_policy($reviewed, true);
 $reviewedFindings = Lint::scan_tree($state, $reviewedSite, LintEnvironment::live($probe));
-duo_check_same(
+wprism_check_same(
     'uncertified_adapter_lint_findings',
     refusal_of(static fn() => LintTrustGate::assert($reviewedFindings, $reviewedSite, $state))?->reasonCode,
     'writing one exemption does not clear the capture: the columns nobody reviewed still refuse, which is what '
@@ -503,7 +503,7 @@ duo_check_same(
 // ------------------------------------------- 5. the gate is ON the capture path
 
 $workflow = (string) file_get_contents($root . '/agent/src/Capture/CapturePublicationWorkflow.php');
-duo_check(
+wprism_check(
     preg_match(
         '/\$lint = Lint::scan_tree\(.*?\n\s+if \(\$lint\) \{.*?LintTrustGate::assert\(.*?'
         . '\$candidate\[.warnings.\]\[\] = self::lintWarning\(/s',
@@ -512,9 +512,9 @@ duo_check(
     'capture calls the gate inside the same `if ($lint)` block and BEFORE it appends the advisory warning — a '
     . 'gate reached after the warning would be a gate the advisory bytes depend on'
 );
-duo_check(
+wprism_check(
     str_contains($workflow, "require_once __DIR__ . '/../Review/LintTrustGate.php';"),
     'and requires it explicitly, like every other file under agent/src (AGENTS.md rule 1)'
 );
 
-duo_check_summary('regress_lint_trust_tier_gate');
+wprism_check_summary('regress_lint_trust_tier_gate');

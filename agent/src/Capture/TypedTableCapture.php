@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 // Production loads close every direct dependency here. Some compiler unit
 // fixtures intentionally preload narrow class doubles; honor those isolated
@@ -27,7 +27,7 @@ if (!class_exists(ColumnCodecGrammar::class, false)) {
 }
 
 /**
- * Read-side capture boundary for authored typed tables (DUO-3349).
+ * Read-side capture boundary for authored typed tables (issue #3349).
  *
  * This class owns the complete live-row-to-canonical-entity pipeline for
  * ordinary rows, composite-reference rows, and attached EAV sidecars. It is
@@ -125,7 +125,7 @@ final class TypedTableCapture {
                 $token = $tokens->id_to_token($raw, $ref['kind']);
                 if ($token === null) {
                     throw new \RuntimeException(
-                        "duo: $table row $localId has unmanaged {$ref['kind']} ref $raw in column '$col' — "
+                        "wprism: $table row $localId has unmanaged {$ref['kind']} ref $raw in column '$col' — "
                         . 'capture scope must include the referenced row'
                     );
                 }
@@ -136,7 +136,7 @@ final class TypedTableCapture {
             if ($naturalIdentity !== null) {
                 if (isset($naturalIdentityRows[$naturalIdentity])) {
                     throw new \RuntimeException(
-                        "duo: table '$table' natural identity matches local ids "
+                        "wprism: table '$table' natural identity matches local ids "
                         . "{$naturalIdentityRows[$naturalIdentity]} and $localId; full natural identity must be "
                         . 'unique before capture, plan, or apply'
                     );
@@ -292,7 +292,7 @@ final class TypedTableCapture {
         foreach ($byKey as $key => $values) {
             if (count($values) > 1) {
                 throw new \RuntimeException(
-                    "duo: multi-value meta key '$key' in $metaTable for parent $ownerLocalId "
+                    "wprism: multi-value meta key '$key' in $metaTable for parent $ownerLocalId "
                     . '(found ' . count($values) . ' rows) — unsupported'
                 );
             }
@@ -394,11 +394,11 @@ final class TypedTableCapture {
             return;
         }
         throw new \RuntimeException(
-            "duo: secret guard tripped — $where looks like a $label but is classified authored; "
+            "wprism: secret guard tripped — $where looks like a $label but is classified authored; "
             . "refusing to capture it into state/.\n"
             . "If this is really a secret, reclassify it runtime/derived/env instead of authored.\n"
             . 'If this is a false positive, declare "allow_secret": true on its rule '
-            . '(the manifest, or a site.duo.json policy.tables override).'
+            . '(the manifest, or a site.wprism.json policy.tables override).'
         );
     }
 }

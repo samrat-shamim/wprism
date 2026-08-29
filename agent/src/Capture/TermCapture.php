@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/EntityMetaCapture.php';
@@ -59,7 +59,7 @@ final class TermCapture {
             $termGroup = self::nonnegative_integer($term->term_group ?? null);
             if ($termGroup === null) {
                 throw new \RuntimeException(
-                    'duo: authored term_group capture received a malformed or out-of-range database value'
+                    'wprism: authored term_group capture received a malformed or out-of-range database value'
                 );
             }
             $front['term_group'] = $termGroup;
@@ -92,10 +92,10 @@ final class TermCapture {
         if (!is_array($rows)
             || !array_is_list($rows)
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException('duo: bounded term-object relationship capture read failed');
+            throw new \RuntimeException('wprism: bounded term-object relationship capture read failed');
         }
         if (count($rows) > self::MAX_TERM_RELATIONSHIPS) {
-            throw new \RuntimeException('duo: term-object relationships exceed the bounded row limit');
+            throw new \RuntimeException('wprism: term-object relationships exceed the bounded row limit');
         }
         $out = [];
         $seen = [];
@@ -110,11 +110,11 @@ final class TermCapture {
                 || !is_string($taxonomy)
                 || !in_array($taxonomy, $taxonomies, true)) {
                 throw new \RuntimeException(
-                    "duo: bounded term-object relationship capture returned a malformed row at position $position"
+                    "wprism: bounded term-object relationship capture returned a malformed row at position $position"
                 );
             }
             if (isset($seen[$ttId])) {
-                throw new \RuntimeException('duo: term-object relationship capture returned a duplicate identity');
+                throw new \RuntimeException('wprism: term-object relationship capture returned a duplicate identity');
             }
             $seen[$ttId] = true;
             $targetUuid = Ledger::uuid_for($targetId, Ledger::KIND_TERM);
@@ -134,14 +134,14 @@ final class TermCapture {
         if (!array_is_list($taxonomies)
             || $taxonomies === []
             || count($taxonomies) > self::MAX_RELATIONSHIP_TAXONOMIES) {
-            throw new \RuntimeException('duo: term-object taxonomy scope is malformed or over the bounded limit');
+            throw new \RuntimeException('wprism: term-object taxonomy scope is malformed or over the bounded limit');
         }
         $out = [];
         foreach ($taxonomies as $taxonomy) {
             if (!is_string($taxonomy)
                 || preg_match('/^[a-z0-9_-]{1,32}$/D', $taxonomy) !== 1
                 || isset($out[$taxonomy])) {
-                throw new \RuntimeException('duo: term-object taxonomy scope contains an invalid/duplicate name');
+                throw new \RuntimeException('wprism: term-object taxonomy scope contains an invalid/duplicate name');
             }
             $out[$taxonomy] = true;
         }
@@ -185,7 +185,7 @@ final class TermCapture {
         );
         if (!is_array($decoded)) {
             throw new \RuntimeException(
-                "duo: taxonomy '{$term->taxonomy}' declares description_refs but term {$term->slug}'s description"
+                "wprism: taxonomy '{$term->taxonomy}' declares description_refs but term {$term->slug}'s description"
                 . ' is not an array once unserialized'
             );
         }

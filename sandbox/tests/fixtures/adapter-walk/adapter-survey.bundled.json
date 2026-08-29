@@ -1,5 +1,5 @@
 {
-    "_provenance": "agent/src/Command/Cli.php::adapter_survey() builds duo-adapter-catalog/v2 from AdapterSources::survey($repo) on the target. A bundled adapter's certification word is `uncertified` ALWAYS (certification binds source \"site\" and adapters/<name>.json inside the signed statement, so no certificate can name a bundled one); the promotion path is the remediation AdapterSources::diagnostics() carries for the plugin source.",
+    "_provenance": "agent/src/Command/Cli.php::adapter_survey() builds wprism-adapter-catalog/v2 from AdapterSources::survey($repo) on the target. A bundled adapter's certification word is `uncertified` ALWAYS (certification binds source \"site\" and adapters/<name>.json inside the signed statement, so no certificate can name a bundled one); the promotion path is the remediation AdapterSources::diagnostics() carries for the plugin source.",
     "adapters": [
         {
             "certification": "registry",
@@ -9,7 +9,7 @@
                 "status": "ok"
             },
             "name": "core",
-            "path": "/duo-manifests/core.json",
+            "path": "/wprism-manifests/core.json",
             "principal": null,
             "sha256": "0d45f5fd462b8c70bffb10021ac1bcff3f58f29b1faf7568595095427d42812c",
             "source": "shipped",
@@ -25,7 +25,7 @@
                 "status": "ok"
             },
             "name": "woocommerce",
-            "path": "/duo-manifests/woocommerce.json",
+            "path": "/wprism-manifests/woocommerce.json",
             "principal": null,
             "sha256": "36546d452b5919cee4db4b19fd425246badb64d9fb61e16a1152458632d1d531",
             "source": "shipped",
@@ -41,9 +41,9 @@
                 "status": "ok"
             },
             "name": "acme-catalog",
-            "path": "/var/www/html/wp-content/plugins/acme-catalog/duo-adapter.json",
+            "path": "/var/www/html/wp-content/plugins/acme-catalog/wprism-adapter.json",
             "principal": null,
-            "remediation": "install this adapter as a repository package at adapters/acme-catalog.json, obtain a certificate signed by an authority this agent trusts at adapters/certifications/acme-catalog.json, then run `wp duo manifest-pin --repo=... --name=acme-catalog` and commit the emitted {name,source:\"site\",digest} pin. The site copy wins by precedence and the bundled copy reports as not installed; the plugin stays active throughout",
+            "remediation": "install this adapter as a repository package at adapters/acme-catalog.json, obtain a certificate signed by an authority this agent trusts at adapters/certifications/acme-catalog.json, then run `wp wprism manifest-pin --repo=... --name=acme-catalog` and commit the emitted {name,source:\"site\",digest} pin. The site copy wins by precedence and the bundled copy reports as not installed; the plugin stays active throughout",
             "sha256": "e2b28c143a19e5c00e12cd2e6e9341fa1a4b4cb761bdc96b00f31711abae9b7e",
             "source": "plugin",
             "tier_basis": "declarative-only: no interpreter, regenerator or manifest-sourced provider",
@@ -60,15 +60,15 @@
             "why": "certification is a reviewed claim evaluated against one target: whether the plugin the claim is authored for is installed, active, and inside the reviewed version window"
         }
     ],
-    "format": "duo-adapter-catalog/v2",
-    "manifests_dir": "/duo-manifests",
+    "format": "wprism-adapter-catalog/v2",
+    "manifests_dir": "/wprism-manifests",
     "not_installed": [],
     "refusals": [],
     "repo": "/siterepo",
     "sources": [
         {
             "note": "the agent manifest library that deploys with the agent",
-            "path": "/duo-manifests",
+            "path": "/wprism-manifests",
             "scanned": true,
             "source": "shipped"
         },
@@ -79,7 +79,7 @@
             "source": "site"
         },
         {
-            "note": "each active plugin's own duo-adapter.json",
+            "note": "each active plugin's own wprism-adapter.json",
             "path": "/var/www/html/wp-content/plugins",
             "scanned": true,
             "source": "plugin"

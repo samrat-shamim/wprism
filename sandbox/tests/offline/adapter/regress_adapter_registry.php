@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for AdapterRegistry.php (DUO-3348 slice 4: adapter
+ * Offline regression for AdapterRegistry.php (issue #3348 slice 4: adapter
  * provenance / capability-readiness resolution, moved out of Policy.php).
  * Existing suites already exercise capability_report()/adapter_readiness_
  * blockers()/provider_readiness_blockers()/certification_readiness_blockers()/
@@ -10,14 +10,14 @@
  * regress_provider_contract.php, regress_adapter_sources.php,
  * regress_adapter_catalog.php, regress_adapter_observation.php,
  * regress_plugin_adapter_source.php) — same "deliberately narrow" idiom as
- * regress_compiled_artifact.php (DUO-3348 slice 2): this file proves the
+ * regress_compiled_artifact.php (issue #3348 slice 2): this file proves the
  * EXTRACTION itself is correct rather than re-covering that business logic —
  * that Policy's public methods are thin facades genuinely delegating to a
  * real AdapterRegistry instance (not leftover inline logic — the source-text
  * checks near the bottom are the load-bearing proof of that, along with the
  * byte-identical-body diff done at review time), and that requiring
  * AdapterRegistry.php transitively supplies every class it names statically
- * on its own (the class-loading gap DUO-3440/DUO-3441/DUO-3442 each fixed one
+ * on its own (the class-loading gap issue #3440/issue #3441/issue #3442 each fixed one
  * file at a time — mutation-tested at review time by deleting one of those
  * requires and confirming this suite's first check below catches it).
  *
@@ -49,12 +49,12 @@ require __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require __DIR__ . '/../../lib/frozen_policy.php';
 
-use Duo\AdapterRegistry;
-use Duo\Policy;
-use DuoTest\FrozenPolicy;
+use WPrism\AdapterRegistry;
+use WPrism\Policy;
+use WPrismTest\FrozenPolicy;
 
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 0);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 0);
 }
 
 $failures = [];
@@ -71,10 +71,10 @@ $check = static function (bool $ok, string $message) use (&$failures): void {
 // live capability query rather than at load. AdapterSources and
 // ManifestDispositions are named statically in the same file for the same
 // reason and are checked beside it.
-foreach ([\Duo\AdapterSources::class, \Duo\ManifestDispositions::class, \Duo\TargetProbe::class] as $dependency) {
+foreach ([\WPrism\AdapterSources::class, \WPrism\ManifestDispositions::class, \WPrism\TargetProbe::class] as $dependency) {
     $check(
         class_exists($dependency),
-        "requiring only Canon/OptionState/Policy.php (never $dependency's own file, nor the full agent/duo.php "
+        "requiring only Canon/OptionState/Policy.php (never $dependency's own file, nor the full agent/wprism.php "
             . "bootstrap) still defines $dependency — proves Policy.php -> AdapterRegistry.php carries its own "
             . 'transitive require rather than relying on some OTHER file having loaded it first'
     );
@@ -91,16 +91,16 @@ $check(
 $check(
     (new ReflectionMethod(AdapterRegistry::class, 'report'))->isStatic()
         && (new ReflectionMethod(AdapterRegistry::class, 'report'))->isPublic(),
-    'report() is public static, so `wp duo capabilities --all` can project the whole shipped library with no site '
+    'report() is public static, so `wp wprism capabilities --all` can project the whole shipped library with no site '
         . 'repository to load'
 );
 
 $manifest = [
     'name' => 'm',
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ];
 
-$policy = FrozenPolicy::policy([$manifest], FrozenPolicy::site([$manifest], DUO_SPEC_VERSION));
+$policy = FrozenPolicy::policy([$manifest], FrozenPolicy::site([$manifest], WPRISM_SPEC_VERSION));
 
 // This bare fixture directory has no dispositions.json/capabilities registry,
 // so Policy::load() leaves manifestDispositions/capabilityRegistry both null
@@ -141,8 +141,8 @@ $check(
 $report = $policy->capability_report();
 $check(
     $report['schema_version'] === AdapterRegistry::REPORT_FORMAT
-        && AdapterRegistry::REPORT_FORMAT === 'duo-capability-report/v1',
-    'capability_report(): schema_version is the report wire version, not the retired duo-capability-registry/v2 — a '
+        && AdapterRegistry::REPORT_FORMAT === 'wprism-capability-report/v1',
+    'capability_report(): schema_version is the report wire version, not the retired wprism-capability-registry/v2 — a '
         . 'consumer pinned to the old string would read the absent digest/subject-record/evidence-status as data '
         . 'loss in a document it believed was the same shape'
 );
@@ -157,7 +157,7 @@ $check($report['manifests'] === [], 'capability_report(): manifests is empty wit
 // logic quietly still doing the work under the old method names.
 $rm = new ReflectionMethod(Policy::class, 'adapter_registry');
 $registry = $rm->invoke($policy);
-$check($registry instanceof AdapterRegistry, 'Policy::adapter_registry() constructs a real Duo\AdapterRegistry instance');
+$check($registry instanceof AdapterRegistry, 'Policy::adapter_registry() constructs a real WPrism\AdapterRegistry instance');
 $check(
     $registry->capability_claim('m') === $policy->capability_claim('m'),
     "calling AdapterRegistry::capability_claim() directly matches Policy's own facade result exactly"
@@ -183,7 +183,7 @@ $check(
 //
 // The end-to-end report comparison (one extra blocker, byte-identical manifest
 // rows, ready flipped) lives in sandbox/tests/offline/policy/regress_topology_gate.php:
-// this fixture deliberately defines DUO_SPEC_VERSION as 0, and
+// this fixture deliberately defines WPRISM_SPEC_VERSION as 0, and
 // ManifestDispositions::platform_boundary() refuses any value that disagrees
 // with manifests/capabilities/platform.json, so report()'s static path cannot
 // be entered from here without breaking the unreviewed-path fixture above.
@@ -218,7 +218,7 @@ $check(
         . 'step with the reviewed one, and a leftover null field is where it would grow back'
 );
 $check(
-    str_contains($policySource, "private const SNAPSHOT_FORMAT = 'duo-policy-snapshot/v6';")
+    str_contains($policySource, "private const SNAPSHOT_FORMAT = 'wprism-policy-snapshot/v6';")
         && !str_contains($policySource, "'capabilities' => \$this->capabilityRegistry?->data()"),
     'and export_snapshot() emits no `capabilities` record under the v6 wire generation'
 );

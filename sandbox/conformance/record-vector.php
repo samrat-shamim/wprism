@@ -1,12 +1,12 @@
 <?php
 /**
  * Host-side assembler for `record-vector.sh`: fold one passing sweep's four
- * artifacts into a self-hashed `duo-conformance-vector/v1` document.
+ * artifacts into a self-hashed `wprism-conformance-vector/v1` document.
  *
  * It runs on the HOST, not on the target, because two of the four inputs are
  * host-side directories (`$R1/state` and conf2's recapture, which run.sh has
  * just proven byte-identical) and because the canonical encoder and the vector
- * grammar both already live here — `DuoTest\ConformanceVector` is the same
+ * grammar both already live here — `WPrismTest\ConformanceVector` is the same
  * class the offline replay consumes, so a recorder cannot emit a shape the
  * replay would not accept.
  *
@@ -29,8 +29,8 @@ require_once __DIR__ . '/../tests/lib/FakeWpdb.php';
 require_once __DIR__ . '/../tests/lib/frozen_policy.php';
 require_once __DIR__ . '/../tests/lib/ConformanceVector.php';
 
-use Duo\AdapterLibrary;
-use DuoTest\ConformanceVector;
+use WPrism\AdapterLibrary;
+use WPrismTest\ConformanceVector;
 
 $argvList = $_SERVER['argv'] ?? [];
 if (count($argvList) !== 8) {
@@ -101,7 +101,7 @@ $dump = $readJson($rowsPath, 'the row dump');
 $sourceSha = trim((string) shell_exec('git -C ' . escapeshellarg($sourceRoot) . ' rev-parse HEAD 2>/dev/null'));
 
 $document = ConformanceVector::document([
-    'ledger' => ['duo_map' => array_values((array) ($dump['ledger']['duo_map'] ?? []))],
+    'ledger' => ['wprism_map' => array_values((array) ($dump['ledger']['wprism_map'] ?? []))],
     'manifest' => $manifest,
     'probe' => $probe,
     'recapture' => $readTree($recaptureDir, "conf2's recapture"),
@@ -109,7 +109,7 @@ $document = ConformanceVector::document([
         'agent_version' => (string) ($dump['agent_version'] ?? 'unknown'),
         'manifest_name' => $manifestName,
         'recorded_at' => gmdate('Y-m-d\TH:i:s\Z'),
-        // The commit the sweep's own DUO_EXPECTED_SOURCE_SHA gate bound it to,
+        // The commit the sweep's own WPRISM_EXPECTED_SOURCE_SHA gate bound it to,
         // when run.sh was given one; otherwise the tree it was recorded from.
         'source_sha' => getenv('CONF_EXPECTED_SOURCE_SHA') ?: ($sourceSha !== '' ? $sourceSha : 'unknown'),
         'spec_version' => (int) ($dump['spec_version'] ?? 0),
@@ -129,10 +129,10 @@ try {
     exit(1);
 }
 
-if (@file_put_contents($out, \Duo\Canon::encode($document)) === false) {
+if (@file_put_contents($out, \WPrism\Canon::encode($document)) === false) {
     fwrite(STDERR, "FAIL: cannot write the vector to $out\n");
     exit(1);
 }
 echo "recorded " . ConformanceVector::FORMAT . " for '$manifestName' -> $out ("
     . count($document['state']) . " canonical entr" . (count($document['state']) === 1 ? 'y' : 'ies') . ', '
-    . count($document['ledger']['duo_map']) . " duo_map row(s), hash {$document['vector_hash']})\n";
+    . count($document['ledger']['wprism_map']) . " wprism_map row(s), hash {$document['vector_hash']})\n";

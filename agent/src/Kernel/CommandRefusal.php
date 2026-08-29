@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/Secrets.php';
 
@@ -97,7 +97,7 @@ final class CommandRefusalException extends \RuntimeException {
             'scoped target observation found selected identity mappings that are stale, missing, or inconsistent; bounded mutation was refused',
             'run the existing capture or identity-recovery gate, rebuild the scoped plan, and reconcile any retained scoped session before retrying',
             [],
-            'duo: scoped target selected ledger identities are not backed by the exact strict target observation',
+            'wprism: scoped target selected ledger identities are not backed by the exact strict target observation',
             $previous
         );
     }
@@ -109,7 +109,7 @@ final class CommandRefusalException extends \RuntimeException {
             'canonical mapped identity has no matching live backing row; plan/apply was refused before creating or rebinding it',
             'restore the database-matched backup or capture the intended deletion before retrying plan/apply',
             [],
-            'duo: canonical mapped identity has no matching live backing row; refusing to create or rebind it. Restore the database-matched backup or capture the intended deletion before plan/apply.',
+            'wprism: canonical mapped identity has no matching live backing row; refusing to create or rebind it. Restore the database-matched backup or capture the intended deletion before plan/apply.',
             $previous
         );
     }
@@ -125,7 +125,7 @@ final class CommandRefusalException extends \RuntimeException {
                 'message' => 'strict observation found target state that requires repair or external attachment materialization',
                 'remediation' => 'repair or materialize through capture; explain will not mutate identity state or invoke providers itself',
             ]],
-            'duo: explain strict observation found identity, ledger, or attachment state that requires the existing capture/provider gate',
+            'wprism: explain strict observation found identity, ledger, or attachment state that requires the existing capture/provider gate',
             $previous
         );
     }

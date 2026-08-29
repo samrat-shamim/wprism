@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-use Duo\Orchestrator\RefreshPlan;
+use WPrism\Orchestrator\RefreshPlan;
 
 require __DIR__ . '/RefreshPlan.php';
 

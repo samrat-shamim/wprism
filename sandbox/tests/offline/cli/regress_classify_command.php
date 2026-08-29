@@ -1,11 +1,11 @@
 <?php
 /**
- * Offline regression for `duo classify`'s three modes.
+ * Offline regression for `wprism classify`'s three modes.
  *
- * Since DUO-3496 this suite runs BOTH sides of the classify contract in one
+ * Since issue #3496 this suite runs BOTH sides of the classify contract in one
  * process: the host command handler from cli/src, and — through a driver whose
- * streamWp() executes the real `wp duo classify` handler against a real
- * site.duo.json — the agent that receives what it streams. That is the only
+ * streamWp() executes the real `wp wprism classify` handler against a real
+ * site.wprism.json — the agent that receives what it streams. That is the only
  * place the defect lived: each half was internally consistent while the batch
  * artifact could not express a decision the agent's own grammar would accept,
  * so a batch that "applied" produced policy the next command refused to load.
@@ -16,7 +16,7 @@ require_once __DIR__ . '/../../lib/wp_stubs.php';
 require_once __DIR__ . '/../../lib/FakeWpdb.php';
 require_once __DIR__ . '/../../../../cli/src/Command/ClassifyCommand.php';
 
-/** wp-cli's surface as `Duo\Cli::classify()` uses it: lines, success, and a throwing error. */
+/** wp-cli's surface as `WPrism\Cli::classify()` uses it: lines, success, and a throwing error. */
 final class ClassifyCommandWpCli {
     /** @var list<string> */
     public static array $lines = [];
@@ -42,25 +42,25 @@ require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/../../../../agent/src/Review/Pending.php';
 require_once __DIR__ . '/../../../../agent/src/Command/Cli.php';
 
-use Duo\Orchestrator\DriverCapabilityReport;
-use Duo\Orchestrator\EnvironmentDriver;
-use Duo\Orchestrator\ClassificationBatch;
-use Duo\Orchestrator\ClassifyCommand;
-use Duo\Orchestrator\Triage;
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\EnvironmentDriver;
+use WPrism\Orchestrator\ClassificationBatch;
+use WPrism\Orchestrator\ClassifyCommand;
+use WPrism\Orchestrator\Triage;
 
-// Policy::load() has demanded spec_version since DUO-3247 and this file never
-// boots agent/duo.php; derive the exact shipped generation from the platform
+// Policy::load() has demanded spec_version since issue #3247 and this file never
+// boots agent/wprism.php; derive the exact shipped generation from the platform
 // library this product-path fixture now loads.
-if (!defined('DUO_SPEC_VERSION')) {
+if (!defined('WPRISM_SPEC_VERSION')) {
     $classifyPlatform = json_decode(
         (string) file_get_contents(dirname(__DIR__, 4) . '/platform/adapter-library/capabilities/platform.json'),
         true,
         512,
         JSON_THROW_ON_ERROR
     );
-    define('DUO_SPEC_VERSION', (int) $classifyPlatform['platform']['spec_version']);
+    define('WPRISM_SPEC_VERSION', (int) $classifyPlatform['platform']['spec_version']);
 }
-$wpdb = \DuoTest\FakeWpdb::install();
+$wpdb = \WPrismTest\FakeWpdb::install();
 // classify's own pre-write secret check reads the live value through
 // Pending::current_value(); an unseeded table is a LogicException here, which
 // is the loud behaviour this harness wants.
@@ -79,14 +79,14 @@ register_shutdown_function(static function () use (&$classifyScratch): void {
     }
 });
 
-/** A site.duo.json exactly as `duo init` leaves it: a policy with no rules yet. */
+/** A site.wprism.json exactly as `wprism init` leaves it: a policy with no rules yet. */
 function classify_fixture_repo(): string {
     global $classifyScratch;
-    $repo = sys_get_temp_dir() . '/duo_regress_classify_repo_' . bin2hex(random_bytes(6));
+    $repo = sys_get_temp_dir() . '/wprism_regress_classify_repo_' . bin2hex(random_bytes(6));
     mkdir($repo, 0777, true);
     $classifyScratch[] = $repo;
-    file_put_contents($repo . '/site.duo.json', json_encode([
-        'code' => ['format' => 1, 'layout' => 'wp-content', 'source' => \Duo\Code::SOURCE],
+    file_put_contents($repo . '/site.wprism.json', json_encode([
+        'code' => ['format' => 1, 'layout' => 'wp-content', 'source' => \WPrism\Code::SOURCE],
         'manifests' => ['core'],
         'policy' => [
             'options' => new stdClass(),
@@ -95,7 +95,7 @@ function classify_fixture_repo(): string {
             'taxonomies' => ['category'],
             'term_meta' => new stdClass(),
         ],
-        'spec_version' => DUO_SPEC_VERSION,
+        'spec_version' => WPRISM_SPEC_VERSION,
     ], JSON_PRETTY_PRINT));
     return $repo;
 }
@@ -116,8 +116,8 @@ final class ClassifyCommandDriver implements EnvironmentDriver {
     public int $streamExit = 0;
     /**
      * When set, streamWp() stops pretending: it routes the streamed argv into
-     * the real `Duo\Cli::classify()` against this repository, so an assertion
-     * about what reaches site.duo.json is about the agent's own writer and its
+     * the real `WPrism\Cli::classify()` against this repository, so an assertion
+     * about what reaches site.wprism.json is about the agent's own writer and its
      * own spec grammar, not about a second implementation of them living here.
      */
     public ?string $agentRepo = null;
@@ -126,7 +126,7 @@ final class ClassifyCommandDriver implements EnvironmentDriver {
     public string $pendingMode = 'items';
     /** Queue state to report starting from the Nth captureWp() call (1-indexed); falls back to $items. @var array<int,list<array<string,mixed>>> */
     public array $itemsByCall = [];
-    /** A duo-command-refusal/v1 envelope to report as a failed fetch on the Nth captureWp() call. @var array<int,array<string,mixed>> */
+    /** A wprism-command-refusal/v1 envelope to report as a failed fetch on the Nth captureWp() call. @var array<int,array<string,mixed>> */
     public array $refusalByCall = [];
 
     /** @param list<array<string,mixed>> $items */
@@ -165,7 +165,7 @@ final class ClassifyCommandDriver implements EnvironmentDriver {
             }
         }
         try {
-            (new \Duo\Cli())->classify([], $assoc);
+            (new \WPrism\Cli())->classify([], $assoc);
             return 0;
         } catch (\Throwable $e) {
             // WP_CLI::error() exits non-zero on the real target; the stub
@@ -192,10 +192,10 @@ function classify_item(string $section, string $key, ?string $proposal = null, ?
     ];
 }
 
-// -- the bounded skipped-item listing (DUO-3521) ------------------------------
+// -- the bounded skipped-item listing (issue #3521) ------------------------------
 //
 // `--accept-proposals` prints one line per item it refused to accept, and
-// before DUO-3521 that listing had no ceiling: on a first classification pass
+// before issue #3521 that listing had no ceiling: on a first classification pass
 // the secret-flagged set can be the size of the whole queue, which is the
 // unbounded-output leak docs/product-spec.md:776-777 names. It is written
 // with fwrite(STDERR, ...), which ob_start() does not intercept, so the run
@@ -296,7 +296,7 @@ assert_classify_command($exportDash->streamCalls === 0, 'exporting never streams
 
 // -- --export-batch=<path> ----------------------------------------------------
 
-$exportPath = sys_get_temp_dir() . '/duo_regress_classify_' . bin2hex(random_bytes(6)) . '.json';
+$exportPath = sys_get_temp_dir() . '/wprism_regress_classify_' . bin2hex(random_bytes(6)) . '.json';
 $exportFile = new ClassifyCommandDriver($exportItems);
 ob_start();
 $exportFileExit = ClassifyCommand::run($exportFile, ["--export-batch=$exportPath"]);
@@ -323,7 +323,7 @@ ob_get_clean();
 assert_classify_command($applyExit === 1, 'applying an unmodified (all-null-class) export refuses as incomplete');
 assert_classify_command($applyMatching->streamCalls === 0, 'an incomplete batch never streams a classify call');
 
-// Reviewed = class AND the field that class needs (DUO-3496): an options row
+// Reviewed = class AND the field that class needs (issue #3496): an options row
 // classed authored is incomplete until `autoload` says how the wp_options row
 // is stored, and the batch below refuses it by name.
 $reviewedBatch = ClassificationBatch::template('classify-fixture', $exportItems);
@@ -342,7 +342,7 @@ $applyReviewedOutput = (string) ob_get_clean();
 assert_classify_command($applyReviewedExit === 0, 'a fully-reviewed batch applies successfully when the queue clears');
 assert_classify_command($applyReviewedEmpty->streamCalls === 1, 'a reviewed batch streams exactly one classify call');
 assert_classify_command(
-    $applyReviewedEmpty->streamedArgs[0] === ['duo', 'classify', '--repo=/fixture/repo', '--set=options:acme_flag=authored,autoload=preserve'],
+    $applyReviewedEmpty->streamedArgs[0] === ['wprism', 'classify', '--repo=/fixture/repo', '--set=options:acme_flag=authored,autoload=preserve'],
     'the applied --set carries the reviewed storage decision through to the agent spec grammar'
 );
 assert_classify_command(str_contains($applyReviewedOutput, '1 reviewed classification(s) applied'), 'apply reports how many decisions it applied');
@@ -370,7 +370,7 @@ assert_classify_command(!str_contains($applyRemainingOutput, 'review queue is em
 // extraction must keep doing so rather than silently defaulting to null and
 // falling back to a raw JSON dump.
 $refusalEnvelope = [
-    'format' => 'duo-command-refusal/v1',
+    'format' => 'wprism-command-refusal/v1',
     'ok' => false,
     'reason_code' => 'queue_locked',
     'message' => 'pending queue is locked by a concurrent capture',
@@ -397,7 +397,7 @@ unlink($exportPath);
 // A reviewed decision that authors a secret-flagged item with allow_secret
 // explicitly set true must append --allow-secret to the streamed --set call.
 $secretApplyItems = [classify_item('options', 'api_key', 'authored', 'looks like an API key')];
-$secretApplyPath = sys_get_temp_dir() . '/duo_regress_classify_secret_' . bin2hex(random_bytes(6)) . '.json';
+$secretApplyPath = sys_get_temp_dir() . '/wprism_regress_classify_secret_' . bin2hex(random_bytes(6)) . '.json';
 $secretBatch = ClassificationBatch::template('classify-fixture', $secretApplyItems);
 $secretBatch['decisions'][0]['class'] = 'authored';
 $secretBatch['decisions'][0]['allow_secret'] = true;
@@ -410,12 +410,12 @@ $applySecretExit = ClassifyCommand::run($applySecret, ["--apply-batch=$secretApp
 ob_get_clean();
 assert_classify_command($applySecretExit === 0, 'an allow_secret-confirmed authored decision applies successfully');
 assert_classify_command(
-    $applySecret->streamedArgs[0] === ['duo', 'classify', '--repo=/fixture/repo', '--set=options:api_key=authored,autoload=preserve', '--allow-secret'],
+    $applySecret->streamedArgs[0] === ['wprism', 'classify', '--repo=/fixture/repo', '--set=options:api_key=authored,autoload=preserve', '--allow-secret'],
     '--allow-secret is appended exactly when the reviewed batch confirms it'
 );
 unlink($secretApplyPath);
 
-$staleBatchPath = sys_get_temp_dir() . '/duo_regress_classify_stale_' . bin2hex(random_bytes(6)) . '.json';
+$staleBatchPath = sys_get_temp_dir() . '/wprism_regress_classify_stale_' . bin2hex(random_bytes(6)) . '.json';
 file_put_contents($staleBatchPath, ClassificationBatch::encode(ClassificationBatch::template('classify-fixture', [classify_item('options', 'gone', 'runtime')])));
 $applyStale = new ClassifyCommandDriver($exportItems);
 ob_start();
@@ -435,7 +435,7 @@ $acceptOutput = (string) ob_get_clean();
 assert_classify_command($acceptExit === 0, 'accepting clean proposals exits successfully');
 assert_classify_command($acceptClean->streamCalls === 1, 'accepting proposals streams exactly one classify call');
 assert_classify_command(
-    $acceptClean->streamedArgs[0] === ['duo', 'classify', '--repo=/fixture/repo', '--set=options:auto_flag=runtime'],
+    $acceptClean->streamedArgs[0] === ['wprism', 'classify', '--repo=/fixture/repo', '--set=options:auto_flag=runtime'],
     'the accepted --set matches the proposal exactly'
 );
 assert_classify_command(str_contains($acceptOutput, '1 accepted'), 'accept-proposals reports the accepted count');
@@ -453,7 +453,7 @@ assert_classify_command($acceptSecret->streamCalls === 0, 'a secret-only queue n
 // stored. Accepting `authored` for an options row would therefore have to
 // invent the autoload the site grammar demands, so it is skipped and reported
 // exactly like the secret set, rather than streamed and refused mid-batch by
-// the target (DUO-3496).
+// the target (issue #3496).
 $storageProposal = [classify_item('options', 'legacy_banner', 'authored'), classify_item('post_meta', 'meta_key', 'authored')];
 $acceptStorage = new ClassifyCommandDriver($storageProposal);
 ob_start();
@@ -462,18 +462,18 @@ ob_get_clean();
 assert_classify_command($acceptStorageExit === 2, 'an options row proposed authored exits 2 rather than accepting an incomplete decision');
 assert_classify_command(
     $acceptStorage->streamCalls === 1
-        && $acceptStorage->streamedArgs[0] === ['duo', 'classify', '--repo=/fixture/repo', '--set=post_meta:meta_key=authored'],
+        && $acceptStorage->streamedArgs[0] === ['wprism', 'classify', '--repo=/fixture/repo', '--set=post_meta:meta_key=authored'],
     'the post_meta proposal in the same queue still applies: only the options row needs a field no proposal carries'
 );
 
 // ---------------------------------------------------------------------------
-// DUO-3496: interactive triage completes the same decision the batch does.
+// issue #3496: interactive triage completes the same decision the batch does.
 //
 // Triage::run() takes its streams as arguments precisely so this is testable
 // without a subprocess; only ClassifyCommand's own call site passes the real
 // STDIN/STDOUT (that wiring stays proven by sandbox/tests/spike/
 // cli_triage_smoke.sh, which pipes scripted stdin through the real
-// `cli/duo classify` subprocess).
+// `cli/wprism classify` subprocess).
 // ---------------------------------------------------------------------------
 
 /** @return array{0:array<string,mixed>,1:string} the Triage result and everything it printed */
@@ -531,8 +531,8 @@ assert_classify_command(
 );
 
 // ---------------------------------------------------------------------------
-// DUO-3496 end to end, through the real agent: a batch that applies clean
-// scans clean, and one that is incomplete never reaches site.duo.json.
+// issue #3496 end to end, through the real agent: a batch that applies clean
+// scans clean, and one that is incomplete never reaches site.wprism.json.
 // ---------------------------------------------------------------------------
 
 // The requirement matrix, read from the validator rather than from its error
@@ -542,12 +542,12 @@ assert_classify_command(
 // again.
 $requirementMatrix = [];
 foreach (['options', 'post_meta', 'term_meta', 'user_meta'] as $matrixSection) {
-    foreach (\Duo\Policy::CLASSES as $matrixClass) {
+    foreach (\WPrism\Policy::CLASSES as $matrixClass) {
         try {
-            \Duo\SitePolicyValidator::validate(
+            \WPrism\SitePolicyValidator::validate(
                 ['policy' => [$matrixSection => ['k' => ['class' => $matrixClass]]]],
-                'site.duo.json',
-                \Duo\Policy::CLASSES,
+                'site.wprism.json',
+                \WPrism\Policy::CLASSES,
                 ['block', 'warn']
             );
         } catch (\Throwable $e) {
@@ -566,7 +566,7 @@ $e2eItems = [
     classify_item('options', 'acme_env'),
     classify_item('post_meta', 'acme_meta'),
 ];
-$e2ePath = sys_get_temp_dir() . '/duo_regress_classify_e2e_' . bin2hex(random_bytes(6)) . '.json';
+$e2ePath = sys_get_temp_dir() . '/wprism_regress_classify_e2e_' . bin2hex(random_bytes(6)) . '.json';
 $e2eExport = new ClassifyCommandDriver($e2eItems);
 $e2eExport->agentRepo = $e2eRepo;
 ob_start();
@@ -580,7 +580,7 @@ assert_classify_command(
 );
 $e2eBatch = json_decode((string) file_get_contents($e2ePath), true);
 assert_classify_command(
-    ($e2eBatch['format'] ?? null) === 'duo-classification-batch/v2',
+    ($e2eBatch['format'] ?? null) === 'wprism-classification-batch/v2',
     'the exported artifact declares the v2 shape that can carry a complete decision'
 );
 
@@ -589,7 +589,7 @@ $e2eBatch['decisions'][0]['class'] = 'authored';
 $e2eBatch['decisions'][1]['class'] = 'env';
 $e2eBatch['decisions'][2]['class'] = 'authored';
 file_put_contents($e2ePath, ClassificationBatch::encode($e2eBatch));
-$siteBefore = (string) file_get_contents($e2eRepo . '/site.duo.json');
+$siteBefore = (string) file_get_contents($e2eRepo . '/site.wprism.json');
 $e2eIncomplete = new ClassifyCommandDriver($e2eItems);
 $e2eIncomplete->agentRepo = $e2eRepo;
 ob_start();
@@ -598,8 +598,8 @@ ob_get_clean();
 assert_classify_command($e2eIncompleteExit === 1, 'a class-only batch refuses');
 assert_classify_command($e2eIncomplete->streamCalls === 0, 'the refusal happens on the host: no remote write is opened at all');
 assert_classify_command(
-    (string) file_get_contents($e2eRepo . '/site.duo.json') === $siteBefore,
-    'site.duo.json is byte-identical after the refusal'
+    (string) file_get_contents($e2eRepo . '/site.wprism.json') === $siteBefore,
+    'site.wprism.json is byte-identical after the refusal'
 );
 
 // Completed: every field the chosen class needs.
@@ -613,7 +613,7 @@ ob_start();
 $e2eApplyExit = ClassifyCommand::run($e2eApply, ["--apply-batch=$e2ePath"]);
 $e2eApplyOutput = (string) ob_get_clean();
 assert_classify_command($e2eApplyExit === 0, 'the completed batch applies through the real agent handler');
-$written = json_decode((string) file_get_contents($e2eRepo . '/site.duo.json'), true);
+$written = json_decode((string) file_get_contents($e2eRepo . '/site.wprism.json'), true);
 // Key order is Canon's, not the writer's — these are the canonical bytes.
 assert_classify_command(
     ($written['policy']['options']['acme_flag'] ?? null) === ['autoload' => 'preserve', 'class' => 'authored']
@@ -624,53 +624,53 @@ assert_classify_command(
 // Policy::load() is the first thing Pending::scan() does
 // (agent/src/Review/Pending.php:37) and is exactly where the live-observed
 // refusal came from. It has to be silent now.
-\Duo\Policy::load($e2eRepo);
-assert_classify_command(true, 'the site.duo.json a clean batch produced loads without a refusal — the batch that applies clean scans clean');
+\WPrism\Policy::load($e2eRepo);
+assert_classify_command(true, 'the site.wprism.json a clean batch produced loads without a refusal — the batch that applies clean scans clean');
 unlink($e2ePath);
 
 // ---------------------------------------------------------------------------
 // The agent's own write boundary (Policy::set_rule), reached the way an
-// operator reaches it: a hand-run `wp duo classify --set`. The batch is not
+// operator reaches it: a hand-run `wp wprism classify --set`. The batch is not
 // the only door into this file, so the completeness gate cannot live only in
-// the batch — every one of these used to write a site.duo.json that the next
+// the batch — every one of these used to write a site.wprism.json that the next
 // command refused to load.
 // ---------------------------------------------------------------------------
 
-/** @return array{0:?string,1:bool} the refusal message (null when it wrote) and whether site.duo.json moved */
+/** @return array{0:?string,1:bool} the refusal message (null when it wrote) and whether site.wprism.json moved */
 function run_agent_classify(string $set): array {
     $repo = classify_fixture_repo();
-    $before = (string) file_get_contents($repo . '/site.duo.json');
+    $before = (string) file_get_contents($repo . '/site.wprism.json');
     try {
-        (new \Duo\Cli())->classify([], ['repo' => $repo, 'set' => $set]);
+        (new \WPrism\Cli())->classify([], ['repo' => $repo, 'set' => $set]);
         $message = null;
     } catch (\Throwable $e) {
         $message = $e->getMessage();
     }
-    return [$message, (string) file_get_contents($repo . '/site.duo.json') !== $before];
+    return [$message, (string) file_get_contents($repo . '/site.wprism.json') !== $before];
 }
 
 [$authoredMessage, $authoredMoved] = run_agent_classify('options:legacy_banner=authored');
 assert_classify_command(
-    $authoredMessage === 'duo: site.duo.json options.legacy_banner needs autoload=preserve or an explicit supported autoload value (yes|no|auto|on|off|auto-on|auto-off); insertion may never guess',
+    $authoredMessage === 'wprism: site.wprism.json options.legacy_banner needs autoload=preserve or an explicit supported autoload value (yes|no|auto|on|off|auto-on|auto-off); insertion may never guess',
     'a classify spec with no autoload refuses in the loader\'s own words, at the write boundary'
 );
-assert_classify_command(!$authoredMoved, 'and site.duo.json is untouched, so nothing has to be repaired by hand');
+assert_classify_command(!$authoredMoved, 'and site.wprism.json is untouched, so nothing has to be repaired by hand');
 
 [$envMessage, $envMoved] = run_agent_classify('options:legacy_banner=env');
 assert_classify_command(
     is_string($envMessage) && str_contains($envMessage, 'options.legacy_banner.class="env" needs an explicit boolean \'required\''),
     'an env spec with no required refuses the same way'
 );
-assert_classify_command(!$envMoved, 'and leaves site.duo.json untouched too');
+assert_classify_command(!$envMoved, 'and leaves site.wprism.json untouched too');
 
 [$badRequired, ] = run_agent_classify('options:legacy_banner=env,required=maybe');
 assert_classify_command(
-    $badRequired === "duo: bad required='maybe' in --set spec 'options:legacy_banner=env,required=maybe' (expected required=true or required=false)",
+    $badRequired === "wprism: bad required='maybe' in --set spec 'options:legacy_banner=env,required=maybe' (expected required=true or required=false)",
     'the spec grammar takes only the two spellings that are a decision, never a truthy guess'
 );
 [$inertOnMeta, ] = run_agent_classify('post_meta:legacy_meta=authored,autoload=preserve');
 assert_classify_command(
-    $inertOnMeta === 'duo: autoload and required are valid only for options rules',
+    $inertOnMeta === 'wprism: autoload and required are valid only for options rules',
     'autoload on a post_meta rule refuses rather than being written where nothing reads it'
 );
 [$inertOnRuntime, ] = run_agent_classify('options:legacy_banner=runtime,autoload=yes');
@@ -689,27 +689,27 @@ assert_classify_command(
 // redundant per-row flag: the probe carries the document's own
 // policy.option_autoload, exactly as SitePolicyValidator does at load time.
 $defaultRepo = classify_fixture_repo();
-$defaultSite = json_decode((string) file_get_contents($defaultRepo . '/site.duo.json'), true);
+$defaultSite = json_decode((string) file_get_contents($defaultRepo . '/site.wprism.json'), true);
 $defaultSite['policy']['option_autoload'] = 'preserve';
-file_put_contents($defaultRepo . '/site.duo.json', json_encode($defaultSite, JSON_PRETTY_PRINT));
-(new \Duo\Cli())->classify([], ['repo' => $defaultRepo, 'set' => 'options:legacy_banner=authored']);
-$defaultWritten = json_decode((string) file_get_contents($defaultRepo . '/site.duo.json'), true);
+file_put_contents($defaultRepo . '/site.wprism.json', json_encode($defaultSite, JSON_PRETTY_PRINT));
+(new \WPrism\Cli())->classify([], ['repo' => $defaultRepo, 'set' => 'options:legacy_banner=authored']);
+$defaultWritten = json_decode((string) file_get_contents($defaultRepo . '/site.wprism.json'), true);
 assert_classify_command(
     ($defaultWritten['policy']['options']['legacy_banner'] ?? null) === ['class' => 'authored'],
     'a site that already declares policy.option_autoload accepts an authored rule with no per-row flag'
 );
-\Duo\Policy::load($defaultRepo);
+\WPrism\Policy::load($defaultRepo);
 assert_classify_command(true, 'and that document loads, which is the only test that matters for the scoping choice');
 
 // A row left incomplete by the defect must not block the classify that
 // repairs a DIFFERENT key: the write-boundary probe is scoped to the one rule
 // being written, not to the whole policy.
 $legacyRepo = classify_fixture_repo();
-$legacySite = json_decode((string) file_get_contents($legacyRepo . '/site.duo.json'), true);
+$legacySite = json_decode((string) file_get_contents($legacyRepo . '/site.wprism.json'), true);
 $legacySite['policy']['options'] = ['already_broken' => ['class' => 'authored']];
-file_put_contents($legacyRepo . '/site.duo.json', json_encode($legacySite, JSON_PRETTY_PRINT));
-(new \Duo\Cli())->classify([], ['repo' => $legacyRepo, 'set' => 'options:legacy_banner=authored,autoload=preserve']);
-$legacyWritten = json_decode((string) file_get_contents($legacyRepo . '/site.duo.json'), true);
+file_put_contents($legacyRepo . '/site.wprism.json', json_encode($legacySite, JSON_PRETTY_PRINT));
+(new \WPrism\Cli())->classify([], ['repo' => $legacyRepo, 'set' => 'options:legacy_banner=authored,autoload=preserve']);
+$legacyWritten = json_decode((string) file_get_contents($legacyRepo . '/site.wprism.json'), true);
 assert_classify_command(
     isset($legacyWritten['policy']['options']['legacy_banner']['autoload']),
     'an already-incomplete row elsewhere in the document does not block repairing another key'

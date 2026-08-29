@@ -1,11 +1,11 @@
 <?php
 /**
- * Offline product contract for `duo recover <env> --prune-retained=<keep-n>`
- * (DUO-3514's retention half).
+ * Offline product contract for `wprism recover <env> --prune-retained=<keep-n>`
+ * (issue #3514's retention half).
  *
  * Two writers retain a whole-database dump per release and nothing in the
  * product ever removed one: promote writes
- * `.duo/checkpoints/promote-<run-id>.sql.enc` (cli/duo:2236) and deploy writes
+ * `.wprism/checkpoints/promote-<run-id>.sql.enc` (cli/wprism:2236) and deploy writes
  * `deploy-<run-id>.sql` (DeployCommand.php:67). This suite pins the ONE verb
  * that removes them, and specifically the five properties that separate it
  * from "an rm with a nice name":
@@ -40,14 +40,14 @@ require_once __DIR__ . '/../../../../cli/src/Recovery/CheckpointCatalog.php';
 require_once __DIR__ . '/../../../../cli/src/Recovery/CheckpointPrune.php';
 require_once __DIR__ . '/../../../../cli/src/Recovery/RetainedCheckpoints.php';
 
-use Duo\CommandRefusalException;
-use Duo\Orchestrator\CheckpointCatalog;
-use Duo\Orchestrator\CheckpointPrune;
-use Duo\Orchestrator\DriverCapabilityReport;
-use Duo\Orchestrator\EnvironmentDriver;
-use Duo\Orchestrator\RecoverCommand;
-use Duo\Orchestrator\RecoveryClaim;
-use Duo\Orchestrator\RetainedCheckpoints;
+use WPrism\CommandRefusalException;
+use WPrism\Orchestrator\CheckpointCatalog;
+use WPrism\Orchestrator\CheckpointPrune;
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\EnvironmentDriver;
+use WPrism\Orchestrator\RecoverCommand;
+use WPrism\Orchestrator\RecoveryClaim;
+use WPrism\Orchestrator\RetainedCheckpoints;
 
 const PRUNE_REPO = '/srv/site-repo';
 const PRUNE_NOW = '2026-03-01T00:00:00Z';
@@ -144,7 +144,7 @@ function prune_catalog(array $rows): array {
     return ['disclosures' => [], 'format' => CheckpointCatalog::FORMAT, 'rows' => $rows];
 }
 
-/** Run `duo recover` against a fixture driver, capturing stdout. */
+/** Run `wprism recover` against a fixture driver, capturing stdout. */
 function prune_run(PruneFixtureDriver $driver, array $extra): array {
     ob_start();
     try {
@@ -172,30 +172,30 @@ $catalog = prune_catalog([
 ]);
 
 $plan = CheckpointPrune::plan($catalog, 1);
-duo_check_same(
+wprism_check_same(
     ['deploy-deploy-5', 'promote-promote-6'],
     array_column($plan['keep'], 'id'),
     'keep=1 keeps the newest checkpoint of EACH verb, not the newest one overall'
 );
-duo_check_same(
+wprism_check_same(
     ['deploy-deploy-3', 'deploy-deploy-1', 'promote-promote-4', 'promote-promote-2'],
     array_column($plan['delete'], 'id'),
     'and everything older in each group is a candidate, newest-first within the group'
 );
 
 $plan = CheckpointPrune::plan($catalog, 2);
-duo_check_same(
+wprism_check_same(
     ['deploy-deploy-5', 'deploy-deploy-3', 'promote-promote-6', 'promote-promote-4'],
     array_column($plan['keep'], 'id'),
     'keep=2 keeps two of each verb'
 );
-duo_check_same(
+wprism_check_same(
     ['deploy-deploy-1', 'promote-promote-2'],
     array_column($plan['delete'], 'id'),
     'leaving exactly the two oldest'
 );
 
-duo_check_same(
+wprism_check_same(
     [],
     CheckpointPrune::plan($catalog, 50)['delete'],
     'a keep count larger than the catalog deletes nothing at all'
@@ -206,18 +206,18 @@ duo_check_same(
 // accepts.
 $only = prune_catalog([prune_retained_row(RetainedCheckpoints::ID_PREFIX, 'sole', 1_772_000_000)]);
 foreach ([CheckpointPrune::KEEP_MIN, 3, CheckpointPrune::KEEP_MAX] as $keep) {
-    duo_check_same(
+    wprism_check_same(
         [],
         CheckpointPrune::plan($only, $keep)['delete'],
         "keep=$keep never deletes the only before-image a target holds"
     );
 }
-duo_check_refuses(
+wprism_check_refuses(
     static fn() => CheckpointPrune::plan($only, 0),
     'invalid_arguments',
     'keep=0 is not expressible: the bound is in the grammar, not in a later check'
 );
-duo_check_refuses(
+wprism_check_refuses(
     static fn() => CheckpointPrune::plan($only, CheckpointPrune::KEEP_MAX + 1),
     'invalid_arguments',
     'and the upper bound refuses too, so the flag has one closed range'
@@ -236,17 +236,17 @@ $mixed = prune_catalog([
     prune_retained_row(RetainedCheckpoints::ID_PREFIX, 'older', 1_772_000_100),
 ]);
 $plan = CheckpointPrune::plan($mixed, 1);
-duo_check_same(
+wprism_check_same(
     ['promote-older'],
     array_column($plan['delete'], 'id'),
     'a signed receipt whose id begins deploy- is not a prune candidate; only the retained file is'
 );
-duo_check_same(
+wprism_check_same(
     ['promote-newer'],
     array_column($plan['keep'], 'id'),
     'and the signed row is not counted toward any verb\'s keep quota either'
 );
-duo_check(
+wprism_check(
     !str_contains(
         CheckpointPrune::script(PRUNE_REPO, $plan['delete']),
         'deploy-2026-03-01-generation-7'
@@ -263,7 +263,7 @@ $inFlight = prune_catalog([
     prune_retained_row(RetainedCheckpoints::ID_PREFIX, 'newer', 1_772_000_200),
     prune_retained_row(RetainedCheckpoints::ID_PREFIX, 'older', 1_772_000_100),
 ]);
-duo_check_refuses(
+wprism_check_refuses(
     static fn() => CheckpointPrune::plan($inFlight, 1),
     CheckpointPrune::REASON_GENERATION_ACTIVE,
     'a nonterminal signed generation refuses the WHOLE prune: pruning mid-rollback is pruning during a release'
@@ -273,7 +273,7 @@ $settled = prune_catalog([
     prune_retained_row(RetainedCheckpoints::ID_PREFIX, 'newer', 1_772_000_200),
     prune_retained_row(RetainedCheckpoints::ID_PREFIX, 'older', 1_772_000_100),
 ]);
-duo_check_same(
+wprism_check_same(
     ['promote-older'],
     array_column(CheckpointPrune::plan($settled, 1)['delete'], 'id'),
     'and a terminal generation does not block it: the gate is in-flight-ness, not the presence of an authority'
@@ -284,21 +284,21 @@ duo_check_same(
 // ---------------------------------------------------------------------------
 
 $one = [prune_retained_row(RetainedCheckpoints::DEPLOY_ID_PREFIX, 'run-9', 1_772_000_100)];
-duo_check_same(
-    'p=\'/srv/site-repo/.duo/checkpoints/deploy-run-9.sql.enc\'; if [ -e "$p" ]; then '
+wprism_check_same(
+    'p=\'/srv/site-repo/.wprism/checkpoints/deploy-run-9.sql.enc\'; if [ -e "$p" ]; then '
     . 'if rm -f "$p"; then printf \'%s\\t%s\\n\' \'deploy-run-9\' removed; '
     . 'else printf \'%s\\t%s\\n\' \'deploy-run-9\' failed; fi; '
     . 'else printf \'%s\\t%s\\n\' \'deploy-run-9\' absent; fi; exit 0',
     CheckpointPrune::script(PRUNE_REPO, $one),
     'the removal script is one POSIX-sh rm per row, at the path RetainedCheckpoints::checkpointPath derives'
 );
-duo_check_same(
+wprism_check_same(
     'exit 0',
     CheckpointPrune::script(PRUNE_REPO, []),
     'and an empty plan sends a script that removes nothing'
 );
 
-duo_check_same(
+wprism_check_same(
     [['id' => 'promote-a', 'status' => 'removed'], ['id' => 'deploy-b', 'status' => 'absent']],
     CheckpointPrune::parse("promote-a\tremoved\ndeploy-b\tabsent\n"),
     'parse() reads the per-row outcome the script printed'
@@ -309,7 +309,7 @@ foreach ([
     "promote-a\tdeleted\n" => 'an outcome this build does not define',
     "materialize-op\tremoved\n" => 'an id that is not a retained checkpoint',
 ] as $stdout => $why) {
-    duo_check_refuses(
+    wprism_check_refuses(
         static fn() => CheckpointPrune::parse($stdout),
         CheckpointPrune::REASON_MALFORMED,
         "parse() refuses $why rather than skipping it"
@@ -331,61 +331,61 @@ $files = [
 
 $driver = new PruneFixtureDriver($files);
 $result = prune_run($driver, ['--prune-retained=1']);
-duo_check_same(0, $result['exit'], 'a plan-only prune exits 0');
-duo_check_same(
+wprism_check_same(0, $result['exit'], 'a plan-only prune exits 0');
+wprism_check_same(
     [],
     $driver->mutating,
     'THE default-safety property, counted rather than read: --prune-retained alone issues ZERO mutating calls'
 );
-duo_check(
+wprism_check(
     str_contains($result['stdout'], 'WOULD-PRUNE deploy-r3  2026-02-25T06:18:20Z')
         && str_contains($result['stdout'], 'WOULD-PRUNE promote-r2  2026-02-25T06:16:40Z'),
     'and prints one WOULD-PRUNE row per candidate, with the instant the file carries'
 );
-duo_check(
+wprism_check(
     str_contains($result['stdout'], "would prune 4, keep 2\n"),
     'with a summary that counts both halves'
 );
-duo_check(
+wprism_check(
     str_contains($result['stdout'], 'nothing was removed: re-run with --confirm-prune'),
     'and names the one flag that turns the plan into a deletion'
 );
-duo_check(
+wprism_check(
     str_contains($result['stdout'], 'note: ' . CheckpointPrune::DISCLOSURE_NEVER_AUTOMATIC)
         && str_contains($result['stdout'], 'note: ' . CheckpointPrune::DISCLOSURE_NEWEST_KEPT)
         && str_contains($result['stdout'], 'note: ' . CheckpointPrune::DISCLOSURE_ARTIFACTS_KEPT),
     'the three disclosures print as note: lines, including the one saying the artifact and frozen plan are kept'
 );
-duo_check(
+wprism_check(
     !str_contains($result['stdout'], 'PRUNED '),
     'and nothing in the plan output claims a removal happened'
 );
 
 $driver = new PruneFixtureDriver($files);
 $result = prune_run($driver, ['--prune-retained=1', '--confirm-prune']);
-duo_check_same(0, $result['exit'], 'a confirmed prune exits 0');
-duo_check_same(1, count($driver->mutating), 'and issues exactly ONE mutating call: the whole removal is one script');
-duo_check(
-    str_contains($driver->mutating[0], "/.duo/checkpoints/promote-r2.sql.enc'")
-        && str_contains($driver->mutating[0], "/.duo/checkpoints/deploy-r1.sql.enc'"),
+wprism_check_same(0, $result['exit'], 'a confirmed prune exits 0');
+wprism_check_same(1, count($driver->mutating), 'and issues exactly ONE mutating call: the whole removal is one script');
+wprism_check(
+    str_contains($driver->mutating[0], "/.wprism/checkpoints/promote-r2.sql.enc'")
+        && str_contains($driver->mutating[0], "/.wprism/checkpoints/deploy-r1.sql.enc'"),
     'naming exactly the candidate paths'
 );
-duo_check(
+wprism_check(
     !str_contains($driver->mutating[0], 'promote-r6.sql.enc')
         && !str_contains($driver->mutating[0], 'deploy-r5.sql.enc'),
     'and never the newest of either verb'
 );
-duo_check(
-    !str_contains($driver->mutating[0], '.duo/artifacts')
-        && !str_contains($driver->mutating[0], '.duo/releases'),
+wprism_check(
+    !str_contains($driver->mutating[0], '.wprism/artifacts')
+        && !str_contains($driver->mutating[0], '.wprism/releases'),
     'THE containment property: the removal touches no artifact and no frozen plan, only the .sql'
 );
-duo_check(
+wprism_check(
     str_contains($result['stdout'], 'REMOVED promote-r2  2026-02-25T06:16:40Z')
         && str_contains($result['stdout'], "pruned 4, kept 2\n"),
     'and the outcome prints the per-row outcome the TARGET reported, not what the host planned'
 );
-duo_check(
+wprism_check(
     !str_contains($result['stdout'], 'WOULD-PRUNE')
         && !str_contains($result['stdout'], 'nothing was removed'),
     'with no trace of the plan vocabulary once a removal actually happened'
@@ -395,26 +395,26 @@ duo_check(
 $driver = new PruneFixtureDriver($files);
 $result = prune_run($driver, ['--prune-retained=2', '--format=json']);
 $document = json_decode($result['stdout'], true);
-duo_check_same(CheckpointPrune::FORMAT, $document['format'] ?? null, '--format=json emits duo-checkpoint-prune/v1');
-duo_check_same(false, $document['confirmed'] ?? null, 'stating that this run confirmed nothing');
-duo_check_same(2, $document['keep'] ?? null, 'and the keep count it decided with');
-duo_check_same(
+wprism_check_same(CheckpointPrune::FORMAT, $document['format'] ?? null, '--format=json emits wprism-checkpoint-prune/v1');
+wprism_check_same(false, $document['confirmed'] ?? null, 'stating that this run confirmed nothing');
+wprism_check_same(2, $document['keep'] ?? null, 'and the keep count it decided with');
+wprism_check_same(
     ['deploy-r1', 'promote-r2'],
     array_column((array) $document['pruned'], 'id'),
     'listing the rows it would remove'
 );
-duo_check_same(
+wprism_check_same(
     ['would-prune', 'would-prune'],
     array_column((array) $document['pruned'], 'status'),
     'each marked would-prune rather than removed'
 );
-duo_check_same([], $driver->mutating, 'and the JSON plan is as read-only as the human one');
+wprism_check_same([], $driver->mutating, 'and the JSON plan is as read-only as the human one');
 
 // A target that could not remove a file reports it per row and exits 1.
 $driver = new PruneFixtureDriver($files, 1);
 $result = prune_run($driver, ['--prune-retained=1', '--confirm-prune', '--format=json']);
-duo_check_same(1, $result['exit'], 'a target that could not run the removal script refuses');
-duo_check_same(
+wprism_check_same(1, $result['exit'], 'a target that could not run the removal script refuses');
+wprism_check_same(
     CheckpointPrune::REASON_UNAVAILABLE,
     (json_decode($result['stdout'], true)['reason_code'] ?? null),
     'with a reason code of its own rather than a generic failure'
@@ -435,12 +435,12 @@ foreach ([
 ] as $extra) {
     $driver = new PruneFixtureDriver($files);
     $result = prune_run($driver, array_merge($extra, ['--format=json']));
-    duo_check_same(
+    wprism_check_same(
         'invalid_arguments',
         (json_decode($result['stdout'], true)['reason_code'] ?? null),
         'the closed grammar refuses ' . implode(' ', $extra)
     );
-    duo_check_same([], $driver->mutating, 'and removes nothing while doing so');
+    wprism_check_same([], $driver->mutating, 'and removes nothing while doing so');
 }
 
 // --writers-excluded is the one worth stating plainly: it asserts a
@@ -449,15 +449,15 @@ foreach ([
 // danger.
 $driver = new PruneFixtureDriver($files);
 $listed = prune_run($driver, ['--list']);
-duo_check_same(0, $listed['exit'], '--list still exits 0 for the same catalog');
-duo_check_same([], $driver->mutating, 'and is still read-only');
-duo_check(
+wprism_check_same(0, $listed['exit'], '--list still exits 0 for the same catalog');
+wprism_check_same([], $driver->mutating, 'and is still read-only');
+wprism_check(
     str_contains($listed['stdout'], "checkpoints: 6\n")
         && str_contains($listed['stdout'], '  promote-r6  retained  ' . RetainedCheckpoints::KIND)
         && str_contains($listed['stdout'], 'note: ' . RetainedCheckpoints::DISCLOSURE_RETAINED),
     'printing the byte-identical rows and disclosures it printed before the prune flag existed'
 );
-duo_check(
+wprism_check(
     !str_contains($listed['stdout'], 'WOULD-PRUNE') && !str_contains($listed['stdout'], 'would prune'),
     'with nothing about pruning leaking into a plain listing'
 );
@@ -465,10 +465,10 @@ duo_check(
 // The catalog read itself is shared: one listing script for both requests.
 $driver = new PruneFixtureDriver($files);
 prune_run($driver, ['--prune-retained=1']);
-duo_check_same(
+wprism_check_same(
     1,
     count($driver->raw),
     'a plan reads the catalog exactly once and does nothing else: the prune decides on the rows --list would print'
 );
 
-duo_check_summary('regress_checkpoint_prune');
+wprism_check_summary('regress_checkpoint_prune');

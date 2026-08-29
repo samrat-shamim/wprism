@@ -143,10 +143,10 @@ pass "Advanced Editor Tools converges every editor surface while preserving all 
 wp_conf2 plugin deactivate tinymce-advanced >/dev/null
 [ "$(wp_conf2 option get tadv_settings --format=json | jq -r '.toolbar_1')" = "bold,italic,underline,strikethrough" ] \
   || fail "Advanced Editor Tools deactivation changed authored toolbar settings"
-DEPLOY_AFTER_DEACTIVATE=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "Advanced Editor Tools deploy after deactivation" json "$DEPLOY_AFTER_DEACTIVATE"
+DEPLOY_AFTER_DEACTIVATE=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "Advanced Editor Tools deploy after deactivation" json "$DEPLOY_AFTER_DEACTIVATE"
 wp_conf2 plugin is-active tinymce-advanced >/dev/null \
-  || fail "Duo deploy did not reactivate exact Advanced Editor Tools code"
+  || fail "WPrism deploy did not reactivate exact Advanced Editor Tools code"
 REACTIVATED=$(observe_advanced_editor_tools conf2)
 printf '%s\n' "$REACTIVATED" | jq -e '
   .buttons_1 == ["bold","italic","underline","strikethrough"] and
@@ -168,8 +168,8 @@ require_observed_nonempty "Advanced Editor Tools option count after uninstall" "
   || fail "Advanced Editor Tools uninstall mutated the undeclared neighbor"
 
 MISSING_RC=0
-MISSING_OUT=$(wp_conf2 duo deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
-require_duo_answered "Advanced Editor Tools deploy with code absent" human "$MISSING_OUT"
+MISSING_OUT=$(wp_conf2 wprism deploy --repo=/siterepo 2>&1) || MISSING_RC=$?
+require_wprism_answered "Advanced Editor Tools deploy with code absent" human "$MISSING_OUT"
 [ "$MISSING_RC" -ne 0 ] && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$MISSING_OUT" \
   || fail "missing Advanced Editor Tools code did not refuse at the compatibility boundary: $MISSING_OUT"
 if wp_conf2 plugin is-installed tinymce-advanced >/dev/null 2>&1; then
@@ -187,39 +187,39 @@ require_observed_nonempty "Advanced Editor Tools cached artifact digest" "$OBSER
 wp_conf2 plugin install "$AET_ARTIFACT" --force >/dev/null
 [ "$(wp_conf2 plugin get tinymce-advanced --field=version)" = "5.9.2" ] \
   || fail "Advanced Editor Tools exact reinstall reported the wrong version"
-REINSTALL_DEPLOY=$(wp_conf2 duo deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "Advanced Editor Tools deploy after exact reinstall" json "$REINSTALL_DEPLOY"
+REINSTALL_DEPLOY=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "Advanced Editor Tools deploy after exact reinstall" json "$REINSTALL_DEPLOY"
 if wp_conf2 option get tadv_settings >/dev/null 2>&1 \
   || wp_conf2 option get tadv_admin_settings >/dev/null 2>&1; then
   fail "Advanced Editor Tools exact reinstall invented authored settings before repository reconciliation"
 fi
 
 # The exact uninstall removed settings that were part of the target's synced
-# base. Duo correctly treats that as environment drift, which is never
+# base. WPrism correctly treats that as environment drift, which is never
 # overwritten implicitly. Publish a new plugin-authored repository revision:
 # target absence and repository change then form an explicit three-way
 # conflict, allowing reviewed --force-theirs recovery instead of a fallback.
 save_advanced_editor_tools_profile conf1 reinstall
-wp_conf1 duo capture --repo=/siterepo >/dev/null
+wp_conf1 wprism capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
-git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: Advanced Editor Tools reinstall recovery intent'
+git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: Advanced Editor Tools reinstall recovery intent'
 git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
-REINSTALL_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "Advanced Editor Tools reinstall recovery plan" json "$REINSTALL_PLAN"
+REINSTALL_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "Advanced Editor Tools reinstall recovery plan" json "$REINSTALL_PLAN"
 jq -e '.conflict | any(.uuid == "options/core" and .type == "options")' <<<"$REINSTALL_PLAN" >/dev/null \
   || fail "Advanced Editor Tools reinstall absence plus new source intent did not become a typed conflict: $REINSTALL_PLAN"
 REINSTALL_RC=0
-REINSTALL_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || REINSTALL_RC=$?
-require_duo_answered "Advanced Editor Tools unforced reinstall recovery" human "$REINSTALL_OUT"
+REINSTALL_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || REINSTALL_RC=$?
+require_wprism_answered "Advanced Editor Tools unforced reinstall recovery" human "$REINSTALL_OUT"
 [ "$REINSTALL_RC" -ne 0 ] && grep -qi 'conflicts (env and repo both changed' <<<"$REINSTALL_OUT" \
   || fail "Advanced Editor Tools reinstall recovery did not refuse before explicit conflict authorization: $REINSTALL_OUT"
 if wp_conf2 option get tadv_settings >/dev/null 2>&1 \
   || wp_conf2 option get tadv_admin_settings >/dev/null 2>&1; then
   fail "unforced Advanced Editor Tools reinstall conflict partially recreated authored settings"
 fi
-REINSTALL_APPLY=$(wp_conf2 duo apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "Advanced Editor Tools forced reinstall recovery" json "$REINSTALL_APPLY"
+REINSTALL_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "Advanced Editor Tools forced reinstall recovery" json "$REINSTALL_APPLY"
 [ "$(jq -r '.canary' <<<"$REINSTALL_APPLY")" = "clean" ] \
   || fail "Advanced Editor Tools forced reinstall recovery dirtied the apply canary: $REINSTALL_APPLY"
 jq -e '.warnings | any(contains("FORCED conflict options/core"))' <<<"$REINSTALL_APPLY" >/dev/null \
@@ -235,70 +235,70 @@ printf '%s\n' "$RECOVERED" | jq -e '
 pass "Advanced Editor Tools uninstall cleanup, absent-code refusal, exact reinstall, typed conflict, and explicit recovery converge without partial neighbor mutation"
 
 save_advanced_editor_tools_profile conf1 repository
-wp_conf1 duo capture --repo=/siterepo >/dev/null
+wp_conf1 wprism capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
-git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: Advanced Editor Tools repository branch intent'
+git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: Advanced Editor Tools repository branch intent'
 git -C "$CONF_REPO1" push -q origin main
 save_advanced_editor_tools_profile conf2 target
 git -C "$CONF_REPO2" pull -q origin main
 
-CONFLICT_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "Advanced Editor Tools competing-settings plan" json "$CONFLICT_PLAN"
+CONFLICT_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "Advanced Editor Tools competing-settings plan" json "$CONFLICT_PLAN"
 jq -e '.conflict | any(.uuid == "options/core" and .type == "options")' <<<"$CONFLICT_PLAN" >/dev/null \
   || fail "competing Advanced Editor Tools settings did not produce a typed options conflict: $CONFLICT_PLAN"
 CONFLICT_BEFORE=$(wp_conf2 option get tadv_settings --format=json | jq -r '.toolbar_1')
 require_observed_nonempty "Advanced Editor Tools target conflict baseline" "$CONFLICT_BEFORE"
 CONFLICT_RC=0
-CONFLICT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || CONFLICT_RC=$?
-require_duo_answered "Advanced Editor Tools unforced competing-settings apply" human "$CONFLICT_OUT"
+CONFLICT_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || CONFLICT_RC=$?
+require_wprism_answered "Advanced Editor Tools unforced competing-settings apply" human "$CONFLICT_OUT"
 [ "$CONFLICT_RC" -ne 0 ] && grep -qi 'conflicts (env and repo both changed' <<<"$CONFLICT_OUT" \
   || fail "Advanced Editor Tools competing settings did not refuse before mutation: $CONFLICT_OUT"
 CONFLICT_AFTER=$(wp_conf2 option get tadv_settings --format=json | jq -r '.toolbar_1')
 require_observed_nonempty "Advanced Editor Tools target after unforced conflict" "$CONFLICT_AFTER"
 [ "$CONFLICT_AFTER" = "$CONFLICT_BEFORE" ] \
   || fail "unforced Advanced Editor Tools conflict partially mutated the target (before=$CONFLICT_BEFORE after=$CONFLICT_AFTER)"
-FORCED=$(wp_conf2 duo apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "Advanced Editor Tools forced competing-settings apply" json "$FORCED"
+FORCED=$(wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "Advanced Editor Tools forced competing-settings apply" json "$FORCED"
 jq -e '.warnings | any(contains("FORCED conflict options/core"))' <<<"$FORCED" >/dev/null \
   || fail "forced Advanced Editor Tools conflict did not report its destructive override: $FORCED"
 [ "$(wp_conf2 option get tadv_settings --format=json | jq -r '.toolbar_1')" = "bold,code" ] \
   || fail "forced Advanced Editor Tools conflict did not converge to repository intent"
 
-ZERO_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "Advanced Editor Tools zero-change plan" json "$ZERO_PLAN"
+ZERO_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "Advanced Editor Tools zero-change plan" json "$ZERO_PLAN"
 jq -e '
   (.create | length) == 0 and (.update | length) == 0 and
   (.conflict | length) == 0 and (.drift | length) == 0
 ' <<<"$ZERO_PLAN" >/dev/null || fail "Advanced Editor Tools retry was not a zero-change plan: $ZERO_PLAN"
-ZERO_APPLY=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "Advanced Editor Tools zero-change apply" json "$ZERO_APPLY"
+ZERO_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "Advanced Editor Tools zero-change apply" json "$ZERO_APPLY"
 [ "$(jq -r '.canary' <<<"$ZERO_APPLY")" = "clean" ] \
   || fail "Advanced Editor Tools zero-change retry dirtied the apply canary: $ZERO_APPLY"
 pass "Advanced Editor Tools competing branch settings refuse without mutation, forced intent converges, and retry is idempotent"
 
 wp_conf1 eval "delete_option('tadv_admin_settings');" >/dev/null
-wp_conf1 duo capture --repo=/siterepo >/dev/null
+wp_conf1 wprism capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
-git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: delete Advanced Editor Tools admin settings'
+git -C "$CONF_REPO1" -c user.name=wprism -c user.email=wprism@example.test commit -qm 'conformance: delete Advanced Editor Tools admin settings'
 git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
 
 DELETE_RC=0
-DELETE_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || DELETE_RC=$?
-require_duo_answered "Advanced Editor Tools option deletion without authorization" human "$DELETE_OUT"
+DELETE_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || DELETE_RC=$?
+require_wprism_answered "Advanced Editor Tools option deletion without authorization" human "$DELETE_OUT"
 [ "$DELETE_RC" -ne 0 ] && grep -q 'authored option deletion intent requires --with-deletes' <<<"$DELETE_OUT" \
   || fail "Advanced Editor Tools option deletion did not require explicit authorization: $DELETE_OUT"
 wp_conf2 option get tadv_admin_settings >/dev/null \
   || fail "unauthorized Advanced Editor Tools option deletion partially mutated the target"
-DELETE_APPLY=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_duo_answered "Advanced Editor Tools authorized option deletion" json "$DELETE_APPLY"
+DELETE_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --with-deletes --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered "Advanced Editor Tools authorized option deletion" json "$DELETE_APPLY"
 if wp_conf2 option get tadv_admin_settings >/dev/null 2>&1; then
   fail "authorized Advanced Editor Tools option deletion left the row present"
 fi
 [ "$(wp_conf2 option get tadv_settings --format=json | jq -r '.toolbar_1')" = "bold,code" ] \
   && [ "$(wp_conf2 option get tadv_future_setting)" = "target-only-neighbor" ] \
   || fail "authorized Advanced Editor Tools deletion mutated a sibling authored option or undeclared neighbor"
-wp_conf2 duo capture --repo=/siterepo --out=/siterepo/.tmp-advanced-editor-tools-delete-state >/dev/null
+wp_conf2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-advanced-editor-tools-delete-state >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO2/.tmp-advanced-editor-tools-delete-state" \
   || fail "Advanced Editor Tools authorized deletion did not recapture byte-identically"
 rm -rf "$CONF_REPO2/.tmp-advanced-editor-tools-delete-state"

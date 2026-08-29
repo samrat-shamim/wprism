@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /** Durable identity validation shared by capture, plan, apply, and recovery. */
 final class Identity {
@@ -20,7 +20,7 @@ final class Identity {
             $byOwner[$owner][] = $uuid;
             if (!Uuid::is($uuid)) {
                 throw new \RuntimeException(
-                    "duo: invalid _duo_uuid '$uuid' on $owner; capture requires a lowercase RFC UUID"
+                    "wprism: invalid _wprism_uuid '$uuid' on $owner; capture requires a lowercase RFC UUID"
                 );
             }
             $byUuid[$uuid][$owner] = true;
@@ -28,7 +28,7 @@ final class Identity {
         foreach ($byOwner as $owner => $values) {
             if (count($values) !== 1) {
                 throw new \RuntimeException(
-                    "duo: duplicate _duo_uuid metadata rows on $owner (" . count($values)
+                    "wprism: duplicate _wprism_uuid metadata rows on $owner (" . count($values)
                     . ' rows); refusing to choose one'
                 );
             }
@@ -36,7 +36,7 @@ final class Identity {
         foreach ($byUuid as $uuid => $owners) {
             if (count($owners) > 1) {
                 throw new \RuntimeException(
-                    "duo: duplicate _duo_uuid $uuid is attached to " . implode(', ', array_keys($owners))
+                    "wprism: duplicate _wprism_uuid $uuid is attached to " . implode(', ', array_keys($owners))
                     . '; copied metadata must be replaced with a fresh identity before capture'
                 );
             }
@@ -53,7 +53,7 @@ final class Identity {
         global $wpdb;
         foreach ([$table, $ownerColumn, $ownerTable, $ownerPrimaryKey] as $identifier) {
             if (!is_string($identifier) || preg_match('/^[A-Za-z0-9_]{1,64}$/D', $identifier) !== 1) {
-                throw new \RuntimeException("duo: could not validate live $kind identity owners: unsafe SQL identifier");
+                throw new \RuntimeException("wprism: could not validate live $kind identity owners: unsafe SQL identifier");
             }
         }
         if (property_exists($wpdb, 'last_error')) {
@@ -62,7 +62,7 @@ final class Identity {
         $rows = $wpdb->get_results(
             "SELECT `$ownerColumn` AS local_id, LEFT(meta_value, 37) AS uuid, "
             . "OCTET_LENGTH(meta_value) AS uuid_bytes FROM `$table` "
-            . "WHERE meta_key = '_duo_uuid' AND BINARY meta_key = BINARY '_duo_uuid' "
+            . "WHERE meta_key = '_wprism_uuid' AND BINARY meta_key = BINARY '_wprism_uuid' "
             . "ORDER BY `$ownerColumn` ASC, meta_id ASC LIMIT "
             . (self::MAX_EMBEDDED_IDENTITY_ROWS + 1),
             ARRAY_A
@@ -72,12 +72,12 @@ final class Identity {
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
             $detail = trim((string) ($wpdb->last_error ?? ''));
             throw new \RuntimeException(
-                "duo: could not validate live $kind identity owners: "
+                "wprism: could not validate live $kind identity owners: "
                 . ($detail !== '' ? $detail : 'checked identity read returned no result')
             );
         }
         if (count($rows) > self::MAX_EMBEDDED_IDENTITY_ROWS) {
-            throw new \RuntimeException("duo: could not validate live $kind identity owners: bounded row limit exceeded");
+            throw new \RuntimeException("wprism: could not validate live $kind identity owners: bounded row limit exceeded");
         }
         $validated = [];
         $previousOwner = 0;
@@ -93,7 +93,7 @@ final class Identity {
                 || strlen($row['uuid']) !== $uuidBytes
                 || $localId < $previousOwner) {
                 throw new \RuntimeException(
-                    "duo: could not validate live $kind identity owners: malformed row at bounded position $position"
+                    "wprism: could not validate live $kind identity owners: malformed row at bounded position $position"
                 );
             }
             $validated[] = ['kind' => $kind, 'local_id' => $localId, 'uuid' => $row['uuid']];
@@ -119,7 +119,7 @@ final class Identity {
                 || !array_is_list($liveIds)
                 || trim((string) ($wpdb->last_error ?? '')) !== ''
                 || count($liveIds) > count($chunk)) {
-                throw new \RuntimeException("duo: could not validate live $kind identity owners: checked owner read failed");
+                throw new \RuntimeException("wprism: could not validate live $kind identity owners: checked owner read failed");
             }
             $previousLive = 0;
             $requested = array_fill_keys($chunk, true);
@@ -127,7 +127,7 @@ final class Identity {
                 $id = self::positive_id($liveId);
                 if ($id === null || !isset($requested[$id]) || $id <= $previousLive) {
                     throw new \RuntimeException(
-                        "duo: could not validate live $kind identity owners: malformed owner row at bounded position $position"
+                        "wprism: could not validate live $kind identity owners: malformed owner row at bounded position $position"
                     );
                 }
                 $live[$id] = true;
@@ -185,10 +185,10 @@ final class Identity {
 
     private static function claim(array &$seen, string $uuid, string $where): void {
         if (!Uuid::is($uuid)) {
-            throw new \RuntimeException("duo: invalid entity uuid '$uuid' at $where");
+            throw new \RuntimeException("wprism: invalid entity uuid '$uuid' at $where");
         }
         if (isset($seen[$uuid])) {
-            throw new \RuntimeException("duo: duplicate entity uuid $uuid at {$seen[$uuid]} and $where");
+            throw new \RuntimeException("wprism: duplicate entity uuid $uuid at {$seen[$uuid]} and $where");
         }
         $seen[$uuid] = $where;
     }

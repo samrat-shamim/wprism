@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Regression — DUO-3503: the contract proposal is PER ENVIRONMENT, and accept
+# Regression — issue #3503: the contract proposal is PER ENVIRONMENT, and accept
 # says so when it is handed one that is not.
 #
-# `.duo/contract/proposed.json` used to be one slot per repository holding a
+# `.wprism/contract/proposed.json` used to be one slot per repository holding a
 # document that is environment-specific in two independent ways: it stamps
 # `environment` from the report (ContractProposal.php:185) and binds an
 # `assess_digest` that covers `env` plus `target.home`/`target.siteurl`
 # (AssessReport.php:103, ContractProposal.php:113). `AssessCommand::
-# writeLocalArtifacts()` writes it unconditionally on every `duo assess <env>`,
+# writeLocalArtifacts()` writes it unconditionally on every `wprism assess <env>`,
 # so assessing a second environment silently overwrote a reviewed-but-unaccepted
-# proposal for the first — unrecoverably, because `/.duo/` is inside the site
+# proposal for the first — unrecoverably, because `/.wprism/` is inside the site
 # repo's own ignore (InitRepositoryBoundary.php:247) so git holds no copy — and
 # the next accept blamed the SITE with `contract_proposal_stale`: "the proposal
 # was generated from a different assessment than the site returns now", about a
@@ -17,7 +17,7 @@
 #
 # Four properties, each of which is a way that can come back:
 #
-#   1. The proposal lands under `.duo/contract/<env>/`, and the retired shared
+#   1. The proposal lands under `.wprism/contract/<env>/`, and the retired shared
 #      slot is not written at all. The two per-site documents (`contract.json`,
 #      `projection.json`) stay where they were: the contract is ONE reviewed
 #      statement about this repository, and `environment_bindings.required[]`
@@ -43,7 +43,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo-contract-multi-env.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/wprism-contract-multi-env.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
 FAILURES=0
@@ -55,15 +55,15 @@ php "$ROOT/sandbox/tests/fixtures/assess/make-fixture.php" "$TMP/site" >/dev/nul
   || { echo "FAIL: could not build the assess fixture" >&2; exit 1; }
 
 SITE="$TMP/site/repo"
-CONTRACT_DIR="$SITE/.duo/contract"
+CONTRACT_DIR="$SITE/.wprism/contract"
 # InitRepositoryBoundary::ensure_gitignore() / sandbox/site-repo.gitignore.template:
-# Duo's whole private working area is ignored, which is why an overwritten
+# WPrism's whole private working area is ignored, which is why an overwritten
 # proposal is unrecoverable and why accept must force-add the two per-site
 # review artifacts through it.
-printf '/.tmp*\n/.duo/\n' > "$SITE/.gitignore"
-export DUO_FIXTURES="$TMP/site/fixtures"
-export DUO_SITE_REPO="$SITE"
-export DUO_CALLS="$TMP/calls.txt"
+printf '/.tmp*\n/.wprism/\n' > "$SITE/.gitignore"
+export WPRISM_FIXTURES="$TMP/site/fixtures"
+export WPRISM_SITE_REPO="$SITE"
+export WPRISM_CALLS="$TMP/calls.txt"
 PATH="$TMP/site/bin:$PATH"
 export PATH
 
@@ -79,10 +79,10 @@ $registry["envs"]["fixture2"] = $registry["envs"]["fixture"];
 file_put_contents($path, json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
 ' "$TMP/site/envs.json" || { echo "FAIL: could not register the second environment" >&2; exit 1; }
 
-# duo <stdout-file> [args...] -> exit code
-duo() {
+# wprism <stdout-file> [args...] -> exit code
+wprism() {
   local out="$1"; shift
-  ( cd "$SITE" && php "$ROOT/cli/duo" --envs-file="$TMP/site/envs.json" "$@" ) \
+  ( cd "$SITE" && php "$ROOT/cli/wprism" --envs-file="$TMP/site/envs.json" "$@" ) \
     > "$out" 2> "$out.err"
 }
 
@@ -132,16 +132,16 @@ PROPOSAL_B="$CONTRACT_DIR/fixture2/proposed.json"
 
 # ------------------------------------------------- 1. the path carries the env
 say 'the proposal is written per environment'
-duo "$TMP/assess-a.txt" assess fixture
+wprism "$TMP/assess-a.txt" assess fixture
 STATUS=$?
 [ "$STATUS" = 3 ] && pass 'assess fixture completes with its readiness-gap exit' \
   || { fail "assess fixture exited $STATUS"; cat "$TMP/assess-a.txt.err" >&2; }
-[ -f "$PROPOSAL_A" ] && pass 'assess writes .duo/contract/fixture/proposed.json' \
-  || fail 'assess wrote no proposal under .duo/contract/fixture/'
+[ -f "$PROPOSAL_A" ] && pass 'assess writes .wprism/contract/fixture/proposed.json' \
+  || fail 'assess wrote no proposal under .wprism/contract/fixture/'
 [ -e "$CONTRACT_DIR/proposed.json" ] \
-  && fail 'the retired per-repository slot .duo/contract/proposed.json was written' \
-  || pass 'the retired per-repository slot .duo/contract/proposed.json is not written'
-grep -Fq 'proposed contract written: .duo/contract/fixture/proposed.json' "$TMP/assess-a.txt" \
+  && fail 'the retired per-repository slot .wprism/contract/proposed.json was written' \
+  || pass 'the retired per-repository slot .wprism/contract/proposed.json is not written'
+grep -Fq 'proposed contract written: .wprism/contract/fixture/proposed.json' "$TMP/assess-a.txt" \
   && pass 'and the path assess PRINTS is the path assess WROTE' \
   || { fail 'assess printed a proposal path other than the one it wrote'; cat "$TMP/assess-a.txt" >&2; }
 [ "$(field "$PROPOSAL_A" environment)" = fixture ] \
@@ -157,12 +157,12 @@ REVIEWED_A="$(cat "$PROPOSAL_A" 2>/dev/null)"
 [ -n "$REVIEWED_A" ] && pass 'the reviewed proposal has content to be clobbered' \
   || fail 'there is no reviewed proposal to compare — the rest of this section proves nothing'
 
-duo "$TMP/assess-b.txt" assess fixture2
+wprism "$TMP/assess-b.txt" assess fixture2
 STATUS=$?
 [ "$STATUS" = 3 ] && pass 'assess fixture2 completes with its readiness-gap exit' \
   || { fail "assess fixture2 exited $STATUS"; cat "$TMP/assess-b.txt.err" >&2; }
 [ -f "$PROPOSAL_B" ] && pass 'assess fixture2 writes its OWN proposal' \
-  || fail 'assess fixture2 wrote no proposal under .duo/contract/fixture2/'
+  || fail 'assess fixture2 wrote no proposal under .wprism/contract/fixture2/'
 # The defect, stated as an assertion. Against the prior code this file was the
 # same file, so the reviewed bytes were gone.
 [ "$REVIEWED_A" = "$(cat "$PROPOSAL_A")" ] \
@@ -179,7 +179,7 @@ STATUS=$?
 
 # ---------------------------------------------- 3. the surviving review accepts
 say 'the reviewed proposal still accepts after the other environment was assessed'
-duo "$TMP/accept-a.txt" contract fixture accept
+wprism "$TMP/accept-a.txt" contract fixture accept
 STATUS=$?
 [ "$STATUS" = 0 ] && pass 'accept fixture exits 0' \
   || { fail "accept fixture exited $STATUS"; cat "$TMP/accept-a.txt.err" >&2; }
@@ -212,8 +212,8 @@ say 'a proposal stamped for another environment is refused by its own code'
 # otherwise the refusal could be the unreviewed-effect one instead.
 review_proposal "$PROPOSAL_B"
 cp "$PROPOSAL_B" "$PROPOSAL_A"
-: > "$DUO_CALLS"
-duo "$TMP/accept-mismatch.txt" contract fixture accept
+: > "$WPRISM_CALLS"
+wprism "$TMP/accept-mismatch.txt" contract fixture accept
 STATUS=$?
 [ "$STATUS" = 1 ] && pass 'accept refuses a proposal from another environment (exit 1)' \
   || { fail "the mismatched accept exited $STATUS"; cat "$TMP/accept-mismatch.txt.err" >&2; }
@@ -234,10 +234,10 @@ grep -Fq 'proposed_for=fixture2' "$TMP/accept-mismatch.txt.err" \
        cat "$TMP/accept-mismatch.txt.err" >&2; }
 # Refused before the target is contacted, like the worktree check beside it:
 # this is answerable from two strings already in hand.
-[ ! -s "$DUO_CALLS" ] \
+[ ! -s "$WPRISM_CALLS" ] \
   && pass 'the refusal happens before the target is contacted — no wp call was made' \
   || { fail 'the mismatched accept contacted the target before refusing'
-       cat "$DUO_CALLS" >&2; }
+       cat "$WPRISM_CALLS" >&2; }
 [ "$(field "$CONTRACT_DIR/contract.json" contract_digest)" = "$DIGEST_ACCEPTED" ] \
   && pass 'the accepted contract is exactly as it was — nothing was overwritten' \
   || fail 'the refused accept still moved the accepted contract'
@@ -250,14 +250,14 @@ say 'an environment name that is not a legal path segment is refused'
 # being a name and becomes a directory.
 php -r '
 require $argv[1] . "/cli/src/Contract/ContractStore.php";
-$store = new Duo\Orchestrator\ContractStore($argv[2]);
+$store = new WPrism\Orchestrator\ContractStore($argv[2]);
 $failures = 0;
 foreach (["../../escape", "../x", ".", "..", "", "has space", "-leading", "a/b"] as $illegal) {
     try {
         $store->proposalPath($illegal);
         fwrite(STDERR, "FAIL: proposalPath() accepted the illegal segment " . var_export($illegal, true) . "\n");
         $failures++;
-    } catch (Duo\CommandRefusalException $e) {
+    } catch (WPrism\CommandRefusalException $e) {
         if ($e->reasonCode !== "contract_environment_invalid") {
             fwrite(STDERR, "FAIL: " . var_export($illegal, true) . " refused as " . $e->reasonCode . "\n");
             $failures++;
@@ -268,7 +268,7 @@ foreach (["../../escape", "../x", ".", "..", "", "has space", "-leading", "a/b"]
 // refusal that does not say what a legal name looks like is a puzzle.
 try {
     $store->proposalPath("../escape");
-} catch (Duo\CommandRefusalException $e) {
+} catch (WPrism\CommandRefusalException $e) {
     if (strpos($e->remediation, "[A-Za-z0-9][A-Za-z0-9._-]{0,63}") === false) {
         fwrite(STDERR, "FAIL: the remediation does not name the legal charset\n");
         $failures++;
@@ -293,7 +293,7 @@ $registry = json_decode((string) file_get_contents($path), true);
 $registry["envs"]["../escape"] = $registry["envs"]["fixture"];
 file_put_contents($argv[2], json_encode($registry, JSON_UNESCAPED_SLASHES));
 ' "$TMP/site/envs.json" "$TMP/illegal-envs.json"
-( cd "$SITE" && php "$ROOT/cli/duo" --envs-file="$TMP/illegal-envs.json" assess fixture ) \
+( cd "$SITE" && php "$ROOT/cli/wprism" --envs-file="$TMP/illegal-envs.json" assess fixture ) \
   > "$TMP/illegal.txt" 2> "$TMP/illegal.txt.err"
 STATUS=$?
 [ "$STATUS" != 0 ] \

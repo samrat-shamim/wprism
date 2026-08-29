@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline (no docker, no WordPress bootstrap) regression harness for
- * DUO-3260's URL-query reference codec (`?p=`/`?page_id=`/
+ * issue #3260's URL-query reference codec (`?p=`/`?page_id=`/
  * `?attachment_id=`):
  *
  *  - agent/src/Kernel/UrlQueryReferenceCodec.php, driven through Tokens.php's
@@ -43,8 +43,8 @@
 if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 3);
+if (!defined('WPRISM_SPEC_VERSION')) {
+    define('WPRISM_SPEC_VERSION', 3);
 }
 
 $GLOBALS['__fake_options'] = ['home' => 'http://example.test'];
@@ -58,7 +58,7 @@ if (!function_exists('wp_upload_dir')) {
     function wp_upload_dir($time = null, $create_dir = true, $refresh_cache = false) {
         return [
             'baseurl' => 'http://example.test/wp-content/uploads',
-            'basedir' => sys_get_temp_dir() . '/duo-regress-uploads',
+            'basedir' => sys_get_temp_dir() . '/wprism-regress-uploads',
         ];
     }
 }
@@ -106,7 +106,7 @@ final class FakeWpdb {
 
     public function get_var($prepared) {
         [$sql, $args] = $this->unwrap($prepared);
-        if (str_contains($sql, 'SELECT local_id FROM') && str_contains($sql, 'duo_map')) {
+        if (str_contains($sql, 'SELECT local_id FROM') && str_contains($sql, 'wprism_map')) {
             [$uuid, $kind] = $args;
             foreach ($this->identity[$kind] ?? [] as $localId => $u) {
                 if ($u === $uuid) {
@@ -115,7 +115,7 @@ final class FakeWpdb {
             }
             return null;
         }
-        if (str_contains($sql, 'SELECT uuid FROM') && str_contains($sql, 'duo_map')) {
+        if (str_contains($sql, 'SELECT uuid FROM') && str_contains($sql, 'wprism_map')) {
             [$kind, $localId] = $args;
             return $this->identity[$kind][(int) $localId] ?? null;
         }
@@ -180,7 +180,7 @@ require __DIR__ . '/../../../../agent/src/Repository/Ledger.php';
 require __DIR__ . '/../../../../agent/src/Review/Pending.php';
 require __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
 require __DIR__ . '/../../../../agent/src/Review/Lint.php';
-// DUO-3260: Tokens::queue_unscoped_url_query_ref() calls Capture::
+// issue #3260: Tokens::queue_unscoped_url_query_ref() calls Capture::
 // classify_unscoped_ref() directly (public static, itself built on the
 // zero-instance-dependency ref_target_type() -- see both docblocks)
 // rather than duplicating the query shapes it encapsulates. Loading the
@@ -188,10 +188,10 @@ require __DIR__ . '/../../../../agent/src/Review/Lint.php';
 // any of its other (WordPress-dependent) methods.
 require __DIR__ . '/../../../../agent/src/Capture/Capture.php';
 
-use Duo\Canon;
-use Duo\Policy;
-use Duo\Tokens;
-use Duo\Lint;
+use WPrism\Canon;
+use WPrism\Policy;
+use WPrism\Tokens;
+use WPrism\Lint;
 
 const MAPPED_UUID = '01980000-0005-7000-8000-000000000001';
 const MAPPED_ID = 701;
@@ -428,7 +428,7 @@ check(!str_contains($tokenSource, 'private function detokenize_url_query_refs'),
 // ======================================================================
 echo "\n== Lint.php: unrewritten_url_query_ref ==\n";
 
-$stateDir = sys_get_temp_dir() . '/duo_regress_url_query_refs_' . bin2hex(random_bytes(4));
+$stateDir = sys_get_temp_dir() . '/wprism_regress_url_query_refs_' . bin2hex(random_bytes(4));
 register_shutdown_function(fn() => rrmdir($stateDir));
 
 function write_fixture_post(string $stateDir, string $slug, string $uuid, string $body, array $meta = []): string {
@@ -447,7 +447,7 @@ $l1path = write_fixture_post($stateDir, 'l1-raw-body', '01980000-0006-7000-8000-
 
 // L2 -- raw ?page_id= survivor in meta: finding fires.
 $l2path = write_fixture_post($stateDir, 'l2-raw-meta', '01980000-0006-7000-8000-000000000002',
-    'body text', ['duo_related' => 'see ?page_id=' . UNMAPPED_ID . ' for more']);
+    'body text', ['wprism_related' => 'see ?page_id=' . UNMAPPED_ID . ' for more']);
 
 // L3 -- already-tokenized: no finding.
 $l3path = write_fixture_post($stateDir, 'l3-tokenized', '01980000-0006-7000-8000-000000000003',
@@ -479,7 +479,7 @@ if (count($l1) === 1) {
 $l2 = $byPath[$l2path] ?? [];
 check(count($l2) === 1, 'L2: raw ?page_id= in meta -> exactly one finding (got ' . count($l2) . ')');
 if (count($l2) === 1) {
-    check($l2[0]['locator'] === 'meta.duo_related[url_query:0]', 'L2: locator names the meta key (got: ' . $l2[0]['locator'] . ')');
+    check($l2[0]['locator'] === 'meta.wprism_related[url_query:0]', 'L2: locator names the meta key (got: ' . $l2[0]['locator'] . ')');
 }
 
 check(count($byPath[$l3path] ?? []) === 0, 'L3: already-tokenized -> zero findings (got: ' . json_encode($byPath[$l3path] ?? []) . ')');
@@ -505,7 +505,7 @@ check(count($findings) === 4, 'sanity: exactly 4 findings total across all 5 fix
 echo "\n== Lint.php: Polylang language-description authority ==\n";
 $wpdb->postsById[1] = ['post_type' => 'post', 'post_title' => 'RTL scanner control'];
 $polylangLintPolicy = Policy::load(null, ['polylang']);
-$polylangLintState = sys_get_temp_dir() . '/duo_regress_polylang_lint_' . bin2hex(random_bytes(4));
+$polylangLintState = sys_get_temp_dir() . '/wprism_regress_polylang_lint_' . bin2hex(random_bytes(4));
 register_shutdown_function(fn() => rrmdir($polylangLintState));
 $validLanguageRel = 'terms/language/01980000-0006-7000-8000-000000000101--en.json';
 Canon::write_file($polylangLintState . '/' . $validLanguageRel, Canon::encode([
@@ -521,7 +521,7 @@ check(
     'real Lint::scan_tree accepts a schema-valid Polylang language description before generic serialized-id scanning'
 );
 
-$foreignLintState = sys_get_temp_dir() . '/duo_regress_polylang_lint_foreign_' . bin2hex(random_bytes(4));
+$foreignLintState = sys_get_temp_dir() . '/wprism_regress_polylang_lint_foreign_' . bin2hex(random_bytes(4));
 register_shutdown_function(fn() => rrmdir($foreignLintState));
 $foreignRel = 'terms/category/01980000-0006-7000-8000-000000000102--foreign.json';
 Canon::write_file($foreignLintState . '/' . $foreignRel, Canon::encode([
@@ -539,7 +539,7 @@ check(
     'real Lint::scan_tree still reports a foreign serialized description containing a live id'
 );
 
-$malformedLintState = sys_get_temp_dir() . '/duo_regress_polylang_lint_malformed_' . bin2hex(random_bytes(4));
+$malformedLintState = sys_get_temp_dir() . '/wprism_regress_polylang_lint_malformed_' . bin2hex(random_bytes(4));
 register_shutdown_function(fn() => rrmdir($malformedLintState));
 Canon::write_file($malformedLintState . '/terms/language/01980000-0006-7000-8000-000000000103--bad.json', Canon::encode([
     'description' => 'a:3:{broken',

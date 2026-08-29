@@ -1,5 +1,5 @@
 {
-  "format": "duo-application-contract/v2",
+  "format": "wprism-application-contract/v2",
   "site": {
     "name": "example-shop",
     "spec_version": 2
@@ -102,7 +102,7 @@
     }
   },
   "attestation": {
-    "format": "duo-contract-attestation/v1",
+    "format": "wprism-contract-attestation/v1",
     "state": "unsigned",
     "reason": "the certification gate is deferred for the minimum usable platform",
     "approving_principal": null,
@@ -115,13 +115,13 @@
       {
         "name": "siteurl",
         "class": "env",
-        "bound_in": ".duo-env-values.json"
+        "bound_in": ".wprism-env-values.json"
       },
       {
         "name": "payment_gateway_secret",
         "class": "env",
         "sensitivity": "secret",
-        "bound_in": ".duo-env-values.json"
+        "bound_in": ".wprism-env-values.json"
       }
     ]
   }

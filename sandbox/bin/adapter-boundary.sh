@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# adapter-boundary.sh — the live probe loop behind `duo adapter boundary`.
+# adapter-boundary.sh — the live probe loop behind `wprism adapter boundary`.
 #
-# The planner owns the SEARCH and this script owns the PROBE. `duo adapter
+# The planner owns the SEARCH and this script owns the PROBE. `wprism adapter
 # boundary` reads a recorded release list plus the outcomes observed so far and
 # either names the one release to run next (exit 3) or emits the finished
 # document (exit 0); this loop runs that one release through a real pair and
@@ -27,7 +27,7 @@
 # release list. Same discipline enforced here before the runner is called
 # (https URL, 64-hex digest, exact-version assertion after install), a
 # different reviewed document, and the same container-side runner
-# (/duo-harness/artifact-cache-fetch.sh) doing the locked, verified,
+# (/wprism-harness/artifact-cache-fetch.sh) doing the locked, verified,
 # atomically-published download.
 #
 # THE FOUR OUTCOMES, and which failures map to which:
@@ -52,8 +52,8 @@
 # the planner refused `anchor_not_green` rather than proposing anything — which
 # is correct, because `VMATRIX_MANIFEST=acf bash
 # tests/certify/certify_version_matrix.sh` fails at the SAME acf 6.0.0 apply on
-# the same source, with the same refusal ("duo: authored post meta
-# '_duo_related' disagrees with the locked target context"). So the probe is
+# the same source, with the same refusal ("wprism: authored post meta
+# '_wprism_related' disagrees with the locked target context"). So the probe is
 # faithful to the certify case down to its failure, and the ACF round-trip was
 # broken independently of this script.
 #
@@ -122,7 +122,7 @@ done
 [ -n "$RELEASES" ] || fail "--releases=<release-list.json> is required"
 [ -n "$OUTCOMES" ] || fail "--outcomes=<outcomes.json> is required (created if absent, appended to as probes run)"
 [ -n "$ANCHOR" ]   || fail "--anchor=<version> is required (a release believed green to search outward from)"
-[ -n "$SITE_POLICY" ] || fail "--site-policy=<site.duo.json> is required — the policy under which 'green' is
+[ -n "$SITE_POLICY" ] || fail "--site-policy=<site.wprism.json> is required — the policy under which 'green' is
   being claimed is a reviewed input, never something a search invents"
 [ -f "$RELEASES" ] || fail "release list '$RELEASES' does not exist"
 [ -f "$SITE_POLICY" ] || fail "site policy '$SITE_POLICY' does not exist"
@@ -140,12 +140,12 @@ if [ -z "$SEED_FILE" ]; then
 fi
 [ -f "$SEED_FILE" ] || fail "seed hook '$SEED_FILE' does not exist — pass --seed-file=<path>"
 
-export DUO_PAIR="$PAIR"
-PAIR_COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)
+export WPRISM_PAIR="$PAIR"
+PAIR_COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml -f pair.artifacts.yml)
 PAIR_COMPOSE_STRING="${PAIR_COMPOSE[*]}"
 wp1() { "${PAIR_COMPOSE[@]}" run --rm -T cli1 sh -c 'umask 000; exec wp "$@"' sh "$@"; }
 wp2() { "${PAIR_COMPOSE[@]}" run --rm -T cli2 sh -c 'umask 000; exec wp "$@"' sh "$@"; }
-GIT1=(git -C "siterepo/${PAIR}1" -c user.name=duo-boundary1 -c user.email=boundary1@example.test)
+GIT1=(git -C "siterepo/${PAIR}1" -c user.name=wprism-boundary1 -c user.email=boundary1@example.test)
 
 . conformance/asserts.sh
 . bin/fetch-artifact.sh
@@ -163,12 +163,12 @@ fi
 declare -F "$SEED_FN" >/dev/null \
   || fail "seed hook function '$SEED_FN' is not defined by $SEED_FILE — pass --seed-fn=<name>"
 
-RUN_TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo-adapter-boundary.XXXXXX")"
+RUN_TMP="$(mktemp -d "${TMPDIR:-/tmp}/wprism-adapter-boundary.XXXXXX")"
 trap 'rm -rf -- "$RUN_TMP"' EXIT INT TERM
 
 if [ ! -f "$OUTCOMES" ]; then
   jq -n --arg slug "$SLUG" \
-    '{format:"duo-adapter-boundary-outcomes/v1",slug:$slug,outcomes:[]}' > "$OUTCOMES"
+    '{format:"wprism-adapter-boundary-outcomes/v1",slug:$slug,outcomes:[]}' > "$OUTCOMES"
   pass "created an empty outcome record at $OUTCOMES"
 fi
 
@@ -240,18 +240,18 @@ reset_env() {
   # deactivation/uninstall hooks run before the next exact artifact lands.
   "$cli" plugin deactivate "$SLUG" >/dev/null 2>&1 || true
   "$cli" plugin delete "$SLUG" >/dev/null 2>&1 || true
-  # Duo's own identity/state tables, exactly as certify_version_matrix.sh's
+  # WPrism's own identity/state tables, exactly as certify_version_matrix.sh's
   # reset_env() ends (:356-359). `wp site empty` TRUNCATEs wp_posts, so the
-  # next probe's first post is id 1 again while wp_duo_map still binds id 1 to
+  # next probe's first post is id 1 again while wp_wprism_map still binds id 1 to
   # the PREVIOUS probe's uuid — capture then refuses "identity contradiction:
   # local post id 1 is already bound to ...", which this script's own first
   # live run produced. A stale binding is cross-probe contamination, and a
   # bisector that inherited one would score a release on another release's
   # identities.
-  "$cli" db query "TRUNCATE TABLE wp_duo_map" >/dev/null 2>&1 || true
-  "$cli" db query "TRUNCATE TABLE wp_duo_state" >/dev/null 2>&1 || true
-  "$cli" db query "TRUNCATE TABLE wp_duo_kv" >/dev/null 2>&1 || true
-  "$cli" db query "TRUNCATE TABLE wp_duo_journal" >/dev/null 2>&1 || true
+  "$cli" db query "TRUNCATE TABLE wp_wprism_map" >/dev/null 2>&1 || true
+  "$cli" db query "TRUNCATE TABLE wp_wprism_state" >/dev/null 2>&1 || true
+  "$cli" db query "TRUNCATE TABLE wp_wprism_kv" >/dev/null 2>&1 || true
+  "$cli" db query "TRUNCATE TABLE wp_wprism_journal" >/dev/null 2>&1 || true
 }
 
 # The release list is the pin source, held to the same grammar the artifact
@@ -272,7 +272,7 @@ fetch_release_artifact() { # <version> <cli-service> ; prints the container path
     || { echo "release '$version' carries a malformed HTTPS URL pin" >&2; return 1; }
   cache_path="/artifacts-cache/plugin-${SLUG}-${version}-${sha256}.zip"
   if ! source=$("${PAIR_COMPOSE[@]}" run --rm -T -u root "$service" \
-      sh /duo-harness/artifact-cache-fetch.sh "$url" "$sha256" "$cache_path" 0 "$SLUG" "$version" plugin); then
+      sh /wprism-harness/artifact-cache-fetch.sh "$url" "$sha256" "$cache_path" 0 "$SLUG" "$version" plugin); then
     return 1
   fi
   case "$source" in
@@ -323,7 +323,7 @@ probe_release() { # <version>
     return 0
   fi
 
-  cp "$SITE_POLICY" "siterepo/${PAIR}1/site.duo.json"
+  cp "$SITE_POLICY" "siterepo/${PAIR}1/site.wprism.json"
   cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
   "${GIT1[@]}" init -q -b main
   "${GIT1[@]}" remote add origin "../origin-$PAIR.git"
@@ -338,7 +338,7 @@ probe_release() { # <version>
     return 0
   fi
 
-  if ! wp1 duo capture --repo=/siterepo >"$log" 2>&1; then
+  if ! wp1 wprism capture --repo=/siterepo >"$log" 2>&1; then
     record_outcome "$version" round-trip-diverges "capture refused: $(tail -n 3 "$log" | tr '\n' ' ')"
     return 0
   fi
@@ -352,12 +352,12 @@ probe_release() { # <version>
     record_outcome "$version" boot-fatal "target install failed: $(tail -n 3 "$log" | tr '\n' ' ')"
     return 0
   fi
-  if ! wp2 duo deploy --repo=/siterepo >"$log" 2>&1; then
+  if ! wp2 wprism deploy --repo=/siterepo >"$log" 2>&1; then
     record_outcome "$version" round-trip-diverges "deploy refused: $(tail -n 3 "$log" | tr '\n' ' ')"
     return 0
   fi
   rev=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  if ! wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin \
+  if ! wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin \
       --revision="$rev" >"$log" 2>&1; then
     record_outcome "$version" round-trip-diverges "apply refused: $(tail -n 3 "$log" | tr '\n' ' ')"
     return 0
@@ -366,7 +366,7 @@ probe_release() { # <version>
     record_outcome "$version" round-trip-diverges "apply canary was not clean"
     return 0
   fi
-  if ! wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final" >"$log" 2>&1; then
+  if ! wp2 wprism capture --repo=/siterepo --out="/siterepo/.tmp-final" >"$log" 2>&1; then
     record_outcome "$version" round-trip-diverges "recapture refused: $(tail -n 3 "$log" | tr '\n' ' ')"
     return 0
   fi
@@ -390,7 +390,7 @@ PLAN_ARGS=(--releases="$RELEASES" --outcomes="$OUTCOMES" --anchor="$ANCHOR" --ma
 PROBES=0
 while :; do
   set +e
-  php ../cli/duo adapter boundary "${PLAN_ARGS[@]}" > "$RUN_TMP/plan.json"
+  php ../cli/wprism adapter boundary "${PLAN_ARGS[@]}" > "$RUN_TMP/plan.json"
   PLAN_STATUS=$?
   set -e
   case "$PLAN_STATUS" in

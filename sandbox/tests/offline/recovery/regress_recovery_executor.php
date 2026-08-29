@@ -1,15 +1,15 @@
 <?php
 declare(strict_types=1);
 
-// DUO-3294: offline certification for target-owned maintenance exclusion and
+// issue #3294: offline certification for target-owned maintenance exclusion and
 // the WordPress-independent recovery adapter executor.
 
 require dirname(__DIR__, 4) . '/recovery/rollback-control.php';
 
-use Duo\Recovery\RecoveryExecutor;
-use Duo\Recovery\RollbackControl;
+use WPrism\Recovery\RecoveryExecutor;
+use WPrism\Recovery\RollbackControl;
 
-$tmp = sys_get_temp_dir() . '/duo-recovery-regress-' . bin2hex(random_bytes(8));
+$tmp = sys_get_temp_dir() . '/wprism-recovery-regress-' . bin2hex(random_bytes(8));
 $keyId = 'recovery-test-key';
 $keypair = sodium_crypto_sign_keypair();
 $secret = sodium_crypto_sign_secretkey($keypair);
@@ -62,7 +62,7 @@ function recovery_write(string $path, string $bytes, int $mode = 0600): void {
 
 /** @return array<string,mixed> */
 function recovery_submit_exclusion(string $root, array $payload, string $keyId, string $secret): array {
-    $path = tempnam(sys_get_temp_dir(), 'duo-exclusion-request-');
+    $path = tempnam(sys_get_temp_dir(), 'wprism-exclusion-request-');
     if ($path === false) {
         recovery_fail('could not allocate exclusion request');
     }
@@ -151,7 +151,7 @@ function recovery_submit_event(string $root, array $event, ?array $receipt, stri
         'event' => RollbackControl::sign($event, $keyId, $secret),
         'receipt' => $receipt === null ? null : RollbackControl::sign($receipt, $keyId, $secret),
     ];
-    $path = tempnam(sys_get_temp_dir(), 'duo-authority-request-');
+    $path = tempnam(sys_get_temp_dir(), 'wprism-authority-request-');
     if ($path === false) {
         recovery_fail('could not allocate authority request');
     }
@@ -170,7 +170,7 @@ function recovery_exclusion_payload(array $receipt, string $action, string $clai
         'artifact_hash' => $receipt['artifact_hash'],
         'claim_epoch' => $epoch,
         'claimant' => $claimant,
-        'format' => 'duo-exclusion-request/v1',
+        'format' => 'wprism-exclusion-request/v1',
         'generation' => $receipt['generation'],
         'owner' => $receipt['owner'],
         'receipt_id' => $receipt['receipt_id'],
@@ -187,7 +187,7 @@ function canon(array $v): string { ksort($v, SORT_STRING); foreach ($v as $k => 
 $request = json_decode((string) stream_get_contents(STDIN), true, 512, JSON_THROW_ON_ERROR);
 $statePath = $argv[1];
 $action = (string) ($request['action'] ?? '');
-if (($request['format'] ?? '') !== 'duo-exclusion-provider-request/v2') { fwrite(STDERR, "provider requires request v2\n"); exit(44); }
+if (($request['format'] ?? '') !== 'wprism-exclusion-provider-request/v2') { fwrite(STDERR, "provider requires request v2\n"); exit(44); }
 if ($action === 'keepalive' && is_file($statePath . '.fail-keepalive')) { fwrite(STDERR, "keepalive failed closed\n"); exit(41); }
 $state = is_file($statePath) ? json_decode((string) file_get_contents($statePath), true, 512, JSON_THROW_ON_ERROR) : null;
 if ($action === 'probe') { $token = null; $providerState = 'ready'; }
@@ -207,7 +207,7 @@ elseif ($action === 'acquire') {
 }
 $scopes = ['background_jobs' => true, 'database_writers' => true, 'filesystem_writers' => true, 'package_updates' => true, 'public_traffic' => true];
 if (is_file($statePath . '.bad-scopes')) { unset($scopes['database_writers']); }
-$responseFormat = is_file($statePath . '.legacy-provider-format') ? 'duo-exclusion-provider-response/v1' : 'duo-exclusion-provider-response/v2';
+$responseFormat = is_file($statePath . '.legacy-provider-format') ? 'wprism-exclusion-provider-response/v1' : 'wprism-exclusion-provider-response/v2';
 $response = ['available' => true, 'disconnect_behavior' => 'remain_excluded', 'format' => $responseFormat, 'provider_id' => 'fixture-provider', 'provider_version' => '1.0.0', 'scopes' => $scopes, 'state' => $providerState, 'target_id' => $request['target_id'], 'token' => $token];
 echo canon($response) . "\n";
 PHP;
@@ -221,7 +221,7 @@ $request = json_decode((string) stream_get_contents(STDIN), true, 512, JSON_THRO
 $adapter = (string) $request['adapter'];
 $execute = ($request['action'] ?? '') === 'execute';
 $result = $execute ? hash('sha256', $adapter . ':' . (string) $request['input_sha256']) : null;
-echo canon_adapter(['adapter' => $adapter, 'adapter_version' => '1.0.0', 'available' => true, 'format' => 'duo-recovery-adapter-response/v1', 'input_sha256' => $request['input_sha256'], 'loads_site_code' => false, 'result_sha256' => $result, 'status' => $execute ? 'completed' : 'ready']) . "\n";
+echo canon_adapter(['adapter' => $adapter, 'adapter_version' => '1.0.0', 'available' => true, 'format' => 'wprism-recovery-adapter-response/v1', 'input_sha256' => $request['input_sha256'], 'loads_site_code' => false, 'result_sha256' => $result, 'status' => $execute ? 'completed' : 'ready']) . "\n";
 PHP;
 
 try {
@@ -231,7 +231,7 @@ try {
     $providerState = $tmp . '/provider-state.json';
     recovery_write($provider, $providerSource . "\n", 0700);
     recovery_write($adapter, $adapterSource . "\n", 0700);
-    $root = $tmp . '/host/.duo/control';
+    $root = $tmp . '/host/.wprism/control';
     $initial = RollbackControl::initialize($root);
     RollbackControl::installPublicKey($root, $keyId, base64_encode($public));
 
@@ -239,7 +239,7 @@ try {
     foreach (['code_restore', 'database_restore', 'prior_verify', 'storage_restore'] as $name) {
         $commands[$name] = [PHP_BINARY, $adapter];
     }
-    $config = ['adapters' => $commands, 'exclusion_provider' => [PHP_BINARY, $provider, $providerState], 'format' => 'duo-recovery-config/v1', 'timeout_seconds' => 2];
+    $config = ['adapters' => $commands, 'exclusion_provider' => [PHP_BINARY, $provider, $providerState], 'format' => 'wprism-recovery-config/v1', 'timeout_seconds' => 2];
     $configPath = $tmp . '/config.json';
     recovery_write($configPath, RollbackControl::canonical($config) . "\n");
     RecoveryExecutor::configureFromFile($root, $configPath);
@@ -351,7 +351,7 @@ try {
     recovery_ok(RecoveryExecutor::decorateStatus($root, $status)['exclusion_state'] === 'released', 'terminal status verifies durable release evidence');
 
     $badConfig = $config;
-    $badConfig['adapters']['code_restore'] = ['/definitely/missing/duo-adapter'];
+    $badConfig['adapters']['code_restore'] = ['/definitely/missing/wprism-adapter'];
     $badPath = $tmp . '/bad-config.json';
     recovery_write($badPath, RollbackControl::canonical($badConfig) . "\n");
     recovery_refuses(fn() => RecoveryExecutor::configureFromFile($root, $badPath), 'unavailable recovery dependency blocks configuration');

@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/ApplyServiceCallbacks.php';
 require_once __DIR__ . '/ApplyPlanner.php';

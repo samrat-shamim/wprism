@@ -1,16 +1,16 @@
-# Quickstart: getting a site under Duo
+# Quickstart: getting a site under WPrism
 
-There are two good first contacts: try Duo on a disposable pair, or connect an
-existing site. Neither asks you to invent `site.duo.json` or an environment
+There are two good first contacts: try WPrism on a disposable pair, or connect an
+existing site. Neither asks you to invent `site.wprism.json` or an environment
 registry by hand.
 
-## Try Duo without connecting a site
+## Try WPrism without connecting a site
 
 From a source checkout with PHP 8+, Docker with Compose, Git, and `jq`
 available:
 
 ```sh
-cli/duo demo start --scenario=woocommerce
+cli/wprism demo start --scenario=woocommerce
 ```
 
 The command starts two disposable WordPress sites, installs the exact
@@ -21,14 +21,14 @@ never published on every host interface.
 It also creates one target-only order and decrements live stock; those are the
 runtime facts the later apply must preserve.
 
-Edit **Duo Demo Mug** on the source site, then follow the printed loop:
+Edit **WPrism Demo Mug** on the source site, then follow the printed loop:
 
 ```sh
-cli/duo demo capture
-git -C sandbox/siterepo/duodemo1 diff
-cli/duo demo apply
-cli/duo demo refusal
-cli/duo demo stop
+cli/wprism demo capture
+git -C sandbox/siterepo/wprismdemo1 diff
+cli/wprism demo apply
+cli/wprism demo refusal
+cli/wprism demo stop
 ```
 
 `capture` uses the real orchestrator and leaves the result as an ordinary Git
@@ -47,8 +47,8 @@ anything. Keep an absolute path to the CLI because the next command moves into
 the newly created site workspace:
 
 ```sh
-DUO_CLI="$PWD/cli/duo"
-"$DUO_CLI" connect production --workspace=../my-site \
+WPRISM_CLI="$PWD/cli/wprism"
+"$WPRISM_CLI" connect production --workspace=../my-site \
   --transport=ssh --host=deploy@wp.example.com \
   --wp-path=/var/www/html --repo-path=/home/deploy/site-repo
 ```
@@ -57,7 +57,7 @@ DUO_CLI="$PWD/cli/duo"
 reachability, `wp core is-installed`, and single-site topology. Only after all
 three pass does it create the dedicated Git root, the same minimal seed
 adoption uses, the complete `.gitignore` boundary, and a mode-`0600`, untracked
-`.duo-envs.json`. A failed probe creates no workspace. Duo issues no explicit
+`.wprism-envs.json`. A failed probe creates no workspace. WPrism issues no explicit
 target mutation, but the topology check uses `wp eval`: it boots WordPress, so
 site startup code may run and may have its own effects.
 
@@ -65,7 +65,7 @@ Now enter the workspace and run the composed flow:
 
 ```sh
 cd ../my-site
-"$DUO_CLI" onboard production --git-url=git@github.com:you/my-site.git
+"$WPRISM_CLI" onboard production --git-url=git@github.com:you/my-site.git
 ```
 
 `onboard` fixes the order for a new site:
@@ -75,7 +75,7 @@ cd ../my-site
 Each existing gate remains visible and fail-closed. The assessment is printed
 before init asks for confirmation. `--git-url` must name an empty repository
 that both the controller and WordPress target can reach with their own Git
-credentials and SSH known-host configuration. Duo verifies both paths and the
+credentials and SSH known-host configuration. WPrism verifies both paths and the
 empty remote before adopt/init changes the target. It then commits and pushes
 the initialized target baseline on the target's current branch and checks out
 that exact branch into the connected workspace while the untracked local
@@ -83,39 +83,39 @@ registry stays in place. Without `--git-url`, onboarding stops after a
 successful init and prints the resumable command:
 
 ```sh
-"$DUO_CLI" onboard production --handoff-only --git-url=<empty-remote-url>
+"$WPRISM_CLI" onboard production --handoff-only --git-url=<empty-remote-url>
 ```
 
 That continuation performs only the repository handoff; it does not repeat
 adopt, assess, or init.
 
 The checkout makes the initialized revision reviewable locally; it does not
-redirect the live environment. `duo capture production` still writes only to
+redirect the live environment. `wprism capture production` still writes only to
 production's configured target `repo_path`, but now binds that write to the
 caller's current named branch and refuses unless the target worktree is on the
 same branch. From a detached or non-Git controller context, name the destination
 explicitly with `--target-branch=<name>`; this verifies the target branch and
-never switches it. Inspect with `"$DUO_CLI" assess production` next. Before
+never switches it. Inspect with `"$WPRISM_CLI" assess production` next. Before
 capturing feature work, point or materialize the target environment to that
 feature branch as described in [daily-workflow.md](daily-workflow.md); preview
 materialization additionally requires the two provider-backed entries shown in
 [release.md](release.md#create-a-preview).
 
 On a Docker or local target whose control plane already carries the agent,
-`duo assess` is the very first Duo command you run. [assess.md](assess.md) is
+`wprism assess` is the very first WPrism command you run. [assess.md](assess.md) is
 the guide to reading its output; this page is how you get there and what
 happens after.
 
-`duo init <env>` is the shipped first-run path once the Duo agent is reachable
+`wprism init <env>` is the shipped first-run path once the WPrism agent is reachable
 on an existing WordPress target. How the agent gets there is transport-specific:
 
-1. **SSH:** `duo adopt` installs the agent, manifest library, and recovery
-   runtime first; then `duo init` discovers and captures the site.
-2. **Machine-local:** an untracked, explicit bootstrap opt-in lets `duo adopt`
-   prove and initially install that same control plane before `duo init`. It
-   refuses when a Duo control plane is already present; installed-target
+1. **SSH:** `wprism adopt` installs the agent, manifest library, and recovery
+   runtime first; then `wprism init` discovers and captures the site.
+2. **Machine-local:** an untracked, explicit bootstrap opt-in lets `wprism adopt`
+   prove and initially install that same control plane before `wprism init`. It
+   refuses when a WPrism control plane is already present; installed-target
    updates use the existing environment update path.
-3. **Docker:** the agent must already be installed or mounted; `duo init` uses
+3. **Docker:** the agent must already be installed or mounted; `wprism init` uses
    that authenticated transport directly. Init never silently delivers it.
 
 Init is not a WordPress installer. It starts from a working site and a reachable
@@ -126,14 +126,14 @@ payloads, or non-current certification evidence keep the proposal red.
 
 ## Before you start
 
-The machine that runs `duo` needs PHP 8+ with Sodium, plus `ssh`, `scp`, and
-`tar` if any environment uses the SSH transport. `duo` itself is dependency-
+The machine that runs `wprism` needs PHP 8+ with Sodium, plus `ssh`, `scp`, and
+`tar` if any environment uses the SSH transport. `wprism` itself is dependency-
 free: no composer, no vendored packages, and no WordPress on the orchestrator
 host.
 
 An SSH target needs PHP 8+ with Sodium and a working `fsync()`, a working `wp`
 command, `tar`, and an installed WordPress. Adoption itself ships files rather
-than cloning a repository, but the subsequent `duo init` path also requires a
+than cloning a repository, but the subsequent `wprism init` path also requires a
 working `git` binary on the target: init verifies or creates the target-owned
 Git worktree before publishing its baseline.
 When the site has attachment bytes, that target also needs Git LFS: the
@@ -168,9 +168,9 @@ does not infer bootstrap authority from a bind mount or shell access.
 
 #### 1. Describe the environment
 
-Duo searches upward for the committed `site.duo.json`, but inside Git accepts
+WPrism searches upward for the committed `site.wprism.json`, but inside Git accepts
 it only at the current worktree root, then reads a gitignored, machine-local
-`.duo-envs.json` overlay beside it. Before a site file exists, the automatically
+`.wprism-envs.json` overlay beside it. Before a site file exists, the automatically
 discovered overlay must be at the current Git worktree root. A nested registry
 or overlay is refused rather than allowed to shadow environment authority;
 `--envs-file` is the explicit overlay trust override. The overlay replaces a
@@ -197,8 +197,8 @@ belongs in the overlay.
 per-transport required keys and the rollback/recovery options an SSH entry may
 additionally carry.
 
-For a local target, put the full entry in the untracked `.duo-envs.json`
-overlay (not `site.duo.json`):
+For a local target, put the full entry in the untracked `.wprism-envs.json`
+overlay (not `site.wprism.json`):
 
 ```json
 {
@@ -207,21 +207,21 @@ overlay (not `site.duo.json`):
       "transport": "local",
       "wp_path": "/srv/wordpress",
       "repo_path": "/srv/site-repo",
-      "bootstrap": {"format": "duo-local-control-plane/v1"}
+      "bootstrap": {"format": "wprism-local-control-plane/v1"}
     }
   }
 }
 ```
 
-`duo driver-capabilities dev --operation=adopt` checks only that closed local
-authorization and never contacts the target. `duo adopt dev` then isolates
+`wprism driver-capabilities dev --operation=adopt` checks only that closed local
+authorization and never contacts the target. `wprism adopt dev` then isolates
 ordinary plugin/theme/MU loading, proves WordPress and a safe disjoint
 filesystem topology read-only, and refuses with remediation before creating
 an archive or target path when that proof is red.
 
 #### 2. Check, then adopt
 
-Run these from the connected site workspace with `DUO_CLI` pointing to the Duo
+Run these from the connected site workspace with `WPRISM_CLI` pointing to the WPrism
 source checkout whose `cli/`, `agent/`, `adapter-packages/`,
 `platform/adapter-library/`, and `recovery/` directories are the release you
 intend to install. Adoption assembles the package and platform sources into
@@ -229,8 +229,8 @@ intend to install. Adoption assembles the package and platform sources into
 you invoke is the version the target gets.
 
 ```sh
-"$DUO_CLI" doctor production   # expected to report the agent/repo missing first
-"$DUO_CLI" adopt production
+"$WPRISM_CLI" doctor production   # expected to report the agent/repo missing first
+"$WPRISM_CLI" adopt production
 ```
 
 The first command is supposed to fail. Running it anyway is worth the ten
@@ -238,15 +238,15 @@ seconds: it tells you whether the transport, the WordPress install, and the
 paths are right *before* adoption starts moving files, and it gives you a
 before/after pair for the same nine checks adoption ends with.
 
-`duo adopt` verifies reachability, discovers `WPMU_PLUGIN_DIR`, installs the
+`wprism adopt` verifies reachability, discovers `WPMU_PLUGIN_DIR`, installs the
 agent, loader, manifest library, and recovery runtime, creates the protected
-control root and stable target identity, creates `repo_path/site.duo.json`
+control root and stable target identity, creates `repo_path/site.wprism.json`
 **only when it is absent**, then proves in fresh wp-cli processes that the
 installed agent version matches this checkout exactly and that the policy
-loads. It ends by running the same `duo doctor` checks, and succeeds only when
+loads. It ends by running the same `wprism doctor` checks, and succeeds only when
 every blocking one passes.
 
-Over SSH, re-running `duo adopt` is the update mechanism: it replaces the
+Over SSH, re-running `wprism adopt` is the update mechanism: it replaces the
 agent and manifest trees with the ones beside the invoking CLI and leaves the
 site's policy untouched. The privileged machine-local bootstrap is
 initial-only and refuses a second adoption rather than racing an installed
@@ -255,7 +255,7 @@ recovery authority.
 #### 3. Assess before you initialize
 
 ```sh
-"$DUO_CLI" assess production
+"$WPRISM_CLI" assess production
 ```
 
 Adoption made the agent reachable; assessment is what tells you whether
@@ -272,10 +272,10 @@ claim. What you are looking for is whether the surfaces you actually care about
 read `Ready` or `Ready with conditions` for the operations you intend, and
 whether the unknown section is a queue you are willing to work through.
 
-Assess also writes `.duo/contract/<env>/proposed.json` in your local site
+Assess also writes `.wprism/contract/<env>/proposed.json` in your local site
 repository — per environment, because the proposal describes one environment,
 while the contract it becomes is one per site. That is the beginning of the
-reviewed application contract that `duo release`, `duo verify` and `duo recover`
+reviewed application contract that `wprism release`, `wprism verify` and `wprism recover`
 all read later; you do not have to deal with it now, and
 [assess.md](assess.md#record-the-decision-the-application-contract) picks it up
 when you do.
@@ -287,7 +287,7 @@ after step 7.
 #### 4. Review and confirm the first baseline
 
 ```sh
-"$DUO_CLI" init production
+"$WPRISM_CLI" init production
 ```
 
 Init reads WordPress, PHP, database, active plugin/theme, certified adapter,
@@ -297,11 +297,11 @@ digest—not a host-authored config—and refuses if any discovered fact changes
 Use `--yes` only for automation that has already preserved the rendered
 proposal.
 
-`duo init` also **classifies the code half**, and Git never carries third-party
+`wprism init` also **classifies the code half**, and Git never carries third-party
 code: each active plugin and theme either LOCKS — against its published wp.org
 release when the installed bytes hash-match it, or against an archive you
-imported on this host with `duo code-import <archive.zip>` (a premium plugin,
-a vendor theme) — and is declared in `code/duo-code.lock.json` and kept out of
+imported on this host with `wprism code-import <archive.zip>` (a premium plugin,
+a vendor theme) — and is declared in `code/wprism-code.lock.json` and kept out of
 Git, or is declared the site's own code with `--first-party=<root>/<slug>` and
 carried in Git by that declaration. A component that is neither blocks the
 proposal with both remedies named; there is no "vendor it anyway".
@@ -312,23 +312,23 @@ before you confirm — the classification is inside the digest, so a stale
 registry: wp.org components lock only from the host cache. See
 [code-updates.md](code-updates.md#the-code-half-git-never-carries-third-party-code).
 
-Before confirming, quiesce every non-Duo writer to the repository namespace,
+Before confirming, quiesce every non-WPrism writer to the repository namespace,
 including package managers, self-updaters, Git/shell automation, and processes
 that can write `.git`, `code/`, `media/`, `state/`, or `state.capture*`. Init's
-database lease and capture lock serialize Duo processes; they do not turn the
+database lease and capture lock serialize WPrism processes; they do not turn the
 v0 PHP filesystem layer into an adversarial race sandbox. Keep that exclusion
 in place until init succeeds or any retained recovery evidence is resolved.
 
 On success the target repository is Git-ready and contains independent
-`site.duo.json`, `code/wp-content`, `state`, and content-addressed `media`
+`site.wprism.json`, `code/wp-content`, `state`, and content-addressed `media`
 contracts. Init publishes `.gitattributes` with the closed
 `media/** filter=lfs diff=lfs merge=lfs -text` rule and verifies the effective
-attribute before capture — plus `code/duo-code.lock.json` when the split locked at least one
+attribute before capture — plus `code/wprism-code.lock.json` when the split locked at least one
 component. The locked components' bytes are on disk and compile normally at the
 target; they are simply not in Git, so a fresh clone needs the materialization
 step in [code-updates.md](code-updates.md#the-materialization-step) before its
-first compile. Duo refuses that compile by name (`code_component_unresolved`)
-rather than producing a shrunken payload. Init finishes through ordinary `duo status`. Its clean statement is
+first compile. WPrism refuses that compile by name (`code_component_unresolved`)
+rather than producing a shrunken payload. Init finishes through ordinary `wprism status`. Its clean statement is
 limited to the selected managed adapters; unsupported site state is never
 silently promoted into that claim, and the initial state capture is not a
 promotion rollback checkpoint.
@@ -344,9 +344,9 @@ acceptance test.
 ### 6. Measure, then review
 
 ```sh
-"$DUO_CLI" coverage production --format=json > production-coverage.json
-"$DUO_CLI" pending production
-"$DUO_CLI" classify production --export-batch=production-review.json
+"$WPRISM_CLI" coverage production --format=json > production-coverage.json
+"$WPRISM_CLI" pending production
+"$WPRISM_CLI" classify production --export-batch=production-review.json
 ```
 
 `coverage` is a survey, not a green gate: it never blocks anything and never
@@ -358,7 +358,7 @@ Its four option buckets sum to `total`. A **declared** name is never invisible,
 whatever its class: an option an adapter declares `env`, `runtime` or `derived`
 is *declared and excluded*, counted under `declared-excluded` (broken out per
 class in `--format=json`), and carries no action — the adapter models it and
-says Duo must not version it. `invisible` means the opposite: **no rule from any
+says WPrism must not version it. `invisible` means the opposite: **no rule from any
 source** — no exact declaration, no namespace claim, no pattern, no dynamic
 prefix. Those are the names nothing on the site can see, and the only ones the
 count is asking you to do something about.
@@ -401,25 +401,25 @@ neither is ever guessed — the same posture as `pending`'s proposals.
 ### 7. Apply the batch — then look again
 
 ```sh
-"$DUO_CLI" classify production --apply-batch=production-review.json
-"$DUO_CLI" pending production
+"$WPRISM_CLI" classify production --apply-batch=production-review.json
+"$WPRISM_CLI" pending production
 ```
 
 The artifact is bound to the environment and to the exact pending evidence by
 SHA-256. If a write landed after export, apply refuses *before* touching
-`site.duo.json` — export and review a fresh batch. Partial batches refuse for
+`site.wprism.json` — export and review a fresh batch. Partial batches refuse for
 the same reason, and so does a row whose class needs `autoload` or `required`
 and does not have it: the refusal names the row and the field, and no remote
 write is opened.
 
 **The capture gate is an empty queue, not a successful batch.** One layer of
-decisions routinely exposes another, so keep looping until `duo pending` prints
+decisions routinely exposes another, so keep looping until `wprism pending` prints
 `review queue is empty`.
 
 ### 8. Capture, then check the checksums again
 
 ```sh
-"$DUO_CLI" capture production
+"$WPRISM_CLI" capture production
 ```
 
 Then re-run the runtime checksums from step 5. **Any changed runtime checksum
@@ -433,20 +433,20 @@ copied, which was never in question.
 
 ## Path B — a Docker site or a local site without bootstrap authority
 
-Install or mount the Duo agent and manifest library through that environment's
-own control-plane setup — this path has no `duo adopt` step, so nothing else
+Install or mount the WPrism agent and manifest library through that environment's
+own control-plane setup — this path has no `wprism adopt` step, so nothing else
 will deliver it. "The agent is already there, so the assessment costs one
-read-only run" is true, but `duo assess` still needs a repository to run
-*against*: it walks upward from the current directory for `site.duo.json` and
+read-only run" is true, but `wprism assess` still needs a repository to run
+*against*: it walks upward from the current directory for `site.wprism.json` and
 refuses with `[local_site_repo_missing]` — "run this command from inside the
-site repository that holds site.duo.json" — the moment it finds none. Path A
-gets that file as a side effect of `duo adopt` (step 2 above, "creates
-`repo_path/site.duo.json` only when it is absent"); Path B has no such step,
+site repository that holds site.wprism.json" — the moment it finds none. Path A
+gets that file as a side effect of `wprism adopt` (step 2 above, "creates
+`repo_path/site.wprism.json` only when it is absent"); Path B has no such step,
 so give assess a repository first, then assess, then init:
 
 ```sh
 mkdir -p <repo>
-cat > <repo>/site.duo.json <<'EOF'
+cat > <repo>/site.wprism.json <<'EOF'
 {
   "manifests": ["core"],
   "policy": {
@@ -464,26 +464,26 @@ git -C <repo> init
 ```
 
 That JSON is not a placeholder — it is byte-for-byte the adoption seed
-`InitPlanner` compares a repository's `site.duo.json` against
+`InitPlanner` compares a repository's `site.wprism.json` against
 (`agent/src/Init/InitPlanner.php:953-1060`, `is_adoption_seed()`/
-`existing_config()`'s `$seed`): the one state in which `duo assess` previews
+`existing_config()`'s `$seed`): the one state in which `wprism assess` previews
 init's own proposal instead of the seed's trivial `core`-only pin set, and the
-one state in which `duo init` still owns the file and will recompute and
+one state in which `wprism init` still owns the file and will recompute and
 republish it rather than refuse. The `.gitignore` goes on before anything else
 touches the directory because `assess` itself — not only `init` — starts
-writing scratch here: its `.duo/contract/<env>/proposed.json` write (step 3 above)
-needs `/.duo/` ignored from its very first run. `git -C <repo> init` makes
+writing scratch here: its `.wprism/contract/<env>/proposed.json` write (step 3 above)
+needs `/.wprism/` ignored from its very first run. `git -C <repo> init` makes
 `<repo>` its own Git worktree root; skip that and, if `<repo>` was created
 inside some other project's checkout — the easy mistake on a first
-experiment — its `site.duo.json` is refused as a nested registry rather than
+experiment — its `site.wprism.json` is refused as a nested registry rather than
 trusted, by both `assess` and `init`.
 
-Add the environment next to it, in an untracked `.duo-envs.json` — on this
-path, only there. `site.duo.json` can carry a shared `envs` key in general,
+Add the environment next to it, in an untracked `.wprism-envs.json` — on this
+path, only there. `site.wprism.json` can carry a shared `envs` key in general,
 but the seed comparison is against the *whole decoded file* (the only
 things `existing_config()` sets aside are source-bearing manifest pins and
 the scope rules those pins wrote — the paragraph below), so an `envs` key
-inside `site.duo.json` makes the repository operator-owned and `duo init`
+inside `site.wprism.json` makes the repository operator-owned and `wprism init`
 refuses it as `existing_configuration`. Share
 environments through the site file only on the deliberately-manual path
 below, after deciding init is not for you:
@@ -502,20 +502,20 @@ Then assess before you initialize — nothing here writes to the target, and a
 site full of blocked surfaces is still a successful assessment:
 
 ```sh
-"$DUO_CLI" assess dev
-"$DUO_CLI" init dev
+"$WPRISM_CLI" assess dev
+"$WPRISM_CLI" init dev
 ```
 
 The target itself needs WordPress, WP-CLI, Git, and a standard supported
 `wp-content` layout; `repo_path` — a writable, pre-existing ordinary
-directory with no symbolic-link ancestor — is the one piece of that Duo will
+directory with no symbolic-link ancestor — is the one piece of that WPrism will
 not create for you, on any transport; you already did, in the step above. Init
-may create the Git worktree pieces and Duo contracts it owns inside that seed
+may create the Git worktree pieces and WPrism contracts it owns inside that seed
 directory, but it does not install WordPress or deliver the agent, and it
 refuses before confirmation when those prerequisites or the certified managed
 boundary are not present. An adoption seed that already carries explicit
-`{name, source: "site"|"plugin", digest}` pins — what `duo adapter certify
---pin` and `duo adapter pin` write for an operator-authored or overriding
+`{name, source: "site"|"plugin", digest}` pins — what `wprism adapter certify
+--pin` and `wprism adapter pin` write for an operator-authored or overriding
 adapter — is still the seed: init recomputes and republishes those pins
 exactly, so certifying first and initializing second is the intended order.
 
@@ -538,18 +538,18 @@ reclassified.
 
 ### When you need a policy the initializer cannot propose
 
-Hand-author `site.duo.json` instead of taking init's proposal only when you
+Hand-author `site.wprism.json` instead of taking init's proposal only when you
 intentionally need something init cannot discover on its own. The seed above
 is the exact fork line, not just a starting point: a repository whose
-`site.duo.json` is byte-identical to it is still init-owned no matter who
-typed the bytes, `term_meta` included — `duo init` accepts and republishes it
+`site.wprism.json` is byte-identical to it is still init-owned no matter who
+typed the bytes, `term_meta` included — `wprism init` accepts and republishes it
 unchanged. Pin a real manifest, edit `policy`, or drop one key, and the
-repository becomes operator-owned instead: `duo init` refuses with
-`existing_configuration` — "the repository already has a non-seed Duo
+repository becomes operator-owned instead: `wprism init` refuses with
+`existing_configuration` — "the repository already has a non-seed WPrism
 configuration" — correctly, because by then it is one. Continue that
-repository with `duo doctor`, `duo pending`, `duo classify`, and
-`duo capture` instead of `duo init`; a fresh site's first queue is usually
-short enough for interactive triage (`duo classify dev` with no flags) rather
+repository with `wprism doctor`, `wprism pending`, `wprism classify`, and
+`wprism capture` instead of `wprism init`; a fresh site's first queue is usually
+short enough for interactive triage (`wprism classify dev` with no flags) rather
 than a batch artifact. `manifests` pins which registry manifests apply;
 `policy` holds site-local classification overrides and always wins over a
 manifest; `spec_version` must be an integer exactly equal to the engine's own,
@@ -559,38 +559,38 @@ tree — is normative in
 [spec/repo-format.md](../../spec/repo-format.md#layout).
 
 `sandbox/setup.sh` is a live example of that fork, not a second copy of the
-seed to trust literally: its committed `siterepo/a/site.duo.json` omits
+seed to trust literally: its committed `siterepo/a/site.wprism.json` omits
 `term_meta` — one key short of the seed above — which is exactly why no spike
-suite that consumes it ever calls `duo init` on it; every one of them
+suite that consumes it ever calls `wprism init` on it; every one of them
 `classify`s/`capture`s against it directly, as the deliberately manual,
 operator-owned repository it already is. Match the seed byte-for-byte,
-`term_meta` included, if you want `duo init` to keep owning the file instead.
+`term_meta` included, if you want `wprism init` to keep owning the file instead.
 
-Repositories initialized by `duo init` already include the required ignore
+Repositories initialized by `wprism init` already include the required ignore
 and Git LFS attribute rules plus the initial baseline; continue with pending review and the daily
 workflow rather than recapturing merely to manufacture a first snapshot.
 
 That `.gitignore` — already copied above, before either path's first write —
-covers init's sealed recovery journal (`.duo-init-attempt` and its
-`.duo-init-attempt.next` transition), its unpublished `.duo-init-code-*`
+covers init's sealed recovery journal (`.wprism-init-attempt` and its
+`.wprism-init-attempt.next` transition), its unpublished `.wprism-init-code-*`
 staging root, capture's publication artifacts
 (`state.capture.lock`, `state.capture-staging/`, `state.capture-backup/`,
 `state.capture-intent`, `state.capture-receipt`, their fixed `.previous`/`.next`
 transition slots, and `.tmp*`), and the target-local
-per-environment `.duo-env-values.json` intended-value file. Omitting
+per-environment `.wprism-env-values.json` intended-value file. Omitting
 `state.capture.lock` in
 particular is not cosmetic: the template's own comment records the structural
 failure it causes the moment two environments capture on both sides of a pair
 before the second one pulls.
 
-Init's hidden `.*.duo-init-*` temporary and claim names are ignored for Git
+Init's hidden `.*.wprism-init-*` temporary and claim names are ignored for Git
 hygiene but remain ownership evidence. If one survives a crash, keep the
 repository quiesced and treat the init plan as non-confirmable until the
 documented archive-and-recreate recovery has been completed.
 
-Those `state.capture*` names are Duo-owned protocol boundaries, not editable
+Those `state.capture*` names are WPrism-owned protocol boundaries, not editable
 repository content. During capture or recovery, keep shell automation and all
-other non-Duo writers out of that namespace; the capture lock serializes Duo
+other non-WPrism writers out of that namespace; the capture lock serializes WPrism
 processes but cannot fence an unrelated filesystem writer.
 
 If an interrupted init reports that a partial code, media, state-staging, or
@@ -599,18 +599,18 @@ sealed journal and lock instead of guessing that the partial bytes are safe to
 delete. Keep the repository quiesced and preserve that complete root for
 inspection. The conservative retry is to archive the entire interrupted site
 repository, recreate the configured path as a new ordinary empty directory
-(restoring only reviewed adoption-seed files), and run `duo init` again; never
+(restoring only reviewed adoption-seed files), and run `wprism init` again; never
 delete only the journal and leave its partial payload behind.
 
 The generated template already keeps the root-local machine registry
-(`/.duo-envs.json`), operational artifact/checkpoint directory (`/.duo/`), and
-environment intended-value file (`/.duo-env-values.json`) out of Git. The root
+(`/.wprism-envs.json`), operational artifact/checkpoint directory (`/.wprism/`), and
+environment intended-value file (`/.wprism-env-values.json`) out of Git. The root
 anchors preserve legitimate same-named files inside vendored code. When the
 split locked components, a second labelled block holds their root-anchored
 `/code/wp-content/<root>/<component>/` lines; those are the exact lines the
 compile gate reads back, and the repository-root `.gitignore` is the only place
 they may live — one inside `code/wp-content/` refuses compile, and one inside
-`code/wp-content/plugins/` would be shipped to the target as payload. `duo doctor`
+`code/wp-content/plugins/` would be shipped to the target as payload. `wprism doctor`
 separately checks that the environment-value file is not Git-tracked — a
 tracked one is a blocking failure wherever it can find a `git` binary to check
 with.
@@ -623,9 +623,9 @@ plugin and theme code on an independent target, adopt it, transfer only the
 site repo, and converge it:
 
 ```sh
-"$DUO_CLI" plan target --adopt-by-slug=posts,terms,menus --default-author=admin
-"$DUO_CLI" apply target --adopt-by-slug=posts,terms,menus --default-author=admin
-"$DUO_CLI" capture target
+"$WPRISM_CLI" plan target --adopt-by-slug=posts,terms,menus --default-author=admin
+"$WPRISM_CLI" apply target --adopt-by-slug=posts,terms,menus --default-author=admin
+"$WPRISM_CLI" capture target
 ```
 
 The acceptance result is four facts together, not any one of them: apply's
@@ -646,7 +646,7 @@ a convenience flag.
 - [daily-workflow.md](daily-workflow.md) — the loop your team runs after this.
 - [release.md](release.md) — rehearse, authorize, release, verify: the loop the
   contract unlocks.
-- [capabilities-and-limits.md](capabilities-and-limits.md) — what Duo manages,
+- [capabilities-and-limits.md](capabilities-and-limits.md) — what WPrism manages,
   what it refuses, and how to read a red plan.
 - [docs/adoption.md](../adoption.md) — the full adoption contract, including
   key handling, the verified-rollback profile, and the reproducible two-host

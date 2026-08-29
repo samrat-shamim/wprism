@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
@@ -12,28 +12,28 @@ require_once __DIR__ . '/../Grammar/SubKeyGrammar.php';
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 require_once __DIR__ . '/CacheInvalidationTransaction.php';
 // Deliberately NOT require_once('Db.php') here: sandbox/tests/offline/reference-scope/regress_scoped_promotion_target.php
-// stubs a fake Duo\Db and reaches this file transitively through Apply.php
+// stubs a fake WPrism\Db and reaches this file transitively through Apply.php
 // (a direct require of "$root/agent/src/Apply/Apply.php") without ever loading the
 // real Db.php; requiring it here fatals that suite with "Cannot redeclare
-// class Duo\Db" (caught by regress-offline-all while verifying this file) --
+// class WPrism\Db" (caught by regress-offline-all while verifying this file) --
 // the identical exclusion UserMetaMaterializer.php and TermMaterializer.php
 // already document for the same reason. (regress_code_revision_enforcement.php
 // also reaches this file transitively and stubs a fake class of its own, but
-// it fakes Duo\Ledger, not Duo\Db -- irrelevant here since this file never
+// it fakes WPrism\Ledger, not WPrism\Db -- irrelevant here since this file never
 // references Ledger; verified via grep 'class (Db|Ledger)' against both
 // suites individually rather than assumed, after an earlier slice in this
 // same effort got exactly this kind of asymmetric-verification mistake wrong
 // for a different class pair.)
 
 /**
- * The options entity materializer (DUO-3347 slice 7, one of the "Entity
+ * The options entity materializer (issue #3347 slice 7, one of the "Entity
  * materializers: posts, terms, menus, options/meta/users, relationships,
  * attachments, typed tables" target seams): reconciles authored wp_options
  * rows -- plain, ref/json_refs/key_refs-tokenized, option_name_refs
  * token-form, and sub_keys mixed-ownership merges alike -- against one
  * target's live options table.
  *
- * Extracted from Apply.php on top of DUO-3347 slice 3's ApplyFieldMaterializer
+ * Extracted from Apply.php on top of issue #3347 slice 3's ApplyFieldMaterializer
  * (for the shared upsert_option()/option_wire_value() writes, called directly
  * here rather than through Apply's own now-thinner facades) -- apply_options()
  * and its five private helpers were otherwise fully self-contained: their only
@@ -78,7 +78,7 @@ final class OptionsMaterializer {
 
     public function begin_authored_transaction(): void {
         if ($this->authoredTransaction) {
-            throw new \RuntimeException('duo: options materializer transaction participant was already active');
+            throw new \RuntimeException('wprism: options materializer transaction participant was already active');
         }
         $this->authoredTransaction = true;
         $this->nativeRollbackCallbacks = [];
@@ -87,7 +87,7 @@ final class OptionsMaterializer {
     /** Clear rollback authority only after the database COMMIT returned successfully. */
     public function commit_authored_transaction(): void {
         if (!$this->authoredTransaction) {
-            throw new \RuntimeException('duo: options materializer transaction participant is not active');
+            throw new \RuntimeException('wprism: options materializer transaction participant is not active');
         }
         $this->nativeRollbackCallbacks = [];
     }
@@ -112,7 +112,7 @@ final class OptionsMaterializer {
                 $fingerprints[] = $label . '=' . self::failure_fingerprint($failure);
             }
             throw new \RuntimeException(
-                'duo: native option transaction rollback could not restore exact storage/runtime state; '
+                'wprism: native option transaction rollback could not restore exact storage/runtime state; '
                 . implode('; ', $fingerprints) . '; recovery_required',
                 0,
                 reset($failures)
@@ -137,7 +137,7 @@ final class OptionsMaterializer {
         array &$warnings,
         ?array $classificationDocument = null
     ): void {
-        // DUO-3263: an interpreter-classified option (ACF's options-page
+        // issue #3263: an interpreter-classified option (ACF's options-page
         // fields) needs the same document-sourced sibling map (the shadow
         // pointer) RepositoryAuthorization/RepositoryCompiler already build
         // from this same document (including valid v2 deletion witnesses) —
@@ -152,7 +152,7 @@ final class OptionsMaterializer {
                     OptionState::record_hash($classificationRecords[$name])
                 )) {
                 throw new \RuntimeException(
-                    "duo: option '$name' materialization has no identical immutable classification record"
+                    "wprism: option '$name' materialization has no identical immutable classification record"
                 );
             }
         }
@@ -164,7 +164,7 @@ final class OptionsMaterializer {
             [$realName, $rule, $ruleSource] = $this->option_apply_target((string) $name, $allOptions);
             if ($record['state'] === 'deleted') {
                 if (!$withDeletes) {
-                    throw new \RuntimeException("duo: internal invariant: option tombstone '$name' reached apply without --with-deletes");
+                    throw new \RuntimeException("wprism: internal invariant: option tombstone '$name' reached apply without --with-deletes");
                 }
                 global $wpdb;
                 // wp_options normally compares option_name case-insensitively.
@@ -184,7 +184,7 @@ final class OptionsMaterializer {
                     $realName,
                     'authored option deletion readback'
                 ) !== null) {
-                    throw new \RuntimeException('duo: authored option deletion retained the exact locked row');
+                    throw new \RuntimeException('wprism: authored option deletion retained the exact locked row');
                 }
                 continue;
             }
@@ -212,12 +212,12 @@ final class OptionsMaterializer {
                 // a plugin/theme is active while skipping every activation-hook
                 // side effect that makes it actually work — activate_plugin()/
                 // switch_theme() exist for exactly that reason. Deploy::run()
-                // (`wp duo deploy`) is the ONLY place these are ever reconciled,
+                // (`wp wprism deploy`) is the ONLY place these are ever reconciled,
                 // deliberately outside this canary-armed apply.
                 continue;
             }
             if (!empty($rule['sub_keys'])) {
-                // DUO-3233: SUB-KEY-LEVEL merge into the live blob, never a
+                // issue #3233: SUB-KEY-LEVEL merge into the live blob, never a
                 // whole-value replace — see apply_option_sub_keys()'s own
                 // docblock for the full rationale.
                 $this->apply_option_sub_keys($name, $v, $rule, $ruleSource, $autoload, $warnings);
@@ -239,7 +239,7 @@ final class OptionsMaterializer {
             // would-be instance id must not fall through to the generic
             // option path and leave a stale target row behind.
             $this->policy->option_name_ref_match_details($name);
-            // DUO-3263: interpreter-aware, not the plain static option_rule()
+            // issue #3263: interpreter-aware, not the plain static option_rule()
             // — an ACF options-page field (options_<name>/_options_<name>)
             // has no exact/pattern policy entry at all; only
             // meta_rule_for_option() consults the owning manifest's
@@ -250,7 +250,7 @@ final class OptionsMaterializer {
             // static option_rule_details() lookup option_rule() uses when no
             // interpreter claims $name (Policy::rule_details_for_interpreter_hook()),
             // so it is a strict superset of the plain lookup, not a
-            // replacement for it — DUO-3264's dynamic_options fallback
+            // replacement for it — issue #3264's dynamic_options fallback
             // (theme_mods_<active theme>, disjoint namespace from every
             // ACF options-page name) chains after it for the same reason it
             // already chained after option_rule() before this merge.
@@ -264,7 +264,7 @@ final class OptionsMaterializer {
             return [$name, $rule ?? [], is_string($source) ? $source : null];
         }
         if (!preg_match('/\{\{([a-z][a-z0-9_]*):([0-9a-f-]{36})\}\}/', $name, $tm)) {
-            throw new \RuntimeException("duo: option key '$name' contains '{{' but is not a well-formed ref token");
+            throw new \RuntimeException("wprism: option key '$name' contains '{{' but is not a well-formed ref token");
         }
         // Validate canonical ownership before resolving the token. This
         // rejects same-kind and cross-kind overlaps in the same way as live
@@ -273,7 +273,7 @@ final class OptionsMaterializer {
         $canonicalDetails = $this->policy->canonical_option_name_ref_details($name);
         if (($canonicalDetails['rule'] ?? null) === null) {
             throw new \RuntimeException(
-                "duo: captured option key '$name' contains an identity token but no authored option_name_refs owner"
+                "wprism: captured option key '$name' contains an identity token but no authored option_name_refs owner"
             );
         }
         $realId = $this->tokens->token_to_id($tm[0]);
@@ -284,7 +284,7 @@ final class OptionsMaterializer {
             || ($rule['class'] ?? '') !== 'authored'
             || (string) ($rule['id_kind'] ?? '') !== (string) $tm[1]) {
             throw new \RuntimeException(
-                "duo: captured option key '$name' looks token-form but matches no option_name_refs rule "
+                "wprism: captured option key '$name' looks token-form but matches no option_name_refs rule "
                 . "after detokenizing to '$realName'"
             );
         }
@@ -292,7 +292,7 @@ final class OptionsMaterializer {
     }
 
     /**
-     * DUO-3264 (fork A): fall back to a dynamic_options-declared sub_keys
+     * issue #3264 (fork A): fall back to a dynamic_options-declared sub_keys
      * rule when the ordinary option_rule() lookup finds nothing —
      * theme_mods_<active stylesheet> is the proven case. Computes this
      * environment's own live resolver values (Policy.php stays WordPress-
@@ -303,7 +303,7 @@ final class OptionsMaterializer {
      *
      * A captured document key only ever matches when it is EXACTLY the
      * name Policy::resolve_dynamic_option() would produce for THIS target
-     * right now: deploy's own theme-reconciliation (DUO-3216) already
+     * right now: deploy's own theme-reconciliation (issue #3216) already
      * guarantees that equality holds by the time apply's own canary-armed
      * mutation phase runs (Apply::apply()'s refuse-gate hard-blocks a
      * theme mismatch before this method is ever reached) — the identical
@@ -318,7 +318,7 @@ final class OptionsMaterializer {
      * This environment's live value for every resolver the pinned manifests
      * actually declare.
      *
-     * DUO-3318: the map used to be the single literal
+     * issue #3318: the map used to be the single literal
      * `['active_stylesheet' => get_option('stylesheet')]`, which silently
      * answered "no value" for any OTHER declared resolver — and
      * Policy::dynamic_option_rule_for_name()'s matching `continue` then
@@ -335,7 +335,7 @@ final class OptionsMaterializer {
      * get_option(). Capture additionally honors a repository-supplied
      * override for the same resolver (a refresh export reads the captured
      * stylesheet, not this target's); apply has no such alternative source
-     * because DUO-3216's theme refuse-gate has already proven the two agree.
+     * because issue #3216's theme refuse-gate has already proven the two agree.
      *
      * @return array<string,string>
      */
@@ -346,7 +346,7 @@ final class OptionsMaterializer {
             $out[$resolver] = match ($resolver) {
                 'active_stylesheet' => (string) get_option('stylesheet'),
                 default => throw new \RuntimeException(
-                    "duo: dynamic_options.$key declares unsupported resolver '$resolver'"
+                    "wprism: dynamic_options.$key declares unsupported resolver '$resolver'"
                 ),
             };
         }
@@ -355,7 +355,7 @@ final class OptionsMaterializer {
 
     /**
      * Shared apply-direction dispatch, the mirror of OptionsCapture's value codec
-     * — factored out for the identical reason: a sub_keys (DUO-3233) NAMED
+     * — factored out for the identical reason: a sub_keys (issue #3233) NAMED
      * sub-key's rule is a whole option rule at one nesting level down, so it
      * gets json_refs/key_refs/ref/plain-string detokenization for free, with
      * zero new dispatch logic to keep in sync with the ordinary per-option
@@ -375,7 +375,7 @@ final class OptionsMaterializer {
             // options must return to comma-delimited strings because the
             // plugin passes them directly to explode(). The ref-only codec
             // materialized a serialized PHP array and made every subsequent
-            // PMPro bootstrap fatal before Duo could retry or repair it.
+            // PMPro bootstrap fatal before WPrism could retry or repair it.
             return $this->tokens->meta_tokens_to_value($v, $rule);
         }
         if (is_string($v)) {
@@ -385,7 +385,7 @@ final class OptionsMaterializer {
     }
 
     /**
-     * sub_keys apply (DUO-3233): SUB-KEY-LEVEL merge into the LIVE blob —
+     * sub_keys apply (issue #3233): SUB-KEY-LEVEL merge into the LIVE blob —
      * never a whole-value replace. Reads and locks the target's own CURRENT
      * value, overlays only declared-authored sub-keys, and preserves every
      * declared target-owned sibling. A manifest-owned interpreter may replace
@@ -401,8 +401,8 @@ final class OptionsMaterializer {
      * The ordinary case where this
      * would matter — Polylang/Yoast not yet activated on this target — is
      * caught upstream of this code path: spec/repo-format.md's code-half
-     * ordering runs `wp duo deploy` (real activate_plugin() calls) before
-     * `wp duo apply`, so the owning plugin's own activation-time
+     * ordering runs `wp wprism deploy` (real activate_plugin() calls) before
+     * `wp wprism apply`, so the owning plugin's own activation-time
      * add_option() has normally already populated this option by the time
      * apply reaches here. A bare `apply` run in isolation (e.g. a test)
      * against a plugin that was never activated is a real, if unusual,
@@ -411,14 +411,14 @@ final class OptionsMaterializer {
      * which is observable (warned) rather than silently incomplete.
      *
      * Whole-option deletion remains ownership-exact and unrelated to the
-     * tombstone below: DUO-3211's whole-row `deleted` record is authorized
+     * tombstone below: issue #3211's whole-row `deleted` record is authorized
      * only for a whole authored option, never for this mixed-ownership
      * shape, and represents an explicit, git-visible deletion INTENT with
      * its own record. This function draws a narrower, second distinction —
      * about one declared sub-key's own presence, not the containing
      * option's — covered next.
      *
-     * Sub-key TOMBSTONE (DUO-3264): a `class: authored` sub-key that
+     * Sub-key TOMBSTONE (issue #3264): a `class: authored` sub-key that
      * $captured does not contain is REMOVED from the live blob below, not
      * left stale. Capture::capture_option_sub_keys() only ever omits a
      * declared-authored sub-key from its own output for reasons that are
@@ -435,16 +435,16 @@ final class OptionsMaterializer {
      * for every OTHER key in $subKeys, is exactly why this fix is scoped to
      * $subKeys members only — see the loop below).
      *
-     * Discovered live (DUO-3264 core conformance): theme_mods_<stylesheet>
+     * Discovered live (issue #3264 core conformance): theme_mods_<stylesheet>
      * 's own custom_logo/header_image_data.attachment_id sub-keys are
      * pointers to an attachment id, and WordPress itself deletes those SAME
      * theme_mods keys out of the live blob the instant the referenced
      * attachment is deleted (_delete_attachment_theme_mod(), core behavior,
-     * not a Duo mechanism) — a completely ordinary action (an admin swaps
+     * not a WPrism mechanism) — a completely ordinary action (an admin swaps
      * or removes a site logo). Before this fix, a target that had already
      * received the old value on an earlier apply kept serving the deleted
      * attachment's id forever; no later apply could ever remove what it
-     * only ever knew how to add or overwrite. sub_keyed_options() (DUO-3233:
+     * only ever knew how to add or overwrite. sub_keyed_options() (issue #3233:
      * Polylang's force_lang/rewrite, Yoast's wpseo fields) shares this exact
      * code path and gets the identical fix, though its own declared
      * sub-keys have not been observed to disappear the way an attachment-
@@ -480,7 +480,7 @@ final class OptionsMaterializer {
         global $wpdb;
         if (!is_array($captured)) {
             throw new \RuntimeException(
-                "duo: captured option '$name' declares sub_keys but its repository value is not an object"
+                "wprism: captured option '$name' declares sub_keys but its repository value is not an object"
             );
         }
         $subKeys = (array) ($rule['sub_keys'] ?? []);
@@ -499,7 +499,7 @@ final class OptionsMaterializer {
         );
         if (count($companionNames) + count($runtimeCompanionNames) > self::MAX_NATIVE_OPTION_COMPANIONS) {
             throw new \RuntimeException(
-                "duo: native option materializer for '$name' declared too many total companion rows"
+                "wprism: native option materializer for '$name' declared too many total companion rows"
             );
         }
         foreach (array_merge($companionNames, $runtimeCompanionNames) as $targetName) {
@@ -508,7 +508,7 @@ final class OptionsMaterializer {
                 $fingerprint = 'string:' . strlen($targetName) . ':'
                     . substr(hash('sha256', $targetName), 0, 16);
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' declared an invalid companion lock ($fingerprint)"
+                    "wprism: native option materializer for '$name' declared an invalid companion lock ($fingerprint)"
                 );
             }
             $details = $this->policy->option_rule_details($targetName);
@@ -517,13 +517,13 @@ final class OptionsMaterializer {
                 || ($details['source'] ?? null) !== $ruleSource
                 || !in_array(($targetRule['class'] ?? null), ['runtime', 'derived', 'env'], true)) {
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' declared an undeclared/non-target-owned companion lock"
+                    "wprism: native option materializer for '$name' declared an undeclared/non-target-owned companion lock"
                 );
             }
         }
         if (array_intersect($companionNames, $runtimeCompanionNames) !== []) {
             throw new \RuntimeException(
-                "duo: native option materializer for '$name' declared one companion as both observational and writable"
+                "wprism: native option materializer for '$name' declared one companion as both observational and writable"
             );
         }
         $lockNames = array_merge([$name], $companionNames, $runtimeCompanionNames);
@@ -540,7 +540,7 @@ final class OptionsMaterializer {
                 $lockedOptionValueBytes += strlen($lockedRow['option_value']);
                 if ($lockedOptionValueBytes > self::MAX_NATIVE_OPTION_TRANSACTION_BYTES) {
                     throw new \RuntimeException(
-                        "duo: native option materializer for '$name' companion transaction exceeds its raw-byte bound"
+                        "wprism: native option materializer for '$name' companion transaction exceeds its raw-byte bound"
                     );
                 }
             }
@@ -554,7 +554,7 @@ final class OptionsMaterializer {
             $live = PlainData::decode($raw, "live option '$name'");
             if (!is_array($live)) {
                 throw new \RuntimeException(
-                    "duo: live option '$name' is not array-shaped — cannot sub-key-merge into it (got "
+                    "wprism: live option '$name' is not array-shaped — cannot sub-key-merge into it (got "
                     . get_debug_type($live) . ')'
                 );
             }
@@ -576,7 +576,7 @@ final class OptionsMaterializer {
                 // (e.g. a future internal caller of apply_options() that
                 // skips the preflight), not a routinely-reachable branch.
                 throw new \RuntimeException(
-                    "duo: captured option '$name.$subKey' has no authored sub_keys rule — repository "
+                    "wprism: captured option '$name.$subKey' has no authored sub_keys rule — repository "
                     . 'authorization should have refused this before apply'
                 );
             }
@@ -602,13 +602,13 @@ final class OptionsMaterializer {
             global $wpdb;
             if (!$this->authoredTransaction || $runtimeRestoreRegistrations !== 1) {
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' attempted storage before arming runtime rollback"
+                    "wprism: native option materializer for '$name' attempted storage before arming runtime rollback"
                 );
             }
             ++$storageWriteCalls;
             if ($storageWriteCalls !== 1) {
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' wrote storage more than once"
+                    "wprism: native option materializer for '$name' wrote storage more than once"
                 );
             }
             PlainData::assert($value, "native materialized option '$name'");
@@ -616,7 +616,7 @@ final class OptionsMaterializer {
             $wire = $this->fieldMaterializer->option_wire_value($value);
             if (strlen($wire) > self::MAX_OPTION_VALUE_BYTES) {
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' produced an oversized storage value"
+                    "wprism: native option materializer for '$name' produced an oversized storage value"
                 );
             }
             CacheInvalidationTransaction::assert_local_option_cache(
@@ -657,12 +657,12 @@ final class OptionsMaterializer {
             ++$finalizeCalls;
             if ($finalizeCalls !== 1) {
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' finalized storage more than once"
+                    "wprism: native option materializer for '$name' finalized storage more than once"
                 );
             }
             if ($storageWriteCalls !== 1) {
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' finalized without exactly one engine-owned storage write"
+                    "wprism: native option materializer for '$name' finalized without exactly one engine-owned storage write"
                 );
             }
             DeleteGuardEvaluator::assert_transaction_isolation(
@@ -674,7 +674,7 @@ final class OptionsMaterializer {
             );
             if ($row === null) {
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' left no raw storage row"
+                    "wprism: native option materializer for '$name' left no raw storage row"
                 );
             }
             $finalizedRow = $row;
@@ -708,7 +708,7 @@ final class OptionsMaterializer {
                 );
                 if ($restored !== null) {
                     throw new \RuntimeException(
-                        "duo: native option materializer for '$name' could not restore exact absent storage"
+                        "wprism: native option materializer for '$name' could not restore exact absent storage"
                     );
                 }
                 return null;
@@ -746,7 +746,7 @@ final class OptionsMaterializer {
                 || !hash_equals((string) $raw, $restored['option_value'])
                 || !hash_equals((string) $targetAutoload, $restored['autoload'])) {
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' could not restore exact storage"
+                    "wprism: native option materializer for '$name' could not restore exact storage"
                 );
             }
             return $restored;
@@ -773,7 +773,7 @@ final class OptionsMaterializer {
                 $fingerprint = 'string:' . strlen($targetName) . ':'
                     . substr(hash('sha256', $targetName), 0, 16);
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' requested a companion outside its canonical "
+                    "wprism: native option materializer for '$name' requested a companion outside its canonical "
                     . "prelocked roster ($fingerprint)"
                 );
             }
@@ -796,7 +796,7 @@ final class OptionsMaterializer {
             global $wpdb;
             if (!$this->authoredTransaction || $runtimeRestoreRegistrations !== 1) {
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' attempted a runtime-companion write before "
+                    "wprism: native option materializer for '$name' attempted a runtime-companion write before "
                     . 'arming runtime rollback'
                 );
             }
@@ -804,20 +804,20 @@ final class OptionsMaterializer {
                 $fingerprint = 'string:' . strlen($targetName) . ':'
                     . substr(hash('sha256', $targetName), 0, 16);
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' requested a runtime-companion write outside "
+                    "wprism: native option materializer for '$name' requested a runtime-companion write outside "
                     . "its canonical prelocked roster ($fingerprint)"
                 );
             }
             $runtimeCompanionWriteCalls[$targetName] = ($runtimeCompanionWriteCalls[$targetName] ?? 0) + 1;
             if ($runtimeCompanionWriteCalls[$targetName] !== 1) {
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' wrote one runtime companion more than once"
+                    "wprism: native option materializer for '$name' wrote one runtime companion more than once"
                 );
             }
             if (strlen($rawValue) > self::MAX_OPTION_VALUE_BYTES
                 || !in_array($runtimeAutoload, OptionState::AUTOLOAD_VALUES, true)) {
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' supplied malformed runtime-companion storage"
+                    "wprism: native option materializer for '$name' supplied malformed runtime-companion storage"
                 );
             }
             CacheInvalidationTransaction::assert_local_option_cache(
@@ -833,7 +833,7 @@ final class OptionsMaterializer {
             );
             if ($current !== $expected) {
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' changed a writable companion before its engine write"
+                    "wprism: native option materializer for '$name' changed a writable companion before its engine write"
                 );
             }
             // Arm restoration before the first SQL byte: an injected DB/cache
@@ -873,7 +873,7 @@ final class OptionsMaterializer {
                 || !hash_equals($rawValue, $written['option_value'])
                 || !hash_equals($runtimeAutoload, $written['autoload'])) {
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' did not persist exact runtime-companion storage"
+                    "wprism: native option materializer for '$name' did not persist exact runtime-companion storage"
                 );
             }
             $runtimeCompanionWitnesses[$targetName] = $written;
@@ -958,7 +958,7 @@ final class OptionsMaterializer {
                     $fingerprints[] = $label . '=' . self::failure_fingerprint($failure);
                 }
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' runtime-companion restoration failed; "
+                    "wprism: native option materializer for '$name' runtime-companion restoration failed; "
                     . implode('; ', $fingerprints),
                     0,
                     reset($failures)
@@ -978,13 +978,13 @@ final class OptionsMaterializer {
             ++$runtimeRestoreRegistrations;
             if ($runtimeRestoreRegistrations !== 1) {
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' registered runtime restoration more than once"
+                    "wprism: native option materializer for '$name' registered runtime restoration more than once"
                 );
             }
             $runtimeRestore = $restore;
             if (!$this->authoredTransaction) {
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' ran outside the options transaction participant"
+                    "wprism: native option materializer for '$name' ran outside the options transaction participant"
                 );
             }
             $rollbackArmed = true;
@@ -1034,7 +1034,7 @@ final class OptionsMaterializer {
                         $fingerprints[] = $label . '=' . self::failure_fingerprint($rollbackFailure);
                     }
                     throw new \RuntimeException(
-                        "duo: native option materializer for '$name' rollback restoration failed; "
+                        "wprism: native option materializer for '$name' rollback restoration failed; "
                         . implode('; ', $fingerprints),
                         0,
                         reset($failures)
@@ -1065,23 +1065,23 @@ final class OptionsMaterializer {
                 || $runtimeCompanionWriteCalls !== []
                 || $runtimeCompanionWriteOrder !== [])) {
             throw new \RuntimeException(
-                "duo: native option materializer for '$name' returned unhandled after native side effects"
+                "wprism: native option materializer for '$name' returned unhandled after native side effects"
             );
         }
         if ($handledNatively) {
             if (!$this->authoredTransaction || !$rollbackArmed) {
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' ran outside the options transaction participant"
+                    "wprism: native option materializer for '$name' ran outside the options transaction participant"
                 );
             }
             if ($finalizeCalls !== 1 || !is_array($finalizedRow)) {
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' returned success without exactly one storage finalization"
+                    "wprism: native option materializer for '$name' returned success without exactly one storage finalization"
                 );
             }
             if ($runtimeRestoreRegistrations !== 1 || !($runtimeRestore instanceof \Closure)) {
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' returned success without one runtime restoration callback"
+                    "wprism: native option materializer for '$name' returned success without one runtime restoration callback"
                 );
             }
             // The hook can execute arbitrary plugin callbacks after its first
@@ -1098,7 +1098,7 @@ final class OptionsMaterializer {
                 );
                 if ($currentCompanion !== $companionWitness) {
                     throw new \RuntimeException(
-                        "duo: native option materializer for '$name' changed a locked companion option"
+                        "wprism: native option materializer for '$name' changed a locked companion option"
                     );
                 }
             }
@@ -1109,7 +1109,7 @@ final class OptionsMaterializer {
                 );
                 if ($currentCompanion !== $companionWitness) {
                     throw new \RuntimeException(
-                        "duo: native option materializer for '$name' changed a writable companion outside "
+                        "wprism: native option materializer for '$name' changed a writable companion outside "
                         . 'its engine-owned writer'
                     );
                 }
@@ -1123,7 +1123,7 @@ final class OptionsMaterializer {
                 || !hash_equals($finalizedRow['option_value'], $verifiedRow['option_value'])
                 || !hash_equals($finalizedRow['autoload'], $verifiedRow['autoload'])) {
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' changed storage after finalization; recovery_required"
+                    "wprism: native option materializer for '$name' changed storage after finalization; recovery_required"
                 );
             }
             $verifiedValue = PlainData::decode(
@@ -1132,7 +1132,7 @@ final class OptionsMaterializer {
             );
             if (!is_array($verifiedValue)) {
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' did not persist an array-shaped mixed option"
+                    "wprism: native option materializer for '$name' did not persist an array-shaped mixed option"
                 );
             }
             SubKeyGrammar::assert_closed_value(
@@ -1172,7 +1172,7 @@ final class OptionsMaterializer {
                 );
                 if ($currentCompanion !== $companionWitness) {
                     throw new \RuntimeException(
-                        "duo: native option materializer for '$name' changed a locked companion option"
+                        "wprism: native option materializer for '$name' changed a locked companion option"
                     );
                 }
             }
@@ -1183,7 +1183,7 @@ final class OptionsMaterializer {
                 );
                 if ($currentCompanion !== $companionWitness) {
                     throw new \RuntimeException(
-                        "duo: native option materializer for '$name' changed a writable companion outside "
+                        "wprism: native option materializer for '$name' changed a writable companion outside "
                         . 'its engine-owned writer'
                     );
                 }
@@ -1197,14 +1197,14 @@ final class OptionsMaterializer {
                 || !hash_equals($finalizedRow['option_value'], $postProjectionRow['option_value'])
                 || !hash_equals($finalizedRow['autoload'], $postProjectionRow['autoload'])) {
                 throw new \RuntimeException(
-                    "duo: native option materializer for '$name' changed storage after finalization; recovery_required"
+                    "wprism: native option materializer for '$name' changed storage after finalization; recovery_required"
                 );
             }
             foreach ($materialized as $subKey => $desiredValue) {
                 if (!array_key_exists($subKey, $projectedAuthored)
                     || Canon::encode($projectedAuthored[$subKey]) !== Canon::encode($desiredValue)) {
                     throw new \RuntimeException(
-                        "duo: native option materializer for '$name' did not persist the exact authored group"
+                        "wprism: native option materializer for '$name' did not persist the exact authored group"
                     );
                 }
             }
@@ -1213,7 +1213,7 @@ final class OptionsMaterializer {
                     && !array_key_exists((string) $subKey, $materialized)
                     && array_key_exists((string) $subKey, $projectedAuthored)) {
                     throw new \RuntimeException(
-                        "duo: native option materializer for '$name' retained an absent authored sibling"
+                        "wprism: native option materializer for '$name' retained an absent authored sibling"
                     );
                 }
                 if (($subRule['class'] ?? null) === 'authored') {
@@ -1224,12 +1224,12 @@ final class OptionsMaterializer {
                 $isPresent = array_key_exists($key, $verifiedValue);
                 if ($wasPresent && (!$isPresent || $verifiedValue[$key] !== $live[$key])) {
                     throw new \RuntimeException(
-                        "duo: native option materializer for '$name' changed a target-owned sibling"
+                        "wprism: native option materializer for '$name' changed a target-owned sibling"
                     );
                 }
                 if (!$wasPresent && $isPresent && ($subRule['native_default_completion'] ?? null) !== true) {
                     throw new \RuntimeException(
-                        "duo: native option materializer for '$name' added a target-owned sibling without "
+                        "wprism: native option materializer for '$name' added a target-owned sibling without "
                         . 'native_default_completion authority'
                     );
                 }
@@ -1279,7 +1279,7 @@ final class OptionsMaterializer {
         $stored = $this->read_exact_native_autoload($name);
         if (!hash_equals($autoload, $stored)) {
             throw new \RuntimeException(
-                "duo: native option materializer for '$name' did not persist the canonical autoload value"
+                "wprism: native option materializer for '$name' did not persist the canonical autoload value"
             );
         }
     }
@@ -1291,12 +1291,12 @@ final class OptionsMaterializer {
         );
         if ($row === null) {
             throw new \RuntimeException(
-                "duo: native option materializer for '$name' did not leave one readable option row"
+                "wprism: native option materializer for '$name' did not leave one readable option row"
             );
         }
         if (strlen($row['autoload']) > self::MAX_AUTOLOAD_BYTES) {
             throw new \RuntimeException(
-                "duo: native option materializer for '$name' left a malformed/collation-aliased option row"
+                "wprism: native option materializer for '$name' left a malformed/collation-aliased option row"
             );
         }
         return $row['autoload'];

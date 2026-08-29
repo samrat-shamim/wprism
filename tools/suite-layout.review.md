@@ -5,16 +5,23 @@ move-suites.php` executes it and decides nothing. This file is the other half:
 what each placement was decided *on*, which judgment calls a reviewer should
 argue with, and the commands that prove the map's mechanical contracts.
 
-**Scale.** 336 files at the corpus root. 335 are mapped; `offline_diagnostics_
+**Current generated corpus (authoritative).** `php tools/offline-corpus.php --check`
+derives 332 offline suites, and the checked-in `tools/offline-corpus.mk` prints
+the same count for both aggregate targets. That generated count is the current
+topology; the ratification measurements below explain the move that created the
+layout and are not a second source of truth.
+
+**Historical scale at ratification.** 336 files at the corpus root. 335 are mapped; `offline_diagnostics_
 guard.sh` is the one ratified stay (the `regress-offline-all` recipe invokes it
 by name as the corpus wrapper). `lib/`, `fixtures/`, `support/` and the already-
 nested `offline/guards/regress_suite_wiring.php` are untouched.
 
 ## How execution class was decided
 
-Class is not a naming convention here; it is what the `Makefile` actually runs.
+At ratification, class was not a naming convention; it was what the `Makefile`
+actually ran.
 
-* **offline** — the transitive closure of `regress-offline-corpus`, taken from
+* **offline** — the then-transitive closure of `regress-offline-corpus`, taken from
   `make -n` rather than by reading the prerequisite list. 252 paths, which is
   exactly the count the `Makefile` asserts in its own
   `regress-offline-corpus: 252 offline suites green` line. 251 are at the root;
@@ -39,18 +46,18 @@ under 25 files.
 | domain | n | what it means |
 | --- | --- | --- |
 | `adapter` | 22 | `agent/src/Adapter/*` — sources, catalog, registry, providers/actions, certification, the adapter-authoring draft path, shipped ecosystem adapter boundaries, and the production-readiness work ledger |
-| `apply` | 17 | `agent/src/Apply/*` and `agent/src/Delete/*` — the DUO-3347 materializer/planner extractions, conflict/convergence, the checked-write boundary |
+| `apply` | 17 | `agent/src/Apply/*` and `agent/src/Delete/*` — the issue #3347 materializer/planner extractions, conflict/convergence, the checked-write boundary |
 | `assess-contract` | 17 | the round-3 MUP vocabulary: `assess`, `contract`, `release`, `verify`, `recover`, `rehearse` |
 | `capture` | 17 | `agent/src/Capture/*` and `agent/src/Publication/*` — the read side and its durable tree publication |
 | `cli` | 24 | `cli/src/Command/*` verb surfaces, plan rendering, host-side onboarding/adoption |
-| `code-half` | 25 | `agent/src/Code/*` plus the DUO-3350 Deploy/lifecycle collaborators |
+| `code-half` | 25 | `agent/src/Code/*` plus the issue #3350 Deploy/lifecycle collaborators |
 | `ecommerce` | 7 | WooCommerce contracts and the ecommerce extension migration |
-| `environment` | 11 | `Duo\Orchestrator\EnvironmentDriver` / DUO-3324 materialize-reap |
+| `environment` | 11 | `WPrism\Orchestrator\EnvironmentDriver` / issue #3324 materialize-reap |
 | `grammar` | 25 | `agent/src/Grammar/*` plus the Kernel classes that define how an authored *value* is represented (codecs, tokenizers, reference grammars, order preservation) |
 | `guards` | 25 | suites whose subject is the estate or repo tooling, not shipped runtime behaviour |
 | `policy` | 25 | `agent/src/Policy/*` — manifest load, validation, dispositions, reclassification, the manifest fixture pair |
 | `recovery` | 11 | the `recovery/` runtime, rollback authority, control-plane/journal, host promotion state machine |
-| `reference-scope` | 21 | `agent/src/Review/*` reference scanners plus the whole DUO-3344 scope/scoped-apply family |
+| `reference-scope` | 21 | `agent/src/Review/*` reference scanners plus the whole issue #3344 scope/scoped-apply family |
 | `refresh` | 7 | `Refresh`/`rebase` |
 | `repository` | 18 | `agent/src/Repository/*` — compiler, parsers, validators, catalogs, snapshot identity, and the Kernel classes that define typed-table *shape* |
 
@@ -115,7 +122,7 @@ the root because the root is being emptied. So it went to the majority of its 10
 
 **2. `certification_fixture.php` → `offline/adapter/`.** Consumers span classes:
 3 offline (`regress_adapter_sources.php`, `regress_adapter_sources.sh`,
-`regress_init_contract.php`) and 2 live (`regress_duo_init.sh:269`,
+`regress_init_contract.php`) and 2 live (`regress_wprism_init.sh:269`,
 `regress_local_bootstrap_live.sh:115`, both root-anchored so neither constrains
 placement). Majority offline, and 2 of those 3 are the adapter-sources pair —
 including a **bare `php -l certification_fixture.php` under a bare
@@ -123,7 +130,7 @@ including a **bare `php -l certification_fixture.php` under a bare
 co-location. `regress_init_contract.php` pays a one-hop cross-directory require.
 
 **3. `regress_manifest_validate.{sh,php}` → `policy`, not `adapter`.** The
-command `duo manifest-validate` is an *adapter author's* tool, which argues for
+command `wprism manifest-validate` is an *adapter author's* tool, which argues for
 `adapter`. Placed in `policy` anyway because the subject is
 `Policy/ManifestValidator` and the manifest grammar document, its `-validator`
 sibling (`regress_manifest_validator.php`) is in `policy`, and it requires
@@ -194,7 +201,7 @@ than `spike/` does; that is a design question, not a mapping one.
 `tools/offline.php:916,920` (`--extras`). `tools/` is inside the codemod's
 `MS_SCAN_ROOTS`, so class 6 rewrites it.
 
-**9. `regress_scope_command.php` → `cli`, away from the rest of DUO-3344.**
+**9. `regress_scope_command.php` → `cli`, away from the rest of issue #3344.**
 Every other scope suite is in `reference-scope`. This one loads
 `cli/src/Command/ScopeCommand.php` and is the same argv-pinning shape as the
 eleven other `regress_*_command.php` suites in `cli`. Consistency with the
@@ -212,20 +219,20 @@ hygiene.
 * `regress_post_field_classification.php` → `grammar`, not `ecommerce`: it uses
   WooCommerce as the illustration but states it proves "the generic field
   contract".
-* `regress_duo3316_contract.php` → `grammar`, beside
+* `regress_reference_contract.php` → `grammar`, beside
   `regress_taxonomy_object_keyspace.php` (same issue, same `object_keyspace`
   subject).
 * `regress_bound_helper.php` → `capture`: `Publication\BoundHelper`, and
   `capture` is where the rest of `agent/src/Publication/*` went.
-* `regress_journal_bootstrap.php` → `recovery`: `\Duo\Journal` is the
+* `regress_journal_bootstrap.php` → `recovery`: `\WPrism\Journal` is the
   fatal-safe control-plane record.
 * `regress_frozen_materialization_promotion.php` → `environment`: confirmed by
-  its requires (`Duo\Orchestrator\EnvironmentDriver`, `DriverCapability`).
+  its requires (`WPrism\Orchestrator\EnvironmentDriver`, `DriverCapability`).
 * `regress_composite_ref.php` → `repository`: an identity mode on
   `Repository/Snapshot.php`, beside `regress_snapshot_identity.php` and
   `regress_natural_key_rename.php`.
 * `regress_promotion_unit.sh` → `recovery` (host promotion state machine); the
-  DUO-3344 *scoped* promotion suites go to `reference-scope` with their family.
+  issue #3344 *scoped* promotion suites go to `reference-scope` with their family.
 * `regress_deletion_capability_resolver.php` → `policy`
   (`agent/src/Policy/DeletionCapabilityResolver.php`), not `apply` with the
   `Delete/` suites — it resolves a manifest declaration, it does not delete.
@@ -265,7 +272,7 @@ every one of those relative invocations stays a one-directory reference.
 resolvable by the codemod's class 2 (which follows the map):
 
 ```
-regress_init_contract.php            __DIR__/regress_duo_init.sh        offline/cli -> live
+regress_init_contract.php            __DIR__/regress_wprism_init.sh        offline/cli -> live
 regress_init_contract.php            __DIR__/certification_fixture.php  offline/cli -> offline/adapter
 regress_option_reference_grammar.php __DIR__/manifest_fixtures.php      offline/grammar -> offline/policy
 regress_reference_keyspace_grammar.php __DIR__/manifest_fixtures.php    offline/grammar -> offline/policy
@@ -276,7 +283,7 @@ regress_reference_kind_grammar.php   __DIR__/manifest_fixtures.php      offline/
 each is a string W2/the codemod must rewrite. Non-exhaustive but complete for
 the moved set as far as `rg` found it:
 
-* `regress_duo_init.sh:269`, `regress_local_bootstrap_live.sh:115` →
+* `regress_wprism_init.sh:269`, `regress_local_bootstrap_live.sh:115` →
   `php sandbox/tests/certification_fixture.php` (live → `offline/adapter`)
 * `regress_lifecycle_planner.php:111` → `$root . '/sandbox/tests/regress_manifest_validate.sh'`
   (`code-half` → `policy`)
@@ -302,7 +309,7 @@ the moved set as far as `rg` found it:
 ### Two hazards worth naming for W2
 
 * **`regress_init_contract.php:994` asserts on a path *string*, not a path.** It
-  checks that `regress_duo_init.sh` contains the literal
+  checks that `regress_wprism_init.sh` contains the literal
   `php sandbox/tests/certification_fixture.php "$HERMETIC_ROOT"`. The assertion
   and the line it asserts about live in two different files that move to two
   different directories, so they must be rewritten *consistently* or the suite
@@ -321,7 +328,9 @@ not change, so it survives the move untouched.
 
 ## Validation
 
-Run from the repo root. Every claim below is machine-checked, not eyeballed.
+This is the original ratification transcript, run from the repo root. Its
+historical map checks were machine-checked, not eyeballed; the generated corpus
+check above is the current gate.
 
 ```
 $ php <validator>            # scratch script, not committed
@@ -390,7 +399,7 @@ as it is. This document is the **decision record at decision time**, so a
 placement that was correctly reviewed stays written down here even after the
 file it placed is gone. Rows leave the map; they do not leave this record.
 
-### 2026-08-20 — the two `reference-scope` wrappers (DUO-3482)
+### 2026-08-20 — the two `reference-scope` wrappers (issue #3482)
 
 `#486` deleted `regress_shortcode_refs.sh` and `regress_url_query_refs.sh` after
 W3 had already moved them: the two wrappers carried no logic beyond a `php -l`
@@ -417,35 +426,32 @@ immediately instead of silently disarming the prover for days.
 
 ### 2026-08-20 — the offline count is the `Makefile`'s to assert, and it has moved
 
-"How execution class was decided" above says the offline closure is **252 paths,
-which is exactly the count the `Makefile` asserts**, and the mechanical-contract
-section re-derives the same 252 with `make -n regress-offline-corpus`. Both
-sentences were true at ratification and stay written down. The number is not:
-re-derived against this checkout, `make -n regress-offline-corpus | grep -oE
-'sandbox/tests/…' | sort -u | wc -l` prints **254**, and the `Makefile`'s own
-`regress-offline-corpus: 254 offline suites green` line agrees.
+"How execution class was decided" above says the offline closure was **252 paths,
+which was exactly the count the `Makefile` asserted**. At this dated update,
+`make -n regress-offline-corpus | grep -oE 'sandbox/tests/…' | sort -u | wc -l`
+printed **254**, and the `Makefile`'s own
+`regress-offline-corpus: 254 offline suites green` line agreed.
 
-Nothing here is a defect, because 252 was never this document's number to own.
-`regress_bundle_coverage.sh` expands the prerequisite graph and compares it
-against that `Makefile` line (AGENTS.md non-negotiable 4), so the count of record
-lives there and moves every time a suite is wired in — twice since ratification.
-This record's claim is the *equality*: the closure and the asserted count are the
-same set, re-derived the same way. That still holds. Quote `make -n`, or the
-`Makefile` line, never a number transcribed into prose here.
+Those figures are historical move evidence. The current source of truth is
+`php tools/offline-corpus.php --check`: it derives 332 suites and byte-compares
+the generated `tools/offline-corpus.mk`, whose aggregate recipes print 332.
+The record's durable claim is the *equality* between the generated closure and
+the aggregate assertion. Quote the generated check or its Makefile line, never
+a count transcribed into this review record.
 
 The "251 at the root / the 252nd already nested" split is likewise decision-time
 detail: the restructure this record planned has landed, so every offline member
 now sits under `offline/<domain>/` and the root holds no suites at all
 (`regress_suite_wiring.php` clause 4 refuses one that does).
 
-### 2026-08-21 — the four code-half split suites (DUO-3499)
+### 2026-08-21 — the four code-half split suites (issue #3499)
 
 `regress_code_source_lock.php`, `regress_code_lock_compile_gate.php`,
 `regress_init_code_split.php` and `regress_code_classify.php` all landed in
 `code-half`, taking it from 21 to 25 — at the stated cap, not over it.
 
 The placement is by SUBJECT, per this document's own rule. All four are about
-the code half's own contract: what `code/duo-code.lock.json` may say, what
+the code half's own contract: what `code/wprism-code.lock.json` may say, what
 compilation refuses when the bytes disagree with it, and the two verbs that
 write it. Two of them touch `agent/src/Init/*` and `cli/src/Command/*` and so
 have a plausible case for `capture` (17) or `cli` (24) instead, and that case

@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline certification for DUO-3349's extracted typed-table identity seam.
+ * Offline certification for issue #3349's extracted typed-table identity seam.
  *
  * The boundary is loaded and executed before any other engine class. Injected
  * fakes pin mapped/natural/composite derivation, strict read-only identity,
@@ -15,13 +15,13 @@ if (!defined('ARRAY_A')) {
 
 require_once __DIR__ . '/../../../../agent/src/Repository/SnapshotIdentity.php';
 
-use Duo\Canon;
-use Duo\Ledger;
-use Duo\Policy;
-use Duo\Snapshot;
-use Duo\SnapshotIdentity;
-use Duo\Tokens;
-use Duo\Uuid;
+use WPrism\Canon;
+use WPrism\Ledger;
+use WPrism\Policy;
+use WPrism\Snapshot;
+use WPrism\SnapshotIdentity;
+use WPrism\Tokens;
+use WPrism\Uuid;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -419,7 +419,7 @@ final class EmbeddedIdentityWpdbFixture {
         }
         $rows = array_values(array_filter(
             $this->meta[$kind],
-            static fn(array $row): bool => $row['meta_key'] === '_duo_uuid'
+            static fn(array $row): bool => $row['meta_key'] === '_wprism_uuid'
         ));
         usort($rows, static fn(array $left, array $right): int =>
             [$left['owner_id'], $left['meta_id']] <=> [$right['owner_id'], $right['meta_id']]);
@@ -447,26 +447,26 @@ $embeddedWpdb->meta = [
     'post' => [[
         'meta_id' => 1,
         'owner_id' => 12,
-        'meta_key' => '_duo_uuid',
+        'meta_key' => '_wprism_uuid',
         'meta_value' => '11111111-1111-4111-8111-111111111111',
     ]],
     'term' => [
         [
             'meta_id' => 2,
             'owner_id' => 20,
-            'meta_key' => '_DUO_UUID',
+            'meta_key' => '_WPRISM_UUID',
             'meta_value' => '11111111-1111-4111-8111-111111111111',
         ],
         [
             'meta_id' => 3,
             'owner_id' => 99,
-            'meta_key' => '_duo_uuid',
+            'meta_key' => '_wprism_uuid',
             'meta_value' => '11111111-1111-4111-8111-111111111111',
         ],
     ],
 ];
 $GLOBALS['wpdb'] = $embeddedWpdb;
-\Duo\Identity::assert_embedded_unique();
+\WPrism\Identity::assert_embedded_unique();
 $check(
     count($embeddedWpdb->queries) === 4
         && !array_filter(
@@ -474,7 +474,7 @@ $check(
                 $embeddedWpdb->queries,
                 static fn(string $sql): bool => str_contains($sql, 'meta_value')
             ),
-            static fn(string $sql): bool => !str_contains($sql, "BINARY meta_key = BINARY '_duo_uuid'")
+            static fn(string $sql): bool => !str_contains($sql, "BINARY meta_key = BINARY '_wprism_uuid'")
                 || !str_contains($sql, 'LEFT(meta_value, 37)')
                 || !str_contains($sql, 'LIMIT 100001')
         )
@@ -490,7 +490,7 @@ $check(
 
 $embeddedWpdb->failureKind = 'post';
 $throws(
-    static fn() => \Duo\Identity::assert_embedded_unique(),
+    static fn() => \WPrism\Identity::assert_embedded_unique(),
     'simulated embedded identity read failure',
     'embedded identity DB failure never becomes an empty identity estate'
 );
@@ -498,7 +498,7 @@ $embeddedWpdb->failureKind = null;
 $embeddedWpdb->last_error = '';
 $embeddedWpdb->saturatedKind = 'post';
 $throws(
-    static fn() => \Duo\Identity::assert_embedded_unique(),
+    static fn() => \WPrism\Identity::assert_embedded_unique(),
     'bounded row limit exceeded',
     'embedded identity validation refuses its high-cardinality frontier before building an unbounded owner list'
 );

@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Informational identity observations. These helpers never mint, rebind, or
@@ -13,7 +13,7 @@ final class IdentityNotes {
      * different from UUIDv5(current key). Name that ordinary state without
      * treating it as a warning or requesting re-derivation.
      *
-     * DUO-3318/DUO-3349: derivation has one owner in SnapshotIdentity. This
+     * issue #3318/issue #3349: derivation has one owner in SnapshotIdentity. This
      * observer reaches it through Snapshot's compatibility facade, so a
      * second copy of "what is this row's natural-key name" cannot disagree
      * with capture. That also carries the parent-scoped multi-column form for
@@ -30,7 +30,7 @@ final class IdentityNotes {
         if ($components === null) {
             return null;
         }
-        if (Uuid::v5(Uuid::NAMESPACE_DUO, Snapshot::natural_key_name($table, $decl, $components)) === $uuid) {
+        if (Uuid::v5(Uuid::NAMESPACE_WPRISM, Snapshot::natural_key_name($table, $decl, $components)) === $uuid) {
             return null;
         }
         return "$table row " . self::key_label($components)

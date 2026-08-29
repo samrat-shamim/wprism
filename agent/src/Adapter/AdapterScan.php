@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/AdapterSources.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
@@ -89,7 +89,7 @@ require_once __DIR__ . '/../Policy/Policy.php';
  * WHAT IT DELIBERATELY DOES NOT COVER. The survey's own collect-mode scan is
  * a single snapshot taken before the row loop, both before and after this
  * change; this handle memoizes the LOADER's resolutions, and its witness is
- * therefore the loader's dependency set. A `site.duo.json` or `adapters/`
+ * therefore the loader's dependency set. A `site.wprism.json` or `adapters/`
  * change is in that set (`discover()` reads both), so the two are the same
  * set in practice for a survey with a repository.
  */
@@ -165,7 +165,7 @@ final class AdapterScan {
             // hand Policy an empty library and produce a confusing message
             // about a manifest directory instead of about this state.
             throw new \RuntimeException(
-                'duo: the adapter scan holds neither a resolved library nor the refusal that replaced it'
+                'wprism: the adapter scan holds neither a resolved library nor the refusal that replaced it'
             );
         }
         return Policy::load_from_scan($this->library, $this->repo, [$name]);
@@ -349,7 +349,7 @@ final class AdapterScan {
             'let the manifest library, the repository adapter source and the active plugin set settle, then re-run '
             . 'the survey',
             [],
-            'duo: the adapter library moved mid-survey (' . count($changed) . ' ' . $what . ' change(s): '
+            'wprism: the adapter library moved mid-survey (' . count($changed) . ' ' . $what . ' change(s): '
             . implode(', ', $named) . (count($changed) > count($named) ? ', …' : '') . ') — the resolved scan was '
             . 'not reused for another row, and no row was answered from it'
         );

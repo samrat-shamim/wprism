@@ -11,8 +11,8 @@
 # re-verification, bounded download, and atomic publication.
 fetch_artifact() {
   local slug="$1" version="$2" cli="$3" kind="${4:-plugin}"
-  local runner="/duo-harness/artifact-cache-fetch.sh"
-  local entry url sha256 cache_path source record offline="${DUO_ARTIFACT_OFFLINE:-0}"
+  local runner="/wprism-harness/artifact-cache-fetch.sh"
+  local entry url sha256 cache_path source record offline="${WPRISM_ARTIFACT_OFFLINE:-0}"
 
   [[ "$slug" =~ ^[a-z0-9][a-z0-9._-]*[a-z0-9]$ ]] \
     || { echo "FAIL: fetch_artifact: invalid artifact slug" >&2; return 1; }
@@ -24,7 +24,7 @@ fetch_artifact() {
   esac
   case "$offline" in
     0|1) ;;
-    *) echo "FAIL: fetch_artifact: DUO_ARTIFACT_OFFLINE must be 0 or 1" >&2; return 1 ;;
+    *) echo "FAIL: fetch_artifact: WPRISM_ARTIFACT_OFFLINE must be 0 or 1" >&2; return 1 ;;
   esac
   if [ "$kind" = theme ]; then
     validate_artifact_platform_library || return 1
@@ -55,7 +55,7 @@ fetch_artifact() {
   # Cache writes are infrastructure work and run as root inside the fixed CLI
   # image. Ordinary WP-CLI execution remains uid 33 and only reads the ZIP.
   if ! source=$("${PAIR_COMPOSE[@]}" run --rm -T -u root \
-    -e "DUO_ARTIFACT_FORCE_PHP_LOCK=${DUO_ARTIFACT_FORCE_PHP_LOCK:-0}" \
+    -e "WPRISM_ARTIFACT_FORCE_PHP_LOCK=${WPRISM_ARTIFACT_FORCE_PHP_LOCK:-0}" \
     "$cli" sh "$runner" "$url" "$sha256" "$cache_path" "$offline" "$slug" "$version" "$kind"); then
     return 1
   fi
@@ -66,13 +66,13 @@ fetch_artifact() {
 
   printf 'artifact-cache: kind=%s slug=%s version=%s sha256=%s source=%s path=%s\n' \
     "$kind" "$slug" "$version" "$sha256" "$source" "$cache_path" >&2
-  if [ -n "${DUO_ARTIFACT_USAGE_LOG:-}" ]; then
+  if [ -n "${WPRISM_ARTIFACT_USAGE_LOG:-}" ]; then
     record=$(jq -cn --arg kind "$kind" --arg slug "$slug" --arg version "$version" \
       --arg sha256 "$sha256" --arg source "$source" --arg path "$cache_path" \
       '{kind:$kind,slug:$slug,version:$version,sha256:$sha256,source:$source,path:$path}') \
       || return 1
     # One bounded printf opens with O_APPEND and performs one record write.
-    printf '%s\n' "$record" >> "$DUO_ARTIFACT_USAGE_LOG" || return 1
+    printf '%s\n' "$record" >> "$WPRISM_ARTIFACT_USAGE_LOG" || return 1
   fi
   echo "$cache_path"
 }

@@ -33,28 +33,28 @@ if (!$spacer || !Code_Snippets\delete_snippet((int) $spacer->id)) {
 
 $long = str_repeat("界|comma,quote\"apostrophe'backslash\\\n", 1200);
 $content = Code_Snippets\save_snippet(new Code_Snippets\Snippet([
-    'name' => 'Duo portable content 東京 🚀',
+    'name' => 'WPrism portable content 東京 🚀',
     'desc' => "UTF-8 and delimiter proof: 東京 🚀 | comma, quote\" apostrophe' backslash\\\n" . $long,
-    'code' => '<strong class="duo-code-snippet-marker">portable 東京 🚀 | comma, quote&quot; apostrophe&#039; backslash\\</strong>',
-    'tags' => ['duo', 'portable', 'utf8'],
+    'code' => '<strong class="wprism-code-snippet-marker">portable 東京 🚀 | comma, quote&quot; apostrophe&#039; backslash\\</strong>',
+    'tags' => ['wprism', 'portable', 'utf8'],
     'scope' => 'content',
     'priority' => 17,
     'active' => true,
 ]));
 $runtime = Code_Snippets\save_snippet(new Code_Snippets\Snippet([
-    'name' => 'Duo runtime filter',
+    'name' => 'WPrism runtime filter',
     'desc' => 'Active PHP execution proof at the SMALLINT upper boundary.',
-    'code' => "add_filter('duo_code_snippets_runtime', static function (\$value) { return \$value . '|repository-runtime'; });",
-    'tags' => ['duo', 'runtime'],
+    'code' => "add_filter('wprism_code_snippets_runtime', static function (\$value) { return \$value . '|repository-runtime'; });",
+    'tags' => ['wprism', 'runtime'],
     'scope' => 'global',
     'priority' => 32767,
     'active' => true,
 ]));
 $invalid = Code_Snippets\save_snippet(new Code_Snippets\Snippet([
-    'name' => 'Duo invalid inactive PHP',
+    'name' => 'WPrism invalid inactive PHP',
     'desc' => 'A deliberately invalid program that must remain inactive and inert.',
     'code' => 'if (',
-    'tags' => ['duo', 'invalid'],
+    'tags' => ['wprism', 'invalid'],
     'scope' => 'global',
     'priority' => 1,
     'active' => false,
@@ -102,7 +102,7 @@ echo wp_json_encode([
     'invalid_id' => (int) $invalid->id,
     'page_id' => (int) $page,
     'runtime_id' => (int) $runtime->id,
-    'runtime_value' => apply_filters('duo_code_snippets_runtime', 'base'),
+    'runtime_value' => apply_filters('wprism_code_snippets_runtime', 'base'),
 ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 PHPEOF
 

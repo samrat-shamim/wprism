@@ -1,6 +1,6 @@
 <?php
 /**
- * \DuoTest\FakeWpdb -- one duck-typed $wpdb for the offline suites.
+ * \WPrismTest\FakeWpdb -- one duck-typed $wpdb for the offline suites.
  *
  * WHY THIS EXISTS
  * ---------------
@@ -64,7 +64,7 @@
  * MYSQLI_OPT_INT_AND_FLOAT_NATIVE, so every non-NULL column value reaches PHP
  * as a STRING -- COUNT(*) included. get_var()/get_col()/get_row()/
  * get_results() therefore stringify scalars on the way out (NULL stays null),
- * which matters because check.php pushes strict ===: `duo_check_same(19, ...)`
+ * which matters because check.php pushes strict ===: `wprism_check_same(19, ...)`
  * against a live meta_id is false, and a fake that returned int 19 would pin
  * it green. rows() reads the STORE, not a result set, so it keeps the seeded
  * PHP types; assert against get_*() when you are characterizing what the
@@ -154,7 +154,7 @@ namespace {
     }
 }
 
-namespace DuoTest {
+namespace WPrismTest {
 
 final class FakeWpdb {
     /** Literal MySQL 1213 text; Db.php matches 'Deadlock found' case-insensitively. */
@@ -169,7 +169,7 @@ final class FakeWpdb {
      * token is stripped before any statement is interpreted or logged, so it
      * never reaches an assertion.
      */
-    private const PLACEHOLDER_ESCAPE = '{duo-fakewpdb-placeholder}';
+    private const PLACEHOLDER_ESCAPE = '{wprism-fakewpdb-placeholder}';
 
     /** Core tables wpdb exposes as properties, with their primary keys. */
     private const CORE_TABLES = [
@@ -379,7 +379,7 @@ final class FakeWpdb {
 
     // ------------------------------------------------------------- fixtures
 
-    /** Prefix a bare table suffix: table('duo_kv') === 'wp_duo_kv'. */
+    /** Prefix a bare table suffix: table('wprism_kv') === 'wp_wprism_kv'. */
     public function tableName(string $table): string {
         $table = trim($table, '`');
         return str_starts_with($table, $this->prefix) ? $table : $this->prefix . $table;
@@ -426,7 +426,7 @@ final class FakeWpdb {
     /**
      * Declare the auto-increment primary key and the next id it will hand
      * out. The wp_* core tables already have theirs (see CORE_TABLES); this
-     * is for the product's own tables (duo_map, duo_state, duo_kv, ...).
+     * is for the product's own tables (wprism_map, wprism_state, wprism_kv, ...).
      */
     public function setAutoIncrement(string $table, int $next, ?string $primaryKey = null): self {
         $name = $this->tableName($table);
@@ -1033,7 +1033,7 @@ final class FakeWpdb {
         }
         if ($this->fullApplySqlExtensionsEnabled && $this->isFullApplyAttachmentMarkerQuery($query)) {
             $rows = [];
-            foreach ($this->store[$this->tableName('duo_kv')] ?? [] as $row) {
+            foreach ($this->store[$this->tableName('wprism_kv')] ?? [] as $row) {
                 $key = (string) ($row['k'] ?? '');
                 if (!str_starts_with(strtolower($key), 'attachment_fs:')) continue;
                 $value = (string) ($row['v'] ?? '');
@@ -1128,7 +1128,7 @@ final class FakeWpdb {
     private function isFullApplyAttachmentMarkerQuery(string $query): bool {
         return $this->fullApplySql($query) === 'SELECT k, OCTET_LENGTH(v) AS v_bytes, '
             . 'CASE WHEN v IS NOT NULL AND OCTET_LENGTH(v) <= 512 THEN v ELSE NULL END AS bounded_v '
-            . 'FROM `' . $this->tableName('duo_kv') . '` WHERE LOWER(LEFT(k, 14)) = \'attachment_fs:\' '
+            . 'FROM `' . $this->tableName('wprism_kv') . '` WHERE LOWER(LEFT(k, 14)) = \'attachment_fs:\' '
             . 'ORDER BY BINARY k ASC LIMIT 2';
     }
 
@@ -1171,7 +1171,7 @@ final class FakeWpdb {
     }
 
     /**
-     * Exact post/_duo_uuid join used by the production pre-prune identity
+     * Exact post/_wprism_uuid join used by the production pre-prune identity
      * guard. false means this is a different query; null is its real absent
      * result, preserving LEFT JOIN semantics for a post without the sidecar.
      *
@@ -1180,9 +1180,9 @@ final class FakeWpdb {
     private function fullApplyCanonicalPostWitnessRow(string $query): array|false|null {
         $posts = preg_quote($this->tableName('posts'), '~');
         $postmeta = preg_quote($this->tableName('postmeta'), '~');
-        $pattern = '~^SELECT p\.ID, p\.post_type, pm\.meta_value AS duo_uuid FROM '
+        $pattern = '~^SELECT p\.ID, p\.post_type, pm\.meta_value AS wprism_uuid FROM '
             . $posts . ' p LEFT JOIN ' . $postmeta
-            . " pm ON pm\.post_id = p\.ID AND pm\.meta_key = '_duo_uuid'"
+            . " pm ON pm\.post_id = p\.ID AND pm\.meta_key = '_wprism_uuid'"
             . ' WHERE p\.ID = ([0-9]+) ORDER BY pm\.meta_id ASC LIMIT 1$~';
         if (preg_match($pattern, $this->fullApplySql($query), $match) !== 1) {
             return false;
@@ -1201,7 +1201,7 @@ final class FakeWpdb {
         $meta = array_values(array_filter(
             $this->store[$this->tableName('postmeta')] ?? [],
             static fn(array $row): bool => (int) ($row['post_id'] ?? 0) === $postId
-                && (string) ($row['meta_key'] ?? '') === '_duo_uuid'
+                && (string) ($row['meta_key'] ?? '') === '_wprism_uuid'
         ));
         usort($meta, static fn(array $a, array $b): int =>
             (int) ($a['meta_id'] ?? 0) <=> (int) ($b['meta_id'] ?? 0)
@@ -1209,13 +1209,13 @@ final class FakeWpdb {
         return [
             'ID' => $postId,
             'post_type' => (string) ($post['post_type'] ?? ''),
-            'duo_uuid' => isset($meta[0]) ? (string) ($meta[0]['meta_value'] ?? '') : null,
+            'wprism_uuid' => isset($meta[0]) ? (string) ($meta[0]['meta_value'] ?? '') : null,
         ];
     }
 
     private function isFullApplyPromotionInsertQuery(string $query): bool {
         $normalized = $this->fullApplySql($query);
-        $prefix = "INSERT INTO `{$this->tableName('duo_kv')}` (k, v) VALUES ('promotion_lock', '";
+        $prefix = "INSERT INTO `{$this->tableName('wprism_kv')}` (k, v) VALUES ('promotion_lock', '";
         $delimiter = "') ON DUPLICATE KEY UPDATE v = IF( ( ";
         if (!str_starts_with($normalized, $prefix)) return false;
         $delimiterPosition = strpos($normalized, $delimiter, strlen($prefix));
@@ -1243,7 +1243,7 @@ final class FakeWpdb {
 
     private function isFullApplyPromotionUpdateQuery(string $query): bool {
         $normalized = $this->fullApplySql($query);
-        $prefix = "UPDATE `{$this->tableName('duo_kv')}` SET v = '";
+        $prefix = "UPDATE `{$this->tableName('wprism_kv')}` SET v = '";
         $delimiter = "' WHERE k = 'promotion_lock' AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = '";
         if (!str_starts_with($normalized, $prefix)) return false;
         $delimiterPosition = strpos($normalized, $delimiter, strlen($prefix));
@@ -1266,7 +1266,7 @@ final class FakeWpdb {
     }
 
     private function isFullApplyPruneQuery(string $query): bool {
-        $map = $this->tableName('duo_map');
+        $map = $this->tableName('wprism_map');
         $expected = [
             "DELETE m FROM $map m LEFT JOIN {$this->tableName('posts')} po ON po.ID = m.local_id WHERE m.id_kind = 'post' AND po.ID IS NULL",
             "DELETE m FROM $map m LEFT JOIN {$this->tableName('terms')} t ON t.term_id = m.local_id WHERE m.id_kind = 'term' AND t.term_id IS NULL",
@@ -1478,7 +1478,7 @@ final class FakeWpdb {
                 throw $this->unsupported('malformed promotion_lock JSON upsert');
             }
             $value = stripslashes($match[1]);
-            $rows = $this->store[$this->tableName('duo_kv')] ?? [];
+            $rows = $this->store[$this->tableName('wprism_kv')] ?? [];
             $found = false;
             foreach ($rows as &$row) {
                 if (($row['k'] ?? null) === 'promotion_lock') {
@@ -1489,7 +1489,7 @@ final class FakeWpdb {
             }
             unset($row);
             if (!$found) $rows[] = ['k' => 'promotion_lock', 'v' => $value];
-            $this->store[$this->tableName('duo_kv')] = $rows;
+            $this->store[$this->tableName('wprism_kv')] = $rows;
             $this->log('query', $sql);
             $this->rows_affected = 1;
             return ['kind' => 'affected', 'affected' => 1];
@@ -1502,7 +1502,7 @@ final class FakeWpdb {
             $owner = (string) ($ownerMatch[1] ?? '');
             $artifact = (string) ($artifactMatch[1] ?? '');
             $affected = 0;
-            foreach ($this->store[$this->tableName('duo_kv')] ?? [] as &$row) {
+            foreach ($this->store[$this->tableName('wprism_kv')] ?? [] as &$row) {
                 $current = json_decode((string) ($row['v'] ?? ''), true);
                 if (($row['k'] ?? null) === 'promotion_lock'
                     && is_array($current)
@@ -1840,7 +1840,7 @@ final class FakeWpdb {
      * fake actually needs -- the store holds 19 while a %d-rendered literal
      * lexes to int 19, and those must match. It is emphatically NOT license to
      * compare two strings numerically: '7' = '007' and '1e2' = '100' are FALSE
-     * in MySQL, and the columns this class is built to model (duo_kv `k`,
+     * in MySQL, and the columns this class is built to model (wprism_kv `k`,
      * option_name, meta_key, packed composite ids rendered through %s) are
      * exactly where a false match would let a suite assert that a lookup found
      * a row the live target never returns -- or that a uniqueness guard holds
@@ -1851,7 +1851,7 @@ final class FakeWpdb {
      * runs utf8mb4_*_ci collations and `WHERE user_login = %s` really does
      * match 'Admin' against 'admin' on the live target. That is precisely why
      * the engine writes `BINARY user_login = BINARY %s` where identity must be
-     * byte-exact (see agent/src, user and duo_kv lookups): a fake whose plain
+     * byte-exact (see agent/src, user and wprism_kv lookups): a fake whose plain
      * `=` were case-sensitive would make those BINARY guards look like dead
      * code and let a case-collision bug pass the offline gate.
      */
@@ -1986,7 +1986,7 @@ final class FakeWpdb {
                         throw new \RuntimeException('FakeWpdb: simulated InnoDB group-range lock wait timeout');
                     }
                     $this->rowLocks[$key] = $this->connectionId;
-                } elseif (str_ends_with($table, 'duo_map')) {
+                } elseif (str_ends_with($table, 'wprism_map')) {
                     // Apply finalization takes one bounded inventory lock over
                     // the complete engine-owned map; its exact table and
                     // PRIMARY order are the lock target, without a WHERE key.
@@ -3968,12 +3968,12 @@ final class FakeWpdb {
             // from a missing fixture, which is the one thing the contract at
             // :110-119 forbids ("no schema fact is inferred from stored
             // rows"). README.md:202-208 states the sanctioned fill: a
-            // duo-adapter-probe/v1 recording off a real server, replayed
+            // wprism-adapter-probe/v1 recording off a real server, replayed
             // through setIndexes(), never this class's own bookkeeping.
             if (!isset($this->indexes[$name])) {
                 throw $this->unsupported(
                     "SHOW INDEX FROM `$name` without a recorded index fixture; call setIndexes('$name', ...)"
-                    . ' from a duo-adapter-probe/v1 recording'
+                    . ' from a wprism-adapter-probe/v1 recording'
                 );
             }
             return ['kind' => 'rows', 'rows' => $this->indexes[$name]];

@@ -7,7 +7,7 @@ require_once __DIR__ . '/../../../../cli/src/Transport/Transport.php';
 require_once __DIR__ . '/../../../../cli/src/Transport/LocalTransport.php';
 require_once __DIR__ . '/../../../../cli/src/Command/EnvironmentCommandPreflight.php';
 
-use Duo\Orchestrator\EnvironmentCommandPreflight;
+use WPrism\Orchestrator\EnvironmentCommandPreflight;
 
 $failures = 0;
 $check = static function (bool $condition, string $message) use (&$failures): void {
@@ -27,10 +27,10 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
 // environment-bound because all four take <env> and all four reach the
 // target — release through the promote path, verify by re-reading it,
 // recover through its rollback authority runtime, rehearse by materializing
-// into it. That is 23 + 4 = 27 environment-bound verbs. DUO-3499 appends
+// into it. That is 23 + 4 = 27 environment-bound verbs. issue #3499 appends
 // `code-classify`, environment-bound for the same reason `assess` is: it takes
 // <env> and asks that target for its own code inventory, so the trees it stops
-// tracking are provably the trees that target compiles. 28. DUO-3500 appends
+// tracking are provably the trees that target compiles. 28. issue #3500 appends
 // `code-resolve`: <env> is what decides WHERE the locked bytes go — the
 // transport says whether the host can reach the repository at all, and
 // `repo_path` is the local one for a local environment. 29. The guided
@@ -54,7 +54,7 @@ $check(EnvironmentCommandPreflight::requiresEnvironment('lint'), 'lint is enviro
 $check(!EnvironmentCommandPreflight::requiresEnvironment('envs'), 'offline envs command is not environment-bound');
 $check(!EnvironmentCommandPreflight::requiresEnvironment('adapter'), 'offline adapter catalog is not environment-bound');
 
-$tmp = sys_get_temp_dir() . '/duo-preflight-' . bin2hex(random_bytes(6));
+$tmp = sys_get_temp_dir() . '/wprism-preflight-' . bin2hex(random_bytes(6));
 mkdir($tmp, 0700, true);
 file_put_contents($tmp . '/envs.json', json_encode([
     'envs' => ['fixture' => ['transport' => 'local', 'wp_path' => '/wordpress', 'repo_path' => '/repo']],

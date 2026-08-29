@@ -1,8 +1,8 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
- * Pure declaration graph for authored typed tables (DUO-3349).
+ * Pure declaration graph for authored typed tables (issue #3349).
  *
  * This class owns only facts derivable from the explicit declared-table map:
  * the row and attached-meta rosters, attached-meta ownership, and stable
@@ -45,13 +45,13 @@ final class TableGraph {
             }
             if (in_array($name, self::RESERVED_TYPES, true)) {
                 throw new \RuntimeException(
-                    "duo: table '$name' collides with a reserved entity type name (" . implode('/', self::RESERVED_TYPES) . ')'
+                    "wprism: table '$name' collides with a reserved entity type name (" . implode('/', self::RESERVED_TYPES) . ')'
                 );
             }
             $kind = (string) ($decl['id_kind'] ?? '');
             if (isset($seenKind[$kind])) {
                 throw new \RuntimeException(
-                    "duo: id_kind '$kind' is declared by both '{$seenKind[$kind]}' and '$name' — "
+                    "wprism: id_kind '$kind' is declared by both '{$seenKind[$kind]}' and '$name' — "
                     . 'each authored_snapshot table needs its own unique id_kind'
                 );
             }
@@ -89,13 +89,13 @@ final class TableGraph {
             $owner = $metaDecl['attached_to']['table'] ?? null;
             if ($owner === null || !isset($rowTables[$owner])) {
                 throw new \RuntimeException(
-                    "duo: table '$metaName' declares class " . self::CLASS_META . ' with attached_to.table='
+                    "wprism: table '$metaName' declares class " . self::CLASS_META . ' with attached_to.table='
                     . var_export($owner, true) . ', which is not itself a declared ' . self::CLASS_ROW . ' table'
                 );
             }
             if (self::is_composite_ref($rowTables[$owner])) {
                 throw new \RuntimeException(
-                    "duo: table '$metaName' declares attached_to.table='$owner', which is identity.mode=composite_ref — "
+                    "wprism: table '$metaName' declares attached_to.table='$owner', which is identity.mode=composite_ref — "
                     . 'a pure join table has no scalar row identity for an attached-meta sidecar to key on'
                 );
             }
@@ -148,7 +148,7 @@ final class TableGraph {
             }
             if (!$progressed) {
                 throw new \RuntimeException(
-                    'duo: cyclic ref dependency among declared tables: ' . implode(', ', $remaining)
+                    'wprism: cyclic ref dependency among declared tables: ' . implode(', ', $remaining)
                 );
             }
         }

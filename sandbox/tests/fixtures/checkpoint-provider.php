@@ -16,7 +16,7 @@ $action = $request['action'] ?? '';
 if ($action === 'probe') {
     echo checkpoint_fixture_canonical([
         'available' => true,
-        'format' => 'duo-checkpoint-provider-response/v1',
+        'format' => 'wprism-checkpoint-provider-response/v1',
         'plaintext_durable' => false,
         'provider_id' => 'ssh-checkpoint-fixture',
         'provider_version' => '1.0.0',
@@ -42,7 +42,7 @@ $inputs = [
     'canonical_tree_sha256' => hash('sha256', 'fixture-tree'),
     'code_revision_sha256' => hash('sha256', 'fixture-code'),
     'database_schema_sha256' => hash('sha256', 'fixture-schema'),
-    'format' => 'duo-prior-verifier-inputs/v1',
+    'format' => 'wprism-prior-verifier-inputs/v1',
     'ledger_session_sha256' => hash('sha256', 'fixture-ledger'),
     'lifecycle_receipts_sha256' => hash('sha256', 'fixture-lifecycle'),
     'manifest_inputs_sha256' => hash('sha256', 'fixture-manifest'),
@@ -71,7 +71,7 @@ echo checkpoint_fixture_canonical([
     'disposable_import_sha256' => hash('sha256', $bytes),
     'disposable_import_verified' => true,
     'export_evidence_sha256' => hash('sha256', $bytes),
-    'format' => 'duo-checkpoint-provider-response/v1',
+    'format' => 'wprism-checkpoint-provider-response/v1',
     'key_id' => (string) ($request['encryption_key_id'] ?? ''),
     'ledger_session_sha256' => $ledger,
     'physical_erasure' => 'fixture-provider-limited',

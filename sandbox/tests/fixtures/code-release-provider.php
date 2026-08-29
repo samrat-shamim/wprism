@@ -29,7 +29,7 @@ function release_descriptor(string $role, string $release, string $artifact, str
             ['path' => 'wp-content/plugins/acme', 'sha256' => hash('sha256', ''), 'type' => 'directory'],
             ['path' => 'wp-content/plugins/acme/acme.php', 'sha256' => $fileHash, 'type' => 'file'],
         ],
-        'format' => 'duo-code-release-descriptor/v1',
+        'format' => 'wprism-code-release-descriptor/v1',
         'generation' => $generation,
         'owned_roots' => ['wp-content/plugins/acme'],
         'release_id' => $release,
@@ -68,7 +68,7 @@ $pointer = $argv[3];
 $priorRelease = is_file($pointer) ? trim((string) file_get_contents($pointer)) : 'release-prior';
 $desiredRelease = 'release-desired-' . (string) ($request['generation'] ?? 0);
 $action = (string) ($request['action'] ?? '');
-$base = ['format' => 'duo-code-release-provider-response/v1'];
+$base = ['format' => 'wprism-code-release-provider-response/v1'];
 
 if ($action === 'probe') {
     release_output($base + [
@@ -93,9 +93,9 @@ if ($action === 'prepare') {
     $prior = release_descriptor('prior', $priorRelease, hash('sha256', 'prior-artifact'), hash('sha256', 'prior-code'), max(0, (int) $request['generation'] - 1), (string) hash_file('sha256', $priorFile));
     $desired = release_descriptor('desired', $desiredRelease, (string) $request['artifact_hash'], (string) $request['desired_code_revision'], (int) $request['generation'], (string) hash_file('sha256', $desiredFile));
     $desiredBytes = release_canonical($desired) . "\n";
-    if (($request['format'] ?? '') === 'duo-code-release-provider-request/v1') {
+    if (($request['format'] ?? '') === 'wprism-code-release-provider-request/v1') {
         if (!hash_equals(hash('sha256', $desiredBytes), (string) ($request['desired_descriptor_sha256'] ?? ''))) release_fail('desired descriptor request mismatch');
-    } elseif (($request['format'] ?? '') !== 'duo-code-release-provider-request/v2'
+    } elseif (($request['format'] ?? '') !== 'wprism-code-release-provider-request/v2'
         || !is_array($request['desired_code_inventory'] ?? null)) {
         release_fail('unsupported prepare request format');
     }

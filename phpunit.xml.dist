@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  PHPUnit 11 configuration for the Duo dev toolchain.
+  PHPUnit 11 configuration for the WPrism dev toolchain.
 
-  These are TOOLING self-tests, not product tests. Duo's product suite is the
+  These are TOOLING self-tests, not product tests. WPrism's product suite is the
   1,000-file sandbox/tests corpus driven by `make regress-offline-all`; nothing
   here replaces it, and no test in this suite may add a Makefile target (each
   one would cost a certification round). The single testsuite therefore points

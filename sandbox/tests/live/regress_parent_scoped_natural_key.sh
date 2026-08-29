@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Live regression — DUO-3318: the parent-scoped multi-column natural key,
+# Live regression — issue #3318: the parent-scoped multi-column natural key,
 # end to end across two real environments with genuinely different local ids.
 #
 # The offline half (sandbox/tests/offline/policy/regress_vocabulary_ownership.php) proves the
@@ -8,9 +8,9 @@
 # apply+recapture on ANOTHER, whose auto-increment ids do not line up, produce
 # the same UUIDs and byte-identical files. That needs two databases.
 #
-# The fixture is the existing sandbox/fixtures/duo-agency-cpt plugin, extended
+# The fixture is the existing sandbox/fixtures/wprism-agency-cpt plugin, extended
 # with two authored tables in the shape a parent-scoped key exists for:
-# `duo_agency_rooms` (a site-unique room_code) and `duo_agency_room_slots`
+# `wprism_agency_rooms` (a site-unique room_code) and `wprism_agency_room_slots`
 # (a slot_code unique only WITHIN its room, plus its own surrogate slot_id and
 # its own authored `capacity` payload). Two different rooms deliberately both
 # have a slot called `morning`: that is the ordinary case, and the single
@@ -34,22 +34,22 @@ command -v jq >/dev/null || fail "jq required"
 PAIR="${PARENT_KEY_PAIR:-claudemacb3318}"
 PORT1="${PARENT_KEY_PORT1:-8930}"
 PORT2="${PARENT_KEY_PORT2:-8931}"
-PLUGIN_DIR=duo-agency-cpt
+PLUGIN_DIR=wprism-agency-cpt
 PLUGIN_FILE="code/wp-content/plugins/$PLUGIN_DIR/$PLUGIN_DIR.php"
 OVERLAY=.tmp-3318-library
-export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2" DUO_CODEBIND_PLUGIN="$PLUGIN_DIR"
-COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.codebind.yml)
+export WPRISM_PAIR="$PAIR" WPRISM_PORT1="$PORT1" WPRISM_PORT2="$PORT2" WPRISM_CODEBIND_PLUGIN="$PLUGIN_DIR"
+COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml -f pair.codebind.yml)
 . tests/support/explicit_adapter_library.sh
 
 wp1()  { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2()  { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
 # Everything that loads policy for the two declared tables receives the
 # private library object; plain wp1/wp2 stay on the shipped package bytes.
-wp1m() { [ "${1:-}" = duo ] || fail 'wp1m accepts only duo commands'; shift; duo_with_adapter_library cli1 "/siterepo/$OVERLAY" "$@"; }
-wp2m() { [ "${1:-}" = duo ] || fail 'wp2m accepts only duo commands'; shift; duo_with_adapter_library cli2 "/siterepo/$OVERLAY" "$@"; }
+wp1m() { [ "${1:-}" = wprism ] || fail 'wp1m accepts only wprism commands'; shift; wprism_with_adapter_library cli1 "/siterepo/$OVERLAY" "$@"; }
+wp2m() { [ "${1:-}" = wprism ] || fail 'wp2m accepts only wprism commands'; shift; wprism_with_adapter_library cli2 "/siterepo/$OVERLAY" "$@"; }
 repo_host() { bash bin/pair.sh repo-host "$PAIR" "$1" >/dev/null; }
-GIT1=(git -C "siterepo/${PAIR}1" -c user.name=duo-3318-a -c user.email=a1@example.test)
-GIT2=(git -C "siterepo/${PAIR}2" -c user.name=duo-3318-b -c user.email=a2@example.test)
+GIT1=(git -C "siterepo/${PAIR}1" -c user.name=parent-scoped-a -c user.email=a1@example.test)
+GIT2=(git -C "siterepo/${PAIR}2" -c user.name=parent-scoped-b -c user.email=a2@example.test)
 
 # Last NON-empty line: `wp db query --skip-column-names` emits a trailing blank
 # line, so a bare `tail -1` reads the blank and a passing "0" false-fails.
@@ -67,9 +67,9 @@ cleanup() {
 trap cleanup EXIT
 
 say "the shipped adapter bytes must be untouched before this suite starts"
-git -C .. diff --quiet -- adapter-packages/duo-agency-cpt/package/manifest.json \
-  || fail "the duo-agency-cpt package manifest has uncommitted changes — this suite proves the parent-scoped key without changing it"
-pass "the shipped duo-agency-cpt package manifest is unmodified"
+git -C .. diff --quiet -- adapter-packages/wprism-agency-cpt/package/manifest.json \
+  || fail "the wprism-agency-cpt package manifest has uncommitted changes — this suite proves the parent-scoped key without changing it"
+pass "the shipped wprism-agency-cpt package manifest is unmodified"
 
 say "clean-room site repositories, with the fixture plugin authored before the code-bind containers are created"
 # destroy-then-implicit-up rather than reset: pair.sh reset refuses a
@@ -80,9 +80,9 @@ rm -rf "siterepo/${PAIR}1" "siterepo/${PAIR}2" "siterepo/origin-$PAIR.git"
 git init --bare -b main "siterepo/origin-$PAIR.git" >/dev/null
 mkdir -p "siterepo/${PAIR}1/code/wp-content/plugins/$PLUGIN_DIR"
 cp "fixtures/$PLUGIN_DIR/$PLUGIN_DIR.php" "siterepo/${PAIR}1/$PLUGIN_FILE"
-cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
+cat > "siterepo/${PAIR}1/site.wprism.json" <<'EOF'
 {
-  "manifests": ["core", "duo-agency-cpt"],
+  "manifests": ["core", "wprism-agency-cpt"],
   "policy": {
     "options": {},
     "post_meta": {},
@@ -96,7 +96,7 @@ cp site-repo.gitignore.template "siterepo/${PAIR}1/.gitignore"
 git -C "siterepo/${PAIR}1" init -q -b main
 git -C "siterepo/${PAIR}1" remote add origin "../origin-$PAIR.git"
 "${GIT1[@]}" add -A
-"${GIT1[@]}" commit -qm "init: duo-agency-cpt in code/ + site.duo.json"
+"${GIT1[@]}" commit -qm "init: wprism-agency-cpt in code/ + site.wprism.json"
 git -C "siterepo/${PAIR}1" push -qu origin main
 git clone -q "siterepo/origin-$PAIR.git" "siterepo/${PAIR}2"
 bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --codebind "$PLUGIN_DIR" --headless
@@ -105,11 +105,11 @@ pass "pair $PAIR up (headless, code-bound to $PLUGIN_DIR)"
 say "build a private source-layout adapter library on BOTH sides"
 for side in 1 2; do
   DIR="siterepo/${PAIR}${side}/$OVERLAY"
-  mkdir -p "$DIR/adapter-packages/duo-agency-cpt" "$DIR/platform"
+  mkdir -p "$DIR/adapter-packages/wprism-agency-cpt" "$DIR/platform"
   cp -R ../platform/adapter-library "$DIR/platform/adapter-library"
-  cp -R ../adapter-packages/duo-agency-cpt/package "$DIR/adapter-packages/duo-agency-cpt/package"
+  cp -R ../adapter-packages/wprism-agency-cpt/package "$DIR/adapter-packages/wprism-agency-cpt/package"
   jq '.tables = {
-        "duo_agency_rooms": {
+        "wprism_agency_rooms": {
           "class": "authored_snapshot",
           "id_kind": "agency_room",
           "pk": "room_id",
@@ -121,7 +121,7 @@ for side in 1 2; do
           "refs": [],
           "identity": {"mode": "natural_key", "column": "room_code"}
         },
-        "duo_agency_room_slots": {
+        "wprism_agency_room_slots": {
           "class": "authored_snapshot",
           "id_kind": "agency_slot",
           "pk": "slot_id",
@@ -133,26 +133,26 @@ for side in 1 2; do
           "refs": [{"column": "room_id", "kind": "agency_room"}],
           "identity": {"mode": "natural_key", "columns": ["room_id", "slot_code"]}
         }
-      }' ../adapter-packages/duo-agency-cpt/package/manifest.json \
-    > "$DIR/adapter-packages/duo-agency-cpt/package/manifest.json.tmp"
+      }' ../adapter-packages/wprism-agency-cpt/package/manifest.json \
+    > "$DIR/adapter-packages/wprism-agency-cpt/package/manifest.json.tmp"
   # Atomic publish + container-side settle barrier: the host's plain `>`
   # write races the container's bind-mount view on macOS (observed live —
   # one run's capture transiently loaded a declaration WITHOUT the identity
   # columns these exact bytes carry, then the identical command loaded clean
   # minutes later). mv is atomic on one filesystem; the barrier below proves
   # the CONTAINER sees the final parsed bytes before anything loads policy.
-  mv "$DIR/adapter-packages/duo-agency-cpt/package/manifest.json.tmp" \
-    "$DIR/adapter-packages/duo-agency-cpt/package/manifest.json"
-  jq -e '.tables.duo_agency_room_slots.identity.columns == ["room_id", "slot_code"]' \
-    "$DIR/adapter-packages/duo-agency-cpt/package/manifest.json" >/dev/null \
+  mv "$DIR/adapter-packages/wprism-agency-cpt/package/manifest.json.tmp" \
+    "$DIR/adapter-packages/wprism-agency-cpt/package/manifest.json"
+  jq -e '.tables.wprism_agency_room_slots.identity.columns == ["room_id", "slot_code"]' \
+    "$DIR/adapter-packages/wprism-agency-cpt/package/manifest.json" >/dev/null \
     || fail "overlay manifest on side $side did not receive the parent-scoped identity declaration"
 done
-jq -e '.tables == null' ../adapter-packages/duo-agency-cpt/package/manifest.json >/dev/null \
-  || fail "the SHIPPED duo-agency-cpt manifest gained a tables section — it must stay byte-identical"
+jq -e '.tables == null' ../adapter-packages/wprism-agency-cpt/package/manifest.json >/dev/null \
+  || fail "the SHIPPED wprism-agency-cpt manifest gained a tables section — it must stay byte-identical"
 for side in 1 2; do
   for i in $(seq 1 20); do
     W=wp${side}
-    SEEN=$($W eval '$library = \Duo\AdapterLibrary::fromSourceTree("/siterepo/'"$OVERLAY"'"); echo json_encode((\Duo\Policy::load("/siterepo", adapterLibrary: $library)->declared_tables()["duo_agency_room_slots"]["identity"]["columns"] ?? []));' 2>/dev/null | tr -d '\r' | tail -1) || SEEN=""
+    SEEN=$($W eval '$library = \WPrism\AdapterLibrary::fromSourceTree("/siterepo/'"$OVERLAY"'"); echo json_encode((\WPrism\Policy::load("/siterepo", adapterLibrary: $library)->declared_tables()["wprism_agency_room_slots"]["identity"]["columns"] ?? []));' 2>/dev/null | tr -d '\r' | tail -1) || SEEN=""
     [ "$SEEN" = '["room_id","slot_code"]' ] && break
     [ "$i" = "20" ] && fail "side $side never saw the settled overlay through the bind mount (last: $SEEN)"
     sleep 1
@@ -166,28 +166,28 @@ wp2 site empty --yes >/dev/null
 wp1 plugin activate "$PLUGIN_DIR" >/dev/null
 wp1 plugin list --status=active --field=name | grep -qx "$PLUGIN_DIR" \
   || fail "$PLUGIN_DIR did not activate on side 1"
-[ "$(q1 "SHOW TABLES LIKE 'wp_duo_agency_room_slots'")" = "wp_duo_agency_room_slots" ] \
-  || fail "activation did not create wp_duo_agency_room_slots on side 1"
+[ "$(q1 "SHOW TABLES LIKE 'wp_wprism_agency_room_slots'")" = "wp_wprism_agency_room_slots" ] \
+  || fail "activation did not create wp_wprism_agency_room_slots on side 1"
 pass "side 1 active, both tables created by the plugin's own activation hook"
 
 say "seed side 1, with its auto-increment deliberately offset so the two sides cannot accidentally agree"
 # The whole proof is that identity survives DIFFERENT local ids. Burn a block
 # of ids on side 1 so its real rows start well past 1, which side 2's own
 # fresh inserts never will.
-wp1 db query "INSERT INTO wp_duo_agency_rooms (room_code, room_label) VALUES ('burn-1','x'),('burn-2','x'),('burn-3','x'),('burn-4','x'),('burn-5','x')" >/dev/null
-wp1 db query "DELETE FROM wp_duo_agency_rooms" >/dev/null
-wp1 db query "INSERT INTO wp_duo_agency_rooms (room_code, room_label) VALUES ('studio-one','Studio One'),('studio-two','Studio Two')" >/dev/null
-ROOM_ONE_1=$(q1 "SELECT room_id FROM wp_duo_agency_rooms WHERE room_code='studio-one'")
-ROOM_TWO_1=$(q1 "SELECT room_id FROM wp_duo_agency_rooms WHERE room_code='studio-two'")
+wp1 db query "INSERT INTO wp_wprism_agency_rooms (room_code, room_label) VALUES ('burn-1','x'),('burn-2','x'),('burn-3','x'),('burn-4','x'),('burn-5','x')" >/dev/null
+wp1 db query "DELETE FROM wp_wprism_agency_rooms" >/dev/null
+wp1 db query "INSERT INTO wp_wprism_agency_rooms (room_code, room_label) VALUES ('studio-one','Studio One'),('studio-two','Studio Two')" >/dev/null
+ROOM_ONE_1=$(q1 "SELECT room_id FROM wp_wprism_agency_rooms WHERE room_code='studio-one'")
+ROOM_TWO_1=$(q1 "SELECT room_id FROM wp_wprism_agency_rooms WHERE room_code='studio-two'")
 [ -n "$ROOM_ONE_1" ] && [ -n "$ROOM_TWO_1" ] || fail "rooms did not land on side 1"
-wp1 db query "INSERT INTO wp_duo_agency_room_slots (room_id, slot_code, capacity) VALUES ($ROOM_ONE_1,'morning',8),($ROOM_ONE_1,'evening',12),($ROOM_TWO_1,'morning',4)" >/dev/null
+wp1 db query "INSERT INTO wp_wprism_agency_room_slots (room_id, slot_code, capacity) VALUES ($ROOM_ONE_1,'morning',8),($ROOM_ONE_1,'evening',12),($ROOM_TWO_1,'morning',4)" >/dev/null
 pass "side 1 seeded: rooms $ROOM_ONE_1/$ROOM_TWO_1, three slots, two of them BOTH called 'morning' under different rooms"
 
 say "(1) capture on side 1 — the parent-scoped key derives, and the two 'morning' slots are different identities"
-wp1m duo capture --repo=/siterepo
+wp1m wprism capture --repo=/siterepo
 repo_host 1
-SLOT_DIR="siterepo/${PAIR}1/state/tables/duo_agency_room_slots"
-ROOM_DIR="siterepo/${PAIR}1/state/tables/duo_agency_rooms"
+SLOT_DIR="siterepo/${PAIR}1/state/tables/wprism_agency_room_slots"
+ROOM_DIR="siterepo/${PAIR}1/state/tables/wprism_agency_rooms"
 [ "$(ls "$ROOM_DIR"/*.json | wc -l | tr -d ' ')" = "2" ] || fail "expected 2 captured room files"
 [ "$(ls "$SLOT_DIR"/*.json | wc -l | tr -d ' ')" = "3" ] || fail "expected 3 captured slot files"
 MORNING_UUIDS=$(jq -r 'select(.columns.slot_code == "morning") | .uuid' "$SLOT_DIR"/*.json | sort)
@@ -213,27 +213,27 @@ git -C "siterepo/${PAIR}2" pull -q --ff-only origin main
 # table entities only the overlay declares — the un-overlaid policy refuses
 # with invalid_reference_kind (verified live; the refusal itself is correct
 # fail-closed behavior, which step (4) asserts on purpose).
-DEPLOY_JSON=$(wp2m duo deploy --repo=/siterepo --format=json | tail -1)
+DEPLOY_JSON=$(wp2m wprism deploy --repo=/siterepo --format=json | tail -1)
 echo "$DEPLOY_JSON" | jq -e --arg p "$PLUGIN_DIR/$PLUGIN_DIR.php" '.activated | any(. == $p)' >/dev/null \
   || fail "deploy did not activate $PLUGIN_DIR on side 2 (got: $DEPLOY_JSON)"
-[ "$(q2 "SHOW TABLES LIKE 'wp_duo_agency_room_slots'")" = "wp_duo_agency_room_slots" ] \
+[ "$(q2 "SHOW TABLES LIKE 'wp_wprism_agency_room_slots'")" = "wp_wprism_agency_room_slots" ] \
   || fail "side 2's tables were not created by the deployed plugin's activation hook"
 REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
 # --adopt-by-slug=terms: side 2's fresh install pre-seeds its own
 # 'uncategorized' term with no uuid mapping; first apply adopts it by slug
 # (the standard fresh-pair pattern every live suite uses) instead of
 # refusing on the slug collision.
-APPLY_JSON=$(wp2m duo apply --repo=/siterepo --default-author=admin --adopt-by-slug=terms --revision="$REV" --format=json | tail -1)
+APPLY_JSON=$(wp2m wprism apply --repo=/siterepo --default-author=admin --adopt-by-slug=terms --revision="$REV" --format=json | tail -1)
 echo "$APPLY_JSON" | jq -e '.canary == "clean"' >/dev/null || fail "apply canary was not clean: $APPLY_JSON"
 pass "side 2 deployed and applied"
 
 say "(3) THE proof: side 2's own local ids differ, and its independent recapture is byte-identical"
-ROOM_ONE_2=$(q2 "SELECT room_id FROM wp_duo_agency_rooms WHERE room_code='studio-one'")
-ROOM_TWO_2=$(q2 "SELECT room_id FROM wp_duo_agency_rooms WHERE room_code='studio-two'")
+ROOM_ONE_2=$(q2 "SELECT room_id FROM wp_wprism_agency_rooms WHERE room_code='studio-one'")
+ROOM_TWO_2=$(q2 "SELECT room_id FROM wp_wprism_agency_rooms WHERE room_code='studio-two'")
 echo "side 1 rooms: $ROOM_ONE_1/$ROOM_TWO_1   |   side 2 rooms: $ROOM_ONE_2/$ROOM_TWO_2"
 [ "$ROOM_ONE_1" != "$ROOM_ONE_2" ] \
   || fail "the two sides ended up with the SAME local room id — the auto-increment offset above did not take, so this run cannot prove portability"
-wp2m duo capture --repo=/siterepo --out=/siterepo/.tmp-side2state >/dev/null
+wp2m wprism capture --repo=/siterepo --out=/siterepo/.tmp-side2state >/dev/null
 repo_host 2
 diff -r "siterepo/${PAIR}1/state/tables" "siterepo/${PAIR}2/.tmp-side2state/tables" \
   || fail "side 2's independent recapture diverged from side 1 — same authored facts, different bytes or filenames"
@@ -241,7 +241,7 @@ pass "identical UUIDs, identical bytes, identical filenames — derived independ
 
 say "(3b) the DERIVATION itself, on side 2: drop the slot identities and make it re-derive from side 2's own local ids"
 # Step (3) is necessary but not sufficient on its own: every slot uuid it
-# compared came out of a duo_map row apply had just written, so
+# compared came out of a wprism_map row apply had just written, so
 # live_natural_key_components() never actually ran against side 2's genuinely
 # different room ids — identify_row() short-circuits on Ledger::uuid_for()
 # before it reaches the natural_key branch at all. Deleting exactly the
@@ -251,16 +251,16 @@ say "(3b) the DERIVATION itself, on side 2: drop the slot identities and make it
 # that can only mean the ref component contributed the room's UUID — side 2's
 # own room local ids differ from side 1's, so a derivation that used them
 # would produce three different uuids here and nowhere else.
-SLOT_MAPS=$(q2 "SELECT COUNT(*) FROM wp_duo_map WHERE id_kind='agency_slot'")
+SLOT_MAPS=$(q2 "SELECT COUNT(*) FROM wp_wprism_map WHERE id_kind='agency_slot'")
 [ "$SLOT_MAPS" = "3" ] || fail "expected 3 agency_slot ledger rows on side 2 before dropping them (got: $SLOT_MAPS)"
-wp2 db query "DELETE FROM wp_duo_map WHERE id_kind='agency_slot'" >/dev/null
-[ "$(q2 "SELECT COUNT(*) FROM wp_duo_map WHERE id_kind='agency_slot'")" = "0" ] \
+wp2 db query "DELETE FROM wp_wprism_map WHERE id_kind='agency_slot'" >/dev/null
+[ "$(q2 "SELECT COUNT(*) FROM wp_wprism_map WHERE id_kind='agency_slot'")" = "0" ] \
   || fail "the agency_slot ledger rows were not actually removed"
-[ "$(q2 "SELECT COUNT(*) FROM wp_duo_map WHERE id_kind='agency_room'")" = "2" ] \
+[ "$(q2 "SELECT COUNT(*) FROM wp_wprism_map WHERE id_kind='agency_room'")" = "2" ] \
   || fail "the agency_room mappings must survive — they are what the ref component resolves through"
-wp2m duo capture --repo=/siterepo --out=/siterepo/.tmp-side2rederived >/dev/null
+wp2m wprism capture --repo=/siterepo --out=/siterepo/.tmp-side2rederived >/dev/null
 SIDE1_SLOT_UUIDS=$(jq -r '.uuid' "$SLOT_DIR"/*.json | sort)
-REDERIVED_SLOT_UUIDS=$(jq -r '.uuid' "siterepo/${PAIR}2/.tmp-side2rederived/tables/duo_agency_room_slots"/*.json | sort)
+REDERIVED_SLOT_UUIDS=$(jq -r '.uuid' "siterepo/${PAIR}2/.tmp-side2rederived/tables/wprism_agency_room_slots"/*.json | sort)
 [ "$SIDE1_SLOT_UUIDS" = "$REDERIVED_SLOT_UUIDS" ] \
   || fail "re-derived slot uuids differ from side 1's — the ref component is NOT the room's uuid (side 1: $SIDE1_SLOT_UUIDS | side 2 re-derived: $REDERIVED_SLOT_UUIDS)"
 diff -r "siterepo/${PAIR}1/state/tables" "siterepo/${PAIR}2/.tmp-side2rederived/tables" \
@@ -270,11 +270,11 @@ pass "every slot uuid re-derived from scratch against side 2's OWN local ids is 
 say "(4) a slot_code rename is an ordinary update, not delete+create (ledger continuity)"
 EVENING_FILE=$(grep -l '"slot_code": "evening"' "$SLOT_DIR"/*.json)
 EVENING_UUID=$(jq -r '.uuid' "$EVENING_FILE")
-SLOT_ID_2=$(q2 "SELECT slot_id FROM wp_duo_agency_room_slots WHERE slot_code='evening'")
-wp2 db query "UPDATE wp_duo_agency_room_slots SET slot_code='twilight' WHERE slot_id=$SLOT_ID_2" >/dev/null
-wp2m duo capture --repo=/siterepo
+SLOT_ID_2=$(q2 "SELECT slot_id FROM wp_wprism_agency_room_slots WHERE slot_code='evening'")
+wp2 db query "UPDATE wp_wprism_agency_room_slots SET slot_code='twilight' WHERE slot_id=$SLOT_ID_2" >/dev/null
+wp2m wprism capture --repo=/siterepo
 repo_host 2
-RENAMED_FILE=$(grep -l '"slot_code": "twilight"' "siterepo/${PAIR}2/state/tables/duo_agency_room_slots"/*.json)
+RENAMED_FILE=$(grep -l '"slot_code": "twilight"' "siterepo/${PAIR}2/state/tables/wprism_agency_room_slots"/*.json)
 [ -n "$RENAMED_FILE" ] || fail "the renamed slot was not captured"
 [ "$(jq -r '.uuid' "$RENAMED_FILE")" = "$EVENING_UUID" ] \
   || fail "the renamed slot got a NEW uuid — the ledger did not provide rename continuity for a parent-scoped key"
@@ -282,22 +282,22 @@ RENAMED_FILE=$(grep -l '"slot_code": "twilight"' "siterepo/${PAIR}2/state/tables
 "${GIT2[@]}" commit -qm "rename: evening -> twilight"
 git -C "siterepo/${PAIR}2" push -q origin main
 git -C "siterepo/${PAIR}1" pull -q --ff-only origin main
-PLAN=$(wp1m duo plan --repo=/siterepo --format=json | tail -1)
-echo "$PLAN" | jq -e '(.update | any(.type == "duo_agency_room_slots"))' >/dev/null \
+PLAN=$(wp1m wprism plan --repo=/siterepo --format=json | tail -1)
+echo "$PLAN" | jq -e '(.update | any(.type == "wprism_agency_room_slots"))' >/dev/null \
   || fail "the rename did not plan as an UPDATE on side 1 (plan: $PLAN)"
 echo "$PLAN" | jq -e '((.create | length) == 0) and ((.delete | length) == 0)' >/dev/null \
   || fail "the rename planned as a create and/or delete instead of an update (plan: $PLAN)"
 pass "a renamed component keeps its identity through the ledger, exactly like a single-column natural key"
 
 say "(5) a second capture is byte-identical (determinism), and lint is clean"
-wp2m duo capture --repo=/siterepo --out=/siterepo/.tmp-side2again >/dev/null
+wp2m wprism capture --repo=/siterepo --out=/siterepo/.tmp-side2again >/dev/null
 repo_host 2
 diff -r "siterepo/${PAIR}2/state/tables" "siterepo/${PAIR}2/.tmp-side2again/tables" \
   || fail "a second capture of unchanged state produced different bytes"
 LINT_RC=0
-LINT_OUT=$(wp2m duo lint --repo=/siterepo 2>&1) || LINT_RC=$?
+LINT_OUT=$(wp2m wprism lint --repo=/siterepo 2>&1) || LINT_RC=$?
 echo "$LINT_OUT"
-[ "$LINT_RC" -eq 0 ] || fail "wp duo lint reported findings (exit $LINT_RC) — see output above"
+[ "$LINT_RC" -eq 0 ] || fail "wp wprism lint reported findings (exit $LINT_RC) — see output above"
 pass "capture is deterministic and lint is clean"
 
 say "(6) the WRONG declaration — the child key without its parent component — fails loudly"
@@ -306,12 +306,12 @@ say "(6) the WRONG declaration — the child key without its parent component �
 # must refuse rather than silently collapse two authored rows into one.
 BAD_DIR="siterepo/${PAIR}1/.tmp-3318-bad-library"
 cp -R "siterepo/${PAIR}1/$OVERLAY" "$BAD_DIR"
-jq '.tables.duo_agency_room_slots.identity = {"mode": "natural_key", "column": "slot_code"}' \
-  "siterepo/${PAIR}1/$OVERLAY/adapter-packages/duo-agency-cpt/package/manifest.json" \
-  > "$BAD_DIR/adapter-packages/duo-agency-cpt/package/manifest.json.tmp"
-mv "$BAD_DIR/adapter-packages/duo-agency-cpt/package/manifest.json.tmp" \
-  "$BAD_DIR/adapter-packages/duo-agency-cpt/package/manifest.json"
-if OUT=$(duo_with_adapter_library cli1 /siterepo/.tmp-3318-bad-library capture \
+jq '.tables.wprism_agency_room_slots.identity = {"mode": "natural_key", "column": "slot_code"}' \
+  "siterepo/${PAIR}1/$OVERLAY/adapter-packages/wprism-agency-cpt/package/manifest.json" \
+  > "$BAD_DIR/adapter-packages/wprism-agency-cpt/package/manifest.json.tmp"
+mv "$BAD_DIR/adapter-packages/wprism-agency-cpt/package/manifest.json.tmp" \
+  "$BAD_DIR/adapter-packages/wprism-agency-cpt/package/manifest.json"
+if OUT=$(wprism_with_adapter_library cli1 /siterepo/.tmp-3318-bad-library capture \
     --repo=/siterepo --out=/siterepo/.tmp-bad-capture 2>&1); then
   echo "$OUT"
   fail "a single-column key over a parent-scoped table captured cleanly — two distinct authored slots silently collapsed into one identity"

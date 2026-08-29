@@ -34,12 +34,12 @@ $requirements = [
     'independent.php' => [],
 ];
 check(
-    Duo\DeployPlanner::order_activations(array_keys($requirements), $requirements)
+    WPrism\DeployPlanner::order_activations(array_keys($requirements), $requirements)
         === ['provider.php', 'dependent.php', 'independent.php'],
     'activation order is provider-first with desired-list tie breaking'
 );
 check(
-    Duo\DeployPlanner::order_deactivations(array_keys($requirements), $requirements)
+    WPrism\DeployPlanner::order_deactivations(array_keys($requirements), $requirements)
         === ['independent.php', 'dependent.php', 'provider.php'],
     'deactivation order is dependent-first with reverse-list tie breaking'
 );
@@ -49,14 +49,14 @@ $extraRequirements = [
     'provider.php' => [],
 ];
 check(
-    Duo\DeployPlanner::order_activations(array_keys($extraRequirements), $extraRequirements)
+    WPrism\DeployPlanner::order_activations(array_keys($extraRequirements), $extraRequirements)
         === ['provider.php', 'consumer.php'],
     'requirements outside the transition are ignored without changing order'
 );
 
 $activationCycle = false;
 try {
-    Duo\DeployPlanner::order_activations(['a.php', 'b.php'], ['a.php' => ['b.php'], 'b.php' => ['a.php']]);
+    WPrism\DeployPlanner::order_activations(['a.php', 'b.php'], ['a.php' => ['b.php'], 'b.php' => ['a.php']]);
 } catch (RuntimeException $e) {
     $activationCycle = str_contains($e->getMessage(), 'safe activation: a.php, b.php');
 }
@@ -64,7 +64,7 @@ check($activationCycle, 'activation cycles fail closed with deterministic plugin
 
 $deactivationCycle = false;
 try {
-    Duo\DeployPlanner::order_deactivations(['a.php', 'b.php'], ['a.php' => ['b.php'], 'b.php' => ['a.php']]);
+    WPrism\DeployPlanner::order_deactivations(['a.php', 'b.php'], ['a.php' => ['b.php'], 'b.php' => ['a.php']]);
 } catch (RuntimeException $e) {
     $deactivationCycle = str_contains($e->getMessage(), 'safe teardown: a.php, b.php');
 }

@@ -1,5 +1,5 @@
 {
-  "format": "duo-woocommerce-rewrite-coinstall-topology/v1",
+  "format": "wprism-woocommerce-rewrite-coinstall-topology/v1",
   "artifacts": {
     "polylang": {
       "version": "3.8.6",

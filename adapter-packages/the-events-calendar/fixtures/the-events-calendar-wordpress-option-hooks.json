@@ -1,5 +1,5 @@
 {
-  "format": "duo-tec-wordpress-option-topology/v1",
+  "format": "wprism-tec-wordpress-option-topology/v1",
   "reproduce": "php adapter-packages/the-events-calendar/fixtures/verify-tec-wordpress-option-hooks.php --wordpress-root=/usr/src/wordpress --version=<version>",
   "reproduce_tec": "php adapter-packages/the-events-calendar/fixtures/verify-tec-wordpress-option-hooks.php --wordpress-root=/usr/src/wordpress --version=<wp-version> --tec-root=/path/to/the-events-calendar --tec-version=<tec-version>",
   "source_files": {
@@ -487,7 +487,7 @@
       "6.17.2": "decodes and re-signs without recursive object refusal",
       "6.17.3": "unserializes with allowed_classes=false and rejects nested objects before re-signing"
     },
-    "duo_status": {
+    "wprism_status": {
       "portable": true,
       "reason": "The TEC manifest owns all three attributes as one closed codec: stored IDs bind to exact SidebarState widget kinds, embedded settings cross bounded plain-data and native scalar validation, source hashes are discarded, and target bytes are re-signed with wp_hash()."
     }

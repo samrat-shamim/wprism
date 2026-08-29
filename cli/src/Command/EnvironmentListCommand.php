@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Environment/Registry.php';
 require_once __DIR__ . '/../Transport/Transport.php';
@@ -14,7 +14,7 @@ final class EnvironmentListCommand {
     public static function run(?string $envsFileOverride, string $startDir): int {
         $envs = Registry::load($envsFileOverride, $startDir);
         if (!$envs) {
-            fwrite(STDERR, "duo: no environments defined (looked for an 'envs' object in site.duo.json and .duo-envs.json)\n");
+            fwrite(STDERR, "wprism: no environments defined (looked for an 'envs' object in site.wprism.json and .wprism-envs.json)\n");
             return 1;
         }
         $width = max(array_map(static fn ($name): int => strlen((string) $name), array_keys($envs)));

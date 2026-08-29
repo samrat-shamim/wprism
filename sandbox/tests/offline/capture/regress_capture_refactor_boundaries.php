@@ -17,16 +17,16 @@ $source = static function (string $name) use ($root): string {
     // classmap beside it is what still knows where a file lives. Indexed by
     // the mapped path's BASENAME, not by class name: this closure is handed a
     // file name, and agent/src/Kernel/CommandRefusal.php declares
-    // Duo\CommandRefusalException, so a class lookup would miss it. A name the
+    // WPrism\CommandRefusalException, so a class lookup would miss it. A name the
     // map does not carry leaves $bytes false, which the throw below names.
-    static $duoAgentFiles = null;
-    if ($duoAgentFiles === null) {
-        $duoAgentFiles = [];
-        foreach ((array) (require "$root/agent/duo-classmap.php") as $duoAgentPath) {
-            $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
+    static $wprismAgentFiles = null;
+    if ($wprismAgentFiles === null) {
+        $wprismAgentFiles = [];
+        foreach ((array) (require "$root/agent/wprism-classmap.php") as $wprismAgentPath) {
+            $wprismAgentFiles[basename((string) $wprismAgentPath, '.php')] = (string) $wprismAgentPath;
         }
     }
-    $bytes = isset($duoAgentFiles[$name]) ? file_get_contents("$root/agent/" . $duoAgentFiles[$name]) : false;
+    $bytes = isset($wprismAgentFiles[$name]) ? file_get_contents("$root/agent/" . $wprismAgentFiles[$name]) : false;
     if (!is_string($bytes)) {
         throw new RuntimeException("cannot read $name.php");
     }
@@ -67,7 +67,7 @@ $sidebarPrune = strpos($ordinarySnapshot, 'SidebarState::prune_dead_map($policy)
 $typedPrune = strpos($ordinarySnapshot, 'Snapshot::prune_dead_map($policy, $repositoryOptions)');
 
 require_once "$root/agent/src/Capture/Capture.php";
-$captureReflection = new ReflectionClass(Duo\Capture::class);
+$captureReflection = new ReflectionClass(WPrism\Capture::class);
 
 $check(substr_count($capture, "\n") + 1 <= 650, 'Capture stays a small command-facing façade');
 $check(!str_contains($capture, '$this->'), 'Capture has no per-build mutable instance state');
@@ -101,7 +101,7 @@ $check(
             $constructor->getParameters()
         ) === [
             ['name' => 'repo', 'type' => 'string'],
-            ['name' => 'policy', 'type' => 'Duo\\Policy'],
+            ['name' => 'policy', 'type' => 'WPrism\\Policy'],
         ],
     'Capture preserves its private constructor contract'
 );
@@ -144,7 +144,7 @@ $expectedApi = [
         $parameter('forceUnresolvedRefs', 'bool', false, false),
         $parameter('scopeRequest', '?array', false),
         $parameter('hostEnvironment', '?string', false),
-        $parameter('adapterLibrary', '?Duo\\AdapterLibrary', false),
+        $parameter('adapterLibrary', '?WPrism\\AdapterLibrary', false),
         $parameter('expectedRepositoryBranch', '?string', false),
     ]],
     'run_initial_baseline' => ['array', [
@@ -158,8 +158,8 @@ $expectedApi = [
     'snapshot' => ['array', [
         $parameter('repo', 'string'),
         $parameter('forceUnresolvedRefs', 'bool', false, false),
-        $parameter('compiled', '?Duo\\CompiledRepository', false),
-        $parameter('policy', '?Duo\\Policy', false),
+        $parameter('compiled', '?WPrism\\CompiledRepository', false),
+        $parameter('policy', '?WPrism\\Policy', false),
         $parameter('planObservations', '?array', false, null, true),
         // Observe AS a named environment binding — the rehearsal target rebind off its restored source snapshot (grind_adoption A6).
         $parameter('binding', '?array', false),
@@ -167,29 +167,29 @@ $expectedApi = [
     'snapshot_read_only' => ['array', [
         $parameter('repo', 'string'),
         $parameter('forceUnresolvedRefs', 'bool', false, false),
-        $parameter('compiled', '?Duo\\CompiledRepository', false),
-        $parameter('policy', '?Duo\\Policy', false),
+        $parameter('compiled', '?WPrism\\CompiledRepository', false),
+        $parameter('policy', '?WPrism\\Policy', false),
     ]],
     'build_read_only_export' => ['array', [
         $parameter('repo', 'string'),
-        $parameter('policy', 'Duo\\Policy'),
+        $parameter('policy', 'WPrism\\Policy'),
         $parameter('previousOptions', '?array'),
         $parameter('previousUserLogins', 'array'),
         $parameter('forceUnresolvedRefs', 'bool', false, false),
     ]],
     'assert_read_only_export_engine_support' => ['void', [
-        $parameter('policy', 'Duo\\Policy'),
+        $parameter('policy', 'WPrism\\Policy'),
     ]],
     'snapshot_options_core' => ['array', [
         $parameter('repo', 'string'),
         $parameter('forceUnresolvedRefs', 'bool', false, false),
-        $parameter('compiled', '?Duo\\CompiledRepository', false),
-        $parameter('policy', '?Duo\\Policy', false),
+        $parameter('compiled', '?WPrism\\CompiledRepository', false),
+        $parameter('policy', '?WPrism\\Policy', false),
     ]],
     'gate_scan' => ['array', [$parameter('repo', 'string')]],
     'gate_scan_read_only' => ['array', [
         $parameter('repo', 'string'),
-        $parameter('policy', 'Duo\\Policy'),
+        $parameter('policy', 'WPrism\\Policy'),
         $parameter('observationReadCheckpoint', '?callable', false),
     ]],
     'publication_commit_status' => ['bool', [
@@ -204,12 +204,12 @@ $expectedApi = [
         $parameter('id', 'int'),
         $parameter('kind', 'string'),
         $parameter('force', 'bool'),
-        $parameter('policy', 'Duo\\Policy'),
+        $parameter('policy', 'WPrism\\Policy'),
     ]],
 ];
 $actualApi = [];
 foreach ($captureReflection->getMethods(ReflectionMethod::IS_PUBLIC) as $method) {
-    if ($method->getDeclaringClass()->getName() === Duo\Capture::class) {
+    if ($method->getDeclaringClass()->getName() === WPrism\Capture::class) {
         $actualApi[$method->getName()] = $methodContract($method);
     }
 }
@@ -227,7 +227,7 @@ $check(array_keys($actualApi) === array_keys($normalizedExpectedApi),
 $check($actualApi === $normalizedExpectedApi,
     'Capture preserves visibility, staticness, return types, parameters, defaults, and references');
 
-$branchRepo = sys_get_temp_dir() . '/duo-capture-branch-' . bin2hex(random_bytes(8));
+$branchRepo = sys_get_temp_dir() . '/wprism-capture-branch-' . bin2hex(random_bytes(8));
 mkdir($branchRepo, 0700, true);
 $branchProcess = proc_open(
     ['git', 'init', '--initial-branch=feature/target', $branchRepo],
@@ -241,7 +241,7 @@ if (is_resource($branchProcess)) {
     fclose($branchPipes[2]);
     proc_close($branchProcess);
 }
-$branchGuard = new ReflectionMethod(Duo\CapturePublicationWorkflow::class, 'assertRepositoryBranch');
+$branchGuard = new ReflectionMethod(WPrism\CapturePublicationWorkflow::class, 'assertRepositoryBranch');
 $branchMatched = true;
 try {
     $branchGuard->invoke(null, $branchRepo, 'feature/target');
@@ -347,22 +347,22 @@ $check(str_contains($identity, 'public function ensurePost(')
 // be observed in the same equality set and refused rather than ignored/minted
 // over; a failed compact read likewise cannot become "identity absent".
 require_once "$root/sandbox/tests/lib/FakeWpdb.php";
-$identityDb = static function (array $postmeta): \DuoTest\FakeWpdb {
-    $db = new \DuoTest\FakeWpdb();
+$identityDb = static function (array $postmeta): \WPrismTest\FakeWpdb {
+    $db = new \WPrismTest\FakeWpdb();
     $db->seedTable('wp_postmeta', $postmeta);
-    $db->seedTable('wp_duo_map', [])
-        ->setUniqueKey('wp_duo_map', ['uuid', 'id_kind'])
-        ->setUniqueKey('wp_duo_map', ['id_kind', 'local_id']);
+    $db->seedTable('wp_wprism_map', [])
+        ->setUniqueKey('wp_wprism_map', ['uuid', 'id_kind'])
+        ->setUniqueKey('wp_wprism_map', ['id_kind', 'local_id']);
     return $db;
 };
 $canonicalUuid = '11111111-1111-7111-8111-111111111111';
 $GLOBALS['wpdb'] = $identityDb([[
     'meta_id' => 1,
     'post_id' => 7,
-    'meta_key' => '_duo_uuid',
+    'meta_key' => '_wprism_uuid',
     'meta_value' => $canonicalUuid,
 ]]);
-$runtimeIdentity = new \Duo\CaptureIdentity(static function (string $_purpose): void {});
+$runtimeIdentity = new \WPrism\CaptureIdentity(static function (string $_purpose): void {});
 $check(
     $runtimeIdentity->ensurePost(7, 'post', false) === $canonicalUuid,
     'capture identity accepts one canonical exact sidecar through the real ledger product path'
@@ -371,7 +371,7 @@ $check(
 $GLOBALS['wpdb'] = $identityDb([[
     'meta_id' => 1,
     'post_id' => 7,
-    'meta_key' => '_DUO_UUID',
+    'meta_key' => '_WPRISM_UUID',
     'meta_value' => $canonicalUuid,
 ]]);
 try {
@@ -381,13 +381,13 @@ try {
     $aliasRefused = str_contains($failure->getMessage(), 'aliased');
 }
 $check(
-    $aliasRefused && $GLOBALS['wpdb']->rows('wp_duo_map') === [],
+    $aliasRefused && $GLOBALS['wpdb']->rows('wp_wprism_map') === [],
     'capture identity refuses a collation-equal non-byte-exact alias before minting or ledger mutation'
 );
 
 $GLOBALS['wpdb'] = $identityDb([
-    ['meta_id' => 1, 'post_id' => 7, 'meta_key' => '_duo_uuid', 'meta_value' => $canonicalUuid],
-    ['meta_id' => 2, 'post_id' => 7, 'meta_key' => '_DUO_UUID', 'meta_value' => $canonicalUuid],
+    ['meta_id' => 1, 'post_id' => 7, 'meta_key' => '_wprism_uuid', 'meta_value' => $canonicalUuid],
+    ['meta_id' => 2, 'post_id' => 7, 'meta_key' => '_WPRISM_UUID', 'meta_value' => $canonicalUuid],
 ]);
 try {
     $runtimeIdentity->ensurePost(7, 'post', true);
@@ -401,7 +401,7 @@ $secretShapedIdentity = 'credential=' . str_repeat('X', 80);
 $GLOBALS['wpdb'] = $identityDb([[
     'meta_id' => 1,
     'post_id' => 7,
-    'meta_key' => '_duo_uuid',
+    'meta_key' => '_wprism_uuid',
     'meta_value' => $secretShapedIdentity,
 ]]);
 try {
@@ -424,7 +424,7 @@ try {
 } catch (Throwable $failure) {
     $identityReadFailureRefused = str_contains($failure->getMessage(), 'identity read')
         && $GLOBALS['wpdb']->rows('wp_postmeta') === []
-        && $GLOBALS['wpdb']->rows('wp_duo_map') === [];
+        && $GLOBALS['wpdb']->rows('wp_wprism_map') === [];
 }
 $check($identityReadFailureRefused, 'capture identity DB failure cannot become an absent row and mint new authority');
 $check(str_contains($post, '$this->mediaCapture->capture(')
@@ -493,7 +493,7 @@ $check(
         && $receiptOffset < $cleanupOffset,
     'receipt and cleanup remain strictly post-transaction'
 );
-$check(str_contains($recovery, "'duo-capture-commit-marker/v1'")
+$check(str_contains($recovery, "'wprism-capture-commit-marker/v1'")
     && str_contains($recovery, 'CommandRefusalException::ambiguousCaptureRecovery('),
     'publication recovery owns exact self-hashed commit proof and ambiguity refusal');
 $check(str_contains($initial, "require_once __DIR__ . '/../Init/InitProtocol.php';")

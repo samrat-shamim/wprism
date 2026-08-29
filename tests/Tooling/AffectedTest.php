@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tests\Tooling;
+namespace WPrism\Tests\Tooling;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -62,7 +62,7 @@ final class AffectedTest extends TestCase
 
     private static function repoRoot(): string
     {
-        $env = getenv('DUO_REPO_ROOT');
+        $env = getenv('WPRISM_REPO_ROOT');
         return is_string($env) && $env !== '' ? $env : dirname(__DIR__, 2);
     }
 
@@ -108,7 +108,7 @@ final class AffectedTest extends TestCase
     private static function invokeWithMemoryLimitToFile(array $args, string $limit): array
     {
         $repo = self::repoRoot();
-        $path = tempnam(sys_get_temp_dir(), 'duo-affected-output-');
+        $path = tempnam(sys_get_temp_dir(), 'wprism-affected-output-');
         self::assertIsString($path, 'could not allocate affected.php output fixture');
         $cmd = [PHP_BINARY, '-d', 'memory_limit=' . $limit, $repo . '/tools/affected.php', ...$args];
         $descriptors = [1 => ['file', $path, 'w'], 2 => ['pipe', 'w']];
@@ -382,7 +382,7 @@ final class AffectedTest extends TestCase
 
     public function testSandboxRelativeSuiteReferenceSelectsTheSuiteThatNamesIt(): void
     {
-        // The proven coverage edge of DUO-3482, at CLI level. Nothing in the
+        // The proven coverage edge of issue #3482, at CLI level. Nothing in the
         // index referenced this grind: the only offline suite that guards it,
         // regress_grind_r1c_manifest_preserve.sh, cds to sandbox/ (:12) and so
         // spells it `G=tests/grind/grind_r1c_agency.sh` (:17) -- a token with
@@ -624,7 +624,7 @@ final class AffectedTest extends TestCase
      */
     private static function syntheticTestsTree(array $relativePaths): string
     {
-        $root = (string) tempnam(sys_get_temp_dir(), 'duo-affected-test-');
+        $root = (string) tempnam(sys_get_temp_dir(), 'wprism-affected-test-');
         unlink($root);
         foreach ($relativePaths as $relative) {
             $full = $root . '/' . $relative;
@@ -739,7 +739,7 @@ final class AffectedTest extends TestCase
         ], $parsed['paths']);
         self::assertSame(
             'cross_root_rename',
-            \Duo\Tooling\AdapterChangeScopeDecision::decide($parsed['changes'])['reason_code']
+            \WPrism\Tooling\AdapterChangeScopeDecision::decide($parsed['changes'])['reason_code']
         );
     }
 
@@ -748,7 +748,7 @@ final class AffectedTest extends TestCase
         self::loadTool();
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('git diff --name-status -M -z failed');
-        af_git_diff_changes(self::repoRoot(), 'refs/heads/duo-definitely-missing');
+        af_git_diff_changes(self::repoRoot(), 'refs/heads/wprism-definitely-missing');
     }
 
     public function testGitStatusDiscoveryFailureRefusesInsteadOfReturningNoChanges(): void
@@ -873,13 +873,13 @@ final class AffectedTest extends TestCase
         // Load-boundary suites name the classes that must NOT be loaded as
         // string literals, where the source bytes carry two backslashes.
         $files = af_extract_class_files(
-            "foreach (['Duo\\\\Capture', 'Duo\\\\Policy'] as \$forbidden) {}",
+            "foreach (['WPrism\\\\Capture', 'WPrism\\\\Policy'] as \$forbidden) {}",
             $classMap
         );
         self::assertContains('agent/src/Capture/Capture.php', $files);
         self::assertContains('agent/src/Policy/Policy.php', $files);
         // The single-backslash (real namespace) form still works.
-        self::assertContains('agent/src/Kernel/Canon.php', af_extract_class_files('use Duo\\Canon;', $classMap));
+        self::assertContains('agent/src/Kernel/Canon.php', af_extract_class_files('use WPrism\\Canon;', $classMap));
     }
 
     public function testRootedDirectoryLiteralsBecomeDirectoryDependencies(): void

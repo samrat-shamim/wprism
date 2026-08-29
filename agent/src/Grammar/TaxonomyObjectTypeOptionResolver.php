@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Pure resolution of a taxonomy's option-derived object-type declaration.

@@ -24,7 +24,7 @@
  * THE SEVEN THINGS PROVED, IN ORDER
  * ---------------------------------
  *  1. THE FOREIGN EVIDENCE REPOSITORY IS FOREIGN. The cited tests exist in a
- *     scratch checkout that is not duo-wp and not the site repo; this
+ *     scratch checkout that is not wprism and not the site repo; this
  *     repository holds no file, no conformance suite and no Makefile target by
  *     those names, and that is ASSERTED rather than asserted-in-prose.
  *  2. THE MINT AND THE WORD. `sign --evidence-repo=<foreign>` produces a
@@ -52,7 +52,7 @@
  *  7. NO CERTIFICATE IN THE FIELD MOVED. A bundle that declares no reviewer
  *     produces a `proof.bundle` with EXACTLY the seven members it had before
  *     this rider, which is what keeps the adapter digest — and therefore every
- *     `site.duo.json` pin binding it — where it was (AGENTS.md rule 2).
+ *     `site.wprism.json` pin binding it — where it was (AGENTS.md rule 2).
  *
  * FAILING BEFORE: revert the admission in `AdapterCertification::bundleEvidence()`
  * (restore the `array_key_exists(EVIDENCE_REVIEWER, …)` refusal) and step 2's
@@ -75,7 +75,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../lib/agent_version.php';
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 
 require_once __DIR__ . '/../../lib/check.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
@@ -86,12 +86,12 @@ require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
 require_once __DIR__ . '/certification_fixture.php';
 require_once __DIR__ . '/../../../../agent/src/Repository/RepositoryCompiler.php';
 
-use Duo\AdapterCertification;
-use Duo\AdapterLibrary;
-use Duo\AdapterSources;
-use Duo\Canon;
-use Duo\Policy;
-use Duo\RepositoryCompiler;
+use WPrism\AdapterCertification;
+use WPrism\AdapterLibrary;
+use WPrism\AdapterSources;
+use WPrism\Canon;
+use WPrism\Policy;
+use WPrism\RepositoryCompiler;
 
 // The WordPress seams a policy load can touch. They REFUSE rather than answer,
 // exactly as the population suite's do: a suite that reached a target would stop
@@ -185,7 +185,7 @@ function rev_run(array $command): array {
 
 /**
  * The FOREIGN reviewed-exercise bundle, written into an evidence repository
- * that is neither duo-wp nor the managed site.
+ * that is neither wprism nor the managed site.
  *
  * Suite-local for the reason `sign_site()` states about its own internal
  * builder: the bundle grammar belongs to the engine (`verifyBundleManifest()`
@@ -309,7 +309,7 @@ function rev_write_bundle(
             'reviewer' => REVIEWER_TIER_PARTY,
         ]),
         'force_hatches' => [],
-        // The FOREIGN repository's own revision, deliberately not duo-wp's
+        // The FOREIGN repository's own revision, deliberately not wprism's
         // HEAD: a bundle that borrowed this repository's commit would be
         // claiming provenance it does not have.
         'git_revision' => str_repeat('7e', 20),
@@ -349,10 +349,10 @@ const REVIEWER_TIER_PARTY = 'acme-conformance-lab';
 // Rule 3: scratch never lives under agent/ or manifests/ — sandbox/bin/pair.sh
 // refuses on an untracked file there. A unique root per run, because the corpus
 // runs concurrently.
-$root = sys_get_temp_dir() . '/duo-reviewer-tier-' . bin2hex(random_bytes(6));
+$root = sys_get_temp_dir() . '/wprism-reviewer-tier-' . bin2hex(random_bytes(6));
 register_shutdown_function(static fn() => rev_remove_tree($root));
 
-$library = duo_cert_hermetic_library($repo, $root . '/library-projection');
+$library = wprism_cert_hermetic_library($repo, $root . '/library-projection');
 $adapterLibrary = AdapterLibrary::fromLegacyFlatDirectory($library);
 $site = $root . '/site';
 $foreign = $root . '/foreign-evidence';
@@ -362,7 +362,7 @@ if (!mkdir($site . '/adapters', 0777, true) || !mkdir($foreign . '/adapters', 07
 }
 
 $report = static function (string $line): void {
-    duo_check_detail($line);
+    wprism_check_detail($line);
 };
 $refusal = static function (callable $fn): ?string {
     try {
@@ -406,7 +406,7 @@ $adapterManifest = [
     'options' => ['acme_shop_layout' => ['class' => 'authored']],
     'plugin' => 'acme-shop/acme-shop.php',
     'post_types' => [],
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
     'version_range' => ['max' => '3.0.0', 'min' => '1.0.0'],
 ];
 rev_write_canon($site . '/adapters/' . $adapterName . '.json', $adapterManifest);
@@ -416,10 +416,10 @@ rev_write_canon($site . '/adapters/' . $adapterName . '.json', $adapterManifest)
 // same canonical encoder rather than copied, so a divergence would be a real
 // divergence and not a copy artefact.
 rev_write_canon($foreign . '/adapters/' . $adapterName . '.json', $adapterManifest);
-rev_write_canon($site . '/site.duo.json', (object) [
+rev_write_canon($site . '/site.wprism.json', (object) [
     'manifests' => [['name' => $adapterName, 'source' => 'site']],
     'policy' => new stdClass(),
-    'spec_version' => DUO_SPEC_VERSION,
+    'spec_version' => WPRISM_SPEC_VERSION,
 ]);
 
 $certificatePath = $site . '/adapters/certifications/' . $adapterName . '.json';
@@ -441,12 +441,12 @@ $v2Record = static fn(string $encodedPublic, array $names, array $tiers): array 
  * Reset the pin to bare, load, read the certificate-derived digest back, and
  * write the exact pin. Two passes because the digest folds the CERTIFICATE in,
  * so it cannot be known before the certificate exists — the same two passes
- * `duo adapter certify --pin` makes.
+ * `wprism adapter certify --pin` makes.
  */
 $pinRepository = static function (string $name) use ($site, $adapterLibrary): string {
-    $reset = Canon::decode(Canon::read_file($site . '/site.duo.json'));
+    $reset = Canon::decode(Canon::read_file($site . '/site.wprism.json'));
     $reset['manifests'] = [['name' => $name, 'source' => 'site']];
-    rev_write_canon($site . '/site.duo.json', $reset);
+    rev_write_canon($site . '/site.wprism.json', $reset);
     $policy = Policy::load($site, adapterLibrary: $adapterLibrary);
     $digest = '';
     foreach (RepositoryCompiler::resolved_adapters($policy) as $row) {
@@ -454,9 +454,9 @@ $pinRepository = static function (string $name) use ($site, $adapterLibrary): st
             $digest = (string) $row['digest'];
         }
     }
-    $document = Canon::decode(Canon::read_file($site . '/site.duo.json'));
+    $document = Canon::decode(Canon::read_file($site . '/site.wprism.json'));
     $document['manifests'] = [['digest' => $digest, 'name' => $name, 'source' => 'site']];
-    rev_write_canon($site . '/site.duo.json', $document);
+    rev_write_canon($site . '/site.wprism.json', $document);
 
     return $digest;
 };
@@ -474,7 +474,7 @@ echo "\n== step 1: the evidence repository is FOREIGN, and this one holds none o
 // ===========================================================================
 
 $shippedAuthorities = (string) file_get_contents($repo . '/platform/adapter-library/capabilities/adapter-authorities.json');
-duo_check_same(
+wprism_check_same(
     Canon::encode((object) ['format' => AdapterCertification::AUTHORITIES_FORMAT, 'keys' => new stdClass()]),
     $shippedAuthorities,
     'the shipped trust root is still the EMPTY v1 registry, byte for byte: this rider opens a TIER, and issuing '
@@ -494,25 +494,25 @@ foreach ([$repo . '/sandbox/tests', $repo . '/sandbox/conformance'] as $tree) {
         }
     }
 }
-duo_check_same(
+wprism_check_same(
     [],
     $localNamesakes,
     'this repository holds NO file named for the cited test `' . REVIEWER_TIER_TEST_ID . '` — the run being '
-    . 'certified below happened somewhere duo-wp cannot see, which is the entire content of the word "federated"'
+    . 'certified below happened somewhere wprism cannot see, which is the entire content of the word "federated"'
 );
-duo_check(
+wprism_check(
     !str_contains((string) file_get_contents($repo . '/Makefile'), REVIEWER_TIER_TEST_ID),
     'and no Makefile target names it either, so there is no target this gate could run to re-derive the evidence '
     . 'it is about to trust'
 );
-duo_check(
+wprism_check(
     is_file($foreign . '/adapters/' . $adapterName . '.json')
-        && !is_file($foreign . '/site.duo.json')
+        && !is_file($foreign . '/site.wprism.json')
         && realpath($foreign) !== realpath($site) && realpath($foreign) !== realpath($repo),
-    'the evidence repository is a third checkout — not the managed site and not duo-wp — carrying the adapter '
+    'the evidence repository is a third checkout — not the managed site and not wprism — carrying the adapter '
     . 'under test and nothing else a site would carry'
 );
-duo_check_same(
+wprism_check_same(
     hash_file('sha256', $site . '/adapters/' . $adapterName . '.json'),
     hash_file('sha256', $foreign . '/adapters/' . $adapterName . '.json'),
     'and its copy of the adapter is byte-identical to the site\'s: `assertBundleSubjectInput()` binds the exact '
@@ -537,7 +537,7 @@ $signRegistry = rev_run([
     '--authority=' . $platformId,
     '--secret-key-file=' . $platformSecretPath,
 ]);
-duo_check(
+wprism_check(
     $signRegistry['exit'] === 0,
     'a scratch platform root is enrolled through the shipped `authorities-sign` verb (' . trim($signRegistry['stderr']) . ')'
 );
@@ -559,31 +559,31 @@ $signFrom = static fn(string $bundle): array => rev_run([
     '--secret-key-file=' . $platformSecretPath,
 ]);
 $reviewerSign = $signFrom($bundleDir);
-duo_check(
+wprism_check(
     $reviewerSign['exit'] === 0,
     'the platform root signs a bundle carrying `evidence.reviewer` — the slot § v3.10 reserved as a refusal is '
     . 'OPEN (' . trim($reviewerSign['stderr'] . ' ' . $reviewerSign['stdout']) . ')'
 );
 
 $verified = AdapterCertification::verifyFile($library, $site, $adapterName, $adapterManifest, $certificatePath);
-duo_check_same(
+wprism_check_same(
     'certified',
     $verified['claim']['status'] ?? null,
     'and the certificate it minted verifies live: nothing about verification was relaxed to admit the tier'
 );
-duo_check_same(
+wprism_check_same(
     REVIEWER_TIER_PARTY,
     $verified['disposition']['provenance']['proof']['bundle']['reviewer'] ?? null,
     'the reviewing party is carried on the verified proof, projected out of the signed bundle rather than '
     . 're-derived — it is inside the signature and folded into the adapter digest'
 );
-duo_check_same(
+wprism_check_same(
     REVIEWER_TIER_PARTY,
     $verified['claim']['certification']['reviewer'] ?? null,
     'and onto the claim beside `principal`, which is the SIGNER: two named parties, one who exercised and one '
     . 'who vouched, is exactly the information a single root-derived word cannot carry'
 );
-duo_check(
+wprism_check(
     ($verified['claim']['certification']['principal'] ?? null) === $platformId
         && ($verified['claim']['certification']['principal'] ?? null)
             !== ($verified['claim']['certification']['reviewer'] ?? null),
@@ -591,7 +591,7 @@ duo_check(
 );
 
 $reviewerDigest = $pinRepository($adapterName);
-duo_check_same(
+wprism_check_same(
     AdapterSources::CERTIFICATION_REVIEWER_SIGNED,
     $surveyWord($adapterName),
     'so the operator-facing word is `reviewer_signed`: the tier gate G4 decides, projected from a bundle a '
@@ -608,23 +608,23 @@ echo "\n== step 3: AT DISTANCE — the evidence repository is deleted, the proof
 // certificate carries its own proof and the lab's disk is not a dependency of
 // the site that trusts it.
 rev_remove_tree($foreign);
-duo_check(
+wprism_check(
     !is_dir($foreign),
     'the foreign evidence repository is removed from disk entirely — no adapter copy, no bundle, no test assets'
 );
 $atDistance = AdapterCertification::verifyFile($library, $site, $adapterName, $adapterManifest, $certificatePath);
-duo_check_same(
+wprism_check_same(
     'certified',
     $atDistance['claim']['status'] ?? null,
     'and the certificate still verifies with this repository holding none of the cited tests and the evidence '
     . 'checkout gone: the bundle manifest, its asset digests and the ratification are all inside the signature'
 );
-duo_check_same(
+wprism_check_same(
     AdapterSources::CERTIFICATION_REVIEWER_SIGNED,
     $surveyWord($adapterName),
     'and still projects the reviewer word, which is what makes the tier usable rather than merely representable'
 );
-duo_check_same(
+wprism_check_same(
     [REVIEWER_TIER_TEST_ID],
     array_values((array) ($atDistance['disposition']['provenance']['proof']['bundle']['tests'] ?? [])),
     'the proof names the cited test by id, so an operator can see WHICH run they are trusting even though they '
@@ -641,7 +641,7 @@ $words = [
     AdapterSources::CERTIFICATION_SIGNED_UNEXERCISED,
     'third_party_signed',
 ];
-duo_check_same(
+wprism_check_same(
     4,
     count(array_unique($words)),
     'the four signed words are distinct — exercised certification and unexercised approval cannot share a label'
@@ -659,16 +659,16 @@ $plainDir = rev_write_bundle($foreign . '/runs/plain', $foreign, $adapterName, $
     ],
 ]);
 $plainSign = $signFrom($plainDir);
-duo_check($plainSign['exit'] === 0, 'the same bundle without the reviewer member signs exactly as it did before this rider');
+wprism_check($plainSign['exit'] === 0, 'the same bundle without the reviewer member signs exactly as it did before this rider');
 $plainVerified = AdapterCertification::verifyFile($library, $site, $adapterName, $adapterManifest, $certificatePath);
 $pinRepository($adapterName);
-duo_check_same(
+wprism_check_same(
     'third_party_signed',
     $surveyWord($adapterName),
     'and projects `third_party_signed` — the root-derived word, unchanged: removing one optional member is the '
     . 'only difference between these two certificates and it is the only difference in the answer'
 );
-duo_check_same(
+wprism_check_same(
     null,
     $plainVerified['disposition']['provenance']['proof']['bundle']['reviewer'] ?? null,
     'with no reviewer anywhere on its proof'
@@ -701,9 +701,9 @@ $siteSign = rev_run([
     '--secret-key-file=' . $operatorSecretPath,
     '--reason=grammar verified by the site operator; not exercised',
 ]);
-duo_check($siteSign['exit'] === 0, 'the operator certifies the same adapter under their OWN root (' . trim($siteSign['stderr']) . ')');
+wprism_check($siteSign['exit'] === 0, 'the operator certifies the same adapter under their OWN root (' . trim($siteSign['stderr']) . ')');
 $pinRepository($adapterName);
-duo_check_same(
+wprism_check_same(
     AdapterSources::CERTIFICATION_SIGNED_UNEXERCISED,
     $surveyWord($adapterName),
     'and gets `signed_unexercised`: the operator signature remains visible without becoming site certification'
@@ -733,7 +733,7 @@ $unexercised = $mintRefusal([
     'tests' => [],
     'cited' => [],
 ]);
-duo_check(
+wprism_check(
     str_contains($unexercised, 'beside exercised false')
         && str_contains($unexercised, 'has none to attribute'),
     'a bundle naming a reviewer beside `exercised: false` refuses: the tier states WHO exercised it, and the '
@@ -748,7 +748,7 @@ $selfReview = $mintRefusal([
         'reviewer' => $platformId,
     ],
 ]);
-duo_check(
+wprism_check(
     str_contains($selfReview, 'which is the signing authority itself'),
     'and a bundle whose reviewer IS the signing key refuses: one party wearing a third word says nothing the '
     . 'trust root did not already say, which is the laundering direction (' . $selfReview . ')'
@@ -762,7 +762,7 @@ $notAnIdentity = $mintRefusal([
         'reviewer' => 'Acme Conformance Lab, Inc.',
     ],
 ]);
-duo_check(
+wprism_check(
     str_contains($notAnIdentity, 'canonical lowercase ASCII slugs'),
     'and free text is not a party: the reviewer is held to the same identity grammar as an adapter name and an '
     . 'authority key id, so it is comparable across certificates (' . $notAnIdentity . ')'
@@ -777,7 +777,7 @@ $unknownMember = $mintRefusal([
         'totally_made_up_member' => true,
     ],
 ]);
-duo_check(
+wprism_check(
     str_contains($unknownMember, 'must contain exactly exercised, grammar, reason'),
     'and the evidence object is still CLOSED around it: this rider admitted one named member, not the key set — '
     . 'an ordinary unknown member gets the same sentence it always got (' . $unknownMember . ')'
@@ -795,7 +795,7 @@ $absent = $mintRefusal([
     'tests' => [['id' => 'acme-lab-some-other-run', 'verdict' => 'pass']],
     'cited' => [REVIEWER_TIER_TEST_ID],
 ]);
-duo_check(
+wprism_check(
     str_contains($absent, 'cites absent or non-passing bundle test')
         && str_contains($absent, REVIEWER_TIER_TEST_ID),
     'a disposition citing a test the bundle does not carry refuses, BY NAME — a federated tier whose citation '
@@ -805,14 +805,14 @@ duo_check(
 $failing = $mintRefusal([
     'tests' => [['id' => REVIEWER_TIER_TEST_ID, 'verdict' => 'fail']],
 ]);
-duo_check(
+wprism_check(
     str_contains($failing, 'must contain each named passing test exactly once'),
     'a cited test PRESENT in the bundle but recorded `fail` refuses at the manifest, before any asset is opened '
     . '(' . $failing . ')'
 );
 
 $failingAsset = $mintRefusal(['result_exit' => 1]);
-duo_check(
+wprism_check(
     str_contains($failingAsset, 'does not record a named passing zero-exit test')
         && str_contains($failingAsset, REVIEWER_TIER_TEST_ID),
     'and a cited test the manifest calls `pass` whose RESULT asset records a non-zero exit refuses too: the '
@@ -825,7 +825,7 @@ echo "\n== step 7: the six existing words, and every certificate in the field ==
 
 // Both vocabularies are read out of the SHIPPED SOURCE rather than by loading
 // the two classes: the agent's observer pulls a WordPress-facing require chain
-// and cli/duo's is bootstrap-order-sensitive, and neither is this suite's
+// and cli/wprism's is bootstrap-order-sensitive, and neither is this suite's
 // subject. The regex is anchored on the const declaration each file actually
 // carries, so a renamed or deleted list fails here rather than matching nothing
 // and comparing two empty arrays.
@@ -842,7 +842,7 @@ $wordsIn = static function (string $file): array {
 };
 $agentWords = $wordsIn($repo . '/agent/src/Adapter/AdapterObservation.php');
 $hostWords = $wordsIn($repo . '/cli/src/Adapter/AdapterObservation.php');
-duo_check_same(
+wprism_check_same(
     [
         'certification_unjudged', 'registry', 'reviewer_signed', 'signed_unexercised', 'signed_unpinned', 'site_signed',
         'third_party_signed', 'uncertified',
@@ -850,7 +850,7 @@ duo_check_same(
     $agentWords,
     'the emitting vocabulary includes reviewer evidence and the distinct unexercised-signature state'
 );
-duo_check_same(
+wprism_check_same(
     $agentWords,
     $hostWords,
     'and the host validator carries the SAME set — a closed enum the target can emit and the host cannot read '
@@ -860,31 +860,31 @@ duo_check_same(
 // PRECEDENCE, driven rather than asserted. The three states that mean "there is
 // no reviewed signature here" are answered BEFORE anyone asks who exercised
 // what, so the reviewer member can never elevate an unpinned or unjudged row.
-$unpinnedSite = Canon::decode(Canon::read_file($site . '/site.duo.json'));
+$unpinnedSite = Canon::decode(Canon::read_file($site . '/site.wprism.json'));
 $unpinnedSite['manifests'] = [['name' => $adapterName, 'source' => 'site']];
-rev_write_canon($site . '/site.duo.json', $unpinnedSite);
+rev_write_canon($site . '/site.wprism.json', $unpinnedSite);
 $reviewerBundle = rev_write_bundle($foreign . '/runs/' . $adapterName, $foreign, $adapterName, $adapterManifest);
-duo_check($signFrom($reviewerBundle)['exit'] === 0, 'the reviewer-tier certificate is re-minted for the precedence probe');
-duo_check_same(
+wprism_check($signFrom($reviewerBundle)['exit'] === 0, 'the reviewer-tier certificate is re-minted for the precedence probe');
+wprism_check_same(
     'signed_unpinned',
     $surveyWord($adapterName),
     'a reviewer-tier certificate whose repository has NOT pinned it is `signed_unpinned`, not `reviewer_signed`: '
     . 'certification is an elevation the pin gates, and a named reviewer does not buy past it'
 );
 $pinRepository($adapterName);
-duo_check_same(
+wprism_check_same(
     AdapterSources::CERTIFICATION_REVIEWER_SIGNED,
     $surveyWord($adapterName),
     'and the exact pin is what elevates it, exactly as it does for the two words beside it'
 );
 
 // THE FIELD INVARIANT. `proof.bundle` is folded into the adapter digest every
-// `site.duo.json` pin binds (AGENTS.md rule 2), so a member written
+// `site.wprism.json` pin binds (AGENTS.md rule 2), so a member written
 // unconditionally — even as `null` — would have moved the pinned digest of every
 // site-certified adapter on every fleet, for a tier none of them claims.
 $plainMembers = array_keys((array) ($plainVerified['disposition']['provenance']['proof']['bundle'] ?? []));
 sort($plainMembers, SORT_STRING);
-duo_check_same(
+wprism_check_same(
     ['digest', 'exercised', 'force_hatches', 'git_revision', 'schema', 'signed_at', 'tests'],
     $plainMembers,
     'a bundle that names no reviewer produces the EXACT seven-member proof it produced before this rider — no '
@@ -892,10 +892,10 @@ duo_check_same(
 );
 $reviewerMembers = array_keys((array) ($atDistance['disposition']['provenance']['proof']['bundle'] ?? []));
 sort($reviewerMembers, SORT_STRING);
-duo_check_same(
+wprism_check_same(
     ['digest', 'exercised', 'force_hatches', 'git_revision', 'reviewer', 'schema', 'signed_at', 'tests'],
     $reviewerMembers,
     'and one that does adds exactly one member — the fact, and nothing beside it'
 );
 
-duo_check_summary('reviewer evidence tier');
+wprism_check_summary('reviewer evidence tier');

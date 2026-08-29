@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * The wire-version acceptance window: exactly {N-1, N}, and one definition of
@@ -9,12 +9,12 @@ namespace Duo;
  * -------------------------------------------------------------
  * The window used to be private to `AdapterContractGrammar`, which was right
  * while exactly one document carried a wire version. TWO do: a manifest's
- * `spec_version` and `site.duo.json`'s own `spec_version` — the same integer,
+ * `spec_version` and `site.wprism.json`'s own `spec_version` — the same integer,
  * the same grammar, judged in two places.
  *
  * WP-4.12 made the second one matter. `RepositoryCompiler::compile()` judged
  * the repository's version by EXACT EQUALITY, which was invisible while
- * `DUO_SPEC_VERSION` never moved and became a fleet-wide compile refusal the
+ * `WPRISM_SPEC_VERSION` never moved and became a fleet-wide compile refusal the
  * moment it did: every repository in the field declares the version of the
  * agent that adopted it, so the flag day would have refused compilation on
  * every deployed site at once — through a door the no-restamp rule
@@ -26,10 +26,10 @@ namespace Duo;
  * reference `regress_agent_src_requires.php` reports by name, and requiring the
  * grammar from the compiler additionally drags the whole adapter graph into
  * every harness that loads the compiler alone (measured: it broke
- * `regress_cli_json_refusals.php`, which declares its own `Duo\Canon`). The
+ * `regress_cli_json_refusals.php`, which declares its own `WPrism\Canon`). The
  * other obvious fix — a second `[$n - 1, $n]` in the compiler — is the one
  * thing the release gate exists to prevent: `tools/wire-surface.php` gate 5
- * asserts the floor is exactly `DUO_SPEC_VERSION - 1` by PROBING one
+ * asserts the floor is exactly `WPRISM_SPEC_VERSION - 1` by PROBING one
  * validator, and a second window it does not probe could drift to N-2 with
  * nothing to report it.
  *

@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for DUO-3349's typed-table declaration-graph seam.
+ * Offline regression for issue #3349's typed-table declaration-graph seam.
  *
  * TableGraph must be directly usable without loading Snapshot, while
  * Snapshot's established public/private entry points remain thin behavior-
@@ -11,9 +11,9 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../../../agent/src/Kernel/TableGraph.php';
 
-use Duo\Policy;
-use Duo\Snapshot;
-use Duo\TableGraph;
+use WPrism\Policy;
+use WPrism\Snapshot;
+use WPrism\TableGraph;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {

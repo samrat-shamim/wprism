@@ -12,17 +12,17 @@ session — the incident that motivated this redesign. New surface:
 ## The model
 
 **One shared MariaDB server, many pairs.** `sandbox/db.yml` brings up a
-single long-lived `mariadb:11` container (`duo-shared-db`, its own compose
-project `duo-db`) that hosts every pair's databases. `sandbox/pair.yml` is
+single long-lived `mariadb:11` container (`wprism-shared-db`, its own compose
+project `wprism-db`) that hosts every pair's databases. `sandbox/pair.yml` is
 one generic pair template — services `wp1`, `wp2`
 (`wordpress:7.1-php8.3-apache` by default) and `cli1`, `cli2`
 (`wordpress:cli-php8.3`, `user: "33:33"`) — with no
 MariaDB service of its own. Each pair is brought up as its own compose
-project (`-p duo-<name>`), so any number of pairs come and go independently,
+project (`-p wprism-<name>`), so any number of pairs come and go independently,
 each in its own blast radius. Everything is driven through
 `sandbox/bin/pair.sh`; nobody should invoke `docker compose -f pair.yml`
-directly except pair.sh itself (it sets several env vars — `DUO_PAIR`,
-`DUO_PORT1/2`, `DUO_CODEBIND_PLUGIN` — that the compose files need to
+directly except pair.sh itself (it sets several env vars — `WPRISM_PAIR`,
+`WPRISM_PORT1/2`, `WPRISM_CODEBIND_PLUGIN` — that the compose files need to
 resolve correctly).
 
 The generic pair's WordPress core image is pinned to the exact version
@@ -35,7 +35,7 @@ WordPress range or inside it but on a minor line `verified` does not name,
 `cli/src/Onboarding/Doctor.php` reports the same failures before orchestration,
 and `tools/capability-doc.php` cross-checks it against
 `platform/adapter-library/capabilities/platform.json` so the two copies cannot drift.
-`DUO_WP_IMAGE` is an explicit override for exploratory local work; a
+`WPRISM_WP_IMAGE` is an explicit override for exploratory local work; a
 candidate-bound run leaves it unset and therefore uses
 `wordpress:7.1-php8.3-apache`.
 
@@ -52,19 +52,19 @@ real-world old-flow resets cost more than that baseline.
 ### The MySQL evidence lane (second shared server, no claim)
 
 `sandbox/db.mysql.yml` brings up a **second** long-lived server —
-`mysql:8.4` as `duo-shared-mysql`, its own compose project `duo-db-mysql`,
-its own volume `duo-db-mysql-data`, loopback port `127.0.0.1:3326` (distinct
+`mysql:8.4` as `wprism-shared-mysql`, its own compose project `wprism-db-mysql`,
+its own volume `wprism-db-mysql-data`, loopback port `127.0.0.1:3326` (distinct
 from db.yml's 3316 because both servers are up at once during a matrix run).
-It **attaches** to db.yml's `duo-shared` network with `external: true`, so
+It **attaches** to db.yml's `wprism-shared` network with `external: true`, so
 `db.yml` must have been brought up at least once first; it never creates that
 network and never touches db.yml's container, volume, or image.
 
-Select it per invocation with `DUO_DB_ENGINE`:
+Select it per invocation with `WPRISM_DB_ENGINE`:
 
-| `DUO_DB_ENGINE` | container | client binary | compose project |
+| `WPRISM_DB_ENGINE` | container | client binary | compose project |
 | --- | --- | --- | --- |
-| unset / `mariadb` (default) | `duo-shared-db` | `mariadb` | `duo-db` (`db.yml`) |
-| `mysql` | `duo-shared-mysql` | `mysql` | `duo-db-mysql` (`db.mysql.yml`) |
+| unset / `mariadb` (default) | `wprism-shared-db` | `mariadb` | `wprism-db` (`db.yml`) |
+| `mysql` | `wprism-shared-mysql` | `mysql` | `wprism-db-mysql` (`db.mysql.yml`) |
 
 Any other value is refused by name at pair.sh load, before any subcommand and
 before any docker call — a typo must not silently produce MariaDB evidence an
@@ -81,29 +81,29 @@ exists only in MariaDB images, so db.mysql.yml runs `mysql -uroot -proot -e
 soon as the server accepts a connection, which is exactly the fake-readiness
 gap `--innodb_initialized` was chosen to close.
 
-`pair.sh` exports `DUO_DB_HOST="$DB_CONTAINER"` **at load**, beside the
+`pair.sh` exports `WPRISM_DB_HOST="$DB_CONTAINER"` **at load**, beside the
 engine selection and therefore for every subcommand — not just `up`.
-`pair.yml` renders `WORDPRESS_DB_HOST: ${DUO_DB_HOST:-duo-shared-db}` from it,
+`pair.yml` renders `WORDPRESS_DB_HOST: ${WPRISM_DB_HOST:-wprism-shared-db}` from it,
 and `pair_compose_configure()` writes it into `sandbox/.env` beside
-`DUO_AGENT_SRC`, `DUO_ADAPTER_PACKAGES_SRC`, and `DUO_PLATFORM_SRC`. The
+`WPRISM_AGENT_SRC`, `WPRISM_ADAPTER_PACKAGES_SRC`, and `WPRISM_PLATFORM_SRC`. The
 `.env` write is load-bearing,
 not belt-and-braces: `conformance/run.sh` and every `regress_*.sh` invoke
 `pair.sh up` as a subprocess and then make their own `docker compose -f
 pair.yml` calls, which never see pair.sh's export. A MySQL pair whose
-subprocesses re-rendered the `duo-shared-db` default would run green against
+subprocesses re-rendered the `wprism-shared-db` default would run green against
 MariaDB and be recorded as MySQL evidence.
 
 The load-time export matters for the same reason: `pair_compose_configure()`
 rewrites `sandbox/.env` on *every* call, and `stop`/`start`/`destroy` all call
 it, so exporting only inside `up` would let a later `pair.sh stop
-<mysql-pair>` put `duo-shared-db` back into the file the next subprocess
-compose call reads. (Exactly the failure `DUO_AGENT_SRC` hit in DUO-3277.)
+<mysql-pair>` put `wprism-shared-db` back into the file the next subprocess
+compose call reads. (Exactly the failure `WPRISM_AGENT_SRC` hit in issue #3277.)
 
 **What this server now proves — and what it does not yet.**
 `platform/adapter-library/capabilities/platform.json`'s database axis is an engine-keyed map
 (`compatibility.database.engines`) that names `MySQL [8.4.0, 8.5.0)` beside
-`MariaDB [11.0.0, 12.0.0)`, so a pair pointed at `duo-shared-mysql` is no
-longer refused on the engine axis: `wp duo ...` runs, and this lane is what
+`MariaDB [11.0.0, 12.0.0)`, so a pair pointed at `wprism-shared-mysql` is no
+longer refused on the engine axis: `wp wprism ...` runs, and this lane is what
 decides whether it should. Until the live matrix has run, the claim's own
 database note says PENDING in as many words, and the remedy on failure is
 named there — drop the MySQL entry and restore a MariaDB-only engines map,
@@ -118,7 +118,7 @@ Moving those bytes is a fleet-visible act, in three separate ways, and all
 three belong in the same commit as the claim:
 
 - every deployed site holding a compiled artifact needs a recompile and a new
-  `wp duo manifest-pin` (AGENTS.md rule 2);
+  `wp wprism manifest-pin` (AGENTS.md rule 2);
 - `docs/compatibility-baseline.json` and the regenerated `docs/capabilities.md`
   are byte-compared against platform.json by `make release-gate`, so they move
   with it or the gate refuses;
@@ -137,30 +137,30 @@ three belong in the same commit as the claim:
   say so.
 
 **Bring it down when the matrix is not running**
-(`docker compose -p duo-db-mysql -f db.mysql.yml down -v`). It adds a second
+(`docker compose -p wprism-db-mysql -f db.mysql.yml down -v`). It adds a second
 2g / 2.0-cpu long-lived container to the same daemon accounting `db.yml:4-12`
 records as having wedged OrbStack under three concurrent stacks; never leave
 it up alongside a full conformance sweep.
 
 ### Cross-project networking
 
-`db.yml` owns an external docker network, `duo-shared` (declares it without
+`db.yml` owns an external docker network, `wprism-shared` (declares it without
 `external: true`, so its own `up` is what creates it). `pair.yml` and every
 override attach to that same network with `external: true` — attach only,
 never create. This is how `wp1`/`wp2`/`cli1`/`cli2` reach the shared server
-at `WORDPRESS_DB_HOST=duo-shared-db` (the db's `container_name`, globally
+at `WORDPRESS_DB_HOST=wprism-shared-db` (the db's `container_name`, globally
 unique on the docker host) despite living in a different compose project.
 `depends_on` cannot cross that project boundary, which is exactly why
 pair.sh's own readiness waits exist (below) instead of a compose-level
 health dependency.
 
 **Known constraint, not a bug**: `wp1`/`wp2`/`cli1`/`cli2` are the same
-literal service names in *every* pair, all sharing the one `duo-shared`
+literal service names in *every* pair, all sharing the one `wprism-shared`
 network. Docker's embedded DNS does not scope a service-name-based alias
 per compose project on a shared external network — resolving the bare name
 `wp1` from inside any pair's container is not guaranteed to reach *that
 pair's own* `wp1`. Nothing in this design relies on that resolution (the
-only cross-container hostname anything depends on is `duo-shared-db`,
+only cross-container hostname anything depends on is `wprism-shared-db`,
 which is unambiguous); headless installs use an RFC 2606 `.invalid`
 placeholder URL specifically to avoid ever needing it. Don't add code that
 assumes `wp1`/`wp2` resolve to "your own" pair on this network.
@@ -182,11 +182,11 @@ FLUSH PRIVILEGES;
 `wp_<name>{1,2}` database any pair will ever create; no per-pair user, no
 re-granting on every `up`.) Root credentials (`root`/`root`) are for admin
 operations only (`CREATE`/`DROP DATABASE`), always via `docker exec
-duo-shared-db mariadb -uroot ...` from pair.sh — never over the published
+wprism-shared-db mariadb -uroot ...` from pair.sh — never over the published
 port. That port (`127.0.0.1:3316`, loopback-only) exists solely for a human
 who wants to point a GUI SQL client at the fleet directly; no tooling here
 depends on it. (On the MySQL lane the same admin SQL runs as `docker exec
-duo-shared-mysql mysql -uroot ...` on port `3326`; the SQL text above is
+wprism-shared-mysql mysql -uroot ...` on port `3326`; the SQL text above is
 byte-identical for both engines pending the lane's first live
 `caching_sha2_password` probe.)
 
@@ -194,9 +194,9 @@ Pair names are constrained to lowercase letters/digits, starting with a
 letter (`pair.sh`'s `validate_name`) — used bare as both a MySQL identifier
 fragment and a compose project suffix, so this one rule keeps every name
 safe in both contexts without any identifier-quoting logic. Two names are
-reserved and rejected outright: `db` (`duo-db` is this file's own shared-
+reserved and rejected outright: `db` (`wprism-db` is this file's own shared-
 MariaDB project — `pair.sh destroy db` would otherwise tear down the server
-every other pair depends on) and `sandbox` (`duo-sandbox` is the legacy
+every other pair depends on) and `sandbox` (`wprism-sandbox` is the legacy
 mega-compose's project — same risk, against a file this tool must never
 touch).
 
@@ -220,15 +220,15 @@ Run as `bash sandbox/bin/pair.sh ...` (this repo's shell is zsh; every
 script here, this one included, is bash and always invoked explicitly that
 way).
 
-### The exact-source gate (`DUO_EXPECTED_SOURCE_SHA`)
+### The exact-source gate (`WPRISM_EXPECTED_SOURCE_SHA`)
 
 `agent/`, `adapter-packages/`, and `platform/` are bind-mounted from the repo's
 **canonical** checkout, resolved through git's own common-dir, never from wherever
-`pair.sh` was invoked (DUO-3277 — a linked worktree is removed at close-gate,
+`pair.sh` was invoked (issue #3277 — a linked worktree is removed at close-gate,
 which would kill a persistent pair's mount source out from under it). The
 consequence for evidence: a live suite or `conformance/run.sh` sweep launched
 from an issue worktree runs the **canonical checkout's** code, not the
-branch's, and nothing used to compare the two (DUO-3316 lost a day to exactly
+branch's, and nothing used to compare the two (issue #3316 lost a day to exactly
 this — worktree at 3ae1ea5, pair mounted canonical b69fdf, and the resulting
 stale-code warnings looked like a candidate regression).
 
@@ -236,7 +236,7 @@ stale-code warnings looked like a candidate regression).
 — path, HEAD, and where this `pair.sh` copy itself is running from — on
 **stderr**, so it survives the `>/dev/null` most live suites wrap `pair.sh up`
 in (provenance is not progress chatter). Export
-`DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)` (7–40 hex; `run.sh` takes
+`WPRISM_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)` (7–40 hex; `run.sh` takes
 `CONF_EXPECTED_SOURCE_SHA` and exports it as this) to turn that report into a
 gate: the run refuses unless the mounted source is exactly that commit with no
 uncommitted `agent`/`adapter-packages`/`platform` changes, and it refuses **before** the
@@ -255,7 +255,7 @@ were.
 
 ### `up` — idempotent bring-up
 
-In order: report (and, when `DUO_EXPECTED_SOURCE_SHA` is set, verify) the
+In order: report (and, when `WPRISM_EXPECTED_SOURCE_SHA` is set, verify) the
 agent/adapter-packages/platform bind-mount source, before anything else at all;
 validate the
 dynamic host CPU/RAM pair budget (before creating any
@@ -303,9 +303,9 @@ Publishing ports is its own overlay (`pair.http.yml`) so a pair that will
 never be curled can skip host-port consumption entirely — one less shared,
 finite resource to collide over when several pairs run at once.
 
-**`duo`'s `mode: "exec"` transport opt-in (DUO-3513, cli/README.md) is a
+**`wprism`'s `mode: "exec"` transport opt-in (issue #3513, cli/README.md) is a
 separate, host-CLI-level concern from the printed pattern above.** It lets an
-environment in `.duo-envs.json` swap `docker compose run --rm` for `docker
+environment in `.wprism-envs.json` swap `docker compose run --rm` for `docker
 compose exec` against an already-resident service, trading a fresh container
 per call for wp-cli's own startup floor. `pair.yml`'s `cli1`/`cli2` are not
 resident today: they carry no `command:` override, so `docker compose up -d
@@ -315,7 +315,7 @@ against a `pair.sh` pair therefore requires giving that service its own
 long-running `command:` (e.g. `command: ["tail", "-f", "/dev/null"]`) first —
 out of scope for this pass, which only adds the transport-level opt-in.
 
-**`--journal`** layers in `pair.journal.yml`, which adds `DUO_JOURNAL` to
+**`--journal`** layers in `pair.journal.yml`, which adds `WPRISM_JOURNAL` to
 `WORDPRESS_CONFIG_EXTRA` on all four services (matching the exact define the
 legacy compose file's `spikec`/`r1a`/`r1b`/`r1c` profiles already
 use). **`--codebind <plugin-dir>`** layers in `pair.codebind.yml`, spike G's
@@ -349,7 +349,7 @@ WordPress.org catalog/download hostnames to loopback and requires
 This overlay is the warm-cache proof mode for a live conformance run, not a
 claim that ordinary WordPress itself is generally network-hermetic.
 
-**`--git-cli`** requires an explicit `DUO_CLI_IMAGE` tag and builds
+**`--git-cli`** requires an explicit `WPRISM_CLI_IMAGE` tag and builds
 `sandbox/init-cli.Dockerfile` into it before any pair resources are created.
 That image is the stock PHP 8.3 WP-CLI runtime plus Git, which host-side
 release commands need when they ask the managed repository for its exact
@@ -360,7 +360,7 @@ replacement — confirmed via `docker compose config` while authoring
 `pair.codebind.yml` — so layering it on top of `pair.yml` only *adds* the
 one new mount; it doesn't disturb the other four. `environment:` merges by
 key, which is why `pair.journal.yml` has to repeat the
-`WP_ENVIRONMENT_TYPE` line alongside `DUO_JOURNAL` rather than only adding
+`WP_ENVIRONMENT_TYPE` line alongside `WPRISM_JOURNAL` rather than only adding
 the new define — `WORDPRESS_CONFIG_EXTRA` is one scalar value, and the
 override's value for that key wholly replaces the base's.
 
@@ -408,9 +408,9 @@ install routine) correctly sees an uninstalled site and proceeds.
 pair.sh destroy <name>
 ```
 
-`docker compose -p duo-<name> -f pair.yml down -v --remove-orphans`
+`docker compose -p wprism-<name> -f pair.yml down -v --remove-orphans`
 (containers + the pair's own named webroot volumes; never touches the
-external `duo-shared` network or the shared db) plus `DROP DATABASE` on
+external `wprism-shared` network or the shared db) plus `DROP DATABASE` on
 both of the pair's databases. `siterepo/<name>{1,2}` is left on disk
 untouched — intentionally asymmetric with `reset`: destroy means "this name
 is done," and the existing convention throughout this sandbox is that
@@ -422,7 +422,7 @@ finished). Remove them by hand if you want the name fully gone.
 
 Shows live pairs and the shared db's status. Filters `docker compose ls`
 by `ConfigFiles` containing `pair.yml`, not by project-name pattern —
-the legacy compose file's own project is literally named `duo-sandbox`,
+the legacy compose file's own project is literally named `wprism-sandbox`,
 which (being lowercase letters only) would otherwise pass right through a
 naming-convention filter and get miscounted as one of this redesign's own
 pairs. Confirmed this was a real, not hypothetical, bug during self-test.
@@ -438,7 +438,7 @@ host `flock` utility; macOS/BSD uses the host's already-used `python3` and
 `fcntl.flock` through a control FIFO. Git linked worktrees therefore share one
 budget gate. A new pair that would exceed the verified budget is refused and
 names the existing pairs; set
-`DUO_PAIR_BUDGET_OVERRIDE=1` only when the operator deliberately accepts the
+`WPRISM_PAIR_BUDGET_OVERRIDE=1` only when the operator deliberately accepts the
 load. An already-live pair may still be re-converged. If Docker capacity,
 Compose enumeration, `jq`, or both supported lock backends (`flock` and
 Python `fcntl`) are unavailable, the command fails closed without guessing
@@ -468,16 +468,16 @@ retroactively apply to anything already running on the legacy
 `docker-compose.yml`, and destroying one of *those* pairs is out of scope
 for whoever manages this redesign — see below.
 
-## Scaffolding a fixture's own site-repo `.gitignore` (DUO-3244)
+## Scaffolding a fixture's own site-repo `.gitignore` (issue #3244)
 
 Every fixture that scaffolds its own throwaway site-repo needs an inner
 `.gitignore` inside it (`siterepo/<pair>N/.gitignore`) — a SEPARATE file
-from the outer duo-wp repo's own `.gitignore`, since the inner one governs
+from the outer wprism repo's own `.gitignore`, since the inner one governs
 what git tracks *inside* the nested fixture repo. Copy
 `sandbox/site-repo.gitignore.template` into place (`cp
 site-repo.gitignore.template siterepo/<pair>N/.gitignore`, from `sandbox/`
 as cwd) rather than hand-rolling a `printf`: a narrower, independently
-hand-typed pattern is exactly what caused DUO-3244 (missing
+hand-typed pattern is exactly what caused issue #3244 (missing
 `state.capture.lock` — one of agent/src/Publication/Publish.php's capture-publication
 artifacts alongside staging, backup, intent, and receipt records — hit a real,
 structural "local changes would be overwritten by
@@ -557,14 +557,14 @@ datadir must pay and an already-initialized, already-warm server does not.
 Exercised end-to-end against scratch pairs (`sbx1`/`sbx2`/`sbx3`, ports
 8830–8835, all destroyed afterward) before this was considered done: plain
 `up`; idempotent re-`up` on an already-installed pair (correctly skipped
-reinstall); `--journal` (confirmed `DUO_JOURNAL` actually defined via `wp
+reinstall); `--journal` (confirmed `WPRISM_JOURNAL` actually defined via `wp
 eval`); `--codebind` (confirmed the live bind-mount propagation into an
 already-running container, and a real `wp plugin activate`); `--headless`
 (confirmed no host port published, `.invalid` URL used); the >2-pair
 warning (confirmed firing with the right pair names, both from `up` and
 `list`); `reset`; `destroy` (confirmed containers/volumes/databases all
 removed, site-repo directories correctly left behind, the shared db and
-`duo-shared` network correctly left running); resource caps (confirmed via
+`wprism-shared` network correctly left running); resource caps (confirmed via
 `docker inspect` — `mem_limit`/`cpus` on `pair.yml`'s services and `db.yml`
 actually reach the container's `HostConfig`, not just parsed and ignored).
 The legacy `docker-compose.yml` pairs (`a`, `b`, `conf1/2`, `r1a*/r1b*/r1c*`)
@@ -573,7 +573,7 @@ were confirmed still running, untouched, throughout.
 ## Live conformance evidence
 
 The subject-certification apparatus this section used to describe — the
-`duo-subject-certification-bundle/v1` records, `sandbox/certification/`, the
+`wprism-subject-certification-bundle/v1` records, `sandbox/certification/`, the
 `certify-subject-bundle` / `certify-subjects-parallel` runners, and the
 registry import that published them — is retired. No content-addressed bundle
 stands behind a product claim any more, and no byte change expires anything.
@@ -584,7 +584,7 @@ rather than sealed into a record. `make conformance-<name>` runs the capsule's
 `tests/conformance/entry.json` and sibling seed/check hooks through the shared
 `sandbox/conformance/run.sh <name>` harness. `CONF_EXPECTED_SOURCE_SHA` is how a
 sweep binds itself to a commit — the harness exports it as the
-`DUO_EXPECTED_SOURCE_SHA` the gate above enforces.
+`WPRISM_EXPECTED_SOURCE_SHA` the gate above enforces.
 
 The narrower live fixtures keep their own targets, each with its rationale in
 the `Makefile` beside it: `certify-merge`, `certify-version-skew-merge` (the
@@ -597,7 +597,7 @@ installed — `sandbox/tests/certify/certify_version_matrix.sh:57`),
 `certify-` prefix for their history; each is a live proof of one mechanism,
 and none of them publishes a record. `certify-version-matrix` accepts
 `VMATRIX_EXPECTED_SOURCE_SHA` and forwards it to the same gate; set
-`DUO_SOURCE_ROOT=$(pwd -P)` as well when the candidate is a linked worktree.
+`WPRISM_SOURCE_ROOT=$(pwd -P)` as well when the candidate is a linked worktree.
 
 Everything above about the pair budget, the exact-source gate, the artifact
 cache and destroy-when-green applies to those runs unchanged: those are

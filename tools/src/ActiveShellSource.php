@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tooling;
+namespace WPrism\Tooling;
 
 /** Remove shell comments and heredoc bodies before static premise checks. */
 final class ActiveShellSource
@@ -115,12 +115,12 @@ final class ActiveShellSource
                 continue;
             }
             $code = trim($line['code']);
-            if (!str_contains($code, 'DUO_CERTIFICATION_MANIFESTS_JSON')) {
+            if (!str_contains($code, 'WPRISM_CERTIFICATION_MANIFESTS_JSON')) {
                 continue;
             }
             if ($declaration !== null
                 || preg_match(
-                    "/^DUO_CERTIFICATION_MANIFESTS_JSON='(?<json>\\[[^'\\r\\n]*\\])'$/D",
+                    "/^WPRISM_CERTIFICATION_MANIFESTS_JSON='(?<json>\\[[^'\\r\\n]*\\])'$/D",
                     $code,
                     $match
                 ) !== 1) {

@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
@@ -53,7 +53,7 @@ require_once __DIR__ . '/../Repository/StateTreeWalker.php';
  * is both smaller and genuinely arguable.
  *
  * ATTRIBUTION, AND ITS HONEST EDGE. A finding carries `{class, path, locator}`
- * and no owner — deliberately, because `wp duo lint --format=json` emits the
+ * and no owner — deliberately, because `wp wprism lint --format=json` emits the
  * finding array verbatim (`Cli.php:2919`) and rule 8 pins those bytes. So the
  * owner is resolved HERE, from the same two inputs the scan had: the state file
  * and the Policy. Each surface is resolved through the `_details()` accessor
@@ -64,7 +64,7 @@ require_once __DIR__ . '/../Repository/StateTreeWalker.php';
  * A locator no declaration answers for (a block attribute, a post body, a menu)
  * is left UNATTRIBUTED and stays advisory: refusing there would charge a
  * stranger for core's surfaces, and a gate that blames the wrong adapter is
- * worse than one that stays quiet. `site.duo.json` is likewise not an adapter —
+ * worse than one that stays quiet. `site.wprism.json` is likewise not an adapter —
  * the operator declaring their own site IS the reviewer this gate defers to.
  */
 final class LintTrustGate {
@@ -130,14 +130,14 @@ final class LintTrustGate {
             }
         }
         sort($reasons, SORT_STRING);
-        $operatorMessage = 'duo: suspicious unrewritten ref(s) in state declared by an uncertified out-of-tree '
+        $operatorMessage = 'wprism: suspicious unrewritten ref(s) in state declared by an uncertified out-of-tree '
             . "adapter (loud-and-blocking gate):\n  - " . implode("\n  - ", $lines) . "\n"
             . ($reasons === [] ? '' : ("Why these adapters are uncertified:\n" . implode("\n", $reasons) . "\n"))
             . 'The identical finding under a shipped or certified adapter is advisory, because those declarations '
             . 'are reviewed and digest-bound. Here nothing has reviewed them, and an under-declared reference is '
             . "the defect that survives a byte-identical round trip.\n"
             . 'Fix the declaration, or write the reviewed `lint_ok: true` exemption on it, then re-run capture. '
-            . 'Run `wp duo lint --repo=<repo>` for the full finding text.';
+            . 'Run `wp wprism lint --repo=<repo>` for the full finding text.';
         throw new CommandRefusalException(
             self::REASON,
             self::PUBLIC_MESSAGE,
@@ -326,7 +326,7 @@ final class LintTrustGate {
      * The adapter identity inside a `_details()` source string, or null when
      * the declaration belongs to nobody this gate may charge.
      *
-     * The two non-manifest spellings are deliberate. `site.duo.json` is the
+     * The two non-manifest spellings are deliberate. `site.wprism.json` is the
      * operator's own declaration — they are the reviewer, so there is no third
      * party to gate. A bare `interpreter <name>` (Policy's fallback when no
      * loaded manifest claims that interpreter, `Policy.php:2216`) names code,
@@ -335,7 +335,7 @@ final class LintTrustGate {
      * that spelling can never be a risk-tier row.
      */
     private static function adapter_name(?string $source): ?string {
-        if ($source === null || $source === '' || $source === 'site.duo.json' || $source === 'repo-format') {
+        if ($source === null || $source === '' || $source === 'site.wprism.json' || $source === 'repo-format') {
             return null;
         }
         if (str_starts_with($source, 'interpreter ')) {

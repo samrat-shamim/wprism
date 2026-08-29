@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 if (!class_exists(Canon::class, false)) {
     require_once __DIR__ . '/../Kernel/Canon.php';

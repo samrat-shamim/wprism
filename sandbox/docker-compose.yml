@@ -1,4 +1,4 @@
-name: duo-sandbox
+name: wprism-sandbox
 
 x-db-env: &db-env
   MARIADB_DATABASE: wordpress
@@ -37,8 +37,8 @@ services:
       WORDPRESS_DB_HOST: db-a
     volumes: &vol-a
       - wpa:/var/www/html
-      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
-      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../agent:/var/www/html/wp-content/mu-plugins/wprism:ro
+      - ../agent/wprism-loader.php:/var/www/html/wp-content/mu-plugins/wprism-loader.php:ro
       - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
       - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/a:/siterepo
@@ -67,8 +67,8 @@ services:
       WORDPRESS_DB_HOST: db-b
     volumes: &vol-b
       - wpb:/var/www/html
-      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
-      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../agent:/var/www/html/wp-content/mu-plugins/wprism:ro
+      - ../agent/wprism-loader.php:/var/www/html/wp-content/mu-plugins/wprism-loader.php:ro
       - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
       - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/b:/siterepo
@@ -99,11 +99,11 @@ services:
       WORDPRESS_DB_HOST: db-c
       WORDPRESS_CONFIG_EXTRA: |
         define('WP_ENVIRONMENT_TYPE', 'local');
-        define('DUO_JOURNAL', true);
+        define('WPRISM_JOURNAL', true);
     volumes: &vol-c
       - wpc:/var/www/html
-      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
-      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../agent:/var/www/html/wp-content/mu-plugins/wprism:ro
+      - ../agent/wprism-loader.php:/var/www/html/wp-content/mu-plugins/wprism-loader.php:ro
       - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
       - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/c:/siterepo
@@ -119,7 +119,7 @@ services:
       WORDPRESS_DB_HOST: db-c
       WORDPRESS_CONFIG_EXTRA: |
         define('WP_ENVIRONMENT_TYPE', 'local');
-        define('DUO_JOURNAL', true);
+        define('WPRISM_JOURNAL', true);
     volumes: *vol-c
 
   db-e1:
@@ -138,8 +138,8 @@ services:
       WORDPRESS_DB_HOST: db-e1
     volumes: &vol-e1
       - wpe1:/var/www/html
-      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
-      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../agent:/var/www/html/wp-content/mu-plugins/wprism:ro
+      - ../agent/wprism-loader.php:/var/www/html/wp-content/mu-plugins/wprism-loader.php:ro
       - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
       - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/e1:/siterepo
@@ -171,8 +171,8 @@ services:
       WORDPRESS_DB_HOST: db-e2
     volumes: &vol-e2
       - wpe2:/var/www/html
-      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
-      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../agent:/var/www/html/wp-content/mu-plugins/wprism:ro
+      - ../agent/wprism-loader.php:/var/www/html/wp-content/mu-plugins/wprism-loader.php:ro
       - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
       - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/e2:/siterepo
@@ -204,8 +204,8 @@ services:
       WORDPRESS_DB_HOST: db-conf1
     volumes: &vol-conf1
       - wpconf1:/var/www/html
-      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
-      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../agent:/var/www/html/wp-content/mu-plugins/wprism:ro
+      - ../agent/wprism-loader.php:/var/www/html/wp-content/mu-plugins/wprism-loader.php:ro
       - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
       - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/conf1:/siterepo
@@ -237,8 +237,8 @@ services:
       WORDPRESS_DB_HOST: db-conf2
     volumes: &vol-conf2
       - wpconf2:/var/www/html
-      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
-      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../agent:/var/www/html/wp-content/mu-plugins/wprism:ro
+      - ../agent/wprism-loader.php:/var/www/html/wp-content/mu-plugins/wprism-loader.php:ro
       - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
       - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/conf2:/siterepo
@@ -270,8 +270,8 @@ services:
       WORDPRESS_DB_HOST: db-fx1
     volumes: &vol-fx1
       - wpfx1:/var/www/html
-      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
-      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../agent:/var/www/html/wp-content/mu-plugins/wprism:ro
+      - ../agent/wprism-loader.php:/var/www/html/wp-content/mu-plugins/wprism-loader.php:ro
       - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
       - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/fx1:/siterepo
@@ -303,8 +303,8 @@ services:
       WORDPRESS_DB_HOST: db-fx2
     volumes: &vol-fx2
       - wpfx2:/var/www/html
-      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
-      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../agent:/var/www/html/wp-content/mu-plugins/wprism:ro
+      - ../agent/wprism-loader.php:/var/www/html/wp-content/mu-plugins/wprism-loader.php:ro
       - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
       - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/fx2:/siterepo
@@ -323,7 +323,7 @@ services:
   # Grind round R1-A (task #46): forms-driven business site, CF7 + Ninja
   # Forms on twentytwentyone. Own pair, own site-repo sandbox
   # (siterepo/{origin-r1a.git,r1a1,r1a2}) — never touches a/b/c/conf/e*/fx*.
-  # Journal ON (DUO_JOURNAL), same pattern as spikec: the core loop
+  # Journal ON (WPRISM_JOURNAL), same pattern as spikec: the core loop
   # (loud gate -> pending -> classify) needs journal evidence to propose
   # classifications from.
   db-r1a1:
@@ -342,11 +342,11 @@ services:
       WORDPRESS_DB_HOST: db-r1a1
       WORDPRESS_CONFIG_EXTRA: |
         define('WP_ENVIRONMENT_TYPE', 'local');
-        define('DUO_JOURNAL', true);
+        define('WPRISM_JOURNAL', true);
     volumes: &vol-r1a1
       - wpr1a1:/var/www/html
-      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
-      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../agent:/var/www/html/wp-content/mu-plugins/wprism:ro
+      - ../agent/wprism-loader.php:/var/www/html/wp-content/mu-plugins/wprism-loader.php:ro
       - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
       - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/r1a1:/siterepo
@@ -362,7 +362,7 @@ services:
       WORDPRESS_DB_HOST: db-r1a1
       WORDPRESS_CONFIG_EXTRA: |
         define('WP_ENVIRONMENT_TYPE', 'local');
-        define('DUO_JOURNAL', true);
+        define('WPRISM_JOURNAL', true);
     volumes: *vol-r1a1
 
   db-r1a2:
@@ -381,11 +381,11 @@ services:
       WORDPRESS_DB_HOST: db-r1a2
       WORDPRESS_CONFIG_EXTRA: |
         define('WP_ENVIRONMENT_TYPE', 'local');
-        define('DUO_JOURNAL', true);
+        define('WPRISM_JOURNAL', true);
     volumes: &vol-r1a2
       - wpr1a2:/var/www/html
-      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
-      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../agent:/var/www/html/wp-content/mu-plugins/wprism:ro
+      - ../agent/wprism-loader.php:/var/www/html/wp-content/mu-plugins/wprism-loader.php:ro
       - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
       - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/r1a2:/siterepo
@@ -401,14 +401,14 @@ services:
       WORDPRESS_DB_HOST: db-r1a2
       WORDPRESS_CONFIG_EXTRA: |
         define('WP_ENVIRONMENT_TYPE', 'local');
-        define('DUO_JOURNAL', true);
+        define('WPRISM_JOURNAL', true);
     volumes: *vol-r1a2
 
   # Grind round R1-B (task #47): full WooCommerce shop — Storefront theme,
   # variable products with GLOBAL attributes (pa_* dynamic taxonomies),
   # shipping zones, tax rates, a grouped product. Own pair, own site-repo
   # sandbox (siterepo/{origin-r1b.git,r1b1,r1b2}) — never touches
-  # a/b/c/conf/e*/fx*/r1a*/r1c*. Journal ON (DUO_JOURNAL), same pattern as
+  # a/b/c/conf/e*/fx*/r1a*/r1c*. Journal ON (WPRISM_JOURNAL), same pattern as
   # spikec/r1a: the core loop (loud gate -> pending -> classify) needs
   # journal evidence to propose classifications from.
   db-r1b1:
@@ -427,11 +427,11 @@ services:
       WORDPRESS_DB_HOST: db-r1b1
       WORDPRESS_CONFIG_EXTRA: |
         define('WP_ENVIRONMENT_TYPE', 'local');
-        define('DUO_JOURNAL', true);
+        define('WPRISM_JOURNAL', true);
     volumes: &vol-r1b1
       - wpr1b1:/var/www/html
-      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
-      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../agent:/var/www/html/wp-content/mu-plugins/wprism:ro
+      - ../agent/wprism-loader.php:/var/www/html/wp-content/mu-plugins/wprism-loader.php:ro
       - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
       - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/r1b1:/siterepo
@@ -447,7 +447,7 @@ services:
       WORDPRESS_DB_HOST: db-r1b1
       WORDPRESS_CONFIG_EXTRA: |
         define('WP_ENVIRONMENT_TYPE', 'local');
-        define('DUO_JOURNAL', true);
+        define('WPRISM_JOURNAL', true);
     volumes: *vol-r1b1
 
   db-r1b2:
@@ -466,11 +466,11 @@ services:
       WORDPRESS_DB_HOST: db-r1b2
       WORDPRESS_CONFIG_EXTRA: |
         define('WP_ENVIRONMENT_TYPE', 'local');
-        define('DUO_JOURNAL', true);
+        define('WPRISM_JOURNAL', true);
     volumes: &vol-r1b2
       - wpr1b2:/var/www/html
-      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
-      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../agent:/var/www/html/wp-content/mu-plugins/wprism:ro
+      - ../agent/wprism-loader.php:/var/www/html/wp-content/mu-plugins/wprism-loader.php:ro
       - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
       - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/r1b2:/siterepo
@@ -486,24 +486,24 @@ services:
       WORDPRESS_DB_HOST: db-r1b2
       WORDPRESS_CONFIG_EXTRA: |
         define('WP_ENVIRONMENT_TYPE', 'local');
-        define('DUO_JOURNAL', true);
+        define('WPRISM_JOURNAL', true);
     volumes: *vol-r1b2
 
   # Grind round R1-C (task #48): the agency stack, tested for INTERPLAY —
   # Elementor + ACF active together, plus a custom CPT plugin
-  # (duo-agency-cpt: a 'project' post type + 'project_type' taxonomy)
+  # (wprism-agency-cpt: a 'project' post type + 'project_type' taxonomy)
   # shipped through the site repo's OWN code/ tree, dogfooding spike G's
   # pattern rather than a static read-only mount of a shared ../fixtures/
   # directory the way the a/b/c/conf/e*/fx* profiles mount theirs. Each
-  # env's wp-content/plugins/duo-agency-cpt binds from THAT env's own
-  # site-repo checkout's code/wp-content/plugins/duo-agency-cpt — per spike
+  # env's wp-content/plugins/wprism-agency-cpt binds from THAT env's own
+  # site-repo checkout's code/wp-content/plugins/wprism-agency-cpt — per spike
   # G's bootstrap-order finding (docs/code-half.md's phase-1
   # appendix): code/ must be authored on the host BEFORE wp-r1c1/wp-r1c2 are
   # ever created (docker pins a bind-mount source at container-create time),
   # and any rm+recreate of that source needs `--force-recreate` on the
   # container(s) that mount it. Own pair, own site-repo sandbox
   # (siterepo/{origin-r1c.git,r1c1,r1c2}) — never touches
-  # a/b/c/conf/e*/fx*/r1a*/r1b*. Journal ON (DUO_JOURNAL): the core loop
+  # a/b/c/conf/e*/fx*/r1a*/r1b*. Journal ON (WPRISM_JOURNAL): the core loop
   # (loud gate -> pending -> classify) needs journal evidence to propose
   # classifications from, same pattern as spikec/r1a/r1b.
   db-r1c1:
@@ -522,18 +522,18 @@ services:
       WORDPRESS_DB_HOST: db-r1c1
       WORDPRESS_CONFIG_EXTRA: |
         define('WP_ENVIRONMENT_TYPE', 'local');
-        define('DUO_JOURNAL', true);
+        define('WPRISM_JOURNAL', true);
     volumes: &vol-r1c1
       - wpr1c1:/var/www/html
-      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
-      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../agent:/var/www/html/wp-content/mu-plugins/wprism:ro
+      - ../agent/wprism-loader.php:/var/www/html/wp-content/mu-plugins/wprism-loader.php:ro
       - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
       - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/r1c1:/siterepo
       # NEW, the point of this profile — see the block comment above: this
       # environment's OWN site-repo checkout's code/ tree, not a shared
       # static fixture (spike G's per-env dogfooding pattern).
-      - ./siterepo/r1c1/code/wp-content/plugins/duo-agency-cpt:/var/www/html/wp-content/plugins/duo-agency-cpt:ro
+      - ./siterepo/r1c1/code/wp-content/plugins/wprism-agency-cpt:/var/www/html/wp-content/plugins/wprism-agency-cpt:ro
 
   cli-r1c1:
     image: wordpress:cli-php8.3
@@ -546,7 +546,7 @@ services:
       WORDPRESS_DB_HOST: db-r1c1
       WORDPRESS_CONFIG_EXTRA: |
         define('WP_ENVIRONMENT_TYPE', 'local');
-        define('DUO_JOURNAL', true);
+        define('WPRISM_JOURNAL', true);
     volumes: *vol-r1c1
 
   db-r1c2:
@@ -565,16 +565,16 @@ services:
       WORDPRESS_DB_HOST: db-r1c2
       WORDPRESS_CONFIG_EXTRA: |
         define('WP_ENVIRONMENT_TYPE', 'local');
-        define('DUO_JOURNAL', true);
+        define('WPRISM_JOURNAL', true);
     volumes: &vol-r1c2
       - wpr1c2:/var/www/html
-      - ../agent:/var/www/html/wp-content/mu-plugins/duo:ro
-      - ../agent/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ../agent:/var/www/html/wp-content/mu-plugins/wprism:ro
+      - ../agent/wprism-loader.php:/var/www/html/wp-content/mu-plugins/wprism-loader.php:ro
       - ../adapter-packages:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
       - ../platform:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/r1c2:/siterepo
       # per-env code source — see wp-r1c1's comment above (r1c2's own checkout).
-      - ./siterepo/r1c2/code/wp-content/plugins/duo-agency-cpt:/var/www/html/wp-content/plugins/duo-agency-cpt:ro
+      - ./siterepo/r1c2/code/wp-content/plugins/wprism-agency-cpt:/var/www/html/wp-content/plugins/wprism-agency-cpt:ro
 
   cli-r1c2:
     image: wordpress:cli-php8.3
@@ -587,7 +587,7 @@ services:
       WORDPRESS_DB_HOST: db-r1c2
       WORDPRESS_CONFIG_EXTRA: |
         define('WP_ENVIRONMENT_TYPE', 'local');
-        define('DUO_JOURNAL', true);
+        define('WPRISM_JOURNAL', true);
     volumes: *vol-r1c2
 
 volumes:

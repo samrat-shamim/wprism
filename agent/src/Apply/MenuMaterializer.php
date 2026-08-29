@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/CacheInvalidationTransaction.php';
@@ -7,12 +7,12 @@ require_once __DIR__ . '/RelationshipMaterializer.php';
 require_once __DIR__ . '/../Kernel/MetaRows.php';
 
 /**
- * The menu entity materializer (DUO-3347 slice 4, one of the "Entity
+ * The menu entity materializer (issue #3347 slice 4, one of the "Entity
  * materializers: posts, terms, menus, options/meta/users, relationships,
  * attachments, typed tables" target seams): reconciles one canonical nav_menu
  * term's items and location assignment against the live target.
  *
- * Extracted from Apply.php once DUO-3347 slice 3 (ApplyFieldMaterializer) gave
+ * Extracted from Apply.php once issue #3347 slice 3 (ApplyFieldMaterializer) gave
  * it a non-Apply home for reconcile_authored_meta()/upsert_meta()/
  * upsert_option() — finalize_menu()/assign_locations() were otherwise fully
  * separable already (global $wpdb; static Ledger::/Db::/PlainData:: calls;
@@ -83,22 +83,22 @@ final class MenuMaterializer {
                     'post_password' => '', 'post_name' => $iu, 'to_ping' => '', 'pinged' => '',
                     'post_modified' => '1970-01-01 00:00:00', 'post_modified_gmt' => '1970-01-01 00:00:00',
                     'post_content_filtered' => '', 'post_parent' => 0,
-                    'guid' => $this->tokens->home() . '/?duo=' . $iu,
+                    'guid' => $this->tokens->home() . '/?wprism=' . $iu,
                     'menu_order' => (int) $item['position'], 'post_type' => 'nav_menu_item',
                     'post_mime_type' => '', 'comment_count' => 0,
                 ], null, 'apply insert menu item');
                 $id = Db::insert_id('apply insert menu item');
-                Db::insert($wpdb->postmeta, ['post_id' => $id, 'meta_key' => '_duo_uuid', 'meta_value' => $iu], null, 'apply insert menu-item identity');
+                Db::insert($wpdb->postmeta, ['post_id' => $id, 'meta_key' => '_wprism_uuid', 'meta_value' => $iu], null, 'apply insert menu-item identity');
                 $identityRows = $this->fieldMaterializer->meta_owner_range_lock(
                     $wpdb->postmeta,
                     'post_id',
                     "menu {$front['slug']} inserted item identity readback"
-                )->exact_key_rows($id, '_duo_uuid');
+                )->exact_key_rows($id, '_wprism_uuid');
                 if (count($identityRows) !== 1
                     || !is_string($identityRows[0]['meta_value'] ?? null)
                     || !hash_equals((string) $iu, $identityRows[0]['meta_value'])) {
                     throw new \RuntimeException(
-                        "duo: menu {$front['slug']} inserted item $id did not persist one exact requested identity"
+                        "wprism: menu {$front['slug']} inserted item $id did not persist one exact requested identity"
                     );
                 }
                 Db::insert($wpdb->term_relationships, [
@@ -149,7 +149,7 @@ final class MenuMaterializer {
             $parentId = 0;
             if (!empty($item['parent'])) {
                 $parentId = $idByUuid[$item['parent']]
-                    ?? throw new \RuntimeException("duo: menu {$front['slug']}: item parent {$item['parent']} not in menu");
+                    ?? throw new \RuntimeException("wprism: menu {$front['slug']}: item parent {$item['parent']} not in menu");
             }
             $metas = [
                 '_menu_item_type' => $item['type'],
@@ -201,7 +201,7 @@ final class MenuMaterializer {
                 "menu {$front['slug']} managed-meta reconciliation"
             );
 
-            // DUO-3266: any OTHER meta a manifest classifies authored on
+            // issue #3266: any OTHER meta a manifest classifies authored on
             // this item (a plugin's own menu-item field, now captured —
             // see scope_menus()'s matching capture-side fix) reconciles
             // through the SAME ownership discipline ordinary posts use.
@@ -221,7 +221,7 @@ final class MenuMaterializer {
 
         // The menu file owns the complete item set once the menu itself is
         // mapped or explicitly adopted. A target-created item has no
-        // _duo_uuid by definition, so filtering the observation down to
+        // _wprism_uuid by definition, so filtering the observation down to
         // uuid-bearing rows left exactly those hostile/default items behind
         // (exact core conformance, 9bd24d51: target custom item survived an
         // otherwise successful menu adoption and canonical recapture). Select
@@ -236,7 +236,7 @@ final class MenuMaterializer {
             );
             if ($otherRelationships !== []) {
                 throw new \RuntimeException(
-                    "duo: menu {$front['slug']}: target item $id has relationships outside this menu; refusing destructive reconciliation"
+                    "wprism: menu {$front['slug']}: target item $id has relationships outside this menu; refusing destructive reconciliation"
                 );
             }
             Db::delete($wpdb->term_relationships, ['object_id' => $id, 'term_taxonomy_id' => $menuTt], null, 'apply detach removed menu item');
@@ -249,7 +249,7 @@ final class MenuMaterializer {
             }
         }
 
-        // locations in the active theme's mods. DUO-3272: skipped entirely
+        // locations in the active theme's mods. issue #3272: skipped entirely
         // when a pinned manifest reclassifies menu_fields.locations
         // 'derived' (e.g. Polylang) -- writing here would fight the
         // plugin's own machinery (Languages::update_default()) for
@@ -277,7 +277,7 @@ final class MenuMaterializer {
             || strlen($stylesheet) > 764
             || preg_match('//u', $stylesheet) !== 1
             || preg_match('/[\x00-\x1F\x7F]/', $stylesheet) === 1) {
-            throw new \RuntimeException('duo: menu location active stylesheet row is absent or malformed');
+            throw new \RuntimeException('wprism: menu location active stylesheet row is absent or malformed');
         }
         $name = 'theme_mods_' . $stylesheet;
         $locked = CacheInvalidationTransaction::lock_option_row($name, 'menu location theme-mod locking');
@@ -305,7 +305,7 @@ final class MenuMaterializer {
     private function assert_locked_menu_identity(int $termId, int $termTaxonomyId, string $menuSlug): void {
         global $wpdb;
         if ($termId <= 0 || $termTaxonomyId <= 0) {
-            throw new \RuntimeException("duo: menu $menuSlug has no valid physical term/taxonomy identities");
+            throw new \RuntimeException("wprism: menu $menuSlug has no valid physical term/taxonomy identities");
         }
         $termIndex = $this->fieldMaterializer->proven_lock_index(
             $wpdb->terms,
@@ -326,7 +326,7 @@ final class MenuMaterializer {
             || !is_array($termRows[0])
             || array_keys($termRows[0]) !== ['term_id']
             || MetaRows::positive_id($termRows[0]['term_id'] ?? null) !== $termId) {
-            throw new \RuntimeException("duo: menu $menuSlug exact term identity lock/read failed");
+            throw new \RuntimeException("wprism: menu $menuSlug exact term identity lock/read failed");
         }
 
         $taxonomyIndex = $this->fieldMaterializer->proven_lock_index(
@@ -346,7 +346,7 @@ final class MenuMaterializer {
             || !array_is_list($taxonomyRows)
             || count($taxonomyRows) !== 1
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: menu $menuSlug exact taxonomy identity lock/read failed");
+            throw new \RuntimeException("wprism: menu $menuSlug exact taxonomy identity lock/read failed");
         }
         $taxonomyRow = $taxonomyRows[0];
         if (!is_array($taxonomyRow)
@@ -355,7 +355,7 @@ final class MenuMaterializer {
             || MetaRows::positive_id($taxonomyRow['term_id'] ?? null) !== $termId
             || !is_string($taxonomyRow['taxonomy'] ?? null)
             || !hash_equals('nav_menu', $taxonomyRow['taxonomy'])) {
-            throw new \RuntimeException("duo: menu $menuSlug taxonomy identity contradicts its term or native taxonomy");
+            throw new \RuntimeException("wprism: menu $menuSlug taxonomy identity contradicts its term or native taxonomy");
         }
     }
 
@@ -377,7 +377,7 @@ final class MenuMaterializer {
                 continue;
             }
             if ($id <= 0 || (isset($byId[$id]) && !hash_equals($byId[$id], $uuid))) {
-                throw new \RuntimeException("duo: menu $menuSlug desired ledger identities are malformed or collide");
+                throw new \RuntimeException("wprism: menu $menuSlug desired ledger identities are malformed or collide");
             }
             $byId[$id] = $uuid;
         }
@@ -389,7 +389,7 @@ final class MenuMaterializer {
             $relationships = $this->locked_item_relationships((int) $id, $menuSlug);
             if ($relationships !== []) {
                 throw new \RuntimeException(
-                    "duo: menu $menuSlug ledger-resolved desired item $id already belongs to a menu/taxonomy; refusing cross-menu takeover"
+                    "wprism: menu $menuSlug ledger-resolved desired item $id already belongs to a menu/taxonomy; refusing cross-menu takeover"
                 );
             }
             $out[$uuid] = (int) $id;
@@ -407,7 +407,7 @@ final class MenuMaterializer {
         $this->assert_locked_item_identity($itemId, $uuid, $menuSlug);
         if ($this->locked_item_relationships($itemId, $menuSlug) !== [$menuTermTaxonomyId]) {
             throw new \RuntimeException(
-                "duo: menu $menuSlug item $itemId exact locked relationship readback disagrees with desired membership"
+                "wprism: menu $menuSlug item $itemId exact locked relationship readback disagrees with desired membership"
             );
         }
     }
@@ -430,7 +430,7 @@ final class MenuMaterializer {
             || !array_is_list($postRows)
             || count($postRows) !== 1
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: menu $menuSlug item $itemId post lock/read failed");
+            throw new \RuntimeException("wprism: menu $menuSlug item $itemId post lock/read failed");
         }
         $post = $postRows[0];
         if (!is_array($post)
@@ -438,7 +438,7 @@ final class MenuMaterializer {
             || MetaRows::positive_id($post['ID'] ?? null) !== $itemId
             || !is_string($post['post_type'] ?? null)
             || !hash_equals('nav_menu_item', $post['post_type'])) {
-            throw new \RuntimeException("duo: menu $menuSlug item $itemId is not one exact nav_menu_item row");
+            throw new \RuntimeException("wprism: menu $menuSlug item $itemId is not one exact nav_menu_item row");
         }
     }
 
@@ -448,11 +448,11 @@ final class MenuMaterializer {
             $wpdb->postmeta,
             'post_id',
             "menu $menuSlug item identity locking"
-        )->exact_key_rows($itemId, '_duo_uuid');
+        )->exact_key_rows($itemId, '_wprism_uuid');
         if (count($identity) !== 1
             || !is_string($identity[0]['meta_value'] ?? null)
             || !hash_equals($uuid, $identity[0]['meta_value'])) {
-            throw new \RuntimeException("duo: menu $menuSlug item $itemId has a missing, duplicate, or contradictory identity");
+            throw new \RuntimeException("wprism: menu $menuSlug item $itemId has a missing, duplicate, or contradictory identity");
         }
     }
 
@@ -460,7 +460,7 @@ final class MenuMaterializer {
     private function locked_environment_items(int $menuTermTaxonomyId, string $menuSlug): array {
         global $wpdb;
         if ($menuTermTaxonomyId <= 0) {
-            throw new \RuntimeException("duo: menu $menuSlug has no valid term-taxonomy identity");
+            throw new \RuntimeException("wprism: menu $menuSlug has no valid term-taxonomy identity");
         }
         $relationshipIndex = $this->fieldMaterializer->proven_lock_index(
             $wpdb->term_relationships,
@@ -477,10 +477,10 @@ final class MenuMaterializer {
         if (!is_array($relationshipRows)
             || !array_is_list($relationshipRows)
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: menu $menuSlug item relationship lock read failed");
+            throw new \RuntimeException("wprism: menu $menuSlug item relationship lock read failed");
         }
         if (count($relationshipRows) > self::MAX_MENU_ITEMS) {
-            throw new \RuntimeException("duo: menu $menuSlug exceeds the bounded item limit");
+            throw new \RuntimeException("wprism: menu $menuSlug exceeds the bounded item limit");
         }
 
         $metaLock = $this->fieldMaterializer->meta_owner_range_lock(
@@ -496,22 +496,22 @@ final class MenuMaterializer {
                 : null;
             if ($id === null || isset($seen[$id])) {
                 throw new \RuntimeException(
-                    "duo: menu $menuSlug item relationship lock returned a malformed/duplicate row at position $position"
+                    "wprism: menu $menuSlug item relationship lock returned a malformed/duplicate row at position $position"
                 );
             }
             $seen[$id] = true;
             $this->assert_locked_item_post($id, $menuSlug);
-            $exactIdentity = array_column($metaLock->exact_key_rows($id, '_duo_uuid'), 'meta_value');
+            $exactIdentity = array_column($metaLock->exact_key_rows($id, '_wprism_uuid'), 'meta_value');
             if (count($exactIdentity) > 1) {
-                throw new \RuntimeException("duo: menu $menuSlug item $id has duplicate exact identity rows");
+                throw new \RuntimeException("wprism: menu $menuSlug item $id has duplicate exact identity rows");
             }
             $uuid = $exactIdentity[0] ?? null;
             if ($uuid !== null && !is_string($uuid)) {
-                throw new \RuntimeException("duo: menu $menuSlug item $id has a malformed identity value");
+                throw new \RuntimeException("wprism: menu $menuSlug item $id has a malformed identity value");
             }
             if ($this->locked_item_relationships($id, $menuSlug) !== [$menuTermTaxonomyId]) {
                 throw new \RuntimeException(
-                    "duo: menu $menuSlug item $id has relationship ownership outside the exact current menu"
+                    "wprism: menu $menuSlug item $id has relationship ownership outside the exact current menu"
                 );
             }
             $out[] = ['ID' => $id, 'uuid' => $uuid];
@@ -540,7 +540,7 @@ final class MenuMaterializer {
             "menu $menuSlug item relationship ownership locking"
         );
         if (count($rows) > self::MAX_ITEM_RELATIONSHIPS) {
-            throw new \RuntimeException("duo: menu $menuSlug item $itemId exceeds the relationship bound");
+            throw new \RuntimeException("wprism: menu $menuSlug item $itemId exceeds the relationship bound");
         }
         $relationships = [];
         foreach ($rows as $row) {
@@ -548,7 +548,7 @@ final class MenuMaterializer {
             $taxonomyObject = get_taxonomy($taxonomy);
             if (!is_object($taxonomyObject) || !is_array($taxonomyObject->object_type ?? null)) {
                 throw new \RuntimeException(
-                    "duo: menu $menuSlug item $itemId relationship taxonomy $taxonomy is unregistered or malformed"
+                    "wprism: menu $menuSlug item $itemId relationship taxonomy $taxonomy is unregistered or malformed"
                 );
             }
             if ($this->policy->taxonomy_object_keyspace($taxonomy, $taxonomyObject->object_type) === 'term') {
@@ -572,7 +572,7 @@ final class MenuMaterializer {
         foreach ($rows as $row) {
             $id = (int) ($row['ID'] ?? 0);
             if ($id <= 0) {
-                throw new \RuntimeException("duo: menu $menuSlug: target item observation has no valid local id");
+                throw new \RuntimeException("wprism: menu $menuSlug: target item observation has no valid local id");
             }
             $uuid = trim((string) ($row['uuid'] ?? ''));
             $uuid = $uuid === '' ? null : $uuid;
@@ -581,12 +581,12 @@ final class MenuMaterializer {
                 && $byId[$id] !== null
                 && $byId[$id] !== $uuid) {
                 throw new \RuntimeException(
-                    "duo: menu $menuSlug: target item $id has contradictory identity sidecars"
+                    "wprism: menu $menuSlug: target item $id has contradictory identity sidecars"
                 );
             }
             if ($uuid !== null && isset($byUuid[$uuid]) && $byUuid[$uuid] !== $id) {
                 throw new \RuntimeException(
-                    "duo: menu $menuSlug: identity $uuid belongs to multiple target items"
+                    "wprism: menu $menuSlug: identity $uuid belongs to multiple target items"
                 );
             }
             $byId[$id] = $uuid ?? ($byId[$id] ?? null);

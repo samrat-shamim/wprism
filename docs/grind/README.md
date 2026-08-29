@@ -13,7 +13,7 @@ harness.
 | [adoption.md](adoption.md) | `sandbox/tests/grind/grind_adoption.sh` | `make grind-adoption` |
 | [code-half-first-sync.md](code-half-first-sync.md) | `sandbox/tests/grind/grind_first_sync_hook_recovery.sh` | `make grind-code-half-first-sync` |
 | [ecommerce-developer.md](ecommerce-developer.md) | `sandbox/tests/grind/grind_ecommerce_developer.sh` | `make grind-ecommerce-developer-live` |
-| [duo-3340-adapter-authoring.md](duo-3340-adapter-authoring.md) | `sandbox/tests/live/regress_adapter_authoring_live.sh` | `make regress-adapter-authoring-live` |
+| [adapter-authoring-live.md](adapter-authoring-live.md) | `sandbox/tests/live/regress_adapter_authoring_live.sh` | `make regress-adapter-authoring-live` |
 
 Every one of these is **live-only** (docker, a real pair) and deliberately
 outside `make regress-offline-all`. Read

@@ -1,15 +1,15 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Providers;
+namespace WPrism\Providers;
 
-use Duo\ManifestProviderRuntime;
+use WPrism\ManifestProviderRuntime;
 
 /**
  * Redirection 5.9.0 WordPress-module cache repair and native readback proof.
  *
  * Redirection's item writer rotates redirection_options.cache_key after every
- * rule change. Duo materializes the same rows directly, so a primed persistent
+ * rule change. WPrism materializes the same rows directly, so a primed persistent
  * object-cache entry can otherwise keep serving the target's pre-apply rules.
  * Apache and Nginx groups additionally own server files; those groups are
  * refused here because the manifest claims only the database-backed WordPress
@@ -41,14 +41,14 @@ final class RedirectionState extends ManifestProviderRuntime {
         if ($oldKey > 0) {
             if ($oldKey === PHP_INT_MAX) {
                 throw new \RuntimeException(
-                    'duo: Redirection cache generation is exhausted; refusing an unprovable cache rotation'
+                    'wprism: Redirection cache generation is exhausted; refusing an unprovable cache rotation'
                 );
             }
             $nextKey = max(time(), $oldKey + 1);
             $saved = \Red_Options::save(['cache_key' => $nextKey]);
             if ((int) ($saved['cache_key'] ?? 0) !== $nextKey) {
                 throw new \RuntimeException(
-                    'duo: Redirection did not persist the requested cache generation'
+                    'wprism: Redirection did not persist the requested cache generation'
                 );
             }
         }
@@ -58,7 +58,7 @@ final class RedirectionState extends ManifestProviderRuntime {
         $after = $this->postcondition(true);
         if ($oldKey > 0 && (int) $after['cache_key'] <= $oldKey) {
             throw new \RuntimeException(
-                'duo: Redirection cache generation did not advance after authored rule materialization'
+                'wprism: Redirection cache generation did not advance after authored rule materialization'
             );
         }
 
@@ -68,12 +68,12 @@ final class RedirectionState extends ManifestProviderRuntime {
     private function assert_runtime_contract(): void {
         if (is_multisite()) {
             throw new \RuntimeException(
-                'duo: Redirection state provider is certified for single-site tables only'
+                'wprism: Redirection state provider is certified for single-site tables only'
             );
         }
         if (!defined('REDIRECTION_VERSION') || REDIRECTION_VERSION !== '5.9.0') {
             throw new \RuntimeException(
-                'duo: Redirection state provider requires exact Redirection 5.9.0 runtime APIs'
+                'wprism: Redirection state provider requires exact Redirection 5.9.0 runtime APIs'
             );
         }
     }
@@ -96,7 +96,7 @@ final class RedirectionState extends ManifestProviderRuntime {
             ARRAY_A
         );
         if (!is_array($groups) || !is_array($items) || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException('duo: Redirection verification query failed');
+            throw new \RuntimeException('wprism: Redirection verification query failed');
         }
 
         $groupIds = [];
@@ -104,12 +104,12 @@ final class RedirectionState extends ManifestProviderRuntime {
             $id = (int) ($row['id'] ?? 0);
             if ($id <= 0 || (int) ($row['module_id'] ?? 0) !== \WordPress_Module::MODULE_ID) {
                 throw new \RuntimeException(
-                    'duo: Redirection adapter supports only positive-id WordPress-module groups; '
+                    'wprism: Redirection adapter supports only positive-id WordPress-module groups; '
                     . 'Apache/Nginx server-file state is outside this contract'
                 );
             }
             if (!in_array((string) ($row['status'] ?? ''), ['enabled', 'disabled'], true)) {
-                throw new \RuntimeException('duo: Redirection group has an unknown status');
+                throw new \RuntimeException('wprism: Redirection group has an unknown status');
             }
             $groupIds[$id] = true;
             if ($verify) {
@@ -120,7 +120,7 @@ final class RedirectionState extends ManifestProviderRuntime {
                     || $native->get_module_id() !== \WordPress_Module::MODULE_ID
                     || $native->is_enabled() !== ((string) $row['status'] === 'enabled')) {
                     throw new \RuntimeException(
-                        'duo: Redirection group API did not converge on the authored table'
+                        'wprism: Redirection group API did not converge on the authored table'
                     );
                 }
             }
@@ -132,7 +132,7 @@ final class RedirectionState extends ManifestProviderRuntime {
             $groupId = (int) ($row['group_id'] ?? 0);
             if ($id <= 0 || !isset($groupIds[$groupId])) {
                 throw new \RuntimeException(
-                    'duo: Redirection item has no supported WordPress-module group'
+                    'wprism: Redirection item has no supported WordPress-module group'
                 );
             }
             $actionType = (string) ($row['action_type'] ?? '');
@@ -141,19 +141,19 @@ final class RedirectionState extends ManifestProviderRuntime {
             if (\Red_Action::create($actionType, $actionCode) === null
                 || \Red_Match::create($matchType, $row['action_data'] ?? '') === null) {
                 throw new \RuntimeException(
-                    'duo: Redirection item uses an action or matcher outside the exact built-in 5.9.0 vocabulary'
+                    'wprism: Redirection item uses an action or matcher outside the exact built-in 5.9.0 vocabulary'
                 );
             }
             $this->assert_match_data($row['match_data'] ?? null);
 
             $native = \Red_Item::get_by_id($id);
             if (!$native instanceof \Red_Item) {
-                throw new \RuntimeException('duo: Redirection item API could not read an authored row');
+                throw new \RuntimeException('wprism: Redirection item API could not read an authored row');
             }
             $nativeItems[] = $native;
             if ($verify && !$this->item_agrees($row, $native)) {
                 throw new \RuntimeException(
-                    'duo: Redirection item API did not converge on the authored table'
+                    'wprism: Redirection item API did not converge on the authored table'
                 );
             }
         }
@@ -170,7 +170,7 @@ final class RedirectionState extends ManifestProviderRuntime {
                 );
                 if (!in_array($native->get_id(), $ids, true)) {
                     throw new \RuntimeException(
-                        'duo: Redirection lookup cache did not expose an enabled authored item'
+                        'wprism: Redirection lookup cache did not expose an enabled authored item'
                     );
                 }
             }
@@ -211,16 +211,16 @@ final class RedirectionState extends ManifestProviderRuntime {
             return;
         }
         if (!is_string($value)) {
-            throw new \RuntimeException('duo: Redirection match_data is not text');
+            throw new \RuntimeException('wprism: Redirection match_data is not text');
         }
         try {
             $decoded = json_decode($value, true, 32, JSON_THROW_ON_ERROR);
         } catch (\JsonException $e) {
-            throw new \RuntimeException('duo: Redirection match_data is not valid JSON', 0, $e);
+            throw new \RuntimeException('wprism: Redirection match_data is not valid JSON', 0, $e);
         }
         if (!is_array($decoded) || array_diff(array_keys($decoded), ['source', 'options']) !== []) {
             throw new \RuntimeException(
-                'duo: Redirection match_data is outside the built-in source/options vocabulary'
+                'wprism: Redirection match_data is outside the built-in source/options vocabulary'
             );
         }
     }
@@ -229,7 +229,7 @@ final class RedirectionState extends ManifestProviderRuntime {
         global $wpdb;
         $table = (string) $wpdb->prefix . $logical;
         if (preg_match('/^[A-Za-z0-9_]+$/D', $table) !== 1) {
-            throw new \RuntimeException('duo: Redirection returned an unsafe table name');
+            throw new \RuntimeException('wprism: Redirection returned an unsafe table name');
         }
         return $table;
     }
@@ -238,7 +238,7 @@ final class RedirectionState extends ManifestProviderRuntime {
     private function digest($value): string {
         $json = wp_json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if (!is_string($json)) {
-            throw new \RuntimeException('duo: Redirection could not encode provider evidence');
+            throw new \RuntimeException('wprism: Redirection could not encode provider evidence');
         }
         return hash('sha256', $json);
     }

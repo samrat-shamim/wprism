@@ -1,6 +1,6 @@
 <?php
 /**
- * DUO-3513: DockerTransport's `mode: "exec"` opt-in.
+ * issue #3513: DockerTransport's `mode: "exec"` opt-in.
  *
  * `run --rm` (today's default, unconditionally) pays container create
  * (~0.40s) + dependency resolution (~0.51s on the legacy
@@ -29,13 +29,13 @@ require_once __DIR__ . '/../../../../cli/src/Transport/DockerTransport.php';
 require_once __DIR__ . '/../../../../cli/src/Onboarding/Doctor.php';
 require_once __DIR__ . '/../../../../cli/src/Command/DoctorCommand.php';
 
-use Duo\Orchestrator\DockerTransport;
-use Duo\Orchestrator\Doctor;
-use Duo\Orchestrator\DoctorCommand;
+use WPrism\Orchestrator\DockerTransport;
+use WPrism\Orchestrator\Doctor;
+use WPrism\Orchestrator\DoctorCommand;
 
 $cfg = [
     'transport' => 'docker',
-    'compose_file' => '/tmp/duo-exec-mode-compose.yml',
+    'compose_file' => '/tmp/wprism-exec-mode-compose.yml',
     'service' => 'cli',
     'repo_path' => '/repo',
 ];
@@ -45,39 +45,39 @@ $rawCommand = new ReflectionMethod(DockerTransport::class, 'rawCommand');
 
 // ---------------------------------------------------------------------
 // Rule 8: mode absent, and mode explicitly "run", stay byte-identical to
-// the pre-DUO-3513 command strings and describe() line -- this whole
+// the pre-issue #3513 command strings and describe() line -- this whole
 // feature is opt-in, so nobody who never sets `mode` should see one
 // different byte on the wire.
 // ---------------------------------------------------------------------
 $default = new DockerTransport('docker-default', $cfg);
-duo_check_same(
-    "'docker' 'compose' '-f' '/tmp/duo-exec-mode-compose.yml' 'run' '--rm' '-T' 'cli' 'wp' 'duo' 'status'",
-    $wpCommand->invoke($default, ['duo', 'status']),
-    'mode absent renders the pre-DUO-3513 `run --rm` wp command byte-for-byte'
+wprism_check_same(
+    "'docker' 'compose' '-f' '/tmp/wprism-exec-mode-compose.yml' 'run' '--rm' '-T' 'cli' 'wp' 'wprism' 'status'",
+    $wpCommand->invoke($default, ['wprism', 'status']),
+    'mode absent renders the pre-issue #3513 `run --rm` wp command byte-for-byte'
 );
-duo_check_same(
-    "'docker' 'compose' '-f' '/tmp/duo-exec-mode-compose.yml' 'run' '--rm' '-T' 'cli' 'bash' '-c' 'echo hi'",
+wprism_check_same(
+    "'docker' 'compose' '-f' '/tmp/wprism-exec-mode-compose.yml' 'run' '--rm' '-T' 'cli' 'bash' '-c' 'echo hi'",
     $rawCommand->invoke($default, 'echo hi'),
-    'mode absent renders the pre-DUO-3513 `run --rm` raw command byte-for-byte'
+    'mode absent renders the pre-issue #3513 `run --rm` raw command byte-for-byte'
 );
-duo_check_same(
-    'docker compose_file=/tmp/duo-exec-mode-compose.yml service=cli repo_path=/repo',
+wprism_check_same(
+    'docker compose_file=/tmp/wprism-exec-mode-compose.yml service=cli repo_path=/repo',
     $default->describe(),
     'mode absent leaves describe() byte-identical -- no mode= suffix'
 );
 
 $explicitRun = new DockerTransport('docker-explicit-run', $cfg + ['mode' => 'run']);
-duo_check_same(
-    $wpCommand->invoke($default, ['duo', 'status']),
-    $wpCommand->invoke($explicitRun, ['duo', 'status']),
+wprism_check_same(
+    $wpCommand->invoke($default, ['wprism', 'status']),
+    $wpCommand->invoke($explicitRun, ['wprism', 'status']),
     'explicit mode "run" is byte-identical to mode absent for wp commands'
 );
-duo_check_same(
+wprism_check_same(
     $rawCommand->invoke($default, 'echo hi'),
     $rawCommand->invoke($explicitRun, 'echo hi'),
     'explicit mode "run" is byte-identical to mode absent for raw commands'
 );
-duo_check_same(
+wprism_check_same(
     $default->describe(),
     $explicitRun->describe(),
     'explicit mode "run" is byte-identical to mode absent in describe()'
@@ -88,31 +88,31 @@ duo_check_same(
 // ---------------------------------------------------------------------
 $execCfg = $cfg + ['mode' => 'exec'];
 $exec = new DockerTransport('docker-exec', $execCfg, static fn(): bool => true);
-duo_check_same(
-    "'docker' 'compose' '-f' '/tmp/duo-exec-mode-compose.yml' 'exec' '-T' 'cli' 'wp' 'duo' 'status'",
-    $wpCommand->invoke($exec, ['duo', 'status']),
+wprism_check_same(
+    "'docker' 'compose' '-f' '/tmp/wprism-exec-mode-compose.yml' 'exec' '-T' 'cli' 'wp' 'wprism' 'status'",
+    $wpCommand->invoke($exec, ['wprism', 'status']),
     'mode "exec" renders `exec -T` for wp commands with no `run`/`--rm`'
 );
-duo_check_same(
-    "'docker' 'compose' '-f' '/tmp/duo-exec-mode-compose.yml' 'exec' '-T' 'cli' 'bash' '-c' 'echo hi'",
+wprism_check_same(
+    "'docker' 'compose' '-f' '/tmp/wprism-exec-mode-compose.yml' 'exec' '-T' 'cli' 'bash' '-c' 'echo hi'",
     $rawCommand->invoke($exec, 'echo hi'),
     'mode "exec" renders `exec -T` for raw commands with no `run`/`--rm`'
 );
-duo_check_same(
-    'docker compose_file=/tmp/duo-exec-mode-compose.yml mode=exec service=cli repo_path=/repo',
+wprism_check_same(
+    'docker compose_file=/tmp/wprism-exec-mode-compose.yml mode=exec service=cli repo_path=/repo',
     $exec->describe(),
-    'mode "exec" is visible in describe() (duo envs)'
+    'mode "exec" is visible in describe() (wprism envs)'
 );
-duo_check_same(
-    "'docker' 'compose' '-f' '/tmp/duo-exec-mode-compose.yml' 'exec' '-T' 'cli' 'wp' 'duo' 'status'",
-    $exec->wpInstruction(['duo', 'status']),
+wprism_check_same(
+    "'docker' 'compose' '-f' '/tmp/wprism-exec-mode-compose.yml' 'exec' '-T' 'cli' 'wp' 'wprism' 'status'",
+    $exec->wpInstruction(['wprism', 'status']),
     'the public wpInstruction() (env-set stdin handoff) matches the exec wp command'
 );
 
 $execProfile = new DockerTransport('docker-exec-profile', $execCfg + ['profile' => 'grind'], static fn(): bool => true);
-duo_check_same(
-    "'docker' 'compose' '-f' '/tmp/duo-exec-mode-compose.yml' '--profile' 'grind' 'exec' '-T' 'cli' 'wp' 'duo' 'status'",
-    $wpCommand->invoke($execProfile, ['duo', 'status']),
+wprism_check_same(
+    "'docker' 'compose' '-f' '/tmp/wprism-exec-mode-compose.yml' '--profile' 'grind' 'exec' '-T' 'cli' 'wp' 'wprism' 'status'",
+    $wpCommand->invoke($execProfile, ['wprism', 'status']),
     'mode "exec" composes with --profile exactly like mode "run" does'
 );
 
@@ -126,11 +126,11 @@ try {
 } catch (\RuntimeException $e) {
     $badMode = $e;
 }
-duo_check($badMode !== null, 'an unrecognized string mode refuses construction');
+wprism_check($badMode !== null, 'an unrecognized string mode refuses construction');
 if ($badMode !== null) {
-    duo_check(str_contains($badMode->getMessage(), "env 'docker-bad-mode'"), 'invalid mode error names the environment');
-    duo_check(str_contains($badMode->getMessage(), "'mode'"), 'invalid mode error names the key');
-    duo_check(str_contains($badMode->getMessage(), "'walk'"), 'invalid mode error names the offending value');
+    wprism_check(str_contains($badMode->getMessage(), "env 'docker-bad-mode'"), 'invalid mode error names the environment');
+    wprism_check(str_contains($badMode->getMessage(), "'mode'"), 'invalid mode error names the key');
+    wprism_check(str_contains($badMode->getMessage(), "'walk'"), 'invalid mode error names the offending value');
 }
 
 $badModeBool = null;
@@ -139,9 +139,9 @@ try {
 } catch (\RuntimeException $e) {
     $badModeBool = $e;
 }
-duo_check($badModeBool !== null, 'a non-string (bool) mode refuses construction rather than being silently truthy-coerced');
+wprism_check($badModeBool !== null, 'a non-string (bool) mode refuses construction rather than being silently truthy-coerced');
 if ($badModeBool !== null) {
-    duo_check(
+    wprism_check(
         str_contains($badModeBool->getMessage(), "env 'docker-bad-mode-bool'") && str_contains($badModeBool->getMessage(), 'true'),
         'invalid boolean mode error names the environment and the offending value'
     );
@@ -162,42 +162,42 @@ $down = new DockerTransport(
     }
 );
 $expectedRemedy = "env 'docker-exec-down': transport mode \"exec\" requires service 'cli' to be running. "
-    . "remedy: docker compose -f /tmp/duo-exec-mode-compose.yml --profile grind up -d cli";
+    . "remedy: docker compose -f /tmp/wprism-exec-mode-compose.yml --profile grind up -d cli";
 
-$rawResult = $down->captureRaw('echo duo-reachable');
-duo_check_same(1, $rawResult['exit'], 'not-running captureRaw() returns a non-zero exit, not a hung/real docker call');
-duo_check_same('', $rawResult['stdout'], 'not-running captureRaw() carries no stdout -- nothing was actually run against docker');
-duo_check_same($expectedRemedy . "\n", $rawResult['stderr'], 'not-running captureRaw() stderr is exactly the named remedy, never a `run` command string');
+$rawResult = $down->captureRaw('echo wprism-reachable');
+wprism_check_same(1, $rawResult['exit'], 'not-running captureRaw() returns a non-zero exit, not a hung/real docker call');
+wprism_check_same('', $rawResult['stdout'], 'not-running captureRaw() carries no stdout -- nothing was actually run against docker');
+wprism_check_same($expectedRemedy . "\n", $rawResult['stderr'], 'not-running captureRaw() stderr is exactly the named remedy, never a `run` command string');
 
-$wpResult = $down->captureWp(['duo', 'status']);
-duo_check_same(1, $wpResult['exit'], 'not-running captureWp() also returns the failed result, not a `run` fallback');
-duo_check_same($expectedRemedy . "\n", $wpResult['stderr'], 'not-running captureWp() stderr matches the same named remedy');
+$wpResult = $down->captureWp(['wprism', 'status']);
+wprism_check_same(1, $wpResult['exit'], 'not-running captureWp() also returns the failed result, not a `run` fallback');
+wprism_check_same($expectedRemedy . "\n", $wpResult['stderr'], 'not-running captureWp() stderr matches the same named remedy');
 
 // The precondition is cached PER PROCESS (one DockerTransport instance
-// lives for one `duo` invocation, per cli/duo's single Transport::make()
+// lives for one `wprism` invocation, per cli/wprism's single Transport::make()
 // call) rather than re-probed on every command -- a probe that ran
 // per-command would pay a real docker round trip on every single wp-cli
 // call this mode exists to make cheap. Two capture calls above, still one
 // probe invocation.
-duo_check_same(1, $probeCalls, 'two capture calls so far share one cached probe invocation');
+wprism_check_same(1, $probeCalls, 'two capture calls so far share one cached probe invocation');
 
 $down->captureRaw('echo again');
-duo_check_same(1, $probeCalls, 'a third capture call reuses the cached probe result instead of probing again');
+wprism_check_same(1, $probeCalls, 'a third capture call reuses the cached probe result instead of probing again');
 
 // ---------------------------------------------------------------------
-// End-to-end: `duo doctor`'s reachability check is the first thing that
+// End-to-end: `wprism doctor`'s reachability check is the first thing that
 // calls captureRaw(), so this is the exact path the issue names --
 // [FAIL] transport reachable, with the remedy, never a hang or a docker
 // error dump.
 // ---------------------------------------------------------------------
 $doctorDown = new DockerTransport('docker-doctor-down', $execCfg, static fn(): bool => false);
 $doctorResult = Doctor::run($doctorDown);
-duo_check($doctorResult['ok'] === false, 'doctor overall result is not ok when the exec precondition fails');
-duo_check(
+wprism_check($doctorResult['ok'] === false, 'doctor overall result is not ok when the exec precondition fails');
+wprism_check(
     $doctorResult['checks'][0]['label'] === 'transport reachable' && $doctorResult['checks'][0]['ok'] === false,
     'doctor\'s first check is the failed reachability probe, gating every later check'
 );
-duo_check(
+wprism_check(
     str_contains($doctorResult['checks'][0]['detail'], 'remedy: docker compose')
         && str_contains($doctorResult['checks'][0]['detail'], 'up -d'),
     'doctor surfaces the exact up -d remedy in its reachability detail'
@@ -206,9 +206,9 @@ duo_check(
 ob_start();
 DoctorCommand::render($doctorResult);
 $rendered = (string) ob_get_clean();
-duo_check(
+wprism_check(
     str_contains($rendered, '[FAIL] transport reachable — ') && str_contains($rendered, 'remedy: docker compose'),
     'DoctorCommand renders "[FAIL] transport reachable — ... remedy: ..." exactly as the issue requires'
 );
 
-duo_check_summary('docker-exec-mode');
+wprism_check_summary('docker-exec-mode');

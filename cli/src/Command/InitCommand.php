@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../Onboarding/Init.php';
@@ -52,40 +52,40 @@ final class InitCommand {
             if (is_string($arg) && str_starts_with($arg, '--cache-dir=')) {
                 $cacheDir = substr($arg, strlen('--cache-dir='));
                 if ($cacheDir === '' || !str_starts_with($cacheDir, '/')) {
-                    fwrite(STDERR, "duo: init --cache-dir requires an absolute path\n");
+                    fwrite(STDERR, "wprism: init --cache-dir requires an absolute path\n");
                     return 1;
                 }
                 continue;
             }
             if (is_string($arg) && str_starts_with($arg, '--archive-interrupted-to=')) {
                 if ($archiveInterruptedTo !== null) {
-                    fwrite(STDERR, "duo: init accepts --archive-interrupted-to exactly once\n");
+                    fwrite(STDERR, "wprism: init accepts --archive-interrupted-to exactly once\n");
                     return 1;
                 }
                 $archiveInterruptedTo = substr($arg, strlen('--archive-interrupted-to='));
                 if ($archiveInterruptedTo === '' || !str_starts_with($archiveInterruptedTo, '/')) {
-                    fwrite(STDERR, "duo: init --archive-interrupted-to requires an absolute sibling path\n");
+                    fwrite(STDERR, "wprism: init --archive-interrupted-to requires an absolute sibling path\n");
                     return 1;
                 }
                 continue;
             }
             if (is_string($arg) && str_starts_with($arg, '--code=')) {
-                // Named, because the flag existed (DUO-3499: `--code=split|full`)
+                // Named, because the flag existed (issue #3499: `--code=split|full`)
                 // and an operator with it in a script deserves the reason
                 // rather than "unsupported argument". There is no mode: Git
                 // never carries third-party code, so "vendor everything" is
                 // not a choice the command offers.
                 fwrite(
                     STDERR,
-                    'duo: init no longer takes --code: Git never carries third-party code, so every component either '
-                    . "locks (wp.org release or `duo code-import`ed archive) or is declared the site's own with "
+                    'wprism: init no longer takes --code: Git never carries third-party code, so every component either '
+                    . "locks (wp.org release or `wprism code-import`ed archive) or is declared the site's own with "
                     . CodeClassifier::FIRST_PARTY_FLAG . "<root>/<slug>\n"
                 );
                 return 1;
             }
             fwrite(
                 STDERR,
-                'duo: init accepts only --yes, ' . Init::ALLOW_UNMANAGED_PLUGINS . ', '
+                'wprism: init accepts only --yes, ' . Init::ALLOW_UNMANAGED_PLUGINS . ', '
                     . CodeClassifier::FIRST_PARTY_FLAG . '<root>/<slug>, --offline and --cache-dir=<path>; '
                     . '--archive-interrupted-to=<absolute-sibling>; '
                     . "unsupported argument '$arg'\n"
@@ -94,7 +94,7 @@ final class InitCommand {
         }
         if ($archiveInterruptedTo !== null) {
             if ($allowUnmanagedPlugins || $firstPartyValues !== [] || $offline || $cacheDir !== null) {
-                fwrite(STDERR, "duo: init --archive-interrupted-to is exclusive with discovery and classification flags\n");
+                fwrite(STDERR, "wprism: init --archive-interrupted-to is exclusive with discovery and classification flags\n");
                 return 1;
             }
             if (!$yes) {
@@ -111,38 +111,38 @@ final class InitCommand {
             try {
                 $receipt = Init::archiveInterrupted($transport, $archiveInterruptedTo);
             } catch (InitRefusalException $e) {
-                fwrite(STDERR, 'duo: ' . $e->getMessage() . "\n");
+                fwrite(STDERR, 'wprism: ' . $e->getMessage() . "\n");
                 $renderRefusal($e->refusal);
                 return 1;
             } catch (\Throwable $e) {
-                fwrite(STDERR, 'duo: init interrupted archive failed: ' . $e->getMessage() . "\n");
+                fwrite(STDERR, 'wprism: init interrupted archive failed: ' . $e->getMessage() . "\n");
                 return 1;
             }
             echo 'Archived the complete interrupted repository at ' . $receipt['archive'] . ".\n";
             echo 'Recreated the configured empty path at ' . $receipt['repository'] . ".\n";
-            echo 'Archive receipt ' . $receipt['receipt_sha256'] . "; rerun duo init for a fresh proposal.\n";
+            echo 'Archive receipt ' . $receipt['receipt_sha256'] . "; rerun wprism init for a fresh proposal.\n";
             return 0;
         }
         try {
             $firstParty = CodeClassifier::parseFirstParty($firstPartyValues);
         } catch (\Throwable $e) {
-            fwrite(STDERR, 'duo: init: ' . $e->getMessage() . "\n");
+            fwrite(STDERR, 'wprism: init: ' . $e->getMessage() . "\n");
             return 1;
         }
 
         try {
             $proposal = Init::proposal($transport, $allowUnmanagedPlugins);
         } catch (InitRefusalException $e) {
-            fwrite(STDERR, 'duo: ' . $e->getMessage() . "\n");
+            fwrite(STDERR, 'wprism: ' . $e->getMessage() . "\n");
             $renderRefusal($e->refusal);
             return 1;
         } catch (\Throwable $e) {
             $message = $e->getMessage();
             if (str_contains(strtolower($message), 'not a registered wp command')
-                || str_contains(strtolower($message), 'duo is not a registered')) {
-                $message .= "; install the Duo agent first (run 'duo adopt {$transport->name()}' for an SSH or explicitly authorized local environment)";
+                || str_contains(strtolower($message), 'wprism is not a registered')) {
+                $message .= "; install the WPrism agent first (run 'wprism adopt {$transport->name()}' for an SSH or explicitly authorized local environment)";
             }
-            fwrite(STDERR, "duo: $message\n");
+            fwrite(STDERR, "wprism: $message\n");
             return 1;
         }
 
@@ -158,18 +158,18 @@ final class InitCommand {
                     $cacheDir
                 );
             } catch (InitRefusalException $e) {
-                fwrite(STDERR, 'duo: ' . $e->getMessage() . "\n");
+                fwrite(STDERR, 'wprism: ' . $e->getMessage() . "\n");
                 $renderRefusal($e->refusal);
                 return 1;
             } catch (\Throwable $e) {
-                fwrite(STDERR, 'duo: init code classification failed: ' . $e->getMessage() . "\n");
+                fwrite(STDERR, 'wprism: init code classification failed: ' . $e->getMessage() . "\n");
                 return 1;
             }
         } elseif ($firstParty !== []) {
             // The first proposal is blocked on something else entirely, so the
             // classification never ran; say so, or the operator re-reads their
             // --first-party spelling for a refusal that has nothing to do with it.
-            echo "duo: the proposal is blocked before code classification; --first-party was not evaluated.\n";
+            echo "wprism: the proposal is blocked before code classification; --first-party was not evaluated.\n";
         }
 
         foreach (Init::render($proposal) as $line) {
@@ -194,11 +194,11 @@ final class InitCommand {
             // the same rules or the bind fails — see Init::ALLOW_UNMANAGED_PLUGINS.
             $result = Init::confirm($transport, $digest, $allowUnmanagedPlugins, $lockPlan);
         } catch (InitRefusalException $e) {
-            fwrite(STDERR, 'duo: ' . $e->getMessage() . "\n");
+            fwrite(STDERR, 'wprism: ' . $e->getMessage() . "\n");
             $renderRefusal($e->refusal);
             return 1;
         } catch (\Throwable $e) {
-            fwrite(STDERR, 'duo: ' . $e->getMessage() . "\n");
+            fwrite(STDERR, 'wprism: ' . $e->getMessage() . "\n");
             return 1;
         }
 
@@ -215,7 +215,7 @@ final class InitCommand {
         echo "Verifying selected managed scope:\n";
         $status = $statusRunner($transport);
         if ($status !== 0) {
-            fwrite(STDERR, "duo: initialization captured a baseline, but the selected managed scope is not clean\n");
+            fwrite(STDERR, "wprism: initialization captured a baseline, but the selected managed scope is not clean\n");
             return $status;
         }
         if ($renderNextSteps) {
@@ -275,19 +275,19 @@ final class InitCommand {
                     . 'or theme component'
                 );
             }
-            echo "duo: this site has no lockable plugin or theme component; there is no code classification to make.\n";
+            echo "wprism: this site has no lockable plugin or theme component; there is no code classification to make.\n";
             return [$proposal, null];
         }
         CodeClassifier::assertFirstPartyKnown($inventory, $firstParty);
         if ($offline) {
-            echo 'duo: --offline: no release registry is contacted; wp.org components lock only from the host cache, '
+            echo 'wprism: --offline: no release registry is contacted; wp.org components lock only from the host cache, '
                 . "imported archives as usual.\n";
         }
         $plan = CodeClassifier::make($cacheDir, $offline)->classify($inventory, $firstParty);
         $unsourced = CodeClassifier::unsourced($plan);
         if ($unsourced !== []) {
-            echo 'duo: ' . count($unsourced) . ' component(s) could not be sourced; the proposal below is blocked on each '
-                . 'of them, with the reason and both remedies (import its archive with `duo code-import`, or declare it '
+            echo 'wprism: ' . count($unsourced) . ' component(s) could not be sourced; the proposal below is blocked on each '
+                . 'of them, with the reason and both remedies (import its archive with `wprism code-import`, or declare it '
                 . 'the site\'s own code with ' . CodeClassifier::FIRST_PARTY_FLAG . "<root>/<slug>).\n";
         }
         return [Init::proposal($transport, $allowUnmanagedPlugins, $plan), $plan];

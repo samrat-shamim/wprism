@@ -1,16 +1,16 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/PathSafety.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Code/CodeSourceLock.php';
 
-use Duo\CodeSourceLock;
-use Duo\CommandRefusalException;
-use Duo\PathSafety;
+use WPrism\CodeSourceLock;
+use WPrism\CommandRefusalException;
+use WPrism\PathSafety;
 
 /**
  * Host-side wp.org release sourcing: cache, fetch, verify, unpack, digest.
@@ -25,13 +25,13 @@ use Duo\PathSafety;
  * download, ZipArchive for the unpack, and a loud refusal naming the remedy
  * when ZipArchive is absent.
  *
- * ## API, and what DUO-3500's `duo code-resolve` reuses
+ * ## API, and what issue #3500's `wprism code-resolve` reuses
  *
  * The verb split is deliberate so the resolver adds an entry point, not an
  * algorithm:
  *
  * - `defaultCacheDir()` / `cachePath()` — the content-addressed host cache
- *   (`$XDG_CACHE_HOME/duo/code-artifacts`, else `~/.cache/duo/code-artifacts`),
+ *   (`$XDG_CACHE_HOME/wprism/code-artifacts`, else `~/.cache/wprism/code-artifacts`),
  *   keyed by the sha256 of the CANONICAL url so two callers with different
  *   mirrors still share one entry.
  * - `fetch(string $canonicalUrl, ?string $expectedSha256)` — cache-first, with
@@ -59,7 +59,7 @@ use Duo\PathSafety;
  * ## Why fetch() raises a REASON-CODED refusal
  *
  * The three fetch failures below are the only ones a caller can act on
- * differently, and `duo code-resolve` (DUO-3500) is the caller that lets them
+ * differently, and `wprism code-resolve` (issue #3500) is the caller that lets them
  * escape: `verifiedRelease()` folds every one of them into a stated "no
  * verified wp.org release…" reason and never rethrows. Naming the reason where the failure is
  * DETECTED — rather than re-deriving it in the resolver by matching on message
@@ -71,7 +71,7 @@ use Duo\PathSafety;
  * CommandRefusalException redacts every public field naming a home directory
  * (agent/src/Kernel/CommandRefusal.php:199).
  *
- * `DUO_CODE_ARTIFACT_BASE` overrides only where bytes are FETCHED from (a
+ * `WPRISM_CODE_ARTIFACT_BASE` overrides only where bytes are FETCHED from (a
  * mirror, or a `file://` fixture in the offline suite). The url recorded in the
  * lock is always the canonical downloads.wordpress.org one, because a
  * wp-org-release's identity is its canonical url plus its `archive_sha256` —
@@ -79,7 +79,7 @@ use Duo\PathSafety;
  */
 final class WpOrgReleases {
     public const CANONICAL_BASE = 'https://downloads.wordpress.org';
-    public const FETCH_BASE_ENV = 'DUO_CODE_ARTIFACT_BASE';
+    public const FETCH_BASE_ENV = 'WPRISM_CODE_ARTIFACT_BASE';
 
     /** A cached archive no longer hashes to the digest recorded beside it. */
     public const REASON_CACHE_CORRUPT = 'code_resolve_cache_corrupt';
@@ -116,21 +116,21 @@ final class WpOrgReleases {
     public static function defaultCacheDir(): string {
         $xdg = getenv('XDG_CACHE_HOME');
         if (is_string($xdg) && $xdg !== '' && str_starts_with($xdg, '/')) {
-            return rtrim($xdg, '/') . '/duo/code-artifacts';
+            return rtrim($xdg, '/') . '/wprism/code-artifacts';
         }
         $home = getenv('HOME');
         if (!is_string($home) || $home === '' || !str_starts_with($home, '/')) {
             throw new \RuntimeException(
-                'duo: no host cache directory is available (neither XDG_CACHE_HOME nor HOME is an absolute path); pass --cache-dir=<path>'
+                'wprism: no host cache directory is available (neither XDG_CACHE_HOME nor HOME is an absolute path); pass --cache-dir=<path>'
             );
         }
-        return rtrim($home, '/') . '/.cache/duo/code-artifacts';
+        return rtrim($home, '/') . '/.cache/wprism/code-artifacts';
     }
 
     public static function canonicalUrl(string $root, string $slug, string $version): string {
         $segment = self::RELEASE_PATH[$root] ?? null;
         if ($segment === null || !PathSafety::safe_component($slug) || !self::safeVersion($version)) {
-            throw new \RuntimeException("duo: no wp.org release identity exists for '$root/$slug' at version '$version'");
+            throw new \RuntimeException("wprism: no wp.org release identity exists for '$root/$slug' at version '$version'");
         }
         return self::CANONICAL_BASE . "/$segment/$slug.$version.zip";
     }
@@ -160,13 +160,13 @@ final class WpOrgReleases {
         $sidecar = $path . '.sha256';
         $directory = dirname($path);
         if (!is_dir($directory) && !@mkdir($directory, 0775, true) && !is_dir($directory)) {
-            throw new \RuntimeException("duo: could not create the code artifact cache at $directory");
+            throw new \RuntimeException("wprism: could not create the code artifact cache at $directory");
         }
         // One writer per entry across processes: several environments can be
         // classified concurrently and they share this cache.
         $lock = @fopen($path . '.lock', 'c');
         if ($lock === false) {
-            throw new \RuntimeException("duo: could not lock the code artifact cache entry for $canonicalUrl");
+            throw new \RuntimeException("wprism: could not lock the code artifact cache entry for $canonicalUrl");
         }
         try {
             flock($lock, LOCK_EX);
@@ -185,7 +185,7 @@ final class WpOrgReleases {
                         'inspect the named cache entry, remove it by hand, then retry; nothing re-fetches over '
                         . 'evidence of a corrupted or tampered cache',
                         [],
-                        "duo: the cached archive for $canonicalUrl no longer matches its recorded digest; "
+                        "wprism: the cached archive for $canonicalUrl no longer matches its recorded digest; "
                         . "inspect and remove $path by hand before retrying"
                     );
                 }
@@ -198,7 +198,7 @@ final class WpOrgReleases {
                     'prime the host cache from a machine that can reach the release registry, or rerun without '
                     . '--offline; there is no latest-fallback and nothing is guessed',
                     [],
-                    "duo: offline mode refuses to fetch $canonicalUrl and the host cache has no entry for it"
+                    "wprism: offline mode refuses to fetch $canonicalUrl and the host cache has no entry for it"
                 );
             }
             $temporary = $path . '.part.' . bin2hex(random_bytes(6));
@@ -206,21 +206,21 @@ final class WpOrgReleases {
                 $this->download($canonicalUrl, $temporary);
                 $digest = hash_file('sha256', $temporary);
                 if (!is_string($digest)) {
-                    throw new \RuntimeException("duo: could not digest the downloaded archive for $canonicalUrl");
+                    throw new \RuntimeException("wprism: could not digest the downloaded archive for $canonicalUrl");
                 }
                 if ($expectedSha256 !== null && !hash_equals($expectedSha256, $digest)) {
                     throw new CommandRefusalException(
                         self::REASON_ARCHIVE_DIGEST_MISMATCH,
                         'a downloaded release archive does not hash to the digest the lock declares',
                         'the partial download was discarded and nothing was cached; re-lock the component with '
-                        . 'duo code-classify if the upstream archive legitimately changed',
+                        . 'wprism code-classify if the upstream archive legitimately changed',
                         [],
-                        "duo: $canonicalUrl downloaded as $digest, but the lock declares $expectedSha256; "
+                        "wprism: $canonicalUrl downloaded as $digest, but the lock declares $expectedSha256; "
                         . 'the partial download was removed and nothing was cached'
                     );
                 }
                 if (!@rename($temporary, $path)) {
-                    throw new \RuntimeException("duo: could not publish the fetched archive into $path");
+                    throw new \RuntimeException("wprism: could not publish the fetched archive into $path");
                 }
             } finally {
                 // Only ever the partial file this call created.
@@ -254,19 +254,19 @@ final class WpOrgReleases {
             exec($command, $output, $status);
             if ($status !== 0) {
                 throw new \RuntimeException(
-                    "duo: could not fetch $canonicalUrl (curl exit $status: " . trim(implode(' ', $output)) . ')'
+                    "wprism: could not fetch $canonicalUrl (curl exit $status: " . trim(implode(' ', $output)) . ')'
                 );
             }
             return;
         }
         $stream = @fopen($url, 'rb');
         if ($stream === false) {
-            throw new \RuntimeException("duo: could not fetch $canonicalUrl (no curl binary and the stream could not be opened)");
+            throw new \RuntimeException("wprism: could not fetch $canonicalUrl (no curl binary and the stream could not be opened)");
         }
         try {
             $written = @file_put_contents($destination, $stream);
             if ($written === false) {
-                throw new \RuntimeException("duo: could not write the fetched archive for $canonicalUrl");
+                throw new \RuntimeException("wprism: could not write the fetched archive for $canonicalUrl");
             }
         } finally {
             fclose($stream);
@@ -291,27 +291,27 @@ final class WpOrgReleases {
     public function unpack(string $archivePath, string $destination): void {
         if (!class_exists(\ZipArchive::class)) {
             throw new \RuntimeException(
-                'duo: PHP ZipArchive is not available on this host, so no release archive can be verified; '
+                'wprism: PHP ZipArchive is not available on this host, so no release archive can be verified; '
                 . 'install the php-zip extension'
             );
         }
         $zip = new \ZipArchive();
         if ($zip->open($archivePath) !== true) {
-            throw new \RuntimeException("duo: could not open the release archive $archivePath");
+            throw new \RuntimeException("wprism: could not open the release archive $archivePath");
         }
         try {
             for ($i = 0; $i < $zip->numFiles; $i++) {
                 $name = (string) $zip->getNameIndex($i);
                 $entry = rtrim($name, '/');
                 if ($entry === '' || !PathSafety::safe_relative($entry)) {
-                    throw new \RuntimeException("duo: the release archive $archivePath contains an unsafe entry '$name'");
+                    throw new \RuntimeException("wprism: the release archive $archivePath contains an unsafe entry '$name'");
                 }
             }
             if (!is_dir($destination) && !@mkdir($destination, 0775, true) && !is_dir($destination)) {
-                throw new \RuntimeException("duo: could not create the unpack directory $destination");
+                throw new \RuntimeException("wprism: could not create the unpack directory $destination");
             }
             if (!$zip->extractTo($destination)) {
-                throw new \RuntimeException("duo: could not extract the release archive $archivePath");
+                throw new \RuntimeException("wprism: could not extract the release archive $archivePath");
             }
         } finally {
             $zip->close();
@@ -336,7 +336,7 @@ final class WpOrgReleases {
             return (string) $children[0];
         }
         throw new \RuntimeException(
-            "duo: the release archive does not contain a single '$slug' component directory"
+            "wprism: the release archive does not contain a single '$slug' component directory"
         );
     }
 
@@ -358,17 +358,17 @@ final class WpOrgReleases {
         foreach ($iterator as $item) {
             $relative = str_replace('\\', '/', substr($item->getPathname(), strlen($directory) + 1));
             if ($item->isLink()) {
-                throw new \RuntimeException("duo: the unpacked release contains a symbolic link '$relative'");
+                throw new \RuntimeException("wprism: the unpacked release contains a symbolic link '$relative'");
             }
             if ($item->isDir()) {
                 continue;
             }
             if (!$item->isFile() || !PathSafety::safe_relative($relative)) {
-                throw new \RuntimeException("duo: the unpacked release contains an unusable entry '$relative'");
+                throw new \RuntimeException("wprism: the unpacked release contains an unusable entry '$relative'");
             }
             $digest = hash_file('sha256', $item->getPathname());
             if (!is_string($digest)) {
-                throw new \RuntimeException("duo: could not digest the unpacked release entry '$relative'");
+                throw new \RuntimeException("wprism: could not digest the unpacked release entry '$relative'");
             }
             $rows[] = ['path' => $relative, 'sha256' => $digest];
         }
@@ -439,16 +439,16 @@ final class WpOrgReleases {
 
     /** A fresh unpack directory under the temp root; removeTree() removes only these. */
     public static function temporaryDirectory(): string {
-        $path = rtrim(sys_get_temp_dir(), '/') . '/duo-code-unpack-' . bin2hex(random_bytes(8));
+        $path = rtrim(sys_get_temp_dir(), '/') . '/wprism-code-unpack-' . bin2hex(random_bytes(8));
         if (!@mkdir($path, 0700, true)) {
-            throw new \RuntimeException("duo: could not create the unpack directory $path");
+            throw new \RuntimeException("wprism: could not create the unpack directory $path");
         }
         return $path;
     }
 
     /** Removes only a directory temporaryDirectory() created under the temp root. */
     public static function removeTree(string $path): void {
-        if (!str_contains($path, '/duo-code-unpack-') || !is_dir($path)) {
+        if (!str_contains($path, '/wprism-code-unpack-') || !is_dir($path)) {
             return;
         }
         $iterator = new \RecursiveIteratorIterator(

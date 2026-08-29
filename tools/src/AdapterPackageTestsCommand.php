@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Duo\Tooling;
+namespace WPrism\Tooling;
 
 use Throwable;
 
@@ -12,7 +12,7 @@ require_once __DIR__ . '/AdapterPackageTestRunner.php';
 /** Stable CLI contract for listing or running one adapter package's tests. */
 final class AdapterPackageTestsCommand
 {
-    public const PLAN_FORMAT = 'duo-adapter-package-test-plan/v1';
+    public const PLAN_FORMAT = 'wprism-adapter-package-test-plan/v1';
     public const USAGE = 'usage: php tools/adapter-package-tests.php --adapter=SLUG [--repo=PATH] '
         . '[--class=offline|live|certify|conformance|spike] [--list|--json]';
 

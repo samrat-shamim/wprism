@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# DUO-3350 CodeStageTransaction seam: failure injection for stage's
+# issue #3350 CodeStageTransaction seam: failure injection for stage's
 # materialized-payload -> staged-ledger handoff.
 # Every marker statement and COMMIT must roll back all five temporary receipt
 # keys. A child PHP process retries from the serialized Ledger snapshot left by
@@ -7,17 +7,17 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 SCRIPT="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
-MODE="${DUO_STAGE_TRANSACTION_MODE:-matrix}"
+MODE="${WPRISM_STAGE_TRANSACTION_MODE:-matrix}"
 
-DUO_ROOT="$ROOT" DUO_STAGE_TRANSACTION_MODE="$MODE" DUO_STAGE_TRANSACTION_SCRIPT="$SCRIPT" php -d display_errors=1 <<'PHP'
+WPRISM_ROOT="$ROOT" WPRISM_STAGE_TRANSACTION_MODE="$MODE" WPRISM_STAGE_TRANSACTION_SCRIPT="$SCRIPT" php -d display_errors=1 <<'PHP'
 <?php
-namespace Duo;
+namespace WPrism;
 
-$root = getenv('DUO_ROOT');
-$mode = (string) (getenv('DUO_STAGE_TRANSACTION_MODE') ?: 'matrix');
+$root = getenv('WPRISM_ROOT');
+$mode = (string) (getenv('WPRISM_STAGE_TRANSACTION_MODE') ?: 'matrix');
 $state = null;
 if ($mode === 'retry') {
-    $statePath = (string) getenv('DUO_STAGE_TRANSACTION_STATE');
+    $statePath = (string) getenv('WPRISM_STAGE_TRANSACTION_STATE');
     $raw = $statePath === '' ? false : @file_get_contents($statePath);
     if ($raw === false) {
         throw new \RuntimeException('FAIL: fresh stage retry did not receive its durable Ledger snapshot');
@@ -37,8 +37,8 @@ if ($mode === 'retry') {
     $repo = $state['repo'];
     $target = $state['target'];
 } elseif ($mode === 'matrix') {
-    $target = sys_get_temp_dir() . '/duo-code-stage-transaction-target-' . bin2hex(random_bytes(6));
-    $repo = sys_get_temp_dir() . '/duo-code-stage-transaction-repo-' . bin2hex(random_bytes(6));
+    $target = sys_get_temp_dir() . '/wprism-code-stage-transaction-target-' . bin2hex(random_bytes(6));
+    $repo = sys_get_temp_dir() . '/wprism-code-stage-transaction-repo-' . bin2hex(random_bytes(6));
 } else {
     throw new \RuntimeException("FAIL: unknown stage transaction test mode '$mode'");
 }
@@ -190,7 +190,7 @@ $reset = static function () use ($target): void {
     Db::$terminalCommitFailure = false;
 };
 $freshRetry = static function () use ($repo, $target, $artifact): void {
-    $script = (string) getenv('DUO_STAGE_TRANSACTION_SCRIPT');
+    $script = (string) getenv('WPRISM_STAGE_TRANSACTION_SCRIPT');
     if ($script === '' || !is_file($script)) {
         throw new \RuntimeException('FAIL: fresh stage retry cannot locate this regression script');
     }
@@ -208,9 +208,9 @@ $freshRetry = static function () use ($repo, $target, $artifact): void {
         $inherited = getenv();
         $env = is_array($inherited) ? $inherited : [];
         $env['PATH'] = $env['PATH'] ?? '/usr/bin:/bin';
-        $env['DUO_ROOT'] = (string) getenv('DUO_ROOT');
-        $env['DUO_STAGE_TRANSACTION_MODE'] = 'retry';
-        $env['DUO_STAGE_TRANSACTION_STATE'] = $statePath;
+        $env['WPRISM_ROOT'] = (string) getenv('WPRISM_ROOT');
+        $env['WPRISM_STAGE_TRANSACTION_MODE'] = 'retry';
+        $env['WPRISM_STAGE_TRANSACTION_STATE'] = $statePath;
         $process = proc_open(['bash', $script], [
             1 => ['pipe', 'w'],
             2 => ['pipe', 'w'],
@@ -312,7 +312,7 @@ if (Db::$starts !== 1 || Db::$commits !== 1 || Db::$rollbacks !== 0
 }
 
 // An uninterrupted first stage does retain the narrower proof that this path
-// was absent before Duo created it. That proof is atomically bound to the
+// was absent before WPrism created it. That proof is atomically bound to the
 // staged descriptor and may later authorize only abandoned staged-MU cleanup.
 $reset();
 $result = Code::stage($repo, $compiled, [

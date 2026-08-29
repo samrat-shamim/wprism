@@ -1,14 +1,14 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Orchestrator;
+namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/EnvironmentDriver.php';
 
 /**
  * Placing one host-built archive at one target path — the whole capability
  * gap between "the host resolved the locked components" and "the target holds
- * them" (DUO-3514).
+ * them" (issue #3514).
  *
  * This is the code-half sibling of `RecoveryTransport` (RecoveryTransport.php)
  * and it exists for the same stated reason, applied to a different protocol.
@@ -58,7 +58,7 @@ interface CodePushTransport extends EnvironmentDriver {
      * Pure naming, deliberately: the caller records the path BEFORE the write
      * is attempted so its `finally` can remove a partially placed archive.
      * The label is part of the wire — a live fixture asserts that a re-run
-     * transferring nothing leaves no `/tmp/duo-code-push-*` behind — so it is
+     * transferring nothing leaves no `/tmp/wprism-code-push-*` behind — so it is
      * validated rather than interpolated.
      */
     public function allocateCodePushInput(string $label): string;

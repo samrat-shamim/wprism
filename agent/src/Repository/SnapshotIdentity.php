@@ -1,5 +1,5 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
 /**
  * Identity boundary for typed-snapshot rows.
@@ -123,7 +123,7 @@ final class SnapshotIdentity {
         if ($strictReadOnly) {
             if ($uuid === null) {
                 throw new \RuntimeException(
-                    "duo: refresh export refused — mapped identity missing for populated table '$table' row $localId ($idKind); "
+                    "wprism: refresh export refused — mapped identity missing for populated table '$table' row $localId ($idKind); "
                     . 'run the existing capture/identity recovery gate before exporting production'
                 );
             }
@@ -141,9 +141,9 @@ final class SnapshotIdentity {
             } else {
                 if (!$mint) {
                     throw new \RuntimeException(
-                        "duo: mapped identity missing for populated table '$table' row $localId ($idKind); "
+                        "wprism: mapped identity missing for populated table '$table' row $localId ($idKind); "
                         . 'refusing to create or rebind it. Restore a verified identity sidecar with '
-                        . '`wp duo identity-import --repo=<repo> --in=<file>` before plan/apply'
+                        . '`wp wprism identity-import --repo=<repo> --in=<file>` before plan/apply'
                     );
                 }
                 $uuid = ($this->uuidV7)();
@@ -172,7 +172,7 @@ final class SnapshotIdentity {
                 $token = $raw > 0 ? $tokens->id_to_token($raw, $refKinds[$column]) : null;
                 if ($token === null) {
                     throw new \RuntimeException(
-                        "duo: table '$table' row $localId: identity.mode=natural_key column '$column' holds "
+                        "wprism: table '$table' row $localId: identity.mode=natural_key column '$column' holds "
                         . ($raw > 0 ? "unmanaged {$refKinds[$column]} ref $raw" : 'no reference')
                         . ' — a parent-scoped natural key derives from the REFERENCED row\'s own uuid, so capture '
                         . 'scope must include that row'
@@ -184,7 +184,7 @@ final class SnapshotIdentity {
             $value = (string) ($row[$column] ?? '');
             if ($value === '') {
                 throw new \RuntimeException(
-                    "duo: table '$table' row $localId: identity.mode=natural_key column '$column' is empty — "
+                    "wprism: table '$table' row $localId: identity.mode=natural_key column '$column' is empty — "
                     . 'cannot mint a stable identity for this row'
                 );
             }
@@ -212,14 +212,14 @@ final class SnapshotIdentity {
             $raw = (int) ($row[$col] ?? 0);
             if ($raw <= 0) {
                 throw new \RuntimeException(
-                    "duo: $table row has empty identity column '$col' — every composite_ref identity "
+                    "wprism: $table row has empty identity column '$col' — every composite_ref identity "
                     . 'column is structural, never optional (there is no partial version of a join fact)'
                 );
             }
             $token = $tokens->id_to_token($raw, $kindByCol[$col]);
             if ($token === null) {
                 throw new \RuntimeException(
-                    "duo: $table row has unmanaged {$kindByCol[$col]} ref $raw in identity column '$col' — "
+                    "wprism: $table row has unmanaged {$kindByCol[$col]} ref $raw in identity column '$col' — "
                     . 'capture scope must include the referenced row'
                 );
             }
@@ -240,7 +240,7 @@ final class SnapshotIdentity {
         $uuid = $this->uuidInToken($token);
         if ($uuid === null) {
             throw new \RuntimeException(
-                "duo: malformed ref token '$token' (composite_ref/natural_key identity derivation)"
+                "wprism: malformed ref token '$token' (composite_ref/natural_key identity derivation)"
             );
         }
         return $uuid;
@@ -258,7 +258,7 @@ final class SnapshotIdentity {
         }
         if ($overflow) {
             throw new \RuntimeException(
-                "duo: table '$table' composite identity (" . implode(', ', $pairs) . ') has out-of-budget component(s) ('
+                "wprism: table '$table' composite identity (" . implode(', ', $pairs) . ') has out-of-budget component(s) ('
                 . implode(', ', $overflow) . ') — each component must be 0..' . self::COMPOSITE_COMPONENT_MAX
                 . " for this engine's packed local_id (see pack_composite_id()'s docblock)"
             );

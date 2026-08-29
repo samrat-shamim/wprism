@@ -50,11 +50,11 @@ require_once __DIR__ . '/../../../../agent/src/Grammar/Tokens.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/UserMetaMaterializer.php';
 
-use Duo\ApplyFieldMaterializer;
-use Duo\MetaRows;
-use Duo\Policy;
-use Duo\Tokens;
-use Duo\UserMetaMaterializer;
+use WPrism\ApplyFieldMaterializer;
+use WPrism\MetaRows;
+use WPrism\Policy;
+use WPrism\Tokens;
+use WPrism\UserMetaMaterializer;
 
 final class UserMetaMaterializerWpdb {
     public string $prefix = 'wp_';
@@ -91,11 +91,11 @@ final class UserMetaMaterializerWpdb {
 
     public function query(string $sql): int|false {
         $this->queries[] = $sql;
-        if (preg_match('/^SAVEPOINT `duo_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
+        if (preg_match('/^SAVEPOINT `wprism_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
             $this->savepointExists = true;
             return 1;
         }
-        if (preg_match('/^RELEASE SAVEPOINT `duo_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
+        if (preg_match('/^RELEASE SAVEPOINT `wprism_authored_[0-9a-f]{24}`$/D', $sql) === 1) {
             if (!$this->savepointExists) {
                 $this->last_error = 'SAVEPOINT does not exist';
                 return false;
@@ -312,7 +312,7 @@ $interpreterInstances->setValue($policy, ['nullable-fixture' => $nullableInterpr
 $tokens = new Tokens('https://source.test', 'https://source.test/wp-content/uploads');
 $field = new ApplyFieldMaterializer($policy, $tokens);
 $subject = new UserMetaMaterializer($policy, $tokens, $field);
-\Duo\CacheInvalidationTransaction::begin();
+\WPrism\CacheInvalidationTransaction::begin();
 $wpdb = new UserMetaMaterializerWpdb();
 $wpdb->userRows = [['ID' => 17, 'user_login' => 'Editor'], ['ID' => 18, 'user_login' => 'Viewer']];
 $wpdb->metaRows = [
@@ -494,14 +494,14 @@ $check($failure !== null && str_contains($failure->getMessage(), 'disappeared af
     && $wpdb->metaRows === $beforeMissing,
     'a deleted exact user refuses before orphaning user-meta state');
 
-\Duo\CacheInvalidationTransaction::end();
-\Duo\CacheInvalidationTransaction::begin();
+\WPrism\CacheInvalidationTransaction::end();
+\WPrism\CacheInvalidationTransaction::begin();
 $cacheEvents = [];
 $cacheGenerationEvents = [];
 $cacheDeleteCalls = 0;
 $cacheDeleteThrowAt = 1;
 try {
-    \Duo\CacheInvalidationTransaction::queue_user_meta(17, 'user-meta composite failure fixture');
+    \WPrism\CacheInvalidationTransaction::queue_user_meta(17, 'user-meta composite failure fixture');
     $compositeFailure = null;
 } catch (Throwable $failure) {
     $compositeFailure = $failure;
@@ -514,14 +514,14 @@ $check(
     'a first owner-cache failure still attempts the already-registered users generation'
 );
 $cacheDeleteThrowAt = null;
-\Duo\CacheInvalidationTransaction::finish();
+\WPrism\CacheInvalidationTransaction::finish();
 $check(
     $cacheEvents === [['user_meta', '17'], ['user_meta', '17']]
         && $cacheGenerationEvents === [['users', 'last_changed'], ['users', 'last_changed']],
     'post-outcome finish retries every user-meta composite primitive registered before the failure'
 );
-\Duo\CacheInvalidationTransaction::end();
-\Duo\CacheInvalidationTransaction::begin();
+\WPrism\CacheInvalidationTransaction::end();
+\WPrism\CacheInvalidationTransaction::begin();
 $cacheEvents = [];
 $cacheGenerationEvents = [];
 $cacheDeleteCalls = 0;
@@ -529,7 +529,7 @@ $cacheDeleteThrowAt = null;
 $cacheGenerationCalls = 0;
 $cacheGenerationThrowAt = 1;
 try {
-    \Duo\CacheInvalidationTransaction::queue_user_meta(17, 'user-meta generation failure fixture');
+    \WPrism\CacheInvalidationTransaction::queue_user_meta(17, 'user-meta generation failure fixture');
     $generationFailure = null;
 } catch (Throwable $failure) {
     $generationFailure = $failure;
@@ -542,14 +542,14 @@ $check(
     'a last generation failure occurs only after the owner-cache primitive was attempted'
 );
 $cacheGenerationThrowAt = null;
-\Duo\CacheInvalidationTransaction::finish();
+\WPrism\CacheInvalidationTransaction::finish();
 $check(
     $cacheEvents === [['user_meta', '17'], ['user_meta', '17']]
         && $cacheGenerationEvents === [['users', 'last_changed'], ['users', 'last_changed']],
     'post-outcome finish retries both user-meta primitives after a last-position failure'
 );
-\Duo\CacheInvalidationTransaction::end();
-\Duo\CacheInvalidationTransaction::begin();
+\WPrism\CacheInvalidationTransaction::end();
+\WPrism\CacheInvalidationTransaction::begin();
 $cacheEvents = [];
 $cacheGenerationEvents = [];
 $cacheDeleteCalls = 0;
@@ -557,7 +557,7 @@ $cacheDeleteThrowAt = 2;
 $cacheGenerationCalls = 0;
 $cacheGenerationThrowAt = null;
 try {
-    \Duo\CacheInvalidationTransaction::queue_option('fixture_option', 'middle cache failure fixture');
+    \WPrism\CacheInvalidationTransaction::queue_option('fixture_option', 'middle cache failure fixture');
     $middleFailure = null;
 } catch (Throwable $failure) {
     $middleFailure = $failure;
@@ -574,17 +574,17 @@ $check(
     'a middle primitive failure still attempts every pre-registered member of a larger cache composite'
 );
 $cacheDeleteThrowAt = null;
-\Duo\CacheInvalidationTransaction::finish();
+\WPrism\CacheInvalidationTransaction::finish();
 $check(
     $cacheEvents === array_merge($optionComposite, $optionComposite),
     'post-outcome finish retries the complete larger composite after a middle-position failure'
 );
 
 if ($failures) {
-    \Duo\CacheInvalidationTransaction::end();
+    \WPrism\CacheInvalidationTransaction::end();
     echo "\n" . count($failures) . " failure(s):\n";
     foreach ($failures as $failure) echo "  - $failure\n";
     exit(1);
 }
-\Duo\CacheInvalidationTransaction::end();
+\WPrism\CacheInvalidationTransaction::end();
 echo "\nall UserMetaMaterializer product-path checks passed\n";

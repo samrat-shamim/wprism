@@ -1,16 +1,16 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo\Interpreters;
+namespace WPrism\Interpreters;
 
-use Duo\Canon;
-use Duo\IdentityTokenCodec;
-use Duo\Ledger;
-use Duo\PlainData;
-use Duo\Policy;
-use Duo\Secrets;
-use Duo\SidebarState;
-use Duo\Tokens;
+use WPrism\Canon;
+use WPrism\IdentityTokenCodec;
+use WPrism\Ledger;
+use WPrism\PlainData;
+use WPrism\Policy;
+use WPrism\Secrets;
+use WPrism\SidebarState;
+use WPrism\Tokens;
 
 /**
  * Exact repository constraints for the free TEC 6.17.2/6.17.3 storage
@@ -232,7 +232,7 @@ final class TheEventsCalendar {
             // this equality additionally rejects any non-empty disagreement.
             if ($source !== $rawAuthored) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar canonical Customizer snapshot disagrees with its exact authored row'
+                    'wprism: The Events Calendar canonical Customizer snapshot disagrees with its exact authored row'
                 );
             }
             return $this->normalize_customizer_sparse_map($source);
@@ -240,7 +240,7 @@ final class TheEventsCalendar {
 
         if ($rawAuthored !== []) {
             throw new \RuntimeException(
-                'duo: The Events Calendar absent canonical Customizer snapshot disagrees with its exact authored row'
+                'wprism: The Events Calendar absent canonical Customizer snapshot disagrees with its exact authored row'
             );
         }
         if (!array_key_exists(self::CUSTOMIZER_LEGACY_OPTION, $rawOptionSnapshot)) {
@@ -277,7 +277,7 @@ final class TheEventsCalendar {
         }
         if ($registerRuntimeRestore === null || $writeStorage === null) {
             throw new \RuntimeException(
-                'duo: The Events Calendar mixed-option writer lacks engine-owned storage/recovery authority'
+                'wprism: The Events Calendar mixed-option writer lacks engine-owned storage/recovery authority'
             );
         }
 
@@ -301,7 +301,7 @@ final class TheEventsCalendar {
             }
             if ($writeRuntimeOption === null) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar settings writer lacks runtime-companion authority'
+                    'wprism: The Events Calendar settings writer lacks runtime-companion authority'
                 );
             }
             $runtime = $this->prepare_settings_runtime(
@@ -316,7 +316,7 @@ final class TheEventsCalendar {
         if ($name === self::CALENDAR_OPTIONS) {
             if (!is_array($runtime)) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar settings runtime was not prepared before storage'
+                    'wprism: The Events Calendar settings runtime was not prepared before storage'
                 );
             }
             $this->reproduce_settings_runtime(
@@ -363,7 +363,7 @@ final class TheEventsCalendar {
         $this->assert_customizer_sub_key_declaration($declaredSubKeys);
         if (!array_is_list($desiredAuthoredKeys)) {
             throw new \RuntimeException(
-                'duo: The Events Calendar Customizer projection requires an ordered desired-section roster'
+                'wprism: The Events Calendar Customizer projection requires an ordered desired-section roster'
             );
         }
         $seenDesired = [];
@@ -372,7 +372,7 @@ final class TheEventsCalendar {
                 || isset($seenDesired[$section])
                 || (($declaredSubKeys[$section]['class'] ?? null) !== 'authored')) {
                 throw new \RuntimeException(
-                    "duo: The Events Calendar Customizer projection received a malformed desired section at position $position"
+                    "wprism: The Events Calendar Customizer projection received a malformed desired section at position $position"
                 );
             }
             $seenDesired[$section] = true;
@@ -412,7 +412,7 @@ final class TheEventsCalendar {
             $uuid = Ledger::uuid_for($localId, SidebarState::kind($idBase));
             if ($uuid === null) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar stored legacy widget has no durable SidebarState identity'
+                    'wprism: The Events Calendar stored legacy widget has no durable SidebarState identity'
                 );
             }
             return [
@@ -423,7 +423,7 @@ final class TheEventsCalendar {
 
         if (!array_key_exists('idBase', $attrs)) {
             throw new \RuntimeException(
-                'duo: The Events Calendar legacy widget must use the exact stored-id or embedded-instance form'
+                'wprism: The Events Calendar legacy widget must use the exact stored-id or embedded-instance form'
             );
         }
         $idBase = $this->widget_id_base($attrs['idBase']);
@@ -439,7 +439,7 @@ final class TheEventsCalendar {
         $this->assert_exact_keys($attrs, ['idBase', 'instance'], 'embedded legacy widget attributes');
         if (!is_array($attrs['instance']) || array_is_list($attrs['instance'])) {
             throw new \RuntimeException(
-                'duo: The Events Calendar embedded legacy widget instance must be one closed attribute object'
+                'wprism: The Events Calendar embedded legacy widget instance must be one closed attribute object'
             );
         }
         $instance = $attrs['instance'];
@@ -449,7 +449,7 @@ final class TheEventsCalendar {
             || $instance['encoded'] === ''
             || preg_match('/^(?:[A-Za-z0-9+\/]{4})*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?$/D', $instance['encoded']) !== 1) {
             throw new \RuntimeException(
-                'duo: The Events Calendar embedded legacy widget payload is not bounded canonical base64'
+                'wprism: The Events Calendar embedded legacy widget payload is not bounded canonical base64'
             );
         }
         $serialized = base64_decode($instance['encoded'], true);
@@ -457,14 +457,14 @@ final class TheEventsCalendar {
             || base64_encode($serialized) !== $instance['encoded']
             || strlen($serialized) > self::WIDGET_MAX_SERIALIZED_BYTES) {
             throw new \RuntimeException(
-                'duo: The Events Calendar embedded legacy widget payload exceeds or violates its storage grammar'
+                'wprism: The Events Calendar embedded legacy widget payload exceeds or violates its storage grammar'
             );
         }
         $this->assert_widget_hash($serialized, $instance['hash']);
         $settings = PlainData::decode_serialized($serialized, 'The Events Calendar embedded legacy widget');
         if (!is_array($settings) || ($settings !== [] && array_is_list($settings))) {
             throw new \RuntimeException(
-                'duo: The Events Calendar embedded legacy widget must decode to one plain settings object'
+                'wprism: The Events Calendar embedded legacy widget must decode to one plain settings object'
             );
         }
         $this->assert_bounded_widget_value($settings, 'embedded legacy widget settings');
@@ -473,7 +473,7 @@ final class TheEventsCalendar {
         return [
             'idBase' => $idBase,
             'instance' => [
-                'duo' => self::LEGACY_WIDGET_CODEC,
+                'wprism' => self::LEGACY_WIDGET_CODEC,
                 'settings' => $portable,
             ],
         ];
@@ -499,13 +499,13 @@ final class TheEventsCalendar {
             if (!is_string($attrs['id'])
                 || preg_match('/^\{\{widget:([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\}\}$/D', $attrs['id'], $match) !== 1) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar stored legacy widget identity must be one canonical widget token'
+                    'wprism: The Events Calendar stored legacy widget identity must be one canonical widget token'
                 );
             }
             $localId = Ledger::id_for($match[1], SidebarState::kind($idBase));
             if ($localId === null || $localId <= 0) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar stored legacy widget identity is not bound on the target'
+                    'wprism: The Events Calendar stored legacy widget identity is not bound on the target'
                 );
             }
             return ['id' => $idBase . '-' . $localId];
@@ -513,7 +513,7 @@ final class TheEventsCalendar {
 
         if (!array_key_exists('idBase', $attrs)) {
             throw new \RuntimeException(
-                'duo: The Events Calendar canonical legacy widget has no reviewed identity form'
+                'wprism: The Events Calendar canonical legacy widget has no reviewed identity form'
             );
         }
         $idBase = $this->widget_id_base($attrs['idBase']);
@@ -525,16 +525,16 @@ final class TheEventsCalendar {
         $this->assert_exact_keys($attrs, ['idBase', 'instance'], 'canonical embedded legacy widget attributes');
         if (!is_array($attrs['instance']) || array_is_list($attrs['instance'])) {
             throw new \RuntimeException(
-                'duo: The Events Calendar canonical embedded widget instance is malformed'
+                'wprism: The Events Calendar canonical embedded widget instance is malformed'
             );
         }
         $instance = $attrs['instance'];
-        $this->assert_exact_keys($instance, ['duo', 'settings'], 'canonical embedded legacy widget instance');
-        if (($instance['duo'] ?? null) !== self::LEGACY_WIDGET_CODEC
+        $this->assert_exact_keys($instance, ['wprism', 'settings'], 'canonical embedded legacy widget instance');
+        if (($instance['wprism'] ?? null) !== self::LEGACY_WIDGET_CODEC
             || !is_array($instance['settings'])
             || ($instance['settings'] !== [] && array_is_list($instance['settings']))) {
             throw new \RuntimeException(
-                'duo: The Events Calendar canonical embedded widget codec marker or settings object is invalid'
+                'wprism: The Events Calendar canonical embedded widget codec marker or settings object is invalid'
             );
         }
         $this->assert_bounded_widget_value($instance['settings'], 'canonical embedded widget settings');
@@ -542,7 +542,7 @@ final class TheEventsCalendar {
         $serialized = serialize($settings);
         if (strlen($serialized) > self::WIDGET_MAX_SERIALIZED_BYTES) {
             throw new \RuntimeException(
-                'duo: The Events Calendar target widget instance exceeds the reviewed storage budget'
+                'wprism: The Events Calendar target widget instance exceeds the reviewed storage budget'
             );
         }
         $hash = $this->widget_hash($serialized);
@@ -1143,8 +1143,8 @@ final class TheEventsCalendar {
                     throw new \RuntimeException('invalid instance');
                 }
                 $instance = $attrs['instance'];
-                $this->assert_exact_keys($instance, ['duo', 'settings'], 'canonical embedded legacy widget instance');
-                if (($instance['duo'] ?? null) !== self::LEGACY_WIDGET_CODEC
+                $this->assert_exact_keys($instance, ['wprism', 'settings'], 'canonical embedded legacy widget instance');
+                if (($instance['wprism'] ?? null) !== self::LEGACY_WIDGET_CODEC
                     || !is_array($instance['settings'])
                     || ($instance['settings'] !== [] && array_is_list($instance['settings']))) {
                     throw new \RuntimeException('invalid codec settings');
@@ -1288,7 +1288,7 @@ final class TheEventsCalendar {
             || !is_array($block['innerContent'] ?? null)
             || ($block['innerContent'] ?? []) !== []) {
             throw new \RuntimeException(
-                'duo: The Events Calendar legacy widget must be one exact self-closing core block'
+                'wprism: The Events Calendar legacy widget must be one exact self-closing core block'
             );
         }
     }
@@ -1298,13 +1298,13 @@ final class TheEventsCalendar {
         $attrs = $block['attrs'] ?? null;
         if (!is_array($attrs) || ($attrs !== [] && array_is_list($attrs))) {
             throw new \RuntimeException(
-                'duo: The Events Calendar legacy widget attributes must be one closed object'
+                'wprism: The Events Calendar legacy widget attributes must be one closed object'
             );
         }
         foreach (array_keys($attrs) as $key) {
             if (!is_string($key)) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar legacy widget attributes contain a non-string key'
+                    'wprism: The Events Calendar legacy widget attributes contain a non-string key'
                 );
             }
         }
@@ -1315,20 +1315,20 @@ final class TheEventsCalendar {
         $actual = array_keys($value);
         foreach ($actual as $key) {
             if (!is_string($key)) {
-                throw new \RuntimeException("duo: The Events Calendar $context has a non-string key");
+                throw new \RuntimeException("wprism: The Events Calendar $context has a non-string key");
             }
         }
         sort($actual, SORT_STRING);
         sort($expected, SORT_STRING);
         if ($actual !== $expected) {
-            throw new \RuntimeException("duo: The Events Calendar $context has an unknown or missing field");
+            throw new \RuntimeException("wprism: The Events Calendar $context has an unknown or missing field");
         }
     }
 
     private function widget_id_base(mixed $value): string {
         if (!is_string($value) || !in_array($value, [self::LIST_WIDGET, self::QR_WIDGET], true)) {
             throw new \RuntimeException(
-                'duo: The Events Calendar legacy widget idBase is not one exact free-plugin widget type'
+                'wprism: The Events Calendar legacy widget idBase is not one exact free-plugin widget type'
             );
         }
         return $value;
@@ -1346,7 +1346,7 @@ final class TheEventsCalendar {
             || (string) (int) $match[2] !== $match[2]
             || (int) $match[2] <= 0) {
             throw new \RuntimeException(
-                'duo: The Events Calendar stored legacy widget id must use one supported idBase and canonical positive instance'
+                'wprism: The Events Calendar stored legacy widget id must use one supported idBase and canonical positive instance'
             );
         }
         return [$match[1], (int) $match[2]];
@@ -1358,7 +1358,7 @@ final class TheEventsCalendar {
             || preg_match('/^[a-f0-9]{32}$/D', $hash) !== 1
             || !hash_equals($this->widget_hash($serialized), $hash)) {
             throw new \RuntimeException(
-                'duo: The Events Calendar embedded legacy widget source hash is missing or invalid'
+                'wprism: The Events Calendar embedded legacy widget source hash is missing or invalid'
             );
         }
     }
@@ -1366,7 +1366,7 @@ final class TheEventsCalendar {
     private function widget_hash(string $serialized): string {
         if (!function_exists('wp_hash')) {
             throw new \RuntimeException(
-                'duo: The Events Calendar legacy widget codec requires the native WordPress hash service'
+                'wprism: The Events Calendar legacy widget codec requires the native WordPress hash service'
             );
         }
         $hash = wp_hash($serialized);
@@ -1374,7 +1374,7 @@ final class TheEventsCalendar {
             || strlen($hash) !== self::WIDGET_HASH_BYTES
             || preg_match('/^[a-f0-9]{32}$/D', $hash) !== 1) {
             throw new \RuntimeException(
-                'duo: The Events Calendar legacy widget hash service returned an unsupported receipt'
+                'wprism: The Events Calendar legacy widget hash service returned an unsupported receipt'
             );
         }
         return $hash;
@@ -1386,12 +1386,12 @@ final class TheEventsCalendar {
             ++$nodes;
             if ($nodes > self::WIDGET_MAX_NODES || $depth > self::WIDGET_MAX_DEPTH) {
                 throw new \RuntimeException(
-                    "duo: The Events Calendar $context exceeds its closed depth or node budget"
+                    "wprism: The Events Calendar $context exceeds its closed depth or node budget"
                 );
             }
             if (is_object($current) || is_resource($current) || is_float($current)) {
                 throw new \RuntimeException(
-                    "duo: The Events Calendar $context contains an unsupported value type"
+                    "wprism: The Events Calendar $context contains an unsupported value type"
                 );
             }
             if (is_string($current)) {
@@ -1404,13 +1404,13 @@ final class TheEventsCalendar {
             foreach ($current as $key => $child) {
                 if (!is_string($key) || $key === '' || strlen($key) > self::WIDGET_MAX_KEY_BYTES) {
                     throw new \RuntimeException(
-                        "duo: The Events Calendar $context contains an invalid settings key"
+                        "wprism: The Events Calendar $context contains an invalid settings key"
                     );
                 }
                 if (class_exists('ReflectionReference')
                     && \ReflectionReference::fromArrayElement($current, $key) !== null) {
                     throw new \RuntimeException(
-                        "duo: The Events Calendar $context contains a PHP reference"
+                        "wprism: The Events Calendar $context contains a PHP reference"
                     );
                 }
                 $walk($child, $depth + 1);
@@ -1424,18 +1424,18 @@ final class TheEventsCalendar {
             || preg_match('//u', $value) !== 1
             || preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/D', $value) === 1) {
             throw new \RuntimeException(
-                "duo: The Events Calendar $context contains an over-budget or invalid text value"
+                "wprism: The Events Calendar $context contains an over-budget or invalid text value"
             );
         }
         if (Secrets::hard_match($value) !== null) {
             throw new \RuntimeException(
-                "duo: The Events Calendar $context contains a hard credential; refusing capture"
+                "wprism: The Events Calendar $context contains a hard credential; refusing capture"
             );
         }
         if (preg_match('/(?:javascript|data)\s*:/iD', $value) === 1
             || preg_match('#https?://[^/\s:@]+:[^/\s@]+@#iD', $value) === 1) {
             throw new \RuntimeException(
-                "duo: The Events Calendar $context contains an unsafe URL shape"
+                "wprism: The Events Calendar $context contains an unsafe URL shape"
             );
         }
     }
@@ -1465,7 +1465,7 @@ final class TheEventsCalendar {
             if (in_array($key, ['no_upcoming_events', 'featured_events_only', 'jsonld_enable', 'tribe_is_list_widget'], true)) {
                 if (!is_bool($value)) {
                     throw new \RuntimeException(
-                        "duo: The Events Calendar list widget setting '$key' must be a native boolean"
+                        "wprism: The Events Calendar list widget setting '$key' must be a native boolean"
                     );
                 }
                 $out[$key] = $value;
@@ -1474,7 +1474,7 @@ final class TheEventsCalendar {
             if ($key === 'qr_code_size') {
                 if (!is_string($value) || !in_array($value, ['4', '8', '12', '16', '20', '24', '28'], true)) {
                     throw new \RuntimeException(
-                        'duo: The Events Calendar QR widget size is outside its exact native menu'
+                        'wprism: The Events Calendar QR widget size is outside its exact native menu'
                     );
                 }
                 $out[$key] = $value;
@@ -1483,7 +1483,7 @@ final class TheEventsCalendar {
             if ($key === 'redirection') {
                 if (!is_string($value) || !in_array($value, ['current', 'upcoming', 'specific'], true)) {
                     throw new \RuntimeException(
-                        'duo: The Events Calendar QR widget redirection is outside its exact native menu'
+                        'wprism: The Events Calendar QR widget redirection is outside its exact native menu'
                     );
                 }
                 $out[$key] = $value;
@@ -1493,14 +1493,14 @@ final class TheEventsCalendar {
                 $id = $this->native_widget_reference_id($value, 'event_id');
                 $out[$key] = $id === null ? null : ($tokens->id_to_token($id, 'post')
                     ?? throw new \RuntimeException(
-                        'duo: The Events Calendar QR widget event reference is not managed by this repository'
+                        'wprism: The Events Calendar QR widget event reference is not managed by this repository'
                     ));
                 continue;
             }
             if ($key === 'series_id') {
                 if ($this->native_widget_reference_id($value, 'series_id') !== null) {
                     throw new \RuntimeException(
-                        'duo: The Events Calendar QR widget series reference requires the licensed recurrence surface'
+                        'wprism: The Events Calendar QR widget series reference requires the licensed recurrence surface'
                     );
                 }
                 // Exact 6.17.2/6.17.3 Widget_QR_Code::update() persists
@@ -1510,7 +1510,7 @@ final class TheEventsCalendar {
         }
         if (($out['redirection'] ?? null) === 'specific' && ($out['event_id'] ?? null) === null) {
             throw new \RuntimeException(
-                'duo: The Events Calendar QR widget specific redirection requires one managed event'
+                'wprism: The Events Calendar QR widget specific redirection requires one managed event'
             );
         }
         return $out;
@@ -1532,7 +1532,7 @@ final class TheEventsCalendar {
                 || ($idBase === self::QR_WIDGET && $key === 'widget_title')) {
                 if (!is_string($value)) {
                     throw new \RuntimeException(
-                        "duo: The Events Calendar canonical widget setting '$key' must be a string"
+                        "wprism: The Events Calendar canonical widget setting '$key' must be a string"
                     );
                 }
                 $value = $tokens->detokenize_text($value);
@@ -1547,7 +1547,7 @@ final class TheEventsCalendar {
             if (in_array($key, ['no_upcoming_events', 'featured_events_only', 'jsonld_enable', 'tribe_is_list_widget'], true)) {
                 if (!is_bool($value)) {
                     throw new \RuntimeException(
-                        "duo: The Events Calendar canonical list widget setting '$key' must be boolean"
+                        "wprism: The Events Calendar canonical list widget setting '$key' must be boolean"
                     );
                 }
                 $out[$key] = $value;
@@ -1555,14 +1555,14 @@ final class TheEventsCalendar {
             }
             if ($key === 'qr_code_size') {
                 if (!is_string($value) || !in_array($value, ['4', '8', '12', '16', '20', '24', '28'], true)) {
-                    throw new \RuntimeException('duo: The Events Calendar canonical QR widget size is invalid');
+                    throw new \RuntimeException('wprism: The Events Calendar canonical QR widget size is invalid');
                 }
                 $out[$key] = $value;
                 continue;
             }
             if ($key === 'redirection') {
                 if (!is_string($value) || !in_array($value, ['current', 'upcoming', 'specific'], true)) {
-                    throw new \RuntimeException('duo: The Events Calendar canonical QR widget redirection is invalid');
+                    throw new \RuntimeException('wprism: The Events Calendar canonical QR widget redirection is invalid');
                 }
                 $out[$key] = $value;
                 continue;
@@ -1574,13 +1574,13 @@ final class TheEventsCalendar {
                 }
                 if (!is_string($value)) {
                     throw new \RuntimeException(
-                        'duo: The Events Calendar canonical QR widget event must be null or one post token'
+                        'wprism: The Events Calendar canonical QR widget event must be null or one post token'
                     );
                 }
                 $decoded = IdentityTokenCodec::decode($value);
                 if ($decoded['kind'] !== 'post') {
                     throw new \RuntimeException(
-                        'duo: The Events Calendar canonical QR widget event must use the post keyspace'
+                        'wprism: The Events Calendar canonical QR widget event must use the post keyspace'
                     );
                 }
                 $out[$key] = $tokens->token_to_id($value);
@@ -1589,7 +1589,7 @@ final class TheEventsCalendar {
             if ($key === 'series_id') {
                 if ($value !== 0) {
                     throw new \RuntimeException(
-                        'duo: The Events Calendar canonical QR widget series state is outside the free adapter'
+                        'wprism: The Events Calendar canonical QR widget series state is outside the free adapter'
                     );
                 }
                 $out[$key] = 0;
@@ -1597,7 +1597,7 @@ final class TheEventsCalendar {
         }
         if (($settings['redirection'] ?? null) === 'specific' && ($settings['event_id'] ?? null) === null) {
             throw new \RuntimeException(
-                'duo: The Events Calendar canonical QR widget specific redirection requires one event token'
+                'wprism: The Events Calendar canonical QR widget specific redirection requires one event token'
             );
         }
         $this->assert_bounded_widget_value($out, 'target embedded widget settings');
@@ -1608,7 +1608,7 @@ final class TheEventsCalendar {
         foreach (array_keys($settings) as $key) {
             if (!is_string($key) || !in_array($key, $allowed, true)) {
                 throw new \RuntimeException(
-                    "duo: The Events Calendar $form legacy widget contains an undeclared setting"
+                    "wprism: The Events Calendar $form legacy widget contains an undeclared setting"
                 );
             }
         }
@@ -1617,14 +1617,14 @@ final class TheEventsCalendar {
     private function assert_widget_title(mixed $value, string $key): void {
         if (!is_string($value) || !function_exists('wp_strip_all_tags')) {
             throw new \RuntimeException(
-                "duo: The Events Calendar widget setting '$key' requires one native sanitized string"
+                "wprism: The Events Calendar widget setting '$key' requires one native sanitized string"
             );
         }
         $this->assert_safe_widget_string($value, "widget setting '$key'");
         if (wp_strip_all_tags($value) !== $value
             || preg_match('/^(?:[aOsidbCE]:|N;)/D', trim($value)) === 1) {
             throw new \RuntimeException(
-                "duo: The Events Calendar widget setting '$key' is not one native plain-text value"
+                "wprism: The Events Calendar widget setting '$key' is not one native plain-text value"
             );
         }
     }
@@ -1638,7 +1638,7 @@ final class TheEventsCalendar {
             return $value;
         }
         throw new \RuntimeException(
-            'duo: The Events Calendar list widget limit must be the exact native integer range 1..10'
+            'wprism: The Events Calendar list widget limit must be the exact native integer range 1..10'
         );
     }
 
@@ -1656,7 +1656,7 @@ final class TheEventsCalendar {
             return (int) $value;
         }
         throw new \RuntimeException(
-            "duo: The Events Calendar QR widget '$key' must be an exact positive id or native unset value"
+            "wprism: The Events Calendar QR widget '$key' must be an exact positive id or native unset value"
         );
     }
 
@@ -1899,7 +1899,7 @@ final class TheEventsCalendar {
         PlainData::assert($storage, 'The Events Calendar target mixed option');
         if ($storage !== [] && array_is_list($storage)) {
             throw new \RuntimeException(
-                'duo: The Events Calendar target mixed option is not an object-shaped sibling map'
+                'wprism: The Events Calendar target mixed option is not an object-shaped sibling map'
             );
         }
         foreach ($declaredSubKeys as $subKey => $subRule) {
@@ -1911,7 +1911,7 @@ final class TheEventsCalendar {
             if (!is_string($subKey)
                 || (($declaredSubKeys[$subKey]['class'] ?? null) !== 'authored')) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar mixed option contains an undeclared/non-authored desired sibling'
+                    'wprism: The Events Calendar mixed option contains an undeclared/non-authored desired sibling'
                 );
             }
             $storage[$subKey] = $value;
@@ -1923,7 +1923,7 @@ final class TheEventsCalendar {
     private function customizer_materialized_storage(array $captured, ?array $targetValue): array {
         if ($this->normalize_customizer_sparse_map($captured) !== $captured) {
             throw new \RuntimeException(
-                'duo: The Events Calendar desired Customizer map is not in exact native-normalized form'
+                'wprism: The Events Calendar desired Customizer map is not in exact native-normalized form'
             );
         }
 
@@ -1966,14 +1966,14 @@ final class TheEventsCalendar {
      */
     private function assert_customizer_runtime(): void {
         if (!function_exists('tribe')) {
-            throw new \RuntimeException('duo: The Events Calendar Customizer service is unavailable');
+            throw new \RuntimeException('wprism: The Events Calendar Customizer service is unavailable');
         }
         try {
             $customizer = tribe('customizer');
             $sameCustomizer = tribe('customizer');
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: The Events Calendar Customizer service lookup failed',
+                'wprism: The Events Calendar Customizer service lookup failed',
                 0,
                 $failure
             );
@@ -1984,7 +1984,7 @@ final class TheEventsCalendar {
             || !isset($customizer->ID)
             || $customizer->ID !== self::CUSTOMIZER_CANONICAL_OPTION) {
             throw new \RuntimeException(
-                'duo: The Events Calendar Customizer service identity was extended or overridden'
+                'wprism: The Events Calendar Customizer service identity was extended or overridden'
             );
         }
 
@@ -1996,14 +1996,14 @@ final class TheEventsCalendar {
             || get_class($fallbackHook) !== 'WP_Hook'
             || !is_array($fallbackHook->callbacks ?? null)) {
             throw new \RuntimeException(
-                'duo: The Events Calendar Customizer fallback hook is absent or malformed'
+                'wprism: The Events Calendar Customizer fallback hook is absent or malformed'
             );
         }
         $callbacks = [];
         foreach ($fallbackHook->callbacks as $priority => $records) {
             if (!is_array($records)) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar Customizer fallback callback topology is malformed'
+                    'wprism: The Events Calendar Customizer fallback callback topology is malformed'
                 );
             }
             foreach ($records as $record) {
@@ -2022,7 +2022,7 @@ final class TheEventsCalendar {
             || ($callback[0] ?? null) !== $customizer
             || ($callback[1] ?? null) !== 'maybe_fallback_get_option') {
             throw new \RuntimeException(
-                'duo: The Events Calendar Customizer fallback callback topology was extended or overridden'
+                'wprism: The Events Calendar Customizer fallback callback topology was extended or overridden'
             );
         }
 
@@ -2044,7 +2044,7 @@ final class TheEventsCalendar {
                 && is_array($hook->callbacks ?? null)
                 && $hook->callbacks !== []) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar Customizer value/identity hook topology is extended'
+                    'wprism: The Events Calendar Customizer value/identity hook topology is extended'
                 );
             }
         }
@@ -2138,13 +2138,13 @@ final class TheEventsCalendar {
                 continue;
             }
             throw new \RuntimeException(
-                "duo: The Events Calendar option mutation hook topology is extended for '$name'"
+                "wprism: The Events Calendar option mutation hook topology is extended for '$name'"
             );
         }
     }
 
     /**
-     * Free TEC registers two callbacks on its mixed settings row. Duo never
+     * Free TEC registers two callbacks on its mixed settings row. WPrism never
      * executes either: fix_all_day_events() performs two unchecked global
      * postmeta updates without UTC/CT1/cache closure, while the cleaner can
      * permanently delete posts. The closed registry therefore keeps both
@@ -2159,7 +2159,7 @@ final class TheEventsCalendar {
             || !function_exists('tribe')
             || !function_exists('tribe_callback')) {
             throw new \RuntimeException(
-                'duo: The Events Calendar settings-effect services are unavailable'
+                'wprism: The Events Calendar settings-effect services are unavailable'
             );
         }
         try {
@@ -2168,7 +2168,7 @@ final class TheEventsCalendar {
             $cleanerCallback = tribe_callback('tec.event-cleaner', 'permanently_delete_old_events');
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: The Events Calendar settings-effect services could not be resolved',
+                'wprism: The Events Calendar settings-effect services could not be resolved',
                 0,
                 $failure
             );
@@ -2181,7 +2181,7 @@ final class TheEventsCalendar {
             || $cleaner->key_delete_events !== 'delete-past-events'
             || !is_callable($cleanerCallback)) {
             throw new \RuntimeException(
-                'duo: The Events Calendar settings-effect service identities were substituted'
+                'wprism: The Events Calendar settings-effect service identities were substituted'
             );
         }
         $expected = [
@@ -2192,7 +2192,7 @@ final class TheEventsCalendar {
             $wanted = $expected[$position] ?? null;
             if (!is_array($wanted)) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar settings-effect callback topology was extended'
+                    'wprism: The Events Calendar settings-effect callback topology was extended'
                 );
             }
             [$service, $method, $expectedPriority, $accepted] = $wanted;
@@ -2201,13 +2201,13 @@ final class TheEventsCalendar {
                 || ($record['accepted_args'] ?? null) !== $accepted
                 || ($record['function'] ?? null) !== $callback) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar settings-effect callback topology was extended or substituted'
+                    'wprism: The Events Calendar settings-effect callback topology was extended or substituted'
                 );
             }
         }
         if (count($records) !== count($expected)) {
             throw new \RuntimeException(
-                'duo: The Events Calendar settings-effect callback topology is incomplete'
+                'wprism: The Events Calendar settings-effect callback topology is incomplete'
             );
         }
     }
@@ -2220,7 +2220,7 @@ final class TheEventsCalendar {
             if ($oldPresent !== $newPresent
                 || ($oldPresent && $old[$key] !== $new[$key])) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar target-owned settings effect would mutate global event state'
+                    'wprism: The Events Calendar target-owned settings effect would mutate global event state'
                 );
             }
         }
@@ -2237,14 +2237,14 @@ final class TheEventsCalendar {
             || get_class($hook) !== 'WP_Hook'
             || !is_array($hook->callbacks ?? null)) {
             throw new \RuntimeException(
-                'duo: The Events Calendar option mutation hook topology is malformed'
+                'wprism: The Events Calendar option mutation hook topology is malformed'
             );
         }
         $records = [];
         foreach ($hook->callbacks as $priority => $atPriority) {
             if (!is_int($priority) || !is_array($atPriority)) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar option mutation hook topology is malformed'
+                    'wprism: The Events Calendar option mutation hook topology is malformed'
                 );
             }
             foreach ($atPriority as $record) {
@@ -2252,7 +2252,7 @@ final class TheEventsCalendar {
                     || array_keys($record) !== ['function', 'accepted_args']
                     || !is_int($record['accepted_args'] ?? null)) {
                     throw new \RuntimeException(
-                        'duo: The Events Calendar option mutation hook topology is malformed'
+                        'wprism: The Events Calendar option mutation hook topology is malformed'
                     );
                 }
                 $records[] = [$priority, $record];
@@ -2284,7 +2284,7 @@ final class TheEventsCalendar {
             || !class_exists('Tribe\\Events\\Views\\V2\\Hooks', false)
             || !function_exists('tribe')) {
             throw new \RuntimeException(
-                'duo: The Events Calendar option mutation hook topology lacks updated-option services'
+                'wprism: The Events Calendar option mutation hook topology lacks updated-option services'
             );
         }
         try {
@@ -2294,7 +2294,7 @@ final class TheEventsCalendar {
             $views = tribe('Tribe\\Events\\Views\\V2\\Hooks');
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: The Events Calendar option mutation hook topology could not resolve updated-option services',
+                'wprism: The Events Calendar option mutation hook topology could not resolve updated-option services',
                 0,
                 $failure
             );
@@ -2308,7 +2308,7 @@ final class TheEventsCalendar {
         foreach ([$manager, $listener, $aggregator, $views] as $position => $service) {
             if (!is_object($service) || get_class($service) !== $classes[$position]) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar option mutation hook topology has a substituted singleton'
+                    'wprism: The Events Calendar option mutation hook topology has a substituted singleton'
                 );
             }
         }
@@ -2355,14 +2355,14 @@ final class TheEventsCalendar {
             }
             if ($matched === null) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar option mutation hook topology has an extended/substituted updated callback'
+                    'wprism: The Events Calendar option mutation hook topology has an extended/substituted updated callback'
                 );
             }
             unset($expected[$matched]);
         }
         if ($expected !== []) {
             throw new \RuntimeException(
-                'duo: The Events Calendar option mutation hook topology has incomplete updated callbacks'
+                'wprism: The Events Calendar option mutation hook topology has incomplete updated callbacks'
             );
         }
     }
@@ -2409,7 +2409,7 @@ final class TheEventsCalendar {
             || !class_exists(self::WOO_SYNCHRONIZER, false)
             || !class_exists(self::WOO_CUSTOM_ORDERS, false)) {
             throw new \RuntimeException(
-                'duo: The Events Calendar option mutation hook topology found an incomplete WooCommerce runtime'
+                'wprism: The Events Calendar option mutation hook topology found an incomplete WooCommerce runtime'
             );
         }
         try {
@@ -2428,7 +2428,7 @@ final class TheEventsCalendar {
             $customOrders = is_array($cache) ? ($cache[self::WOO_CUSTOM_ORDERS] ?? null) : null;
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: The Events Calendar option mutation hook topology could not resolve WooCommerce services',
+                'wprism: The Events Calendar option mutation hook topology could not resolve WooCommerce services',
                 0,
                 $failure
             );
@@ -2441,7 +2441,7 @@ final class TheEventsCalendar {
         ] as [$service, $class]) {
             if (!is_object($service) || get_class($service) !== $class) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar option mutation hook topology has substituted WooCommerce services'
+                    'wprism: The Events Calendar option mutation hook topology has substituted WooCommerce services'
                 );
             }
         }
@@ -2466,7 +2466,7 @@ final class TheEventsCalendar {
                 [$woo['features'], 'process_added_option', 999, 3],
                 [$woo['synchronizer'], 'process_added_option', 999, 2],
             ],
-            default => throw new \LogicException('duo: unknown WooCommerce option callback family'),
+            default => throw new \LogicException('wprism: unknown WooCommerce option callback family'),
         };
         foreach ($records as [$priority, $record]) {
             $matched = null;
@@ -2480,14 +2480,14 @@ final class TheEventsCalendar {
             }
             if ($matched === null) {
                 throw new \RuntimeException(
-                    "duo: The Events Calendar option mutation hook topology has extended/substituted WooCommerce $hookName callbacks"
+                    "wprism: The Events Calendar option mutation hook topology has extended/substituted WooCommerce $hookName callbacks"
                 );
             }
             unset($expected[$matched]);
         }
         if ($expected !== []) {
             throw new \RuntimeException(
-                "duo: The Events Calendar option mutation hook topology has incomplete WooCommerce $hookName callbacks"
+                "wprism: The Events Calendar option mutation hook topology has incomplete WooCommerce $hookName callbacks"
             );
         }
     }
@@ -2528,7 +2528,7 @@ final class TheEventsCalendar {
         if (!class_exists('WPSEO_Options', false)
             || !is_callable(['WPSEO_Options', 'get_option_instance'])) {
             throw new \RuntimeException(
-                'duo: The Events Calendar option mutation hook topology found incomplete Yoast SEO option singletons'
+                'wprism: The Events Calendar option mutation hook topology found incomplete Yoast SEO option singletons'
             );
         }
         $options = [];
@@ -2537,14 +2537,14 @@ final class TheEventsCalendar {
                 $service = \WPSEO_Options::get_option_instance($optionName);
             } catch (\Throwable $failure) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar option mutation hook topology could not resolve Yoast SEO option services',
+                    'wprism: The Events Calendar option mutation hook topology could not resolve Yoast SEO option services',
                     0,
                     $failure
                 );
             }
             if (!is_object($service) || get_class($service) !== $class) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar option mutation hook topology found incomplete Yoast SEO option singletons'
+                    'wprism: The Events Calendar option mutation hook topology found incomplete Yoast SEO option singletons'
                 );
             }
             $options[$optionName] = $service;
@@ -2571,7 +2571,7 @@ final class TheEventsCalendar {
             || ($sitemapCallbacks[0][1]['function'] ?? null)
                 !== [self::WPSEO_SITEMAPS_CACHE, 'clear_on_option_update']) {
             throw new \RuntimeException(
-                'duo: The Events Calendar option mutation hook topology found incomplete or substituted Yoast SEO sitemap cache topology'
+                'wprism: The Events Calendar option mutation hook topology found incomplete or substituted Yoast SEO sitemap cache topology'
             );
         }
         $sitemaps = $GLOBALS['wpseo_sitemaps'];
@@ -2583,7 +2583,7 @@ final class TheEventsCalendar {
             || !class_exists(self::WPSEO_SITEMAPS_CACHE, false)
             || !is_callable([self::WPSEO_SITEMAPS_CACHE, 'clear_on_option_update'])) {
             throw new \RuntimeException(
-                'duo: The Events Calendar option mutation hook topology found incomplete or substituted Yoast SEO sitemap cache service'
+                'wprism: The Events Calendar option mutation hook topology found incomplete or substituted Yoast SEO sitemap cache service'
             );
         }
         return ['options' => $options, 'sitemaps' => $sitemaps, 'sitemaps_cache' => $sitemapsCache];
@@ -2594,14 +2594,14 @@ final class TheEventsCalendar {
             $cacheClear = (new \ReflectionProperty(self::WPSEO_SITEMAPS_CACHE, 'cache_clear'))->getValue();
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: The Events Calendar option mutation hook topology could not inspect the Yoast SEO sitemap cache registration map',
+                'wprism: The Events Calendar option mutation hook topology could not inspect the Yoast SEO sitemap cache registration map',
                 0,
                 $failure
             );
         }
         if (!is_array($cacheClear)) {
             throw new \RuntimeException(
-                'duo: The Events Calendar option mutation hook topology found a malformed Yoast SEO sitemap cache registration map'
+                'wprism: The Events Calendar option mutation hook topology found a malformed Yoast SEO sitemap cache registration map'
             );
         }
         foreach (array_unique([
@@ -2611,7 +2611,7 @@ final class TheEventsCalendar {
         ]) as $optionName) {
             if (array_key_exists($optionName, $cacheClear)) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar option mutation hook topology found a TEC marker registered for Yoast SEO sitemap cache invalidation'
+                    'wprism: The Events Calendar option mutation hook topology found a TEC marker registered for Yoast SEO sitemap cache invalidation'
                 );
             }
         }
@@ -2632,7 +2632,7 @@ final class TheEventsCalendar {
                 $expected[] = match ($hookName) {
                     'pre_update_option' => [$service, 'add_default_filters_if_not_changed', PHP_INT_MAX, 3],
                     'update_option', 'add_option' => [$service, 'add_default_filters_if_same_option', 10, 1],
-                    default => throw new \LogicException('duo: unknown external option callback family'),
+                    default => throw new \LogicException('wprism: unknown external option callback family'),
                 };
             }
             if ($hookName === 'update_option' && $wpseo['sitemaps_cache'] !== null) {
@@ -2661,7 +2661,7 @@ final class TheEventsCalendar {
                     $family = 'WooCommerce';
                 }
                 throw new \RuntimeException(
-                    "duo: The Events Calendar option mutation hook topology has extended/substituted $family $hookName callbacks"
+                    "wprism: The Events Calendar option mutation hook topology has extended/substituted $family $hookName callbacks"
                 );
             }
             unset($expected[$matched]);
@@ -2677,7 +2677,7 @@ final class TheEventsCalendar {
             }
             $family = $yoastMissing ? 'Yoast SEO' : ($wooMissing ? 'WooCommerce' : 'external');
             throw new \RuntimeException(
-                "duo: The Events Calendar option mutation hook topology has incomplete $family $hookName callbacks"
+                "wprism: The Events Calendar option mutation hook topology has incomplete $family $hookName callbacks"
             );
         }
     }
@@ -2719,7 +2719,7 @@ final class TheEventsCalendar {
         foreach (['tribe_isset_var', 'tribe_get_var', 'tribe_set_var', 'tribe_unset_var', 'tribe_cache'] as $function) {
             if (!function_exists($function)) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar settings runtime primitive is unavailable'
+                    'wprism: The Events Calendar settings runtime primitive is unavailable'
                 );
             }
         }
@@ -2729,7 +2729,7 @@ final class TheEventsCalendar {
             $containerCache = tribe('cache');
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: The Events Calendar global cache singleton could not be resolved',
+                'wprism: The Events Calendar global cache singleton could not be resolved',
                 0,
                 $failure
             );
@@ -2739,7 +2739,7 @@ final class TheEventsCalendar {
             $listenerCache = $cacheProperty->getValue($listener);
         } catch (\Throwable $failure) {
             throw new \RuntimeException(
-                'duo: The Events Calendar cache-listener service could not be inspected',
+                'wprism: The Events Calendar cache-listener service could not be inspected',
                 0,
                 $failure
             );
@@ -2753,7 +2753,7 @@ final class TheEventsCalendar {
             || get_class($listenerCache) !== 'Tribe__Cache'
             || $listenerCache === $globalCache) {
             throw new \RuntimeException(
-                'duo: The Events Calendar cache-listener/global cache identities were substituted'
+                'wprism: The Events Calendar cache-listener/global cache identities were substituted'
             );
         }
 
@@ -2802,7 +2802,7 @@ final class TheEventsCalendar {
                         . substr(hash('sha256', $failure->getMessage()), 0, 12);
                 }
                 throw new \RuntimeException(
-                    'duo: The Events Calendar local runtime restoration failed; ' . implode('; ', $parts),
+                    'wprism: The Events Calendar local runtime restoration failed; ' . implode('; ', $parts),
                     0,
                     reset($failures)
                 );
@@ -2834,7 +2834,7 @@ final class TheEventsCalendar {
                 if (!tribe_isset_var(self::SETTINGS_CACHE_KEY)
                     || tribe_get_var(self::SETTINGS_CACHE_KEY) !== $storage) {
                     throw new \RuntimeException(
-                        'duo: The Events Calendar settings cache did not accept exact native bytes'
+                        'wprism: The Events Calendar settings cache did not accept exact native bytes'
                     );
                 }
                 continue;
@@ -2874,7 +2874,7 @@ final class TheEventsCalendar {
         if (!tribe_isset_var(self::TRANSIENT_PURGE_FLAG)
             || tribe_get_var(self::TRANSIENT_PURGE_FLAG) !== true) {
             throw new \RuntimeException(
-                'duo: The Events Calendar transient-purge flag did not accept the native effect'
+                'wprism: The Events Calendar transient-purge flag did not accept the native effect'
             );
         }
     }
@@ -2887,7 +2887,7 @@ final class TheEventsCalendar {
         ] as $hook) {
             if ($this->option_hook_records($hook) !== []) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar cache-listener trigger topology is extended'
+                    'wprism: The Events Calendar cache-listener trigger topology is extended'
                 );
             }
         }
@@ -2902,7 +2902,7 @@ final class TheEventsCalendar {
         if (tribe_isset_var($key) !== $present
             || ($present && tribe_get_var($key) !== $value)) {
             throw new \RuntimeException(
-                'duo: The Events Calendar local runtime preimage could not be restored'
+                'wprism: The Events Calendar local runtime preimage could not be restored'
             );
         }
     }
@@ -2915,7 +2915,7 @@ final class TheEventsCalendar {
         sort($expected, SORT_STRING);
         if ($actual !== $expected) {
             throw new \RuntimeException(
-                'duo: The Events Calendar Customizer declaration is not the exact four-section free-plugin registry'
+                'wprism: The Events Calendar Customizer declaration is not the exact four-section free-plugin registry'
             );
         }
         foreach ($expected as $section) {
@@ -2927,7 +2927,7 @@ final class TheEventsCalendar {
                 || ($rule['class'] ?? null) !== 'authored'
                 || ($rule['plain_data'] ?? null) !== true) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar Customizer section declaration must use the exact authored plain-data grammar'
+                    'wprism: The Events Calendar Customizer section declaration must use the exact authored plain-data grammar'
                 );
             }
         }
@@ -2939,7 +2939,7 @@ final class TheEventsCalendar {
             || $raw !== trim($raw)
             || strlen($raw) > self::CUSTOMIZER_MAX_OPTION_BYTES) {
             throw new \RuntimeException(
-                "duo: The Events Calendar $source Customizer storage is not bounded canonical serialized data"
+                "wprism: The Events Calendar $source Customizer storage is not bounded canonical serialized data"
             );
         }
         $decoded = PlainData::decode_serialized(
@@ -2948,7 +2948,7 @@ final class TheEventsCalendar {
         );
         if (!is_array($decoded) || ($decoded !== [] && array_is_list($decoded))) {
             throw new \RuntimeException(
-                "duo: The Events Calendar $source Customizer storage is not a sparse section map"
+                "wprism: The Events Calendar $source Customizer storage is not a sparse section map"
             );
         }
         return $decoded;
@@ -2962,12 +2962,12 @@ final class TheEventsCalendar {
         $this->measure_customizer_value($raw, 0, $nodes, $bytes);
         if (Secrets::hard_match_deep($raw) !== null) {
             throw new \RuntimeException(
-                'duo: The Events Calendar Customizer storage contains a credential-shaped value'
+                'wprism: The Events Calendar Customizer storage contains a credential-shaped value'
             );
         }
         if ($raw !== [] && array_is_list($raw)) {
             throw new \RuntimeException(
-                'duo: The Events Calendar Customizer storage is not a sparse section map'
+                'wprism: The Events Calendar Customizer storage is not a sparse section map'
             );
         }
 
@@ -2975,12 +2975,12 @@ final class TheEventsCalendar {
         foreach ($raw as $section => $settings) {
             if (!is_string($section) || !array_key_exists($section, self::CUSTOMIZER_SETTINGS)) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar Customizer storage contains an undeclared section'
+                    'wprism: The Events Calendar Customizer storage contains an undeclared section'
                 );
             }
             if (!is_array($settings) || ($settings !== [] && array_is_list($settings))) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar Customizer section is not a sparse setting map'
+                    'wprism: The Events Calendar Customizer section is not a sparse setting map'
                 );
             }
 
@@ -2988,7 +2988,7 @@ final class TheEventsCalendar {
             foreach ($settings as $setting => $value) {
                 if (!is_string($setting) || !is_string($value)) {
                     throw new \RuntimeException(
-                        'duo: The Events Calendar Customizer setting is not scalar text'
+                        'wprism: The Events Calendar Customizer setting is not scalar text'
                     );
                 }
                 if (in_array(
@@ -3001,26 +3001,26 @@ final class TheEventsCalendar {
                 $sanitizer = self::CUSTOMIZER_SETTINGS[$section][$setting] ?? null;
                 if ($sanitizer === null) {
                     throw new \RuntimeException(
-                        'duo: The Events Calendar Customizer section contains an undeclared setting'
+                        'wprism: The Events Calendar Customizer section contains an undeclared setting'
                     );
                 }
                 if ($sanitizer === 'key') {
                     $sanitized = preg_replace('/[^a-z0-9_\-]/', '', strtolower($value));
                     if (!is_string($sanitized)) {
                         throw new \RuntimeException(
-                            'duo: The Events Calendar Customizer key sanitizer failed'
+                            'wprism: The Events Calendar Customizer key sanitizer failed'
                         );
                     }
                 } elseif ($sanitizer === 'color') {
                     if ($value !== '' && preg_match('/^#(?:[A-Fa-f0-9]{3}){1,2}$/D', $value) !== 1) {
                         throw new \RuntimeException(
-                            'duo: The Events Calendar Customizer color is outside the native sanitizer grammar'
+                            'wprism: The Events Calendar Customizer color is outside the native sanitizer grammar'
                         );
                     }
                     $sanitized = $value;
                 } else {
                     throw new \RuntimeException(
-                        'duo: The Events Calendar Customizer setting uses an unreviewed sanitizer'
+                        'wprism: The Events Calendar Customizer setting uses an unreviewed sanitizer'
                     );
                 }
                 $normalized[$section][$setting] = $sanitized;
@@ -3038,18 +3038,18 @@ final class TheEventsCalendar {
         ++$nodes;
         if ($nodes > self::CUSTOMIZER_MAX_NODES || $depth > 2) {
             throw new \RuntimeException(
-                'duo: The Events Calendar Customizer map exceeds the bounded shape frontier'
+                'wprism: The Events Calendar Customizer map exceeds the bounded shape frontier'
             );
         }
         if (is_string($value)) {
             if (strlen($value) > self::CUSTOMIZER_MAX_SETTING_BYTES) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar Customizer setting exceeds the bounded byte frontier'
+                    'wprism: The Events Calendar Customizer setting exceeds the bounded byte frontier'
                 );
             }
             if (preg_match('//u', $value) !== 1) {
                 throw new \RuntimeException(
-                    'duo: The Events Calendar Customizer setting is not valid UTF-8'
+                    'wprism: The Events Calendar Customizer setting is not valid UTF-8'
                 );
             }
             $bytes += strlen($value);
@@ -3057,7 +3057,7 @@ final class TheEventsCalendar {
             foreach ($value as $key => $child) {
                 if (!is_string($key) || preg_match('//u', $key) !== 1) {
                     throw new \RuntimeException(
-                        'duo: The Events Calendar Customizer map contains a malformed key'
+                        'wprism: The Events Calendar Customizer map contains a malformed key'
                     );
                 }
                 $bytes += strlen($key);
@@ -3065,12 +3065,12 @@ final class TheEventsCalendar {
             }
         } else {
             throw new \RuntimeException(
-                'duo: The Events Calendar Customizer map contains a non-string leaf'
+                'wprism: The Events Calendar Customizer map contains a non-string leaf'
             );
         }
         if ($bytes > self::CUSTOMIZER_MAX_OPTION_BYTES) {
             throw new \RuntimeException(
-                'duo: The Events Calendar Customizer map exceeds the bounded byte frontier'
+                'wprism: The Events Calendar Customizer map exceeds the bounded byte frontier'
             );
         }
     }
@@ -3078,7 +3078,7 @@ final class TheEventsCalendar {
     private function refuse_computed_option_name(string $family, string $name): never {
         $fingerprint = 'string:' . strlen($name) . ':' . substr(hash('sha256', $name), 0, 16);
         throw new \RuntimeException(
-            "duo: The Events Calendar encountered an unsupported $family option name ($fingerprint); "
+            "wprism: The Events Calendar encountered an unsupported $family option name ($fingerprint); "
             . 'the exact free 6.17.2/6.17.3 computed-name registry is closed'
         );
     }

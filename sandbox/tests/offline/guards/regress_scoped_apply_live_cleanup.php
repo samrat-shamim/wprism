@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Offline contract regression for DUO-3344's scoped-apply live harness
+ * Offline contract regression for issue #3344's scoped-apply live harness
  * teardown.
  *
  * The original live body passed, then its EXIT trap discarded the only

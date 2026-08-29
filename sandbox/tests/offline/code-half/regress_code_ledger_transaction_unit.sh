@@ -4,9 +4,9 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 
-DUO_ROOT="$ROOT" php -d display_errors=1 <<'PHP'
+WPRISM_ROOT="$ROOT" php -d display_errors=1 <<'PHP'
 <?php
-namespace Duo;
+namespace WPrism;
 
 final class Ledger {
     /** @var array<string,string> */
@@ -58,7 +58,7 @@ final class Db {
     }
 }
 
-$root = getenv('DUO_ROOT');
+$root = getenv('WPRISM_ROOT');
 require_once "$root/agent/src/Kernel/Canon.php";
 require_once "$root/agent/src/Code/Code.php";
 

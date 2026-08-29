@@ -108,7 +108,7 @@
         "total": 1075,
         "uncovered": 812
     },
-    "format": "duo-fleet-census/v1",
+    "format": "wprism-fleet-census/v1",
     "funnel": {
         "adapter_pinned": {
             "plugins": 2,

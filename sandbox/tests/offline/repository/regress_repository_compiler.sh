@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Regression — DUO-3208: canonical state is an offline-compiled program, not
+# Regression — issue #3208: canonical state is an offline-compiled program, not
 # a mutable bag of files trusted independently by plan/apply.
 #
-# DUO-3236 addendum (bottom of the inline PHP below): RepositoryCompiler::
+# issue #3236 addendum (bottom of the inline PHP below): RepositoryCompiler::
 # compile_staged() lets a caller validate an arbitrary stateDir against an
 # independently-specified media root — the new entry point Capture.php uses
 # to gate a staged candidate (state.capture-staging) before it is ever
@@ -16,11 +16,11 @@ ROOT=$(cd "$(dirname "$0")/../../../.." && pwd)
 php -d display_errors=1 /dev/stdin "$ROOT" <<'PHP'
 <?php
 $root = $argv[1];
-// WP-4.12: from agent/duo.php, never retyped. This harness compiles fixture
-// repositories, and RepositoryCompiler judges their site.duo.json spec_version
+// WP-4.12: from agent/wprism.php, never retyped. This harness compiles fixture
+// repositories, and RepositoryCompiler judges their site.wprism.json spec_version
 // against the window this engine publishes.
 require_once "$root/sandbox/tests/lib/agent_version.php";
-duo_test_define_agent_versions();
+wprism_test_define_agent_versions();
 require_once "$root/agent/src/Kernel/Uuid.php";
 require_once "$root/agent/src/Kernel/Canon.php";
 require_once "$root/agent/src/Code/Code.php";
@@ -45,18 +45,18 @@ require_once "$root/agent/src/Capture/Capture.php";
 function get_option($name) { throw new RuntimeException("TARGET CONTACT: get_option($name)"); }
 function wp_upload_dir(...$args) { throw new RuntimeException('TARGET CONTACT: wp_upload_dir'); }
 
-use Duo\Canon;
-use Duo\OptionState;
-use Duo\CompiledRepository;
-use Duo\Capture;
-use Duo\Policy;
-use Duo\CommandRefusalException;
-use Duo\RepositoryCompilationException;
-use Duo\RepositoryCompiler;
-use Duo\RepositoryAuthorizationException;
-use Duo\UserMetaState;
+use WPrism\Canon;
+use WPrism\OptionState;
+use WPrism\CompiledRepository;
+use WPrism\Capture;
+use WPrism\Policy;
+use WPrism\CommandRefusalException;
+use WPrism\RepositoryCompilationException;
+use WPrism\RepositoryCompiler;
+use WPrism\RepositoryAuthorizationException;
+use WPrism\UserMetaState;
 
-$tmp = sys_get_temp_dir() . '/duo-3208-' . bin2hex(random_bytes(6));
+$tmp = sys_get_temp_dir() . '/repository-compiler-' . bin2hex(random_bytes(6));
 mkdir($tmp, 0777, true);
 register_shutdown_function(static function () use ($tmp): void {
     $it = new RecursiveIteratorIterator(
@@ -92,7 +92,7 @@ function post_front(string $id, string $type, string $slug): array {
 function build_valid(string $repo, array $manifests = ['core']): array {
     $term = uuid(1); $page = uuid(2); $attachment = uuid(3); $menu = uuid(4); $item = uuid(5);
     $blockWidget = uuid(6); $textWidget = uuid(7); $menuWidget = uuid(8);
-    put("$repo/site.duo.json", Canon::encode([
+    put("$repo/site.wprism.json", Canon::encode([
         'manifests' => $manifests,
         'policy' => [
             'options' => (object) [], 'post_meta' => (object) [], 'term_meta' => (object) [],
@@ -108,7 +108,7 @@ function build_valid(string $repo, array $manifests = ['core']): array {
     $front = post_front($page, 'page', 'about');
     $front['terms'] = (object) ['category' => [$term]];
     put("$repo/state/posts/page/$page--about.md", Canon::post_file($front, '<!-- wp:paragraph --><p>About</p><!-- /wp:paragraph -->'));
-    $mediaBytes = "duo-compiler-media\n";
+    $mediaBytes = "wprism-compiler-media\n";
     $mediaHash = hash('sha256', $mediaBytes);
     put("$repo/media/$mediaHash.txt", $mediaBytes);
     $front = post_front($attachment, 'attachment', 'photo');
@@ -147,7 +147,7 @@ function build_valid(string $repo, array $manifests = ['core']): array {
         $optionRecords[$name] = OptionState::absent();
     }
     $optionRecords = array_replace($optionRecords, [
-        'blogname' => OptionState::present('Duo', 'yes'),
+        'blogname' => OptionState::present('WPrism', 'yes'),
         'default_category' => OptionState::present("{{term:$term}}", 'yes'),
         'page_on_front' => OptionState::present("{{post:$page}}", 'yes'),
         'show_on_front' => OptionState::present('page', 'yes'),
@@ -161,7 +161,7 @@ function compile_repo(string $repo): CompiledRepository {
     return RepositoryCompiler::compile($repo, $policy);
 }
 
-// DUO-3287: the historical-comparison counterpart — see
+// issue #3287: the historical-comparison counterpart — see
 // RepositoryCompiler.php's $completenessOptional docblock. Same tree and
 // policy, but current-action-only completeness/lifecycle checks do not make
 // an older revision unreadable.
@@ -188,7 +188,7 @@ function needs(array $payload, string $code): void {
 }
 
 $a = "$tmp/a"; $ids = build_valid($a);
-\Duo\SidebarState::assert_width_budget();
+\WPrism\SidebarState::assert_width_budget();
 $one = compile_repo($a);
 $two = compile_repo($a);
 if ($one->artifact_hash() !== $two->artifact_hash()) fail('same revision compiled to different artifact hashes');
@@ -212,12 +212,12 @@ if (($one->tree()['sidebar/sidebar-1']['type'] ?? '') !== 'sidebar') fail('sideb
 ok('valid revision (including block/text/nav-menu widgets) compiles offline and id_kind width budget holds');
 
 // Typed-snapshot capture now emits --record when no authored slug_column is
-// declared, but repositories captured by earlier Duo versions used the
+// declared, but repositories captured by earlier WPrism versions used the
 // source environment's numeric primary key as this cosmetic suffix. Readers
 // must keep accepting both shapes; identity remains the UUID prefix.
 $tableCompat = "$tmp/table-path-compat";
 build_valid($tableCompat);
-$tableSite = Canon::decode(file_get_contents("$tableCompat/site.duo.json"));
+$tableSite = Canon::decode(file_get_contents("$tableCompat/site.wprism.json"));
 $tableSite['policy']['tables']['portable_rows'] = [
     'class' => 'authored_snapshot',
     'id_kind' => 'portable_row',
@@ -225,7 +225,7 @@ $tableSite['policy']['tables']['portable_rows'] = [
     'refs' => [],
     'columns' => ['name' => ['class' => 'authored']],
 ];
-put("$tableCompat/site.duo.json", Canon::encode($tableSite));
+put("$tableCompat/site.wprism.json", Canon::encode($tableSite));
 $tableUuid = uuid(9);
 $tableContent = Canon::encode([
     'columns' => (object) ['name' => 'Portable row'],
@@ -275,19 +275,19 @@ $mismatchedEffects['artifact_hash'] = hash('sha256', Canon::encode($mismatchedEf
 put("$tmp/mismatched-effects.json", Canon::encode($mismatchedEffects));
 try { RepositoryCompiler::read_artifact("$tmp/mismatched-effects.json", Policy::load($a)); fail('self-hashed artifact with a foreign effect inventory was accepted'); }
 catch (CommandRefusalException $e) { needs($e->payload(), 'compiled_artifact_invalid'); }
-$siteBytes = file_get_contents("$a/site.duo.json");
+$siteBytes = file_get_contents("$a/site.wprism.json");
 $site = Canon::decode($siteBytes);
 $site['policy']['options']['blogname'] = ['class'=>'runtime'];
-put("$a/site.duo.json", Canon::encode($site));
+put("$a/site.wprism.json", Canon::encode($site));
 try { RepositoryCompiler::read_artifact($artifactPath, Policy::load($a)); fail('artifact under changed policy was accepted'); }
 catch (CommandRefusalException $e) { needs($e->payload(), 'compiled_artifact_policy_mismatch'); }
-put("$a/site.duo.json", $siteBytes);
+put("$a/site.wprism.json", $siteBytes);
 ok('artifact tampering and active-policy mismatch fail with structured compiler diagnostics');
 
 $codeRepo = "$tmp/code-enabled"; build_valid($codeRepo);
-$codeSite = Canon::decode(file_get_contents("$codeRepo/site.duo.json"));
+$codeSite = Canon::decode(file_get_contents("$codeRepo/site.wprism.json"));
 $codeSite['code'] = ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content'];
-put("$codeRepo/site.duo.json", Canon::encode($codeSite));
+put("$codeRepo/site.wprism.json", Canon::encode($codeSite));
 put(
     "$codeRepo/code/wp-content/plugins/example/example.php",
     "<?php\n/*\nPlugin Name: Example\n*/\n"
@@ -344,7 +344,7 @@ $termEntity = $refsBefore->tree()[$r['term']];
 unlink("$refs/state/terms/category/{$r['term']}--news.json");
 put("$refs/state/deletions/{$r['term']}.json", Canon::encode([
     'expected_hash' => $termEntity['hash'], 'expected_revision' => $refsBefore->revision_hash(),
-    'format' => \Duo\Deletion::FORMAT, 'kind' => 'term', 'source_path' => $termEntity['path'],
+    'format' => \WPrism\Deletion::FORMAT, 'kind' => 'term', 'source_path' => $termEntity['path'],
     'type' => 'category', 'uuid' => $r['term'],
 ]));
 $p = failure($refs); needs($p, 'semantic_delete_reference');
@@ -359,7 +359,7 @@ $liveWithoutAttachment = [];
 foreach ($before->tree() as $uuid => $_entity) {
     if ($uuid !== $gone['attachment'] && $uuid !== 'options/core') $liveWithoutAttachment[] = ['uuid' => $uuid];
 }
-$capturedTombstones = \Duo\Deletion::capture_tombstones($before, $liveWithoutAttachment, Policy::load($absence));
+$capturedTombstones = \WPrism\Deletion::capture_tombstones($before, $liveWithoutAttachment, Policy::load($absence));
 if (count($capturedTombstones) !== 1 || $capturedTombstones[0]['uuid'] !== $gone['attachment']) {
     fail('capture did not convert exactly the disappeared prior entity into a tombstone');
 }
@@ -372,7 +372,7 @@ $tombstonePath = "$absence/state/deletions/{$gone['attachment']}.json";
 put($tombstonePath, Canon::encode([
     'expected_hash' => $attachment['hash'],
     'expected_revision' => $before->revision_hash(),
-    'format' => \Duo\Deletion::FORMAT,
+    'format' => \WPrism\Deletion::FORMAT,
     'kind' => 'post',
     'source_path' => $attachment['path'],
     'type' => 'attachment',
@@ -380,7 +380,7 @@ put($tombstonePath, Canon::encode([
 ]));
 $withIntent = compile_repo($absence);
 if (!isset($withIntent->deletions()[$gone['attachment']])) fail('valid tombstone missing from compiled artifact');
-$preserved = \Duo\Deletion::capture_tombstones($withIntent, $liveWithoutAttachment, Policy::load($absence));
+$preserved = \WPrism\Deletion::capture_tombstones($withIntent, $liveWithoutAttachment, Policy::load($absence));
 if (count($preserved) !== 1 || $preserved[0]['content'] !== file_get_contents($tombstonePath)) {
     fail('subsequent capture did not preserve an absent tombstone byte-for-byte');
 }
@@ -429,7 +429,7 @@ $p = failure($widgetRaw); needs($p, 'schema_content_mismatch');
 ok('sidebar compiler rejects raw widget refs and undeclared widget types offline');
 
 $termRef = "$tmp/term-meta-ref"; $tr = build_valid($termRef);
-$sitePath = "$termRef/site.duo.json";
+$sitePath = "$termRef/site.wprism.json";
 $site = Canon::decode(file_get_contents($sitePath));
 $site['policy']['term_meta']['thumbnail_id'] = ['class'=>'authored', 'ref'=>'post'];
 put($sitePath, Canon::encode($site));
@@ -444,7 +444,7 @@ compile_repo($termRef);
 ok('termmeta ref declarations reject raw ids and accept canonical tokens offline');
 
 $termRuntime = "$tmp/term-meta-runtime"; $rt = build_valid($termRuntime);
-$sitePath = "$termRuntime/site.duo.json";
+$sitePath = "$termRuntime/site.wprism.json";
 $site = Canon::decode(file_get_contents($sitePath));
 $site['policy']['term_meta']['runtime_counter'] = ['class'=>'runtime'];
 put($sitePath, Canon::encode($site));
@@ -455,22 +455,22 @@ put($termPath, Canon::encode($term));
 $p = authorization_failure($termRuntime); needs($p, 'repository_field_not_authored');
 ok('term files cannot smuggle runtime or undeclared meta past repository authorization');
 
-// DUO-3495: the whole-type refusal an operator meets after adopting an
-// adapter for a plugin `duo init --allow-unmanaged-plugins` left local. Its
-// coordinates (`classification=runtime declared_by=site.duo.json`) said a
+// issue #3495: the whole-type refusal an operator meets after adopting an
+// adapter for a plugin `wprism init --allow-unmanaged-plugins` left local. Its
+// coordinates (`classification=runtime declared_by=site.wprism.json`) said a
 // rule exists somewhere and named neither the entry nor the fix, so the
-// reported walkthrough spent two more hand-edits of site.duo.json finding
+// reported walkthrough spent two more hand-edits of site.wprism.json finding
 // both. The remedy clause is asserted THROUGH the product path — a real
 // compile of a real repository — and then FOLLOWED literally, because a
 // remedy nobody executed is a sentence, not a repair.
 $scopeShadow = "$tmp/scope-shadowed-type"; $ss = build_valid($scopeShadow);
-$sitePath = "$scopeShadow/site.duo.json";
+$sitePath = "$scopeShadow/site.wprism.json";
 $site = Canon::decode(file_get_contents($sitePath));
-$site['policy']['post_types'][] = 'duo_case';
-$site['policy']['scope']['post_type']['duo_case'] = ['class' => 'runtime'];
+$site['policy']['post_types'][] = 'wprism_case';
+$site['policy']['scope']['post_type']['wprism_case'] = ['class' => 'runtime'];
 put($sitePath, Canon::encode($site));
-$casePath = "$scopeShadow/state/posts/duo_case/" . uuid(41) . "--case-one.md";
-put($casePath, Canon::post_file(post_front(uuid(41), 'duo_case', 'case-one'), 'Case one'));
+$casePath = "$scopeShadow/state/posts/wprism_case/" . uuid(41) . "--case-one.md";
+put($casePath, Canon::post_file(post_front(uuid(41), 'wprism_case', 'case-one'), 'Case one'));
 $p = authorization_failure($scopeShadow); needs($p, 'repository_field_not_authored');
 $typeRow = null;
 foreach ($p['diagnostics'] as $d) {
@@ -479,20 +479,20 @@ foreach ($p['diagnostics'] as $d) {
     }
 }
 if ($typeRow === null) fail('no whole-type authorization finding: ' . json_encode($p));
-if (($typeRow['classification'] ?? null) !== 'runtime' || ($typeRow['declared_by'] ?? null) !== 'site.duo.json') {
+if (($typeRow['classification'] ?? null) !== 'runtime' || ($typeRow['declared_by'] ?? null) !== 'site.wprism.json') {
     fail('the finding lost its existing coordinates: ' . json_encode($typeRow));
 }
 $remedy = (string) ($typeRow['remediation'] ?? '');
-if (!str_contains($remedy, 'policy.scope.post_type.duo_case')) {
+if (!str_contains($remedy, 'policy.scope.post_type.wprism_case')) {
     fail('the remedy does not name the recorded scope entry: ' . var_export($remedy, true));
 }
-if (!str_contains($remedy, "--set='scope:post_type:duo_case=authored'")) {
+if (!str_contains($remedy, "--set='scope:post_type:wprism_case=authored'")) {
     fail('the remedy does not carry the copy-pasteable classify spec: ' . var_export($remedy, true));
 }
 // The remedy has to survive the JSON boundary too: Cli::halt_json_failure()
 // drops the WHOLE diagnostic batch when any field looks sensitive, so a
 // remedy carrying a repository path would delete the evidence it explains.
-if (\Duo\CommandRefusalException::containsSensitivePublicDetail($p['diagnostics'])) {
+if (\WPrism\CommandRefusalException::containsSensitivePublicDetail($p['diagnostics'])) {
     fail('the remedy made the diagnostic batch unpublishable: ' . json_encode($p['diagnostics']));
 }
 $message = '';
@@ -500,11 +500,11 @@ try { compile_repo($scopeShadow); } catch (RepositoryAuthorizationException $e) 
 if (!str_contains($message, "\n      remedy: $remedy")) {
     fail('the human refusal does not carry the remedy on its own line: ' . $message);
 }
-if (!str_contains($message, 'surface=post_type field=type classification=runtime declared_by=site.duo.json')) {
+if (!str_contains($message, 'surface=post_type field=type classification=runtime declared_by=site.wprism.json')) {
     fail('the key=value head of the finding line moved: ' . $message);
 }
 // Follow it exactly, and only it: one recorded class, changed once.
-$site['policy']['scope']['post_type']['duo_case'] = ['class' => 'authored'];
+$site['policy']['scope']['post_type']['wprism_case'] = ['class' => 'authored'];
 put($sitePath, Canon::encode($site));
 compile_repo($scopeShadow);
 ok('a shadowed whole-type refusal names its recorded entry and one copy-pasteable edit, and that edit alone clears it');
@@ -529,7 +529,7 @@ $missingRows = array_values(array_filter(
 if (!$missingRows) fail('missing exact authored option record did not identify records.blogdescription');
 ok('removing an exact authored record is invalid, never implicit deletion intent');
 
-// DUO-3287: the SAME missing-record fixture, compiled via
+// issue #3287: the SAME missing-record fixture, compiled via
 // compile_for_diff() instead of compile() -- must NOT raise
 // schema_content_mismatch for the missing name. This is the exact
 // distinction the fix draws: compile() (Apply/Deploy/Cli's verify
@@ -537,8 +537,8 @@ ok('removing an exact authored record is invalid, never implicit deletion intent
 // tree under the current policy) still refuses; compile_for_diff()
 // (Capture::run()'s previous-revision read, Capture::snapshot()'s
 // drift-check fallback -- reading a historical/comparison revision that
-// may predate a manifest being added to site.duo.json) does not. Live-
-// reproduced: `wp duo capture`/`wp duo plan` both refused with 13-17
+// may predate a manifest being added to site.wprism.json) does not. Live-
+// reproduced: `wp wprism capture`/`wp wprism plan` both refused with 13-17
 // schema_content_mismatch diagnostics the moment a manifest was added to
 // an already-captured site, deterministically, until this fix.
 $compiledLenient = compile_repo_for_diff($missingOption);
@@ -551,7 +551,7 @@ $lenientHasMissingRecord = false;
 if (!($compiledLenient instanceof CompiledRepository)) {
     fail('compile_for_diff() did not return a CompiledRepository for a tree missing only a required-record entry');
 }
-ok('compile_for_diff() tolerates a missing required-exact-option record (a revision captured under an older, narrower policy) -- exactly the DUO-3287 fix, and compile() above still refuses the identical tree, so the distinction is real, not a global weakening');
+ok('compile_for_diff() tolerates a missing required-exact-option record (a revision captured under an older, narrower policy) -- exactly the issue #3287 fix, and compile() above still refuses the identical tree, so the distinction is real, not a global weakening');
 
 // Genuine corruption must still refuse under compile_for_diff() too --
 // comparison mode relaxes only current-action checks, not "anything goes."
@@ -574,7 +574,7 @@ ok('compile_for_diff() still refuses genuine corruption (malformed JSON) -- hist
 // for Capture's comparison/deletion basis, so it must still compile the code
 // descriptor but must not apply CodeStateContract's action-only bridge.
 $codeOptInHistory = "$tmp/code-policy-opt-in-history"; build_valid($codeOptInHistory);
-$codeOptInSitePath = "$codeOptInHistory/site.duo.json";
+$codeOptInSitePath = "$codeOptInHistory/site.wprism.json";
 $codeOptInSite = Canon::decode(file_get_contents($codeOptInSitePath));
 $codeOptInSite['code'] = ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content'];
 put($codeOptInSitePath, Canon::encode($codeOptInSite));
@@ -647,14 +647,14 @@ ok('schema/content incompatibility and malformed metadata fail in the same offli
 
 $acf = "$tmp/acf"; $c = build_valid($acf, ['core','acf']);
 $field = uuid(50);
-$def = post_front($field, 'acf-field', 'field_duo_relation');
-put("$acf/state/posts/acf-field/$field--field_duo_relation.md", Canon::post_file($def, serialize(['type'=>'relationship'])));
+$def = post_front($field, 'acf-field', 'field_wprism_relation');
+put("$acf/state/posts/acf-field/$field--field_wprism_relation.md", Canon::post_file($def, serialize(['type'=>'relationship'])));
 $pagePath = "$acf/state/posts/page/{$c['page']}--about.md";
 [$pageFront,$pageBody] = Canon::parse_post_file(file_get_contents($pagePath));
 $pageFront['meta'] = (object) [
-    '_duo_relation' => 'field_duo_relation',
+    '_wprism_relation' => 'field_wprism_relation',
     // relationship is list-shaped; this clean JSON merge supplies a scalar.
-    'duo_relation' => "{{post:{$c['attachment']}}}",
+    'wprism_relation' => "{{post:{$c['attachment']}}}",
 ];
 put($pagePath, Canon::post_file($pageFront, $pageBody));
 $p = failure($acf); needs($p, 'adapter_schema_content_mismatch');
@@ -664,8 +664,8 @@ $mutable = "$tmp/mutable"; $m = build_valid($mutable);
 $compiled = compile_repo($mutable);
 $path = "$tmp/frozen.json"; $compiled->write($path);
 $policySnapshot = Policy::load($mutable)->export_snapshot();
-$siteBytes = file_get_contents("$mutable/site.duo.json");
-file_put_contents("$mutable/site.duo.json", "{invalid after policy freeze\n");
+$siteBytes = file_get_contents("$mutable/site.wprism.json");
+file_put_contents("$mutable/site.wprism.json", "{invalid after policy freeze\n");
 $snapshotPolicy = Policy::from_snapshot($policySnapshot);
 $snapshotArtifact = RepositoryCompiler::read_artifact($path, $snapshotPolicy);
 if ($snapshotArtifact->artifact_hash() !== $compiled->artifact_hash()) {
@@ -677,7 +677,7 @@ try {
 } catch (RuntimeException $e) {
     if (!str_contains($e->getMessage(), 'invalid JSON')) throw $e;
 }
-file_put_contents("$mutable/site.duo.json", $siteBytes);
+file_put_contents("$mutable/site.wprism.json", $siteBytes);
 $tamperedPolicySnapshot = $policySnapshot;
 $tamperedPolicySnapshot['site']['policy']['options']['blogname']['class'] = 'runtime';
 try {
@@ -691,17 +691,17 @@ file_put_contents($pagePath, file_get_contents($pagePath) . "<<<<<<< mutation af
 file_put_contents("$mutable/media/{$m['mediaHash']}.txt", "mutated media\n");
 $frozen = RepositoryCompiler::read_artifact($path, Policy::load($mutable));
 if ($frozen->artifact_hash() !== $compiled->artifact_hash()) fail('loading compiled input reread mutable state files');
-if ($frozen->media_content("{$m['mediaHash']}.txt") !== "duo-compiler-media\n") fail('compiled input reread mutable media');
+if ($frozen->media_content("{$m['mediaHash']}.txt") !== "wprism-compiler-media\n") fail('compiled input reread mutable media');
 $snapshotOptions = new ReflectionMethod(Capture::class, 'repository_options');
 $frozenOptions = $snapshotOptions->invoke(null, $mutable, Policy::load($mutable), $frozen);
-if (!is_array($frozenOptions) || (OptionState::values($frozenOptions)['blogname'] ?? null) !== 'Duo') {
+if (!is_array($frozenOptions) || (OptionState::values($frozenOptions)['blogname'] ?? null) !== 'WPrism') {
     fail('apply snapshot option preflight reopened mutable state instead of using its compiled artifact');
 }
 needs(failure($mutable), 'conflict_marker');
 ok('compiled input and policy are immutable: later repo edits never change apply/snapshot consumers');
 
 $userMeta = "$tmp/user-meta"; build_valid($userMeta);
-$sitePath = "$userMeta/site.duo.json";
+$sitePath = "$userMeta/site.wprism.json";
 $site = Canon::decode(file_get_contents($sitePath));
 $site['policy']['user_meta']['profile_link'] = [
     'class' => 'authored', 'ref' => 'post', 'missing_user' => 'block',
@@ -732,7 +732,7 @@ $p = failure($userMeta); needs($p, 'schema_content_mismatch');
 ok('user-meta filename is bound to the exact login and case');
 
 $pii = "$tmp/user-meta-pii"; build_valid($pii);
-$sitePath = "$pii/site.duo.json";
+$sitePath = "$pii/site.wprism.json";
 $site = Canon::decode(file_get_contents($sitePath));
 $site['policy']['user_meta']['contact_email'] = ['class' => 'authored'];
 put($sitePath, Canon::encode($site));
@@ -755,7 +755,7 @@ $viaStaged = RepositoryCompiler::compile_staged($elsewhere, $moved, Policy::load
 if ($viaStaged->artifact_hash() !== $viaCompile->artifact_hash()) {
     fail('compile_staged() with a decoupled stateDir produced a different artifact than compile() on the equivalent co-located tree');
 }
-ok('DUO-3236: compile_staged() validates an arbitrary stateDir against an independently-specified media root, producing the identical artifact to the ordinary co-located compile()');
+ok('issue #3236: compile_staged() validates an arbitrary stateDir against an independently-specified media root, producing the identical artifact to the ordinary co-located compile()');
 
 $missingBlob = "$tmp/decouple-missing-media"; $mb = build_valid($missingBlob);
 $elsewhere2 = "$tmp/decouple-missing-media-state";
@@ -767,7 +767,7 @@ try {
 } catch (RepositoryCompilationException $e) {
     needs($e->payload(), 'missing_media_blob');
 }
-ok('DUO-3236: compile_staged() still enforces media presence against the independently-specified root — decoupling stateDir never accidentally skips media validation');
+ok('issue #3236: compile_staged() still enforces media presence against the independently-specified root — decoupling stateDir never accidentally skips media validation');
 
-fwrite(STDOUT, "ok: DUO-3208 regression: offline typed IR + stable batched semantic diagnostics + content-addressed immutable apply input\n");
+fwrite(STDOUT, "ok: issue #3208 regression: offline typed IR + stable batched semantic diagnostics + content-addressed immutable apply input\n");
 PHP

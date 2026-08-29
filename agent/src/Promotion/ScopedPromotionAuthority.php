@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 /**
  * Verify the external SSH checkpoint authority through the recovery runtime
@@ -10,9 +10,9 @@ namespace Duo;
  * root. Runtime stderr is deliberately never forwarded into public errors.
  */
 final class ScopedPromotionAuthority {
-    private const CONFIG_FORMAT = 'duo-scoped-promotion-control/v1';
-    private const WITNESS_FORMAT = 'duo-scoped-promotion-witness/v1';
-    private const RECEIPT_FORMAT = 'duo-scoped-promotion-receipt/v1';
+    private const CONFIG_FORMAT = 'wprism-scoped-promotion-control/v1';
+    private const WITNESS_FORMAT = 'wprism-scoped-promotion-witness/v1';
+    private const RECEIPT_FORMAT = 'wprism-scoped-promotion-receipt/v1';
 
     /**
      * @param list<string> $allowedStates
@@ -38,7 +38,7 @@ final class ScopedPromotionAuthority {
             $pipes
         );
         if (!is_resource($process)) {
-            throw new \RuntimeException('duo: scoped promotion authority witness is unavailable');
+            throw new \RuntimeException('wprism: scoped promotion authority witness is unavailable');
         }
         fclose($pipes[0]);
         $stdout = stream_get_contents($pipes[1]);
@@ -48,15 +48,15 @@ final class ScopedPromotionAuthority {
         $exit = proc_close($process);
         unset($stderr);
         if ($exit !== 0 || !is_string($stdout) || strlen($stdout) > 65536) {
-            throw new \RuntimeException('duo: scoped promotion authority witness is unavailable or non-green');
+            throw new \RuntimeException('wprism: scoped promotion authority witness is unavailable or non-green');
         }
         try {
             $witness = json_decode(trim($stdout), true, 128, JSON_THROW_ON_ERROR);
         } catch (\Throwable $_failure) {
-            throw new \RuntimeException('duo: scoped promotion authority witness is malformed');
+            throw new \RuntimeException('wprism: scoped promotion authority witness is malformed');
         }
         if (!is_array($witness) || array_is_list($witness)) {
-            throw new \RuntimeException('duo: scoped promotion authority witness is malformed');
+            throw new \RuntimeException('wprism: scoped promotion authority witness is malformed');
         }
         return self::validate(
             $witness,
@@ -91,7 +91,7 @@ final class ScopedPromotionAuthority {
         self::assert_hash($receiptHash, 'receipt payload hash');
         self::assert_hash($scopeHash, 'scope hash');
         if ($owner === '' || strlen($owner) > 128 || preg_match('/^[A-Za-z0-9._:@+-]+$/D', $owner) !== 1) {
-            throw new \RuntimeException('duo: scoped promotion authority owner is malformed');
+            throw new \RuntimeException('wprism: scoped promotion authority owner is malformed');
         }
         $expectedKeys = [
             'active', 'allow_deletes', 'artifact_hash', 'exclusion_state', 'format', 'ok', 'owner',
@@ -122,7 +122,7 @@ final class ScopedPromotionAuthority {
             || ($allowDeletes !== null && $witness['allow_deletes'] !== $allowDeletes)
             || !in_array((string) ($witness['state'] ?? ''), $allowedStates, true)) {
             throw new \RuntimeException(
-                'duo: scoped promotion authority does not match the exact held checkpoint generation'
+                'wprism: scoped promotion authority does not match the exact held checkpoint generation'
             );
         }
         return $witness;
@@ -134,16 +134,16 @@ final class ScopedPromotionAuthority {
         self::assert_regular_file($path, 'scoped promotion control configuration');
         $stat = @lstat($path);
         if (!is_array($stat) || (($stat['mode'] ?? 0) & 0777) !== 0600) {
-            throw new \RuntimeException('duo: scoped promotion control configuration is not protected mode 0600');
+            throw new \RuntimeException('wprism: scoped promotion control configuration is not protected mode 0600');
         }
         $raw = file_get_contents($path);
         if (!is_string($raw) || strlen($raw) > 4096) {
-            throw new \RuntimeException('duo: scoped promotion control configuration is unreadable');
+            throw new \RuntimeException('wprism: scoped promotion control configuration is unreadable');
         }
         try {
             $config = json_decode($raw, true, 32, JSON_THROW_ON_ERROR);
         } catch (\Throwable $_failure) {
-            throw new \RuntimeException('duo: scoped promotion control configuration is malformed');
+            throw new \RuntimeException('wprism: scoped promotion control configuration is malformed');
         }
         $keys = is_array($config) ? array_keys($config) : [];
         sort($keys, SORT_STRING);
@@ -152,7 +152,7 @@ final class ScopedPromotionAuthority {
             || ($config['format'] ?? null) !== self::CONFIG_FORMAT
             || !is_string($root) || $root === '' || $root[0] !== '/' || str_contains($root, "\0")
             || is_link($root) || !is_dir($root)) {
-            throw new \RuntimeException('duo: scoped promotion control configuration is invalid');
+            throw new \RuntimeException('wprism: scoped promotion control configuration is invalid');
         }
         return ['control_root' => rtrim($root, '/'), 'format' => self::CONFIG_FORMAT];
     }
@@ -160,13 +160,13 @@ final class ScopedPromotionAuthority {
     private static function assert_regular_file(string $path, string $label): void {
         $stat = @lstat($path);
         if (!is_array($stat) || (($stat['mode'] ?? 0) & 0170000) !== 0100000 || is_link($path)) {
-            throw new \RuntimeException("duo: $label is absent or unsafe");
+            throw new \RuntimeException("wprism: $label is absent or unsafe");
         }
     }
 
     private static function assert_hash(string $value, string $label): void {
         if (preg_match('/^[a-f0-9]{64}$/D', $value) !== 1) {
-            throw new \RuntimeException("duo: scoped promotion $label is malformed");
+            throw new \RuntimeException("wprism: scoped promotion $label is malformed");
         }
     }
 }

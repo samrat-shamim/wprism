@@ -15,4 +15,4 @@
 - `Transport.php` is a factory that references its own three implementations, which reference it back — an intra-module cycle, harmless but worth an interface.
 - `CodeDeploy.php` is placed here on evidence (its only dependency is EnvironmentDriver; six modules call it); it reads like an Environment class and is the placement most likely to be revisited.
 
-**Sub-namespace plan.** Target `Duo\Orchestrator\Transport\`. Not in this round. cli sub-namespaces are cheaper than agent ones (no manifest binds them) but still wait for the agent Kernel migration to prove the classmap round-trip.
+**Sub-namespace plan.** Target `WPrism\Orchestrator\Transport\`. Not in this round. cli sub-namespaces are cheaper than agent ones (no manifest binds them) but still wait for the agent Kernel migration to prove the classmap round-trip.

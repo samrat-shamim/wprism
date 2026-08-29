@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline (no docker, no WordPress bootstrap) regression harness for
- * DUO-3259's shortcode-attribute reference codec:
+ * issue #3259's shortcode-attribute reference codec:
  *
  *  - agent/src/Grammar/Shortcodes.php (new): structure-aware capture/apply
  *    rewriting of declared shortcode_attrs refs, mirroring Blocks.php's
@@ -57,7 +57,7 @@ if (!function_exists('wp_upload_dir')) {
     function wp_upload_dir($time = null, $create_dir = true, $refresh_cache = false) {
         return [
             'baseurl' => 'http://example.test/wp-content/uploads',
-            'basedir' => sys_get_temp_dir() . '/duo-regress-uploads',
+            'basedir' => sys_get_temp_dir() . '/wprism-regress-uploads',
         ];
     }
 }
@@ -114,7 +114,7 @@ final class FakeWpdb {
 
     public function get_var($prepared) {
         [$sql, $args] = $this->unwrap($prepared);
-        if (str_contains($sql, 'SELECT local_id FROM') && str_contains($sql, 'duo_map')) {
+        if (str_contains($sql, 'SELECT local_id FROM') && str_contains($sql, 'wprism_map')) {
             [$uuid, $kind] = $args;
             foreach ($this->identity[$kind] ?? [] as $localId => $u) {
                 if ($u === $uuid) {
@@ -123,7 +123,7 @@ final class FakeWpdb {
             }
             return null;
         }
-        if (str_contains($sql, 'SELECT uuid FROM') && str_contains($sql, 'duo_map')) {
+        if (str_contains($sql, 'SELECT uuid FROM') && str_contains($sql, 'wprism_map')) {
             [$kind, $localId] = $args;
             return $this->identity[$kind][(int) $localId] ?? null;
         }
@@ -258,7 +258,7 @@ require __DIR__ . '/../../../../agent/src/Grammar/Blocks.php';
 require __DIR__ . '/../../../../agent/src/Grammar/Shortcodes.php';
 require __DIR__ . '/../../../../agent/src/Review/Lint.php';
 require __DIR__ . '/../../../../agent/src/Apply/Apply.php';
-// DUO-3259: Shortcodes::queue_unscoped() calls Capture::
+// issue #3259: Shortcodes::queue_unscoped() calls Capture::
 // classify_unscoped_ref() directly (public static, itself built on the
 // zero-instance-dependency ref_target_type() -- see both docblocks)
 // rather than duplicating the query shapes it encapsulates. Loading the
@@ -266,12 +266,12 @@ require __DIR__ . '/../../../../agent/src/Apply/Apply.php';
 // any of its other (WordPress-dependent) methods.
 require_once __DIR__ . '/../../../../agent/src/Capture/Capture.php';
 
-use Duo\Canon;
-use Duo\Policy;
-use Duo\Tokens;
-use Duo\Blocks;
-use Duo\Shortcodes;
-use Duo\Lint;
+use WPrism\Canon;
+use WPrism\Policy;
+use WPrism\Tokens;
+use WPrism\Blocks;
+use WPrism\Shortcodes;
+use WPrism\Lint;
 
 const MAPPED_UUID = '01980000-0003-7000-8000-000000000001';
 const MAPPED_ID = 601;
@@ -476,8 +476,8 @@ check(Shortcodes::apply_rewrite_text($legacyCanonical, $policy, $tokens) === $le
 // S1d — Apply registers the canonical alternate witnesses before any body
 // rewrite.  The reverse index must reject duplicate alternate values within
 // one declared lookup domain (and zero is never a valid legacy identifier).
-$applyForAlternates = new \Duo\ShortcodeAlternateRegistrar($policy, new Tokens());
-$registerAlternates = new \ReflectionMethod(\Duo\ShortcodeAlternateRegistrar::class, 'register');
+$applyForAlternates = new \WPrism\ShortcodeAlternateRegistrar($policy, new Tokens());
+$registerAlternates = new \ReflectionMethod(\WPrism\ShortcodeAlternateRegistrar::class, 'register');
 $duplicateAlternateTree = [
     ['type' => 'post', 'data' => ['type' => 'wpcf7_contact_form', 'uuid' => MAPPED_UUID, 'meta' => [
         '_hash' => str_repeat('a', 64), '_old_cf7_unit_id' => '77',
@@ -566,7 +566,7 @@ $modern40 = '[contact-form-7 id="ddddddd" title="Legacy Form"]';
 $modern40Canonical = Shortcodes::capture_rewrite_text($modern40, $policy, $tokens);
 $canonical40Tokens = new Tokens();
 $canonical40Tokens->policy = $policy;
-(new \Duo\ShortcodeAlternateRegistrar($policy, $canonical40Tokens))->register([[
+(new \WPrism\ShortcodeAlternateRegistrar($policy, $canonical40Tokens))->register([[
     'type' => 'post',
     'data' => [
         'type' => 'wpcf7_contact_form',
@@ -582,7 +582,7 @@ check(
 $wpdb->postMetaById[MAPPED_ID]['_hash'] = [$hashC];
 $canonicalNamedTokens = new Tokens();
 $canonicalNamedTokens->policy = $policy;
-(new \Duo\ShortcodeAlternateRegistrar($policy, $canonicalNamedTokens))->register([[
+(new \WPrism\ShortcodeAlternateRegistrar($policy, $canonicalNamedTokens))->register([[
     'type' => 'post',
     'data' => [
         'type' => 'wpcf7_contact_form',
@@ -598,7 +598,7 @@ $boundIdentity = $wpdb->identity['post'][MAPPED_ID];
 unset($wpdb->identity['post'][MAPPED_ID]);
 $cleanTargetTokens = new Tokens();
 $cleanTargetTokens->policy = $policy;
-(new \Duo\ShortcodeAlternateRegistrar($policy, $cleanTargetTokens))->register([[
+(new \WPrism\ShortcodeAlternateRegistrar($policy, $cleanTargetTokens))->register([[
     'type' => 'post',
     'data' => [
         'type' => 'wpcf7_contact_form',
@@ -975,7 +975,7 @@ check(str_contains($s18out, '[gallery]'), 'S18: the dropped instance still leave
 // ======================================================================
 echo "\n== Lint.php: shortcode findings ==\n";
 
-$stateDir = sys_get_temp_dir() . '/duo_regress_shortcode_refs_' . bin2hex(random_bytes(4));
+$stateDir = sys_get_temp_dir() . '/wprism_regress_shortcode_refs_' . bin2hex(random_bytes(4));
 register_shutdown_function(fn() => rrmdir($stateDir));
 
 function write_fixture_post(string $stateDir, string $slug, string $uuid, string $body, array $meta = []): string {

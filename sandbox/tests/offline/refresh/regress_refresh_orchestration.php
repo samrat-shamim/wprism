@@ -4,7 +4,7 @@ declare(strict_types=1);
 /* Offline host contract: live P is mandatory, target Git topology is checked,
  * and unresolved semantic rebase work never creates/replaces a source ref. */
 
-namespace Duo\Orchestrator {
+namespace WPrism\Orchestrator {
     require_once dirname(__DIR__, 4) . '/agent/src/Kernel/Canon.php';
     require_once dirname(__DIR__, 4) . '/cli/src/Refresh/RefreshFieldDiff.php';
 
@@ -17,7 +17,7 @@ namespace Duo\Orchestrator {
         public static ?array $lastInteractivePresentation = null;
         public static ?array $lastContext = null;
         public static function normalizeProductionSnapshot(array $export): array { return $export; }
-        /** role => `{root}/{component}` => present, recorded at the moment the compiler was handed the worktree (DUO-3523). */
+        /** role => `{root}/{component}` => present, recorded at the moment the compiler was handed the worktree (issue #3523). */
         public static array $lockedBytes = [];
         /** `{root}/{component}` the next compile should look for. */
         public static array $lockedExpect = [];
@@ -26,7 +26,7 @@ namespace Duo\Orchestrator {
             foreach (self::$lockedExpect as $component) {
                 self::$lockedBytes[$role][$component] = is_dir($path . '/code/wp-content/' . $component);
             }
-            return ['commit' => $commit, 'format' => 'duo-refresh-compiled-test/v1', 'role' => $role];
+            return ['commit' => $commit, 'format' => 'wprism-refresh-compiled-test/v1', 'role' => $role];
         }
         public static function assertProductionCodeMatches(array $production, array $code): void {
             if (($production['completed_code']['revision'] ?? null) !== hash('sha256', 'code')) {
@@ -37,8 +37,8 @@ namespace Duo\Orchestrator {
             self::$lastContext = $context;
             return [
                 'context' => $context,
-                'format' => 'duo-refresh-plan/v1',
-                'plan_hash' => hash('sha256', \Duo\Canon::encode(['context' => $context, 'test' => 'plan'])),
+                'format' => 'wprism-refresh-plan/v1',
+                'plan_hash' => hash('sha256', \WPrism\Canon::encode(['context' => $context, 'test' => 'plan'])),
             ];
         }
         public static function normalizePlan(array $plan): array { return $plan; }
@@ -54,7 +54,7 @@ namespace Duo\Orchestrator {
                 file_put_contents($worktree . "/state/ label-é.json", "{}\n");
                 file_put_contents($worktree . "/state/line\nbreak.json", "{}\n");
             }
-            return ['format' => 'duo-refresh-materialization/v1', 'plan_hash' => $plan['plan_hash'], 'resolved' => self::$resolved];
+            return ['format' => 'wprism-refresh-materialization/v1', 'plan_hash' => $plan['plan_hash'], 'resolved' => self::$resolved];
         }
         public static function validateMaterialization(array $receipt, array $plan, string $worktree): void {}
         public static function fieldDiff(array $plan, array $base, array $productionCode, array $branch): array {
@@ -62,7 +62,7 @@ namespace Duo\Orchestrator {
             return [
                 'diff' => $diff,
                 'bundle' => [
-                    'algorithm' => 'duo-refresh-field-diff/v1',
+                    'algorithm' => 'wprism-refresh-field-diff/v1',
                     'diff' => $diff,
                     'diff_hash' => $diff['diff_hash'],
                     'plan_hash' => $plan['plan_hash'],
@@ -101,10 +101,10 @@ namespace Duo\Orchestrator {
         }
         private static function fieldDiffDocument(string $planHash): array {
             $diff = [
-                'algorithm' => 'duo-refresh-field-diff/v1',
+                'algorithm' => 'wprism-refresh-field-diff/v1',
                 'authority' => false,
                 'choices' => ['ours' => 'branch', 'theirs' => 'production'],
-                'format' => 'duo-refresh-field-diff/v1',
+                'format' => 'wprism-refresh-field-diff/v1',
                 'plan_hash' => $planHash,
                 'policy_projection_hashes' => [
                     'base' => hash('sha256', 'orchestration-base-policy'),
@@ -117,7 +117,7 @@ namespace Duo\Orchestrator {
                 'roles' => ['base' => 'merge_base', 'ours' => 'branch', 'theirs' => 'production'],
                 'summary' => ['atomic_records' => 0, 'changes' => 0, 'conflicting_choices' => 0, 'records' => 0],
             ];
-            $diff['diff_hash'] = hash('sha256', \Duo\Canon::encode($diff));
+            $diff['diff_hash'] = hash('sha256', \WPrism\Canon::encode($diff));
             return $diff;
         }
     }
@@ -127,12 +127,12 @@ namespace {
 require dirname(__DIR__, 4) . '/cli/src/Transport/Transport.php';
 require dirname(__DIR__, 4) . '/cli/src/Transport/CodeDeploy.php';
 require dirname(__DIR__, 4) . '/cli/src/Refresh/Refresh.php';
-// Required here, not leaned on through Refresh.php: the DUO-3520 fixtures
+// Required here, not leaned on through Refresh.php: the issue #3520 fixtures
 // below build their lock with the writer's own helpers, and a suite that only
 // saw this class because the code under test happened to load it would fail to
 // LOAD against the prior bytes instead of failing on the defect.
 require_once dirname(__DIR__, 4) . '/agent/src/Code/CodeSourceLock.php';
-// Same reason as the line above: the DUO-3523 fixture builds its registry with
+// Same reason as the line above: the issue #3523 fixture builds its registry with
 // WpOrgReleases' own digest helper, so the suite must fail on the ASSERTION
 // against prior bytes, not on a class it only saw because Refresh.php loaded it.
 require_once dirname(__DIR__, 4) . '/cli/src/Code/CodeResolver.php';
@@ -140,8 +140,8 @@ require_once dirname(__DIR__, 4) . '/cli/src/Code/CodeResolver.php';
 // assertions below must fail on the ASSERTION against prior bytes.
 require_once dirname(__DIR__, 4) . '/cli/src/Command/CodeResolveCommand.php';
 
-use Duo\Orchestrator\Refresh;
-use Duo\Orchestrator\Transport;
+use WPrism\Orchestrator\Refresh;
+use WPrism\Orchestrator\Transport;
 
 function fail_refresh(string $message): never { fwrite(STDERR, "FAIL: $message\n"); exit(1); }
 function ok_refresh(bool $condition, string $message): void { if (!$condition) fail_refresh($message); echo "ok: $message\n"; }
@@ -231,7 +231,7 @@ final class RefreshTransport extends Transport {
  * canned string.
  *
  * `assertTargetHead()` composes real `git status` / `git ls-files` invocations
- * against `repoPath()`, and DUO-3520 is entirely about which paths those
+ * against `repoPath()`, and issue #3520 is entirely about which paths those
  * commands list on a split repository — a fake that returns pre-baked lines
  * would be asserting the fixture, not Git. This executes the exact script the
  * production transport would ship, against a real repository on disk; only the
@@ -247,7 +247,7 @@ final class RefreshTargetTransport extends Transport {
     protected function rawCommand(string $script): string { return 'false'; }
     public function captureRaw(string $script): array {
         $this->raw[] = $script;
-        $errFile = tempnam(sys_get_temp_dir(), 'duo-refresh-target-err');
+        $errFile = tempnam(sys_get_temp_dir(), 'wprism-refresh-target-err');
         $out = []; $code = 0;
         exec($script . ' 2>' . escapeshellarg((string) $errFile), $out, $code);
         $stderr = $errFile === false ? '' : (string) @file_get_contents($errFile);
@@ -268,7 +268,7 @@ final class RefreshTargetTransport extends Transport {
 }
 
 $spoolChild = <<<'PHP'
-namespace Duo\Orchestrator {
+namespace WPrism\Orchestrator {
     require $argv[1];
     final class BoundedRefreshFixtureTransport extends Transport {
         public function __construct() { parent::__construct('fixture', ['repo_path' => '/tmp']); }
@@ -282,8 +282,8 @@ namespace Duo\Orchestrator {
     }
 }
 namespace {
-    $path = tempnam(sys_get_temp_dir(), 'duo-refresh-spool-proof-');
-    $result = (new Duo\Orchestrator\BoundedRefreshFixtureTransport())->captureWpToFile([], $path, 6000001, 65536, 2000000000);
+    $path = tempnam(sys_get_temp_dir(), 'wprism-refresh-spool-proof-');
+    $result = (new WPrism\Orchestrator\BoundedRefreshFixtureTransport())->captureWpToFile([], $path, 6000001, 65536, 2000000000);
     $size = is_string($path) ? filesize($path) : false;
     if (is_string($path)) @unlink($path);
     echo ((int) $result['stdout_exceeded']) . ':' . ((int) $result['stderr_exceeded']) . ':' . $size . ':' . memory_get_peak_usage(true);
@@ -310,7 +310,7 @@ ok_refresh(
 );
 
 $spoolFailureChild = <<<'PHP'
-namespace Duo\Orchestrator {
+namespace WPrism\Orchestrator {
     require $argv[1];
     final class FailingSpoolTransport extends Transport {
         public function __construct(private string $pidPath) { parent::__construct('fixture', ['repo_path' => '/tmp']); }
@@ -324,13 +324,13 @@ namespace Duo\Orchestrator {
     }
 }
 namespace {
-    putenv('DUO_TEST_MODE=1');
-    $GLOBALS['duo_transport_spool_write_fault'] = static function (): never {
+    putenv('WPRISM_TEST_MODE=1');
+    $GLOBALS['wprism_transport_spool_write_fault'] = static function (): never {
         throw new \RuntimeException('injected bounded spool write failure');
     };
     $pidPath = $argv[2];
-    $spool = tempnam(sys_get_temp_dir(), 'duo-refresh-spool-failure-');
-    $result = (new Duo\Orchestrator\FailingSpoolTransport($pidPath))->captureWpToFile([], $spool, 6000001, 65536, 2000000000);
+    $spool = tempnam(sys_get_temp_dir(), 'wprism-refresh-spool-failure-');
+    $result = (new WPrism\Orchestrator\FailingSpoolTransport($pidPath))->captureWpToFile([], $spool, 6000001, 65536, 2000000000);
     $pid = (int) @file_get_contents($pidPath);
     $alive = $pid > 0 && function_exists('posix_kill') && @posix_kill($pid, 0);
     @unlink($spool);
@@ -339,7 +339,7 @@ namespace {
         . ((int) str_contains((string) ($result['stderr'] ?? ''), 'bounded capture spool failed'));
 }
 PHP;
-$spoolFailurePid = tempnam(sys_get_temp_dir(), 'duo-refresh-spool-child-');
+$spoolFailurePid = tempnam(sys_get_temp_dir(), 'wprism-refresh-spool-child-');
 $spoolFailureOutput = [];
 $spoolFailureRc = 0;
 exec(
@@ -356,7 +356,7 @@ ok_refresh(
 );
 
 $termIgnoringChild = <<<'PHP'
-namespace Duo\Orchestrator {
+namespace WPrism\Orchestrator {
     require $argv[1];
     final class TermIgnoringTransport extends Transport {
         public function __construct(private string $pidPath) { parent::__construct('fixture', ['repo_path' => '/tmp']); }
@@ -372,9 +372,9 @@ namespace Duo\Orchestrator {
 }
 namespace {
     $pidPath = $argv[2];
-    $spool = tempnam(sys_get_temp_dir(), 'duo-refresh-spool-term-');
+    $spool = tempnam(sys_get_temp_dir(), 'wprism-refresh-spool-term-');
     $started = hrtime(true);
-    $result = (new Duo\Orchestrator\TermIgnoringTransport($pidPath))->captureWpToFile([], $spool, 100001, 65536, 2000000000);
+    $result = (new WPrism\Orchestrator\TermIgnoringTransport($pidPath))->captureWpToFile([], $spool, 100001, 65536, 2000000000);
     $elapsed = hrtime(true) - $started;
     $pid = (int) @file_get_contents($pidPath);
     $alive = $pid > 0 && function_exists('posix_kill') && @posix_kill($pid, 0);
@@ -383,7 +383,7 @@ namespace {
     echo ((int) ($result['stdout_exceeded'] ?? false)) . ':' . ((int) !$alive) . ':' . (int) ($elapsed < 5000000000);
 }
 PHP;
-$termIgnoringPid = tempnam(sys_get_temp_dir(), 'duo-refresh-term-child-');
+$termIgnoringPid = tempnam(sys_get_temp_dir(), 'wprism-refresh-term-child-');
 $termIgnoringOutput = [];
 $termIgnoringRc = 0;
 exec(
@@ -400,7 +400,7 @@ ok_refresh(
 );
 
 $timeoutChild = <<<'PHP'
-namespace Duo\Orchestrator {
+namespace WPrism\Orchestrator {
     require $argv[1];
     final class TimeoutFixtureTransport extends Transport {
         public function __construct(private string $pidPath, private bool $chatty) { parent::__construct('fixture', ['repo_path' => '/tmp']); }
@@ -422,9 +422,9 @@ namespace {
     $parts = [];
     foreach (['silent' => false, 'under-cap-chatty' => true] as $label => $chatty) {
         $pidPath = $base . '-' . $label;
-        $spool = tempnam(sys_get_temp_dir(), 'duo-refresh-spool-timeout-');
+        $spool = tempnam(sys_get_temp_dir(), 'wprism-refresh-spool-timeout-');
         $started = hrtime(true);
-        $result = (new Duo\Orchestrator\TimeoutFixtureTransport($pidPath, $chatty))->captureWpToFile(
+        $result = (new WPrism\Orchestrator\TimeoutFixtureTransport($pidPath, $chatty))->captureWpToFile(
             [], $spool, 1048576, 65536, 500000000
         );
         $elapsed = hrtime(true) - $started;
@@ -440,7 +440,7 @@ namespace {
     echo implode('|', $parts);
 }
 PHP;
-$timeoutBase = tempnam(sys_get_temp_dir(), 'duo-refresh-timeout-child-');
+$timeoutBase = tempnam(sys_get_temp_dir(), 'wprism-refresh-timeout-child-');
 $timeoutOutput = [];
 $timeoutRc = 0;
 exec(
@@ -468,7 +468,7 @@ ok_refresh(
 );
 
 $privateSpoolChild = <<<'PHP'
-namespace Duo\Orchestrator {
+namespace WPrism\Orchestrator {
     require $argv[1];
     final class PrivateSpoolTransport extends Transport {
         public function __construct() { parent::__construct('fixture', ['repo_path' => '/tmp']); }
@@ -478,12 +478,12 @@ namespace Duo\Orchestrator {
     }
 }
 namespace {
-    $spool = tempnam(sys_get_temp_dir(), 'duo-refresh-spool-mode-');
+    $spool = tempnam(sys_get_temp_dir(), 'wprism-refresh-spool-mode-');
     chmod($spool, 0666);
-    $result = (new Duo\Orchestrator\PrivateSpoolTransport())->captureWpToFile([], $spool, 100, 100, 2000000000);
-    $overCap = (new Duo\Orchestrator\PrivateSpoolTransport())->captureWpToFile([], $spool, 1610612737, 100, 2000000000);
-    $overStderr = (new Duo\Orchestrator\PrivateSpoolTransport())->captureWpToFile([], $spool, 100, 8388609, 2000000000);
-    $overTimeout = (new Duo\Orchestrator\PrivateSpoolTransport())->captureWpToFile([], $spool, 100, 100, 600000000001);
+    $result = (new WPrism\Orchestrator\PrivateSpoolTransport())->captureWpToFile([], $spool, 100, 100, 2000000000);
+    $overCap = (new WPrism\Orchestrator\PrivateSpoolTransport())->captureWpToFile([], $spool, 1610612737, 100, 2000000000);
+    $overStderr = (new WPrism\Orchestrator\PrivateSpoolTransport())->captureWpToFile([], $spool, 100, 8388609, 2000000000);
+    $overTimeout = (new WPrism\Orchestrator\PrivateSpoolTransport())->captureWpToFile([], $spool, 100, 100, 600000000001);
     @unlink($spool);
     echo ((int) (($result['exit'] ?? 0) !== 0)) . ':'
         . ((int) str_contains((string) ($result['stderr'] ?? ''), 'bounded capture spool failed')) . ':'
@@ -508,7 +508,7 @@ ok_refresh(
     'a changed 0666 spool mode or over-hard-cap stdout, stderr, or timeout refuses before Refresh can read or launch it'
 );
 
-$tmp = sys_get_temp_dir() . '/duo-refresh-orchestration-' . bin2hex(random_bytes(6));
+$tmp = sys_get_temp_dir() . '/wprism-refresh-orchestration-' . bin2hex(random_bytes(6));
 $repo = $tmp . '/repo';
 mkdir($repo, 0700, true);
 try {
@@ -532,12 +532,12 @@ try {
     $feature = run_refresh(['git', 'rev-parse', 'HEAD'], $repo);
 
     $export = json_encode([
-        'completed_code' => ['descriptor' => ['format' => 'duo-code/v1'], 'revision' => hash('sha256', 'code')],
-        'format' => 'duo-refresh-production/v1',
+        'completed_code' => ['descriptor' => ['format' => 'wprism-code/v1'], 'revision' => hash('sha256', 'code')],
+        'format' => 'wprism-refresh-production/v1',
         'media' => [],
         'policy' => ['manifest_hash' => hash('sha256', 'manifest')],
         'records' => ['post:one' => ['content' => ['uuid' => 'one'], 'hash' => hash('sha256', 'record'), 'identity' => 'post:one', 'path' => 'state/posts/one.json', 'type' => 'post']],
-        'repository' => ['compiler' => ['format' => 'duo-refresh-repository/v1']],
+        'repository' => ['compiler' => ['format' => 'wprism-refresh-repository/v1']],
         'snapshot_hash' => hash('sha256', 'production-snapshot'),
     ], JSON_THROW_ON_ERROR);
     $transport = new RefreshTransport($production, $export);
@@ -552,18 +552,18 @@ try {
         && in_array('--skip-plugins', $exportCall, true)
         && in_array('--skip-themes', $exportCall, true)
         && count(array_filter($exportCall, static fn(string $arg): bool => str_starts_with($arg, '--exec=')
-            && str_contains($arg, 'DUO_CONTROL_PLANE')
+            && str_contains($arg, 'WPRISM_CONTROL_PLANE')
             && str_contains($arg, 'after_wp_config_load'))) === 1
-        && array_slice($exportCall, -4) === ['duo', 'refresh-export', '--repo=/target/repository', '--format=json'],
+        && array_slice($exportCall, -4) === ['wprism', 'refresh-export', '--repo=/target/repository', '--format=json'],
         'P is obtained through refresh-export under the isolated control bootstrap');
     ok_refresh(count(array_filter($transport->raw, static fn(string $script): bool =>
         str_contains($script, '--untracked-files=all')
         && str_contains($script, 'ls-files --others --ignored --exclude-standard')
         && str_contains($script, 'state media code manifests'))) > 0,
         'target verifier includes untracked and ignored canonical compiler inputs');
-    ok_refresh(in_array('base', \Duo\Orchestrator\RefreshPlan::$roles, true)
-        && in_array('branch', \Duo\Orchestrator\RefreshPlan::$roles, true)
-        && in_array('production-code', \Duo\Orchestrator\RefreshPlan::$roles, true), 'Git artifacts are compiled by role, with production code-only');
+    ok_refresh(in_array('base', \WPrism\Orchestrator\RefreshPlan::$roles, true)
+        && in_array('branch', \WPrism\Orchestrator\RefreshPlan::$roles, true)
+        && in_array('production-code', \WPrism\Orchestrator\RefreshPlan::$roles, true), 'Git artifacts are compiled by role, with production code-only');
     ok_refresh(run_refresh(['git', 'rev-parse', 'HEAD'], $repo) === $feature && run_refresh(['git', 'branch', '--show-current'], $repo) === 'feature', 'refresh leaves source checkout/ref untouched');
 
     $swappedSpoolTransport = new RefreshTransport($production, $export);
@@ -583,14 +583,14 @@ try {
     // scope evidence, and retain the contract through its planner boundary;
     // it must not apply the capture/apply whole-options refusal here.
     $optionScope = [
-        'format' => 'duo-scope-contract/v1',
+        'format' => 'wprism-scope-contract/v1',
         'scope_hash' => hash('sha256', 'option-root-refresh-scope'),
         'selectors' => ['option:blogname'],
         'source' => ['artifact_hash' => hash('sha256', 'option-root-source')],
     ];
     $scopedExport = json_decode($export, true, 512, JSON_THROW_ON_ERROR);
     $scopedExport['scope'] = [
-        'format' => 'duo-refresh-scope/v1',
+        'format' => 'wprism-refresh-scope/v1',
         'out_of_scope' => 'omitted_not_absent',
         'scope_hash' => $optionScope['scope_hash'],
         'selectors' => $optionScope['selectors'],
@@ -612,14 +612,14 @@ try {
     ok_refresh(
         ($optionRefresh['context']['scope_contract'] ?? null) === $optionScope
             && $optionRequestPayload === [
-                'format' => 'duo-scope-request/v1',
+                'format' => 'wprism-scope-request/v1',
                 'scope_hash' => $optionScope['scope_hash'],
                 'selectors' => $optionScope['selectors'],
             ]
-            && (\Duo\Orchestrator\RefreshPlan::$lastContext['scope_contract'] ?? null) === $optionScope,
+            && (\WPrism\Orchestrator\RefreshPlan::$lastContext['scope_contract'] ?? null) === $optionScope,
         'option-root refresh forwards and retains the exact immutable scope contract without widening it'
     );
-    $optionRunsBefore = glob($repo . '/.git/duo-refresh/runs/*/run.json') ?: [];
+    $optionRunsBefore = glob($repo . '/.git/wprism-refresh/runs/*/run.json') ?: [];
     try {
         Refresh::rebase($optionTransport, 'production', 'option-root-refresh-candidate', ['strategy' => 'manual', 'records' => []], $optionScope);
         fail_refresh('option-root rebase unexpectedly materialized an unresolved candidate');
@@ -627,12 +627,12 @@ try {
         ok_refresh(str_contains($e->getMessage(), 'resolved'),
             'option-root rebase reaches the scoped planner instead of the capture/apply refusal');
     }
-    $optionRunsAfter = glob($repo . '/.git/duo-refresh/runs/*/run.json') ?: [];
+    $optionRunsAfter = glob($repo . '/.git/wprism-refresh/runs/*/run.json') ?: [];
     $optionRunPaths = array_values(array_diff($optionRunsAfter, $optionRunsBefore));
     $optionRun = $optionRunPaths === [] ? [] : json_decode((string) file_get_contents($optionRunPaths[0]), true, 512, JSON_THROW_ON_ERROR);
     ok_refresh(count($optionTransport->wp) === 3
         && ($optionRun['scope_hash'] ?? null) === $optionScope['scope_hash']
-        && (\Duo\Orchestrator\RefreshPlan::$lastContext['scope_contract'] ?? null) === $optionScope,
+        && (\WPrism\Orchestrator\RefreshPlan::$lastContext['scope_contract'] ?? null) === $optionScope,
         'option-root rebase performs both scoped production observations and journals only its scope hash');
     if ($optionRunPaths !== []) Refresh::abort(basename(dirname($optionRunPaths[0])));
 
@@ -645,7 +645,7 @@ try {
             'untracked canonical target state refuses before refresh-export');
     }
 
-    $runsBeforeUnresolved = glob($repo . '/.git/duo-refresh/runs/*/run.json') ?: [];
+    $runsBeforeUnresolved = glob($repo . '/.git/wprism-refresh/runs/*/run.json') ?: [];
     try {
         Refresh::rebase($transport, 'production', 'refresh-candidate', ['strategy' => 'manual', 'records' => []]);
         fail_refresh('unresolved planner materialization created a branch');
@@ -655,28 +655,28 @@ try {
     $exists = []; $status = 0; exec('git -C ' . escapeshellarg($repo) . ' show-ref --verify --quiet refs/heads/refresh-candidate', $exists, $status);
     ok_refresh($status === 1, 'unresolved rebase creates no requested ref');
     ok_refresh(run_refresh(['git', 'rev-parse', 'HEAD'], $repo) === $feature && run_refresh(['git', 'branch', '--show-current'], $repo) === 'feature', 'failed rebase preserves source branch usability');
-    $runs = glob($repo . '/.git/duo-refresh/runs/*/run.json') ?: [];
+    $runs = glob($repo . '/.git/wprism-refresh/runs/*/run.json') ?: [];
     $newUnresolvedRuns = array_values(array_diff($runs, $runsBeforeUnresolved));
     ok_refresh(count($newUnresolvedRuns) === 1, 'failed candidate has a durable recovery run journal');
     $runId = basename(dirname($newUnresolvedRuns[0]));
     Refresh::abort($runId);
-    ok_refresh(!is_dir($repo . '/.git/duo-refresh/worktrees/' . $runId), 'abort removes only journal-owned candidate worktree');
+    ok_refresh(!is_dir($repo . '/.git/wprism-refresh/worktrees/' . $runId), 'abort removes only journal-owned candidate worktree');
 
-    $runsBeforeCancel = glob($repo . '/.git/duo-refresh/runs/*/run.json') ?: [];
+    $runsBeforeCancel = glob($repo . '/.git/wprism-refresh/runs/*/run.json') ?: [];
     try {
         Refresh::rebase($transport, 'production', 'refresh-interactive-cancel', ['strategy' => 'manual', 'records' => []], null, null, true);
         fail_refresh('interactive cancellation unexpectedly returned');
-    } catch (\Duo\Orchestrator\RefreshFieldResolutionCancelled $e) {
+    } catch (\WPrism\Orchestrator\RefreshFieldResolutionCancelled $e) {
         ok_refresh(str_contains($e->getMessage(), 'no run record, candidate worktree, branch, or ref was created'),
             'interactive cancellation explicitly guarantees no run record, candidate worktree, branch, or ref');
     }
     $cancelExists = []; $cancelStatus = 0;
     exec('git -C ' . escapeshellarg($repo) . ' show-ref --verify --quiet refs/heads/refresh-interactive-cancel', $cancelExists, $cancelStatus);
-    ok_refresh($cancelStatus === 1 && \Duo\Orchestrator\RefreshPlan::$interactiveFieldCalls === 1,
+    ok_refresh($cancelStatus === 1 && \WPrism\Orchestrator\RefreshPlan::$interactiveFieldCalls === 1,
         'interactive EOF/cancel creates no requested ref after resolving the redacted diff');
-    $runsAfterCancel = glob($repo . '/.git/duo-refresh/runs/*/run.json') ?: [];
-    $cancelWorktrees = glob($repo . '/.git/duo-refresh/worktrees/*') ?: [];
-    $cancelDiffs = glob($repo . '/.git/duo-refresh/field-diffs/*.json') ?: [];
+    $runsAfterCancel = glob($repo . '/.git/wprism-refresh/runs/*/run.json') ?: [];
+    $cancelWorktrees = glob($repo . '/.git/wprism-refresh/worktrees/*') ?: [];
+    $cancelDiffs = glob($repo . '/.git/wprism-refresh/field-diffs/*.json') ?: [];
     ok_refresh($runsAfterCancel === $runsBeforeCancel && $cancelWorktrees === [] && $cancelDiffs !== [],
         'interactive cancellation creates no run journal or candidate worktree while retaining only immutable planning/diff artifacts');
 
@@ -691,7 +691,7 @@ try {
     ok_refresh(count($transport->wp) === $readsBeforeExplicitManual,
         'explicit legacy strategy refusal happens before another target read or scratch candidate');
 
-    \Duo\Orchestrator\RefreshPlan::$resolved = true;
+    \WPrism\Orchestrator\RefreshPlan::$resolved = true;
     $complete = Refresh::rebase($transport, 'production', 'refresh-complete', ['strategy' => 'ours', 'records' => []]);
     ok_refresh(run_refresh(['git', 'rev-parse', 'refresh-complete'], $repo) === $complete['head'], 'strictly validated candidate is atomically published as a new ref');
     ok_refresh(run_refresh(['git', 'show', 'refresh-complete:state/rebased.json'], $repo) !== '', 'semantic state materialization is committed on candidate only');
@@ -699,16 +699,16 @@ try {
         && run_refresh(['git', 'show', "refresh-complete:state/line\nbreak.json"], $repo) === '{}',
         'byte-exact boundary accepts Unicode, whitespace, and newline state paths');
     ok_refresh(run_refresh(['git', 'rev-parse', 'HEAD'], $repo) === $feature && run_refresh(['git', 'branch', '--show-current'], $repo) === 'feature', 'successful rebase still preserves source checkout/ref');
-    $completeRun = json_decode((string) file_get_contents($repo . '/.git/duo-refresh/runs/' . $complete['run_id'] . '/run.json'), true, 512, JSON_THROW_ON_ERROR);
+    $completeRun = json_decode((string) file_get_contents($repo . '/.git/wprism-refresh/runs/' . $complete['run_id'] . '/run.json'), true, 512, JSON_THROW_ON_ERROR);
     ok_refresh(($completeRun['resolution']['strategy'] ?? null) === 'ours', 'declared conflict strategy is immutable run evidence');
-    ok_refresh(!is_dir($repo . '/.git/duo-refresh/worktrees/' . $complete['run_id']), 'successful rebase cleans only its disposable worktree');
+    ok_refresh(!is_dir($repo . '/.git/wprism-refresh/worktrees/' . $complete['run_id']), 'successful rebase cleans only its disposable worktree');
 
     // The strict v1 public diff seam is exercised through a real host run:
     // the private bundle is intentionally marked with a sentinel so neither
     // the public diff journal nor the run evidence can accidentally serialize
     // it. This fake materializer still drives code replay, state commit, and
     // new-ref publication through Refresh itself.
-    \Duo\Orchestrator\RefreshPlan::$interactiveCancels = false;
+    \WPrism\Orchestrator\RefreshPlan::$interactiveCancels = false;
     $fieldComplete = Refresh::rebase(
         $transport,
         'production',
@@ -718,17 +718,17 @@ try {
         null,
         true
     );
-    $fieldRunPath = $repo . '/.git/duo-refresh/runs/' . $fieldComplete['run_id'] . '/run.json';
+    $fieldRunPath = $repo . '/.git/wprism-refresh/runs/' . $fieldComplete['run_id'] . '/run.json';
     $fieldRunBytes = (string) file_get_contents($fieldRunPath);
     $fieldRun = json_decode($fieldRunBytes, true, 512, JSON_THROW_ON_ERROR);
     $fieldDiffPath = (string) ($fieldComplete['field_diff_path'] ?? '');
     $fieldDiffBytes = $fieldDiffPath === '' ? '' : (string) file_get_contents($fieldDiffPath);
     $fieldDiffJournal = $fieldDiffBytes === '' ? [] : json_decode($fieldDiffBytes, true, 512, JSON_THROW_ON_ERROR);
-    $fieldReceiptEvents = glob($repo . '/.git/duo-refresh/runs/' . $fieldComplete['run_id'] . '/events/*-state-materialized.json') ?: [];
+    $fieldReceiptEvents = glob($repo . '/.git/wprism-refresh/runs/' . $fieldComplete['run_id'] . '/events/*-state-materialized.json') ?: [];
     $fieldReceipt = $fieldReceiptEvents === [] ? [] : json_decode((string) file_get_contents($fieldReceiptEvents[0]), true, 512, JSON_THROW_ON_ERROR);
     ok_refresh(
         run_refresh(['git', 'rev-parse', 'refresh-field-complete'], $repo) === $fieldComplete['head']
-            && \Duo\Orchestrator\RefreshPlan::$validatedFieldDiffs >= 2
+            && \WPrism\Orchestrator\RefreshPlan::$validatedFieldDiffs >= 2
             && ($fieldRun['field_diff_hash'] ?? null) === ($fieldDiffJournal['diff_hash'] ?? null)
             && ($fieldRun['field_resolution']['resolution_hash'] ?? null) === ($fieldReceipt['data']['receipt']['field_resolution_hash'] ?? null),
         'successful field-mode host run validates the closed diff, publishes a new ref, and binds exact diff/resolution hashes'
@@ -736,10 +736,10 @@ try {
     ok_refresh(
         !str_contains($fieldRunBytes, 'PRIVATE-BUNDLE-SENTINEL-OMITTED')
             && !str_contains($fieldDiffBytes, 'PRIVATE-BUNDLE-SENTINEL-OMITTED')
-            && (\Duo\Orchestrator\RefreshPlan::$lastInteractivePresentation['format'] ?? null) === \Duo\Orchestrator\RefreshFieldDiff::PRESENTATION_FORMAT
-            && !str_contains($fieldRunBytes, \Duo\Orchestrator\RefreshFieldDiff::PRESENTATION_FORMAT)
-            && !str_contains($fieldDiffBytes, \Duo\Orchestrator\RefreshFieldDiff::PRESENTATION_FORMAT)
-            && !str_contains(\Duo\Canon::encode($fieldReceipt), \Duo\Orchestrator\RefreshFieldDiff::PRESENTATION_FORMAT),
+            && (\WPrism\Orchestrator\RefreshPlan::$lastInteractivePresentation['format'] ?? null) === \WPrism\Orchestrator\RefreshFieldDiff::PRESENTATION_FORMAT
+            && !str_contains($fieldRunBytes, \WPrism\Orchestrator\RefreshFieldDiff::PRESENTATION_FORMAT)
+            && !str_contains($fieldDiffBytes, \WPrism\Orchestrator\RefreshFieldDiff::PRESENTATION_FORMAT)
+            && !str_contains(\WPrism\Canon::encode($fieldReceipt), \WPrism\Orchestrator\RefreshFieldDiff::PRESENTATION_FORMAT),
         'field run evidence, public diff, and receipt omit private bundle and interactive-presentation data'
     );
 
@@ -749,7 +749,7 @@ try {
     $changedExport = json_decode($export, true, 512, JSON_THROW_ON_ERROR);
     $changedExport['snapshot_hash'] = hash('sha256', 'production-snapshot-moved');
     $transport->replaceAfterNextExport(json_encode($changedExport, JSON_THROW_ON_ERROR));
-    $runsBeforeStale = glob($repo . '/.git/duo-refresh/runs/*/run.json') ?: [];
+    $runsBeforeStale = glob($repo . '/.git/wprism-refresh/runs/*/run.json') ?: [];
     try {
         Refresh::rebase(
             $transport,
@@ -767,8 +767,8 @@ try {
     }
     $staleExists = []; $staleStatus = 0;
     exec('git -C ' . escapeshellarg($repo) . ' show-ref --verify --quiet refs/heads/refresh-field-stale-snapshot', $staleExists, $staleStatus);
-    $runsAfterStale = glob($repo . '/.git/duo-refresh/runs/*/run.json') ?: [];
-    $staleWorktrees = glob($repo . '/.git/duo-refresh/worktrees/*') ?: [];
+    $runsAfterStale = glob($repo . '/.git/wprism-refresh/runs/*/run.json') ?: [];
+    $staleWorktrees = glob($repo . '/.git/wprism-refresh/worktrees/*') ?: [];
     ok_refresh($staleStatus === 1 && $runsAfterStale === $runsBeforeStale && $staleWorktrees === [],
         'stale field resolution creates no run record, candidate worktree, or requested ref');
 
@@ -776,7 +776,7 @@ try {
     // evidence but changes the public exception type to a run-id-only handle.
     // The detailed planner reason remains in the private local event journal.
     $transport->replaceCurrentExport($export);
-    \Duo\Orchestrator\RefreshPlan::$resolved = false;
+    \WPrism\Orchestrator\RefreshPlan::$resolved = false;
     $failedFieldRun = null;
     try {
         Refresh::rebase(
@@ -789,24 +789,24 @@ try {
             true
         );
         fail_refresh('post-run field failure unexpectedly returned');
-    } catch (\Duo\Orchestrator\RefreshFieldResolutionRunFailed $e) {
+    } catch (\WPrism\Orchestrator\RefreshFieldResolutionRunFailed $e) {
         $failedFieldRun = $e->runId();
         ok_refresh(!str_contains($e->getMessage(), 'semantic planner')
             && preg_match('/^[0-9]{8}-[0-9]{6}-[a-f0-9]{24}$/D', $failedFieldRun) === 1,
             'post-run field failure exposes only a safe run-id recovery handle');
     }
-    $failedEvents = $failedFieldRun === null ? [] : glob($repo . '/.git/duo-refresh/runs/' . $failedFieldRun . '/events/*-stopped.json');
+    $failedEvents = $failedFieldRun === null ? [] : glob($repo . '/.git/wprism-refresh/runs/' . $failedFieldRun . '/events/*-stopped.json');
     $failedEventBytes = $failedEvents === [] ? '' : (string) file_get_contents($failedEvents[0]);
     ok_refresh(str_contains($failedEventBytes, 'semantic planner did not return a resolved'),
         'post-run field failure preserves the detailed cause only in private event evidence');
     if ($failedFieldRun !== null) Refresh::abort($failedFieldRun);
 
-    // ------------------------------------------------------------ DUO-3520
-    // Since DUO-3499 the DEFAULT init is split: each locked component stays on
+    // ------------------------------------------------------------ issue #3520
+    // Since issue #3499 the DEFAULT init is split: each locked component stays on
     // disk and out of Git, excluded by a root-anchored `.gitignore` line and
-    // identified by `code/duo-code.lock.json`'s `tree_sha256` at the same ref.
+    // identified by `code/wprism-code.lock.json`'s `tree_sha256` at the same ref.
     // assertTargetHead() listed every one of those trees as an "ignored
-    // canonical change", so the first `duo rehearse` on ANY split repository
+    // canonical change", so the first `wprism rehearse` on ANY split repository
     // refused — grind_adapter_walk.sh S1 on a 3-component split (woocommerce,
     // wpforms-lite, twentytwentyone) died there while the identical scenario
     // passed the day before, when init still vendored everything.
@@ -827,7 +827,7 @@ try {
         mkdir($source . '/state', 0700, true);
         file_put_contents($source . '/state/base.json', "{}\n");
         file_put_contents($source . '/.gitignore', implode("\n", $ignoreLines) . "\n");
-        file_put_contents($source . '/site.duo.json', json_encode(
+        file_put_contents($source . '/site.wprism.json', json_encode(
             ['code' => $codeConfig, 'manifests' => ['core'], 'spec_version' => 2],
             JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
         ) . "\n");
@@ -836,8 +836,8 @@ try {
             // A complete v2 lock: the two locked components and an empty
             // first_party list, since the fixture carries nothing else under
             // code/wp-content.
-            file_put_contents($source . '/code/duo-code.lock.json', json_encode(
-                ['components' => $lock, 'first_party' => [], 'format' => \Duo\CodeSourceLock::FORMAT],
+            file_put_contents($source . '/code/wprism-code.lock.json', json_encode(
+                ['components' => $lock, 'first_party' => [], 'format' => \WPrism\CodeSourceLock::FORMAT],
                 JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
             ) . "\n");
         }
@@ -870,7 +870,7 @@ try {
     $shopBytes = "<?php // acme-shop\n";
     $themeBytes = "/* acme-theme */\n";
 
-    // ------------------------------------------------------------ DUO-3523
+    // ------------------------------------------------------------ issue #3523
     // A Git worktree of a split commit carries NO locked component bytes, so
     // every compile the host performs must have them materialized into the
     // worktree first. That makes these components genuinely resolvable rather
@@ -884,7 +884,7 @@ try {
     mkdir($registry . '/plugin', 0700, true);
     mkdir($registry . '/theme', 0700, true);
     putenv('XDG_CACHE_HOME=' . $tmp . '/cache');
-    putenv(\Duo\Orchestrator\WpOrgReleases::FETCH_BASE_ENV . '=file://' . $registry);
+    putenv(\WPrism\Orchestrator\WpOrgReleases::FETCH_BASE_ENV . '=file://' . $registry);
 
     /** One real zip, plus the two digests the lock must declare for it. */
     $publish = static function (string $segment, string $component, string $version, string $file, string $body)
@@ -903,13 +903,13 @@ try {
         $probe = $tmp . '/probe-' . bin2hex(random_bytes(4)) . '/' . $component;
         mkdir($probe, 0700, true);
         file_put_contents($probe . '/' . $file, $body);
-        $tree = \Duo\Orchestrator\WpOrgReleases::treeDigest($probe);
+        $tree = \WPrism\Orchestrator\WpOrgReleases::treeDigest($probe);
         remove_refresh(dirname($probe));
 
         return [
             'archive_sha256' => hash_file('sha256', $archive),
             'tree_sha256' => $tree,
-            'url' => \Duo\Orchestrator\WpOrgReleases::canonicalUrl(
+            'url' => \WPrism\Orchestrator\WpOrgReleases::canonicalUrl(
                 $segment === 'plugin' ? 'plugins' : 'themes',
                 $component,
                 $version
@@ -921,7 +921,7 @@ try {
 
     $splitPair = $buildPair(
         'split',
-        ['format' => 2, 'layout' => 'wp-content', 'lock' => \Duo\CodeSourceLock::PATH, 'source' => 'code/wp-content'],
+        ['format' => 2, 'layout' => 'wp-content', 'lock' => \WPrism\CodeSourceLock::PATH, 'source' => 'code/wp-content'],
         // Sorted by root then component, as assert_lock() requires.
         [[
             'component' => 'acme-shop',
@@ -939,8 +939,8 @@ try {
             'version' => '2.0',
         ]],
         [
-            \Duo\CodeSourceLock::gitignore_line('plugins', 'acme-shop'),
-            \Duo\CodeSourceLock::gitignore_line('themes', 'acme-theme'),
+            \WPrism\CodeSourceLock::gitignore_line('plugins', 'acme-shop'),
+            \WPrism\CodeSourceLock::gitignore_line('themes', 'acme-theme'),
             // Two ignore lines the lock deliberately does NOT declare: a stray
             // file beside a locked tree, and a whole undeclared directory.
             // Both are ignored bytes under `code` that nothing identifies.
@@ -952,8 +952,8 @@ try {
     $plant($splitPair['target'], 'code/wp-content/themes/acme-theme/style.css', $themeBytes);
 
     $splitTransport = new RefreshTargetTransport($splitPair['target'], $export);
-    \Duo\Orchestrator\RefreshPlan::$lockedExpect = ['plugins/acme-shop', 'themes/acme-theme'];
-    \Duo\Orchestrator\RefreshPlan::$lockedBytes = [];
+    \WPrism\Orchestrator\RefreshPlan::$lockedExpect = ['plugins/acme-shop', 'themes/acme-theme'];
+    \WPrism\Orchestrator\RefreshPlan::$lockedBytes = [];
     chdir($splitPair['source']);
     $splitResult = [];
     try {
@@ -967,13 +967,13 @@ try {
     ok_refresh(
         ($splitResult['context']['production_commit'] ?? null) === $splitPair['production'],
         'a split repository whose ignored component trees are exactly the ones its lock declares passes the '
-        . 'target-head gate — the defect refused every DUO-3499 default init at its first rehearse'
+        . 'target-head gate — the defect refused every issue #3499 default init at its first rehearse'
     );
     $splitScript = $splitTransport->raw[0] ?? '';
     ok_refresh(
         str_contains($splitScript, "':(exclude,literal)code/wp-content/plugins/acme-shop/'")
             && str_contains($splitScript, "':(exclude,literal)code/wp-content/themes/acme-theme/'")
-            && str_contains($splitScript, 'ls-files --others --ignored --exclude-standard -- site.duo.json state media code manifests'),
+            && str_contains($splitScript, 'ls-files --others --ignored --exclude-standard -- site.wprism.json state media code manifests'),
         'each locked tree is excluded by its own literal pathspec, appended to the unchanged partition list; '
         . '`literal` keeps a component name that contains glob metacharacters (safe_component() admits them) '
         . 'from being read as a pattern that would match something else, or nothing'
@@ -1041,7 +1041,7 @@ try {
         . 'format-2 lock at the production ref identifies bytes'
     );
 
-    // ------------------------------------------------------------ DUO-3523
+    // ------------------------------------------------------------ issue #3523
     // The compile half of the same split. `git worktree add --detach` produces
     // a checkout with NO locked component bytes — that is what the split means —
     // so RepositoryCompiler refused every host compile with
@@ -1050,15 +1050,15 @@ try {
     // materializes the declared lock into each worktree it creates, through the
     // one host-side resolver, before handing it to the compiler.
     ok_refresh(
-        (\Duo\Orchestrator\RefreshPlan::$lockedBytes['base'] ?? null) === ['plugins/acme-shop' => true, 'themes/acme-theme' => true]
-            && (\Duo\Orchestrator\RefreshPlan::$lockedBytes['branch'] ?? null) === ['plugins/acme-shop' => true, 'themes/acme-theme' => true]
-            && (\Duo\Orchestrator\RefreshPlan::$lockedBytes['production-code'] ?? null) === ['plugins/acme-shop' => true, 'themes/acme-theme' => true],
+        (\WPrism\Orchestrator\RefreshPlan::$lockedBytes['base'] ?? null) === ['plugins/acme-shop' => true, 'themes/acme-theme' => true]
+            && (\WPrism\Orchestrator\RefreshPlan::$lockedBytes['branch'] ?? null) === ['plugins/acme-shop' => true, 'themes/acme-theme' => true]
+            && (\WPrism\Orchestrator\RefreshPlan::$lockedBytes['production-code'] ?? null) === ['plugins/acme-shop' => true, 'themes/acme-theme' => true],
         'every worktree the host compiles is handed the locked component bytes — base, branch AND production-code, '
         . 'each verified against the lock before the compiler sees it; against the prior bytes each of these '
         . 'directories is absent and the compiler refuses code_source_missing'
     );
 
-    // The resolution is REPORTED, in the vocabulary `duo code-resolve` and the
+    // The resolution is REPORTED, in the vocabulary `wprism code-resolve` and the
     // deploy phase already use. Refresh returns the resolver's rows; the
     // command renders them (CodeResolveCommand::renderRefreshPhase()), because
     // cli/src/Refresh/Refresh.php has no `echo` in it at all.
@@ -1066,22 +1066,22 @@ try {
     ok_refresh(
         array_keys($resolveRows) === ['base', 'branch', 'production-code']
             && array_column($resolveRows['production-code']['rows'] ?? [], 'state') === ['resolved', 'resolved']
-            && ($resolveRows['production-code']['lock'] ?? null) === \Duo\CodeSourceLock::PATH,
+            && ($resolveRows['production-code']['lock'] ?? null) === \WPrism\CodeSourceLock::PATH,
         'the result carries one reported phase per compiled worktree, each naming the lock it read and the '
         . 'state of every component it materialized'
     );
     ob_start();
-    \Duo\Orchestrator\CodeResolveCommand::renderRefreshPhase($splitResult, 'refresh');
+    \WPrism\Orchestrator\CodeResolveCommand::renderRefreshPhase($splitResult, 'refresh');
     $rendered = (string) ob_get_clean();
     ok_refresh(
-        str_contains($rendered, 'duo: refresh: code-resolve (production-code worktree): 2 component(s) declared in code/duo-code.lock.json')
+        str_contains($rendered, 'wprism: refresh: code-resolve (production-code worktree): 2 component(s) declared in code/wprism-code.lock.json')
             && str_contains($rendered, 'RESOLVED plugins/acme-shop 1.0 — ')
-            && str_contains($rendered, 'duo: refresh: code-resolve (production-code worktree): 2 materialized, 0 unchanged.'),
+            && str_contains($rendered, 'wprism: refresh: code-resolve (production-code worktree): 2 materialized, 0 unchanged.'),
         'and it renders as the same RESOLVED rows and `N materialized, M unchanged` summary the resolver already '
         . 'prints elsewhere, prefixed with the worktree it was for — one vocabulary for one piece of work'
     );
     ob_start();
-    \Duo\Orchestrator\CodeResolveCommand::renderRefreshPhase(['plan_path' => '/x'], 'refresh');
+    \WPrism\Orchestrator\CodeResolveCommand::renderRefreshPhase(['plan_path' => '/x'], 'refresh');
     ok_refresh(
         (string) ob_get_clean() === '',
         'a result with nothing resolved prints NOTHING, so a format-1 refresh keeps its output byte-identical'
@@ -1091,11 +1091,11 @@ try {
     // refusal, not a compile-time surprise: the archive resolves and unpacks,
     // and its tree does not hash to what the lock declares. Raised in the
     // parent process precisely so the reason code survives — the compile worker
-    // boundary flattens a refusal to its message (DUO-3524).
+    // boundary flattens a refusal to its message (issue #3524).
     $driftRelease = $publish('plugin', 'acme-drift', '3.0', 'acme-drift.php', "<?php // drift\n");
     $driftPair = $buildPair(
         'drift',
-        ['format' => 2, 'layout' => 'wp-content', 'lock' => \Duo\CodeSourceLock::PATH, 'source' => 'code/wp-content'],
+        ['format' => 2, 'layout' => 'wp-content', 'lock' => \WPrism\CodeSourceLock::PATH, 'source' => 'code/wp-content'],
         [[
             'component' => 'acme-drift',
             'origin' => ['archive_sha256' => $driftRelease['archive_sha256'], 'kind' => 'wp-org-release',
@@ -1107,19 +1107,19 @@ try {
             'tree_sha256' => str_repeat('d', 64),
             'version' => '3.0',
         ]],
-        [\Duo\CodeSourceLock::gitignore_line('plugins', 'acme-drift')]
+        [\WPrism\CodeSourceLock::gitignore_line('plugins', 'acme-drift')]
     );
     $plant($driftPair['target'], 'code/wp-content/plugins/acme-drift/acme-drift.php', "<?php // drift\n");
     chdir($driftPair['source']);
     $driftRefusal = null;
     try {
         Refresh::refresh(new RefreshTargetTransport($driftPair['target'], $export), 'production');
-    } catch (\Duo\CommandRefusalException $e) {
+    } catch (\WPrism\CommandRefusalException $e) {
         $driftRefusal = $e;
     }
     ok_refresh(
-        $driftRefusal instanceof \Duo\CommandRefusalException
-            && $driftRefusal->reasonCode === \Duo\Orchestrator\CodeResolver::REASON_TREE_DIGEST_MISMATCH,
+        $driftRefusal instanceof \WPrism\CommandRefusalException
+            && $driftRefusal->reasonCode === \WPrism\Orchestrator\CodeResolver::REASON_TREE_DIGEST_MISMATCH,
         'a component the host cannot resolve refuses with the resolver\'s own typed reason code '
         . '(code_resolve_tree_digest_mismatch) rather than as a bare compile failure — got '
         . ($driftRefusal === null ? 'no refusal at all' : $driftRefusal->reasonCode)
@@ -1135,7 +1135,7 @@ try {
     // directory the outer finally cannot rmdir.
     ok_refresh(
         count(preg_grep('/^worktree /', preg_split('/\r?\n/', run_refresh(['git', 'worktree', 'list', '--porcelain'], $driftPair['source'])) ?: [])) === 1
-            && (glob($driftPair['source'] . '/.git/duo-refresh/scratch/*') ?: []) === [],
+            && (glob($driftPair['source'] . '/.git/wprism-refresh/scratch/*') ?: []) === [],
         'and the refusal leaves no worktree and no scratch directory behind: the three compile worktrees are '
         . 'created before it and removed by the same finally that cleans a compile failure'
     );
@@ -1144,8 +1144,8 @@ try {
     // a fully vendored repository, so materializeLockedCode() returns before it
     // constructs a resolver or reads a cache.
     ok_refresh(
-        \Duo\Orchestrator\CodeResolver::declaredLock($vendoredPair['source']) === null
-            && \Duo\Orchestrator\CodeResolver::declaredLock($splitPair['source']) !== null,
+        \WPrism\Orchestrator\CodeResolver::declaredLock($vendoredPair['source']) === null
+            && \WPrism\Orchestrator\CodeResolver::declaredLock($splitPair['source']) !== null,
         'a fully vendored (format 1) repository declares no lock, so the materialization is a no-op there by '
         . 'construction rather than by a branch that could be got wrong'
     );

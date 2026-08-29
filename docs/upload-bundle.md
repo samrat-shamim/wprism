@@ -2,14 +2,14 @@
 
 The upload provider is the filesystem/object-storage slice of verified SSH
 rollback. It runs behind the adopted WordPress-independent recovery runtime.
-Duo owns the immutable compile inventory, signed authorization, evidence
+WPrism owns the immutable compile inventory, signed authorization, evidence
 validation, bounded mutation journal, exact-absence rules, fresh verification,
 and retention fence. The target provider owns local storage and any offload
 API or credentials.
 
-This capability does not make the existing in-place `wp duo apply` path
+This capability does not make the existing in-place `wp wprism apply` path
 automatically recoverable. The automatic profile must route its upload writes
-through `storage_apply`; DUO-3299 owns that end-to-end composition.
+through `storage_apply`; issue #3299 owns that end-to-end composition.
 
 ## Configuration and preflight
 
@@ -17,11 +17,11 @@ Add one absolute argv vector under `rollback_recovery`:
 
 ```json
 {
-  "upload_provider": ["/opt/duo/bin/upload-provider", "production"]
+  "upload_provider": ["/opt/wprism/bin/upload-provider", "production"]
 }
 ```
 
-`recovery-probe` requires canonical `duo-upload-provider-response/v1`
+`recovery-probe` requires canonical `wprism-upload-provider-response/v1`
 evidence that the provider supports local storage, offload storage, or both;
 encrypts before-images; leaves no durable plaintext; performs read-after-
 restore verification; and emits no credentials. Missing support is a hard
@@ -31,14 +31,14 @@ operator-directed path.
 
 ## Compile inventory and preparation
 
-The immutable compiled artifact and `duo plan` expose every attachment
+The immutable compiled artifact and `wprism plan` expose every attachment
 original as well as its only permitted derivative directory/basename prefix.
 This happens offline, before target contact. The declaration does not grant
 wildcard deletion authority: target preparation resolves it into an exact
 prior inventory.
 
 After maintenance exclusion is held, the controller sends a signed
-`duo-upload-bundle-request/v1` prepare request with that compile inventory.
+`wprism-upload-bundle-request/v1` prepare request with that compile inventory.
 The provider must reject symlinks, non-regular entries, traversal, duplicate
 paths, unsupported backends, or paths outside the declared roots. It writes:
 
@@ -51,7 +51,7 @@ paths, unsupported backends, or paths outside the declared roots. It writes:
 Every present local path requires an encrypted before-image. Every present
 offload object requires a native version id or exact encrypted bytes. An
 absent row has neither and is only evidence that the exact path was absent.
-Duo independently hashes and validates the artifacts. The complete metadata
+WPrism independently hashes and validates the artifacts. The complete metadata
 hash becomes the signed receipt's existing `uploads_inventory_sha256`. Status
 does not expose a configuration-only `automatic_upload_rollback` boolean: a
 configured provider is capability, while an active receipt's `uploads`
@@ -66,7 +66,7 @@ every publish, replacement, or removal is recorded `prepared` before the
 write and `completed` only after readback.
 
 Attachment metadata generation must report every created, replaced, and
-removed derivative. Duo accepts only the declared original or a path inside
+removed derivative. WPrism accepts only the declared original or a path inside
 that attachment's compiled derivative root. An undeclared derivative,
 incomplete event, wrong original hash, changed path type, or concurrent writer
 keeps the operation open and non-green. Provider reports and runtime errors
@@ -80,7 +80,7 @@ or native object versions. A path proven absent may be deleted only when its
 current hash still equals the completed mutation's after-hash; a replacement
 by another writer is a loud refusal, never deletion authority.
 
-After restore, Duo starts a second provider process for `verify-prior`. Every
+After restore, WPrism starts a second provider process for `verify-prior`. Every
 original and derivative must match the frozen prior inventory, including exact
 absence. Only the identical prior-inventory digest may complete the signed
 operation. Disconnects before/after local writes, offload writes, derivative
@@ -91,5 +91,5 @@ generation, restores, and deletions remain retryable under the same journal.
 Encrypted before-images and inventory evidence remain immutable until the
 signed generation is `committed` or `rolled_back` and its retention deadline
 has elapsed. A signed delete request then invokes provider cleanup and leaves
-a hash-only `duo-upload-bundle-tombstone/v1`. Early, active, foreign, or
+a hash-only `wprism-upload-bundle-tombstone/v1`. Early, active, foreign, or
 changed-generation deletion is refused.

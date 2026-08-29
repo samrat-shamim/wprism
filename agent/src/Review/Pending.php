@@ -1,14 +1,14 @@
 <?php
-namespace Duo;
+namespace WPrism;
 
-// DUO-3508: the queue's mechanism-ownership test below asks SidebarState
+// issue #3508: the queue's mechanism-ownership test below asks SidebarState
 // directly, and the drop-in has no autoloader — every engine file names the
 // classes it loads (sandbox/tests/offline/guards/regress_agent_src_requires.php).
 require_once __DIR__ . '/../Repository/SidebarState.php';
 
 /**
- * The core loop's review queue (DESIGN.md 3.1.5): `wp duo pending` is the
- * step between "unclassified write blocked capture" and "wp duo classify
+ * The core loop's review queue (DESIGN.md 3.1.5): `wp wprism pending` is the
+ * step between "unclassified write blocked capture" and "wp wprism classify
  * writes the rule" — it surfaces everything currently unclassified, with
  * whatever evidence exists to help a human decide.
  *
@@ -22,7 +22,7 @@ require_once __DIR__ . '/../Repository/SidebarState.php';
  *     completeness dependency. Options outside a claimed namespace remain
  *     journal-only because no adapter has asserted ownership of them.
  *
- * A journal-observed name is not automatically a review item (DUO-3508). A
+ * A journal-observed name is not automatically a review item (issue #3508). A
  * name a dedicated engine mechanism already owns end to end has no
  * classification to give, so demanding one is noise, not safety. Two
  * mechanisms own names today: SidebarState, over `sidebars_widgets` and the
@@ -69,8 +69,8 @@ final class Pending {
         $gate = Capture::gate_scan_read_only($repo, $policy, $observationReadCheckpoint);
         self::assert_read_only_database();
         // The journal-derived half of the queue exists only once the agent's
-        // durable journal does. On a target Duo has never written to (the
-        // first look `duo assess` takes on an adoption seed, before any init
+        // durable journal does. On a target WPrism has never written to (the
+        // first look `wprism assess` takes on an adoption seed, before any init
         // or capture) the table is provably absent — a clean SHOW TABLES says
         // so — and that is a known state, not a failed read: the queue is
         // then exactly what the live gate walk found. Reading the journal
@@ -107,8 +107,8 @@ final class Pending {
         foreach ($gate['term_meta'] as $key => $ev) {
             $items[] = self::make_item('term_meta', $key, $ev, $journalTermMeta[$key] ?? null, $observationReadCheckpoint);
         }
-        // DUO-3266's menu-item meta findings fold directly into
-        // $gate['post_meta'] above (DUO-3275 — nav_menu_item is a real
+        // issue #3266's menu-item meta findings fold directly into
+        // $gate['post_meta'] above (issue #3275 — nav_menu_item is a real
         // post_type, tagged into that finding's own post_types set, not a
         // separate discovery section) — no dedicated loop needed here.
         foreach ($gate['user_meta'] as $key => $ev) {
@@ -141,7 +141,7 @@ final class Pending {
      */
     public static function journal_installed(): bool {
         global $wpdb;
-        $table = $wpdb->prefix . 'duo_journal';
+        $table = $wpdb->prefix . 'wprism_journal';
         $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
         $readError = $wpdb->last_error ?? '';
         if (!is_string($readError) || $readError !== '' || $found === false) {
@@ -155,7 +155,7 @@ final class Pending {
                     'message' => 'the review could not prove whether the provenance journal exists',
                     'remediation' => 'restore readable target evidence before reviewing pending evidence',
                 ]],
-                'duo: pending review refused because the journal existence probe failed'
+                'wprism: pending review refused because the journal existence probe failed'
             );
         }
 
@@ -179,7 +179,7 @@ final class Pending {
                     'message' => 'the review will not treat a failed pending read as an empty review queue',
                     'remediation' => 'restore readable target evidence before reviewing pending evidence',
                 ]],
-                'duo: pending review refused because an evidence SELECT failed'
+                'wprism: pending review refused because an evidence SELECT failed'
             );
         }
     }
@@ -215,10 +215,10 @@ final class Pending {
     }
 
     /**
-     * DUO-3214: current_value() reads a raw, untrusted DB value — ANY
+     * issue #3214: current_value() reads a raw, untrusted DB value — ANY
      * option/post_meta/term_meta row in this installation (this is the
      * pending-review surface; the key may not even be classified yet), not
-     * just a duo-authored one. Plain maybe_unserialize() (WordPress core:
+     * just a wprism-authored one. Plain maybe_unserialize() (WordPress core:
      * `is_serialized($data) ? @unserialize(trim($data)) : $data`) calls
      * unserialize() with no 'allowed_classes' restriction — a PHP-serialized
      * OBJECT instantiates (running its __wakeup(), and later __destruct())
@@ -362,22 +362,22 @@ final class Pending {
      * proof the key IS a ref — never a classification.
      *
      * WHAT THE RECON MEASURED. On a WPForms Lite 2.0.0.5 site holding four
-     * genuine cross-entity references, `duo pending` emitted three hints and
+     * genuine cross-entity references, `wprism pending` emitted three hints and
      * all three were wrong:
      *   - `wpforms_settings` (a serialized array) -> post:1 "Hello world!"
      *   - `wpforms_constant_contact_version` = '3' -> post:3 "Privacy Policy"
      *   - `action_scheduler_hybrid_store_demarkation` = '4' -> post:4 "Recon
      *     Thank You"
-     * and found none of the four real ones. The DUO-3508 guard below only
+     * and found none of the four real ones. The issue #3508 guard below only
      * suppressed a value that was WHOLLY 0 or 1, so `wpforms_settings`'s
      * first extractable id — the `"1"` of `s:13:"modern-markup";s:1:"1"` —
-     * walked straight past it into exactly the row DUO-3508 exists to stop.
+     * walked straight past it into exactly the row issue #3508 exists to stop.
      *
      * FOUR RULES, each one a measured class. A candidate is offered only when
      * a key CLAIMS a reference (REF_KEY_TOKENS — the pending key itself for a
      * scalar, the member key for anything inside a structure), and never when
      * the key names a version (VERSION_KEY_TOKENS), the value is an epoch
-     * (TIMESTAMP_FLOOR), or the value is 0/1. That last one is DUO-3508's
+     * (TIMESTAMP_FLOOR), or the value is 0/1. That last one is issue #3508's
      * rule applied at every depth instead of only to a whole value: a `1`
      * inside a serialized settings array is the same boolean it would be on
      * its own, and post #1 is still WordPress's own seed row.
@@ -394,7 +394,7 @@ final class Pending {
      * recon's four real references — `settings.confirmations.<n>.page` inside
      * a wpforms post's `post_content`, and two `wpforms/form-selector`
      * `formId` block attributes — are out of reach here by surface, not by
-     * heuristic. `wp duo lint` is the body scanner, and it found both block
+     * heuristic. `wp wprism lint` is the body scanner, and it found both block
      * attrs. The fourth, `wpforms_form_locations` postmeta, is a structure
      * this walk now reaches.
      */
@@ -496,7 +496,7 @@ final class Pending {
      * Both vetoes live here rather than in the walk so every path — bare
      * scalar, list element, CSV segment, structure member — is filtered by
      * the same code; a veto that held on one shape and not another is exactly
-     * the drift DUO-3508's whole-value-only test turned out to be.
+     * the drift issue #3508's whole-value-only test turned out to be.
      *
      * @param list<array{0:int,1:string}> $out
      */
@@ -506,7 +506,7 @@ final class Pending {
         }
         $id = (int) $value;
         if ($id <= 0 || $id === 1) {
-            // DUO-3508 at every depth: 0 and 1 are flags. 0 is also not a
+            // issue #3508 at every depth: 0 and 1 are flags. 0 is also not a
             // positive id, so the two reasons coincide there.
             return;
         }
@@ -579,7 +579,7 @@ final class Pending {
      * rather than two copies that could drift.
      *
      * Excludes post_type=revision and post_status=auto-draft: every edit
-     * accumulates revision rows (WP core plumbing — never a Duo-manageable
+     * accumulates revision rows (WP core plumbing — never a WPrism-manageable
      * post_type, never independently addressable; "revision #10" is never
      * a meaningful reference the way "post #10" is), and auto-draft posts
      * are transient empty placeholders. Left unfiltered, either would match
@@ -682,7 +682,7 @@ final class Pending {
      * `Journal::ground_truth()` answers from the exact/pattern rule table
      * alone (Journal.php:331-334 -> Policy::option_rule(), Policy.php:634-636
      * -> PolicyRuleResolver), which structurally cannot see either mechanism
-     * below. Before DUO-3508 that made a fresh install demand a
+     * below. Before issue #3508 that made a fresh install demand a
      * classification for ~46 names whose owner is engine code rather than any
      * manifest declaration: every `widget_<type>` row, `sidebars_widgets`,
      * and both the active theme's `theme_mods_<stylesheet>` row and each
@@ -707,7 +707,7 @@ final class Pending {
     }
 
     /**
-     * Aggregate duo_journal rows for one table, keeping only items with NO
+     * Aggregate wprism_journal rows for one table, keeping only items with NO
      * policy rule (Journal::ground_truth — the exact lookup Journal::report
      * uses, reused rather than re-derived) and no dedicated owning mechanism
      * (mechanism_owner above). Multiple rows per item
@@ -726,7 +726,7 @@ final class Pending {
         global $wpdb;
         $rows = $wpdb->get_results($wpdb->prepare(
             "SELECT item, surface, caps, proposal, COUNT(*) AS n
-             FROM {$wpdb->prefix}duo_journal
+             FROM {$wpdb->prefix}wprism_journal
              WHERE tbl = %s AND item != ''
              GROUP BY item, surface, caps, proposal",
             $tbl

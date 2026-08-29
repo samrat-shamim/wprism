@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Duo;
+namespace WPrism;
 
 /**
  * Checked, bounded reads of one post/term/user metadata owner range.
@@ -34,14 +34,14 @@ final class MetaRows {
         global $wpdb;
         foreach ([$table => 64, $ownerColumn => 64, $idColumn => 64] as $identifier => $max) {
             if (preg_match('/^[A-Za-z0-9_]{1,' . $max . '}$/D', $identifier) !== 1) {
-                throw new \RuntimeException("duo: $purpose received an unsafe metadata identifier");
+                throw new \RuntimeException("wprism: $purpose received an unsafe metadata identifier");
             }
         }
         if ($ownerId <= 0) {
-            throw new \RuntimeException("duo: $purpose received a nonpositive owner identity");
+            throw new \RuntimeException("wprism: $purpose received a nonpositive owner identity");
         }
         if ($lockIndex !== null && preg_match('/^[A-Za-z0-9_]{1,64}$/D', $lockIndex) !== 1) {
-            throw new \RuntimeException("duo: $purpose received an unsafe metadata lock index");
+            throw new \RuntimeException("wprism: $purpose received an unsafe metadata lock index");
         }
 
         $indexSql = $lockIndex === null ? '' : " FORCE INDEX (`$lockIndex`)";
@@ -62,10 +62,10 @@ final class MetaRows {
         if (!is_array($preflight)
             || !array_is_list($preflight)
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: $purpose checked metadata size preflight failed");
+            throw new \RuntimeException("wprism: $purpose checked metadata size preflight failed");
         }
         if (count($preflight) > self::MAX_OWNER_ROWS) {
-            throw new \RuntimeException("duo: $purpose exceeds the bounded owner-row limit");
+            throw new \RuntimeException("wprism: $purpose exceeds the bounded owner-row limit");
         }
 
         $previousId = 0;
@@ -83,22 +83,22 @@ final class MetaRows {
                 || $keyBytes === null
                 || ($row['meta_value_bytes'] !== null && $valueBytes === null)) {
                 throw new \RuntimeException(
-                    "duo: $purpose metadata size preflight returned a malformed row at bounded position $position"
+                    "wprism: $purpose metadata size preflight returned a malformed row at bounded position $position"
                 );
             }
             if ($keyBytes === 0 || $keyBytes > self::MAX_META_KEY_BYTES) {
-                throw new \RuntimeException("duo: $purpose metadata size preflight found an oversized key");
+                throw new \RuntimeException("wprism: $purpose metadata size preflight found an oversized key");
             }
             if ($valueBytes !== null && $valueBytes > self::MAX_META_VALUE_BYTES) {
-                throw new \RuntimeException("duo: $purpose metadata size preflight found an oversized value");
+                throw new \RuntimeException("wprism: $purpose metadata size preflight found an oversized value");
             }
             $rowBytes = strlen($row['meta_id']) + $keyBytes + ($valueBytes ?? 0);
             if ($rowBytes > self::MAX_OWNER_BYTES - $aggregateBytes) {
-                throw new \RuntimeException("duo: $purpose exceeds the bounded owner-byte limit");
+                throw new \RuntimeException("wprism: $purpose exceeds the bounded owner-byte limit");
             }
             if ($id <= $previousId) {
                 throw new \RuntimeException(
-                    "duo: $purpose metadata size preflight returned duplicate or unordered identities"
+                    "wprism: $purpose metadata size preflight returned duplicate or unordered identities"
                 );
             }
             $aggregateBytes += $rowBytes;
@@ -129,7 +129,7 @@ final class MetaRows {
             || !array_is_list($hashRows)
             || trim((string) ($wpdb->last_error ?? '')) !== ''
             || count($hashRows) !== count($expected)) {
-            throw new \RuntimeException("duo: $purpose checked metadata hash witness failed or changed");
+            throw new \RuntimeException("wprism: $purpose checked metadata hash witness failed or changed");
         }
         foreach ($hashRows as $position => $row) {
             $keyHash = is_array($row) ? self::sha256($row['meta_key_sha256'] ?? null) : null;
@@ -145,7 +145,7 @@ final class MetaRows {
                 || (($row['meta_value_sha256'] === null) !== ($witness['value_bytes'] === null))
                 || ($row['meta_value_sha256'] !== null && $valueHash === null)) {
                 throw new \RuntimeException(
-                    "duo: $purpose metadata hash witness returned a malformed or changed row at bounded position $position"
+                    "wprism: $purpose metadata hash witness returned a malformed or changed row at bounded position $position"
                 );
             }
             $expected[$position]['key_sha256'] = $keyHash;
@@ -165,10 +165,10 @@ final class MetaRows {
         if (!is_array($rows)
             || !array_is_list($rows)
             || trim((string) ($wpdb->last_error ?? '')) !== '') {
-            throw new \RuntimeException("duo: $purpose checked metadata value read failed");
+            throw new \RuntimeException("wprism: $purpose checked metadata value read failed");
         }
         if (count($rows) !== count($expected)) {
-            throw new \RuntimeException("duo: $purpose metadata rows changed after the bounded size preflight");
+            throw new \RuntimeException("wprism: $purpose metadata rows changed after the bounded size preflight");
         }
         foreach ($rows as $position => $row) {
             $metaKey = is_array($row) ? ($row['meta_key'] ?? null) : null;
@@ -187,7 +187,7 @@ final class MetaRows {
                 || preg_match('/[\x00-\x1F\x7F]/', $row['meta_key']) === 1
                 || !(is_string($row['meta_value'] ?? null) || ($row['meta_value'] ?? null) === null)) {
                 throw new \RuntimeException(
-                    "duo: $purpose returned a malformed metadata row at bounded position $position"
+                    "wprism: $purpose returned a malformed metadata row at bounded position $position"
                 );
             }
             $valueBytes = is_string($row['meta_value']) ? strlen($row['meta_value']) : 0;
@@ -203,7 +203,7 @@ final class MetaRows {
                     : ($witness['value_sha256'] === null
                         || !hash_equals($witness['value_sha256'], hash('sha256', $row['meta_value']))))) {
                 throw new \RuntimeException(
-                    "duo: $purpose metadata value read disagrees with the bounded size preflight"
+                    "wprism: $purpose metadata value read disagrees with the bounded size preflight"
                 );
             }
         }
