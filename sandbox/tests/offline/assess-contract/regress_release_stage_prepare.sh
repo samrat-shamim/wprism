@@ -336,9 +336,30 @@ file_put_contents($argv[4], \WPrism\Canon::encode($envelope));
 echo \WPrism\Orchestrator\OperationAuthorization::envelopeDigest($envelope);
 ' "$ROOT" "$TMP/prepare.json" "$TMP/authority.secret" "$TMP/authorization.json")"
 
+prepare_race_subject() {
+  local label="$1"
+  local operation="$2"
+  local receipt="$TMP/receipt-$label.json"
+  local prepare="$TMP/prepare-$label.json"
+
+  wprism "$receipt" stage-source fixture --from=release-candidate \
+    --operation="$operation" --format=json \
+    || { fail "could not stage the $label race subject"; return 1; }
+  local receipt_digest
+  receipt_digest="$(php -r '$d=json_decode(file_get_contents($argv[1]),true);echo $d["receipt_sha256"];' "$receipt")"
+  wprism "$prepare" release fixture prepare --stage-receipt="$receipt" \
+    --expected-stage-receipt-sha256="$receipt_digest" --format=json \
+    || { fail "could not prepare the $label race subject"; return 1; }
+}
+
+json_field() {
+  php -r '$d=json_decode(file_get_contents($argv[1]),true);echo $d[$argv[2]];' "$1" "$2"
+}
+
 sign_race_authorization() {
-  local nonce="$1"
-  local output="$2"
+  local prepare="$1"
+  local nonce="$2"
+  local output="$3"
   php -r '
 require $argv[1] . "/agent/src/Kernel/Canon.php";
 require $argv[1] . "/cli/src/Authority/OperationAuthorization.php";
@@ -360,16 +381,47 @@ $statement = [
 $envelope = \WPrism\Orchestrator\OperationAuthorization::sign($statement, $secret);
 file_put_contents($argv[4], \WPrism\Canon::encode($envelope));
 echo \WPrism\Orchestrator\OperationAuthorization::envelopeDigest($envelope);
-' "$ROOT" "$TMP/prepare.json" "$TMP/authority.secret" "$output" "$nonce"
+' "$ROOT" "$prepare" "$TMP/authority.secret" "$output" "$nonce"
 }
 
-MATERIALIZATION_AUTH_DIGEST="$(sign_race_authorization \
+# Every post-consumption race is a distinct operator operation. Reusing one
+# frozen operation with fresh signatures would itself be the bypass this suite
+# must prove the target tuple election refuses.
+prepare_race_subject materialization release-stage-materialization-race-0002
+prepare_race_subject handoff release-stage-handoff-race-0003
+prepare_race_subject compile release-stage-compile-race-0004
+prepare_race_subject lease release-stage-lease-race-0005
+
+MATERIALIZATION_PREPARE="$TMP/prepare-materialization.json"
+MATERIALIZATION_RECEIPT_DIGEST="$(json_field "$TMP/receipt-materialization.json" receipt_sha256)"
+MATERIALIZATION_SUBJECT_DIGEST="$(json_field "$MATERIALIZATION_PREPARE" subject_sha256)"
+MATERIALIZATION_PRESENTATION_DIGEST="$(json_field "$MATERIALIZATION_PREPARE" presented_plan_sha256)"
+MATERIALIZATION_PLAN_DIGEST="$(json_field "$MATERIALIZATION_PREPARE" plan_digest)"
+MATERIALIZATION_AUTH_DIGEST="$(sign_race_authorization "$MATERIALIZATION_PREPARE" \
   release-stage-prepare-materialization-race-0002 "$TMP/authorization-materialization-race.json")"
-HANDOFF_AUTH_DIGEST="$(sign_race_authorization \
+
+HANDOFF_PREPARE="$TMP/prepare-handoff.json"
+HANDOFF_RECEIPT_DIGEST="$(json_field "$TMP/receipt-handoff.json" receipt_sha256)"
+HANDOFF_SUBJECT_DIGEST="$(json_field "$HANDOFF_PREPARE" subject_sha256)"
+HANDOFF_PRESENTATION_DIGEST="$(json_field "$HANDOFF_PREPARE" presented_plan_sha256)"
+HANDOFF_PLAN_DIGEST="$(json_field "$HANDOFF_PREPARE" plan_digest)"
+HANDOFF_AUTH_DIGEST="$(sign_race_authorization "$HANDOFF_PREPARE" \
   release-stage-prepare-handoff-race-0003 "$TMP/authorization-handoff-race.json")"
-COMPILE_RACE_AUTH_DIGEST="$(sign_race_authorization \
+
+COMPILE_RACE_PREPARE="$TMP/prepare-compile.json"
+COMPILE_RACE_RECEIPT_DIGEST="$(json_field "$TMP/receipt-compile.json" receipt_sha256)"
+COMPILE_RACE_SUBJECT_DIGEST="$(json_field "$COMPILE_RACE_PREPARE" subject_sha256)"
+COMPILE_RACE_PRESENTATION_DIGEST="$(json_field "$COMPILE_RACE_PREPARE" presented_plan_sha256)"
+COMPILE_RACE_PLAN_DIGEST="$(json_field "$COMPILE_RACE_PREPARE" plan_digest)"
+COMPILE_RACE_AUTH_DIGEST="$(sign_race_authorization "$COMPILE_RACE_PREPARE" \
   release-stage-prepare-compile-race-0004 "$TMP/authorization-compile-race.json")"
-LEASE_RACE_AUTH_DIGEST="$(sign_race_authorization \
+
+LEASE_RACE_PREPARE="$TMP/prepare-lease.json"
+LEASE_RACE_RECEIPT_DIGEST="$(json_field "$TMP/receipt-lease.json" receipt_sha256)"
+LEASE_RACE_SUBJECT_DIGEST="$(json_field "$LEASE_RACE_PREPARE" subject_sha256)"
+LEASE_RACE_PRESENTATION_DIGEST="$(json_field "$LEASE_RACE_PREPARE" presented_plan_sha256)"
+LEASE_RACE_PLAN_DIGEST="$(json_field "$LEASE_RACE_PREPARE" plan_digest)"
+LEASE_RACE_AUTH_DIGEST="$(sign_race_authorization "$LEASE_RACE_PREPARE" \
   release-stage-prepare-lease-race-0005 "$TMP/authorization-lease-race.json")"
 
 run_execute() {
@@ -390,7 +442,13 @@ authorization_count() {
     printf '0'
     return
   fi
-  find "$AUTHORIZATION_ROOT" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' '
+  php -r '
+$count = 0;
+foreach (glob($argv[1] . "/*") ?: [] as $path) {
+    if (is_dir($path) && preg_match("/^[a-f0-9]{64}$/D", basename($path)) === 1) ++$count;
+}
+echo $count;
+' "$AUTHORIZATION_ROOT"
 }
 
 ZERO_DIGEST="sha256:$(printf '0%.0s' {1..64})"
@@ -592,11 +650,16 @@ php -r '@unlink($argv[1]);' "$SITE/.wprism/releases/${PLAN_DIGEST#sha256:}.json"
 
 run_repository_race() {
   local mode="$1"
-  local authorization="$2"
-  local authorization_digest="$3"
-  local output="$4"
-  local evidence="$5"
-  local promote_marker="$6"
+  local prepare="$2"
+  local authorization="$3"
+  local authorization_digest="$4"
+  local subject_digest="$5"
+  local presentation_digest="$6"
+  local plan_digest="$7"
+  local receipt_digest="$8"
+  local output="$9"
+  local evidence="${10}"
+  local promote_marker="${11}"
   ( cd "$SITE" && php -r '
 require $argv[1] . "/cli/src/Environment/Registry.php";
 require $argv[1] . "/cli/src/Transport/LocalTransport.php";
@@ -657,14 +720,17 @@ exit(\WPrism\Orchestrator\ReleaseCommand::run(
     $beforeMaterialization,
     $afterMaterialization
 ));
-' "$ROOT" "$TMP/site/envs.json" "$SITE" "$TMP/prepare.json" "$authorization" \
-    "$authorization_digest" "$SUBJECT_DIGEST" "$PRESENTATION_DIGEST" "$PLAN_DIGEST" \
-    "$RECEIPT_DIGEST" "$TMP/target" "$mode" "$evidence" "$promote_marker" ) \
+' "$ROOT" "$TMP/site/envs.json" "$SITE" "$prepare" "$authorization" \
+    "$authorization_digest" "$subject_digest" "$presentation_digest" "$plan_digest" \
+    "$receipt_digest" "$TMP/target" "$mode" "$evidence" "$promote_marker" ) \
     > "$output" 2> "$output.err"
 }
 
-run_repository_race before-materialization "$TMP/authorization-materialization-race.json" \
-  "$MATERIALIZATION_AUTH_DIGEST" "$TMP/execute-materialization-race.json" \
+run_repository_race before-materialization "$MATERIALIZATION_PREPARE" \
+  "$TMP/authorization-materialization-race.json" "$MATERIALIZATION_AUTH_DIGEST" \
+  "$MATERIALIZATION_SUBJECT_DIGEST" "$MATERIALIZATION_PRESENTATION_DIGEST" \
+  "$MATERIALIZATION_PLAN_DIGEST" "$MATERIALIZATION_RECEIPT_DIGEST" \
+  "$TMP/execute-materialization-race.json" \
   "$TMP/materialization-race-head" "$TMP/promote-materialization-race-called"
 MATERIALIZATION_RACE_STATUS=$?
 MATERIALIZATION_RACE_HEAD="$(cat "$TMP/materialization-race-head" 2>/dev/null || true)"
@@ -680,10 +746,12 @@ MATERIALIZATION_RACE_HEAD="$(cat "$TMP/materialization-race-head" 2>/dev/null ||
 git -C "$TMP/target" reset --hard "$TARGET_HEAD_BEFORE" >/dev/null
 git -C "$TMP/target" clean -fd >/dev/null
 git -C "$SITE" reset --hard "$SOURCE_COMMIT" >/dev/null
-php -r '@unlink($argv[1]);' "$SITE/.wprism/releases/${PLAN_DIGEST#sha256:}.json"
+php -r '@unlink($argv[1]);' "$SITE/.wprism/releases/${MATERIALIZATION_PLAN_DIGEST#sha256:}.json"
 
-run_repository_race after-materialization "$TMP/authorization-handoff-race.json" \
-  "$HANDOFF_AUTH_DIGEST" "$TMP/execute-handoff-race.json" \
+run_repository_race after-materialization "$HANDOFF_PREPARE" \
+  "$TMP/authorization-handoff-race.json" "$HANDOFF_AUTH_DIGEST" \
+  "$HANDOFF_SUBJECT_DIGEST" "$HANDOFF_PRESENTATION_DIGEST" "$HANDOFF_PLAN_DIGEST" \
+  "$HANDOFF_RECEIPT_DIGEST" "$TMP/execute-handoff-race.json" \
   "$TMP/handoff-race-head" "$TMP/promote-handoff-race-called"
 HANDOFF_RACE_STATUS=$?
 HANDOFF_RACE_HEAD="$(cat "$TMP/handoff-race-head" 2>/dev/null || true)"
@@ -699,7 +767,7 @@ HANDOFF_RACE_HEAD="$(cat "$TMP/handoff-race-head" 2>/dev/null || true)"
 git -C "$TMP/target" reset --hard "$TARGET_HEAD_BEFORE" >/dev/null
 git -C "$TMP/target" clean -fd >/dev/null
 git -C "$SITE" reset --hard "$SOURCE_COMMIT" >/dev/null
-php -r '@unlink($argv[1]);' "$SITE/.wprism/releases/${PLAN_DIGEST#sha256:}.json"
+php -r '@unlink($argv[1]);' "$SITE/.wprism/releases/${HANDOFF_PLAN_DIGEST#sha256:}.json"
 [ -z "$(git -C "$TMP/target" status --porcelain --untracked-files=all)" ] \
   && [ -z "$(git -C "$SITE" status --porcelain --untracked-files=all)" ] \
   || fail 'repository race cleanup did not restore clean source and target fixtures'
@@ -708,12 +776,12 @@ BEGIN_CALLS_BEFORE_COMPILE_RACE="$(grep -Fc 'wprism promotion-begin' "$WPRISM_CA
 export WPRISM_COMPILE_RACE_REPO="$TMP/target"
 export WPRISM_COMPILE_RACE_EVIDENCE="$TMP/compile-race-head"
 wprism "$TMP/execute-compile-race.json" release fixture execute \
-  --prepare="$TMP/prepare.json" --authorization="$TMP/authorization-compile-race.json" \
+  --prepare="$COMPILE_RACE_PREPARE" --authorization="$TMP/authorization-compile-race.json" \
   --expected-authorization-sha256="$COMPILE_RACE_AUTH_DIGEST" \
-  --expected-subject-sha256="$SUBJECT_DIGEST" \
-  --expected-presentation-sha256="$PRESENTATION_DIGEST" \
-  --expected-plan-digest="$PLAN_DIGEST" \
-  --expected-stage-receipt-sha256="$RECEIPT_DIGEST" --format=json
+  --expected-subject-sha256="$COMPILE_RACE_SUBJECT_DIGEST" \
+  --expected-presentation-sha256="$COMPILE_RACE_PRESENTATION_DIGEST" \
+  --expected-plan-digest="$COMPILE_RACE_PLAN_DIGEST" \
+  --expected-stage-receipt-sha256="$COMPILE_RACE_RECEIPT_DIGEST" --format=json
 COMPILE_RACE_STATUS=$?
 unset WPRISM_COMPILE_RACE_REPO WPRISM_COMPILE_RACE_EVIDENCE
 COMPILE_RACE_HEAD="$(cat "$TMP/compile-race-head" 2>/dev/null || true)"
@@ -730,19 +798,19 @@ BEGIN_CALLS_AFTER_COMPILE_RACE="$(grep -Fc 'wprism promotion-begin' "$WPRISM_CAL
 git -C "$TMP/target" reset --hard "$TARGET_HEAD_BEFORE" >/dev/null
 git -C "$TMP/target" clean -fd >/dev/null
 git -C "$SITE" reset --hard "$SOURCE_COMMIT" >/dev/null
-php -r '@unlink($argv[1]);' "$SITE/.wprism/releases/${PLAN_DIGEST#sha256:}.json"
+php -r '@unlink($argv[1]);' "$SITE/.wprism/releases/${COMPILE_RACE_PLAN_DIGEST#sha256:}.json"
 
 APPLY_CALLS_BEFORE_LEASE_RACE="$(grep -Fc 'wprism apply' "$WPRISM_CALLS" 2>/dev/null || true)"
 export WPRISM_BEGIN_REPOSITORY_RACE_REPO="$TMP/target"
 export WPRISM_BEGIN_REPOSITORY_RACE_EVIDENCE="$TMP/promotion-begin-race-head"
 export WPRISM_BEGIN_BINDING_EVIDENCE="$TMP/promotion-begin-race-bound"
 wprism "$TMP/execute-lease-race.json" release fixture execute \
-  --prepare="$TMP/prepare.json" --authorization="$TMP/authorization-lease-race.json" \
+  --prepare="$LEASE_RACE_PREPARE" --authorization="$TMP/authorization-lease-race.json" \
   --expected-authorization-sha256="$LEASE_RACE_AUTH_DIGEST" \
-  --expected-subject-sha256="$SUBJECT_DIGEST" \
-  --expected-presentation-sha256="$PRESENTATION_DIGEST" \
-  --expected-plan-digest="$PLAN_DIGEST" \
-  --expected-stage-receipt-sha256="$RECEIPT_DIGEST" --format=json
+  --expected-subject-sha256="$LEASE_RACE_SUBJECT_DIGEST" \
+  --expected-presentation-sha256="$LEASE_RACE_PRESENTATION_DIGEST" \
+  --expected-plan-digest="$LEASE_RACE_PLAN_DIGEST" \
+  --expected-stage-receipt-sha256="$LEASE_RACE_RECEIPT_DIGEST" --format=json
 LEASE_RACE_STATUS=$?
 unset WPRISM_BEGIN_REPOSITORY_RACE_REPO WPRISM_BEGIN_REPOSITORY_RACE_EVIDENCE \
   WPRISM_BEGIN_BINDING_EVIDENCE
@@ -761,7 +829,7 @@ APPLY_CALLS_AFTER_LEASE_RACE="$(grep -Fc 'wprism apply' "$WPRISM_CALLS" 2>/dev/n
 git -C "$TMP/target" reset --hard "$TARGET_HEAD_BEFORE" >/dev/null
 git -C "$TMP/target" clean -fd >/dev/null
 git -C "$SITE" reset --hard "$SOURCE_COMMIT" >/dev/null
-php -r '@unlink($argv[1]);' "$SITE/.wprism/releases/${PLAN_DIGEST#sha256:}.json"
+php -r '@unlink($argv[1]);' "$SITE/.wprism/releases/${LEASE_RACE_PLAN_DIGEST#sha256:}.json"
 
 export WPRISM_PLAN_AFTER=plan-converged
 export WPRISM_PLAN_AFTER_CALL=2

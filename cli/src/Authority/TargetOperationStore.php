@@ -739,20 +739,23 @@ PHP;
         }
         if (($result['exit'] ?? 1) !== 0 || !in_array($status, ['first', 'replay'], true)) {
             $detail = trim((string) ($result['stderr'] ?? ''));
-            $tupleNonterminal = str_contains($detail, 'tuple-nonterminal');
-            $preconditionChanged = str_contains($detail, 'precondition');
-            $targetMismatch = str_contains($detail, 'target-mismatch');
-            $code = $tupleNonterminal
-                ? 'authorized_operation_reconciliation_required'
-                : ($preconditionChanged
-                    ? 'authorized_operation_precondition_changed'
-                    : ($targetMismatch
-                        ? 'authorization_target_mismatch'
-                        : (str_contains($detail, 'expired')
-                            ? 'authorization_expired'
-                            : (str_contains($detail, 'conflict')
-                                ? 'authorization_consumption_conflict'
-                                : 'authorization_consumption_uncertain'))));
+            $code = match (true) {
+                str_contains($detail, 'tuple-nonterminal') =>
+                    'authorized_operation_reconciliation_required',
+                str_contains($detail, 'precondition') =>
+                    'authorized_operation_precondition_changed',
+                str_contains($detail, 'authority-policy') =>
+                    'authorization_authority_policy_changed',
+                str_contains($detail, 'authority-signature') =>
+                    'authorization_signature_invalid',
+                str_contains($detail, 'authority-') =>
+                    'authorization_subject_mismatch',
+                str_contains($detail, 'target-mismatch') =>
+                    'authorization_target_mismatch',
+                str_contains($detail, 'expired') => 'authorization_expired',
+                str_contains($detail, 'conflict') => 'authorization_consumption_conflict',
+                default => 'authorization_consumption_uncertain',
+            };
             throw self::refuse(
                 $code,
                 match ($code) {
@@ -760,6 +763,12 @@ PHP;
                         'another authorization already won this exact operation subject without a terminal outcome',
                     'authorized_operation_precondition_changed' =>
                         'the target changed after final verification but before operation election',
+                    'authorization_authority_policy_changed' =>
+                        'the target authority policy changed after this immutable subject was prepared',
+                    'authorization_signature_invalid' =>
+                        'the target could not verify the operation signature under its current authority policy',
+                    'authorization_subject_mismatch' =>
+                        'the target-side authorization facts do not match the exact immutable subject',
                     'authorization_target_mismatch' =>
                         'the signed authorization names a different stable target identity',
                     'authorization_expired' =>
@@ -771,6 +780,9 @@ PHP;
                 match ($code) {
                     'authorized_operation_precondition_changed' =>
                         'the authorization remains unconsumed; reconcile the changed target and prepare a fresh subject',
+                    'authorization_authority_policy_changed', 'authorization_signature_invalid',
+                    'authorization_subject_mismatch' =>
+                        'sync and review the intended target authority policy, then prepare and authorize a fresh subject',
                     'authorization_target_mismatch' =>
                         'prepare and authorize the operation against the target being executed',
                     'authorization_expired' => 'obtain a fresh authorization for the unchanged subject',
