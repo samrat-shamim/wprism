@@ -1,5 +1,5 @@
 {
-    "class_count": 419,
+    "class_count": 421,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -42506,6 +42506,12 @@
                 "CONSUMPTION_FORMAT": {
                     "value_repr": "wprism-authorization-consumption/v1"
                 },
+                "ELECTION_FORMAT": {
+                    "value_repr": "wprism-authorized-operation-election/v1"
+                },
+                "PRECONDITION_FORMAT": {
+                    "value_repr": "wprism-target-operation-precondition/v1"
+                },
                 "TARGET_FORMAT": {
                     "value_repr": "wprism-target-identity/v1"
                 }
@@ -42582,6 +42588,14 @@
                             "name": "subject",
                             "type": "array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "precondition",
+                            "type": "?array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -42657,6 +42671,31 @@
                             "has_default": false,
                             "name": "authorizationDigest",
                             "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "statusForSubject": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "WPrism\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "subject",
+                            "type": "array",
                             "variadic": false
                         }
                     ],

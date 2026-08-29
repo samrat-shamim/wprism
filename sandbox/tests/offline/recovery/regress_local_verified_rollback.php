@@ -45,6 +45,7 @@ use WPrism\Orchestrator\OperationAuthorization;
 use WPrism\Orchestrator\RecoverCommand;
 use WPrism\Orchestrator\RecoveryClaim;
 use WPrism\Orchestrator\RecoveryOutcome;
+use WPrism\Orchestrator\RecoveryPlan;
 use WPrism\Orchestrator\RecoveryProfileSelection;
 use WPrism\Orchestrator\RollbackAuthority;
 use WPrism\Orchestrator\TargetOperationStore;
@@ -440,6 +441,7 @@ try {
     ];
     $authority->prepareOperation('rolling_back', 'effects_inverse', 1, $effectInput);
     TargetOperationStore::ensureIdentity($transport);
+    TargetOperationStore::syncAuthorityPolicy($transport, $trust, 'absent');
     $authorizedAt = gmdate('Y-m-d\TH:i:s\Z');
     $oldPath = (string) getenv('PATH');
     $oldCwd = getcwd();
@@ -479,6 +481,90 @@ try {
         $authorization = OperationAuthorization::sign($statement, $operationSecret);
         $authorizationPath = $tmp . '/recovery-authorization.json';
         lvr_write($authorizationPath, Canon::encode($authorization));
+
+        // A crash after target-side consumption but before completion elects
+        // the operation tuple, not merely one envelope digest. A newly signed
+        // envelope for that same frozen subject must reach the public execute
+        // path and refuse without joining or repeating the abandoned mutation.
+        ob_start();
+        $crashPlanExit = RecoverCommand::run(
+            $transport,
+            [
+                'prepare',
+                '--restore=' . (string) $rolling['receipt_id'],
+                '--operation-id=local-authorized-recovery-crash-election',
+                '--format=json',
+            ],
+            static fn (): string => $authorizedAt
+        );
+        $crashPlanBytes = (string) ob_get_clean();
+        $crashPlan = json_decode($crashPlanBytes, true);
+        wprism_check_same(0, $crashPlanExit, 'a second frozen operation is available for crash-election coverage');
+        if (!is_array($crashPlan)) wprism_check_summary('local verified rollback');
+        $crashPlanPath = $tmp . '/recovery-crash-plan.json';
+        lvr_write($crashPlanPath, $crashPlanBytes);
+        $crashStatement = [
+            'actor' => 'orbit:user:local-recovery-owner',
+            'expires_at' => gmdate('Y-m-d\TH:i:s\Z', strtotime($authorizedAt) + 90),
+            'issued_at' => $authorizedAt,
+            'key_id' => 'local-recovery-owner',
+            'nonce' => 'local-recovery-crash-a-0123456789',
+            'operation' => 'recovery',
+            'operation_id' => (string) $crashPlan['operation_id'],
+            'presentation_digest' => (string) $crashPlan['presentation_digest'],
+            'subject_digest' => (string) $crashPlan['subject_digest'],
+            'target_id' => (string) $crashPlan['target']['operation_target_id'],
+        ];
+        $crashAuthorizationA = OperationAuthorization::sign($crashStatement, $operationSecret);
+        $crashVerifiedA = OperationAuthorization::verify(
+            $crashAuthorizationA,
+            RecoveryPlan::authorizationSubject($crashPlan),
+            $trust,
+            $authorizedAt
+        );
+        $crashConsumption = TargetOperationStore::consume(
+            $transport,
+            $crashVerifiedA,
+            $crashAuthorizationA,
+            RecoveryPlan::authorizationSubject($crashPlan)
+        );
+        wprism_check_same(false, $crashConsumption['replayed'], 'the crash fixture consumes authorization A once');
+        $crashStatement['nonce'] = 'local-recovery-crash-b-0123456789';
+        $crashAuthorizationB = OperationAuthorization::sign($crashStatement, $operationSecret);
+        $crashAuthorizationBPath = $tmp . '/recovery-crash-authorization-b.json';
+        lvr_write($crashAuthorizationBPath, Canon::encode($crashAuthorizationB));
+        $crashDigestB = OperationAuthorization::envelopeDigest($crashAuthorizationB);
+        $beforeCrashReplay = RollbackAuthority::status($transport);
+        ob_start();
+        $crashReplayExit = RecoverCommand::run(
+            $transport,
+            [
+                'execute',
+                '--plan=' . $crashPlanPath,
+                '--authorization=' . $crashAuthorizationBPath,
+                '--format=json',
+            ],
+            static fn (): string => $authorizedAt
+        );
+        $crashReplayBytes = (string) ob_get_clean();
+        $crashReplay = json_decode($crashReplayBytes, true);
+        $afterCrashReplay = RollbackAuthority::status($transport);
+        wprism_check_same(1, $crashReplayExit, 'fresh authorization B cannot repair A after consumption crash');
+        wprism_check_same(
+            'recovery_reconciliation_required',
+            is_array($crashReplay) ? ($crashReplay['reason_code'] ?? null) : null,
+            'the public recovery path reports the elected nonterminal tuple as reconciliation'
+        );
+        wprism_check_same(
+            $beforeCrashReplay['sequence'],
+            $afterCrashReplay['sequence'],
+            'tuple reconciliation refusal appends no rollback event'
+        );
+        wprism_check_same(
+            null,
+            TargetOperationStore::status($transport, $crashDigestB),
+            'authorization B remains unconsumed after tuple reconciliation refusal'
+        );
 
         // A signed plan must not burn its one-time actor authority when the
         // target has lost the configured provider/adapter set needed by this
@@ -605,6 +691,56 @@ try {
             'final-boundary trust drift leaves one-time authority unconsumed'
         );
 
+        // Change a frozen target byte only after the last controller-side
+        // reverify. The target command holds rollback-control's target.lock,
+        // rechecks the checkpoint hash, and elects the tuple in that same
+        // critical section, so the race cannot burn actor authority.
+        $checkpointPath = $repo . '/.wprism/rollback/' . (string) $rolling['receipt_id']
+            . '/artifacts/checkpoint.enc';
+        $checkpointBytes = (string) file_get_contents($checkpointPath);
+        $targetCasClockReads = 0;
+        $targetCasClock = static function () use (
+            &$targetCasClockReads,
+            $authorizedAt,
+            $checkpointPath,
+            $checkpointBytes
+        ): string {
+            $targetCasClockReads++;
+            if ($targetCasClockReads === 5) {
+                lvr_write($checkpointPath, $checkpointBytes . 'post-reverify-drift');
+            }
+            return $authorizedAt;
+        };
+        try {
+            ob_start();
+            $targetCasExit = RecoverCommand::run(
+                $transport,
+                [
+                    'execute',
+                    '--plan=' . $planPath,
+                    '--authorization=' . $authorizationPath,
+                    '--format=json',
+                ],
+                $targetCasClock
+            );
+            $targetCasBytes = (string) ob_get_clean();
+        } finally {
+            lvr_write($checkpointPath, $checkpointBytes);
+        }
+        $targetCas = json_decode($targetCasBytes, true);
+        wprism_check_same(5, $targetCasClockReads, 'checkpoint fixture changes after final controller reverify');
+        wprism_check_same(1, $targetCasExit, 'target-side CAS refuses checkpoint drift in the consume gap');
+        wprism_check_same(
+            'authorized_operation_precondition_changed',
+            is_array($targetCas) ? ($targetCas['reason_code'] ?? null) : null,
+            'target-owned frozen-fact CAS reports a typed precondition refusal'
+        );
+        wprism_check_same(
+            null,
+            TargetOperationStore::status($transport, $authorizationDigest),
+            'post-reverify target drift leaves one-time authority unconsumed'
+        );
+
         ob_start();
         $executeExit = RecoverCommand::run(
             $transport,
@@ -638,6 +774,48 @@ try {
         $replayBytes = (string) ob_get_clean();
         wprism_check_same(0, $replayExit, 'completed execute replays after actor authorization expiry');
         wprism_check_same($outcomeBytes, $replayBytes, 'completed execute replay is the exact stored outcome bytes');
+
+        $completedReplacementStatement = $statement;
+        $completedReplacementStatement['nonce'] = 'local-recovery-completed-b-0123456789';
+        $completedReplacement = OperationAuthorization::sign(
+            $completedReplacementStatement,
+            $operationSecret
+        );
+        $completedReplacementPath = $tmp . '/recovery-completed-replacement.json';
+        lvr_write($completedReplacementPath, Canon::encode($completedReplacement));
+        $completedReplacementDigest = OperationAuthorization::envelopeDigest($completedReplacement);
+        ob_start();
+        $completedReplacementExit = RecoverCommand::run(
+            $transport,
+            [
+                'execute',
+                '--plan=' . $planPath,
+                '--authorization=' . $completedReplacementPath,
+                '--format=json',
+            ],
+            static fn (): string => gmdate('Y-m-d\TH:i:s\Z', strtotime($authorizedAt) + 7200)
+        );
+        $completedReplacementBytes = (string) ob_get_clean();
+        $completedReplacementResult = json_decode($completedReplacementBytes, true);
+        wprism_check_same(
+            1,
+            $completedReplacementExit,
+            'a different authorization cannot replay an already-completed recovery tuple'
+        );
+        wprism_check_same(
+            'recovery_authorization_already_completed',
+            is_array($completedReplacementResult) ? ($completedReplacementResult['reason_code'] ?? null) : null,
+            'completed tuple mismatch is distinct from exact authorization replay'
+        );
+        wprism_check(
+            !hash_equals($outcomeBytes, $completedReplacementBytes),
+            'authorization B is never presented with authorization A\'s terminal outcome'
+        );
+        wprism_check_same(
+            null,
+            TargetOperationStore::status($transport, $completedReplacementDigest),
+            'completed tuple mismatch leaves authorization B unconsumed'
+        );
     } finally {
         chdir(is_string($oldCwd) ? $oldCwd : __DIR__);
         putenv('PATH=' . $oldPath);

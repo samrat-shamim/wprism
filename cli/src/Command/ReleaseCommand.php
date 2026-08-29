@@ -449,6 +449,27 @@ final class ReleaseCommand {
             if ($status !== null) {
                 return self::authorizedStageReplay($driver, $document, $authorizationDigest, $status);
             }
+            $elected = TargetOperationStore::statusForSubject(
+                $driver,
+                ReleasePrepare::authorizationSubject($document)
+            );
+            if ($elected !== null) {
+                if (hash_equals($authorizationDigest, (string) ($elected['authorization_digest'] ?? ''))) {
+                    throw self::reconciliationRequired();
+                }
+                if (is_array($elected['completion'] ?? null)) {
+                    throw new CommandRefusalException(
+                        'release_authorization_already_completed',
+                        'a different authorization already completed this exact frozen release operation',
+                        'query or replay the elected authorization; this envelope did not execute and remains unconsumed'
+                    );
+                }
+                throw new CommandRefusalException(
+                    'release_operation_reconciliation_required',
+                    'a different authorization already won this exact frozen release operation without completion',
+                    'do not consume new authority or retry release; reconcile the elected target operation'
+                );
+            }
 
             /** @var array<string,mixed> $receipt */
             $receipt = $document['stage_receipt'];

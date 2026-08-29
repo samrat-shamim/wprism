@@ -72,13 +72,18 @@ final class RecoveryPreparationDriver implements RecoveryTransport {
             $this->reads[] = 'target-identity';
             return recovery_preparation_run(['/bin/sh', '-c', $script]);
         }
+        if (str_contains($script, 'authority-policy.json') && str_contains($script, 'authority.lock')) {
+            $this->reads[] = 'target-authority-policy';
+            return recovery_preparation_run(['/bin/sh', '-c', $script]);
+        }
         if (str_contains($script, 'record-uncertain') && str_contains($script, '/completion')) {
             $this->reads[] = 'operation-status';
             return recovery_preparation_run(['/bin/sh', '-c', $script]);
         }
         if ($this->allowSetupWrites && (str_contains($script, 'identity-write')
             || str_contains($script, 'publish-uncertain')
-            || str_contains($script, 'outcome-uncertain'))) {
+            || str_contains($script, 'outcome-uncertain')
+            || str_contains($script, 'policy-write'))) {
             return recovery_preparation_run(['/bin/sh', '-c', $script]);
         }
         throw new LogicException('prepare attempted an unclassified raw command');
@@ -311,6 +316,7 @@ file_put_contents($checkpointPath, $checkpointBytes);
 
 $driver = new RecoveryPreparationDriver($scratch, $authorityRoot);
 $operationTargetId = TargetOperationStore::ensureIdentity($driver);
+TargetOperationStore::syncAuthorityPolicy($driver, $trust, 'absent');
 $driver->allowSetupWrites = false;
 $driver->reads = [];
 $priorCwd = getcwd();
@@ -389,7 +395,7 @@ wprism_check_refuses(
 );
 wprism_check_same(
     ['rollback:status', 'rollback:audit', 'retained-catalog', 'rollback:active-evidence', 'rollback:audit',
-        'checkpoint-bytes', 'target-head', 'target-git-dir', 'target-identity'],
+        'checkpoint-bytes', 'target-head', 'target-git-dir', 'target-authority-policy', 'target-git-dir', 'target-identity'],
     $driver->reads,
     'prepare target access is the closed read-only catalog/evidence/byte/head/identity sequence'
 );
@@ -485,8 +491,8 @@ $reverified = RecoveryPlan::reverify(
 $authorizationSubject = RecoveryPlan::authorizationSubject($plan);
 $authorizationStatement = [
     'actor' => 'orbit:user:recovery-owner',
-    'expires_at' => '2030-01-01T00:35:00Z',
-    'issued_at' => '2030-01-01T00:30:00Z',
+    'expires_at' => gmdate('Y-m-d\TH:i:s\Z', time() + 1800),
+    'issued_at' => gmdate('Y-m-d\TH:i:s\Z', time() - 60),
     'key_id' => 'recovery-owner-1',
     'nonce' => 'recovery-nonce-0123456789abcdef',
     'operation' => 'recovery',
@@ -503,7 +509,7 @@ $verifiedAuthorization = OperationAuthorization::verify(
     $authorizationEnvelope,
     $authorizationSubject,
     $trust,
-    '2030-01-01T00:31:00Z'
+    gmdate('Y-m-d\TH:i:s\Z')
 );
 $stepsEvidence = [];
 foreach (RecoveryOutcome::RECOVERY_STEPS as $stepName) {
@@ -552,7 +558,12 @@ wprism_check_refuses(
 );
 
 $driver->allowSetupWrites = true;
-$consumed = TargetOperationStore::consume($driver, $verifiedAuthorization);
+$consumed = TargetOperationStore::consume(
+    $driver,
+    $verifiedAuthorization,
+    $authorizationEnvelope,
+    $authorizationSubject
+);
 $driver->allowSetupWrites = false;
 wprism_check_refuses(
     static fn () => RecoverCommand::priorExecutionOutcome(

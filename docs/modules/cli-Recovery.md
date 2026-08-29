@@ -20,7 +20,9 @@
   read-only `recover prepare`. It binds the signed generation and receipt,
   actual encrypted checkpoint bytes, literal claim, complete scope, topology,
   target head, stable target identity and authority-policy digest. Its
-  `currentFacts()`/`reverify()` pair is the mandatory pre-mutation drift gate.
+  `currentFacts()`/`reverify()` pair is the controller drift gate; execute then
+  gives the same head, target, signed-event chain, receipt, checkpoint, trust and lease facts to the
+  target-side locked election as a final compare-and-consume precondition.
 - `RecoveryOutcome` — the validated `wprism-recovery-outcome/v2` terminal
   record. It binds the consumed authorization, frozen plan, re-verification,
   ordered step hashes and either verified success or a classified
@@ -33,7 +35,9 @@
 - The actor-authorized execute verb adds no rollback-target state. It composes
   the existing transitions with `TargetOperationStore`: status/exact replay
   first, current signature and plan re-verification, immediate pre-mutation
-  consumption, generation-bound resume from exact open/completed operation
-  maps, terminal proof, then write-once `RecoveryOutcome` completion.
+  tuple election and compare-and-consume, generation-bound resume from exact
+  open/completed operation maps, terminal proof, then write-once
+  `RecoveryOutcome` completion. A second authorization can neither repair a
+  nonterminal tuple nor claim its winner's completed outcome.
 
 **Sub-namespace plan.** Target `WPrism\Orchestrator\Recovery\`. Not in this round. cli sub-namespaces are cheaper than agent ones (no manifest binds them) but still wait for the agent Kernel migration to prove the classmap round-trip.

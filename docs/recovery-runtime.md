@@ -46,13 +46,20 @@ execute/status boundary in this order:
 
 1. Canonically read the plan and authorization envelope and derive its digest.
    Call `RecoverCommand::priorExecutionOutcome()`, which reads
-   `TargetOperationStore::status()`, before verifying signature expiry.
+   `TargetOperationStore::status()`, before verifying signature expiry, then
+   query the target's operation-tuple election.
 2. A stored completion is validated against its consumption, plan and terminal
    target identity and returned as an exact replay even after authorization
    expiry. A consumption with no completion refuses
-   `recovery_reconciliation_required`; mutation must not be retried.
+   `recovery_reconciliation_required`; mutation must not be retried. A
+   different envelope for that tuple is never replay: it refuses reconciliation
+   for a nonterminal winner and already-completed/authorization-mismatch for a
+   terminal winner, without returning the winner's outcome.
 3. Only an absent consumption reaches current trust/signature/grant/target/
-   expiry verification. Re-observe the complete plan facts, freshly derive the
+   expiry verification. Preparation compares the controller policy with the
+   explicitly enrolled target-control policy; consumption re-verifies the
+   complete canonical envelope against that target policy while its shared
+   policy lock is held. Re-observe the complete plan facts, freshly derive the
    claim, and call `reverifyPreparation()`; generation, checkpoint, scope,
    claim, topology, head, identity, policy or claimant-lease drift refuses.
 4. Before consumption, require the environment's complete automatic recovery
@@ -64,10 +71,14 @@ execute/status boundary in this order:
    effect providers and all four adapters still answer; a removed configuration,
    executable or provider refuses without consuming actor authority. After the
    final plan reverify, re-read the current actor trust file and repeat the
-   signature/subject/grant/expiry check as the last controller-side step before
-   `TargetOperationStore::consume()`, whose target clock checks expiry again.
-   After that point every lost response is reconciliation, not permission to
-   consume another envelope.
+   signature/subject/grant/expiry check as the last controller-side step.
+   `TargetOperationStore::consume()` then acquires rollback-control's
+   `target.lock` and the operation-election lock, rechecks target identity and
+   clocks plus the frozen Git head, target record, ordered signed-event hash
+   chain, receipt envelope, encrypted checkpoint and actor-trust bytes, and only then durably elects the tuple and
+   publishes consumption. A changed precondition leaves authority unconsumed.
+   An election that crashes before consumption is deliberately ambiguous and
+   cannot be repaired by either the original or a fresh envelope.
 5. Reject an open forward operation, a non-prefix restore history, or recovery
    completion evidence appearing before its signed rollback state before
    consumption. After consumption, drive or resume the existing full rollback
@@ -91,6 +102,16 @@ post-consumption failure publishes `reconcile_required` when possible; an
 absent completion is itself a reconciliation refusal. The legacy one-call
 restore remains a separate compatibility path and does not consume this actor
 authority format.
+
+The compare-and-consume proof is exact for supported WPrism writers:
+rollback-control mutations serialize on `target.lock`, target recovery
+configuration and installed keys remain immutable for a nonterminal operation,
+and the held external exclusion covers managed application/code/provider
+writers. An administrator that edits target bytes directly, replaces an
+external provider executable, or ignores both lock and exclusion is outside
+that writer contract. No local lock can linearize such arbitrary root action;
+any resulting post-consumption uncertainty is reconciliation, never authority
+to elect a replacement envelope.
 
 ## The runtime is transport-independent by construction
 

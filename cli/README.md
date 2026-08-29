@@ -752,10 +752,15 @@ semantics remain the rehearsal implementation's.
   recovery evidence still pass read-only preflight, proves the local signing
   secret matches the target-installed receipt key, and repeats current actor
   trust/signature verification as the last controller step before consuming
-  authorization target-side. It then resumes exact open/completed provider
-  operations and publishes one durable
+  authorization target-side. The target holds the rollback lock while it
+  compare-and-consumes the frozen head, target record, signed event chain,
+  receipt, checkpoint, trust policy and claim clock, and durably elects the exact authorization for
+  the operation tuple. It then resumes exact open/completed provider operations
+  and publishes one durable
   `wprism-recovery-outcome/v2`. Exact completion replays after expiry;
   consumed-without-completion refuses for reconciliation instead of retrying.
+  A different envelope for the tuple is never an exact replay, whether its
+  elected predecessor is nonterminal or complete.
 
 - **`wprism explain <env> <selector> [--format=json]`** — rebuilds the current
   plan under a strict observation boundary and traces one itemized entity row

@@ -74,11 +74,16 @@ The execute/status path has one fixed order:
 1. Read the canonical plan and authorization envelope and derive the envelope
    digest. Before checking signature expiry, call
    `TargetOperationStore::status()` through
-   `RecoverCommand::priorExecutionOutcome()`.
+   `RecoverCommand::priorExecutionOutcome()`. Then query the operation-tuple
+   election independently of the presented envelope.
 2. If an exact completion exists, validate and return its
    `wprism-recovery-outcome/v2` even when the original authorization is now
    expired. If consumption exists without completion, refuse
-   `recovery_reconciliation_required`; never start a second recovery.
+   `recovery_reconciliation_required`; never start a second recovery. A
+   different authorization for the same frozen tuple is not replay: it refuses
+   reconciliation while the winner is nonterminal, and refuses
+   `recovery_authorization_already_completed` after the winner completes. It
+   never receives the winner's outcome and remains unconsumed.
 3. Only when consumption is absent, verify actor signature, grants, target,
    plan/presentation/policy digests and expiry against the current trust file.
 4. Re-read the active receipt, encrypted checkpoint bytes, topology, Git head,
@@ -94,8 +99,12 @@ The execute/status path has one fixed order:
    operation evidence is not an exact resumable prefix, including recovery
    evidence that appears before its signed rollback state. Finally re-read the
    current actor trust policy and repeat signature/subject/grant/expiry
-   verification as the last controller-side step, then consume immediately
-   before the first rollback mutation.
+   verification as the last controller-side step. The target then holds
+   rollback-control's `target.lock`, rechecks the frozen Git head, target
+   record, complete ordered signed-event hash chain, signed receipt, encrypted checkpoint bytes, actor trust bytes and
+   claimant expiry, and publishes the tuple election plus consumption in that
+   same locked command. A changed precondition refuses while the envelope is
+   still unconsumed.
    Prepared/promoting/verifying-new generations restore every resource
    conservatively; rollback-pending advances once; rolling-back resumes an
    exact open input or skips an exact completion; and verifying-prior is
@@ -107,6 +116,18 @@ The execute/status path has one fixed order:
 There is no retry across an ambiguous consumption or mutation boundary. The
 target-private consumption/completion record is the reconciliation authority,
 not an operator's recollection and not a fresh authorization with another id.
+An election published before its consumption record is deliberately ambiguous:
+neither its original envelope nor a replacement may repair that crash.
+
+This compare-and-consume boundary covers writers that honor WPrism's target
+lock. During a nonterminal verified recovery, target control/configuration and
+installed key bytes are immutable; the held external exclusion covers managed
+application, code and provider writers. Direct root edits, replacement of an
+external provider executable, or another administrator that ignores both the
+target lock and exclusion cannot be made atomic by a Git-private store. Such
+out-of-band mutation is outside the supported writer contract and may still
+require post-consumption reconciliation; it is never permission to consume a
+second authorization.
 
 ## Before anything: exclude every other writer
 

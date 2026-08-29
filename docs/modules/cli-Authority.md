@@ -1,7 +1,7 @@
 # cli: Authority
 
 **Purpose.** External human and policy execution authority shared by release
-and recovery: an actor-bound Ed25519 trust root, an explicitly synchronized
+and recovery: an actor-bound Ed25519 trust root, explicitly synchronized
 target-authoritative policy, exact expiring operation envelopes, stable target
 identity, and target-private one-time consumption and completion evidence.
 
@@ -28,19 +28,23 @@ presentation digest, nonce, issuance and expiry.
 `TargetOperationStore` keeps identity and consumption below the target's
 private Git directory, outside both the worktree and the database. Source
 delivery cannot erase consumption and database recovery cannot resurrect it.
-The same store owns the target-authoritative operation policy. Only the
-explicit compare-and-swap sync path creates `authority.lock` or publishes the
-canonical policy; status and prepare open an existing regular lock read-only
-and refuse absence without creating a byte. Consumption holds a shared policy
-lock, validates the complete policy bounds, subject digest, grants, actor,
-signature and target-clock lifetime, then elects consumption before releasing
-that lock. A concurrent sync/revocation therefore linearizes either before
-consumption (and refuses it) or after it; there is no controller-only trust
-window.
-An atomic per-authorization directory elects exactly one first consumer. Exact
-same-operation replay returns the stored record; an incomplete publication is
-ambiguous and never retried as a new mutation. A terminal completion is also
-write-once and exact-replay idempotent.
+Only explicit compare-and-swap sync creates the canonical target policy;
+prepare and status read it without creating a byte. Consumption holds that
+policy shared-locked, verifies the exact canonical envelope, subject, grants,
+signature and target-clock lifetime against it, then takes sorted optional
+target precondition locks and the operation lock. A policy sync therefore
+linearizes before consumption or after it, never through a controller-only
+trust window.
+A target-wide lock first elects the exact authorization for the closed
+`(target, operation, operation-id, subject, presentation)` tuple, then publishes
+its consumption. Exact authorization replay returns the stored record; a fresh
+authorization for an elected nonterminal tuple is reconciliation, and a fresh
+authorization for a completed tuple is an already-completed mismatch rather
+than an alias for the winner's outcome. A partial election is ambiguous and
+cannot be repaired by another envelope. The same lock also admits a caller's
+target-owned file/head/clock precondition immediately before election. Terminal
+completion is write-once under that lock and exact-authorization replay remains
+idempotent.
 
 **Sub-namespace plan.** Target `WPrism\Orchestrator\Authority\`. Not in this
 round; the repository still deliberately keeps one orchestrator namespace.

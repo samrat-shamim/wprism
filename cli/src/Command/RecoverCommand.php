@@ -424,6 +424,35 @@ final class RecoverCommand {
         if ($prior !== null) {
             return $prior;
         }
+        $elected = TargetOperationStore::statusForSubject(
+            $driver,
+            RecoveryPlan::authorizationSubject($plan)
+        );
+        if ($elected !== null) {
+            $sameAuthorization = hash_equals(
+                $authorizationDigest,
+                (string) ($elected['authorization_digest'] ?? '')
+            );
+            if ($sameAuthorization) {
+                throw new CommandRefusalException(
+                    'recovery_reconciliation_required',
+                    'the elected recovery authorization has incomplete target control evidence',
+                    'do not retry recovery; reconcile this exact operation from target control evidence'
+                );
+            }
+            if (is_array($elected['completion'] ?? null)) {
+                throw new CommandRefusalException(
+                    'recovery_authorization_already_completed',
+                    'a different authorization already completed this exact frozen recovery operation',
+                    'query or replay the elected authorization; this envelope did not execute and remains unconsumed'
+                );
+            }
+            throw new CommandRefusalException(
+                'recovery_reconciliation_required',
+                'a different authorization already won this exact frozen recovery operation without completion',
+                'do not consume new authority or retry recovery; reconcile the elected target operation'
+            );
+        }
 
         // This first observation avoids asking an actor verifier to bless a
         // target already known to have drifted. The second observation below
@@ -431,7 +460,15 @@ final class RecoverCommand {
         // target-side one-time consumption.
         self::reverifyPreparation($driver, $plan, $clock);
         $siteRepo = AssessCommand::siteRepo(getcwd() ?: '.');
-        $trust = OperationAuthorization::trust($siteRepo);
+        $localTrust = OperationAuthorization::trust($siteRepo);
+        $trust = TargetOperationStore::readAuthorityPolicy($driver);
+        if (!hash_equals(OperationAuthorization::trustDigest($localTrust), OperationAuthorization::trustDigest($trust))) {
+            throw new CommandRefusalException(
+                'recovery_target_authority_policy_mismatch',
+                'the target authority policy does not match the policy this recovery would bind',
+                'explicitly review and sync the intended target authority policy, then prepare recovery again'
+            );
+        }
         $verified = OperationAuthorization::verify(
             $envelope,
             RecoveryPlan::authorizationSubject($plan),
@@ -460,10 +497,17 @@ final class RecoverCommand {
             $finalAuthorizationAt
         );
 
-        // No target observation or policy read belongs after this final trust,
-        // signature, grant and expiry check. `consume()` performs its own
-        // target identity and target-clock expiry checks immediately here.
-        $consumed = TargetOperationStore::consume($driver, $verified);
+        // No controller-side target observation or policy read belongs after
+        // this final trust/signature/grant/expiry check. `consume()` holds the
+        // target's rollback lock while it rechecks frozen facts, identity and
+        // target clock and elects the operation tuple immediately here.
+        $consumed = TargetOperationStore::consume(
+            $driver,
+            $verified,
+            $envelope,
+            RecoveryPlan::authorizationSubject($plan),
+            self::recoveryConsumptionPrecondition($plan)
+        );
         if ($consumed['replayed'] === true) {
             // Another controller won after our initial status read. Never join
             // its mutation window: completion is returned, absence reconciles.
@@ -505,6 +549,57 @@ final class RecoverCommand {
         TargetOperationStore::complete($driver, (array) $consumed['consumption'], $outcome);
 
         return $outcome;
+    }
+
+    /**
+     * Freeze the target-owned facts whose final read must linearize with the
+     * one-time operation election. Rollback-control writers serialize on
+     * target.lock, so the target command can hold that lock while it rechecks
+     * these bytes, target HEAD and both target/actor clocks, then publishes the
+     * tuple election. A changed byte therefore leaves authority unconsumed.
+     *
+     * @param array<string,mixed> $plan
+     * @return array{files:list<array{bytes:?int,path:string,sha256:string}>,format:string,locks:list<string>,not_after:string,ordered_file_hashes:list<array{path:string,sha256:string}>,repository_head:string}
+     */
+    private static function recoveryConsumptionPrecondition(array $plan): array {
+        RecoveryPlan::validate($plan);
+        $receiptId = (string) $plan['target']['receipt_id'];
+        $policyDigest = (string) $plan['authority_policy_digest'];
+        $files = [
+            [
+                'bytes' => null,
+                'path' => '.wprism/authority/authorities.json',
+                'sha256' => substr($policyDigest, 7),
+            ],
+            [
+                'bytes' => null,
+                'path' => '.wprism/control/target.json',
+                'sha256' => (string) $plan['target']['target_record_sha256'],
+            ],
+            [
+                'bytes' => (int) $plan['checkpoint']['bytes'],
+                'path' => '.wprism/rollback/' . $receiptId . '/artifacts/checkpoint.enc',
+                'sha256' => (string) $plan['checkpoint']['sha256'],
+            ],
+            [
+                'bytes' => null,
+                'path' => '.wprism/rollback/' . $receiptId . '/receipt.json',
+                'sha256' => (string) $plan['target']['receipt_envelope_sha256'],
+            ],
+        ];
+        usort($files, static fn (array $left, array $right): int => $left['path'] <=> $right['path']);
+
+        return [
+            'files' => $files,
+            'format' => TargetOperationStore::PRECONDITION_FORMAT,
+            'locks' => ['.wprism/control/target.lock'],
+            'not_after' => (string) $plan['target']['claim_expires_at'],
+            'ordered_file_hashes' => [[
+                'path' => '.wprism/rollback/' . $receiptId . '/events',
+                'sha256' => (string) $plan['target']['event_chain_sha256'],
+            ]],
+            'repository_head' => (string) $plan['target_head'],
+        ];
     }
 
     /**
@@ -701,10 +796,18 @@ final class RecoverCommand {
 
         $siteRepo = AssessCommand::siteRepo(getcwd() ?: '.');
         $trust = OperationAuthorization::trust($siteRepo);
+        $targetTrust = TargetOperationStore::readAuthorityPolicy($transport);
+        if (!hash_equals(OperationAuthorization::trustDigest($trust), OperationAuthorization::trustDigest($targetTrust))) {
+            throw new CommandRefusalException(
+                'recovery_target_authority_policy_mismatch',
+                'the target authority policy does not match the policy this recovery would bind',
+                'explicitly review and sync the intended target authority policy, then prepare recovery again'
+            );
+        }
         $operationTargetId = TargetOperationStore::readIdentity($transport);
 
         return [
-            'authority_policy_digest' => OperationAuthorization::trustDigest($trust),
+            'authority_policy_digest' => OperationAuthorization::trustDigest($targetTrust),
             'checkpoint' => [
                 'bytes' => $checkpoint['bytes'],
                 'created_at' => (string) $receipt['created_at'],
