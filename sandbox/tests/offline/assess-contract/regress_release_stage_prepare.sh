@@ -134,6 +134,15 @@ TARGET_TREE_BEFORE="$(git -C "$TMP/target" rev-parse HEAD^{tree})"
 TARGET_INDEX_BEFORE="$(git -C "$TMP/target" write-tree)"
 TARGET_STATUS_BEFORE="$(git -C "$TMP/target" status --porcelain --untracked-files=all)"
 
+wprism "$TMP/legacy-release.json" release fixture --yes --format=json
+LEGACY_STATUS=$?
+[ "$LEGACY_STATUS" = 1 ] \
+  && grep -Fq 'release_external_authorization_required' "$TMP/legacy-release.json" \
+  && ! grep -Eq 'wprism (promotion-begin|apply|deploy|code-stage)' "$WPRISM_CALLS" \
+  && [ "$(git -C "$TMP/target" rev-parse HEAD)" = "$TARGET_HEAD_BEFORE" ] \
+  && pass 'legacy interactive/--yes release refuses before promote; signed execute is the only mutation seam' \
+  || fail 'legacy release mutation remained reachable or invoked promote'
+
 wprism "$TMP/receipt.json" stage-source fixture --from=release-candidate \
   --operation=release-stage-prepare-fixture --format=json
 STAGE_STATUS=$?
@@ -305,6 +314,25 @@ run_execute "$TMP/execute-digest-refusal.json" "$ZERO_DIGEST"
   && pass 'execute refuses an explicit digest mismatch before authorization consumption' \
   || fail 'execute consumed or accepted an unexpected prepared-subject digest'
 
+# The signed path, not legacy --yes, owns the mutation-gate capability
+# re-observation. Change the staged-repository answer on execute's first read:
+# the prepared condition must refuse before target-side consumption or source
+# materialization. AuthorizationPlan's exhaustive moved/appeared/withdrawn/
+# uncheckable matrix is covered by regress_authorization_plan.php.
+rm -f "$WPRISM_FIXTURES/caps-calls"
+export WPRISM_CAPS_AFTER=moved
+export WPRISM_CAPS_AFTER_CALL=1
+run_execute "$TMP/execute-condition-refusal.json" "$SUBJECT_DIGEST"
+CONDITION_STATUS=$?
+unset WPRISM_CAPS_AFTER WPRISM_CAPS_AFTER_CALL
+[ "$CONDITION_STATUS" = 1 ] \
+  && grep -Fq 'plan_changed' "$TMP/execute-condition-refusal.json" \
+  && grep -Fq 'conditions_sha256' "$TMP/execute-condition-refusal.json" \
+  && [ "$(authorization_count)" = 0 ] \
+  && [ "$(git -C "$TMP/target" rev-parse HEAD)" = "$TARGET_HEAD_BEFORE" ] \
+  && pass 'signed execute rechecks the condition digest and refuses drift before consumption or mutation' \
+  || { fail 'signed execute let condition drift cross the mutation boundary'; cat "$TMP/execute-condition-refusal.json" >&2; }
+
 printf 'tamper\n' > "$STAGE_REPO/untracked-execute-tamper"
 run_execute "$TMP/execute-stage-refusal.json" "$SUBJECT_DIGEST"
 [ "$?" = 1 ] && grep -Fq 'release_stage_changed' "$TMP/execute-stage-refusal.json" \
@@ -322,6 +350,72 @@ run_execute "$TMP/execute-head-refusal.json" "$SUBJECT_DIGEST"
   && pass 'execute refuses canonical target HEAD drift before authorization consumption' \
   || fail 'execute consumed authority after canonical target HEAD drift'
 git -C "$TMP/target" reset --hard "$TARGET_HEAD_BEFORE" >/dev/null
+
+# Revoke the trusted key after the first signature verification but after all
+# other planning reads and local evidence writes. The injected callable is a
+# deterministic race seam on ReleaseCommand::run(); production leaves it null.
+( cd "$SITE" && php -r '
+require $argv[1] . "/cli/src/Environment/Registry.php";
+require $argv[1] . "/cli/src/Transport/LocalTransport.php";
+require $argv[1] . "/cli/src/Command/ReleaseCommand.php";
+$envs = \WPrism\Orchestrator\Registry::load($argv[2], $argv[3]);
+$driver = \WPrism\Orchestrator\Transport::make(
+    "fixture",
+    \WPrism\Orchestrator\Registry::get($envs, "fixture")
+);
+$extra = [
+    "execute",
+    "--prepare=" . $argv[4],
+    "--authorization=" . $argv[5],
+    "--expected-authorization-sha256=" . $argv[6],
+    "--expected-subject-sha256=" . $argv[7],
+    "--expected-presentation-sha256=" . $argv[8],
+    "--expected-plan-digest=" . $argv[9],
+    "--expected-stage-receipt-sha256=" . $argv[10],
+    "--format=json",
+];
+$trustPath = $argv[11];
+$promoteMarker = $argv[12];
+$beforeConsumption = static function () use ($trustPath): void {
+    $trust = \WPrism\Canon::decode((string) file_get_contents($trustPath));
+    $trust["keys"]["fixture-key"]["status"] = "revoked";
+    file_put_contents($trustPath, \WPrism\Canon::encode($trust));
+};
+$promote = static function () use ($promoteMarker): int {
+    file_put_contents($promoteMarker, "called\n");
+    return 0;
+};
+exit(\WPrism\Orchestrator\ReleaseCommand::run(
+    $driver,
+    $extra,
+    $argv[1],
+    $promote,
+    null,
+    null,
+    null,
+    null,
+    $beforeConsumption
+));
+' "$ROOT" "$TMP/site/envs.json" "$SITE" "$TMP/prepare.json" "$TMP/authorization.json" \
+  "$AUTH_DIGEST" "$SUBJECT_DIGEST" "$PRESENTATION_DIGEST" "$PLAN_DIGEST" "$RECEIPT_DIGEST" \
+  "$SITE/.wprism/authority/authorities.json" "$TMP/promote-race-called" ) \
+  > "$TMP/execute-authority-race.json" 2> "$TMP/execute-authority-race.json.err"
+AUTHORITY_RACE_STATUS=$?
+[ "$AUTHORITY_RACE_STATUS" = 1 ] \
+  && grep -Fq 'authorization_authority_policy_changed' "$TMP/execute-authority-race.json" \
+  && [ "$(authorization_count)" = 0 ] \
+  && [ ! -e "$TMP/promote-race-called" ] \
+  && [ "$(git -C "$TMP/target" rev-parse HEAD)" = "$TARGET_HEAD_BEFORE" ] \
+  && pass 'execute re-verifies current authority policy at the last boundary before consumption' \
+  || { fail 'authority-policy drift crossed consumption or mutation'; cat "$TMP/execute-authority-race.json" >&2; }
+
+# The refused run wrote only authorized local evidence before its final trust
+# check. Restore this disposable source fixture to the exact staged commit so
+# the unchanged signed subject can exercise the success/replay path next.
+git -C "$SITE" reset --hard "$SOURCE_COMMIT" >/dev/null
+php -r '@unlink($argv[1]);' "$SITE/.wprism/releases/${PLAN_DIGEST#sha256:}.json"
+[ -z "$(git -C "$SITE" status --porcelain --untracked-files=all)" ] \
+  || fail 'authority-policy race cleanup did not restore the exact staged source checkout'
 
 export WPRISM_PLAN_AFTER=plan-converged
 export WPRISM_PLAN_AFTER_CALL=2

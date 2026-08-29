@@ -57,7 +57,7 @@ wprism demo status|capture|apply|refusal|stop [--name=<name>]
 wprism stage-source <env> --from=<branch-or-tag> --operation=<id> [--format=json]
 wprism release <env> prepare --stage-receipt=<file> --expected-stage-receipt-sha256=<digest> [--format=json]
 wprism release <env> execute --prepare=<file> --authorization=<file> --expected-authorization-sha256=<digest> --expected-subject-sha256=<digest> --expected-presentation-sha256=<digest> --expected-plan-digest=<digest> --expected-stage-receipt-sha256=<digest> --format=json
-wprism release <env> [--from=<ref>] [--plan-only] [--profile=<p>] [--accept-weaker-recovery] [--with-deletes] [--yes] [--limit=<1..200>] [--format=json]
+wprism release <env> --plan-only [--from=<ref>] [--profile=<p>] [--accept-weaker-recovery] [--with-deletes] [--limit=<1..200>] [--format=json]
 wprism verify <env> [--plan=<digest>] [--limit=<1..200>] [--format=json]
 wprism recover <env> [--list] [--restore=<checkpoint>] [--writers-excluded] [--operator-directed] [--limit=<1..200>] [--format=json]
 wprism recover <env> prepare --restore=<checkpoint> --operation-id=<id> --format=json
@@ -666,37 +666,14 @@ semantics remain the rehearsal implementation's.
   evidence-gathering environment, not a qualification environment.
   `wprism rehearse <env> --reap` is `env reap` with the same compare-and-reap.
 
-- **`wprism release <env> [--from=<ref>] [--plan-only] [--profile=<p>]
-  [--accept-weaker-recovery] [--with-deletes] [--yes]`** — the composed
-  release, which COMPOSES `wprism promote` rather than forking it:
-  deploy-before-apply, the lease, the fence, the checkpoint and the
-  verified/scoped rollback selection all remain promote's, byte for byte. It
-  loads the accepted application contract (a site without one refuses with the
-  gap action `declare in contract`), then resolves `--from` locally. An
-  executing release fetches the same advertised branch/tag through the
-  target's configured origin, proves its hash equals the local selection, and
-  hook-free fast-forwards only a clean named target; dirty, detached,
-  divergent, unavailable, or identity-skewed delivery refuses before planning.
-  It never pushes or overwrites target work. `--plan-only` stays read-only and
-  reports a mismatch instead. Release then regenerates the per-site projection from current
-  facts and refuses BEFORE freezing anything on any surface in scope that is
-  `Experimental`, `Not qualified`, `Unsupported` or `Requalification required`,
-  on unknown effect recovery semantics, on a code lifecycle window with no
-  reviewed live external effect declared in the contract, on deletions without
-  `--with-deletes`, and on a deletion surface declared unsupported — every one
-  of those carrying an ASSESSMENT gap action, never a release next action. It
-  then selects the recovery profile the target can prove (`--profile` may only
-  strengthen silently; anything weaker than provable, `none` included, also
-  requires `--accept-weaker-recovery` and prints a warning), prints the frozen
-  authorization plan and the single question it ends in, writes it to
-  `.wprism/releases/<plan_digest>.json` before any target mutation, re-verifies it
-  against the target at that instant (any difference refuses `plan_changed`),
-  executes through promote and verifies behind it. `--plan-only` stops after
-  the plan and mutates nothing at all. A failure AFTER the freeze carries
-  exactly one next action from the closed set
-  `resume | reconcile | retry | recover | requalify | escalate`.
-  Exit 0 success, 1 refusal/failure, 2 usage.
-  See [docs/guides/release.md](../docs/guides/release.md).
+- **`wprism release <env> --plan-only [--from=<ref>] [--profile=<p>]
+  [--accept-weaker-recovery] [--with-deletes]`** — the retained read-only
+  authorization-plan preview. It writes neither target nor local repository
+  bytes, and `--from` is only a binding assertion. Every invocation without
+  `--plan-only`, including interactive and `--yes`, refuses
+  `release_external_authorization_required` before planning or promote.
+  Production mutation is available only through the signed stage/prepare/
+  execute seam below. Exit 0 read-only plan, 1 refusal/failure, 2 usage.
 
 - **`wprism stage-source` / `wprism release <env> prepare|execute`** — the
   externally authorized control-plane form of the same release. `stage-source`

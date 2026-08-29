@@ -162,44 +162,9 @@ release() {
   return $status
 }
 
-# --------------------------------------------------------- pre-freeze refusal
-say 'a pre-authorization refusal carries a gap action, never a next action'
-RELEASE_DIR="$SITE/.wprism/releases"
-WPRISM_PLAN=plan-deletes release "deletes" --yes
-STATUS=$?
-[ "$STATUS" = 1 ] && pass 'a plan with deletions and no --with-deletes refuses (exit 1)' \
-  || fail "a plan with deletions exited $STATUS"
-grep -Fq 'release_deletes_not_authorized' "$TMP/deletes.txt" \
-  && pass 'the refusal names the deletion authorization gate by its own reason code' \
-  || fail 'the deletion refusal did not name its reason code'
-for action in resume reconcile retry recover requalify escalate; do
-  if grep -Fq -- "next action: $action" "$TMP/deletes.txt"; then
-    fail "a pre-authorization refusal offered the release next action '$action'"
-  fi
-done
-pass 'a pre-authorization refusal offers no release next action at all'
-[ -d "$RELEASE_DIR" ] && [ -n "$(ls -A "$RELEASE_DIR" 2>/dev/null)" ] \
-  && fail 'a refused release still froze an authorization plan' \
-  || pass 'a refused release freezes nothing'
-
-# ---------------------------------------------- the §2.7 surface label line
-say 'an unclean target names the WordPress surface, not a bucket'
-WPRISM_PLAN=plan-drift release "unclean" --yes
-STATUS=$?
-[ "$STATUS" = 1 ] && pass 'an unclean target refuses before anything is authorized (exit 1)' \
-  || fail "an unclean target exited $STATUS"
-grep -Fq 'release_target_not_clean' "$TMP/unclean.txt" \
-  && pass 'the refusal names release_target_not_clean' \
-  || fail 'the unclean-target refusal did not name itself'
-grep -Eq '^ +surface: ' "$TMP/unclean.txt" \
-  && pass 'the drifted row carries the contract-resolved `surface:` line (MUP §2.7)' \
-  || { fail 'no surface: line was rendered for the drifted row'; sed -n '1,20p' "$TMP/unclean.txt" >&2; }
-grep -Fq 'surface: post_type:page' "$TMP/unclean.txt" \
-  && pass 'the surface is resolved from the row path through the contract surface_labels map' \
-  || fail 'the surface line did not resolve the row to its declared surface'
-
 # ------------------------------------------------------------ --plan-only
 say '--plan-only mutates nothing'
+RELEASE_DIR="$SITE/.wprism/releases"
 release "planonly" --plan-only
 STATUS=$?
 [ "$STATUS" = 0 ] && pass '--plan-only exits 0' || { fail "--plan-only exited $STATUS"; sed -n '1,30p' "$TMP/planonly.txt" >&2; }
@@ -210,74 +175,40 @@ grep -Fq 'Authorize this release to fixture?' "$TMP/planonly.txt" \
   && fail '--plan-only wrote into .wprism/releases, which is a mutation of the site repository' \
   || pass '--plan-only writes no frozen plan'
 
-# ------------------------------------------------------ post-freeze failures
-say 'every observed post-freeze failure maps to exactly one next action'
-
-# incomplete_lifecycle -> recover. The lifecycle phase fails, and the target's
-# own re-read then reports the interrupted window.
-WPRISM_CODE_ENABLED=1 WPRISM_LIFECYCLE_EXIT=7 WPRISM_PLAN_AFTER=plan-incomplete-lifecycle WPRISM_PLAN_AFTER_CALL=3 \
-  release "lifecycle" --yes --format=json
+# ------------------------------------------------ public mutation retirement
+say 'legacy public mutation is unreachable'
+: > "$WPRISM_CALLS"
+release "legacy-json" --yes --format=json
 STATUS=$?
-[ "$STATUS" = 1 ] && pass 'a failed release exits 1' || fail "a failed release exited $STATUS"
-assert_action "$TMP/lifecycle.txt" recover retry \
-  'an incomplete lifecycle receipt is always `recover`'
-grep -Eq '"status": *"failed"' "$TMP/lifecycle.txt" \
-  && pass 'the outcome is recorded as failed, with its plan digest' \
-  || fail 'the failure outcome did not use the failed vocabulary'
+[ "$STATUS" = 1 ] && pass 'legacy --yes refuses (exit 1)' \
+  || fail "legacy --yes exited $STATUS"
+grep -Eq '"reason_code": *"release_external_authorization_required"' "$TMP/legacy-json.txt" \
+  && pass 'the JSON refusal names the external-authorization requirement' \
+  || { fail 'legacy --yes did not emit its typed refusal'; sed -n '1,25p' "$TMP/legacy-json.txt" >&2; }
+grep -Fq 'stage-source' "$TMP/legacy-json.txt" \
+  && grep -Fq 'release prepare' "$TMP/legacy-json.txt" \
+  && grep -Fq 'release execute' "$TMP/legacy-json.txt" \
+  && pass 'the refusal gives the complete signed-release remediation' \
+  || fail 'the refusal omitted part of stage-source -> prepare -> execute'
+if grep -Eq 'promote|promotion-begin|apply-authored-state|code-stage' "$WPRISM_CALLS"; then
+  fail 'legacy --yes reached a promotion primitive'
+else
+  pass 'legacy --yes never calls promote or another mutation primitive'
+fi
+[ -d "$RELEASE_DIR" ] && [ -n "$(ls -A "$RELEASE_DIR" 2>/dev/null)" ] \
+  && fail 'legacy --yes froze an authorization plan before refusing' \
+  || pass 'legacy --yes refuses before freezing a plan'
 
-# incomplete_apply -> recover.
-WPRISM_APPLY_EXIT=9 WPRISM_PLAN_AFTER=plan-incomplete-apply WPRISM_PLAN_AFTER_CALL=3 \
-  release "apply" --yes --format=json
-assert_action "$TMP/apply.txt" recover retry \
-  'an interrupted authored-state transaction is `recover`'
-
-# drift_detected -> reconcile, never retry.
-WPRISM_APPLY_EXIT=9 WPRISM_PLAN_AFTER=plan-drift WPRISM_PLAN_AFTER_CALL=3 \
-  release "drift" --yes --format=json
-assert_action "$TMP/drift.txt" reconcile retry \
-  'a target that changed outside WPrism is `reconcile`, never `retry`'
-
-# nothing_safe -> escalate. The promotion failed and the target reports a
-# state this command cannot positively classify.
-WPRISM_APPLY_EXIT=9 release "unclassified" --yes --format=json
-assert_action "$TMP/unclassified.txt" escalate retry \
-  'a failure that cannot be positively classified is `escalate`, never an automated action'
-
-# plan_changed -> retry, and only because nothing was written. Call 2 is the
-# re-verification `ReleaseCommand` performs immediately before the mutating
-# call: call 1 is the plan the authorization was built from.
-WPRISM_PLAN_AFTER=plan-drift WPRISM_PLAN_AFTER_CALL=2 release "changed" --yes --format=json
-assert_action "$TMP/changed.txt" retry recover \
-  'a target that moved between freeze and confirmation is `retry`; nothing was written'
-grep -Fq 'plan_changed' "$TMP/changed.txt" \
-  && pass 'the plan_changed refusal names itself' \
-  || fail 'the re-verification refusal did not name plan_changed'
-
-# ------------------------------------------------------- the successful path
-say 'a successful release still runs promote, byte for byte, and then verifies'
-WPRISM_PLAN_AFTER=plan-converged WPRISM_PLAN_AFTER_CALL=3 release "released" --yes
+release "legacy-interactive"
 STATUS=$?
-[ "$STATUS" = 0 ] && pass 'a clean release exits 0' \
-  || { fail "a clean release exited $STATUS"; sed -n '1,40p' "$TMP/released.txt" >&2; }
-# promote's own output bytes: release composes it, so these lines are promote's
-# and must be unchanged. A release that printed its own version of them would
-# mean the state machine had been forked.
-PHASES=$(grep -E '^promote (phase|complete):' "$TMP/released.txt" | sed -e 's/^promote phase: //' -e 's/^promote complete: .*/complete/' | tr '\n' ' ')
-[ "$PHASES" = "compile promotion-begin checkpoint apply complete " ] \
-  && pass 'content-only promotion runs no lifecycle hooks and keeps the remaining phase bytes stable' \
-  || fail "promote's phase output changed: $PHASES"
-grep -Fq 'database checkpoint retained:' "$TMP/released.txt" \
-  && pass "promote's own checkpoint-retained line still prints" \
-  || fail "promote's checkpoint-retained line is missing"
-grep -Fq 'verify fixture: pass' "$TMP/released.txt" \
-  && pass 'the release verifies afterwards and records the verdict (MUP §2.3 step 5)' \
-  || fail 'a successful release did not run the verification step'
-grep -Fq 'released to fixture' "$TMP/released.txt" \
-  && pass 'the outcome uses the released vocabulary' \
-  || fail 'the success outcome was not recorded'
-[ -n "$(ls -A "$RELEASE_DIR" 2>/dev/null)" ] \
-  && pass 'the authorization plan is durably written under .wprism/releases' \
-  || fail 'a released release froze no plan'
+[ "$STATUS" = 1 ] && pass 'legacy interactive release refuses without prompting (exit 1)' \
+  || fail "legacy interactive release exited $STATUS"
+grep -Fq 'release_external_authorization_required' "$TMP/legacy-interactive.txt" \
+  && pass 'human output names the same typed refusal' \
+  || fail 'human output did not name the external-authorization refusal'
+grep -Fq 'Authorize this release' "$TMP/legacy-interactive.txt" \
+  && fail 'legacy release still exposed an interactive authorization prompt' \
+  || pass 'legacy release exposes no local authorization prompt'
 
 # ------------------------------------------------------------- cli/wprism wiring
 say 'cli/wprism wiring'

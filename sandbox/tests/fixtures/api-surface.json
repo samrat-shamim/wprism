@@ -39380,6 +39380,14 @@
                             "name": "verify",
                             "type": "?callable",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "beforeConsumption",
+                            "type": "?callable",
+                            "variadic": false
                         }
                     ],
                     "return_type": "int",

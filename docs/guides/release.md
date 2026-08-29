@@ -17,7 +17,7 @@ CLI needs no special path; initialize the same command variable once:
 WPRISM_CLI="${WPRISM_CLI:-wprism}"
 ```
 
-`wprism release` **composes** `wprism promote` rather than replacing it.
+`wprism release … execute` **composes** `wprism promote` rather than replacing it.
 Deploy-before-apply ordering, the promotion lease and the target fence are
 promote's, byte for byte, and so are the rollback-profile selection and the
 trailing state `apply`. The database checkpoint is not exclusive to promote any
@@ -181,7 +181,9 @@ stale identity refuses.
 
 `--plan-only` prints the frozen-shape authorization plan and exits 0 having
 mutated **nothing at all** — not the target, not the site repository. This is
-the step to paste into a change ticket.
+useful as a local preview, but it is not an executable authorization subject.
+The canonical `release prepare` document below is the artifact to persist,
+present and sign.
 
 The page has six sections, in this order, and the order is an argument: scope
 says what you asked for, capabilities say what it rests on, may-change says
@@ -271,34 +273,26 @@ is the standing rule for internal identifiers in a human view: `wprism verify
 prints are consumed by `--restore`. Artifact hashes, lease owners and
 operation ids stay in `--format=json`.
 
-## `--from` delivers one verified fast-forward
+## Legacy `--from` is a read-only binding assertion
 
 ```sh
-"$WPRISM_CLI" release production --from=main
+"$WPRISM_CLI" release production --from=main --plan-only
 ```
 
-Release resolves the ref and commit in your local site repository. If the
-target is behind, the executing command requires a clean named target
-worktree, fetches that same advertised branch or tag from the target's
-configured `origin`, proves the fetched commit equals the local commit, and
-performs a hook-free fast-forward before planning. It never pushes, overwrites
-dirty work, resets divergent history, or accepts a same-name ref with different
-bytes. Publish the reviewed branch/tag to the shared origin first.
-
-`--plan-only` remains strictly read-only, so it reports
-`release_ref_mismatch` when delivery would be needed; run the executing release
-to perform delivery. Repository delivery updates the site repository, while
-the subsequent deploy/code-release path still owns materializing the compiled
-code descriptor into WordPress — see [code-updates.md](code-updates.md).
+This retained preview resolves the ref and commit locally and compares it with
+the target. It never performs delivery: when the target is behind it reports
+`release_ref_mismatch`. Every legacy invocation without `--plan-only`, whether
+interactive or `--yes`, refuses `release_external_authorization_required`
+before planning or promote. Use `stage-source` below for inert delivery and
+signed `release execute` for the only public release mutation boundary.
 
 ## Control-plane release: stage, prepare, sign, execute
 
-The interactive `release --from … --yes` flow above remains supported. A
-controller that separates source delivery, planning and human/policy authority
-uses three public seams instead. The separation is strict: staging may add
-private Git-control bytes, preparation is byte-read-only, and execution cannot
-move the canonical target until a signed authorization has been durably
-consumed there.
+These three public seams are the only mutating release path. The retired
+interactive/`--yes` branch refuses before planning or promote. The separation
+is strict: staging may add private Git-control bytes, preparation is
+byte-read-only, and execution cannot move the canonical target until a signed
+authorization has been durably consumed there.
 
 Provision the site-owned operation-authority policy first at
 `.wprism/authority/authorities.json`. It is a canonical
@@ -409,7 +403,11 @@ the one-time authorization under the target's private Git control directory,
 materializes the exact staged commit, composes the existing promote path, runs
 verification, and publishes the terminal outcome beside that consumption.
 Promotion phase text is sent to stderr so it cannot corrupt the single stdout
-document.
+document. Immediately before consumption it re-reads the authority policy and
+verifies the signature, subject, grants and lifetime again; a policy change or
+revocation after the earlier admission check leaves no consumption and no
+target mutation. The target-side consumption election holds the identity lock
+and re-reads `target-id`, closing the equivalent target-identity race.
 
 ### Crash, retry and status semantics
 
@@ -448,10 +446,13 @@ the capability is absent, and pretending otherwise would put a restore
 guarantee in a frozen plan no provider can honour. Asking for one *weaker*
 than the target proves is a named human authority: it needs
 `--accept-weaker-recovery` as well, prints a warning on stderr beside the
-claim it weakens, and still ends in the plan's own typed confirmation.
+claim it weakens, and changes the exact subject an external actor reviews.
 
 ```sh
-"$WPRISM_CLI" release production --from=main --profile=operator-directed --accept-weaker-recovery
+"$WPRISM_CLI" release production prepare \
+  --stage-receipt=stage-receipt.json \
+  --expected-stage-receipt-sha256="$RECEIPT_SHA" \
+  --profile=operator-directed --accept-weaker-recovery --format=json
 ```
 
 Whatever you select, the claim in the plan changes to match it. Under
@@ -461,21 +462,18 @@ remedy stated on the row. Under `none`, so does the database.
 
 ## Authorize
 
-```sh
-"$WPRISM_CLI" release production --from=main --yes
-```
-
-Answering `yes` to the question (or passing `--yes`, which confirms the plan
-you were just shown) freezes the plan to
-`.wprism/releases/<plan_digest>.json` in your site repository **before any target
-mutation**, then executes through promote. `--plan-only` and `--yes`
-contradict each other and are refused together.
+Authorization is the external signature step in the control-plane sequence
+above. There is no interactive or `--yes` substitute: those legacy forms
+refuse with the exact stage → prepare → sign → execute remediation. The signed
+execute path freezes the already-presented authorization plan locally only
+after signature verification and consumes the authority on the target before
+canonical target mutation.
 
 ### The mutation gate
 
-Immediately before the mutating call — after your confirmation, so it covers
-exactly the time you spent reading the page — the frozen plan is re-verified
-against the target as it is at that instant. Four things are re-observed:
+Immediately before signed execution consumes authority, the prepared plan is
+re-verified against the target as it is at that instant. Four things are
+re-observed:
 
 | re-observed | refuses with | next action |
 |---|---|---|

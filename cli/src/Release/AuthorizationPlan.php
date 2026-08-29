@@ -534,8 +534,8 @@ final class AuthorizationPlan {
             throw new CommandRefusalException(
                 'plan_changed',
                 'the target changed after the authorization plan was frozen, so that authorization no longer applies',
-                're-run wprism release to freeze a fresh authorization plan against the current target, review it, '
-                    . 'and confirm again',
+                'stage the intended source again, prepare a fresh release subject against the current target, '
+                    . 'obtain a new external signature, then run release execute with every new expected digest',
                 [['changed_fields' => $changed]]
             );
         }

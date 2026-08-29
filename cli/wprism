@@ -386,8 +386,8 @@ Usage:
                     --expected-presentation-sha256=sha256:<hex>
                     --expected-plan-digest=sha256:<hex>
                     --expected-stage-receipt-sha256=sha256:<hex> --format=json
-  wprism release <env> [--from=<ref>] [--plan-only] [--profile=<p>]
-                    [--accept-weaker-recovery] [--with-deletes] [--yes]
+  wprism release <env> --plan-only [--from=<ref>] [--profile=<p>]
+                    [--accept-weaker-recovery] [--with-deletes]
                     [--limit=<1..200>] [--format=json]
   wprism release --spec-v3 <site-repo> [--artifact=<artifact.json>]
                     [--scope-contract=<scope-contract.json>]
@@ -1230,54 +1230,19 @@ Verbs:
                           Exit follows the PREFLIGHT's verdict: one
                           unclassified gate makes the run non-green even though
                           the journal was written.
-  release <env>           The composed release. Fixed order, and it COMPOSES
-    [--from=<ref>]        promote rather than forking it: deploy-before-apply,
-    [--plan-only]         the lease, the fence, the checkpoint and the
-    [--profile=<p>]       verified/scoped rollback selection all remain
-    [--accept-weaker-recovery]  promote's, byte for byte.
-    [--with-deletes]      1. Load the accepted application contract; a site
-    [--yes]                  without one refuses with the gap action
-    [--limit=<1..200>]       `declare in contract`.
-    [--format=json]       2. Resolve --from locally. Executing release fetches
-                             the same advertised branch/tag through the target
-                             origin, verifies its exact hash, and hook-free
-                             fast-forwards only a clean named target. It never
-                             pushes or overwrites dirty/divergent history;
-                             plan-only remains read-only and reports mismatch.
-                             Then read one target plan, readiness, HEAD, and
-                             this revision's content address.
-                          3. Regenerate the per-site projection from current
-                             facts and refuse BEFORE freezing anything on any
-                             surface in scope that is Experimental, Not
-                             qualified, Unsupported or Requalification
-                             required, on unknown effect recovery semantics, on
-                             a code lifecycle window with no reviewed live
-                             external effect declared in the contract, on
-                             deletions without --with-deletes, and on a
-                             deletion surface declared unsupported. Every one
-                             of those carries an ASSESSMENT gap action, never a
-                             release next action.
-                          4. Select the recovery profile the target can
-                             actually prove. --profile may only strengthen
-                             silently; anything weaker than provable — `none`
-                             included — additionally requires
-                             --accept-weaker-recovery and prints a warning.
-                          5. Print the frozen authorization plan and the single
-                             question it ends in. --plan-only stops here and
-                             mutates nothing at all, including the site
-                             repository. Otherwise the confirmed plan is
-                             written to .wprism/releases/<plan_digest>.json BEFORE
-                             any target mutation, re-verified against the
-                             target as it is at that instant (any difference
-                             refuses `plan_changed`), and executed through
-                             promote.
-                          6. Verify (see `wprism verify`) and record the outcome.
-                          A failure AFTER the plan is frozen carries exactly
-                          one next action from the closed set
-                          resume|reconcile|retry|recover|requalify|escalate:
-                          an interrupted lifecycle is always `recover`, an
-                          ambiguous commitment is always `reconcile` and never
-                          `retry`. Exit 0 success, 1 refusal/failure, 2 usage.
+  release <env>           Read-only legacy authorization-plan preview.
+    --plan-only           It reads the canonical target and accepted contract,
+    [--from=<ref>]        renders the plan, and writes neither target nor local
+    [--profile=<p>]       repository bytes. --from is a binding assertion and
+    [--accept-weaker-recovery]  never delivers source on this path.
+    [--with-deletes]      Every invocation without --plan-only, including the
+    [--limit=<1..200>]    retired interactive and --yes forms, refuses with
+    [--format=json]       `release_external_authorization_required` before
+                          planning or promote. Mutating release is exclusively
+                          stage-source -> release prepare -> external signature
+                          -> release execute, whose exact-digest syntax appears
+                          in the usage synopsis above. Exit 0 read-only plan,
+                          1 refusal/failure, 2 usage.
   verify <env>            Post-release verification, two independent parts,
     [--plan=<digest>]     both required for a pass: a fresh read-only
     [--limit=<1..200>]    convergence re-read of the target, and HTTP probes of

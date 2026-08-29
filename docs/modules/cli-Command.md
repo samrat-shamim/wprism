@@ -1,6 +1,6 @@
 # cli: Command
 
-**Purpose.** The `wprism` verb handlers, agent passthrough, option parsing, preflight and operator output. Composition across engine modules happens here: a `*Command` calls each engine module downward and hands the result to the next, which is why every cli module needs no intra-layer exception. `StageSourceCommand` owns inert target-side source staging; `ReleaseCommand` owns both interactive release and the read-only prepare/one-time authorized execute composition.
+**Purpose.** The `wprism` verb handlers, agent passthrough, option parsing, preflight and operator output. Composition across engine modules happens here: a `*Command` calls each engine module downward and hands the result to the next, which is why every cli module needs no intra-layer exception. `StageSourceCommand` owns inert target-side source staging; `ReleaseCommand` retains read-only legacy plan preview and owns the read-only prepare/one-time signed execute composition. Legacy interactive/`--yes` mutation is unreachable.
 
 **Directory** `cli/src/Command/` &middot; **layer** `surface` &middot; **files** 37 &middot; **status** populated
 

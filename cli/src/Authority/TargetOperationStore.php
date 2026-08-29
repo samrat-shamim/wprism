@@ -151,11 +151,27 @@ $root = $argv[1] ?? '';
 $hex = $argv[2] ?? '';
 $expected = base64_decode($argv[3] ?? '', true);
 $expires = $argv[4] ?? '';
+$expectedTarget = $argv[5] ?? '';
 if ($root === '' || $root[0] !== '/' || preg_match('/^[a-f0-9]{64}$/D', $hex) !== 1
-    || !is_string($expected) || $expected === '') { fwrite(STDERR, "input\n"); exit(20); }
+    || !is_string($expected) || $expected === ''
+    || preg_match('/^wprism-target:[a-f0-9]{64}$/D', $expectedTarget) !== 1) {
+    fwrite(STDERR, "input\n"); exit(20);
+}
 $expiry = DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s\Z', $expires, new DateTimeZone('UTC'));
 if (!$expiry instanceof DateTimeImmutable || $expiry->format('Y-m-d\TH:i:s\Z') !== $expires) {
     fwrite(STDERR, "expiry-shape\n"); exit(21);
+}
+$identityLock = @fopen($root . '/identity.lock', 'c');
+if (!is_resource($identityLock) || !@flock($identityLock, LOCK_SH)) {
+    fwrite(STDERR, "identity-lock\n"); exit(30);
+}
+$identityPath = $root . '/target-id';
+if (is_link($identityPath) || !is_file($identityPath)) {
+    fwrite(STDERR, "target-mismatch\n"); exit(31);
+}
+$identityBytes = @file_get_contents($identityPath);
+if (!is_string($identityBytes) || !hash_equals($expectedTarget . "\n", $identityBytes)) {
+    fwrite(STDERR, "target-mismatch\n"); exit(31);
 }
 $authorizations = $root . '/authorizations';
 if ((file_exists($authorizations) || is_link($authorizations))
@@ -214,23 +230,39 @@ if (@mkdir($directory, 0700)) {
 }
 $replay($directory, $expected);
 PHP;
-        $result = $driver->captureRaw(self::php($script, [$root, $hex, base64_encode($bytes), $authorization['expires_at']]));
+        $result = $driver->captureRaw(self::php($script, [
+            $root,
+            $hex,
+            base64_encode($bytes),
+            $authorization['expires_at'],
+            $authorization['target_id'],
+        ]));
         $status = trim((string) ($result['stdout'] ?? ''));
         if (($result['exit'] ?? 1) !== 0 || !in_array($status, ['first', 'replay'], true)) {
             $detail = trim((string) ($result['stderr'] ?? ''));
-            $code = str_contains($detail, 'expired')
-                ? 'authorization_expired'
-                : (str_contains($detail, 'conflict') ? 'authorization_consumption_conflict' : 'authorization_consumption_uncertain');
+            $code = match (true) {
+                str_contains($detail, 'target-mismatch') => 'authorization_target_mismatch',
+                str_contains($detail, 'expired') => 'authorization_expired',
+                str_contains($detail, 'conflict') => 'authorization_consumption_conflict',
+                default => 'authorization_consumption_uncertain',
+            };
             throw self::refuse(
                 $code,
-                $code === 'authorization_expired'
-                    ? 'the signed authorization expired before durable target-side consumption'
-                    : ($code === 'authorization_consumption_conflict'
-                        ? 'the target already holds different bytes under this authorization identity'
-                        : 'the target cannot prove whether this authorization was durably consumed'),
-                $code === 'authorization_expired'
-                    ? 'obtain a fresh authorization for the unchanged subject'
-                    : 'do not retry mutation; reconcile this exact operation and inspect target control evidence'
+                match ($code) {
+                    'authorization_target_mismatch' =>
+                        'the stable target identity changed before authorization consumption',
+                    'authorization_expired' =>
+                        'the signed authorization expired before durable target-side consumption',
+                    'authorization_consumption_conflict' =>
+                        'the target already holds different bytes under this authorization identity',
+                    default => 'the target cannot prove whether this authorization was durably consumed',
+                },
+                match ($code) {
+                    'authorization_target_mismatch' =>
+                        'do not mutate; prepare and authorize again against the stable target identity in force now',
+                    'authorization_expired' => 'obtain a fresh authorization for the unchanged subject',
+                    default => 'do not retry mutation; reconcile this exact operation and inspect target control evidence',
+                }
             );
         }
 

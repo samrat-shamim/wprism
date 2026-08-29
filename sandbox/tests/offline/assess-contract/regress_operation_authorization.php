@@ -15,12 +15,20 @@ use WPrism\Orchestrator\TargetOperationStore;
 
 /** Minimal local target: product code still crosses captureRaw(). */
 final class AuthorizationStoreDriver implements EnvironmentDriver {
+    /** @var ?callable(string):void */
+    public $beforeCapture = null;
+
     public function __construct(private string $repo) {}
     public function name(): string { return 'production'; }
     public function driverId(): string { return 'authorization-store-test'; }
     public function repoPath(): string { return $this->repo; }
     public function describe(): string { return 'authorization store fixture'; }
-    public function captureRaw(string $script): array { return authorization_run(['/bin/sh', '-c', $script]); }
+    public function captureRaw(string $script): array {
+        if (is_callable($this->beforeCapture)) {
+            ($this->beforeCapture)($script);
+        }
+        return authorization_run(['/bin/sh', '-c', $script]);
+    }
     public function captureWp(array $wpArgs): array { throw new LogicException('WP must not be contacted'); }
     public function streamWp(array $wpArgs): int { throw new LogicException('WP must not be contacted'); }
     public function wpInstruction(array $wpArgs): string { return 'wp'; }
@@ -168,6 +176,37 @@ wprism_check_refuses(
     'authorization_grant_missing',
     'an authenticated actor still needs every plan-required grant'
 );
+
+// The host-side identity read is only an early admission check. Swap the
+// target-id after that read but before the target-side consume script starts;
+// the identity lock and re-read inside that same script must stop winner
+// election before an authorization directory exists.
+$raceStatement = $statement;
+$raceStatement['nonce'] = 'nonce-target-race-01234567';
+$raceEnvelope = OperationAuthorization::sign($raceStatement, $secret);
+$raceVerified = OperationAuthorization::verify($raceEnvelope, $subject, $trust, '2030-01-01T00:30:00Z');
+$gitDirectory = trim(authorization_run(['git', '-C', $scratch, 'rev-parse', '--absolute-git-dir'])['stdout']);
+$targetIdentityPath = $gitDirectory . '/wprism-control/target-id';
+$raceArmed = true;
+$driver->beforeCapture = static function (string $script) use (&$raceArmed, $targetIdentityPath): void {
+    if (!$raceArmed || !str_contains($script, 'target-mismatch')) {
+        return;
+    }
+    $raceArmed = false;
+    file_put_contents($targetIdentityPath, 'wprism-target:' . str_repeat('9', 64) . "\n");
+};
+wprism_check_refuses(
+    static fn () => TargetOperationStore::consume($driver, $raceVerified),
+    'authorization_target_mismatch',
+    'consumption rechecks target identity inside the locked target-side winner election'
+);
+$driver->beforeCapture = null;
+wprism_check_same(
+    null,
+    TargetOperationStore::status($driver, $raceVerified['authorization_digest']),
+    'a target-identity swap between precheck and election creates no consumption record'
+);
+file_put_contents($targetIdentityPath, $targetId . "\n");
 
 $first = TargetOperationStore::consume($driver, $verified);
 wprism_check_same(false, $first['replayed'], 'the first valid envelope is durably consumed before mutation');

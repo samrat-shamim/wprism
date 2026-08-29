@@ -193,6 +193,8 @@ final class ReleaseCommand {
      * @param ?callable(array):array $hostCatalog the assess injection seam
      * @param ?callable(EnvironmentDriver,array):array $verify null uses
      *        `VerifyCommand::report()`
+     * @param ?callable():void $beforeConsumption a deterministic race seam;
+     *        production leaves it null
      */
     public static function run(
         EnvironmentDriver $driver,
@@ -202,7 +204,8 @@ final class ReleaseCommand {
         ?callable $confirm = null,
         ?callable $clock = null,
         ?callable $hostCatalog = null,
-        ?callable $verify = null
+        ?callable $verify = null,
+        ?callable $beforeConsumption = null
     ): int {
         if (($extra[0] ?? null) === 'prepare') {
             return self::runPreparedStage(
@@ -221,7 +224,8 @@ final class ReleaseCommand {
                 $promote,
                 $clock,
                 $hostCatalog,
-                $verify
+                $verify,
+                $beforeConsumption
             );
         }
         $json = AssessCommand::wantsJson($extra);
@@ -230,6 +234,15 @@ final class ReleaseCommand {
             $limit = AuthorizationPlanRenderer::limitFromArgs($extra);
         } catch (CommandRefusalException $refusal) {
             return AssessCommand::renderRefusal($refusal, $json, 'release');
+        }
+
+        if (!$flags['plan_only']) {
+            return self::refuse($driver, new CommandRefusalException(
+                'release_external_authorization_required',
+                'direct interactive or --yes release mutation is disabled',
+                'run stage-source, save its exact receipt, run release prepare, obtain a signed external '
+                    . 'authorization, then run release execute with every expected digest'
+            ), $json);
         }
 
         try {
@@ -363,6 +376,7 @@ final class ReleaseCommand {
      * @param list<string> $extra
      * @param callable(EnvironmentDriver,list<string>):int $promote
      * @param ?callable(EnvironmentDriver,array):array $verify
+     * @param ?callable():void $beforeConsumption
      */
     private static function runAuthorizedStage(
         EnvironmentDriver $driver,
@@ -371,7 +385,8 @@ final class ReleaseCommand {
         callable $promote,
         ?callable $clock,
         ?callable $hostCatalog,
-        ?callable $verify
+        ?callable $verify,
+        ?callable $beforeConsumption
     ): int {
         $json = AssessCommand::wantsJson($extra);
         $consumed = false;
@@ -478,6 +493,22 @@ final class ReleaseCommand {
             (new ContractStore($siteRepo))->writeProjection($current['projection']);
             AuthorizationPlan::freeze($document['authorization_plan'], $siteRepo);
             StageSourceCommand::verify($driver, $receipt);
+
+            // Trust is mutable local policy, so the earlier verification is
+            // only an admission check. Re-read and re-verify after every
+            // planning read and local evidence write, immediately before the
+            // target-side winner election. A revocation in that window must
+            // leave no consumption record and no target mutation.
+            if ($beforeConsumption !== null) {
+                $beforeConsumption();
+            }
+            $boundaryTrust = OperationAuthorization::trust($siteRepo);
+            $verified = OperationAuthorization::verify(
+                $envelope,
+                ReleasePrepare::authorizationSubject($document),
+                $boundaryTrust,
+                $now
+            );
 
             $consumptionResult = TargetOperationStore::consume($driver, $verified);
             if (($consumptionResult['replayed'] ?? false) === true) {
@@ -1309,8 +1340,9 @@ final class ReleaseCommand {
         throw new CommandRefusalException(
             'release_ref_mismatch',
             'plan-only cannot describe the asserted revision because the target repository is on another commit',
-            'run the same release without --plan-only to let WPrism fast-forward the clean named target from its '
-                . 'origin, or deliver ' . substr($resolved, 0, 12) . ' through an approved path and rerun plan-only',
+            'reconcile the target to the selected ref before planning again; to deliver '
+                . substr($resolved, 0, 12) . ', run stage-source, save its receipt, prepare and externally authorize '
+                . 'the release, then run release execute with every expected digest',
             [[
                 'code' => 'ref_mismatch',
                 'failure_class' => 'ref_mismatch',

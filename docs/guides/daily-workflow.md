@@ -407,13 +407,17 @@ arguments, and provider receipts are omitted.
 ## Release
 
 ```sh
-wprism release stage --from=main --plan-only
-wprism release stage --from=main --yes
-wprism verify stage
+wprism stage-source stage --from=main --operation=change-1842-stage --format=json > stage-receipt.json
+wprism release stage prepare --stage-receipt=stage-receipt.json \
+  --expected-stage-receipt-sha256="$(jq -r .receipt_sha256 stage-receipt.json)" \
+  --format=json > release-prepare.json
+# Present and externally sign release-prepare.json, then run release execute
+# with its exact authorization, subject, presentation, plan and stage digests.
 ```
 
-`wprism release` is the composed release: it authorizes in front of promotion and
-verifies behind it. It **composes** `wprism promote` rather than forking it —
+Signed `wprism release … execute` is the composed release: it authorizes in
+front of promotion and verifies behind it. It **composes** `wprism promote`
+rather than forking it —
 deploy-before-apply ordering, the promotion lease, the target fence, the
 database checkpoint and the verified/scoped rollback selection are all
 promote's, byte for byte — and it adds the two things that were previously in
@@ -592,11 +596,11 @@ always leave an exit path through `wprism` — never through operator SQL.
   other diff.
 - **Before merging** — `wprism refresh production --production-ref=<ref>`; rebase
   if production moved; `wprism status stage` after applying to staging.
-- **Release** — `wprism release production --from=<ref> --plan-only`, read the
-  frozen plan and its recovery claim out loud to whoever owns the outcome, then
-  `wprism release production --from=<ref> --yes`. Verification runs behind it;
-  `wprism status production` once more is still the receipt that the two halves
-  agree.
+- **Release** — stage the exact advertised ref with a new operation id, save
+  the receipt, run read-only `release prepare`, present and externally sign its
+  exact subject, then run `release execute` with every expected digest.
+  Interactive and `--yes` mutation refuse before promote. Verification runs
+  behind signed execute; an exact execute retry returns the stored outcome.
 - **When a release fails** — take the one next action it printed. `recover`
   means `wprism recover production --list` and then a restore under a real
   maintenance window; `reconcile` never means retry.
