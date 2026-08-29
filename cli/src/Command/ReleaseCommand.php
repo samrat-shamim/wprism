@@ -2112,18 +2112,28 @@ final class ReleaseCommand {
             }
             throw self::invalidExecuteArguments("release execute received an option it does not define: '$name'");
         }
-        foreach (array_keys($out) as $field) {
-            if ($field !== 'format_json' && !is_string($out[$field])) {
-                throw self::invalidExecuteArguments('release execute requires every prepare, authorization and digest bind');
-            }
+        if (!is_string($out['authorization'])
+            || !is_string($out['expected_authorization_sha256'])
+            || !is_string($out['expected_plan_digest'])
+            || !is_string($out['expected_presentation_sha256'])
+            || !is_string($out['expected_stage_receipt_sha256'])
+            || !is_string($out['expected_subject_sha256'])
+            || !is_string($out['prepare'])) {
+            throw self::invalidExecuteArguments('release execute requires every prepare, authorization and digest bind');
         }
         if ($out['format_json'] !== true) {
             throw self::invalidExecuteArguments('release execute requires --format=json for its single-document result');
         }
-        unset($out['format_json']);
 
-        /** @var array{authorization:string,expected_authorization_sha256:string,expected_plan_digest:string,expected_presentation_sha256:string,expected_stage_receipt_sha256:string,expected_subject_sha256:string,prepare:string} $out */
-        return $out;
+        return [
+            'authorization' => $out['authorization'],
+            'expected_authorization_sha256' => $out['expected_authorization_sha256'],
+            'expected_plan_digest' => $out['expected_plan_digest'],
+            'expected_presentation_sha256' => $out['expected_presentation_sha256'],
+            'expected_stage_receipt_sha256' => $out['expected_stage_receipt_sha256'],
+            'expected_subject_sha256' => $out['expected_subject_sha256'],
+            'prepare' => $out['prepare'],
+        ];
     }
 
     private static function invalidExecuteArguments(string $message): CommandRefusalException {
