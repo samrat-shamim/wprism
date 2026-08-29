@@ -291,6 +291,150 @@ to perform delivery. Repository delivery updates the site repository, while
 the subsequent deploy/code-release path still owns materializing the compiled
 code descriptor into WordPress — see [code-updates.md](code-updates.md).
 
+## Control-plane release: stage, prepare, sign, execute
+
+The interactive `release --from … --yes` flow above remains supported. A
+controller that separates source delivery, planning and human/policy authority
+uses three public seams instead. The separation is strict: staging may add
+private Git-control bytes, preparation is byte-read-only, and execution cannot
+move the canonical target until a signed authorization has been durably
+consumed there.
+
+Provision the site-owned operation-authority policy first at
+`.wprism/authority/authorities.json`. It is a canonical
+`wprism-operation-authorities/v1` document. Each trusted Ed25519 key names its
+actor, the `release` operation, and every grant it may authorize. This trust
+root is intentionally separate from contract-attestation, adapter-certificate
+and rollback keys. Commit it with the source revision being staged;
+preparation binds its exact digest.
+
+Choose one immutable operation id, stage an advertised branch or tag, and save
+the exact stdout bytes:
+
+```sh
+OPERATION_ID=change-1842-production
+"$WPRISM_CLI" stage-source production --from=main \
+  --operation="$OPERATION_ID" --format=json > stage-receipt.json
+RECEIPT_SHA=$(jq -r .receipt_sha256 stage-receipt.json)
+```
+
+`stage-source` resolves the source commit and tree locally, fetches that exact
+advertised commit through the target's `origin`, and requires it to be a
+fast-forward of a clean named target base. It does **not** move target `HEAD`,
+the index or the canonical worktree. It retains an inert ref and detached
+worktree under the target's private Git directory, establishes the stable
+target operation identity, and fsyncs one canonical
+`wprism-source-stage-receipt/v1`. An exact retry with the same operation id and
+inputs returns the same receipt bytes; reusing the id for another source
+ref/commit refuses.
+
+Prepare from the saved receipt and save this output too:
+
+```sh
+"$WPRISM_CLI" release production prepare \
+  --stage-receipt=stage-receipt.json \
+  --expected-stage-receipt-sha256="$RECEIPT_SHA" \
+  --format=json > release-prepare.json
+```
+
+Preparation validates the target identity, base, retained receipt, stage ref,
+staged commit/tree/worktree and the local source checkout before and after its
+planning reads. Plan, compile, inventory and capability questions all name the
+detached staged repository. Neither the canonical target nor the local site
+repository is written: no target fast-forward, projection write or plan freeze
+occurs.
+
+The output is one canonical `wprism-release-prepare/v1`. It contains the
+unchanged `wprism-authorization-plan/v1`, its semantic `plan_digest`, the hash
+of the exact plan bytes presented to the actor, the complete
+`subject_sha256`, required grants, authority-policy digest, capability-library
+digest, stage receipt and every request bind. Preparation uses the current
+trusted clock; it never backdates evidence evaluation to the stage receipt's
+`created_at`. Therefore a later preparation can preserve `plan_digest` while
+correctly producing a new presentation and subject. Persist and sign the
+specific prepare document you reviewed rather than rerunning preparation after
+approval.
+
+The external authority signs this exact statement:
+
+```json
+{
+  "actor": "release-manager@example.com",
+  "expires_at": "2026-08-29T17:10:00Z",
+  "issued_at": "2026-08-29T17:00:00Z",
+  "key_id": "production-release-1",
+  "nonce": "change-1842-production-0001",
+  "operation": "release",
+  "operation_id": "change-1842-production",
+  "presentation_digest": "<release-prepare.presented_plan_sha256>",
+  "subject_digest": "<release-prepare.subject_sha256>",
+  "target_id": "<release-prepare.target_id>"
+}
+```
+
+The signed bytes are
+`"wprism-operation-authorization-signature/v1\0" || Canon::encode(statement)`.
+The returned canonical envelope is
+`wprism-operation-authorization/v1` with exactly `format`, `signature` and
+`statement`. Its TTL must fit the site's authority policy. Have the controller
+return its `sha256:` digest alongside `authorization.json`; equivalently, for
+an already canonical saved envelope, prefix the SHA-256 of its exact file
+bytes.
+
+Execute only with every digest copied from the two saved documents:
+
+```sh
+AUTHORIZATION_SHA=sha256:…
+SUBJECT_SHA=$(jq -r .subject_sha256 release-prepare.json)
+PRESENTATION_SHA=$(jq -r .presented_plan_sha256 release-prepare.json)
+PLAN_SHA=$(jq -r .plan_digest release-prepare.json)
+
+"$WPRISM_CLI" release production execute \
+  --prepare=release-prepare.json \
+  --authorization=authorization.json \
+  --expected-authorization-sha256="$AUTHORIZATION_SHA" \
+  --expected-subject-sha256="$SUBJECT_SHA" \
+  --expected-presentation-sha256="$PRESENTATION_SHA" \
+  --expected-plan-digest="$PLAN_SHA" \
+  --expected-stage-receipt-sha256="$RECEIPT_SHA" \
+  --format=json > release-outcome.json
+```
+
+Execution emits exactly one JSON success/refusal document on stdout. Before
+consumption it revalidates all explicit digests, target identity and `HEAD`,
+the source stage, local checkout, current authority policy, semantic plan,
+artifact, reviewed capability library and every plan condition. It then writes
+the local projection/frozen plan, rechecks the stage once more, durably consumes
+the one-time authorization under the target's private Git control directory,
+materializes the exact staged commit, composes the existing promote path, runs
+verification, and publishes the terminal outcome beside that consumption.
+Promotion phase text is sent to stderr so it cannot corrupt the single stdout
+document.
+
+### Crash, retry and status semantics
+
+The exact same `release … execute` command is also the status/replay operation;
+there is no separate command that could acquire a second mutation authority.
+Its first target read looks up the authorization-envelope digest **before**
+checking signature expiry or current stage state.
+
+| Observed state | Exact retry result |
+|---|---|
+| no consumption exists | revalidate everything; consume and execute only if it still matches |
+| consumption exists, no complete outcome | refuse `release_operation_reconciliation_required`; never retry mutation |
+| consumption and completion exist | return the byte-identical stored outcome, even after authority expiry/revocation or later target/stage movement |
+| different bytes under the same operation/authorization identity | refuse the named conflict; reconcile manually |
+
+The staging lock is a kernel-released `flock`, so process death or power loss
+cannot leave a permanent lock directory. A crash before receipt publication
+leaves either a same-operation ref/worktree that the next exact request can
+reconcile, or named ambiguous stage state that refuses. Receipt, target
+identity, consumption and completion publication all use file fsync, atomic
+rename, parent-directory fsync and exact readback before claiming durability.
+Never delete retained control evidence to make a refusal disappear: inspect
+the target's Git-private `wprism-release/` and `wprism-control/` records and
+reconcile the exact operation lineage.
+
 ## `--profile` and `--accept-weaker-recovery`
 
 WPrism selects the strongest recovery profile the target can actually prove:

@@ -6,6 +6,8 @@ namespace WPrism\Orchestrator;
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../Transport/Transport.php';
 require_once __DIR__ . '/../Transport/CodeDeploy.php';
+require_once __DIR__ . '/../Authority/OperationAuthorization.php';
+require_once __DIR__ . '/../Authority/TargetOperationStore.php';
 require_once __DIR__ . '/../Plan/PlanContract.php';
 require_once __DIR__ . '/../Plan/PlanSummary.php';
 require_once __DIR__ . '/../Contract/ApplicationContract.php';
@@ -20,8 +22,11 @@ require_once __DIR__ . '/../Release/AuthorizationPlanRenderer.php';
 require_once __DIR__ . '/../Release/JourneyOracle.php';
 require_once __DIR__ . '/../Release/NextAction.php';
 require_once __DIR__ . '/../Release/ReleaseOutcome.php';
+require_once __DIR__ . '/../Release/ReleasePrepare.php';
+require_once __DIR__ . '/../Release/SourceStageReceipt.php';
 require_once __DIR__ . '/AssessCommand.php';
 require_once __DIR__ . '/CommandOutput.php';
+require_once __DIR__ . '/StageSourceCommand.php';
 require_once __DIR__ . '/VerifyCommand.php';
 
 use WPrism\CommandRefusalException;
@@ -199,6 +204,26 @@ final class ReleaseCommand {
         ?callable $hostCatalog = null,
         ?callable $verify = null
     ): int {
+        if (($extra[0] ?? null) === 'prepare') {
+            return self::runPreparedStage(
+                $driver,
+                array_slice($extra, 1),
+                $sourceRoot,
+                $clock,
+                $hostCatalog
+            );
+        }
+        if (($extra[0] ?? null) === 'execute') {
+            return self::runAuthorizedStage(
+                $driver,
+                array_slice($extra, 1),
+                $sourceRoot,
+                $promote,
+                $clock,
+                $hostCatalog,
+                $verify
+            );
+        }
         $json = AssessCommand::wantsJson($extra);
         try {
             $flags = self::flags($extra);
@@ -246,6 +271,533 @@ final class ReleaseCommand {
     }
 
     /**
+     * Prepare one externally authorizable subject from an inert source stage.
+     * Success emits exactly one canonical document and writes no target or
+     * site-repository byte; the two stage validations bracket every planning
+     * read so drift during preparation is refused rather than authorized.
+     *
+     * @param list<string> $extra
+     */
+    private static function runPreparedStage(
+        EnvironmentDriver $driver,
+        array $extra,
+        string $sourceRoot,
+        ?callable $clock,
+        ?callable $hostCatalog
+    ): int {
+        $json = AssessCommand::wantsJson($extra);
+        try {
+            $request = self::prepareRequestFlags($extra);
+            $receipt = SourceStageReceipt::read($request['stage_receipt']);
+            if (!hash_equals($request['expected_stage_receipt_sha256'], (string) $receipt['receipt_sha256'])) {
+                throw new CommandRefusalException(
+                    'release_stage_receipt_unexpected',
+                    'the source stage receipt does not match the digest explicitly requested for preparation',
+                    'select the intended canonical receipt and repeat its exact receipt_sha256 in the prepare request'
+                );
+            }
+            StageSourceCommand::verify($driver, $receipt);
+            $siteRepo = AssessCommand::siteRepo(getcwd() ?: '.');
+            self::assertLocalStageSource($siteRepo, $receipt);
+            $trust = OperationAuthorization::trust($siteRepo);
+            $flags = [
+                'accept_weaker_recovery' => $request['accept_weaker_recovery'],
+                'from' => null,
+                'plan_only' => true,
+                'profile' => $request['profile'],
+                'with_deletes' => $request['with_deletes'],
+                'yes' => false,
+            ];
+            $prepared = self::prepare(
+                $driver,
+                $flags,
+                $sourceRoot,
+                $clock,
+                $hostCatalog,
+                $receipt
+            );
+            StageSourceCommand::verify($driver, $receipt);
+            $registryOperation = SurfaceCatalog::REGISTRY_OPERATION[self::OPERATION];
+            $registryDigest = $prepared['assessment']['registry_reports'][$registryOperation]['registry_sha256']
+                ?? null;
+            if (!is_string($registryDigest)) {
+                throw new CommandRefusalException(
+                    'release_prepare_capability_identity_missing',
+                    'the staged assessment did not return the reviewed capability-library identity',
+                    'repair the target capability report before preparing an authorization subject'
+                );
+            }
+            $document = ReleasePrepare::build($receipt, $prepared['plan_document'], [
+                'accept_weaker_recovery' => $request['accept_weaker_recovery'],
+                'authority_policy_digest' => OperationAuthorization::trustDigest($trust),
+                'capability_registry_sha256' => $registryDigest,
+                'profile' => $request['profile'],
+                'with_deletes' => $request['with_deletes'],
+            ]);
+            echo ReleasePrepare::encode($document);
+
+            return 0;
+        } catch (CommandRefusalException $refusal) {
+            return AssessCommand::renderRefusal($refusal, $json, 'release prepare');
+        } catch (\Throwable $error) {
+            $refusal = new CommandRefusalException(
+                'release_prepare_invalid',
+                'the staged release could not be represented as one immutable authorization subject',
+                'repair the named receipt, contract or authority-policy input and run release prepare again',
+                [],
+                $error->getMessage(),
+                $error
+            );
+            return AssessCommand::renderRefusal($refusal, $json, 'release prepare');
+        }
+    }
+
+    /**
+     * Execute exactly one externally authorized staged subject.
+     *
+     * Target-side completion is consulted before signature lifetime checks:
+     * an exact lost-response replay must remain observable after expiry, while
+     * a durable consumption without completion is reconciliation state and
+     * can never cross the mutation boundary again.
+     *
+     * @param list<string> $extra
+     * @param callable(EnvironmentDriver,list<string>):int $promote
+     * @param ?callable(EnvironmentDriver,array):array $verify
+     */
+    private static function runAuthorizedStage(
+        EnvironmentDriver $driver,
+        array $extra,
+        string $sourceRoot,
+        callable $promote,
+        ?callable $clock,
+        ?callable $hostCatalog,
+        ?callable $verify
+    ): int {
+        $json = AssessCommand::wantsJson($extra);
+        $consumed = false;
+        try {
+            $request = self::executeRequestFlags($extra);
+            $document = ReleasePrepare::read($request['prepare']);
+            self::assertExecuteDigests($document, $request);
+            if (($document['environment'] ?? null) !== $driver->name()) {
+                throw new CommandRefusalException(
+                    'release_execute_target_mismatch',
+                    'the prepared release subject names another environment',
+                    'execute the subject only against the exact environment it names'
+                );
+            }
+
+            $envelope = OperationAuthorization::readEnvelope($request['authorization']);
+            $authorizationDigest = OperationAuthorization::envelopeDigest($envelope);
+            if (!hash_equals($request['expected_authorization_sha256'], $authorizationDigest)) {
+                throw new CommandRefusalException(
+                    'release_execute_digest_mismatch',
+                    'the authorization envelope does not match the digest explicitly requested for execution',
+                    'select the intended canonical authorization and repeat its exact digest'
+                );
+            }
+
+            // Deliberately before trust/signature/expiry verification. A
+            // completed exact replay is a status read, not a second authority
+            // consumption, and must remain readable after its short TTL.
+            $status = TargetOperationStore::status($driver, $authorizationDigest);
+            if ($status !== null) {
+                return self::authorizedStageReplay($driver, $document, $authorizationDigest, $status);
+            }
+
+            /** @var array<string,mixed> $receipt */
+            $receipt = $document['stage_receipt'];
+            StageSourceCommand::verify($driver, $receipt);
+            $siteRepo = AssessCommand::siteRepo(getcwd() ?: '.');
+            self::assertLocalStageSource($siteRepo, $receipt);
+
+            $flags = self::preparedFlags($document);
+            $now = ($clock ?? static fn (): string => gmdate('Y-m-d\TH:i:s\Z'))();
+            $current = self::prepare(
+                $driver,
+                $flags,
+                $sourceRoot,
+                static fn (): string => $now,
+                $hostCatalog,
+                $receipt
+            );
+            StageSourceCommand::verify($driver, $receipt);
+            self::assertPreparedFactsCurrent($document, $current);
+
+            $trust = OperationAuthorization::trust($siteRepo);
+            $verified = OperationAuthorization::verify(
+                $envelope,
+                ReleasePrepare::authorizationSubject($document),
+                $trust,
+                $now
+            );
+
+            // The last policy observation before consumption asks the same
+            // staged-repository capability question preparation asked. The
+            // target's canonical checkout is still the receipt base here.
+            $registryOperation = SurfaceCatalog::REGISTRY_OPERATION[self::OPERATION];
+            $observed = AssessCommand::capabilityReport(
+                $driver,
+                $registryOperation,
+                (string) $receipt['stage']['repository_path']
+            );
+            $observedRegistry = (string) ($observed['registry_sha256'] ?? '');
+            if ($observedRegistry === ''
+                || !hash_equals(
+                    (string) $document['request']['expected_capability_registry_sha256'],
+                    $observedRegistry
+                )) {
+                throw new CommandRefusalException(
+                    'release_evidence_not_current',
+                    'the reviewed capability library changed after this release subject was prepared',
+                    'prepare and authorize a fresh subject against the capability policy in force now',
+                    [['changed_fields' => ['registry_sha256']]]
+                );
+            }
+            $observedConditions = SurfaceCatalog::conditionsByManifest($observed);
+            $rechecked = AuthorizationPlan::recheckConditions(
+                $document['authorization_plan'],
+                $observedConditions,
+                $now
+            );
+            $currentInputs = $current['inputs'];
+            $currentInputs['capabilities'] = AuthorizationPlan::withObservedConditions(
+                $currentInputs['capabilities'],
+                $observedConditions
+            );
+            AuthorizationPlan::reverify(
+                $document['authorization_plan'],
+                AuthorizationPlan::currentFacts($currentInputs)
+            );
+            StageSourceCommand::verify($driver, $receipt);
+            self::assertLocalStageSource($siteRepo, $receipt);
+
+            // These are local evidence writes only and occur after signature
+            // verification. The canonical target remains untouched until its
+            // authorization consumption is durable.
+            (new ContractStore($siteRepo))->writeProjection($current['projection']);
+            AuthorizationPlan::freeze($document['authorization_plan'], $siteRepo);
+            StageSourceCommand::verify($driver, $receipt);
+
+            $consumptionResult = TargetOperationStore::consume($driver, $verified);
+            if (($consumptionResult['replayed'] ?? false) === true) {
+                $raced = TargetOperationStore::status($driver, $authorizationDigest);
+                if (is_array($raced)) {
+                    return self::authorizedStageReplay($driver, $document, $authorizationDigest, $raced);
+                }
+                throw self::reconciliationRequired();
+            }
+            $consumed = true;
+            $consumption = $consumptionResult['consumption'];
+
+            self::materializeStagedSource($driver, $receipt);
+            $promoteArgs = $flags['with_deletes'] ? ['--with-deletes'] : [];
+            ob_start();
+            try {
+                $promoteExit = $promote($driver, $promoteArgs);
+            } finally {
+                $promotionOutput = (string) ob_get_clean();
+                if ($promotionOutput !== '') {
+                    fwrite(STDERR, $promotionOutput);
+                }
+            }
+            if ($promoteExit !== 0) {
+                $outcome = ReleaseOutcome::failedAfterFreeze(
+                    $driver->name(),
+                    (string) $document['plan_digest'],
+                    self::classifyFailure($driver),
+                    $rechecked
+                );
+                TargetOperationStore::complete($driver, $consumption, $outcome);
+                echo ReleaseOutcome::encode($outcome);
+
+                return 1;
+            }
+
+            $outcome = self::authorizedVerificationOutcome(
+                $driver->name(),
+                (string) $document['plan_digest'],
+                $rechecked,
+                static fn (): array => ($verify
+                    ?? static fn (EnvironmentDriver $d, array $o): array => VerifyCommand::report($d, $o))(
+                        $driver,
+                        [
+                            'contract' => $current['contract'],
+                            'plan_digest' => (string) $document['plan_digest'],
+                            'scope_surfaces' => $current['scope']['surfaces'],
+                        ]
+                    )
+            );
+            TargetOperationStore::complete($driver, $consumption, $outcome);
+            echo ReleaseOutcome::encode($outcome);
+
+            return self::outcomeExit($outcome);
+        } catch (CommandRefusalException $refusal) {
+            if ($consumed && $refusal->reasonCode !== 'release_operation_reconciliation_required') {
+                $refusal = self::reconciliationRequired($refusal);
+            }
+            return AssessCommand::renderRefusal($refusal, $json, 'release execute');
+        } catch (\Throwable $error) {
+            $refusal = $consumed
+                ? self::reconciliationRequired($error)
+                : new CommandRefusalException(
+                    'release_execute_invalid',
+                    'the authorized staged release could not be validated for execution',
+                    'repair the named prepare, authorization, stage or target input before retrying execution',
+                    [],
+                    $error->getMessage(),
+                    $error
+                );
+
+            return AssessCommand::renderRefusal($refusal, $json, 'release execute');
+        }
+    }
+
+    /** @param array<string,mixed> $document @param array<string,mixed> $request */
+    private static function assertExecuteDigests(array $document, array $request): void {
+        $expected = [
+            'expected_plan_digest' => $document['plan_digest'],
+            'expected_presentation_sha256' => $document['presented_plan_sha256'],
+            'expected_stage_receipt_sha256' => $document['stage_receipt']['receipt_sha256'],
+            'expected_subject_sha256' => $document['subject_sha256'],
+        ];
+        $changed = [];
+        foreach ($expected as $field => $value) {
+            if (!hash_equals((string) $value, (string) $request[$field])) {
+                $changed[] = $field;
+            }
+        }
+        if ($changed !== []) {
+            throw new CommandRefusalException(
+                'release_execute_digest_mismatch',
+                'the prepared release does not match every digest explicitly requested for execution',
+                'select the intended canonical prepare document and repeat its exact digests',
+                [['changed_fields' => $changed]]
+            );
+        }
+    }
+
+    /** @param array<string,mixed> $document @param array<string,mixed> $current */
+    private static function assertPreparedFactsCurrent(array $document, array $current): void {
+        $plan = $document['authorization_plan'];
+        AuthorizationPlan::reverify($plan, AuthorizationPlan::currentFacts($current['inputs']));
+        if (!hash_equals((string) $document['plan_digest'], (string) $current['plan_document']['plan_digest'])) {
+            throw new CommandRefusalException(
+                'plan_changed',
+                'the semantic release plan changed after the external authorization subject was prepared',
+                'prepare and authorize a fresh subject against the target and staged source as they are now',
+                [['changed_fields' => ['plan_digest']]]
+            );
+        }
+        $registryOperation = SurfaceCatalog::REGISTRY_OPERATION[self::OPERATION];
+        $registry = (string) ($current['assessment']['registry_reports'][$registryOperation]['registry_sha256'] ?? '');
+        if ($registry === ''
+            || !hash_equals((string) $document['request']['expected_capability_registry_sha256'], $registry)) {
+            throw new CommandRefusalException(
+                'release_evidence_not_current',
+                'the reviewed capability library changed after this release subject was prepared',
+                'prepare and authorize a fresh subject against the capability policy in force now',
+                [['changed_fields' => ['registry_sha256']]]
+            );
+        }
+    }
+
+    /** @param array<string,mixed> $document @return array<string,mixed> */
+    private static function preparedFlags(array $document): array {
+        $request = $document['request'];
+
+        return [
+            'accept_weaker_recovery' => (bool) $request['accept_weaker_recovery'],
+            'from' => null,
+            'plan_only' => true,
+            'profile' => $request['profile'],
+            'with_deletes' => (bool) $request['with_deletes'],
+            'yes' => false,
+        ];
+    }
+
+    /** @param array<string,mixed> $status */
+    private static function authorizedStageReplay(
+        EnvironmentDriver $driver,
+        array $document,
+        string $authorizationDigest,
+        array $status
+    ): int {
+        $consumption = $status['consumption'] ?? null;
+        if (!is_array($consumption)) {
+            throw self::reconciliationRequired();
+        }
+        $expected = [
+            'authorization_digest' => $authorizationDigest,
+            'operation' => self::OPERATION,
+            'operation_id' => (string) $document['operation_id'],
+            'presentation_digest' => (string) $document['presented_plan_sha256'],
+            'subject_digest' => (string) $document['subject_sha256'],
+            'target_id' => (string) $document['target_id'],
+        ];
+        foreach ($expected as $field => $value) {
+            if (!is_string($consumption[$field] ?? null)
+                || !hash_equals($value, (string) $consumption[$field])) {
+                throw new CommandRefusalException(
+                    'authorization_consumption_conflict',
+                    'the target authorization record does not belong to this exact release subject',
+                    'do not retry mutation; reconcile the target control record and operation lineage'
+                );
+            }
+        }
+        $completion = $status['completion'] ?? null;
+        if (!is_array($completion) || !is_array($completion['outcome'] ?? null)) {
+            throw self::reconciliationRequired();
+        }
+        $outcome = $completion['outcome'];
+        ReleaseOutcome::validate($outcome);
+        if (($outcome['environment'] ?? null) !== $driver->name()
+            || ($outcome['plan_digest'] ?? null) !== $document['plan_digest']) {
+            throw new CommandRefusalException(
+                'authorized_operation_outcome_conflict',
+                'the target completion does not describe this exact environment and release plan',
+                'do not retry mutation; reconcile the target control record and operation lineage'
+            );
+        }
+        echo ReleaseOutcome::encode($outcome);
+
+        return self::outcomeExit($outcome);
+    }
+
+    /** @param array<string,mixed> $outcome */
+    private static function outcomeExit(array $outcome): int {
+        if (($outcome['status'] ?? null) !== ReleaseOutcome::RELEASED) {
+            return 1;
+        }
+        $verify = $outcome['verify'] ?? null;
+
+        return is_array($verify) && ($verify['verdict'] ?? null) === JourneyOracle::PASS ? 0 : 1;
+    }
+
+    /**
+     * Turn verification into the terminal target-side outcome. Once authority
+     * has been consumed and promotion has run, a missing or negative proof is
+     * a post-freeze failure, never a successful release with `verify: null`.
+     * `nothing_safe` is deliberate: convergence, journey and transport
+     * failures share no universally safe automated recovery action.
+     *
+     * @param array<string,mixed> $rechecked
+     * @param callable():array<string,mixed> $reporter
+     * @return array<string,mixed>
+     */
+    private static function authorizedVerificationOutcome(
+        string $environment,
+        string $planDigest,
+        array $rechecked,
+        callable $reporter
+    ): array {
+        try {
+            $report = $reporter();
+        } catch (CommandRefusalException $refusal) {
+            return ReleaseOutcome::failedAfterFreeze(
+                $environment,
+                $planDigest,
+                'nothing_safe',
+                $rechecked,
+                self::refusalSpec($refusal)
+            );
+        } catch (\Throwable $error) {
+            $refusal = new CommandRefusalException(
+                'release_verification_unavailable',
+                'post-release verification could not produce a trustworthy report',
+                'preserve the target completion evidence and escalate for private inspection before another action',
+                [],
+                $error->getMessage(),
+                $error
+            );
+
+            return ReleaseOutcome::failedAfterFreeze(
+                $environment,
+                $planDigest,
+                'nothing_safe',
+                $rechecked,
+                self::refusalSpec($refusal)
+            );
+        }
+
+        if (($report['verdict'] ?? null) !== JourneyOracle::PASS) {
+            $refusal = new CommandRefusalException(
+                'release_verification_failed',
+                'post-release verification did not pass',
+                'preserve the target completion and verification report, inspect the failed checks, and escalate '
+                    . 'before another action'
+            );
+
+            return ReleaseOutcome::failedAfterFreeze(
+                $environment,
+                $planDigest,
+                'nothing_safe',
+                $rechecked,
+                self::refusalSpec($refusal),
+                $report
+            );
+        }
+
+        return ReleaseOutcome::released($environment, $planDigest, $report, $rechecked);
+    }
+
+    /** @return array{diagnostics:list<array<string,mixed>>,message:string,reason_code:string,remediation:string} */
+    private static function refusalSpec(CommandRefusalException $refusal): array {
+        return [
+            'diagnostics' => $refusal->diagnostics,
+            'message' => $refusal->publicMessage,
+            'reason_code' => $refusal->reasonCode,
+            'remediation' => $refusal->remediation,
+        ];
+    }
+
+    /** @param array<string,mixed> $receipt */
+    private static function materializeStagedSource(EnvironmentDriver $driver, array $receipt): void {
+        $repo = $driver->repoPath();
+        $script = 'repo=' . escapeshellarg($repo)
+            . '; expected_base=' . escapeshellarg((string) $receipt['base']['commit'])
+            . '; expected_base_tree=' . escapeshellarg((string) $receipt['base']['tree'])
+            . '; expected_source=' . escapeshellarg((string) $receipt['source']['commit'])
+            . '; expected_tree=' . escapeshellarg((string) $receipt['source']['tree'])
+            . '; expected_stage=' . escapeshellarg((string) $receipt['stage']['repository_path'])
+            . '; stage_ref=' . escapeshellarg((string) $receipt['stage']['ref']) . '; '
+            . 'test -z "$(git -C "$repo" status --porcelain --untracked-files=all)" || exit 90; '
+            . 'git -C "$repo" symbolic-ref --quiet --short HEAD >/dev/null 2>&1 || exit 90; '
+            . 'base=$(git -C "$repo" rev-parse --verify HEAD) || exit 90; '
+            . 'base_tree=$(git -C "$repo" rev-parse --verify HEAD^{tree}) || exit 90; '
+            . 'test "$base" = "$expected_base" && test "$base_tree" = "$expected_base_tree" || exit 90; '
+            . 'ref_commit=$(git -C "$repo" rev-parse --verify "${stage_ref}^{commit}") || exit 91; '
+            . 'stage_commit=$(git -C "$expected_stage" rev-parse --verify HEAD) || exit 91; '
+            . 'stage_tree=$(git -C "$expected_stage" rev-parse --verify HEAD^{tree}) || exit 91; '
+            . 'test "$ref_commit" = "$expected_source" && test "$stage_commit" = "$expected_source" '
+            . '&& test "$stage_tree" = "$expected_tree" || exit 91; '
+            . 'test -z "$(git -C "$expected_stage" status --porcelain --untracked-files=all)" || exit 91; '
+            . 'git -C "$repo" merge-base --is-ancestor "$expected_base" "$expected_source" || exit 91; '
+            . 'git -c core.hooksPath=/dev/null -C "$repo" reset --hard "$expected_source" >/dev/null 2>&1 || exit 92; '
+            . 'actual=$(git -C "$repo" rev-parse --verify HEAD) || exit 92; '
+            . 'actual_tree=$(git -C "$repo" rev-parse --verify HEAD^{tree}) || exit 92; '
+            . 'test "$actual" = "$expected_source" && test "$actual_tree" = "$expected_tree" || exit 92; '
+            . 'test -z "$(git -C "$repo" status --porcelain --untracked-files=all)" || exit 92; '
+            . 'printf __MATERIALIZED__';
+        $result = $driver->captureRaw($script);
+        if (($result['exit'] ?? 1) !== 0
+            || trim((string) ($result['stdout'] ?? '')) !== '__MATERIALIZED__') {
+            throw self::reconciliationRequired();
+        }
+    }
+
+    private static function reconciliationRequired(?\Throwable $previous = null): CommandRefusalException {
+        return new CommandRefusalException(
+            'release_operation_reconciliation_required',
+            'the authorization was consumed but no complete terminal release outcome is available',
+            'do not retry mutation; reconcile this exact operation from the target authorization and release evidence',
+            [],
+            $previous?->getMessage(),
+            $previous
+        );
+    }
+
+    /**
      * Steps 1-5: everything that happens before a single target byte moves.
      *
      * Split out because it is the whole of `--plan-only`, and because an
@@ -261,7 +813,8 @@ final class ReleaseCommand {
         array $flags,
         string $sourceRoot,
         ?callable $clock = null,
-        ?callable $hostCatalog = null
+        ?callable $hostCatalog = null,
+        ?array $stageReceipt = null
     ): array {
         $now = ($clock ?? static fn (): string => gmdate('Y-m-d\TH:i:s\Z'))();
 
@@ -285,16 +838,32 @@ final class ReleaseCommand {
         // authority to fast-forward a clean named target worktree. Plan-only
         // remains byte-read-only and can only check the existing binding.
         $head = self::targetHead($driver);
-        if ($flags['from'] !== null) {
+        $repositoryPath = $driver->repoPath();
+        $sourceRevision = $head;
+        if ($stageReceipt !== null) {
+            SourceStageReceipt::validate($stageReceipt);
+            if (($stageReceipt['environment'] ?? null) !== $driver->name()
+                || ($stageReceipt['target']['repo_path'] ?? null) !== $driver->repoPath()
+                || !hash_equals((string) $stageReceipt['base']['commit'], $head)) {
+                throw new CommandRefusalException(
+                    'release_stage_base_changed',
+                    'the canonical target base no longer matches the source stage being prepared',
+                    'do not authorize this subject; reconcile the target and create a new source stage operation'
+                );
+            }
+            $repositoryPath = (string) $stageReceipt['stage']['repository_path'];
+            $sourceRevision = (string) $stageReceipt['source']['commit'];
+        } elseif ($flags['from'] !== null) {
             $resolved = self::localRevision($siteRepo, $flags['from']);
             if (!hash_equals($resolved, $head)) {
                 if ($flags['plan_only']) {
                     self::bindRef($flags['from'], $head, $siteRepo, $driver, $resolved);
                 }
                 $head = self::deliverRef($flags['from'], $resolved, $siteRepo, $driver);
+                $sourceRevision = $head;
             }
         }
-        $plan = self::targetPlan($driver);
+        $plan = self::targetPlan($driver, $repositoryPath);
         // Pending deletions are this command's own decision, not an
         // assessment gap: `AuthorizationPlan::refusals()` refuses them by name
         // with `release_deletes_not_authorized` and no gap action
@@ -315,12 +884,21 @@ final class ReleaseCommand {
             deletionAuthorityOwnedByCaller: true
         );
         $target = [
-            'artifact_hash' => self::targetArtifactHash($driver),
-            'code_revision_from' => $head,
+            'artifact_hash' => self::targetArtifactHash($driver, $repositoryPath),
+            'code_revision_from' => $sourceRevision,
             'head_revision' => $head,
             'repo_path' => $driver->repoPath(),
         ];
-        self::bindRef($flags['from'], $head, $siteRepo, $driver);
+        if ($stageReceipt !== null) {
+            $target += [
+                'operation_id' => (string) $stageReceipt['operation_id'],
+                'source_tree' => (string) $stageReceipt['source']['tree'],
+                'stage_receipt_sha256' => (string) $stageReceipt['receipt_sha256'],
+                'target_identity_sha256' => (string) $stageReceipt['target']['identity_sha256'],
+            ];
+        } else {
+            self::bindRef($flags['from'], $head, $siteRepo, $driver);
+        }
         if (!$readiness['ok']) {
             // Print WHAT is unclean before refusing. These are
             // `PlanSummary`'s own lines, rendered with the reviewed
@@ -352,6 +930,7 @@ final class ReleaseCommand {
             'source_root' => $sourceRoot,
             'host_catalog' => $hostCatalog,
             'generated_at' => $now,
+            'repository_path' => $repositoryPath,
         ]);
         $projection = AssessCommand::projection($assessment, $contract);
         // Regeneration above is unconditional (step 3's docblock), but
@@ -868,7 +1447,7 @@ final class ReleaseCommand {
         fclose($pipes[2]);
         $exit = proc_close($process);
         $revision = trim($stdout);
-        if ($exit !== 0 || preg_match('/^[a-f0-9]{40,64}$/D', $revision) !== 1) {
+        if ($exit !== 0 || preg_match('/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/D', $revision) !== 1) {
             throw new CommandRefusalException(
                 'release_ref_unresolvable',
                 'the asserted ref does not resolve to a commit in the local site repository',
@@ -879,13 +1458,31 @@ final class ReleaseCommand {
         return $revision;
     }
 
+    /** @param array<string,mixed> $receipt */
+    private static function assertLocalStageSource(string $siteRepo, array $receipt): void {
+        $head = self::localGit($siteRepo, ['rev-parse', '--verify', 'HEAD']);
+        $tree = self::localGit($siteRepo, ['rev-parse', '--verify', 'HEAD^{tree}']);
+        $status = self::localGit($siteRepo, ['status', '--porcelain', '--untracked-files=all']);
+        if ($head['exit'] !== 0 || $tree['exit'] !== 0 || $status['exit'] !== 0
+            || !hash_equals((string) $receipt['source']['commit'], trim($head['stdout']))
+            || !hash_equals((string) $receipt['source']['tree'], trim($tree['stdout']))
+            || trim($status['stdout']) !== '') {
+            throw new CommandRefusalException(
+                'release_prepare_source_checkout_changed',
+                'the local site checkout no longer exactly matches the source commit and tree in the stage receipt',
+                'check out the exact staged source revision with no tracked or untracked changes, then prepare again'
+            );
+        }
+    }
+
     /** The target repository's own `HEAD`, read through the driver. */
     private static function targetHead(EnvironmentDriver $driver): string {
         $result = $driver->captureRaw(
             'git -C ' . escapeshellarg($driver->repoPath()) . ' rev-parse HEAD'
         );
         $revision = trim((string) ($result['stdout'] ?? ''));
-        if (($result['exit'] ?? 1) !== 0 || preg_match('/^[a-f0-9]{40,64}$/D', $revision) !== 1) {
+        if (($result['exit'] ?? 1) !== 0
+            || preg_match('/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/D', $revision) !== 1) {
             throw new CommandRefusalException(
                 'release_target_revision_unknown',
                 'the target repository did not report a revision, so no ref assertion about it can be checked',
@@ -907,9 +1504,10 @@ final class ReleaseCommand {
      * what lets `--plan-only` name the artifact it would release while still
      * mutating nothing at all.
      */
-    private static function targetArtifactHash(EnvironmentDriver $driver): string {
+    private static function targetArtifactHash(EnvironmentDriver $driver, ?string $repositoryPath = null): string {
+        $repositoryPath ??= $driver->repoPath();
         $result = $driver->captureWp(CodeDeploy::controlArgs([
-            'wprism', 'compile', '--repo=' . $driver->repoPath(), '--format=json',
+            'wprism', 'compile', '--repo=' . $repositoryPath, '--format=json',
         ]));
         $summary = ($result['exit'] ?? 1) === 0
             ? json_decode(trim((string) ($result['stdout'] ?? '')), true)
@@ -932,8 +1530,9 @@ final class ReleaseCommand {
      *
      * @return array<string,mixed>
      */
-    private static function targetPlan(EnvironmentDriver $driver): array {
-        $result = $driver->captureWp(['wprism', 'plan', '--repo=' . $driver->repoPath(), '--format=json']);
+    private static function targetPlan(EnvironmentDriver $driver, ?string $repositoryPath = null): array {
+        $repositoryPath ??= $driver->repoPath();
+        $result = $driver->captureWp(['wprism', 'plan', '--repo=' . $repositoryPath, '--format=json']);
         if (($result['exit'] ?? 1) !== 0) {
             $refusal = json_decode(trim((string) ($result['stdout'] ?? '')), true);
             if (is_array($refusal) && ($refusal['format'] ?? null) === 'wprism-command-refusal/v1') {
@@ -1339,6 +1938,170 @@ final class ReleaseCommand {
             'the authorization plan was not confirmed, so nothing was written and nothing was frozen',
             're-run wprism release and answer yes to the authorization question, or pass --yes to confirm the '
                 . 'displayed plan non-interactively'
+        );
+    }
+
+    /**
+     * @param list<string> $extra
+     * @return array{accept_weaker_recovery:bool,expected_stage_receipt_sha256:string,profile:?string,stage_receipt:string,with_deletes:bool}
+     */
+    private static function prepareRequestFlags(array $extra): array {
+        $out = [
+            'accept_weaker_recovery' => false,
+            'expected_stage_receipt_sha256' => null,
+            'profile' => null,
+            'stage_receipt' => null,
+            'with_deletes' => false,
+        ];
+        foreach ($extra as $arg) {
+            if (!is_string($arg)) {
+                throw self::invalidPrepareArguments('release prepare received a non-string argument');
+            }
+            $name = str_contains($arg, '=') ? explode('=', $arg, 2)[0] : $arg;
+            $value = str_contains($arg, '=') ? substr($arg, strlen($name) + 1) : null;
+            switch ($name) {
+                case '--stage-receipt':
+                    if ($out['stage_receipt'] !== null || $value === null || $value === ''
+                        || preg_match('/[\x00-\x1f\x7f]/D', $value) === 1) {
+                        throw self::invalidPrepareArguments('--stage-receipt takes exactly one readable file path');
+                    }
+                    $out['stage_receipt'] = $value;
+                    break;
+                case '--expected-stage-receipt-sha256':
+                    if ($out['expected_stage_receipt_sha256'] !== null || $value === null
+                        || preg_match('/^sha256:[a-f0-9]{64}$/D', $value) !== 1) {
+                        throw self::invalidPrepareArguments(
+                            '--expected-stage-receipt-sha256 takes exactly one sha256:<64-lowercase-hex> value'
+                        );
+                    }
+                    $out['expected_stage_receipt_sha256'] = $value;
+                    break;
+                case '--profile':
+                    if ($out['profile'] !== null || $value === null
+                        || !in_array($value, RecoveryProfileSelection::PROFILES, true)) {
+                        throw self::invalidPrepareArguments(
+                            '--profile must be one of ' . implode(', ', RecoveryProfileSelection::PROFILES)
+                        );
+                    }
+                    $out['profile'] = $value;
+                    break;
+                case RecoveryProfileSelection::WEAKER_FLAG:
+                    $out['accept_weaker_recovery'] = true;
+                    break;
+                case '--with-deletes':
+                    $out['with_deletes'] = true;
+                    break;
+                case '--format':
+                    if ($value !== 'json') {
+                        throw self::invalidPrepareArguments('release prepare supports only --format=json');
+                    }
+                    break;
+                case '--json':
+                    break;
+                default:
+                    throw self::invalidPrepareArguments("release prepare received an option it does not define: '$name'");
+            }
+        }
+        if (!is_string($out['stage_receipt']) || !is_string($out['expected_stage_receipt_sha256'])) {
+            throw self::invalidPrepareArguments(
+                'release prepare requires --stage-receipt=<file> and --expected-stage-receipt-sha256=<digest>'
+            );
+        }
+
+        return $out;
+    }
+
+    private static function invalidPrepareArguments(string $message): CommandRefusalException {
+        return new CommandRefusalException(
+            'invalid_arguments',
+            $message,
+            'use wprism release <env> prepare --stage-receipt=<file> '
+                . '--expected-stage-receipt-sha256=sha256:<hex> [--profile=<p>] '
+                . '[--accept-weaker-recovery] [--with-deletes] [--format=json]'
+        );
+    }
+
+    /**
+     * @param list<string> $extra
+     * @return array{authorization:string,expected_authorization_sha256:string,expected_plan_digest:string,expected_presentation_sha256:string,expected_stage_receipt_sha256:string,expected_subject_sha256:string,prepare:string}
+     */
+    private static function executeRequestFlags(array $extra): array {
+        $out = [
+            'authorization' => null,
+            'expected_authorization_sha256' => null,
+            'expected_plan_digest' => null,
+            'expected_presentation_sha256' => null,
+            'expected_stage_receipt_sha256' => null,
+            'expected_subject_sha256' => null,
+            'format_json' => false,
+            'prepare' => null,
+        ];
+        $paths = ['--authorization' => 'authorization', '--prepare' => 'prepare'];
+        $digests = [
+            '--expected-authorization-sha256' => 'expected_authorization_sha256',
+            '--expected-plan-digest' => 'expected_plan_digest',
+            '--expected-presentation-sha256' => 'expected_presentation_sha256',
+            '--expected-stage-receipt-sha256' => 'expected_stage_receipt_sha256',
+            '--expected-subject-sha256' => 'expected_subject_sha256',
+        ];
+        foreach ($extra as $arg) {
+            if (!is_string($arg)) {
+                throw self::invalidExecuteArguments('release execute received a non-string argument');
+            }
+            $name = str_contains($arg, '=') ? explode('=', $arg, 2)[0] : $arg;
+            $value = str_contains($arg, '=') ? substr($arg, strlen($name) + 1) : null;
+            if (isset($paths[$name])) {
+                $field = $paths[$name];
+                if ($out[$field] !== null || $value === null || $value === ''
+                    || preg_match('/[\x00-\x1f\x7f]/D', $value) === 1) {
+                    throw self::invalidExecuteArguments("$name takes exactly one readable file path");
+                }
+                $out[$field] = $value;
+                continue;
+            }
+            if (isset($digests[$name])) {
+                $field = $digests[$name];
+                if ($out[$field] !== null || $value === null
+                    || preg_match('/^sha256:[a-f0-9]{64}$/D', $value) !== 1) {
+                    throw self::invalidExecuteArguments(
+                        "$name takes exactly one sha256:<64-lowercase-hex> value"
+                    );
+                }
+                $out[$field] = $value;
+                continue;
+            }
+            if ($name === '--format' && $value === 'json') {
+                $out['format_json'] = true;
+                continue;
+            }
+            if ($name === '--json' && $value === null) {
+                $out['format_json'] = true;
+                continue;
+            }
+            throw self::invalidExecuteArguments("release execute received an option it does not define: '$name'");
+        }
+        foreach (array_keys($out) as $field) {
+            if ($field !== 'format_json' && !is_string($out[$field])) {
+                throw self::invalidExecuteArguments('release execute requires every prepare, authorization and digest bind');
+            }
+        }
+        if ($out['format_json'] !== true) {
+            throw self::invalidExecuteArguments('release execute requires --format=json for its single-document result');
+        }
+        unset($out['format_json']);
+
+        /** @var array{authorization:string,expected_authorization_sha256:string,expected_plan_digest:string,expected_presentation_sha256:string,expected_stage_receipt_sha256:string,expected_subject_sha256:string,prepare:string} $out */
+        return $out;
+    }
+
+    private static function invalidExecuteArguments(string $message): CommandRefusalException {
+        return new CommandRefusalException(
+            'invalid_arguments',
+            $message,
+            'use wprism release <env> execute --prepare=<file> --authorization=<file> '
+                . '--expected-authorization-sha256=sha256:<hex> --expected-subject-sha256=sha256:<hex> '
+                . '--expected-presentation-sha256=sha256:<hex> --expected-plan-digest=sha256:<hex> '
+                . '--expected-stage-receipt-sha256=sha256:<hex> --format=json'
         );
     }
 

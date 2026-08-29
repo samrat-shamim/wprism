@@ -134,6 +134,9 @@ final class ReleaseOutcome {
      * there: there is no refusal to quote.
      *
      * @param ?array{reason_code:string,message:string,remediation:string,diagnostics:list<array<string,mixed>>} $refusal
+     * @param array<string,mixed> $verify a non-passing verification report
+     *        when verification completed but proved that the release did not
+     *        converge. An unavailable report remains the explicit `null`.
      * @return array<string,mixed>
      */
     public static function failedAfterFreeze(
@@ -141,7 +144,8 @@ final class ReleaseOutcome {
         string $planDigest,
         string $failureClass,
         ?array $conditionsRechecked = null,
-        ?array $refusal = null
+        ?array $refusal = null,
+        array $verify = []
     ): array {
         $action = NextAction::forFailure($failureClass);
 
@@ -153,7 +157,7 @@ final class ReleaseOutcome {
             'reason' => NextAction::reasonFor($failureClass),
             'reason_code' => isset($refusal['reason_code']) ? (string) $refusal['reason_code'] : null,
             'remediation' => isset($refusal['remediation']) ? (string) $refusal['remediation'] : null,
-        ], [], $conditionsRechecked);
+        ], $verify, $conditionsRechecked);
     }
 
     /** Canonical bytes for `--format=json`. */

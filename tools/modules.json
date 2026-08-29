@@ -1533,6 +1533,7 @@
         "depends_on": [
           "Adapter",
           "Assess",
+          "Authority",
           "Command",
           "Contract",
           "Environment",
@@ -1547,7 +1548,7 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 36,
+        "file_count": 37,
         "files": [
           "AdoptCommand.php",
           "AssessCommand.php",
@@ -1582,6 +1583,7 @@
           "RehearseCommand.php",
           "ReleaseCommand.php",
           "ScopeCommand.php",
+          "StageSourceCommand.php",
           "StatusCommand.php",
           "UnadoptCommand.php",
           "VerifyCommand.php"
@@ -1625,14 +1627,16 @@
       },
       "Release": {
         "layer": "engine",
-        "purpose": "The release mechanism — `AuthorizationPlan` (build, freeze before any mutation, digest and re-verify the `wprism-authorization-plan/v1` document), `AuthorizationPlanRenderer` (its bounded human projection, ending in one question), `ReleaseOutcome` + `NextAction` (the closed post-freeze next-action set and the deterministic failure-class mapping) and `JourneyOracle` (the declared affected-journey probes and the `wprism-verify-report/v1` document). Mechanism only: the verb boundaries (`ReleaseCommand`, `VerifyCommand`, `RecoverCommand`, cli:Command) compose it with Environment, Recovery and the existing promote/deploy handlers, and the recovery claim reaches the plan as a canonical array, not as a Recovery class reference — which is what keeps this module free of intra-layer and upward edges (module map rule 9).",
+        "purpose": "The release mechanism — `SourceStageReceipt` durably binds an inert Git source stage and `ReleasePrepare` binds that receipt, authority/capability policy identities and the exact externally-authorizable plan bytes; `AuthorizationPlan` builds, freezes, digests and re-verifies `wprism-authorization-plan/v1`; `AuthorizationPlanRenderer`, `ReleaseOutcome`, `NextAction` and `JourneyOracle` own its bounded presentation, outcome and verification contracts. Mechanism only: the verb boundaries (`StageSourceCommand`, `ReleaseCommand`, `VerifyCommand`, `RecoverCommand`, cli:Command) compose it with Authority, Environment, Recovery and the existing promote/deploy handlers.",
         "status": "populated",
         "entry_points": [
           "AuthorizationPlan",
           "AuthorizationPlanRenderer",
           "ReleaseOutcome",
           "NextAction",
-          "JourneyOracle"
+          "JourneyOracle",
+          "SourceStageReceipt",
+          "ReleasePrepare"
         ],
         "depends_on": [
           "Contract",
@@ -1643,13 +1647,15 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 5,
+        "file_count": 7,
         "files": [
           "AuthorizationPlan.php",
           "AuthorizationPlanRenderer.php",
           "JourneyOracle.php",
           "NextAction.php",
-          "ReleaseOutcome.php"
+          "ReleaseOutcome.php",
+          "ReleasePrepare.php",
+          "SourceStageReceipt.php"
         ]
       },
       "Rehearse": {

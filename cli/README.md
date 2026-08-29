@@ -54,6 +54,9 @@ wprism preview create <env> --from <production-env> [rehearse flags...]
 wprism preview remove <env> [--format=json]
 wprism demo start [--scenario=woocommerce] [--name=<name>] [--source-port=<port>] [--target-port=<port>]
 wprism demo status|capture|apply|refusal|stop [--name=<name>]
+wprism stage-source <env> --from=<branch-or-tag> --operation=<id> [--format=json]
+wprism release <env> prepare --stage-receipt=<file> --expected-stage-receipt-sha256=<digest> [--format=json]
+wprism release <env> execute --prepare=<file> --authorization=<file> --expected-authorization-sha256=<digest> --expected-subject-sha256=<digest> --expected-presentation-sha256=<digest> --expected-plan-digest=<digest> --expected-stage-receipt-sha256=<digest> --format=json
 wprism release <env> [--from=<ref>] [--plan-only] [--profile=<p>] [--accept-weaker-recovery] [--with-deletes] [--yes] [--limit=<1..200>] [--format=json]
 wprism verify <env> [--plan=<digest>] [--limit=<1..200>] [--format=json]
 wprism recover <env> [--list] [--restore=<checkpoint>] [--writers-excluded] [--operator-directed] [--limit=<1..200>] [--format=json]
@@ -692,6 +695,22 @@ semantics remain the rehearsal implementation's.
   `resume | reconcile | retry | recover | requalify | escalate`.
   Exit 0 success, 1 refusal/failure, 2 usage.
   See [docs/guides/release.md](../docs/guides/release.md).
+
+- **`wprism stage-source` / `wprism release <env> prepare|execute`** — the
+  externally authorized control-plane form of the same release. `stage-source`
+  retains the exact advertised commit under target-private Git state without
+  moving canonical `HEAD`, index or worktree and returns one durable receipt.
+  `prepare` reads that inert checkout, current target facts and current
+  authority policy into one canonical subject without writing target or local
+  repository bytes. An external Ed25519 actor signs its exact presentation and
+  complete subject. `execute` requires explicit digests for the prepare,
+  authorization, plan and stage; it refuses any plan, target-HEAD or source
+  drift before one-time target-side consumption, then materializes the staged
+  commit and composes promote. Repeating the exact execute command is also the
+  status call: a complete target record returns its stored outcome even after
+  authorization expiry, while consumed-without-completion always requires
+  reconciliation. The full signer wire, command sequence and crash semantics
+  are in [docs/guides/release.md](../docs/guides/release.md#control-plane-release-stage-prepare-sign-execute).
 
 - **`wprism verify <env> [--plan=<digest>] [--limit=<1..200>] [--format=json]`** —
   post-release verification in two independent parts, both required for a pass:

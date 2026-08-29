@@ -172,6 +172,10 @@ final class AssessCommand {
             ? array_values($options['operations'])
             : ProjectionVocabulary::OPERATIONS;
         $generatedAt = (string) ($options['generated_at'] ?? gmdate('Y-m-d\TH:i:s\Z'));
+        $repositoryPath = is_string($options['repository_path'] ?? null)
+            && (string) $options['repository_path'] !== ''
+            ? (string) $options['repository_path']
+            : $driver->repoPath();
 
         // The local site repository is resolved BEFORE the target is
         // contacted. An assessment that reaches a site, spends four
@@ -241,7 +245,7 @@ final class AssessCommand {
         $composition[] = 'assess-inventory';
         $inventory = self::agentJson(
             $driver,
-            ['wprism', 'assess-inventory', '--repo=' . $driver->repoPath(), '--format=json'],
+            ['wprism', 'assess-inventory', '--repo=' . $repositoryPath, '--format=json'],
             'assess_inventory_unavailable',
             'the target could not produce a read-only assessment inventory'
         );
@@ -277,7 +281,11 @@ final class AssessCommand {
         $composition[] = 'capabilities';
         $registryReports = [];
         foreach (self::registryOperations($operations) as $registryOperation) {
-            $registryReports[$registryOperation] = self::capabilityReport($driver, $registryOperation);
+            $registryReports[$registryOperation] = self::capabilityReport(
+                $driver,
+                $registryOperation,
+                $repositoryPath
+            );
         }
 
         $composition[] = 'adapter-catalog';
@@ -355,7 +363,13 @@ final class AssessCommand {
      *
      * @return array<string,mixed> an `AdapterRegistry::report()` document
      */
-    public static function capabilityReport(EnvironmentDriver $driver, string $registryOperation): array {
+    public static function capabilityReport(
+        EnvironmentDriver $driver,
+        string $registryOperation,
+        ?string $repositoryPath = null
+    ): array {
+        $repositoryPath ??= $driver->repoPath();
+
         return self::agentJson(
             $driver,
             [
@@ -363,7 +377,7 @@ final class AssessCommand {
                 // against the init proposal — the same policy the inventory
                 // was projected against — so surfaces and claims join
                 // (T7 grind A4); on an init-owned repository it is inert.
-                'wprism', 'capabilities', '--repo=' . $driver->repoPath(),
+                'wprism', 'capabilities', '--repo=' . $repositoryPath,
                 '--operation=' . $registryOperation, '--adoption-preview', '--format=json',
             ],
             'assess_registry_unavailable',

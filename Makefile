@@ -2019,6 +2019,9 @@ regress-release-condition-gate:
 regress-release-ref-binding:
 	bash sandbox/tests/offline/assess-contract/regress_release_ref_binding.sh
 
+regress-release-stage-prepare:
+	bash sandbox/tests/offline/assess-contract/regress_release_stage_prepare.sh
+
 # code-first refusal, the mandatory final abort even on import failure, --writers-excluded required
 regress-recover-ordering:
 	bash sandbox/tests/offline/assess-contract/regress_recover_ordering.sh

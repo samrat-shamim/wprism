@@ -37,17 +37,18 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
 // `onboard` composition is environment-bound too and deliberately sits beside
 // the primitive `adopt` it begins with. 30. The ownership-aware `unadopt`
 // inverse sits immediately beside `adopt`; it takes the same trusted target
-// and requires explicit control-plane authority. 31.
+// and requires explicit control-plane authority. 31. `stage-source` is the
+// target-bound inert fetch that begins an externally authorized release. 32.
 $expected = [
     'doctor', 'driver-capabilities', 'adopt', 'unadopt', 'onboard', 'init', 'status', 'capabilities',
     'adapter-observe', 'capture', 'lint', 'plan', 'explain', 'apply', 'deploy', 'env-set',
     'promote', 'pending', 'classify', 'coverage', 'scope', 'refresh', 'rebase',
     'assess', 'contract',
-    'release', 'verify', 'recover', 'rehearse',
+    'stage-source', 'release', 'verify', 'recover', 'rehearse',
     'code-classify',
     'code-resolve',
 ];
-$check(count($expected) === 31, 'the environment-bound verb ratchet is 31 verbs after supported offboarding');
+$check(count($expected) === 32, 'the environment-bound verb ratchet is 32 verbs after inert release staging');
 $check(EnvironmentCommandPreflight::environmentVerbs() === $expected, 'environment command vocabulary remains ordered and closed');
 $check(EnvironmentCommandPreflight::requiresEnvironment('capture'), 'capture is environment-bound');
 $check(EnvironmentCommandPreflight::requiresEnvironment('lint'), 'lint is environment-bound');

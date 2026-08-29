@@ -152,14 +152,19 @@ require __DIR__ . '/src/Command/ContractCommand.php';
 require __DIR__ . '/src/Recovery/RecoveryClaim.php';
 require __DIR__ . '/src/Recovery/RecoveryProfileSelection.php';
 require __DIR__ . '/src/Recovery/CheckpointCatalog.php';
+require_once __DIR__ . '/src/Authority/OperationAuthorization.php';
+require_once __DIR__ . '/src/Authority/TargetOperationStore.php';
 require __DIR__ . '/src/Release/NextAction.php';
 require __DIR__ . '/src/Release/JourneyOracle.php';
 require __DIR__ . '/src/Release/AuthorizationPlan.php';
 require __DIR__ . '/src/Release/AuthorizationPlanRenderer.php';
 require __DIR__ . '/src/Release/ReleaseOutcome.php';
+require __DIR__ . '/src/Release/SourceStageReceipt.php';
+require __DIR__ . '/src/Release/ReleasePrepare.php';
 require __DIR__ . '/src/Rehearse/RehearsalDisclosure.php';
 require __DIR__ . '/src/Rehearse/RehearsalPlanPreview.php';
 require __DIR__ . '/src/Command/VerifyCommand.php';
+require __DIR__ . '/src/Command/StageSourceCommand.php';
 require __DIR__ . '/src/Command/ReleaseCommand.php';
 require __DIR__ . '/src/Command/RecoverCommand.php';
 require __DIR__ . '/src/Command/RehearseCommand.php';
@@ -253,6 +258,7 @@ use WPrism\Orchestrator\StatusCommand;
 use WPrism\Orchestrator\AssessCommand;
 use WPrism\Orchestrator\CensusCommand;
 use WPrism\Orchestrator\ContractCommand;
+use WPrism\Orchestrator\StageSourceCommand;
 use WPrism\Orchestrator\ReleaseCommand;
 use WPrism\Orchestrator\VerifyCommand;
 use WPrism\Orchestrator\RecoverCommand;
@@ -367,6 +373,17 @@ Usage:
   wprism demo start [--scenario=woocommerce] [--name=<name>]
                  [--source-port=<port>] [--target-port=<port>]
   wprism demo status|capture|apply|refusal|stop [--name=<name>]
+  wprism stage-source <env> --from=<branch-or-tag> --operation=<id> [--format=json]
+  wprism release <env> prepare --stage-receipt=<file>
+                    --expected-stage-receipt-sha256=sha256:<hex>
+                    [--profile=<p>] [--accept-weaker-recovery] [--with-deletes]
+                    [--format=json]
+  wprism release <env> execute --prepare=<file> --authorization=<file>
+                    --expected-authorization-sha256=sha256:<hex>
+                    --expected-subject-sha256=sha256:<hex>
+                    --expected-presentation-sha256=sha256:<hex>
+                    --expected-plan-digest=sha256:<hex>
+                    --expected-stage-receipt-sha256=sha256:<hex> --format=json
   wprism release <env> [--from=<ref>] [--plan-only] [--profile=<p>]
                     [--accept-weaker-recovery] [--with-deletes] [--yes]
                     [--limit=<1..200>] [--format=json]
@@ -1771,9 +1788,11 @@ function main(array $argv): int {
     }
 
     try {
-        $capabilityOperation = $verb === 'onboard' && in_array('--handoff-only', $extra, true)
-            ? 'onboard-handoff'
-            : $verb;
+        $capabilityOperation = match (true) {
+            $verb === 'onboard' && in_array('--handoff-only', $extra, true) => 'onboard-handoff',
+            $verb === 'release' && ($extra[0] ?? null) === 'prepare' => 'release-prepare',
+            default => $verb,
+        };
         $driverReport = EnvironmentCommandPreflight::capabilityReport($transport, $capabilityOperation);
     } catch (\Throwable $e) {
         if ($jsonRefusal) {
@@ -1832,6 +1851,7 @@ function main(array $argv): int {
         'scope' => cmd_scope($transport, $extra),
         'deploy' => cmd_deploy($transport, $extra),
         'promote' => cmd_promote($transport, $extra),
+        'stage-source' => StageSourceCommand::run($transport, $extra),
         'release' => cmd_release($transport, $extra),
         'verify' => cmd_verify($transport, $extra),
         'recover' => cmd_recover($transport, $extra),
