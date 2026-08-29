@@ -1,6 +1,7 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
 .PHONY: regress-recovery-protocol
+.PHONY: regress-recovery-preparation
 .PHONY: regress-canonical-json-parity
 .PHONY: regress-mup-leak-audit grind-mup regress-adapter-certify grind-adapter-walk grind-adoption
 .PHONY: regress-authorization-plan regress-release-containment-gate regress-recover-claim regress-verify-oracles regress-rehearse-provider regress-release-next-action regress-release-condition-gate regress-release-ref-binding regress-recover-ordering
@@ -1984,6 +1985,13 @@ regress-authorization-plan:
 # actor-bound Ed25519 authority: exact subject/target/operation/expiry binding, target-private one-time consumption, and byte-identical same-operation replay
 regress-operation-authorization:
 	php sandbox/tests/offline/assess-contract/regress_operation_authorization.php
+
+# WPB-003 foundation: prepare is a closed read-only target observation; the
+# frozen plan rejects generation/checkpoint/head/claim/lease drift before any
+# step, and target-private status distinguishes exact completion replay from a
+# consumed operation that requires reconciliation.
+regress-recovery-preparation:
+	php sandbox/tests/offline/recovery/regress_recovery_preparation.php
 
 # the §1.6 consequence as a gate: an undeclared live lifecycle window refuses with "declare in contract"; a declared entry yields the declared_live_effect authority row; Experimental / Not qualified / Unsupported / Requalification required in scope refuse pre-freeze with a gap action, never a release next action
 regress-release-containment-gate:

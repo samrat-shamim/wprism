@@ -1394,7 +1394,7 @@
       },
       "Recovery": {
         "layer": "engine",
-        "purpose": "Rollback authority and the verified/scoped rollback profiles that prove a target can be returned to a known state, plus (round 3) profile selection, the checkpoint catalog and the recovery claim the authorization plan embeds. Round-3 T5 adds the retained release checkpoints (RetainedCheckpoints), the second catalog source every transport has. issue #3514 adds CheckpointPrune, the pure decision behind the one operator verb that REMOVES a retained checkpoint; nothing here prunes automatically.",
+        "purpose": "Rollback authority and the verified/scoped rollback profiles that prove a target can be returned to a known state, plus profile selection, checkpoint inventory/retention, literal recovery claims, and immutable preparation/outcome documents for actor-authorized asynchronous recovery.",
         "status": "populated",
         "entry_points": [
           "RollbackAuthority",
@@ -1402,7 +1402,9 @@
           "RecoveryClaim",
           "CheckpointCatalog",
           "RetainedCheckpoints",
-          "CheckpointPrune"
+          "CheckpointPrune",
+          "RecoveryPlan",
+          "RecoveryOutcome"
         ],
         "depends_on": [
           "Recovery",
@@ -1410,11 +1412,13 @@
           "agent:Kernel"
         ],
         "exceptions": [],
-        "file_count": 8,
+        "file_count": 10,
         "files": [
           "CheckpointCatalog.php",
           "CheckpointPrune.php",
           "RecoveryClaim.php",
+          "RecoveryOutcome.php",
+          "RecoveryPlan.php",
           "RecoveryProfileSelection.php",
           "RetainedCheckpoints.php",
           "RollbackAuthority.php",

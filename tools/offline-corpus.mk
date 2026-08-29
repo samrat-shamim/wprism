@@ -256,6 +256,7 @@ regress-offline-corpus: code-half-unit \
 	regress-recover-claim \
 	regress-recover-ordering \
 	regress-recovery-executor \
+	regress-recovery-preparation \
 	regress-recovery-protocol \
 	regress-recovery-transport \
 	regress-reference-contract \

@@ -7,9 +7,13 @@ require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../Transport/RecoveryTransport.php';
 require_once __DIR__ . '/../Transport/CodeDeploy.php';
+require_once __DIR__ . '/../Authority/OperationAuthorization.php';
+require_once __DIR__ . '/../Authority/TargetOperationStore.php';
 require_once __DIR__ . '/../Recovery/CheckpointCatalog.php';
 require_once __DIR__ . '/../Recovery/CheckpointPrune.php';
 require_once __DIR__ . '/../Recovery/RecoveryClaim.php';
+require_once __DIR__ . '/../Recovery/RecoveryOutcome.php';
+require_once __DIR__ . '/../Recovery/RecoveryPlan.php';
 require_once __DIR__ . '/../Recovery/RetainedCheckpoints.php';
 require_once __DIR__ . '/../Recovery/RollbackAuthority.php';
 require_once __DIR__ . '/../Recovery/ScopedRollbackProfile.php';
@@ -19,6 +23,8 @@ require_once __DIR__ . '/AssessCommand.php';
 require_once __DIR__ . '/CommandOutput.php';
 
 use WPrism\CommandRefusalException;
+use WPrism\Recovery\CanonicalJson;
+use WPrism\Recovery\RollbackControl;
 
 /**
  * `wprism recover <env>` — the operator verb over the recovery runtime
@@ -119,6 +125,12 @@ final class RecoverCommand {
     /** The only verb in the product that removes a retained checkpoint. */
     public const PRUNE_RETAINED_FLAG = '--prune-retained';
 
+    /** The read-only half of the asynchronous recovery contract. */
+    public const PREPARE_VERB = 'prepare';
+
+    /** The actor-authorized, target-consumed half of that contract. */
+    public const EXECUTE_VERB = 'execute';
+
     /** Without it a prune prints a plan and issues no mutating call. */
     public const CONFIRM_PRUNE_FLAG = '--confirm-prune';
 
@@ -152,14 +164,40 @@ final class RecoverCommand {
      */
     public static function run(EnvironmentDriver $driver, array $extra, ?callable $clock = null): int {
         $json = AssessCommand::wantsJson($extra);
+        $readClock = $clock ?? static fn (): string => gmdate('Y-m-d\TH:i:s\Z');
         try {
             $flags = self::flags($extra);
-            $catalog = CheckpointCatalog::list(
-                $driver,
-                ($clock ?? static fn (): string => gmdate('Y-m-d\TH:i:s\Z'))()
-            );
+            $now = $readClock();
         } catch (CommandRefusalException $refusal) {
             return AssessCommand::renderRefusal($refusal, $json, 'recover');
+        }
+
+        if ($flags['execute'] === true) {
+            try {
+                $outcome = self::executeAuthorized($driver, $flags, $readClock);
+            } catch (CommandRefusalException $refusal) {
+                return AssessCommand::renderRefusal($refusal, true, 'recover');
+            }
+            echo RecoveryOutcome::encode($outcome);
+
+            return $outcome['recovered'] === true ? 0 : 1;
+        }
+
+        try {
+            $catalog = CheckpointCatalog::list($driver, $now);
+        } catch (CommandRefusalException $refusal) {
+            return AssessCommand::renderRefusal($refusal, $json, 'recover');
+        }
+
+        if ($flags['prepare'] === true) {
+            try {
+                $plan = self::prepare($driver, $catalog, $flags, $now);
+            } catch (CommandRefusalException $refusal) {
+                return AssessCommand::renderRefusal($refusal, $json, 'recover');
+            }
+            echo RecoveryPlan::encode($plan);
+
+            return 0;
         }
 
         // Before the listing branch, because a prune is a different request
@@ -211,6 +249,609 @@ final class RecoverCommand {
         }
 
         return $outcome['recovered'] === true ? 0 : 1;
+    }
+
+    /**
+     * Reacquire the exact read-only fact vector a future execute gate needs.
+     *
+     * Authorized execute calls this before signature verification and again at
+     * its target-consumption boundary. Keeping the target read and comparison
+     * public gives every executor one mandatory API instead of asking it to
+     * reconstruct which checkpoint, generation, head, claim, and scope matter.
+     *
+     * @param array<string,mixed> $plan a validated `RecoveryPlan::FORMAT`
+     * @param ?callable():string $clock
+     * @return array{at:string,facts_sha256:string,plan_digest:string,subject_digest:string}
+     */
+    public static function reverifyPreparation(
+        EnvironmentDriver $driver,
+        array $plan,
+        ?callable $clock = null
+    ): array {
+        RecoveryPlan::validate($plan);
+        $now = ($clock ?? static fn (): string => gmdate('Y-m-d\TH:i:s\Z'))();
+        $catalog = CheckpointCatalog::list($driver, $now);
+        $row = CheckpointCatalog::find($catalog, (string) $plan['checkpoint']['id']);
+        if ($row === null) {
+            throw new CommandRefusalException(
+                'recovery_plan_changed',
+                'the selected recovery receipt is no longer the active target generation',
+                'prepare a fresh recovery plan against the checkpoint catalog that is active now',
+                [['changed_fields' => ['target.receipt_id']]]
+            );
+        }
+        // Re-derive product semantics from current receipt/repository evidence.
+        // Feeding the frozen claim back here would prove only that the plan
+        // still contains its own bytes, and would let an edited-but-redigested
+        // claim become the current observation it is meant to be checked against.
+        $resolved = self::claim($row);
+        $observation = self::observePreparation($driver, $row, $resolved['claim']);
+
+        return RecoveryPlan::reverify($plan, RecoveryPlan::currentFacts($observation), $now);
+    }
+
+    /**
+     * Return an exact completed replay, or refuse a consumed operation whose
+     * completion is absent. A future execute verb must call this BEFORE it
+     * verifies authorization expiry: completion is durable target fact, while
+     * expiry only decides whether a still-unconsumed operation may start.
+     *
+     * Null means no consumption exists and therefore no mutation has crossed
+     * the shared authority boundary. This method itself is read-only.
+     *
+     * @param array<string,mixed> $plan
+     * @return ?array<string,mixed> validated `RecoveryOutcome::FORMAT`
+     */
+    public static function priorExecutionOutcome(
+        EnvironmentDriver $driver,
+        array $plan,
+        string $authorizationDigest
+    ): ?array {
+        RecoveryPlan::validate($plan);
+        $stored = TargetOperationStore::status($driver, $authorizationDigest);
+        if ($stored === null) {
+            return null;
+        }
+        $consumption = is_array($stored['consumption'] ?? null) ? $stored['consumption'] : [];
+        $expected = [
+            'authorization_digest' => $authorizationDigest,
+            'operation' => 'recovery',
+            'operation_id' => (string) $plan['operation_id'],
+            'presentation_digest' => (string) $plan['presentation_digest'],
+            'subject_digest' => (string) $plan['subject_digest'],
+            'target_id' => (string) $plan['target']['operation_target_id'],
+        ];
+        foreach ($expected as $field => $value) {
+            if (!is_string($consumption[$field] ?? null)
+                || !hash_equals($value, (string) $consumption[$field])) {
+                throw new CommandRefusalException(
+                    'recovery_authorization_consumption_conflict',
+                    'the target consumption record does not apply to this exact frozen recovery plan',
+                    'do not start recovery; reconcile the consumed operation and its target-private evidence'
+                );
+            }
+        }
+        if (!is_array($stored['completion'] ?? null)) {
+            throw new CommandRefusalException(
+                'recovery_reconciliation_required',
+                'the recovery authorization was consumed but no exact terminal outcome is durably published',
+                'do not retry recovery or consume new authority; reconcile this operation from target control evidence'
+            );
+        }
+        $outcome = $stored['completion']['outcome'] ?? null;
+        if (!is_array($outcome)) {
+            throw new CommandRefusalException(
+                'recovery_outcome_evidence_invalid',
+                'the completed authorized operation carries no validated recovery outcome',
+                'do not retry mutation; reconcile the target completion evidence'
+            );
+        }
+        RecoveryOutcome::validate($outcome);
+        $outcomeExpected = [
+            'authorization_digest' => $authorizationDigest,
+            'environment' => (string) $plan['environment'],
+            'operation_id' => (string) $plan['operation_id'],
+            'plan_digest' => (string) $plan['plan_digest'],
+            'subject_digest' => (string) $plan['subject_digest'],
+        ];
+        foreach ($outcomeExpected as $field => $value) {
+            if (!is_string($outcome[$field] ?? null)
+                || !hash_equals($value, (string) $outcome[$field])) {
+                throw new CommandRefusalException(
+                    'recovery_outcome_evidence_invalid',
+                    'the completed authorized operation changed its frozen recovery identity',
+                    'do not retry mutation; reconcile the target completion evidence'
+                );
+            }
+        }
+        if (($outcome['recovered'] ?? null) === true) {
+            $targetAfter = is_array($outcome['target_after'] ?? null) ? $outcome['target_after'] : [];
+            $targetExpected = [
+                'artifact_hash' => (string) $plan['target']['artifact_hash'],
+                'generation' => (int) $plan['target']['generation'],
+                'receipt_id' => (string) $plan['target']['receipt_id'],
+                'rollback_target_id' => (string) $plan['target']['rollback_target_id'],
+            ];
+            foreach ($targetExpected as $field => $value) {
+                if (!array_key_exists($field, $targetAfter) || $targetAfter[$field] !== $value) {
+                    throw new CommandRefusalException(
+                        'recovery_outcome_evidence_invalid',
+                        'the completed recovery outcome names a different target generation or receipt',
+                        'do not retry mutation; reconcile the target completion evidence'
+                    );
+                }
+            }
+        }
+
+        return $outcome;
+    }
+
+    /**
+     * Verify, consume, execute and durably complete one frozen recovery.
+     * Status is read before authorization expiry so an exact completed replay
+     * remains observable. An absent consumption alone may proceed; the plan is
+     * re-observed both before signature verification and immediately before
+     * the one-time target consumption that precedes the first rollback event.
+     *
+     * @param array<string,mixed> $flags
+     * @param callable():string $clock
+     * @return array<string,mixed>
+     */
+    private static function executeAuthorized(
+        EnvironmentDriver $driver,
+        array $flags,
+        callable $clock
+    ): array {
+        if (!$driver instanceof RecoveryTransport || !$driver->carriesRollbackAuthority()) {
+            throw new CommandRefusalException(
+                'recovery_authority_unavailable',
+                'this target carries no verified rollback authority for authorized recovery execution',
+                'execute the frozen recovery only on its adopted authority-bearing target'
+            );
+        }
+        $plan = RecoveryPlan::read((string) $flags['plan_path']);
+        if (!hash_equals((string) $plan['environment'], $driver->name())) {
+            throw new CommandRefusalException(
+                'recovery_plan_environment_mismatch',
+                'the frozen recovery plan names a different environment',
+                'execute the plan against the exact environment it names'
+            );
+        }
+        $envelope = OperationAuthorization::readEnvelope((string) $flags['authorization_path']);
+        $authorizationDigest = OperationAuthorization::envelopeDigest($envelope);
+
+        $prior = self::priorExecutionOutcome($driver, $plan, $authorizationDigest);
+        if ($prior !== null) {
+            return $prior;
+        }
+
+        // This first observation avoids asking an actor verifier to bless a
+        // target already known to have drifted. The second observation below
+        // closes policy/target drift between signature verification and
+        // target-side one-time consumption.
+        self::reverifyPreparation($driver, $plan, $clock);
+        $siteRepo = AssessCommand::siteRepo(getcwd() ?: '.');
+        $trust = OperationAuthorization::trust($siteRepo);
+        $verified = OperationAuthorization::verify(
+            $envelope,
+            RecoveryPlan::authorizationSubject($plan),
+            $trust,
+            $clock()
+        );
+
+        try {
+            $profile = new VerifiedRollbackProfile($driver);
+            $profile->assertAuthorizedRecoveryResumable((array) $plan['target']);
+        } catch (\Throwable $error) {
+            throw new CommandRefusalException(
+                'recovery_resume_ineligible',
+                'the exact active rollback state cannot resume the frozen ordered recovery path',
+                'do not consume actor authority; reconcile the target operation/event evidence, then prepare again',
+                [['evidence_sha256' => hash('sha256', $error::class . "\0" . $error->getMessage())]]
+            );
+        }
+
+        $reverified = self::reverifyPreparation($driver, $plan, $clock);
+        $finalAuthorizationAt = $clock();
+        $verified = OperationAuthorization::verify(
+            $envelope,
+            RecoveryPlan::authorizationSubject($plan),
+            OperationAuthorization::trust($siteRepo),
+            $finalAuthorizationAt
+        );
+
+        // No target observation or policy read belongs after this final trust,
+        // signature, grant and expiry check. `consume()` performs its own
+        // target identity and target-clock expiry checks immediately here.
+        $consumed = TargetOperationStore::consume($driver, $verified);
+        if ($consumed['replayed'] === true) {
+            // Another controller won after our initial status read. Never join
+            // its mutation window: completion is returned, absence reconciles.
+            $replay = self::priorExecutionOutcome($driver, $plan, $authorizationDigest);
+            if ($replay !== null) return $replay;
+            throw new CommandRefusalException(
+                'recovery_reconciliation_required',
+                'the recovery authorization was consumed concurrently without a terminal outcome',
+                'do not execute recovery; reconcile the target-private operation record'
+            );
+        }
+
+        try {
+            $execution = $profile->recoverAuthorized((array) $plan['target']);
+            $targetAfter = self::authorizedTargetAfter($execution, $plan);
+            $outcome = RecoveryOutcome::build([
+                'authorization_digest' => $authorizationDigest,
+                'environment' => (string) $plan['environment'],
+                'failure' => null,
+                'operation_id' => (string) $plan['operation_id'],
+                'plan_digest' => (string) $plan['plan_digest'],
+                'reverified' => $reverified,
+                'status' => RecoveryOutcome::RECOVERED,
+                'steps' => $execution['steps'],
+                'subject_digest' => (string) $plan['subject_digest'],
+                'target_after' => $targetAfter,
+                'target_after_sha256' => hash('sha256', \WPrism\Canon::encode($targetAfter)),
+                'verification_sha256' => (string) $execution['verification_sha256'],
+            ]);
+        } catch (\Throwable $error) {
+            $outcome = self::reconciliationOutcome(
+                $plan,
+                $authorizationDigest,
+                $reverified,
+                $error
+            );
+        }
+
+        TargetOperationStore::complete($driver, (array) $consumed['consumption'], $outcome);
+
+        return $outcome;
+    }
+
+    /**
+     * @param array<string,mixed> $execution
+     * @param array<string,mixed> $plan
+     * @return array<string,mixed>
+     */
+    private static function authorizedTargetAfter(array $execution, array $plan): array {
+        $status = (array) ($execution['status'] ?? []);
+        $audit = (array) ($execution['audit'] ?? []);
+        $target = [
+            'artifact_hash' => (string) ($status['artifact_hash'] ?? ''),
+            'event_chain_sha256' => (string) ($audit['event_chain_sha256'] ?? ''),
+            'exclusion_state' => (string) ($status['exclusion_state'] ?? ''),
+            'generation' => (int) ($status['generation'] ?? 0),
+            'head_event_sha256' => (string) ($status['head_event_sha256'] ?? ''),
+            'receipt_id' => (string) ($status['receipt_id'] ?? ''),
+            'rollback_target_id' => (string) ($status['target_id'] ?? ''),
+            'sequence' => (int) ($status['sequence'] ?? 0),
+            'state' => (string) ($status['state'] ?? ''),
+            'target_record_sha256' => (string) ($audit['target_record_sha256'] ?? ''),
+            'terminal' => $status['terminal'] ?? null,
+        ];
+        $expected = [
+            'artifact_hash' => (string) $plan['target']['artifact_hash'],
+            'generation' => (int) $plan['target']['generation'],
+            'receipt_id' => (string) $plan['target']['receipt_id'],
+            'rollback_target_id' => (string) $plan['target']['rollback_target_id'],
+            'state' => 'rolled_back',
+            'terminal' => true,
+            'exclusion_state' => 'released',
+        ];
+        foreach ($expected as $field => $value) {
+            if (($target[$field] ?? null) !== $value) {
+                throw new \RuntimeException("authorized recovery terminal evidence changed $field");
+            }
+        }
+
+        return $target;
+    }
+
+    /**
+     * A post-consumption failure is ambiguous by default. Publishing this
+     * validated record prevents an automatic retry from turning uncertainty
+     * into a second mutation; target evidence must be reconciled first.
+     *
+     * @param array<string,mixed> $plan
+     * @param array<string,mixed> $reverified
+     * @return array<string,mixed>
+     */
+    private static function reconciliationOutcome(
+        array $plan,
+        string $authorizationDigest,
+        array $reverified,
+        \Throwable $error
+    ): array {
+        $steps = [];
+        foreach (RecoveryOutcome::RECOVERY_STEPS as $index => $step) {
+            $steps[] = [
+                'input_sha256' => hash(
+                    'sha256',
+                    (string) $plan['plan_digest'] . "\0" . $step . "\0" . $error::class . "\0" . $error->getMessage()
+                ),
+                'result_sha256' => null,
+                'status' => $index === 0 ? 'ambiguous' : 'not_started',
+                'step' => $step,
+            ];
+        }
+
+        return RecoveryOutcome::build([
+            'authorization_digest' => $authorizationDigest,
+            'environment' => (string) $plan['environment'],
+            'failure' => [
+                'next_action' => 'reconcile',
+                'reason_code' => 'recovery_execution_ambiguous',
+                'remediation' => 'inspect target rollback and operation-control evidence; do not retry mutation',
+            ],
+            'operation_id' => (string) $plan['operation_id'],
+            'plan_digest' => (string) $plan['plan_digest'],
+            'reverified' => $reverified,
+            'status' => RecoveryOutcome::RECONCILE_REQUIRED,
+            'steps' => $steps,
+            'subject_digest' => (string) $plan['subject_digest'],
+            'target_after' => null,
+            'target_after_sha256' => null,
+            'verification_sha256' => null,
+        ]);
+    }
+
+    /**
+     * Build a read-only frozen recovery plan. No writer-exclusion assertion is
+     * accepted here because no recovery mutation starts in this invocation.
+     *
+     * @param array<string,mixed> $catalog
+     * @param array<string,mixed> $flags
+     * @return array<string,mixed>
+     */
+    private static function prepare(
+        EnvironmentDriver $transport,
+        array $catalog,
+        array $flags,
+        string $now
+    ): array {
+        $row = CheckpointCatalog::find($catalog, (string) $flags['restore']);
+        if ($row === null) {
+            throw new CommandRefusalException(
+                'checkpoint_unknown',
+                'no checkpoint with that receipt id is active on this target',
+                'run wprism recover <env> --list and prepare one of the receipt ids it prints'
+            );
+        }
+        if (RetainedCheckpoints::isRetained($row)) {
+            throw new CommandRefusalException(
+                'recovery_checkpoint_identity_incomplete',
+                'this retained checkpoint has file and artifact identity but no signed target generation or receipt',
+                'use the legacy operator-directed restore while it remains available, or prepare a checkpoint '
+                    . 'whose receipt binds target, generation, scope, and encrypted bytes',
+                [['missing_fields' => ['generation', 'receipt_payload_sha256', 'target_id']]]
+            );
+        }
+        if (($row['kind'] ?? null) !== CheckpointCatalog::KIND_VERIFIED) {
+            throw new CommandRefusalException(
+                'recovery_checkpoint_identity_incomplete',
+                'this checkpoint kind has no executable full-recovery identity in the prepare v1 contract',
+                'select a nonterminal verified-promotion receipt; scoped and terminal receipts remain fail-closed'
+            );
+        }
+
+        $resolved = self::claim($row);
+        $observation = self::observePreparation($transport, $row, $resolved['claim']);
+
+        return RecoveryPlan::build($observation + [
+            'operation_id' => (string) $flags['operation_id'],
+            'prepared_at' => $now,
+        ]);
+    }
+
+    /**
+     * Observe every execution-bearing recovery fact without changing target or
+     * controller state.
+     *
+     * @param array<string,mixed> $row
+     * @param array<string,mixed> $claim
+     * @return array<string,mixed>
+     */
+    private static function observePreparation(
+        EnvironmentDriver $transport,
+        array $row,
+        array $claim
+    ): array {
+        if (!$transport instanceof RecoveryTransport || !$transport->carriesRollbackAuthority()) {
+            throw new CommandRefusalException(
+                'recovery_authority_unavailable',
+                'this transport carries no rollback authority evidence from which to freeze a recovery subject',
+                'prepare recovery on an adopted target whose signed rollback authority is available'
+            );
+        }
+        try {
+            $evidence = RollbackAuthority::activeEvidence($transport);
+            $audit = RollbackAuthority::audit($transport);
+        } catch (CommandRefusalException $refusal) {
+            throw $refusal;
+        } catch (\Throwable) {
+            throw new CommandRefusalException(
+                'recovery_subject_evidence_unavailable',
+                'the target could not publish one complete verified recovery subject',
+                'repair the rollback authority evidence, then prepare recovery again'
+            );
+        }
+        $receipt = (array) $evidence['receipt'];
+        $status = (array) $evidence['status'];
+        self::assertSelectedEvidence($row, $receipt, $status, $audit);
+        if (($receipt['format'] ?? null) !== RollbackControl::RECEIPT_FORMAT
+            || ($status['terminal'] ?? null) !== false
+            || !in_array((string) ($status['state'] ?? ''), RecoveryPlan::ELIGIBLE_STATES, true)) {
+            throw new CommandRefusalException(
+                'recovery_checkpoint_state_ineligible',
+                'the selected receipt has no nonterminal full-recovery transition in this build',
+                'select an eligible nonterminal verified-promotion generation; terminal and scoped receipts '
+                    . 'require a separate recovery-operation state machine'
+            );
+        }
+
+        $checkpoint = self::signedCheckpointIdentity($transport, (string) $receipt['receipt_id']);
+        $topology = self::preparationTopology($transport);
+        $head = self::targetHead($transport);
+        if ($head === null) {
+            throw new CommandRefusalException(
+                'recovery_target_head_unknown',
+                'the target could not publish the exact code head recovery would run against',
+                'repair the target Git checkout, then prepare recovery again'
+            );
+        }
+
+        $siteRepo = AssessCommand::siteRepo(getcwd() ?: '.');
+        $trust = OperationAuthorization::trust($siteRepo);
+        $operationTargetId = TargetOperationStore::readIdentity($transport);
+
+        return [
+            'authority_policy_digest' => OperationAuthorization::trustDigest($trust),
+            'checkpoint' => [
+                'bytes' => $checkpoint['bytes'],
+                'created_at' => (string) $receipt['created_at'],
+                'encryption_key_id' => (string) $receipt['encryption_key_id'],
+                'id' => (string) $receipt['receipt_id'],
+                'kind' => CheckpointCatalog::KIND_VERIFIED,
+                'metadata_sha256' => (string) $receipt['checkpoint_sha256'],
+                'retention_until' => (string) $receipt['retention_until'],
+                'sha256' => $checkpoint['sha256'],
+            ],
+            'claim' => $claim,
+            'environment' => $transport->name(),
+            'required_grants' => ['business_owner', 'operator_confirmation'],
+            'scope' => [
+                'adapter_versions_sha256' => (string) ($receipt['adapter_versions_sha256'] ?? ''),
+                'allow_deletes' => null,
+                'code_release_metadata_sha256' => $receipt['code_release_metadata_sha256'] ?? null,
+                'effects_metadata_sha256' => $receipt['lifecycle_receipts_sha256'] ?? null,
+                'ledger_session_sha256' => (string) ($receipt['ledger_session_sha256'] ?? ''),
+                'prior_code_descriptor_sha256' => $receipt['prior_code_descriptor_sha256'] ?? null,
+                'prior_verifier_inputs_sha256' => (string) ($receipt['prior_verifier_inputs_sha256'] ?? ''),
+                'resources' => RecoveryClaim::RESOURCES,
+                'resources_inventory_sha256' => (string) ($receipt['resources_inventory_sha256'] ?? ''),
+                'runtime_fingerprints_sha256' => (string) ($receipt['runtime_fingerprints_sha256'] ?? ''),
+                'scope_hash' => null,
+                'uploads_inventory_sha256' => $receipt['uploads_inventory_sha256'] ?? null,
+            ],
+            'target' => [
+                'artifact_hash' => (string) $receipt['artifact_hash'],
+                'claim_epoch' => (int) $status['claim_epoch'],
+                'claim_expires_at' => (string) $status['claim_expires_at'],
+                'claimant' => (string) $status['claimant'],
+                'event_chain_sha256' => (string) $audit['event_chain_sha256'],
+                'generation' => (int) $receipt['generation'],
+                'head_event_sha256' => (string) $status['head_event_sha256'],
+                'operation_target_id' => $operationTargetId,
+                'owner' => (string) $receipt['owner'],
+                'receipt_envelope_sha256' => (string) $audit['receipt_sha256'],
+                'receipt_id' => (string) $receipt['receipt_id'],
+                'receipt_payload_sha256' => hash('sha256', CanonicalJson::encode($receipt)),
+                'rollback_target_id' => (string) $receipt['target_id'],
+                'sequence' => (int) $status['sequence'],
+                'state' => (string) $status['state'],
+                'target_record_sha256' => (string) $audit['target_record_sha256'],
+                'terminal' => false,
+            ],
+            'target_head' => $head,
+            'topology' => $topology,
+        ];
+    }
+
+    /**
+     * The catalog selection and both target-locked reads must still name one
+     * generation. A race here emits no plan and drives no transition.
+     *
+     * @param array<string,mixed> $row
+     * @param array<string,mixed> $receipt
+     * @param array<string,mixed> $status
+     * @param array<string,mixed> $audit
+     */
+    private static function assertSelectedEvidence(
+        array $row,
+        array $receipt,
+        array $status,
+        array $audit
+    ): void {
+        $same = (string) ($row['id'] ?? '') === (string) ($receipt['receipt_id'] ?? '')
+            && (int) ($row['generation'] ?? 0) === (int) ($receipt['generation'] ?? 0)
+            && (string) ($row['artifact_hash'] ?? '') === (string) ($receipt['artifact_hash'] ?? '')
+            && (string) ($row['owner'] ?? '') === (string) ($receipt['owner'] ?? '')
+            && (string) ($status['receipt_id'] ?? '') === (string) ($receipt['receipt_id'] ?? '')
+            && (int) ($status['generation'] ?? 0) === (int) ($receipt['generation'] ?? 0)
+            && (string) ($status['target_id'] ?? '') === (string) ($receipt['target_id'] ?? '')
+            && (string) ($audit['receipt_id'] ?? '') === (string) ($receipt['receipt_id'] ?? '')
+            && (int) ($audit['generation'] ?? 0) === (int) ($receipt['generation'] ?? 0)
+            && (string) ($audit['target_id'] ?? '') === (string) ($receipt['target_id'] ?? '')
+            && (string) ($audit['state'] ?? '') === (string) ($status['state'] ?? '')
+            && count((array) ($audit['events'] ?? [])) === (int) ($status['sequence'] ?? 0);
+        if (!$same) {
+            throw new CommandRefusalException(
+                'recovery_subject_unstable',
+                'the selected checkpoint changed while its recovery subject was being observed',
+                'run wprism recover <env> --list, then prepare the generation that is stable now'
+            );
+        }
+    }
+
+    /** @return array{bytes:int,sha256:string} */
+    private static function signedCheckpointIdentity(
+        RecoveryTransport $transport,
+        string $receiptId
+    ): array {
+        if (preg_match('/^[a-f0-9]{32,64}$/D', $receiptId) !== 1) {
+            throw new CommandRefusalException(
+                'recovery_checkpoint_identity_incomplete',
+                'the signed receipt id cannot safely identify checkpoint bytes',
+                'repair the signed rollback receipt before preparing recovery'
+            );
+        }
+        $path = rtrim($transport->repoPath(), '/') . '/.wprism/rollback/'
+            . $receiptId . '/artifacts/checkpoint.enc';
+        $program = <<<'PHP'
+$path = $argv[1] ?? '';
+if ($path === '' || $path[0] !== '/' || is_link($path) || !is_file($path)) {
+    fwrite(STDERR, "checkpoint\n"); exit(20);
+}
+$hash = hash_file('sha256', $path);
+$bytes = filesize($path);
+if (!is_string($hash) || preg_match('/^[a-f0-9]{64}$/D', $hash) !== 1
+    || !is_int($bytes) || $bytes < 1) {
+    fwrite(STDERR, "identity\n"); exit(21);
+}
+echo $hash . "\t" . $bytes . "\n";
+PHP;
+        $script = implode(' ', array_map('escapeshellarg', ['php', '-r', $program, '--', $path]));
+        $result = $transport->captureRaw($script);
+        $stdout = rtrim((string) ($result['stdout'] ?? ''), "\n");
+        $parts = explode("\t", $stdout);
+        if (($result['exit'] ?? 1) !== 0 || count($parts) !== 2
+            || preg_match('/^[a-f0-9]{64}$/D', $parts[0]) !== 1
+            || preg_match('/^[1-9][0-9]*$/D', $parts[1]) !== 1) {
+            throw new CommandRefusalException(
+                'recovery_checkpoint_identity_incomplete',
+                'the encrypted checkpoint bytes are absent, empty, unsafe, or unreadable',
+                'repair or recover the exact receipt-bound checkpoint before preparing recovery'
+            );
+        }
+
+        return ['bytes' => (int) $parts[1], 'sha256' => $parts[0]];
+    }
+
+    private static function preparationTopology(EnvironmentDriver $transport): string {
+        $topology = $transport->captureWp(CodeDeploy::controlArgs(
+            ['eval', 'echo is_multisite() ? "multisite" : "single-site";']
+        ));
+        $observed = ($topology['exit'] ?? 1) === 0 ? trim((string) ($topology['stdout'] ?? '')) : '';
+        if ($observed !== 'single-site') {
+            throw new CommandRefusalException(
+                $observed === '' ? 'recover_topology_unknown' : 'recover_topology_unsupported',
+                $observed === ''
+                    ? 'the target could not answer whether it is a single-site installation'
+                    : 'this recovery path restores single-site installations only',
+                'prepare recovery only for a proven single-site installation'
+            );
+        }
+
+        return $observed;
     }
 
     /**
@@ -568,7 +1209,7 @@ final class RecoverCommand {
                 continue;
             }
             $revision = (string) ($plan['code_revision_from'] ?? '');
-            if (preg_match('/^[a-f0-9]{40,64}$/D', $revision) === 1) {
+            if (RecoveryPlan::isGitObjectId($revision)) {
                 return $revision;
             }
         }
@@ -793,7 +1434,8 @@ final class RecoverCommand {
         );
         $revision = trim((string) ($result['stdout'] ?? ''));
 
-        return ($result['exit'] ?? 1) === 0 && preg_match('/^[a-f0-9]{40,64}$/D', $revision) === 1
+        return ($result['exit'] ?? 1) === 0
+            && RecoveryPlan::isGitObjectId($revision)
             ? $revision
             : null;
     }
@@ -951,10 +1593,16 @@ final class RecoverCommand {
      */
     private static function flags(array $extra): array {
         $out = [
+            'authorization_path' => null,
             'confirm_prune' => false,
+            'execute' => false,
+            'format_json' => false,
             'limit' => 50,
             'list' => false,
+            'operation_id' => null,
             'operator_directed' => false,
+            'prepare' => false,
+            'plan_path' => null,
             'prune_retained' => null,
             'restore' => null,
             'writers_excluded' => false,
@@ -967,6 +1615,18 @@ final class RecoverCommand {
             $name = str_contains($arg, '=') ? explode('=', $arg, 2)[0] : $arg;
             $value = str_contains($arg, '=') ? substr($arg, strlen($name) + 1) : null;
             switch ($name) {
+                case self::PREPARE_VERB:
+                    if ($out['prepare'] || $value !== null) {
+                        throw self::invalidArguments('prepare is one positional verb and takes no value');
+                    }
+                    $out['prepare'] = true;
+                    break;
+                case self::EXECUTE_VERB:
+                    if ($out['execute'] || $value !== null) {
+                        throw self::invalidArguments('execute is one positional verb and takes no value');
+                    }
+                    $out['execute'] = true;
+                    break;
                 case '--list':
                     $out['list'] = true;
                     break;
@@ -975,6 +1635,29 @@ final class RecoverCommand {
                         throw self::invalidArguments('--restore takes exactly one --restore=<checkpoint> value');
                     }
                     $out['restore'] = $value;
+                    break;
+                case '--operation-id':
+                    if ($out['operation_id'] !== null || $value === null
+                        || preg_match('/^[A-Za-z0-9][A-Za-z0-9._:@+\/-]{0,255}$/D', $value) !== 1) {
+                        throw self::invalidArguments(
+                            '--operation-id takes exactly one safe stable --operation-id=<id> value'
+                        );
+                    }
+                    $out['operation_id'] = $value;
+                    break;
+                case '--plan':
+                    if ($out['plan_path'] !== null || $value === null || $value === '') {
+                        throw self::invalidArguments('--plan takes exactly one --plan=<canonical-plan.json> value');
+                    }
+                    $out['plan_path'] = $value;
+                    break;
+                case '--authorization':
+                    if ($out['authorization_path'] !== null || $value === null || $value === '') {
+                        throw self::invalidArguments(
+                            '--authorization takes exactly one --authorization=<signed-envelope.json> value'
+                        );
+                    }
+                    $out['authorization_path'] = $value;
                     break;
                 case self::WRITERS_EXCLUDED_FLAG:
                     $out['writers_excluded'] = true;
@@ -1009,7 +1692,10 @@ final class RecoverCommand {
                     $out['limit'] = (int) $value;
                     break;
                 case '--format':
+                    $out['format_json'] = $out['format_json'] || $value === 'json';
+                    break;
                 case '--json':
+                    $out['format_json'] = $out['format_json'] || $arg === '--json';
                     break;
                 default:
                     throw self::invalidArguments("recover received an option it does not define: '$name'");
@@ -1040,6 +1726,44 @@ final class RecoverCommand {
                 self::CONFIRM_PRUNE_FLAG . ' confirms a prune, so it requires ' . self::PRUNE_RETAINED_FLAG . '=<keep-n>'
             );
         }
+        if ($out['prepare'] && $out['execute']) {
+            throw self::invalidArguments('prepare and execute are separate requests');
+        }
+        if ($out['prepare']) {
+            if ($out['restore'] === null || $out['operation_id'] === null || !$out['format_json']) {
+                throw self::invalidArguments(
+                    'prepare requires --restore=<checkpoint>, --operation-id=<id> and --format=json'
+                );
+            }
+            if ($out['list'] || $out['prune_retained'] !== null || $out['confirm_prune']
+                || $out['writers_excluded'] || $out['operator_directed'] || $limitSeen) {
+                throw self::invalidArguments(
+                    'prepare is a read-only request and does not accept list, prune, restore-execution or limit flags'
+                );
+            }
+            if ($out['plan_path'] !== null || $out['authorization_path'] !== null) {
+                throw self::invalidArguments('prepare does not read --plan or --authorization files');
+            }
+        } elseif ($out['execute']) {
+            if ($out['plan_path'] === null || $out['authorization_path'] === null || !$out['format_json']) {
+                throw self::invalidArguments(
+                    'execute requires --plan=<canonical-plan.json>, --authorization=<signed-envelope.json> '
+                        . 'and --format=json'
+                );
+            }
+            if ($out['restore'] !== null || $out['operation_id'] !== null || $out['list']
+                || $out['prune_retained'] !== null || $out['confirm_prune'] || $out['writers_excluded']
+                || $out['operator_directed'] || $limitSeen) {
+                throw self::invalidArguments(
+                    'execute consumes only its frozen plan and signed authorization and accepts no legacy recovery flags'
+                );
+            }
+        } elseif ($out['operation_id'] !== null || $out['plan_path'] !== null
+            || $out['authorization_path'] !== null) {
+            throw self::invalidArguments(
+                '--operation-id belongs only to prepare; --plan and --authorization belong only to execute'
+            );
+        }
 
         return $out;
     }
@@ -1048,7 +1772,9 @@ final class RecoverCommand {
         return new CommandRefusalException(
             'invalid_arguments',
             $message,
-            'wprism recover <env> accepts --list, --restore=<checkpoint>, ' . self::WRITERS_EXCLUDED_FLAG
+            'wprism recover <env> accepts prepare --restore=<checkpoint> --operation-id=<id> --format=json '
+                . 'or execute --plan=<plan.json> --authorization=<envelope.json> --format=json; '
+                . 'legacy recovery accepts --list, --restore=<checkpoint>, ' . self::WRITERS_EXCLUDED_FLAG
                 . ', --operator-directed, ' . self::PRUNE_RETAINED_FLAG . '=<'
                 . CheckpointPrune::KEEP_MIN . '..' . CheckpointPrune::KEEP_MAX . '>, '
                 . self::CONFIRM_PRUNE_FLAG . ', --limit=<1..200> and --format=json'

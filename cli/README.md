@@ -60,6 +60,8 @@ wprism release <env> execute --prepare=<file> --authorization=<file> --expected-
 wprism release <env> [--from=<ref>] [--plan-only] [--profile=<p>] [--accept-weaker-recovery] [--with-deletes] [--yes] [--limit=<1..200>] [--format=json]
 wprism verify <env> [--plan=<digest>] [--limit=<1..200>] [--format=json]
 wprism recover <env> [--list] [--restore=<checkpoint>] [--writers-excluded] [--operator-directed] [--limit=<1..200>] [--format=json]
+wprism recover <env> prepare --restore=<checkpoint> --operation-id=<id> --format=json
+wprism recover <env> execute --plan=<plan.json> --authorization=<signed-envelope.json> --format=json
 wprism capabilities <env> [--format=json]
 wprism capture <env> [--target-branch=<name>] [--scope-contract=<local-path>] [extra wp-cli flags...]
 wprism lint    <env> [extra wp-cli flags...]
@@ -741,6 +743,27 @@ semantics remain the rehearsal implementation's.
   reconciled to the pre-release revision, which the refusal names. Only an
   SSH-adopted target carries the rollback authority runtime.
   See [docs/guides/recovery.md](../docs/guides/recovery.md).
+
+- **`wprism recover <env> prepare --restore=<checkpoint> --operation-id=<id>
+  --format=json`** — emits a canonical, read-only `wprism-recovery-plan/v1`.
+  The plan binds the active signed target generation and receipt, actual
+  encrypted checkpoint bytes, complete resource/effect scope, literal claim,
+  topology, code head, stable target operation identity and actor-authority
+  policy. It takes no writer exclusion, consumes no authorization and performs
+  no recovery step. Retained, scoped, terminal or otherwise incomplete
+  identities refuse instead of being promoted into executable-looking plans.
+
+- **`wprism recover <env> execute --plan=<plan.json>
+  --authorization=<signed-envelope.json> --format=json`** — verifies the
+  external actor statement over that exact plan, re-observes every frozen fact,
+  proves the complete configured provider/adapter set and receipt-bound
+  recovery evidence still pass read-only preflight, proves the local signing
+  secret matches the target-installed receipt key, and repeats current actor
+  trust/signature verification as the last controller step before consuming
+  authorization target-side. It then resumes exact open/completed provider
+  operations and publishes one durable
+  `wprism-recovery-outcome/v2`. Exact completion replays after expiry;
+  consumed-without-completion refuses for reconciliation instead of retrying.
 
 - **`wprism explain <env> <selector> [--format=json]`** — rebuilds the current
   plan under a strict observation boundary and traces one itemized entity row

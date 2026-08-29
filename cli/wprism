@@ -150,6 +150,8 @@ require __DIR__ . '/src/Command/ContractCommand.php';
 // in. Recovery/Release/Rehearse mechanism before the verb boundaries that
 // compose them, and VerifyCommand before ReleaseCommand, which calls it.
 require __DIR__ . '/src/Recovery/RecoveryClaim.php';
+require __DIR__ . '/src/Recovery/RecoveryPlan.php';
+require __DIR__ . '/src/Recovery/RecoveryOutcome.php';
 require __DIR__ . '/src/Recovery/RecoveryProfileSelection.php';
 require __DIR__ . '/src/Recovery/CheckpointCatalog.php';
 require_once __DIR__ . '/src/Authority/OperationAuthorization.php';
@@ -394,6 +396,10 @@ Usage:
   wprism verify  <env> [--plan=<digest>] [--limit=<1..200>] [--format=json]
   wprism recover <env> [--list] [--restore=<checkpoint>] [--writers-excluded]
                     [--operator-directed] [--limit=<1..200>] [--format=json]
+  wprism recover <env> prepare --restore=<checkpoint> --operation-id=<id>
+                    --format=json
+  wprism recover <env> execute --plan=<plan.json>
+                    --authorization=<signed-envelope.json> --format=json
   wprism recover <env> --prune-retained=<keep-n> [--confirm-prune]
                     [--limit=<1..200>] [--format=json]
   wprism capabilities <env> [--operation=<op>] [--surface=<surface>] [--format=json]
@@ -1323,6 +1329,32 @@ Verbs:
                           signed rollback needs an adopted target with a
                           configured rollback authority, and refuses with
                           recovery_authority_unavailable elsewhere.
+  recover <env> prepare   Freeze one asynchronous recovery subject without
+    --restore=<id>        changing the target, consuming actor authority or
+    --operation-id=<id>   starting recovery. JSON is mandatory because the
+    --format=json         canonical wprism-recovery-plan/v1 bytes bind the
+                          signed target/generation/receipt, encrypted
+                          checkpoint bytes and hash, literal claim, complete
+                          resource/effect scope, topology, target code head,
+                          stable target identity and operation-authority policy.
+                          Retained, scoped and terminal checkpoints refuse:
+                          this build will not invent missing legacy identity or
+                          a recovery state-machine transition. The legacy
+                          one-call --restore path remains available separately.
+  recover <env> execute   Read a canonical recovery plan and externally signed
+    --plan=<path>         operation authorization. Exact target completion is
+    --authorization=      returned before expiry is considered; consumed with
+      <path>              no completion refuses for reconciliation. Otherwise
+    --format=json         the command verifies current trust/signature/grants,
+                          re-observes the frozen subject, requires every bound
+                          provider and adapter to pass read-only preflight, then
+                          proves the local key matches the target-installed key
+                          and re-reads actor trust/signature as the last controller
+                          step before one-time target consumption. It resumes only
+                          exact open/completed rollback operations, proves the
+                          same receipt/generation reached rolled_back with
+                          exclusion released, and durably publishes
+                          recovery-outcome/v2.
   recover <env>           Remove retained release checkpoints, keeping the
     --prune-retained=     newest <keep-n> of EACH verb (promote and deploy are
       <1..50>             counted separately, so a month of deploys can never

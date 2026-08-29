@@ -16,6 +16,82 @@ The code provider must additionally attest plan-bound compiled-code inventory;
 automatic preparation sends that inventory through the signed v2 request and
 refuses a generation-specific descriptor whose roots or file hashes diverge.
 
+## Read-only preparation and the external execute boundary
+
+`wprism recover <env> prepare --restore=<receipt> --operation-id=<id>
+--format=json` is the read-only entrance to asynchronous recovery. It freezes
+`wprism-recovery-plan/v1` from target-verified active evidence, the encrypted
+checkpoint's actual bytes, the complete receipt scope and claim, topology,
+target head, stable target identity and the separately provisioned
+operation-authority policy. It does not write a plan file, take exclusion,
+append an event, allocate a handoff, consume authority or invoke a provider.
+
+Preparation accepts only a nonterminal full v2 receipt with all four resource
+identities on a proven single-site target. Retained checkpoint files, scoped
+receipts, terminal generations, incomplete legacy hashes, absent stable target
+identity/trust, and expired claimant leases refuse. The claim is re-derived
+again at execute from current receipt/repository evidence; feeding the plan's
+own claim back into the comparison would let a redigested actor edit redefine
+product recovery semantics.
+
+Actor signing is external. `RecoveryPlan::authorizationSubject()` supplies the
+closed recovery projection consumed by `OperationAuthorization::verify()`:
+operation/id, subject and presentation digests, target identity,
+authority-policy digest and required grants. Rollback-control keys cannot sign
+that domain. No signer secret is read or stored by preparation.
+
+`wprism recover <env> execute --plan=<plan.json>
+--authorization=<signed-envelope.json> --format=json` implements the
+execute/status boundary in this order:
+
+1. Canonically read the plan and authorization envelope and derive its digest.
+   Call `RecoverCommand::priorExecutionOutcome()`, which reads
+   `TargetOperationStore::status()`, before verifying signature expiry.
+2. A stored completion is validated against its consumption, plan and terminal
+   target identity and returned as an exact replay even after authorization
+   expiry. A consumption with no completion refuses
+   `recovery_reconciliation_required`; mutation must not be retried.
+3. Only an absent consumption reaches current trust/signature/grant/target/
+   expiry verification. Re-observe the complete plan facts, freshly derive the
+   claim, and call `reverifyPreparation()`; generation, checkpoint, scope,
+   claim, topology, head, identity, policy or claimant-lease drift refuses.
+4. Before consumption, require the environment's complete automatic recovery
+   configuration, decorated `recovery_ready` status, the exact held exclusion,
+   receipt-bound code/upload/effect evidence and the usable controller key that
+   signed this v1 receipt. Read-only target key evidence must prove the local
+   secret derives the exact immutable public key installed under that key id.
+   Run the target's read-only `recovery-probe` so the checkpoint/code/upload/
+   effect providers and all four adapters still answer; a removed configuration,
+   executable or provider refuses without consuming actor authority. After the
+   final plan reverify, re-read the current actor trust file and repeat the
+   signature/subject/grant/expiry check as the last controller-side step before
+   `TargetOperationStore::consume()`, whose target clock checks expiry again.
+   After that point every lost response is reconciliation, not permission to
+   consume another envelope.
+5. Reject an open forward operation, a non-prefix restore history, or recovery
+   completion evidence appearing before its signed rollback state before
+   consumption. After consumption, drive or resume the existing full rollback
+   operations in their fixed order:
+   `promotion_failed`, `rollback_start`, `effects_inverse`, `storage_restore`,
+   `code_restore`, `database_restore`, `verifying_prior`, `prior_verify`,
+   `rolled_back_verified`, `exclusion_release`.
+   An exact open provider input is executed/completed, an exact completed
+   operation is skipped, and absence alone prepares a new operation. A target
+   already in `verifying_prior` must prove all four restore completions.
+6. Re-read signed terminal/audit/decorated status. A successful
+   `wprism-recovery-outcome/v2` requires the same artifact, receipt, generation
+   and rollback target, state `rolled_back`, `terminal:true`, exclusion
+   `released`, all ten hash-bound steps completed, and a prior-verification
+   digest. Publish that validated outcome exactly once with
+   `TargetOperationStore::complete()`.
+
+Actor signing remains external, while target-side consumption, mutation,
+completion and exact replay are public through `recover execute`. A
+post-consumption failure publishes `reconcile_required` when possible; an
+absent completion is itself a reconciliation refusal. The legacy one-call
+restore remains a separate compatibility path and does not consume this actor
+authority format.
+
 ## The runtime is transport-independent by construction
 
 Nothing above is SSH. The runtime is WordPress-free PHP, every provider is an

@@ -5,8 +5,16 @@ sequence with one entry point:
 
 ```sh
 wprism recover production --list
+wprism recover production prepare --restore=<receipt-id> --operation-id=<incident-id> --format=json
+wprism recover production execute --plan=recovery-plan.json --authorization=recovery-authorization.json --format=json
 wprism recover production --restore=<receipt-id> --writers-excluded
 ```
+
+The `prepare` → externally sign → `execute` sequence is the portable,
+externally authorizable recovery contract. The final one-call form is the
+older operator-directed compatibility path: it is local operator authority,
+does not produce or consume this actor authorization, and is not a substitute
+for the asynchronous contract when another system must authorize recovery.
 
 `wprism recover` is a thin, literal front end over the recovery runtime. The
 runtime is unchanged — the same rollback authority, the same profiles, the
@@ -20,6 +28,85 @@ This guide is what to do *after* a release told you `recover`. If it told you
 [release.md](release.md#when-release-fails-after-the-plan-is-frozen) instead —
 those are different failures with different answers, and running a recovery
 against one of them makes it worse.
+
+## Freeze a recovery subject without starting recovery
+
+```sh
+wprism recover production prepare \
+  --restore=<receipt-id> \
+  --operation-id=<incident-id> \
+  --format=json > recovery-plan.json
+```
+
+`prepare` is strictly read-only. It takes no writer-exclusion assertion,
+consumes no actor authorization, changes no rollback state and runs no recovery
+step. Its canonical `wprism-recovery-plan/v1` binds the active signed target,
+generation and receipt; signed receipt/envelope/event-chain identities; actual
+encrypted checkpoint bytes and hash; complete database/code/upload/effect
+scope; freshly derived literal recovery claim; topology; target Git head;
+stable target operation identity; and the current operation-authority policy.
+
+The eligible set is deliberately narrow: one nonterminal, full
+`verified-promotion` receipt with complete identity, on a proven single-site
+target, while its rollback claimant lease is still active. Retained files have
+no signed target generation, scoped receipts authorize a different resource
+set, and terminal receipts have no transition this plan may invent. Those
+cases refuse, as do an absent stable target identity, missing authority policy,
+unreadable checkpoint bytes, incomplete receipt hashes, or an expired claim.
+The legacy one-call `--restore` path below remains available separately.
+
+The plan projects one closed statement through
+`RecoveryPlan::authorizationSubject()`. An external actor signs that statement
+as `wprism-operation-authorization/v1`; neither the rollback signing key nor a
+contract/adapter key is accepted as actor authority. This build intentionally
+ships no actor-signing helper: the signed envelope comes from the separately
+enrolled actor system. Execute it with:
+
+```sh
+wprism recover production execute \
+  --plan=recovery-plan.json \
+  --authorization=recovery-authorization.json \
+  --format=json
+```
+
+The execute/status path has one fixed order:
+
+1. Read the canonical plan and authorization envelope and derive the envelope
+   digest. Before checking signature expiry, call
+   `TargetOperationStore::status()` through
+   `RecoverCommand::priorExecutionOutcome()`.
+2. If an exact completion exists, validate and return its
+   `wprism-recovery-outcome/v2` even when the original authorization is now
+   expired. If consumption exists without completion, refuse
+   `recovery_reconciliation_required`; never start a second recovery.
+3. Only when consumption is absent, verify actor signature, grants, target,
+   plan/presentation/policy digests and expiry against the current trust file.
+4. Re-read the active receipt, encrypted checkpoint bytes, topology, Git head,
+   stable target identity and authority policy; re-derive the claim from
+   current receipt/repository evidence; and call `reverifyPreparation()`. Any
+   drift or claimant-lease expiry refuses before consumption.
+5. Refuse before consumption unless the target still reports
+   `recovery_ready`, the exact exclusion is held, code/upload/effect evidence
+   remains bound to this receipt, and the controller secret derives the exact
+   immutable public key installed on the target for the receipt signer. A fresh
+   read-only probe must also succeed for every checkpoint/code/upload/effect
+   provider and all four recovery adapters. Refuse when current open/completed
+   operation evidence is not an exact resumable prefix, including recovery
+   evidence that appears before its signed rollback state. Finally re-read the
+   current actor trust policy and repeat signature/subject/grant/expiry
+   verification as the last controller-side step, then consume immediately
+   before the first rollback mutation.
+   Prepared/promoting/verifying-new generations restore every resource
+   conservatively; rollback-pending advances once; rolling-back resumes an
+   exact open input or skips an exact completion; and verifying-prior is
+   accepted only after all four restore completions exist.
+6. Prove the same receipt/generation reached `rolled_back` with exclusion
+   `released`, build a validated outcome, and publish it exactly once through
+   `TargetOperationStore::complete()`.
+
+There is no retry across an ambiguous consumption or mutation boundary. The
+target-private consumption/completion record is the reconciliation authority,
+not an operator's recollection and not a fresh authorization with another id.
 
 ## Before anything: exclude every other writer
 
