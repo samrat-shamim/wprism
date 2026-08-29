@@ -1130,14 +1130,18 @@ in manifests, native actions, or plugin-owned providers—not this shell.
   cannot supply that signal coverage. Once the complete value is handed off,
   termination signals are reported and deferred until the target returns;
   Duo therefore reports the target's real outcome instead of claiming a
-  cancellation while a remote mutation may still be running. This wait has no
-  safe local timeout: after handoff, Ctrl-C/TERM cannot prove a remote write
-  stopped; use a separate session to diagnose a stuck target. Ctrl-Z suspends
-  the local wrapper and foreground child/transport; a non-PTY Docker/SSH target
-  may continue remotely. `fg` resumes the local outcome wait so Duo can still
-  report what happened. Nonblocking pipe handoff keeps those local signal
-  handlers responsive even when the target is slow to read. The detached
-  pipe ensures the target does not inherit the terminal as stdin. An
+  cancellation while a remote mutation may still be running. Duo bounds the
+  complete detached handoff and outcome wait at five minutes. If that deadline
+  expires, Duo terminates
+  its local transport process, exits `75`, and states that the remote write may
+  still complete. Retrying the identical value is safe because the target-local
+  intent is published before the WordPress write and readiness stays red until
+  live state matches it. Ctrl-Z suspends the local wrapper and foreground
+  child/transport; a non-PTY Docker/SSH target may continue remotely. `fg`
+  resumes the local outcome wait so Duo can still report what happened.
+  Nonblocking pipe handoff keeps those local signal handlers responsive even
+  when the target is slow to read. The detached pipe ensures the target does
+  not inherit the terminal as stdin. An
   incomplete pipe write is rejected by the
   agent instead of being stored as a truncated value. The value never enters
   argv.
