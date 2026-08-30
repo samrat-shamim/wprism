@@ -76,6 +76,8 @@ final class RepositoryAuthorization {
     private const MANAGED_OPTIONS = ['active_plugins', 'template', 'stylesheet'];
     private const MAX_MENU_QUERY_BYTES = 65536;
     private const MAX_MENU_QUERY_COMPONENT_BYTES = 8192;
+    private const MAX_MENU_QUERY_NAME_SEGMENT_BYTES = 1024;
+    private const MAX_MENU_QUERY_NAME_SEGMENTS = 16;
     private const MAX_MENU_QUERY_PAIRS = 512;
     private const MENU_QUERY_DECODE_WORK_FACTOR = 32;
 
@@ -435,7 +437,7 @@ final class RepositoryAuthorization {
         }
     }
 
-    /** @return ?list<array{string,string}> null means malformed or over budget */
+    /** @return ?list<array{name:string,value:string,path:list<string>}> null means malformed or over budget */
     private static function menu_query_clearance_pairs(string $url): ?array {
         $queryAt = strpos($url, '?');
         $fragmentAt = strpos($url, '#');
@@ -474,9 +476,54 @@ final class RepositoryAuthorization {
             if ($name === null || $value === null) {
                 return null;
             }
-            $pairs[] = [$name, $value];
+            $path = self::menu_query_name_path($name);
+            if ($path === null) {
+                return null;
+            }
+            $pairs[] = ['name' => $name, 'value' => $value, 'path' => $path];
         }
         return $pairs;
+    }
+
+    /** @return ?list<string> null means malformed or over budget */
+    private static function menu_query_name_path(string $name): ?array {
+        $open = strpos($name, '[');
+        if ($open === false) {
+            if (str_contains($name, ']') || strlen($name) > self::MAX_MENU_QUERY_NAME_SEGMENT_BYTES) {
+                return null;
+            }
+            return [$name];
+        }
+        if ($open === 0 || str_contains(substr($name, 0, $open), ']')) {
+            return null;
+        }
+        $base = substr($name, 0, $open);
+        if (strlen($base) > self::MAX_MENU_QUERY_NAME_SEGMENT_BYTES) {
+            return null;
+        }
+        $path = [$base];
+        $offset = $open;
+        $length = strlen($name);
+        while ($offset < $length) {
+            if ($name[$offset] !== '[') {
+                return null;
+            }
+            $close = strpos($name, ']', $offset + 1);
+            if ($close === false) {
+                return null;
+            }
+            $segment = substr($name, $offset + 1, $close - $offset - 1);
+            if (str_contains($segment, '[')
+                || strlen($segment) > self::MAX_MENU_QUERY_NAME_SEGMENT_BYTES) {
+                return null;
+            }
+            $path[] = $segment;
+            if (count($path) > self::MAX_MENU_QUERY_NAME_SEGMENTS) {
+                return null;
+            }
+            $offset = $close + 1;
+        }
+        return $path;
     }
 
     private static function decode_menu_query_component(string $raw, int &$workRemaining): ?string {
@@ -506,18 +553,39 @@ final class RepositoryAuthorization {
     }
 
     /**
-     * @param list<array{string,string}> $pairs
+     * @param list<array{name:string,value:string,path:list<string>}> $pairs
      * @return list<mixed>
      */
     private static function menu_query_clearance_value(string $url, array $pairs): array {
         $clearance = [$url];
-        foreach ($pairs as [$name, $value]) {
+        foreach ($pairs as $pair) {
+            $name = $pair['name'];
+            $value = $pair['value'];
             // PHP coerces canonical decimal string keys to ints. Retain the
             // decoded name separately as a string value so that coercion can
             // never remove it from scalar PII/hard-secret scanning, then keep
             // the one-entry map to apply its semantic role to its own value.
             $clearance[] = $name;
             $clearance[] = [$name => $value];
+            if (count($pair['path']) === 1) {
+                continue;
+            }
+            // Form-style bracket names are semantic paths. Preserve their
+            // nesting for address context, and apply every named segment to
+            // the value separately so a credential container such as
+            // smtp_pass[primary] cannot shed the smtp_pass role at its leaf.
+            $nested = $value;
+            foreach (array_reverse($pair['path']) as $segment) {
+                $nested = $segment === '' ? [$nested] : [$segment => $nested];
+            }
+            $clearance[] = $nested;
+            foreach ($pair['path'] as $segment) {
+                if ($segment === '') {
+                    continue;
+                }
+                $clearance[] = $segment;
+                $clearance[] = [$segment => $value];
+            }
         }
         return $clearance;
     }

@@ -197,7 +197,10 @@ foreach ([
     'phoneNumber' => 'phone number',
     'billing[firstName]' => 'personal name',
     'billingState' => 'postal address',
+    'business_state' => 'postal address',
+    'customerState' => 'postal address',
     'taxState' => 'postal address',
+    '_VenueState' => 'postal address',
     'address[state]' => 'postal address',
 ] as $key => $shape) {
     $camelCasePii = refusal(static fn() => $gates->guardPersonalData(
@@ -219,11 +222,17 @@ $gates->guardPersonalData('options', 'technical_settings', [
     'workflowState' => 'draft',
     'uiState' => 'open',
     'checkoutState' => 'ready',
+    'store_settings' => ['uiState' => 'open'],
+    'tax_settings' => ['workflow' => ['state' => 'draft']],
+    'shipping' => ['checkoutState' => 'ready'],
     'email' => '{admin_email}',
     'displayName' => '{all_fields}',
     'replyToEmail' => '{field_id="2"}',
 ], []);
-check(true, 'camelCase controls and closed-grammar plugin smart tags stay outside captured personal data');
+check(
+    true,
+    'UI/workflow states stay technical even below remote store, tax, and shipping ancestors'
+);
 
 $nestedAddressState = refusal(static fn() => $gates->guardPersonalData(
     'options',
@@ -234,6 +243,17 @@ $nestedAddressState = refusal(static fn() => $gates->guardPersonalData(
 check(
     ($nestedAddressState->diagnostics[0]['personal_data_shape'] ?? null) === 'postal address',
     'a nested state leaf inherits the closed billing-address context'
+);
+
+$nestedVenueState = refusal(static fn() => $gates->guardPersonalData(
+    'post_meta',
+    '_VenueDetails',
+    ['venue' => ['state' => 'CA']],
+    []
+));
+check(
+    ($nestedVenueState->diagnostics[0]['personal_data_shape'] ?? null) === 'postal address',
+    'a bare state leaf inherits only its direct venue-address subject'
 );
 
 $secretMapKey = refusal(static fn() => $gates->guardSecret(

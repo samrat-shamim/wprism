@@ -749,6 +749,18 @@ foreach ([
         'ref' => 'https://partner.example.test/connect?smtp%5Fpass=GeneratedValue-2026-Blocked',
         'code' => 'repository_secret_not_allowed',
     ],
+    'nested-name-menu-secret' => [
+        'ref' => 'https://partner.example.test/connect?smtp_pass%5Bprimary%5D=GeneratedValue-2026-Blocked',
+        'code' => 'repository_secret_not_allowed',
+    ],
+    'indexed-name-menu-secret' => [
+        'ref' => 'https://partner.example.test/connect?smtp_pass%5B0%5D=GeneratedValue-2026-Blocked',
+        'code' => 'repository_secret_not_allowed',
+    ],
+    'nested-password-menu-secret' => [
+        'ref' => 'https://partner.example.test/connect?password%5Bprimary%5D=GeneratedValue-2026-Blocked',
+        'code' => 'repository_secret_not_allowed',
+    ],
     'hard-secret-menu-key' => [
         'ref' => 'https://partner.example.test/connect?sk%5Flive%5FQUERYKEY1234567890=enabled',
         'code' => 'repository_secret_not_allowed',
@@ -806,6 +818,12 @@ for ($encodingLayer = 0; $encodingLayer < 80; $encodingLayer++) {
 }
 $invalidMenuQueries = [
     'malformed-menu-query' => 'https://partner.example.test/connect?value=%ZZ',
+    'malformed-menu-query-name-open' => 'https://partner.example.test/connect?smtp_pass%5Bprimary=value',
+    'malformed-menu-query-name-close' => 'https://partner.example.test/connect?smtp_pass%5D=value',
+    'deep-menu-query-name' => 'https://partner.example.test/connect?root'
+        . str_repeat('%5Blevel%5D', 16) . '=ordinary',
+    'oversize-menu-query-name-segment' => 'https://partner.example.test/connect?root%5B'
+        . str_repeat('x', 1025) . '%5D=ordinary',
     'oversize-menu-query' => 'https://partner.example.test/connect?value=' . str_repeat('x', 8193),
     'too-many-menu-query-pairs' => 'https://partner.example.test/connect?'
         . implode('&', array_fill(0, 513, 'value=ordinary')),
@@ -839,7 +857,8 @@ $safeMenuPath = "$safeMenuRef/state/menus/main.json";
 $safeMenuDocument = Canon::decode(file_get_contents($safeMenuPath));
 $safeMenuDocument['items'][0]['type'] = 'custom';
 $safeMenuDocument['items'][0]['object'] = 'custom';
-$safeEncodedRef = 'https://partner.example.test/connect?color=blue&color=green&label=Agency%20Portal';
+$safeEncodedRef = 'https://partner.example.test/connect?filter%5Bcolor%5D=blue'
+    . '&filter%5Bcolor%5D=green&label=Agency%20Portal';
 $safeMenuDocument['items'][0]['ref'] = $safeEncodedRef;
 put($safeMenuPath, Canon::encode($safeMenuDocument));
 $safeCompiled = compile_repo($safeMenuRef);

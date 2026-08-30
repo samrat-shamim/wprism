@@ -22,8 +22,9 @@ final class PersonalData {
 
     /** @var list<string> Closed positive context for otherwise-ambiguous terminal `state`. */
     private const ADDRESS_STATE_QUALIFIERS = [
-        'address', 'billing', 'destination', 'location', 'mailing', 'merchant',
-        'office', 'origin', 'postal', 'residential', 'shipping', 'store', 'tax',
+        'address', 'addresses', 'billing', 'business', 'customer', 'destination',
+        'location', 'mailing', 'merchant', 'office', 'origin', 'postal',
+        'residential', 'shipping', 'store', 'tax', 'venue',
     ];
 
     /** Return a short PII label, or null when no conservative signal matches. */
@@ -189,18 +190,29 @@ final class PersonalData {
 
     /** @param list<string> $ancestors */
     private static function is_address_state_key(string $key, array $ancestors): bool {
-        if ($key !== 'state' && !str_ends_with($key, '_state')) {
+        if ($key === 'state') {
+            // Only the direct container gives a bare `state` its meaning.
+            // Consulting every ancestor made store_settings.uiState and
+            // tax_settings.workflow.state look postal merely because a remote
+            // branch happened to contain an address-capable word.
+            $parent = $ancestors === [] ? '' : (string) $ancestors[count($ancestors) - 1];
+            return self::is_direct_address_subject($parent);
+        }
+        if (!str_ends_with($key, '_state')) {
             return false;
         }
-        $contexts = $ancestors;
-        $contexts[] = substr($key, 0, -strlen('state'));
-        foreach ($contexts as $context) {
-            $tokens = array_filter(explode('_', self::normalize_key($context)), 'strlen');
-            if (array_intersect($tokens, self::ADDRESS_STATE_QUALIFIERS) !== []) {
-                return true;
-            }
+        // A compound key supplies its own direct subject: venue_state and
+        // customer_billing_state are postal, while ui_state, workflow_state,
+        // and shipping_checkout_state remain technical controls.
+        return self::is_direct_address_subject(substr($key, 0, -strlen('_state')));
+    }
+
+    private static function is_direct_address_subject(string $context): bool {
+        $tokens = array_values(array_filter(explode('_', self::normalize_key($context)), 'strlen'));
+        if ($tokens === []) {
+            return false;
         }
-        return false;
+        return in_array($tokens[count($tokens) - 1], self::ADDRESS_STATE_QUALIFIERS, true);
     }
 
     /** Exact canonical tokens and audited WPForms smart tags name future sources, not captured PII. */
