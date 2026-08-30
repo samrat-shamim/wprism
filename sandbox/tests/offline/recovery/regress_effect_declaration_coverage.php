@@ -59,7 +59,9 @@
  * generic row-cache invalidation is materializer behavior rather than a
  * separately dispatched action, so the total fell by one and observability did
  * not move. Redirection adds 3 projected effects, 1 journal-observable, and
- * becomes the ninth scorable adapter. The clean sheet -- 0 findings -- survived
+ * becomes the ninth scorable adapter. WooCommerce product/variation deletion
+ * adds four unique guard-table surfaces to the derived fixture without widening
+ * the observable effect inventory. The clean sheet -- 0 findings -- survived
  * these reviewed changes unchanged, and that,
  * not the totals, is the property this suite asserts.
  */
@@ -186,7 +188,7 @@ function edc_adapter(array $report, string $name): array {
 echo "\n== the measured baseline: the 17 shipped adapters over a derived fixture ==\n";
 
 $fixture = edc_derived_fixture($policy);
-wprism_check_same(625, count($fixture), 'the derived fixture is every database surface the 17 shipped adapters declare');
+wprism_check_same(629, count($fixture), 'the derived fixture is every database surface the 17 shipped adapters declare');
 
 $baseline = EffectDeclarationCoverage::from_facts($policy, ['rows' => $fixture]);
 
@@ -196,11 +198,11 @@ wprism_check_same(389, $baseline['totals']['declared_effects'], 'the declared si
 wprism_check_same(107, $baseline['totals']['observable_effects'], '107 of the 389 declared effects carry a database_checkpoint selector');
 wprism_check_same(9, $baseline['totals']['scorable_adapters'], 'only 9 of 17 adapters declare a journal-observable effect at all');
 
-// THE NUMBER THE RISK FIELD ASKS TO BE PUBLISHED. 0 findings over 3572 scored
+// THE NUMBER THE RISK FIELD ASKS TO BE PUBLISHED. 0 findings over 3596 scored
 // (adapter, surface) judgements on the shipped library: the noise floor a
 // later argument about making this blocking has to start from.
 wprism_check_same(0, $baseline['totals']['outside_declaration'], 'the 17 shipped adapters score clean: no observed write falls outside every declared effect');
-wprism_check_same(3572, $baseline['baseline']['scored_surfaces'], 'the published rate is measured over 3572 scored (adapter, surface) judgements');
+wprism_check_same(3596, $baseline['baseline']['scored_surfaces'], 'the published rate is measured over 3596 scored (adapter, surface) judgements');
 wprism_check_same(0, $baseline['baseline']['outside_declaration_surfaces'], 'no scored judgement produced a finding');
 wprism_check_same(0.0, $baseline['baseline']['outside_declaration_rate'], 'the published false-positive baseline over the shipped library is 0.0000');
 wprism_check_same([], $baseline['unattributed'], 'every derived surface is claimed by at least one adapter territory');
