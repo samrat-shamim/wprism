@@ -7,7 +7,12 @@
 # boot travels through cli/wprism's SSH path.
 #
 # Run only from a clean standalone candidate clone, with explicitly allocated
-# resources:
+# resources. Adapter capsules may reuse this exact host/provider setup by
+# setting WPRISM_SSH_ADOPT_EXTENSION to one tracked
+# adapter-packages/<slug>/tests/live/*.sh file that defines
+# wprism_ssh_adopt_extension(). The extension runs after the shared scoped
+# rollback proof and before label-verified cleanup; it is not a product hook.
+#
 #   make regress-ssh-adopt ADOPT_FIXTURE=<unique-name> ADOPT_SSH_PORT=<free-port> \
 #     WPRISM_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)
 set -euo pipefail
@@ -28,7 +33,9 @@ PORT=""
 TMP=""
 DIAG_DIR=""
 WPRISM="$ROOT/cli/wprism"
-SUITE_LABEL="regress-ssh-adopt"
+SUITE_LABEL="${WPRISM_SSH_SUITE_LABEL:-regress-ssh-adopt}"
+FINAL_LABEL="${WPRISM_SSH_FINAL_LABEL:-REGRESS_SSH_ADOPT}"
+EXTENSION="${WPRISM_SSH_ADOPT_EXTENSION:-}"
 RUN_ID=""
 BODY_COMPLETE=0
 IMAGE_OWNED=0
@@ -135,7 +142,7 @@ cleanup() {
       [ ! -e "$DIAG_DIR" ] && [ ! -L "$DIAG_DIR" ] || cleanup_failed=1
     fi
     if [ "$cleanup_failed" -eq 0 ]; then
-      printf '\n\033[1;32m✔ REGRESS_SSH_ADOPT PASSED\033[0m\n'
+      printf '\n\033[1;32m✔ %s PASSED\033[0m\n' "$FINAL_LABEL"
       exit 0
     fi
   fi
@@ -149,9 +156,13 @@ cleanup() {
   exit 1
 }
 
-for command in git docker lsof; do
+for command in git docker lsof php; do
   command -v "$command" >/dev/null 2>&1 || fail "$command is required for SSH-adoption live evidence"
 done
+[[ "$SUITE_LABEL" =~ ^[a-z][a-z0-9-]{2,63}$ ]] \
+  || fail "WPRISM_SSH_SUITE_LABEL must be a lowercase 3..64 character resource label"
+[[ "$FINAL_LABEL" =~ ^[A-Z][A-Z0-9_]{2,63}$ ]] \
+  || fail "WPRISM_SSH_FINAL_LABEL must be an uppercase 3..64 character result label"
 [[ "$PREFIX" =~ ^[a-z][a-z0-9]{2,31}$ ]] \
   || fail "ADOPT_FIXTURE is required and must be a unique lowercase 3..32 character name"
 [[ "$PORT_RAW" =~ ^[0-9]+$ ]] \
@@ -759,5 +770,25 @@ jq -e '
 jq -e '.state == "released"' <<<"$(ssh_fixture 'cat /home/wprism/recovery-fixture/provider-state.json')" >/dev/null \
   || fail "v2 exclusion provider did not release after scoped commit"
 pass "public scoped promotion restores a real encrypted DB checkpoint on failure, then commits a receipt-bound target Apply and retires its scoped session"
+
+if [ -n "$EXTENSION" ]; then
+  EXTENSION_REAL="$(php -r '$p=realpath($argv[1]); if(!is_string($p)||$p==="")exit(1); echo $p;' "$EXTENSION")" \
+    || fail "WPRISM_SSH_ADOPT_EXTENSION does not resolve to a tracked capsule live script"
+  case "$EXTENSION_REAL" in
+    "$ROOT"/adapter-packages/*/tests/live/*.sh) ;;
+    *) fail "WPRISM_SSH_ADOPT_EXTENSION must stay under adapter-packages/<slug>/tests/live" ;;
+  esac
+  [ -f "$EXTENSION_REAL" ] && [ ! -L "$EXTENSION_REAL" ] && [ -r "$EXTENSION_REAL" ] \
+    || fail "WPRISM_SSH_ADOPT_EXTENSION must be a readable, non-symlink regular file"
+  EXTENSION_RELATIVE="${EXTENSION_REAL#"$ROOT"/}"
+  git -C "$ROOT" --no-optional-locks ls-files --error-unmatch -- "$EXTENSION_RELATIVE" >/dev/null 2>&1 \
+    || fail "WPRISM_SSH_ADOPT_EXTENSION must be tracked by the exact candidate commit"
+  # shellcheck source=/dev/null
+  . "$EXTENSION_REAL"
+  declare -F wprism_ssh_adopt_extension >/dev/null \
+    || fail "WPRISM_SSH_ADOPT_EXTENSION must define wprism_ssh_adopt_extension()"
+  wprism_ssh_adopt_extension
+  pass "candidate-bound capsule SSH extension completed under the shared recovery fixture"
+fi
 
 BODY_COMPLETE=1
