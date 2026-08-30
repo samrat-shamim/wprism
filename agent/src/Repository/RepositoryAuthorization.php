@@ -450,6 +450,12 @@ final class RepositoryAuthorization {
      */
     private static function menu_uri_clearance_parts(string $url): ?array {
         $length = strlen($url);
+        // The total bound precedes even delimiter discovery: otherwise a
+        // fragment-only overlimit input is duplicated by substr() before its
+        // inevitable refusal, defeating the parser's memory ceiling.
+        if ($length > self::MAX_MENU_URI_TOTAL_BYTES) {
+            return null;
+        }
         $fragmentAt = strpos($url, '#');
         $queryAt = strpos($url, '?');
         $hasQuery = $queryAt !== false && ($fragmentAt === false || $queryAt < $fragmentAt);
@@ -461,8 +467,7 @@ final class RepositoryAuthorization {
         $semanticBytes = strlen($rawPath) + strlen($rawQuery) + strlen($rawFragment);
         if (strlen($rawPath) > self::MAX_MENU_URI_PATH_BYTES
             || strlen($rawQuery) > self::MAX_MENU_QUERY_BYTES
-            || strlen($rawFragment) > self::MAX_MENU_URI_FRAGMENT_BYTES
-            || $length > self::MAX_MENU_URI_TOTAL_BYTES) {
+            || strlen($rawFragment) > self::MAX_MENU_URI_FRAGMENT_BYTES) {
             return null;
         }
         $workRemaining = min(

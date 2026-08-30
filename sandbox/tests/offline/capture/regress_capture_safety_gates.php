@@ -181,6 +181,31 @@ foreach (['smtp_pass', 'smtpPass', 'pass'] as $credentialKey) {
     );
 }
 
+$crossWindowPass = str_repeat('a', 32768) . str_repeat('B', 32768) . '7';
+$crossWindowScalar = refusal(static fn() => $gates->guardSecret(
+    'options',
+    'pass',
+    $crossWindowPass,
+    []
+));
+check(
+    $crossWindowScalar->reasonCode === 'secret_state_refused',
+    'bare pass aggregates generated-shape evidence across the 65,537-byte window boundary'
+);
+$crossWindowContainer = refusal(static fn() => $gates->guardSecret(
+    'options',
+    'integration_settings',
+    ['pass' => ['primary' => $crossWindowPass]],
+    []
+));
+check(
+    $crossWindowContainer->reasonCode === 'secret_state_refused',
+    'a pass container carries cross-window generated-shape evidence to its scalar leaf'
+);
+$crossWindowProse = str_repeat('a', 32768) . str_repeat('B', 32767) . ' 7';
+$gates->guardSecret('options', 'pass', $crossWindowProse, []);
+check(true, 'cross-window bare-pass prose remains safe when any window contributes whitespace');
+
 $credentialContainers = [
     'smtp-pass-container' => ['smtp_pass' => ['primary' => 'GeneratedValue-2026-Blocked']],
     'password-container' => ['password' => ['primary' => 'GeneratedValue-2026-Blocked']],

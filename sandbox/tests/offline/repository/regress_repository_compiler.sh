@@ -837,6 +837,46 @@ if (!in_array('-14155552671', $numericNameClearance, true)) {
 }
 ok('decoded numeric query names remain exact string values even when PHP coerces their semantic map keys');
 
+$uriBoundChild = "$tmp/menu-uri-total-bound.php";
+put($uriBoundChild, <<<'CHILD'
+<?php
+$root = $argv[1];
+require_once $root . '/agent/src/Repository/RepositoryAuthorization.php';
+
+$parser = new ReflectionMethod(WPrism\RepositoryAuthorization::class, 'menu_uri_clearance_parts');
+$url = str_repeat('x', 34 * 1024 * 1024);
+$url[0] = '#';
+if ($parser->invoke(null, $url) !== null) {
+    fwrite(STDERR, "oversize URI was admitted\n");
+    exit(2);
+}
+fwrite(STDOUT, "EARLY_NULL\n");
+CHILD);
+$uriBoundProcess = proc_open(
+    [
+        PHP_BINARY,
+        '-d', 'memory_limit=64M',
+        '-d', 'display_errors=0',
+        '-d', 'log_errors=0',
+        $uriBoundChild,
+        $root,
+    ],
+    [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+    $uriBoundPipes
+);
+if (!is_resource($uriBoundProcess)) {
+    fail('could not start the constrained-memory menu URI bound probe');
+}
+$uriBoundStdout = (string) stream_get_contents($uriBoundPipes[1]);
+$uriBoundStderr = (string) stream_get_contents($uriBoundPipes[2]);
+fclose($uriBoundPipes[1]);
+fclose($uriBoundPipes[2]);
+$uriBoundExit = proc_close($uriBoundProcess);
+if ($uriBoundExit !== 0 || $uriBoundStdout !== "EARLY_NULL\n" || $uriBoundStderr !== '') {
+    fail('menu URI total bound ran after allocating its oversize fragment');
+}
+ok('menu URI total bound returns before a 34 MiB fragment allocation under a 64 MiB child limit');
+
 $overworkedMenuQuery = 'authorization=Bearer aB3dE6fG7hI8jK9lMnOp';
 for ($encodingLayer = 0; $encodingLayer < 80; $encodingLayer++) {
     $overworkedMenuQuery = rawurlencode($overworkedMenuQuery);

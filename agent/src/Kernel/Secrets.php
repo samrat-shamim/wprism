@@ -27,6 +27,11 @@ namespace WPrism;
 final class Secrets {
     /** Scalar helpers stay bounded; clearance scans long values in overlapping windows. */
     private const MAX_LEN = 65536;
+    private const SHAPE_LOWER = 1;
+    private const SHAPE_UPPER = 2;
+    private const SHAPE_DIGIT = 4;
+    private const SHAPE_OTHER = 8;
+    private const SHAPE_WHITESPACE = 16;
 
     /** @var array<string,string> PCRE body (no delimiters) => short label */
     private const HARD_PATTERNS = [
@@ -107,11 +112,15 @@ final class Secrets {
         if (strlen($v) < 16 || strlen($v) > self::MAX_LEN) {
             return false;
         }
+        return self::suspicious_shape($role, self::shape_evidence($v));
+    }
+
+    private static function suspicious_shape(string $role, int $shape): bool {
         $classes = 0;
-        $classes += preg_match('/[a-z]/', $v);
-        $classes += preg_match('/[A-Z]/', $v);
-        $classes += preg_match('/[0-9]/', $v);
-        $classes += preg_match('/[^a-zA-Z0-9]/', $v);
+        $classes += ($shape & self::SHAPE_LOWER) !== 0 ? 1 : 0;
+        $classes += ($shape & self::SHAPE_UPPER) !== 0 ? 1 : 0;
+        $classes += ($shape & self::SHAPE_DIGIT) !== 0 ? 1 : 0;
+        $classes += ($shape & self::SHAPE_OTHER) !== 0 ? 1 : 0;
         // `pass` is also an ordinary validation/status noun. Its closed
         // credential interpretation therefore needs a generated-value shape:
         // a digit, no prose whitespace, and three character classes. Qualified
@@ -119,10 +128,20 @@ final class Secrets {
         // rule because their names already supply the missing semantic proof.
         if ($role === 'pass') {
             return $classes >= 3
-                && preg_match('/[0-9]/', $v) === 1
-                && preg_match('/\s/', $v) !== 1;
+                && ($shape & self::SHAPE_DIGIT) !== 0
+                && ($shape & self::SHAPE_WHITESPACE) === 0;
         }
         return $classes >= 2;
+    }
+
+    private static function shape_evidence(string $v): int {
+        $shape = 0;
+        $shape |= preg_match('/[a-z]/', $v) === 1 ? self::SHAPE_LOWER : 0;
+        $shape |= preg_match('/[A-Z]/', $v) === 1 ? self::SHAPE_UPPER : 0;
+        $shape |= preg_match('/[0-9]/', $v) === 1 ? self::SHAPE_DIGIT : 0;
+        $shape |= preg_match('/[^a-zA-Z0-9]/', $v) === 1 ? self::SHAPE_OTHER : 0;
+        $shape |= preg_match('/\s/', $v) === 1 ? self::SHAPE_WHITESPACE : 0;
+        return $shape;
     }
 
     /**
@@ -185,12 +204,23 @@ final class Secrets {
      */
     private static function clearance_match_with_role($v, ?string $credentialRole): ?string {
         if (is_string($v)) {
+            $passShape = 0;
             foreach (self::windows($v) as $window) {
                 $hard = self::hard_match($window);
                 if ($hard !== null) {
                     return $hard;
                 }
-                if ($credentialRole !== null && self::suspicious_role($credentialRole, $window)) {
+                if ($credentialRole === 'pass') {
+                    // Shape evidence is a five-bit accumulator, so a class
+                    // split exactly across overlapping window boundaries is
+                    // retained without storing or rescanning the full value.
+                    $windowShape = self::shape_evidence($window);
+                    $passShape |= $windowShape;
+                    if (strlen($window) >= 16
+                        && self::suspicious_shape($credentialRole, $windowShape)) {
+                        return 'credential-shaped value';
+                    }
+                } elseif ($credentialRole !== null && self::suspicious_role($credentialRole, $window)) {
                     return 'credential-shaped value';
                 }
                 if (preg_match_all(
@@ -208,6 +238,11 @@ final class Secrets {
                         }
                     }
                 }
+            }
+            if ($credentialRole === 'pass'
+                && strlen($v) >= 16
+                && self::suspicious_shape($credentialRole, $passShape)) {
+                return 'credential-shaped value';
             }
             return null;
         }
@@ -263,12 +298,21 @@ final class Secrets {
     }
 
     private static function suspicious_role_windowed(string $role, string $value): bool {
+        $shape = 0;
         foreach (self::windows($value) as $window) {
-            if (self::suspicious_role($role, $window)) {
+            if ($role === 'pass') {
+                $windowShape = self::shape_evidence($window);
+                $shape |= $windowShape;
+                if (strlen($window) >= 16 && self::suspicious_shape($role, $windowShape)) {
+                    return true;
+                }
+            } elseif (self::suspicious_role($role, $window)) {
                 return true;
             }
         }
-        return false;
+        return $role === 'pass'
+            && strlen($value) >= 16
+            && self::suspicious_shape($role, $shape);
     }
 
     private static function hard_match_windowed(string $value): ?string {
