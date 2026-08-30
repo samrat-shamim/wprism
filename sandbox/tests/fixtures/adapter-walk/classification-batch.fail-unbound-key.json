@@ -1,5 +1,5 @@
 {
-    "format": "wprism-classification-batch/v2",
+    "format": "wprism-classification-batch/v3",
     "environment": "awalk1",
     "queue_sha256": "5a871b84ec341b0c1c5ea2fc086b7edededc48fe333954bb7114490c9495f159",
     "decisions": [
@@ -10,6 +10,7 @@
             "ref": null,
             "cast": null,
             "allow_secret": false,
+            "allow_pii": false,
             "proposal": null,
             "evidence": {
                 "entities": 2,

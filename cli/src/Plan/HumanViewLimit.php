@@ -42,8 +42,10 @@ namespace WPrism\Orchestrator;
  * ## `--format=json` is the other half
  *
  * A bound is only honest because the complete document is one flag away, so
- * `cut()` names that flag and nothing else. The machine document is never
- * bounded, and the counts printed beside a cut list stay the TRUE totals: a
+ * `cut()` names that flag and nothing else. Most machine documents remain
+ * complete under `--limit`; assess deliberately adds a separate paginated,
+ * non-authoritative JSON view while a bare `--format=json` keeps its complete
+ * contract-bound report. Every projection keeps TRUE full-report counts: a
  * truncated sample is honest, a truncated count is a lie about the site.
  */
 final class HumanViewLimit {

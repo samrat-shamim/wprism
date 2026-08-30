@@ -477,9 +477,12 @@ buried here.
 a heuristic: it **aborts capture** outright, and `wp wprism classify` refuses to
 set that key `authored`.
 
-**`suspicious`** is a key-name-plus-shape heuristic. It is a weak signal that
-blocks nothing by itself; it exists solely to put a prominent `[SECRET: …]`
-flag on the item in `wprism pending` so a human looks twice.
+**`suspicious`** is a key-name-plus-shape heuristic. It remains review evidence
+while a key is pending. Once that surface is explicitly classified `authored`,
+the capture clearance promotes the signal to a refusal. Labelled credentials
+embedded in prose, nested credential keys, and long values scanned in bounded
+overlapping windows follow the same blocking path. Repository authorization
+repeats the clearance over the immutable revision plan/apply will consume.
 
 The escape hatches are explicit and narrow:
 
@@ -496,11 +499,21 @@ The escape hatches are explicit and narrow:
 
 ### The PII gate
 
-Personal-data scanning is scoped to the user-meta sidecar only, because user
-meta is credential- and PII-dense by default while the secret patterns are
-globally useful. A hit requires an explicit `allow_pii: true` on that exact
-`user_meta` rule. Unknown keys never reach the scanner at all — they stay
-target-local unless an adapter or operator classified them `authored` first.
+Personal-data scanning covers every canonical surface. Declared option,
+post/term/user meta, typed-table, attached-meta, and widget values are scanned
+recursively; post, term, menu, and user identity/prose fields are scanned before
+publication. The conservative signatures cover structured personal-data key
+names plus embedded email, IPv4/IPv6, and phone values. A structured rule may
+record `allow_pii: true` only after exact review:
+
+```sh
+wp wprism classify --repo=/siterepo \
+  --set='post_meta:contact_email=authored' --allow-pii
+```
+
+Free-form canonical prose has no rule on which to attach a broad exception;
+remove/redact the value or exclude its owning content type. Unknown structured
+keys remain target-local until a manifest or operator classifies them authored.
 
 Note the related structural fact: **users are not repository entities.** They
 are environment-local by design, never captured, never auto-created. `ref:
@@ -535,7 +548,7 @@ from the same list:
 | `incomplete_apply` | A prior promotion failed before required rebuild/convergence finished. | Re-run apply; the retry clears the marker. If the interrupted apply preserved environment drift, its row says so and names how many: the retry will *not* overwrite those entities, so `wprism capture` first — otherwise the retry fails the same convergence gate again. The retry also refuses three-way `conflict` rows on entities that apply never wrote — the marker records its own write set, so recompiling between the two runs cannot turn a real conflict into an automatic override — and the row names those too; they need the same `--force-theirs` or capture-first choice as any first apply. |
 | `incomplete_lifecycle` | A hook window failed after its durable pre-hook boundary, so a hook may already have committed state. | Restore the exact pre-lifecycle database checkpoint. **Non-forceable.** |
 | `regen_pending` | A derived table with a hard per-entity availability dependency failed post-apply verification. | Nothing: the *next* `wprism apply` retries it and either clears it or fails loudly. |
-| `env_missing` (required) | A manifest-declared `class: "env"` option is unset here. | `wprism env-set <env> --name=<name> --stdin`. |
+| `env_missing` (required) | A manifest-declared `class: "env"` option or canonical post-password binding is unset here. | `wprism env-set <env> --name=<name> --stdin`. |
 | ordinary `drift` | The environment changed outside WPrism, so the repository comparison is stale. | `wprism capture` first, reconcile the captured intent, then apply a fresh plan. Ordinary apply/promote refuses during preparation before any authored mutation; the separately checkpointed scoped-promotion profile is the only reviewed path allowed to replace selected drift. |
 | `adapter_dispositions` | A pinned manifest is experimental, excluded, uncovered by any reviewed entry, installed out-of-tree and uncertified, signed but not exactly pinned, or outside its reviewed plugin version window. Each row carries the capability report's own code and remediation. | Pin a certified manifest and an in-range plugin version, sign and pin the site adapter (`wprism adapter certify … --pin`), or accept the boundary and do not promote. |
 

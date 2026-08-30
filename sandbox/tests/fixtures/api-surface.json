@@ -1,5 +1,5 @@
 {
-    "class_count": 422,
+    "class_count": 423,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -3140,7 +3140,16 @@
                 "env_missing_projection": {
                     "abstract": false,
                     "final": false,
-                    "parameters": [],
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "tree",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
                     "return_type": "array",
                     "static": false,
                     "visibility": "public"
@@ -9459,6 +9468,23 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "assertCanonicalContent": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "entities",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "assertContentReferences": {
                     "abstract": false,
                     "final": false,
@@ -9542,6 +9568,14 @@
                             "by_ref": false,
                             "default": null,
                             "has_default": false,
+                            "name": "section",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
                             "name": "key",
                             "type": "string",
                             "variadic": false
@@ -9564,9 +9598,9 @@
                         },
                         {
                             "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "login",
+                            "default": "",
+                            "has_default": true,
+                            "name": "context",
                             "type": "string",
                             "variadic": false
                         }
@@ -16982,12 +17016,49 @@
             "constants": {
                 "FILE": {
                     "value_repr": ".wprism-env-values.json"
+                },
+                "POST_PASSWORD_PREFIX": {
+                    "value_repr": "post_password:"
                 }
             },
             "final": true,
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "postPasswordName": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "uuid",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "postPasswordUuid": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "read": {
                     "abstract": false,
                     "final": false,
@@ -26108,6 +26179,9 @@
                 },
                 "MAX_NAMES_SAMPLE": {
                     "value_repr": 200
+                },
+                "VIEW_FORMAT": {
+                    "value_repr": "wprism-assess-view/v1"
                 }
             },
             "final": true,
@@ -26352,6 +26426,80 @@
                         }
                     ],
                     "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "view": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "report",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "operations",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "request",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "ready",
+                            "type": "bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "viewRequest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "limit",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "json",
+                            "type": "bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
                     "static": true,
                     "visibility": "public"
                 }
@@ -27520,6 +27668,9 @@
                     ]
                 },
                 "FORMAT": {
+                    "value_repr": "wprism-classification-batch/v3"
+                },
+                "FORMAT_WITHOUT_PII_DECISIONS": {
                     "value_repr": "wprism-classification-batch/v2"
                 },
                 "FORMAT_WITHOUT_STORAGE_DECISIONS": {
@@ -48235,6 +48386,14 @@
                             "name": "attachmentMaterializer",
                             "type": "WPrism\\AttachmentMaterializer",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "environmentValues",
+                            "type": "array",
+                            "variadic": false
                         }
                     ],
                     "return_type": null,
@@ -48322,6 +48481,56 @@
                     ],
                     "return_type": "?int",
                     "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\PostPasswordBinding": {
+            "abstract": false,
+            "constants": {
+                "PREFIX": {
+                    "value_repr": "post_password:"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "name": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "uuid",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "uuid": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": true,
                     "visibility": "public"
                 }
             },
@@ -61967,6 +62176,31 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "clearance_match_deep": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "key",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "v",
+                            "type": null,
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "hard_match": {
                     "abstract": false,
                     "final": false,

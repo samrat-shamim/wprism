@@ -8,6 +8,7 @@ require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/RelationshipMaterializer.php';
 require_once __DIR__ . '/AttachmentMaterializer.php';
 require_once __DIR__ . '/CacheInvalidationTransaction.php';
+require_once __DIR__ . '/EnvironmentValues.php';
 require_once __DIR__ . '/../Grammar/Blocks.php';
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 // Deliberately NOT require_once('Ledger.php') or require_once('Db.php') here:
@@ -85,6 +86,7 @@ final class PostMaterializer {
         private readonly ApplyFieldMaterializer $fieldMaterializer,
         private readonly RelationshipMaterializer $relationshipMaterializer,
         private readonly AttachmentMaterializer $attachmentMaterializer,
+        private readonly array $environmentValues = [],
     ) {
     }
 
@@ -109,7 +111,7 @@ final class PostMaterializer {
             'post_status' => $front['status'],
             'comment_status' => $front['comment_status'],
             'ping_status' => $front['ping_status'],
-            'post_password' => '',
+            'post_password' => $this->postPassword($front),
             'post_name' => $front['slug'],
             'to_ping' => '',
             'pinged' => '',
@@ -198,6 +200,7 @@ final class PostMaterializer {
             'post_status' => $front['status'],
             'comment_status' => $front['comment_status'],
             'ping_status' => $front['ping_status'],
+            'post_password' => $this->postPassword($front),
             'post_name' => $front['slug'],
             'post_modified' => $front['modified'] ?? $front['modified_gmt'],
             'post_modified_gmt' => $front['modified_gmt'],
@@ -262,6 +265,25 @@ final class PostMaterializer {
         if ($front['type'] === 'attachment') {
             $this->attachmentMaterializer->place_attachment($id, $front);
         }
+    }
+
+    private function postPassword(array $front): string {
+        $binding = $front['password_binding'] ?? null;
+        if ($binding === null) {
+            return '';
+        }
+        $expected = EnvironmentValues::postPasswordName((string) ($front['uuid'] ?? ''));
+        if (!is_string($binding) || !hash_equals($expected, $binding)) {
+            throw new \RuntimeException('wprism: protected post carries an invalid password binding');
+        }
+        $value = $this->environmentValues[$binding] ?? null;
+        if (!is_string($value) || $value === '') {
+            throw new \RuntimeException(
+                "wprism: protected post password binding '$binding' is not provisioned on this environment"
+            );
+        }
+
+        return $value;
     }
 
     public function resolve_login(string $login): ?int {

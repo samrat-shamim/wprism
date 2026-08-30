@@ -1534,10 +1534,11 @@ jq -e --argjson ids "$TARGET_ADOPT" '
   || fail 'WooCommerce coupon adoption fixture reused the source identity'
 pass 'hostile same-slug product and coupon rows retain target identities while repository-authored native values converge'
 
-# Corrupt structured product metadata, introduce a populated closed COD record
-# with one bounded unknown add-on sibling, and remove one repository product
-# row. Each independent capture must refuse before changing canonical state;
-# exact raw restoration must recapture byte-identically.
+# Corrupt structured product metadata and introduce a populated closed COD
+# record with one bounded unknown add-on sibling; those captures must refuse
+# before changing canonical state. Then remove one unreferenced repository
+# product row and prove capture emits its exact supported tombstone. Exact raw
+# restoration must still recapture byte-identically.
 CAPTURE_BASELINE=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
 ATTR_BACKUP=$(wp_conf1 eval '
   global $wpdb; $id=wc_get_product_id_by_sku("CONF-PRECISION-UTF8");
@@ -1593,7 +1594,12 @@ DELETE_ROW=$(wp_conf1 eval '
     "SELECT * FROM {$wpdb->posts} WHERE ID=%d",$id
   ),ARRAY_A),JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
 ')
-require_observed_nonempty 'WooCommerce unsupported product-delete backup' "$DELETE_ROW"
+require_observed_nonempty 'WooCommerce supported product-delete backup' "$DELETE_ROW"
+DELETE_FILE=$(find "$CONF_REPO1/state/posts/product" -type f -name '*--wprism-woo-adopt-product.md' -print -quit)
+[ -n "$DELETE_FILE" ] || fail 'WooCommerce supported product-delete source file is absent'
+DELETE_UUID=$(basename "$DELETE_FILE" | cut -d- -f1-5)
+[[ "$DELETE_UUID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
+  || fail 'WooCommerce supported product-delete UUID is malformed'
 wp_conf1 eval '
   global $wpdb; $id=wc_get_product_id_by_sku("CONF-ADOPT-PRODUCT");
   if (1 !== $wpdb->delete($wpdb->posts,["ID"=>$id],["%d"])) throw new RuntimeException($wpdb->last_error);
@@ -1601,21 +1607,27 @@ wp_conf1 eval '
 ' >/dev/null
 DELETE_RC=0
 DELETE_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || DELETE_RC=$?
-require_wprism_answered 'WooCommerce unsupported product deletion capture' human "$DELETE_OUT"
-[ "$DELETE_RC" -ne 0 ] && grep -Eqi 'delet|unsupported|policy scope' <<<"$DELETE_OUT" \
-  || fail "WooCommerce unsupported product deletion did not refuse: $DELETE_OUT"
-[ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$CAPTURE_BASELINE" ] \
-  || fail 'WooCommerce unsupported deletion refusal partially published canonical state'
+require_wprism_answered 'WooCommerce supported product deletion capture' human "$DELETE_OUT"
+[ "$DELETE_RC" -eq 0 ] || fail "WooCommerce supported product deletion did not capture: $DELETE_OUT"
+jq -e --arg uuid "$DELETE_UUID" --arg source_path "posts/product/$(basename "$DELETE_FILE")" '
+  .format == "wprism-deletion/v1" and .kind == "post" and .type == "product" and
+  .uuid == $uuid and .source_path == $source_path
+' "$CONF_REPO1/state/deletions/$DELETE_UUID.json" >/dev/null \
+  || fail 'WooCommerce supported product deletion did not emit its exact canonical tombstone'
+[ ! -e "$DELETE_FILE" ] || fail 'WooCommerce supported product deletion retained its canonical entity beside the tombstone'
 wp_conf1 eval "
   global \$wpdb; \$row=json_decode(base64_decode('$DELETE_ROW'),true,512,JSON_THROW_ON_ERROR);
   if (false === \$wpdb->insert(\$wpdb->posts,\$row)) throw new RuntimeException(\$wpdb->last_error);
   clean_post_cache((int)\$row['ID']);
 " >/dev/null
+wp_conf1 wprism capture --repo=/siterepo >/dev/null
+[ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$CAPTURE_BASELINE" ] \
+  || fail 'WooCommerce restored product did not replace its temporary tombstone byte-identically'
 wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-woocommerce-restored >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO1/.tmp-woocommerce-restored" \
   || fail 'WooCommerce source did not restore byte-identically after malformed/undeclared-COD/deletion probes'
 rm -rf "$CONF_REPO1/.tmp-woocommerce-restored"
-pass 'malformed attributes, undeclared COD add-on sibling, and unsupported product deletion refuse atomically and redact values'
+pass 'malformed attributes and undeclared COD refuse atomically; supported product deletion captures exactly and restores byte-identically'
 
 # Both branches edit one managed native price. Unforced application must be
 # byte-still on the target; explicit repository authority must converge without

@@ -48,6 +48,10 @@ require_once $resolverPath;
 use WPrism\DeletionCapabilityResolver;
 use WPrism\OptionNameReferenceResolver;
 
+function get_option(string $name, mixed $default = null): mixed {
+    return $name === 'active_plugins' ? ($GLOBALS['deletion_active_plugins'] ?? []) : $default;
+}
+
 $optionRules = static function (array $manifests): OptionNameReferenceResolver {
     return new OptionNameReferenceResolver($manifests, static fn(array $rule, array $_source): array => $rule);
 };
@@ -171,10 +175,71 @@ $assertThrows(
     'must declare source_id_kind and source_pk together',
     'table-row guards refuse half-declared source identity'
 );
+$lockColumn = $manifests;
+$lockColumn[0]['deletions']['table:things']['guards'][0]['lock_column'] = 'active';
+$lockCapability = (new DeletionCapabilityResolver(
+    $lockColumn,
+    $optionRules($lockColumn),
+    ['string', 'csv']
+))->capability('table:things');
+$check(
+    ($lockCapability['guards'][0]['lock_column'] ?? null) === 'active',
+    'a guard may lock an exact indexed where predicate instead of its unindexed reference-value column'
+);
+$badLockColumn = $lockColumn;
+$badLockColumn[0]['deletions']['table:things']['guards'][0]['lock_column'] = 'missing';
+$assertThrows(
+    static fn() => (new DeletionCapabilityResolver(
+        $badLockColumn,
+        $optionRules($badLockColumn),
+        ['string', 'csv']
+    ))->capability('table:things'),
+    'lock_column must name an exact where predicate',
+    'an unrelated lock column cannot claim a next-key boundary'
+);
+
+$closed = $manifests;
+foreach ($closed as $position => &$manifest) {
+    $manifest['plugin'] = "fixture-$position/plugin.php";
+    $manifest['deletions']['table:things']['active_plugin_boundary'] = 'declarers_only';
+}
+unset($manifest);
+$closedCapability = (new DeletionCapabilityResolver($closed, $optionRules($closed), ['string', 'csv']))
+    ->capability('table:things');
+$check(
+    ($closedCapability['active_plugin_boundary'] ?? null) === 'declarers_only'
+        && ($closedCapability['declaring_plugins'] ?? null) === [
+            'fixture-0/plugin.php',
+            'fixture-1/plugin.php',
+        ],
+    'closed deletion authority enumerates every participating plugin declaration'
+);
+$mixedBoundary = $closed;
+unset($mixedBoundary[1]['deletions']['table:things']['active_plugin_boundary']);
+$assertThrows(
+    static fn() => (new DeletionCapabilityResolver(
+        $mixedBoundary,
+        $optionRules($mixedBoundary),
+        ['string', 'csv']
+    ))->capability('table:things'),
+    'every declaration',
+    'all co-owners must agree on a closed active-plugin boundary'
+);
+$reverseMixedBoundary = array_reverse($mixedBoundary);
+$assertThrows(
+    static fn() => (new DeletionCapabilityResolver(
+        $reverseMixedBoundary,
+        $optionRules($reverseMixedBoundary),
+        ['string', 'csv']
+    ))->capability('table:things'),
+    'every declaration',
+    'active-plugin boundary disagreement refuses independently of manifest order'
+);
 
 require_once "$root/agent/src/Kernel/Canon.php";
 require_once "$root/agent/src/Kernel/OptionState.php";
 require_once "$root/agent/src/Policy/Policy.php";
+require_once "$root/agent/src/Delete/Deletion.php";
 
 $policy = new WPrism\Policy();
 $policy->manifests = $manifests;
@@ -188,6 +253,33 @@ $check(
     ($policy->deletion_capability('table:things')['cascades'] ?? null) === ['changed'],
     'Policy builds a fresh resolver for each facade call so public fixture mutations are observed'
 );
+
+$closedPolicy = new WPrism\Policy();
+$closedPolicy->manifests = [[
+    'name' => 'closed-product-owner',
+    'plugin' => 'shop/shop.php',
+    'deletions' => ['post:product' => [
+        'active_plugin_boundary' => 'declarers_only',
+        'cascades' => ['postmeta', 'post_revisions', 'term_relationships'],
+        'guards' => [],
+    ]],
+]];
+$GLOBALS['deletion_active_plugins'] = ['shop/shop.php'];
+$check(
+    WPrism\Deletion::capability($closedPolicy, 'post', 'product')['declaring_plugins'] === ['shop/shop.php'],
+    'live deletion authority admits only its participating active plugin set'
+);
+$GLOBALS['deletion_active_plugins'][] = 'extension/extension.php';
+try {
+    WPrism\Deletion::capability($closedPolicy, 'post', 'product');
+    $check(false, 'a nonparticipating active plugin must block the closed deletion contract');
+} catch (WPrism\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'deletion_plugin_boundary'
+            && ($failure->diagnostics[0]['plugin'] ?? null) === 'extension/extension.php',
+        'a nonparticipating active plugin blocks with exact machine-readable evidence'
+    );
+}
 
 $policySource = (string) file_get_contents("$root/agent/src/Policy/Policy.php");
 $check(

@@ -406,7 +406,7 @@ final class PlanSummary {
         }
 
         if ($envMissing) {
-            $lines[] = 'ENV_MISSING (manifest-declared env-bound options not yet provisioned on this environment):';
+            $lines[] = 'ENV_MISSING (environment-bound values not yet provisioned on this environment):';
             foreach ($envMissing as $r) {
                 $flag = !empty($r['required']) ? 'required' : 'optional';
                 $name = is_string($r['name'] ?? null) ? $r['name'] : null;
@@ -666,6 +666,11 @@ final class PlanSummary {
             $expected = "env_missing: option '$name' is required and not yet provisioned on "
                 . "this environment — see 'wp wprism env-set --name=$name --stdin'";
             if ($warning === $expected) {
+                return true;
+            }
+            $postPasswordPrefix = "env_missing: post password binding '$name' is required and ";
+            if (str_starts_with($warning, $postPasswordPrefix)
+                && str_ends_with($warning, " — see 'wp wprism env-set --name=$name --stdin'")) {
                 return true;
             }
         }

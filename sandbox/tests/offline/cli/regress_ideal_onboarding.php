@@ -141,11 +141,12 @@ final class UnboundedOnboardingDriver implements EnvironmentDriver {
 }
 
 /** @return array<string,mixed> */
-function ideal_demo_session(string $root, string $name, int $sourcePort, int $targetPort): array {
+function ideal_demo_session(string $root, string $name, int $sourcePort, int $targetPort, string $scenario = 'core'): array {
     $sandbox = $root . '/sandbox';
     return [
-        'format' => 'wprism-demo-session/v1',
+        'format' => 'wprism-demo-session/v2',
         'name' => $name,
+        'scenario' => $scenario,
         'source_port' => $sourcePort,
         'target_port' => $targetPort,
         'source_repo' => $sandbox . '/siterepo/' . $name . '1',
@@ -1404,12 +1405,59 @@ $demo = DemoCommand::options('start', ['--scenario=woocommerce', '--name=shopdem
 wprism_check_same('shopdemo', $demo['name'], 'demo accepts an isolated pair name');
 wprism_check_same(9100, $demo['source_port'], 'demo accepts an explicit source port');
 wprism_check_same(9101, $demo['target_port'], 'demo accepts an explicit target port');
+wprism_check_same('woocommerce', $demo['scenario'], 'demo retains the explicit advanced WooCommerce scenario');
+$coreDemo = DemoCommand::options('start', []);
+wprism_check_same('core', $coreDemo['scenario'], 'demo defaults to the dependency-light WordPress core journey');
 try {
     DemoCommand::options('start', ['--scenario=unknown']);
     wprism_check(false, 'demo refuses an unknown scenario');
 } catch (RuntimeException $error) {
-    wprism_check(str_contains($error->getMessage(), "first demo scenario is 'woocommerce'"), 'demo refusal names the one executable scenario');
+    wprism_check(str_contains($error->getMessage(), "'core' or 'woocommerce'"), 'demo refusal names both executable scenarios');
 }
+
+$assessmentRoot = $tmp . '/demo-assessment';
+$assessmentRepo = $assessmentRoot . '/target';
+mkdir($assessmentRoot . '/cli', 0700, true);
+mkdir($assessmentRepo, 0700);
+$assessmentView = [
+    'format' => 'wprism-assess-view/v1',
+    'summary' => [
+        'readiness' => 'blocked',
+        'counts' => [
+            'invisible_option_names' => 98,
+            'pending_classifications' => 0,
+            'undeclared_tables' => 0,
+        ],
+        'dispositions' => ['agree' => true],
+    ],
+    'page' => ['shown' => 1],
+    'rows' => [['kind' => 'surface', 'surface' => ['id' => 'post_type:page']]],
+];
+$assessmentBytes = json_encode($assessmentView, JSON_UNESCAPED_SLASHES);
+if (!is_string($assessmentBytes)) {
+    throw new RuntimeException('could not encode demo assessment fixture');
+}
+file_put_contents(
+    $assessmentRoot . '/cli/wprism',
+    "#!/bin/sh\nprintf '%s\\n' " . escapeshellarg($assessmentBytes) . "\nexit 3\n"
+);
+chmod($assessmentRoot . '/cli/wprism', 0700);
+$assertCoreAssessment = new ReflectionMethod(DemoCommand::class, 'assertCoreAssessment');
+$assessmentSummary = $assertCoreAssessment->invoke(
+    null,
+    ['target_repo' => $assessmentRepo],
+    $assessmentRoot
+);
+wprism_check_same(
+    'blocked',
+    $assessmentSummary['readiness'] ?? null,
+    'demo accepts a complete bounded red assessment after its managed core capability set qualifies'
+);
+wprism_check_same(
+    98,
+    $assessmentSummary['counts']['invisible_option_names'] ?? null,
+    'demo retains exact whole-site gap counts for its honest handoff'
+);
 
 $wooFixtureRoot = $tmp . '/demo-woo-activation';
 $wooFixtureSandbox = $wooFixtureRoot . '/sandbox';
@@ -2100,6 +2148,13 @@ wprism_check(
         && str_contains($demoSource, 'ActionScheduler_DBStore')
         && str_contains($demoSource, "['capabilities', \$environment, '--operation=promote', '--format=json']"),
     'demo setup enables Woo native prerequisite lifecycles and refuses to publish an unqualified pair'
+);
+wprism_check(
+    str_contains($demoSource, "'scenario' => 'core'")
+        && str_contains($demoSource, "['assess', 'demo-target', '--operation=release', '--limit=10', '--format=json']")
+        && str_contains($demoSource, "'wprism-assess-view/v1'")
+        && str_contains($demoSource, 'Managed core capability preflight: READY. Whole-site release assessment: COMPLETE WITH GAPS'),
+    'default demo requires qualified core capabilities and reports a complete bounded whole-site assessment without hiding gaps'
 );
 
 $releaseGuide = (string) file_get_contents(dirname(__DIR__, 4) . '/docs/guides/release.md');

@@ -10,18 +10,20 @@ From a source checkout with PHP 8+, Docker with Compose, Git, and `jq`
 available:
 
 ```sh
-cli/wprism demo start --scenario=woocommerce
+cli/wprism demo start
 ```
 
-The command starts two disposable WordPress sites, installs the exact
-digest-pinned WooCommerce 11.0.1 artifact the shipped adapter certifies, creates
-an ordinary Git repository, and publishes the URLs and `admin / admin` login.
+The command starts two disposable WordPress sites, creates an ordinary Git
+repository, and publishes the URLs and `admin / admin` login only after its
+managed core capability set qualifies and its bounded whole-site release
+assessment completes. A red assessment remains red: the command prints exact
+gap counts and keeps the evaluation inside the qualified page surface.
 Both HTTP ports bind to `127.0.0.1` only; the disposable weak credentials are
 never published on every host interface.
-It also creates one target-only order and decrements live stock; those are the
-runtime facts the later apply must preserve.
+It also creates one target-only comment; that is the runtime fact the later
+apply must preserve.
 
-Edit **WPrism Demo Mug** on the source site, then follow the printed loop:
+Edit **WPrism Demo Page** on the source site, then follow the printed loop:
 
 ```sh
 cli/wprism demo capture
@@ -33,12 +35,16 @@ cli/wprism demo stop
 
 `capture` uses the real orchestrator and leaves the result as an ordinary Git
 diff. `apply` commits that reviewed diff, transfers the revision through Git,
-drives the real deploy/apply path, and requires the target order identity,
-status, total, item count, and stock to remain byte-identical. `refusal` tries
+drives the real deploy/apply path, and requires the target-only comment to
+remain byte-identical. `refusal` tries
 to replace the trusted environment's repository binding with a caller-supplied
 path and succeeds only when the host refuses before target contact, without
 changing that runtime proof. `stop` removes the pair and its three
 disposable repositories, so copy anything you want to keep first.
+
+For the advanced adapter journey, `wprism demo start --scenario=woocommerce`
+installs the exact digest-pinned WooCommerce 11.0.1 artifact, manages a product,
+and proves that a target-only order and live stock survive the catalog change.
 
 ## Connect an existing site
 
@@ -380,6 +386,7 @@ is value-redacted: it carries the evidence, never live values.
   "ref": null,
   "cast": null,
   "allow_secret": false,
+  "allow_pii": false,
   "autoload": "preserve",
   "required": null
 }
@@ -391,6 +398,11 @@ short form is `authored` only for portable intent, `runtime` for
 environment-local operational state, `derived` for state a declared
 regeneration path rebuilds, `env` for separately provisioned per-environment
 values, and `managed` for lifecycle-managed options.
+
+If pending marks the row `[SECRET: ...]` or `[PII: ...]`, authoring it requires
+setting the matching `allow_secret` or `allow_pii` field to `true` after exact
+review. The batch carries only redacted categories; it never exports the live
+value.
 
 An **options** row needs one more answer, and only the one its class reads:
 `autoload` when the class is `authored` or `managed` (`preserve` replays the

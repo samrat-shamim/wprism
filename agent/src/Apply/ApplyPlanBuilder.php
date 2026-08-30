@@ -52,7 +52,7 @@ if (!class_exists(Db::class, false)) {
 final class ApplyPlanBuilder {
     /** @var \Closure():array */
     private readonly \Closure $regenerationDebtProjection;
-    /** @var \Closure():array */
+    /** @var \Closure(array):array */
     private readonly \Closure $envMissingProjection;
     /** @var string[] */
     private array $warnings;
@@ -423,7 +423,7 @@ final class ApplyPlanBuilder {
         // source-vs-target checklist gets one by running `wprism plan`
         // against both named environments and diffing the two
         // env_missing lists client-side — see cli/README.md).
-        $envMissing = $this->env_missing_projection();
+        $envMissing = $this->env_missing_projection($tree);
         $plan['env_missing'] = $envMissing['env_missing'];
         foreach ($envMissing['warnings'] as $warning) {
             $this->warnings[] = $warning;
@@ -613,8 +613,8 @@ final class ApplyPlanBuilder {
         return ($this->regenerationDebtProjection)();
     }
 
-    private function env_missing_projection(): array {
-        return ($this->envMissingProjection)();
+    private function env_missing_projection(array $tree): array {
+        return ($this->envMissingProjection)($tree);
     }
 
     private function rebuild_work(

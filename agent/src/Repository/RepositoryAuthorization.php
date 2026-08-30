@@ -2,6 +2,9 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Policy/ScopeAdoption.php';
+require_once __DIR__ . '/../Kernel/PostPasswordBinding.php';
+require_once __DIR__ . '/../Kernel/PersonalData.php';
+require_once __DIR__ . '/../Kernel/Secrets.php';
 
 /**
  * A fail-closed repository preflight with stable, machine-readable findings.
@@ -54,7 +57,7 @@ final class RepositoryAuthorization {
     private const POST_FIELDS = [
         'uuid', 'type', 'slug', 'title', 'status', 'date', 'date_gmt',
         'modified', 'modified_gmt', 'author', 'parent', 'menu_order', 'comment_status',
-        'ping_status', 'excerpt', 'meta', 'terms', 'term_orders',
+        'ping_status', 'excerpt', 'meta', 'terms', 'term_orders', 'password_binding',
     ];
     private const ATTACHMENT_FIELDS = ['file', 'media', 'mime', 'alt'];
     private const TERM_FIELDS = [
@@ -233,13 +236,50 @@ final class RepositoryAuthorization {
                 self::finding($out, 'repository_field_not_authored', $path, $uuid, 'post_field', $field, $details['class'], $details['source']);
             }
         }
+        foreach (['title', 'excerpt', 'author', 'alt'] as $field) {
+            if (array_key_exists($field, $front)) {
+                self::authorize_sensitivity(
+                    $out, $path, $uuid, 'post_field', $field, $front[$field], [], 'platform'
+                );
+            }
+        }
+        self::authorize_sensitivity(
+            $out, $path, $uuid, 'post_field', 'body', (string) ($entity['body'] ?? ''), [], 'platform'
+        );
+        if (array_key_exists('password_binding', $front)) {
+            $expected = null;
+            try {
+                $expected = PostPasswordBinding::name($uuid);
+            } catch (\Throwable) {
+                // The repository UUID validator owns the identity finding.
+            }
+            if (!is_string($front['password_binding']) || $expected === null
+                || !hash_equals($expected, $front['password_binding'])) {
+                self::finding(
+                    $out,
+                    'repository_field_not_authored',
+                    $path,
+                    $uuid,
+                    'post_field',
+                    'password_binding',
+                    'invalid',
+                    'platform',
+                    'use the exact post_password:<uuid> binding emitted by capture; never put a password in state/'
+                );
+            }
+        }
 
         $meta = (array) ($front['meta'] ?? []);
-        foreach ($meta as $key => $_) {
+        foreach ($meta as $key => $value) {
             $details = $policy->meta_rule_details_for_post((string) $key, $meta);
-            $class = $details['rule']['class'] ?? 'unclassified';
+            $rule = $details['rule'] ?? [];
+            $class = $rule['class'] ?? 'unclassified';
             if ($class !== 'authored') {
                 self::finding($out, 'repository_field_not_authored', $path, $uuid, 'post_meta', (string) $key, $class, $details['source']);
+            } else {
+                self::authorize_sensitivity(
+                    $out, $path, $uuid, 'post_meta', (string) $key, $value, $rule, $details['source']
+                );
             }
         }
         foreach ((array) ($front['terms'] ?? []) as $taxonomy => $_) {
@@ -264,12 +304,24 @@ final class RepositoryAuthorization {
         }
         self::unexpected_fields($front, $allowedFields, $path, $uuid, 'term_field', $out);
         self::authorize_taxonomy($policy, (string) ($front['taxonomy'] ?? ''), $path, $uuid, 'taxonomy', $out);
+        foreach (['name', 'description'] as $field) {
+            if (array_key_exists($field, $front)) {
+                self::authorize_sensitivity(
+                    $out, $path, $uuid, 'term_field', $field, $front[$field], [], 'platform'
+                );
+            }
+        }
         $meta = (array) ($front['meta'] ?? []);
-        foreach ($meta as $key => $_) {
+        foreach ($meta as $key => $value) {
             $details = $policy->meta_rule_details_for_term((string) $key, $meta);
-            $class = $details['rule']['class'] ?? 'unclassified';
+            $rule = $details['rule'] ?? [];
+            $class = $rule['class'] ?? 'unclassified';
             if ($class !== 'authored') {
                 self::finding($out, 'repository_field_not_authored', $path, $uuid, 'term_meta', (string) $key, $class, $details['source']);
+            } else {
+                self::authorize_sensitivity(
+                    $out, $path, $uuid, 'term_meta', (string) $key, $value, $rule, $details['source']
+                );
             }
         }
         foreach ((array) ($front['relationships'] ?? []) as $taxonomy => $_) {
@@ -281,6 +333,9 @@ final class RepositoryAuthorization {
         $front = $entity['data'] ?? Canon::decode($entity['content']);
         $path = $entity['path'];
         self::unexpected_fields($front, self::MENU_FIELDS, $path, $uuid, 'menu_field', $out);
+        self::authorize_sensitivity(
+            $out, $path, $uuid, 'menu_field', 'name', $front['name'] ?? '', [], 'platform'
+        );
         $managed = [
             'type' => '_menu_item_type',
             'object' => '_menu_item_object',
@@ -292,6 +347,13 @@ final class RepositoryAuthorization {
         foreach ((array) ($front['items'] ?? []) as $index => $item) {
             $item = (array) $item;
             self::unexpected_fields($item, self::MENU_ITEM_FIELDS, $path, $uuid, "menu_item[$index]", $out);
+            foreach (['title', 'description', 'attr_title', 'target', 'classes', 'xfn'] as $field) {
+                if (array_key_exists($field, $item)) {
+                    self::authorize_sensitivity(
+                        $out, $path, $uuid, "menu_item[$index]", $field, $item[$field], [], 'platform'
+                    );
+                }
+            }
             foreach ($managed as $field => $metaKey) {
                 self::require_managed_meta($policy, $metaKey, "items[$index].$field", $path, $uuid, $out);
             }
@@ -304,13 +366,19 @@ final class RepositoryAuthorization {
             // its own 'meta' field (a merge/rebase can land a captured
             // 'authored' key next to a policy that no longer agrees).
             $itemMeta = (array) ($item['meta'] ?? []);
-            foreach ($itemMeta as $key => $_) {
+            foreach ($itemMeta as $key => $value) {
                 $details = $policy->meta_rule_details_for_post((string) $key, $itemMeta);
-                $class = $details['rule']['class'] ?? 'unclassified';
+                $rule = $details['rule'] ?? [];
+                $class = $rule['class'] ?? 'unclassified';
                 if ($class !== 'authored') {
                     self::finding(
                         $out, 'repository_field_not_authored', $path, $uuid,
                         "menu_item[$index]", (string) $key, $class, $details['source']
+                    );
+                } else {
+                    self::authorize_sensitivity(
+                        $out, $path, $uuid, "menu_item[$index]", (string) $key,
+                        $value, $rule, $details['source']
                     );
                 }
             }
@@ -338,10 +406,10 @@ final class RepositoryAuthorization {
                         $out, 'repository_field_not_authored', $path, $stateKey,
                         "widget[$i].settings", (string) $setting, $class, 'manifest widgets.' . $type
                     );
-                } elseif (empty($rule['allow_secret']) && Secrets::hard_match_deep($value) !== null) {
-                    self::finding(
-                        $out, 'repository_widget_secret_not_allowed', $path, $stateKey,
-                        "widget[$i].settings", (string) $setting, 'secret', 'manifest widgets.' . $type
+                } else {
+                    self::authorize_sensitivity(
+                        $out, $path, $stateKey, "widget[$i].settings", (string) $setting,
+                        $value, $rule, 'manifest widgets.' . $type
                     );
                 }
             }
@@ -432,6 +500,11 @@ final class RepositoryAuthorization {
             $managed = $class === 'managed' && in_array($name, self::MANAGED_OPTIONS, true);
             if ($class !== 'authored' && !$managed) {
                 self::finding($out, 'repository_field_not_authored', $entity['path'], $uuid, 'option', (string) $name, $class, $details['source']);
+            } elseif ($class === 'authored') {
+                self::authorize_sensitivity(
+                    $out, $entity['path'], $uuid, 'option', (string) $name,
+                    $value, $rule, $details['source']
+                );
             }
         }
     }
@@ -445,6 +518,9 @@ final class RepositoryAuthorization {
         $front = $entity['data'] ?? Canon::decode($entity['content']);
         $path = (string) $entity['path'];
         self::unexpected_fields($front, self::USER_META_FIELDS, $path, $stateKey, 'user_meta_field', $out);
+        self::authorize_sensitivity(
+            $out, $path, $stateKey, 'user_meta_field', 'login', $front['login'] ?? '', [], 'platform'
+        );
         $meta = (array) ($front['meta'] ?? []);
         foreach ($meta as $key => $value) {
             $details = $policy->meta_rule_details_for_user((string) $key, $meta);
@@ -457,7 +533,7 @@ final class RepositoryAuthorization {
                 );
                 continue;
             }
-            if (empty($rule['allow_secret']) && Secrets::hard_match_deep($value) !== null) {
+            if (empty($rule['allow_secret']) && Secrets::clearance_match_deep((string) $key, $value) !== null) {
                 self::finding(
                     $out, 'repository_user_meta_secret_not_allowed', $path, $stateKey,
                     'user_meta', (string) $key, 'secret', $details['source']
@@ -479,12 +555,18 @@ final class RepositoryAuthorization {
             self::finding($out, 'repository_field_not_authored', $path, $uuid, 'option', $name, 'malformed', $source);
             return;
         }
-        foreach ($value as $subKey => $_) {
-            $subClass = $subKeys[$subKey]['class'] ?? 'unclassified';
+        foreach ($value as $subKey => $subValue) {
+            $subRule = (array) ($subKeys[$subKey] ?? []);
+            $subClass = $subRule['class'] ?? 'unclassified';
             if ($subClass !== 'authored') {
                 self::finding(
                     $out, 'repository_field_not_authored', $path, $uuid, 'option_sub_key',
                     "$name.$subKey", $subClass, $source
+                );
+            } else {
+                self::authorize_sensitivity(
+                    $out, $path, $uuid, 'option_sub_key', "$name.$subKey",
+                    $subValue, $subRule, $source
                 );
             }
         }
@@ -511,13 +593,19 @@ final class RepositoryAuthorization {
         foreach ($decl['refs'] ?? [] as $ref) {
             $refs[(string) $ref['column']] = true;
         }
-        foreach ((array) ($front['columns'] ?? []) as $column => $_) {
+        foreach ((array) ($front['columns'] ?? []) as $column => $value) {
             if (isset($refs[$column])) {
                 continue;
             }
-            $class = $decl['columns'][$column]['class'] ?? 'unclassified';
+            $rule = (array) ($decl['columns'][$column] ?? []);
+            $class = $rule['class'] ?? 'unclassified';
             if ($class !== 'authored') {
                 self::finding($out, 'repository_field_not_authored', $path, $uuid, 'table_column', (string) $column, $class, $tableDetails['source']);
+            } else {
+                self::authorize_sensitivity(
+                    $out, $path, $uuid, 'table_column', (string) $column,
+                    $value, $rule, $tableDetails['source']
+                );
             }
         }
 
@@ -527,18 +615,25 @@ final class RepositoryAuthorization {
                 $metaTables[$metaName] = $metaDecl;
             }
         }
-        foreach ((array) ($front['meta'] ?? []) as $key => $_) {
+        foreach ((array) ($front['meta'] ?? []) as $key => $value) {
             if (!$metaTables) {
                 self::finding($out, 'repository_field_not_authored', $path, $uuid, 'attached_meta', (string) $key, 'unclassified', null);
                 continue;
             }
             foreach ($metaTables as $metaName => $metaDecl) {
-                $class = Snapshot::meta_key_in_keyspace($metaDecl, (string) $key)
-                    ? (ReferenceRules::attached_meta_key($metaDecl, (string) $key)['class'] ?? 'unclassified')
-                    : 'unclassified';
+                $rule = Snapshot::meta_key_in_keyspace($metaDecl, (string) $key)
+                    ? ReferenceRules::attached_meta_key($metaDecl, (string) $key)
+                    : [];
+                $class = $rule['class'] ?? 'unclassified';
                 if ($class !== 'authored') {
                     $source = $policy->declared_table_details($metaName)['source'];
                     self::finding($out, 'repository_field_not_authored', $path, $uuid, "attached_meta:$metaName", (string) $key, $class, $source);
+                } else {
+                    $source = $policy->declared_table_details($metaName)['source'];
+                    self::authorize_sensitivity(
+                        $out, $path, $uuid, "attached_meta:$metaName", (string) $key,
+                        $value, $rule, $source
+                    );
                 }
             }
         }
@@ -562,6 +657,31 @@ final class RepositoryAuthorization {
     private static function unexpected_fields(array $actual, array $allowed, string $path, string $uuid, string $surface, array &$out): void {
         foreach (array_diff(array_keys($actual), $allowed) as $field) {
             self::finding($out, 'repository_field_not_authored', $path, $uuid, $surface, (string) $field, 'unclassified', null);
+        }
+    }
+
+    /** Re-run capture's clearance on the immutable bytes plan/apply consume. */
+    private static function authorize_sensitivity(
+        array &$out,
+        string $path,
+        string $uuid,
+        string $surface,
+        string $field,
+        mixed $value,
+        array $rule,
+        ?string $source
+    ): void {
+        if (empty($rule['allow_secret']) && Secrets::clearance_match_deep($field, $value) !== null) {
+            self::finding(
+                $out, 'repository_secret_not_allowed', $path, $uuid,
+                $surface, $field, 'secret', $source
+            );
+        }
+        if (empty($rule['allow_pii']) && PersonalData::match_deep($field, $value) !== null) {
+            self::finding(
+                $out, 'repository_pii_not_allowed', $path, $uuid,
+                $surface, $field, 'pii', $source
+            );
         }
     }
 

@@ -234,6 +234,14 @@ $check(
     DeleteGuardEvaluator::lock_index(['meta_key' => str_repeat('x', 192)], 'wp_postmeta') === null,
     'metadata guard refuses a too-short prefix index that could miss a concurrent key'
 );
+$check(
+    DeleteGuardEvaluator::lock_index([
+        'column' => 'meta_value',
+        'lock_column' => 'meta_key',
+        'where' => ['meta_key' => '_product_id'],
+    ], 'wp_woocommerce_order_itemmeta') === 'meta_key_value',
+    'scalar reference guards may lock their complete indexed discriminator range'
+);
 
 $GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([
     ['Key_name' => 'option_name', 'Seq_in_index' => 1, 'Column_name' => 'option_name', 'Sub_part' => null],

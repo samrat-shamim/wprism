@@ -374,7 +374,7 @@ Usage:
   wprism rehearse <env> --reap [--format=json]
   wprism preview create <env> --from <production-env> [rehearse flags...]
   wprism preview remove <env> [--format=json]
-  wprism demo start [--scenario=woocommerce] [--name=<name>]
+  wprism demo start [--scenario=core|woocommerce] [--name=<name>]
                  [--source-port=<port>] [--target-port=<port>]
   wprism demo status|capture|apply|refusal|stop [--name=<name>]
   wprism stage-source <env> --from=<branch-or-tag> --operation=<id> [--format=json]
@@ -1141,7 +1141,8 @@ Verbs:
                           to restore from if a later phase fails.
   env-set <env>           `wp wprism env-set --repo=<repo_path> --name=<name>
     --name=<name>         --stdin`. Provisions one manifest-declared
-    --stdin               class="env" option on <env> —
+    --stdin               class="env" option or canonical
+                          post_password:<uuid> binding on <env> —
                           see `wprism status`'s env_missing checklist for what
                           still needs a value. Interactive --stdin masks the
                           local terminal before Docker/SSH passthrough and is

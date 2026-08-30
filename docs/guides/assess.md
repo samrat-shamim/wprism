@@ -36,6 +36,7 @@ question: [quickstart.md](quickstart.md) has both paths.
 wprism assess production
 wprism assess production --operation=release,verify --limit=100
 wprism assess production --format=json > production-assessment.json
+wprism assess production --format=json --limit=20 > production-assessment-page.json
 ```
 
 One run composes six read-only steps in a fixed order — doctor, the adoption
@@ -43,12 +44,18 @@ probe, the initialization probe, `wp wprism assess-inventory` on the target,
 `wp wprism capabilities` once per distinct registry operation, and the host's own
 adapter catalog. `--operation` narrows the projected product operations
 (`capture`, `merge`, `release`, `verify`, `delete`, `recover`; all six by
-default). `--limit=<1..200>` bounds every listing, exactly as it does for
+default). `--limit=<1..200>` bounds every human listing, exactly as it does for
 `wprism status`, and a cut section ends in `N more (use --format=json)`.
 
-The human view is a projection of the same document `--format=json` emits.
-Read the JSON when you want every operation at once; read the table when you
-want a decision.
+The human view is a projection of the same complete
+`wprism-assess-report/v1` document a bare `--format=json` emits. Combining
+`--format=json` with `--limit` selects the non-authoritative,
+value-free `wprism-assess-view/v1`: one page across surface rows and unknown
+names, exact full-report readiness/counts, and `page.next_cursor` when more
+rows remain. Follow that token with the same operation selection, for example
+`--format=json --limit=20 --cursor=<token>`; a changed assessment refuses it as
+`assess_view_cursor_stale`. Use the complete report for contract automation
+and the bounded view for terminals, APIs, and fleet collection.
 
 **Before `wprism init`, the assessment is a preview of adoption.** On an adoption
 seed (a `site.wprism.json` init has not yet owned) the seed's own pin set is
@@ -68,6 +75,17 @@ adoption: this repository is an adoption seed — assessed as wprism init would 
 `advisories` and `unsupported` rows, `ready`); an init-owned repository
 carries `authority.adoption: null` and no such line. Nothing is written: the
 proposal is the same read-only one the initialization probe already runs.
+
+Password-protected posts use environment bindings rather than repository
+secrets. Capture writes only `password_binding: post_password:<uuid>`; plan
+lists that name under required `env_missing` until the target is provisioned:
+
+```sh
+wprism env-set production --name=post_password:<uuid> --stdin
+```
+
+The actual value is read through the masked stdin path and remains only in the
+target's owner-readable, gitignored intended-values file.
 
 ```text
 stack: WordPress 7.0.3 · PHP 8.3.33 · MariaDB 11.8.8 · single-site
@@ -198,7 +216,7 @@ read the presence of the line as the signal. The count is the signal.
 | `qualify in rehearsal` | **Never printed by this profile.** It stays in the closed set so a projection written by an older build still validates, but nothing emits it: rehearsal says in its own output that it cannot qualify anything, so naming it as your next step was sending you to prove that. |
 | `install adapter` | Nothing models this surface, and something probably owns it — an active plugin, or a table with a plugin's name on it. Write or install an adapter; [adapter-authoring.md](adapter-authoring.md) is the whole path, and `wprism adapter-draft --seed` will propose the surface for you. |
 | `certify adapter` | The adapter **is** installed and is one signature or one pin short: `wprism adapter certify <site-repo> --name=<n> --secret-key-file=<key> --pin`. It is also the word for the other two rows that need a reviewed, current claim rather than a repeat run — a contract whose pinned dispositions moved (`Requalification required`) and an authored `experimental` status — neither of which a rehearsal can produce. |
-| `provision env value` | A manifest-declared `class: "env"` option is unset here: `wprism env-set <env> --name=<name> --stdin`. |
+| `provision env value` | A manifest-declared `class: "env"` option or canonical post-password binding is unset here: `wprism env-set <env> --name=<name> --stdin`. |
 | `exclude` | The boundary is stated, not broken. Record the decision in the contract's `unsupported[]` and stop trying to release it. Also the answer when an installed, certified adapter's certification simply does not cover one operation (`operation_not_certified` alone — typically `delete`): nothing to install or sign; keep that operation off the surface. |
 | `attest contract` | **Never printed by this profile**, for a different reason than `qualify in rehearsal` above. The signer exists — `wprism contract <env> attest` signs your contract under an Ed25519 key in `.wprism/contract/authorities.json` — but that trust root ships with no key, so attesting is a decision to hold an organizational signing key rather than a next step WPrism can hand you. It is in the closed set so that a projection written by a build that does emit it still validates. |
 | `nothing — supported` | Every projected operation agrees. This is last in the ordering so it wins only when nothing else applies. |

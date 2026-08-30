@@ -156,7 +156,11 @@ final class ClassifyCommand {
             fwrite(STDERR, $e->getMessage() . "\n");
             return 1;
         }
-        $args = self::buildArgs($validated['decisions'], $validated['needAllowSecret']);
+        $args = self::buildArgs(
+            $validated['decisions'],
+            $validated['needAllowSecret'],
+            $validated['needAllowPii']
+        );
         $exit = $driver->streamWp(array_merge(['wprism', 'classify', '--repo=' . $driver->repoPath()], $args));
         if ($exit !== 0) {
             return $exit;
@@ -181,7 +185,11 @@ final class ClassifyCommand {
 
         $exit = 0;
         if ($result['decisions']) {
-            $args = self::buildArgs($result['decisions'], $result['needAllowSecret']);
+            $args = self::buildArgs(
+                $result['decisions'],
+                $result['needAllowSecret'],
+                $result['needAllowPii']
+            );
             $exit = $driver->streamWp(array_merge(['wprism', 'classify', '--repo=' . $driver->repoPath()], $args));
         }
         printf("\n%d classified, %d skipped.\n", $result['classified'], $result['skipped']);
@@ -192,7 +200,7 @@ final class ClassifyCommand {
      * Non-interactive acceptance for CI/scripting. Triage::acceptProposals()
      * does the actual filtering (pure, unit-testable without a transport);
      * this just batches the result into one `wp wprism classify` call, streams
-     * it, and turns a non-empty secretSkipped into a non-zero exit so a CI
+     * it, and turns a non-empty clearance-skipped set into a non-zero exit so a CI
      * pipeline can tell "nothing to do" apart from "a human needs to look at
      * this."
      *
@@ -206,21 +214,29 @@ final class ClassifyCommand {
         $result = Triage::acceptProposals($items);
         $decisions = $result['decisions'];
         $secretSkipped = $result['secretSkipped'];
+        $piiSkipped = $result['piiSkipped'];
         $storageSkipped = $result['storageSkipped'];
 
         $exit = 0;
         if ($decisions) {
-            $args = self::buildArgs($decisions, false);
+            $args = self::buildArgs($decisions, false, false);
             $exit = $driver->streamWp(array_merge(['wprism', 'classify', '--repo=' . $driver->repoPath()], $args));
         } else {
             echo "no proposals to accept\n";
         }
 
+        $needsHuman = false;
         if ($secretSkipped) {
             fwrite(STDERR, 'wprism: classify --accept-proposals: skipped ' . count($secretSkipped)
                 . " secret-flagged item(s) proposed authored -- these need a human (\`wprism classify {$driver->name()}\`):\n");
             self::writeBounded($secretSkipped, $limit);
-            return $exit !== 0 ? $exit : 2;
+            $needsHuman = true;
+        }
+        if ($piiSkipped) {
+            fwrite(STDERR, 'wprism: classify --accept-proposals: skipped ' . count($piiSkipped)
+                . " PII-flagged item(s) proposed authored -- these need a human (\`wprism classify {$driver->name()}\`):\n");
+            self::writeBounded($piiSkipped, $limit);
+            $needsHuman = true;
         }
 
         // Reported after the secret set and with the same exit contract: a
@@ -231,6 +247,9 @@ final class ClassifyCommand {
             fwrite(STDERR, 'wprism: classify --accept-proposals: skipped ' . count($storageSkipped)
                 . " option item(s) whose proposed class needs a decision no proposal carries -- these need a human (\`wprism classify {$driver->name()}\`):\n");
             self::writeBounded($storageSkipped, $limit);
+            $needsHuman = true;
+        }
+        if ($needsHuman) {
             return $exit !== 0 ? $exit : 2;
         }
 
@@ -260,7 +279,7 @@ final class ClassifyCommand {
     }
 
     /** @param list<array{section:string,key:string,class:string,ref?:string,cast?:string,autoload?:string,required?:bool}> $decisions */
-    private static function buildArgs(array $decisions, bool $needAllowSecret): array {
+    private static function buildArgs(array $decisions, bool $needAllowSecret, bool $needAllowPii): array {
         $specs = array_map(function (array $d): string {
             $spec = "{$d['section']}:{$d['key']}={$d['class']}";
             if (isset($d['ref'])) {
@@ -288,6 +307,9 @@ final class ClassifyCommand {
 
         if ($needAllowSecret) {
             $args[] = '--allow-secret';
+        }
+        if ($needAllowPii) {
+            $args[] = '--allow-pii';
         }
         return $args;
     }

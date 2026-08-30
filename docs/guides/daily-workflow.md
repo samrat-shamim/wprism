@@ -114,9 +114,12 @@ produced, which is why `wp wprism refresh-export` — the read-only production
 export used by `refresh` below — is deliberately *not* a capture substitute.
 
 Capture refuses rather than guesses. If it finds an unclassified surface, a
-whole entity type with live rows and no disposition, or a value that
-hard-matches a secret pattern under an `authored` rule, it aborts and tells you
-exactly which key. That is the loud-and-blocking posture the whole
+whole entity type with live rows and no disposition, or secret/credential/PII
+shapes anywhere in the canonical candidate, it aborts before publication and
+names the surface without echoing the value. Structured false positives need
+an exact reviewed `allow_secret`/`allow_pii` rule; prose must be redacted or its
+owning type excluded. Repository authorization repeats the clearance after Git
+review, so a hand edit cannot route around capture. That is the loud-and-blocking posture the whole
 classification pipeline is built on; the remedy is `wprism pending` and
 `wprism classify`, covered in
 [capabilities-and-limits.md](capabilities-and-limits.md). Expect that queue to

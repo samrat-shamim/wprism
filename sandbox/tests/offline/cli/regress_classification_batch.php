@@ -75,6 +75,11 @@ $items = [
 $template = ClassificationBatch::template('production', $items);
 $encoded = ClassificationBatch::encode($template);
 ok(!str_contains($encoded, 'MUST-NOT-LEAK'), 'export contains redacted evidence, never pending live values');
+ok(
+    array_key_exists('allow_pii', $template['decisions'][0])
+        && $template['decisions'][0]['allow_pii'] === false,
+    'every exported row presents an explicit reviewed PII decision'
+);
 ok($template['queue_sha256'] === ClassificationBatch::queueHash($items), 'export binds the exact pending queue digest');
 
 $reordered = $items;
@@ -92,6 +97,7 @@ ok(count($valid['decisions']) === 3, 'complete reviewed batch validates as one d
 ok($valid['decisions'][1]['ref'] === 'post', 'reviewed ref is preserved');
 ok($valid['decisions'][1]['cast'] === 'string', 'reviewed cast is preserved');
 ok($valid['needAllowSecret'] === false, 'ordinary batch does not request the secret escape hatch');
+ok($valid['needAllowPii'] === false, 'ordinary batch does not request the PII escape hatch');
 
 $partial = $batch;
 $partial['decisions'][0]['class'] = null;
@@ -155,6 +161,28 @@ refuses(
     fn() => ClassificationBatch::validate($secret, 'production', $secretItems),
     'sets allow_secret without',
     'secret override refuses when it is not required'
+);
+
+$piiItems = [[
+    'section' => 'post_meta',
+    'key' => 'contact_email',
+    'pii' => 'email address',
+    'evidence' => ['reason' => 'unclassified post meta'],
+]];
+$pii = reviewed($piiItems);
+refuses(
+    fn() => ClassificationBatch::validate($pii, 'production', $piiItems),
+    'set allow_pii=true',
+    'authored PII requires explicit per-row review'
+);
+$pii['decisions'][0]['allow_pii'] = true;
+$piiValid = ClassificationBatch::validate($pii, 'production', $piiItems);
+ok($piiValid['needAllowPii'] === true, 'explicit PII review requests one batched allow-pii flag');
+$pii['decisions'][0]['class'] = 'runtime';
+refuses(
+    fn() => ClassificationBatch::validate($pii, 'production', $piiItems),
+    'sets allow_pii without',
+    'PII override refuses when it is not required'
 );
 
 $badRef = $batch;
@@ -314,7 +342,14 @@ refuses(
 
 // ---- the wire bump ---------------------------------------------------------
 
-ok(ClassificationBatch::FORMAT === 'wprism-classification-batch/v2', 'the reviewed artifact is v2');
+ok(ClassificationBatch::FORMAT === 'wprism-classification-batch/v3', 'the reviewed artifact is v3');
+$staleV2 = reviewed($items);
+$staleV2['format'] = ClassificationBatch::FORMAT_WITHOUT_PII_DECISIONS;
+refuses(
+    fn() => ClassificationBatch::validate($staleV2, 'production', $items),
+    'predates the per-row allow_pii review decision; re-export the batch',
+    'a v2 artifact refuses by name because its review form had no PII decision'
+);
 $staleV1 = reviewed($items);
 $staleV1['format'] = ClassificationBatch::FORMAT_WITHOUT_STORAGE_DECISIONS;
 refuses(
@@ -323,8 +358,8 @@ refuses(
     'a v1 artifact refuses by name with re-export as the remedy, never read as a decision'
 );
 refuses(
-    fn() => ClassificationBatch::validate(['format' => 'wprism-classification-batch/v3'] + reviewed($items), 'production', $items),
-    "unsupported classification batch format 'wprism-classification-batch/v3'",
+    fn() => ClassificationBatch::validate(['format' => 'wprism-classification-batch/v4'] + reviewed($items), 'production', $items),
+    "unsupported classification batch format 'wprism-classification-batch/v4'",
     'an unknown format keeps the generic refusal'
 );
 

@@ -340,15 +340,15 @@ function ordered_post_projection_hash(Policy $policy, string $path): string {
 }
 
 /** @return array<int,array<string,mixed>> */
-function post_authorization_diagnostics(Policy $policy, array $front): array {
+function post_authorization_diagnostics(Policy $policy, array $front, string $body = ''): array {
     $entity = [
         'type' => 'post',
         'post_type' => (string) $front['type'],
         'path' => 'posts/' . $front['type'] . '/' . $front['uuid'] . '--fixture.md',
-        'hash' => hash('sha256', Canon::post_hash_basis($front, '', $policy)),
-        'content' => Canon::post_file($front, ''),
+        'hash' => hash('sha256', Canon::post_hash_basis($front, $body, $policy)),
+        'content' => Canon::post_file($front, $body),
         'data' => $front,
-        'body' => '',
+        'body' => $body,
     ];
     try {
         RepositoryAuthorization::assert_tree($policy, [(string) $front['uuid'] => $entity]);
@@ -712,6 +712,32 @@ check(
 check(
     post_authorization_diagnostics($policy, $source) === [],
     'RepositoryAuthorization accepts captured Woo product derived timestamps'
+);
+$secretBodyDiagnostics = post_authorization_diagnostics(
+    $policy,
+    $source,
+    'Hand-edited deployment note: api_key=CredentialShape-2026-Blocked'
+);
+check(
+    count(array_filter($secretBodyDiagnostics, static fn(array $d): bool =>
+        ($d['code'] ?? '') === 'repository_secret_not_allowed'
+        && ($d['surface'] ?? '') === 'post_field'
+        && ($d['field'] ?? '') === 'body'
+    )) === 1,
+    'RepositoryAuthorization prevents a Git edit from bypassing canonical-content secret clearance'
+);
+$piiBodyDiagnostics = post_authorization_diagnostics(
+    $policy,
+    $source,
+    'Hand-edited private contact is person@example.test'
+);
+check(
+    count(array_filter($piiBodyDiagnostics, static fn(array $d): bool =>
+        ($d['code'] ?? '') === 'repository_pii_not_allowed'
+        && ($d['surface'] ?? '') === 'post_field'
+        && ($d['field'] ?? '') === 'body'
+    )) === 1,
+    'RepositoryAuthorization prevents a Git edit from bypassing canonical-content PII clearance'
 );
 $unknownFrontField = $source;
 $unknownFrontField['unsupported_front_field'] = 'must refuse';

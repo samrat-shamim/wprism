@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/PersonalData.php';
 require_once __DIR__ . '/../Kernel/Secrets.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
@@ -241,7 +242,7 @@ final class CaptureSafetyGates {
         if (!empty($rule['allow_secret'])) {
             return;
         }
-        $label = Secrets::hard_match_deep($value);
+        $label = Secrets::clearance_match_deep($key, $value);
         if ($label === null) {
             return;
         }
@@ -272,14 +273,20 @@ final class CaptureSafetyGates {
                 'surface' => $section,
                 'key' => $key,
                 'secret_shape' => $label,
-                'message' => 'authored state matched a secret signature',
+                'message' => 'authored state matched a secret or credential-shape signature',
                 'remediation' => 'reclassify it or record an explicit reviewed allow-secret decision',
             ]],
             $operatorMessage
         );
     }
 
-    public function guardPersonalData(string $key, $value, array $rule, string $login): void {
+    public function guardPersonalData(
+        string $section,
+        string $key,
+        $value,
+        array $rule,
+        string $context = ''
+    ): void {
         if (!empty($rule['allow_pii'])) {
             return;
         }
@@ -287,20 +294,88 @@ final class CaptureSafetyGates {
         if ($label === null) {
             return;
         }
-        $operatorMessage = "wprism: PII guard tripped — user_meta '$key' on exact login '$login' looks like $label but is "
+        $setSpec = "$section:$key=authored" . ($section === 'options' ? ',autoload=preserve' : '');
+        $operatorMessage = "wprism: PII guard tripped — $section '$key'$context looks like $label but is "
             . "classified authored; refusing to capture it into state/.\n"
-            . 'Keep it runtime/env, or declare "allow_pii": true on this exact user_meta rule after review.';
+            . "Keep it runtime/env, or record an exact reviewed exception:\n"
+            . "  wp wprism classify --repo={$this->repo} --set='$setSpec' --allow-pii";
         throw new CommandRefusalException(
             'personal_data_refused',
-            'capture found personal data on an authored user-meta surface',
+            'capture found personal data on an authored surface',
             'keep the named field environment-local, or record an explicit reviewed allow-pii decision',
             [[
                 'code' => 'personal_data_refused',
-                'surface' => 'user_meta',
+                'surface' => $section,
                 'key' => $key,
                 'personal_data_shape' => $label,
                 'message' => 'authored user meta matched a personal-data signature',
                 'remediation' => 'keep it environment-local or explicitly review allow-pii for this field',
+            ]],
+            $operatorMessage
+        );
+    }
+
+    /**
+     * Scan canonical prose/identity fields that have no per-field policy rule
+     * and therefore no review exception. Structured option/meta/table/widget
+     * values are gated at their declaration-aware capture boundaries.
+     */
+    public function assertCanonicalContent(array $entities): void {
+        foreach ($entities as $entity) {
+            $path = (string) ($entity['path'] ?? '');
+            $type = (string) ($entity['type'] ?? '');
+            $values = [];
+            if (str_starts_with($path, 'posts/')) {
+                [$front, $body] = Canon::parse_post_file((string) ($entity['content'] ?? ''));
+                foreach (['title', 'excerpt', 'author', 'alt'] as $field) {
+                    if (array_key_exists($field, $front)) {
+                        $values[$field] = $front[$field];
+                    }
+                }
+                $values['body'] = $body;
+            } elseif (str_starts_with($path, 'terms/')) {
+                $front = Canon::decode((string) ($entity['content'] ?? ''));
+                $values = array_intersect_key((array) $front, ['name' => true, 'description' => true]);
+            } elseif ($type === 'menu') {
+                $front = Canon::decode((string) ($entity['content'] ?? ''));
+                $values['name'] = $front['name'] ?? '';
+                foreach ((array) ($front['items'] ?? []) as $position => $item) {
+                    $item = (array) $item;
+                    unset($item['meta'], $item['uuid'], $item['parent'], $item['position']);
+                    $values['item_' . $position] = $item;
+                }
+            } elseif ($type === 'user-meta') {
+                $front = Canon::decode((string) ($entity['content'] ?? ''));
+                $values['login'] = $front['login'] ?? '';
+            }
+            foreach ($values as $field => $value) {
+                $secret = Secrets::clearance_match_deep((string) $field, $value);
+                if ($secret !== null) {
+                    $this->refuseUnruledContent($path, (string) $field, 'secret', $secret);
+                }
+                $pii = PersonalData::match_deep((string) $field, $value);
+                if ($pii !== null) {
+                    $this->refuseUnruledContent($path, (string) $field, 'personal data', $pii);
+                }
+            }
+        }
+    }
+
+    private function refuseUnruledContent(string $path, string $field, string $kind, string $label): never {
+        $operatorMessage = "wprism: canonical content clearance tripped — '$path' field '$field' contains $kind "
+            . "matching $label; refusing capture before publication.\n"
+            . 'Remove or redact it, move the owning type out of authored scope, or keep that content in an environment-local system.';
+        throw new CommandRefusalException(
+            $kind === 'secret' ? 'secret_state_refused' : 'personal_data_refused',
+            "capture found $kind in canonical content without a review-exception rule",
+            'remove/redact the named value or exclude its owning content type from canonical state',
+            [[
+                'code' => $kind === 'secret' ? 'secret_state_refused' : 'personal_data_refused',
+                'surface' => $path,
+                'key' => $field,
+                'data_shape' => $label,
+                'message' => "canonical content matched a $kind signature",
+                'remediation' => 'remove/redact it or exclude the owning content type from canonical state',
             ]],
             $operatorMessage
         );

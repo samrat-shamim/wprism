@@ -75,6 +75,7 @@
           "UserMetaState",
           "OrderPreserved",
           "PersonalData",
+          "PostPasswordBinding",
           "JsonRefs",
           "ReferenceKindGrammar",
           "ReferenceShapeGrammar",
@@ -114,7 +115,7 @@
             ]
           }
         ],
-        "file_count": 34,
+        "file_count": 35,
         "files": [
           "Canary.php",
           "Canon.php",
@@ -130,6 +131,7 @@
           "PathSafety.php",
           "PersonalData.php",
           "PlainData.php",
+          "PostPasswordBinding.php",
           "ProcessFence.php",
           "ReferenceKeyspaceGrammar.php",
           "ReferenceKindGrammar.php",

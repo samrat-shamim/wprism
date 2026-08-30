@@ -92,11 +92,11 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   canonical logical name — the `preview` alias for side 2 is gone from
   `grind_mup.sh`, the walk and this grind; side 2 is `<pair>2` for rehearsal
   and release alike.
-- A3 (loop): a product deleted from the target makes the next capture refuse
-  the deletion intent — `adapter-packages/woocommerce/package/manifest.json`
-  keeps product deletion
-  fail-closed by design — so the situation authors its catalog change on the
-  source instead of preview-then-delete.
+- A3 (loop, historical): this run predated guarded Woo deletion, so a product
+  deleted from the target made capture refuse. The current adapter admits
+  product/variation tombstones only under its closed active-plugin and locked
+  reverse-reference contract; the grind's old refusal remains evidence of the
+  earlier supported-subset decision, not the current capability.
 - A4 (first look, host side): `wprism assess`'s per-operation `wp wprism
   capabilities` reads answered the seed's core-only pin set while the
   inventory had been projected against the init proposal, so the catalog

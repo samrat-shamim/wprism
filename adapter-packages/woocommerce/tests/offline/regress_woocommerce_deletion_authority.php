@@ -1,14 +1,13 @@
 <?php
 /**
- * Offline deletion-engine regression using a bounded synthetic Woo contract.
+ * Offline deletion-engine regression using the shipped product contract and a
+ * bounded synthetic typed-table contract.
  *
  * This is deliberately target-free: live capture/apply owns the SQL and
- * WooCommerce API/cache probes. The pure contract here prevents a future
- * shipped Woo adapter intentionally advertises no delete authority because
- * an open extension ecosystem can add reverse references outside this grammar.
- * The synthetic declaration below keeps the generic locking, witness, typed-
- * reference, and child-before-parent machinery executable without turning
- * that mechanism test into a production capability claim.
+ * WooCommerce API/cache probes. The shipped product declaration is exercised
+ * directly; the synthetic declarations keep the generic typed-row locking,
+ * witness, reference, and child-before-parent machinery executable without
+ * turning those table selectors into production capability claims.
  */
 
 if (!defined('WPRISM_SPEC_VERSION')) {
@@ -16,6 +15,13 @@ if (!defined('WPRISM_SPEC_VERSION')) {
 }
 if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
+}
+if (!function_exists('get_option')) {
+    function get_option(string $name, mixed $default = false): mixed {
+        return $name === 'active_plugins'
+            ? ($GLOBALS['wprismWooDeletionActivePlugins'] ?? ['woocommerce/woocommerce.php'])
+            : $default;
+    }
 }
 $root = dirname(__DIR__, 4);
 
@@ -40,7 +46,7 @@ require $root . '/agent/src/Repository/IdentityNotes.php';
 require $root . '/agent/src/Repository/Snapshot.php';
 require $root . '/agent/src/Kernel/TransientDbException.php';
 require $root . '/agent/src/Publication/Publish.php';
-require $root . '/agent/src/Kernel/PersonalData.php';
+require_once $root . '/agent/src/Kernel/PersonalData.php';
 require $root . '/agent/src/Promotion/PromotionLock.php';
 require $root . '/agent/src/Repository/Identity.php';
 require $root . '/agent/src/Repository/IdentityBackup.php';
@@ -345,10 +351,24 @@ $shippedPolicy = Policy::load(
     null,
     \WPrism\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
 );
-check($shippedPolicy->deletion_capability('post:product') === null,
-    'shipped Woo adapter keeps product deletion fail-closed for the open extension ecosystem');
+check(($shippedPolicy->deletion_capability('post:product')['active_plugin_boundary'] ?? null) === 'declarers_only',
+    'shipped Woo product deletion is bounded to its complete declaring-plugin set');
+$GLOBALS['wprismWooDeletionActivePlugins'] = ['woocommerce/woocommerce.php', 'acme-extension/acme.php'];
+$foreignPluginRefused = false;
+try {
+    Deletion::capability($shippedPolicy, 'post', 'product');
+} catch (\WPrism\CommandRefusalException $refusal) {
+    $foreignPluginRefused = $refusal->reasonCode === 'deletion_plugin_boundary'
+        && str_contains($refusal->getMessage(), 'acme-extension/acme.php');
+}
+check($foreignPluginRefused,
+    'shipped Woo product deletion refuses a nonparticipating active extension before mutation');
+$GLOBALS['wprismWooDeletionActivePlugins'] = ['woocommerce/woocommerce.php'];
 $fixtureManifest = $shippedPolicy->manifests[0];
-$fixtureManifest['deletions'] = synthetic_woo_deletions();
+$fixtureManifest['deletions'] = array_merge(
+    synthetic_woo_deletions(),
+    (array) ($fixtureManifest['deletions'] ?? [])
+);
 $policy = (new ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
 $adapterLibrary = new ReflectionProperty(Policy::class, 'adapterLibrary');
 $adapterLibrary->setValue($policy, \WPrism\AdapterLibrary::fromSourcePackage($root, 'woocommerce'));
@@ -356,14 +376,14 @@ $policy->manifests = [$fixtureManifest];
 $variation = $policy->deletion_capability('post:product_variation');
 $product = $policy->deletion_capability('post:product');
 
-check($variation !== null, 'synthetic product_variation contract exercises explicit deletion authority');
+check($variation !== null, 'shipped product_variation contract exercises explicit deletion authority');
 check(Deletion::descriptor(['type' => 'post', 'data' => ['type' => 'product_variation']]) === [
     'kind' => 'post', 'type' => 'product_variation',
 ], 'capture deletion descriptor preserves the product_variation selector');
 check($variation['cascades'] === ['post_revisions', 'postmeta', 'term_relationships'],
     'product_variation declares the complete post-side cascade contract');
 $variationReasons = array_column($variation['guards'], 'reason');
-check(in_array('orders reference this product variation', $variationReasons, true),
+check(in_array('orders reference this variation', $variationReasons, true),
     'product_variation deletion guards Woo order lookup rows');
 $variationMetaGuard = array_values(array_filter(
     $variation['guards'],

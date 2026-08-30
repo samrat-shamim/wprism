@@ -13,8 +13,8 @@ use WPrism\Canon;
 use WPrism\CommandRefusalException;
 
 /**
- * The `wprism-assess-report/v1` document — the machine form of everything
- * `wprism assess` prints, and the only input `wprism contract propose` takes
+ * The `wprism-assess-report/v1` document — the complete machine form of
+ * everything `wprism assess` prints, and the only input `wprism contract propose` takes
  * (round-3 MUP §2.1, §3.4, §4.1).
  *
  * The document's schema is owned by its consumer,
@@ -55,6 +55,9 @@ use WPrism\CommandRefusalException;
  */
 final class AssessReport {
     public const FORMAT = ContractProposal::ASSESS_REPORT_FORMAT;
+
+    /** The bounded, non-authoritative projection selected by JSON view flags. */
+    public const VIEW_FORMAT = 'wprism-assess-view/v1';
 
     /**
      * The `dispositions` block's two sentences, owned by the schema's
@@ -135,9 +138,210 @@ final class AssessReport {
         return $report;
     }
 
-    /** Canonical bytes, exactly as `--format=json` emits them. */
+    /** Canonical bytes for a complete report, bounded view, or refusal. */
     public static function encode(array $report): string {
         return Canon::encode($report);
+    }
+
+    /**
+     * Parse the flags that select the bounded JSON projection.
+     *
+     * A bare `--format=json` keeps emitting the complete v1 report because
+     * contract tooling and existing automation consume that exact document.
+     * An explicit `--limit` or `--cursor` selects the view. The cursor is
+     * JSON-only: accepting it on the human renderer would silently discard a
+     * paging request.
+     *
+     * @param list<string> $args
+     * @return array{cursor:?string,limit:int}|null
+     */
+    public static function viewRequest(array $args, int $limit, bool $json): ?array {
+        $explicitLimit = false;
+        $cursor = null;
+        $cursorSeen = false;
+        foreach ($args as $arg) {
+            if (!is_string($arg)) {
+                throw self::invalidViewArguments();
+            }
+            if (str_starts_with($arg, '--limit=')) {
+                $explicitLimit = true;
+                continue;
+            }
+            if (!str_starts_with($arg, '--cursor')) {
+                continue;
+            }
+            if ($cursorSeen || !str_starts_with($arg, '--cursor=')) {
+                throw self::invalidViewArguments();
+            }
+            $cursorSeen = true;
+            $cursor = substr($arg, strlen('--cursor='));
+            if (!self::canonicalCursor($cursor)) {
+                throw self::invalidViewArguments();
+            }
+        }
+        if ($cursorSeen && !$json) {
+            throw self::invalidViewArguments();
+        }
+        if (!$json || (!$explicitLimit && !$cursorSeen)) {
+            return null;
+        }
+
+        return ['cursor' => $cursor, 'limit' => $limit];
+    }
+
+    /**
+     * Project one bounded page without changing the contract-bound report.
+     *
+     * The page index is one ordered stream: complete surface rows first,
+     * followed by the already value-free unknown-name sample. This makes one
+     * limit bound every variable report listing and lets emitted cursors
+     * enumerate the projection without duplicates. Full counts and readiness
+     * are computed before the slice, so a small page cannot hide a blocker.
+     *
+     * @param array<string,mixed> $report a validated `wprism-assess-report/v1`
+     * @param list<string> $operations
+     * @param array{cursor:?string,limit:int} $request
+     * @return array<string,mixed>
+     */
+    public static function view(array $report, array $operations, array $request, bool $ready): array {
+        ContractProposal::validateAssessReport($report);
+        $limit = $request['limit'];
+        if ($limit < 1 || $limit > 200) {
+            throw self::invalidViewArguments();
+        }
+
+        $surfaces = is_array($report['surfaces'] ?? null) ? array_values($report['surfaces']) : [];
+        $unknown = is_array($report['unknown'] ?? null) ? $report['unknown'] : [];
+        $names = is_array($unknown['names_sample'] ?? null) ? array_values($unknown['names_sample']) : [];
+        $rows = [];
+        foreach ($surfaces as $surface) {
+            $rows[] = ['kind' => 'surface', 'surface' => $surface];
+        }
+        foreach ($names as $name) {
+            $rows[] = ['kind' => 'unknown_name', 'name' => $name];
+        }
+
+        $digest = self::viewCursorDigest($report, $operations);
+        $offset = self::viewCursorOffset($request['cursor'], $digest, count($rows));
+        $shown = array_slice($rows, $offset, $limit);
+        $nextOffset = $offset + count($shown);
+        $remaining = count($rows) - $nextOffset;
+        $nextCursor = $remaining > 0 ? self::encodeViewCursor($digest, $nextOffset) : null;
+        $authority = is_array($report['authority'] ?? null) ? $report['authority'] : [];
+        $adoption = is_array($authority['adoption'] ?? null) ? $authority['adoption'] : null;
+        $scope = is_array($adoption['scope'] ?? null) ? $adoption['scope'] : [];
+
+        return [
+            'format' => self::VIEW_FORMAT,
+            'authoritative' => false,
+            'redaction' => 'authored_values_omitted',
+            'report' => [
+                'format' => self::FORMAT,
+                'generated_at' => (string) $report['generated_at'],
+                'env' => (string) $report['env'],
+                'assess_digest' => (string) $report['assess_digest'],
+            ],
+            'summary' => [
+                'readiness' => $ready ? 'ready' : 'blocked',
+                'operations' => array_values($operations),
+                'target' => $report['target'],
+                'authority' => [
+                    'access' => $authority['access'] ?? null,
+                    'driver' => $authority['driver'] ?? null,
+                    'transport' => $authority['transport'] ?? null,
+                    'repo_path' => $authority['repo_path'] ?? null,
+                    'doctor' => $authority['doctor'] ?? null,
+                    'installed' => $authority['installed'] ?? null,
+                    'adoption' => $adoption === null ? null : [
+                        'preview' => $adoption['preview'] ?? null,
+                        'ready' => ($adoption['ready'] ?? false) === true,
+                        'adapters' => count(is_array($adoption['adapters'] ?? null) ? $adoption['adapters'] : []),
+                        'left_local' => count(is_array($scope['left_local'] ?? null) ? $scope['left_local'] : []),
+                        'advisories' => count(is_array($adoption['advisories'] ?? null) ? $adoption['advisories'] : []),
+                        'unsupported' => count(is_array($adoption['unsupported'] ?? null) ? $adoption['unsupported'] : []),
+                    ],
+                ],
+                'counts' => [
+                    'surfaces' => count($surfaces),
+                    'unknown_names' => count($names),
+                    'rows' => count($rows),
+                    'pending_classifications' => (int) ($unknown['pending_count'] ?? 0),
+                    'invisible_option_names' => (int) ($unknown['invisible_names_count'] ?? 0),
+                    'undeclared_tables' => (int) ($unknown['undeclared_tables_count'] ?? 0),
+                ],
+                'evidence' => $report['evidence'],
+                'dispositions' => $report['dispositions'],
+            ],
+            'page' => [
+                'offset' => $offset,
+                'shown' => count($shown),
+                'remaining' => $remaining,
+                'next_cursor' => $nextCursor,
+                'has_more' => $nextCursor !== null,
+            ],
+            'rows' => $shown,
+        ];
+    }
+
+    /** @param array<string,mixed> $report @param list<string> $operations */
+    private static function viewCursorDigest(array $report, array $operations): string {
+        $facts = $report;
+        unset($facts['generated_at'], $facts['assess_digest']);
+
+        return hash('sha256', "wprism-assess-view-cursor/v1\n"
+            . implode(',', $operations) . "\n" . Canon::encode($facts), true);
+    }
+
+    private static function viewCursorOffset(?string $cursor, string $digest, int $total): int {
+        if ($cursor === null) {
+            return 0;
+        }
+        $raw = self::decodeViewCursor($cursor);
+        $offset = unpack('Noffset', substr($raw, 32, 4))['offset'] ?? 0;
+        if (!hash_equals($digest, substr($raw, 0, 32)) || $offset < 1 || $offset >= $total) {
+            throw new CommandRefusalException(
+                'assess_view_cursor_stale',
+                'the assessment changed since this view cursor was issued',
+                'rerun assess with --format=json and --limit=<1..200> without --cursor, then follow its next_cursor'
+            );
+        }
+
+        return $offset;
+    }
+
+    private static function encodeViewCursor(string $digest, int $offset): string {
+        return rtrim(strtr(base64_encode($digest . pack('N', $offset)), '+/', '-_'), '=');
+    }
+
+    private static function decodeViewCursor(string $cursor): string {
+        $raw = base64_decode(strtr($cursor, '-_', '+/'), true);
+        if (!is_string($raw) || strlen($raw) !== 36
+            || self::encodeViewCursor(
+                substr($raw, 0, 32),
+                unpack('Noffset', substr($raw, 32, 4))['offset'] ?? 0
+            ) !== $cursor) {
+            throw self::invalidViewArguments();
+        }
+
+        return $raw;
+    }
+
+    private static function canonicalCursor(string $cursor): bool {
+        try {
+            self::decodeViewCursor($cursor);
+        } catch (CommandRefusalException) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static function invalidViewArguments(): CommandRefusalException {
+        return new CommandRefusalException(
+            'invalid_arguments',
+            'assess received a malformed JSON view request',
+            'use --format=json with at most one --limit=<1..200> and at most one emitted --cursor=<token>'
+        );
     }
 
     /**

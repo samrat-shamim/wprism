@@ -424,9 +424,11 @@ final class DeleteGuardEvaluator {
      */
     public static function lock_index(array $guard, string $table): ?string {
         global $wpdb;
-        $lockColumn = array_key_exists('meta_key', $guard) || array_key_exists('ref', $guard)
+        $lockColumn = isset($guard['lock_column'])
+            ? (string) $guard['lock_column']
+            : (array_key_exists('meta_key', $guard) || array_key_exists('ref', $guard)
             ? 'meta_key'
-            : (!empty($guard['option_name_ref']) ? 'option_name' : (string) ($guard['column'] ?? ''));
+            : (!empty($guard['option_name_ref']) ? 'option_name' : (string) ($guard['column'] ?? '')));
         $rows = $wpdb->get_results("SHOW INDEX FROM `$table`", ARRAY_A) ?: [];
         $indexes = [];
         foreach ($rows as $row) {
@@ -449,9 +451,11 @@ final class DeleteGuardEvaluator {
                 continue;
             }
             $prefix = $first['prefix'] ?? null;
-            if ($prefix !== null && array_key_exists('meta_key', $guard)
-                && strlen((string) $guard['meta_key']) > $prefix) {
-                continue;
+            if ($prefix !== null && $lockColumn === 'meta_key') {
+                $literal = (string) ($guard['meta_key'] ?? (($guard['where'] ?? [])['meta_key'] ?? ''));
+                if ($literal === '' || strlen($literal) > $prefix) {
+                    continue;
+                }
             }
             return $name;
         }

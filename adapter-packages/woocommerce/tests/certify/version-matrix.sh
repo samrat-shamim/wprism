@@ -251,7 +251,7 @@ foreach ($policy->manifests as $manifest) {
 $valid = array_column($loaded, "name") === ["core", "woocommerce"]
     && ($woocommerce["version_range"] ?? null) === ["min" => "11.0.0", "max" => "11.0.2"]
     && ($evidence["rules"]["option:pickup_location_pickup_locations"] ?? null) === [
-        "rule" => ["class" => "authored", "plain_data" => true, "autoload" => "preserve"],
+        "rule" => ["class" => "authored", "plain_data" => true, "allow_pii" => true, "autoload" => "preserve"],
         "source" => "woocommerce",
     ]
     && ($evidence["rules"]["option:woocommerce_bacs_settings"] ?? null) === [
@@ -307,7 +307,7 @@ echo $json;
     and .[0].format == "wprism-woocommerce-preapply-authority/v1"
     and (.[0].loaded_manifests | map(.name) == ["core", "woocommerce"])
     and (.[0].loaded_manifests | all(.source == "shipped" and (.file | type == "string" and length > 0) and (.path | type == "string" and length > 0) and (.sha256 | test("^[0-9a-f]{64}$"))))
-    and .[0].rules["option:pickup_location_pickup_locations"] == {rule:{class:"authored",plain_data:true,autoload:"preserve"},source:"woocommerce"}
+    and .[0].rules["option:pickup_location_pickup_locations"] == {rule:{class:"authored",plain_data:true,allow_pii:true,autoload:"preserve"},source:"woocommerce"}
     and .[0].rules["option:woocommerce_bacs_settings"].source == "woocommerce"
     and .[0].rules["option:woocommerce_bacs_settings"].rule.class == "env"
     and .[0].rules["option:woocommerce_bacs_settings"].rule.closed_sub_keys == true
@@ -503,11 +503,17 @@ check_woocommerce_boundary_lifecycle() { # <exact-version> <verified-artifact>
   pass "WooCommerce $version deactivate/reactivate, retained-data uninstall, absent-code refusal, digest-bound exact reinstall, native readback, recapture modulo declared derived product timestamps, and retry are clean"
 }
 
-check_woocommerce_product_delete_refusal() { # <exact-version>
-  local version="$1" repo="siterepo/${PAIR}2" product order lookup_before lookup_after
-  local product_file product_uuid expected_hash expected_revision source_path backup
-  local before_tree after_tree before_head after_head before_origin after_origin plan_rc apply_rc force_rc plan_out apply_out force_out retry
-  product=$(wp2 eval '$id=(int) wc_get_product_id_by_sku("CONF-WIDGET-1"); echo $id;')
+check_woocommerce_product_deletion() { # <exact-version>
+  local version="$1" repo="siterepo/${PAIR}2" source_repo="siterepo/${PAIR}1"
+  local product order lookup_before lookup_after product_file product_uuid expected_hash expected_revision source_path backup
+  local before_tree after_tree before_head after_head before_origin after_origin plan_rc apply_rc plan_out apply_out retry
+  local disposable_sku disposable_slug disposable_source disposable_target disposable_file disposable_uuid
+  local revision delete_file delete_plan delete_apply final_plan final_diff residue
+
+  # First prove the ordinary guard posture on a product referenced by a native
+  # HPOS order.  The plan must describe the blocked deletion, and apply must
+  # refuse without requiring an operator to risk the force override.
+  product=$(wp2 eval '$id=(int) wc_get_product_id_by_sku("CONF-EXTERNAL-1"); echo $id;')
   require_fixture_ids product
   order=$(wp2 eval "
 \$product = wc_get_product($product);
@@ -523,11 +529,17 @@ if (!\$product) { throw new RuntimeException('WooCommerce deletion fixture produ
     sleep 2
   done
   [ "$lookup_before" -ge 1 ] || fail "WooCommerce $version deletion fixture did not materialize its native order-product lookup"
-  product_file=$(find "$repo/state/posts/product" -type f -name '*--conformance-widget.md' -print -quit)
+  product_file=$(find "$repo/state/posts/product" -type f -name '*--conformance-external-partner.md' -print -quit)
   [ -n "$product_file" ] || fail "WooCommerce $version deletion fixture cannot locate the captured product state"
   product_uuid=$(basename "$product_file" | cut -d- -f1-5)
   [[ "$product_uuid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || fail "WooCommerce $version deletion fixture has a malformed product UUID"
-  expected_hash=$(shasum -a 256 "$product_file" | awk '{print $1}')
+  # External-product URLs are deliberately materialized for the target host,
+  # so its last-synced base is not the source file's canonical byte hash. Bind
+  # the target-side intent to the ledger base that plan compares with the live
+  # target; otherwise a legitimate guard probe is only a stale-base conflict.
+  expected_hash=$(wp2 db query "SELECT content_hash FROM wp_wprism_state WHERE uuid='$product_uuid'" --skip-column-names | tr -d '[:space:]')
+  require_observed_nonempty "WooCommerce $version deletion expected target base" "$expected_hash"
+  [[ "$expected_hash" =~ ^[0-9a-f]{64}$ ]] || fail "WooCommerce $version deletion expected target base is malformed"
   expected_revision=$(wp2 eval 'echo \WPrism\RepositoryCompiler::compile("/siterepo", \WPrism\Policy::load("/siterepo"))->revision_hash();')
   require_observed_nonempty "WooCommerce $version deletion expected revision" "$expected_revision"
   source_path="posts/product/$(basename "$product_file")"; backup="$repo/.tmp-woocommerce-product-delete.md"
@@ -537,15 +549,17 @@ if (!\$product) { throw new RuntimeException('WooCommerce deletion fixture produ
   before_tree=$(git -C "$repo" status --porcelain); before_head=$(git -C "$repo" rev-parse HEAD); before_origin=$(git -C "$repo" rev-parse refs/remotes/origin/main)
   set +e
   plan_rc=0; plan_out=$(wp2 wprism plan --repo=/siterepo --format=json 2>&1) || plan_rc=$?
-  require_wprism_answered "WooCommerce $version deletion refusal plan" json "$plan_out"
+  require_wprism_answered "WooCommerce $version referenced deletion plan" json "$plan_out"
   apply_rc=0; apply_out=$(wp2 wprism apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || apply_rc=$?
-  require_wprism_answered "WooCommerce $version deletion refusal apply" human "$apply_out"
-  force_rc=0; force_out=$(wp2 wprism apply --repo=/siterepo --with-deletes --force-delete-referenced --default-author=admin 2>&1) || force_rc=$?
-  require_wprism_answered "WooCommerce $version forced deletion refusal apply" human "$force_out"
+  require_wprism_answered "WooCommerce $version referenced deletion apply" human "$apply_out"
   set -e
-  [ "$plan_rc" -ne 0 ] && [ "$apply_rc" -ne 0 ] && [ "$force_rc" -ne 0 ] || fail "WooCommerce $version accepted unsupported product deletion"
-  for output in "$plan_out" "$apply_out" "$force_out"; do grep -Fq 'deletion intent for post:product is unsupported' <<<"$output" || fail "WooCommerce $version deletion refusal did not name the missing capability: $output"; done
-  [ "$(wp2 eval '$id=(int) wc_get_product_id_by_sku("CONF-WIDGET-1"); echo $id;')" = "$product" ] || fail "WooCommerce $version refusal changed the target product identity"
+  [ "$plan_rc" -eq 0 ] || fail "WooCommerce $version referenced product plan failed instead of reporting its guard: $plan_out"
+  echo "$plan_out" | tail -1 | jq -e --arg uuid "$product_uuid" \
+    '[.delete[]? | select(.uuid == $uuid and (.blocked // "") != "")] | length == 1' >/dev/null \
+    || fail "WooCommerce $version referenced product plan omitted its blocking guard: $plan_out"
+  [ "$apply_rc" -ne 0 ] && grep -Fq 'deletes blocked by referential guards' <<<"$apply_out" \
+    || fail "WooCommerce $version referenced product apply did not refuse at its guard: $apply_out"
+  [ "$(wp2 eval '$id=(int) wc_get_product_id_by_sku("CONF-EXTERNAL-1"); echo $id;')" = "$product" ] || fail "WooCommerce $version refusal changed the target product identity"
   lookup_after=$(wp2 db query "SELECT COUNT(*) FROM wp_wc_order_product_lookup WHERE order_id=$order AND product_id=$product" --skip-column-names)
   require_observed_nonempty "WooCommerce $version retained order lookup count" "$lookup_after"
   [ "$lookup_after" = "$lookup_before" ] || fail "WooCommerce $version refusal changed the native order-product lookup"
@@ -558,7 +572,81 @@ if (!\$product) { throw new RuntimeException('WooCommerce deletion fixture produ
   require_wprism_answered "WooCommerce $version deletion retry plan" json "$retry"
   echo "$retry" | jq -e '(.delete | length) == 0 and (.delete_conflict | length) == 0' >/dev/null || fail "WooCommerce $version deletion retry did not settle after intent removal: $retry"
   [ -z "$(git -C "$repo" status --porcelain)" ] || fail "WooCommerce $version deletion fixture did not restore its disposable repository state"
-  pass "WooCommerce $version product deletion refuses before product/order/repository mutation and retry settles"
+  pass "WooCommerce $version referenced product deletion is visibly guard-blocked before product/order/repository mutation"
+
+  # Then exercise the supported envelope through the real source capture,
+  # Git transfer, target plan/apply, derived cleanup, and target recapture.
+  disposable_sku="WPRISM-DELETE-${version//./-}"
+  disposable_slug=$(printf '%s' "$disposable_sku" | tr '[:upper:]' '[:lower:]')
+  disposable_source=$(wp1 eval '
+$sku = '"'"$disposable_sku"'"';
+if (wc_get_product_id_by_sku($sku)) { throw new RuntimeException("disposable deletion SKU already exists"); }
+$product = new WC_Product_Simple();
+$product->set_name("WPrism disposable deletion proof");
+$product->set_slug(strtolower($sku));
+$product->set_sku($sku);
+$product->set_regular_price("7.00");
+$product->set_status("publish");
+$product->save();
+echo $product->get_id();')
+  require_fixture_ids disposable_source
+  wp1 wprism capture --repo=/siterepo >/dev/null
+  disposable_file=$(find "$source_repo/state/posts/product" -type f -name "*--$disposable_slug.md" -print -quit)
+  [ -n "$disposable_file" ] || fail "WooCommerce $version source capture omitted the disposable product"
+  disposable_uuid=$(basename "$disposable_file" | cut -d- -f1-5)
+  [[ "$disposable_uuid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
+    || fail "WooCommerce $version disposable product UUID is malformed"
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "capture: woocommerce $version disposable deletion product"
+  "${GIT1[@]}" push -q origin main
+  git -C "$repo" pull -q origin main
+  revision=$(git -C "$repo" rev-parse HEAD)
+  wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$revision" >/dev/null
+  disposable_target=$(wp2 eval '$id=(int) wc_get_product_id_by_sku('"'"$disposable_sku"'"'); echo $id;')
+  require_fixture_ids disposable_target
+
+  wp1 eval '$product = wc_get_product((int) wc_get_product_id_by_sku('"'"$disposable_sku"'"')); if (!$product) { throw new RuntimeException("disposable source product missing"); } $product->delete(true);' >/dev/null
+  [ "$(wp1 eval 'echo (int) wc_get_product_id_by_sku('"'"$disposable_sku"'"');')" = 0 ] \
+    || fail "WooCommerce $version native source deletion did not remove the disposable product"
+  wp1 wprism capture --repo=/siterepo >/dev/null
+  delete_file="$source_repo/state/deletions/$disposable_uuid.json"
+  jq -e --arg uuid "$disposable_uuid" --arg source_path "posts/product/$(basename "$disposable_file")" \
+    '.kind == "post" and .type == "product" and .uuid == $uuid and .source_path == $source_path' "$delete_file" >/dev/null \
+    || fail "WooCommerce $version source capture did not emit the exact product tombstone"
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "capture: woocommerce $version delete disposable product"
+  "${GIT1[@]}" push -q origin main
+  git -C "$repo" pull -q origin main
+  revision=$(git -C "$repo" rev-parse HEAD)
+  delete_plan=$(wp2 wprism plan --repo=/siterepo --format=json | tail -1)
+  require_wprism_answered "WooCommerce $version unreferenced deletion plan" json "$delete_plan"
+  echo "$delete_plan" | jq -e '[.delete[]? | select(.type == "post" and .deletion_type == "product" and ((.blocked // "") == ""))] | length == 1' >/dev/null \
+    || fail "WooCommerce $version unreferenced product was not one clean planned delete: $delete_plan"
+  delete_apply=$(wp2 wprism apply --repo=/siterepo --with-deletes --default-author=admin --revision="$revision" --format=json | tail -1)
+  require_wprism_answered "WooCommerce $version unreferenced deletion apply" json "$delete_apply"
+  echo "$delete_apply" | jq -e '.canary == "clean"' >/dev/null \
+    || fail "WooCommerce $version unreferenced product deletion did not finish canary-clean: $delete_apply"
+  [ "$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"$disposable_sku"'"');')" = 0 ] \
+    || fail "WooCommerce $version target retained the deleted product"
+  residue=$(wp2 db query "
+SELECT
+  (SELECT COUNT(*) FROM wp_posts WHERE ID=$disposable_target OR post_parent=$disposable_target) +
+  (SELECT COUNT(*) FROM wp_postmeta WHERE post_id=$disposable_target) +
+  (SELECT COUNT(*) FROM wp_term_relationships WHERE object_id=$disposable_target) +
+  (SELECT COUNT(*) FROM wp_wc_product_meta_lookup WHERE product_id=$disposable_target) +
+  (SELECT COUNT(*) FROM wp_wc_product_attributes_lookup WHERE product_id=$disposable_target OR product_or_parent_id=$disposable_target)
+" --skip-column-names | tr -d '\r')
+  require_observed_nonempty "WooCommerce $version deleted product residue count" "$residue"
+  [ "$residue" = 0 ] || fail "WooCommerce $version deleted product left $residue core or Woo lookup row(s)"
+  final_plan=$(wp2 wprism plan --repo=/siterepo --format=json | tail -1)
+  require_wprism_answered "WooCommerce $version deletion settled plan" json "$final_plan"
+  echo "$final_plan" | jq -e '(.delete | length) == 0 and (.delete_conflict | length) == 0' >/dev/null \
+    || fail "WooCommerce $version product deletion did not settle: $final_plan"
+  wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-woo-product-delete-final >/dev/null
+  final_diff=$(diff -rq "$source_repo/state" "$repo/.tmp-woo-product-delete-final" || true)
+  rm -rf "$repo/.tmp-woo-product-delete-final"
+  [ -z "$final_diff" ] || fail "WooCommerce $version product deletion recapture diverged: $final_diff"
+  pass "WooCommerce $version unreferenced product deletes canary-clean with core/Woo lookup cleanup and byte-identical recapture"
 }
 
 VMATRIX_PLUGIN_SLUG=woocommerce
@@ -691,7 +779,7 @@ EOF
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at woocommerce $WOO_VERSION: $DIFF_OUT"
   pass "byte-identical recapture at woocommerce $WOO_VERSION — the exact in-range release is proven through the full product path"
 
-  check_woocommerce_product_delete_refusal "$WOO_VERSION"
+  check_woocommerce_product_deletion "$WOO_VERSION"
 
   check_woocommerce_boundary_lifecycle "$WOO_VERSION" "$ARTIFACT_2"
 

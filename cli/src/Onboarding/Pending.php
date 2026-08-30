@@ -20,7 +20,8 @@ require_once dirname(__DIR__) . '/Plan/HumanViewLimit.php';
  *                post_type: string,   // taxonomy name when kind is 'term'
  *                at: string},         // locator inside the value, '' when
  *                                     // the id IS the whole value
- *    secret?: string}  // "hard:<label>" or "suspicious"
+ *    secret?: string,  // redacted secret/credential label
+ *    pii?: string}     // redacted personal-data label
  * `surfaces`/`caps` are {name => count} maps, not lists -- the compact
  * evidence string below names surfaces only (via array_keys()), matching
  * the mission's "journal n=14 rest/admin" style rather than the agent's own
@@ -59,6 +60,7 @@ final class Pending {
                 'evidence' => self::formatEvidence($evidence, $section),
                 'refHint' => self::formatRefHint($refHint),
                 'secret' => self::str($it['secret'] ?? null, ''),
+                'pii' => self::str($it['pii'] ?? null, ''),
             ];
         }
 
@@ -72,6 +74,9 @@ final class Pending {
             $line = sprintf("%-{$w1}s  %-{$w2}s  %-{$w3}s  %s", $r['sectionKey'], $r['proposal'], $r['evidence'], $r['refHint']);
             if ($r['secret'] !== '') {
                 $line .= "  \033[1;31m[SECRET: {$r['secret']}]\033[0m";
+            }
+            if ($r['pii'] !== '') {
+                $line .= "  \033[1;31m[PII: {$r['pii']}]\033[0m";
             }
             $lines[] = $line;
         }

@@ -143,6 +143,7 @@ namespace {
         $journalRow(9, 'options', 'acme_public_flag', 'admin', 'manage_options', 'authored'),
         $journalRow(10, 'options', 'acme_api_endpoint', 'admin', 'manage_options', 'authored'),
         $journalRow(11, 'options', 'acme_featured_post', 'admin', 'manage_options', 'authored'),
+        $journalRow(13, 'options', 'acme_contact_email', 'admin', 'manage_options', 'authored'),
         // tbl != 'options': the ownership question is options-scoped, so a
         // post_meta key that happens to share a widget option's NAME is still
         // an ordinary review item.
@@ -163,6 +164,7 @@ namespace {
         ['option_id' => 8, 'option_name' => 'acme_public_flag', 'option_value' => '1', 'autoload' => 'yes'],
         ['option_id' => 9, 'option_name' => 'acme_api_endpoint', 'option_value' => 'https://api.acme.test/v2', 'autoload' => 'yes'],
         ['option_id' => 10, 'option_name' => 'acme_featured_post', 'option_value' => '42', 'autoload' => 'yes'],
+        ['option_id' => 11, 'option_name' => 'acme_contact_email', 'option_value' => 'reviewer@example.test', 'autoload' => 'yes'],
     ]);
     // The journal's postmeta half joins onto gate findings rather than
     // standing alone (Pending.php:120-124), so the options-scoping assertion
@@ -226,7 +228,7 @@ namespace {
     $keys = array_map(static fn(array $i): string => $i['section'] . ':' . $i['key'], $items);
 
     wprism_check_same(
-        ['options:acme_api_endpoint', 'options:acme_featured_post', 'options:acme_public_flag', 'post_meta:widget_text'],
+        ['options:acme_api_endpoint', 'options:acme_contact_email', 'options:acme_featured_post', 'options:acme_public_flag', 'post_meta:widget_text'],
         $keys,
         'only genuinely undeclared names are queued; every widget_*, sidebars_widgets and theme_mods_* observation is out'
     );
@@ -246,6 +248,15 @@ namespace {
         ['n' => 1, 'surfaces' => ['admin' => 1], 'caps' => ['edit_posts' => 1], 'proposal' => 'authored'],
         $byKey['post_meta:widget_text']['evidence']['journal'] ?? null,
         "a post_meta key named 'widget_text' keeps its journal evidence: the filter never leaves the options table"
+    );
+    wprism_check_same(
+        'email address',
+        $byKey['options:acme_contact_email']['pii'] ?? null,
+        'the pending queue exposes only the PII category needed for reviewed allow_pii, never the live value'
+    );
+    wprism_check(
+        !str_contains(json_encode($byKey['options:acme_contact_email']), 'reviewer@example.test'),
+        'pending PII evidence stays value-redacted'
     );
 
     // ------------------------------------------------------- not silenced (a)

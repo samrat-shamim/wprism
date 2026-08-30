@@ -26,7 +26,7 @@ final class DeletionCapabilityResolver {
     ) {}
 
     /**
-     * @return ?array{cascades:string[],guards:array<int,array<string,mixed>>,declared_by:string[]}
+     * @return ?array{cascades:string[],guards:array<int,array<string,mixed>>,declared_by:string[],active_plugin_boundary?:string,declaring_plugins?:string[]}
      */
     public function capability(string $selector): ?array {
         $out = null;
@@ -40,6 +40,17 @@ final class DeletionCapabilityResolver {
             }
             $cascades = array_values(array_unique(array_map('strval', $decl['cascades'])));
             sort($cascades, SORT_STRING);
+            $pluginBoundary = $decl['active_plugin_boundary'] ?? null;
+            if ($pluginBoundary !== null && $pluginBoundary !== 'declarers_only') {
+                throw new \RuntimeException(
+                    "wprism: manifest deletion capability '$selector' active_plugin_boundary must be declarers_only"
+                );
+            }
+            if ($out !== null && ($out['active_plugin_boundary'] ?? null) !== $pluginBoundary) {
+                throw new \RuntimeException(
+                    "wprism: every declaration of deletion capability '$selector' must agree on its active-plugin boundary"
+                );
+            }
             $guards = $decl['guards'] ?? [];
             if (!is_array($guards) || !array_is_list($guards)) {
                 throw new \RuntimeException("wprism: manifest deletion capability '$selector' guards must be a list");
@@ -70,6 +81,15 @@ final class DeletionCapabilityResolver {
                     throw new \RuntimeException(
                         "wprism: manifest deletion capability '$selector' guard[$i] cannot combine option_name_ref with a metadata guard"
                     );
+                }
+                if (isset($guard['lock_column'])) {
+                    $lockColumn = (string) $guard['lock_column'];
+                    if (!preg_match('/^[A-Za-z0-9_]+$/', $lockColumn)
+                        || !array_key_exists($lockColumn, (array) ($guard['where'] ?? []))) {
+                        throw new \RuntimeException(
+                            "wprism: manifest deletion capability '$selector' guard[$i].lock_column must name an exact where predicate"
+                        );
+                    }
                 }
                 if ($hasOptionNameRef
                     && ((string) $guard['table'] !== 'options' || (string) $guard['column'] !== 'option_name')) {
@@ -170,6 +190,18 @@ final class DeletionCapabilityResolver {
             }
             $out['guards'] = array_merge($out['guards'], $guards);
             $out['declared_by'][] = $source;
+            if ($pluginBoundary !== null) {
+                $plugin = $manifest['plugin'] ?? null;
+                if (!is_string($plugin) || $plugin === '') {
+                    throw new \RuntimeException(
+                        "wprism: deletion capability '$selector' declarers_only boundary requires a plugin-owned manifest"
+                    );
+                }
+                $out['active_plugin_boundary'] = $pluginBoundary;
+                $out['declaring_plugins'][] = $plugin;
+                $out['declaring_plugins'] = array_values(array_unique($out['declaring_plugins']));
+                sort($out['declaring_plugins'], SORT_STRING);
+            }
         }
         return $out;
     }

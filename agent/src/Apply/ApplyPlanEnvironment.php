@@ -33,10 +33,10 @@ final class ApplyPlanEnvironment {
     }
 
     /** @return array{env_missing:list<array{name:string,required:bool}>,warnings:list<string>} */
-    public function env_missing_projection(): array {
+    public function env_missing_projection(array $tree = []): array {
         global $wpdb;
         $expected = EnvironmentValues::read($this->repo);
-        return ApplyPlanner::env_missing_projection(
+        $projection = ApplyPlanner::env_missing_projection(
             $this->policy->env_options(),
             fn(string $name): mixed => $wpdb->get_var($wpdb->prepare(
                 "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
@@ -44,5 +44,35 @@ final class ApplyPlanEnvironment {
             )),
             fn(string $name): ?string => isset($expected[$name]) ? (string) $expected[$name] : null
         );
+        foreach ($tree as $uuid => $entity) {
+            if (!is_array($entity) || ($entity['type'] ?? null) !== 'post') {
+                continue;
+            }
+            $front = is_array($entity['data'] ?? null) ? $entity['data'] : [];
+            if (!array_key_exists('password_binding', $front)) {
+                continue;
+            }
+            $binding = EnvironmentValues::postPasswordName((string) $uuid);
+            if (!is_string($front['password_binding']) || !hash_equals($binding, $front['password_binding'])) {
+                throw new \RuntimeException('wprism: canonical protected post carries an invalid password binding');
+            }
+            $intended = $expected[$binding] ?? null;
+            $postId = Ledger::id_for((string) $uuid, Ledger::KIND_POST);
+            $live = $postId === null ? null : $wpdb->get_var($wpdb->prepare(
+                "SELECT post_password FROM {$wpdb->posts} WHERE ID = %d LIMIT 1",
+                $postId
+            ));
+            $matches = is_string($intended) && $intended !== ''
+                && ($postId === null || (is_string($live) && hash_equals($intended, $live)));
+            if ($matches) {
+                continue;
+            }
+            $projection['env_missing'][] = ['name' => $binding, 'required' => true];
+            $state = $intended === null ? 'not yet provisioned' : 'different from its intended value';
+            $projection['warnings'][] = "env_missing: post password binding '$binding' is required and $state on "
+                . "this environment — see 'wp wprism env-set --name=$binding --stdin'";
+        }
+
+        return $projection;
     }
 }

@@ -9,9 +9,9 @@ namespace WPrism;
  *   - hard_match(): high-confidence vendor token shapes. A hit is a fact, not
  *     a guess — this is what ABORTS capture (Capture's authored-value guard)
  *     and what `wp wprism classify --set ...=authored` refuses by default.
- *   - suspicious(): key-name-plus-shape heuristic. A weak signal only — never
- *     blocks anything by itself; it exists purely to put a flag on `wp wprism
- *     pending` items so a human looks twice.
+ *   - suspicious(): key-name-plus-shape heuristic. Pending uses it as review
+ *     evidence; capture's clearance_match_deep() promotes the same signal to
+ *     a refusal once the operator classifies that surface authored.
  *
  * Scope boundary (issue #3232, stated explicitly rather than left an implicit
  * gap): this class only ever scans values Capture pulls OUT of a live
@@ -25,8 +25,7 @@ namespace WPrism;
  * flag it.
  */
 final class Secrets {
-    /** Values larger than this are never scanned (cheap-scan requirement;
-     *  centralized here so every call site gets it for free). */
+    /** Scalar helpers stay bounded; clearance scans long values in overlapping windows. */
     private const MAX_LEN = 65536;
 
     /** @var array<string,string> PCRE body (no delimiters) => short label */
@@ -86,8 +85,8 @@ final class Secrets {
      * the shape of one (>=16 chars, mixed character classes — "mixed" here
      * means at least two of {lowercase, uppercase, digit, other} are
      * present, which a plain word or sentence rarely satisfies but a
-     * generated token almost always does). Used only to flag `wp wprism
-     * pending` items for human triage — never to block by itself.
+     * generated token almost always does). Pending remains flag-only; capture
+     * deliberately consumes it through clearance_match_deep().
      */
     public static function suspicious(string $key, string $v): bool {
         if (strlen($v) < 16 || strlen($v) > self::MAX_LEN) {
@@ -137,12 +136,68 @@ final class Secrets {
     }
 
     /**
+     * Blocking capture scan: hard signatures, credential-shaped classified
+     * keys, and labelled credentials embedded in prose. Long strings are
+     * windowed rather than silently exempted by hard_match()'s cheap-scan
+     * ceiling; the overlap exceeds the longest supported token signature.
+     */
+    public static function clearance_match_deep(string $key, $v): ?string {
+        if (is_string($v)) {
+            foreach (self::windows($v) as $window) {
+                $hard = self::hard_match($window);
+                if ($hard !== null) {
+                    return $hard;
+                }
+                if (self::suspicious($key, $window)) {
+                    return 'credential-shaped value';
+                }
+                if (preg_match_all(
+                    '/(?:api[ _-]?key|secret|token|passw(?:or)?d|private[ _-]?key)\s*[:=]\s*["\']?([A-Za-z0-9_+\/.=-]{16,4096})/i',
+                    $window,
+                    $matches
+                )) {
+                    foreach ($matches[1] as $candidate) {
+                        if (self::suspicious('secret', (string) $candidate)) {
+                            return 'labelled credential-shaped value';
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+        if (!is_array($v)) {
+            return null;
+        }
+        foreach ($v as $childKey => $child) {
+            $nestedKey = is_string($childKey) ? $childKey : $key;
+            $label = self::clearance_match_deep($nestedKey, $child);
+            if ($label !== null) {
+                return $label;
+            }
+        }
+        return null;
+    }
+
+    /** @return \Generator<int,string> */
+    private static function windows(string $value): \Generator {
+        $length = strlen($value);
+        if ($length <= self::MAX_LEN) {
+            yield $value;
+            return;
+        }
+        for ($offset = 0; $offset < $length; $offset += 32768) {
+            yield substr($value, $offset, self::MAX_LEN);
+        }
+    }
+
+    /**
      * Recursive suspicious(): same array walk as hard_match_deep(), for the
      * heuristic tier. $key is the OUTERMOST key (the meta key / column
      * name) — suspicious() was never nested-key-aware for scalars either
      * (it always took one flat key), so this only widens WHICH VALUES get
      * compared against that one key name; it does not re-derive a key name
-     * per nesting level. Flag-only, exactly like suspicious() — never blocks.
+     * per nesting level. Pending uses this as evidence; clearance_match_deep()
+     * is the explicit blocking consumer.
      */
     public static function suspicious_deep(string $key, $v): bool {
         if (is_string($v)) {

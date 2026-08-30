@@ -432,7 +432,7 @@ final class ApplyRequestCoordinator {
             $this->services->snapshot_row_tables(),
             $this->scopedWorkflow->scopeContract,
             fn(): array => $this->planEnvironment->regeneration_debt_projection(),
-            fn(): array => $this->planEnvironment->env_missing_projection(),
+            fn(array $tree = []): array => $this->planEnvironment->env_missing_projection($tree),
             $this->warnings
         );
         $result = $builder->build($opts, $compiled, $strictObservation, $diagnoseAdapters);
@@ -562,6 +562,54 @@ final class ApplyRequestCoordinator {
      */
     public static function set_env_option(string $repo, string $name, string $value): array {
         $policy = Policy::load($repo);
+        if ($value === '') {
+            throw new \RuntimeException(
+                "wprism: env-set: refusing to set '$name' to an empty string — that would still read as "
+                . "env_missing on the next 'wprism plan' (missing means absent OR empty), so it can never "
+                . 'satisfy provisioning'
+            );
+        }
+        $passwordUuid = EnvironmentValues::postPasswordUuid($name);
+        if ($passwordUuid !== null) {
+            $tree = self::compiled($repo, $policy, [])->tree();
+            $entity = $tree[$passwordUuid] ?? null;
+            $front = is_array($entity) && is_array($entity['data'] ?? null) ? $entity['data'] : [];
+            if (($entity['type'] ?? null) !== 'post'
+                || !is_string($front['password_binding'] ?? null)
+                || !hash_equals($name, $front['password_binding'])) {
+                throw new \RuntimeException(
+                    "wprism: env-set: '$name' does not name a protected post binding in the compiled repository"
+                );
+            }
+            $previouslySet = isset(EnvironmentValues::read($repo)[$name]);
+            EnvironmentValues::set($repo, $name, $value);
+            $postId = Ledger::id_for($passwordUuid, Ledger::KIND_POST);
+            if ($postId !== null) {
+                global $wpdb;
+                $updated = $wpdb->update(
+                    $wpdb->posts,
+                    ['post_password' => $value],
+                    ['ID' => $postId],
+                    ['%s'],
+                    ['%d']
+                );
+                if ($updated === false) {
+                    throw new \RuntimeException("wprism: env-set: could not provision '$name' on its live post");
+                }
+                $confirm = $wpdb->get_var($wpdb->prepare(
+                    "SELECT post_password FROM {$wpdb->posts} WHERE ID = %d LIMIT 1",
+                    $postId
+                ));
+                if (!is_string($confirm) || !hash_equals($value, $confirm)) {
+                    throw new \RuntimeException(
+                        "wprism: env-set: wrote '$name' but the live post password does not match afterward"
+                    );
+                }
+                clean_post_cache($postId);
+            }
+
+            return ['name' => $name, 'previously_set' => $previouslySet];
+        }
         $envOptions = $policy->env_options();
         if (!isset($envOptions[$name])) {
             throw new \RuntimeException(
@@ -578,14 +626,6 @@ final class ApplyRequestCoordinator {
                 . "itself; see this manifest's own notes for '$name')"
             );
         }
-        if ($value === '') {
-            throw new \RuntimeException(
-                "wprism: env-set: refusing to set '$name' to an empty string — that would still read as "
-                . "env_missing on the next 'wprism plan' (missing means absent OR empty), so it can never "
-                . 'satisfy provisioning'
-            );
-        }
-
         // The target-local file is the intended-value authority. Publish it
         // before touching WordPress so a crash can leave only a loud drift
         // (`env_missing`), never a green value with no recorded intent.

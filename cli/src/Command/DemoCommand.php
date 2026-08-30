@@ -8,7 +8,7 @@ require_once __DIR__ . '/HostProcess.php';
 
 /** Source-checkout, disposable two-site journey over the real WPrism commands. */
 final class DemoCommand {
-    private const FORMAT = 'wprism-demo-session/v1';
+    private const FORMAT = 'wprism-demo-session/v2';
     private const DEFAULT_NAME = 'wprismdemo';
     private const DEFAULT_SOURCE_PORT = 8781;
     private const DEFAULT_TARGET_PORT = 8782;
@@ -54,7 +54,7 @@ final class DemoCommand {
             'name' => self::DEFAULT_NAME,
             'source_port' => self::DEFAULT_SOURCE_PORT,
             'target_port' => self::DEFAULT_TARGET_PORT,
-            'scenario' => 'woocommerce',
+            'scenario' => 'core',
         ];
         foreach ($args as $arg) {
             if (!is_string($arg) || preg_match('/^--(name|source-port|target-port|scenario)=(.+)$/D', $arg, $match) !== 1) {
@@ -68,13 +68,13 @@ final class DemoCommand {
         if (preg_match('/^[a-z][a-z0-9]{1,23}$/D', (string) $values['name']) !== 1) {
             throw new \RuntimeException('--name must begin with a lowercase letter and contain 2-24 lowercase alphanumerics');
         }
-        if ($values['scenario'] !== 'woocommerce') {
-            throw new \RuntimeException("the first demo scenario is 'woocommerce'");
+        if (!in_array($values['scenario'], ['core', 'woocommerce'], true)) {
+            throw new \RuntimeException("--scenario must be 'core' or 'woocommerce'");
         }
         if ($action !== 'start'
             && ($values['source_port'] !== self::DEFAULT_SOURCE_PORT
                 || $values['target_port'] !== self::DEFAULT_TARGET_PORT
-                || $values['scenario'] !== 'woocommerce')) {
+                || $values['scenario'] !== 'core')) {
             throw new \RuntimeException("$action accepts only --name=<demo-name>");
         }
         if ($values['source_port'] === $values['target_port']) {
@@ -92,6 +92,7 @@ final class DemoCommand {
     private static function start(string $sourceRoot, array $options, ?callable $phaseHook): int {
         self::requireTools(['docker', 'git', 'jq']);
         $session = self::sessionShape($sourceRoot, $options);
+        $coreAssessment = null;
         self::restoreClaimedSession((string) $session['state_file'], (string) $options['name']);
         if (file_exists($session['state_file']) || is_link($session['state_file'])) {
             throw new \RuntimeException("demo '{$options['name']}' already has a session; run `wprism demo status` or `wprism demo stop`");
@@ -122,7 +123,8 @@ final class DemoCommand {
                 self::acquireOwnedDirectory($session, $field, $phaseHook);
             }
             self::acquireOwnedEnvironment($session, $sourceRoot, $phaseHook);
-            echo "Starting an exact, disposable WooCommerce pair. This can take a few minutes on the first image/artifact pull.\n";
+            $label = $options['scenario'] === 'woocommerce' ? 'WooCommerce' : 'WordPress core';
+            echo "Starting an exact, disposable $label pair. This can take a few minutes on the first image/artifact pull.\n";
             $up = self::runProcess(
                 [
                     'bash', $sourceRoot . '/sandbox/bin/pair.sh', 'up', $options['name'],
@@ -145,17 +147,27 @@ final class DemoCommand {
                 $phaseHook('compose_env_published');
             }
             self::prepareSourceRepository($session, $phaseHook);
-            self::installWooCommerce($session, $sourceRoot);
-            self::seedSourceCatalog($session);
+            if ($options['scenario'] === 'woocommerce') {
+                self::installWooCommerce($session, $sourceRoot);
+            }
+            self::seedSourceContent($session);
             self::runWPrism($session, $sourceRoot, $session['source_repo'], ['capture', 'demo-source'], true);
             self::git($session['source_repo'], ['add', '-A']);
-            self::git($session['source_repo'], ['-c', 'user.name=wprism-demo', '-c', 'user.email=demo@example.test', 'commit', '-m', 'demo: initial WooCommerce catalog']);
+            self::git($session['source_repo'], [
+                '-c', 'user.name=wprism-demo', '-c', 'user.email=demo@example.test',
+                'commit', '-m', 'demo: initial ' . $options['scenario'] . ' authored state',
+            ]);
             self::git($session['source_repo'], ['push', '-u', 'origin', 'main']);
             self::cloneTargetRepository($session);
             self::runWPrism($session, $sourceRoot, $session['target_repo'], ['deploy', 'demo-target'], true);
-            self::establishHpos($session, 2);
-            self::configureWooQualification($session, 2);
-            self::seedTargetProductRuntime($session);
+            if ($options['scenario'] === 'woocommerce') {
+                self::establishHpos($session, 2);
+                self::configureWooQualification($session, 2);
+            }
+            self::seedTargetManagedContent($session);
+            if ($options['scenario'] === 'core') {
+                self::provisionCoreEnvironment($session);
+            }
             $revision = trim(self::git($session['target_repo'], ['rev-parse', 'HEAD'])['stdout']);
             self::runWPrism(
                 $session,
@@ -165,8 +177,11 @@ final class DemoCommand {
                 true
             );
             $session['runtime_before'] = self::seedTargetRuntime($session);
-            self::assertWooQualification($session, $sourceRoot, 'demo-source', $session['source_repo']);
-            self::assertWooQualification($session, $sourceRoot, 'demo-target', $session['target_repo']);
+            self::assertCapabilityQualification($session, $sourceRoot, 'demo-source', $session['source_repo']);
+            self::assertCapabilityQualification($session, $sourceRoot, 'demo-target', $session['target_repo']);
+            if ($options['scenario'] === 'core') {
+                $coreAssessment = self::assertCoreAssessment($session, $sourceRoot);
+            }
             $session['last_applied_revision'] = $revision;
             $session['phase'] = 'ready';
             self::replaceSession($session);
@@ -184,7 +199,22 @@ final class DemoCommand {
         echo "  Target: http://localhost:{$options['target_port']}/wp-admin/\n";
         echo "  Login:  admin / admin\n";
         echo "  Repo:   {$session['source_repo']}\n\n";
-        echo "Edit 'WPrism Demo Mug' on the SOURCE site, then run:\n";
+        $edit = $options['scenario'] === 'woocommerce' ? "'WPrism Demo Mug' product" : "'WPrism Demo Page' page";
+        if ($options['scenario'] === 'core') {
+            $counts = is_array($coreAssessment['counts'] ?? null) ? $coreAssessment['counts'] : [];
+            if (($coreAssessment['readiness'] ?? null) === 'ready') {
+                echo "Whole-site release assessment: READY (bounded machine view verified).\n";
+            } else {
+                echo 'Managed core capability preflight: READY. Whole-site release assessment: COMPLETE WITH GAPS ('
+                    . (int) ($counts['invisible_option_names'] ?? 0) . ' invisible option names; '
+                    . (int) ($counts['pending_classifications'] ?? 0) . ' pending classifications; '
+                    . (int) ($counts['undeclared_tables'] ?? 0) . " undeclared tables).\n";
+                echo "This demo stays inside the qualified page surface; review those gaps before widening adoption.\n";
+            }
+        } else {
+            echo "Capability preflight: READY. Run `wprism assess` to review the advanced WooCommerce surface.\n";
+        }
+        echo "Edit the $edit on the SOURCE site, then run:\n";
         echo '  ' . escapeshellarg(self::demoCli($sourceRoot)) . ' demo capture --name=' . $options['name'] . "\n";
         return 0;
     }
@@ -192,6 +222,7 @@ final class DemoCommand {
     private static function status(string $sourceRoot, string $name): int {
         $session = self::readSession($sourceRoot, $name);
         echo "Demo '$name' phase: {$session['phase']}.\n";
+        echo "  scenario: {$session['scenario']}\n";
         echo "  source: http://localhost:{$session['source_port']} ({$session['source_repo']})\n";
         echo "  target: http://localhost:{$session['target_port']} ({$session['target_repo']})\n";
         if ($session['runtime_before'] !== '') {
@@ -265,7 +296,10 @@ final class DemoCommand {
         $session['last_applied_revision'] = $revision;
         $session['pending_revision'] = null;
         self::replaceSession($session);
-        echo "Applied the reviewed Git revision to the target. Its order identity/status/total and live stock stayed byte-identical.\n";
+        $proof = $session['scenario'] === 'woocommerce'
+            ? 'Its order identity/status/total and live stock stayed byte-identical.'
+            : 'Its target-only comment stayed byte-identical.';
+        echo "Applied the reviewed Git revision to the target. $proof\n";
         echo "Next:\n  " . escapeshellarg(self::demoCli($sourceRoot)) . " demo refusal --name=$name\n";
         return 0;
     }
@@ -294,7 +328,7 @@ final class DemoCommand {
             throw new \RuntimeException('the deliberate refusal changed target runtime state');
         }
         echo trim($detail) . "\n";
-        echo "PASS: WPrism refused a caller-supplied target binding and the target order/stock proof stayed unchanged.\n";
+        echo "PASS: WPrism refused a caller-supplied target binding and the target-local runtime proof stayed unchanged.\n";
         echo "Next:\n  " . escapeshellarg(self::demoCli($sourceRoot)) . " demo stop --name=$name\n";
         return 0;
     }
@@ -313,6 +347,7 @@ final class DemoCommand {
         return [
             'format' => self::FORMAT,
             'name' => $name,
+            'scenario' => (string) ($options['scenario'] ?? 'core'),
             'source_port' => $options['source_port'],
             'target_port' => $options['target_port'],
             'source_repo' => $sandbox . '/siterepo/' . $name . '1',
@@ -378,17 +413,20 @@ final class DemoCommand {
         if ($phaseHook !== null) {
             $phaseHook('origin_initialized');
         }
+        $woocommerce = ($session['scenario'] ?? null) === 'woocommerce';
         $policy = [
-            'manifests' => ['core', 'woocommerce'],
+            'manifests' => $woocommerce ? ['core', 'woocommerce'] : ['core'],
             'policy' => [
                 'options' => (object) [],
                 'post_meta' => (object) [],
                 'term_meta' => (object) [],
-                'post_types' => ['post', 'page', 'attachment', 'product', 'product_variation', 'shop_coupon'],
-                'taxonomies' => [
+                'post_types' => $woocommerce
+                    ? ['post', 'page', 'attachment', 'product', 'product_variation', 'shop_coupon']
+                    : ['post', 'page', 'attachment'],
+                'taxonomies' => $woocommerce ? [
                     'category', 'post_tag', 'product_brand', 'product_cat', 'product_shipping_class',
                     'product_tag', 'product_type', 'product_visibility',
-                ],
+                ] : ['category', 'post_tag'],
             ],
             'spec_version' => 3,
         ];
@@ -404,7 +442,7 @@ final class DemoCommand {
         self::git($session['source_repo'], ['add', 'site.wprism.json', '.gitignore']);
         self::git($session['source_repo'], [
             '-c', 'user.name=wprism-demo', '-c', 'user.email=demo@example.test',
-            'commit', '-m', 'demo: declare WooCommerce managed scope',
+            'commit', '-m', 'demo: declare ' . ($woocommerce ? 'WooCommerce' : 'core') . ' managed scope',
         ]);
         self::git($session['source_repo'], ['push', '-u', 'origin', 'main']);
     }
@@ -429,7 +467,19 @@ final class DemoCommand {
     }
 
     /** @param array<string,mixed> $session */
-    private static function seedSourceCatalog(array $session): void {
+    private static function seedSourceContent(array $session): void {
+        if (($session['scenario'] ?? null) === 'core') {
+            $result = self::wp($session, 1, [
+                'post', 'create', '--post_type=page', '--post_status=publish',
+                '--post_title=WPrism Demo Page', '--post_name=wprism-demo-page',
+                '--post_content=Edit this source page, capture it, and apply the reviewed Git revision.',
+                '--porcelain',
+            ]);
+            if ($result['exit'] !== 0 || preg_match('/^[0-9]+$/D', trim($result['stdout'])) !== 1) {
+                throw new \RuntimeException('could not seed the source core page');
+            }
+            return;
+        }
         $php = '$product = new WC_Product_Simple(); '
             . '$product->set_name("WPrism Demo Mug"); $product->set_slug("wprism-demo-mug"); '
             . '$product->set_regular_price("24.00"); $product->set_manage_stock(true); '
@@ -452,6 +502,18 @@ final class DemoCommand {
 
     /** @param array<string,mixed> $session */
     private static function seedTargetRuntime(array $session): string {
+        if (($session['scenario'] ?? null) === 'core') {
+            $php = '$page = get_page_by_path("wprism-demo-page", OBJECT, "page"); '
+                . 'if (!$page) { throw new RuntimeException("demo page missing"); } '
+                . '$id = wp_insert_comment(["comment_post_ID" => $page->ID, "comment_content" => "Target-only review note", '
+                . '"comment_author" => "Demo reviewer", "comment_approved" => "1"]); '
+                . 'if (!$id) { throw new RuntimeException("could not create target comment"); } echo $id;';
+            $created = self::wp($session, 2, ['eval', $php]);
+            if ($created['exit'] !== 0 || preg_match('/^[0-9]+$/D', trim($created['stdout'])) !== 1) {
+                throw new \RuntimeException('could not seed target-only core runtime');
+            }
+            return self::targetRuntimeSnapshot($session);
+        }
         $php = '$product = get_page_by_path("wprism-demo-mug", OBJECT, "product"); '
             . 'if (!$product) { throw new RuntimeException("demo product missing"); } '
             . '$order = wc_create_order(); $order->add_product(wc_get_product($product->ID), 1); '
@@ -473,7 +535,18 @@ final class DemoCommand {
      *
      * @param array<string,mixed> $session
      */
-    private static function seedTargetProductRuntime(array $session): void {
+    private static function seedTargetManagedContent(array $session): void {
+        if (($session['scenario'] ?? null) === 'core') {
+            $result = self::wp($session, 2, [
+                'post', 'create', '--post_type=page', '--post_status=publish',
+                '--post_title=Target-local placeholder', '--post_name=wprism-demo-page',
+                '--post_content=This value must converge from Git.', '--porcelain',
+            ]);
+            if ($result['exit'] !== 0 || preg_match('/^[0-9]+$/D', trim($result['stdout'])) !== 1) {
+                throw new \RuntimeException('could not seed the target-local core page');
+            }
+            return;
+        }
         $php = '$product = new WC_Product_Simple(); '
             . '$product->set_name("Target-local placeholder"); $product->set_slug("wprism-demo-mug"); '
             . '$product->set_regular_price("1.00"); $product->set_manage_stock(true); '
@@ -484,8 +557,42 @@ final class DemoCommand {
         }
     }
 
+    /** Provision the core binding set through env-set without exposing values in host argv or output. */
+    private static function provisionCoreEnvironment(array $session): void {
+        $script = <<<'SH'
+set -eu
+for name in admin_email home siteurl; do
+  value="$(wp option get "$name")"
+  [ -n "$value" ]
+  printf '%s\n' "$value" | wp wprism env-set --repo=/siterepo --name="$name" --stdin >/dev/null
+done
+SH;
+        $result = self::runProcess([
+            'docker', 'compose', '--env-file', $session['compose_env_file'], '-f', $session['compose_file'],
+            'run', '--rm', '-T', 'cli2', 'sh', '-c', $script,
+        ], dirname((string) $session['compose_file']), [], false, self::LIVE_PROCESS_TIMEOUT_MILLISECONDS);
+        if ($result['exit'] !== 0) {
+            throw new \RuntimeException('could not provision the core demo environment: ' . trim($result['stderr']));
+        }
+    }
+
     /** @param array<string,mixed> $session */
     private static function targetRuntimeSnapshot(array $session): string {
+        if (($session['scenario'] ?? null) === 'core') {
+            $php = '$page = get_page_by_path("wprism-demo-page", OBJECT, "page"); '
+                . 'if (!$page) { throw new RuntimeException("demo page missing"); } '
+                . '$comments = get_comments(["post_id" => $page->ID, "status" => "approve", "orderby" => "comment_ID", "order" => "ASC"]); '
+                . 'if (count($comments) !== 1) { throw new RuntimeException("demo comment missing"); } '
+                . '$comment = $comments[0]; $value = ["comment_id" => (int) $comment->comment_ID, '
+                . '"approved" => (string) $comment->comment_approved, "content" => (string) $comment->comment_content]; '
+                . 'ksort($value); echo wp_json_encode($value);';
+            $result = self::wp($session, 2, ['eval', $php]);
+            $value = trim($result['stdout']);
+            if ($result['exit'] !== 0 || !is_array(json_decode($value, true))) {
+                throw new \RuntimeException('could not verify target-only core runtime');
+            }
+            return $value;
+        }
         $php = '$ids = wc_get_orders(["limit" => -1, "return" => "ids"]); sort($ids, SORT_NUMERIC); '
             . '$product = get_page_by_path("wprism-demo-mug", OBJECT, "product"); '
             . '$order = count($ids) === 1 ? wc_get_order($ids[0]) : null; '
@@ -553,7 +660,7 @@ final class DemoCommand {
     }
 
     /** @param array<string,mixed> $session */
-    private static function assertWooQualification(
+    private static function assertCapabilityQualification(
         array $session,
         string $sourceRoot,
         string $environment,
@@ -571,10 +678,61 @@ final class DemoCommand {
             $blockers = is_array($report['blockers'] ?? null) ? $report['blockers'] : [];
             $detail = json_encode($blockers, JSON_UNESCAPED_SLASHES);
             throw new \RuntimeException(
-                "WooCommerce demo environment $environment is not release-qualified: "
+                "demo environment $environment is not release-qualified: "
                 . (is_string($detail) ? $detail : 'capability report was malformed')
             );
         }
+    }
+
+    /**
+     * The default path requires a complete bounded answer. A red whole-site
+     * answer remains evidence: the core adapter deliberately leaves stock
+     * option namespaces outside its narrow managed boundary, while the pinned
+     * core capability set checked immediately before this call is qualified.
+     *
+     * @return array<string,mixed> the bounded view summary
+     */
+    private static function assertCoreAssessment(array $session, string $sourceRoot): array {
+        $result = self::runWPrism(
+            $session,
+            $sourceRoot,
+            (string) $session['target_repo'],
+            ['assess', 'demo-target', '--operation=release', '--limit=10', '--format=json'],
+            false,
+            false
+        );
+        $report = json_decode($result['stdout'], true);
+        $summary = is_array($report['summary'] ?? null) ? $report['summary'] : [];
+        $page = is_array($report['page'] ?? null) ? $report['page'] : [];
+        $rows = is_array($report['rows'] ?? null) ? $report['rows'] : null;
+        $readiness = $summary['readiness'] ?? null;
+        $expectedReadiness = $result['exit'] === 0 ? 'ready' : 'blocked';
+        if (!in_array($result['exit'], [0, 3], true)
+            || !is_array($report)
+            || ($report['format'] ?? null) !== 'wprism-assess-view/v1'
+            || $readiness !== $expectedReadiness
+            || ($summary['dispositions']['agree'] ?? null) !== true
+            || !is_int($page['shown'] ?? null)
+            || $page['shown'] < 0
+            || $page['shown'] > 10
+            || $rows === null
+            || count($rows) !== $page['shown']) {
+            $detail = json_encode([
+                'exit' => $result['exit'],
+                'format' => $report['format'] ?? null,
+                'readiness' => $summary['readiness'] ?? null,
+                'counts' => $summary['counts'] ?? null,
+                'adoption' => $summary['authority']['adoption'] ?? null,
+                'evidence' => $summary['evidence'] ?? null,
+                'dispositions' => $summary['dispositions'] ?? null,
+                'shown' => $page['shown'] ?? null,
+            ], JSON_UNESCAPED_SLASHES);
+            throw new \RuntimeException(
+                'core demo did not produce a complete bounded release assessment: '
+                    . (is_string($detail) ? $detail : 'summary unavailable')
+            );
+        }
+        return $summary;
     }
 
     /** @param array<string,mixed> $session @return array{exit:int,stdout:string,stderr:string} */
@@ -650,6 +808,7 @@ final class DemoCommand {
             || is_link($stateFile) || !is_file($stateFile)
             || ($data['format'] ?? null) !== self::FORMAT
             || ($data['name'] ?? null) !== $name
+            || !in_array($data['scenario'] ?? null, ['core', 'woocommerce'], true)
             || !is_int($data['source_port'] ?? null)
             || !is_int($data['target_port'] ?? null)) {
             throw new \RuntimeException("demo '$name' is not active; run `wprism demo start --name=$name`");
@@ -660,6 +819,7 @@ final class DemoCommand {
             'name' => $name,
             'source_port' => $data['source_port'],
             'target_port' => $data['target_port'],
+            'scenario' => $data['scenario'],
             'ownership_token' => $data['ownership_token'] ?? null,
         ]);
         foreach (['source_repo', 'target_repo', 'origin', 'compose_file', 'compose_env_file', 'state_file'] as $field) {

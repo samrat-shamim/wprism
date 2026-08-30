@@ -56,8 +56,9 @@ no public registry.
 **H1 — Correctness closure (exit reached 2026-08-08).** The board drained:
 surface-boundary program complete, raw-ID elimination shipped, every ruling's
 deliverables landed, version-boundary matrix certified on pinned artifacts,
-WooCommerce closed as a contract (issue #3225) — partly by honest reduction
-(product deletion support removed rather than under-proven). Exit criterion
+WooCommerce closed as a contract (issue #3225) — initially by honest reduction;
+product/variation deletion is now admitted only inside a closed active-plugin
+contract with locked native reverse-reference guards. Exit criterion
 met as stated: no known path by which authored data silently fails to
 propagate. The former tail items have since landed: issue #3248 (journal table
 provenance bounded), issue #3274 (fixture-staleness sweep reconciled), issue #3301
@@ -164,7 +165,8 @@ launch gate passes.
   with that root empty by default; the platform-root ruling is H3 work.
 - Capability *reduction* is a legitimate certification outcome: working but
   unprovable behavior is removed and refused, not shipped under-proven
-  (issue #3225: Woo product deletion → fail-closed boundary).
+  (issue #3225: Woo product deletion first reduced to a fail-closed boundary;
+  later support remains conditional on its closed active-plugin contract).
 - A successful database import is not a verified rollback (issue #3291 ruling —
   this part stands). The "promotion stays operator-directed" half was
   superseded 2026-08-09 by issue #3310: `wprism promote` now selects the certified

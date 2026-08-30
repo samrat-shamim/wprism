@@ -87,6 +87,7 @@ final class CaptureCandidateBuilder {
             $this->tokens,
             function (string $section, string $key, $value, array $rule, string $context): void {
                 $this->safetyGates->guardSecret($section, $key, $value, $rule, $context);
+                $this->safetyGates->guardPersonalData($section, $key, $value, $rule, $context);
             },
             static function (string $where): void {
                 CaptureTransaction::check_transient_db_error($where);
@@ -102,7 +103,13 @@ final class CaptureCandidateBuilder {
                 $this->safetyGates->guardSecret($section, $key, $value, $rule, $context);
             },
             function (string $key, $value, array $rule, string $login): void {
-                $this->safetyGates->guardPersonalData($key, $value, $rule, $login);
+                $this->safetyGates->guardPersonalData(
+                    'user_meta',
+                    $key,
+                    $value,
+                    $rule,
+                    " on exact login '$login'"
+                );
             },
             static function (string $where): void {
                 CaptureTransaction::check_transient_db_error($where);
@@ -139,6 +146,7 @@ final class CaptureCandidateBuilder {
             $this->tokens,
             function (string $section, string $key, $value, array $rule): void {
                 $this->safetyGates->guardSecret($section, $key, $value, $rule);
+                $this->safetyGates->guardPersonalData($section, $key, $value, $rule);
             },
             static function (int $id, string $kind, bool $force) use ($policy): ?string {
                 return ReferenceScopeClassifier::classify($id, $kind, $force, $policy);
@@ -328,6 +336,7 @@ final class CaptureCandidateBuilder {
 
         $this->assertOptionGates();
         $this->safetyGates->assertContentReferences($this->tokens);
+        $this->safetyGates->assertCanonicalContent($entities);
         return [
             'entities' => $entities,
             'media' => $media,

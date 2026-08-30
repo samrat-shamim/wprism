@@ -645,6 +645,20 @@ wprism_check(
     !str_contains($productBody, '"page":"4"') && str_contains($productBody, '{{post:' . $pageUuid . '}}'),
     'D1: no environment-local page id reaches canonical state through the product path'
 );
+$protectedPost = $formPost($formB, 'protected-recon-form');
+$protectedPost->post_password = 'source-password-never-canonical';
+$protectedUuid = '019200cc-0000-7000-8000-0000000000c7';
+$protected = $postCapture->capture($protectedPost, $protectedUuid, []);
+[$protectedFront] = Canon::parse_post_file($protected['entity']['content']);
+wprism_check_same(
+    'post_password:' . $protectedUuid,
+    $protectedFront['password_binding'] ?? null,
+    'D1: a protected post captures a stable environment binding instead of refusing'
+);
+wprism_check(
+    !str_contains($protected['entity']['content'], 'source-password-never-canonical'),
+    'D1: the actual post password never enters canonical bytes'
+);
 
 // D2 — the three id-shaped values the manifest deliberately does NOT declare
 // come through byte-identical. This is the "PRESERVE the variant, rewrite only

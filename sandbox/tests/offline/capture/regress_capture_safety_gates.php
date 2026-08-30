@@ -89,12 +89,130 @@ check(
     'secret remediation for a non-options surface uses the = form without an autoload suffix'
 );
 
-$pii = refusal(static fn() => $gates->guardPersonalData('contact_email', 'person@example.test', [], 'operator'));
+$pii = refusal(static fn() => $gates->guardPersonalData(
+    'post_meta',
+    'contact_email',
+    'person@example.test',
+    [],
+    " on post 'fixture'"
+));
 check($pii->reasonCode === 'personal_data_refused', 'PII refusal is owned by the safety boundary');
 check(($pii->diagnostics[0]['personal_data_shape'] ?? null) === 'email address', 'PII refusal keeps the conservative shape label');
+check(
+    str_contains($pii->getMessage(), "--set='post_meta:contact_email=authored' --allow-pii"),
+    'PII refusal prints the exact reviewed-exception command'
+);
 
 $gates->guardSecret('options', 'gateway', ['key' => 'sk_live_DIRECTBOUNDARY123456'], ['allow_secret' => true]);
-$gates->guardPersonalData('contact_email', 'person@example.test', ['allow_pii' => true], 'operator');
+$gates->guardPersonalData('options', 'contact_email', 'person@example.test', ['allow_pii' => true]);
 check(true, 'explicit reviewed security exceptions still short-circuit');
+
+$gates->guardPersonalData('post_meta', '_regular_price', '2147484004.123456', []);
+check(true, 'arbitrary-precision decimal prices do not false-positive as phone numbers');
+
+$gates->guardPersonalData('options', 'email_type', 'html', []);
+$gates->guardPersonalData('options', 'mail_settings', ['email_type' => 'multipart'], []);
+$gates->guardPersonalData('options', 'woocommerce_email_footer_text', 'Thanks for shopping', []);
+$gates->guardPersonalData('options', 'woocommerce_checkout_phone_field', 'optional', []);
+$gates->guardPersonalData('options', 'woocommerce_shipping_cost_requires_address', 'yes', []);
+check(true, 'email rendering and checkout address/phone controls do not false-positive as personal data');
+
+$nestedAddress = refusal(static fn() => $gates->guardPersonalData(
+    'options',
+    'pickup_locations',
+    [['address_1' => '100 Agency Way']],
+    []
+));
+check(
+    ($nestedAddress->diagnostics[0]['personal_data_shape'] ?? null) === 'postal address',
+    'terminal nested address fields remain protected after technical-key exclusions'
+);
+
+$numericPhoneField = refusal(static fn() => $gates->guardPersonalData(
+    'post_meta',
+    'billing_phone',
+    '2147484004.123456',
+    []
+));
+check(
+    ($numericPhoneField->diagnostics[0]['personal_data_shape'] ?? null) === 'phone number',
+    'phone-key classification still takes precedence over numeric value grammar'
+);
+
+$suspicious = refusal(static fn() => $gates->guardSecret(
+    'options',
+    'private_api_token',
+    'GeneratedValue-2026-Agency',
+    []
+));
+check($suspicious->reasonCode === 'secret_state_refused', 'credential-shaped authored values now block instead of only flagging pending');
+
+$nestedSuspicious = refusal(static fn() => $gates->guardSecret(
+    'options',
+    'gateway_settings',
+    ['nested' => ['private_api_token' => 'GeneratedValue-2026-Nested']],
+    []
+));
+check($nestedSuspicious->reasonCode === 'secret_state_refused', 'nested credential keys participate in blocking clearance');
+
+$bodySecret = refusal(static fn() => $gates->assertCanonicalContent([[
+    'type' => 'page',
+    'path' => 'posts/page/fixture--clearance.md',
+    'content' => WPrism\Canon::post_file([
+        'uuid' => 'fixture',
+        'title' => 'Clearance',
+        'excerpt' => '',
+        'author' => null,
+    ], 'Deployment note: api_key=MixedCredential-2026-Value'),
+]]));
+check($bodySecret->reasonCode === 'secret_state_refused', 'labelled credential-shaped prose blocks before publication');
+
+$bodyPii = refusal(static fn() => $gates->assertCanonicalContent([[
+    'type' => 'page',
+    'path' => 'posts/page/fixture--clearance.md',
+    'content' => WPrism\Canon::post_file([
+        'uuid' => 'fixture',
+        'title' => 'Clearance',
+        'excerpt' => '',
+        'author' => null,
+    ], 'Private contact: person@example.test'),
+]]));
+check($bodyPii->reasonCode === 'personal_data_refused', 'PII embedded in prose blocks before publication');
+
+$longBodySecret = refusal(static fn() => $gates->assertCanonicalContent([[
+    'type' => 'page',
+    'path' => 'posts/page/fixture--long-clearance.md',
+    'content' => WPrism\Canon::post_file([
+        'uuid' => 'fixture-long',
+        'title' => 'Long clearance',
+        'excerpt' => '',
+        'author' => null,
+    ], str_repeat('ordinary text ', 6000) . ' token=LongCredential-2026-Blocked'),
+]]));
+check($longBodySecret->reasonCode === 'secret_state_refused', 'long canonical prose is windowed instead of bypassing clearance');
+
+$ipv6Pii = refusal(static fn() => $gates->assertCanonicalContent([[
+    'type' => 'page',
+    'path' => 'posts/page/fixture--ipv6-clearance.md',
+    'content' => WPrism\Canon::post_file([
+        'uuid' => 'fixture-ipv6',
+        'title' => 'IPv6 clearance',
+        'excerpt' => '',
+        'author' => null,
+    ], 'Private client address: 2001:db8:85a3::8a2e:370:7334'),
+]]));
+check($ipv6Pii->reasonCode === 'personal_data_refused', 'IPv6 embedded in prose participates in PII clearance');
+
+$gates->assertCanonicalContent([[
+    'type' => 'page',
+    'path' => 'posts/page/fixture--ordinary-date.md',
+    'content' => WPrism\Canon::post_file([
+        'uuid' => 'fixture-date',
+        'title' => 'Release 2026-08-30',
+        'excerpt' => '',
+        'author' => null,
+    ], 'Published on 2026-08-30 with build 1234567.'),
+]]);
+check(true, 'ordinary dates and numeric build ids do not false-positive as phone numbers');
 
 echo "REGRESS_CAPTURE_SAFETY_GATES PASSED\n";

@@ -29,6 +29,7 @@ require_once __DIR__ . '/src/Kernel/CommandRefusal.php';
 // src/Policy/Policy.php.
 require_once __DIR__ . '/src/Kernel/SiteTopology.php';
 require_once __DIR__ . '/src/Kernel/PersonalData.php';
+require_once __DIR__ . '/src/Kernel/PostPasswordBinding.php';
 require_once __DIR__ . '/src/Policy/ManifestDispositions.php';
 require_once __DIR__ . '/src/Policy/PlatformCompatibility.php';
 require_once __DIR__ . '/src/Policy/AdapterPackage.php';

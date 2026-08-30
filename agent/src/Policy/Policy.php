@@ -3808,10 +3808,13 @@ final class Policy {
         if (isset($rule['allow_secret']) && !is_bool($rule['allow_secret'])) {
             throw new \RuntimeException('wprism: allow_secret must be a boolean');
         }
+        if (isset($rule['allow_pii']) && !is_bool($rule['allow_pii'])) {
+            throw new \RuntimeException('wprism: allow_pii must be a boolean');
+        }
         if ($section === 'user_meta') {
             UserMetaGrammar::validate_user_meta_rule($rule, "user_meta.$key", self::CLASSES, self::MISSING_USER_MODES);
-        } elseif (isset($rule['allow_pii']) || isset($rule['missing_user'])) {
-            throw new \RuntimeException('wprism: allow_pii and missing_user are valid only for user_meta rules');
+        } elseif (isset($rule['missing_user'])) {
+            throw new \RuntimeException('wprism: missing_user is valid only for user_meta rules');
         }
         if ($section !== 'options'
             && (array_key_exists('autoload', $rule) || array_key_exists('required', $rule))) {

@@ -36,7 +36,8 @@ JSON
 done
 
 cleanup() {
-  rm -rf "$R1/state-check" "$R1/.state-before-protected"
+  rm -rf "$R1/state-check"
+  [ -z "${PROTECTED_PLAN_ERR:-}" ] || rm -f "$PROTECTED_PLAN_ERR"
 }
 trap cleanup EXIT
 
@@ -102,19 +103,21 @@ ATT_ID=$($COMPOSE run --rm -T cli1 sh -lc 'wp eval-file /siterepo/.tmp-image.php
 rm -f "$R1/.tmp-image.php"
 
 wp1 wprism capture --repo=/siterepo >/dev/null
-cp -R "$R1/state" "$R1/.state-before-protected"
 PROTECTED=$(wp1 post create --post_type=post --post_status=publish --post_title='Protected' --post_name=protected \
   --post_password='not-for-git' --porcelain)
-set +e
-PROTECTED_OUT=$(wp1 wprism capture --repo=/siterepo 2>&1)
-PROTECTED_RC=$?
-set -e
-[ "$PROTECTED_RC" -ne 0 ] && grep -q "protected post 'protected'.*post_password" <<<"$PROTECTED_OUT" \
-  || fail "protected post was not explicitly refused: $PROTECTED_OUT"
-diff -r "$R1/.state-before-protected" "$R1/state" >/dev/null \
-  || fail "protected-post refusal changed the published tree"
-wp1 post delete "$PROTECTED" --force >/dev/null
-pass "password-protected posts refuse before publication without leaking the password"
+wp1 wprism capture --repo=/siterepo >/dev/null
+PROTECTED_UUID=$(wp1 post meta get "$PROTECTED" _wprism_uuid)
+PROTECTED_FILE="$R1/state/posts/post/${PROTECTED_UUID}--protected.md"
+[ -f "$PROTECTED_FILE" ] || fail "protected post was not captured"
+grep -Fq "\"password_binding\": \"post_password:${PROTECTED_UUID}\"" "$PROTECTED_FILE" \
+  || fail "protected post did not carry its UUID-derived binding"
+! grep -q 'not-for-git' "$PROTECTED_FILE" \
+  || fail "protected-post password leaked into canonical state"
+printf '%s\n' 'source-local-password' \
+  | wp1 wprism env-set --repo=/siterepo --name="post_password:${PROTECTED_UUID}" --stdin >/dev/null
+[ "$(wp1 post get "$PROTECTED" --field=post_password)" = 'source-local-password' ] \
+  || fail "source environment did not provision its local post password"
+pass "password-protected post capture stores only a UUID-derived secret binding"
 
 sync_repo() {
   rm -rf "$R2/state" "$R2/media"
@@ -122,14 +125,34 @@ sync_repo() {
   [ ! -d "$R1/media" ] || cp -R "$R1/media" "$R2/media"
 }
 sync_repo
+for name in admin_email home siteurl; do
+  value=$(wp2 option get "$name")
+  printf '%s\n' "$value" \
+    | wp2 wprism env-set --repo=/siterepo --name="$name" --stdin >/dev/null
+done
+PROTECTED_PLAN_ERR=$(mktemp "${TMPDIR:-/tmp}/wprism-core-semantics-plan.XXXXXX")
+set +e
+PROTECTED_PLAN=$(wp2 wprism plan --repo=/siterepo --default-author=admin --adopt-by-slug=posts,terms,menus --format=json 2>"$PROTECTED_PLAN_ERR")
+PROTECTED_PLAN_RC=$?
+set -e
+[ "$PROTECTED_PLAN_RC" -eq 0 ] \
+  || fail "protected-post plan command failed: stdout=$PROTECTED_PLAN stderr=$(cat "$PROTECTED_PLAN_ERR")"
+jq -e --arg name "post_password:${PROTECTED_UUID}" \
+  '.env_missing[] | select(.name == $name and .required == true)' <<<"$PROTECTED_PLAN" >/dev/null \
+  || fail "target plan did not report the required protected-post binding"
+printf '%s\n' 'target-local-password' \
+  | wp2 wprism env-set --repo=/siterepo --name="post_password:${PROTECTED_UUID}" --stdin >/dev/null
 wp2 wprism apply --repo=/siterepo --default-author=admin --adopt-by-slug=posts,terms,menus >/dev/null
 
 POST2=$(wp2 eval '$p=get_page_by_path("semantic-post", OBJECT, "post"); echo $p ? $p->ID : "";')
 FUTURE2=$(wp2 eval '$p=get_page_by_path("scheduled-semantic", OBJECT, "post"); echo $p ? $p->ID : "";')
 MENU_ITEM2=$(wp2 eval 'global $wpdb; echo $wpdb->get_var("SELECT ID FROM {$wpdb->posts} WHERE post_type=\"nav_menu_item\" AND post_title=\"Described Item\"");')
 ATT2=$(wp2 eval '$p=get_page_by_path("semantic-image", OBJECT, "attachment"); echo $p ? $p->ID : "";')
-[ -n "$POST2" ] && [ -n "$FUTURE2" ] && [ -n "$MENU_ITEM2" ] && [ -n "$ATT2" ] \
+PROTECTED2=$(wp2 eval '$p=get_page_by_path("protected", OBJECT, "post"); echo $p ? $p->ID : "";')
+[ -n "$POST2" ] && [ -n "$FUTURE2" ] && [ -n "$MENU_ITEM2" ] && [ -n "$ATT2" ] && [ -n "$PROTECTED2" ] \
   || fail "fresh target is missing a seeded entity"
+[ "$(wp2 post get "$PROTECTED2" --field=post_password)" = 'target-local-password' ] \
+  || fail "fresh target did not materialize its target-local protected-post password"
 
 TIMES=$(wp2 eval "\$p=get_post($POST2); echo \$p->post_modified . '|' . \$p->post_modified_gmt;")
 [ "$TIMES" = '2026-08-09 17:45:00|2026-08-09 11:45:00' ] \

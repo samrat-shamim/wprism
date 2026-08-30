@@ -1,10 +1,11 @@
 {
     "capabilities": {
         "deletion_semantics": {
-            "supported": [],
-            "unsupported": [
+            "supported": [
                 "post:product",
-                "post:product_variation",
+                "post:product_variation"
+            ],
+            "unsupported": [
                 "table:woocommerce_attribute_taxonomies",
                 "table:woocommerce_shipping_zone_locations",
                 "table:woocommerce_shipping_zone_methods",
@@ -39,6 +40,7 @@
             "plan",
             "deploy",
             "apply",
+            "delete",
             "recapture",
             "render-api"
         ]
@@ -51,7 +53,7 @@
             "exact-artifact-version-matrix"
         ]
     },
-    "reason": "Certified for official WooCommerce 11.0.0 and 11.0.1 on single-site WordPress with HPOS: digest-bound clean and hostile target round trips; populated 11.0.0-to-11.0.1 upgrade plus exact in-range 11.0.1-to-11.0.0 drift refusal and explicit re-baseline; native simple, variable, grouped, external, coupon, review-order, download, attribute, category, brand, shipping, tax, and operational-settings behavior, including target-free local-pickup cost compilation before plugin activation; exact product lookup, hierarchy, cache, fulfillment, scheduler, COGS, visibility/POS, thumbnail, permalink/rewrite, downloadable-upload callback isolation, canonical mixed-option maps, and honest converged provider receipts; bounded malformed/unknown/secret-shaped refusal and redaction; injected failure rollback and retry; deterministic process-fence contention across lookup, hierarchy, and rewrite providers plus zero-change idempotence; default uninstall retention and operator-authorized destructive uninstall with database-matched recovery; populated exact-artifact multisite refusal with zero mutation; byte-identical recapture; and real 10.9.4 plus synthetic 11.0.2 refusal controls. Product, variation, global-attribute, shipping/tax deletion, integration credentials, block-email, orders, customers, sessions, reservations, Action Scheduler, optional extensions, and multisite remain explicit loud boundaries rather than inferred authority.",
+  "reason": "Certified for official WooCommerce 11.0.0 and 11.0.1 on single-site WordPress with HPOS: digest-bound clean and hostile target round trips; populated 11.0.0-to-11.0.1 upgrade plus exact in-range 11.0.1-to-11.0.0 drift refusal and explicit re-baseline; native simple, variable, grouped, external, coupon, review-order, download, attribute, category, brand, shipping, tax, and operational-settings behavior, including target-free local-pickup cost compilation before plugin activation and exact PII clearance for tax-rate country/state business-jurisdiction fields, the merchant pickup-location address record, store address/city/postcode, default country, email sender/reply names, and POS store address/email/phone; exact product lookup, hierarchy, cache, fulfillment, scheduler, COGS, visibility/POS, thumbnail, permalink/rewrite, downloadable-upload callback isolation, canonical mixed-option maps, and honest converged provider receipts; product and variation deletion under a closed active-plugin boundary with locked comment, child-post, grouped-product, order, download, and legacy order-item reverse-reference checks plus exact lookup cleanup; bounded malformed/unknown/secret-shaped refusal and redaction; injected failure rollback and retry; deterministic process-fence contention across lookup, hierarchy, and rewrite providers plus zero-change idempotence; default uninstall retention and operator-authorized destructive uninstall with database-matched recovery; populated exact-artifact multisite refusal with zero mutation; byte-identical recapture; and real 10.9.4 plus synthetic 11.0.2 refusal controls. Global-attribute and shipping/tax deletion, integration credentials, block-email, referenced products, nonparticipating active extensions, orders, customers, sessions, reservations, Action Scheduler, optional extensions, and multisite remain explicit loud boundaries rather than inferred authority.",
     "status": "certified",
     "supported_versions": {
         "plugin": "woocommerce/woocommerce.php",
@@ -61,16 +63,6 @@
         }
     },
     "unsupported": [
-        {
-            "operation": "delete",
-            "reason": "Product reverse references can live in downloads, subscriptions, order metadata, serialized values, and extension-owned custom tables that the v1 guard grammar cannot close safely.",
-            "surface": "post_types.product"
-        },
-        {
-            "operation": "delete",
-            "reason": "Variation reverse references and parent/group relationships share the same open WooCommerce extension boundary as products.",
-            "surface": "post_types.product_variation"
-        },
         {
             "operation": "delete",
             "reason": "The v1 guard/cascade grammar cannot express WooCommerce global-attribute semantic deletion.",

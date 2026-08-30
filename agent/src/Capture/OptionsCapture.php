@@ -208,17 +208,7 @@ final class OptionsCapture {
             $liveCanonicalNames[$canonicalName] = true;
             $v = PlainData::decode($row['option_value'], "option $name");
             PlainData::assert($v, "option $name");
-            if (empty($rule['allow_secret'])) {
-                $secretLabel = Secrets::hard_match_deep($v);
-                if ($secretLabel !== null) {
-                    throw new \RuntimeException(
-                        "wprism: secret guard tripped — option '$name' looks like a $secretLabel but is classified "
-                        . "authored (option_name_refs); refusing to capture it into state/.\n"
-                        . "If this is really a secret, reclassify it runtime/derived/env instead of authored.\n"
-                        . 'If this is a false positive, declare "allow_secret": true on its option_name_refs rule.'
-                    );
-                }
-            }
+            ($this->guardSecret)('options', $name, $v, $rule);
             $v = $this->tokens->struct_capture($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
             OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$name'");
             $out[$canonicalName] = OptionState::present($v, $row['autoload']);
@@ -404,19 +394,7 @@ final class OptionsCapture {
         foreach ($rawAuthored as $subKey => $subVal) {
             $subRule = (array) (($rule['sub_keys'] ?? [])[$subKey] ?? []);
             $ctx = "$name.$subKey";
-            if (is_string($subVal)) {
-                ($this->guardSecret)('options', $ctx, $subVal, $subRule);
-            } elseif (empty($subRule['allow_secret'])) {
-                $secretLabel = Secrets::hard_match_deep($subVal);
-                if ($secretLabel !== null) {
-                    throw new \RuntimeException(
-                        "wprism: secret guard tripped — option '$ctx' looks like a $secretLabel but is classified "
-                        . "authored (sub_keys); refusing to capture it into state/.\n"
-                        . "If this is really a secret, reclassify it runtime/derived/env instead of authored.\n"
-                        . 'If this is a false positive, declare "allow_secret": true on its sub_keys rule.'
-                    );
-                }
-            }
+            ($this->guardSecret)('options', $ctx, $subVal, $subRule);
             $capturedValue = $this->capture_value($ctx, $subVal, $subRule, $forceUnresolvedRefs, true);
             if ($capturedValue['included']) {
                 $captured[$subKey] = $capturedValue['value'];

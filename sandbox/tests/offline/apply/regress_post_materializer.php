@@ -38,6 +38,7 @@ require_once __DIR__ . '/../../../../agent/src/Apply/PostMaterializer.php';
 use WPrism\ApplyFieldMaterializer;
 use WPrism\AttachmentMaterializer;
 use WPrism\CompiledRepository;
+use WPrism\EnvironmentValues;
 use WPrism\Policy;
 use WPrism\PostMaterializer;
 use WPrism\RelationshipMaterializer;
@@ -62,23 +63,61 @@ $fieldMaterializer = new ApplyFieldMaterializer($policy, $tokens);
 $relationshipMaterializer = new RelationshipMaterializer($policy, $fieldMaterializer);
 $compiled = (new ReflectionClass(CompiledRepository::class))->newInstanceWithoutConstructor();
 $attachmentMaterializer = new AttachmentMaterializer($policy, $fieldMaterializer, $compiled, '/fixture/repository');
-$postMaterializer = new PostMaterializer($policy, $tokens, $fieldMaterializer, $relationshipMaterializer, $attachmentMaterializer);
+$passwordUuid = '019200cc-0000-7000-8000-0000000000c7';
+$passwordBinding = EnvironmentValues::postPasswordName($passwordUuid);
+$postMaterializer = new PostMaterializer(
+    $policy,
+    $tokens,
+    $fieldMaterializer,
+    $relationshipMaterializer,
+    $attachmentMaterializer,
+    [$passwordBinding => 'target-local-password']
+);
 
 $check($postMaterializer instanceof PostMaterializer, 'PostMaterializer is directly constructible with (Policy, Tokens, ApplyFieldMaterializer, RelationshipMaterializer, AttachmentMaterializer)');
 foreach (['ensure_post_row', 'finalize_post', 'resolve_login'] as $method) {
     $check((new ReflectionMethod(PostMaterializer::class, $method))->isPublic(), "$method() is public on PostMaterializer");
 }
 
-// The constructor takes exactly these five collaborators, in this order --
+// The constructor takes these collaborators in this order --
 // widened from slice 10's lone Tokens because finalize_post() itself calls
 // three already-extracted sibling materializers directly (calling back
 // through Apply would be circular).
 $constructorParams = (new ReflectionClass(PostMaterializer::class))->getConstructor()->getParameters();
 $check(
     array_map(static fn(ReflectionParameter $p): string => (string) $p->getType(), $constructorParams) === [
-        'WPrism\\Policy', 'WPrism\\Tokens', 'WPrism\\ApplyFieldMaterializer', 'WPrism\\RelationshipMaterializer', 'WPrism\\AttachmentMaterializer',
+        'WPrism\\Policy', 'WPrism\\Tokens', 'WPrism\\ApplyFieldMaterializer', 'WPrism\\RelationshipMaterializer', 'WPrism\\AttachmentMaterializer', 'array',
     ],
-    'constructor depends on exactly Policy, Tokens, ApplyFieldMaterializer, RelationshipMaterializer, AttachmentMaterializer -- no Apply instance'
+    'constructor receives the five materializer collaborators plus target-local environment values -- no Apply instance'
+);
+$passwordMethod = new ReflectionMethod(PostMaterializer::class, 'postPassword');
+$check(
+    $passwordMethod->invoke($postMaterializer, ['uuid' => $passwordUuid]) === ''
+        && $passwordMethod->invoke($postMaterializer, [
+            'uuid' => $passwordUuid,
+            'password_binding' => $passwordBinding,
+        ]) === 'target-local-password',
+    'post password materialization resolves only the target-local binding and clears an unbound desired post'
+);
+$missingPassword = new PostMaterializer(
+    $policy,
+    $tokens,
+    $fieldMaterializer,
+    $relationshipMaterializer,
+    $attachmentMaterializer
+);
+$missingRefusal = null;
+try {
+    $passwordMethod->invoke($missingPassword, [
+        'uuid' => $passwordUuid,
+        'password_binding' => $passwordBinding,
+    ]);
+} catch (RuntimeException $failure) {
+    $missingRefusal = $failure->getMessage();
+}
+$check(
+    is_string($missingRefusal) && str_contains($missingRefusal, 'is not provisioned on this environment'),
+    'post materialization refuses a protected post before mutation when its local password binding is absent'
 );
 $check(
     array_map(static fn(ReflectionParameter $p): string => $p->getName(), (new ReflectionMethod(PostMaterializer::class, 'ensure_post_row'))->getParameters()) === ['front'],

@@ -181,12 +181,19 @@ final class ClassifyCommandDriver implements EnvironmentDriver {
 }
 
 /** @return array<string,mixed> */
-function classify_item(string $section, string $key, ?string $proposal = null, ?string $secret = null): array {
+function classify_item(
+    string $section,
+    string $key,
+    ?string $proposal = null,
+    ?string $secret = null,
+    ?string $pii = null
+): array {
     return [
         'section' => $section,
         'key' => $key,
         'proposal' => $proposal,
         'secret' => $secret,
+        'pii' => $pii,
         'evidence' => [],
         'ref_hint' => null,
     ];
@@ -415,6 +422,24 @@ assert_classify_command(
 );
 unlink($secretApplyPath);
 
+$piiApplyItems = [classify_item('post_meta', 'contact_email', 'authored', null, 'email address')];
+$piiApplyPath = sys_get_temp_dir() . '/wprism_regress_classify_pii_' . bin2hex(random_bytes(6)) . '.json';
+$piiBatch = ClassificationBatch::template('classify-fixture', $piiApplyItems);
+$piiBatch['decisions'][0]['class'] = 'authored';
+$piiBatch['decisions'][0]['allow_pii'] = true;
+file_put_contents($piiApplyPath, ClassificationBatch::encode($piiBatch));
+$applyPii = new ClassifyCommandDriver($piiApplyItems);
+$applyPii->itemsByCall = [2 => []];
+ob_start();
+$applyPiiExit = ClassifyCommand::run($applyPii, ["--apply-batch=$piiApplyPath"]);
+ob_get_clean();
+assert_classify_command($applyPiiExit === 0, 'an allow_pii-confirmed authored decision applies successfully');
+assert_classify_command(
+    $applyPii->streamedArgs[0] === ['wprism', 'classify', '--repo=/fixture/repo', '--set=post_meta:contact_email=authored', '--allow-pii'],
+    '--allow-pii is appended exactly when the reviewed batch confirms it'
+);
+unlink($piiApplyPath);
+
 $staleBatchPath = sys_get_temp_dir() . '/wprism_regress_classify_stale_' . bin2hex(random_bytes(6)) . '.json';
 file_put_contents($staleBatchPath, ClassificationBatch::encode(ClassificationBatch::template('classify-fixture', [classify_item('options', 'gone', 'runtime')])));
 $applyStale = new ClassifyCommandDriver($exportItems);
@@ -447,6 +472,14 @@ $acceptSecretExit = ClassifyCommand::run($acceptSecret, ['--accept-proposals']);
 $acceptSecretOutput = (string) ob_get_clean();
 assert_classify_command($acceptSecretExit === 2, 'a secret-flagged authored proposal exits 2, never silently applied');
 assert_classify_command($acceptSecret->streamCalls === 0, 'a secret-only queue never streams a classify call');
+
+$piiItems = [classify_item('post_meta', 'contact_email', 'authored', null, 'email address')];
+$acceptPii = new ClassifyCommandDriver($piiItems);
+ob_start();
+$acceptPiiExit = ClassifyCommand::run($acceptPii, ['--accept-proposals']);
+ob_get_clean();
+assert_classify_command($acceptPiiExit === 2, 'a PII-flagged authored proposal exits 2, never silently applied');
+assert_classify_command($acceptPii->streamCalls === 0, 'a PII-only queue never streams a classify call');
 
 // A journal proposal reports which capability wrote the value on which
 // surface (Journal::propose) — it cannot know how the wp_options row must be
@@ -530,6 +563,20 @@ assert_classify_command(
     'a post_meta row is never asked: the site grammar reads neither field there'
 );
 
+[$triagePii, $triagePiiOut] = run_triage(
+    [classify_item('post_meta', 'contact_email', null, null, 'email address')],
+    "a\nallow\n"
+);
+assert_classify_command(
+    $triagePii['needAllowPii'] === true
+        && $triagePii['decisions'] === [['section' => 'post_meta', 'key' => 'contact_email', 'class' => 'authored']],
+    'interactive PII approval records one target-side allow-pii requirement'
+);
+assert_classify_command(
+    str_contains($triagePiiOut, 'PII: email address') && str_contains($triagePiiOut, 'Type "allow"'),
+    'interactive review names the redacted PII class and requires literal approval'
+);
+
 // ---------------------------------------------------------------------------
 // issue #3496 end to end, through the real agent: a batch that applies clean
 // scans clean, and one that is incomplete never reaches site.wprism.json.
@@ -580,8 +627,8 @@ assert_classify_command(
 );
 $e2eBatch = json_decode((string) file_get_contents($e2ePath), true);
 assert_classify_command(
-    ($e2eBatch['format'] ?? null) === 'wprism-classification-batch/v2',
-    'the exported artifact declares the v2 shape that can carry a complete decision'
+    ($e2eBatch['format'] ?? null) === 'wprism-classification-batch/v3',
+    'the exported artifact declares the v3 shape that carries storage and PII decisions'
 );
 
 // Class only: exactly what a reviewer could produce from a v1-shaped form.
@@ -683,6 +730,38 @@ assert_classify_command(
     is_string($unknownField) && str_contains($unknownField, '(expected ref=|cast=|autoload=|required=)'),
     'the unknown-option refusal names the whole accepted field set'
 );
+
+$piiRepo = classify_fixture_repo();
+$wpdb->seedTable('wp_options', [[
+    'option_id' => 1,
+    'option_name' => 'contact_email',
+    'option_value' => 'person@example.test',
+    'autoload' => 'yes',
+]]);
+try {
+    (new \WPrism\Cli())->classify([], [
+        'repo' => $piiRepo,
+        'set' => 'options:contact_email=authored,autoload=preserve',
+    ]);
+    $piiRefusal = null;
+} catch (Throwable $error) {
+    $piiRefusal = $error->getMessage();
+}
+assert_classify_command(
+    is_string($piiRefusal) && str_contains($piiRefusal, 'pass --allow-pii to override'),
+    'the agent refuses an authored PII-shaped current value without exact review'
+);
+(new \WPrism\Cli())->classify([], [
+    'repo' => $piiRepo,
+    'set' => 'options:contact_email=authored,autoload=preserve',
+    'allow-pii' => true,
+]);
+$piiWritten = json_decode((string) file_get_contents($piiRepo . '/site.wprism.json'), true);
+assert_classify_command(
+    ($piiWritten['policy']['options']['contact_email']['allow_pii'] ?? null) === true,
+    '--allow-pii records a boolean exception on only the exact authored rule'
+);
+$wpdb->seedTable('wp_options', []);
 
 // The site-level default is the other legitimate way the autoload question is
 // already answered, and the write boundary honours it instead of demanding a

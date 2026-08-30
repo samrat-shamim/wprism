@@ -105,7 +105,9 @@ final class AssessCommand {
     ): int {
         $json = self::wantsJson($extra);
         try {
-            $limit = AssessRenderer::limitFromArgs(self::flags($extra, ['--limit', '--format', '--operation']));
+            $flags = self::flags($extra, ['--limit', '--cursor', '--format', '--operation']);
+            $limit = AssessRenderer::limitFromArgs($flags);
+            $viewRequest = AssessReport::viewRequest($flags, $limit, $json);
             $operations = self::operationsFromArgs($extra);
             $viewOperation = self::viewOperation($extra, $operations);
             $result = self::assess($driver, [
@@ -121,12 +123,22 @@ final class AssessCommand {
             // refusal must render as a refusal rather than escape as a
             // fatal from a command that had already finished its work.
             $proposalPath = $result['store']->proposalRelativePath((string) $result['report']['env']);
+            $machineDocument = $json
+                ? ($viewRequest === null
+                    ? $result['report']
+                    : AssessReport::view(
+                        $result['report'],
+                        $operations,
+                        $viewRequest,
+                        self::readinessExit($result['report']) === 0
+                    ))
+                : null;
         } catch (CommandRefusalException $refusal) {
             return self::renderRefusal($refusal, $json);
         }
 
         if ($json) {
-            echo AssessReport::encode($result['report']);
+            echo AssessReport::encode(is_array($machineDocument) ? $machineDocument : []);
 
             return self::readinessExit($result['report']);
         }
@@ -1031,7 +1043,7 @@ final class AssessCommand {
                 throw new CommandRefusalException(
                     'invalid_arguments',
                     'assess received an option it does not define',
-                    'assess accepts --format=json, --limit=<1..200> and --operation=<csv>'
+                    'assess accepts --format=json, --limit=<1..200>, --cursor=<token> and --operation=<csv>'
                 );
             }
             $out[] = $arg;

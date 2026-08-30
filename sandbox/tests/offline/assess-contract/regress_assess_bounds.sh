@@ -150,15 +150,82 @@ else
   fail 'a malformed bound did not produce a typed JSON refusal'
 fi
 
-# ---------------------------------------------------- the machine view is not
-say 'the machine document is complete'
+# -------------------------------------- complete report and bounded JSON view
+say 'the machine report and its bounded view'
 MACHINE=$(php -r 'echo count(json_decode(file_get_contents($argv[1]), true)["surfaces"]);' "$TMP/full.json")
-[ "$MACHINE" = "$TOTAL" ] && pass "--format=json carries every surface ($MACHINE), unaffected by --limit" \
+[ "$MACHINE" = "$TOTAL" ] && pass "bare --format=json carries every surface ($MACHINE) for contract automation" \
   || fail "--format=json carried $MACHINE of $TOTAL surfaces"
 run "$TMP/full5.json" assess fixture --limit=5 --format=json
-MACHINE5=$(php -r 'echo count(json_decode(file_get_contents($argv[1]), true)["surfaces"]);' "$TMP/full5.json")
-[ "$MACHINE5" = "$TOTAL" ] && pass '--limit bounds the human view only, which is what makes the tail honest' \
-  || fail "--limit=5 truncated the machine document to $MACHINE5 rows"
+STATUS=$?
+if [ "$STATUS" = 3 ] && php -r '
+$d = json_decode(file_get_contents($argv[1]), true);
+exit(($d["format"] ?? null) === "wprism-assess-view/v1"
+    && ($d["authoritative"] ?? null) === false
+    && ($d["summary"]["counts"]["surfaces"] ?? null) === (int) $argv[2]
+    && ($d["page"]["shown"] ?? null) === 5
+    && count($d["rows"] ?? []) === 5 ? 0 : 1);
+' "$TMP/full5.json" "$TOTAL"; then
+  pass '--limit=5 selects a five-row non-authoritative JSON view with exact full-report counts'
+else
+  fail '--limit=5 did not produce the bounded wprism-assess-view/v1 page'
+fi
+
+FULL_BYTES=$(wc -c < "$TMP/full.json" | tr -d ' ')
+VIEW_BYTES=$(wc -c < "$TMP/full5.json" | tr -d ' ')
+[ "$VIEW_BYTES" -lt "$FULL_BYTES" ] \
+  && pass "the five-row view is smaller than the complete report ($VIEW_BYTES < $FULL_BYTES bytes)" \
+  || fail "the five-row view did not bound output bytes ($VIEW_BYTES >= $FULL_BYTES)"
+
+CURSOR=$(php -r 'echo json_decode(file_get_contents($argv[1]), true)["page"]["next_cursor"] ?? "";' "$TMP/full5.json")
+run "$TMP/next.json" assess fixture --cursor="$CURSOR" --limit=200 --format=json
+STATUS=$?
+if [ "$STATUS" = 3 ] && php -r '
+$first = json_decode(file_get_contents($argv[1]), true);
+$next = json_decode(file_get_contents($argv[2]), true);
+$total = $first["summary"]["counts"]["rows"];
+$seen = [];
+foreach (array_merge($first["rows"], $next["rows"]) as $row) {
+    $key = ($row["kind"] ?? "") === "surface"
+        ? "surface:" . ($row["surface"]["id"] ?? "")
+        : "unknown:" . ($row["name"] ?? "");
+    $seen[$key] = true;
+}
+exit(($next["page"]["offset"] ?? null) === 5
+    && count($first["rows"]) + count($next["rows"]) === $total
+    && count($seen) === $total
+    && ($next["page"]["has_more"] ?? true) === false ? 0 : 1);
+' "$TMP/full5.json" "$TMP/next.json"; then
+  pass 'the emitted cursor enumerates every remaining surface/unknown row exactly once'
+else
+  fail 'the emitted cursor did not enumerate the bounded view without gaps or duplicates'
+fi
+
+run "$TMP/cursor-human.txt" assess fixture --cursor="$CURSOR"
+STATUS=$?
+[ "$STATUS" = 1 ] && pass '--cursor refuses outside the JSON view instead of being ignored' \
+  || fail "a human --cursor request exited $STATUS"
+
+run "$TMP/cursor-malformed.json" assess fixture --cursor=not-a-cursor --format=json
+STATUS=$?
+if [ "$STATUS" = 1 ] && grep -Fq '"reason_code":"invalid_arguments"' "$TMP/cursor-malformed.json"; then
+  pass 'a malformed cursor produces the typed JSON refusal'
+else
+  fail 'a malformed cursor was not refused by the JSON view grammar'
+fi
+
+php -r '
+$file = $argv[1];
+$d = json_decode(file_get_contents($file), true);
+$d["target"]["wordpress"] = "7.0.4";
+file_put_contents($file, json_encode($d, JSON_UNESCAPED_SLASHES));
+' "$WPRISM_FIXTURES/inventory.json"
+run "$TMP/cursor-stale.json" assess fixture --cursor="$CURSOR" --format=json
+STATUS=$?
+if [ "$STATUS" = 1 ] && grep -Fq '"reason_code":"assess_view_cursor_stale"' "$TMP/cursor-stale.json"; then
+  pass 'a changed assessment refuses an old cursor instead of paging a different snapshot'
+else
+  fail 'an old cursor did not refuse after the assessed stack changed'
+fi
 
 # MUP §4.6 also binds the generated document: the names sample is capped
 # while the counts beside it stay exact.

@@ -416,6 +416,7 @@ live values. Review every decision:
   "ref": null,
   "cast": null,
   "allow_secret": false,
+  "allow_pii": false,
   "autoload": "preserve",
   "required": null
 }
@@ -427,6 +428,9 @@ and `authored` only for portable intent. `managed` is reserved for lifecycle-
 managed options. Attach `ref`/`cast` only when the value's schema justifies it.
 An authored secret requires the row's explicit `allow_secret: true`; that is a
 reviewed escape hatch, not a recommendation to store secrets in Git.
+An authored personal-data value likewise requires the exact row's
+`allow_pii: true`; the exported evidence names only the PII category and never
+includes the live value.
 
 An **options** row carries two more fields, because the site grammar refuses
 the rule without them and the exporter never guesses either one:

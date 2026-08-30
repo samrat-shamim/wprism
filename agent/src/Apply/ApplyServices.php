@@ -12,6 +12,7 @@ require_once __DIR__ . '/RelationshipMaterializer.php';
 require_once __DIR__ . '/AttachmentMaterializer.php';
 require_once __DIR__ . '/PostMaterializer.php';
 require_once __DIR__ . '/../Delete/DeleteExecutor.php';
+require_once __DIR__ . '/EnvironmentValues.php';
 require_once __DIR__ . '/../Delete/DeleteGuardReferenceScanner.php';
 require_once __DIR__ . '/../Adapter/ProviderActionBatchBuilder.php';
 require_once __DIR__ . '/../Rebuild/RegenerationContextStore.php';
@@ -138,7 +139,8 @@ final class ApplyServices {
             $this->tokens,
             $this->field_materializer(),
             $this->relationship_materializer(),
-            $this->attachment_materializer()
+            $this->attachment_materializer(),
+            is_dir($this->repositoryRoot) ? EnvironmentValues::read($this->repositoryRoot) : []
         );
     }
 

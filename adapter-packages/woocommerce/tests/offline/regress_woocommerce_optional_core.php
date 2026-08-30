@@ -2651,7 +2651,7 @@ foreach (['woocommerce_bacs_settings', 'woocommerce_cheque_settings'] as $option
         $expectedGuardKeys[] = $optionName . '.' . $field;
     }
 }
-foreach (['enabled', 'title', 'description', 'instructions', 'enable_for_virtual'] as $field) {
+foreach (['enabled', 'title', 'description', 'instructions', 'enable_for_methods', 'enable_for_virtual'] as $field) {
     $expectedGuardKeys[] = 'woocommerce_cod_settings.' . $field;
 }
 foreach ($emailRecords as $optionName => $record) {

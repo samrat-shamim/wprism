@@ -7,6 +7,7 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 // CommandRefusal.php above: the offline refusal suites load this file against
 // pre-declared \WPrism stubs and never run that bootstrap.
 require_once __DIR__ . '/../Kernel/SiteTopology.php';
+require_once __DIR__ . '/../Kernel/PersonalData.php';
 require_once __DIR__ . '/../Policy/AdapterLibrary.php';
 require_once __DIR__ . '/../Review/PlanExplanation.php';
 require_once __DIR__ . '/../Review/PlanCategorySummary.php';
@@ -1920,8 +1921,9 @@ final class Cli {
     }
 
     /**
-     * Provision one manifest-declared `class: "env"` option value directly
-     * into this environment — issue #3232. Deliberately outside the ordinary
+     * Provision one environment-bound value directly into this environment —
+     * either a manifest-declared `class: "env"` option or the exact
+     * `post_password:<uuid>` handle present in canonical state. Deliberately outside the ordinary
      * capture/apply pipeline: env values are never captured, so there is no
      * repo-side record for this command to reconcile against, only a
      * direct write, gated by Apply::set_env_option() to option names the
@@ -1931,7 +1933,7 @@ final class Cli {
      *
      * ## OPTIONS
      * --repo=<path>
-     * --name=<name>       : Must be declared class="env" in a loaded manifest or site.wprism.json.
+     * --name=<name>       : A declared class="env" option or canonical post_password:<uuid> binding.
      * [--stdin]           : Read the value interactively from STDIN with terminal echo disabled
      *   (`stty -echo`, restored afterward) — never printed back. Non-interactive callers pipe one
      *   newline-terminated value; command-line values are refused because argv is observable.
@@ -2928,9 +2930,12 @@ final class Cli {
      *        rules as ONE --set value, semicolon-separated:
      *          --set='post_meta:foo=runtime;options:bar=authored,ref=post'
      * [--allow-secret]     : permit class=authored when the key's current
-     *                         value hard-matches a secret pattern; sets
+     *                         value matches secret/credential clearance; sets
      *                         allow_secret:true on the rule written (the
      *                         same escape hatch Capture's guard honors).
+     * [--allow-pii]        : permit class=authored when the key's current
+     *                         value matches personal-data clearance; sets
+     *                         allow_pii:true on that exact rule.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */
@@ -2966,11 +2971,12 @@ final class Cli {
                 }
             }
             $allowSecret = isset($assoc['allow-secret']);
+            $allowPii = isset($assoc['allow-pii']);
             // A refusal partway through a multi-spec --set leaves the earlier
             // specs already written to site.wprism.json, exactly as before: this
             // is one record about why the run stopped, not a rollback claim.
             foreach ($specs as $spec) {
-                $written[] = self::parse_and_write_classify_spec($repo, $spec, $allowSecret);
+                $written[] = self::parse_and_write_classify_spec($repo, $spec, $allowSecret, $allowPii);
             }
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'classify');
@@ -3000,6 +3006,9 @@ final class Cli {
             if (!empty($w['rule']['allow_secret'])) {
                 $extra[] = 'allow_secret=true';
             }
+            if (!empty($w['rule']['allow_pii'])) {
+                $extra[] = 'allow_pii=true';
+            }
             WP_CLI::line("set {$w['section']}:{$w['key']} = {$w['rule']['class']}" . ($extra ? ' (' . implode(', ', $extra) . ')' : ''));
         }
         WP_CLI::success(count($written) . " rule(s) written to site.wprism.json — run: wp wprism capture --repo=$repo");
@@ -3008,9 +3017,15 @@ final class Cli {
     /**
      * Parses one "section:key=class[,ref=x][,cast=y]" spec — split on the
      * FIRST ':' and FIRST '=' — and writes it via Policy::set_rule,
-     * refusing class=authored over a hard-matched secret unless $allowSecret.
+     * refusing class=authored over secret/PII clearance unless explicitly
+     * reviewed through the matching flag.
      */
-    private static function parse_and_write_classify_spec(string $repo, string $spec, bool $allowSecret): array {
+    private static function parse_and_write_classify_spec(
+        string $repo,
+        string $spec,
+        bool $allowSecret,
+        bool $allowPii
+    ): array {
         $colon = strpos($spec, ':');
         $eq = strpos($spec, '=');
         if ($colon === false || $eq === false || $eq < $colon) {
@@ -3055,16 +3070,23 @@ final class Cli {
 
         if ($class === 'authored') {
             $current = Pending::current_value($section, $key);
-            if (is_string($current)) {
-                $label = Secrets::hard_match($current);
-                if ($label !== null) {
-                    if (!$allowSecret) {
-                        throw new \RuntimeException(
-                            "wprism: refusing '$spec' — current value of $section:$key looks like a $label; pass --allow-secret to override"
-                        );
-                    }
-                    $rule['allow_secret'] = true;
+            $secret = Secrets::clearance_match_deep($key, $current);
+            if ($secret !== null) {
+                if (!$allowSecret) {
+                    throw new \RuntimeException(
+                        "wprism: refusing '$spec' — current value of $section:$key looks like a $secret; pass --allow-secret to override"
+                    );
                 }
+                $rule['allow_secret'] = true;
+            }
+            $pii = PersonalData::match_deep($key, $current);
+            if ($pii !== null) {
+                if (!$allowPii) {
+                    throw new \RuntimeException(
+                        "wprism: refusing '$spec' — current value of $section:$key looks like $pii; pass --allow-pii to override"
+                    );
+                }
+                $rule['allow_pii'] = true;
             }
         }
 

@@ -10,6 +10,7 @@ require_once __DIR__ . '/../Repository/Ledger.php';
 require_once __DIR__ . '/MediaCapture.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Kernel/Secrets.php';
+require_once __DIR__ . '/../Kernel/PostPasswordBinding.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
 
 /** Builds canonical post entities after post, term, and table identities exist. */
@@ -38,13 +39,6 @@ final class PostCapture {
         global $wpdb;
         $id = (int) $post->ID;
         $isAttachment = $post->post_type === 'attachment';
-
-        if ((string) $post->post_password !== '') {
-            throw new \RuntimeException(
-                "wprism: protected {$post->post_type} '{$post->post_name}' (post $id) has post_password; "
-                . 'spec v2 has no portable secret representation for post passwords, so capture refuses it'
-            );
-        }
 
         $byKey = $this->entityMetaCapture->postMetaByKey($id);
         $meta = [];
@@ -126,6 +120,12 @@ final class PostCapture {
             'terms' => (object) $terms,
             'term_orders' => (object) array_map(static fn($orders) => (object) $orders, $termOrders),
         ];
+        if ((string) $post->post_password !== '') {
+            // The stable handle is portable; the password is not. Each
+            // environment provisions its value through the mode-0600 local
+            // EnvironmentValues file before apply can become ready.
+            $front['password_binding'] = PostPasswordBinding::name($uuid);
+        }
 
         $mediaRef = null;
         if ($isAttachment) {

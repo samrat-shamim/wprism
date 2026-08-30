@@ -578,6 +578,14 @@ register_shutdown_function(static function () use ($envRepo): void {
     @rmdir($envRepo);
 });
 $check(EnvironmentValues::read($envRepo) === [], 'env intended values: an absent target-local file means no bindings');
+$postPasswordUuid = '019200cc-0000-7000-8000-0000000000c7';
+$postPasswordName = EnvironmentValues::postPasswordName($postPasswordUuid);
+$check(
+    $postPasswordName === 'post_password:' . $postPasswordUuid
+        && EnvironmentValues::postPasswordUuid($postPasswordName) === $postPasswordUuid
+        && EnvironmentValues::postPasswordUuid('post_password:not-a-uuid') === null,
+    'env intended values: post passwords use one closed UUID-addressed binding grammar'
+);
 EnvironmentValues::set($envRepo, 'zeta', 'second-secret');
 EnvironmentValues::set($envRepo, 'alpha', 'first-secret');
 $envPath = $envRepo . '/' . EnvironmentValues::FILE;
@@ -1397,8 +1405,8 @@ $envBuildEnd = strpos($builderSource, '        // issue #3249:', $envBuildStart)
 $envBuildSection = substr($builderSource, $envBuildStart, $envBuildEnd - $envBuildStart);
 $check(
     preg_match('/public static function env_missing_projection\(/', $plannerSource) === 1
-        && str_contains($planEnvironmentSource, 'return ApplyPlanner::env_missing_projection(')
-        && str_contains($envBuildSection, '$this->env_missing_projection()')
+        && str_contains($planEnvironmentSource, '$projection = ApplyPlanner::env_missing_projection(')
+        && str_contains($envBuildSection, '$this->env_missing_projection($tree)')
         && !str_contains($envBuildSection, 'foreach ($this->policy->env_options()'),
     'env projection: planner owns missing rows while ApplyPlanEnvironment owns the Policy/wpdb boundary'
 );
