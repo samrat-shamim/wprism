@@ -429,6 +429,49 @@ wprism_check_refuses(
     'authorized_operation_precondition_changed',
     'preconditions reject final-file replacement by symlink'
 );
+unlink($hardeningScratch . '/replacement-data.txt');
+file_put_contents($hardeningScratch . '/replacement-data.txt', "replacement-data\n");
+$repositoryLockSwapAuthorization = $authFor(
+    $hardeningTarget,
+    'release:repository-lock-path-rebind',
+    'nonce-repository-lock-path-rebind'
+);
+$repositoryLockSwapDriver = new AuthorizationStoreDriver(
+    $hardeningScratch,
+    static function (string $script): string {
+        $needle = '$locks[] = $repositoryLock;';
+        if (!str_contains($script, 'precondition-repository-lock') || !str_contains($script, $needle)) {
+            return $script;
+        }
+        $swap = "\$heldRepositoryLockPath=\$repositoryLockPath . \".held\"; \$replacementRepositoryLock=false;"
+            . "if(!@rename(\$repositoryLockPath,\$heldRepositoryLockPath)"
+            . "||!is_resource(\$replacementRepositoryLock=@fopen(\$repositoryLockPath,\"x\"))"
+            . "||!@fclose(\$replacementRepositoryLock)){fwrite(STDERR,\"repository-swap\\n\");exit(99);}\n";
+        $changed = str_replace($needle, $swap . $needle, $script, $count);
+        if ($count !== 1) throw new RuntimeException('repository-lock rebind fixture did not reach the acquired lock');
+        return $changed;
+    }
+);
+wprism_check_refuses(
+    static fn () => TargetOperationStore::consume(
+        $repositoryLockSwapDriver,
+        $repositoryLockSwapAuthorization['verified'],
+        $repositoryLockSwapAuthorization['envelope'],
+        $repositoryLockSwapAuthorization['subject'],
+        $replacementPrecondition
+    ),
+    'authorized_operation_precondition_changed',
+    'a replaced repository-lock path refuses before recovery operation election'
+);
+wprism_check_same(
+    null,
+    TargetOperationStore::status(
+        $hardeningDriver,
+        $repositoryLockSwapAuthorization['verified']['authorization_digest']
+    ),
+    'the repository-lock replacement leaves its authorization unconsumed'
+);
+@unlink($hardeningRoot . '/repository.lock.held');
 $badDigestElection = $electionDocument;
 $badDigestElection['election_digest'] = 'sha256:' . str_repeat('f', 64);
 file_put_contents($electionPath, Canon::encode($badDigestElection));

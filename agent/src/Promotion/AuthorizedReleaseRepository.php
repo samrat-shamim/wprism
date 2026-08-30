@@ -16,7 +16,7 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
  */
 final class AuthorizedReleaseRepository {
     /** @param resource $lock */
-    private function __construct(private $lock) {}
+    private function __construct(private $lock, private string $lockPath) {}
 
     public static function acquire(
         string $repo,
@@ -55,8 +55,16 @@ final class AuthorizedReleaseRepository {
             || is_link($lockPath) || !is_file($lockPath)) {
             throw self::changed('the target repository lock established by materialization is unavailable');
         }
+        $lockBefore = @lstat($lockPath);
         $lock = @fopen($lockPath, 'rb');
-        if (!is_resource($lock) || !@flock($lock, LOCK_EX | LOCK_NB)) {
+        $lockAfter = is_resource($lock) ? @fstat($lock) : false;
+        if (!is_array($lockBefore) || !is_array($lockAfter)
+            || (($lockBefore['mode'] ?? 0) & 0170000) !== 0100000
+            || (($lockAfter['mode'] ?? 0) & 0170000) !== 0100000
+            || ($lockBefore['dev'] ?? null) !== ($lockAfter['dev'] ?? null)
+            || ($lockBefore['ino'] ?? null) !== ($lockAfter['ino'] ?? null)
+            || !is_resource($lock) || !@flock($lock, LOCK_EX | LOCK_NB)
+            || !self::lockBound($lock, $lockPath)) {
             if (is_resource($lock)) {
                 @fclose($lock);
             }
@@ -84,12 +92,22 @@ final class AuthorizedReleaseRepository {
             if (!hash_equals($sourceCommit, $actualCommit) || !hash_equals($sourceTree, $actualTree)) {
                 throw self::changed('the canonical target repository no longer has the authorized commit and tree');
             }
+            if (!self::lockBound($lock, $lockPath)) {
+                throw self::changed('the acquired repository lock path was replaced before promotion-lease election');
+            }
 
-            return new self($lock);
+            return new self($lock, $lockPath);
         } catch (\Throwable $error) {
             @flock($lock, LOCK_UN);
             @fclose($lock);
             throw $error;
+        }
+    }
+
+    /** Refuse if another worker could now acquire a replacement lock inode. */
+    public function assertBound(): void {
+        if (!self::lockBound($this->lock, $this->lockPath)) {
+            throw self::changed('the acquired repository lock path was replaced before promotion-lease election');
         }
     }
 
@@ -122,6 +140,17 @@ final class AuthorizedReleaseRepository {
         }
 
         return $trim ? trim($stdout) : rtrim($stdout, "\r\n");
+    }
+
+    /** @param resource $lock */
+    private static function lockBound($lock, string $path): bool {
+        $held = is_resource($lock) ? @fstat($lock) : false;
+        $named = @lstat($path);
+
+        return is_array($held) && is_array($named)
+            && (($named['mode'] ?? 0) & 0170000) === 0100000
+            && ($held['dev'] ?? null) === ($named['dev'] ?? null)
+            && ($held['ino'] ?? null) === ($named['ino'] ?? null);
     }
 
     private static function changed(string $privateDetail): CommandRefusalException {

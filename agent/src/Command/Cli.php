@@ -770,6 +770,9 @@ final class Cli {
                 );
             }
             Ledger::ensure();
+            if ($repositoryBinding !== null) {
+                $repositoryBinding->assertBound();
+            }
             $summary = PromotionLock::begin((string) $owner, (string) $artifactHash);
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'promotion-begin');

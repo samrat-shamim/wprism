@@ -1033,8 +1033,26 @@ if (is_link($lockPath) || (file_exists($lockPath) && !is_file($lockPath))) {
     fwrite(STDERR, "repository-lock-type\n"); exit(94);
 }
 if (!$allowCreate && !is_file($lockPath)) { fwrite(STDERR, "repository-lock-missing\n"); exit(94); }
+$lockBefore = @lstat($lockPath);
 $lock = @fopen($lockPath, $allowCreate ? 'c' : 'rb');
-if (!is_resource($lock) || !@flock($lock, LOCK_EX | LOCK_NB)) {
+$lockAfter = is_resource($lock) ? @fstat($lock) : false;
+if (!is_array($lockAfter) || (($lockAfter['mode'] ?? 0) & 0170000) !== 0100000
+    || (is_array($lockBefore)
+        && (($lockBefore['mode'] ?? 0) & 0170000) === 0100000
+        && (($lockBefore['dev'] ?? null) !== ($lockAfter['dev'] ?? null)
+            || ($lockBefore['ino'] ?? null) !== ($lockAfter['ino'] ?? null)))) {
+    if (is_resource($lock)) @fclose($lock);
+    fwrite(STDERR, "repository-lock-type\n"); exit(94);
+}
+$lockBound = static function (mixed $handle, string $path): bool {
+    $held = is_resource($handle) ? @fstat($handle) : false;
+    $named = @lstat($path);
+    return is_array($held) && is_array($named)
+        && (($named['mode'] ?? 0) & 0170000) === 0100000
+        && ($held['dev'] ?? null) === ($named['dev'] ?? null)
+        && ($held['ino'] ?? null) === ($named['ino'] ?? null);
+};
+if (!is_resource($lock) || !@flock($lock, LOCK_EX | LOCK_NB) || !$lockBound($lock, $lockPath)) {
     fwrite(STDERR, "repository-lock-busy\n"); exit(95);
 }
 $process = @proc_open(
@@ -1046,7 +1064,9 @@ $process = @proc_open(
     ['bypass_shell' => true]
 );
 if (!is_resource($process)) { fwrite(STDERR, "repository-lock-child\n"); exit(94); }
-exit((int) proc_close($process));
+$exit = (int) proc_close($process);
+if (!$lockBound($lock, $lockPath)) { fwrite(STDERR, "repository-lock-replaced\n"); exit(94); }
+exit($exit);
 PHP;
         $script = 'php -r ' . escapeshellarg($runner) . ' -- '
             . escapeshellarg($repo) . ' ' . escapeshellarg(base64_encode($critical)) . ' '

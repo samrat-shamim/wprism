@@ -18,8 +18,10 @@
 authorized source to promotion's existing lease. It holds the private Git
 repository flock while it rechecks the exact commit, tree and clean tracked
 bytes, and retains that kernel lock through `PromotionLock::begin()`. The
-promotion owner hashes operation id + commit + tree, while the lease's existing
-artifact hash binds the exact staged compilation. Controller checks are only
+named lock path must still resolve to the acquired inode immediately before
+lease election; replacement is a reconciliation refusal, never a second lock.
+The promotion owner hashes operation id + commit + tree, while the lease's
+existing artifact hash binds the exact staged compilation. Controller checks are only
 admission evidence; the target-side check and lease election are one critical
 section.
 

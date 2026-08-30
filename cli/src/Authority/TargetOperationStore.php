@@ -487,6 +487,8 @@ if (!is_array($record) || ($record['status'] ?? null) !== 'trusted' || !hash_equ
 $issued = DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s\Z', $statement['issued_at'], new DateTimeZone('UTC')); $signedExpiry = DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s\Z', $statement['expires_at'], new DateTimeZone('UTC'));
 if (!$issued instanceof DateTimeImmutable || !$signedExpiry instanceof DateTimeImmutable || !hash_equals($expires, $statement['expires_at']) || $issued->getTimestamp() > time() + $policy['max_clock_skew_seconds'] || $signedExpiry->getTimestamp() <= time() || $signedExpiry->getTimestamp() <= $issued->getTimestamp() || ($signedExpiry->getTimestamp() - $issued->getTimestamp()) > $policy['max_ttl_seconds']) { fwrite(STDERR, "expired\n"); exit(22); }
 $locks = [];
+$repositoryLock = null;
+$repositoryLockPath = '';
 if (is_array($precondition)) {
     // Recovery's Git fact is serialized by the same target-private lock as
     // release materialization/promotion. Creating the empty lock is permitted
@@ -552,6 +554,9 @@ foreach ($lockPaths as $relative) {
         fwrite(STDERR, "precondition-lock\n"); exit(31);
     }
     $locks[] = $lock;
+}
+if (is_array($precondition) && !$lockBound($repositoryLock, $repositoryLockPath)) {
+    fwrite(STDERR, "precondition-repository-lock\n"); exit(31);
 }
 $operationLockPath = $root . '/identity.lock';
 $operationOpened = $openRegular($operationLockPath, 'c', $root);
@@ -722,6 +727,9 @@ if (is_array($precondition)) {
         @fclose($pipes[1]); @fclose($pipes[2]);
         return proc_close($process) === 0 ? $actual : null;
     };
+    if (!$lockBound($repositoryLock, $repositoryLockPath)) {
+        fwrite(STDERR, "precondition-repository-lock\n"); exit(31);
+    }
     $actualHead = $readHead();
     if (!is_string($actualHead) || !hash_equals($head, $actualHead)) {
         fwrite(STDERR, "precondition-head\n"); exit(39);
@@ -774,10 +782,16 @@ if (is_array($precondition)) {
     // A non-cooperating Git writer injected after the first read is still
     // caught before election. Supported WPrism writers cannot reach this gap:
     // they serialize on repository.lock, which remains held through publish.
+    if (!$lockBound($repositoryLock, $repositoryLockPath)) {
+        fwrite(STDERR, "precondition-repository-lock\n"); exit(31);
+    }
     $finalHead = $readHead();
     if (!is_string($finalHead) || !hash_equals($head, $finalHead)) {
         fwrite(STDERR, "precondition-head\n"); exit(39);
     }
+}
+if (is_array($precondition) && !$lockBound($repositoryLock, $repositoryLockPath)) {
+    fwrite(STDERR, "precondition-repository-lock\n"); exit(31);
 }
 if (!is_dir($authorizations) && !@mkdir($authorizations, 0700, true) && !is_dir($authorizations)) {
     fwrite(STDERR, "store-create\n"); exit(24);

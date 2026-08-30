@@ -34,7 +34,8 @@ policy shared-locked, verifies the exact canonical envelope, subject, grants,
 signature and target-clock lifetime against it, then takes sorted optional
 target precondition locks and the operation lock. A recovery precondition also
 holds the target-private Git repository lock through both HEAD reads and
-election; only this mutation boundary may establish its empty lock file. A
+election, rechecking that its named path still resolves to the held inode at
+each boundary; only this mutation boundary may establish its empty lock file. A
 policy sync therefore
 linearizes before consumption or after it, never through a controller-only
 trust window.

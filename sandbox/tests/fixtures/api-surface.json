@@ -6851,6 +6851,14 @@
                     "return_type": "WPrism\\AuthorizedReleaseRepository",
                     "static": true,
                     "visibility": "public"
+                },
+                "assertBound": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
                 }
             },
             "parent": null,

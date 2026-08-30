@@ -231,6 +231,58 @@ if (($sync["replayed"] ?? null) !== true
   && pass 'target policy sync retries exactly and read-only status reports the enrolled identity' \
   || fail 'target authority-policy sync replay/status contract changed'
 
+php -r '
+require $argv[1] . "/cli/src/Command/ReleaseCommand.php";
+final class ReleaseRepositoryLockDriver implements \WPrism\Orchestrator\EnvironmentDriver {
+    public function __construct(private string $repo) {}
+    public function name(): string { return "fixture"; }
+    public function driverId(): string { return "repository-lock-swap"; }
+    public function repoPath(): string { return $this->repo; }
+    public function describe(): string { return "repository lock swap fixture"; }
+    public function captureRaw(string $script): array {
+        $process=proc_open(["/bin/sh","-c",$script],[0=>["pipe","r"],1=>["pipe","w"],2=>["pipe","w"]],$pipes);
+        if(!is_resource($process)) throw new RuntimeException("could not execute repository lock fixture");
+        fclose($pipes[0]);$stdout=stream_get_contents($pipes[1]);$stderr=stream_get_contents($pipes[2]);
+        fclose($pipes[1]);fclose($pipes[2]);
+        return ["exit"=>proc_close($process),"stdout"=>(string)$stdout,"stderr"=>(string)$stderr];
+    }
+    public function captureWp(array $wpArgs): array { throw new LogicException("WP is outside this fixture"); }
+    public function streamWp(array $wpArgs): int { throw new LogicException("WP is outside this fixture"); }
+    public function wpInstruction(array $wpArgs): string { return "wp"; }
+    public function capabilityReport(string $operation): \WPrism\Orchestrator\DriverCapabilityReport {
+        throw new LogicException("capabilities are outside this fixture");
+    }
+}
+$repo=$argv[2];$git=trim((string)shell_exec("git -C ".escapeshellarg($repo)." rev-parse --absolute-git-dir"));
+$lock=$git."/wprism-control/repository.lock";$held=$lock.".held";
+$critical="mv ".escapeshellarg($lock)." ".escapeshellarg($held)."; : > ".escapeshellarg($lock)."; printf __SWAPPED__";
+$method=new ReflectionMethod(\WPrism\Orchestrator\ReleaseCommand::class,"runRepositoryLocked");
+$result=$method->invoke(null,new ReleaseRepositoryLockDriver($repo),$repo,$critical,true);
+@unlink($lock);@rename($held,$lock);
+if(($result["exit"]??null)!==94||!str_contains((string)($result["stderr"]??""),"repository-lock-replaced"))exit(1);
+' "$ROOT" "$TMP/target" \
+  && pass 'controller Git critical sections refuse a repository-lock inode replacement' \
+  || fail 'controller Git critical section accepted a replacement repository lock'
+
+php -r '
+require $argv[1] . "/agent/src/Promotion/AuthorizedReleaseRepository.php";
+$repo=$argv[2];$git=trim((string)shell_exec("git -C ".escapeshellarg($repo)." rev-parse --absolute-git-dir"));
+$head=trim((string)shell_exec("git -C ".escapeshellarg($repo)." rev-parse HEAD"));
+$tree=trim((string)shell_exec("git -C ".escapeshellarg($repo)." rev-parse HEAD^{tree}"));
+$operation="release:repository-lock-rebind";
+$owner="authorized-release-".hash("sha256",$operation."\0".$head."\0".$tree);
+$lock=$git."/wprism-control/repository.lock";$held=$lock.".held";
+$binding=\WPrism\AuthorizedReleaseRepository::acquire($repo,$operation,$head,$tree,$owner);
+if(!@rename($lock,$held)||file_put_contents($lock,"")===false){unset($binding);exit(2);}
+$reason="";
+try{$binding->assertBound();}catch(\WPrism\CommandRefusalException $error){$reason=$error->reasonCode;}
+unset($binding);@unlink($lock);@rename($held,$lock);
+$cli=(string)file_get_contents($argv[1]."/agent/src/Command/Cli.php");
+if($reason!=="promotion_repository_binding_changed"||!str_contains($cli,"\$repositoryBinding->assertBound();"))exit(1);
+' "$ROOT" "$TMP/target" \
+  && pass 'target promotion refuses a replaced repository lock immediately before lease election' \
+  || fail 'target promotion could cross a replacement repository lock at lease election'
+
 SITE_STATUS_BEFORE="$(git -C "$SITE" status --porcelain --untracked-files=all)"
 sleep 1
 wprism "$TMP/prepare.json" release fixture prepare --stage-receipt="$TMP/receipt.json" \

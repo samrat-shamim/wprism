@@ -464,6 +464,7 @@ and refuse. The source commit/tree and staged artifact are handed into the
 existing promotion state machine. Promotion recompiles and compares the exact
 authorized artifact, rechecks Git after compile, then the target WP-CLI process
 holds the private repository lock across its last commit/tree check and
+revalidates that the named path is still the acquired inode immediately before
 `promotion-begin` lease election. The lease owner binds operation id + source
 commit + source tree and the existing lease artifact hash binds the compiled
 bytes. A repository race before materialization, in the handoff, or between

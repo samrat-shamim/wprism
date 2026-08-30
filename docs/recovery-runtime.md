@@ -105,7 +105,8 @@ restore remains a separate compatibility path and does not consume this actor
 authority format.
 
 The compare-and-consume proof is exact for supported WPrism writers: Git
-mutations serialize on the target-private `repository.lock`, rollback-control
+mutations serialize on the target-private `repository.lock`, whose named inode
+is revalidated before frozen-fact reads and election; rollback-control
 mutations serialize on `target.lock`, target recovery
 configuration and installed keys remain immutable for a nonterminal operation,
 and the held external exclusion covers managed application/code/provider
