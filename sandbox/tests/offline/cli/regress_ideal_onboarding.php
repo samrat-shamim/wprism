@@ -13,7 +13,10 @@ require_once __DIR__ . '/../../../../cli/src/Command/OnboardCommand.php';
 require_once __DIR__ . '/../../../../cli/src/Command/DemoCommand.php';
 
 use WPrism\Orchestrator\Adopt;
+use WPrism\Orchestrator\ApplicationContract;
 use WPrism\Orchestrator\ConnectCommand;
+use WPrism\Orchestrator\ContractProposal;
+use WPrism\Orchestrator\ContractStore;
 use WPrism\Orchestrator\DemoCommand;
 use WPrism\Orchestrator\DriverCapability;
 use WPrism\Orchestrator\DriverCapabilityReport;
@@ -1434,6 +1437,22 @@ wprism_check_same(9101, $demo['target_port'], 'demo accepts an explicit target p
 wprism_check_same('woocommerce', $demo['scenario'], 'demo retains the explicit advanced WooCommerce scenario');
 $coreDemo = DemoCommand::options('start', []);
 wprism_check_same('core', $coreDemo['scenario'], 'demo defaults to the dependency-light WordPress core journey');
+$reviewDemo = DemoCommand::options('review', ['--name=corewalk', '--accept-page-only']);
+wprism_check_same(true, $reviewDemo['accept_page_only'], 'demo review requires and records the exact page-only confirmation');
+foreach ([
+    ['--name=corewalk'],
+    ['--name=corewalk', '--accept-page-only', '--accept-page-only'],
+] as $reviewArgs) {
+    try {
+        DemoCommand::options('review', $reviewArgs);
+        wprism_check(false, 'demo review refuses missing or duplicate confirmation');
+    } catch (RuntimeException $error) {
+        wprism_check(
+            str_contains($error->getMessage(), '--accept-page-only'),
+            'demo review refusal names the one accepted operator confirmation'
+        );
+    }
+}
 try {
     DemoCommand::options('start', ['--scenario=unknown']);
     wprism_check(false, 'demo refuses an unknown scenario');
@@ -1441,8 +1460,193 @@ try {
     wprism_check(str_contains($error->getMessage(), "'core' or 'woocommerce'"), 'demo refusal names both executable scenarios');
 }
 
+$coreOptionProfileMethod = new ReflectionMethod(DemoCommand::class, 'coreOptionProfile');
+$coreOptionProfile = $coreOptionProfileMethod->invoke(null);
+$coreOptionClasses = array_count_values(array_map(
+    static fn (array $rule): string => (string) ($rule['class'] ?? ''),
+    $coreOptionProfile
+));
+ksort($coreOptionClasses, SORT_STRING);
+wprism_check_same(
+    ['authored' => 60, 'derived' => 4, 'env' => 6, 'runtime' => 9],
+    $coreOptionClasses,
+    'the reviewed WordPress 7.1 profile has the exact 79-name semantic split'
+);
+wprism_check_same(
+    ['autoload' => 'preserve', 'class' => 'authored', 'lint_ok' => true],
+    $coreOptionProfile['wp_attachment_pages_enabled'] ?? null,
+    'attachment-page behavior is portable authored intent with preserved autoload, not a fictional derived fact'
+);
+wprism_check_same(
+    ['autoload' => 'preserve', 'class' => 'authored', 'ref' => 'term'],
+    $coreOptionProfile['default_email_category'] ?? null,
+    'the portable default email category is an authored term reference, never a target-local numeric id'
+);
+wprism_check_same(
+    ['class' => 'derived'],
+    $coreOptionProfile['link_manager_enabled'] ?? null,
+    'the links-table upgrade probe is recorded as a rebuilt database fact'
+);
+wprism_check_same(
+    ['class' => 'env', 'required' => false],
+    $coreOptionProfile['mailserver_pass'] ?? null,
+    'mailserver_pass is optional environment input and can never enter authored capture'
+);
+
+$profileCaptureRepo = $tmp . '/demo-profile-capture';
+mkdir($profileCaptureRepo . '/state/options', 0700, true);
+$categoryUuid = '12345678-1234-4234-8234-123456789abc';
+$authoredRecords = [];
+foreach ($coreOptionProfile as $optionName => $rule) {
+    if (($rule['class'] ?? null) === 'authored') {
+        $authoredRecords[$optionName] = ['state' => 'present', 'value' => 'fixture'];
+    }
+}
+$authoredRecords['default_email_category']['value'] = '{{term:' . $categoryUuid . '}}';
+ksort($authoredRecords, SORT_STRING);
+file_put_contents(
+    $profileCaptureRepo . '/state/options/core.json',
+    json_encode(['records' => $authoredRecords], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
+);
+mkdir($profileCaptureRepo . '/state/terms/category', 0700, true);
+file_put_contents($profileCaptureRepo . '/state/terms/category/' . $categoryUuid . '--uncategorized.json', "{}\n");
+$assertCoreProfileCapture = new ReflectionMethod(DemoCommand::class, 'assertCoreProfileCapture');
+$assertCoreProfileCapture->invoke(null, ['source_repo' => $profileCaptureRepo]);
+wprism_check(true, 'fresh core capture resolves default_email_category through a captured category entity');
+$authoredRecords['default_email_category']['value'] = '1';
+file_put_contents(
+    $profileCaptureRepo . '/state/options/core.json',
+    json_encode(['records' => $authoredRecords], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
+);
+try {
+    $assertCoreProfileCapture->invoke(null, ['source_repo' => $profileCaptureRepo]);
+    wprism_check(false, 'core capture refuses a raw default_email_category id');
+} catch (RuntimeException $error) {
+    wprism_check(
+        str_contains($error->getMessage(), 'term-ref product path'),
+        'default_email_category cannot weaken from a portable term ref to a raw target-local id'
+    );
+}
+
+$inventoryRoot = $tmp . '/demo-core-inventory';
+$inventoryBin = $inventoryRoot . '/bin';
+$inventoryRepo = $inventoryRoot . '/source';
+foreach ([$inventoryRoot, $inventoryBin, $inventoryRepo, $inventoryRoot . '/cli'] as $directory) {
+    mkdir($directory, 0700);
+}
+$sidebarConstant = (new ReflectionClass(DemoCommand::class))->getReflectionConstant('CORE_SIDEBAR_OPTIONS');
+if (!$sidebarConstant instanceof ReflectionClassConstant) {
+    throw new RuntimeException('core sidebar inventory constant is unavailable');
+}
+$coreSidebarOptions = $sidebarConstant->getValue();
+if (!is_array($coreSidebarOptions) || !array_is_list($coreSidebarOptions)) {
+    throw new RuntimeException('core sidebar inventory constant is malformed');
+}
+$inventoryNames = array_values(array_unique(array_merge(array_keys($coreOptionProfile), $coreSidebarOptions)));
+for ($index = count($inventoryNames); $index < 134; ++$index) {
+    $inventoryNames[] = sprintf('mechanism_fixture_%03d', $index);
+}
+sort($inventoryNames, SORT_STRING);
+$inventoryWitness = [
+    'names' => $inventoryNames,
+    'missing_exact' => [],
+    'missing_sidebar' => [],
+    'missing_dynamic' => [],
+    'unseen' => [],
+];
+$inventoryFixture = $inventoryRoot . '/inventory.json';
+$coverageFixture = $inventoryRoot . '/coverage.json';
+$inventoryCommand = $inventoryRoot . '/docker-command.txt';
+file_put_contents(
+    $coverageFixture,
+    json_encode([
+        'format' => 'wprism-coverage-report/v1',
+        'options' => [
+            'total' => 134,
+            'captured' => 94,
+            'declared_excluded' => 40,
+            'declared_excluded_by_class' => ['derived' => 14, 'env' => 10, 'runtime' => 16],
+            'pending' => 0,
+            'invisible_total' => 0,
+        ],
+    ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
+);
+file_put_contents($inventoryRoot . '/cli/wprism', <<<'SH'
+#!/bin/sh
+exec /bin/cat "$WPRISM_DEMO_COVERAGE_FIXTURE"
+SH
+);
+chmod($inventoryRoot . '/cli/wprism', 0700);
+file_put_contents($inventoryBin . '/docker', <<<'SH'
+#!/bin/sh
+printf '%s\n' "$*" > "$WPRISM_DEMO_INVENTORY_COMMAND"
+exec /bin/cat "$WPRISM_DEMO_INVENTORY_FIXTURE"
+SH
+);
+chmod($inventoryBin . '/docker', 0700);
+file_put_contents($inventoryRoot . '/pair.yml', "services: {}\n");
+file_put_contents($inventoryRoot . '/pair.env', "WPRISM_PAIR=inventory\n");
+$priorInventoryPath = getenv('PATH');
+putenv('PATH=' . $inventoryBin . PATH_SEPARATOR . (is_string($priorInventoryPath) ? $priorInventoryPath : ''));
+putenv('WPRISM_DEMO_INVENTORY_FIXTURE=' . $inventoryFixture);
+putenv('WPRISM_DEMO_INVENTORY_COMMAND=' . $inventoryCommand);
+putenv('WPRISM_DEMO_COVERAGE_FIXTURE=' . $coverageFixture);
+$inventorySession = [
+    'compose_env_file' => $inventoryRoot . '/pair.env',
+    'compose_file' => $inventoryRoot . '/pair.yml',
+    'source_repo' => $inventoryRepo,
+];
+$assertCoreOptionInventory = new ReflectionMethod(DemoCommand::class, 'assertCoreOptionInventory');
+file_put_contents(
+    $inventoryFixture,
+    json_encode($inventoryWitness, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
+);
+$assertCoreOptionInventory->invoke(null, $inventorySession, $inventoryRoot);
+$inventoryProbe = (string) file_get_contents($inventoryCommand);
+wprism_check(
+    str_contains($inventoryProbe, 'Policy::load("/siterepo")')
+        && str_contains($inventoryProbe, 'SidebarState::owns_option')
+        && str_contains($inventoryProbe, 'option_rule')
+        && str_contains($inventoryProbe, 'dynamic_option_rule_for_prefix'),
+    'core inventory closure delegates to the real exact, pattern, dynamic, and SidebarState mechanisms'
+);
+$hostileInventory = $inventoryWitness;
+$hostileInventory['unseen'] = ['hostile_unexpected'];
+file_put_contents(
+    $inventoryFixture,
+    json_encode($hostileInventory, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
+);
+try {
+    $assertCoreOptionInventory->invoke(null, $inventorySession, $inventoryRoot);
+    wprism_check(false, 'core inventory refuses an unexpected live option');
+} catch (RuntimeException $error) {
+    wprism_check(
+        str_contains($error->getMessage(), 'unseen=hostile_unexpected'),
+        'an unexpected live option refuses before the demo can claim exact WordPress 7.1 coverage'
+    );
+}
+$missingInventory = $inventoryWitness;
+$missingInventory['missing_exact'] = ['blogname'];
+file_put_contents(
+    $inventoryFixture,
+    json_encode($missingInventory, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
+);
+try {
+    $assertCoreOptionInventory->invoke(null, $inventorySession, $inventoryRoot);
+    wprism_check(false, 'core inventory refuses a missing expected mechanism row');
+} catch (RuntimeException $error) {
+    wprism_check(
+        str_contains($error->getMessage(), 'missing_exact=blogname'),
+        'a missing manifest/profile exact row refuses even when the aggregate total is unchanged'
+    );
+}
+putenv('WPRISM_DEMO_INVENTORY_FIXTURE');
+putenv('WPRISM_DEMO_INVENTORY_COMMAND');
+putenv('WPRISM_DEMO_COVERAGE_FIXTURE');
+is_string($priorInventoryPath) ? putenv('PATH=' . $priorInventoryPath) : putenv('PATH');
+
 $assessmentRoot = $tmp . '/demo-assessment';
-$assessmentRepo = $assessmentRoot . '/target';
+$assessmentRepo = $assessmentRoot . '/source';
 mkdir($assessmentRoot . '/cli', 0700, true);
 mkdir($assessmentRepo, 0700);
 $assessmentView = [
@@ -1469,21 +1673,290 @@ file_put_contents(
 );
 chmod($assessmentRoot . '/cli/wprism', 0700);
 $assertCoreAssessment = new ReflectionMethod(DemoCommand::class, 'assertCoreAssessment');
-$assessmentSummary = $assertCoreAssessment->invoke(
-    null,
-    ['target_repo' => $assessmentRepo],
-    $assessmentRoot
+try {
+    $assertCoreAssessment->invoke(null, ['source_repo' => $assessmentRepo], $assessmentRoot);
+    wprism_check(false, 'demo refuses a complete-looking assessment that still exits 3');
+} catch (RuntimeException $error) {
+    wprism_check(
+        str_contains($error->getMessage(), 'complete bounded release assessment'),
+        'exit 3 and its invisible option gap stop demo setup instead of being relabeled ready'
+    );
+}
+$assessmentView['summary']['readiness'] = 'ready';
+$assessmentView['summary']['counts']['invisible_option_names'] = 0;
+$assessmentBytes = json_encode($assessmentView, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+file_put_contents(
+    $assessmentRoot . '/cli/wprism',
+    "#!/bin/sh\nprintf '%s\\n' " . escapeshellarg($assessmentBytes) . "\nexit 0\n"
 );
+$assessmentSummary = $assertCoreAssessment->invoke(null, ['source_repo' => $assessmentRepo], $assessmentRoot);
+wprism_check_same('ready', $assessmentSummary['readiness'] ?? null, 'demo accepts only the exit-0 ready assessment');
 wprism_check_same(
-    'blocked',
-    $assessmentSummary['readiness'] ?? null,
-    'demo accepts a complete bounded red assessment after its managed core capability set qualifies'
-);
-wprism_check_same(
-    98,
+    0,
     $assessmentSummary['counts']['invisible_option_names'] ?? null,
-    'demo retains exact whole-site gap counts for its honest handoff'
+    'the accepted demo assessment carries no invisible option gap'
 );
+
+$reviewRoot = $tmp . '/demo-contract-review';
+foreach ([
+    $reviewRoot,
+    $reviewRoot . '/cli',
+    $reviewRoot . '/sandbox',
+    $reviewRoot . '/sandbox/tmp',
+    $reviewRoot . '/sandbox/siterepo',
+] as $directory) {
+    mkdir($directory, 0700);
+}
+$reviewSession = ideal_demo_session($reviewRoot, 'reviewdemo', 9260, 9261);
+file_put_contents((string) $reviewSession['compose_file'], "services: {}\n");
+file_put_contents((string) $reviewSession['compose_env_file'], "WPRISM_PAIR=reviewdemo\n");
+foreach ([
+    ['git', 'init', '--bare', '--initial-branch=main', $reviewSession['origin']],
+    ['git', 'init', '--initial-branch=main', $reviewSession['source_repo']],
+] as $command) {
+    $result = IdealOnboardingTransport::process($command);
+    if ($result['exit'] !== 0) {
+        throw new RuntimeException('could not initialize demo review fixture: ' . trim($result['stderr']));
+    }
+}
+file_put_contents($reviewSession['source_repo'] . '/.gitignore', Adopt::repositoryGitignoreBytes());
+file_put_contents($reviewSession['source_repo'] . '/site.wprism.json', Adopt::repositorySeedBytes());
+foreach ([
+    ['git', '-C', $reviewSession['source_repo'], 'add', '.gitignore', 'site.wprism.json'],
+    ['git', '-C', $reviewSession['source_repo'], '-c', 'user.name=test', '-c', 'user.email=test@example.test',
+        'commit', '-m', 'review baseline'],
+    ['git', '-C', $reviewSession['source_repo'], 'remote', 'add', 'origin', $reviewSession['origin']],
+    ['git', '-C', $reviewSession['source_repo'], 'push', '-u', 'origin', 'main'],
+    ['git', 'clone', '--branch', 'main', $reviewSession['origin'], $reviewSession['target_repo']],
+] as $command) {
+    $result = IdealOnboardingTransport::process($command);
+    if ($result['exit'] !== 0) {
+        throw new RuntimeException('could not establish demo review fixture: ' . trim($result['stderr']));
+    }
+}
+$reviewContract = json_decode(
+    (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/release/contract-undeclared-unbound.json'),
+    true,
+    512,
+    JSON_THROW_ON_ERROR
+);
+$reviewContract['declarations']['surfaces'] = [
+    [
+        'id' => 'post_type:page',
+        'label' => 'Pages',
+        'state_class' => 'authored',
+        'handling' => 'manage',
+        'operations' => ['capture', 'merge', 'release', 'verify'],
+        'identity' => 'post uuid',
+        'decided_by' => 'operator',
+        'decided_at' => '2026-08-31T00:00:00Z',
+    ],
+    // Deliberately hostile extra authority: review must remove this entire
+    // release/delete surface before the `--accept-page-only` claim can hold.
+    [
+        'id' => 'post_type:post',
+        'label' => 'Posts',
+        'state_class' => 'authored',
+        'handling' => 'manage',
+        'operations' => ['release', 'delete'],
+        'identity' => 'post uuid',
+        'decided_by' => 'operator',
+        'decided_at' => '2026-08-31T00:00:00Z',
+    ],
+];
+$reviewContract['declarations']['external_effects'] = [[
+    'containment' => 'live',
+    'decided_by' => ApplicationContract::UNREVIEWED_DECIDED_BY,
+    'effect_recovery_semantics' => 'provider-state restorable',
+    'id' => ContractProposal::LIFECYCLE_EFFECT_ID,
+    'reason' => ContractProposal::UNREVIEWED_REASON,
+    'restored_by' => 'code release',
+    'surfaces' => ['plugins/themes'],
+]];
+$reviewContract['declarations']['journeys'] = [];
+$reviewContract['declarations']['unsupported'] = [];
+$reviewContract['declarations']['surface_labels'] = [
+    'post_type:page' => 'Pages',
+    'post_type:post' => 'Posts',
+];
+$reviewContract = ApplicationContract::withDigest($reviewContract);
+ApplicationContract::validate($reviewContract, false);
+$reviewProposal = [
+    'format' => ContractProposal::FORMAT,
+    'generated_at' => '2026-08-31T00:00:00Z',
+    'environment' => 'demo-target',
+    'assess_digest' => 'sha256:' . str_repeat('a', 64),
+    'contract' => $reviewContract,
+    'review_required' => [
+        'review and decide external effect ' . ContractProposal::LIFECYCLE_EFFECT_ID,
+    ],
+    'review_required_count' => 1,
+];
+(new ContractStore((string) $reviewSession['source_repo']))->writeProposal('demo-target', $reviewProposal);
+
+$reviewStub = <<<'PHP'
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+$root = getenv('WPRISM_DEMO_TEST_ROOT');
+if (!is_string($root) || $root === '') { exit(90); }
+require_once $root . '/cli/src/Contract/ApplicationContract.php';
+require_once $root . '/cli/src/Contract/ContractStore.php';
+$run = static function (array $argv): int {
+    $process = proc_open($argv, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    if (!is_resource($process)) { return 127; }
+    fclose($pipes[0]); stream_get_contents($pipes[1]); stream_get_contents($pipes[2]);
+    fclose($pipes[1]); fclose($pipes[2]);
+    return proc_close($process);
+};
+if (($argv[1] ?? '') === 'deploy') { exit(0); }
+if (($argv[1] ?? '') !== 'contract' || ($argv[2] ?? '') !== 'demo-target') { exit(91); }
+$store = new \WPrism\Orchestrator\ContractStore(getcwd() ?: '.');
+$subcommand = $argv[3] ?? '';
+if ($subcommand === 'propose') {
+    echo \WPrism\Canon::encode($store->readProposal('demo-target') ?? []);
+    exit(0);
+}
+if ($subcommand === 'accept') {
+    $proposal = $store->readProposal('demo-target') ?? [];
+    if (($proposal['contract']['declarations']['external_effects'] ?? null) !== []) {
+        echo json_encode([
+            'format' => 'wprism-command-refusal/v1',
+            'reason_code' => 'external_effect_unreviewed',
+        ], JSON_UNESCAPED_SLASHES) . "\n";
+        exit(1);
+    }
+    $contract = \WPrism\Orchestrator\ApplicationContract::withDigest((array) ($proposal['contract'] ?? []));
+    \WPrism\Orchestrator\ApplicationContract::validate($contract);
+    $store->writeContract($contract, null);
+    $store->writeProjection(['format' => 'review-fixture-projection/v1', 'surfaces' => []]);
+    $paths = [
+        '.wprism/contract/contract.json',
+        '.wprism/contract/projection.json',
+    ];
+    if ($run(array_merge(['git', '-C', getcwd() ?: '.', 'add', '-f', '--'], $paths)) !== 0) { exit(92); }
+    echo \WPrism\Canon::encode([
+        'format' => 'wprism-contract-accept/v1',
+        'environment' => 'demo-target',
+        'contract_digest' => $contract['contract_digest'],
+        'staged' => true,
+    ]);
+    exit(0);
+}
+if ($subcommand === 'show') {
+    echo \WPrism\Canon::encode(['contract' => $store->readContract(), 'projection' => $store->readProjection()]);
+    exit(0);
+}
+exit(93);
+PHP;
+file_put_contents($reviewRoot . '/cli/wprism', $reviewStub);
+chmod($reviewRoot . '/cli/wprism', 0700);
+putenv('WPRISM_DEMO_TEST_ROOT=' . dirname(__DIR__, 4));
+
+$prepareCoreContractReview = new ReflectionMethod(DemoCommand::class, 'prepareCoreContractReview');
+$proposalBeforeUnreadAccept = (string) file_get_contents(
+    $reviewSession['source_repo'] . '/.wprism/contract/demo-target/proposed.json'
+);
+$prepareCoreContractReview->invoke(null, $reviewSession, $reviewRoot);
+wprism_check_same(
+    $proposalBeforeUnreadAccept,
+    (string) file_get_contents($reviewSession['source_repo'] . '/.wprism/contract/demo-target/proposed.json'),
+    'real demo orchestration proves unread contract accept refuses without modifying its proposal'
+);
+wprism_check(
+    !is_file($reviewSession['source_repo'] . '/.wprism/contract/contract.json')
+        && !is_file($reviewSession['source_repo'] . '/.wprism/contract/projection.json'),
+    'unread acceptance publishes no contract authority or projection artifact'
+);
+
+$reviewSession['phase'] = 'review_required';
+$reviewSession['last_applied_revision'] = trim(IdealOnboardingTransport::process([
+    'git', '-C', $reviewSession['source_repo'], 'rev-parse', 'HEAD',
+])['stdout']);
+$reviewSession = own_ideal_demo_paths(
+    $reviewSession,
+    ['source_repo', 'target_repo', 'origin', 'compose_env_file']
+);
+write_ideal_demo_session($reviewSession);
+$reviewJournalBefore = (string) file_get_contents((string) $reviewSession['state_file']);
+ob_start();
+$unconfirmedReview = DemoCommand::run(['review', '--name=reviewdemo'], $reviewRoot);
+ob_end_clean();
+wprism_check_same(1, $unconfirmedReview, 'demo review without the exact confirmation refuses');
+wprism_check_same(
+    $reviewJournalBefore,
+    (string) file_get_contents((string) $reviewSession['state_file']),
+    'missing review confirmation mutates neither the session phase nor proposal authority'
+);
+
+$untrackedReviewPath = $reviewSession['source_repo'] . '/hostile-untracked.php';
+file_put_contents($untrackedReviewPath, "<?php throw new RuntimeException('must not enter review');\n");
+$proposalBeforeUntrackedReview = (string) file_get_contents(
+    $reviewSession['source_repo'] . '/.wprism/contract/demo-target/proposed.json'
+);
+$reviewMethod = new ReflectionMethod(DemoCommand::class, 'review');
+try {
+    $reviewMethod->invoke(null, $reviewRoot, 'reviewdemo');
+    wprism_check(false, 'page-only review refuses an untracked source file');
+} catch (RuntimeException $error) {
+    wprism_check(
+        str_contains($error->getMessage(), 'including untracked files'),
+        'page-only review names its all-repository clean-worktree boundary'
+    );
+}
+wprism_check_same(
+    $proposalBeforeUntrackedReview,
+    (string) file_get_contents($reviewSession['source_repo'] . '/.wprism/contract/demo-target/proposed.json'),
+    'untracked source bytes refuse before the generated proposal is narrowed or accepted'
+);
+wprism_check(
+    !is_file($reviewSession['source_repo'] . '/.wprism/contract/contract.json')
+        && !is_file($reviewSession['source_repo'] . '/.wprism/contract/projection.json')
+        && (string) file_get_contents((string) $reviewSession['state_file']) === $reviewJournalBefore,
+    'untracked source refusal publishes no authority and leaves the session journal unchanged'
+);
+unlink($untrackedReviewPath);
+
+ob_start();
+$confirmedReview = DemoCommand::run(
+    ['review', '--name=reviewdemo', '--accept-page-only'],
+    $reviewRoot
+);
+$confirmedReviewOutput = (string) ob_get_clean();
+wprism_check_same(0, $confirmedReview, 'explicit page-only operator review accepts through the product orchestration');
+$acceptedReviewContract = (new ContractStore((string) $reviewSession['source_repo']))->readContract();
+wprism_check_same(
+    ['post_type:page'],
+    array_column((array) ($acceptedReviewContract['declarations']['surfaces'] ?? []), 'id'),
+    'the accepted contract removes the adversarial second release/delete surface'
+);
+wprism_check_same(
+    ['capture', 'merge', 'release', 'verify'],
+    $acceptedReviewContract['declarations']['surfaces'][0]['operations'] ?? null,
+    'page-only review grants exactly the non-delete operations named by its confirmation'
+);
+wprism_check_same(
+    [],
+    $acceptedReviewContract['declarations']['external_effects'] ?? null,
+    'state-only review removes the optional code-lifecycle effect instead of auto-marking it operator reviewed'
+);
+$reviewCommitPaths = preg_split('/\R/', trim(IdealOnboardingTransport::process([
+    'git', '-C', $reviewSession['source_repo'], 'show', '--pretty=format:', '--name-only', 'HEAD',
+])['stdout']));
+$reviewCommitPaths = is_array($reviewCommitPaths) ? array_values(array_filter($reviewCommitPaths, 'strlen')) : [];
+sort($reviewCommitPaths, SORT_STRING);
+wprism_check_same(
+    ['.wprism/contract/contract.json', '.wprism/contract/projection.json'],
+    $reviewCommitPaths,
+    'explicit review commits only the exact contract and projection artifacts in the source repository'
+);
+$reviewedSession = json_decode((string) file_get_contents((string) $reviewSession['state_file']), true);
+wprism_check_same('ready', $reviewedSession['phase'] ?? null, 'review publishes ready only after source push and target fast-forward');
+wprism_check(
+    str_contains($confirmedReviewOutput, 'accepted and committed only contract.json + projection.json'),
+    'review output names the exact authority artifacts it committed'
+);
+putenv('WPRISM_DEMO_TEST_ROOT');
 
 $wooFixtureRoot = $tmp . '/demo-woo-activation';
 $wooFixtureSandbox = $wooFixtureRoot . '/sandbox';
@@ -1653,12 +2126,29 @@ wprism_check_same(125, $targetOutputDescendant['exit'], 'bounded target capture 
 wprism_check(!file_exists($targetOutputMarker), 'a target descendant cannot mutate after output refusal returns');
 
 $faultRoot = $tmp . '/fault-demo-root';
-foreach ([$faultRoot, $faultRoot . '/sandbox', $faultRoot . '/sandbox/bin', $faultRoot . '/sandbox/tmp'] as $directory) {
+foreach ([$faultRoot, $faultRoot . '/bin', $faultRoot . '/sandbox', $faultRoot . '/sandbox/bin', $faultRoot . '/sandbox/tmp'] as $directory) {
     mkdir($directory, 0700);
 }
+$wordpressDemoImage = 'wordpress@sha256:65919a9ca10940feb10d9400fead0d639bf86241f47c91e2b9ea4703aa8452cf';
+file_put_contents($faultRoot . '/bin/docker', <<<'SH'
+#!/usr/bin/env bash
+set -eu
+case " $* " in
+  *" run --rm --entrypoint php wordpress@sha256:65919a9ca10940feb10d9400fead0d639bf86241f47c91e2b9ea4703aa8452cf -r "*)
+    printf '7.1'
+    exit 0
+    ;;
+esac
+exit 19
+SH
+);
+chmod($faultRoot . '/bin/docker', 0700);
+$faultOriginalPath = getenv('PATH');
+putenv('PATH=' . $faultRoot . '/bin:' . (is_string($faultOriginalPath) ? $faultOriginalPath : ''));
 $faultPairScript = "#!/usr/bin/env bash\nset -eu\nif [ \"\$1\" = up ]; then"
     . "\ncase \" \$* \" in *\" --git-cli \"*) ;; *) exit 11 ;; esac\n"
-    . "[ \"\${WPRISM_CLI_IMAGE:-}\" = \"wprism-demo-cli-git:php8.3\" ] || exit 12\nmkdir -p "
+    . "[ \"\${WPRISM_CLI_IMAGE:-}\" = \"wprism-demo-cli-git:php8.3\" ] || exit 12\n"
+    . '[ "${WPRISM_WP_IMAGE:-}" = ' . escapeshellarg($wordpressDemoImage) . " ] || exit 13\nmkdir -p "
     . escapeshellarg($faultRoot . '/sandbox/siterepo') . '/"$2"1 '
     . escapeshellarg($faultRoot . '/sandbox/siterepo') . '/"$2"2; '
     . 'if [ "$2" = partialdemo ]; then touch '
@@ -1812,8 +2302,15 @@ $faultHook = static function (string $phase) use (&$faultHookCalls, $faultRoot):
     }
     wprism_check_same('compose_env_published', $phase, 'demo exposes the post-pair recoverability boundary');
     $composeEnv = file_get_contents($faultRoot . '/sandbox/tmp/demo-faultdemo.env');
-    wprism_check(is_string($composeEnv) && str_contains($composeEnv, "WPRISM_CLI_IMAGE=wprism-demo-cli-git:php8.3\n"),
-        'demo persists the Git-enabled CLI image for every later compose invocation');
+    wprism_check(
+        is_string($composeEnv)
+            && str_contains($composeEnv, "WPRISM_CLI_IMAGE=wprism-demo-cli-git:php8.3\n")
+            && str_contains(
+                $composeEnv,
+                "WPRISM_WP_IMAGE=wordpress@sha256:65919a9ca10940feb10d9400fead0d639bf86241f47c91e2b9ea4703aa8452cf\n"
+            ),
+        'demo persists both exact Git CLI and digest-pinned WordPress 7.1 images for every Compose invocation'
+    );
     ++$faultHookCalls;
     throw new RuntimeException('injected demo setup failure');
 };
@@ -2215,6 +2712,8 @@ $blockedRetry = DemoCommand::run(['stop', '--name=blockeddelete'], $faultRoot);
 ob_end_clean();
 wprism_check_same(0, $blockedRetry, 'demo stop resumes after the owned-tree deletion condition is repaired');
 
+is_string($faultOriginalPath) ? putenv('PATH=' . $faultOriginalPath) : putenv('PATH');
+
 $retryRoot = $tmp . '/retry-demo-root';
 foreach ([
     $retryRoot,
@@ -2226,7 +2725,7 @@ foreach ([
 ] as $directory) {
     mkdir($directory, 0700);
 }
-$retry = ideal_demo_session($retryRoot, 'retrydemo', 9230, 9231);
+$retry = ideal_demo_session($retryRoot, 'retrydemo', 9230, 9231, 'woocommerce');
 file_put_contents((string) $retry['compose_file'], "services: {}\n");
 file_put_contents((string) $retry['compose_env_file'], "WPRISM_PAIR=retrydemo\n");
 $deployMarker = $retryRoot . '/first-deploy-failed';
@@ -2284,6 +2783,250 @@ wprism_check_same(0, $secondApply, 'demo apply resumes the pending clean revisio
 wprism_check_same(null, $afterRetry['pending_revision'] ?? null, 'a successful retry clears the pending revision');
 wprism_check_same($afterFailure['pending_revision'] ?? null, $afterRetry['last_applied_revision'] ?? null, 'a successful retry records the exact revision it completed');
 
+$planRoot = $tmp . '/core-plan-demo-root';
+foreach ([
+    $planRoot,
+    $planRoot . '/cli',
+    $planRoot . '/fake-bin',
+    $planRoot . '/sandbox',
+    $planRoot . '/sandbox/tmp',
+    $planRoot . '/sandbox/siterepo',
+] as $directory) {
+    mkdir($directory, 0700);
+}
+$planSession = ideal_demo_session($planRoot, 'plancore', 9262, 9263, 'core');
+file_put_contents((string) $planSession['compose_file'], "services: {}\n");
+file_put_contents((string) $planSession['compose_env_file'], "WPRISM_PAIR=plancore\n");
+$planLog = $planRoot . '/calls.log';
+file_put_contents($planLog, '');
+$planRuntime = json_encode([
+    'comment_id' => 7,
+    'comment_row_sha256' => str_repeat('c', 64),
+    'commentmeta_rows' => 0,
+    'commentmeta_sha256' => str_repeat('d', 64),
+], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+file_put_contents($planRoot . '/fake-bin/docker', <<<'SH'
+#!/usr/bin/env bash
+set -eu
+case " $* " in
+  *"post_content"*) printf '%s\n' "$WPRISM_DEMO_PLAN_PAGE" ;;
+  *) printf '%s\n' "$WPRISM_DEMO_PLAN_RUNTIME" ;;
+esac
+SH
+);
+chmod($planRoot . '/fake-bin/docker', 0700);
+$planCli = <<<'PHP'
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+$log = getenv('WPRISM_DEMO_PLAN_LOG');
+if (!is_string($log) || $log === '') { exit(90); }
+$command = $argv[1] ?? '';
+file_put_contents($log, $command . "\n", FILE_APPEND | LOCK_EX);
+if ($command === 'deploy' || $command === 'apply') { exit(0); }
+if ($command !== 'release') { exit(91); }
+$run = static function (array $argv): string {
+    $process = proc_open($argv, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    if (!is_resource($process)) { exit(92); }
+    fclose($pipes[0]); $stdout = stream_get_contents($pipes[1]); stream_get_contents($pipes[2]);
+    fclose($pipes[1]); fclose($pipes[2]);
+    if (proc_close($process) !== 0) { exit(92); }
+    return trim((string) $stdout);
+};
+$revision = $run(['git', '-C', getcwd() ?: '.', 'rev-parse', 'HEAD']);
+$effects = [
+    'containment' => 'prevented',
+    'containment_basis' => 'no WordPress hooks fire in the apply window',
+    'known_irreversible' => [],
+    'lifecycle_window' => null,
+    'unknown_blocking' => [],
+];
+$mode = getenv('WPRISM_DEMO_PLAN_MODE') ?: 'normal';
+if ($mode === 'missing-window') { unset($effects['lifecycle_window']); }
+if ($mode === 'live-window') { $effects['lifecycle_window'] = ['phases' => ['activate']]; }
+if ($mode === 'mutate-target') {
+    $target = getenv('WPRISM_DEMO_PLAN_TARGET');
+    if (is_string($target) && $target !== '') { file_put_contents($target . '/plan-only-mutated', "bad\n"); }
+}
+$document = [
+    'code_revision_from' => $revision,
+    'contract_digest' => getenv('WPRISM_DEMO_PLAN_CONTRACT'),
+    'effects' => $effects,
+    'environment' => 'demo-target',
+    'format' => 'wprism-authorization-plan/v1',
+    'may_change' => [
+        'authored_state' => ['post_type:page'],
+        'code' => [],
+        'external' => [],
+        'runtime_adjacent' => [],
+    ],
+    'scope' => [
+        'code' => [
+            'lifecycle_phases' => ['verify'],
+            'plugins_changed' => 0,
+            'themes_changed' => 0,
+        ],
+        'entities' => ['create' => 0, 'delete' => 0, 'update' => 1],
+        'surfaces' => ['post_type:page'],
+    ],
+];
+echo "authorization preview fixture\n";
+echo json_encode($document, JSON_UNESCAPED_SLASHES) . "\n";
+PHP;
+file_put_contents($planRoot . '/cli/wprism', $planCli);
+chmod($planRoot . '/cli/wprism', 0700);
+foreach ([
+    ['git', 'init', '--bare', '--initial-branch=main', $planSession['origin']],
+    ['git', 'init', '--initial-branch=main', $planSession['source_repo']],
+] as $command) {
+    $result = IdealOnboardingTransport::process($command);
+    if ($result['exit'] !== 0) {
+        throw new RuntimeException('could not initialize core plan fixture: ' . trim($result['stderr']));
+    }
+}
+$pageUuid = '87654321-4321-4321-8321-cba987654321';
+$pageRelative = 'state/posts/page/' . $pageUuid . '--wprism-demo-page.md';
+$planPageFront = [
+    'uuid' => $pageUuid,
+    'type' => 'page',
+    'slug' => 'wprism-demo-page',
+    'title' => 'WPrism Demo Page',
+    'status' => 'publish',
+    'comment_status' => 'open',
+    'ping_status' => 'closed',
+    'excerpt' => '',
+    'menu_order' => 0,
+];
+$planPageBody = 'reviewed edit';
+$planPageWitness = json_encode([
+    'comment_status' => 'open',
+    'content' => $planPageBody,
+    'excerpt' => '',
+    'menu_order' => 0,
+    'ping_status' => 'closed',
+    'slug' => 'wprism-demo-page',
+    'status' => 'publish',
+    'title' => 'WPrism Demo Page',
+], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+mkdir($planSession['source_repo'] . '/state/posts/page', 0700, true);
+file_put_contents($planSession['source_repo'] . '/.gitignore', Adopt::repositoryGitignoreBytes());
+file_put_contents($planSession['source_repo'] . '/site.wprism.json', Adopt::repositorySeedBytes());
+file_put_contents(
+    $planSession['source_repo'] . '/' . $pageRelative,
+    \WPrism\Canon::post_file($planPageFront, 'baseline')
+);
+$planStore = new ContractStore((string) $planSession['source_repo']);
+$planStore->writeContract((array) $acceptedReviewContract, null);
+$planStore->writeProjection(['format' => 'plan-fixture-projection/v1', 'surfaces' => []]);
+foreach ([
+    ['git', '-C', $planSession['source_repo'], 'add', '.gitignore', 'site.wprism.json', $pageRelative],
+    ['git', '-C', $planSession['source_repo'], 'add', '-f', '--',
+        '.wprism/contract/contract.json', '.wprism/contract/projection.json'],
+    ['git', '-C', $planSession['source_repo'], '-c', 'user.name=test', '-c', 'user.email=test@example.test',
+        'commit', '-m', 'core plan baseline'],
+    ['git', '-C', $planSession['source_repo'], 'remote', 'add', 'origin', $planSession['origin']],
+    ['git', '-C', $planSession['source_repo'], 'push', '-u', 'origin', 'main'],
+    ['git', 'clone', '--branch', 'main', $planSession['origin'], $planSession['target_repo']],
+] as $command) {
+    $result = IdealOnboardingTransport::process($command);
+    if ($result['exit'] !== 0) {
+        throw new RuntimeException('could not establish core plan fixture: ' . trim($result['stderr']));
+    }
+}
+$planBaseline = trim(IdealOnboardingTransport::process([
+    'git', '-C', $planSession['source_repo'], 'rev-parse', 'HEAD',
+])['stdout']);
+$planSession['phase'] = 'ready';
+$planSession['runtime_before'] = $planRuntime;
+$planSession['last_applied_revision'] = $planBaseline;
+$planSession = own_ideal_demo_paths(
+    $planSession,
+    ['source_repo', 'target_repo', 'origin', 'compose_env_file']
+);
+write_ideal_demo_session($planSession);
+file_put_contents(
+    $planSession['source_repo'] . '/' . $pageRelative,
+    \WPrism\Canon::post_file($planPageFront, $planPageBody)
+);
+$planOriginalPath = getenv('PATH');
+putenv('PATH=' . $planRoot . '/fake-bin:' . (is_string($planOriginalPath) ? $planOriginalPath : ''));
+putenv('WPRISM_DEMO_PLAN_LOG=' . $planLog);
+putenv('WPRISM_DEMO_PLAN_RUNTIME=' . $planRuntime);
+putenv('WPRISM_DEMO_PLAN_PAGE=' . $planPageWitness);
+putenv('WPRISM_DEMO_PLAN_CONTRACT=' . $acceptedReviewContract['contract_digest']);
+putenv('WPRISM_DEMO_PLAN_TARGET=' . $planSession['target_repo']);
+putenv('WPRISM_DEMO_PLAN_MODE=normal');
+ob_start();
+$planApply = DemoCommand::run(['apply', '--name=plancore'], $planRoot);
+$planApplyOutput = (string) ob_get_clean();
+wprism_check_same(0, $planApply, 'core demo applies only after its exact real-command authorization preview passes');
+$planCalls = preg_split('/\R/', trim((string) file_get_contents($planLog)));
+$planCalls = is_array($planCalls) ? array_values(array_filter($planCalls, 'strlen')) : [];
+wprism_check_same(
+    ['deploy', 'release', 'apply'],
+    $planCalls,
+    'plan-only authorization preview occurs after deploy and strictly before the lower-level raw apply'
+);
+wprism_check(
+    str_contains($planApplyOutput, 'Authorization preview verified the exact page-only revision')
+        && str_contains($planApplyOutput, 'target page matches its exact captured artifact')
+        && str_contains($planApplyOutput, 'Production execution requires stage-source'),
+    'demo proves authored convergence and separates lower-level evaluation apply from production release authority'
+);
+$appliedPlanSession = json_decode((string) file_get_contents((string) $planSession['state_file']), true);
+$appliedRevision = (string) ($appliedPlanSession['last_applied_revision'] ?? '');
+$assertCorePageConvergence = new ReflectionMethod(DemoCommand::class, 'assertCorePageConvergence');
+$mismatchedPageWitness = json_decode($planPageWitness, true, 512, JSON_THROW_ON_ERROR);
+$mismatchedPageWitness['content'] = 'target did not converge';
+putenv('WPRISM_DEMO_PLAN_PAGE=' . json_encode(
+    $mismatchedPageWitness,
+    JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+));
+try {
+    $assertCorePageConvergence->invoke(null, $appliedPlanSession);
+    wprism_check(false, 'core demo refuses a target page that did not converge to its captured artifact');
+} catch (RuntimeException $error) {
+    wprism_check(
+        str_contains($error->getMessage(), 'does not equal the exact captured authored page artifact'),
+        'authored page mismatch refuses even when the target-only runtime canary is unchanged'
+    );
+}
+putenv('WPRISM_DEMO_PLAN_PAGE=' . $planPageWitness);
+$assertCoreReleasePlan = new ReflectionMethod(DemoCommand::class, 'assertCoreReleasePlan');
+foreach ([
+    'missing-window' => 'missing lifecycle_window',
+    'live-window' => 'non-null lifecycle_window',
+] as $mode => $meaning) {
+    putenv('WPRISM_DEMO_PLAN_MODE=' . $mode);
+    try {
+        $assertCoreReleasePlan->invoke(null, $appliedPlanSession, $planRoot, $appliedRevision);
+        wprism_check(false, "authorization preview refuses a $meaning");
+    } catch (RuntimeException $error) {
+        wprism_check(
+            str_contains($error->getMessage(), 'effect-clean'),
+            "authorization preview distinguishes explicit null from a $meaning"
+        );
+    }
+}
+putenv('WPRISM_DEMO_PLAN_MODE=mutate-target');
+try {
+    $assertCoreReleasePlan->invoke(null, $appliedPlanSession, $planRoot, $appliedRevision);
+    wprism_check(false, 'authorization preview refuses repository mutation');
+} catch (RuntimeException $error) {
+    wprism_check(
+        str_contains($error->getMessage(), 'changed source repository, target repository, or target runtime'),
+        'plan-only read-only proof catches a target repository mutation before raw apply authority'
+    );
+}
+@unlink($planSession['target_repo'] . '/plan-only-mutated');
+putenv('WPRISM_DEMO_PLAN_LOG');
+putenv('WPRISM_DEMO_PLAN_RUNTIME');
+putenv('WPRISM_DEMO_PLAN_PAGE');
+putenv('WPRISM_DEMO_PLAN_CONTRACT');
+putenv('WPRISM_DEMO_PLAN_TARGET');
+putenv('WPRISM_DEMO_PLAN_MODE');
+is_string($planOriginalPath) ? putenv('PATH=' . $planOriginalPath) : putenv('PATH');
+
 $httpOverlay = (string) file_get_contents(dirname(__DIR__, 4) . '/sandbox/pair.http.yml');
 wprism_check(
     str_contains($httpOverlay, '127.0.0.1:${WPRISM_PORT1}:80')
@@ -2307,8 +3050,20 @@ wprism_check(
     str_contains($demoSource, "'scenario' => 'core'")
         && str_contains($demoSource, "['assess', 'demo-target', '--operation=release', '--limit=10', '--format=json']")
         && str_contains($demoSource, "'wprism-assess-view/v1'")
-        && str_contains($demoSource, 'Managed core capability preflight: READY. Whole-site release assessment: COMPLETE WITH GAPS'),
-    'default demo requires qualified core capabilities and reports a complete bounded whole-site assessment without hiding gaps'
+        && str_contains($demoSource, "'review_required'")
+        && str_contains($demoSource, "self::demoCli(\$sourceRoot), 'release', 'demo-target', '--from=' . \$revision")
+        && str_contains($demoSource, 'Whole-site release assessment: READY'),
+    'default demo requires a ready bounded assessment, explicit review, and exact release authorization preview'
+);
+wprism_check(
+    str_contains(
+        $demoSource,
+        'wordpress@sha256:65919a9ca10940feb10d9400fead0d639bf86241f47c91e2b9ea4703aa8452cf'
+    )
+        && str_contains($demoSource, "private const WORDPRESS_VERSION = '7.1'")
+        && str_contains($demoSource, 'assertWordPressImage($sourceRoot)')
+        && str_contains($demoSource, "'WPRISM_WP_IMAGE' => self::WORDPRESS_IMAGE"),
+    'demo pins the exact reviewed WordPress 7.1 image, probes its own bytes, and passes the pin to pair startup'
 );
 wprism_check(
     str_contains($demoSource, 'SELECT * FROM {$wpdb->comments} WHERE comment_ID = %d')

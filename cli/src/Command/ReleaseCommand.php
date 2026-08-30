@@ -141,23 +141,22 @@ final class ReleaseCommand {
     ];
 
     /**
-     * The lifecycle phases `promote` runs, in its own order.
+     * The phase every promotion performs: read-back verification after apply.
      *
-     * `retire` → `activate` happen on EVERY promotion, code or not
-     * (`cli/wprism`'s `cmd_promote_internal()` runs `lifecycle-retire` and
-     * `lifecycle-activate` for a repository with no code descriptor too), and
-     * they fire WordPress hooks. That is why the §1.6 containment gate can
-     * fire on a state-only release: the honest answer is that the window is
-     * entered, not that it is empty. `deploy` and `finalize` are added when
-     * the plan reports code work, mirroring promote's `code-stage` and
-     * `code-finalize` phases.
+     * `cmd_promote_internal()` guards code-stage, lifecycle-retire,
+     * lifecycle-activate, lifecycle-settle and code-finalize behind
+     * `$codeChangeRequired` (cli/wprism:3202-3240), while its content-only
+     * terminal says "code lifecycle hooks not run" (:3253-3255). A state-only
+     * authorization plan must therefore name only verify; claiming it enters
+     * the hook-firing window would demand an external-effect declaration for
+     * execution that does not occur.
      *
      * @var list<string>
      */
-    public const BASE_LIFECYCLE_PHASES = ['retire', 'activate', 'verify'];
+    public const BASE_LIFECYCLE_PHASES = ['verify'];
 
     /** @var list<string> */
-    public const CODE_LIFECYCLE_PHASES = ['deploy', 'finalize'];
+    public const CODE_LIFECYCLE_PHASES = ['deploy', 'retire', 'activate', 'finalize'];
 
     /**
      * Post-failure classification, in evaluation order.

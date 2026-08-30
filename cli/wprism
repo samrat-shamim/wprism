@@ -47,7 +47,6 @@ require __DIR__ . '/src/Command/DeployCommand.php';
 require __DIR__ . '/src/Command/AdoptCommand.php';
 require __DIR__ . '/src/Command/UnadoptCommand.php';
 require __DIR__ . '/src/Command/ConnectCommand.php';
-require __DIR__ . '/src/Command/DemoCommand.php';
 require __DIR__ . '/src/Command/ScopeCommand.php';
 require __DIR__ . '/src/Plan/PlanContract.php';
 require __DIR__ . '/src/Plan/PlanSummary.php';
@@ -144,6 +143,11 @@ require __DIR__ . '/src/Command/CodeClassifyCommand.php';
 require_once __DIR__ . '/src/Command/CodeResolveCommand.php';
 require_once __DIR__ . '/src/Command/CodeImportCommand.php';
 require __DIR__ . '/src/Command/ContractCommand.php';
+// Demo now composes the real contract propose/accept reader. Keep its plain
+// shell load after the Contract module's owners above; loading it beside
+// Connect would pull ProjectionVocabulary through require_once before this
+// file's deliberate plain-require block and redeclare the class.
+require __DIR__ . '/src/Command/DemoCommand.php';
 // Round-3 MUP §2.2-§2.5, in the same last-in-block position and for the same
 // reason: every class below require_once's its own dependencies by path, so a
 // leaf loaded earlier here would be redeclared when its dependant pulled it
@@ -376,6 +380,7 @@ Usage:
   wprism preview remove <env> [--format=json]
   wprism demo start [--scenario=core|woocommerce] [--name=<name>]
                  [--source-port=<port>] [--target-port=<port>]
+  wprism demo review [--name=<name>] --accept-page-only
   wprism demo status|capture|apply|refusal|stop [--name=<name>]
   wprism stage-source <env> --from=<branch-or-tag> --operation=<id> [--format=json]
   wprism authority-policy <env> status --format=json

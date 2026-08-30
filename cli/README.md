@@ -53,6 +53,7 @@ wprism rehearse <env> --reap [--format=json]
 wprism preview create <env> --from <production-env> [rehearse flags...]
 wprism preview remove <env> [--format=json]
 wprism demo start [--scenario=core|woocommerce] [--name=<name>] [--source-port=<port>] [--target-port=<port>]
+wprism demo review [--name=<name>] --accept-page-only
 wprism demo status|capture|apply|refusal|stop [--name=<name>]
 wprism stage-source <env> --from=<branch-or-tag> --operation=<id> [--format=json]
 wprism authority-policy <env> status --format=json
@@ -93,11 +94,16 @@ are rejected when the registry is loaded.
 ### First contact
 
 `wprism demo start` owns a disposable source-checkout pair and prints the
-complete capture → Git diff → apply → refusal → teardown loop. The default
-WordPress-core scenario installs no extension, preserves a target-only comment,
-and publishes only after the managed core capability set qualifies and a
-bounded machine assessment completes. The assessment's whole-site gaps remain
-red and are printed before the deliberately page-scoped journey continues.
+complete review → capture → Git diff → authorization preview → evaluation apply
+→ refusal → teardown loop. The default WordPress-core scenario installs no
+extension, verifies the exact digest-pinned WordPress 7.1 image, and stops only
+after the managed core capability set qualifies and a bounded machine
+assessment exits ready. `demo review --accept-page-only` narrows the generated
+contract to the page surface, removes the unused code-lifecycle placeholder,
+and commits only `contract.json` plus `projection.json`; without that exact
+confirmation it mutates nothing. The later apply runs the real plan-only release
+command before raw evaluation apply, proves exact page convergence, and preserves
+a target-only comment. A red assessment blocks this guided journey.
 `--scenario=woocommerce` is the advanced adapter journey. Both use the same
 pair budget and digest-pinned artifact resolver as the live test estate;
 `demo stop` removes only the named demo's pair resources and repositories.

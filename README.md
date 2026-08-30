@@ -34,6 +34,7 @@ no extension installation is performed:
 
 ```sh
 cli/wprism demo start
+cli/wprism demo review --accept-page-only
 # edit “WPrism Demo Page” at the printed source wp-admin URL
 cli/wprism demo capture
 git -C sandbox/siterepo/wprismdemo1 diff
@@ -42,12 +43,17 @@ cli/wprism demo refusal
 cli/wprism demo stop
 ```
 
-The command publishes only after the managed core capability set qualifies
-and a bounded whole-site release assessment completes. Any wider adoption gaps
-remain red and are printed as exact counts instead of being hidden or blocking
-this deliberately page-scoped evaluation. `apply` proves a target-only comment
-survived the managed page change;
+The command verifies the exact digest-pinned WordPress 7.1 image, publishes only
+after the managed core capability set qualifies and the bounded whole-site
+release assessment is ready, then stops for explicit page-only contract review.
+That review accepts and commits only the real contract/projection artifacts; a
+red assessment blocks the journey. Before its lower-level evaluation apply,
+`apply` runs the real read-only release authorization preview for the exact Git
+revision and accepted contract. It then proves both that the target page equals
+the captured artifact and that a target-only comment survived;
 `refusal` proves a caller cannot replace the registry's trusted target binding.
+Production execution still requires stage-source, release prepare, signed
+authorization, and release execute.
 Use `--scenario=woocommerce` for the advanced product/order adapter journey. For a
 real site, `wprism connect` creates the local repository/registry only after
 native reachability, WordPress and topology inspection probes, and `wprism

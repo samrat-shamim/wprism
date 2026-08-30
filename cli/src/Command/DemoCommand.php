@@ -3,7 +3,10 @@ declare(strict_types=1);
 
 namespace WPrism\Orchestrator;
 
+require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../Onboarding/Adopt.php';
+require_once __DIR__ . '/../Contract/ContractProposal.php';
+require_once __DIR__ . '/../Contract/ContractStore.php';
 require_once __DIR__ . '/HostProcess.php';
 
 /** Source-checkout, disposable two-site journey over the real WPrism commands. */
@@ -33,6 +36,187 @@ final class DemoCommand {
     private const DEFAULT_TARGET_PORT = 8782;
     private const WOO_VERSION = '11.0.1';
     private const CLI_IMAGE = 'wprism-demo-cli-git:php8.3';
+    private const WORDPRESS_IMAGE =
+        'wordpress@sha256:65919a9ca10940feb10d9400fead0d639bf86241f47c91e2b9ea4703aa8452cf';
+    private const WORDPRESS_VERSION = '7.1';
+    private const CORE_OPTION_TOTAL = 134;
+    /** Exact sidebar/widget rows measured in the pinned fresh WordPress 7.1 image. @var list<string> */
+    private const CORE_SIDEBAR_OPTIONS = [
+        'sidebars_widgets',
+        'widget_archives',
+        'widget_block',
+        'widget_calendar',
+        'widget_categories',
+        'widget_custom_html',
+        'widget_media_audio',
+        'widget_media_gallery',
+        'widget_media_image',
+        'widget_media_video',
+        'widget_meta',
+        'widget_nav_menu',
+        'widget_pages',
+        'widget_recent-comments',
+        'widget_recent-posts',
+        'widget_rss',
+        'widget_search',
+        'widget_tag_cloud',
+        'widget_text',
+    ];
+    /** @var list<string> */
+    private const CORE_REVIEWED_PAGE_OPERATIONS = ['capture', 'merge', 'release', 'verify'];
+
+    /** @var list<string> */
+    private const CORE_AUTHORED_OPTIONS = [
+        'avatar_default',
+        'avatar_rating',
+        'blog_charset',
+        'category_base',
+        'close_comments_days_old',
+        'close_comments_for_old_posts',
+        'comment_max_links',
+        'comment_moderation',
+        'comment_order',
+        'comment_previously_approved',
+        'comment_registration',
+        'comments_notify',
+        'comments_per_page',
+        'date_format',
+        'default_comment_status',
+        'default_comments_page',
+        'default_email_category',
+        'default_ping_status',
+        'default_pingback_flag',
+        'default_post_format',
+        'default_role',
+        'disallowed_keys',
+        'gmt_offset',
+        'html_type',
+        'image_default_align',
+        'image_default_link_type',
+        'image_default_size',
+        'large_size_h',
+        'large_size_w',
+        'links_updated_date_format',
+        'medium_large_size_h',
+        'medium_large_size_w',
+        'medium_size_h',
+        'medium_size_w',
+        'moderation_keys',
+        'moderation_notify',
+        'page_comments',
+        'ping_sites',
+        'posts_per_rss',
+        'require_name_email',
+        'rss_use_excerpt',
+        'show_avatars',
+        'show_comments_cookies_opt_in',
+        'site_icon',
+        'start_of_week',
+        'tag_base',
+        'thread_comments',
+        'thread_comments_depth',
+        'thumbnail_crop',
+        'thumbnail_size_h',
+        'thumbnail_size_w',
+        'time_format',
+        'timezone_string',
+        'uploads_use_yearmonth_folders',
+        'use_balanceTags',
+        'use_smilies',
+        'use_trackback',
+        'users_can_register',
+        // WP 7.1 reads this to control attachment URLs/admin links and has no
+        // ordinary apply-time regenerator, so it is authored, not derived.
+        'wp_attachment_pages_enabled',
+        'wp_notes_notify',
+    ];
+
+    /** Numeric/boolean authored settings reviewed as values, never entity ids. @var list<string> */
+    private const CORE_AUTHORED_LINT_OK = [
+        'close_comments_days_old',
+        'close_comments_for_old_posts',
+        'comment_max_links',
+        'comment_moderation',
+        'comment_previously_approved',
+        'comment_registration',
+        'comments_notify',
+        'comments_per_page',
+        'default_pingback_flag',
+        'gmt_offset',
+        'large_size_h',
+        'large_size_w',
+        'medium_large_size_h',
+        'medium_large_size_w',
+        'medium_size_h',
+        'medium_size_w',
+        'moderation_notify',
+        'page_comments',
+        'posts_per_rss',
+        'require_name_email',
+        'rss_use_excerpt',
+        'show_avatars',
+        'show_comments_cookies_opt_in',
+        'start_of_week',
+        'thread_comments',
+        'thread_comments_depth',
+        'thumbnail_crop',
+        'thumbnail_size_h',
+        'thumbnail_size_w',
+        'uploads_use_yearmonth_folders',
+        'use_balanceTags',
+        'use_smilies',
+        'use_trackback',
+        'users_can_register',
+        'wp_attachment_pages_enabled',
+        'wp_notes_notify',
+    ];
+
+    /** @var array<string,string> */
+    private const CORE_AUTHORED_REFS = [
+        'default_email_category' => 'term',
+        'site_icon' => 'post',
+    ];
+
+    /**
+     * DB/upgrade facts. In particular, core's upgrade.php turns
+     * link_manager_enabled off when its links-table probe finds no row; it is
+     * a local projection of that database, not portable authored intent.
+     *
+     * @var list<string>
+     */
+    private const CORE_DERIVED_OPTIONS = [
+        'db_version',
+        'finished_splitting_shared_terms',
+        'initial_db_version',
+        'link_manager_enabled',
+    ];
+
+    /** @var list<string> */
+    private const CORE_RUNTIME_OPTIONS = [
+        'admin_email_lifespan',
+        'auto_plugin_theme_update_emails',
+        'auto_update_core_dev',
+        'auto_update_core_major',
+        'auto_update_core_minor',
+        // This is a link_category term id, but that taxonomy is deliberately
+        // outside the page-only demo. Keeping it local is honest; a raw id is
+        // never smuggled into portable state.
+        'default_link_category',
+        'hack_file',
+        'wp_force_deactivated_plugins',
+        'wp_user_roles',
+    ];
+
+    /** Credentials, connection facts and host paths/URLs; none is captured. @var list<string> */
+    private const CORE_OPTIONAL_ENV_OPTIONS = [
+        'mailserver_login',
+        'mailserver_pass',
+        'mailserver_port',
+        'mailserver_url',
+        'upload_path',
+        'upload_url_path',
+    ];
+
     private const LIVE_PROCESS_TIMEOUT_MILLISECONDS = 1800000;
 
     /**
@@ -41,8 +225,9 @@ final class DemoCommand {
      */
     public static function run(array $args, string $sourceRoot, ?callable $phaseHook = null): int {
         $action = array_shift($args);
-        if (!is_string($action) || !in_array($action, ['start', 'status', 'capture', 'apply', 'refusal', 'stop'], true)) {
-            fwrite(STDERR, "wprism: demo: expected start, status, capture, apply, refusal, or stop\n");
+        if (!is_string($action)
+            || !in_array($action, ['start', 'status', 'review', 'capture', 'apply', 'refusal', 'stop'], true)) {
+            fwrite(STDERR, "wprism: demo: expected start, status, review, capture, apply, refusal, or stop\n");
             return 1;
         }
         try {
@@ -52,6 +237,7 @@ final class DemoCommand {
                 return match ($action) {
                     'start' => self::start($sourceRoot, $options, $phaseHook),
                     'status' => self::status($sourceRoot, $options['name']),
+                    'review' => self::review($sourceRoot, $options['name']),
                     'capture' => self::capture($sourceRoot, $options['name']),
                     'apply' => self::apply($sourceRoot, $options['name']),
                     'refusal' => self::refusal($sourceRoot, $options['name']),
@@ -67,19 +253,33 @@ final class DemoCommand {
         }
     }
 
-    /** @return array{name:string,source_port:int,target_port:int,scenario:string} */
+    /** @return array{name:string,source_port:int,target_port:int,scenario:string,accept_page_only:bool} */
     public static function options(string $action, array $args): array {
         $values = [
             'name' => self::DEFAULT_NAME,
             'source_port' => self::DEFAULT_SOURCE_PORT,
             'target_port' => self::DEFAULT_TARGET_PORT,
             'scenario' => 'core',
+            'accept_page_only' => false,
         ];
+        $seen = [];
         foreach ($args as $arg) {
+            if ($action === 'review' && $arg === '--accept-page-only') {
+                if (isset($seen['accept_page_only'])) {
+                    throw new \RuntimeException('review received --accept-page-only more than once');
+                }
+                $seen['accept_page_only'] = true;
+                $values['accept_page_only'] = true;
+                continue;
+            }
             if (!is_string($arg) || preg_match('/^--(name|source-port|target-port|scenario)=(.+)$/D', $arg, $match) !== 1) {
                 throw new \RuntimeException("unsupported $action argument '$arg'");
             }
             $key = str_replace('-', '_', $match[1]);
+            if (isset($seen[$key])) {
+                throw new \RuntimeException("$action received --{$match[1]} more than once");
+            }
+            $seen[$key] = true;
             $values[$key] = in_array($key, ['source_port', 'target_port'], true)
                 ? self::port($match[2], '--' . $match[1])
                 : $match[2];
@@ -99,19 +299,24 @@ final class DemoCommand {
         if ($values['source_port'] === $values['target_port']) {
             throw new \RuntimeException('source and target ports must differ');
         }
+        if ($action === 'review' && $values['accept_page_only'] !== true) {
+            throw new \RuntimeException(
+                'review requires the exact --accept-page-only confirmation; no proposal or repository bytes changed'
+            );
+        }
         return [
             'name' => (string) $values['name'],
             'source_port' => (int) $values['source_port'],
             'target_port' => (int) $values['target_port'],
             'scenario' => (string) $values['scenario'],
+            'accept_page_only' => (bool) $values['accept_page_only'],
         ];
     }
 
-    /** @param array{name:string,source_port:int,target_port:int,scenario:string} $options */
+    /** @param array{name:string,source_port:int,target_port:int,scenario:string,accept_page_only:bool} $options */
     private static function start(string $sourceRoot, array $options, ?callable $phaseHook): int {
         self::requireTools(['docker', 'git', 'jq']);
         $session = self::sessionShape($sourceRoot, $options);
-        $coreAssessment = null;
         self::restoreClaimedSession((string) $session['state_file'], (string) $options['name']);
         if (file_exists($session['state_file']) || is_link($session['state_file'])) {
             throw new \RuntimeException("demo '{$options['name']}' already has a session; run `wprism demo status` or `wprism demo stop`");
@@ -142,6 +347,7 @@ final class DemoCommand {
                 self::acquireOwnedDirectory($session, $field, $phaseHook);
             }
             self::acquireOwnedEnvironment($session, $sourceRoot, $phaseHook);
+            self::assertWordPressImage($sourceRoot);
             $label = $options['scenario'] === 'woocommerce' ? 'WooCommerce' : 'WordPress core';
             echo "Starting an exact, disposable $label pair. This can take a few minutes on the first image/artifact pull.\n";
             $up = self::runProcess(
@@ -155,6 +361,7 @@ final class DemoCommand {
                     'WPRISM_SOURCE_ROOT' => $sourceRoot,
                     'WPRISM_EXPECTED_SOURCE_SHA' => trim(self::mustRun(['git', 'rev-parse', 'HEAD'], $sourceRoot)['stdout']),
                     'WPRISM_CLI_IMAGE' => self::CLI_IMAGE,
+                    'WPRISM_WP_IMAGE' => self::WORDPRESS_IMAGE,
                 ],
                 true,
                 self::LIVE_PROCESS_TIMEOUT_MILLISECONDS
@@ -171,6 +378,9 @@ final class DemoCommand {
             }
             self::seedSourceContent($session);
             self::runWPrism($session, $sourceRoot, $session['source_repo'], ['capture', 'demo-source'], true);
+            if ($options['scenario'] === 'core') {
+                self::assertCoreProfileCapture($session);
+            }
             self::git($session['source_repo'], ['add', '-A']);
             self::git($session['source_repo'], [
                 '-c', 'user.name=wprism-demo', '-c', 'user.email=demo@example.test',
@@ -199,10 +409,12 @@ final class DemoCommand {
             self::assertCapabilityQualification($session, $sourceRoot, 'demo-source', $session['source_repo']);
             self::assertCapabilityQualification($session, $sourceRoot, 'demo-target', $session['target_repo']);
             if ($options['scenario'] === 'core') {
-                $coreAssessment = self::assertCoreAssessment($session, $sourceRoot);
+                self::assertCoreOptionInventory($session, $sourceRoot);
+                self::assertCoreAssessment($session, $sourceRoot);
+                self::prepareCoreContractReview($session, $sourceRoot);
             }
             $session['last_applied_revision'] = $revision;
-            $session['phase'] = 'ready';
+            $session['phase'] = $options['scenario'] === 'core' ? 'review_required' : 'ready';
             self::replaceSession($session);
         } catch (\Throwable $error) {
             try {
@@ -213,23 +425,20 @@ final class DemoCommand {
             throw $error;
         }
 
-        echo "\nDemo ready.\n";
+        echo $options['scenario'] === 'core' ? "\nDemo review required.\n" : "\nDemo ready.\n";
         echo "  Source: http://localhost:{$options['source_port']}/wp-admin/\n";
         echo "  Target: http://localhost:{$options['target_port']}/wp-admin/\n";
         echo "  Login:  admin / admin\n";
         echo "  Repo:   {$session['source_repo']}\n\n";
         $edit = $options['scenario'] === 'woocommerce' ? "'WPrism Demo Mug' product" : "'WPrism Demo Page' page";
         if ($options['scenario'] === 'core') {
-            $counts = is_array($coreAssessment['counts'] ?? null) ? $coreAssessment['counts'] : [];
-            if (($coreAssessment['readiness'] ?? null) === 'ready') {
-                echo "Whole-site release assessment: READY (bounded machine view verified).\n";
-            } else {
-                echo 'Managed core capability preflight: READY. Whole-site release assessment: COMPLETE WITH GAPS ('
-                    . (int) ($counts['invisible_option_names'] ?? 0) . ' invisible option names; '
-                    . (int) ($counts['pending_classifications'] ?? 0) . ' pending classifications; '
-                    . (int) ($counts['undeclared_tables'] ?? 0) . " undeclared tables).\n";
-                echo "This demo stays inside the qualified page surface; review those gaps before widening adoption.\n";
-            }
+            echo "Whole-site release assessment: READY (bounded machine view verified).\n";
+            echo "The generated contract still names an optional code-lifecycle window this page-only journey will not enter.\n";
+            echo "Review boundary: accept only the generated page surface; no code, deletion, or unknown effect is accepted.\n";
+            echo "Continue with the explicit operator action:\n";
+            echo '  ' . escapeshellarg(self::demoCli($sourceRoot)) . ' demo review --name=' . $options['name']
+                . " --accept-page-only\n";
+            return 0;
         } else {
             echo "Capability preflight: READY. Run `wprism assess` to review the advanced WooCommerce surface.\n";
         }
@@ -247,7 +456,251 @@ final class DemoCommand {
         if ($session['runtime_before'] !== '') {
             echo '  runtime proof: ' . self::runtimeStatusWitness((string) $session['scenario']) . "\n";
         }
+        if ($session['phase'] === 'review_required') {
+            echo '  next: ' . escapeshellarg(self::demoCli($sourceRoot)) . " demo review --name=$name --accept-page-only\n";
+        }
         return 0;
+    }
+
+    private static function review(string $sourceRoot, string $name): int {
+        $session = self::readSession($sourceRoot, $name);
+        if (($session['scenario'] ?? null) !== 'core' || ($session['phase'] ?? null) !== 'review_required') {
+            throw new \RuntimeException('demo review requires a core session stopped at its review-required phase');
+        }
+        $sourceRepo = (string) $session['source_repo'];
+        $status = self::git($sourceRepo, ['status', '--porcelain=v2', '--untracked-files=all']);
+        if (trim($status['stdout']) !== '') {
+            throw new \RuntimeException(
+                'demo review requires a clean source index and worktree, including untracked files'
+            );
+        }
+
+        $store = new ContractStore($sourceRepo);
+        $proposal = $store->readProposal('demo-target');
+        if (!is_array($proposal)) {
+            throw new \RuntimeException('the generated demo-target contract proposal is missing');
+        }
+        self::assertCoreGeneratedProposal($proposal);
+
+        $reviewItem = 'review and decide external effect ' . ContractProposal::LIFECYCLE_EFFECT_ID;
+        $pageSurface = null;
+        foreach ($proposal['contract']['declarations']['surfaces'] as $surface) {
+            if (($surface['id'] ?? null) === 'post_type:page') {
+                $pageSurface = $surface;
+                break;
+            }
+        }
+        if (!is_array($pageSurface)) {
+            throw new \RuntimeException('the generated proposal lost its reviewed page surface');
+        }
+        $pageSurface['operations'] = self::CORE_REVIEWED_PAGE_OPERATIONS;
+        $pageLabel = (string) $pageSurface['label'];
+        $proposal['contract']['declarations']['surfaces'] = [$pageSurface];
+        $proposal['contract']['declarations']['external_effects'] = [];
+        $proposal['contract']['declarations']['surface_labels'] = ['post_type:page' => $pageLabel];
+        $proposal['contract']['declarations']['unsupported'] = array_values(array_filter(
+            $proposal['contract']['declarations']['unsupported'],
+            static fn ($row): bool => is_array($row) && ($row['surface'] ?? null) === 'post_type:page'
+        ));
+        $proposal['review_required'] = array_values(array_filter(
+            $proposal['review_required'],
+            static fn ($item): bool => $item !== $reviewItem
+        ));
+        $proposal['review_required_count'] = count($proposal['review_required']);
+        $store->writeProposal('demo-target', $proposal);
+
+        $accepted = self::runWPrism(
+            $session,
+            $sourceRoot,
+            $sourceRepo,
+            ['contract', 'demo-target', 'accept', '--format=json'],
+            false,
+            false
+        );
+        $receipt = json_decode($accepted['stdout'], true);
+        if ($accepted['exit'] !== 0
+            || ($receipt['format'] ?? null) !== 'wprism-contract-accept/v1'
+            || ($receipt['environment'] ?? null) !== 'demo-target'
+            || ($receipt['staged'] ?? null) !== true
+            || preg_match('/^sha256:[a-f0-9]{64}$/D', (string) ($receipt['contract_digest'] ?? '')) !== 1) {
+            throw new \RuntimeException('the explicitly reviewed page-only contract was not accepted: '
+                . trim($accepted['stderr'] !== '' ? $accepted['stderr'] : $accepted['stdout']));
+        }
+
+        $expectedArtifacts = [
+            '.wprism/contract/contract.json',
+            '.wprism/contract/projection.json',
+        ];
+        $staged = preg_split('/\R/', trim(self::git($sourceRepo, ['diff', '--cached', '--name-only'])['stdout']));
+        $staged = is_array($staged) ? array_values(array_filter($staged, 'strlen')) : [];
+        sort($staged, SORT_STRING);
+        if ($staged !== $expectedArtifacts || trim(self::git($sourceRepo, ['diff', '--name-only'])['stdout']) !== '') {
+            throw new \RuntimeException('contract accept staged bytes outside the two exact review artifacts');
+        }
+
+        $contract = $store->readContract();
+        $projection = $store->readProjection();
+        if (!is_array($contract)
+            || !hash_equals((string) $receipt['contract_digest'], (string) ($contract['contract_digest'] ?? ''))
+            || !is_array($projection)) {
+            throw new \RuntimeException('the staged contract/projection did not verify after acceptance');
+        }
+        self::assertCoreAcceptedContract($contract);
+        $shown = self::runWPrism(
+            $session,
+            $sourceRoot,
+            $sourceRepo,
+            ['contract', 'demo-target', 'show', '--format=json'],
+            false,
+            false
+        );
+        $showDocument = json_decode($shown['stdout'], true);
+        if ($shown['exit'] !== 0
+            || !hash_equals(
+                (string) $receipt['contract_digest'],
+                (string) ($showDocument['contract']['contract_digest'] ?? '')
+            )
+            || !is_array($showDocument['projection'] ?? null)) {
+            throw new \RuntimeException('the real contract reader did not verify the accepted review artifacts');
+        }
+
+        self::git($sourceRepo, [
+            '-c', 'user.name=wprism-demo', '-c', 'user.email=demo@example.test',
+            'commit', '-m', 'demo: accept reviewed page-only contract',
+        ]);
+        $revision = trim(self::git($sourceRepo, ['rev-parse', 'HEAD'])['stdout']);
+        self::git($sourceRepo, ['push', 'origin', $revision . ':refs/heads/main']);
+        self::git((string) $session['target_repo'], ['pull', '--ff-only', 'origin', 'main']);
+        self::runWPrism(
+            $session,
+            $sourceRoot,
+            (string) $session['target_repo'],
+            ['deploy', 'demo-target'],
+            true
+        );
+        $targetRevision = trim(self::git((string) $session['target_repo'], ['rev-parse', 'HEAD'])['stdout']);
+        if (!hash_equals($revision, $targetRevision)) {
+            throw new \RuntimeException('target checkout did not fast-forward to the reviewed contract revision');
+        }
+
+        $session['last_applied_revision'] = $revision;
+        $session['phase'] = 'ready';
+        self::replaceSession($session);
+
+        echo "Demo ready: the real contract command accepted and committed only contract.json + projection.json.\n";
+        echo "Edit the 'WPrism Demo Page' page on the SOURCE site, then run:\n";
+        echo '  ' . escapeshellarg(self::demoCli($sourceRoot)) . " demo capture --name=$name\n";
+        return 0;
+    }
+
+    /** @param array<string,mixed> $proposal */
+    private static function assertCoreGeneratedProposal(array $proposal): void {
+        ContractProposal::validateProposal($proposal);
+        $contract = is_array($proposal['contract'] ?? null) ? $proposal['contract'] : [];
+        ApplicationContract::validate($contract, false);
+        $expectedEffect = [
+            'containment' => 'live',
+            'decided_by' => ApplicationContract::UNREVIEWED_DECIDED_BY,
+            'effect_recovery_semantics' => 'provider-state restorable',
+            'id' => ContractProposal::LIFECYCLE_EFFECT_ID,
+            'reason' => ContractProposal::UNREVIEWED_REASON,
+            'restored_by' => 'code release',
+            'surfaces' => ['plugins/themes'],
+        ];
+        if (($contract['declarations']['external_effects'] ?? null) !== [$expectedEffect]) {
+            throw new \RuntimeException('the core proposal did not contain exactly the generated lifecycle placeholder');
+        }
+        $pageRelease = 0;
+        foreach ((array) ($contract['declarations']['surfaces'] ?? []) as $surface) {
+            if (($surface['decided_by'] ?? null) === ApplicationContract::UNREVIEWED_DECIDED_BY) {
+                throw new \RuntimeException('the core proposal contains an unresolved surface');
+            }
+            if (($surface['id'] ?? null) === 'post_type:page'
+                && count(array_diff(self::CORE_REVIEWED_PAGE_OPERATIONS, (array) ($surface['operations'] ?? []))) === 0) {
+                $pageRelease++;
+            }
+        }
+        $reviewItem = 'review and decide external effect ' . ContractProposal::LIFECYCLE_EFFECT_ID;
+        $reviewItems = is_array($proposal['review_required'] ?? null) ? $proposal['review_required'] : [];
+        if ($pageRelease !== 1
+            || ($contract['declarations']['journeys'] ?? null) !== []
+            || count(array_keys($reviewItems, $reviewItem, true)) !== 1
+            || ($proposal['review_required_count'] ?? null) !== count($reviewItems)) {
+            throw new \RuntimeException('the generated core proposal review boundary is not the exact page-only shape');
+        }
+    }
+
+    /** @param array<string,mixed> $contract */
+    private static function assertCoreAcceptedContract(array $contract): void {
+        $surfaces = $contract['declarations']['surfaces'] ?? null;
+        $page = is_array($surfaces) && count($surfaces) === 1 ? ($surfaces[0] ?? null) : null;
+        $unsupported = $contract['declarations']['unsupported'] ?? null;
+        $unsupportedIsPageOnly = is_array($unsupported) && array_is_list($unsupported);
+        if ($unsupportedIsPageOnly) {
+            foreach ($unsupported as $row) {
+                if (!is_array($row) || ($row['surface'] ?? null) !== 'post_type:page') {
+                    $unsupportedIsPageOnly = false;
+                    break;
+                }
+            }
+        }
+        if (!is_array($page)
+            || ($page['id'] ?? null) !== 'post_type:page'
+            || ($page['operations'] ?? null) !== self::CORE_REVIEWED_PAGE_OPERATIONS
+            || in_array('delete', (array) ($page['operations'] ?? []), true)
+            || ($contract['declarations']['external_effects'] ?? null) !== []
+            || ($contract['declarations']['journeys'] ?? null) !== []
+            || ($contract['declarations']['surface_labels'] ?? null) !== [
+                'post_type:page' => (string) ($page['label'] ?? ''),
+            ]
+            || !$unsupportedIsPageOnly) {
+            throw new \RuntimeException(
+                'the accepted contract is not the exact page-only, no-delete, no-external-effect review boundary'
+            );
+        }
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function prepareCoreContractReview(array $session, string $sourceRoot): void {
+        $sourceRepo = (string) $session['source_repo'];
+        $store = new ContractStore($sourceRepo);
+        if ($store->readContract() !== null || $store->readProjection() !== null) {
+            throw new \RuntimeException('the core demo had contract authority before operator review');
+        }
+        $proposed = self::runWPrism(
+            $session,
+            $sourceRoot,
+            $sourceRepo,
+            ['contract', 'demo-target', 'propose', '--format=json'],
+            false,
+            false
+        );
+        $proposal = json_decode($proposed['stdout'], true);
+        if ($proposed['exit'] !== 0 || !is_array($proposal)) {
+            throw new \RuntimeException('the real contract command did not generate the core proposal');
+        }
+        self::assertCoreGeneratedProposal($proposal);
+        if ($store->readProposal('demo-target') !== $proposal) {
+            throw new \RuntimeException('the generated core proposal output disagrees with its source-repository artifact');
+        }
+
+        $unread = self::runWPrism(
+            $session,
+            $sourceRoot,
+            $sourceRepo,
+            ['contract', 'demo-target', 'accept', '--format=json'],
+            false,
+            false
+        );
+        $refusal = json_decode($unread['stdout'], true);
+        if ($unread['exit'] === 0
+            || ($refusal['format'] ?? null) !== 'wprism-command-refusal/v1'
+            || ($refusal['reason_code'] ?? null) !== 'external_effect_unreviewed'
+            || $store->readContract() !== null
+            || $store->readProjection() !== null
+            || trim(self::git($sourceRepo, ['diff', '--cached', '--name-only'])['stdout']) !== '') {
+            throw new \RuntimeException('an unread generated proposal did not refuse without repository authority');
+        }
     }
 
     private static function runtimeStatusWitness(string $scenario): string {
@@ -300,12 +753,20 @@ final class DemoCommand {
                 self::replaceSession($session);
             }
         }
+        if (($session['scenario'] ?? null) === 'core') {
+            self::assertCorePageOnlyRevision($session, $revision);
+        }
         self::git($session['source_repo'], ['push', 'origin', $revision . ':refs/heads/main']);
         self::git($session['target_repo'], ['pull', '--ff-only', 'origin', 'main']);
         self::runWPrism($session, $sourceRoot, $session['target_repo'], ['deploy', 'demo-target'], true);
         $targetRevision = trim(self::git($session['target_repo'], ['rev-parse', 'HEAD'])['stdout']);
         if ($targetRevision !== $revision) {
             throw new \RuntimeException('target checkout does not match the pending source revision');
+        }
+        if (($session['scenario'] ?? null) === 'core') {
+            self::assertCoreReleasePlan($session, $sourceRoot, $revision);
+            echo "Authorization preview verified the exact page-only revision without mutating repository or runtime state.\n";
+            echo "Running the lower-level evaluation apply; this is not production release authority.\n";
         }
         self::runWPrism(
             $session,
@@ -314,6 +775,9 @@ final class DemoCommand {
             ['apply', 'demo-target', '--adopt-by-slug=terms,posts', '--default-author=admin', '--revision=' . $revision],
             true
         );
+        if (($session['scenario'] ?? null) === 'core') {
+            self::assertCorePageConvergence($session);
+        }
         $after = self::targetRuntimeSnapshot($session);
         if (!hash_equals((string) $session['runtime_before'], $after)) {
             throw new \RuntimeException("target runtime changed across apply\n  before: {$session['runtime_before']}\n  after:  $after");
@@ -323,10 +787,224 @@ final class DemoCommand {
         self::replaceSession($session);
         $proof = $session['scenario'] === 'woocommerce'
             ? 'Its order identity/status/total and live stock stayed byte-identical.'
-            : 'Its target-only comment stayed byte-identical.';
-        echo "Applied the reviewed Git revision to the target. $proof\n";
+            : 'The target page matches its exact captured artifact and its target-only comment stayed byte-identical.';
+        echo (($session['scenario'] ?? null) === 'core'
+            ? 'Lower-level evaluation apply completed for the reviewed Git revision. '
+            : 'Applied the reviewed Git revision to the target. ') . $proof . "\n";
+        if (($session['scenario'] ?? null) === 'core') {
+            echo "Production execution requires stage-source, release prepare, signed authorization, and release execute.\n";
+        }
         echo "Next:\n  " . escapeshellarg(self::demoCli($sourceRoot)) . " demo refusal --name=$name\n";
         return 0;
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function assertCorePageOnlyRevision(array $session, string $revision): void {
+        $base = (string) ($session['last_applied_revision'] ?? '');
+        if (preg_match('/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/D', $base) !== 1
+            || preg_match('/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/D', $revision) !== 1) {
+            throw new \RuntimeException('the core demo cannot bind its page review to exact Git revisions');
+        }
+        $changed = preg_split('/\R/', trim(self::git(
+            (string) $session['source_repo'],
+            ['diff', '--name-only', '--diff-filter=ACDMRTUXB', $base . '..' . $revision, '--']
+        )['stdout']));
+        $changed = is_array($changed) ? array_values(array_filter($changed, 'strlen')) : [];
+        if (count($changed) !== 1
+            || preg_match(
+                '#^state/posts/page/[a-f0-9-]{36}--wprism-demo-page\.md$#D',
+                (string) ($changed[0] ?? '')
+            ) !== 1) {
+            throw new \RuntimeException(
+                'the reviewed core demo permits exactly one WPrism Demo Page state artifact in this revision'
+            );
+        }
+    }
+
+    /** Prove authored page fields converged while the separate runtime witness proves preservation. */
+    private static function assertCorePageConvergence(array $session): void {
+        $paths = glob((string) $session['target_repo'] . '/state/posts/page/*--wprism-demo-page.md');
+        if (!is_array($paths) || count($paths) !== 1 || is_link($paths[0]) || !is_file($paths[0])) {
+            throw new \RuntimeException('the deployed target repository does not contain one exact demo page artifact');
+        }
+        $bytes = file_get_contents($paths[0]);
+        if (!is_string($bytes)) {
+            throw new \RuntimeException('the deployed demo page artifact is unreadable');
+        }
+        [$front, $body] = \WPrism\Canon::parse_post_file($bytes);
+        $expected = [
+            'comment_status' => $front['comment_status'] ?? null,
+            'content' => $body,
+            'excerpt' => $front['excerpt'] ?? null,
+            'menu_order' => $front['menu_order'] ?? null,
+            'ping_status' => $front['ping_status'] ?? null,
+            'slug' => $front['slug'] ?? null,
+            'status' => $front['status'] ?? null,
+            'title' => $front['title'] ?? null,
+        ];
+        if (($front['type'] ?? null) !== 'page'
+            || array_filter($expected, static fn ($value): bool => !is_string($value) && !is_int($value)) !== []) {
+            throw new \RuntimeException('the deployed demo page artifact has no complete authored field witness');
+        }
+        $php = '$page = get_page_by_path("wprism-demo-page", OBJECT, "page"); '
+            . 'if (!$page) { throw new RuntimeException("demo page missing"); } '
+            . '$value = ["comment_status" => (string) $page->comment_status, '
+            . '"content" => (string) $page->post_content, "excerpt" => (string) $page->post_excerpt, '
+            . '"menu_order" => (int) $page->menu_order, "ping_status" => (string) $page->ping_status, '
+            . '"slug" => (string) $page->post_name, "status" => (string) $page->post_status, '
+            . '"title" => (string) $page->post_title]; ksort($value, SORT_STRING); echo wp_json_encode($value);';
+        $result = self::wp($session, 2, ['eval', $php]);
+        $actual = json_decode(trim($result['stdout']), true);
+        if ($result['exit'] !== 0 || !is_array($actual) || $actual !== $expected) {
+            throw new \RuntimeException('the target page does not equal the exact captured authored page artifact');
+        }
+    }
+
+    /**
+     * Semantic repository bytes: refs/index plus every worktree entry, including
+     * ignored WPrism control artifacts. Git's implementation-private object
+     * store is excluded, while show-ref and the index/tree bind its meaning.
+     */
+    private static function repositorySnapshot(string $repository): string {
+        $root = realpath($repository);
+        if (!is_string($root) || $root === '' || is_link($root) || !is_dir($root)) {
+            throw new \RuntimeException('the demo cannot snapshot a non-ordinary repository');
+        }
+        $facts = [
+            'head' => self::git($root, ['rev-parse', '--verify', 'HEAD'])['stdout'],
+            'index' => self::git($root, ['ls-files', '--stage'])['stdout'],
+            'refs' => self::git($root, ['show-ref', '--head'])['stdout'],
+            'status' => self::git($root, ['status', '--porcelain=v2', '--untracked-files=all'])['stdout'],
+            'tree' => self::git($root, ['rev-parse', '--verify', 'HEAD^{tree}'])['stdout'],
+        ];
+        $entries = [];
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST
+        );
+        foreach ($iterator as $entry) {
+            $path = $entry->getPathname();
+            $relative = substr($path, strlen($root) + 1);
+            if ($relative === '.git' || str_starts_with($relative, '.git/')) {
+                continue;
+            }
+            $stat = lstat($path);
+            if (!is_array($stat)) {
+                throw new \RuntimeException("the demo repository entry disappeared during snapshot: $relative");
+            }
+            $mode = sprintf('%o', ((int) $stat['mode']) & 07777);
+            if ($entry->isLink()) {
+                $target = readlink($path);
+                if (!is_string($target)) {
+                    throw new \RuntimeException("the demo repository symlink changed during snapshot: $relative");
+                }
+                $entries[$relative] = ['link', $mode, $target];
+            } elseif ($entry->isDir()) {
+                $entries[$relative] = ['directory', $mode];
+            } elseif ($entry->isFile()) {
+                $bytes = file_get_contents($path);
+                if (!is_string($bytes)) {
+                    throw new \RuntimeException("the demo repository file changed during snapshot: $relative");
+                }
+                $entries[$relative] = ['file', $mode, hash('sha256', $bytes)];
+            } else {
+                throw new \RuntimeException("the demo repository contains an unsupported entry: $relative");
+            }
+        }
+        ksort($entries, SORT_STRING);
+        $encoded = json_encode(['entries' => $entries, 'git' => $facts], JSON_UNESCAPED_SLASHES);
+        if (!is_string($encoded)) {
+            throw new \RuntimeException('the demo could not encode its repository snapshot');
+        }
+
+        return hash('sha256', $encoded);
+    }
+
+    /** @return array<string,mixed> */
+    private static function lastJsonDocument(string $output): array {
+        $lines = preg_split('/\R/', trim($output));
+        if (!is_array($lines)) {
+            throw new \RuntimeException('the release authorization preview was not line-delimited output');
+        }
+        for ($index = count($lines) - 1; $index >= 0; $index--) {
+            $line = trim($lines[$index]);
+            if ($line === '') {
+                continue;
+            }
+            $document = json_decode($line, true);
+            if (!is_array($document)) {
+                break;
+            }
+
+            return $document;
+        }
+        throw new \RuntimeException('the release authorization preview had no final JSON document');
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function assertCoreReleasePlan(array $session, string $sourceRoot, string $revision): void {
+        $sourceRepo = (string) $session['source_repo'];
+        $targetRepo = (string) $session['target_repo'];
+        $contract = (new ContractStore($sourceRepo))->readContract();
+        $contractDigest = is_array($contract) ? ($contract['contract_digest'] ?? null) : null;
+        if (!is_string($contractDigest)
+            || preg_match('/^sha256:[a-f0-9]{64}$/D', $contractDigest) !== 1
+            || ($contract['declarations']['external_effects'] ?? null) !== []) {
+            throw new \RuntimeException('the core demo has no accepted page-only contract to bind the release preview');
+        }
+
+        $sourceBefore = self::repositorySnapshot($sourceRepo);
+        $targetBefore = self::repositorySnapshot($targetRepo);
+        $runtimeBefore = self::targetRuntimeSnapshot($session);
+        $result = self::runProcess(
+            [
+                self::demoCli($sourceRoot), 'release', 'demo-target', '--from=' . $revision,
+                '--plan-only', '--format=json',
+            ],
+            $sourceRepo,
+            [],
+            false,
+            self::LIVE_PROCESS_TIMEOUT_MILLISECONDS
+        );
+        $runtimeAfter = self::targetRuntimeSnapshot($session);
+        $targetAfter = self::repositorySnapshot($targetRepo);
+        $sourceAfter = self::repositorySnapshot($sourceRepo);
+        if (!hash_equals($sourceBefore, $sourceAfter)
+            || !hash_equals($targetBefore, $targetAfter)
+            || !hash_equals($runtimeBefore, $runtimeAfter)) {
+            throw new \RuntimeException(
+                'the plan-only authorization preview changed source repository, target repository, or target runtime'
+            );
+        }
+        if ($result['exit'] !== 0) {
+            throw new \RuntimeException('the real page-only release authorization preview refused: '
+                . trim($result['stderr'] !== '' ? $result['stderr'] : $result['stdout']));
+        }
+
+        $plan = self::lastJsonDocument($result['stdout']);
+        if (($plan['format'] ?? null) !== 'wprism-authorization-plan/v1'
+            || ($plan['environment'] ?? null) !== 'demo-target'
+            || !hash_equals($revision, (string) ($plan['code_revision_from'] ?? ''))
+            || !hash_equals($contractDigest, (string) ($plan['contract_digest'] ?? ''))
+            || ($plan['scope']['entities'] ?? null) !== ['create' => 0, 'delete' => 0, 'update' => 1]
+            || ($plan['scope']['surfaces'] ?? null) !== ['post_type:page']
+            || ($plan['scope']['code'] ?? null) !== [
+                'lifecycle_phases' => ['verify'],
+                'plugins_changed' => 0,
+                'themes_changed' => 0,
+            ]
+            || ($plan['may_change']['authored_state'] ?? null) !== ['post_type:page']
+            || ($plan['may_change']['code'] ?? null) !== []
+            || ($plan['may_change']['external'] ?? null) !== []
+            || ($plan['effects']['known_irreversible'] ?? null) !== []
+            || !is_array($plan['effects'] ?? null)
+            || !array_key_exists('lifecycle_window', $plan['effects'])
+            || $plan['effects']['lifecycle_window'] !== null
+            || ($plan['effects']['unknown_blocking'] ?? null) !== []) {
+            throw new \RuntimeException(
+                'the authorization preview was not exact, nonempty, page-scoped, revision/contract-bound and effect-clean'
+            );
+        }
     }
 
     private static function refusal(string $sourceRoot, string $name): int {
@@ -407,7 +1085,57 @@ final class DemoCommand {
             . 'WPRISM_ADAPTER_PACKAGES_SRC=' . $sourceRoot . "/adapter-packages\n"
             . 'WPRISM_PLATFORM_SRC=' . $sourceRoot . "/platform\n"
             . 'WPRISM_CLI_IMAGE=' . self::CLI_IMAGE . "\n"
+            . 'WPRISM_WP_IMAGE=' . self::WORDPRESS_IMAGE . "\n"
             . "WPRISM_DB_HOST=wprism-shared-db\n";
+    }
+
+    /** @return array<string,array<string,mixed>> */
+    private static function coreOptionProfile(): array {
+        $profile = [];
+        foreach (self::CORE_AUTHORED_OPTIONS as $name) {
+            $rule = ['autoload' => 'preserve', 'class' => 'authored'];
+            if (isset(self::CORE_AUTHORED_REFS[$name])) {
+                $rule['ref'] = self::CORE_AUTHORED_REFS[$name];
+            }
+            if (in_array($name, self::CORE_AUTHORED_LINT_OK, true)) {
+                $rule['lint_ok'] = true;
+            }
+            $profile[$name] = $rule;
+        }
+        foreach (self::CORE_DERIVED_OPTIONS as $name) {
+            $profile[$name] = ['class' => 'derived'];
+        }
+        foreach (self::CORE_RUNTIME_OPTIONS as $name) {
+            $profile[$name] = ['class' => 'runtime'];
+        }
+        foreach (self::CORE_OPTIONAL_ENV_OPTIONS as $name) {
+            $profile[$name] = ['class' => 'env', 'required' => false];
+        }
+        ksort($profile, SORT_STRING);
+        if (count($profile) !== 79
+            || ($profile['mailserver_pass'] ?? null) !== ['class' => 'env', 'required' => false]) {
+            throw new \LogicException('the reviewed WordPress 7.1 demo option profile is internally inconsistent');
+        }
+
+        return $profile;
+    }
+
+    /** Prove the digest-pinned image itself carries the reviewed WordPress build before Compose starts it. */
+    private static function assertWordPressImage(string $sourceRoot): void {
+        $probe = '$wp_version = null; require "/usr/src/wordpress/wp-includes/version.php"; '
+            . 'if (!is_string($wp_version)) { exit(2); } echo $wp_version;';
+        $result = self::runProcess(
+            ['docker', 'run', '--rm', '--entrypoint', 'php', self::WORDPRESS_IMAGE, '-r', $probe],
+            $sourceRoot,
+            [],
+            false,
+            self::LIVE_PROCESS_TIMEOUT_MILLISECONDS
+        );
+        if ($result['exit'] !== 0 || trim($result['stdout']) !== self::WORDPRESS_VERSION) {
+            throw new \RuntimeException(
+                'the digest-pinned demo image did not prove exact WordPress ' . self::WORDPRESS_VERSION
+            );
+        }
     }
 
     /** @param array<string,mixed> $session */
@@ -442,7 +1170,7 @@ final class DemoCommand {
         $policy = [
             'manifests' => $woocommerce ? ['core', 'woocommerce'] : ['core'],
             'policy' => [
-                'options' => (object) [],
+                'options' => $woocommerce ? (object) [] : self::coreOptionProfile(),
                 'post_meta' => (object) [],
                 'term_meta' => (object) [],
                 'post_types' => $woocommerce
@@ -602,6 +1330,134 @@ SH;
     }
 
     /** @param array<string,mixed> $session */
+    private static function assertCoreProfileCapture(array $session): void {
+        $path = (string) $session['source_repo'] . '/state/options/core.json';
+        $document = is_file($path) && !is_link($path)
+            ? json_decode((string) file_get_contents($path), true)
+            : null;
+        $records = is_array($document) && is_array($document['records'] ?? null)
+            ? $document['records']
+            : null;
+        if (!is_array($records)) {
+            throw new \RuntimeException('the core demo capture did not publish its canonical option document');
+        }
+        foreach (self::CORE_AUTHORED_OPTIONS as $name) {
+            if (!is_array($records[$name] ?? null) || ($records[$name]['state'] ?? null) !== 'present') {
+                throw new \RuntimeException("the reviewed core profile did not capture authored option $name");
+            }
+        }
+        foreach (array_merge(
+            self::CORE_DERIVED_OPTIONS,
+            self::CORE_RUNTIME_OPTIONS,
+            self::CORE_OPTIONAL_ENV_OPTIONS
+        ) as $name) {
+            if (array_key_exists($name, $records)) {
+                throw new \RuntimeException("the reviewed core profile captured excluded option $name");
+            }
+        }
+
+        $categoryRef = $records['default_email_category']['value'] ?? null;
+        if (!is_string($categoryRef)
+            || preg_match('/^\{\{term:([a-f0-9-]{36})\}\}$/D', $categoryRef, $match) !== 1) {
+            throw new \RuntimeException(
+                'default_email_category did not resolve through the term-ref product path; refusing to weaken it'
+            );
+        }
+        $term = glob((string) $session['source_repo'] . '/state/terms/category/' . $match[1] . '--*.json');
+        if (!is_array($term) || count($term) !== 1 || !is_file($term[0])) {
+            throw new \RuntimeException('default_email_category resolved to no captured category entity');
+        }
+        if (array_key_exists('mailserver_pass', $records)) {
+            throw new \RuntimeException('mailserver_pass crossed the environment boundary into authored state');
+        }
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function assertCoreOptionInventory(array $session, string $sourceRoot): void {
+        $sidebarOptions = var_export(self::CORE_SIDEBAR_OPTIONS, true);
+        $namesResult = self::wp($session, 2, ['eval',
+            'global $wpdb; $names = $wpdb->get_col("SELECT option_name FROM {$wpdb->options} '
+                . 'ORDER BY option_name ASC"); '
+                . '$policy = \\WPrism\\Policy::load("/siterepo"); '
+                . '$expectedExact = array_keys($policy->exact_options()); sort($expectedExact, SORT_STRING); '
+                . '$expectedSidebar = ' . $sidebarOptions . '; '
+                . '$stylesheet = (string) get_option("stylesheet"); '
+                . '$expectedDynamic = $stylesheet === "" '
+                . '? ["theme_mods_<missing-active-stylesheet>"] : ["theme_mods_" . $stylesheet]; '
+                . '$missingExact = array_values(array_diff($expectedExact, $names)); '
+                . '$missingSidebar = array_values(array_diff($expectedSidebar, $names)); '
+                . '$missingDynamic = array_values(array_diff($expectedDynamic, $names)); '
+                . '$exactSet = array_fill_keys($expectedExact, true); $unseen = []; '
+                . 'foreach ($names as $name) { if (isset($exactSet[$name]) '
+                . '|| \\WPrism\\SidebarState::owns_option($name) '
+                . '|| $policy->option_rule($name) !== null '
+                . '|| $policy->dynamic_option_rule_for_prefix($name) !== null) { continue; } '
+                . '$unseen[] = $name; } '
+                . 'echo wp_json_encode(["names" => $names, "missing_exact" => $missingExact, '
+                . '"missing_sidebar" => $missingSidebar, "missing_dynamic" => $missingDynamic, '
+                . '"unseen" => $unseen]);',
+        ]);
+        $inventory = json_decode(trim($namesResult['stdout']), true);
+        $inventoryKeys = ['names', 'missing_exact', 'missing_sidebar', 'missing_dynamic', 'unseen'];
+        if ($namesResult['exit'] !== 0 || !is_array($inventory) || array_keys($inventory) !== $inventoryKeys) {
+            throw new \RuntimeException('the core demo could not enumerate its exact live option inventory');
+        }
+        foreach ($inventoryKeys as $key) {
+            if (!is_array($inventory[$key]) || !array_is_list($inventory[$key])
+                || array_filter($inventory[$key], static fn ($name): bool => !is_string($name)) !== []) {
+                throw new \RuntimeException('the core demo returned a malformed live option mechanism witness');
+            }
+        }
+        $names = $inventory['names'];
+        $profileNames = array_keys(self::coreOptionProfile());
+        $missing = array_values(array_diff($profileNames, $names));
+        if (count($names) !== self::CORE_OPTION_TOTAL || count(array_unique($names)) !== count($names)
+            || $missing !== [] || $inventory['missing_exact'] !== [] || $inventory['missing_sidebar'] !== []
+            || $inventory['missing_dynamic'] !== [] || $inventory['unseen'] !== []) {
+            throw new \RuntimeException(
+                'the WordPress 7.1 option inventory moved: total=' . count($names)
+                    . ', missing_expected=' . implode(',', $missing)
+                    . ', missing_exact=' . implode(',', $inventory['missing_exact'])
+                    . ', missing_sidebar=' . implode(',', $inventory['missing_sidebar'])
+                    . ', missing_dynamic=' . implode(',', $inventory['missing_dynamic'])
+                    . ', unseen=' . implode(',', $inventory['unseen'])
+            );
+        }
+
+        $result = self::runWPrism(
+            $session,
+            $sourceRoot,
+            (string) $session['source_repo'],
+            ['coverage', 'demo-target', '--format=json'],
+            false,
+            false
+        );
+        $report = json_decode($result['stdout'], true);
+        $options = is_array($report['options'] ?? null) ? $report['options'] : [];
+        $invariant = (int) ($options['captured'] ?? -1)
+            + (int) ($options['declared_excluded'] ?? -1)
+            + (int) ($options['pending'] ?? -1)
+            + (int) ($options['invisible_total'] ?? -1);
+        if ($result['exit'] !== 0
+            || ($report['format'] ?? null) !== 'wprism-coverage-report/v1'
+            || ($options['total'] ?? null) !== self::CORE_OPTION_TOTAL
+            || ($options['captured'] ?? null) !== 94
+            || ($options['declared_excluded'] ?? null) !== 40
+            || ($options['declared_excluded_by_class'] ?? null) !== [
+                'derived' => 14,
+                'env' => 10,
+                'runtime' => 16,
+            ]
+            || ($options['pending'] ?? null) !== 0
+            || ($options['invisible_total'] ?? null) !== 0
+            || $invariant !== self::CORE_OPTION_TOTAL) {
+            throw new \RuntimeException(
+                'the live option inventory is not exactly covered by policy and dedicated mechanisms'
+            );
+        }
+    }
+
+    /** @param array<string,mixed> $session */
     private static function targetRuntimeSnapshot(array $session): string {
         if (($session['scenario'] ?? null) === 'core') {
             $php = '$page = get_page_by_path("wprism-demo-page", OBJECT, "page"); '
@@ -727,19 +1583,12 @@ SH;
         }
     }
 
-    /**
-     * The default path requires a complete bounded answer. A red whole-site
-     * answer remains evidence: the core adapter deliberately leaves stock
-     * option namespaces outside its narrow managed boundary, while the pinned
-     * core capability set checked immediately before this call is qualified.
-     *
-     * @return array<string,mixed> the bounded view summary
-     */
+    /** @return array<string,mixed> the bounded, ready view summary */
     private static function assertCoreAssessment(array $session, string $sourceRoot): array {
         $result = self::runWPrism(
             $session,
             $sourceRoot,
-            (string) $session['target_repo'],
+            (string) $session['source_repo'],
             ['assess', 'demo-target', '--operation=release', '--limit=10', '--format=json'],
             false,
             false
@@ -748,12 +1597,13 @@ SH;
         $summary = is_array($report['summary'] ?? null) ? $report['summary'] : [];
         $page = is_array($report['page'] ?? null) ? $report['page'] : [];
         $rows = is_array($report['rows'] ?? null) ? $report['rows'] : null;
-        $readiness = $summary['readiness'] ?? null;
-        $expectedReadiness = $result['exit'] === 0 ? 'ready' : 'blocked';
-        if (!in_array($result['exit'], [0, 3], true)
+        if ($result['exit'] !== 0
             || !is_array($report)
             || ($report['format'] ?? null) !== 'wprism-assess-view/v1'
-            || $readiness !== $expectedReadiness
+            || ($summary['readiness'] ?? null) !== 'ready'
+            || ($summary['counts']['invisible_option_names'] ?? null) !== 0
+            || ($summary['counts']['pending_classifications'] ?? null) !== 0
+            || ($summary['counts']['undeclared_tables'] ?? null) !== 0
             || ($summary['dispositions']['agree'] ?? null) !== true
             || !is_int($page['shown'] ?? null)
             || $page['shown'] < 0
@@ -877,7 +1727,7 @@ SH;
                 throw new \RuntimeException("demo '$name' session does not authorize its $field path");
             }
         }
-        if (!in_array($data['phase'] ?? null, ['starting', 'ready', 'stopping'], true)
+        if (!in_array($data['phase'] ?? null, ['starting', 'review_required', 'ready', 'stopping'], true)
             || !is_string($data['ownership_token'] ?? null)
             || preg_match('/^[a-f0-9]{64}$/D', (string) $data['ownership_token']) !== 1
             || !is_string($data['runtime_before'] ?? null)
@@ -1617,7 +2467,9 @@ SH;
     /** @param array<string,mixed> $session */
     private static function assertReady(array $session): void {
         if (($session['phase'] ?? null) !== 'ready') {
-            throw new \RuntimeException('demo setup is incomplete; run demo stop, then start it again');
+            throw new \RuntimeException(($session['phase'] ?? null) === 'review_required'
+                ? 'demo contract review is required; run demo review --accept-page-only first'
+                : 'demo setup is incomplete; run demo stop, then start it again');
         }
     }
 
