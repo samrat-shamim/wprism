@@ -218,9 +218,11 @@ grep -Fq "'release' => cmd_release(\$transport, \$extra)" "$ROOT/cli/wprism" \
 grep -Fq 'wprism release <env>' "$ROOT/cli/wprism" \
   && pass 'release appears in the public usage text' \
   || fail 'release is missing from wprism_usage()'
-grep -Fq 'cmd_promote($driver, $args)' "$ROOT/cli/wprism" \
-  && pass 'release composes the EXISTING promote entry point rather than forking it' \
-  || fail 'cmd_release does not inject cmd_promote'
+grep -Fq 'cmd_promote_authorized($driver, $args, $binding)' "$ROOT/cli/wprism" \
+  && grep -Fq 'cmd_promote_internal($driver, $args, $frozen, $binding)' "$ROOT/cli/wprism" \
+  && grep -Fq 'cmd_promote_internal($driver, $args, $frozen)' "$ROOT/cli/wprism" \
+  && pass 'release carries its authorized tuple into the existing promote state machine' \
+  || fail 'cmd_release does not compose the existing promote state machine through its authorized boundary'
 for verb in verify recover rehearse; do
   grep -Fq "'$verb' => cmd_$verb(" "$ROOT/cli/wprism" \
     && pass "$verb is registered in the dispatch match" \

@@ -44,9 +44,10 @@ use WPrism\CommandRefusalException;
  * ## Release COMPOSES promote; it does not fork it
  *
  * Step 6 calls one injected callable, and `cli/wprism`'s `cmd_release()` binds
- * that callable to `cmd_promote()` — the same function `wprism promote` itself
- * calls, routing through `PromoteCommand` to `cmd_promote_scoped()` /
- * `cmd_promote_internal()`. Deploy-before-apply ordering, the promotion
+ * that callable to `cmd_promote_authorized()`. That boundary carries only the
+ * consumed release tuple into the same `PromoteCommand` /
+ * `cmd_promote_internal()` state machine that `wprism promote` calls.
+ * Deploy-before-apply ordering, the promotion
  * lease, the target fence, the checkpoint, the issue #3310
  * `VerifiedRollbackProfile` / `ScopedRollbackProfile` selection and every
  * `promote phase:` output byte therefore come from exactly one implementation.
