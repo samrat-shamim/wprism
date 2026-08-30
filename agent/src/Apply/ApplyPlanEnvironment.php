@@ -62,11 +62,9 @@ final class ApplyPlanEnvironment {
             if (!is_string($postType) || $postType === '') {
                 throw new \RuntimeException('wprism: canonical protected post carries no post type');
             }
-            $postId = ProtectedPostIdentity::observe((string) $uuid, $postType);
-            $live = $postId === null ? null : $wpdb->get_var($wpdb->prepare(
-                "SELECT post_password FROM {$wpdb->posts} WHERE ID = %d LIMIT 1",
-                $postId
-            ));
+            $postWitness = ProtectedPostIdentity::observe((string) $uuid, $postType);
+            $postId = $postWitness['post_id'] ?? null;
+            $live = $postWitness['post_password'] ?? null;
             $matches = is_string($intended) && $intended !== ''
                 && ($postId === null || (is_string($live) && hash_equals($intended, $live)));
             if ($matches) {

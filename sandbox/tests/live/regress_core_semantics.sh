@@ -155,10 +155,36 @@ PROTECTED2=$(wp2 eval '$p=get_page_by_path("protected", OBJECT, "post"); echo $p
   || fail "fresh target did not materialize its target-local protected-post password"
 
 ENV_VALUES_HASH=$(shasum -a 256 "$R2/.wprism-env-values.json" | awk '{print $1}')
+STALE_PLAN_ERR=$(mktemp "${TMPDIR:-/tmp}/wprism-protected-plan.XXXXXX")
+STALE_ENV_SET_ERR=$(mktemp "${TMPDIR:-/tmp}/wprism-protected-env-set.XXXXXX")
+
+assert_protected_identity_refusal() {
+  REFUSAL_LABEL=$1
+  : >"$STALE_PLAN_ERR"
+  : >"$STALE_ENV_SET_ERR"
+  set +e
+  wp2 wprism plan --repo=/siterepo --default-author=admin --format=json \
+    >/dev/null 2>"$STALE_PLAN_ERR"
+  REFUSAL_PLAN_RC=$?
+  printf '%s\n' 'must-not-reach-a-reused-post' \
+    | wp2 wprism env-set --repo=/siterepo --name="post_password:${PROTECTED_UUID}" --stdin \
+      >/dev/null 2>"$STALE_ENV_SET_ERR"
+  REFUSAL_ENV_SET_RC=$?
+  set -e
+  [ "$REFUSAL_PLAN_RC" -ne 0 ] && [ "$REFUSAL_ENV_SET_RC" -ne 0 ] \
+    || fail "$REFUSAL_LABEL was trusted by plan or env-set"
+  grep -Fq 'protected post binding identity does not match its unique exact live backing row' "$STALE_PLAN_ERR" \
+    || fail "$REFUSAL_LABEL plan refusal was not explicit"
+  grep -Fq 'protected post binding identity does not match its unique exact live backing row' "$STALE_ENV_SET_ERR" \
+    || fail "$REFUSAL_LABEL env-set refusal was not explicit"
+  [ "$(shasum -a 256 "$R2/.wprism-env-values.json" | awk '{print $1}')" = "$ENV_VALUES_HASH" ] \
+    || fail "$REFUSAL_LABEL refusal published a new intended password"
+}
+
 IDENTITY_DECOY=$(wp2 post create --post_type=post --post_status=publish \
   --post_title='Protected identity decoy' --post_name=protected-identity-decoy \
   --post_password='target-local-password' --porcelain)
-wp2 post meta add "$IDENTITY_DECOY" _WPRISM_UUID "$PROTECTED_UUID" >/dev/null
+wp2 post meta add "$IDENTITY_DECOY" _wprism_uuid "$PROTECTED_UUID" >/dev/null
 wp2 eval "
   global \$wpdb;
   \$changed = \$wpdb->update(
@@ -170,26 +196,11 @@ wp2 eval "
   );
   if (\$changed !== 1) { throw new RuntimeException('could not seed stale protected-post map'); }
 " >/dev/null
-STALE_IDENTITY_ERR=$(mktemp "${TMPDIR:-/tmp}/wprism-protected-stale.XXXXXX")
-set +e
-wp2 wprism plan --repo=/siterepo --default-author=admin --format=json \
-  >/dev/null 2>"$STALE_IDENTITY_ERR"
-STALE_PLAN_RC=$?
-printf '%s\n' 'must-not-reach-a-reused-post' \
-  | wp2 wprism env-set --repo=/siterepo --name="post_password:${PROTECTED_UUID}" --stdin \
-    >/dev/null 2>>"$STALE_IDENTITY_ERR"
-STALE_ENV_SET_RC=$?
-set -e
-[ "$STALE_PLAN_RC" -ne 0 ] && [ "$STALE_ENV_SET_RC" -ne 0 ] \
-  || fail "stale protected-post identity was trusted by plan or env-set"
-grep -Fq 'protected post binding identity does not match its exact live backing row' "$STALE_IDENTITY_ERR" \
-  || fail "stale protected-post identity refusal was not explicit"
+assert_protected_identity_refusal 'globally duplicated protected-post identity'
 [ "$(wp2 post get "$PROTECTED2" --field=post_password)" = 'target-local-password' ] \
-  || fail "stale identity refusal changed the canonical protected post"
+  || fail "duplicate identity refusal changed the canonical protected post"
 [ "$(wp2 post get "$IDENTITY_DECOY" --field=post_password)" = 'target-local-password' ] \
-  || fail "stale identity refusal changed the reused decoy post"
-[ "$(shasum -a 256 "$R2/.wprism-env-values.json" | awk '{print $1}')" = "$ENV_VALUES_HASH" ] \
-  || fail "stale identity refusal published a new intended password"
+  || fail "duplicate identity refusal changed the reused decoy post"
 wp2 eval "
   global \$wpdb;
   if (\$wpdb->update(
@@ -202,6 +213,33 @@ wp2 eval "
   wp_delete_post($IDENTITY_DECOY, true);
 " >/dev/null
 
+PROTECTED_UUID_ALIAS=$(printf '%s' "$PROTECTED_UUID" | tr '[:lower:]' '[:upper:]')
+wp2 eval "
+  global \$wpdb;
+  \$changed = \$wpdb->update(
+    \$wpdb->prefix . 'wprism_map',
+    ['uuid' => '$PROTECTED_UUID_ALIAS'],
+    ['uuid' => '$PROTECTED_UUID', 'id_kind' => 'post'],
+    ['%s'],
+    ['%s', '%s']
+  );
+  if (\$changed !== 1) { throw new RuntimeException('could not seed aliased protected-post map UUID'); }
+" >/dev/null
+assert_protected_identity_refusal 'collation-aliased protected-post map UUID'
+wp2 eval "
+  global \$wpdb;
+  \$changed = \$wpdb->update(
+    \$wpdb->prefix . 'wprism_map',
+    ['uuid' => '$PROTECTED_UUID'],
+    ['uuid' => '$PROTECTED_UUID_ALIAS', 'id_kind' => 'post'],
+    ['%s'],
+    ['%s', '%s']
+  );
+  if (\$changed !== 1) { throw new RuntimeException('could not restore exact protected-post map UUID'); }
+" >/dev/null
+
+TYPE_ORIGINAL_UUID=$(wp2 eval 'echo wp_generate_uuid4();')
+wp2 post meta update "$PROTECTED2" _wprism_uuid "$TYPE_ORIGINAL_UUID" >/dev/null
 TYPE_DECOY=$(wp2 post create --post_type=page --post_status=publish \
   --post_title='Protected type decoy' --post_name=protected-type-decoy \
   --post_password='target-local-password' --porcelain)
@@ -216,15 +254,7 @@ wp2 eval "
     ['%s', '%s']
   ) !== 1) { throw new RuntimeException('could not seed wrong-type protected-post map'); }
 " >/dev/null
-set +e
-wp2 wprism plan --repo=/siterepo --default-author=admin --format=json \
-  >/dev/null 2>"$STALE_IDENTITY_ERR"
-TYPE_PLAN_RC=$?
-set -e
-[ "$TYPE_PLAN_RC" -ne 0 ] \
-  || fail "protected-post identity accepted a reused row of the wrong post type"
-grep -Fq 'protected post binding identity does not match its exact live backing row' "$STALE_IDENTITY_ERR" \
-  || fail "wrong-type protected-post refusal was not explicit"
+assert_protected_identity_refusal 'wrong-type protected-post identity'
 wp2 eval "
   global \$wpdb;
   if (\$wpdb->update(
@@ -234,10 +264,11 @@ wp2 eval "
     ['%d'],
     ['%s', '%s']
   ) !== 1) { throw new RuntimeException('could not restore protected-post map after type test'); }
+  update_post_meta($PROTECTED2, '_wprism_uuid', '$PROTECTED_UUID');
   wp_delete_post($TYPE_DECOY, true);
 " >/dev/null
-rm -f "$STALE_IDENTITY_ERR"
-pass "protected-post env-set locks and verifies exact live identity before mutation"
+rm -f "$STALE_PLAN_ERR" "$STALE_ENV_SET_ERR"
+pass "protected-post env-set locks and verifies unique exact live identity before mutation"
 
 TIMES=$(wp2 eval "\$p=get_post($POST2); echo \$p->post_modified . '|' . \$p->post_modified_gmt;")
 [ "$TIMES" = '2026-08-09 17:45:00|2026-08-09 11:45:00' ] \

@@ -131,20 +131,27 @@ $planEnvironmentSource = (string) file_get_contents(
 $identityLockPosition = strpos($requestCoordinatorSource, 'ProtectedPostIdentity::lock(');
 $intendedValuePosition = strpos($requestCoordinatorSource, 'EnvironmentValues::set($repo, $name, $value);');
 $check(
-    str_contains($protectedIdentitySource, 'FROM {$wpdb->prefix}wprism_map')
-        && str_contains($protectedIdentitySource, 'SELECT ID, post_type FROM {$wpdb->posts}')
-        && str_contains($protectedIdentitySource, '->exact_key_rows($localId, self::IDENTITY_KEY)')
-        && str_contains($protectedIdentitySource, 'LIMIT 1 FOR UPDATE')
-        && str_contains($protectedIdentitySource, 'MetaOwnerRangeLock::prepare('),
-    'protected-post provisioning locks and verifies the ledger tuple, live post type, and exact UUID sidecar'
+    str_contains($protectedIdentitySource, 'DeleteGuardEvaluator::assert_innodb_tables([')
+        && substr_count($protectedIdentitySource, 'DeleteGuardEvaluator::full_width_lock_index(') === 2
+        && substr_count($protectedIdentitySource, 'DeleteGuardEvaluator::bounded_prefix_lock_index(') === 2
+        && str_contains($protectedIdentitySource, 'SELECT uuid, id_kind, local_id, entity_type')
+        && str_contains($protectedIdentitySource, 'SELECT ID, post_type FROM {$wpdb->posts} FORCE INDEX')
+        && substr_count($protectedIdentitySource, 'FOR UPDATE') >= 3
+        && str_contains($protectedIdentitySource, 'self::locked_meta_rows($wpdb->postmeta')
+        && str_contains($protectedIdentitySource, 'self::locked_meta_rows($wpdb->termmeta'),
+    'protected-post provisioning proves transactional tables/indexes and locks the map, post, and global UUID ranges'
 );
 $check(
     is_int($identityLockPosition)
         && is_int($intendedValuePosition)
         && $identityLockPosition < $intendedValuePosition
         && str_contains($requestCoordinatorSource, "Db::start_repeatable_read('env-set protected post transaction start')")
-        && str_contains($planEnvironmentSource, 'ProtectedPostIdentity::observe((string) $uuid, $postType)'),
-    'env-set proves live protected-post identity before publishing intent and plan uses the same read-only witness'
+        && str_contains($requestCoordinatorSource, 'DeleteGuardEvaluator::begin_authored_transaction();')
+        && str_contains($requestCoordinatorSource, 'DeleteGuardEvaluator::end_authored_transaction();')
+        && str_contains($planEnvironmentSource, 'ProtectedPostIdentity::observe((string) $uuid, $postType)')
+        && str_contains($planEnvironmentSource, '$live = $postWitness[\'post_password\'] ?? null;')
+        && !str_contains($planEnvironmentSource, 'SELECT post_password'),
+    'env-set carries transaction continuity through identity/write and plan consumes one coherent identity/password witness'
 );
 $check(
     array_map(static fn(ReflectionParameter $p): string => $p->getName(), (new ReflectionMethod(PostMaterializer::class, 'ensure_post_row'))->getParameters()) === ['front'],

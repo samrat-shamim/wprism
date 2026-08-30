@@ -4,6 +4,7 @@ namespace WPrism;
 require_once __DIR__ . '/EnvironmentValues.php';
 require_once __DIR__ . '/ProtectedPostIdentity.php';
 require_once __DIR__ . '/../Kernel/Db.php';
+require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Adapter/Providers.php';
@@ -589,10 +590,13 @@ final class ApplyRequestCoordinator {
             }
             $previouslySet = isset(EnvironmentValues::read($repo)[$name]);
             $transactionStarted = false;
+            $continuityStarted = false;
             $postId = null;
             try {
                 Db::start_repeatable_read('env-set protected post transaction start');
                 $transactionStarted = true;
+                DeleteGuardEvaluator::begin_authored_transaction();
+                $continuityStarted = true;
                 $postId = ProtectedPostIdentity::lock($passwordUuid, $postType);
 
                 // Publish intended state only after exact live identity is
@@ -626,9 +630,17 @@ final class ApplyRequestCoordinator {
                 }
                 Db::commit('env-set protected post transaction commit');
                 $transactionStarted = false;
+                DeleteGuardEvaluator::end_authored_transaction();
+                $continuityStarted = false;
             } catch (\Throwable $failure) {
-                if ($transactionStarted) {
-                    Db::rollback_after_failure($failure, 'env-set protected post transaction rollback');
+                try {
+                    if ($transactionStarted) {
+                        Db::rollback_after_failure($failure, 'env-set protected post transaction rollback');
+                    }
+                } finally {
+                    if ($continuityStarted) {
+                        DeleteGuardEvaluator::end_authored_transaction();
+                    }
                 }
                 throw $failure;
             }
