@@ -23,13 +23,20 @@ final class PersonalData {
     /** Return a short PII label, or null when no conservative signal matches. */
     public static function match_deep(string $key, $value): ?string {
         $keyMatch = self::match_key($key);
-        if ($keyMatch !== null) {
+        if ($keyMatch !== null && !self::is_template_reference($value)) {
             return $keyMatch;
         }
         return self::match_value_deep($value);
     }
 
     private static function match_key(string $key): ?string {
+        // JSON and serialized plugin state uses both snake_case and camelCase.
+        // Normalize only separators and case transitions, then keep the same
+        // terminal-field grammar below: firstName/customerEmail become
+        // first_name/customer_email, while emailType/checkoutPhoneField stay
+        // technical controls rather than personal-data-bearing fields.
+        $key = preg_replace('/(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/', '_', $key) ?? $key;
+        $key = preg_replace('/[-.\s]+/', '_', $key) ?? $key;
         foreach (self::KEY_PATTERNS as $pattern => $label) {
             if (preg_match($pattern, $key)) {
                 // These terminal address phrases describe boolean/enum
@@ -50,7 +57,7 @@ final class PersonalData {
             foreach ($value as $childKey => $child) {
                 if (is_string($childKey)) {
                     $keyMatch = self::match_key($childKey);
-                    if ($keyMatch !== null) {
+                    if ($keyMatch !== null && !self::is_template_reference($child)) {
                         return $keyMatch;
                     }
                 }
@@ -100,9 +107,14 @@ final class PersonalData {
             // A generic numeric id and an ISO date are not a phone merely
             // because they contain enough digits; the value also needs phone
             // punctuation or internal spacing unless its key named it.
-            if (preg_match_all('/(?<![0-9])\+?[() .\/-]*[0-9][0-9+() .\/-]{5,}[0-9](?![0-9])/', $window, $phones)) {
-                foreach ($phones[0] as $phone) {
-                    $candidate = trim($phone);
+            if (preg_match_all(
+                '/(?<![0-9])\+?[() .\/-]*[0-9][0-9+() .\/-]{5,}[0-9](?![0-9])/',
+                $window,
+                $phones,
+                PREG_OFFSET_CAPTURE
+            )) {
+                foreach ($phones[0] as [$phone, $phoneOffset]) {
+                    $candidate = trim((string) $phone);
                     // WooCommerce permits arbitrary-precision decimal prices;
                     // the measured `_regular_price=2147484004.123456` capture
                     // is numeric state, not a punctuated telephone number.
@@ -114,6 +126,29 @@ final class PersonalData {
                     if (preg_match('/^[0-9]{4}[-\/]?[0-9]{2}[-\/]?[0-9]{2}$/D', $candidate)) {
                         continue;
                     }
+                    // A timestamp's date-and-hour prefix used to satisfy the
+                    // phone alphabet because ':' ends the regex match after
+                    // `YYYY-MM-DD HH`. ISBNs and dotted release versions have
+                    // the same digit count/punctuation coincidence. These are
+                    // closed technical grammars; actual international,
+                    // parenthesized and 3-3-4 telephone shapes still reach the
+                    // positive branch below.
+                    if (preg_match('/^[0-9]{4}[-\/][0-9]{2}[-\/][0-9]{2}(?:[ T][0-9]{1,2})?$/D', $candidate)) {
+                        continue;
+                    }
+                    $digits = preg_replace('/[^0-9]/', '', $candidate) ?? '';
+                    $prefix = substr($window, max(0, (int) $phoneOffset - 16), min(16, (int) $phoneOffset));
+                    $isbnLabelled = preg_match('/ISBN(?:-1[03])?\s*[:#]?\s*$/i', $prefix) === 1;
+                    $isbn13 = strlen($digits) === 13
+                        && (str_starts_with($digits, '978') || str_starts_with($digits, '979'));
+                    if (($isbnLabelled && in_array(strlen($digits), [10, 13], true)) || $isbn13) {
+                        continue;
+                    }
+                    if (substr_count($candidate, '.') >= 3
+                        || (preg_match('/(?:^|\b)(?:v(?:ersion)?|release)\s*$/i', $prefix) === 1
+                            && preg_match('/^[0-9]+(?:\.[0-9]+){2,}$/D', $candidate))) {
+                        continue;
+                    }
                     if (preg_match_all('/[0-9]/', $candidate) >= 7
                         && preg_match('/[+() .\/-]/', $candidate)) {
                         return 'phone number';
@@ -122,5 +157,13 @@ final class PersonalData {
             }
         }
         return null;
+    }
+
+    /** Plugin smart tags name a future source; they are not captured PII. */
+    private static function is_template_reference($value): bool {
+        if (!is_string($value)) {
+            return false;
+        }
+        return preg_match('/^\{\{?[^{}\r\n]{1,256}\}\}?$/D', $value) === 1;
     }
 }

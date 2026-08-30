@@ -375,6 +375,26 @@ wprism_check_throws(
     'secret-shaped schema leaves refuse capture rather than producing a warning-only commit',
     'refusing to capture serialized authored configuration'
 );
+$post->post_content = serialize([
+    'type' => 'text',
+    'integration' => ['Authorization' => 'GeneratedValue-2026-Blocked'],
+]);
+wprism_check_throws(
+    static fn() => $postCapture->capture($post, '11111111-1111-4111-8111-111111111111', []),
+    RuntimeException::class,
+    'decoded serialized body keys receive heuristic credential clearance before capture',
+    'credential-shaped value'
+);
+$post->post_content = serialize([
+    'type' => 'text',
+    'customerProfile' => ['firstName' => 'Private Customer'],
+]);
+wprism_check_throws(
+    static fn() => $postCapture->capture($post, '11111111-1111-4111-8111-111111111111', []),
+    RuntimeException::class,
+    'decoded serialized body keys receive personal-data clearance before capture',
+    'personal name'
+);
 $post->post_content = serialize(['type' => 'text']) . 'suffix';
 wprism_check_throws(
     static fn() => $postCapture->capture($post, '11111111-1111-4111-8111-111111111111', []),
@@ -404,6 +424,27 @@ $compilerPolicy->prime_interpreters_from_repository($compilerTree);
     }
 ))->validate($compilerTree);
 wprism_check_same(1, count(acf_readiness_code($compilerDiagnostics, 'repository_serialized_body_secret_not_allowed')), 'repository compilation rejects a hand-edited secret-shaped serialized schema');
+
+$piiCompilerDiagnostics = [];
+$piiCompilerTree = [
+    'field' => acf_readiness_field(
+        'field_compiler_pii',
+        'text',
+        ['customerProfile' => ['firstName' => 'Private Customer']]
+    ),
+];
+$compilerPolicy->prime_interpreters_from_repository($piiCompilerTree);
+(new RepositoryPortableShapeValidator(
+    $compilerPolicy,
+    static function (string $code, string $path, string $locator, string $message, ?string $relatedPath) use (&$piiCompilerDiagnostics): void {
+        $piiCompilerDiagnostics[] = compact('code', 'path', 'locator', 'message', 'relatedPath');
+    }
+))->validate($piiCompilerTree);
+wprism_check_same(
+    1,
+    count(acf_readiness_code($piiCompilerDiagnostics, 'repository_serialized_body_pii_not_allowed')),
+    'repository compilation rejects hand-edited personal data hidden inside a serialized schema'
+);
 
 $malformedCompilerDiagnostics = [];
 $malformedTree = ['field' => acf_readiness_field('field_compiler_bad', 'text', [], serialize(['type' => 'text']) . 'suffix')];

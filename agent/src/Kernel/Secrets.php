@@ -62,7 +62,7 @@ final class Secrets {
     ];
 
     /** Key-name signal for the heuristic tier (never sufficient alone). */
-    private const SUSPICIOUS_KEY = '/(api_?key|secret|token|passw|private_key)/i';
+    private const SUSPICIOUS_KEY = '/(api_?key|authorization|credential|licen[cs]e_?key|secret|token|passw|private_?key)/i';
 
     /**
      * High-confidence match. Returns a short label ('stripe key', 'aws key',
@@ -152,7 +152,8 @@ final class Secrets {
                     return 'credential-shaped value';
                 }
                 if (preg_match_all(
-                    '/(?:api[ _-]?key|secret|token|passw(?:or)?d|private[ _-]?key)\s*[:=]\s*["\']?([A-Za-z0-9_+\/.=-]{16,4096})/i',
+                    '/(?:api[ _-]?key|authorization|credential|licen[cs]e[ _-]?key|secret|token|passw(?:or)?d|private[ _-]?key)'
+                    . '\s*[:=]\s*["\']?(?:Bearer[ \t]+)?([A-Za-z0-9_+\/.=-]{16,4096})/i',
                     $window,
                     $matches
                 )) {

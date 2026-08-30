@@ -45,10 +45,14 @@ require_once $root . '/agent/src/Repository/Ledger.php';
 require_once $root . '/agent/src/Grammar/Tokens.php';
 require_once $root . '/agent/src/Grammar/ColumnCodecGrammar.php';
 require_once $root . '/agent/src/Capture/TypedTableCapture.php';
+require_once $root . '/agent/src/Repository/Snapshot.php';
+require_once $root . '/agent/src/Repository/RepositoryAuthorization.php';
 
 use WPrism\Canon;
 use WPrism\ColumnCodecGrammar;
 use WPrism\Policy;
+use WPrism\RepositoryAuthorization;
+use WPrism\RepositoryAuthorizationException;
 use WPrism\Tokens;
 use WPrism\TypedTableCapture;
 use WPrismTest\FakeWpdb;
@@ -427,6 +431,42 @@ wprism_check_throws(
     'C5: the secret guard screens the decoded container, not just its framing bytes',
     'secret guard tripped'
 );
+wprism_check_throws(
+    static fn(): string => ColumnCodecGrammar::capture_value(
+        serialize(['nested' => ['credential' => 'GeneratedValue-2026-Blocked']]),
+        $codec,
+        $sourceTokens,
+        'C5',
+        'action_data'
+    ),
+    RuntimeException::class,
+    'C5: decoded typed-column keys receive the heuristic credential gate, not only hard signatures',
+    'credential-shaped value'
+);
+wprism_check_throws(
+    static fn(): string => ColumnCodecGrammar::capture_value(
+        serialize(['customerProfile' => ['firstName' => 'Private Customer']]),
+        $codec,
+        $sourceTokens,
+        'C5',
+        'action_data'
+    ),
+    RuntimeException::class,
+    'C5: decoded typed-column personal-data keys refuse before re-encoding',
+    'personal name'
+);
+wprism_check_same(
+    serialize(['customerProfile' => ['firstName' => 'Private Customer']]),
+    ColumnCodecGrammar::capture_value(
+        serialize(['customerProfile' => ['firstName' => 'Private Customer']]),
+        $codec,
+        $sourceTokens,
+        'C5',
+        'action_data',
+        ['allow_pii' => true]
+    ),
+    'C5: an exact typed-column allow_pii rule composes with decoded clearance'
+);
 
 // C6 — Redirection's actual storage union. One action_data column holds raw
 // target text for ordinary URL redirects, a serialized map for conditional
@@ -576,6 +616,31 @@ wprism_check_same(
     ['url' => '{{home}}/new-page'],
     unserialize((string) $first['columns']['action_data'], ['allowed_classes' => false]),
     'D2: the captured container unserializes — this is the coordinate the ledger recorded as blocked'
+);
+$gitEdited = $first;
+$gitEdited['columns']['action_data'] = serialize([
+    'customerProfile' => ['firstName' => 'Private Customer'],
+]);
+$gitEditedEntity = [
+    'type' => 'redirection_items',
+    'path' => $entities[0]['path'],
+    'content' => Canon::encode($gitEdited),
+    'data' => $gitEdited,
+];
+$authorizationDiagnostics = [];
+try {
+    RepositoryAuthorization::assert_tree($policy, [$gitEdited['uuid'] => $gitEditedEntity]);
+} catch (RepositoryAuthorizationException $failure) {
+    $authorizationDiagnostics = $failure->diagnostics;
+}
+wprism_check_same(
+    1,
+    count(array_filter($authorizationDiagnostics, static fn(array $diagnostic): bool =>
+        ($diagnostic['code'] ?? null) === 'repository_pii_not_allowed'
+        && ($diagnostic['surface'] ?? null) === 'table_column'
+        && ($diagnostic['field'] ?? null) === 'action_data'
+    )),
+    'D2: repository authorization decodes typed-column framing before recursive personal-data clearance'
 );
 wprism_check_same(
     '{{red_group:019200aa-0000-7000-8000-0000000000a1}}',

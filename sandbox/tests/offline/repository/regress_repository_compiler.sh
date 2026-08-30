@@ -700,6 +700,25 @@ if (!is_array($frozenOptions) || (OptionState::values($frozenOptions)['blogname'
 needs(failure($mutable), 'conflict_marker');
 ok('compiled input and policy are immutable: later repo edits never change apply/snapshot consumers');
 
+$menuRef = "$tmp/menu-ref-clearance"; build_valid($menuRef);
+$menuPath = "$menuRef/state/menus/main.json";
+$menuDocument = Canon::decode(file_get_contents($menuPath));
+$menuDocument['items'][0]['type'] = 'custom';
+$menuDocument['items'][0]['object'] = 'custom';
+$menuDocument['items'][0]['ref'] = 'https://partner.example.test/connect?authorization=GeneratedValue-2026-Blocked';
+put($menuPath, Canon::encode($menuDocument));
+$auth = authorization_failure($menuRef);
+$menuRefFindings = array_values(array_filter(
+    $auth['diagnostics'],
+    static fn(array $d): bool => ($d['code'] ?? null) === 'repository_secret_not_allowed'
+        && ($d['surface'] ?? null) === 'menu_item[0]'
+        && ($d['field'] ?? null) === 'ref'
+));
+if (count($menuRefFindings) !== 1) {
+    fail('a Git-edited credential-bearing custom menu ref bypassed repository authorization');
+}
+ok('repository authorization independently clears Git-edited menu refs before apply');
+
 $userMeta = "$tmp/user-meta"; build_valid($userMeta);
 $sitePath = "$userMeta/site.wprism.json";
 $site = Canon::decode(file_get_contents($sitePath));

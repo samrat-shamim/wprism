@@ -436,6 +436,17 @@ write_manifest($fixtureDir, 'bad-field-class', [
     'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => ['product' => ['fields' => ['modified' => ['class' => 'runtime']]]],
 ]);
+write_manifest($fixtureDir, 'json-body-clearance', [
+    'name' => 'json-body-clearance',
+    'spec_version' => WPRISM_SPEC_VERSION,
+    'engine_features' => ['spec-window/v1', 'structured-body-refs/v1'],
+    'post_types' => ['form' => ['class' => 'authored', 'body' => 'json']],
+    'body_refs' => [
+        'form' => [
+            'json_refs' => [['path' => '$.target', 'kind' => 'post']],
+        ],
+    ],
+]);
 $fixtureLibrary = manifest_fixture_adapter_library($fixtureDir);
 
 $policy = Policy::load(null, ['woo-fields'], adapterLibrary: $fixtureLibrary);
@@ -738,6 +749,51 @@ check(
         && ($d['field'] ?? '') === 'body'
     )) === 1,
     'RepositoryAuthorization prevents a Git edit from bypassing canonical-content PII clearance'
+);
+
+$acfPolicy = Policy::load(null, ['acf'], adapterLibrary: $sourceLibrary);
+$acfPolicy->site = ['policy' => [
+    'post_types' => ['acf-field'],
+    'taxonomies' => [],
+    'post_meta' => [],
+    'options' => [],
+]];
+$serializedFront = post_front('acf-field', '018f0000-0000-7000-8000-000000000091', '2026-08-08 00:00:01');
+$serializedDiagnostics = post_authorization_diagnostics(
+    $acfPolicy,
+    $serializedFront,
+    serialize(['integration' => ['Authorization' => 'GeneratedValue-2026-Blocked']])
+);
+check(
+    count(array_filter($serializedDiagnostics, static fn(array $d): bool =>
+        ($d['code'] ?? '') === 'repository_secret_not_allowed'
+        && ($d['field'] ?? '') === 'body'
+    )) === 1,
+    'RepositoryAuthorization opens serialized bodies before credential-key clearance'
+);
+
+$jsonPolicy = Policy::load(null, ['json-body-clearance'], adapterLibrary: $fixtureLibrary);
+$jsonPolicy->site = ['policy' => [
+    'post_types' => ['form'],
+    'taxonomies' => [],
+    'post_meta' => [],
+    'options' => [],
+]];
+$jsonFront = post_front('form', '018f0000-0000-7000-8000-000000000092', '2026-08-08 00:00:01');
+$jsonDiagnostics = post_authorization_diagnostics(
+    $jsonPolicy,
+    $jsonFront,
+    json_encode([
+        'target' => '{{post:018f0000-0000-7000-8000-000000000001}}',
+        'customerProfile' => ['firstName' => 'Private Customer'],
+    ], JSON_THROW_ON_ERROR)
+);
+check(
+    count(array_filter($jsonDiagnostics, static fn(array $d): bool =>
+        ($d['code'] ?? '') === 'repository_pii_not_allowed'
+        && ($d['field'] ?? '') === 'body'
+    )) === 1,
+    'RepositoryAuthorization opens structured JSON bodies before personal-data-key clearance'
 );
 $unknownFrontField = $source;
 $unknownFrontField['unsupported_front_field'] = 'must refuse';

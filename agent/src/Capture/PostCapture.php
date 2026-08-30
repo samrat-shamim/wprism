@@ -5,6 +5,7 @@ require_once __DIR__ . '/../Grammar/Blocks.php';
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
+require_once __DIR__ . '/../Kernel/PersonalData.php';
 require_once __DIR__ . '/EntityMetaCapture.php';
 require_once __DIR__ . '/../Repository/Ledger.php';
 require_once __DIR__ . '/MediaCapture.php';
@@ -144,10 +145,17 @@ final class PostCapture {
         if ($bodyMode === 'serialized') {
             $context = "{$post->post_type} '{$post->post_name}' body";
             $decoded = PlainData::decode_serialized((string) $post->post_content, $context);
-            $secretLabel = Secrets::hard_match_deep($decoded);
+            $secretLabel = Secrets::clearance_match_deep('body', $decoded);
             if ($secretLabel !== null) {
                 throw new \RuntimeException(
                     "wprism: $context contains a $secretLabel; refusing to capture serialized authored configuration"
+                );
+            }
+            $piiLabel = PersonalData::match_deep('body', $decoded);
+            if ($piiLabel !== null) {
+                throw new \RuntimeException(
+                    "wprism: $context contains $piiLabel; refusing to capture serialized authored configuration — "
+                    . 'remove or redact the personal data, or exclude its owning post type'
                 );
             }
             $body = serialize($this->tokens->plain_data_capture($decoded));

@@ -436,6 +436,35 @@ wprism_check(
     'C2: the declared SENTINEL on the SAME key is passed through untouched'
 );
 
+$secretDocument = json_decode($formB, true, 512, JSON_THROW_ON_ERROR);
+$secretDocument['settings']['integration'] = ['Authorization' => 'GeneratedValue-2026-Blocked'];
+wprism_check_throws(
+    static fn(): string => BodyRefGrammar::capture(
+        json_encode($secretDocument, JSON_THROW_ON_ERROR),
+        $rule,
+        $idToToken($tokensFor()),
+        static function (): void {},
+        "wpforms 'secret-clearance'"
+    ),
+    RuntimeException::class,
+    'C2: decoded JSON key/value pairs receive full credential clearance rather than only hard-token scanning',
+    'credential-shaped value'
+);
+$piiDocument = json_decode($formB, true, 512, JSON_THROW_ON_ERROR);
+$piiDocument['settings']['customerProfile'] = ['firstName' => 'Private Customer'];
+wprism_check_throws(
+    static fn(): string => BodyRefGrammar::capture(
+        json_encode($piiDocument, JSON_THROW_ON_ERROR),
+        $rule,
+        $idToToken($tokensFor()),
+        static function (): void {},
+        "wpforms 'pii-clearance'"
+    ),
+    RuntimeException::class,
+    'C2: decoded JSON personal-data keys refuse before canonical publication',
+    'personal name'
+);
+
 wprism_check_same(
     $formB,
     BodyRefGrammar::apply($capturedB, $rule, $tokenToId($tokensFor()), "wpforms 'recon-signup-form'"),

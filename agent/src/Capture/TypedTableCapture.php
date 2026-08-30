@@ -115,8 +115,18 @@ final class TypedTableCapture {
                 }
                 $value = $row[$col] ?? null;
                 $context = "table '$table' column '$col' (row $localId)";
-                self::guard_value((string) $col, $value, $rule, $context);
-                $columns[$col] = self::capture_column($value, $columnCodecs[$col] ?? null, $tokens, $context);
+                $codec = $columnCodecs[$col] ?? null;
+                if ($codec === null) {
+                    self::guard_value((string) $col, $value, $rule, $context);
+                }
+                $columns[$col] = self::capture_column(
+                    $value,
+                    $codec,
+                    $tokens,
+                    $context,
+                    (string) $col,
+                    $rule
+                );
             }
             foreach ($decl['refs'] ?? [] as $ref) {
                 $col = $ref['column'];
@@ -232,8 +242,18 @@ final class TypedTableCapture {
                 }
                 $value = $row[$col] ?? null;
                 $context = "table '$table' column '$col' (composite row $uuid)";
-                self::guard_value((string) $col, $value, $rule, $context);
-                $columns[$col] = self::capture_column($value, $columnCodecs[$col] ?? null, $tokens, $context);
+                $codec = $columnCodecs[$col] ?? null;
+                if ($codec === null) {
+                    self::guard_value((string) $col, $value, $rule, $context);
+                }
+                $columns[$col] = self::capture_column(
+                    $value,
+                    $codec,
+                    $tokens,
+                    $context,
+                    (string) $col,
+                    $rule
+                );
             }
 
             $packed = $this->identity->packCompositeId($table, $localByCol);
@@ -372,11 +392,18 @@ final class TypedTableCapture {
      *
      * @param array{container:string,leaves:string}|null $codec
      */
-    private static function capture_column(mixed $value, ?array $codec, object $tokens, string $context): mixed {
+    private static function capture_column(
+        mixed $value,
+        ?array $codec,
+        object $tokens,
+        string $context,
+        string $key,
+        array $rule
+    ): mixed {
         if ($codec === null) {
             return is_string($value) ? $tokens->tokenize_text($value) : $value;
         }
-        return ColumnCodecGrammar::capture_value($value, $codec, $tokens, $context);
+        return ColumnCodecGrammar::capture_value($value, $codec, $tokens, $context, $key, $rule);
     }
 
     /** Portable human-readable suffix for an ordinary row's canonical path. */

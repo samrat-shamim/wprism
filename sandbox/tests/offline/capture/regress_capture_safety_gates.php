@@ -155,6 +155,39 @@ $nestedSuspicious = refusal(static fn() => $gates->guardSecret(
 ));
 check($nestedSuspicious->reasonCode === 'secret_state_refused', 'nested credential keys participate in blocking clearance');
 
+foreach (['Authorization', 'credential', 'license_key'] as $credentialKey) {
+    $keyShape = refusal(static fn() => $gates->guardSecret(
+        'options',
+        'integration_settings',
+        [$credentialKey => 'GeneratedValue-2026-Blocked'],
+        []
+    ));
+    check(
+        $keyShape->reasonCode === 'secret_state_refused',
+        "$credentialKey is an explicit credential-key shape in recursive clearance"
+    );
+}
+
+foreach (['firstName' => 'personal name', 'replyToEmail' => 'email address', 'postalCode' => 'postal address'] as $key => $shape) {
+    $camelCasePii = refusal(static fn() => $gates->guardPersonalData(
+        'options',
+        'structured_settings',
+        [$key => 'Configured Value'],
+        []
+    ));
+    check(
+        ($camelCasePii->diagnostics[0]['personal_data_shape'] ?? null) === $shape,
+        "$key receives the same terminal personal-data classification as its snake_case spelling"
+    );
+}
+$gates->guardPersonalData('options', 'technical_settings', [
+    'emailType' => 'multipart',
+    'checkoutPhoneField' => 'optional',
+    'defaultCustomerAddress' => 'base',
+    'email' => '{admin_email}',
+], []);
+check(true, 'camelCase controls and unresolved plugin smart tags stay outside captured personal data');
+
 $bodySecret = refusal(static fn() => $gates->assertCanonicalContent([[
     'type' => 'page',
     'path' => 'posts/page/fixture--clearance.md',
@@ -214,5 +247,25 @@ $gates->assertCanonicalContent([[
     ], 'Published on 2026-08-30 with build 1234567.'),
 ]]);
 check(true, 'ordinary dates and numeric build ids do not false-positive as phone numbers');
+
+foreach ([
+    'Completed at 2026-02-03 04:05:06 UTC',
+    'Catalog identifier ISBN 978-1-4028-9462-6',
+    'Compatible with release 10.2.3.4567',
+] as $technicalNumber) {
+    $gates->guardPersonalData('options', 'release_metadata', $technicalNumber, []);
+}
+check(true, 'timestamps, ISBNs, and dotted release versions do not false-positive as phone numbers');
+
+$actualPhone = refusal(static fn() => $gates->guardPersonalData(
+    'options',
+    'support_copy',
+    'Call our private contact at +1 (415) 555-2671.',
+    []
+));
+check(
+    ($actualPhone->diagnostics[0]['personal_data_shape'] ?? null) === 'phone number',
+    'a punctuated international telephone number remains protected'
+);
 
 echo "REGRESS_CAPTURE_SAFETY_GATES PASSED\n";

@@ -485,6 +485,11 @@ the capture clearance promotes the signal to a refusal. Labelled credentials
 embedded in prose, nested credential keys, and long values scanned in bounded
 overlapping windows follow the same blocking path. Repository authorization
 repeats the clearance over the immutable revision plan/apply will consume.
+Structured JSON bodies, PHP-serialized bodies, and typed-column codecs are
+opened first and scanned by decoded key and value; their storage framing is
+not treated as a substitute for inspecting the authored document. Credential
+key signals include authorization headers, generic credential fields, and
+license keys as well as API keys, secrets, tokens, and passwords.
 
 The escape hatches are explicit and narrow:
 
@@ -509,7 +514,10 @@ Personal-data scanning covers every canonical surface. Declared option,
 post/term/user meta, typed-table, attached-meta, and widget values are scanned
 recursively; post, term, menu, and user identity/prose fields are scanned before
 publication. The conservative signatures cover structured personal-data key
-names plus embedded email, IPv4/IPv6, and phone values. A structured rule may
+names in snake_case or camelCase plus embedded email, IPv4/IPv6, and phone
+values. Date/time, ISBN, decimal, UUID, and dotted release-version grammars are
+excluded from value-only phone matching; an actual phone-key field still wins.
+A structured rule may
 record `allow_pii: true` only after exact review:
 
 ```sh

@@ -1,7 +1,10 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
+require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
 require_once __DIR__ . '/../Policy/ScopeAdoption.php';
+require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/PostPasswordBinding.php';
 require_once __DIR__ . '/../Kernel/PersonalData.php';
 require_once __DIR__ . '/../Kernel/Secrets.php';
@@ -244,7 +247,14 @@ final class RepositoryAuthorization {
             }
         }
         self::authorize_sensitivity(
-            $out, $path, $uuid, 'post_field', 'body', (string) ($entity['body'] ?? ''), [], 'platform'
+            $out,
+            $path,
+            $uuid,
+            'post_field',
+            'body',
+            self::post_body_for_clearance($policy, $postType, (string) ($entity['body'] ?? ''), $path),
+            [],
+            'platform'
         );
         if (array_key_exists('password_binding', $front)) {
             $expected = null;
@@ -359,6 +369,15 @@ final class RepositoryAuthorization {
             }
             $refMeta = ($item['type'] ?? '') === 'custom' ? '_menu_item_url' : '_menu_item_object_id';
             self::require_managed_meta($policy, $refMeta, "items[$index].ref", $path, $uuid, $out);
+            if (array_key_exists('ref', $item)) {
+                // `ref` is materialized through managed post meta, but its
+                // repository bytes are still Git-editable. A custom URL can
+                // carry credentials/PII and a non-custom token must receive
+                // the same clearance before its separate reference grammar.
+                self::authorize_sensitivity(
+                    $out, $path, $uuid, "menu_item[$index]", 'ref', $item['ref'], [], 'platform'
+                );
+            }
 
             // issue #3266: re-derive classification from the COMPILED
             // repository's own policy, independent of what captured it —
@@ -583,6 +602,7 @@ final class RepositoryAuthorization {
             return;
         }
         $decl = $rows[$table];
+        $columnCodecs = $policy->column_codec_rules($table);
         $front = $entity['data'] ?? Canon::decode($entity['content']);
         self::unexpected_fields($front, self::TABLE_FIELDS, $path, $uuid, 'table_field', $out);
         if (($front['table'] ?? null) !== $table) {
@@ -602,9 +622,24 @@ final class RepositoryAuthorization {
             if ($class !== 'authored') {
                 self::finding($out, 'repository_field_not_authored', $path, $uuid, 'table_column', (string) $column, $class, $tableDetails['source']);
             } else {
+                $clearanceValue = $value;
+                if (isset($columnCodecs[$column])) {
+                    try {
+                        $clearanceValue = ColumnCodecGrammar::decode_for_clearance(
+                            $value,
+                            $columnCodecs[$column],
+                            "repository table '$table' column '$column'",
+                            'authored'
+                        );
+                    } catch (\Throwable) {
+                        // RepositoryPortableShapeValidator owns malformed
+                        // codec framing. Raw scanning here retains defense in
+                        // depth without replacing its stable diagnostic.
+                    }
+                }
                 self::authorize_sensitivity(
                     $out, $path, $uuid, 'table_column', (string) $column,
-                    $value, $rule, $tableDetails['source']
+                    $clearanceValue, $rule, $tableDetails['source']
                 );
             }
         }
@@ -643,6 +678,27 @@ final class RepositoryAuthorization {
         $details = $policy->taxonomy_scope_details($taxonomy);
         if (!$details['authorized']) {
             self::finding($out, 'repository_entity_out_of_scope', $path, $uuid, $surface, $taxonomy, 'unscoped', $details['source']);
+        }
+    }
+
+    /** Open structured body framing before the recursive secret/PII gate. */
+    private static function post_body_for_clearance(
+        Policy $policy,
+        string $postType,
+        string $body,
+        string $path
+    ): mixed {
+        try {
+            return match ($policy->body_mode($postType)) {
+                'serialized' => PlainData::decode_serialized($body, "$path body"),
+                BodyRefGrammar::BODY_MODE => BodyRefGrammar::decode($body, "$path body"),
+                default => $body,
+            };
+        } catch (\Throwable) {
+            // Structural validators own malformed framing. The raw fallback
+            // still catches literal signatures while preserving their stable
+            // schema/body diagnostic as the primary refusal.
+            return $body;
         }
     }
 
