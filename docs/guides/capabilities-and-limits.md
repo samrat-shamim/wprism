@@ -224,7 +224,9 @@ logged or placed in argv; the former `--value` form is refused because shell
 history and process listings expose command arguments. `env-set` refuses any name the loaded
 policy did not declare `class: "env"`, refuses an option declaring `sub_keys`
 (a structured plugin-managed blob a bare string write would corrupt), and
-refuses an empty value. The intended-value file must be a regular non-symlink
+refuses an empty value. Stdin framing removes exactly the terminal LF and an
+optional preceding CR; leading/trailing spaces and tabs are value bytes, so a
+whitespace-only value is non-empty. The intended-value file must be a regular non-symlink
 file readable only by its owner (mode `0600`); WPrism refuses an insecure file.
 If WordPress rejects the subsequent write, the newly published intent remains
 and the plan stays red until the live value is repaired, so a partial operation
@@ -489,6 +491,10 @@ The escape hatches are explicit and narrow:
 - Per rule, `allow_secret: true` on that exact rule permits the authored
   classification. It is a reviewed exception, not a recommendation to keep
   secrets in git.
+- For a joined direct command, spell that authority inside the exact row as
+  `allow_secret=true` (and `allow_pii=true` below). The legacy command-wide
+  flags are single-row shorthand and refuse a multi-row `--set`, so target-side
+  rereads cannot transfer one review to a sibling row.
 - In interactive `wprism classify`, an `authored` decision on a secret-flagged
   item requires typing the literal word **`allow`**. Enter alone can never
   author a secret — not even by accepting a proposal.
@@ -508,7 +514,7 @@ record `allow_pii: true` only after exact review:
 
 ```sh
 wp wprism classify --repo=/siterepo \
-  --set='post_meta:contact_email=authored' --allow-pii
+  --set='post_meta:contact_email=authored,allow_pii=true'
 ```
 
 Free-form canonical prose has no rule on which to attach a broad exception;

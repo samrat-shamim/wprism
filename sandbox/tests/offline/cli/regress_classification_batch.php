@@ -96,8 +96,11 @@ $valid = ClassificationBatch::validate($batch, 'production', $items);
 ok(count($valid['decisions']) === 3, 'complete reviewed batch validates as one decision set');
 ok($valid['decisions'][1]['ref'] === 'post', 'reviewed ref is preserved');
 ok($valid['decisions'][1]['cast'] === 'string', 'reviewed cast is preserved');
-ok($valid['needAllowSecret'] === false, 'ordinary batch does not request the secret escape hatch');
-ok($valid['needAllowPii'] === false, 'ordinary batch does not request the PII escape hatch');
+ok(
+    !array_key_exists('allow_secret', $valid['decisions'][0])
+        && !array_key_exists('allow_pii', $valid['decisions'][0]),
+    'ordinary rows carry no clearance authority'
+);
 
 $partial = $batch;
 $partial['decisions'][0]['class'] = null;
@@ -155,7 +158,10 @@ refuses(
 );
 $secret['decisions'][0]['allow_secret'] = true;
 $secretValid = ClassificationBatch::validate($secret, 'production', $secretItems);
-ok($secretValid['needAllowSecret'] === true, 'explicit secret review requests one batched allow-secret flag');
+ok(
+    ($secretValid['decisions'][0]['allow_secret'] ?? null) === true,
+    'explicit secret review remains authority on that exact validated row'
+);
 $secret['decisions'][0]['class'] = 'runtime';
 refuses(
     fn() => ClassificationBatch::validate($secret, 'production', $secretItems),
@@ -177,7 +183,10 @@ refuses(
 );
 $pii['decisions'][0]['allow_pii'] = true;
 $piiValid = ClassificationBatch::validate($pii, 'production', $piiItems);
-ok($piiValid['needAllowPii'] === true, 'explicit PII review requests one batched allow-pii flag');
+ok(
+    ($piiValid['decisions'][0]['allow_pii'] ?? null) === true,
+    'explicit PII review remains authority on that exact validated row'
+);
 $pii['decisions'][0]['class'] = 'runtime';
 refuses(
     fn() => ClassificationBatch::validate($pii, 'production', $piiItems),

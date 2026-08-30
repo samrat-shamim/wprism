@@ -335,6 +335,30 @@ namespace {
 
     $cli = new \WPrism\Cli();
 
+    echo "\n== env-set stdin framing preserves credential bytes ==\n";
+    $maskedLineValue = new ReflectionMethod(\WPrism\Cli::class, 'masked_line_value');
+    $maskedCases = [
+        "  leading and trailing\t  \n" => "  leading and trailing\t  ",
+        "  leading and trailing\t  \r\n" => "  leading and trailing\t  ",
+        " \t \n" => " \t ",
+        " \t \r\n" => " \t ",
+        "credential\r\r\n" => "credential\r",
+        "\n" => '',
+        "\r\n" => '',
+    ];
+    foreach ($maskedCases as $framed => $expected) {
+        check(
+            $maskedLineValue->invoke(null, $framed) === $expected,
+            'masked input removes exactly terminal LF and optional CR while preserving every other byte ('
+                . strlen($expected) . '-byte value)'
+        );
+    }
+    $maskedSource = (string) file_get_contents(__DIR__ . '/../../../../agent/src/Command/Cli.php');
+    check(
+        str_contains($maskedSource, 'return self::masked_line_value($line);'),
+        'the real masked stdin reader routes its complete line through the byte-preserving framing helper'
+    );
+
     echo "\n== every primary JSON command owns a stable missing-argument refusal ==\n";
     $commands = [
         'compile' => 'compile',

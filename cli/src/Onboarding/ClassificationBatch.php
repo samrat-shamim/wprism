@@ -145,7 +145,7 @@ final class ClassificationBatch {
 
     /**
      * @param list<array<string,mixed>> $items
-     * @return array{decisions:list<array<string,string|bool>>,needAllowSecret:bool,needAllowPii:bool}
+     * @return array{decisions:list<array<string,string|bool>>}
      */
     public static function validate(array $batch, string $environment, array $items): array {
         if (($batch['format'] ?? null) === self::FORMAT_WITHOUT_STORAGE_DECISIONS) {
@@ -201,8 +201,6 @@ final class ClassificationBatch {
         $seen = [];
         $incomplete = [];
         $undecided = [];
-        $needAllowSecret = false;
-        $needAllowPii = false;
         foreach ($batch['decisions'] as $i => $row) {
             if (!is_array($row)) {
                 throw new \RuntimeException("wprism: classification batch decisions[$i] must be an object");
@@ -293,7 +291,12 @@ final class ClassificationBatch {
                 );
             }
             if ($allowSecret) {
-                $needAllowSecret = true;
+                // This is authority for one reviewed row, not a command-wide
+                // switch. It must remain attached to the decision until the
+                // target re-reads that row's live value; otherwise one
+                // approved row can clear a different row that becomes
+                // sensitive between the host queue read and target apply.
+                $decision['allow_secret'] = true;
             }
             $pii = is_string($pending[$identity]['pii'] ?? null)
                 ? (string) $pending[$identity]['pii']
@@ -313,7 +316,7 @@ final class ClassificationBatch {
                 );
             }
             if ($allowPii) {
-                $needAllowPii = true;
+                $decision['allow_pii'] = true;
             }
             // Last, so an unacknowledged authored secret above still refuses
             // first: that one is about what leaves the site, this one about
@@ -343,11 +346,7 @@ final class ClassificationBatch {
                 . " site grammar demands before the rule can load:\n  - " . implode("\n  - ", $undecided)
             );
         }
-        return [
-            'decisions' => $decisions,
-            'needAllowSecret' => $needAllowSecret,
-            'needAllowPii' => $needAllowPii,
-        ];
+        return ['decisions' => $decisions];
     }
 
     /**

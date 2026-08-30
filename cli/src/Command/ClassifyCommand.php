@@ -156,11 +156,7 @@ final class ClassifyCommand {
             fwrite(STDERR, $e->getMessage() . "\n");
             return 1;
         }
-        $args = self::buildArgs(
-            $validated['decisions'],
-            $validated['needAllowSecret'],
-            $validated['needAllowPii']
-        );
+        $args = self::buildArgs($validated['decisions']);
         $exit = $driver->streamWp(array_merge(['wprism', 'classify', '--repo=' . $driver->repoPath()], $args));
         if ($exit !== 0) {
             return $exit;
@@ -185,11 +181,7 @@ final class ClassifyCommand {
 
         $exit = 0;
         if ($result['decisions']) {
-            $args = self::buildArgs(
-                $result['decisions'],
-                $result['needAllowSecret'],
-                $result['needAllowPii']
-            );
+            $args = self::buildArgs(self::attachReviewedClearances($result['decisions'], $items));
             $exit = $driver->streamWp(array_merge(['wprism', 'classify', '--repo=' . $driver->repoPath()], $args));
         }
         printf("\n%d classified, %d skipped.\n", $result['classified'], $result['skipped']);
@@ -219,7 +211,7 @@ final class ClassifyCommand {
 
         $exit = 0;
         if ($decisions) {
-            $args = self::buildArgs($decisions, false, false);
+            $args = self::buildArgs($decisions);
             $exit = $driver->streamWp(array_merge(['wprism', 'classify', '--repo=' . $driver->repoPath()], $args));
         } else {
             echo "no proposals to accept\n";
@@ -278,8 +270,49 @@ final class ClassifyCommand {
         }
     }
 
-    /** @param list<array{section:string,key:string,class:string,ref?:string,cast?:string,autoload?:string,required?:bool}> $decisions */
-    private static function buildArgs(array $decisions, bool $needAllowSecret, bool $needAllowPii): array {
+    /**
+     * Interactive Triage deliberately remains pure prompt logic and reports
+     * confirmations separately. Reattach each confirmation by the pending
+     * identity that caused its prompt before opening the target write: an
+     * authored sensitive decision can only be present when that row's
+     * literal `allow` prompt succeeded.
+     *
+     * @param list<array<string,mixed>> $decisions
+     * @param list<array<string,mixed>> $items
+     * @return list<array<string,mixed>>
+     */
+    private static function attachReviewedClearances(array $decisions, array $items): array {
+        $pending = [];
+        foreach ($items as $item) {
+            $pending[self::rowIdentity($item)] = $item;
+        }
+        foreach ($decisions as &$decision) {
+            if (($decision['class'] ?? null) !== 'authored') {
+                continue;
+            }
+            $item = $pending[self::rowIdentity($decision)] ?? [];
+            if (is_string($item['secret'] ?? null) && $item['secret'] !== '') {
+                $decision['allow_secret'] = true;
+            }
+            if (is_string($item['pii'] ?? null) && $item['pii'] !== '') {
+                $decision['allow_pii'] = true;
+            }
+        }
+        unset($decision);
+        return $decisions;
+    }
+
+    /** @param array<string,mixed> $row */
+    private static function rowIdentity(array $row): string {
+        $encoded = json_encode(
+            [(string) ($row['section'] ?? ''), (string) ($row['key'] ?? '')],
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+        );
+        return hash('sha256', $encoded);
+    }
+
+    /** @param list<array{section:string,key:string,class:string,ref?:string,cast?:string,autoload?:string,required?:bool,allow_secret?:bool,allow_pii?:bool}> $decisions */
+    private static function buildArgs(array $decisions): array {
         $specs = array_map(function (array $d): string {
             $spec = "{$d['section']}:{$d['key']}={$d['class']}";
             if (isset($d['ref'])) {
@@ -298,6 +331,15 @@ final class ClassifyCommand {
             if (isset($d['required'])) {
                 $spec .= ',required=' . ($d['required'] ? 'true' : 'false');
             }
+            // Clearance is reviewed per row and must still be per row when
+            // the target re-reads live values. A command-wide flag lets one
+            // approved row authorize every sibling in this joined batch.
+            if (($d['allow_secret'] ?? false) === true) {
+                $spec .= ',allow_secret=true';
+            }
+            if (($d['allow_pii'] ?? false) === true) {
+                $spec .= ',allow_pii=true';
+            }
             return $spec;
         }, $decisions);
 
@@ -305,12 +347,6 @@ final class ClassifyCommand {
             ? ['--set=' . implode(';', $specs)]
             : array_map(fn(string $s) => '--set=' . $s, $specs);
 
-        if ($needAllowSecret) {
-            $args[] = '--allow-secret';
-        }
-        if ($needAllowPii) {
-            $args[] = '--allow-pii';
-        }
         return $args;
     }
 }

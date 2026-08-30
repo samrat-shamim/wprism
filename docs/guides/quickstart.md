@@ -402,7 +402,9 @@ values, and `managed` for lifecycle-managed options.
 If pending marks the row `[SECRET: ...]` or `[PII: ...]`, authoring it requires
 setting the matching `allow_secret` or `allow_pii` field to `true` after exact
 review. The batch carries only redacted categories; it never exports the live
-value.
+value. That approval remains attached to the exact row on the target command;
+it cannot clear another row that becomes sensitive during the host-to-target
+handoff.
 
 An **options** row needs one more answer, and only the one its class reads:
 `autoload` when the class is `authored` or `managed` (`preserve` replays the

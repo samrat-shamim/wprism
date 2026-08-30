@@ -1414,9 +1414,12 @@ in manifests, native actions, or plugin-owned providers—not this shell.
   but untyped.
 
   All decisions are batched into a **single** `wp wprism classify --repo=<repo_path>
-  --set=<section>:<key>=<class>[,ref=<kind>][,autoload=<flag>][,required=<bool>] […]`
+  --set=<section>:<key>=<class>[,ref=<kind>][,autoload=<flag>][,required=<bool>][,allow_secret=true][,allow_pii=true] […]`
   call at the end (not one call per item) — its output streams live and its
-  exit code propagates.
+  exit code propagates. A reviewed clearance remains on its exact row through
+  that call. The target re-reads every live value, so one row's approval can
+  never authorize a sibling that became sensitive after the host read the
+  queue.
   A final `N classified, M skipped.` line summarizes the session. Exit 0
   immediately with "review queue is empty" if there was nothing to triage.
 
@@ -1496,7 +1499,11 @@ in manifests, native actions, or plugin-owned providers—not this shell.
   joined `--set` value (`--set 'post_meta:foo=runtime;options:bar=authored,ref=post'`),
   never as repeated `--set=<spec>` flags — wp-cli's assoc-arg parser keeps
   only the *last* occurrence of a repeated flag, confirmed against
-  `agent/src/Command/Cli.php`'s `classify()` docblock. `ClassifyCommand`'s
+  `agent/src/Command/Cli.php`'s `classify()` docblock. `allow_secret=true` and
+  `allow_pii=true` travel inside only the reviewed row; the legacy
+  command-wide `--allow-secret`/`--allow-pii` spellings are accepted only for
+  a single-row direct command and refuse a joined multi-row set.
+  `ClassifyCommand`'s
   `SET_MODE` constant (`cli/src/Command/ClassifyCommand.php`) is the one place that
   decision lives.</sub>
 
@@ -1879,7 +1886,9 @@ an arbitrary non-empty value:
   Polylang's `polylang` — that a bare string write would corrupt; every
   such option shipped today is `required: false` for exactly this
   reason), and refuses an empty value (which `env_missing` would
-  immediately re-flag as still-missing). It atomically publishes the intended
+  immediately re-flag as still-missing). The terminal LF and its optional CR
+  are stdin framing; every other leading/trailing space or tab remains a value
+  byte, so a whitespace-only line is non-empty. It atomically publishes the intended
   value with mode `0600` before writing WordPress; a stopped or failed write
   therefore leaves visible drift, never a false-green unbound value.
   Interactive host `--stdin` masks the

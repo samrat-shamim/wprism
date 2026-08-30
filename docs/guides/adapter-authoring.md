@@ -1088,6 +1088,9 @@ wp-cli parsing traps that were confirmed empirically rather than assumed:
 - **Repeating the flag does not accumulate.** `--set=a --set=b` keeps only
   `b`. Pass multiple rules as one semicolon-joined value:
   `--set='post_meta:foo=runtime;options:bar=authored,ref=post'`.
+- **Clearance is per row.** Put `allow_secret=true` or `allow_pii=true` inside
+  only the reviewed row of a joined value. The legacy `--allow-secret` and
+  `--allow-pii` flags remain single-row shorthand and refuse a multi-row set.
 
 Both apply whenever you drive `wp wprism classify` directly. `wprism classify` builds
 the joined value for you.
