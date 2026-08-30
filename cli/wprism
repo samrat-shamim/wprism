@@ -391,6 +391,8 @@ Usage:
                     --expected-presentation-sha256=sha256:<hex>
                     --expected-plan-digest=sha256:<hex>
                     --expected-stage-receipt-sha256=sha256:<hex> --format=json
+  wprism release <env> status --prepare=<file>
+                    --expected-subject-sha256=sha256:<hex> --format=json
   wprism release <env> --plan-only [--from=<ref>] [--profile=<p>]
                     [--accept-weaker-recovery] [--with-deletes]
                     [--limit=<1..200>] [--format=json]
@@ -1261,6 +1263,15 @@ Verbs:
                           -> release execute, whose exact-digest syntax appears
                           in the usage synopsis above. Exit 0 read-only plan,
                           1 refusal/failure, 2 usage.
+  release <env> status    Read only the target-private operation election,
+    --prepare=<path>      consumption and write-once completion for one exact
+    --expected-subject-   prepared subject. The canonical status sequence is
+      sha256=sha256:<h>   bounded to prepared=0, elected=1, consumed=2 and
+    --format=json         completed=3; it is not a general event stream.
+                          Elected/consumed state exits non-zero and requires
+                          reconciliation without re-entering mutation. A
+                          completed state embeds the stored release outcome
+                          and returns that outcome's exit status.
   verify <env>            Post-release verification, two independent parts,
     [--plan=<digest>]     both required for a pass: a fresh read-only
     [--limit=<1..200>]    convergence re-read of the target, and HTTP probes of
@@ -1805,7 +1816,8 @@ function main(array $argv): int {
     try {
         $capabilityOperation = match (true) {
             $verb === 'onboard' && in_array('--handoff-only', $extra, true) => 'onboard-handoff',
-            $verb === 'release' && ($extra[0] ?? null) === 'prepare' => 'release-prepare',
+            $verb === 'release' && in_array(($extra[0] ?? null), ['prepare', 'status'], true) =>
+                'release-prepare',
             default => $verb,
         };
         $driverReport = EnvironmentCommandPreflight::capabilityReport($transport, $capabilityOperation);

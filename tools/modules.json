@@ -1634,12 +1634,13 @@
       },
       "Release": {
         "layer": "engine",
-        "purpose": "The release mechanism — `SourceStageReceipt` durably binds an inert Git source stage and `ReleasePrepare` binds that receipt, authority/capability policy identities and the exact externally-authorizable plan bytes; `AuthorizationPlan` builds, freezes, digests and re-verifies `wprism-authorization-plan/v1`; `AuthorizationPlanRenderer`, `ReleaseOutcome`, `NextAction` and `JourneyOracle` own its bounded presentation, outcome and verification contracts. Mechanism only: the verb boundaries (`StageSourceCommand`, `ReleaseCommand`, `VerifyCommand`, `RecoverCommand`, cli:Command) compose it with Authority, Environment, Recovery and the existing promote/deploy handlers.",
+        "purpose": "The release mechanism — `SourceStageReceipt` durably binds an inert Git source stage and `ReleasePrepare` binds that receipt, authority/capability policy identities and the exact externally-authorizable plan bytes; `AuthorizationPlan` builds, freezes, digests and re-verifies `wprism-authorization-plan/v1`; `AuthorizationPlanRenderer`, `ReleaseOutcome`, `ReleaseOperationStatus`, `NextAction` and `JourneyOracle` own its bounded presentation, terminal outcome, monotonic operation-status and verification contracts. Mechanism only: the verb boundaries (`StageSourceCommand`, `ReleaseCommand`, `VerifyCommand`, `RecoverCommand`, cli:Command) compose it with Authority, Environment, Recovery and the existing promote/deploy handlers.",
         "status": "populated",
         "entry_points": [
           "AuthorizationPlan",
           "AuthorizationPlanRenderer",
           "ReleaseOutcome",
+          "ReleaseOperationStatus",
           "NextAction",
           "JourneyOracle",
           "SourceStageReceipt",
@@ -1654,12 +1655,13 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 7,
+        "file_count": 8,
         "files": [
           "AuthorizationPlan.php",
           "AuthorizationPlanRenderer.php",
           "JourneyOracle.php",
           "NextAction.php",
+          "ReleaseOperationStatus.php",
           "ReleaseOutcome.php",
           "ReleasePrepare.php",
           "SourceStageReceipt.php"

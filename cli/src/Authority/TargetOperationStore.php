@@ -1381,7 +1381,11 @@ PHP;
      * operation; only status by the elected authorization may replay outcome.
      *
      * @param array<string,mixed> $subject OperationAuthorization subject projection
-     * @return ?array{authorization_digest:string,completion:?array<string,mixed>,consumption:array<string,mixed>}
+     * An election without consumption is a durable ambiguous state, not a
+     * malformed absence. Public release status reports it at sequence 1 while
+     * mutation callers continue to refuse it.
+     *
+     * @return ?array{authorization_digest:string,completion:?array<string,mixed>,consumption:?array<string,mixed>}
      */
     public static function statusForSubject(EnvironmentDriver $driver, array $subject): ?array {
         $tuple = self::operationTuple($subject);
@@ -1558,7 +1562,13 @@ PHP;
         if ($winner === 'absent') return null;
         self::assertDigest($winner, 'elected authorization digest');
         $stored = self::status($driver, $winner);
-        if ($stored === null) throw self::statusMalformed();
+        if ($stored === null) {
+            return [
+                'authorization_digest' => $winner,
+                'completion' => null,
+                'consumption' => null,
+            ];
+        }
 
         return ['authorization_digest' => $winner] + $stored;
     }

@@ -21,6 +21,7 @@ require_once __DIR__ . '/../Release/AuthorizationPlan.php';
 require_once __DIR__ . '/../Release/AuthorizationPlanRenderer.php';
 require_once __DIR__ . '/../Release/JourneyOracle.php';
 require_once __DIR__ . '/../Release/NextAction.php';
+require_once __DIR__ . '/../Release/ReleaseOperationStatus.php';
 require_once __DIR__ . '/../Release/ReleaseOutcome.php';
 require_once __DIR__ . '/../Release/ReleasePrepare.php';
 require_once __DIR__ . '/../Release/SourceStageReceipt.php';
@@ -242,6 +243,9 @@ final class ReleaseCommand {
                 $afterMaterialization
             );
         }
+        if (($extra[0] ?? null) === 'status') {
+            return self::runOperationStatus($driver, array_slice($extra, 1));
+        }
         $json = AssessCommand::wantsJson($extra);
         try {
             $flags = self::flags($extra);
@@ -295,6 +299,66 @@ final class ReleaseCommand {
         echo 'authorization frozen: ' . $frozenPath . "\n";
 
         return self::execute($driver, $flags, $prepared, $promote, $verify, $json, $limit);
+    }
+
+    /**
+     * Read one exact release lineage without re-verifying authority or
+     * crossing any mutation boundary. Sequences 1 and 2 are deliberately
+     * nonterminal: status names the durable ambiguity; it never guesses that
+     * an elected or consumed operation is safe to execute again.
+     *
+     * @param list<string> $extra
+     */
+    private static function runOperationStatus(EnvironmentDriver $driver, array $extra): int {
+        $json = AssessCommand::wantsJson($extra);
+        try {
+            $request = self::statusRequestFlags($extra);
+            $document = ReleasePrepare::read($request['prepare']);
+            if (!hash_equals((string) $document['subject_sha256'], $request['expected_subject_sha256'])) {
+                throw new CommandRefusalException(
+                    'release_status_digest_mismatch',
+                    'the prepared release does not match the subject digest explicitly requested for status',
+                    'select the intended canonical prepare document and repeat its exact subject digest'
+                );
+            }
+            if (($document['environment'] ?? null) !== $driver->name()) {
+                throw new CommandRefusalException(
+                    'release_status_target_mismatch',
+                    'the prepared release subject names another environment',
+                    'query the subject only against the exact environment it names'
+                );
+            }
+            $stored = TargetOperationStore::statusForSubject(
+                $driver,
+                ReleasePrepare::authorizationSubject($document)
+            );
+            $status = ReleaseOperationStatus::build($document, $stored);
+            echo ReleaseOperationStatus::encode($status);
+            if (($status['state'] ?? null) !== 'completed') {
+                return 1;
+            }
+            $outcome = $status['outcome'] ?? null;
+            if (!is_array($outcome)) {
+                throw new CommandRefusalException(
+                    'release_operation_status_invalid',
+                    'the terminal release status has no complete stored outcome',
+                    'preserve target control evidence and reconcile the exact operation before any mutation'
+                );
+            }
+
+            return self::outcomeExit($outcome);
+        } catch (CommandRefusalException $refusal) {
+            return AssessCommand::renderRefusal($refusal, $json, 'release status');
+        } catch (\Throwable $error) {
+            return AssessCommand::renderRefusal(new CommandRefusalException(
+                'release_status_invalid',
+                'the requested release operation status could not be validated',
+                'repair the named prepare or target control evidence before querying this operation again',
+                [],
+                $error->getMessage(),
+                $error
+            ), $json, 'release status');
+        }
     }
 
     /**
@@ -2308,6 +2372,74 @@ PHP;
             'use wprism release <env> prepare --stage-receipt=<file> '
                 . '--expected-stage-receipt-sha256=sha256:<hex> [--profile=<p>] '
                 . '[--accept-weaker-recovery] [--with-deletes] [--format=json]'
+        );
+    }
+
+    /**
+     * @param list<string> $extra
+     * @return array{expected_subject_sha256:string,prepare:string}
+     */
+    private static function statusRequestFlags(array $extra): array {
+        $out = [
+            'expected_subject_sha256' => null,
+            'format_json' => false,
+            'prepare' => null,
+        ];
+        foreach ($extra as $arg) {
+            if (!is_string($arg)) {
+                throw self::invalidStatusArguments('release status received a non-string argument');
+            }
+            $name = str_contains($arg, '=') ? explode('=', $arg, 2)[0] : $arg;
+            $value = str_contains($arg, '=') ? substr($arg, strlen($name) + 1) : null;
+            if ($name === '--prepare') {
+                if ($out['prepare'] !== null || $value === null || $value === ''
+                    || preg_match('/[\x00-\x1f\x7f]/D', $value) === 1) {
+                    throw self::invalidStatusArguments('--prepare takes exactly one readable file path');
+                }
+                $out['prepare'] = $value;
+                continue;
+            }
+            if ($name === '--expected-subject-sha256') {
+                if ($out['expected_subject_sha256'] !== null || $value === null
+                    || preg_match('/^sha256:[a-f0-9]{64}$/D', $value) !== 1) {
+                    throw self::invalidStatusArguments(
+                        '--expected-subject-sha256 takes exactly one sha256:<64-lowercase-hex> value'
+                    );
+                }
+                $out['expected_subject_sha256'] = $value;
+                continue;
+            }
+            if ($name === '--format' && $value === 'json') {
+                $out['format_json'] = true;
+                continue;
+            }
+            if ($name === '--json' && $value === null) {
+                $out['format_json'] = true;
+                continue;
+            }
+            throw self::invalidStatusArguments("release status received an option it does not define: '$name'");
+        }
+        if (!is_string($out['prepare']) || !is_string($out['expected_subject_sha256'])) {
+            throw self::invalidStatusArguments(
+                'release status requires --prepare=<file> and --expected-subject-sha256=<digest>'
+            );
+        }
+        if ($out['format_json'] !== true) {
+            throw self::invalidStatusArguments('release status requires --format=json for its single-document result');
+        }
+
+        return [
+            'expected_subject_sha256' => $out['expected_subject_sha256'],
+            'prepare' => $out['prepare'],
+        ];
+    }
+
+    private static function invalidStatusArguments(string $message): CommandRefusalException {
+        return new CommandRefusalException(
+            'invalid_arguments',
+            $message,
+            'use wprism release <env> status --prepare=<file> '
+                . '--expected-subject-sha256=sha256:<hex> --format=json'
         );
     }
 
