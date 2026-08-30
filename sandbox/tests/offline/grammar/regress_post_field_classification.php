@@ -771,6 +771,18 @@ check(
     )) === 1,
     'RepositoryAuthorization opens serialized bodies before credential-key clearance'
 );
+$serializedContainerDiagnostics = post_authorization_diagnostics(
+    $acfPolicy,
+    $serializedFront,
+    serialize(['integration' => ['password' => ['primary' => 'GeneratedValue-2026-Blocked']]])
+);
+check(
+    count(array_filter($serializedContainerDiagnostics, static fn(array $d): bool =>
+        ($d['code'] ?? '') === 'repository_secret_not_allowed'
+        && ($d['field'] ?? '') === 'body'
+    )) === 1,
+    'RepositoryAuthorization retains a serialized credential container role through generic child keys'
+);
 $serializedSecretKeyDiagnostics = post_authorization_diagnostics(
     $acfPolicy,
     $serializedFront,
@@ -818,6 +830,21 @@ check(
         && ($d['field'] ?? '') === 'body'
     )) === 1,
     'RepositoryAuthorization opens structured JSON bodies before personal-data-key clearance'
+);
+$jsonContainerDiagnostics = post_authorization_diagnostics(
+    $jsonPolicy,
+    $jsonFront,
+    json_encode([
+        'target' => '{{post:018f0000-0000-7000-8000-000000000001}}',
+        'integration' => ['smtp_pass' => ['primary' => 'GeneratedValue-2026-Blocked']],
+    ], JSON_THROW_ON_ERROR)
+);
+check(
+    count(array_filter($jsonContainerDiagnostics, static fn(array $d): bool =>
+        ($d['code'] ?? '') === 'repository_secret_not_allowed'
+        && ($d['field'] ?? '') === 'body'
+    )) === 1,
+    'RepositoryAuthorization retains a JSON credential container role through generic child keys'
 );
 $jsonSecretKeyDiagnostics = post_authorization_diagnostics(
     $jsonPolicy,

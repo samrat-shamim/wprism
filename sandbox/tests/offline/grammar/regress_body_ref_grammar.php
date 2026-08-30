@@ -257,7 +257,7 @@ wprism_check_throws(
     static function () use ($typoWithFeature): void { PostTypeGrammar::validate_post_type_contracts($typoWithFeature); },
     RuntimeException::class,
     'A7: and a manifest that DID declare the feature sees four — the vocabulary a refusal prints is the one that refused',
-    "the vocabulary is closed (blocks, verbatim, serialized, json)"
+    'the vocabulary is closed (blocks, verbatim, serialized, json)'
 );
 
 wprism_check_same(
@@ -408,7 +408,7 @@ foreach (['form-a', 'form-b', 'form-pathb', 'form-pathc'] as $name) {
     wprism_check_same(
         $raw,
         json_encode(json_decode($raw, true), 0),
-        "C1: and to identical BYTES — the precondition BodyRefGrammar::decode() asserts before substitution"
+        'C1: and to identical BYTES — the precondition BodyRefGrammar::decode() asserts before substitution'
     );
 }
 
@@ -448,6 +448,22 @@ wprism_check_throws(
     ),
     RuntimeException::class,
     'C2: decoded JSON key/value pairs receive full credential clearance rather than only hard-token scanning',
+    'credential-shaped value'
+);
+$secretContainerDocument = json_decode($formB, true, 512, JSON_THROW_ON_ERROR);
+$secretContainerDocument['settings']['integration'] = [
+    'password' => ['primary' => 'GeneratedValue-2026-Blocked'],
+];
+wprism_check_throws(
+    static fn(): string => BodyRefGrammar::capture(
+        json_encode($secretContainerDocument, JSON_THROW_ON_ERROR),
+        $rule,
+        $idToToken($tokensFor()),
+        static function (): void {},
+        "wpforms 'secret-container-clearance'"
+    ),
+    RuntimeException::class,
+    'C2: a credential-bearing JSON container retains its role through generic child keys',
     'credential-shaped value'
 );
 $secretKeyDocument = json_decode($formB, true, 512, JSON_THROW_ON_ERROR);
@@ -629,7 +645,7 @@ $dangling = BodyRefGrammar::capture(
 wprism_check(str_contains($dangling, '"page":null'), 'C9: an unmapped id becomes null in canonical state, never a raw id');
 wprism_check_same(1, count($warnings), 'C9: and exactly one warning is emitted for it');
 wprism_check(
-    str_contains($warnings[0] ?? '', "unmapped post id 4 dropped (dangling reference)"),
+    str_contains($warnings[0] ?? '', 'unmapped post id 4 dropped (dangling reference)'),
     'C9: naming the path, the keyspace and the id'
 );
 wprism_check_same(
@@ -645,7 +661,7 @@ wprism_check_throws(
     static fn(): string => BodyRefGrammar::apply($formB, $rule, $tokenToId($tokensFor()), "wpforms 'x'"),
     RuntimeException::class,
     'C10: apply refuses a repository body whose declared path still carries a source-local id',
-    "where a {{...}} reference token was declared"
+    'where a {{...}} reference token was declared'
 );
 
 // ===========================================================================
@@ -817,6 +833,19 @@ wprism_check_throws(
 );
 wprism_check_throws(
     static fn(): array => $postCapture->capture(
+        $formPost(
+            '{"settings":{"password":{"primary":"GeneratedValue-2026-Blocked"}}}',
+            'recon-secret-container'
+        ),
+        '019200cc-0000-7000-8000-0000000000d5',
+        []
+    ),
+    RuntimeException::class,
+    'D6: the PostCapture JSON product path retains a credential container role at its scalar leaf',
+    'refusing to capture json authored configuration'
+);
+wprism_check_throws(
+    static fn(): array => $postCapture->capture(
         $formPost('{"settings":{"alice@example.test":"enabled"}}', 'recon-pii-key'),
         '019200cc-0000-7000-8000-0000000000d2',
         []
@@ -857,6 +886,19 @@ wprism_check_throws(
     ),
     RuntimeException::class,
     'D6: the PostCapture serialized product path refuses a hard secret in an associative key',
+    'refusing to capture serialized authored configuration'
+);
+wprism_check_throws(
+    static fn(): array => $serializedCapture->capture(
+        $serializedPost(
+            serialize(['smtp_pass' => ['primary' => 'GeneratedValue-2026-Blocked']]),
+            'serialized-secret-container'
+        ),
+        '019200cc-0000-7000-8000-0000000000d6',
+        []
+    ),
+    RuntimeException::class,
+    'D6: the PostCapture serialized product path retains a credential container role at its scalar leaf',
     'refusing to capture serialized authored configuration'
 );
 wprism_check_throws(

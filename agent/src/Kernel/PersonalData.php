@@ -22,9 +22,9 @@ final class PersonalData {
 
     /** @var list<string> Closed positive context for otherwise-ambiguous terminal `state`. */
     private const ADDRESS_STATE_QUALIFIERS = [
-        'address', 'addresses', 'billing', 'business', 'customer', 'destination',
-        'location', 'mailing', 'merchant', 'office', 'origin', 'postal',
-        'residential', 'shipping', 'store', 'tax', 'venue',
+        'address', 'addresses', 'billing', 'destination', 'location', 'mailing',
+        'merchant', 'office', 'origin', 'postal', 'residential', 'shipping',
+        'store', 'tax', 'venue',
     ];
 
     /** Return a short PII label, or null when no conservative signal matches. */
@@ -201,9 +201,10 @@ final class PersonalData {
         if (!str_ends_with($key, '_state')) {
             return false;
         }
-        // A compound key supplies its own direct subject: venue_state and
-        // customer_billing_state are postal, while ui_state, workflow_state,
-        // and shipping_checkout_state remain technical controls.
+        // A compound key supplies its own direct subject: venue_state,
+        // customer_address_state and customer_billing_state are postal, while
+        // customer_state, business_state, ui_state, workflow_state, and
+        // shipping_checkout_state remain technical controls.
         return self::is_direct_address_subject(substr($key, 0, -strlen('_state')));
     }
 

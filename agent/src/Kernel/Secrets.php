@@ -98,10 +98,13 @@ final class Secrets {
         // help copy look like secrets merely because prose mixes character
         // classes; camel/bracket normalization keeps actual apiKey/token
         // leaves covered without granting those descriptive suffixes weight.
-        $key = preg_replace('/(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/', '_', $key) ?? $key;
-        $key = preg_replace('/[^A-Za-z0-9]+/', '_', $key) ?? $key;
-        $key = trim($key, '_');
-        if (!preg_match(self::SUSPICIOUS_KEY, $key)) {
+        $role = self::credential_role(self::normalize_key($key));
+        return $role !== null && self::suspicious_role($role, $v);
+    }
+
+    /** Apply a previously validated role without rescanning its source key at every descendant. */
+    private static function suspicious_role(string $role, string $v): bool {
+        if (strlen($v) < 16 || strlen($v) > self::MAX_LEN) {
             return false;
         }
         $classes = 0;
@@ -109,6 +112,16 @@ final class Secrets {
         $classes += preg_match('/[A-Z]/', $v);
         $classes += preg_match('/[0-9]/', $v);
         $classes += preg_match('/[^a-zA-Z0-9]/', $v);
+        // `pass` is also an ordinary validation/status noun. Its closed
+        // credential interpretation therefore needs a generated-value shape:
+        // a digit, no prose whitespace, and three character classes. Qualified
+        // aliases (smtp_pass, passwd, password) retain the general two-class
+        // rule because their names already supply the missing semantic proof.
+        if ($role === 'pass') {
+            return $classes >= 3
+                && preg_match('/[0-9]/', $v) === 1
+                && preg_match('/\s/', $v) !== 1;
+        }
         return $classes >= 2;
     }
 
@@ -161,23 +174,36 @@ final class Secrets {
      * ceiling; the overlap exceeds the longest supported token signature.
      */
     public static function clearance_match_deep(string $key, $v): ?string {
+        return self::clearance_match_with_role($v, self::credential_role(self::normalize_key($key)));
+    }
+
+    /**
+     * One active credential role is sufficient: nested technical keys cannot
+     * erase an enclosing password/token container, while a nearer role can
+     * strengthen but never weaken it to bare `pass`. Each node, map key and
+     * scalar window is visited once.
+     */
+    private static function clearance_match_with_role($v, ?string $credentialRole): ?string {
         if (is_string($v)) {
             foreach (self::windows($v) as $window) {
                 $hard = self::hard_match($window);
                 if ($hard !== null) {
                     return $hard;
                 }
-                if (self::suspicious($key, $window)) {
+                if ($credentialRole !== null && self::suspicious_role($credentialRole, $window)) {
                     return 'credential-shaped value';
                 }
                 if (preg_match_all(
-                    '/(?:api[ _-]?key|authorization|credential|licen[cs]e[ _-]?key|secret|token|passw(?:or)?d|private[ _-]?key)'
-                    . '\s*[:=]\s*["\']?(?:Bearer[ \t]+)?([A-Za-z0-9_+\/.=-]{16,4096})/i',
+                    '/(?<![A-Za-z0-9_])'
+                    . '(api[ _-]?key|authorization|credential|licen[cs]e[ _-]?key|secret|token'
+                    . '|smtp[ _-]?pass|smtpPass|pass|passwd|password|private[ _-]?key)'
+                    . '(?![A-Za-z0-9_])\s*[:=]\s*["\']?(?:Bearer[ \t]+)?'
+                    . '([A-Za-z0-9_+\/.=-]{16,4096})/i',
                     $window,
                     $matches
                 )) {
-                    foreach ($matches[1] as $candidate) {
-                        if (self::suspicious('secret', (string) $candidate)) {
+                    foreach ($matches[2] as $index => $candidate) {
+                        if (self::suspicious((string) $matches[1][$index], (string) $candidate)) {
                             return 'labelled credential-shaped value';
                         }
                     }
@@ -189,19 +215,60 @@ final class Secrets {
             return null;
         }
         foreach ($v as $childKey => $child) {
+            $childCredentialRole = $credentialRole;
             if (is_string($childKey)) {
                 $keyLabel = self::hard_match_windowed($childKey);
                 if ($keyLabel !== null) {
                     return $keyLabel;
                 }
+                // A map can use the credential itself as its key. Apply the
+                // enclosing semantic role to those stored bytes without ever
+                // treating a literal alias (`password`) as its own value.
+                if ($credentialRole !== null && self::suspicious_role_windowed($credentialRole, $childKey)) {
+                    return 'credential-shaped value';
+                }
+                $normalizedChildKey = self::normalize_key($childKey);
+                $normalizedChildRole = self::credential_role($normalizedChildKey);
+                if ($normalizedChildRole !== null
+                    && ($credentialRole === null
+                        || $credentialRole === 'pass'
+                        || $normalizedChildRole !== 'pass')) {
+                    $childCredentialRole = $normalizedChildRole;
+                }
             }
-            $nestedKey = is_string($childKey) ? $childKey : $key;
-            $label = self::clearance_match_deep($nestedKey, $child);
+            $label = self::clearance_match_with_role($child, $childCredentialRole);
             if ($label !== null) {
                 return $label;
             }
         }
         return null;
+    }
+
+    private static function normalize_key(string $key): string {
+        $key = preg_replace('/(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/', '_', $key) ?? $key;
+        $key = preg_replace('/[^A-Za-z0-9]+/', '_', $key) ?? $key;
+        return strtolower(trim($key, '_'));
+    }
+
+    private static function is_suspicious_key(string $normalizedKey): bool {
+        return preg_match(self::SUSPICIOUS_KEY, $normalizedKey) === 1;
+    }
+
+    /** @return ?string `pass` is deliberately weaker than every other credential role. */
+    private static function credential_role(string $normalizedKey): ?string {
+        if (!self::is_suspicious_key($normalizedKey)) {
+            return null;
+        }
+        return $normalizedKey === 'pass' ? 'pass' : 'credential';
+    }
+
+    private static function suspicious_role_windowed(string $role, string $value): bool {
+        foreach (self::windows($value) as $window) {
+            if (self::suspicious_role($role, $window)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static function hard_match_windowed(string $value): ?string {

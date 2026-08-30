@@ -445,6 +445,18 @@ wprism_check_throws(
 );
 wprism_check_throws(
     static fn(): string => ColumnCodecGrammar::capture_value(
+        serialize(['nested' => ['smtp_pass' => ['primary' => 'GeneratedValue-2026-Blocked']]]),
+        $codec,
+        $sourceTokens,
+        'C5',
+        'action_data'
+    ),
+    RuntimeException::class,
+    'C5: a decoded typed-column credential container retains its role at a generic scalar leaf',
+    'credential-shaped value'
+);
+wprism_check_throws(
+    static fn(): string => ColumnCodecGrammar::capture_value(
         serialize(['nested' => ['sk_live_COLUMNKEY1234567890' => 'enabled']]),
         $codec,
         $sourceTokens,
@@ -598,7 +610,7 @@ $wpdb->seedTable('wp_redirection_items', [
 ]);
 
 $captureTokens = new Tokens('https://source.example', 'https://source.example/wp-content/uploads');
-$identity = new class {
+$identity = new class() {
     /** Deterministic per-row identity; the ledger half is exercised by the ref column below. */
     public function identifyRow(
         string $table,
@@ -665,6 +677,31 @@ wprism_check_same(
         && ($diagnostic['field'] ?? null) === 'action_data'
     )),
     'D2: repository authorization decodes typed-column framing before recursive personal-data clearance'
+);
+$gitEditedSecret = $first;
+$gitEditedSecret['columns']['action_data'] = serialize([
+    'password' => ['primary' => 'GeneratedValue-2026-Blocked'],
+]);
+$gitEditedSecretEntity = [
+    'type' => 'redirection_items',
+    'path' => $entities[0]['path'],
+    'content' => Canon::encode($gitEditedSecret),
+    'data' => $gitEditedSecret,
+];
+$secretAuthorizationDiagnostics = [];
+try {
+    RepositoryAuthorization::assert_tree($policy, [$gitEditedSecret['uuid'] => $gitEditedSecretEntity]);
+} catch (RepositoryAuthorizationException $failure) {
+    $secretAuthorizationDiagnostics = $failure->diagnostics;
+}
+wprism_check_same(
+    1,
+    count(array_filter($secretAuthorizationDiagnostics, static fn(array $diagnostic): bool =>
+        ($diagnostic['code'] ?? null) === 'repository_secret_not_allowed'
+        && ($diagnostic['surface'] ?? null) === 'table_column'
+        && ($diagnostic['field'] ?? null) === 'action_data'
+    )),
+    'D2: repository authorization retains a decoded typed-column credential container role'
 );
 wprism_check_same(
     '{{red_group:019200aa-0000-7000-8000-0000000000a1}}',

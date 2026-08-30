@@ -74,12 +74,16 @@ final class RepositoryAuthorization {
     private const TABLE_FIELDS = ['columns', 'meta', 'table', 'uuid'];
     private const USER_META_FIELDS = ['login', 'meta'];
     private const MANAGED_OPTIONS = ['active_plugins', 'template', 'stylesheet'];
+    private const MAX_MENU_URI_TOTAL_BYTES = 131072;
+    private const MAX_MENU_URI_PATH_BYTES = 65536;
+    private const MAX_MENU_URI_FRAGMENT_BYTES = 65536;
     private const MAX_MENU_QUERY_BYTES = 65536;
     private const MAX_MENU_QUERY_COMPONENT_BYTES = 8192;
     private const MAX_MENU_QUERY_NAME_SEGMENT_BYTES = 1024;
     private const MAX_MENU_QUERY_NAME_SEGMENTS = 16;
     private const MAX_MENU_QUERY_PAIRS = 512;
-    private const MENU_QUERY_DECODE_WORK_FACTOR = 32;
+    private const MENU_URI_DECODE_WORK_FACTOR = 32;
+    private const MAX_MENU_URI_DECODE_WORK_BYTES = 4194304;
 
     /**
      * One filesystem read produces the exact tree both authorization and the
@@ -382,10 +386,10 @@ final class RepositoryAuthorization {
                 // the same clearance before its separate reference grammar.
                 $clearanceValue = $item['ref'];
                 if (($item['type'] ?? '') === 'custom' && is_string($clearanceValue)) {
-                    $pairs = self::menu_query_clearance_pairs($clearanceValue);
-                    if ($pairs === null) {
+                    $semantic = self::menu_uri_clearance_parts($clearanceValue);
+                    if ($semantic === null) {
                         // The diagnostic carries coordinates only: malformed
-                        // query bytes may themselves be credentials and must
+                        // URI bytes may themselves be credentials and must
                         // never be reflected into a refusal message.
                         self::finding(
                             $out,
@@ -398,14 +402,14 @@ final class RepositoryAuthorization {
                             'platform',
                             'replace the custom menu URL with a bounded query whose percent escapes are well formed'
                         );
-                        $pairs = [];
+                        $clearanceValue = [$clearanceValue];
+                    } else {
+                        // Ordered scalar-name + one-entry-map pairs retain
+                        // every duplicate while path/fragment views expose
+                        // percent-encoded semantics. The raw URL remains first;
+                        // no decoded form is ever written back.
+                        $clearanceValue = self::menu_uri_clearance_value($clearanceValue, $semantic);
                     }
-                    // Ordered scalar-name + one-entry-map pairs retain every
-                    // duplicate while letting the recursive scanners inspect
-                    // the decoded name and apply its semantic role to its own
-                    // value. The raw URL remains first for path/fragment
-                    // signatures; no decoded form is ever written back.
-                    $clearanceValue = self::menu_query_clearance_value($clearanceValue, $pairs);
                 }
                 self::authorize_sensitivity(
                     $out, $path, $uuid, "menu_item[$index]", 'ref', $clearanceValue, [], 'platform'
@@ -437,18 +441,58 @@ final class RepositoryAuthorization {
         }
     }
 
-    /** @return ?list<array{name:string,value:string,path:list<string>}> null means malformed or over budget */
-    private static function menu_query_clearance_pairs(string $url): ?array {
-        $queryAt = strpos($url, '?');
+    /**
+     * @return ?array{
+     *   path:string,
+     *   fragment:string,
+     *   pairs:list<array{name:string,value:string,path:list<string>}>
+     * } null means malformed or over budget
+     */
+    private static function menu_uri_clearance_parts(string $url): ?array {
+        $length = strlen($url);
         $fragmentAt = strpos($url, '#');
-        if ($queryAt === false || ($fragmentAt !== false && $fragmentAt < $queryAt)) {
-            return [];
-        }
-        $queryEnd = $fragmentAt === false ? strlen($url) : $fragmentAt;
-        $query = substr($url, $queryAt + 1, $queryEnd - $queryAt - 1);
-        if (strlen($query) > self::MAX_MENU_QUERY_BYTES) {
+        $queryAt = strpos($url, '?');
+        $hasQuery = $queryAt !== false && ($fragmentAt === false || $queryAt < $fragmentAt);
+        $pathEnd = $hasQuery ? $queryAt : ($fragmentAt === false ? $length : $fragmentAt);
+        $queryEnd = $fragmentAt === false ? $length : $fragmentAt;
+        $rawPath = substr($url, 0, $pathEnd);
+        $rawQuery = $hasQuery ? substr($url, $queryAt + 1, $queryEnd - $queryAt - 1) : '';
+        $rawFragment = $fragmentAt === false ? '' : substr($url, $fragmentAt + 1);
+        $semanticBytes = strlen($rawPath) + strlen($rawQuery) + strlen($rawFragment);
+        if (strlen($rawPath) > self::MAX_MENU_URI_PATH_BYTES
+            || strlen($rawQuery) > self::MAX_MENU_QUERY_BYTES
+            || strlen($rawFragment) > self::MAX_MENU_URI_FRAGMENT_BYTES
+            || $length > self::MAX_MENU_URI_TOTAL_BYTES) {
             return null;
         }
+        $workRemaining = min(
+            self::MAX_MENU_URI_DECODE_WORK_BYTES,
+            max(1, $semanticBytes) * self::MENU_URI_DECODE_WORK_FACTOR
+        );
+        $path = self::decode_menu_uri_component(
+            $rawPath,
+            self::MAX_MENU_URI_PATH_BYTES,
+            $workRemaining,
+            false
+        );
+        $pairs = self::menu_query_clearance_pairs($rawQuery, $workRemaining);
+        $fragment = self::decode_menu_uri_component(
+            $rawFragment,
+            self::MAX_MENU_URI_FRAGMENT_BYTES,
+            $workRemaining,
+            false
+        );
+        if ($path === null || $pairs === null || $fragment === null) {
+            return null;
+        }
+        return ['path' => $path, 'fragment' => $fragment, 'pairs' => $pairs];
+    }
+
+    /**
+     * @return ?list<array{name:string,value:string,path:list<string>}>
+     * null means malformed or over budget
+     */
+    private static function menu_query_clearance_pairs(string $query, int &$workRemaining): ?array {
         if ($query === '') {
             return [];
         }
@@ -459,20 +503,23 @@ final class RepositoryAuthorization {
         if (count($parts) > self::MAX_MENU_QUERY_PAIRS) {
             return null;
         }
-        $workRemaining = max(1, strlen($query)) * self::MENU_QUERY_DECODE_WORK_FACTOR;
         $pairs = [];
         foreach ($parts as $part) {
             $separator = strpos($part, '=');
             $rawName = $separator === false ? $part : substr($part, 0, $separator);
             $rawValue = $separator === false ? '' : substr($part, $separator + 1);
-            if (strlen($rawName) > self::MAX_MENU_QUERY_COMPONENT_BYTES
-                || strlen($rawValue) > self::MAX_MENU_QUERY_COMPONENT_BYTES
-                || preg_match('/%(?![0-9A-Fa-f]{2})/', $rawName)
-                || preg_match('/%(?![0-9A-Fa-f]{2})/', $rawValue)) {
-                return null;
-            }
-            $name = self::decode_menu_query_component($rawName, $workRemaining);
-            $value = self::decode_menu_query_component($rawValue, $workRemaining);
+            $name = self::decode_menu_uri_component(
+                $rawName,
+                self::MAX_MENU_QUERY_COMPONENT_BYTES,
+                $workRemaining,
+                true
+            );
+            $value = self::decode_menu_uri_component(
+                $rawValue,
+                self::MAX_MENU_QUERY_COMPONENT_BYTES,
+                $workRemaining,
+                true
+            );
             if ($name === null || $value === null) {
                 return null;
             }
@@ -526,16 +573,22 @@ final class RepositoryAuthorization {
         return $path;
     }
 
-    private static function decode_menu_query_component(string $raw, int &$workRemaining): ?string {
-        $rawBytes = strlen($raw);
-        if ($rawBytes > $workRemaining) {
+    private static function decode_menu_uri_component(
+        string $raw,
+        int $maxBytes,
+        int &$workRemaining,
+        bool $queryForm
+    ): ?string {
+        if (strlen($raw) > $maxBytes) {
             return null;
         }
-        $workRemaining -= $rawBytes;
-        $decoded = str_replace('+', ' ', $raw);
+        $decoded = $queryForm ? str_replace('+', ' ', $raw) : $raw;
         while (true) {
             $bytes = strlen($decoded);
-            if ($bytes > $workRemaining) {
+            if ($bytes > $maxBytes
+                || $bytes > $workRemaining
+                || preg_match('/%(?![0-9A-Fa-f]{2})/', $decoded)
+                || preg_match('/[\x00-\x1F\x7F]/', $decoded)) {
                 return null;
             }
             $workRemaining -= $bytes;
@@ -545,20 +598,23 @@ final class RepositoryAuthorization {
             }
             $decoded = $next;
         }
-        if (strlen($decoded) > self::MAX_MENU_QUERY_COMPONENT_BYTES
-            || preg_match('/[\x00-\x1F\x7F]/', $decoded)) {
-            return null;
-        }
         return $decoded;
     }
 
     /**
-     * @param list<array{name:string,value:string,path:list<string>}> $pairs
+     * @param array{
+     *   path:string,
+     *   fragment:string,
+     *   pairs:list<array{name:string,value:string,path:list<string>}>
+     * } $semantic
      * @return list<mixed>
      */
-    private static function menu_query_clearance_value(string $url, array $pairs): array {
-        $clearance = [$url];
-        foreach ($pairs as $pair) {
+    private static function menu_uri_clearance_value(string $url, array $semantic): array {
+        $clearance = [$url, $semantic['path']];
+        if ($semantic['fragment'] !== '') {
+            $clearance[] = $semantic['fragment'];
+        }
+        foreach ($semantic['pairs'] as $pair) {
             $name = $pair['name'];
             $value = $pair['value'];
             // PHP coerces canonical decimal string keys to ints. Retain the

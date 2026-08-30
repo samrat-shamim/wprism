@@ -724,6 +724,12 @@ $nestedMenuSecret = 'authorization=Bearer aB3dE6fG7hI8jK9lMnOp';
 for ($encodingLayer = 0; $encodingLayer < 9; $encodingLayer++) {
     $nestedMenuSecret = rawurlencode($nestedMenuSecret);
 }
+$nestedMenuPathSecret = 's%6B_l%69ve_PATHCREDENTIAL1234567890';
+$nestedMenuFragmentPii = 'email%3Dalice%40example.test';
+for ($encodingLayer = 1; $encodingLayer < 9; $encodingLayer++) {
+    $nestedMenuPathSecret = rawurlencode($nestedMenuPathSecret);
+    $nestedMenuFragmentPii = rawurlencode($nestedMenuFragmentPii);
+}
 foreach ([
     'encoded-menu-secret' => [
         'ref' => 'https://partner.example.test/connect?authorization=Bearer%20aB3dE6fG7hI8jK9lMnOp',
@@ -773,6 +779,26 @@ foreach ([
         'ref' => 'https://partner.example.test/connect?%2D14155552671=enabled',
         'code' => 'repository_pii_not_allowed',
     ],
+    'encoded-path-menu-secret' => [
+        'ref' => 'https://partner.example.test/s%6B_l%69ve_PATHCREDENTIAL1234567890',
+        'code' => 'repository_secret_not_allowed',
+    ],
+    'nested-encoded-path-menu-secret' => [
+        'ref' => 'https://partner.example.test/' . $nestedMenuPathSecret,
+        'code' => 'repository_secret_not_allowed',
+    ],
+    'encoded-fragment-menu-secret' => [
+        'ref' => 'https://partner.example.test/connect#smtp%5Fpass%3DGeneratedValue-2026-Blocked',
+        'code' => 'repository_secret_not_allowed',
+    ],
+    'encoded-fragment-menu-pii' => [
+        'ref' => 'https://partner.example.test/connect#email%3Dalice%40example.test',
+        'code' => 'repository_pii_not_allowed',
+    ],
+    'nested-encoded-fragment-menu-pii' => [
+        'ref' => 'https://partner.example.test/connect#' . $nestedMenuFragmentPii,
+        'code' => 'repository_pii_not_allowed',
+    ],
 ] as $fixture => $probe) {
     $encodedMenuRef = "$tmp/$fixture";
     build_valid($encodedMenuRef);
@@ -793,21 +819,20 @@ foreach ([
         fail("$fixture bypassed semantic URL clearance: " . json_encode($encodedAuth));
     }
 }
-ok('menu-ref clearance scans ordered duplicate query names and values through decoded semantic roles');
+ok('menu-ref clearance scans decoded path/fragment views plus ordered duplicate query semantics');
 
-$queryParser = new ReflectionMethod(RepositoryAuthorization::class, 'menu_query_clearance_pairs');
-$clearanceBuilder = new ReflectionMethod(RepositoryAuthorization::class, 'menu_query_clearance_value');
-$numericNamePairs = $queryParser->invoke(
+$uriParser = new ReflectionMethod(RepositoryAuthorization::class, 'menu_uri_clearance_parts');
+$clearanceBuilder = new ReflectionMethod(RepositoryAuthorization::class, 'menu_uri_clearance_value');
+$numericNameParts = $uriParser->invoke(
     null,
     'https://partner.example.test/connect?%2D14155552671=enabled'
 );
 $numericNameClearance = $clearanceBuilder->invoke(
     null,
     'https://partner.example.test/connect?%2D14155552671=enabled',
-    $numericNamePairs
+    $numericNameParts
 );
-if (($numericNameClearance[1] ?? null) !== '-14155552671'
-    || !is_string($numericNameClearance[1] ?? null)) {
+if (!in_array('-14155552671', $numericNameClearance, true)) {
     fail('decoded numeric query name was not retained as an exact string candidate value');
 }
 ok('decoded numeric query names remain exact string values even when PHP coerces their semantic map keys');
@@ -816,18 +841,37 @@ $overworkedMenuQuery = 'authorization=Bearer aB3dE6fG7hI8jK9lMnOp';
 for ($encodingLayer = 0; $encodingLayer < 80; $encodingLayer++) {
     $overworkedMenuQuery = rawurlencode($overworkedMenuQuery);
 }
+$overworkedMenuPath = 'smtp_pass=GeneratedValue-2026-Blocked';
+for ($encodingLayer = 0; $encodingLayer < 80; $encodingLayer++) {
+    $overworkedMenuPath = rawurlencode($overworkedMenuPath);
+}
 $invalidMenuQueries = [
     'malformed-menu-query' => 'https://partner.example.test/connect?value=%ZZ',
+    'nested-malformed-menu-query' => 'https://partner.example.test/connect?value=%25ZZ',
     'malformed-menu-query-name-open' => 'https://partner.example.test/connect?smtp_pass%5Bprimary=value',
     'malformed-menu-query-name-close' => 'https://partner.example.test/connect?smtp_pass%5D=value',
     'deep-menu-query-name' => 'https://partner.example.test/connect?root'
         . str_repeat('%5Blevel%5D', 16) . '=ordinary',
     'oversize-menu-query-name-segment' => 'https://partner.example.test/connect?root%5B'
         . str_repeat('x', 1025) . '%5D=ordinary',
-    'oversize-menu-query' => 'https://partner.example.test/connect?value=' . str_repeat('x', 8193),
+    'oversize-menu-query-component' => 'https://partner.example.test/connect?value=' . str_repeat('x', 8193),
+    'oversize-menu-query-total' => 'https://partner.example.test/connect?'
+        . implode('&', array_fill(0, 9, 'value=' . str_repeat('x', 8000))),
     'too-many-menu-query-pairs' => 'https://partner.example.test/connect?'
         . implode('&', array_fill(0, 513, 'value=ordinary')),
     'overworked-menu-query' => 'https://partner.example.test/connect?payload=' . $overworkedMenuQuery,
+    'malformed-menu-path' => 'https://partner.example.test/%ZZ',
+    'nested-malformed-menu-path' => 'https://partner.example.test/%25ZZ',
+    'control-menu-path' => 'https://partner.example.test/%0Aprivate',
+    'oversize-menu-path' => 'https://partner.example.test/' . str_repeat('x', 65537),
+    'overworked-menu-path' => 'https://partner.example.test/' . $overworkedMenuPath,
+    'malformed-menu-fragment' => 'https://partner.example.test/connect#%ZZ',
+    'nested-malformed-menu-fragment' => 'https://partner.example.test/connect#%25ZZ',
+    'control-menu-fragment' => 'https://partner.example.test/connect#%0Aprivate',
+    'oversize-menu-fragment' => 'https://partner.example.test/connect#' . str_repeat('x', 65537),
+    'oversize-menu-uri-total' => 'https://partner.example.test/' . str_repeat('p', 45000) . '?'
+        . implode('&', array_fill(0, 6, 'value=' . str_repeat('q', 7000)))
+        . '#' . str_repeat('f', 45000),
 ];
 foreach ($invalidMenuQueries as $fixture => $ref) {
     $invalidMenuRef = "$tmp/$fixture";
@@ -849,7 +893,7 @@ foreach ($invalidMenuQueries as $fixture => $ref) {
         fail("$fixture did not refuse with one redacted bounded-query finding");
     }
 }
-ok('malformed, oversized, and over-count custom-menu queries refuse without reflecting URL bytes');
+ok('malformed, oversized, over-count, and overworked URI components refuse without reflecting URL bytes');
 
 $safeMenuRef = "$tmp/safe-encoded-menu-query";
 $safeIds = build_valid($safeMenuRef);
@@ -857,15 +901,15 @@ $safeMenuPath = "$safeMenuRef/state/menus/main.json";
 $safeMenuDocument = Canon::decode(file_get_contents($safeMenuPath));
 $safeMenuDocument['items'][0]['type'] = 'custom';
 $safeMenuDocument['items'][0]['object'] = 'custom';
-$safeEncodedRef = 'https://partner.example.test/connect?filter%5Bcolor%5D=blue'
-    . '&filter%5Bcolor%5D=green&label=Agency%20Portal';
+$safeEncodedRef = 'https://partner.example.test/%41gency/connect?filter%5Bcolor%5D=blue'
+    . '&filter%5Bcolor%5D=green&label=Agency%20Portal#view%3Dsummary';
 $safeMenuDocument['items'][0]['ref'] = $safeEncodedRef;
 put($safeMenuPath, Canon::encode($safeMenuDocument));
 $safeCompiled = compile_repo($safeMenuRef);
 if (($safeCompiled->tree()[$safeIds['menu']]['data']['items'][0]['ref'] ?? null) !== $safeEncodedRef) {
     fail('menu query clearance rebuilt or canonicalized the stored URL bytes');
 }
-ok('safe duplicate query parsing leaves the compiled canonical menu URL byte-identical');
+ok('safe path/query/fragment scanning leaves the compiled canonical menu URL byte-identical');
 
 $braceMenu = "$tmp/menu-brace-literal-clearance";
 build_valid($braceMenu);

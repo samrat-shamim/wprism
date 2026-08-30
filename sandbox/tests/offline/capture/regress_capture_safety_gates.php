@@ -181,14 +181,72 @@ foreach (['smtp_pass', 'smtpPass', 'pass'] as $credentialKey) {
     );
 }
 
+$credentialContainers = [
+    'smtp-pass-container' => ['smtp_pass' => ['primary' => 'GeneratedValue-2026-Blocked']],
+    'password-container' => ['password' => ['primary' => 'GeneratedValue-2026-Blocked']],
+    'password-pass-child' => ['password' => ['pass' => 'Validation passed successfully']],
+    'token-map-key' => ['token' => ['GeneratedValue-2026-Blocked' => 'enabled']],
+];
+$longCredentialMapKey = 'GeneratedValue-2026-Blocked' . str_repeat('x', 70000);
+$credentialContainers['token-long-map-key'] = ['token' => [$longCredentialMapKey => 'enabled']];
+foreach ($credentialContainers as $label => $credentialContainer) {
+    $containerShape = refusal(static fn() => $gates->guardSecret(
+        'options',
+        'integration_settings',
+        $credentialContainer,
+        []
+    ));
+    check(
+        $containerShape->reasonCode === 'secret_state_refused',
+        "$label retains its enclosing credential role through associative containers"
+    );
+}
+
+$deepCredential = 'GeneratedValue-2026-Blocked';
+for ($depth = 0; $depth < 192; $depth++) {
+    $deepCredential = ['layer_' . $depth => $deepCredential];
+}
+$deepContainerShape = refusal(static fn() => $gates->guardSecret(
+    'options',
+    'integration_settings',
+    ['password' => $deepCredential],
+    []
+));
+check(
+    $deepContainerShape->reasonCode === 'secret_state_refused',
+    'credential ancestry survives a bounded deep plain-data walk without branch expansion'
+);
+
 $gates->guardSecret('options', 'integration_settings', [
     'compass' => 'GeneratedValue-2026-Allowed',
     'bypass' => 'GeneratedValue-2026-Allowed',
     'pass_label' => 'GeneratedValue-2026-Allowed',
     'pass_endpoint' => 'https://login.example.test/password/reset',
+    'pass' => 'Validation passed successfully',
     'password' => 'disabled',
 ], []);
-check(true, 'pass aliases are terminal tokens and a bare alias is not itself a credential value');
+check(true, 'pass aliases are terminal tokens and ordinary pass prose or a disabled value stays safe');
+
+foreach (['smtp_pass', 'smtpPass', 'pass', 'passwd', 'password'] as $credentialLabel) {
+    $labelledAlias = refusal(static fn() => $gates->guardSecret(
+        'post_field',
+        'body',
+        "$credentialLabel=GeneratedValue-2026-Blocked",
+        []
+    ));
+    check(
+        $labelledAlias->reasonCode === 'secret_state_refused',
+        "$credentialLabel is recognized as a terminal credential label in unstructured content"
+    );
+}
+$gates->guardSecret(
+    'post_field',
+    'body',
+    'compass=GeneratedValue-2026-Allowed; bypass=GeneratedValue-2026-Allowed; '
+        . 'pass_label=GeneratedValue-2026-Allowed; pass_endpoint=https://login.example.test/password/reset',
+    []
+);
+check(true, 'terminal labelled-pass matching does not widen to safe compound aliases');
 
 foreach ([
     'firstName' => 'personal name',
@@ -197,8 +255,8 @@ foreach ([
     'phoneNumber' => 'phone number',
     'billing[firstName]' => 'personal name',
     'billingState' => 'postal address',
-    'business_state' => 'postal address',
-    'customerState' => 'postal address',
+    'business_address_state' => 'postal address',
+    'customerAddressState' => 'postal address',
     'taxState' => 'postal address',
     '_VenueState' => 'postal address',
     'address[state]' => 'postal address',
@@ -225,6 +283,10 @@ $gates->guardPersonalData('options', 'technical_settings', [
     'store_settings' => ['uiState' => 'open'],
     'tax_settings' => ['workflow' => ['state' => 'draft']],
     'shipping' => ['checkoutState' => 'ready'],
+    'customerState' => 'active-and-verified',
+    'business_state' => 'operating',
+    'customer' => ['state' => 'active'],
+    'business' => ['state' => 'registered'],
     'email' => '{admin_email}',
     'displayName' => '{all_fields}',
     'replyToEmail' => '{field_id="2"}',
@@ -233,6 +295,22 @@ check(
     true,
     'UI/workflow states stay technical even below remote store, tax, and shipping ancestors'
 );
+
+foreach ([
+    'customer' => ['customer' => ['address' => ['state' => 'CA']]],
+    'business' => ['business' => ['address' => ['state' => 'NY']]],
+] as $subject => $addressValue) {
+    $nestedSubjectAddress = refusal(static fn() => $gates->guardPersonalData(
+        'options',
+        'regional_settings',
+        $addressValue,
+        []
+    ));
+    check(
+        ($nestedSubjectAddress->diagnostics[0]['personal_data_shape'] ?? null) === 'postal address',
+        "$subject.address.state retains direct postal-address semantics"
+    );
+}
 
 $nestedAddressState = refusal(static fn() => $gates->guardPersonalData(
     'options',
