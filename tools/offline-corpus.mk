@@ -17,7 +17,7 @@
 
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus
-	@echo "regress-offline-all: 332 offline suites green"
+	@echo "regress-offline-all: 335 offline suites green"
 
 regress-offline-corpus: code-half-unit \
 	regress-action-provider-grammar \
@@ -208,6 +208,7 @@ regress-offline-corpus: code-half-unit \
 	regress-natural-key-rename \
 	regress-observation-guards \
 	regress-offline-diagnostics \
+	regress-operation-authorization \
 	regress-option-name-reference-resolver \
 	regress-option-name-refs-wiring \
 	regress-option-namespace-resolver \
@@ -255,6 +256,7 @@ regress-offline-corpus: code-half-unit \
 	regress-recover-claim \
 	regress-recover-ordering \
 	regress-recovery-executor \
+	regress-recovery-preparation \
 	regress-recovery-protocol \
 	regress-recovery-transport \
 	regress-reference-contract \
@@ -274,6 +276,7 @@ regress-offline-corpus: code-half-unit \
 	regress-release-containment-gate \
 	regress-release-next-action \
 	regress-release-ref-binding \
+	regress-release-stage-prepare \
 	regress-repository-compiler \
 	regress-repository-deletion-parser \
 	regress-repository-entity-parser \
@@ -352,4 +355,4 @@ regress-offline-corpus: code-half-unit \
 	regress-wp-cli-child-process \
 	regress-wpforms-lite-adapter \
 	regress-wpforms-lite-term-deletion
-	@echo "regress-offline-corpus: 332 offline suites green"
+	@echo "regress-offline-corpus: 335 offline suites green"

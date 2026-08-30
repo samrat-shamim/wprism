@@ -298,9 +298,11 @@ Three things about it are easy to get wrong when reading the output:
   red readiness; exit 1 means the assessment itself refused — unreachable
   target, multisite, an unresolvable environment — and carries a
   `wprism-command-refusal/v1` envelope under `--format=json`.
-- **`containment: unknown — not enforced in this profile` is the honest value,
-  not a bug.** MUP ships no egress control, so only apply's hook-free window is
-  structurally provable. `sandboxed` and `compensatable` are never emitted. The
+- **`containment: unknown — not enforced in this profile` is the honest assess
+  projection, not a bug.** Only apply's hook-free window is structurally
+  provable from contract facts; `sandboxed` and `compensatable` are never
+  emitted by that projection. Rehearse separately requires a provider-bound
+  runtime containment receipt before restore; it does not rewrite the row. The
   contract itself carries an `unsigned` attestation until someone runs `wprism
   contract <env> attest` under a key they provisioned in
   `.wprism/contract/authorities.json` — the signer ships, the trust root ships

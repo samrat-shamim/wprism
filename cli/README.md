@@ -54,9 +54,16 @@ wprism preview create <env> --from <production-env> [rehearse flags...]
 wprism preview remove <env> [--format=json]
 wprism demo start [--scenario=woocommerce] [--name=<name>] [--source-port=<port>] [--target-port=<port>]
 wprism demo status|capture|apply|refusal|stop [--name=<name>]
-wprism release <env> [--from=<ref>] [--plan-only] [--profile=<p>] [--accept-weaker-recovery] [--with-deletes] [--yes] [--limit=<1..200>] [--format=json]
+wprism stage-source <env> --from=<branch-or-tag> --operation=<id> [--format=json]
+wprism authority-policy <env> status --format=json
+wprism authority-policy <env> sync --policy=<file> --expected-current=absent|sha256:<hex> --format=json
+wprism release <env> prepare --stage-receipt=<file> --expected-stage-receipt-sha256=<digest> [--format=json]
+wprism release <env> execute --prepare=<file> --authorization=<file> --expected-authorization-sha256=<digest> --expected-subject-sha256=<digest> --expected-presentation-sha256=<digest> --expected-plan-digest=<digest> --expected-stage-receipt-sha256=<digest> --format=json
+wprism release <env> --plan-only [--from=<ref>] [--profile=<p>] [--accept-weaker-recovery] [--with-deletes] [--limit=<1..200>] [--format=json]
 wprism verify <env> [--plan=<digest>] [--limit=<1..200>] [--format=json]
 wprism recover <env> [--list] [--restore=<checkpoint>] [--writers-excluded] [--operator-directed] [--limit=<1..200>] [--format=json]
+wprism recover <env> prepare --restore=<checkpoint> --operation-id=<id> --format=json
+wprism recover <env> execute --plan=<plan.json> --authorization=<signed-envelope.json> --format=json
 wprism capabilities <env> [--format=json]
 wprism capture <env> [--target-branch=<name>] [--scope-contract=<local-path>] [extra wp-cli flags...]
 wprism lint    <env> [extra wp-cli flags...]
@@ -653,45 +660,51 @@ semantics remain the rehearsal implementation's.
   naming that capability id; nothing is emulated. `--branch` defaults to the
   branch this working tree is on. After convergence it prints what a release
   would touch — the plan's own value-free category numbers and the assessed
-  surface rows restricted to that scope. EVERY run prints, first, before the
-  provider is contacted, `containment: unknown — not enforced in this profile;
-  do not point this environment at live payment or mail credentials.` and the
-  consequence that follows from it: a rehearsal in this profile cannot
-  authorize an `Experimental` or `Uncertified` capability. It is a preview and
-  evidence-gathering environment, not a qualification environment.
+  surface rows restricted to that scope. EVERY run states the containment
+  requirement first, before provider contact, and materialization refuses to
+  restore production-derived bytes without an exact target/resource/lease/
+  fence-bound `environment.containment.verify` receipt. Only then does it print
+  `containment: sandboxed` and the receipt. The ordinary local reference pair
+  withholds that capability; the opt-in standalone `contained_preview` mode is
+  the bundled development example. A containment receipt permits evidence
+  gathering but does not itself authorize an `Experimental` or `Uncertified`
+  capability.
   `wprism rehearse <env> --reap` is `env reap` with the same compare-and-reap.
 
-- **`wprism release <env> [--from=<ref>] [--plan-only] [--profile=<p>]
-  [--accept-weaker-recovery] [--with-deletes] [--yes]`** — the composed
-  release, which COMPOSES `wprism promote` rather than forking it:
-  deploy-before-apply, the lease, the fence, the checkpoint and the
-  verified/scoped rollback selection all remain promote's, byte for byte. It
-  loads the accepted application contract (a site without one refuses with the
-  gap action `declare in contract`), then resolves `--from` locally. An
-  executing release fetches the same advertised branch/tag through the
-  target's configured origin, proves its hash equals the local selection, and
-  hook-free fast-forwards only a clean named target; dirty, detached,
-  divergent, unavailable, or identity-skewed delivery refuses before planning.
-  It never pushes or overwrites target work. `--plan-only` stays read-only and
-  reports a mismatch instead. Release then regenerates the per-site projection from current
-  facts and refuses BEFORE freezing anything on any surface in scope that is
-  `Experimental`, `Not qualified`, `Unsupported` or `Requalification required`,
-  on unknown effect recovery semantics, on a code lifecycle window with no
-  reviewed live external effect declared in the contract, on deletions without
-  `--with-deletes`, and on a deletion surface declared unsupported — every one
-  of those carrying an ASSESSMENT gap action, never a release next action. It
-  then selects the recovery profile the target can prove (`--profile` may only
-  strengthen silently; anything weaker than provable, `none` included, also
-  requires `--accept-weaker-recovery` and prints a warning), prints the frozen
-  authorization plan and the single question it ends in, writes it to
-  `.wprism/releases/<plan_digest>.json` before any target mutation, re-verifies it
-  against the target at that instant (any difference refuses `plan_changed`),
-  executes through promote and verifies behind it. `--plan-only` stops after
-  the plan and mutates nothing at all. A failure AFTER the freeze carries
-  exactly one next action from the closed set
-  `resume | reconcile | retry | recover | requalify | escalate`.
-  Exit 0 success, 1 refusal/failure, 2 usage.
-  See [docs/guides/release.md](../docs/guides/release.md).
+- **`wprism release <env> --plan-only [--from=<ref>] [--profile=<p>]
+  [--accept-weaker-recovery] [--with-deletes]`** — the retained read-only
+  authorization-plan preview. It writes neither target nor local repository
+  bytes, and `--from` is only a binding assertion. Every invocation without
+  `--plan-only`, including interactive and `--yes`, refuses
+  `release_external_authorization_required` before planning or promote.
+  Production mutation is available only through the signed stage/prepare/
+  execute seam below. Exit 0 read-only plan, 1 refusal/failure, 2 usage.
+
+- **`wprism stage-source` / `wprism release <env> prepare|execute`** — the
+  externally authorized control-plane form of the same release. `stage-source`
+  retains the exact advertised commit under target-private Git state without
+  moving canonical `HEAD`, index or worktree and returns one durable receipt.
+  `prepare` reads that inert checkout, current target facts and the already
+  enrolled target-authoritative policy into one canonical subject without writing target or local
+  repository bytes. An external Ed25519 actor signs its exact presentation and
+  complete subject. `execute` requires explicit digests for the prepare,
+  authorization, plan and stage; it refuses any plan, target-HEAD or source
+  drift before one-time target-side consumption, then materializes the staged
+  commit and composes promote. Repeating the exact execute command is also the
+  status call: a complete target record returns its stored outcome even after
+  authorization expiry, while consumed-without-completion always requires
+  reconciliation. The full signer wire, command sequence and crash semantics
+  are in [docs/guides/release.md](../docs/guides/release.md#control-plane-release-stage-prepare-sign-execute).
+
+- **`wprism authority-policy <env> status|sync`** — the explicit target-control
+  policy boundary used by signed release and recovery. `status --format=json`
+  reads target identity + policy digest and creates no byte when enrollment is
+  absent. `sync` requires one canonical `wprism-operation-authorities/v1` file
+  and an exact expected current identity (`absent` only for first enrollment),
+  then fsyncs and atomically publishes it under the target's private Git
+  control directory. Exact replay is idempotent; concurrent change refuses.
+  Revocation is a reviewed `status: revoked` policy followed by this explicit
+  CAS sync. Prepare and execute never silently install policy.
 
 - **`wprism verify <env> [--plan=<digest>] [--limit=<1..200>] [--format=json]`** —
   post-release verification in two independent parts, both required for a pass:
@@ -722,6 +735,32 @@ semantics remain the rehearsal implementation's.
   reconciled to the pre-release revision, which the refusal names. Only an
   SSH-adopted target carries the rollback authority runtime.
   See [docs/guides/recovery.md](../docs/guides/recovery.md).
+
+- **`wprism recover <env> prepare --restore=<checkpoint> --operation-id=<id>
+  --format=json`** — emits a canonical, read-only `wprism-recovery-plan/v1`.
+  The plan binds the active signed target generation and receipt, actual
+  encrypted checkpoint bytes, complete resource/effect scope, literal claim,
+  topology, code head, stable target operation identity and actor-authority
+  policy. It takes no writer exclusion, consumes no authorization and performs
+  no recovery step. Retained, scoped, terminal or otherwise incomplete
+  identities refuse instead of being promoted into executable-looking plans.
+
+- **`wprism recover <env> execute --plan=<plan.json>
+  --authorization=<signed-envelope.json> --format=json`** — verifies the
+  external actor statement over that exact plan, re-observes every frozen fact,
+  proves the complete configured provider/adapter set and receipt-bound
+  recovery evidence still pass read-only preflight, proves the local signing
+  secret matches the target-installed receipt key, and repeats current actor
+  trust/signature verification as the last controller step before consuming
+  authorization target-side. The target holds the rollback lock while it
+  compare-and-consumes the frozen head, target record, signed event chain,
+  receipt, checkpoint, trust policy and claim clock, and durably elects the exact authorization for
+  the operation tuple. It then resumes exact open/completed provider operations
+  and publishes one durable
+  `wprism-recovery-outcome/v2`. Exact completion replays after expiry;
+  consumed-without-completion refuses for reconciliation instead of retrying.
+  A different envelope for the tuple is never an exact replay, whether its
+  elected predecessor is nonterminal or complete.
 
 - **`wprism explain <env> <selector> [--format=json]`** — rebuilds the current
   plan under a strict observation boundary and traces one itemized entity row

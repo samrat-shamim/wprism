@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Regression — `--from <ref>` is a read-only binding in plan-only mode and a
-# verified, fast-forward repository delivery in an executing release.
+# Regression — `--from <ref>` is a read-only binding in plan-only mode. Source
+# delivery is now exclusively stage-source -> prepare -> signed execute; the
+# old public fast-forward branch must remain unreachable.
 #
 # Release resolves the ref in the local site repository, reads the TARGET
 # repository's own HEAD through the driver, and refuses a mismatch with the
 # next action `reconcile`. The refusal is not a retry: a retry asserts the
 # same ref against the same target and gets the same answer.
 #
-# Plan-only still mutates nothing. The executing path instead fetches the same
-# advertised ref from the target origin, proves its hash equals the local
-# selection, and moves only a clean named target by fast-forward.
+# Plan-only mutates nothing. Inert source delivery, target identity and exact
+# commit binding are exercised by regress_release_stage_prepare.sh.
 #
 # Offline: no docker, no WordPress, no network, no target.
 set -uo pipefail
@@ -109,9 +109,10 @@ grep -Eq 'next.action"?:? *"?reconcile' "$TMP/mismatch.txt" \
 grep -Eq 'next.action"?:? *"?retry' "$TMP/mismatch.txt" \
   && fail 'the ref-mismatch refusal offered retry, which asserts the same ref again' \
   || pass 'the ref-mismatch refusal never offers retry'
-grep -Fq 'without --plan-only' "$TMP/mismatch.txt" \
-  && pass 'the remediation names the executing WPrism delivery path' \
-  || fail 'the remediation does not explain how WPrism can deliver the revision'
+grep -Fq 'stage-source' "$TMP/mismatch.txt" \
+  && grep -Fq 'release execute' "$TMP/mismatch.txt" \
+  && pass 'the remediation names the externally authorized delivery path' \
+  || fail 'the remediation does not explain the signed source-delivery path'
 [ -d "$RELEASE_DIR" ] && [ -n "$(ls -A "$RELEASE_DIR" 2>/dev/null)" ] \
   && fail 'a ref mismatch still froze an authorization plan' \
   || pass 'a ref mismatch freezes nothing'
@@ -178,80 +179,22 @@ else
     || fail 'plan-only WROTE .wprism/contract/projection.json into a site repository that had none, contradicting the "mutated nothing… not the target, not the site repository" promise (docs/guides/release.md:122-124)'
 fi
 
-# ---------------------------------------------------- executing ref delivery
-say 'executing --from delivers one verified fast-forward'
-DELIVERY_REMOTE="$TMP/delivery.git"
-DELIVERY_TARGET="$TMP/delivery-target"
-DELIVERY_BRANCH="$(git -C "$SITE" symbolic-ref --quiet --short HEAD)"
-git init --bare --initial-branch="$DELIVERY_BRANCH" "$DELIVERY_REMOTE" >/dev/null 2>&1
-git -C "$SITE" remote add delivery-origin "$DELIVERY_REMOTE"
-git -C "$SITE" push delivery-origin "HEAD:refs/heads/$DELIVERY_BRANCH" >/dev/null 2>&1
-git clone "$DELIVERY_REMOTE" "$DELIVERY_TARGET" >/dev/null 2>&1
-printf 'delivered revision\n' > "$SITE/delivery-proof.txt"
-git -C "$SITE" add -A
-git -C "$SITE" -c user.email=fixture@example.invalid -c user.name=fixture commit -q -m 'deliver revision'
-git -C "$SITE" push delivery-origin "HEAD:refs/heads/$DELIVERY_BRANCH" >/dev/null 2>&1
-DELIVERY_HEAD="$(git -C "$SITE" rev-parse HEAD)"
-
-cat > "$TMP/deliver.php" <<'PHP'
-<?php
-declare(strict_types=1);
-require_once $argv[1] . '/cli/src/Command/ReleaseCommand.php';
-
-final class ReleaseDeliveryDriver implements \WPrism\Orchestrator\EnvironmentDriver {
-    public function __construct(private string $repo) {}
-    public function name(): string { return 'delivery'; }
-    public function driverId(): string { return 'delivery'; }
-    public function repoPath(): string { return $this->repo; }
-    public function describe(): string { return 'delivery fixture'; }
-    public function captureRaw(string $script): array {
-        $process = proc_open(['/bin/sh', '-c', $script], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
-        if (!is_resource($process)) return ['exit' => 127, 'stdout' => '', 'stderr' => ''];
-        $stdout = stream_get_contents($pipes[1]);
-        $stderr = stream_get_contents($pipes[2]);
-        fclose($pipes[1]); fclose($pipes[2]);
-        return ['exit' => proc_close($process), 'stdout' => (string) $stdout, 'stderr' => (string) $stderr];
-    }
-    public function captureWp(array $wpArgs): array { return ['exit' => 1, 'stdout' => '', 'stderr' => '']; }
-    public function streamWp(array $wpArgs): int { return 1; }
-    public function wpInstruction(array $wpArgs): string { return ''; }
-    public function capabilityReport(string $operation): \WPrism\Orchestrator\DriverCapabilityReport {
-        return \WPrism\Orchestrator\DriverCapabilityReport::forDriver('delivery', 'delivery', $operation, []);
-    }
-}
-
-$method = new ReflectionMethod(\WPrism\Orchestrator\ReleaseCommand::class, 'deliverRef');
-$driver = new ReleaseDeliveryDriver($argv[3]);
-try {
-    $actual = $method->invoke(null, $argv[4], $argv[5], $argv[2], $driver);
-    if (($argv[6] ?? '') === 'refuse') exit(3);
-    exit(hash_equals($argv[5], (string) $actual) ? 0 : 4);
-} catch (\WPrism\CommandRefusalException $failure) {
-    if (($argv[6] ?? '') === 'refuse' && $failure->reasonCode === 'release_delivery_failed') exit(0);
-    fwrite(STDERR, $failure->reasonCode . "\n");
-    exit(5);
-}
-PHP
-
-php "$TMP/deliver.php" "$ROOT" "$SITE" "$DELIVERY_TARGET" "$DELIVERY_BRANCH" "$DELIVERY_HEAD" success
+# ------------------------------------------------ public mutation retirement
+say 'legacy executing --from is disabled'
+: > "$TMP/git-calls.txt"
+: > "$WPRISM_CALLS"
+wprism "$TMP/legacy.txt" release fixture --from="$HEAD_REF" --yes --format=json
 STATUS=$?
-[ "$STATUS" = 0 ] && [ "$(git -C "$DELIVERY_TARGET" rev-parse HEAD)" = "$DELIVERY_HEAD" ] \
-  && [ -f "$DELIVERY_TARGET/delivery-proof.txt" ] \
-  && pass 'delivery fetched the advertised ref, matched its local hash, and fast-forwarded the target worktree' \
-  || fail 'executing delivery did not materialize the exact selected revision'
-
-printf 'next revision\n' > "$SITE/delivery-proof-2.txt"
-git -C "$SITE" add delivery-proof-2.txt
-git -C "$SITE" -c user.email=fixture@example.invalid -c user.name=fixture commit -q -m 'next delivery revision'
-git -C "$SITE" push delivery-origin "HEAD:refs/heads/$DELIVERY_BRANCH" >/dev/null 2>&1
-DIRTY_EXPECTED="$(git -C "$SITE" rev-parse HEAD)"
-printf 'operator work\n' > "$DELIVERY_TARGET/untracked-operator-file.txt"
-TARGET_BEFORE_DIRTY="$(git -C "$DELIVERY_TARGET" rev-parse HEAD)"
-php "$TMP/deliver.php" "$ROOT" "$SITE" "$DELIVERY_TARGET" "$DELIVERY_BRANCH" "$DIRTY_EXPECTED" refuse
-STATUS=$?
-[ "$STATUS" = 0 ] && [ "$(git -C "$DELIVERY_TARGET" rev-parse HEAD)" = "$TARGET_BEFORE_DIRTY" ] \
-  && pass 'dirty target delivery refuses before moving HEAD or overwriting operator work' \
-  || fail 'dirty target delivery moved or failed to classify the target safely'
+cat "$TMP/legacy.txt.err" >> "$TMP/legacy.txt"
+[ "$STATUS" = 1 ] && grep -Fq 'release_external_authorization_required' "$TMP/legacy.txt" \
+  && pass 'legacy --from --yes refuses with the external-authorization requirement' \
+  || { fail "legacy --from --yes was not retired (exit $STATUS)"; sed -n '1,25p' "$TMP/legacy.txt" >&2; }
+if grep -Eq ' fetch | reset | checkout | merge | pull | push ' "$TMP/git-calls.txt" \
+  || grep -Eq 'wprism (promotion-begin|deploy|apply|code-stage)' "$WPRISM_CALLS"; then
+  fail 'legacy --from --yes reached transport or promotion'
+else
+  pass 'legacy --from --yes performs no transport or promotion'
+fi
 
 # ----------------------------------------------------- an unresolvable ref
 say 'a ref that does not exist locally'

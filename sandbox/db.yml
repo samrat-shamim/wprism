@@ -55,7 +55,7 @@ services:
     # (TablePlus, Sequel Ace, ...) at the sandbox fleet's data directly;
     # nothing in this repo's tooling depends on it being open.
     ports:
-      - "127.0.0.1:3316:3306"
+      - "127.0.0.1:${WPRISM_SHARED_DB_PORT:-3316}:3306"
     volumes:
       - wprism-db-data:/var/lib/mysql
     # Same healthcheck sandbox/docker-compose.yml's x-db anchor already

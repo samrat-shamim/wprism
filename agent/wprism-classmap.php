@@ -45,6 +45,7 @@ return [
     'WPrism\\AttributeGrammar' => 'src/Grammar/AttributeGrammar.php',
     'WPrism\\AuthoredTransactionExecutor' => 'src/Apply/AuthoredTransactionExecutor.php',
     'WPrism\\AuthoredTransactionRequest' => 'src/Apply/AuthoredTransactionRequest.php',
+    'WPrism\\AuthorizedReleaseRepository' => 'src/Promotion/AuthorizedReleaseRepository.php',
     'WPrism\\BlockReferenceScanner' => 'src/Review/BlockReferenceScanner.php',
     'WPrism\\Blocks' => 'src/Grammar/Blocks.php',
     'WPrism\\BodyRefGrammar' => 'src/Grammar/BodyRefGrammar.php',

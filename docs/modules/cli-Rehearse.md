@@ -15,10 +15,11 @@
 **What landed** (this module was reserved when the map was ratified; round 3's T3 filled it):
 
 - `RehearsalPlanPreview` — "what a release would touch", built by joining two documents and **re-computing neither**: the target agent's own `wp wprism plan --format=json` envelope after convergence (with its additive `wprism-plan-category-summary/v1` projection) and the contract projection (`cli/src/Rehearse/RehearsalPlanPreview.php:16-27`).
-- `RehearsalDisclosure` — two sentences that get their own class on purpose. The spec's rehearsal is a *sandbox* (credentials stripped before boot, outbound HTTP/mail/payment/webhook/queue default-denied, containment verified first); MUP ships none of that, so what this provides is a **preview**, and the gap is a safety property that must be stated rather than quietly deferred (`cli/src/Rehearse/RehearsalDisclosure.php:12-23`).
+- `RehearsalDisclosure` — owns the pre-contact containment requirement and reduces the materializer's exact `agency-rehearsal-v1` receipt into the human and JSON claims. Missing/malformed proof refuses; the legacy unknown block remains available only to standalone preview rendering (`cli/src/Rehearse/RehearsalDisclosure.php:11-194`).
 
-**Known debts.**
-
-- The disclosure is the debt, written down. Until real containment exists, `wprism rehearse` must keep saying out loud that it is not a sandbox.
+**Containment boundary.** `RehearseCommand` always requires
+`environment.containment.verify` before snapshot restore. The engine does not
+inspect Docker or hosting itself: enforceable controls and their target/lease/
+fence-bound evidence belong to the machine-local provider.
 
 **Sub-namespace plan.** Target `WPrism\Orchestrator\Rehearse\`. Not in this round. cli sub-namespaces are cheaper than agent ones (no manifest binds them) but still wait for the agent Kernel migration to prove the classmap round-trip.

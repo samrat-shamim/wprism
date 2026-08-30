@@ -92,6 +92,34 @@ wprism_check_same(
     'a Ready, Platform-certified capability is not blocked by the disclosure itself'
 );
 
+$materializationReceipt = [
+    'containment_profile' => RehearsalDisclosure::VERIFIED_PROFILE,
+    'containment_receipt_sha256' => str_repeat('a', 64),
+    'environment_identity' => 'preview:resource:7',
+    'operation_id' => 'op-contained-preview-0001',
+    'receipt_sha256' => str_repeat('b', 64),
+];
+$proof = RehearsalDisclosure::verifiedProof($materializationReceipt);
+wprism_check_same(
+    ['containment: required — production-derived bytes will not enter the rehearsal until its machine-local provider proves credential isolation and default-denied HTTP, mail, payment, webhook, and queue destinations.'],
+    RehearsalDisclosure::preflightLines(),
+    'the command can state the containment requirement before provider contact'
+);
+wprism_check_same('agency-rehearsal-v1', $proof['profile'], 'the public proof preserves the verified profile');
+wprism_check_same(str_repeat('a', 64), $proof['containment_receipt_sha256'], 'the public proof preserves the provider receipt');
+$verifiedBlock = RehearsalDisclosure::verifiedBlock($proof);
+wprism_check_same('sandboxed', $verifiedBlock['containment'], 'a complete provider receipt earns sandboxed');
+wprism_check_same(true, $verifiedBlock['enforced'], 'a complete provider receipt earns enforced=true');
+wprism_check(
+    str_contains(RehearsalDisclosure::verifiedLines($proof)[0], str_repeat('a', 64)),
+    'the verified human disclosure names the exact receipt'
+);
+wprism_check_refuses(
+    static fn () => RehearsalDisclosure::verifiedProof(['containment_profile' => 'agency-rehearsal-v1']),
+    'rehearsal_containment_unproven',
+    'a profile assertion without bound receipt fields refuses'
+);
+
 // -------------------------------------------------------------- the preview
 $preview = RehearsalPlanPreview::build($plan, $surfaces, $context);
 wprism_check_same('wprism-rehearsal-preview/v1', $preview['format'], 'the preview carries its own format id');
@@ -99,6 +127,12 @@ wprism_check_same(
     RehearsalDisclosure::block(),
     $preview['disclosure'],
     'the preview embeds the disclosure block rather than restating it'
+);
+$verifiedPreview = RehearsalPlanPreview::build($plan, $surfaces, $context + ['containment_proof' => $proof]);
+wprism_check_same(
+    RehearsalDisclosure::verifiedBlock($proof),
+    $verifiedPreview['disclosure'],
+    'a command-supplied containment proof is embedded without re-derivation'
 );
 wprism_check_same(
     $preview['preview_digest'],

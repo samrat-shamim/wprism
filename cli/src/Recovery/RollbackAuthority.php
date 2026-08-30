@@ -53,6 +53,24 @@ final class RollbackAuthority {
         return base64_encode(sodium_crypto_sign_publickey_from_secretkey($this->secretKey));
     }
 
+    /** Prove the loaded secret derives the exact target-installed public key. */
+    public function assertSigningKeyAdmitted(): void {
+        $evidence = self::readControlAction(
+            $this->transport,
+            'public-key-evidence',
+            ['key-id' => $this->keyId]
+        );
+        $expected = hash('sha256', $this->publicKeyBase64() . "\n");
+        if (($evidence['format'] ?? null) !== RollbackControl::PUBLIC_KEY_EVIDENCE_FORMAT
+            || ($evidence['ok'] ?? null) !== true
+            || !hash_equals($this->keyId, (string) ($evidence['key_id'] ?? ''))
+            || !hash_equals($expected, (string) ($evidence['public_key_sha256'] ?? ''))) {
+            throw new \RuntimeException(
+                'wprism rollback: controller signing secret does not match the target-admitted public key'
+            );
+        }
+    }
+
     public function __destruct() {
         sodium_memzero($this->secretKey);
     }
@@ -114,9 +132,59 @@ final class RollbackAuthority {
         return $evidence;
     }
 
+    /**
+     * Return the complete target-verified active receipt and operation maps.
+     *
+     * Unlike `status()`, this read exposes every immutable receipt identity a
+     * frozen recovery subject must bind. It still exposes no signing key,
+     * exclusion token, checkpoint bytes, provider path, or target secret.
+     *
+     * @return array<string,mixed>
+     */
+    public static function activeEvidence(RecoveryTransport $transport): array {
+        $evidence = self::readControlAction($transport, 'active-evidence');
+        $receipt = $evidence['receipt'] ?? null;
+        $status = $evidence['status'] ?? null;
+        if (!is_array($receipt) || !is_array($status)
+            || !is_array($evidence['open_operations'] ?? null)
+            || !is_array($evidence['completed_operations'] ?? null)
+            || !is_array($evidence['completed_operation_history'] ?? null)
+            || ($status['active'] ?? null) !== true
+            || ($status['ok'] ?? null) !== true
+            || !in_array(
+                $receipt['format'] ?? null,
+                [RollbackControl::RECEIPT_FORMAT, RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT],
+                true
+            )) {
+            throw new \RuntimeException('wprism rollback: active authority evidence is malformed');
+        }
+        foreach (['artifact_hash', 'generation', 'owner', 'receipt_id', 'target_id'] as $field) {
+            if ((string) ($receipt[$field] ?? '') !== (string) ($status[$field] ?? '')) {
+                throw new \RuntimeException("wprism rollback: active authority evidence changed $field");
+            }
+        }
+
+        return $evidence;
+    }
+
     /** Read canonical hash-only evidence for the complete signed chain. */
     public static function audit(RecoveryTransport $transport): array {
         return self::readStatus($transport, 'audit');
+    }
+
+    /**
+     * Run the target runtime's read-only provider/adapter preflight.
+     *
+     * A decorated active status proves the receipt's stored provider evidence,
+     * but an active exclusion deliberately avoids re-probing every configured
+     * executable. Authorized recovery calls this immediately before consuming
+     * one-time actor authority so a removed adapter/provider is still a safe
+     * refusal rather than an ambiguous post-consumption failure.
+     *
+     * @return array<string,mixed>
+     */
+    public static function recoveryProbe(RecoveryTransport $transport): array {
+        return self::readStatus($transport, 'recovery-probe');
     }
 
     /** @return array<string,mixed> */
@@ -159,13 +227,24 @@ final class RollbackAuthority {
         return ['available' => true] + $decoded;
     }
 
-    /** @return array<string,mixed> */
-    private static function readControlAction(RecoveryTransport $transport, string $action): array {
+    /** @param array<string,string> $arguments @return array<string,mixed> */
+    private static function readControlAction(
+        RecoveryTransport $transport,
+        string $action,
+        array $arguments = []
+    ): array {
         $runtime = self::runtimePath($transport);
         $root = self::controlRoot($transport);
         $script = 'if [ ! -f ' . escapeshellarg($runtime) . ' ]; then exit 44; fi; '
             . 'php ' . escapeshellarg($runtime) . ' ' . escapeshellarg($action)
             . ' --root=' . escapeshellarg($root);
+        foreach ($arguments as $name => $value) {
+            if (!is_string($name) || preg_match('/^[a-z][a-z0-9-]*$/D', $name) !== 1
+                || !is_string($value)) {
+                throw new \RuntimeException('wprism rollback: invalid read-only control-action argument');
+            }
+            $script .= ' --' . $name . '=' . escapeshellarg($value);
+        }
         $result = $transport->captureRaw($script);
         if ($result['exit'] === 44) {
             throw new \RuntimeException('wprism rollback: target authority runtime is unavailable');
@@ -681,9 +760,13 @@ final class RollbackAuthority {
         string $claimant,
         string $inputHash,
         string $resultHash,
-        ?string $timestamp = null
+        ?string $timestamp = null,
+        ?array $expectedStatus = null
     ): array {
         $status = $this->requiredActiveStatus();
+        if ($expectedStatus !== null) {
+            self::assertExpectedStatus($status, $expectedStatus);
+        }
         $now = $timestamp ?? self::timestamp();
         $receipt = self::receiptView($status);
         $event = $this->eventPayload(
@@ -816,9 +899,13 @@ final class RollbackAuthority {
         string $adapter,
         int $attempt,
         array $input,
-        ?string $timestamp = null
+        ?string $timestamp = null,
+        ?array $expectedStatus = null
     ): array {
         $status = $this->requiredActiveStatus();
+        if ($expectedStatus !== null) {
+            self::assertExpectedStatus($status, $expectedStatus);
+        }
         self::assertOperationIdentity($adapter, $attempt);
         if ((string) $status['state'] !== $state) {
             throw new \RuntimeException(
@@ -834,7 +921,8 @@ final class RollbackAuthority {
             (string) $status['claimant'],
             $inputHash,
             str_repeat('0', 64),
-            $timestamp
+            $timestamp,
+            $status
         );
         return ['input_sha256' => $inputHash, 'status' => $next];
     }
@@ -884,8 +972,16 @@ final class RollbackAuthority {
      * @param array<string,mixed> $input
      * @return array<string,mixed>
      */
-    public function executeOperation(string $adapter, int $attempt, array $input): array {
+    public function executeOperation(
+        string $adapter,
+        int $attempt,
+        array $input,
+        ?array $expectedStatus = null
+    ): array {
         $status = $this->requiredActiveStatus();
+        if ($expectedStatus !== null) {
+            self::assertExpectedStatus($status, $expectedStatus);
+        }
         self::assertOperationIdentity($adapter, $attempt);
         $local = tempnam(sys_get_temp_dir(), 'wprism-rollback-input-');
         if ($local === false) {
@@ -1012,9 +1108,13 @@ final class RollbackAuthority {
         int $attempt,
         array $input,
         array $execution,
-        ?string $timestamp = null
+        ?string $timestamp = null,
+        ?array $expectedStatus = null
     ): array {
         $status = $this->requiredActiveStatus();
+        if ($expectedStatus !== null) {
+            self::assertExpectedStatus($status, $expectedStatus);
+        }
         self::assertOperationIdentity($adapter, $attempt);
         $inputHash = hash('sha256', CanonicalJson::encode($input) . "\n");
         if (($execution['adapter'] ?? null) !== $adapter
@@ -1030,7 +1130,8 @@ final class RollbackAuthority {
             (string) $status['claimant'],
             $inputHash,
             (string) $execution['result_sha256'],
-            $timestamp
+            $timestamp,
+            $status
         );
     }
 
@@ -1223,6 +1324,28 @@ final class RollbackAuthority {
             throw new \RuntimeException('wprism rollback: terminal receipt cannot accept another event');
         }
         return $status;
+    }
+
+    /**
+     * Pin a controller read to the exact signed head it intends to extend.
+     * The target-side append compare-and-swap closes the remaining race after
+     * this check: a different writer that advances the head makes these signed
+     * bytes stale rather than silently moving the authorized operation.
+     *
+     * @param array<string,mixed> $actual
+     * @param array<string,mixed> $expected
+     */
+    private static function assertExpectedStatus(array $actual, array $expected): void {
+        foreach ([
+            'artifact_hash', 'claim_epoch', 'claimant', 'generation', 'head_event_sha256',
+            'owner', 'receipt_id', 'sequence', 'state', 'target_id',
+        ] as $field) {
+            if (!array_key_exists($field, $expected) || ($actual[$field] ?? null) !== $expected[$field]) {
+                throw new \RuntimeException(
+                    "wprism rollback: active authority changed $field before the exact operation boundary"
+                );
+            }
+        }
     }
 
     /** @return array<string,mixed> */

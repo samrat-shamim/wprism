@@ -19,6 +19,7 @@ final class RollbackControl {
     private const CERTIFICATION_CRASH_MARKER_BYTES = "wprism-rollback-certification-crash-mode/v1\n";
     public const TARGET_FORMAT = 'wprism-rollback-target/v1';
     public const RECEIPT_FORMAT = 'wprism-rollback-receipt/v2';
+    public const PUBLIC_KEY_EVIDENCE_FORMAT = 'wprism-rollback-public-key-evidence/v1';
     /**
      * A checkpoint-only authority for one externally excluded scoped state
      * promotion.  It deliberately has no code, upload, lifecycle, or effect
@@ -235,6 +236,33 @@ final class RollbackControl {
                 'public-key'
             );
             return ['ok' => true];
+        });
+    }
+
+    /**
+     * Publish only the digest of one immutable installed verification key.
+     * This lets a controller prove its local secret still derives the target's
+     * admitted public key without exporting target paths or changing key state.
+     *
+     * @return array{format:string,key_id:string,ok:true,public_key_sha256:string}
+     */
+    public static function publicKeyEvidence(string $root, string $keyId): array {
+        self::assertKeyId($keyId);
+        return self::withLock($root, function () use ($root, $keyId): array {
+            $path = $root . '/public-keys/' . $keyId . '.pub';
+            self::assertRegularFile($path, "public key '$keyId'");
+            $raw = file_get_contents($path);
+            $bytes = is_string($raw) ? base64_decode(trim($raw), true) : false;
+            if (!is_string($bytes) || strlen($bytes) !== SODIUM_CRYPTO_SIGN_PUBLICKEYBYTES
+                || $raw !== base64_encode($bytes) . "\n") {
+                throw new \RuntimeException("wprism rollback: installed public key '$keyId' is malformed");
+            }
+            return [
+                'format' => self::PUBLIC_KEY_EVIDENCE_FORMAT,
+                'key_id' => $keyId,
+                'ok' => true,
+                'public_key_sha256' => hash('sha256', $raw),
+            ];
         });
     }
 
@@ -1454,6 +1482,10 @@ function rollback_control_main(array $argv): int {
                 );
                 return ['ok' => true];
             })(),
+            'public-key-evidence' => RollbackControl::publicKeyEvidence(
+                $root,
+                (string) ($args['key-id'] ?? '')
+            ),
             'request' => RollbackControl::handleRequest($root, (string) ($args['request'] ?? '')),
             'configure-recovery' => RecoveryExecutor::configureFromFile($root, (string) ($args['config'] ?? '')),
             'recovery-probe' => RecoveryExecutor::probe($root),

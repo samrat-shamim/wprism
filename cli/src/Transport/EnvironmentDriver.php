@@ -248,6 +248,13 @@ final class DriverCapabilityReport {
             'refresh', 'rebase' => [
                 DriverCapability::ATTACH, DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,
             ],
+            // Staging writes only target-private Git control state. Prepare
+            // reads that state and the existing WP planning surface, so it
+            // must not inherit promote's checkpoint/materialization demands.
+            'stage-source', 'authority-policy' => [DriverCapability::ATTACH, DriverCapability::RAW_CONTROL],
+            'release-prepare' => [
+                DriverCapability::ATTACH, DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,
+            ],
             'adopt' => [
                 DriverCapability::ATTACH, DriverCapability::BOOTSTRAP,
                 DriverCapability::CODE_TRANSFER, DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,
@@ -319,7 +326,9 @@ final class DriverCapabilityReport {
             default => throw new \RuntimeException(
                 "unknown driver operation '$operation' (expected attach, doctor, init, status, capabilities, capture, "
                 . 'lint, plan, explain, apply, env-set, pending, classify, coverage, scope, assess, contract, verify, '
-                . 'refresh, rebase, adapter-observe, adopt, onboard, deploy, promote, release, recover, rehearse, create, destroy, '
+                . 'refresh, rebase, adapter-observe, adopt, onboard, deploy, promote, stage-source, authority-policy, '
+                . 'release-prepare, release, '
+                . 'recover, rehearse, create, destroy, '
                 . 'ttl, media-snapshot, maintenance, or url)'
             ),
         };

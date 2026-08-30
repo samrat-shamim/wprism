@@ -926,9 +926,10 @@
       },
       "Promotion": {
         "layer": "engine",
-        "purpose": "Deploy, lifecycle and promotion mechanics — planners, leases, locks, session journals and state handoff between environments.",
+        "purpose": "Deploy, lifecycle and promotion mechanics — planners, leases, locks, externally-authorized repository binding, session journals and state handoff between environments.",
         "status": "populated",
         "entry_points": [
+          "AuthorizedReleaseRepository",
           "PromotionLock",
           "Deploy",
           "ScopedPromotionAuthority"
@@ -950,8 +951,9 @@
             ]
           }
         ],
-        "file_count": 11,
+        "file_count": 12,
         "files": [
+          "AuthorizedReleaseRepository.php",
           "Deploy.php",
           "DeployPlanner.php",
           "LifecycleExecutor.php",
@@ -1322,6 +1324,26 @@
           "PlanView.php"
         ]
       },
+      "Authority": {
+        "layer": "policy",
+        "purpose": "External human/policy execution authority shared by release and recovery: a separate actor-bound Ed25519 trust root, an explicitly synchronized target-authoritative policy, exact expiring operation envelopes, stable target identity, and target-private one-time consumption/completion evidence.",
+        "status": "populated",
+        "entry_points": [
+          "OperationAuthorization",
+          "TargetOperationStore"
+        ],
+        "depends_on": [
+          "Authority",
+          "Transport",
+          "agent:Kernel"
+        ],
+        "exceptions": [],
+        "file_count": 2,
+        "files": [
+          "OperationAuthorization.php",
+          "TargetOperationStore.php"
+        ]
+      },
       "Refresh": {
         "layer": "repository",
         "purpose": "The B/P/W refresh planner, field diff and local state materializer that reconciles git, production and working state.",
@@ -1374,7 +1396,7 @@
       },
       "Recovery": {
         "layer": "engine",
-        "purpose": "Rollback authority and the verified/scoped rollback profiles that prove a target can be returned to a known state, plus (round 3) profile selection, the checkpoint catalog and the recovery claim the authorization plan embeds. Round-3 T5 adds the retained release checkpoints (RetainedCheckpoints), the second catalog source every transport has. issue #3514 adds CheckpointPrune, the pure decision behind the one operator verb that REMOVES a retained checkpoint; nothing here prunes automatically.",
+        "purpose": "Rollback authority and the verified/scoped rollback profiles that prove a target can be returned to a known state, plus profile selection, checkpoint inventory/retention, literal recovery claims, and immutable preparation/outcome documents for actor-authorized asynchronous recovery.",
         "status": "populated",
         "entry_points": [
           "RollbackAuthority",
@@ -1382,7 +1404,9 @@
           "RecoveryClaim",
           "CheckpointCatalog",
           "RetainedCheckpoints",
-          "CheckpointPrune"
+          "CheckpointPrune",
+          "RecoveryPlan",
+          "RecoveryOutcome"
         ],
         "depends_on": [
           "Recovery",
@@ -1390,11 +1414,13 @@
           "agent:Kernel"
         ],
         "exceptions": [],
-        "file_count": 8,
+        "file_count": 10,
         "files": [
           "CheckpointCatalog.php",
           "CheckpointPrune.php",
           "RecoveryClaim.php",
+          "RecoveryOutcome.php",
+          "RecoveryPlan.php",
           "RecoveryProfileSelection.php",
           "RetainedCheckpoints.php",
           "RollbackAuthority.php",
@@ -1513,6 +1539,7 @@
         "depends_on": [
           "Adapter",
           "Assess",
+          "Authority",
           "Command",
           "Contract",
           "Environment",
@@ -1527,10 +1554,11 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 36,
+        "file_count": 38,
         "files": [
           "AdoptCommand.php",
           "AssessCommand.php",
+          "AuthorityPolicyCommand.php",
           "CaptureCommand.php",
           "CensusCommand.php",
           "ClassifyCommand.php",
@@ -1562,6 +1590,7 @@
           "RehearseCommand.php",
           "ReleaseCommand.php",
           "ScopeCommand.php",
+          "StageSourceCommand.php",
           "StatusCommand.php",
           "UnadoptCommand.php",
           "VerifyCommand.php"
@@ -1605,14 +1634,16 @@
       },
       "Release": {
         "layer": "engine",
-        "purpose": "The release mechanism — `AuthorizationPlan` (build, freeze before any mutation, digest and re-verify the `wprism-authorization-plan/v1` document), `AuthorizationPlanRenderer` (its bounded human projection, ending in one question), `ReleaseOutcome` + `NextAction` (the closed post-freeze next-action set and the deterministic failure-class mapping) and `JourneyOracle` (the declared affected-journey probes and the `wprism-verify-report/v1` document). Mechanism only: the verb boundaries (`ReleaseCommand`, `VerifyCommand`, `RecoverCommand`, cli:Command) compose it with Environment, Recovery and the existing promote/deploy handlers, and the recovery claim reaches the plan as a canonical array, not as a Recovery class reference — which is what keeps this module free of intra-layer and upward edges (module map rule 9).",
+        "purpose": "The release mechanism — `SourceStageReceipt` durably binds an inert Git source stage and `ReleasePrepare` binds that receipt, authority/capability policy identities and the exact externally-authorizable plan bytes; `AuthorizationPlan` builds, freezes, digests and re-verifies `wprism-authorization-plan/v1`; `AuthorizationPlanRenderer`, `ReleaseOutcome`, `NextAction` and `JourneyOracle` own its bounded presentation, outcome and verification contracts. Mechanism only: the verb boundaries (`StageSourceCommand`, `ReleaseCommand`, `VerifyCommand`, `RecoverCommand`, cli:Command) compose it with Authority, Environment, Recovery and the existing promote/deploy handlers.",
         "status": "populated",
         "entry_points": [
           "AuthorizationPlan",
           "AuthorizationPlanRenderer",
           "ReleaseOutcome",
           "NextAction",
-          "JourneyOracle"
+          "JourneyOracle",
+          "SourceStageReceipt",
+          "ReleasePrepare"
         ],
         "depends_on": [
           "Contract",
@@ -1623,13 +1654,15 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 5,
+        "file_count": 7,
         "files": [
           "AuthorizationPlan.php",
           "AuthorizationPlanRenderer.php",
           "JourneyOracle.php",
           "NextAction.php",
-          "ReleaseOutcome.php"
+          "ReleaseOutcome.php",
+          "ReleasePrepare.php",
+          "SourceStageReceipt.php"
         ]
       },
       "Rehearse": {

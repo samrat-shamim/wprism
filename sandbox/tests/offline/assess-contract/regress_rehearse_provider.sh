@@ -36,15 +36,17 @@
 #      stderr, so a `docker exec -i` that refuses the dump on stdin is diagnosed
 #      by what docker said, never by this provider's own broken pipe (issue #3492).
 #
-#   5. THE CONTAINMENT BANNER. `RehearsalDisclosure` prints MUP §2.2's literal
-#      disclosure, once, at the top of the preview, with the consequence that
-#      an Experimental or Uncertified capability cannot be authorized from a
-#      rehearsal — plus the bounded preview of what a release would touch.
+#   5. CONTAINMENT DISCLOSURE. `RehearsalDisclosure` refuses malformed provider
+#      proof and emits a target-bound verified block. Its standalone legacy
+#      preview renderer retains MUP §2.2's literal unknown banner, once, plus
+#      the bounded preview of what a release would touch.
 #
 # Offline: no docker, no WordPress, no network, no target.
 # Dependencies: sandbox/tests/fixtures/rehearse/make-provider-config.php
 # Dependencies: sandbox/tests/fixtures/rehearse/provider-negotiation-checks.php
 # sandbox/tests/fixtures/rehearse/provider-stdin-checks.php
+# sandbox/tests/fixtures/rehearse/contained-provider-checks.php
+# sandbox/tests/fixtures/rehearse/fake-contained-docker.php
 # sandbox/tests/fixtures/rehearse/reference-provider-command-checks.php
 # sandbox/tests/fixtures/rehearse/slot-reuse-checks.php
 set -uo pipefail
@@ -107,6 +109,16 @@ else
   cat "$TMP/provider.err" >&2
 fi
 sed -n 's/^ok: /ok: /p' "$TMP/provider.out"
+
+say 'the reference provider contained-preview mode'
+mkdir -p "$TMP/contained-provider"
+if php "$FIX/contained-provider-checks.php" "$TMP/contained-provider" > "$TMP/contained-provider.out" 2> "$TMP/contained-provider.err"; then
+  pass 'the contained-preview provider checks pass'
+else
+  fail 'the contained-preview provider checks failed'
+  cat "$TMP/contained-provider.err" >&2
+fi
+sed -n 's/^ok: /ok: /p' "$TMP/contained-provider.out"
 
 # --------------------------------------- 3b: the reference provider, --print-plan
 say 'the reference provider --print-plan mode'
@@ -364,9 +376,9 @@ else
   fail 'the JSON disclosure block is missing or mis-stated'
 fi
 if grep -Fq 'sandboxed' "$TMP/fixture/preview.json"; then
-  fail 'the preview claims a sandboxed rehearsal, which this profile can never prove'
+  fail 'the standalone preview claims sandboxed without a provider proof'
 else
-  pass 'the preview never claims a sandboxed rehearsal'
+  pass 'the standalone preview never claims sandboxed without a provider proof'
 fi
 
 printf '\n'

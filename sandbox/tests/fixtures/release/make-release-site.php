@@ -38,6 +38,13 @@ declare(strict_types=1);
  *   WPRISM_APPLY_EXIT=<n>       `wprism apply` exit code
  *   WPRISM_COMPILE_EXIT=<n>     `wprism compile` exit code
  *   WPRISM_CODE_ENABLED=1       select the code-bearing compile summary
+ *   WPRISM_COMPILE_RACE_REPO=<p> commit and then dirty this exact --repo
+ *   WPRISM_COMPILE_RACE_EVIDENCE=<p> record the raced HEAD once
+ *   WPRISM_ENFORCE_RELEASE_BINDING=1 run the shipped target repository binder
+ *   WPRISM_RELEASE_PRODUCT_ROOT=<p> checkout containing that shipped binder
+ *   WPRISM_BEGIN_BINDING_EVIDENCE=<p> prove the binder held its flock at lease
+ *   WPRISM_BEGIN_REPOSITORY_RACE_REPO=<p> race this repo just before target bind
+ *   WPRISM_BEGIN_REPOSITORY_RACE_EVIDENCE=<p> record that raced HEAD once
  *
  * Usage: make-release-site.php <dir>
  */
@@ -299,9 +306,23 @@ case " $* " in
   *" wprism compile "*)
       [ "${WPRISM_COMPILE_EXIT:-0}" = 0 ] || { echo 'compile refused' >&2; exit "${WPRISM_COMPILE_EXIT}"; }
       out=""
-      for a in "$@"; do case "$a" in --out=*) out="${a#--out=}" ;; esac; done
+      compile_repo=""
+      for a in "$@"; do case "$a" in
+        --out=*) out="${a#--out=}" ;;
+        --repo=*) compile_repo="${a#--repo=}" ;;
+      esac; done
       compile="$WPRISM_FIXTURES/compile.json"
       [ "${WPRISM_CODE_ENABLED:-0}" = 1 ] && compile="$WPRISM_FIXTURES/compile-code.json"
+      if [ -n "${WPRISM_COMPILE_RACE_REPO:-}" ] \
+          && [ "$compile_repo" = "$WPRISM_COMPILE_RACE_REPO" ] \
+          && [ ! -e "${WPRISM_COMPILE_RACE_EVIDENCE:-}" ]; then
+        printf 'operator committed compile-race\n' > "$compile_repo/operator-compile-race.txt"
+        git -C "$compile_repo" add -- operator-compile-race.txt
+        git -C "$compile_repo" -c user.email=fixture@example.invalid -c user.name=fixture \
+          commit -q -m 'operator compile race'
+        git -C "$compile_repo" rev-parse HEAD > "$WPRISM_COMPILE_RACE_EVIDENCE"
+        printf 'operator uncommitted compile-race\n' > "$compile_repo/operator-compile-race.txt"
+      fi
       [ -n "$out" ] && cp "$compile" "$out"
       cat "$compile"; exit 0 ;;
   *" wprism pending "*)
@@ -311,7 +332,54 @@ case " $* " in
       # which is what every suite that does not set it saw before.
       if [ -n "${WPRISM_PENDING:-}" ]; then cat "$WPRISM_PENDING"; else printf '[]\n'; fi
       exit 0 ;;
-  *" wprism promotion-begin "*) exit "${WPRISM_BEGIN_EXIT:-0}" ;;
+  *" wprism promotion-begin "*)
+      if [ "${WPRISM_ENFORCE_RELEASE_BINDING:-0}" = 1 ]; then
+        begin_repo=""; begin_operation=""; begin_commit=""; begin_tree=""; begin_owner=""
+        for a in "$@"; do case "$a" in
+          --repo=*) begin_repo="${a#--repo=}" ;;
+          --release-operation-id=*) begin_operation="${a#--release-operation-id=}" ;;
+          --expected-source-commit=*) begin_commit="${a#--expected-source-commit=}" ;;
+          --expected-source-tree=*) begin_tree="${a#--expected-source-tree=}" ;;
+          --promotion-owner=*) begin_owner="${a#--promotion-owner=}" ;;
+        esac; done
+        [ -n "$begin_repo" ] && [ -n "$begin_operation" ] && [ -n "$begin_commit" ] \
+          && [ -n "$begin_tree" ] && [ -n "$begin_owner" ] || exit 74
+        if [ -n "${WPRISM_BEGIN_REPOSITORY_RACE_REPO:-}" ] \
+            && [ "$begin_repo" = "$WPRISM_BEGIN_REPOSITORY_RACE_REPO" ] \
+            && [ ! -e "${WPRISM_BEGIN_REPOSITORY_RACE_EVIDENCE:-}" ]; then
+          printf 'operator committed promotion-begin-race\n' > "$begin_repo/operator-begin-race.txt"
+          git -C "$begin_repo" add -- operator-begin-race.txt
+          git -C "$begin_repo" -c user.email=fixture@example.invalid -c user.name=fixture \
+            commit -q -m 'operator promotion-begin race'
+          git -C "$begin_repo" rev-parse HEAD > "$WPRISM_BEGIN_REPOSITORY_RACE_EVIDENCE"
+          printf 'operator uncommitted promotion-begin-race\n' > "$begin_repo/operator-begin-race.txt"
+        fi
+        php -r '
+require $argv[1] . "/agent/src/Promotion/AuthorizedReleaseRepository.php";
+try {
+    $binding = \WPrism\AuthorizedReleaseRepository::acquire(
+        $argv[2], $argv[3], $argv[4], $argv[5], $argv[6]
+    );
+    $git = trim((string) shell_exec("git -C " . escapeshellarg($argv[2]) . " rev-parse --absolute-git-dir"));
+    $lock = $git . "/wprism-control/repository.lock";
+    $probe = proc_open(
+        [PHP_BINARY, "-r", '\''$h=fopen($argv[1], "rb"); exit(is_resource($h) && flock($h, LOCK_EX | LOCK_NB) ? 1 : 0);'\'', $lock],
+        [1 => ["pipe", "w"], 2 => ["pipe", "w"]],
+        $pipes
+    );
+    if (!is_resource($probe)) exit(75);
+    stream_get_contents($pipes[1]); stream_get_contents($pipes[2]);
+    fclose($pipes[1]); fclose($pipes[2]);
+    if (proc_close($probe) !== 0) exit(75);
+    if ($argv[7] !== "") file_put_contents($argv[7], "lease-under-repository-lock\n");
+} catch (Throwable $error) {
+    fwrite(STDERR, $error->getMessage() . "\n");
+    exit(73);
+}
+' "$WPRISM_RELEASE_PRODUCT_ROOT" "$begin_repo" "$begin_operation" "$begin_commit" \
+          "$begin_tree" "$begin_owner" "${WPRISM_BEGIN_BINDING_EVIDENCE:-}" || exit $?
+      fi
+      exit "${WPRISM_BEGIN_EXIT:-0}" ;;
   *" wprism promotion-abort "*) exit "${WPRISM_ABORT_EXIT:-0}" ;;
   *" wprism code-preflight "*)
       printf '%s\n' '{"format":"wprism-code-runtime/v1","enabled":true,"change_required":true,"compatible":true,"code_revision":"d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4","target":{"php":"8.3.0","wordpress":"6.8.2","source":"target-control-plane"},"requirements":[],"diagnostics":[]}'

@@ -1,0 +1,126 @@
+name: wprism-${WPRISM_PAIR}-preview
+
+# The rehearsal target is deliberately not an overlay on pair.yml. Compose
+# list merging could retain pair.yml's wprism-shared attachment, and that one
+# network reaches every source/target database in the sandbox. This standalone
+# project has one internal bridge, one lease-owned database volume and one
+# lease-owned WordPress volume. The reference provider creates both volumes
+# and the network under a generation-bound lease, probes their live Docker
+# topology, and destroys them at reap.
+networks:
+  contained:
+    name: wprism-${WPRISM_PAIR}-preview-internal
+    internal: true
+  # Docker 29 does not publish a port for a container attached only to an
+  # internal bridge. A credential-free reverse proxy spans this dedicated
+  # ingress bridge and the internal app bridge; WordPress and CLI never do.
+  ingress:
+    name: wprism-${WPRISM_PAIR}-preview-ingress
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"
+      com.docker.network.bridge.host_binding_ipv4: "127.0.0.1"
+
+volumes:
+  database:
+    name: wprism-${WPRISM_PAIR}-preview-database
+  wordpress:
+    name: wprism-${WPRISM_PAIR}-preview-wordpress
+
+x-preview-environment: &preview-environment
+  WORDPRESS_DB_HOST: db
+  WORDPRESS_DB_NAME: ${WPRISM_PREVIEW_DB_NAME}
+  WORDPRESS_DB_USER: ${WPRISM_PREVIEW_DB_USER}
+  WORDPRESS_DB_PASSWORD: ${WPRISM_PREVIEW_DB_PASSWORD}
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: safe.directory
+  GIT_CONFIG_VALUE_0: /siterepo
+  WORDPRESS_CONFIG_EXTRA: |
+    define('WP_ENVIRONMENT_TYPE', 'local');
+    define('DISABLE_WP_CRON', true);
+    define('AUTOMATIC_UPDATER_DISABLED', true);
+
+x-preview-volumes: &preview-volumes
+  - wordpress:/var/www/html
+  - ${WPRISM_PREVIEW_AGENT_SRC}:/var/www/html/wp-content/mu-plugins/wprism:ro
+  - ${WPRISM_PREVIEW_AGENT_SRC}/wprism-loader.php:/var/www/html/wp-content/mu-plugins/wprism-loader.php:ro
+  - ${WPRISM_PREVIEW_ADAPTER_PACKAGES_SRC}:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
+  - ${WPRISM_PREVIEW_PLATFORM_SRC}:/var/www/html/wp-content/mu-plugins/platform:ro
+  - ${WPRISM_PREVIEW_REPO}:/siterepo
+  - ${WPRISM_PREVIEW_CRON_GUARD}:/var/www/html/wp-content/mu-plugins/00-wprism-containment-cron-guard.php:ro
+  - ${WPRISM_PREVIEW_MAIL_SHIM}:/usr/local/bin/wprism-refuse-sendmail:ro
+  - ${WPRISM_PREVIEW_PHP_INI}:/usr/local/etc/php/conf.d/zz-wprism-containment.ini:ro
+
+services:
+  db:
+    image: ${WPRISM_PREVIEW_DB_IMAGE}
+    networks: [contained]
+    environment:
+      MARIADB_DATABASE: ${WPRISM_PREVIEW_DB_NAME}
+      MARIADB_USER: ${WPRISM_PREVIEW_DB_USER}
+      MARIADB_PASSWORD: ${WPRISM_PREVIEW_DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${WPRISM_PREVIEW_DB_ROOT_PASSWORD}
+    volumes:
+      - database:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 2s
+      timeout: 3s
+      retries: 45
+    restart: "no"
+    security_opt: [no-new-privileges:true]
+    cap_drop: [NET_RAW]
+    mem_limit: 1g
+    cpus: "1.0"
+
+  wp:
+    image: ${WPRISM_PREVIEW_WP_IMAGE}
+    networks: [contained]
+    environment: *preview-environment
+    volumes: *preview-volumes
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    security_opt: [no-new-privileges:true]
+    cap_drop: [NET_RAW]
+    mem_limit: 1g
+    cpus: "1.0"
+
+  proxy:
+    image: ${WPRISM_PREVIEW_PROXY_IMAGE}
+    user: "101:101"
+    entrypoint: [nginx, -g, "daemon off;"]
+    command: []
+    networks: [contained, ingress]
+    volumes:
+      - ${WPRISM_PREVIEW_PROXY_CONFIG}:/etc/nginx/nginx.conf:ro
+    ports:
+      - "127.0.0.1:${WPRISM_PREVIEW_PORT}:8080"
+    depends_on:
+      wp:
+        condition: service_started
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    restart: "no"
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 128m
+    cpus: "0.25"
+
+  cli:
+    image: ${WPRISM_PREVIEW_CLI_IMAGE}
+    user: "33:33"
+    networks: [contained]
+    environment: *preview-environment
+    volumes: *preview-volumes
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    security_opt: [no-new-privileges:true]
+    cap_drop: [NET_RAW]
+    profiles: [cli]
+    mem_limit: 768m
+    cpus: "0.75"

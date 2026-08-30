@@ -1,0 +1,38 @@
+{
+  "assertion": {
+    "credential_inventory": "exhaustive",
+    "review_id": "offline-contained-fixture-v1",
+    "revision": 1
+  },
+  "database": {
+    "options": [
+      {
+        "action": "replace",
+        "name": "wprism_payment_token",
+        "replacement": "sandbox-payment-disabled"
+      },
+      {
+        "action": "replace",
+        "name": "wprism_mail_token",
+        "replacement": "sandbox-mail-disabled"
+      }
+    ],
+    "table_prefix": "wp_"
+  },
+  "format": "wprism-reference-snapshot-sanitization-policy/v1",
+  "media": [
+    {
+      "action": "remove",
+      "path": "private/source-media-secret.txt"
+    }
+  ],
+  "source_environment": "mup1",
+  "wordpress_auth": {
+    "activation_key_replacement": "",
+    "password_replacement": "!wprism-sandbox-disabled!",
+    "remove_usermeta_keys": [
+      "_application_passwords",
+      "session_tokens"
+    ]
+  }
+}

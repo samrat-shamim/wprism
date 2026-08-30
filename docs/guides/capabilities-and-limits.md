@@ -418,7 +418,7 @@ system.
 | `prevented` | the surface is mutated exclusively inside apply's hook-free window and the plan touches no declared provider action for it. Always printed with its literal basis: *no WordPress hooks fire in the apply window* |
 | `unknown` | everything else, printed as *unknown — not enforced in this profile*: the whole code lifecycle window (deploy → retire → activate → finalize, where hooks *do* fire), every declared provider action, every regenerator |
 | `live` | your reviewed contract declares a live external effect for this surface |
-| `sandboxed` | **never emitted.** WPrism ships no egress control, so the value is not structurally provable |
+| `sandboxed` | **never emitted by the assess surface projection.** A rehearsal's separate provider-bound containment receipt is runtime evidence, not a rewrite of contract facts |
 
 **6. Effect recovery semantics** — what a rollback would give back.
 
@@ -430,23 +430,30 @@ system.
 | `unknown` | containment is unknown and an effect may exist — and the operation blocks |
 | `compensatable` | **never emitted.** It requires a declared compensation action, which does not exist in this release |
 
-### Containment is unknown, and that is a statement rather than a gap
+### Contract containment and rehearsal containment are separate evidence
 
-WPrism does not default-deny outbound HTTP, mail, payment, webhook or queue
-traffic; it does not strip or rebind production credentials when it
-materializes a rehearsal environment; and it does not verify containment
-before a workflow is exercised. The only containment it can *prove* is
-`prevented`, and the proof is narrow and exact: the state apply window fires
-no WordPress hooks, so nothing in it can re-send a mail or re-charge a card.
+The assess surface projection can prove only `prevented`, narrowly: the state
+apply window fires no WordPress hooks, so nothing in it can re-send a mail or
+re-charge a card. It can also carry a reviewed declaration of `live`; it never
+infers `sandboxed` from where an assessment happens.
+
+`wprism rehearse` has a separate runtime boundary. It refuses to restore
+production-derived bytes until the machine-local provider returns an exact
+target/resource/lease/fence-bound `environment.containment.verify` receipt.
+The bundled ordinary reference pair withholds that capability. Its opt-in
+`contained_preview` topology proves the server-side controls described in
+[the provider guide](../branch-environment-provider.md#enabling-the-contained-preview),
+including policy-hash/snapshot-bound credential sanitization under an explicit
+human-reviewed exhaustive inventory.
 
 Three consequences follow, and each one is visible in the output rather than
 buried here.
 
-- **A rehearsal is a preview, not a sandbox.** `wprism rehearse` prints the
-  disclosure before it contacts the provider, every run, and states the
-  consequence in the same breath: a rehearsal in this profile cannot authorize
-  an `Experimental` or `Uncertified` capability, because the spec permits that
-  only once containment is proven. Point a preview at test credentials.
+- **Containment is necessary but does not certify a capability.** The command
+  prints the requirement before provider contact and the receipt only after
+  verification. The receipt permits contained evidence gathering; an
+  `Experimental` or `Uncertified` capability still needs its reviewed
+  disposition and applicable certification evidence.
 - **A selected lifecycle window has to be declared before it can be released
   through.** The target's read-only code preflight verifies its completed
   descriptor and payload. `retire` and `activate` run only when that evidence

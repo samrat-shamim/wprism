@@ -1,5 +1,5 @@
 {
-    "class_count": 412,
+    "class_count": 421,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -6786,6 +6786,83 @@
                     "visibility": "public"
                 }
             },
+            "readonly": false
+        },
+        "WPrism\\AuthorizedReleaseRepository": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "__destruct": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
+                "acquire": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "operationId",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sourceCommit",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sourceTree",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "promotionOwner",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "WPrism\\AuthorizedReleaseRepository",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "assertBound": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
             "readonly": false
         },
         "WPrism\\BlockReferenceScanner": {
@@ -25726,6 +25803,14 @@
                             "name": "registryOperation",
                             "type": "string",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "repositoryPath",
+                            "type": "?string",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -26275,6 +26360,47 @@
             "properties": [],
             "readonly": false
         },
+        "WPrism\\Orchestrator\\AuthorityPolicyCommand": {
+            "abstract": false,
+            "constants": {
+                "STATUS_FORMAT": {
+                    "value_repr": "wprism-target-authority-policy-status/v1"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "WPrism\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "extra",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "WPrism\\Orchestrator\\AuthorizationPlan": {
             "abstract": false,
             "constants": {
@@ -26438,6 +26564,14 @@
                             "has_default": true,
                             "name": "planOnly",
                             "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "durabilitySync",
+                            "type": "?callable",
                             "variadic": false
                         }
                     ],
@@ -27875,6 +28009,14 @@
                             "has_default": false,
                             "name": "artifactHash",
                             "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "authorizedSource",
+                            "type": "?array",
                             "variadic": false
                         }
                     ],
@@ -34198,6 +34340,256 @@
             "properties": [],
             "readonly": false
         },
+        "WPrism\\Orchestrator\\OperationAuthorization": {
+            "abstract": false,
+            "constants": {
+                "FORMAT": {
+                    "value_repr": "wprism-operation-authorization/v1"
+                },
+                "OPERATIONS": {
+                    "value_repr": [
+                        "recovery",
+                        "release"
+                    ]
+                },
+                "SIGNATURE_DOMAIN": {
+                    "value_repr": "wprism-operation-authorization-signature/v1\u0000"
+                },
+                "TRUST_FORMAT": {
+                    "value_repr": "wprism-operation-authorities/v1"
+                },
+                "TRUST_RELATIVE": {
+                    "value_repr": ".wprism/authority/authorities.json"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "envelopeDigest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "envelope",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "readEnvelope": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "path",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "sign": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "statement",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "secretKey",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "signingBytes": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "statement",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "trust": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "siteRepo",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "trustDigest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "trust",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "trustPath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "siteRepo",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validateEnvelopeShape": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "envelope",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validateStatement": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "statement",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validateTrust": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "trust",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "verify": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "envelope",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "subject",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "trust",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "now",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "WPrism\\Orchestrator\\PassthroughCommand": {
             "abstract": false,
             "constants": [],
@@ -35599,6 +35991,9 @@
                 "CONFIRM_PRUNE_FLAG": {
                     "value_repr": "--confirm-prune"
                 },
+                "EXECUTE_VERB": {
+                    "value_repr": "execute"
+                },
                 "ORDERED_STEPS": {
                     "value_repr": [
                         "abort",
@@ -35606,6 +36001,9 @@
                         "import",
                         "final-abort"
                     ]
+                },
+                "PREPARE_VERB": {
+                    "value_repr": "prepare"
                 },
                 "PRUNE_RETAINED_FLAG": {
                     "value_repr": "--prune-retained"
@@ -35647,6 +36045,39 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "priorExecutionOutcome": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "WPrism\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "plan",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "authorizationDigest",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "resolveClaim": {
                     "abstract": false,
                     "final": false,
@@ -35665,6 +36096,39 @@
                             "has_default": false,
                             "name": "frozenPlans",
                             "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "reverifyPreparation": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "WPrism\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "plan",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "clock",
+                            "type": "?callable",
                             "variadic": false
                         }
                     ],
@@ -36136,6 +36600,366 @@
                     "parameters": [],
                     "return_type": "?array",
                     "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\Orchestrator\\RecoveryOutcome": {
+            "abstract": false,
+            "constants": {
+                "FAILED": {
+                    "value_repr": "failed"
+                },
+                "FORMAT": {
+                    "value_repr": "wprism-recovery-outcome/v2"
+                },
+                "RECONCILE_REQUIRED": {
+                    "value_repr": "reconcile_required"
+                },
+                "RECOVERED": {
+                    "value_repr": "recovered"
+                },
+                "RECOVERY_STEPS": {
+                    "value_repr": [
+                        "promotion_failed",
+                        "rollback_start",
+                        "effects_inverse",
+                        "storage_restore",
+                        "code_restore",
+                        "database_restore",
+                        "verifying_prior",
+                        "prior_verify",
+                        "rolled_back_verified",
+                        "exclusion_release"
+                    ]
+                },
+                "STATUSES": {
+                    "value_repr": [
+                        "recovered",
+                        "failed",
+                        "reconcile_required"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "build": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "inputs",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "digest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "outcome",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "encode": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "outcome",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "outcome",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\Orchestrator\\RecoveryPlan": {
+            "abstract": false,
+            "constants": {
+                "ELIGIBLE_STATES": {
+                    "value_repr": [
+                        "prepared",
+                        "promoting",
+                        "verifying_new",
+                        "rollback_pending",
+                        "rolling_back",
+                        "verifying_prior"
+                    ]
+                },
+                "FORMAT": {
+                    "value_repr": "wprism-recovery-plan/v1"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "authorizationSubject": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "build": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "inputs",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "currentFacts": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "observation",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "digest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "encode": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "factsDigest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "facts",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "isGitObjectId": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "presentationDigest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "read": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "path",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "reverify": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "plan",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "currentFacts",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "at",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "subjectDigest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "observation",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
                     "visibility": "public"
                 }
             },
@@ -38566,6 +39390,31 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "assertPromotionBinding": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "WPrism\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "binding",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "prepare": {
                     "abstract": false,
                     "final": false,
@@ -38608,6 +39457,14 @@
                             "has_default": true,
                             "name": "hostCatalog",
                             "type": "?callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "stageReceipt",
+                            "type": "?array",
                             "variadic": false
                         }
                     ],
@@ -38680,6 +39537,38 @@
                             "default": null,
                             "has_default": true,
                             "name": "verify",
+                            "type": "?callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "beforeConsumption",
+                            "type": "?callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "afterBoundaryVerification",
+                            "type": "?callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "beforeMaterialization",
+                            "type": "?callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "afterMaterialization",
                             "type": "?callable",
                             "variadic": false
                         }
@@ -38780,6 +39669,14 @@
                             "name": "refusal",
                             "type": "?array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "verify",
+                            "type": "array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -38878,6 +39775,157 @@
                             "default": null,
                             "has_default": false,
                             "name": "outcome",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\Orchestrator\\ReleasePrepare": {
+            "abstract": false,
+            "constants": {
+                "FORMAT": {
+                    "value_repr": "wprism-release-prepare/v1"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "authorizationSubject": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "build": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "receipt",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "plan",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "request",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "encode": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "fromBytes": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "bytes",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "read": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "path",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "subjectDigest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
                             "type": "array",
                             "variadic": false
                         }
@@ -39149,6 +40197,23 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "activeEvidence": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "transport",
+                            "type": "WPrism\\Orchestrator\\RecoveryTransport",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "adoptExclusion": {
                     "abstract": false,
                     "final": false,
@@ -39241,6 +40306,14 @@
                             "name": "timestamp",
                             "type": "?string",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "expectedStatus",
+                            "type": "?array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -39317,6 +40390,14 @@
                         }
                     ],
                     "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "assertSigningKeyAdmitted": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
                     "static": false,
                     "visibility": "public"
                 },
@@ -39471,6 +40552,14 @@
                             "name": "timestamp",
                             "type": "?string",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "expectedStatus",
+                            "type": "?array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -39612,6 +40701,14 @@
                             "name": "input",
                             "type": "array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "expectedStatus",
+                            "type": "?array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -39736,6 +40833,14 @@
                             "name": "timestamp",
                             "type": "?string",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "expectedStatus",
+                            "type": "?array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -39797,6 +40902,23 @@
                     "parameters": [],
                     "return_type": "string",
                     "static": false,
+                    "visibility": "public"
+                },
+                "recoveryProbe": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "transport",
+                            "type": "WPrism\\Orchestrator\\RecoveryTransport",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
                     "visibility": "public"
                 },
                 "releaseExclusion": {
@@ -40266,6 +41388,175 @@
                     "parameters": [],
                     "return_type": "array",
                     "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\Orchestrator\\SourceStageReceipt": {
+            "abstract": false,
+            "constants": {
+                "FORMAT": {
+                    "value_repr": "wprism-source-stage-receipt/v1"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assertOperationId": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "operationId",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "build": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "facts",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "digest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "encode": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "fromBytes": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "bytes",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "read": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "path",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "stageRef": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "operationId",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "targetIdentityDigest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetId",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
                     "visibility": "public"
                 }
             },
@@ -40789,6 +42080,125 @@
             "properties": [],
             "readonly": false
         },
+        "WPrism\\Orchestrator\\StageSourceCommand": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "WPrism\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "extra",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "clock",
+                            "type": "?callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "stage": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "WPrism\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "siteRepo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "advertisedRef",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "operationId",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "clock",
+                            "type": "?callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "verify": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "WPrism\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "receipt",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "WPrism\\Orchestrator\\StatusCommand": {
             "abstract": false,
             "constants": [],
@@ -41080,6 +42490,253 @@
                             "has_default": true,
                             "name": "observedPins",
                             "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\Orchestrator\\TargetOperationStore": {
+            "abstract": false,
+            "constants": {
+                "AUTHORITY_POLICY_SYNC_FORMAT": {
+                    "value_repr": "wprism-target-authority-policy-sync/v1"
+                },
+                "COMPLETION_FORMAT": {
+                    "value_repr": "wprism-authorized-operation-completion/v1"
+                },
+                "CONSUMPTION_FORMAT": {
+                    "value_repr": "wprism-authorization-consumption/v1"
+                },
+                "ELECTION_FORMAT": {
+                    "value_repr": "wprism-authorized-operation-election/v1"
+                },
+                "PRECONDITION_FORMAT": {
+                    "value_repr": "wprism-target-operation-precondition/v1"
+                },
+                "TARGET_FORMAT": {
+                    "value_repr": "wprism-target-identity/v1"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "complete": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "WPrism\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "consumption",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "outcome",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "consume": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "WPrism\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "authorization",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "envelope",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "subject",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "precondition",
+                            "type": "?array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "ensureIdentity": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "WPrism\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "readAuthorityPolicy": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "WPrism\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "readIdentity": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "WPrism\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "status": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "WPrism\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "authorizationDigest",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "statusForSubject": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "WPrism\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "subject",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "syncAuthorityPolicy": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "WPrism\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "expectedCurrent",
+                            "type": "string",
                             "variadic": false
                         }
                     ],
@@ -41859,6 +43516,23 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "assertAuthorizedRecoveryResumable": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "frozenTarget",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "claim": {
                     "abstract": false,
                     "final": false,
@@ -41961,6 +43635,23 @@
                     "abstract": false,
                     "final": false,
                     "parameters": [],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "recoverAuthorized": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "frozenTarget",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
                     "return_type": "array",
                     "static": false,
                     "visibility": "public"
@@ -53338,6 +55029,9 @@
                 "EVENT_FORMAT": {
                     "value_repr": "wprism-rollback-event/v1"
                 },
+                "PUBLIC_KEY_EVIDENCE_FORMAT": {
+                    "value_repr": "wprism-rollback-public-key-evidence/v1"
+                },
                 "RECEIPT_FORMAT": {
                     "value_repr": "wprism-rollback-receipt/v2"
                 },
@@ -53500,6 +55194,31 @@
                         }
                     ],
                     "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "publicKeyEvidence": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "root",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "keyId",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 },

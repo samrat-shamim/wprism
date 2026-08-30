@@ -35,13 +35,20 @@ require_once dirname(__DIR__, 4) . '/cli/src/Transport/LocalTransport.php';
 require_once dirname(__DIR__, 4) . '/cli/src/Recovery/RollbackAuthority.php';
 require_once dirname(__DIR__, 4) . '/cli/src/Recovery/VerifiedRollbackProfile.php';
 require_once dirname(__DIR__, 4) . '/cli/src/Recovery/RecoveryClaim.php';
+require_once dirname(__DIR__, 4) . '/cli/src/Recovery/RecoveryOutcome.php';
 require_once dirname(__DIR__, 4) . '/cli/src/Recovery/RecoveryProfileSelection.php';
+require_once dirname(__DIR__, 4) . '/cli/src/Command/RecoverCommand.php';
 
 use WPrism\Canon;
 use WPrism\Orchestrator\LocalTransport;
+use WPrism\Orchestrator\OperationAuthorization;
+use WPrism\Orchestrator\RecoverCommand;
 use WPrism\Orchestrator\RecoveryClaim;
+use WPrism\Orchestrator\RecoveryOutcome;
+use WPrism\Orchestrator\RecoveryPlan;
 use WPrism\Orchestrator\RecoveryProfileSelection;
 use WPrism\Orchestrator\RollbackAuthority;
+use WPrism\Orchestrator\TargetOperationStore;
 use WPrism\Orchestrator\VerifiedRollbackProfile;
 use WPrism\Recovery\RollbackControl;
 
@@ -95,10 +102,51 @@ $keyId = 'local-verified-key';
 $keypair = sodium_crypto_sign_keypair();
 $secret = sodium_crypto_sign_secretkey($keypair);
 $public = sodium_crypto_sign_publickey($keypair);
+$wrongRollbackKeypair = sodium_crypto_sign_keypair();
+$wrongRollbackSecret = sodium_crypto_sign_secretkey($wrongRollbackKeypair);
+$operationKeypair = sodium_crypto_sign_keypair();
+$operationSecret = sodium_crypto_sign_secretkey($operationKeypair);
 
 try {
     mkdir($tmp, 0700, true);
     $repo = $tmp . '/site';
+    mkdir($repo, 0700, true);
+    $trust = [
+        'format' => OperationAuthorization::TRUST_FORMAT,
+        'keys' => [
+            'local-recovery-owner' => [
+                'actor' => 'orbit:user:local-recovery-owner',
+                'algorithm' => 'ed25519',
+                'grants' => ['business_owner', 'operator_confirmation'],
+                'operations' => ['recovery'],
+                'public_key' => base64_encode(sodium_crypto_sign_publickey($operationKeypair)),
+                'status' => 'trusted',
+            ],
+        ],
+        'max_clock_skew_seconds' => 30,
+        'max_ttl_seconds' => 3600,
+    ];
+    lvr_write($repo . '/site.wprism.json', Canon::encode(['environments' => []]), 0644);
+    lvr_write(
+        $repo . '/.wprism/authority/authorities.json',
+        Canon::encode($trust),
+        0644
+    );
+    exec('git -C ' . escapeshellarg($repo) . ' init -q', $gitOutput, $gitExit);
+    wprism_check_same(0, $gitExit, 'the authorized recovery fixture is a target Git checkout');
+    exec(
+        'git -C ' . escapeshellarg($repo)
+            . ' -c user.name=' . escapeshellarg('Recovery Test')
+            . ' -c user.email=' . escapeshellarg('recovery@example.invalid')
+            . ' add site.wprism.json .wprism/authority/authorities.json'
+            . ' && git -C ' . escapeshellarg($repo)
+            . ' -c user.name=' . escapeshellarg('Recovery Test')
+            . ' -c user.email=' . escapeshellarg('recovery@example.invalid')
+            . ' commit -qm ' . escapeshellarg('authorized recovery fixture'),
+        $gitOutput,
+        $gitExit
+    );
+    wprism_check_same(0, $gitExit, 'the operation-authority policy has an exact target head');
     $root = $repo . '/.wprism/control';
     $initial = RollbackControl::initialize($root);
     RollbackControl::installPublicKey($root, $keyId, base64_encode($public));
@@ -188,6 +236,9 @@ try {
         'wp_path' => $tmp . '/wordpress',
     ];
     $transport = new LocalTransport('local-verified', $envConfig);
+    $fakeBin = $tmp . '/fake-bin';
+    mkdir($fakeBin, 0700, true);
+    lvr_write($fakeBin . '/wp', "#!/bin/sh\nprintf '%s' 'single-site'\n", 0700);
     wprism_check(
         $transport->carriesRollbackAuthority(),
         'a machine-local environment with a signing key carries a rollback authority'
@@ -350,12 +401,562 @@ try {
     lvr_write($effectTarget, 'mutated-effect', 0644);
 
     // ------------------------------------------------------------ rollback
-    // The whole point of the profile: a failure after `promoting` converges to
-    // the prior world through signed operations, never through the
-    // operator-directed database dump.
-    $rolledBack = $profile->rollback(true, true, true);
+    // Enter rolling_back and leave the first exact provider input prepared.
+    // The authorized recovery path must resume that open operation rather than
+    // calling runOperation(), which would try to prepare it a second time.
+    $authority = new RollbackAuthority($transport);
+    $beforeRollback = RollbackAuthority::status($transport);
+    $authority->append(
+        'rollback_pending',
+        'state_transition',
+        'promotion_failed',
+        1,
+        (string) $beforeRollback['claimant'],
+        hash('sha256', 'promotion_failed:input'),
+        hash('sha256', 'promotion_failed:result')
+    );
+    $pending = RollbackAuthority::status($transport);
+    $authority->append(
+        'rolling_back',
+        'state_transition',
+        'rollback_start',
+        1,
+        (string) $pending['claimant'],
+        hash('sha256', 'rollback_start:input'),
+        hash('sha256', 'rollback_start:result')
+    );
+    $rolling = RollbackAuthority::status($transport);
+    $effect = (array) $rolling['effects'];
+    $effectInput = [
+        'artifact_hash' => (string) $rolling['artifact_hash'],
+        'effects_inventory_sha256' => (string) $effect['effects_inventory_sha256'],
+        'format' => 'wprism-effect-operation/v1',
+        'generation' => (int) $rolling['generation'],
+        'lifecycle_receipts_sha256' => (string) $effect['metadata_sha256'],
+        'operation' => 'restore_prior',
+        'owner' => (string) $rolling['owner'],
+        'prior_evidence_sha256' => (string) $effect['prior_evidence_sha256'],
+        'receipt_id' => (string) $rolling['receipt_id'],
+        'target_id' => (string) $rolling['target_id'],
+    ];
+    $authority->prepareOperation('rolling_back', 'effects_inverse', 1, $effectInput);
+    TargetOperationStore::ensureIdentity($transport);
+    TargetOperationStore::syncAuthorityPolicy($transport, $trust, 'absent');
+    $authorizedAt = gmdate('Y-m-d\TH:i:s\Z');
+    $oldPath = (string) getenv('PATH');
+    $oldCwd = getcwd();
+    putenv('PATH=' . $fakeBin . ':' . $oldPath);
+    chdir($repo);
+    try {
+        ob_start();
+        $prepareExit = RecoverCommand::run(
+            $transport,
+            [
+                'prepare',
+                '--restore=' . (string) $rolling['receipt_id'],
+                '--operation-id=local-authorized-recovery-1',
+                '--format=json',
+            ],
+            static fn (): string => $authorizedAt
+        );
+        $planBytes = (string) ob_get_clean();
+        $recoveryPlan = json_decode($planBytes, true);
+        wprism_check_same(0, $prepareExit, 'public recover prepare freezes the rolling-back generation read-only');
+        wprism_check(is_array($recoveryPlan), 'public recover prepare emits a canonical plan for external signing');
+        if (!is_array($recoveryPlan)) wprism_check_summary('local verified rollback');
+        $planPath = $tmp . '/recovery-plan.json';
+        lvr_write($planPath, $planBytes);
+        $statement = [
+            'actor' => 'orbit:user:local-recovery-owner',
+            'expires_at' => gmdate('Y-m-d\TH:i:s\Z', strtotime($authorizedAt) + 90),
+            'issued_at' => $authorizedAt,
+            'key_id' => 'local-recovery-owner',
+            'nonce' => 'local-recovery-nonce-0123456789',
+            'operation' => 'recovery',
+            'operation_id' => (string) $recoveryPlan['operation_id'],
+            'presentation_digest' => (string) $recoveryPlan['presentation_digest'],
+            'subject_digest' => (string) $recoveryPlan['subject_digest'],
+            'target_id' => (string) $recoveryPlan['target']['operation_target_id'],
+        ];
+        $authorization = OperationAuthorization::sign($statement, $operationSecret);
+        $authorizationPath = $tmp . '/recovery-authorization.json';
+        lvr_write($authorizationPath, Canon::encode($authorization));
+
+        // A crash after target-side consumption but before completion elects
+        // the operation tuple, not merely one envelope digest. A newly signed
+        // envelope for that same frozen subject must reach the public execute
+        // path and refuse without joining or repeating the abandoned mutation.
+        ob_start();
+        $crashPlanExit = RecoverCommand::run(
+            $transport,
+            [
+                'prepare',
+                '--restore=' . (string) $rolling['receipt_id'],
+                '--operation-id=local-authorized-recovery-crash-election',
+                '--format=json',
+            ],
+            static fn (): string => $authorizedAt
+        );
+        $crashPlanBytes = (string) ob_get_clean();
+        $crashPlan = json_decode($crashPlanBytes, true);
+        wprism_check_same(0, $crashPlanExit, 'a second frozen operation is available for crash-election coverage');
+        if (!is_array($crashPlan)) wprism_check_summary('local verified rollback');
+        $crashPlanPath = $tmp . '/recovery-crash-plan.json';
+        lvr_write($crashPlanPath, $crashPlanBytes);
+        $crashStatement = [
+            'actor' => 'orbit:user:local-recovery-owner',
+            'expires_at' => gmdate('Y-m-d\TH:i:s\Z', strtotime($authorizedAt) + 90),
+            'issued_at' => $authorizedAt,
+            'key_id' => 'local-recovery-owner',
+            'nonce' => 'local-recovery-crash-a-0123456789',
+            'operation' => 'recovery',
+            'operation_id' => (string) $crashPlan['operation_id'],
+            'presentation_digest' => (string) $crashPlan['presentation_digest'],
+            'subject_digest' => (string) $crashPlan['subject_digest'],
+            'target_id' => (string) $crashPlan['target']['operation_target_id'],
+        ];
+        $crashAuthorizationA = OperationAuthorization::sign($crashStatement, $operationSecret);
+        $crashVerifiedA = OperationAuthorization::verify(
+            $crashAuthorizationA,
+            RecoveryPlan::authorizationSubject($crashPlan),
+            $trust,
+            $authorizedAt
+        );
+        $crashConsumption = TargetOperationStore::consume(
+            $transport,
+            $crashVerifiedA,
+            $crashAuthorizationA,
+            RecoveryPlan::authorizationSubject($crashPlan)
+        );
+        wprism_check_same(false, $crashConsumption['replayed'], 'the crash fixture consumes authorization A once');
+        $crashStatement['nonce'] = 'local-recovery-crash-b-0123456789';
+        $crashAuthorizationB = OperationAuthorization::sign($crashStatement, $operationSecret);
+        $crashAuthorizationBPath = $tmp . '/recovery-crash-authorization-b.json';
+        lvr_write($crashAuthorizationBPath, Canon::encode($crashAuthorizationB));
+        $crashDigestB = OperationAuthorization::envelopeDigest($crashAuthorizationB);
+        $beforeCrashReplay = RollbackAuthority::status($transport);
+        ob_start();
+        $crashReplayExit = RecoverCommand::run(
+            $transport,
+            [
+                'execute',
+                '--plan=' . $crashPlanPath,
+                '--authorization=' . $crashAuthorizationBPath,
+                '--format=json',
+            ],
+            static fn (): string => $authorizedAt
+        );
+        $crashReplayBytes = (string) ob_get_clean();
+        $crashReplay = json_decode($crashReplayBytes, true);
+        $afterCrashReplay = RollbackAuthority::status($transport);
+        wprism_check_same(1, $crashReplayExit, 'fresh authorization B cannot repair A after consumption crash');
+        wprism_check_same(
+            'recovery_reconciliation_required',
+            is_array($crashReplay) ? ($crashReplay['reason_code'] ?? null) : null,
+            'the public recovery path reports the elected nonterminal tuple as reconciliation'
+        );
+        wprism_check_same(
+            $beforeCrashReplay['sequence'],
+            $afterCrashReplay['sequence'],
+            'tuple reconciliation refusal appends no rollback event'
+        );
+        wprism_check_same(
+            null,
+            TargetOperationStore::status($transport, $crashDigestB),
+            'authorization B remains unconsumed after tuple reconciliation refusal'
+        );
+
+        // A signed plan must not burn its one-time actor authority when the
+        // target has lost the configured provider/adapter set needed by this
+        // full receipt. Removing the target-owned configuration reproduces
+        // that drift while leaving the signed generation itself unchanged.
+        $authorizationDigest = OperationAuthorization::envelopeDigest($authorization);
+        $installedRecoveryConfig = $root . '/recovery-config.json';
+        $heldRecoveryConfig = $root . '/recovery-config.removed-for-test.json';
+        rename($installedRecoveryConfig, $heldRecoveryConfig);
+        try {
+            ob_start();
+            $notReadyExit = RecoverCommand::run(
+                $transport,
+                [
+                    'execute',
+                    '--plan=' . $planPath,
+                    '--authorization=' . $authorizationPath,
+                    '--format=json',
+                ],
+                static fn (): string => $authorizedAt
+            );
+            $notReadyBytes = (string) ob_get_clean();
+        } finally {
+            rename($heldRecoveryConfig, $installedRecoveryConfig);
+        }
+        $notReady = json_decode($notReadyBytes, true);
+        wprism_check_same(1, $notReadyExit, 'execute refuses when target recovery configuration disappeared');
+        wprism_check_same(
+            'recovery_resume_ineligible',
+            is_array($notReady) ? ($notReady['reason_code'] ?? null) : null,
+            'the missing provider/configuration refusal is explicit and pre-consumption'
+        );
+        wprism_check_same(
+            null,
+            TargetOperationStore::status($transport, $authorizationDigest),
+            'provider/configuration drift leaves the one-time authorization unconsumed'
+        );
+
+        // A valid Ed25519 secret under the right key id is insufficient: it
+        // must derive the immutable public key the target actually admitted.
+        lvr_write($signingKeyPath, base64_encode($wrongRollbackSecret) . "\n");
+        try {
+            ob_start();
+            $wrongKeyExit = RecoverCommand::run(
+                $transport,
+                [
+                    'execute',
+                    '--plan=' . $planPath,
+                    '--authorization=' . $authorizationPath,
+                    '--format=json',
+                ],
+                static fn (): string => $authorizedAt
+            );
+            $wrongKeyBytes = (string) ob_get_clean();
+        } finally {
+            lvr_write($signingKeyPath, base64_encode($secret) . "\n");
+        }
+        $wrongKey = json_decode($wrongKeyBytes, true);
+        wprism_check_same(1, $wrongKeyExit, 'execute refuses a wrong signing secret under the receipt key id');
+        wprism_check_same(
+            'recovery_resume_ineligible',
+            is_array($wrongKey) ? ($wrongKey['reason_code'] ?? null) : null,
+            'target public-key admission is part of the pre-consumption readiness gate'
+        );
+        wprism_check_same(
+            null,
+            TargetOperationStore::status($transport, $authorizationDigest),
+            'a wrong local signing secret leaves one-time authority unconsumed'
+        );
+
+        // Revoke the actor only when the final boundary clock is read. Both
+        // earlier plan observations and the first signature verification saw
+        // the original policy; the final trust re-read must still refuse.
+        $revokedTrust = $trust;
+        $revokedTrust['keys']['local-recovery-owner']['status'] = 'revoked';
+        $policyClockReads = 0;
+        $policyRaceClock = static function () use (
+            &$policyClockReads,
+            $authorizedAt,
+            $repo,
+            $revokedTrust
+        ): string {
+            $policyClockReads++;
+            if ($policyClockReads === 5) {
+                lvr_write(
+                    $repo . '/.wprism/authority/authorities.json',
+                    Canon::encode($revokedTrust),
+                    0644
+                );
+            }
+            return $authorizedAt;
+        };
+        try {
+            ob_start();
+            $policyRaceExit = RecoverCommand::run(
+                $transport,
+                [
+                    'execute',
+                    '--plan=' . $planPath,
+                    '--authorization=' . $authorizationPath,
+                    '--format=json',
+                ],
+                $policyRaceClock
+            );
+            $policyRaceBytes = (string) ob_get_clean();
+        } finally {
+            lvr_write(
+                $repo . '/.wprism/authority/authorities.json',
+                Canon::encode($trust),
+                0644
+            );
+        }
+        $policyRace = json_decode($policyRaceBytes, true);
+        wprism_check_same(5, $policyClockReads, 'policy fixture changes only at the final authority boundary');
+        wprism_check_same(1, $policyRaceExit, 'execute refuses authority policy revoked after readiness');
+        wprism_check_same(
+            'authorization_authority_policy_changed',
+            is_array($policyRace) ? ($policyRace['reason_code'] ?? null) : null,
+            'the final trust re-read detects the controller-side policy race'
+        );
+        wprism_check_same(
+            null,
+            TargetOperationStore::status($transport, $authorizationDigest),
+            'final-boundary trust drift leaves one-time authority unconsumed'
+        );
+
+        // Change a frozen target byte only after the last controller-side
+        // reverify. The target command holds rollback-control's target.lock,
+        // rechecks the checkpoint hash, and elects the tuple in that same
+        // critical section, so the race cannot burn actor authority.
+        $checkpointPath = $repo . '/.wprism/rollback/' . (string) $rolling['receipt_id']
+            . '/artifacts/checkpoint.enc';
+        $checkpointBytes = (string) file_get_contents($checkpointPath);
+        $targetCasClockReads = 0;
+        $targetCasClock = static function () use (
+            &$targetCasClockReads,
+            $authorizedAt,
+            $checkpointPath,
+            $checkpointBytes
+        ): string {
+            $targetCasClockReads++;
+            if ($targetCasClockReads === 5) {
+                lvr_write($checkpointPath, $checkpointBytes . 'post-reverify-drift');
+            }
+            return $authorizedAt;
+        };
+        try {
+            ob_start();
+            $targetCasExit = RecoverCommand::run(
+                $transport,
+                [
+                    'execute',
+                    '--plan=' . $planPath,
+                    '--authorization=' . $authorizationPath,
+                    '--format=json',
+                ],
+                $targetCasClock
+            );
+            $targetCasBytes = (string) ob_get_clean();
+        } finally {
+            lvr_write($checkpointPath, $checkpointBytes);
+        }
+        $targetCas = json_decode($targetCasBytes, true);
+        wprism_check_same(5, $targetCasClockReads, 'checkpoint fixture changes after final controller reverify');
+        wprism_check_same(1, $targetCasExit, 'target-side CAS refuses checkpoint drift in the consume gap');
+        wprism_check_same(
+            'authorized_operation_precondition_changed',
+            is_array($targetCas) ? ($targetCas['reason_code'] ?? null) : null,
+            'target-owned frozen-fact CAS reports a typed precondition refusal'
+        );
+        wprism_check_same(
+            null,
+            TargetOperationStore::status($transport, $authorizationDigest),
+            'post-reverify target drift leaves one-time authority unconsumed'
+        );
+
+        // A repository writer that cooperates with WPrism cannot enter while
+        // target preconditions are being checked. The fake Git wrapper proves
+        // that lock is held, then deliberately ignores it and commits after
+        // the first HEAD read: the final read must still refuse before tuple
+        // election or any rollback event.
+        $realGit = trim((string) shell_exec('command -v git'));
+        $gitDirectory = trim((string) shell_exec(
+            escapeshellarg($realGit) . ' -C ' . escapeshellarg($repo)
+                . ' rev-parse --absolute-git-dir'
+        ));
+        $repositoryLockPath = $gitDirectory . '/wprism-control/repository.lock';
+        $repositoryRaceMarker = $tmp . '/repository-race-triggered';
+        $repositoryRaceEvidence = $tmp . '/repository-race-evidence';
+        $repositoryRaceHead = $tmp . '/repository-race-head';
+        $fakeGit = $fakeBin . '/git';
+        $fakeGitBytes = "#!/bin/sh\n"
+            . 'REAL_GIT=' . escapeshellarg($realGit) . "\n"
+            . 'PHP_BIN=' . escapeshellarg(PHP_BINARY) . "\n"
+            . 'RACE_REPO=' . escapeshellarg($repo) . "\n"
+            . 'REPOSITORY_LOCK=' . escapeshellarg($repositoryLockPath) . "\n"
+            . 'RACE_MARKER=' . escapeshellarg($repositoryRaceMarker) . "\n"
+            . 'RACE_EVIDENCE=' . escapeshellarg($repositoryRaceEvidence) . "\n"
+            . 'RACE_HEAD=' . escapeshellarg($repositoryRaceHead) . "\n"
+            . <<<'SH'
+if [ "$#" -eq 4 ] && [ "$1" = '-C' ] && [ "$2" = "$RACE_REPO" ] \
+    && [ "$3" = 'rev-parse' ] && [ "$4" = 'HEAD' ] && [ ! -e "$RACE_MARKER" ] \
+    && [ -f "$REPOSITORY_LOCK" ]; then
+  if ! "$PHP_BIN" -r '$h=@fopen($argv[1],"rb");exit(is_resource($h)&&flock($h,LOCK_EX|LOCK_NB)?0:1);' "$REPOSITORY_LOCK"; then
+    old_head=$("$REAL_GIT" "$@") || exit $?
+    printf '%s\n' "$old_head"
+    printf 'repository-lock-held\n' > "$RACE_EVIDENCE"
+    : > "$RACE_MARKER"
+    printf 'post-head repository drift\n' > "$RACE_REPO/repository-race.txt"
+    "$REAL_GIT" -C "$RACE_REPO" add -- repository-race.txt || exit $?
+    "$REAL_GIT" -C "$RACE_REPO" -c user.name='Recovery Race' \
+      -c user.email='recovery-race@example.invalid' commit -qm 'repository race' || exit $?
+    "$REAL_GIT" -C "$RACE_REPO" rev-parse HEAD > "$RACE_HEAD" || exit $?
+    exit 0
+  fi
+fi
+exec "$REAL_GIT" "$@"
+SH;
+        lvr_write($fakeGit, $fakeGitBytes, 0700);
+        $beforeRepositoryRace = RollbackAuthority::status($transport);
+        try {
+            ob_start();
+            $repositoryRaceExit = RecoverCommand::run(
+                $transport,
+                [
+                    'execute',
+                    '--plan=' . $planPath,
+                    '--authorization=' . $authorizationPath,
+                    '--format=json',
+                ],
+                static fn (): string => $authorizedAt
+            );
+            $repositoryRaceBytes = (string) ob_get_clean();
+            $repositoryRace = json_decode($repositoryRaceBytes, true);
+            $afterRepositoryRace = RollbackAuthority::status($transport);
+            $racedHead = trim((string) @file_get_contents($repositoryRaceHead));
+        } finally {
+            @unlink($fakeGit);
+            exec(
+                escapeshellarg($realGit) . ' -C ' . escapeshellarg($repo)
+                    . ' reset --hard ' . escapeshellarg((string) $recoveryPlan['target_head']),
+                $repositoryResetOutput,
+                $repositoryResetExit
+            );
+        }
+        wprism_check_same('repository-lock-held', trim((string) @file_get_contents($repositoryRaceEvidence)), 'target CAS holds the shared Git repository lock before reading HEAD');
+        wprism_check(
+            $racedHead !== '' && !hash_equals((string) $recoveryPlan['target_head'], $racedHead),
+            'the deterministic writer commits after the old single-read seam'
+        );
+        wprism_check_same(1, $repositoryRaceExit, 'a Git commit between target HEAD reads refuses recovery');
+        wprism_check_same(
+            'authorized_operation_precondition_changed',
+            is_array($repositoryRace) ? ($repositoryRace['reason_code'] ?? null) : null,
+            'the final target HEAD read reports a typed precondition refusal'
+        );
+        wprism_check_same(
+            $beforeRepositoryRace['sequence'],
+            $afterRepositoryRace['sequence'],
+            'repository drift appends no rollback event'
+        );
+        wprism_check_same(
+            null,
+            TargetOperationStore::status($transport, $authorizationDigest),
+            'repository drift leaves one-time authority unconsumed'
+        );
+        wprism_check_same(0, $repositoryResetExit, 'the repository race fixture restores the frozen target HEAD');
+
+        ob_start();
+        $executeExit = RecoverCommand::run(
+            $transport,
+            [
+                'execute',
+                '--plan=' . $planPath,
+                '--authorization=' . $authorizationPath,
+                '--format=json',
+            ],
+            static fn (): string => $authorizedAt
+        );
+        $outcomeBytes = (string) ob_get_clean();
+        $authorizedRecovery = json_decode($outcomeBytes, true);
+        wprism_check_same(0, $executeExit, 'public recover execute verifies, consumes and completes the frozen operation');
+        if ($executeExit !== 0) wprism_check_detail('execute output: ' . $outcomeBytes);
+        wprism_check(is_array($authorizedRecovery), 'public recover execute emits its structured terminal outcome');
+        if (!is_array($authorizedRecovery)) wprism_check_summary('local verified rollback');
+        RecoveryOutcome::validate($authorizedRecovery);
+
+        $targetGit = trim((string) shell_exec('git -C ' . escapeshellarg($repo) . ' rev-parse --absolute-git-dir'));
+        $targetIdentityPath = $targetGit . '/wprism-control/target-id';
+        $targetIdentityBytes = (string) file_get_contents($targetIdentityPath);
+        lvr_write($targetIdentityPath, 'wprism-target:' . str_repeat('f', 64) . "\n");
+        try {
+            ob_start();
+            $targetDriftExit = RecoverCommand::run(
+                $transport,
+                [
+                    'execute',
+                    '--plan=' . $planPath,
+                    '--authorization=' . $authorizationPath,
+                    '--format=json',
+                ],
+                static fn (): string => gmdate('Y-m-d\TH:i:s\Z', strtotime($authorizedAt) + 7200)
+            );
+            $targetDriftBytes = (string) ob_get_clean();
+        } finally {
+            lvr_write($targetIdentityPath, $targetIdentityBytes);
+        }
+        $targetDrift = json_decode($targetDriftBytes, true);
+        wprism_check_same(1, $targetDriftExit, 'completed recovery replay refuses target identity drift');
+        wprism_check_same(
+            'authorized_operation_status_invalid',
+            is_array($targetDrift) ? ($targetDrift['reason_code'] ?? null) : null,
+            'completed recovery cannot replay target A outcome after canonical target identity becomes B'
+        );
+
+        ob_start();
+        $replayExit = RecoverCommand::run(
+            $transport,
+            [
+                'execute',
+                '--plan=' . $planPath,
+                '--authorization=' . $authorizationPath,
+                '--format=json',
+            ],
+            static fn (): string => gmdate('Y-m-d\TH:i:s\Z', strtotime($authorizedAt) + 7200)
+        );
+        $replayBytes = (string) ob_get_clean();
+        wprism_check_same(0, $replayExit, 'completed execute replays after actor authorization expiry');
+        wprism_check_same($outcomeBytes, $replayBytes, 'completed execute replay is the exact stored outcome bytes');
+
+        $completedReplacementStatement = $statement;
+        $completedReplacementStatement['nonce'] = 'local-recovery-completed-b-0123456789';
+        $completedReplacement = OperationAuthorization::sign(
+            $completedReplacementStatement,
+            $operationSecret
+        );
+        $completedReplacementPath = $tmp . '/recovery-completed-replacement.json';
+        lvr_write($completedReplacementPath, Canon::encode($completedReplacement));
+        $completedReplacementDigest = OperationAuthorization::envelopeDigest($completedReplacement);
+        ob_start();
+        $completedReplacementExit = RecoverCommand::run(
+            $transport,
+            [
+                'execute',
+                '--plan=' . $planPath,
+                '--authorization=' . $completedReplacementPath,
+                '--format=json',
+            ],
+            static fn (): string => gmdate('Y-m-d\TH:i:s\Z', strtotime($authorizedAt) + 7200)
+        );
+        $completedReplacementBytes = (string) ob_get_clean();
+        $completedReplacementResult = json_decode($completedReplacementBytes, true);
+        wprism_check_same(
+            1,
+            $completedReplacementExit,
+            'a different authorization cannot replay an already-completed recovery tuple'
+        );
+        wprism_check_same(
+            'recovery_authorization_already_completed',
+            is_array($completedReplacementResult) ? ($completedReplacementResult['reason_code'] ?? null) : null,
+            'completed tuple mismatch is distinct from exact authorization replay'
+        );
+        wprism_check(
+            !hash_equals($outcomeBytes, $completedReplacementBytes),
+            'authorization B is never presented with authorization A\'s terminal outcome'
+        );
+        wprism_check_same(
+            null,
+            TargetOperationStore::status($transport, $completedReplacementDigest),
+            'completed tuple mismatch leaves authorization B unconsumed'
+        );
+    } finally {
+        chdir(is_string($oldCwd) ? $oldCwd : __DIR__);
+        putenv('PATH=' . $oldPath);
+    }
+
+    $rolledBack = RollbackAuthority::status($transport);
     wprism_check_same('rolled_back', $rolledBack['state'], 'the signed rollback reaches the rolled_back terminal state');
     wprism_check_same(true, (bool) ($rolledBack['terminal'] ?? false), 'the rolled_back generation is terminal');
+    wprism_check_same(
+        RecoveryOutcome::RECOVERY_STEPS,
+        array_column($authorizedRecovery['steps'], 'step'),
+        'authorized recovery resumes the open input and publishes the exact ordered outcome vocabulary'
+    );
+    wprism_check(
+        array_reduce(
+            $authorizedRecovery['steps'],
+            static fn (bool $all, array $step): bool => $all && ($step['status'] ?? null) === 'completed',
+            true
+        ),
+        'every authorized recovery step has completed target evidence'
+    );
     wprism_check_same(
         'released',
         (string) (RollbackAuthority::status($transport)['exclusion_state'] ?? ''),
@@ -385,6 +986,8 @@ try {
     wprism_check_same('rolled_back', $final['state'], 'the fresh read agrees with the terminal state');
 } finally {
     sodium_memzero($secret);
+    sodium_memzero($wrongRollbackSecret);
+    sodium_memzero($operationSecret);
     lvr_remove_tree($tmp);
 }
 

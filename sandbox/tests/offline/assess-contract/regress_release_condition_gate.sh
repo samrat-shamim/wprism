@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Regression — the mutation gate re-checks the CONDITIONS the frozen plan
-# names, not only the three facts it used to re-probe.
+# Regression — the public release surface cannot bypass the externally
+# authorized mutation gate. Legacy release remains a read-only plan renderer;
+# signed execute owns the gate-time condition recheck exercised by
+# regress_release_stage_prepare.sh. AuthorizationPlan's complete condition
+# matrix remains covered by regress_authorization_plan.php.
 #
 # The product spec is one sentence (docs/product-spec.md:302-303):
 # "execution is permitted only when every named, machine-checkable condition
@@ -18,12 +21,9 @@
 # plugin deactivated or downgraded inside the confirmation window authorized a
 # production mutation anyway.
 #
-# Every case below RELEASES against that build. Each drives the real
-# `php cli/wprism release` end to end over a `local` transport with a fake `wp` on
-# PATH, and the assertion that matters most is not the reason code: it is that
-# `$WPRISM_CALLS` records no `wprism promotion-begin`, `wprism deploy` or `wprism apply`.
-# That proves the refusal is PRE-mutation rather than merely early in the
-# source — the difference between a gate and a comment.
+# This suite drives the public CLI over a local transport and proves a legacy
+# `--yes` invocation cannot reach even the first planning read, much less
+# `promotion-begin`, `deploy`, or `apply`.
 #
 # Offline: no docker, no WordPress, no network, no target.
 set -uo pipefail
@@ -116,29 +116,12 @@ release() {
 # three verbs below are the ones that begin a production-visible mutation.
 assert_untouched() {
   local what="$1"
-  if grep -Eq 'wprism (promotion-begin|deploy|apply) ' "$WPRISM_CALLS"; then
+  if [ -f "$WPRISM_CALLS" ] && grep -Eq 'wprism (promotion-begin|deploy|apply) ' "$WPRISM_CALLS"; then
     fail "$what refused, but the target was already being mutated"
     grep -Eo 'wprism (promotion-begin|deploy|apply) ' "$WPRISM_CALLS" | sort -u >&2
   else
     pass "$what refuses BEFORE the first production-visible call: the target is untouched"
   fi
-}
-
-# assert_refusal <name> <reason code> <human description>
-assert_refusal() {
-  local name="$1" code="$2" what="$3"
-  grep -Fq "[$code]" "$TMP/$name.txt" \
-    && pass "$what names $code" \
-    || { fail "$what did not name $code"; sed -n '1,40p' "$TMP/$name.txt" >&2; }
-  grep -Fq '"class": "capability_expired"' "$TMP/$name.txt" \
-    && pass "$what is the failure class capability_expired" \
-    || fail "$what did not carry the capability_expired failure class"
-  grep -Fq '"next_action": "requalify"' "$TMP/$name.txt" \
-    && pass "$what answers requalify" \
-    || fail "$what did not answer requalify"
-  grep -Eq '"next_action": "(retry|recover|resume)"' "$TMP/$name.txt" \
-    && fail "$what offered an automated action for a condition that no longer holds" \
-    || pass "$what never offers retry, recover or resume"
 }
 
 # ------------------------------------------------ the frozen plan's own rows
@@ -149,146 +132,18 @@ grep -Eq 'condition: plugin_version_mismatch — sample-adapter in 10\.0\.0-11\.
   && pass 'the authorization page prints the four-part condition line docs/guides/release.md:148 documents' \
   || { fail 'the condition line is not the documented row'; grep -n 'condition:' "$TMP/planonly.txt" >&2; }
 
-# ----------------------------------------------------------------- the drift
-# `WPRISM_CAPS_AFTER_CALL=2`: call 1 is the freeze-time capability read inside
-# `prepare()`, call 2 is the mutation gate's own re-probe. The target changes
-# in between, which is exactly the operator's confirmation window.
-say 'the plugin is DOWNGRADED between freeze and gate'
-WPRISM_CAPS_AFTER=moved WPRISM_CAPS_AFTER_CALL=2 release "moved" --yes --format=json
+# ------------------------------------------------ public mutation retirement
+say 'legacy --yes cannot enter the mutation gate'
+WPRISM_CAPS_AFTER=moved WPRISM_CAPS_AFTER_CALL=1 release "legacy" --yes --format=json
 STATUS=$?
-[ "$STATUS" = 1 ] && pass 'a moved condition refuses (exit 1)' || fail "a moved condition exited $STATUS"
-assert_refusal moved release_condition_changed 'a downgraded plugin'
-grep -Fq '"state": "moved"' "$TMP/moved.txt" \
-  && pass 'the diagnostics say what happened to the condition: it moved' \
-  || fail 'the refusal does not say the observation moved'
-grep -Fq '"subject": "sample-adapter"' "$TMP/moved.txt" \
-  && pass 'the diagnostics name the SUBJECT the condition is anchored to' \
-  || fail 'the refusal does not name the condition subject'
-grep -Fq '9.9.0' "$TMP/moved.txt" \
-  && fail 'the refusal leaked the observed version value into a public envelope' \
-  || pass 'the refusal names code, subject, manifest and state — and never a version value'
-assert_untouched 'a downgraded plugin'
-
-say 'the plugin is DEACTIVATED between freeze and gate'
-WPRISM_CAPS_AFTER=inactive WPRISM_CAPS_AFTER_CALL=2 release "inactive" --yes --format=json
-STATUS=$?
-[ "$STATUS" = 1 ] && pass 'a deactivated plugin refuses (exit 1)' || fail "a deactivated plugin exited $STATUS"
-assert_refusal inactive release_condition_changed 'a deactivated plugin'
-grep -Fq '"code": "plugin_not_active"' "$TMP/inactive.txt" \
-  && pass 'the refusal names the condition code that APPEARED, not the one that was already there' \
-  || fail 'the refusal does not name plugin_not_active'
-grep -Fq '"state": "appeared"' "$TMP/inactive.txt" \
-  && pass 'a condition that appeared during the window is reported as appeared' \
-  || fail 'the appearing condition was not classified as appeared'
-assert_untouched 'a deactivated plugin'
-
-say 'a condition is WITHDRAWN between freeze and gate'
-WPRISM_CAPS_AFTER=withdrawn WPRISM_CAPS_AFTER_CALL=2 release "withdrawn" --yes --format=json
-STATUS=$?
-[ "$STATUS" = 1 ] && pass 'a withdrawn condition refuses (exit 1)' || fail "a withdrawn condition exited $STATUS"
-# Deliberate and conservative: the operator authorized a plan whose printed
-# readiness word was `Ready with conditions`, and that word is no longer the
-# true one. "Any plan change invalidates that authorization" — not "any change
-# for the worse".
-assert_refusal withdrawn release_condition_changed 'a withdrawn condition'
-grep -Fq '"state": "withdrawn"' "$TMP/withdrawn.txt" \
-  && pass 'a condition that disappeared is reported as withdrawn, not silently accepted' \
-  || fail 'the withdrawn condition was not classified as withdrawn'
-assert_untouched 'a withdrawn condition'
-
-# ------------------------------------------------------------ uncheckability
-say 'the manifest is ABSENT from the gate-time report'
-WPRISM_CAPS_AFTER=gone WPRISM_CAPS_AFTER_CALL=2 release "gone" --yes --format=json
-STATUS=$?
-[ "$STATUS" = 1 ] && pass 'an absent claim refuses (exit 1)' || fail "an absent claim exited $STATUS"
-assert_refusal gone release_condition_uncheckable 'an absent manifest'
-grep -Fq '"state": "absent_from_report"' "$TMP/gone.txt" \
-  && pass 'the diagnostics say the claim is gone rather than pretending it still holds' \
-  || fail 'the refusal does not say the manifest is absent'
-assert_untouched 'an absent manifest'
-
-say 'the gate-time report carries prose with no subject to re-probe'
-WPRISM_CAPS_AFTER=blind WPRISM_CAPS_AFTER_CALL=2 release "blind" --yes --format=json
-STATUS=$?
-[ "$STATUS" = 1 ] && pass 'a subject-less condition refuses (exit 1)' || fail "a subject-less condition exited $STATUS"
-assert_refusal blind release_condition_uncheckable 'a condition with no subject'
-grep -Fq '"state": "no_subject"' "$TMP/blind.txt" \
-  && pass 'an UNCHECKABLE condition blocks (docs/product-spec.md:302-303), it is never skipped' \
-  || fail 'the subject-less condition was not classified as uncheckable'
-assert_untouched 'a condition with no subject'
-
-# ------------------------------------------------------ the reviewed library
-say 'the reviewed disposition library moves between freeze and gate'
-WPRISM_CAPS_AFTER=skew WPRISM_CAPS_AFTER_CALL=2 release "skew" --yes --format=json
-STATUS=$?
-[ "$STATUS" = 1 ] && pass 'a moved reviewed library refuses (exit 1)' || fail "a moved library exited $STATUS"
-grep -Fq '[release_evidence_not_current]' "$TMP/skew.txt" \
-  && pass 'a library that moved inside the window names release_evidence_not_current' \
-  || { fail 'the refusal did not name release_evidence_not_current'; sed -n '1,40p' "$TMP/skew.txt" >&2; }
-grep -Fq '"class": "evidence_not_current"' "$TMP/skew.txt" \
-  && pass 'the failure class is evidence_not_current — the second class nothing could reach before' \
-  || fail 'the moved library did not carry the evidence_not_current failure class'
-grep -Fq '"next_action": "requalify"' "$TMP/skew.txt" \
-  && pass 'a moved reviewed library answers requalify' \
-  || fail 'the moved library did not answer requalify'
-assert_untouched 'a moved reviewed library'
-
-# --------------------------------------------------------------- happy path
-say 'nothing changed during the window'
-WPRISM_PLAN_AFTER=plan-converged WPRISM_PLAN_AFTER_CALL=3 release "clean" --yes --format=json
-STATUS=$?
-[ "$STATUS" = 0 ] && pass 'an unchanged target releases (exit 0)' \
-  || { fail "a clean release exited $STATUS"; sed -n '1,40p' "$TMP/clean.txt" >&2; }
-CAPS=$(grep -c 'wprism capabilities .*--operation=promote' "$WPRISM_CALLS" || true)
-[ "$CAPS" = 2 ] \
-  && pass 'exactly TWO capability reads: one at freeze, one at the mutation gate' \
-  || fail "expected 2 wprism capabilities --operation=promote calls, saw $CAPS"
-# Identical argv on both reads, or the gate would be comparing the answers to
-# two different questions (AssessCommand::capabilityReport()).
-UNIQUE=$(grep 'wprism capabilities .*--operation=promote' "$WPRISM_CALLS" | sort -u | wc -l | tr -d ' ')
-[ "$UNIQUE" = 1 ] \
-  && pass 'freeze and gate observe through IDENTICAL argv, --adoption-preview included' \
-  || { fail 'the freeze-time and gate-time capability reads used different arguments'
-       grep 'wprism capabilities' "$WPRISM_CALLS" | sort -u >&2; }
-grep -Fq '"conditions_rechecked"' "$TMP/clean.txt" \
-  && pass 'the released outcome records the recheck' \
-  || fail 'the released outcome carries no conditions_rechecked block'
-python3 - "$TMP/clean.txt" <<'PY' || fail 'the conditions_rechecked block is not the documented record'
-import json, re, sys
-text = open(sys.argv[1]).read()
-start = text.rindex('{\n    "conditions_rechecked"')
-doc = json.loads(text[start:text.rindex('}') + 1])
-record = doc['conditions_rechecked']
-assert doc['status'] == 'released', doc['status']
-assert sorted(record) == ['at', 'checked', 'conditions', 'manifests'], sorted(record)
-assert re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ', record['at']), record['at']
-assert record['conditions'] == 1, record['conditions']
-assert record['manifests'] == ['core', 'sample-adapter'], record['manifests']
-print('ok: the recheck record names its instant, its count and the claims it re-observed')
-PY
-
-say 'the released human view stays bounded'
-WPRISM_PLAN_AFTER=plan-converged WPRISM_PLAN_AFTER_CALL=3 release "cleanhuman" --yes
-LINES=$(grep -c 'conditions rechecked at' "$TMP/cleanhuman.txt" || true)
-[ "$LINES" = 1 ] \
-  && pass 'the human view gains EXACTLY one recheck line' \
-  || fail "expected exactly one 'conditions rechecked at' line, saw $LINES"
-# Scoped to the OUTCOME, which is everything from `released to fixture`
-# onward. The authorization page above it legitimately names the claim beside
-# each in-scope surface — that list is bounded by the release's own scope,
-# which is the §4.6 test. The outcome's recheck line is bounded by the site's
-# whole adapter set, so it prints a count.
-# `release()` appends stderr, so the driver's own transport WARN is dropped
-# here: it is not part of the outcome projection.
-sed -n '/^released to fixture/,$p' "$TMP/cleanhuman.txt" | grep -v '^WARN ' | grep -v '^$' \
-  > "$TMP/cleanhuman.outcome"
-grep -Fq 'sample-adapter' "$TMP/cleanhuman.outcome" \
-  && fail 'the released view enumerated the adapter claims: MUP §4.6 forbids a listing bounded by the site' \
-  || pass 'it is a COUNT, never an enumeration bounded by the site adapter set'
-[ "$(wc -l < "$TMP/cleanhuman.outcome" | tr -d ' ')" = 2 ] \
-  && pass 'the released outcome is still two lines: the release word and the bounded recheck count' \
-  || { fail 'the released outcome grew beyond the one bounded line this change adds'
-       cat "$TMP/cleanhuman.outcome" >&2; }
+[ "$STATUS" = 1 ] && pass 'legacy --yes refuses (exit 1)' || fail "legacy --yes exited $STATUS"
+grep -Fq 'release_external_authorization_required' "$TMP/legacy.txt" \
+  && pass 'the refusal requires an externally signed release execute' \
+  || { fail 'legacy --yes did not name the external-authorization boundary'; sed -n '1,30p' "$TMP/legacy.txt" >&2; }
+[ ! -e "$WPRISM_FIXTURES/caps-calls" ] \
+  && pass 'legacy --yes refuses before even a capability-policy read' \
+  || fail 'legacy --yes entered the old freeze/confirmation condition window'
+assert_untouched 'legacy --yes'
 
 printf '\n'
 if [ "$FAILURES" -eq 0 ]; then

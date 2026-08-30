@@ -102,7 +102,7 @@ final class CommandOutput {
             $verb,
             [
                 'adapter-observe', 'assess', 'capture', 'census', 'contract', 'lint', 'merge-check', 'plan',
-                'explain', 'apply', 'recover', 'refresh', 'rehearse', 'release', 'verify',
+                'explain', 'apply', 'recover', 'refresh', 'rehearse', 'release', 'stage-source', 'verify',
             ],
             true
         )) {

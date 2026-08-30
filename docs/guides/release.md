@@ -17,7 +17,7 @@ CLI needs no special path; initialize the same command variable once:
 WPRISM_CLI="${WPRISM_CLI:-wprism}"
 ```
 
-`wprism release` **composes** `wprism promote` rather than replacing it.
+`wprism release … execute` **composes** `wprism promote` rather than replacing it.
 Deploy-before-apply ordering, the promotion lease and the target fence are
 promote's, byte for byte, and so are the rollback-profile selection and the
 trailing state `apply`. The database checkpoint is not exclusive to promote any
@@ -110,35 +110,56 @@ physical mutation, and only the exact interrupted request may resume them.
 All controllers for that physical slot must share one provider-owned state
 authority; two independent state roots cannot coordinate ownership.
 
-`tools/reference-env-provider.php` exercises this fixed-slot shape against the
-sandbox pair. It is a development reference tied to that pair, not a general
-hosting, isolation or containment provider. Its local state lock serializes
-provider processes that share one state root and is inherited by its
-synchronous Docker/Git children, including when the PHP parent is forcibly
-killed. That local lock cannot cover a child that closes the descriptor or a
-daemon-side job that continues after its CLI returns. A production slot
-service must bind those jobs to the lease generation or cancel and await them
-before making the slot reusable.
+`tools/reference-env-provider.php` exercises two fixed-slot shapes. Ordinary
+pair mode is tied to the shared sandbox pair and explicitly withholds
+`environment.containment.verify`; it cannot drive `wprism rehearse`. Opt-in
+`contained_preview` mode creates a standalone target with lease-owned database
+and WordPress volumes, a dedicated database principal and credentials, an
+internal-only app network, and a credential-free proxy as its sole loopback
+ingress. It also requires a hash-pinned, machine-local, exhaustively reviewed
+snapshot policy for exact `wp_options` credential rebinds and media removals;
+the policy also mandates disabling every WordPress password/activation key and
+removing sessions/application passwords. Unsupported inventories or dump shapes
+refuse. It withholds attach/detach because an already-running target cannot
+prove that the controls existed before boot. The exact provider object,
+machine-local Docker transport, placeholder environment file and prerequisites
+are in [the generated provider guide](../branch-environment-provider.md#enabling-the-contained-preview).
 
-### Rehearse is a preview, not a sandbox
+Both modes are development references, not general hosting providers. Their
+local state lock serializes provider processes that share one state root and is
+inherited by synchronous Docker/Git children, including when the PHP parent is
+forcibly killed. That lock cannot cover a child that closes the descriptor or a
+daemon-side job that continues after its CLI returns. A production slot service
+must bind those jobs to the lease generation or cancel and await them before
+making the slot reusable.
 
-Every run prints this first, before the provider is contacted:
+### Rehearse requires a sandbox receipt
+
+Every run states the requirement first, before the provider is contacted:
 
 ```text
-containment: unknown — not enforced in this profile; do not point this environment at live payment or mail credentials.
-consequence: this rehearsal cannot authorize an Experimental or Uncertified capability — the spec permits that only after containment is proven. Rehearsal in this profile is a preview and evidence-gathering environment, not a qualification environment.
+containment: required — production-derived bytes will not enter the rehearsal until its machine-local provider proves credential isolation and default-denied HTTP, mail, payment, webhook, and queue destinations.
 ```
 
-Read it literally. WPrism does not strip or rebind production credentials, does
-not default-deny outbound HTTP, mail, payment, webhook or queue traffic, and
-does not verify containment before you exercise a workflow. A plugin in your
-preview can and will send real mail and call a real payment API if you give it
-real credentials.
+Materialization then requires `environment.containment.verify` before snapshot
+restore. The receipt binds the target identity, resource/lease ownership and
+held mutation fence to live topology evidence. Missing capability, malformed
+evidence or drift refuses. Only after that proof does the command print
+`containment: sandboxed — provider verified agency-rehearsal-v1; receipt=…`.
 
-The consequence is the half people skip: because containment is unproven, a
-rehearsal here **cannot** qualify anything. "I rehearsed it" is not "I
-qualified it", and a surface reading `Experimental` or `Uncertified` still
-reads that way afterwards.
+The bundled contained preview proves server-side HTTP/payment/webhook denial
+through the app containers' internal-only network; queue denial through the
+same network, an isolated lease database, disabled WordPress cron/updaters and
+no worker; and mail denial through the enforced refusal/capture shim. The
+loopback proxy carries no runtime, repository or database credentials. Sanitized
+snapshot admission and the reviewed policy hash are receipt-bound before restore;
+the provider does not discover undeclared secrets, so the human exhaustive-inventory
+assertion remains trusted. Host or Docker administrators and browser-side effects
+are outside that boundary.
+
+Containment permits evidence gathering; it does not manufacture certification.
+"I rehearsed it" is not "I qualified it", and a surface reading `Experimental`
+or `Uncertified` still needs its applicable reviewed disposition and evidence.
 
 `wprism assess` now says the same thing in its next actions rather than
 contradicting it: `qualify in rehearsal` is never printed, and the rows that
@@ -181,7 +202,9 @@ stale identity refuses.
 
 `--plan-only` prints the frozen-shape authorization plan and exits 0 having
 mutated **nothing at all** — not the target, not the site repository. This is
-the step to paste into a change ticket.
+useful as a local preview, but it is not an executable authorization subject.
+The canonical `release prepare` document below is the artifact to persist,
+present and sign.
 
 The page has six sections, in this order, and the order is an argument: scope
 says what you asked for, capabilities say what it rests on, may-change says
@@ -271,25 +294,212 @@ is the standing rule for internal identifiers in a human view: `wprism verify
 prints are consumed by `--restore`. Artifact hashes, lease owners and
 operation ids stay in `--format=json`.
 
-## `--from` delivers one verified fast-forward
+## Legacy `--from` is a read-only binding assertion
 
 ```sh
-"$WPRISM_CLI" release production --from=main
+"$WPRISM_CLI" release production --from=main --plan-only
 ```
 
-Release resolves the ref and commit in your local site repository. If the
-target is behind, the executing command requires a clean named target
-worktree, fetches that same advertised branch or tag from the target's
-configured `origin`, proves the fetched commit equals the local commit, and
-performs a hook-free fast-forward before planning. It never pushes, overwrites
-dirty work, resets divergent history, or accepts a same-name ref with different
-bytes. Publish the reviewed branch/tag to the shared origin first.
+This retained preview resolves the ref and commit locally and compares it with
+the target. It never performs delivery: when the target is behind it reports
+`release_ref_mismatch`. Every legacy invocation without `--plan-only`, whether
+interactive or `--yes`, refuses `release_external_authorization_required`
+before planning or promote. Use `stage-source` below for inert delivery and
+signed `release execute` for the only public release mutation boundary.
 
-`--plan-only` remains strictly read-only, so it reports
-`release_ref_mismatch` when delivery would be needed; run the executing release
-to perform delivery. Repository delivery updates the site repository, while
-the subsequent deploy/code-release path still owns materializing the compiled
-code descriptor into WordPress — see [code-updates.md](code-updates.md).
+## Control-plane release: stage, prepare, sign, execute
+
+These three public seams are the only mutating release path. The retired
+interactive/`--yes` branch refuses before planning or promote. The separation
+is strict: staging may add private Git-control bytes, preparation is
+byte-read-only, and execution cannot move the canonical target until a signed
+authorization has been durably consumed there.
+
+Provision the site-owned operation-authority policy first at
+`.wprism/authority/authorities.json`. It is a canonical
+`wprism-operation-authorities/v1` document. Each trusted Ed25519 key names its
+actor, the `release` operation, and every grant it may authorize. This trust
+root is intentionally separate from contract-attestation, adapter-certificate
+and rollback keys. Commit it with the source revision being staged. The target
+has a separate authoritative copy: preparation never installs it implicitly.
+
+Enroll the reviewed policy explicitly with a compare-and-swap. Use `absent`
+only for first enrollment; for a change, copy the exact digest from `status`:
+
+```sh
+"$WPRISM_CLI" authority-policy production sync \
+  --policy=.wprism/authority/authorities.json \
+  --expected-current=absent --format=json > authority-policy-sync.json
+"$WPRISM_CLI" authority-policy production status --format=json \
+  > authority-policy-status.json
+```
+
+`status` is strictly read-only. Before first enrollment it refuses
+`target_authority_policy_unavailable` without creating `authority.lock`, a
+policy file, or any other target byte. `sync` alone may create the lock and
+durably publish canonical policy bytes. An exact sync retry is idempotent; a
+different current digest refuses rather than overwriting another controller's
+reviewed update. To revoke a key, change its status to `revoked`, review and
+commit that policy, then run the same explicit sync with the digest currently
+reported by status. Release execution never enrolls, updates or restores a
+policy as a side effect.
+
+Choose one immutable operation id, stage an advertised branch or tag, and save
+the exact stdout bytes:
+
+```sh
+OPERATION_ID=change-1842-production
+"$WPRISM_CLI" stage-source production --from=main \
+  --operation="$OPERATION_ID" --format=json > stage-receipt.json
+RECEIPT_SHA=$(jq -r .receipt_sha256 stage-receipt.json)
+```
+
+`stage-source` resolves the source commit and tree locally, fetches that exact
+advertised commit through the target's `origin`, and requires it to be a
+fast-forward of a clean named target base. It does **not** move target `HEAD`,
+the index or the canonical worktree. It retains an inert ref and detached
+worktree under the target's private Git directory, establishes the stable
+target operation identity, and fsyncs one canonical
+`wprism-source-stage-receipt/v1`. An exact retry with the same operation id and
+inputs returns the same receipt bytes; reusing the id for another source
+ref/commit refuses.
+
+Prepare from the saved receipt and save this output too:
+
+```sh
+"$WPRISM_CLI" release production prepare \
+  --stage-receipt=stage-receipt.json \
+  --expected-stage-receipt-sha256="$RECEIPT_SHA" \
+  --format=json > release-prepare.json
+```
+
+Preparation validates the target identity, base, retained receipt, stage ref,
+staged commit/tree/worktree and the local source checkout before and after its
+planning reads. Plan, compile, inventory and capability questions all name the
+detached staged repository. Neither the canonical target nor the local site
+repository is written: no target fast-forward, projection write or plan freeze
+occurs. It reads the already-enrolled target policy without creating a lock or
+file, requires the local reviewed policy to match it exactly, and uses the
+**target policy digest** as the authority identity in the prepared subject.
+
+The output is one canonical `wprism-release-prepare/v1`. It contains the
+unchanged `wprism-authorization-plan/v1`, its semantic `plan_digest`, the hash
+of the exact plan bytes presented to the actor, the complete
+`subject_sha256`, required grants, authority-policy digest, capability-library
+digest, stage receipt and every request bind. Preparation uses the current
+trusted clock; it never backdates evidence evaluation to the stage receipt's
+`created_at`. Therefore a later preparation can preserve `plan_digest` while
+correctly producing a new presentation and subject. Persist and sign the
+specific prepare document you reviewed rather than rerunning preparation after
+approval.
+
+The external authority signs this exact statement:
+
+```json
+{
+  "actor": "release-manager@example.com",
+  "expires_at": "2026-08-29T17:10:00Z",
+  "issued_at": "2026-08-29T17:00:00Z",
+  "key_id": "production-release-1",
+  "nonce": "change-1842-production-0001",
+  "operation": "release",
+  "operation_id": "change-1842-production",
+  "presentation_digest": "<release-prepare.presented_plan_sha256>",
+  "subject_digest": "<release-prepare.subject_sha256>",
+  "target_id": "<release-prepare.target_id>"
+}
+```
+
+The signed bytes are
+`"wprism-operation-authorization-signature/v1\0" || Canon::encode(statement)`.
+The returned canonical envelope is
+`wprism-operation-authorization/v1` with exactly `format`, `signature` and
+`statement`. Its TTL must fit the site's authority policy. Have the controller
+return its `sha256:` digest alongside `authorization.json`; equivalently, for
+an already canonical saved envelope, prefix the SHA-256 of its exact file
+bytes.
+
+Execute only with every digest copied from the two saved documents:
+
+```sh
+AUTHORIZATION_SHA=sha256:…
+SUBJECT_SHA=$(jq -r .subject_sha256 release-prepare.json)
+PRESENTATION_SHA=$(jq -r .presented_plan_sha256 release-prepare.json)
+PLAN_SHA=$(jq -r .plan_digest release-prepare.json)
+
+"$WPRISM_CLI" release production execute \
+  --prepare=release-prepare.json \
+  --authorization=authorization.json \
+  --expected-authorization-sha256="$AUTHORIZATION_SHA" \
+  --expected-subject-sha256="$SUBJECT_SHA" \
+  --expected-presentation-sha256="$PRESENTATION_SHA" \
+  --expected-plan-digest="$PLAN_SHA" \
+  --expected-stage-receipt-sha256="$RECEIPT_SHA" \
+  --format=json > release-outcome.json
+```
+
+Execution emits exactly one JSON success/refusal document on stdout. Before
+consumption it revalidates all explicit digests, target identity and `HEAD`,
+the source stage, local checkout, current authority policy, semantic plan,
+artifact, reviewed capability library and every plan condition. It then writes
+the local projection/frozen plan, rechecks the stage once more, durably consumes
+the one-time authorization under the target's private Git control directory,
+materializes the exact staged commit, composes the existing promote path, runs
+verification, and publishes the terminal outcome beside that consumption.
+Promotion phase text is sent to stderr so it cannot corrupt the single stdout
+document. Immediately before consumption it re-reads the authority policy and
+verifies the signature, subject, grants and lifetime again; a policy change or
+revocation after the earlier admission check leaves no consumption and no
+target mutation. That final verification is target-authoritative: consumption
+holds the target policy lock shared while it validates canonical policy bounds,
+policy digest, actor, grants, signature and target-clock lifetime and elects
+the one winner. Policy sync/revocation takes the same lock exclusively, so it
+linearizes wholly before or wholly after consumption. The target-side election
+also holds the identity lock and re-reads `target-id`, closing the equivalent
+target-identity race.
+
+Canonical source delivery uses a checked fast-forward, never `reset --hard`:
+tracked edits, colliding untracked bytes or an unrelated commit are preserved
+and refuse. The source commit/tree and staged artifact are handed into the
+existing promotion state machine. Promotion recompiles and compares the exact
+authorized artifact, rechecks Git after compile, then the target WP-CLI process
+holds the private repository lock across its last commit/tree check and
+revalidates that the named path is still the acquired inode immediately before
+`promotion-begin` lease election. The lease owner binds operation id + source
+commit + source tree and the existing lease artifact hash binds the compiled
+bytes. A repository race before materialization, in the handoff, or between
+compile and lease reaches no site mutation.
+
+### Crash, retry and status semantics
+
+The exact same `release … execute` command is also the status/replay operation;
+there is no separate command that could acquire a second mutation authority.
+Its first target read looks up the authorization-envelope digest **before**
+checking signature expiry or current stage state.
+
+| Observed state | Exact retry result |
+|---|---|
+| no consumption exists | revalidate everything; consume and execute only if it still matches |
+| consumption exists, no complete outcome | refuse `release_operation_reconciliation_required`; never retry mutation |
+| consumption and completion exist | return the byte-identical stored outcome, even after authority expiry/revocation or later target/stage movement |
+| different bytes under the same operation/authorization identity | refuse the named conflict; reconcile manually |
+
+The staging lock is a kernel-released `flock`, so process death or power loss
+cannot leave a permanent lock directory. A crash before receipt publication
+leaves either a same-operation ref/worktree that the next exact request can
+reconcile, or named ambiguous stage state that refuses. Receipt, target
+identity, consumption and completion publication all use file fsync, atomic
+rename, parent-directory fsync and exact readback before claiming durability.
+The locally frozen authorization plan uses the same file + parent-directory
+fsync and exact-readback posture; a post-rename sync failure is an uncertain
+complete publication that must be reconciled or exact-retried, never mutation
+authority. A retry reuses only the exact same canonical plan bytes. Because
+clock presentation fields are outside the semantic `plan_digest`, a document
+with the same digest but different presentation bytes is a conflict and never
+silently substitutes the older frozen evidence.
+Never delete retained control evidence to make a refusal disappear: inspect
+the target's Git-private `wprism-release/` and `wprism-control/` records and
+reconcile the exact operation lineage.
 
 ## `--profile` and `--accept-weaker-recovery`
 
@@ -304,10 +514,13 @@ the capability is absent, and pretending otherwise would put a restore
 guarantee in a frozen plan no provider can honour. Asking for one *weaker*
 than the target proves is a named human authority: it needs
 `--accept-weaker-recovery` as well, prints a warning on stderr beside the
-claim it weakens, and still ends in the plan's own typed confirmation.
+claim it weakens, and changes the exact subject an external actor reviews.
 
 ```sh
-"$WPRISM_CLI" release production --from=main --profile=operator-directed --accept-weaker-recovery
+"$WPRISM_CLI" release production prepare \
+  --stage-receipt=stage-receipt.json \
+  --expected-stage-receipt-sha256="$RECEIPT_SHA" \
+  --profile=operator-directed --accept-weaker-recovery --format=json
 ```
 
 Whatever you select, the claim in the plan changes to match it. Under
@@ -317,21 +530,18 @@ remedy stated on the row. Under `none`, so does the database.
 
 ## Authorize
 
-```sh
-"$WPRISM_CLI" release production --from=main --yes
-```
-
-Answering `yes` to the question (or passing `--yes`, which confirms the plan
-you were just shown) freezes the plan to
-`.wprism/releases/<plan_digest>.json` in your site repository **before any target
-mutation**, then executes through promote. `--plan-only` and `--yes`
-contradict each other and are refused together.
+Authorization is the external signature step in the control-plane sequence
+above. There is no interactive or `--yes` substitute: those legacy forms
+refuse with the exact stage → prepare → sign → execute remediation. The signed
+execute path freezes the already-presented authorization plan locally only
+after signature verification and consumes the authority on the target before
+canonical target mutation.
 
 ### The mutation gate
 
-Immediately before the mutating call — after your confirmation, so it covers
-exactly the time you spent reading the page — the frozen plan is re-verified
-against the target as it is at that instant. Four things are re-observed:
+Immediately before signed execution consumes authority, the prepared plan is
+re-verified against the target as it is at that instant. Four things are
+re-observed:
 
 | re-observed | refuses with | next action |
 |---|---|---|

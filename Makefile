@@ -1,6 +1,7 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
 .PHONY: regress-recovery-protocol
+.PHONY: regress-recovery-preparation
 .PHONY: regress-canonical-json-parity
 .PHONY: regress-mup-leak-audit grind-mup regress-adapter-certify grind-adapter-walk grind-adoption
 .PHONY: regress-authorization-plan regress-release-containment-gate regress-recover-claim regress-verify-oracles regress-rehearse-provider regress-release-next-action regress-release-condition-gate regress-release-ref-binding regress-recover-ordering
@@ -60,6 +61,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-environment-materializer-recovery \
 	regress-environment-materializer-live \
 	regress-env-provider-conformance-live \
+	regress-rehearsal-containment-live \
 	regress-frozen-materialization-promotion \
 	regress-bundle-coverage regress-suite-wiring regress-platform-move-gates \
 	regress-adapter-package-current-paths \
@@ -1981,6 +1983,17 @@ regress-contract-multi-env:
 regress-authorization-plan:
 	php sandbox/tests/offline/assess-contract/regress_authorization_plan.php
 
+# actor-bound Ed25519 authority: exact subject/target/operation/expiry binding, target-private one-time consumption, and byte-identical same-operation replay
+regress-operation-authorization:
+	php sandbox/tests/offline/assess-contract/regress_operation_authorization.php
+
+# WPB-003 foundation: prepare is a closed read-only target observation; the
+# frozen plan rejects generation/checkpoint/head/claim/lease drift before any
+# step, and target-private status distinguishes exact completion replay from a
+# consumed operation that requires reconciliation.
+regress-recovery-preparation:
+	php sandbox/tests/offline/recovery/regress_recovery_preparation.php
+
 # the §1.6 consequence as a gate: an undeclared live lifecycle window refuses with "declare in contract"; a declared entry yields the declared_live_effect authority row; Experimental / Not qualified / Unsupported / Requalification required in scope refuse pre-freeze with a gap action, never a release next action
 regress-release-containment-gate:
 	php sandbox/tests/offline/assess-contract/regress_release_containment_gate.php
@@ -2014,6 +2027,9 @@ regress-release-condition-gate:
 # --from <ref> is a binding assertion against the target HEAD (mismatch → reconcile) and invents no git transport
 regress-release-ref-binding:
 	bash sandbox/tests/offline/assess-contract/regress_release_ref_binding.sh
+
+regress-release-stage-prepare:
+	bash sandbox/tests/offline/assess-contract/regress_release_stage_prepare.sh
 
 # code-first refusal, the mandatory final abort even on import failure, --writers-excluded required
 regress-recover-ordering:
@@ -2227,6 +2243,12 @@ regress-environment-materializer-live:
 # source and releases the target.
 regress-env-provider-conformance-live:
 	bash sandbox/tests/live/regress_env_provider_conformance_live.sh
+
+# WPB-011: real Docker topology/probes, with `--topology-only` available when
+# the sandbox shared-DB port is owned by another worktree. The full lane owns
+# source + independent release target + standalone contained preview.
+regress-rehearsal-containment-live:
+	bash sandbox/tests/live/regress_rehearsal_containment_live.sh
 
 regress-frozen-materialization-promotion:
 	php sandbox/tests/offline/environment/regress_frozen_materialization_promotion.php
@@ -2773,6 +2795,7 @@ regress-live-list:
 	@echo "  regress-user-meta                         pair umeta3268 9301/9302"
 	@echo "  regress-environment-materializer-live     pair wprismenvmaterialize 9100/9101 (public env materialize/reap; user-authorized)"
 	@echo "  regress-env-provider-conformance-live     pair envprovcheck 9200/9201 (wprism env provider-check vs tools/reference-env-provider.php)"
+	@echo "  regress-rehearsal-containment-live        pair containlive 9340/9341 + standalone preview 9342 (three environments; real route/mail/credential probes)"
 	@echo "  regress-wprism-init                         pair codexmaca3336 9300/9301 (parameterized: WPRISM_INIT_PAIR/WPRISM_INIT_PORT1/WPRISM_INIT_PORT2)"
 	@echo "  regress-coverage                         needs an already-up pair with WooCommerce active (parameterized: WPRISM_PAIR)"
 	@echo "  regress-woo-attribute-deletion            pair wooattrdel 8996/8997 (parameterized: WOOATTRDEL_PAIR/WOOATTRDEL_PORT1/WOOATTRDEL_PORT2)"

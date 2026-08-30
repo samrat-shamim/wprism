@@ -1,10 +1,10 @@
 # agent: Promotion
 
-**Purpose.** Deploy, lifecycle and promotion mechanics — planners, leases, locks, session journals and state handoff between environments.
+**Purpose.** Deploy, lifecycle and promotion mechanics — planners, leases, locks, externally-authorized repository binding, session journals and state handoff between environments.
 
-**Directory** `agent/src/Promotion/` &middot; **layer** `engine` &middot; **files** 11 &middot; **status** populated
+**Directory** `agent/src/Promotion/` &middot; **layer** `engine` &middot; **files** 12 &middot; **status** populated
 
-**Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `PromotionLock`, `Deploy`, `ScopedPromotionAuthority`.
+**Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `AuthorizedReleaseRepository`, `PromotionLock`, `Deploy`, `ScopedPromotionAuthority`.
 
 **May depend on:** `Code`, `Kernel`, `Policy`, `Promotion`, `Repository`.
 
@@ -13,6 +13,17 @@
 - `Capture` (intra-layer, 1 edge)
   `StateHandoffVerifier.php -> Capture.php`
 **Must not depend on.** Adapter and Command. Promotion sequences environments; it must not decide ownership.
+
+`AuthorizedReleaseRepository` is the target-local bridge from an externally
+authorized source to promotion's existing lease. It holds the private Git
+repository flock while it rechecks the exact commit, tree and clean tracked
+bytes, and retains that kernel lock through `PromotionLock::begin()`. The
+named lock path must still resolve to the acquired inode immediately before
+lease election; replacement is a reconciliation refusal, never a second lock.
+The promotion owner hashes operation id + commit + tree, while the lease's
+existing artifact hash binds the exact staged compilation. Controller checks are only
+admission evidence; the target-side check and lease election are one critical
+section.
 
 **Known debts.**
 

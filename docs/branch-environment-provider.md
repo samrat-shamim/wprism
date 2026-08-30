@@ -819,13 +819,136 @@ provider stdout/stderr is never among them.
 
 ## 7. The worked example
 
-`tools/reference-env-provider.php` implements all 19 actions against WPrism's own
-sandbox pair (`sandbox/bin/pair.sh` over the shared MariaDB). It is **DEV-ONLY** —
+`tools/reference-env-provider.php` has two explicit modes. Its ordinary mode drives
+WPrism's sandbox pair (`sandbox/bin/pair.sh` over the shared MariaDB), advertises
+neither `environment.containment.verify` nor a sandbox claim, and remains useful for
+provider protocol/conformance work. Adding a `contained_preview` object selects a
+standalone create/destroy-only target and advertises containment only after the
+provider can enforce and live-probe it. Contained mode intentionally withholds
+`environment.attach` and `environment.detach`: it cannot prove that an already-running
+target was born behind the controls.
+
+The reference is **DEV-ONLY** —
 `tools/` never ships. `cli/src/Onboarding/Adopt.php` embeds the assembled adapter library
 in `agent/` and tars only `agent recovery`, so read this as a demonstration, not as
 an artifact you can deploy. Its `--print-plan` flag runs the same negotiation and
 argument validation and prints the command boundary an action would use, executing
 nothing.
+
+### Enabling the contained preview
+
+Start with the ordinary reference config shape documented at the top of
+`tools/reference-env-provider.php`, then add the following object. Every path is
+absolute; replace `mup` consistently if the pair name differs. The target environment
+must use container `wprism-mup-preview-wp-1`, service `cli`, database
+`wprism_preview`, and its own host repository directory. Each image field is an
+immutable `repository@sha256:<digest>` reference; mutable tags are refused before boot.
+
+```json
+"contained_preview": {
+  "format": "wprism-reference-contained-preview/v1",
+  "compose_file": "<repo>/sandbox/contained-preview.yml",
+  "project": "wprism-mup-preview",
+  "network": "wprism-mup-preview-internal",
+  "ingress_network": "wprism-mup-preview-ingress",
+  "database_container": "wprism-mup-preview-db-1",
+  "database_service": "db",
+  "proxy_container": "wprism-mup-preview-proxy-1",
+  "proxy_service": "proxy",
+  "wordpress_service": "wp",
+  "cli_service": "cli",
+  "database": "wprism_preview",
+  "wordpress_image": "wordpress@sha256:65919a9ca10940feb10d9400fead0d639bf86241f47c91e2b9ea4703aa8452cf",
+  "cli_image": "wordpress@sha256:2b5e9d4d3e51909dca1aaa4732e9f5e5bf0377c2114dbd8ff39f060bff202586",
+  "database_image": "mariadb@sha256:d9f7eb2637296652f24b484afd5d246f759f49f5babcadc6a9e344c9acb75fbf",
+  "proxy_image": "nginx@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de",
+  "cron_guard": "<repo>/sandbox/containment/block-cron.php",
+  "mail_shim": "<repo>/sandbox/containment/refuse-sendmail.sh",
+  "php_ini": "<repo>/sandbox/containment/php.ini",
+  "proxy_config": "<repo>/sandbox/containment/nginx.conf",
+  "sanitization_policy": "<machine-local>/snapshot-sanitization.json",
+  "sanitization_policy_sha256": "<sha256-of-that-file>",
+  "runtime_sources": {
+    "adapter_packages": "<repo>/adapter-packages",
+    "agent": "<repo>/agent",
+    "platform": "<repo>/platform"
+  }
+}
+```
+`state_root` must be an existing, non-symlink directory owned by the provider
+process uid and mode `0700`. The sanitization policy is required, machine-local,
+non-symlink and hash-pinned. Its `wprism-reference-snapshot-sanitization-policy/v1`
+object names the exact source, asserts a reviewed exhaustive credential inventory
+with a review id/revision, and lists supported exact locators: `wp_` `wp_options`
+rows to replace with explicit sandbox/disabled handles and uploads-relative regular
+files to remove. Either list may be empty. Its required WordPress-auth rule disables
+every `wp_users` password/activation key and removes session/application-password
+usermeta, refusing any unparseable row shape. This is bounded human-reviewed inventory,
+not regex discovery; an inventory needing another locator kind must refuse.
+
+Before constructing the Docker transport, create
+`<state_root>/contained-preview.env` as a mode-0600 placeholder. The provider
+atomically replaces it with lease credentials during `create`; it is not a file an
+operator fills with reusable secrets. Point the target's machine-local registry entry
+at the same standalone topology and environment file:
+
+```json
+{
+  "transport": "docker",
+  "compose_file": "<repo>/sandbox/contained-preview.yml",
+  "compose_env_file": "<state_root>/contained-preview.env",
+  "profile": "cli",
+  "service": "cli",
+  "repo_path": "/siterepo",
+  "environment_provider": {
+    "command": ["<absolute-php>", "<repo>/tools/reference-env-provider.php", "<provider-config>"],
+    "timeout_seconds": 3600
+  }
+}
+```
+Use `wprism rehearse <target> --from <source> --create`; attach is deliberately
+unavailable. The preview has separate lease-owned database and WordPress volumes, a
+random database principal and two random 256-bit passwords, and a staged target
+repository/runtime tree that shares no source/target network or volume. WordPress, DB
+and the one-shot CLI join only the Docker `internal: true` network and have no default
+route. The sole published port is a loopback binding on a credential-free, fixed-config
+nginx proxy sidecar; only that proxy spans the dedicated ingress bridge.
+
+Controls exist before restored bytes boot. The provider validates the rendered Compose
+model, boots only the DB, proves its isolated network/volume/principal/grants, and only
+then starts WordPress and the proxy. It proves the live container networks, mounts,
+images, users, dropped capabilities, no-new-privileges settings, environment allowlist,
+absence of workers/default routes, and the exact mail/proxy/cron control-file hashes. HTTP,
+payment and webhook escape are denied by the app containers' internal-only network.
+Queue escape is denied by that same boundary plus the isolated lease DB and disabled
+WordPress cron/updaters with no worker service; nginx and a hash-pinned staged MU guard
+both block direct `/wp-cron.php`, and the same pinned guard rejects direct
+`wp cron event run` execution with a nonzero operator-readable refusal. Mail is
+forced through the hashed refusal/capture shim.
+
+Only the sanitized set is durably published, before WordPress can execute restored bytes.
+The receipt records policy/review, sanitization and exact snapshot witnesses without
+plaintext or per-credential digests. Snapshot abort, journaled restore success/failure,
+and reap idempotently unlink exact private snapshot/session paths while retaining only
+nonsecret retry receipts. This is logical deletion, not a physical secure-erasure
+claim.
+
+The containment receipt binds the target identity, resource and lease generation/id/
+ownership receipt, held fence generation/id/owner/receipt, profile, sanitized snapshot
+admission evidence, and observed topology.
+An exact retry re-runs the probes and returns the same receipt; any topology or control
+drift refuses. Reap proves the lease's containers, networks, volumes, staged runtime and
+credentials absent.
+
+This boundary trusts the host kernel, Docker daemon, configured immutable image digests, provider
+and control files, plus the human assertion that the machine-local policy is exhaustive.
+The provider does not infer undeclared secrets. A host/Docker administrator can bypass
+it and is out of scope. Browser-side effects outside the server containers are also
+out of scope. Docker Engine with Compose v2 and the four configured images must be
+available locally. Run `make regress-rehearsal-containment-live` for the real three-
+environment source/preview/independent-target lane; `--topology-only` exercises the
+standalone containment topology when the ordinary pair is unavailable. The full lane
+uses `WPRISM_CONTAINMENT_DB_PORT` (default `3317`) for its shared DB loopback port.
 
 Two habits it demonstrates that this contract does not spell out but every operation
 depends on:
