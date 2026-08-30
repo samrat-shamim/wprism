@@ -670,18 +670,20 @@
           {
             "module": "Delete",
             "kind": "intra-layer",
-            "count": 10,
+            "count": 12,
             "edges": [
               "ApplyPlanBuilder.php -> DeleteGuardEvaluator.php",
               "ApplyPlanBuilder.php -> DeleteGuardReferenceScanner.php",
               "ApplyPlanBuilder.php -> Deletion.php",
               "ApplyPreparationCoordinator.php -> DeleteGuardLockCoordinator.php",
+              "ApplyRequestCoordinator.php -> DeleteGuardEvaluator.php",
               "ApplyRequestCoordinator.php -> DeleteGuardLockCoordinator.php",
               "ApplyRequestCoordinator.php -> DeletionAuthority.php",
               "ApplyServices.php -> DeleteExecutor.php",
               "ApplyServices.php -> DeleteGuardReferenceScanner.php",
               "AuthoredTransactionExecutor.php -> DeleteExecutor.php",
-              "AuthoredTransactionRequest.php -> DeletionAuthority.php"
+              "AuthoredTransactionRequest.php -> DeletionAuthority.php",
+              "ProtectedPostIdentity.php -> DeleteGuardEvaluator.php"
             ]
           },
           {

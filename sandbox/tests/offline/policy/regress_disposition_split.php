@@ -283,19 +283,19 @@ const WPRISM_CURRENT_DIGESTS = [
     'core' => '9f9a23cfb2be0b8dd693cecd1df6adb4e9082ca8d589675ce95bfae85c185b63',
     'elementor' => '5383779c98b51bb94e2aab363d72729fd55003798656f7d025f8773ae5793d64',
     'ninja-forms' => '35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011',
-    'paid-memberships-pro' => '70b0a7cb07b54118dd4645be00bc60bbe1ab0a10972e7b6c3fbe26971c759bdd',
+    'paid-memberships-pro' => 'e518a516bb44d144cff92bdb423c04813847064fe7113ac4e1cfc386ba37f253',
     'polylang' => '60edabfdaab55d4ea74d0c6ac71228bffc2b2911afe57a962ac898ee73064548',
     'redirection' => '6ba607e26345be23b0a89eeee69dadc0ceff75ca40b8cdf9d0ab88d066303bc7',
     'the-events-calendar' => '9ce61ef048461919d3414629b099d8a26e9a4e5c25e90eb5fec634b48df6430e',
-    'woocommerce' => 'cfe7a7777825902901603cc69a380dc56a0f53931fbfea667744a1a94160d931',
+    'woocommerce' => '43c67d87c2ae8c26e75935ec5ca1df6d021638dbb6d0f2d79299578bd6d71c5f',
     'wprism-agency-cpt' => '174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab',
     'wps-hide-login' => '4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050',
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456',
 ];
-const WPRISM_CURRENT_MANIFEST_HASH = 'ec14806edd50cbcb106d8b8c112c2bc400c86aac157d4bba62afb09f1538fcae';
-const WPRISM_CURRENT_REGISTRY_SHA = 'c150170d881e705aee38127d6af98eebae26491142ea6915c7f87489c33697be';
-const WPRISM_CURRENT_SNAPSHOT_SHA = 'aa267f2d6cbad4e683ba2a078af85067f4834dc5e5a1d0ed24d1a7b28f2e11e4';
+const WPRISM_CURRENT_MANIFEST_HASH = 'c821f79537980ea27e0beba9871ab34bed6c1d1b036ad42e1cb608b2635be799';
+const WPRISM_CURRENT_REGISTRY_SHA = 'a190eb64388ca75ce50f72dcd5c899e7e3e02e5f869a389e6df50f026302313f';
+const WPRISM_CURRENT_SNAPSHOT_SHA = 'cf200fe748aab70f54f345babe07bc270736872ffc4ebf59cdd74e314c9fb3c1';
 
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(
