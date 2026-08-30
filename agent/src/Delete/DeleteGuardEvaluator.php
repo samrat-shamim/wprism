@@ -476,7 +476,42 @@ final class DeleteGuardEvaluator {
         string $purpose,
         bool $requireUnique = false
     ): string {
-        return self::locking_index($table, $column, $purpose, $requireUnique, null);
+        return self::locking_index(
+            $table,
+            $column,
+            $purpose,
+            $requireUnique ? [$column] : null,
+            null
+        );
+    }
+
+    /**
+     * Resolve a visible full-width unique BTREE whose complete ordered
+     * columns equal the locking predicate. This proves compound identities
+     * such as wprism_map(uuid, id_kind) without pretending the leading UUID
+     * column is unique by itself.
+     *
+     * @param list<string> $columns
+     */
+    public static function full_width_composite_unique_lock_index(
+        string $table,
+        array $columns,
+        string $purpose
+    ): string {
+        if (!array_is_list($columns)
+            || count($columns) < 2
+            || count($columns) > 16) {
+            throw new \RuntimeException("wprism: $purpose index proof received invalid compound columns");
+        }
+        foreach ($columns as $column) {
+            if (!is_string($column) || preg_match('/^[A-Za-z0-9_]{1,64}$/D', $column) !== 1) {
+                throw new \RuntimeException("wprism: $purpose index proof received invalid compound columns");
+            }
+        }
+        if (count(array_unique($columns, SORT_STRING)) !== count($columns)) {
+            throw new \RuntimeException("wprism: $purpose index proof received invalid compound columns");
+        }
+        return self::locking_index($table, $columns[0], $purpose, $columns, null);
     }
 
     /**
@@ -494,14 +529,14 @@ final class DeleteGuardEvaluator {
         if ($minimumPrefixCharacters < 1 || $minimumPrefixCharacters > 65535) {
             throw new \RuntimeException("wprism: $purpose index proof received an invalid prefix frontier");
         }
-        return self::locking_index($table, $column, $purpose, false, $minimumPrefixCharacters);
+        return self::locking_index($table, $column, $purpose, null, $minimumPrefixCharacters);
     }
 
     private static function locking_index(
         string $table,
         string $column,
         string $purpose,
-        bool $requireUnique,
+        ?array $requiredUniqueColumns,
         ?int $minimumPrefixCharacters
     ): string {
         global $wpdb;
@@ -632,13 +667,25 @@ final class DeleteGuardEvaluator {
                 }
                 ++$expectedPosition;
             }
+            $matchesRequiredUniqueColumns = $requiredUniqueColumns === null;
+            if ($requiredUniqueColumns !== null && count($indexRows) === count($requiredUniqueColumns)) {
+                $matchesRequiredUniqueColumns = true;
+                foreach ($requiredUniqueColumns as $offset => $requiredColumn) {
+                    $requiredPart = $indexRows[$offset + 1] ?? null;
+                    if (($requiredPart['column'] ?? null) !== $requiredColumn
+                        || ($requiredPart['sub_part'] ?? null) !== null) {
+                        $matchesRequiredUniqueColumns = false;
+                        break;
+                    }
+                }
+            }
             if ($first === null
-                || ($requireUnique && count($indexRows) !== 1)
+                || !$matchesRequiredUniqueColumns
                 || $first['column'] !== $column
                 || ($minimumPrefixCharacters === null
                     ? $first['sub_part'] !== null
                     : ($first['sub_part'] !== null && $first['sub_part'] < $minimumPrefixCharacters))
-                || ($requireUnique && $first['non_unique'] !== 0)
+                || ($requiredUniqueColumns !== null && $first['non_unique'] !== 0)
                 || ($first['has_visible'] && $first['visible'] !== 'YES')
                 || ($first['has_ignored'] && $first['ignored'] !== 'NO')
                 || $first['index_type'] !== 'BTREE') {
@@ -649,18 +696,23 @@ final class DeleteGuardEvaluator {
              * the complete first column still locks that owner's contiguous
              * range and terminal gap. A singleton claim may not rely on a
              * composite unique index because its first column alone is not
-             * necessarily unique.
+             * necessarily unique. The compound boundary above admits one
+             * only when every full-width ordered column is also a predicate.
              */
             $candidates[(string) $name] = true;
         }
         if ($candidates === []) {
+            $indexLabel = $requiredUniqueColumns === null
+                ? "first-column index on $column"
+                : (count($requiredUniqueColumns) === 1
+                    ? "unique first-column index on $column"
+                    : 'unique ordered-columns index on (' . implode(', ', $requiredUniqueColumns) . ')');
             throw new \RuntimeException(
                 "wprism: $purpose lacks a visible "
                 . ($minimumPrefixCharacters === null
                     ? 'full-width '
                     : "at-least-$minimumPrefixCharacters-character ")
-                . ($requireUnique ? 'unique ' : '')
-                . "first-column index on $column"
+                . $indexLabel
             );
         }
         $names = array_keys($candidates);

@@ -132,7 +132,8 @@ $identityLockPosition = strpos($requestCoordinatorSource, 'ProtectedPostIdentity
 $intendedValuePosition = strpos($requestCoordinatorSource, 'EnvironmentValues::set($repo, $name, $value);');
 $check(
     str_contains($protectedIdentitySource, 'DeleteGuardEvaluator::assert_innodb_tables([')
-        && substr_count($protectedIdentitySource, 'DeleteGuardEvaluator::full_width_lock_index(') === 2
+        && substr_count($protectedIdentitySource, 'DeleteGuardEvaluator::full_width_composite_unique_lock_index(') === 1
+        && substr_count($protectedIdentitySource, 'DeleteGuardEvaluator::full_width_lock_index(') === 1
         && substr_count($protectedIdentitySource, 'DeleteGuardEvaluator::bounded_prefix_lock_index(') === 2
         && str_contains($protectedIdentitySource, 'SELECT uuid, id_kind, local_id, entity_type')
         && str_contains($protectedIdentitySource, 'SELECT ID, post_type FROM {$wpdb->posts} FORCE INDEX')

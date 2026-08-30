@@ -312,6 +312,52 @@ $check(
     'older-server rows remain accepted when the family-specific visibility and ignored fields are absent'
 );
 
+$GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([
+    ['Key_name' => 'PRIMARY', 'Seq_in_index' => '1', 'Column_name' => 'uuid', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+    ['Key_name' => 'PRIMARY', 'Seq_in_index' => '2', 'Column_name' => 'id_kind', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+    ['Key_name' => 'uuid_lookup', 'Seq_in_index' => '1', 'Column_name' => 'uuid', 'Sub_part' => null, 'Non_unique' => '1', 'Index_type' => 'BTREE'],
+]);
+$check(
+    DeleteGuardEvaluator::full_width_composite_unique_lock_index(
+        'wp_wprism_map',
+        ['uuid', 'id_kind'],
+        'protected post identity locking'
+    ) === 'PRIMARY',
+    'compound lock proof accepts the stock full-width unique map identity and ignores a nonunique UUID lookup'
+);
+
+foreach ([
+    'nonunique pair' => [
+        ['Key_name' => 'map_pair', 'Seq_in_index' => '1', 'Column_name' => 'uuid', 'Sub_part' => null, 'Non_unique' => '1', 'Index_type' => 'BTREE'],
+        ['Key_name' => 'map_pair', 'Seq_in_index' => '2', 'Column_name' => 'id_kind', 'Sub_part' => null, 'Non_unique' => '1', 'Index_type' => 'BTREE'],
+    ],
+    'prefixed pair' => [
+        ['Key_name' => 'map_pair', 'Seq_in_index' => '1', 'Column_name' => 'uuid', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+        ['Key_name' => 'map_pair', 'Seq_in_index' => '2', 'Column_name' => 'id_kind', 'Sub_part' => '16', 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+    ],
+    'unique superset' => [
+        ['Key_name' => 'map_triple', 'Seq_in_index' => '1', 'Column_name' => 'uuid', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+        ['Key_name' => 'map_triple', 'Seq_in_index' => '2', 'Column_name' => 'id_kind', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+        ['Key_name' => 'map_triple', 'Seq_in_index' => '3', 'Column_name' => 'local_id', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+    ],
+] as $label => $rows) {
+    $GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb($rows);
+    try {
+        DeleteGuardEvaluator::full_width_composite_unique_lock_index(
+            'wp_wprism_map',
+            ['uuid', 'id_kind'],
+            'protected post identity locking'
+        );
+        $compoundRefused = false;
+    } catch (RuntimeException $failure) {
+        $compoundRefused = str_contains(
+            $failure->getMessage(),
+            'visible full-width unique ordered-columns index on (uuid, id_kind)'
+        );
+    }
+    $check($compoundRefused, "$label cannot prove the compound map singleton lock");
+}
+
 $GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([[
     'Key_name' => 'meta_key',
     'Seq_in_index' => '1',

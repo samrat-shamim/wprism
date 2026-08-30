@@ -87,9 +87,9 @@ final class ProtectedPostIdentity {
             $wpdb->postmeta,
             $wpdb->termmeta,
         ], self::PURPOSE);
-        $mapIndex = DeleteGuardEvaluator::full_width_lock_index(
+        $mapIndex = DeleteGuardEvaluator::full_width_composite_unique_lock_index(
             $mapTable,
-            'uuid',
+            ['uuid', 'id_kind'],
             self::PURPOSE
         );
         $postIndex = DeleteGuardEvaluator::full_width_lock_index(
