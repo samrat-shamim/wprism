@@ -2,6 +2,8 @@
 namespace WPrism;
 
 require_once __DIR__ . '/EnvironmentValues.php';
+require_once __DIR__ . '/ProtectedPostIdentity.php';
+require_once __DIR__ . '/../Kernel/Db.php';
 
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Adapter/Providers.php';
@@ -581,30 +583,56 @@ final class ApplyRequestCoordinator {
                     "wprism: env-set: '$name' does not name a protected post binding in the compiled repository"
                 );
             }
+            $postType = $front['type'] ?? null;
+            if (!is_string($postType) || $postType === '') {
+                throw new \RuntimeException("wprism: env-set: '$name' has no canonical post type");
+            }
             $previouslySet = isset(EnvironmentValues::read($repo)[$name]);
-            EnvironmentValues::set($repo, $name, $value);
-            $postId = Ledger::id_for($passwordUuid, Ledger::KIND_POST);
-            if ($postId !== null) {
-                global $wpdb;
-                $updated = $wpdb->update(
-                    $wpdb->posts,
-                    ['post_password' => $value],
-                    ['ID' => $postId],
-                    ['%s'],
-                    ['%d']
-                );
-                if ($updated === false) {
-                    throw new \RuntimeException("wprism: env-set: could not provision '$name' on its live post");
-                }
-                $confirm = $wpdb->get_var($wpdb->prepare(
-                    "SELECT post_password FROM {$wpdb->posts} WHERE ID = %d LIMIT 1",
-                    $postId
-                ));
-                if (!is_string($confirm) || !hash_equals($value, $confirm)) {
-                    throw new \RuntimeException(
-                        "wprism: env-set: wrote '$name' but the live post password does not match afterward"
+            $transactionStarted = false;
+            $postId = null;
+            try {
+                Db::start_repeatable_read('env-set protected post transaction start');
+                $transactionStarted = true;
+                $postId = ProtectedPostIdentity::lock($passwordUuid, $postType);
+
+                // Publish intended state only after exact live identity is
+                // proven under lock. A later DB failure leaves loud drift,
+                // while a stale/reused map row changes neither side.
+                EnvironmentValues::set($repo, $name, $value);
+                if ($postId !== null) {
+                    global $wpdb;
+                    Db::update(
+                        $wpdb->posts,
+                        ['post_password' => $value],
+                        ['ID' => $postId],
+                        ['%s'],
+                        ['%d'],
+                        'env-set protected post password'
                     );
+                    if (property_exists($wpdb, 'last_error')) {
+                        $wpdb->last_error = '';
+                    }
+                    $confirm = $wpdb->get_var($wpdb->prepare(
+                        "SELECT post_password FROM {$wpdb->posts} WHERE ID = %d LIMIT 1 FOR UPDATE",
+                        $postId
+                    ));
+                    if (trim((string) ($wpdb->last_error ?? '')) !== ''
+                        || !is_string($confirm)
+                        || !hash_equals($value, $confirm)) {
+                        throw new \RuntimeException(
+                            "wprism: env-set: wrote '$name' but the live post password does not match afterward"
+                        );
+                    }
                 }
+                Db::commit('env-set protected post transaction commit');
+                $transactionStarted = false;
+            } catch (\Throwable $failure) {
+                if ($transactionStarted) {
+                    Db::rollback_after_failure($failure, 'env-set protected post transaction rollback');
+                }
+                throw $failure;
+            }
+            if ($postId !== null) {
                 clean_post_cache($postId);
             }
 

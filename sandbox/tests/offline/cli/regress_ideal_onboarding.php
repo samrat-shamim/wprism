@@ -125,8 +125,10 @@ final class UnboundedOnboardingDriver implements EnvironmentDriver {
     public function driverId(): string { return 'unbounded-fixture'; }
     public function repoPath(): string { return '/tmp/unbounded'; }
     public function describe(): string { return 'unbounded regression fixture'; }
-    public function captureRaw(string $script): array { ++$this->rawCalls; return ['exit' => 0, 'stdout' => '', 'stderr' => '']; }
-    public function captureWp(array $wpArgs): array { ++$this->wpCalls; return ['exit' => 0, 'stdout' => '', 'stderr' => '']; }
+    public function captureRaw(string $script): array { ++$this->rawCalls;
+    return ['exit' => 0, 'stdout' => '', 'stderr' => '']; }
+    public function captureWp(array $wpArgs): array { ++$this->wpCalls;
+    return ['exit' => 0, 'stdout' => '', 'stderr' => '']; }
     public function streamWp(array $wpArgs): int { return 0; }
     public function wpInstruction(array $wpArgs): string { return 'unused'; }
     public function capabilityReport(string $operation): DriverCapabilityReport {
@@ -516,9 +518,12 @@ $handoffFailureExit = OnboardCommand::run(
     dirname(__DIR__, 4),
     [
         'handoff_preflight' => static function () use (&$handoffFailureSteps): void { $handoffFailureSteps[] = 'preflight'; },
-        'adopt' => static function () use (&$handoffFailureSteps): int { $handoffFailureSteps[] = 'adopt'; return 0; },
-        'assess' => static function () use (&$handoffFailureSteps): int { $handoffFailureSteps[] = 'assess'; return 0; },
-        'init' => static function () use (&$handoffFailureSteps): int { $handoffFailureSteps[] = 'init'; return 0; },
+        'adopt' => static function () use (&$handoffFailureSteps): int { $handoffFailureSteps[] = 'adopt';
+        return 0; },
+        'assess' => static function () use (&$handoffFailureSteps): int { $handoffFailureSteps[] = 'assess';
+        return 0; },
+        'init' => static function () use (&$handoffFailureSteps): int { $handoffFailureSteps[] = 'init';
+        return 0; },
         'handoff' => static function () use (&$handoffFailureSteps): string {
             $handoffFailureSteps[] = 'handoff';
             throw new RuntimeException('injected post-init target timeout');
@@ -554,9 +559,12 @@ $preflightExit = OnboardCommand::run(
     ['--git-url=' . $tmp . '/remote-does-not-exist.git'],
     dirname(__DIR__, 4),
     [
-        'adopt' => static function () use (&$preflightMutations): int { $preflightMutations[] = 'adopt'; return 0; },
-        'assess' => static function () use (&$preflightMutations): int { $preflightMutations[] = 'assess'; return 0; },
-        'init' => static function () use (&$preflightMutations): int { $preflightMutations[] = 'init'; return 0; },
+        'adopt' => static function () use (&$preflightMutations): int { $preflightMutations[] = 'adopt';
+        return 0; },
+        'assess' => static function () use (&$preflightMutations): int { $preflightMutations[] = 'assess';
+        return 0; },
+        'init' => static function () use (&$preflightMutations): int { $preflightMutations[] = 'init';
+        return 0; },
     ]
 );
 ob_end_clean();
@@ -749,9 +757,12 @@ $tagExit = OnboardCommand::run(
     ['--git-url=' . $tagFixture['remote']],
     dirname(__DIR__, 4),
     [
-        'adopt' => static function () use (&$tagMutations): int { $tagMutations[] = 'adopt'; return 0; },
-        'assess' => static function () use (&$tagMutations): int { $tagMutations[] = 'assess'; return 0; },
-        'init' => static function () use (&$tagMutations): int { $tagMutations[] = 'init'; return 0; },
+        'adopt' => static function () use (&$tagMutations): int { $tagMutations[] = 'adopt';
+        return 0; },
+        'assess' => static function () use (&$tagMutations): int { $tagMutations[] = 'assess';
+        return 0; },
+        'init' => static function () use (&$tagMutations): int { $tagMutations[] = 'init';
+        return 0; },
     ]
 );
 ob_end_clean();
@@ -836,9 +847,12 @@ $unrelatedExit = OnboardCommand::run(
     ['--git-url=' . $unrelatedFixture['remote']],
     dirname(__DIR__, 4),
     [
-        'adopt' => static function () use (&$unrelatedMutations): int { $unrelatedMutations[] = 'adopt'; return 0; },
-        'assess' => static function () use (&$unrelatedMutations): int { $unrelatedMutations[] = 'assess'; return 0; },
-        'init' => static function () use (&$unrelatedMutations): int { $unrelatedMutations[] = 'init'; return 0; },
+        'adopt' => static function () use (&$unrelatedMutations): int { $unrelatedMutations[] = 'adopt';
+        return 0; },
+        'assess' => static function () use (&$unrelatedMutations): int { $unrelatedMutations[] = 'assess';
+        return 0; },
+        'init' => static function () use (&$unrelatedMutations): int { $unrelatedMutations[] = 'init';
+        return 0; },
     ]
 );
 ob_end_clean();
@@ -1205,12 +1219,16 @@ $resumeExit = OnboardCommand::run(
     ['--handoff-only', '--git-url=ssh://git.example.test/resume.git'],
     dirname(__DIR__, 4),
     [
-        'adopt' => static function () use (&$resumeSteps): int { $resumeSteps[] = 'adopt'; return 0; },
-        'assess' => static function () use (&$resumeSteps): int { $resumeSteps[] = 'assess'; return 0; },
-        'init' => static function () use (&$resumeSteps): int { $resumeSteps[] = 'init'; return 0; },
+        'adopt' => static function () use (&$resumeSteps): int { $resumeSteps[] = 'adopt';
+        return 0; },
+        'assess' => static function () use (&$resumeSteps): int { $resumeSteps[] = 'assess';
+        return 0; },
+        'init' => static function () use (&$resumeSteps): int { $resumeSteps[] = 'init';
+        return 0; },
         'controller_preflight' => static fn(): array => ['exit' => 0, 'stdout' => '', 'stderr' => ''],
         'handoff_preflight' => static function () use (&$resumeSteps): void { $resumeSteps[] = 'preflight'; },
-        'handoff' => static function () use (&$resumeSteps): string { $resumeSteps[] = 'handoff'; return 'main'; },
+        'handoff' => static function () use (&$resumeSteps): string { $resumeSteps[] = 'handoff';
+        return 'main'; },
     ]
 );
 ob_end_clean();
@@ -1633,10 +1651,10 @@ foreach ([$faultRoot, $faultRoot . '/sandbox', $faultRoot . '/sandbox/bin', $fau
 $faultPairScript = "#!/usr/bin/env bash\nset -eu\nif [ \"\$1\" = up ]; then"
     . "\ncase \" \$* \" in *\" --git-cli \"*) ;; *) exit 11 ;; esac\n"
     . "[ \"\${WPRISM_CLI_IMAGE:-}\" = \"wprism-demo-cli-git:php8.3\" ] || exit 12\nmkdir -p "
-    . escapeshellarg($faultRoot . '/sandbox/siterepo') . "/\"\$2\"1 "
-    . escapeshellarg($faultRoot . '/sandbox/siterepo') . "/\"\$2\"2; "
-    . "if [ \"\$2\" = partialdemo ]; then touch "
-    . escapeshellarg($faultRoot . '/sandbox/siterepo') . "/\"\$2\"1/partial "
+    . escapeshellarg($faultRoot . '/sandbox/siterepo') . '/"$2"1 '
+    . escapeshellarg($faultRoot . '/sandbox/siterepo') . '/"$2"2; '
+    . 'if [ "$2" = partialdemo ]; then touch '
+    . escapeshellarg($faultRoot . '/sandbox/siterepo') . '/"$2"1/partial '
     . escapeshellarg($faultRoot . '/sandbox/siterepo') . "/\"\$2\"2/partial; exit 9; fi; fi\nexit 0\n";
 file_put_contents($faultRoot . '/sandbox/bin/pair.sh', $faultPairScript);
 file_put_contents($faultRoot . '/sandbox/pair.yml', "services: {}\n");
@@ -2076,7 +2094,7 @@ $retry = ideal_demo_session($retryRoot, 'retrydemo', 9230, 9231);
 file_put_contents((string) $retry['compose_file'], "services: {}\n");
 file_put_contents((string) $retry['compose_env_file'], "WPRISM_PAIR=retrydemo\n");
 $deployMarker = $retryRoot . '/first-deploy-failed';
-$wprismStub = "#!/usr/bin/env bash\nif [ \"\$1\" = deploy ] && [ ! -f " . escapeshellarg($deployMarker) . " ]; then touch " . escapeshellarg($deployMarker) . "; exit 9; fi\nexit 0\n";
+$wprismStub = "#!/usr/bin/env bash\nif [ \"\$1\" = deploy ] && [ ! -f " . escapeshellarg($deployMarker) . ' ]; then touch ' . escapeshellarg($deployMarker) . "; exit 9; fi\nexit 0\n";
 file_put_contents($retryRoot . '/cli/wprism', $wprismStub);
 chmod($retryRoot . '/cli/wprism', 0755);
 file_put_contents($retryRoot . '/fake-bin/docker', "#!/usr/bin/env bash\nprintf '%s\\n' '{\"items\":1}'\n");
@@ -2155,6 +2173,13 @@ wprism_check(
         && str_contains($demoSource, "'wprism-assess-view/v1'")
         && str_contains($demoSource, 'Managed core capability preflight: READY. Whole-site release assessment: COMPLETE WITH GAPS'),
     'default demo requires qualified core capabilities and reports a complete bounded whole-site assessment without hiding gaps'
+);
+wprism_check(
+    str_contains($demoSource, 'SELECT * FROM {$wpdb->comments} WHERE comment_ID = %d')
+        && str_contains($demoSource, 'SELECT * FROM {$wpdb->commentmeta} WHERE comment_id = %d ORDER BY meta_id ASC')
+        && str_contains($demoSource, '"comment_row_sha256" => hash("sha256", $commentBytes)')
+        && str_contains($demoSource, '"commentmeta_sha256" => hash("sha256", $commentmetaBytes)'),
+    'core demo byte-identity proof hashes the complete target-only comment row and ordered commentmeta rows'
 );
 
 $releaseGuide = (string) file_get_contents(dirname(__DIR__, 4) . '/docs/guides/release.md');

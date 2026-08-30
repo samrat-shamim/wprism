@@ -749,7 +749,7 @@
             ]
           }
         ],
-        "file_count": 33,
+        "file_count": 34,
         "files": [
           "Apply.php",
           "ApplyFieldMaterializer.php",
@@ -779,6 +779,7 @@
           "OptionsMaterializer.php",
           "PostMaterializer.php",
           "PreparedApply.php",
+          "ProtectedPostIdentity.php",
           "RelationshipMaterializer.php",
           "TaxonomyApplyContext.php",
           "TermMaterializer.php",

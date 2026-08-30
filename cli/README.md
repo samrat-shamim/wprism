@@ -578,15 +578,18 @@ semantics remain the rehearsal implementation's.
   `--force-code-drift`; ordinary state drift instead refuses before mutation
   and requires capture/reconciliation (except for the separately checkpointed
   scoped-promotion authority). A regen_pending marker makes the *next* apply
-  retry rather than refusing at preparation. Env_missing is a third case:
-  apply never refuses on it at all (env values are never captured/applied —
-  there is nothing for apply's own preconditions to check), but status still
-  reports a required-and-missing entry as not clean because it answers
-  "safe to promote?", not just "will apply refuse?" — capture first for
-  ordinary drift, retry for regen_pending (automatic on the next `wprism
-  apply`), `wprism env-set` for env_missing. An *optional* (`required: false`)
-  env_missing entry is still listed for visibility but never flips this by
-  itself — it's plugin-internal bookkeeping the plugin populates on its own.
+  retry rather than refusing at preparation. Env_missing has two executable
+  cases. Ordinary environment options are never captured or applied, so their
+  rows do not make apply refuse. A required protected-post
+  `post_password:<uuid>` binding is different: apply materializes that
+  target-local value into `post_password` and refuses transactionally when it
+  is absent. Status reports either required case as not clean because it
+  answers "safe to promote?", not just "will apply refuse?" — capture first
+  for ordinary drift, retry for regen_pending (automatic on the next `wprism
+  apply`), and use `wprism env-set` for env_missing. An *optional*
+  (`required: false`) env_missing entry is still listed for visibility but
+  never flips this by itself — it's plugin-internal bookkeeping the plugin
+  populates on its own.
   Also non-zero if the underlying `wp wprism plan` call itself failed or
   returned unparseable JSON. Plain warnings are rendered but never flip this
   by themselves — see the decision-matrix comment in

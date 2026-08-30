@@ -3,6 +3,7 @@ namespace WPrism;
 
 require_once __DIR__ . '/ApplyPlanner.php';
 require_once __DIR__ . '/EnvironmentValues.php';
+require_once __DIR__ . '/ProtectedPostIdentity.php';
 require_once __DIR__ . '/../Adapter/ProviderActionBatchBuilder.php';
 require_once __DIR__ . '/../Rebuild/RegenerationContextStore.php';
 require_once __DIR__ . '/../Rebuild/RebuildSelection.php';
@@ -57,7 +58,11 @@ final class ApplyPlanEnvironment {
                 throw new \RuntimeException('wprism: canonical protected post carries an invalid password binding');
             }
             $intended = $expected[$binding] ?? null;
-            $postId = Ledger::id_for((string) $uuid, Ledger::KIND_POST);
+            $postType = $front['type'] ?? null;
+            if (!is_string($postType) || $postType === '') {
+                throw new \RuntimeException('wprism: canonical protected post carries no post type');
+            }
+            $postId = ProtectedPostIdentity::observe((string) $uuid, $postType);
             $live = $postId === null ? null : $wpdb->get_var($wpdb->prepare(
                 "SELECT post_password FROM {$wpdb->posts} WHERE ID = %d LIMIT 1",
                 $postId

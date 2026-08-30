@@ -119,6 +119,33 @@ $check(
     is_string($missingRefusal) && str_contains($missingRefusal, 'is not provisioned on this environment'),
     'post materialization refuses a protected post before mutation when its local password binding is absent'
 );
+$protectedIdentitySource = (string) file_get_contents(
+    __DIR__ . '/../../../../agent/src/Apply/ProtectedPostIdentity.php'
+);
+$requestCoordinatorSource = (string) file_get_contents(
+    __DIR__ . '/../../../../agent/src/Apply/ApplyRequestCoordinator.php'
+);
+$planEnvironmentSource = (string) file_get_contents(
+    __DIR__ . '/../../../../agent/src/Apply/ApplyPlanEnvironment.php'
+);
+$identityLockPosition = strpos($requestCoordinatorSource, 'ProtectedPostIdentity::lock(');
+$intendedValuePosition = strpos($requestCoordinatorSource, 'EnvironmentValues::set($repo, $name, $value);');
+$check(
+    str_contains($protectedIdentitySource, 'FROM {$wpdb->prefix}wprism_map')
+        && str_contains($protectedIdentitySource, 'SELECT ID, post_type FROM {$wpdb->posts}')
+        && str_contains($protectedIdentitySource, '->exact_key_rows($localId, self::IDENTITY_KEY)')
+        && str_contains($protectedIdentitySource, 'LIMIT 1 FOR UPDATE')
+        && str_contains($protectedIdentitySource, 'MetaOwnerRangeLock::prepare('),
+    'protected-post provisioning locks and verifies the ledger tuple, live post type, and exact UUID sidecar'
+);
+$check(
+    is_int($identityLockPosition)
+        && is_int($intendedValuePosition)
+        && $identityLockPosition < $intendedValuePosition
+        && str_contains($requestCoordinatorSource, "Db::start_repeatable_read('env-set protected post transaction start')")
+        && str_contains($planEnvironmentSource, 'ProtectedPostIdentity::observe((string) $uuid, $postType)'),
+    'env-set proves live protected-post identity before publishing intent and plan uses the same read-only witness'
+);
 $check(
     array_map(static fn(ReflectionParameter $p): string => $p->getName(), (new ReflectionMethod(PostMaterializer::class, 'ensure_post_row'))->getParameters()) === ['front'],
     'ensure_post_row() keeps its original single parameter'

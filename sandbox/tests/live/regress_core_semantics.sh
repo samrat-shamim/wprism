@@ -154,6 +154,91 @@ PROTECTED2=$(wp2 eval '$p=get_page_by_path("protected", OBJECT, "post"); echo $p
 [ "$(wp2 post get "$PROTECTED2" --field=post_password)" = 'target-local-password' ] \
   || fail "fresh target did not materialize its target-local protected-post password"
 
+ENV_VALUES_HASH=$(shasum -a 256 "$R2/.wprism-env-values.json" | awk '{print $1}')
+IDENTITY_DECOY=$(wp2 post create --post_type=post --post_status=publish \
+  --post_title='Protected identity decoy' --post_name=protected-identity-decoy \
+  --post_password='target-local-password' --porcelain)
+wp2 post meta add "$IDENTITY_DECOY" _WPRISM_UUID "$PROTECTED_UUID" >/dev/null
+wp2 eval "
+  global \$wpdb;
+  \$changed = \$wpdb->update(
+    \$wpdb->prefix . 'wprism_map',
+    ['local_id' => $IDENTITY_DECOY],
+    ['uuid' => '$PROTECTED_UUID', 'id_kind' => 'post'],
+    ['%d'],
+    ['%s', '%s']
+  );
+  if (\$changed !== 1) { throw new RuntimeException('could not seed stale protected-post map'); }
+" >/dev/null
+STALE_IDENTITY_ERR=$(mktemp "${TMPDIR:-/tmp}/wprism-protected-stale.XXXXXX")
+set +e
+wp2 wprism plan --repo=/siterepo --default-author=admin --format=json \
+  >/dev/null 2>"$STALE_IDENTITY_ERR"
+STALE_PLAN_RC=$?
+printf '%s\n' 'must-not-reach-a-reused-post' \
+  | wp2 wprism env-set --repo=/siterepo --name="post_password:${PROTECTED_UUID}" --stdin \
+    >/dev/null 2>>"$STALE_IDENTITY_ERR"
+STALE_ENV_SET_RC=$?
+set -e
+[ "$STALE_PLAN_RC" -ne 0 ] && [ "$STALE_ENV_SET_RC" -ne 0 ] \
+  || fail "stale protected-post identity was trusted by plan or env-set"
+grep -Fq 'protected post binding identity does not match its exact live backing row' "$STALE_IDENTITY_ERR" \
+  || fail "stale protected-post identity refusal was not explicit"
+[ "$(wp2 post get "$PROTECTED2" --field=post_password)" = 'target-local-password' ] \
+  || fail "stale identity refusal changed the canonical protected post"
+[ "$(wp2 post get "$IDENTITY_DECOY" --field=post_password)" = 'target-local-password' ] \
+  || fail "stale identity refusal changed the reused decoy post"
+[ "$(shasum -a 256 "$R2/.wprism-env-values.json" | awk '{print $1}')" = "$ENV_VALUES_HASH" ] \
+  || fail "stale identity refusal published a new intended password"
+wp2 eval "
+  global \$wpdb;
+  if (\$wpdb->update(
+    \$wpdb->prefix . 'wprism_map',
+    ['local_id' => $PROTECTED2],
+    ['uuid' => '$PROTECTED_UUID', 'id_kind' => 'post'],
+    ['%d'],
+    ['%s', '%s']
+  ) !== 1) { throw new RuntimeException('could not restore protected-post map'); }
+  wp_delete_post($IDENTITY_DECOY, true);
+" >/dev/null
+
+TYPE_DECOY=$(wp2 post create --post_type=page --post_status=publish \
+  --post_title='Protected type decoy' --post_name=protected-type-decoy \
+  --post_password='target-local-password' --porcelain)
+wp2 post meta add "$TYPE_DECOY" _wprism_uuid "$PROTECTED_UUID" >/dev/null
+wp2 eval "
+  global \$wpdb;
+  if (\$wpdb->update(
+    \$wpdb->prefix . 'wprism_map',
+    ['local_id' => $TYPE_DECOY],
+    ['uuid' => '$PROTECTED_UUID', 'id_kind' => 'post'],
+    ['%d'],
+    ['%s', '%s']
+  ) !== 1) { throw new RuntimeException('could not seed wrong-type protected-post map'); }
+" >/dev/null
+set +e
+wp2 wprism plan --repo=/siterepo --default-author=admin --format=json \
+  >/dev/null 2>"$STALE_IDENTITY_ERR"
+TYPE_PLAN_RC=$?
+set -e
+[ "$TYPE_PLAN_RC" -ne 0 ] \
+  || fail "protected-post identity accepted a reused row of the wrong post type"
+grep -Fq 'protected post binding identity does not match its exact live backing row' "$STALE_IDENTITY_ERR" \
+  || fail "wrong-type protected-post refusal was not explicit"
+wp2 eval "
+  global \$wpdb;
+  if (\$wpdb->update(
+    \$wpdb->prefix . 'wprism_map',
+    ['local_id' => $PROTECTED2],
+    ['uuid' => '$PROTECTED_UUID', 'id_kind' => 'post'],
+    ['%d'],
+    ['%s', '%s']
+  ) !== 1) { throw new RuntimeException('could not restore protected-post map after type test'); }
+  wp_delete_post($TYPE_DECOY, true);
+" >/dev/null
+rm -f "$STALE_IDENTITY_ERR"
+pass "protected-post env-set locks and verifies exact live identity before mutation"
+
 TIMES=$(wp2 eval "\$p=get_post($POST2); echo \$p->post_modified . '|' . \$p->post_modified_gmt;")
 [ "$TIMES" = '2026-08-09 17:45:00|2026-08-09 11:45:00' ] \
   || fail "local/GMT modified timestamps collapsed: $TIMES"
