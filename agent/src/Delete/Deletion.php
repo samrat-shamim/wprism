@@ -59,39 +59,6 @@ final class Deletion {
                 "wprism: deletion capability $selector omits required cascade effect(s): " . implode(', ', $missing)
             );
         }
-        if (($cap['active_plugin_boundary'] ?? null) === 'declarers_only') {
-            if (!function_exists('get_option')) {
-                throw new \RuntimeException(
-                    "wprism: deletion capability $selector requires a live active-plugin boundary"
-                );
-            }
-            $active = array_values(array_unique(array_filter(
-                array_map('strval', (array) get_option('active_plugins', [])),
-                static fn(string $plugin): bool => $plugin !== ''
-            )));
-            $declaring = array_fill_keys((array) ($cap['declaring_plugins'] ?? []), true);
-            $unowned = array_values(array_filter(
-                $active,
-                static fn(string $plugin): bool => !isset($declaring[$plugin])
-            ));
-            sort($unowned, SORT_STRING);
-            if ($unowned) {
-                throw new CommandRefusalException(
-                    'deletion_plugin_boundary',
-                    "deletion intent for $selector is blocked by active plugins outside its closed reverse-reference contract",
-                    'deactivate the named plugins or extend each owning adapter with an agreeing deletion declaration and guards',
-                    array_map(static fn(string $plugin): array => [
-                        'code' => 'deletion_plugin_boundary',
-                        'surface' => $selector,
-                        'plugin' => $plugin,
-                        'message' => 'active plugin does not participate in this deletion contract',
-                        'remediation' => 'deactivate it or add a reviewed agreeing deletion declaration to its adapter',
-                    ], $unowned),
-                    "wprism: deletion intent for $selector is blocked while these active plugins have no agreeing reverse-reference contract: "
-                        . implode(', ', $unowned)
-                );
-            }
-        }
         return $cap;
     }
 

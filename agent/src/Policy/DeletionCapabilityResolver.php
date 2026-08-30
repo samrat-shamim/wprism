@@ -26,7 +26,7 @@ final class DeletionCapabilityResolver {
     ) {}
 
     /**
-     * @return ?array{cascades:string[],guards:array<int,array<string,mixed>>,declared_by:string[],active_plugin_boundary?:string,declaring_plugins?:string[]}
+     * @return ?array{cascades:string[],guards:array<int,array<string,mixed>>,declared_by:string[],executable_owner_boundary?:string,declaring_executable_owners?:string[]}
      */
     public function capability(string $selector): ?array {
         $out = null;
@@ -40,15 +40,20 @@ final class DeletionCapabilityResolver {
             }
             $cascades = array_values(array_unique(array_map('strval', $decl['cascades'])));
             sort($cascades, SORT_STRING);
-            $pluginBoundary = $decl['active_plugin_boundary'] ?? null;
-            if ($pluginBoundary !== null && $pluginBoundary !== 'declarers_only') {
+            $ownerBoundary = $decl['executable_owner_boundary'] ?? null;
+            if (array_key_exists('active_plugin_boundary', $decl)) {
                 throw new \RuntimeException(
-                    "wprism: manifest deletion capability '$selector' active_plugin_boundary must be declarers_only"
+                    "wprism: manifest deletion capability '$selector' active_plugin_boundary is retired; declare executable_owner_boundary=all_active_owners"
                 );
             }
-            if ($out !== null && ($out['active_plugin_boundary'] ?? null) !== $pluginBoundary) {
+            if ($ownerBoundary !== null && $ownerBoundary !== 'all_active_owners') {
                 throw new \RuntimeException(
-                    "wprism: every declaration of deletion capability '$selector' must agree on its active-plugin boundary"
+                    "wprism: manifest deletion capability '$selector' executable_owner_boundary must be all_active_owners"
+                );
+            }
+            if ($out !== null && ($out['executable_owner_boundary'] ?? null) !== $ownerBoundary) {
+                throw new \RuntimeException(
+                    "wprism: every declaration of deletion capability '$selector' must agree on its executable-owner boundary"
                 );
             }
             $guards = $decl['guards'] ?? [];
@@ -190,17 +195,27 @@ final class DeletionCapabilityResolver {
             }
             $out['guards'] = array_merge($out['guards'], $guards);
             $out['declared_by'][] = $source;
-            if ($pluginBoundary !== null) {
+            if ($ownerBoundary !== null) {
                 $plugin = $manifest['plugin'] ?? null;
-                if (!is_string($plugin) || $plugin === '') {
+                $theme = $manifest['theme'] ?? null;
+                $owners = [];
+                if (is_string($plugin) && $plugin !== '') {
+                    $owners[] = 'plugin:' . $plugin;
+                }
+                if (is_string($theme) && $theme !== '') {
+                    $owners[] = 'theme:' . $theme;
+                }
+                if ($owners === []) {
                     throw new \RuntimeException(
-                        "wprism: deletion capability '$selector' declarers_only boundary requires a plugin-owned manifest"
+                        "wprism: deletion capability '$selector' all_active_owners boundary requires a plugin- or theme-owned manifest"
                     );
                 }
-                $out['active_plugin_boundary'] = $pluginBoundary;
-                $out['declaring_plugins'][] = $plugin;
-                $out['declaring_plugins'] = array_values(array_unique($out['declaring_plugins']));
-                sort($out['declaring_plugins'], SORT_STRING);
+                $out['executable_owner_boundary'] = $ownerBoundary;
+                $out['declaring_executable_owners'] = array_values(array_unique(array_merge(
+                    (array) ($out['declaring_executable_owners'] ?? []),
+                    $owners
+                )));
+                sort($out['declaring_executable_owners'], SORT_STRING);
             }
         }
         return $out;

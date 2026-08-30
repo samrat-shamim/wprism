@@ -5,16 +5,20 @@ require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/DeleteGuardReferenceScanner.php';
 require_once __DIR__ . '/DeleteGuardEvaluator.php';
 require_once __DIR__ . '/Deletion.php';
+require_once __DIR__ . '/ExecutableOwnerBoundary.php';
 
 /** Owns the transactional lock-and-recheck boundary for deletion guards. */
 final class DeleteGuardLockCoordinator {
     private bool $guardTableTouched = false;
+    private ExecutableOwnerBoundary $executableOwnerBoundary;
 
     public function __construct(
         private readonly Policy $policy,
         private readonly DeleteGuardReferenceScanner $scanner,
         private readonly array $snapshotRowTables
-    ) {}
+    ) {
+        $this->executableOwnerBoundary = new ExecutableOwnerBoundary($policy);
+    }
 
     /** @return array{count:int,error:?string,rows:string[],witness?:string} */
     public function count(
@@ -44,6 +48,10 @@ final class DeleteGuardLockCoordinator {
         array $tree,
         array $guardRepairUuids
     ): void {
+        // Activation options are mutable authored rows. Bind their raw bytes
+        // under the same transaction as guard rows before any delete can run;
+        // get_option() would only attest an unversioned request-cache value.
+        $this->executableOwnerBoundary->bind($deleteWork);
         $this->assert_guard_engines($deleteWork);
         $this->assert_lock_isolation();
         DeleteGuardEvaluator::assert_revalidated_witnesses(
@@ -126,6 +134,7 @@ final class DeleteGuardLockCoordinator {
         bool $forUpdate,
         array &$warnings
     ): void {
+        $this->executableOwnerBoundary->assert_unchanged();
         $capability = Deletion::capability(
             $this->policy,
             (string) $row['deletion_kind'],
@@ -161,6 +170,11 @@ final class DeleteGuardLockCoordinator {
         $row['blocked'] = implode('; ', $findings['blocks']);
         $row['guard_refs'] = $findings['guard_refs'];
         self::append_forced_warnings($warnings, $row, 'FORCED delete after final guard recheck');
+    }
+
+    /** Re-sample filesystem owners at the actual row-delete boundary. */
+    public function assert_executable_owner_boundary(): void {
+        $this->executableOwnerBoundary->assert_unchanged();
     }
 
     public static function append_forced_warnings(array &$warnings, array $row, string $prefix): void {

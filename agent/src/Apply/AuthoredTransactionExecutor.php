@@ -51,7 +51,7 @@ final class AuthoredTransactionExecutor {
     private readonly \Closure $renewLease;
     /** @var \Closure(array,array,array,array,array):void */
     private readonly \Closure $lockDeleteGuards;
-    /** @var \Closure(array,array,array,bool,array,array,bool):void */
+    /** @var \Closure(array,array,array,bool,array,array,bool):(\Closure():void) */
     private readonly \Closure $recheckDeleteGuard;
 
     public function __construct(
@@ -269,9 +269,10 @@ final class AuthoredTransactionExecutor {
             }
 
             if ($executeDeletes) {
-                foreach ($deleteWork as $row) {
+                $deleteBoundaryAssertions = [];
+                foreach ($deleteWork as $deleteIndex => $row) {
                     ($this->renewLease)('apply-delete');
-                    ($this->recheckDeleteGuard)(
+                    $assertDeleteBoundary = ($this->recheckDeleteGuard)(
                         $row,
                         $deleteUuids,
                         $compiledDeletions,
@@ -280,6 +281,12 @@ final class AuthoredTransactionExecutor {
                         $guardRepairUuids,
                         true
                     );
+                    if (!$assertDeleteBoundary instanceof \Closure) {
+                        throw new \RuntimeException(
+                            'wprism: delete guard recheck did not bind an executable-owner delete boundary'
+                        );
+                    }
+                    $deleteBoundaryAssertions[$deleteIndex] = $assertDeleteBoundary;
                 }
                 $regenContext = array_merge(
                     $regenContext,
@@ -288,8 +295,15 @@ final class AuthoredTransactionExecutor {
                         !$scoped
                     )
                 );
-                foreach ($deleteWork as $row) {
+                foreach ($deleteWork as $deleteIndex => $row) {
                     ($this->renewLease)('apply-delete');
+                    $assertDeleteBoundary = $deleteBoundaryAssertions[$deleteIndex] ?? null;
+                    if (!$assertDeleteBoundary instanceof \Closure) {
+                        throw new \RuntimeException(
+                            'wprism: executable-owner delete boundary is missing for an authorized row'
+                        );
+                    }
+                    $assertDeleteBoundary();
                     $this->deleteExecutor->delete_entity(
                         $row['uuid'],
                         $row['type'],

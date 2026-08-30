@@ -127,7 +127,7 @@ final class ApplyRequestCoordinator {
                 $tree,
                 $guardRepairUuids
             ),
-            recheckDeleteGuard: fn(
+            recheckDeleteGuard: function (
                 array $row,
                 array $deleteUuids,
                 array $deletions,
@@ -135,16 +135,21 @@ final class ApplyRequestCoordinator {
                 array $tree,
                 array $guardRepairUuids,
                 bool $forUpdate
-            ): mixed => $this->deleteGuardCoordinator->recheck(
-                $row,
-                $deleteUuids,
-                $deletions,
-                $forced,
-                $tree,
-                $guardRepairUuids,
-                $forUpdate,
-                $this->warnings
-            ),
+            ): \Closure {
+                $this->deleteGuardCoordinator->recheck(
+                    $row,
+                    $deleteUuids,
+                    $deletions,
+                    $forced,
+                    $tree,
+                    $guardRepairUuids,
+                    $forUpdate,
+                    $this->warnings
+                );
+                return function (): void {
+                    $this->deleteGuardCoordinator->assert_executable_owner_boundary();
+                };
+            },
             selectionDeclaresChannelFor: fn(string $channel, string $surface): bool =>
                 $this->rebuildSelection->declares_channel_for($channel, $surface),
             selectionDeclaresEntityBatchFor: fn(string $surface): bool =>

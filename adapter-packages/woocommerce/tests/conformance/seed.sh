@@ -287,6 +287,10 @@ COUPON_ID=$(wp_conf1 wc shop_coupon create --code=CONF-WELCOME10 \
   --status=publish --user=admin --porcelain)
 require_fixture_ids COUPON_ID
 wp_conf1 eval "
+\$coupon = new WC_Coupon($COUPON_ID);
+\$coupon->set_email_restrictions(['buyer@example.test', '*@agency.example.test']);
+\$coupon->set_excluded_product_ids([$PRECISION_ID]);
+\$coupon->save();
 update_post_meta($COUPON_ID, 'product_brands', [$BRAND_CHILD_ID]);
 update_post_meta($COUPON_ID, 'exclude_product_brands', [$BRAND_EXCLUDED_ID]);
 " >/dev/null

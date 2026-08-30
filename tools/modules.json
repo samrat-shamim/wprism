@@ -997,6 +997,7 @@
           "DeleteGuardReferenceScanner",
           "DeletionAuthority",
           "DeleteGuardEvaluator",
+          "ExecutableOwnerBoundary",
           "Orphans"
         ],
         "depends_on": [
@@ -1016,7 +1017,7 @@
             ]
           }
         ],
-        "file_count": 8,
+        "file_count": 9,
         "files": [
           "DeleteExecutor.php",
           "DeleteGuardEvaluator.php",
@@ -1025,6 +1026,7 @@
           "DeleteGuardValueCodec.php",
           "Deletion.php",
           "DeletionAuthority.php",
+          "ExecutableOwnerBoundary.php",
           "Orphans.php"
         ]
       },

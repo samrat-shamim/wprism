@@ -16,14 +16,22 @@ if (!defined('WPRISM_SPEC_VERSION')) {
 if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }
-if (!function_exists('get_option')) {
-    function get_option(string $name, mixed $default = false): mixed {
-        return $name === 'active_plugins'
-            ? ($GLOBALS['wprismWooDeletionActivePlugins'] ?? ['woocommerce/woocommerce.php'])
-            : $default;
-    }
-}
 $root = dirname(__DIR__, 4);
+$executableOwnerFixture = sys_get_temp_dir() . '/wprism-woo-owners-' . bin2hex(random_bytes(8));
+mkdir($executableOwnerFixture . '/mu-plugins', 0777, true);
+file_put_contents($executableOwnerFixture . '/mu-plugins/wprism-loader.php', "<?php\n");
+define('WP_CONTENT_DIR', $executableOwnerFixture);
+define('WPMU_PLUGIN_DIR', $executableOwnerFixture . '/mu-plugins');
+register_shutdown_function(static function () use ($executableOwnerFixture): void {
+    foreach (glob($executableOwnerFixture . '/mu-plugins/*') ?: [] as $file) {
+        @unlink($file);
+    }
+    foreach (glob($executableOwnerFixture . '/*.php') ?: [] as $file) {
+        @unlink($file);
+    }
+    @rmdir($executableOwnerFixture . '/mu-plugins');
+    @rmdir($executableOwnerFixture);
+});
 
 require $root . '/agent/src/Kernel/Canon.php';
 require $root . '/agent/src/Kernel/OptionState.php';
@@ -58,6 +66,7 @@ require_once $root . '/agent/src/Code/Code.php';
 require_once $root . '/agent/src/Code/CodeStateContract.php';
 require_once $root . '/agent/src/Repository/RepositoryCompiler.php';
 require_once $root . '/agent/src/Delete/DeleteGuardValueCodec.php';
+require_once $root . '/agent/src/Delete/ExecutableOwnerBoundary.php';
 require_once $root . '/agent/src/Apply/Apply.php';
 
 use WPrism\Deletion;
@@ -129,6 +138,14 @@ final class WooDeletionFakeWpdb {
     public array $metaRows = [];
     /** @var list<array<string,mixed>> */
     public array $optionRows = [];
+    /** @var array<string,string> */
+    public array $activationOptions = [
+        'active_plugins' => 'a:1:{i:0;s:27:"woocommerce/woocommerce.php";}',
+        'stylesheet' => 'twentytwentyfive',
+        'template' => 'twentytwentyfive',
+    ];
+    /** @var list<string> */
+    public array $activationQueries = [];
     /** @var array<int,array<string,mixed>> */
     public array $shippingMethodRows = [];
     /** @var list<array<string,mixed>> */
@@ -283,6 +300,21 @@ final class WooDeletionFakeWpdb {
             }
             return [];
         }
+        if (str_contains($sql, 'FROM `wp_options` FORCE INDEX')
+            && preg_match("/WHERE option_name = '([^']+)'/", $sql, $m)) {
+            $this->activationQueries[] = $sql;
+            $name = str_replace("''", "'", $m[1]);
+            if (!array_key_exists($name, $this->activationOptions)) {
+                return [];
+            }
+            $value = $this->activationOptions[$name];
+            if (str_contains($sql, 'OCTET_LENGTH(option_value) AS value_bytes')) {
+                return [['option_name' => $name, 'value_bytes' => (string) strlen($value)]];
+            }
+            if (str_contains($sql, 'SELECT option_name, option_value')) {
+                return [['option_name' => $name, 'option_value' => $value]];
+            }
+        }
         if (str_contains($sql, 'FOR UPDATE')) {
             $this->lockingQueries[] = $sql;
             $this->events[] = 'locking';
@@ -351,19 +383,13 @@ $shippedPolicy = Policy::load(
     null,
     \WPrism\AdapterLibrary::fromSourcePackage($root, 'woocommerce')
 );
-check(($shippedPolicy->deletion_capability('post:product')['active_plugin_boundary'] ?? null) === 'declarers_only',
-    'shipped Woo product deletion is bounded to its complete declaring-plugin set');
-$GLOBALS['wprismWooDeletionActivePlugins'] = ['woocommerce/woocommerce.php', 'acme-extension/acme.php'];
-$foreignPluginRefused = false;
-try {
-    Deletion::capability($shippedPolicy, 'post', 'product');
-} catch (\WPrism\CommandRefusalException $refusal) {
-    $foreignPluginRefused = $refusal->reasonCode === 'deletion_plugin_boundary'
-        && str_contains($refusal->getMessage(), 'acme-extension/acme.php');
-}
-check($foreignPluginRefused,
-    'shipped Woo product deletion refuses a nonparticipating active extension before mutation');
-$GLOBALS['wprismWooDeletionActivePlugins'] = ['woocommerce/woocommerce.php'];
+check(
+    ($shippedPolicy->deletion_capability('post:product')['executable_owner_boundary'] ?? null)
+        === 'all_active_owners'
+        && ($shippedPolicy->deletion_capability('post:product')['declaring_executable_owners'] ?? null)
+            === ['plugin:woocommerce/woocommerce.php'],
+    'shipped Woo product deletion statically declares its exact executable owner; live facts bind only in the transaction'
+);
 $fixtureManifest = $shippedPolicy->manifests[0];
 $fixtureManifest['deletions'] = array_merge(
     synthetic_woo_deletions(),
@@ -373,6 +399,14 @@ $policy = (new ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
 $adapterLibrary = new ReflectionProperty(Policy::class, 'adapterLibrary');
 $adapterLibrary->setValue($policy, \WPrism\AdapterLibrary::fromSourcePackage($root, 'woocommerce'));
 $policy->manifests = [$fixtureManifest];
+$policy->site = ['policy' => ['deletion_owner_agreements' => [
+    'post:product' => [
+        'theme:twentytwentyfive' => 'Fixture theme has no product reverse-reference persistence.',
+    ],
+    'post:product_variation' => [
+        'theme:twentytwentyfive' => 'Fixture theme has no variation reverse-reference persistence.',
+    ],
+]]];
 $variation = $policy->deletion_capability('post:product_variation');
 $product = $policy->deletion_capability('post:product');
 
@@ -788,6 +822,106 @@ $fakeWpdb->metaRows = [[
     'meta_value' => serialize([42]),
 ]];
 $GLOBALS['wpdb'] = $fakeWpdb;
+
+// The destructive boundary must inventory code that can execute outside the
+// Woo plugin itself. Its three option facts are direct FOR UPDATE reads, and
+// exact site-owned agreements are the only usable path for themes/MU/drop-ins.
+\WPrism\DeleteGuardEvaluator::begin_authored_transaction();
+$boundaryWork = [[
+    'deletion_kind' => 'post',
+    'deletion_type' => 'product',
+]];
+$baseBoundary = new \WPrism\ExecutableOwnerBoundary($policy);
+$baseBoundary->bind($boundaryWork);
+check(count($fakeWpdb->activationQueries) === 6
+    && count(array_filter(
+        $fakeWpdb->activationQueries,
+        static fn(string $query): bool => str_contains($query, 'FOR UPDATE')
+    )) === 6,
+    'executable-owner boundary binds active_plugins, stylesheet, and template through direct locked reads');
+$ownerBoundaryTokens = token_get_all((string) file_get_contents(
+    $root . '/agent/src/Delete/ExecutableOwnerBoundary.php'
+));
+check(array_values(array_filter(
+    $ownerBoundaryTokens,
+    static fn(mixed $token): bool => is_array($token)
+        && $token[0] === T_STRING
+        && strtolower($token[1]) === 'get_option'
+)) === [], 'executable-owner boundary cannot regress to cached activation facts');
+
+$fakeWpdb->activationOptions['active_plugins'] = serialize([
+    'woocommerce/woocommerce.php',
+    'acme-extension/acme.php',
+]);
+$foreignPluginRefused = false;
+try {
+    (new \WPrism\ExecutableOwnerBoundary($policy))->bind($boundaryWork);
+} catch (\WPrism\CommandRefusalException $refusal) {
+    $foreignPluginRefused = $refusal->reasonCode === 'deletion_executable_owner_boundary'
+        && ($refusal->diagnostics[0]['owner'] ?? null) === 'plugin:acme-extension/acme.php';
+}
+check($foreignPluginRefused,
+    'transaction boundary refuses an active regular plugin with no agreeing reverse-reference declaration');
+
+$fakeWpdb->activationOptions['active_plugins'] = serialize(['woocommerce/woocommerce.php']);
+$fakeWpdb->activationOptions['stylesheet'] = 'agency-child';
+$fakeWpdb->activationOptions['template'] = 'agency-parent';
+$themeRefused = false;
+try {
+    (new \WPrism\ExecutableOwnerBoundary($policy))->bind($boundaryWork);
+} catch (\WPrism\CommandRefusalException $refusal) {
+    $owners = array_column($refusal->diagnostics, 'owner');
+    $themeRefused = in_array('theme:agency-child', $owners, true)
+        && in_array('theme:agency-parent', $owners, true);
+}
+check($themeRefused,
+    'transaction boundary independently covers the active stylesheet and its parent template');
+
+file_put_contents(WPMU_PLUGIN_DIR . '/agency-mu.php', "<?php\n");
+file_put_contents(WP_CONTENT_DIR . '/object-cache.php', "<?php\n");
+foreach (['blog-deleted.php', 'blog-inactive.php', 'blog-suspended.php'] as $statusDropIn) {
+    file_put_contents(WP_CONTENT_DIR . '/' . $statusDropIn, "<?php\n");
+}
+$fakeWpdb->activationOptions['stylesheet'] = 'twentytwentyfive';
+$fakeWpdb->activationOptions['template'] = 'twentytwentyfive';
+$filesystemOwnersRefused = false;
+try {
+    (new \WPrism\ExecutableOwnerBoundary($policy))->bind($boundaryWork);
+} catch (\WPrism\CommandRefusalException $refusal) {
+    $owners = array_column($refusal->diagnostics, 'owner');
+    $filesystemOwnersRefused = in_array('mu-plugin:agency-mu.php', $owners, true)
+        && in_array('dropin:object-cache.php', $owners, true)
+        && in_array('dropin:blog-deleted.php', $owners, true)
+        && in_array('dropin:blog-inactive.php', $owners, true)
+        && in_array('dropin:blog-suspended.php', $owners, true);
+}
+check($filesystemOwnersRefused,
+    'transaction boundary covers MU plugins, ordinary drop-ins, and all multisite status drop-ins');
+
+$reviewedPolicy = clone $policy;
+$reviewedPolicy->site['policy']['deletion_owner_agreements']['post:product'] += [
+    'mu-plugin:agency-mu.php' => 'Site-owned loader does not persist product identities.',
+    'dropin:object-cache.php' => 'Cache backend owns no durable product reverse references.',
+    'dropin:blog-deleted.php' => 'Multisite deleted-site template owns no product reverse references.',
+    'dropin:blog-inactive.php' => 'Multisite inactive-site template owns no product reverse references.',
+    'dropin:blog-suspended.php' => 'Multisite suspended-site template owns no product reverse references.',
+];
+$reviewedAccepted = true;
+try {
+    (new \WPrism\ExecutableOwnerBoundary($reviewedPolicy))->bind($boundaryWork);
+} catch (Throwable) {
+    $reviewedAccepted = false;
+}
+check($reviewedAccepted,
+    'exact rationale-bearing site agreements preserve a usable reviewed theme/MU/drop-in deletion path');
+unlink(WPMU_PLUGIN_DIR . '/agency-mu.php');
+unlink(WP_CONTENT_DIR . '/object-cache.php');
+foreach (['blog-deleted.php', 'blog-inactive.php', 'blog-suspended.php'] as $statusDropIn) {
+    unlink(WP_CONTENT_DIR . '/' . $statusDropIn);
+}
+$fakeWpdb->activationOptions['stylesheet'] = 'twentytwentyfive';
+$fakeWpdb->activationOptions['template'] = 'twentytwentyfive';
+
 $apply = new \WPrism\DeleteGuardLockCoordinator(
     $policy,
     new \WPrism\DeleteGuardReferenceScanner($policy),
@@ -1068,6 +1202,7 @@ $metaRaceManifest = $policy->manifests[0];
 $metaRaceManifest['deletions']['post:product_variation']['guards'] = [$metaGuard];
 $metaRacePolicy = (new ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
 $metaRacePolicy->manifests = [$metaRaceManifest];
+$metaRacePolicy->site = $policy->site;
 $metaRaceApply = new \WPrism\DeleteGuardLockCoordinator(
     $metaRacePolicy,
     new \WPrism\DeleteGuardReferenceScanner($metaRacePolicy),
@@ -1117,13 +1252,57 @@ try {
 }
 check($metaLockSafe && count($fakeWpdb->lockingQueries) > 0,
     'metadata guard locks its indexed current-read range before phase-2 repair');
-check(count($fakeWpdb->engineQueries) === 1
-    && $fakeWpdb->metadataQueries === ['SELECT 1 FROM `wp_postmeta` LIMIT 1']
-    && str_contains($fakeWpdb->engineQueries[0], "TABLE_NAME IN ('wp_postmeta')")
-    && !str_contains($fakeWpdb->engineQueries[0], 'wp_comments'),
-    'deletion guard accepts an InnoDB table and introspects only the current prefixed guard scope');
-check($fakeWpdb->events === ['metadata', 'engine', 'locking'],
-    'deletion guard metadata-locks and validates engines before its first authored guard lock');
+check(count($fakeWpdb->engineQueries) === 2
+    && $fakeWpdb->metadataQueries === [
+        'SELECT 1 FROM `wp_options` LIMIT 1',
+        'SELECT 1 FROM `wp_postmeta` LIMIT 1',
+    ]
+    && str_contains($fakeWpdb->engineQueries[0], "TABLE_NAME IN ('wp_options')")
+    && str_contains($fakeWpdb->engineQueries[1], "TABLE_NAME IN ('wp_postmeta')")
+    && !str_contains($fakeWpdb->engineQueries[1], 'wp_comments'),
+    'deletion guard accepts InnoDB activation/guard tables and introspects only its exact prefixed scopes');
+check($fakeWpdb->events === ['metadata', 'engine', 'metadata', 'engine', 'locking'],
+    'deletion boundary locks activation facts, then metadata-locks and validates guard engines before its first guard row lock');
+
+// Guard rechecks precede context capture, so filesystem owners need one more
+// census at the exact row-delete boundary. Introduce a drop-in after a real
+// final guard recheck and prove the bound assertion refuses before the
+// mutation seam is allowed to advance.
+$deleteBoundaryWarnings = [];
+$metaRaceApply->recheck(
+    $metaRaceRow,
+    [$childUuid => true],
+    $deletions,
+    true,
+    $treeWithRef,
+    [],
+    true,
+    $deleteBoundaryWarnings
+);
+file_put_contents(WP_CONTENT_DIR . '/blog-suspended.php', "<?php\n");
+$deleteMutationCount = 0;
+$lateOwnerRefused = false;
+try {
+    $metaRaceApply->assert_executable_owner_boundary();
+    $deleteMutationCount++;
+} catch (\WPrism\CommandRefusalException $refusal) {
+    $lateOwnerRefused = $refusal->reasonCode === 'deletion_executable_owner_changed';
+}
+unlink(WP_CONTENT_DIR . '/blog-suspended.php');
+$transactionExecutorSource = (string) file_get_contents(
+    $root . '/agent/src/Apply/AuthoredTransactionExecutor.php'
+);
+$normalizedTransactionExecutor = preg_replace('/\s+/', ' ', $transactionExecutorSource);
+check(
+    $lateOwnerRefused
+        && $deleteMutationCount === 0
+        && is_string($normalizedTransactionExecutor)
+        && str_contains(
+            $normalizedTransactionExecutor,
+            '$assertDeleteBoundary(); $this->deleteExecutor->delete_entity('
+        ),
+    'a drop-in introduced after guard recheck is refused by the assertion consumed immediately before delete'
+);
 
 // A metadata-lock failure is a hard refusal at the first gate: information
 // schema must not be consulted and no guard read may be issued after the

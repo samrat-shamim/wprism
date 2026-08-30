@@ -647,6 +647,110 @@ SELECT
   rm -rf "$repo/.tmp-woo-product-delete-final"
   [ -z "$final_diff" ] || fail "WooCommerce $version product deletion recapture diverged: $final_diff"
   pass "WooCommerce $version unreferenced product deletes canary-clean with core/Woo lookup cleanup and byte-identical recapture"
+
+  # A variation is a distinct manifest selector and lookup identity, not
+  # incidental coverage from deleting a variable parent. Drive its complete
+  # lifecycle by SKU so both environments prove their independently mapped id.
+  variation_parent_sku="WPRISM-VARIATION-PARENT-${version//./-}"
+  variation_sku="WPRISM-DELETE-VARIATION-${version//./-}"
+  variation_ids=$(wp1 eval '
+$parentSku = '"'"'"$variation_parent_sku"'"'"';
+$variationSku = '"'"'"$variation_sku"'"'"';
+if (wc_get_product_id_by_sku($parentSku) || wc_get_product_id_by_sku($variationSku)) {
+    throw new RuntimeException("disposable variation deletion SKU already exists");
+}
+$parent = new WC_Product_Variable();
+$parent->set_name("WPrism disposable variation parent");
+$parent->set_slug(strtolower($parentSku));
+$parent->set_sku($parentSku);
+$parent->set_status("publish");
+$parentId = $parent->save();
+$variation = new WC_Product_Variation();
+$variation->set_parent_id($parentId);
+$variation->set_sku($variationSku);
+$variation->set_regular_price("8.25");
+$variation->set_manage_stock(true);
+$variation->set_stock_quantity(4);
+$variation->set_status("publish");
+$variationId = $variation->save();
+echo $parentId . "|" . $variationId;')
+  IFS='|' read -r variation_parent_source variation_source <<<"$variation_ids"
+  require_fixture_ids variation_parent_source variation_source
+  wp1 wprism capture --repo=/siterepo >/dev/null
+  variation_file=$(grep -rlF -- "$variation_sku" "$source_repo/state/posts/product_variation" | head -n 1)
+  [ -n "$variation_file" ] || fail "WooCommerce $version source capture omitted the named product_variation"
+  variation_uuid=$(basename "$variation_file" | cut -d- -f1-5)
+  [[ "$variation_uuid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
+    || fail "WooCommerce $version named product_variation UUID is malformed"
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "capture: woocommerce $version named deletion variation"
+  "${GIT1[@]}" push -q origin main
+  git -C "$repo" pull -q origin main
+  revision=$(git -C "$repo" rev-parse HEAD)
+  wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$revision" >/dev/null
+  variation_parent_target=$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"'"$variation_parent_sku"'"'"');')
+  variation_target=$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"'"$variation_sku"'"'"');')
+  require_fixture_ids variation_parent_target variation_target
+  variation_lookup_before=$(wp2 db query "
+SELECT
+  (SELECT COUNT(*) FROM wp_wc_product_meta_lookup WHERE product_id=$variation_target) +
+  (SELECT COUNT(*) FROM wp_wc_product_attributes_lookup WHERE product_id=$variation_target)
+" --skip-column-names | tr -d '\r')
+  require_observed_nonempty "WooCommerce $version named product_variation lookup preimage" "$variation_lookup_before"
+  [ "$variation_lookup_before" -ge 1 ] \
+    || fail "WooCommerce $version named product_variation did not materialize a Woo lookup row"
+
+  wp1 eval '$variation = wc_get_product((int) wc_get_product_id_by_sku('"'"'"$variation_sku"'"'"')); if (!$variation || !$variation->is_type("variation")) { throw new RuntimeException("named source variation missing"); } $variation->delete(true);' >/dev/null
+  [ "$(wp1 eval 'echo (int) wc_get_product_id_by_sku('"'"'"$variation_sku"'"'"');')" = 0 ] \
+    || fail "WooCommerce $version native source deletion retained the named product_variation"
+  [ "$(wp1 eval 'echo (int) wc_get_product_id_by_sku('"'"'"$variation_parent_sku"'"'"');')" = "$variation_parent_source" ] \
+    || fail "WooCommerce $version native variation deletion crossed its parent product boundary"
+  wp1 wprism capture --repo=/siterepo >/dev/null
+  variation_delete_file="$source_repo/state/deletions/$variation_uuid.json"
+  jq -e --arg uuid "$variation_uuid" --arg source_path "posts/product_variation/$(basename "$variation_file")" '
+    .format == "wprism-deletion/v1" and .kind == "post" and .type == "product_variation" and
+    .uuid == $uuid and .source_path == $source_path
+  ' "$variation_delete_file" >/dev/null \
+    || fail "WooCommerce $version source capture did not emit the exact named product_variation tombstone"
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "capture: woocommerce $version delete named variation"
+  "${GIT1[@]}" push -q origin main
+  git -C "$repo" pull -q origin main
+  revision=$(git -C "$repo" rev-parse HEAD)
+  variation_plan=$(wp2 wprism plan --repo=/siterepo --format=json | tail -1)
+  require_wprism_answered "WooCommerce $version named product_variation deletion plan" json "$variation_plan"
+  echo "$variation_plan" | jq -e --arg uuid "$variation_uuid" '
+    [.delete[]? | select(.uuid == $uuid and .type == "post" and .deletion_type == "product_variation" and ((.blocked // "") == ""))] | length == 1
+  ' >/dev/null || fail "WooCommerce $version named product_variation was not one clean planned delete: $variation_plan"
+  variation_apply=$(wp2 wprism apply --repo=/siterepo --with-deletes --default-author=admin --revision="$revision" --format=json | tail -1)
+  require_wprism_answered "WooCommerce $version named product_variation deletion apply" json "$variation_apply"
+  echo "$variation_apply" | jq -e '.canary == "clean"' >/dev/null \
+    || fail "WooCommerce $version named product_variation deletion did not finish canary-clean: $variation_apply"
+  [ "$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"'"$variation_sku"'"'"');')" = 0 ] \
+    || fail "WooCommerce $version target retained the deleted named product_variation"
+  [ "$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"'"$variation_parent_sku"'"'"');')" = "$variation_parent_target" ] \
+    || fail "WooCommerce $version target variation deletion crossed its parent product boundary"
+  variation_residue=$(wp2 db query "
+SELECT
+  (SELECT COUNT(*) FROM wp_posts WHERE ID=$variation_target OR post_parent=$variation_target) +
+  (SELECT COUNT(*) FROM wp_postmeta WHERE post_id=$variation_target) +
+  (SELECT COUNT(*) FROM wp_term_relationships WHERE object_id=$variation_target) +
+  (SELECT COUNT(*) FROM wp_wc_product_meta_lookup WHERE product_id=$variation_target) +
+  (SELECT COUNT(*) FROM wp_wc_product_attributes_lookup WHERE product_id=$variation_target)
+" --skip-column-names | tr -d '\r')
+  require_observed_nonempty "WooCommerce $version deleted product_variation residue count" "$variation_residue"
+  [ "$variation_residue" = 0 ] \
+    || fail "WooCommerce $version deleted product_variation left $variation_residue core or Woo lookup row(s)"
+  variation_final_plan=$(wp2 wprism plan --repo=/siterepo --format=json | tail -1)
+  require_wprism_answered "WooCommerce $version named product_variation settled plan" json "$variation_final_plan"
+  echo "$variation_final_plan" | jq -e '(.delete | length) == 0 and (.delete_conflict | length) == 0' >/dev/null \
+    || fail "WooCommerce $version product_variation deletion did not settle: $variation_final_plan"
+  wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-woo-variation-delete-final >/dev/null
+  variation_final_diff=$(diff -rq "$source_repo/state" "$repo/.tmp-woo-variation-delete-final" || true)
+  rm -rf "$repo/.tmp-woo-variation-delete-final"
+  [ -z "$variation_final_diff" ] \
+    || fail "WooCommerce $version named product_variation recapture diverged: $variation_final_diff"
+  pass "WooCommerce $version named product_variation capture/tombstone/plan/apply clears exact lookups and recaptures byte-identically"
 }
 
 VMATRIX_PLUGIN_SLUG=woocommerce
@@ -726,10 +830,22 @@ for WOO_VERSION in 11.0.0 11.0.1; do
     || fail "side 1 could not establish HPOS through WooCommerce's native new-shop lifecycle"
   pass "side 1: woocommerce $WOO_VERSION installed from verified artifact, active, HPOS enabled"
 
+  active_theme_owners=$(wp1 eval '
+$owners = array_values(array_unique(["theme:" . get_stylesheet(), "theme:" . get_template()]));
+echo wp_json_encode($owners, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);')
+  require_observed_nonempty "WooCommerce $WOO_VERSION active theme owners" "$active_theme_owners"
+  theme_deletion_agreements=$(jq -cn --argjson owners "$active_theme_owners" '
+    $owners | map({key: ., value: "Exact active theme reviewed: it persists no Woo product or variation reverse-reference identity."}) | from_entries
+  ')
+
   cat > "siterepo/${PAIR}1/site.wprism.json" <<EOF
 {
   "manifests": ["core", "woocommerce"],
   "policy": {
+    "deletion_owner_agreements": {
+      "post:product": $theme_deletion_agreements,
+      "post:product_variation": $theme_deletion_agreements
+    },
     "options": {},
     "post_meta": {},
     "post_types": ["post", "page", "attachment", "product", "product_variation", "shop_coupon"],

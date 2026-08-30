@@ -48,10 +48,6 @@ require_once $resolverPath;
 use WPrism\DeletionCapabilityResolver;
 use WPrism\OptionNameReferenceResolver;
 
-function get_option(string $name, mixed $default = null): mixed {
-    return $name === 'active_plugins' ? ($GLOBALS['deletion_active_plugins'] ?? []) : $default;
-}
-
 $optionRules = static function (array $manifests): OptionNameReferenceResolver {
     return new OptionNameReferenceResolver($manifests, static fn(array $rule, array $_source): array => $rule);
 };
@@ -201,21 +197,43 @@ $assertThrows(
 $closed = $manifests;
 foreach ($closed as $position => &$manifest) {
     $manifest['plugin'] = "fixture-$position/plugin.php";
-    $manifest['deletions']['table:things']['active_plugin_boundary'] = 'declarers_only';
+    $manifest['deletions']['table:things']['executable_owner_boundary'] = 'all_active_owners';
 }
+$closed[1]['theme'] = 'fixture-theme';
 unset($manifest);
 $closedCapability = (new DeletionCapabilityResolver($closed, $optionRules($closed), ['string', 'csv']))
     ->capability('table:things');
 $check(
-    ($closedCapability['active_plugin_boundary'] ?? null) === 'declarers_only'
-        && ($closedCapability['declaring_plugins'] ?? null) === [
-            'fixture-0/plugin.php',
-            'fixture-1/plugin.php',
+    ($closedCapability['executable_owner_boundary'] ?? null) === 'all_active_owners'
+        && ($closedCapability['declaring_executable_owners'] ?? null) === [
+            'plugin:fixture-0/plugin.php',
+            'plugin:fixture-1/plugin.php',
+            'theme:fixture-theme',
         ],
-    'closed deletion authority enumerates every participating plugin declaration'
+    'closed deletion authority enumerates every participating plugin/theme declaration'
+);
+$withoutExecutableOwnerBoundary = static function (array $declaration): array {
+    unset($declaration['executable_owner_boundary']);
+    return $declaration;
+};
+$legacyBoundary = $closed;
+$legacyBoundary[0]['deletions']['table:things'] = $withoutExecutableOwnerBoundary(
+    $legacyBoundary[0]['deletions']['table:things']
+);
+$legacyBoundary[0]['deletions']['table:things']['active_plugin_boundary'] = 'declarers_only';
+$assertThrows(
+    static fn() => (new DeletionCapabilityResolver(
+        $legacyBoundary,
+        $optionRules($legacyBoundary),
+        ['string', 'csv']
+    ))->capability('table:things'),
+    'active_plugin_boundary is retired',
+    'the active-plugins-only boundary cannot silently survive as deletion authority'
 );
 $mixedBoundary = $closed;
-unset($mixedBoundary[1]['deletions']['table:things']['active_plugin_boundary']);
+$mixedBoundary[1]['deletions']['table:things'] = $withoutExecutableOwnerBoundary(
+    $mixedBoundary[1]['deletions']['table:things']
+);
 $assertThrows(
     static fn() => (new DeletionCapabilityResolver(
         $mixedBoundary,
@@ -223,7 +241,7 @@ $assertThrows(
         ['string', 'csv']
     ))->capability('table:things'),
     'every declaration',
-    'all co-owners must agree on a closed active-plugin boundary'
+    'all co-owners must agree on a closed executable-owner boundary'
 );
 $reverseMixedBoundary = array_reverse($mixedBoundary);
 $assertThrows(
@@ -233,7 +251,7 @@ $assertThrows(
         ['string', 'csv']
     ))->capability('table:things'),
     'every declaration',
-    'active-plugin boundary disagreement refuses independently of manifest order'
+    'executable-owner boundary disagreement refuses independently of manifest order'
 );
 
 require_once "$root/agent/src/Kernel/Canon.php";
@@ -259,27 +277,16 @@ $closedPolicy->manifests = [[
     'name' => 'closed-product-owner',
     'plugin' => 'shop/shop.php',
     'deletions' => ['post:product' => [
-        'active_plugin_boundary' => 'declarers_only',
+        'executable_owner_boundary' => 'all_active_owners',
         'cascades' => ['postmeta', 'post_revisions', 'term_relationships'],
         'guards' => [],
     ]],
 ]];
-$GLOBALS['deletion_active_plugins'] = ['shop/shop.php'];
 $check(
-    WPrism\Deletion::capability($closedPolicy, 'post', 'product')['declaring_plugins'] === ['shop/shop.php'],
-    'live deletion authority admits only its participating active plugin set'
+    WPrism\Deletion::capability($closedPolicy, 'post', 'product')['declaring_executable_owners']
+        === ['plugin:shop/shop.php'],
+    'static deletion authority exposes its exact executable owner without consulting cached activation facts'
 );
-$GLOBALS['deletion_active_plugins'][] = 'extension/extension.php';
-try {
-    WPrism\Deletion::capability($closedPolicy, 'post', 'product');
-    $check(false, 'a nonparticipating active plugin must block the closed deletion contract');
-} catch (WPrism\CommandRefusalException $failure) {
-    $check(
-        $failure->reasonCode === 'deletion_plugin_boundary'
-            && ($failure->diagnostics[0]['plugin'] ?? null) === 'extension/extension.php',
-        'a nonparticipating active plugin blocks with exact machine-readable evidence'
-    );
-}
 
 $policySource = (string) file_get_contents("$root/agent/src/Policy/Policy.php");
 $check(

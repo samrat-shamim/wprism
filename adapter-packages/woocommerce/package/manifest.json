@@ -4,24 +4,32 @@
   },
   "deletions": {
     "post:product": {
-      "active_plugin_boundary": "declarers_only",
+      "executable_owner_boundary": "all_active_owners",
       "cascades": ["postmeta", "post_revisions", "term_relationships"],
       "guards": [
         {"column": "comment_post_ID", "id_kind": "post", "reason": "comments or reviews reference this product", "table": "comments"},
         {"column": "post_parent", "exclude_where": {"post_type": "revision"}, "id_kind": "post", "reason": "unscheduled child posts reference this product", "source_id_kind": "post", "source_pk": "ID", "table": "posts"},
         {"column": "post_id", "id_kind": "post", "identity_column": "meta_id", "meta_key": "_children", "reason": "grouped products reference this product", "ref": "post[]", "source_id_kind": "post", "source_pk": "post_id", "table": "postmeta"},
+        {"cast": "string", "column": "post_id", "id_kind": "post", "identity_column": "meta_id", "meta_key": "_crosssell_ids", "reason": "cross-sell products reference this product", "ref": "post[]", "source_id_kind": "post", "source_pk": "post_id", "table": "postmeta"},
+        {"cast": "string", "column": "post_id", "id_kind": "post", "identity_column": "meta_id", "meta_key": "_upsell_ids", "reason": "upsell products reference this product", "ref": "post[]", "source_id_kind": "post", "source_pk": "post_id", "table": "postmeta"},
+        {"cast": "csv", "column": "post_id", "id_kind": "post", "identity_column": "meta_id", "meta_key": "exclude_product_ids", "reason": "coupon exclusions reference this product", "ref": "post[]", "source_id_kind": "post", "source_pk": "post_id", "table": "postmeta"},
+        {"cast": "csv", "column": "post_id", "id_kind": "post", "identity_column": "meta_id", "meta_key": "product_ids", "reason": "coupon restrictions reference this product", "ref": "post[]", "source_id_kind": "post", "source_pk": "post_id", "table": "postmeta"},
         {"column": "product_id", "id_kind": "post", "reason": "orders reference this product", "table": "wc_order_product_lookup"},
         {"column": "product_id", "id_kind": "post", "reason": "download permissions reference this product", "table": "woocommerce_downloadable_product_permissions"},
         {"column": "meta_value", "id_kind": "post", "lock_column": "meta_key", "reason": "legacy order items reference this product", "table": "woocommerce_order_itemmeta", "where": {"meta_key": "_product_id"}}
       ]
     },
     "post:product_variation": {
-      "active_plugin_boundary": "declarers_only",
+      "executable_owner_boundary": "all_active_owners",
       "cascades": ["postmeta", "post_revisions", "term_relationships"],
       "guards": [
         {"column": "comment_post_ID", "id_kind": "post", "reason": "comments reference this variation", "table": "comments"},
         {"column": "post_parent", "exclude_where": {"post_type": "revision"}, "id_kind": "post", "reason": "child posts reference this variation", "source_id_kind": "post", "source_pk": "ID", "table": "posts"},
         {"column": "post_id", "id_kind": "post", "identity_column": "meta_id", "meta_key": "_children", "reason": "grouped products reference this variation", "ref": "post[]", "source_id_kind": "post", "source_pk": "post_id", "table": "postmeta"},
+        {"cast": "string", "column": "post_id", "id_kind": "post", "identity_column": "meta_id", "meta_key": "_crosssell_ids", "reason": "cross-sell products reference this variation", "ref": "post[]", "source_id_kind": "post", "source_pk": "post_id", "table": "postmeta"},
+        {"cast": "string", "column": "post_id", "id_kind": "post", "identity_column": "meta_id", "meta_key": "_upsell_ids", "reason": "upsell products reference this variation", "ref": "post[]", "source_id_kind": "post", "source_pk": "post_id", "table": "postmeta"},
+        {"cast": "csv", "column": "post_id", "id_kind": "post", "identity_column": "meta_id", "meta_key": "exclude_product_ids", "reason": "coupon exclusions reference this variation", "ref": "post[]", "source_id_kind": "post", "source_pk": "post_id", "table": "postmeta"},
+        {"cast": "csv", "column": "post_id", "id_kind": "post", "identity_column": "meta_id", "meta_key": "product_ids", "reason": "coupon restrictions reference this variation", "ref": "post[]", "source_id_kind": "post", "source_pk": "post_id", "table": "postmeta"},
         {"column": "variation_id", "id_kind": "post", "reason": "orders reference this variation", "table": "wc_order_product_lookup"},
         {"column": "product_id", "id_kind": "post", "reason": "download permissions reference this variation", "table": "woocommerce_downloadable_product_permissions"},
         {"column": "meta_value", "id_kind": "post", "lock_column": "meta_key", "reason": "legacy order items reference this variation", "table": "woocommerce_order_itemmeta", "where": {"meta_key": "_variation_id"}}
@@ -43,7 +51,7 @@
       "selector": {"scope": "external", "type": "plugin_lifecycle", "value": "woocommerce/woocommerce.php"}
     }
   ],
-  "note": "WooCommerce catalog portability evolved through the Spike C/D, Grind R1-B/R3-A, and typed-snapshot work documented by the reviewed notes below. The current adapter admits only exact official WooCommerce 11.0.0 and 11.0.1 artifacts (>=11.0.0 <11.0.2), preserves authored simple/variable/grouped/external catalog state and ordered attribute semantics, regenerates independently verifiable native projections, and supports product/variation deletion only inside a closed active-plugin boundary with locked core-Woo reverse-reference guards. Official 10.9.4 and the synthetic next-version boundary 11.0.2 are executable refusal controls. No theme range is declared because conformance does not certify a theme-specific dependency.",
+  "note": "WooCommerce catalog portability evolved through the Spike C/D, Grind R1-B/R3-A, and typed-snapshot work documented by the reviewed notes below. The current adapter admits only exact official WooCommerce 11.0.0 and 11.0.1 artifacts (>=11.0.0 <11.0.2), preserves authored simple/variable/grouped/external catalog state and ordered attribute semantics, regenerates independently verifiable native projections, and supports product/variation deletion only inside a transaction-bound all-active-executable-owner boundary with locked core-Woo reverse-reference guards. Official 10.9.4 and the synthetic next-version boundary 11.0.2 are executable refusal controls. No theme range is declared because conformance does not certify a theme-specific dependency; a site must instead record an exact reviewed theme agreement before destructive catalog apply.",
   "meta_patterns": [
     {"class": "authored", "match": "^attribute_pa_"}
   ],
@@ -1036,7 +1044,7 @@
     "_weight": {"class": "authored"},
     "_width": {"class": "authored"},
     "coupon_amount": {"class": "authored", "lint_ok": true},
-    "customer_email": {"class": "authored"},
+    "customer_email": {"allow_pii": true, "class": "authored"},
     "date_expires": {"class": "authored"},
     "discount_type": {"class": "authored"},
     "duplicate_temp_brand_ids": {"class": "runtime"},

@@ -896,10 +896,26 @@ woo_ok(array_keys((array) ($manifest['deletions'] ?? [])) === $supportedDeletes,
 foreach ($supportedDeletes as $selector) {
     $capability = $policy->deletion_capability($selector);
     woo_ok(
-        ($capability['active_plugin_boundary'] ?? null) === 'declarers_only'
-            && ($capability['declaring_plugins'] ?? null) === ['woocommerce/woocommerce.php']
-            && count((array) ($capability['guards'] ?? [])) === 6,
-        "$selector deletion has a closed active-plugin boundary and six locked reverse-reference families"
+        ($capability['executable_owner_boundary'] ?? null) === 'all_active_owners'
+            && ($capability['declaring_executable_owners'] ?? null) === ['plugin:woocommerce/woocommerce.php']
+            && count((array) ($capability['guards'] ?? [])) === 10,
+        "$selector deletion has an all-active-executable-owner boundary and ten locked reverse-reference families"
+    );
+    $metaGuards = [];
+    foreach ((array) ($capability['guards'] ?? []) as $guard) {
+        if (isset($guard['meta_key'])) {
+            $metaGuards[(string) $guard['meta_key']] = $guard;
+        }
+    }
+    woo_ok(array_keys($metaGuards) === [
+        '_children', '_crosssell_ids', '_upsell_ids', 'exclude_product_ids', 'product_ids',
+    ], "$selector deletion guards every declared Woo product/coupon post-reference family");
+    woo_ok(
+        ($metaGuards['_crosssell_ids']['cast'] ?? null) === 'string'
+            && ($metaGuards['_upsell_ids']['cast'] ?? null) === 'string'
+            && ($metaGuards['exclude_product_ids']['cast'] ?? null) === 'csv'
+            && ($metaGuards['product_ids']['cast'] ?? null) === 'csv',
+        "$selector deletion guard casts match the manifest's exact post-meta reference grammar"
     );
 }
 foreach ($unsupportedDeletes as $selector) {
@@ -910,8 +926,13 @@ woo_ok(in_array('delete', $wooDisposition['capabilities']['operations'] ?? [], t
 woo_ok(($wooDisposition['capabilities']['deletion_semantics']['supported'] ?? null) === $supportedDeletes,
     'external capability registry declares product and variation deletion supported');
 woo_ok(str_contains((string) ($wooDisposition['reason'] ?? ''),
-    'exact PII clearance for tax-rate country/state business-jurisdiction fields'),
-    'the human-reviewed disposition explains the tax-jurisdiction PII exception');
+    'exact PII clearance for coupon customer-email restrictions, tax-rate country/state business-jurisdiction fields'),
+    'the human-reviewed disposition explains coupon-email and tax-jurisdiction PII exceptions');
+woo_ok(
+    ($policy->post_meta_rule('customer_email')['allow_pii'] ?? null) === true
+        && !isset($policy->post_meta_rule('billing_email')['allow_pii']),
+    'coupon customer_email has exact PII clearance without widening sibling email metadata'
+);
 woo_ok(
     ($policy->owned_option_rule('pickup_location_pickup_locations')['allow_pii'] ?? null) === true
         && !isset($policy->owned_option_rule('woocommerce_pickup_location_settings')['allow_pii'])
@@ -1573,6 +1594,8 @@ $conformanceFamilyWitnesses = [
     'deletion' => [$wooCheckHarness, [
         'WooCommerce supported product deletion capture',
         'supported product deletion did not emit its exact canonical tombstone',
+        'WooCommerce supported product_variation deletion capture',
+        'supported product_variation deletion did not emit its exact canonical tombstone',
         'source did not restore byte-identically after malformed/undeclared-COD/deletion probes',
     ]],
     'failure-recovery' => [$wooCheckHarness, [
@@ -1596,7 +1619,7 @@ $conformanceFamilyWitnesses = [
         'WooCommerce populated COD boundary capture',
         'cod_addon_secret',
         'undeclared sibling key(s)',
-        'malformed attributes and undeclared COD refuse atomically; supported product deletion captures exactly and restores byte-identically',
+        'malformed attributes and undeclared COD refuse atomically; supported product and named product_variation deletions capture exactly and restore byte-identically',
     ]],
     'scope-platform' => [$wooCheckHarness, [
         'WooCommerce scope fixture unexpectedly activated optional extensions',
@@ -2160,7 +2183,7 @@ woo_ok(substr_count($woocommerceMatrixHarness, 'check_woocommerce_boundary_lifec
     'one lifecycle call inside the exact two-artifact loop covers 11.0.0 and 11.0.1 independently');
 woo_ok(substr_count($woocommerceMatrixHarness, 'check_woocommerce_product_deletion "$WOO_VERSION"') === 1
     && str_contains($woocommerceMatrixHarness, 'for WOO_VERSION in 11.0.0 11.0.1; do'),
-    'one guarded-and-successful product-deletion call inside the exact two-artifact loop covers 11.0.0 and 11.0.1 independently');
+    'one guarded product plus successful product/variation deletion call inside the exact two-artifact loop covers 11.0.0 and 11.0.1 independently');
 $wooMatrixCaseStart = strpos($woocommerceMatrixHarness, 'version_matrix_workflow() {');
 $wooMatrixCase = $wooMatrixCaseStart !== false
     ? substr($woocommerceMatrixHarness, $wooMatrixCaseStart)
@@ -2269,6 +2292,28 @@ foreach ([
     woo_ok(str_contains($woocommerceMatrixHarness, $deletionWitness),
         "exact WooCommerce product-deletion matrix pins $deletionWitness");
 }
+foreach ([
+    'WPRISM-DELETE-VARIATION-${version//./-}',
+    'new WC_Product_Variation()',
+    'source capture did not emit the exact named product_variation tombstone',
+    '.deletion_type == "product_variation"',
+    'named product_variation deletion did not finish canary-clean',
+    'deleted product_variation residue count',
+    'wp_wc_product_meta_lookup WHERE product_id=$variation_target',
+    'wp_wc_product_attributes_lookup WHERE product_id=$variation_target',
+    '.tmp-woo-variation-delete-final',
+    'named product_variation capture/tombstone/plan/apply clears exact lookups and recaptures byte-identically',
+] as $variationDeletionWitness) {
+    woo_ok(str_contains($woocommerceMatrixHarness, $variationDeletionWitness),
+        "exact WooCommerce product_variation-deletion matrix pins $variationDeletionWitness");
+}
+woo_ok(
+    str_contains($woocommerceMatrixHarness, 'active_theme_owners=$(wp1 eval')
+        && str_contains($woocommerceMatrixHarness, '"post:product": $theme_deletion_agreements')
+        && str_contains($woocommerceMatrixHarness, '"post:product_variation": $theme_deletion_agreements')
+        && !str_contains($woocommerceMatrixHarness, '"theme:twentytwentyfive"'),
+    'matrix writes exact observed child/parent theme owner agreements instead of hardcoding a permissive theme'
+);
 woo_ok(str_contains($woocommerceMatrixHarness, 'version_matrix_preflight()')
     && str_contains($woocommerceMatrixHarness, '$VMATRIX_MANIFEST version-matrix evidence requires WPRISM_EXPECTED_SOURCE_SHA')
     && str_contains($woocommerceMatrixHarness, 'export WPRISM_SOURCE_ROOT="$(cd .. && pwd -P)"'),

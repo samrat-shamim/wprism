@@ -234,6 +234,8 @@ echo wp_json_encode([
         'amount' => $coupon->get_amount('edit'),
         'brands' => array_map('intval', (array) get_post_meta($coupon->get_id(), 'product_brands', true)),
         'categories' => array_values($coupon->get_product_categories('edit')),
+        'emails' => array_values($coupon->get_email_restrictions('edit')),
+        'excluded_products' => array_values($coupon->get_excluded_product_ids('edit')),
         'excluded_brands' => array_map('intval', (array) get_post_meta($coupon->get_id(), 'exclude_product_brands', true)),
         'id' => $coupon->get_id(),
         'products' => array_values($coupon->get_product_ids('edit')),
@@ -1145,6 +1147,8 @@ jq -e --arg version "$WOOCOMMERCE_EXPECTED_VERSION" --arg target "http://localho
   .grouped.children == [.ids.product,.ids.precision] and
   .coupon.status == "publish" and .coupon.type == "percent" and .coupon.amount == "10" and
   .coupon.products == [.ids.product] and .coupon.categories == [.ids.category] and
+  .coupon.emails == ["buyer@example.test", "*@agency.example.test"] and
+  .coupon.excluded_products == [.ids.precision] and
   .coupon.brands == [.ids.brand_child] and .coupon.excluded_brands == [.ids.brand_excluded] and
   (.attributes | map(select(.attribute_name == "conf-color" and .attribute_label == "Conf Color" and .attribute_orderby == "menu_order" and .attribute_public == "0" and .attribute_type == "wc-visual")) | length) == 1 and
   (.attributes | map(select(.attribute_name == "conf-size" and .attribute_label == "Conf Size" and .attribute_orderby == "menu_order" and .attribute_public == "0" and .attribute_type == "select")) | length) == 1 and
@@ -1623,11 +1627,52 @@ wp_conf1 eval "
 wp_conf1 wprism capture --repo=/siterepo >/dev/null
 [ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$CAPTURE_BASELINE" ] \
   || fail 'WooCommerce restored product did not replace its temporary tombstone byte-identically'
+
+# A variation has independent deletion authority and identity. Exercise its
+# real named conformance row rather than treating variable-parent evidence as
+# an implicit child proof.
+VARIATION_DELETE_ROW=$(wp_conf1 eval '
+  global $wpdb; $id=wc_get_product_id_by_sku("CONF-VAR-S-RED");
+  echo base64_encode(wp_json_encode($wpdb->get_row($wpdb->prepare(
+    "SELECT * FROM {$wpdb->posts} WHERE ID=%d",$id
+  ),ARRAY_A),JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+')
+require_observed_nonempty 'WooCommerce supported product_variation-delete backup' "$VARIATION_DELETE_ROW"
+VARIATION_DELETE_FILE=$(grep -rlF -- 'CONF-VAR-S-RED' "$CONF_REPO1/state/posts/product_variation" | head -n 1)
+[ -n "$VARIATION_DELETE_FILE" ] || fail 'WooCommerce supported product_variation-delete source file is absent'
+VARIATION_DELETE_UUID=$(basename "$VARIATION_DELETE_FILE" | cut -d- -f1-5)
+[[ "$VARIATION_DELETE_UUID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
+  || fail 'WooCommerce supported product_variation-delete UUID is malformed'
+wp_conf1 eval '
+  global $wpdb; $id=wc_get_product_id_by_sku("CONF-VAR-S-RED");
+  if (1 !== $wpdb->delete($wpdb->posts,["ID"=>$id],["%d"])) throw new RuntimeException($wpdb->last_error);
+  clean_post_cache($id);
+' >/dev/null
+VARIATION_DELETE_RC=0
+VARIATION_DELETE_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || VARIATION_DELETE_RC=$?
+require_wprism_answered 'WooCommerce supported product_variation deletion capture' human "$VARIATION_DELETE_OUT"
+[ "$VARIATION_DELETE_RC" -eq 0 ] \
+  || fail "WooCommerce supported product_variation deletion did not capture: $VARIATION_DELETE_OUT"
+jq -e --arg uuid "$VARIATION_DELETE_UUID" --arg source_path "posts/product_variation/$(basename "$VARIATION_DELETE_FILE")" '
+  .format == "wprism-deletion/v1" and .kind == "post" and .type == "product_variation" and
+  .uuid == $uuid and .source_path == $source_path
+' "$CONF_REPO1/state/deletions/$VARIATION_DELETE_UUID.json" >/dev/null \
+  || fail 'WooCommerce supported product_variation deletion did not emit its exact canonical tombstone'
+[ ! -e "$VARIATION_DELETE_FILE" ] \
+  || fail 'WooCommerce supported product_variation deletion retained its canonical entity beside the tombstone'
+wp_conf1 eval "
+  global \$wpdb; \$row=json_decode(base64_decode('$VARIATION_DELETE_ROW'),true,512,JSON_THROW_ON_ERROR);
+  if (false === \$wpdb->insert(\$wpdb->posts,\$row)) throw new RuntimeException(\$wpdb->last_error);
+  clean_post_cache((int)\$row['ID']);
+" >/dev/null
+wp_conf1 wprism capture --repo=/siterepo >/dev/null
+[ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$CAPTURE_BASELINE" ] \
+  || fail 'WooCommerce restored product_variation did not replace its temporary tombstone byte-identically'
 wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-woocommerce-restored >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO1/.tmp-woocommerce-restored" \
   || fail 'WooCommerce source did not restore byte-identically after malformed/undeclared-COD/deletion probes'
 rm -rf "$CONF_REPO1/.tmp-woocommerce-restored"
-pass 'malformed attributes and undeclared COD refuse atomically; supported product deletion captures exactly and restores byte-identically'
+pass 'malformed attributes and undeclared COD refuse atomically; supported product and named product_variation deletions capture exactly and restore byte-identically'
 
 # Both branches edit one managed native price. Unforced application must be
 # byte-still on the target; explicit repository authority must converge without
