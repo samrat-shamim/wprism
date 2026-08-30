@@ -204,12 +204,44 @@ wprism_check_same(
     $piiOptionRules['pmpro_business_address'] ?? null,
     'the structured business address has the exact reviewed plain-data exception'
 );
+$dispositionReason = (string) ($disposition['reason'] ?? '');
+$dispositionNamesAllFour = true;
+foreach (array_keys($piiOptionRules) as $option) {
+    $dispositionNamesAllFour = $dispositionNamesAllFour && str_contains($dispositionReason, $option);
+}
+wprism_check(
+    $dispositionNamesAllFour
+        && str_contains($dispositionReason, 'populated divergently on source and target')
+        && str_contains($dispositionReason, 'included in the atomic target hash')
+        && str_contains($dispositionReason, 'asserted after initial apply and destructive-reinstall recovery'),
+    'the human-reviewed disposition binds all four PII exceptions to their divergent native product-path evidence'
+);
 wprism_check(
     !isset($manifest['options']['pmpro_from']['allow_pii'])
         && !isset($manifest['options']['pmpro_gateway_email']['allow_pii'])
         && !isset($manifest['options']['pmpro_email_admin_checkout']['allow_pii']),
     'sender aliases, gateway recipients, and notification controls do not inherit PII authority'
 );
+
+$seedFixture = (string) file_get_contents(dirname(__DIR__) . '/conformance/seed.sh');
+$targetFixture = (string) file_get_contents(dirname(__DIR__) . '/conformance/postdeploy.sh');
+$productCheck = (string) file_get_contents(dirname(__DIR__) . '/conformance/check.sh');
+$piiProductValues = [
+    'pmpro_business_address' => "'business_address' => get_option('pmpro_business_address')",
+    'pmpro_from_email' => 'memberships-source@example.test',
+    'pmpro_from_name' => 'WPrism Memberships 東京',
+    'pmpro_tax_state' => '"CA"',
+];
+foreach ($piiProductValues as $option => $nativeAssertion) {
+    wprism_check(
+        str_contains($seedFixture, "update_option('$option',")
+            && str_contains($targetFixture, "update_option('$option',")
+            && str_contains($productCheck, "get_option('$option')")
+            && str_contains($productCheck, '"' . $option . '"')
+            && str_contains($productCheck, $nativeAssertion),
+        "$option is seeded on both sides, observed through WordPress, folded into the atomic target hash, and asserted after apply"
+    );
+}
 
 $expectedModes = [
     'pmpro_discount_codes' => 'natural_key',

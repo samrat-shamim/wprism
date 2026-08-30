@@ -62,7 +62,8 @@ final class Secrets {
     ];
 
     /** Key-name signal for the heuristic tier (never sufficient alone). */
-    private const SUSPICIOUS_KEY = '/(api_?key|authorization|credential|licen[cs]e_?key|secret|token|passw|private_?key)/i';
+    private const SUSPICIOUS_KEY = '/(^|_)(?:api_?key|authorization(?:_header)?|credentials?'
+        . '|licen[cs]e_?key|secret|token|passw(?:or)?d|private_?key)$/i';
 
     /**
      * High-confidence match. Returns a short label ('stripe key', 'aws key',
@@ -92,6 +93,14 @@ final class Secrets {
         if (strlen($v) < 16 || strlen($v) > self::MAX_LEN) {
             return false;
         }
+        // Credential fields are terminal semantic coordinates. Substring
+        // matching made `authorization_endpoint` URLs and `credential_label`
+        // help copy look like secrets merely because prose mixes character
+        // classes; camel/bracket normalization keeps actual apiKey/token
+        // leaves covered without granting those descriptive suffixes weight.
+        $key = preg_replace('/(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/', '_', $key) ?? $key;
+        $key = preg_replace('/[^A-Za-z0-9]+/', '_', $key) ?? $key;
+        $key = trim($key, '_');
         if (!preg_match(self::SUSPICIOUS_KEY, $key)) {
             return false;
         }

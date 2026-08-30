@@ -168,7 +168,13 @@ foreach (['Authorization', 'credential', 'license_key'] as $credentialKey) {
     );
 }
 
-foreach (['firstName' => 'personal name', 'replyToEmail' => 'email address', 'postalCode' => 'postal address'] as $key => $shape) {
+foreach ([
+    'firstName' => 'personal name',
+    'replyToEmail' => 'email address',
+    'postalCode' => 'postal address',
+    'phoneNumber' => 'phone number',
+    'billing[firstName]' => 'personal name',
+] as $key => $shape) {
     $camelCasePii = refusal(static fn() => $gates->guardPersonalData(
         'options',
         'structured_settings',
@@ -184,9 +190,36 @@ $gates->guardPersonalData('options', 'technical_settings', [
     'emailType' => 'multipart',
     'checkoutPhoneField' => 'optional',
     'defaultCustomerAddress' => 'base',
+    'editorState' => ['dirty' => false],
+    'workflowState' => 'draft',
     'email' => '{admin_email}',
+    'displayName' => '{all_fields}',
+    'replyToEmail' => '{field_id="2"}',
 ], []);
-check(true, 'camelCase controls and unresolved plugin smart tags stay outside captured personal data');
+check(true, 'camelCase controls and closed-grammar plugin smart tags stay outside captured personal data');
+
+foreach ([
+    'firstName' => '{Alice Smith}',
+    'businessAddress' => '{123 Main Street}',
+    'customerFirstName' => '{{alice_smith}}',
+] as $literalKey => $literalValue) {
+    $braceLiteral = refusal(static fn() => $gates->guardPersonalData(
+        'options',
+        'structured_settings',
+        [$literalKey => $literalValue],
+        []
+    ));
+    check(
+        $braceLiteral->reasonCode === 'personal_data_refused',
+        "$literalValue is literal personal data, not a smart-tag clearance exemption"
+    );
+}
+
+$gates->guardSecret('options', 'integration_settings', [
+    'authorization_endpoint' => 'https://login.example.test/oauth2/authorize',
+    'credential_label' => 'Enter the credential on the settings page',
+], []);
+check(true, 'authorization endpoints and credential help labels are not credential fields');
 
 $bodySecret = refusal(static fn() => $gates->assertCanonicalContent([[
     'type' => 'page',
@@ -267,5 +300,18 @@ check(
     ($actualPhone->diagnostics[0]['personal_data_shape'] ?? null) === 'phone number',
     'a punctuated international telephone number remains protected'
 );
+
+foreach (['+1.415.555.2671', '+44.20.7946.0958'] as $dottedPhone) {
+    $dottedPhoneRefusal = refusal(static fn() => $gates->guardPersonalData(
+        'options',
+        'support_copy',
+        $dottedPhone,
+        []
+    ));
+    check(
+        ($dottedPhoneRefusal->diagnostics[0]['personal_data_shape'] ?? null) === 'phone number',
+        "$dottedPhone is a telephone number rather than a release-version exemption"
+    );
+}
 
 echo "REGRESS_CAPTURE_SAFETY_GATES PASSED\n";

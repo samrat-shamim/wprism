@@ -374,8 +374,32 @@ final class RepositoryAuthorization {
                 // repository bytes are still Git-editable. A custom URL can
                 // carry credentials/PII and a non-custom token must receive
                 // the same clearance before its separate reference grammar.
+                $clearanceValue = $item['ref'];
+                if (($item['type'] ?? '') === 'custom' && is_string($clearanceValue)) {
+                    // Inspect URL semantics without changing the canonical
+                    // value apply consumes. Literal `+` is query-form space;
+                    // converting it before percent decoding preserves an
+                    // encoded `%2B` as a plus. Every changed rawurldecode()
+                    // pass then removes at least two bytes, so the input byte
+                    // length is a proof-bearing fixed-point bound rather than
+                    // an arbitrary nesting cap.
+                    $decoded = $clearanceValue;
+                    $queryAt = strpos($decoded, '?');
+                    if ($queryAt !== false) {
+                        $decoded = substr($decoded, 0, $queryAt + 1)
+                            . str_replace('+', ' ', substr($decoded, $queryAt + 1));
+                    }
+                    for ($remaining = strlen($decoded); $remaining > 0; $remaining--) {
+                        $next = rawurldecode($decoded);
+                        if ($next === $decoded) {
+                            break;
+                        }
+                        $decoded = $next;
+                    }
+                    $clearanceValue = [$clearanceValue, $decoded];
+                }
                 self::authorize_sensitivity(
-                    $out, $path, $uuid, "menu_item[$index]", 'ref', $item['ref'], [], 'platform'
+                    $out, $path, $uuid, "menu_item[$index]", 'ref', $clearanceValue, [], 'platform'
                 );
             }
 

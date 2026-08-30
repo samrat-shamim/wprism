@@ -719,6 +719,71 @@ if (count($menuRefFindings) !== 1) {
 }
 ok('repository authorization independently clears Git-edited menu refs before apply');
 
+$nestedMenuSecret = 'authorization=Bearer aB3dE6fG7hI8jK9lMnOp';
+for ($encodingLayer = 0; $encodingLayer < 9; $encodingLayer++) {
+    $nestedMenuSecret = rawurlencode($nestedMenuSecret);
+}
+foreach ([
+    'encoded-menu-secret' => [
+        'ref' => 'https://partner.example.test/connect?authorization=Bearer%20aB3dE6fG7hI8jK9lMnOp',
+        'code' => 'repository_secret_not_allowed',
+    ],
+    'encoded-menu-pii' => [
+        'ref' => 'https://partner.example.test/connect?email=alice%40example.test',
+        'code' => 'repository_pii_not_allowed',
+    ],
+    'nested-encoded-menu-secret' => [
+        'ref' => 'https://partner.example.test/connect?payload=' . $nestedMenuSecret,
+        'code' => 'repository_secret_not_allowed',
+    ],
+    'query-plus-menu-secret' => [
+        'ref' => 'https://partner.example.test/connect?api+key=aB3dE6fG7hI8jK9lMnOp',
+        'code' => 'repository_secret_not_allowed',
+    ],
+] as $fixture => $probe) {
+    $encodedMenuRef = "$tmp/$fixture";
+    build_valid($encodedMenuRef);
+    $encodedMenuPath = "$encodedMenuRef/state/menus/main.json";
+    $encodedMenuDocument = Canon::decode(file_get_contents($encodedMenuPath));
+    $encodedMenuDocument['items'][0]['type'] = 'custom';
+    $encodedMenuDocument['items'][0]['object'] = 'custom';
+    $encodedMenuDocument['items'][0]['ref'] = $probe['ref'];
+    put($encodedMenuPath, Canon::encode($encodedMenuDocument));
+    $encodedAuth = authorization_failure($encodedMenuRef);
+    $encodedFindings = array_values(array_filter(
+        $encodedAuth['diagnostics'],
+        static fn(array $d): bool => ($d['code'] ?? null) === $probe['code']
+            && ($d['surface'] ?? null) === 'menu_item[0]'
+            && ($d['field'] ?? null) === 'ref'
+    ));
+    if (count($encodedFindings) !== 1) {
+        fail("$fixture bypassed semantic URL clearance: " . json_encode($encodedAuth));
+    }
+}
+ok('menu-ref clearance scans decoded URL semantics while preserving canonical encoded bytes');
+
+$braceMenu = "$tmp/menu-brace-literal-clearance";
+build_valid($braceMenu);
+$braceSitePath = "$braceMenu/site.wprism.json";
+$braceSite = Canon::decode(file_get_contents($braceSitePath));
+$braceSite['policy']['post_meta']['customer_first_name'] = ['class' => 'authored'];
+put($braceSitePath, Canon::encode($braceSite));
+$braceMenuPath = "$braceMenu/state/menus/main.json";
+$braceMenuDocument = Canon::decode(file_get_contents($braceMenuPath));
+$braceMenuDocument['items'][0]['meta'] = ['customer_first_name' => '{Alice Smith}'];
+put($braceMenuPath, Canon::encode($braceMenuDocument));
+$braceMenuAuth = authorization_failure($braceMenu);
+$braceMenuFindings = array_values(array_filter(
+    $braceMenuAuth['diagnostics'],
+    static fn(array $d): bool => ($d['code'] ?? null) === 'repository_pii_not_allowed'
+        && ($d['surface'] ?? null) === 'menu_item[0]'
+        && ($d['field'] ?? null) === 'customer_first_name'
+));
+if (count($braceMenuFindings) !== 1) {
+    fail('literal personal data in braces bypassed repository authorization');
+}
+ok('brace-delimited literal personal data is not mistaken for a repository template token');
+
 $userMeta = "$tmp/user-meta"; build_valid($userMeta);
 $sitePath = "$userMeta/site.wprism.json";
 $site = Canon::decode(file_get_contents($sitePath));

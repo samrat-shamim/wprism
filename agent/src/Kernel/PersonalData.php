@@ -15,7 +15,7 @@ final class PersonalData {
     private const KEY_PATTERNS = [
         '/(^|_)(first_?name|last_?name|full_?name|display_?name|nickname|from_?name|reply_?to_?name)$/i' => 'personal name',
         '/(^|_)(email|e_?mail|from_?email|reply_?to_?email|email_(?:from|reply_?to)_address)$/i' => 'email address',
-        '/(^|_)(phone|mobile|telephone|tel)$/i' => 'phone number',
+        '/(^|_)(phone(?:_number)?|mobile(?:_number)?|telephone(?:_number)?|tel)$/i' => 'phone number',
         '/(^|_)(address(?:_[12])?|street(?:_[12])?|city|state|province|postcode|postal(?:_code)?|zip(?:_code)?|country(?:_code)?)$/i' => 'postal address',
         '/(^|_)(birth|birthday|dob|ssn|national_?id|passport|tax_?id)$/i' => 'personal identifier',
     ];
@@ -36,14 +36,15 @@ final class PersonalData {
         // first_name/customer_email, while emailType/checkoutPhoneField stay
         // technical controls rather than personal-data-bearing fields.
         $key = preg_replace('/(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/', '_', $key) ?? $key;
-        $key = preg_replace('/[-.\s]+/', '_', $key) ?? $key;
+        $key = preg_replace('/[^A-Za-z0-9]+/', '_', $key) ?? $key;
+        $key = trim($key, '_');
         foreach (self::KEY_PATTERNS as $pattern => $label) {
             if (preg_match($pattern, $key)) {
                 // These terminal address phrases describe boolean/enum
                 // controls, not address-bearing values. Actual address keys
                 // (including address_1/address_2) and value scanning remain.
                 if ($label === 'postal address'
-                    && preg_match('/(^|_)(?:requires|default_customer)_address$/i', $key)) {
+                    && preg_match('/(^|_)(?:(?:requires|default_customer)_address|(?:editor|workflow)_state)$/i', $key)) {
                     continue;
                 }
                 return $label;
@@ -144,9 +145,11 @@ final class PersonalData {
                     if (($isbnLabelled && in_array(strlen($digits), [10, 13], true)) || $isbn13) {
                         continue;
                     }
-                    if (substr_count($candidate, '.') >= 3
-                        || (preg_match('/(?:^|\b)(?:v(?:ersion)?|release)\s*$/i', $prefix) === 1
-                            && preg_match('/^[0-9]+(?:\.[0-9]+){2,}$/D', $candidate))) {
+                    $labelledVersion = preg_match('/(?:^|\b)(?:v(?:ersion)?|release)\s*$/i', $prefix) === 1
+                        && preg_match('/^[0-9]+(?:\.[0-9]+){2,}$/D', $candidate);
+                    $bareShortDottedSequence = !str_starts_with($candidate, '+')
+                        && preg_match('/^[0-9]{1,3}(?:\.[0-9]{1,3}){3,}$/D', $candidate);
+                    if ($labelledVersion || $bareShortDottedSequence) {
                         continue;
                     }
                     if (preg_match_all('/[0-9]/', $candidate) >= 7
@@ -159,11 +162,20 @@ final class PersonalData {
         return null;
     }
 
-    /** Plugin smart tags name a future source; they are not captured PII. */
+    /** Exact canonical tokens and audited WPForms smart tags name future sources, not captured PII. */
     private static function is_template_reference($value): bool {
         if (!is_string($value)) {
             return false;
         }
-        return preg_match('/^\{\{?[^{}\r\n]{1,256}\}\}?$/D', $value) === 1;
+        if (preg_match('/^\{\{(?:home|uploads)\}\}$/D', $value)) {
+            return true;
+        }
+        if (preg_match(
+            '/^\{\{[a-z][a-z0-9_]*:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\}\}$/D',
+            $value
+        )) {
+            return true;
+        }
+        return preg_match('/^\{(?:admin_email|all_fields|field_id="[0-9]{1,10}")\}$/D', $value) === 1;
     }
 }
