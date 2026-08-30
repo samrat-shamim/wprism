@@ -2019,31 +2019,53 @@ function ref_probe_contained_topology(array $config, array $environment, array $
         ],
         'security' => $securityWitness,
         'web_ingress' => '127.0.0.1:' . (string) $environment['port'],
-        'wordpress_runtime' => ['automatic_updater' => false, 'direct_wp_cron_guard' => true, 'wp_cron' => false],
+        'wordpress_runtime' => [
+            'automatic_updater' => false,
+            'direct_wp_cron_guard' => true,
+            'wp_cli_cron_event_run_guard' => true,
+            'wp_cron' => false,
+        ],
         'ingress_services' => ['proxy'],
         'worker_services' => [],
     ];
 }
 
+/**
+ * A reaping retry may follow a lost `compose down` response. Docker list
+ * commands distinguish a closed, exactly empty project from either a live
+ * resource or an unavailable daemon; inspect's generic nonzero status cannot.
+ *
+ * @param array<string,mixed> $config
+ */
+function ref_contained_physical_absent(array $config): bool {
+    $contained = ref_contained_config($config);
+    $target = ref_target_environment($config);
+    $probes = [
+        [
+            'docker', 'ps', '-a', '--filter',
+            'label=com.docker.compose.project=' . (string) $contained['project'],
+            '--format', '{{.ID}}',
+        ],
+        ['docker', 'ps', '-a', '--filter', 'name=^/' . (string) $target['container'] . '$', '--format', '{{.Names}}'],
+        ['docker', 'ps', '-a', '--filter', 'name=^/' . (string) $contained['database_container'] . '$', '--format', '{{.Names}}'],
+        ['docker', 'ps', '-a', '--filter', 'name=^/' . (string) $contained['proxy_container'] . '$', '--format', '{{.Names}}'],
+        ['docker', 'network', 'ls', '--filter', 'name=^' . (string) $contained['network'] . '$', '--format', '{{.Name}}'],
+        ['docker', 'network', 'ls', '--filter', 'name=^' . (string) $contained['ingress_network'] . '$', '--format', '{{.Name}}'],
+        ['docker', 'volume', 'ls', '--filter', 'name=^' . (string) $contained['project'] . '-database$', '--format', '{{.Name}}'],
+        ['docker', 'volume', 'ls', '--filter', 'name=^' . (string) $contained['project'] . '-wordpress$', '--format', '{{.Name}}'],
+    ];
+    foreach ($probes as $probe) {
+        $result = ref_run($probe);
+        ref_require($result['exit'] === 0, 'could not establish contained-preview physical absence');
+        if (trim($result['stdout']) !== '') return false;
+    }
+    return true;
+}
+
 /** @param array<string,mixed> $config @param array<string,mixed> $resource */
 function ref_assert_contained_absent(array $config, array $resource): void {
-    $contained = ref_contained_config($config);
-    $composeEnv = ref_contained_compose_environment($config, $resource);
-    $containers = ref_run(
-        ref_contained_compose_command($config, ['ps', '-aq']),
-        null,
-        (string) $config['compose_dir'],
-        $composeEnv
-    );
-    ref_require($containers['exit'] === 0 && trim($containers['stdout']) === '', 'contained-preview project already has physical containers');
-    foreach ([
-        ['docker', 'network', 'inspect', (string) $contained['network']],
-        ['docker', 'network', 'inspect', (string) $contained['ingress_network']],
-        ['docker', 'volume', 'inspect', (string) $contained['project'] . '-database'],
-        ['docker', 'volume', 'inspect', (string) $contained['project'] . '-wordpress'],
-    ] as $probe) {
-        ref_require(ref_run($probe)['exit'] !== 0, 'contained-preview supposedly absent lease retains a network or volume');
-    }
+    ref_contained_runtime($config, $resource);
+    ref_require(ref_contained_physical_absent($config), 'contained-preview supposedly absent lease retains physical authority');
 }
 
 /**
@@ -2163,16 +2185,16 @@ function ref_create_contained_preview(array $config, array $environment, array $
 }
 
 /** @param array<string,mixed> $config @param array<string,mixed> $environment @param array<string,mixed> $resource */
-function ref_destroy_contained_preview(array $config, array $environment, array $resource): void {
-    $contained = ref_contained_config($config);
+function ref_destroy_contained_preview(array $config, array $environment, array $resource, bool $alreadyAbsent = false): void {
     $runtime = ref_contained_runtime($config, $resource);
-    $composeEnv = ref_contained_compose_environment($config, $resource);
-    ref_checked(
-        ref_contained_compose_command($config, ['down', '--volumes', '--remove-orphans']),
-        null,
-        (string) $config['compose_dir'],
-        $composeEnv
-    );
+    if (!$alreadyAbsent) {
+        ref_checked(
+            ref_contained_compose_command($config, ['down', '--volumes', '--remove-orphans']),
+            null,
+            (string) $config['compose_dir'],
+            ref_contained_compose_environment($config, $resource)
+        );
+    }
     ref_assert_contained_absent($config, $resource);
     ref_remove_tree((string) $runtime['runtime_root']);
     ref_write_contained_driver_placeholder($config);
@@ -2273,6 +2295,148 @@ function ref_containment_sanitization_evidence(array $state, array $config, stri
         'policy_sha256' => $sanitization['policy_sha256'],
         'receipt_sha256' => $sanitization['receipt_sha256'],
         'snapshot_set_id' => $snapshot['snapshot_set_id'],
+    ];
+}
+
+/**
+ * Reconstruct the restore request whose terminal receipt permits an exact
+ * containment replay after the provider has disposed the immutable set.
+ *
+ * @param array<string,mixed> $identity
+ * @param array<string,mixed> $fence
+ * @param array<string,mixed> $sanitization
+ * @return array<string,mixed>
+ */
+function ref_containment_restore_input(array $identity, array $fence, array $sanitization): array {
+    return [
+        'database_sha256' => $sanitization['database_sha256'],
+        'expected_environment_identity' => $identity['environment_identity'],
+        'expected_lease_generation' => $identity['lease_generation'],
+        'expected_lease_id' => $identity['lease_id'],
+        'expected_mutation_generation' => $fence['generation'],
+        'expected_mutation_id' => $fence['id'],
+        'expected_mutation_owner' => $fence['owner'],
+        'expected_mutation_receipt_sha256' => $fence['held_receipt'],
+        'expected_ownership_receipt_sha256' => $identity['ownership_receipt_sha256'],
+        'expected_resource_id' => $identity['resource_id'],
+        'media_sha256' => $sanitization['media_sha256'],
+        'snapshot_set_id' => $sanitization['snapshot_set_id'],
+    ];
+}
+
+/**
+ * A successful restore deliberately removes the snapshot/session bytes and
+ * active rows. Exact containment replay may then reuse only the persisted
+ * sanitized-admission evidence when a closed, lease/fence-bound terminal
+ * restore independently proves that exact set was applied and disposed.
+ *
+ * @param array<string,mixed> $state
+ * @param array<string,mixed> $config
+ * @param array<string,mixed> $input
+ * @param array<string,mixed> $identity
+ * @param array<string,mixed> $fence
+ * @param array<string,mixed> $existing
+ * @return array<string,mixed>
+ */
+function ref_containment_replay_sanitization_evidence(
+    array $state,
+    array $config,
+    string $operation,
+    array $input,
+    array $identity,
+    array $fence,
+    array $existing
+): array {
+    $snapshotKey = ref_snapshot_key((string) $config['source_environment'], $operation);
+    if (is_array($state['snapshots'][$snapshotKey] ?? null) || ($input['topology_only'] ?? null) === true) {
+        return ref_containment_sanitization_evidence($state, $config, $operation, $input);
+    }
+    ref_require(!array_key_exists('topology_only', $input), 'sanitized containment replay cannot change to topology-only admission');
+    $preimage = $existing['preimage'] ?? null;
+    $sanitization = is_array($preimage) ? ($preimage['snapshot_sanitization'] ?? null) : null;
+    ref_require(is_array($sanitization) && !array_is_list($sanitization), 'persisted containment sanitization evidence is malformed');
+    ref_assert_key_set(
+        $sanitization,
+        ['admission', 'database_sha256', 'format', 'media_sha256', 'policy_sha256', 'receipt_sha256', 'snapshot_set_id'],
+        'persisted containment sanitization evidence'
+    );
+    $policy = ref_contained_config($config)['_sanitization_policy'];
+    ref_require(
+        is_array($policy)
+            && ($sanitization['admission'] ?? null) === 'sanitized-snapshot'
+            && ($sanitization['format'] ?? null) === 'wprism-reference-containment-sanitization/v1'
+            && ($sanitization['policy_sha256'] ?? null) === ($policy['_sha256'] ?? null),
+        'persisted containment sanitization evidence does not match the current reviewed policy'
+    );
+    foreach (['database_sha256', 'media_sha256', 'policy_sha256', 'receipt_sha256'] as $key) {
+        ref_require(
+            is_string($sanitization[$key] ?? null) && preg_match('/^[a-f0-9]{64}$/D', $sanitization[$key]) === 1,
+            "persisted containment sanitization evidence has invalid '$key'"
+        );
+    }
+    ref_require(
+        is_string($sanitization['snapshot_set_id'] ?? null) && $sanitization['snapshot_set_id'] !== '',
+        'persisted containment sanitization evidence has no snapshot set'
+    );
+
+    $restoreKey = ref_restore_key($identity['resource_id'], $operation);
+    $restore = $state['restores'][$restoreKey] ?? null;
+    ref_require(is_array($restore) && !array_is_list($restore), 'disposed sanitized containment replay has no matching restore receipt');
+    ref_assert_key_set(
+        $restore,
+        [
+            'disposal_receipt_sha256', 'environment_identity', 'input_sha256', 'lease_generation', 'lease_id',
+            'operation_id', 'ownership_receipt_sha256', 'resource_config_sha256', 'resource_id', 'result',
+            'sanitization_receipt_sha256', 'snapshot_set_id', 'state',
+        ],
+        'disposed sanitized containment restore receipt'
+    );
+    foreach (ref_lease_tuple($identity, ref_resource_config_sha256($config)) as $key => $value) {
+        ref_require(($restore[$key] ?? null) === $value, "disposed sanitized containment restore lease differs at '$key'");
+    }
+    ref_require(
+        ($restore['operation_id'] ?? null) === $operation
+            && ($restore['state'] ?? null) === 'disposed-success'
+            && ($restore['snapshot_set_id'] ?? null) === $sanitization['snapshot_set_id']
+            && ($restore['sanitization_receipt_sha256'] ?? null) === $sanitization['receipt_sha256'],
+        'disposed sanitized containment replay requires the exact successful terminal restore'
+    );
+    ref_require(
+        ($restore['input_sha256'] ?? null) === ref_hash(ref_containment_restore_input($identity, $fence, $sanitization)),
+        'disposed sanitized containment restore request differs from its admitted snapshot'
+    );
+    ref_require(
+        is_array($restore['result'] ?? null)
+            && ref_json($restore['result']) === ref_json($identity + ['snapshot_set_id' => $sanitization['snapshot_set_id']]),
+        'disposed sanitized containment restore result is malformed'
+    );
+    $expectedDisposal = ref_hash([
+        'disposition' => 'logically-deleted',
+        'format' => 'wprism-reference-snapshot-disposal/v1',
+        'operation_id' => $operation,
+        'snapshot_key_sha256' => hash('sha256', $snapshotKey),
+    ]);
+    ref_require(
+        ($restore['disposal_receipt_sha256'] ?? null) === $expectedDisposal
+            && !isset($state['sessions'][$snapshotKey])
+            && !isset($state['snapshots'][$snapshotKey])
+            && !isset($state['source_inspections'][$snapshotKey]),
+        'disposed sanitized containment restore has incomplete snapshot/session disposal evidence'
+    );
+    return $sanitization;
+}
+
+/** @param array<string,mixed> $identity @return array<string,mixed> */
+function ref_containment_result(array $identity, string $receipt): array {
+    return $identity + [
+        'containment_receipt_sha256' => $receipt,
+        'credential_isolation' => true,
+        'http_egress_default_denied' => true,
+        'mail_default_denied' => true,
+        'payment_default_denied' => true,
+        'profile' => 'agency-rehearsal-v1',
+        'queue_default_denied' => true,
+        'webhook_default_denied' => true,
     ];
 }
 
@@ -3470,36 +3634,72 @@ function ref_dispatch(array $request, array $config, array &$state): array {
         $receiptInput = $input + ['_operation_id' => $operation];
         $inputSha = ref_hash($receiptInput);
         $existing = $state['containments'][$resourceId] ?? null;
+        ref_require($existing === null || is_array($existing) && !array_is_list($existing), 'persisted contained-preview verification receipt is malformed');
         if (is_array($existing)) {
+            ref_assert_key_set(
+                $existing,
+                [
+                    'environment_identity', 'input_sha256', 'lease_generation', 'lease_id', 'operation_id',
+                    'ownership_receipt_sha256', 'preimage', 'receipt_sha256', 'resource_config_sha256',
+                    'resource_id', 'result', 'topology_sha256',
+                ],
+                'persisted contained-preview verification receipt'
+            );
+            foreach (ref_lease_tuple($identity, $resourceConfig) as $key => $value) {
+                ref_require(($existing[$key] ?? null) === $value, "contained-preview verification retry lease differs at '$key'");
+            }
             ref_require(
                 ($existing['input_sha256'] ?? null) === $inputSha
                     && ($existing['operation_id'] ?? null) === $operation,
                 'contained-preview verification retry differs from its persisted request'
             );
+            $persistedPreimage = $existing['preimage'] ?? null;
+            $persistedResult = $existing['result'] ?? null;
+            $persistedReceipt = $existing['receipt_sha256'] ?? null;
+            $persistedTopology = is_array($persistedPreimage) ? ($persistedPreimage['topology'] ?? null) : null;
+            ref_require(
+                is_array($persistedPreimage) && !array_is_list($persistedPreimage)
+                    && is_array($persistedResult) && !array_is_list($persistedResult)
+                    && is_string($persistedReceipt) && preg_match('/^[a-f0-9]{64}$/D', $persistedReceipt) === 1
+                    && ref_hash($persistedPreimage) === $persistedReceipt,
+                'persisted contained-preview verification evidence is malformed'
+            );
+            ref_require(
+                is_array($persistedTopology) && !array_is_list($persistedTopology)
+                    && is_string($existing['topology_sha256'] ?? null)
+                    && ref_hash($persistedTopology) === $existing['topology_sha256'],
+                'persisted contained-preview topology evidence is malformed'
+            );
+            $sanitizationEvidence = ref_containment_replay_sanitization_evidence(
+                $state,
+                $config,
+                $operation,
+                $input,
+                $identity,
+                $fence,
+                $existing
+            );
+            $topology = ref_probe_contained_topology($config, $environment, $resource);
+            ref_require(
+                ref_hash($topology) === $existing['topology_sha256'],
+                'contained-preview live topology drifted after verification'
+            );
+            $preimage = ref_containment_preimage($identity, $fence, $receiptInput, $sanitizationEvidence, $topology);
+            $receipt = ref_hash($preimage);
+            $result = ref_containment_result($identity, $receipt);
+            ref_require(
+                ref_json($persistedPreimage) === ref_json($preimage)
+                    && $persistedReceipt === $receipt
+                    && ref_json($persistedResult) === ref_json($result),
+                'persisted contained-preview verification evidence differs from its exact replay'
+            );
+            return $result;
         }
         $topology = ref_probe_contained_topology($config, $environment, $resource);
         $sanitizationEvidence = ref_containment_sanitization_evidence($state, $config, $operation, $input);
         $preimage = ref_containment_preimage($identity, $fence, $receiptInput, $sanitizationEvidence, $topology);
         $receipt = ref_hash($preimage);
-        $result = $identity + [
-            'containment_receipt_sha256' => $receipt,
-            'credential_isolation' => true,
-            'http_egress_default_denied' => true,
-            'mail_default_denied' => true,
-            'payment_default_denied' => true,
-            'profile' => 'agency-rehearsal-v1',
-            'queue_default_denied' => true,
-            'webhook_default_denied' => true,
-        ];
-        if (is_array($existing)) {
-            ref_require(
-                ($existing['receipt_sha256'] ?? null) === $receipt
-                    && is_array($existing['result'] ?? null)
-                    && ref_json($existing['result']) === ref_json($result),
-                'contained-preview live topology drifted after verification'
-            );
-            return $result;
-        }
+        $result = ref_containment_result($identity, $receipt);
         $state['containments'][$resourceId] = ref_lease_tuple($identity, $resourceConfig) + [
             'input_sha256' => $inputSha,
             'operation_id' => $operation,
@@ -3688,7 +3888,6 @@ function ref_dispatch(array $request, array $config, array &$state): array {
     if ($action === 'destroy' || $action === 'detach') {
         ref_require_fence($state, $input, $identity, $resourceConfig);
         ref_require(($input['compare_and_reap'] ?? null) === true, 'reap lacks compare-and-reap intent');
-        ref_revalidate_containment($state, $config, $environment, $resource, $identity);
         $acquisitionKey = ref_acquisition_key($resourceId, (string) $resource['operation_id']);
         $acquisition = $state['acquisitions'][$acquisitionKey] ?? null;
         ref_require(is_array($acquisition), 'preview-slot reap has no acquisition history');
@@ -3704,14 +3903,28 @@ function ref_dispatch(array $request, array $config, array &$state): array {
             'preview-slot reap acquisition history differs from current ownership'
         );
         $reapInputSha = ref_hash($input);
-        if ($resource['state'] === 'reaping') {
+        $reaping = $resource['state'] === 'reaping';
+        if ($reaping) {
             ref_require(
                 $resource['reap_action'] === $action
                     && $resource['reap_input_sha256'] === $reapInputSha
                     && $resource['reap_operation_id'] === $operation,
                 'preview-slot reap retry differs from its persisted intent'
             );
+        }
+        $containedAlreadyAbsent = false;
+        if (ref_containment_enabled($config) && $reaping) {
+            $containedAlreadyAbsent = ref_contained_physical_absent($config);
+            if (!$containedAlreadyAbsent) {
+                // A nonempty project is not inferred to be an interrupted
+                // teardown. It must still prove the exact contained topology
+                // before this lease is allowed to continue destruction.
+                ref_revalidate_containment($state, $config, $environment, $resource, $identity);
+            }
         } else {
+            ref_revalidate_containment($state, $config, $environment, $resource, $identity);
+        }
+        if (!$reaping) {
             $resource['reap_action'] = $action;
             $resource['reap_input_sha256'] = $reapInputSha;
             $resource['reap_operation_id'] = $operation;
@@ -3734,7 +3947,7 @@ function ref_dispatch(array $request, array $config, array &$state): array {
         }
         if ($action === 'destroy') {
             if (ref_containment_enabled($config)) {
-                ref_destroy_contained_preview($config, $environment, $resource);
+                ref_destroy_contained_preview($config, $environment, $resource, $containedAlreadyAbsent);
             } else {
                 ref_clear_side($config, $environment);
             }

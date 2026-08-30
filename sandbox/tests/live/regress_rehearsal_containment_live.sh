@@ -247,9 +247,19 @@ CRON_PROXY_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$
 if [ "$TOPOLOGY_ONLY" -eq 0 ]; then
   CRON_DIRECT="$(docker exec "wprism-$PAIR-preview-proxy-1" wget -S -O /dev/null http://wp/wp-cron.php 2>&1 || true)"
   printf '%s' "$CRON_DIRECT" | grep -q '404' || fail 'hash-pinned MU guard did not block direct internal wp-cron.php'
+  set +e
+  CRON_CLI_OUTPUT="$(preview_compose --progress quiet run --rm --no-deps -T cli wp cron event run --all 2>&1)"
+  CRON_CLI_STATUS=$?
+  set -e
+  [ "$CRON_CLI_STATUS" -eq 75 ] || fail "direct WP-CLI cron run returned $CRON_CLI_STATUS instead of its refusal status"
+  printf '%s\n' "$CRON_CLI_OUTPUT" | grep -Fqx 'Error: contained preview refuses WP-CLI cron event execution.' \
+    || fail 'direct WP-CLI cron run emitted no exact operator-readable refusal line'
+  if printf '%s\n' "$CRON_CLI_OUTPUT" | grep -Fq 'Success:'; then
+    fail 'direct WP-CLI cron refusal emitted contradictory success output'
+  fi
   CRON_PENDING="$(preview_compose run --rm --no-deps -T cli wp cron event list --hook=wprism_containment_cron_canary --field=hook)"
-  [ "$CRON_PENDING" = wprism_containment_cron_canary ] || fail 'direct cron request ran the scheduled canary hook'
-  pass 'nginx and the hash-pinned MU guard both return 404; the due cron canary remains unexecuted'
+  [ "$CRON_PENDING" = wprism_containment_cron_canary ] || fail 'direct HTTP or WP-CLI cron request ran the scheduled canary hook'
+  pass 'nginx and the hash-pinned MU guard refuse HTTP/WP-CLI cron execution; the due canary remains pending'
 else
   pass 'nginx returns 404 before a site is restored; topology proof hash-checks the staged MU guard'
 fi

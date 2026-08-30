@@ -22,6 +22,8 @@ $physicalState = $scratch . '/physical.json';
 $physicalLog = $scratch . '/physical.ndjson';
 $drift = $scratch . '/drift';
 $cliDrift = $scratch . '/cli-drift';
+$failAfterDown = $scratch . '/fail-after-down';
+$failAbsenceProbe = $scratch . '/fail-absence-probe';
 $configPath = $scratch . '/provider.json';
 $policyPath = $scratch . '/sanitization-policy.json';
 foreach ([$stateRoot, $compose . '/siterepo/mup1', $compose . '/siterepo/mup2', $bin] as $directory) {
@@ -72,6 +74,8 @@ putenv('WPRISM_CONTAINED_FAKE_STATE=' . $physicalState);
 putenv('WPRISM_CONTAINED_FAKE_LOG=' . $physicalLog);
 putenv('WPRISM_CONTAINED_FAKE_DRIFT=' . $drift);
 putenv('WPRISM_CONTAINED_FAKE_CLI_DRIFT=' . $cliDrift);
+putenv('WPRISM_CONTAINED_FAKE_FAIL_AFTER_DOWN=' . $failAfterDown);
+putenv('WPRISM_CONTAINED_FAKE_FAIL_ABSENCE_PROBE=' . $failAbsenceProbe);
 
 $providerFor = static function (string $environment, ?string $path = null) use ($configPath, $providerScript): CommandEnvironmentProvider {
     return CommandEnvironmentProvider::fromEnvironment($environment, [
@@ -255,6 +259,16 @@ wprism_check_same(0640, fileperms($sentinel) & 0777, 'snapshot cleanup never chm
 wprism_check(!is_link($nestedDisposalLink) && !is_link($topLevelDisposalLink), 'snapshot cleanup unlinks injected top-level and nested links themselves');
 $restoreRecord = $afterRestore['restores'][$create['resource_id'] . '|' . $operation] ?? null;
 wprism_check_same('disposed-success', $restoreRecord['state'] ?? null, 'successful restore journals application before logical disposal');
+$postRestoreProbeCount = count(file($physicalLog, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: []);
+wprism_check_same(
+    $proof,
+    $provider->perform('containment-verify', $operation, $containmentInput),
+    'exact containment retry after snapshot disposal returns the persisted receipt'
+);
+wprism_check(
+    count(file($physicalLog, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: []) > $postRestoreProbeCount,
+    'exact containment retry after snapshot disposal re-probes current topology'
+);
 $physicalAfterRestore = json_decode((string) file_get_contents($physicalState), true, 512, JSON_THROW_ON_ERROR);
 $restoredDump = (string) ($physicalAfterRestore['restored_dump'] ?? '');
 wprism_check(!str_contains($restoredDump, 'source-payment-secret-0001'), 'preview database cannot read the source payment credential');
@@ -300,6 +314,82 @@ wprism_check_same(
 wprism_check_same(0600, fileperms($stateRoot . '/state.json') & 0777, 'provider receipt state is mode 0600');
 $preimageBytes = json_encode($record['preimage'], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 wprism_check(!str_contains($preimageBytes, (string) $state['resources'][$create['resource_id']]['contained_runtime']['database_password']), 'public containment preimage contains no lease database secret');
+$writeProviderState = static function (array $value) use ($stateRoot): void {
+    file_put_contents(
+        $stateRoot . '/state.json',
+        json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n",
+        LOCK_EX
+    );
+    chmod($stateRoot . '/state.json', 0600);
+};
+$lastProviderError = static function () use ($stateRoot): string {
+    $lines = file($stateRoot . '/provider-errors.log', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+    return $lines === [] ? '' : (string) $lines[count($lines) - 1];
+};
+$commandsBeforeReplayRefusals = count(file($physicalLog, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: []);
+$changedReplay = $containmentInput + ['topology_only' => true];
+try {
+    $provider->perform('containment-verify', $operation, $changedReplay);
+    wprism_check(false, 'post-restore containment replay refuses changed input');
+} catch (Throwable) {
+    wprism_check(str_contains($lastProviderError(), 'retry differs from its persisted request'), 'post-restore containment replay refuses changed input before probing');
+}
+try {
+    $provider->perform('containment-verify', 'contained-preview-operation-foreign-replay-0001', $containmentInput);
+    wprism_check(false, 'post-restore containment replay refuses another operation');
+} catch (Throwable) {
+    wprism_check(str_contains($lastProviderError(), 'retry differs from its persisted request'), 'post-restore containment replay refuses another operation before probing');
+}
+
+$restoreKey = $create['resource_id'] . '|' . $operation;
+$tampered = $state;
+unset($tampered['restores'][$restoreKey]);
+$writeProviderState($tampered);
+try {
+    $provider->perform('containment-verify', $operation, $containmentInput);
+    wprism_check(false, 'post-restore containment replay refuses an absent restore receipt');
+} catch (Throwable) {
+    wprism_check(str_contains($lastProviderError(), 'no matching restore receipt'), 'post-restore containment replay requires a matching restore receipt before probing');
+}
+$writeProviderState($state);
+
+$tampered = $state;
+$tampered['restores'][$restoreKey]['state'] = 'restored';
+$writeProviderState($tampered);
+try {
+    $provider->perform('containment-verify', $operation, $containmentInput);
+    wprism_check(false, 'post-restore containment replay refuses a nonterminal restore receipt');
+} catch (Throwable) {
+    wprism_check(str_contains($lastProviderError(), 'exact successful terminal restore'), 'post-restore containment replay refuses a nonterminal restore before probing');
+}
+$writeProviderState($state);
+
+$tampered = $state;
+$tampered['restores'][$restoreKey]['input_sha256'] = str_repeat('0', 64);
+$writeProviderState($tampered);
+try {
+    $provider->perform('containment-verify', $operation, $containmentInput);
+    wprism_check(false, 'post-restore containment replay refuses a foreign restore request receipt');
+} catch (Throwable) {
+    wprism_check(str_contains($lastProviderError(), 'restore request differs'), 'post-restore containment replay binds the disposed restore to the admitted snapshot');
+}
+$writeProviderState($state);
+
+$tampered = $state;
+$tampered['containments'][$create['resource_id']]['receipt_sha256'] = str_repeat('0', 64);
+$writeProviderState($tampered);
+try {
+    $provider->perform('containment-verify', $operation, $containmentInput);
+    wprism_check(false, 'post-restore containment replay refuses corrupted persisted proof');
+} catch (Throwable) {
+    wprism_check(str_contains($lastProviderError(), 'verification evidence is malformed'), 'post-restore containment replay validates its persisted canonical preimage and receipt');
+}
+$writeProviderState($state);
+wprism_check_same(
+    $commandsBeforeReplayRefusals,
+    count(file($physicalLog, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: []),
+    'changed, foreign, partial and corrupted post-restore replays refuse before Docker probes'
+);
 $publicEvidence = (string) file_get_contents($stateRoot . '/state.json')
     . (string) file_get_contents($stateRoot . '/actions.ndjson')
     . json_encode([$prepared, $snapshot, $proof, $restored], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
@@ -355,7 +445,12 @@ try {
     $provider->perform('containment-verify', $operation, $containmentInput);
     wprism_check(false, 'an added shared-network attachment refuses exact receipt retry');
 } catch (Throwable) {
-    wprism_check(true, 'an added shared-network attachment refuses exact receipt retry');
+    $driftError = $lastProviderError();
+    wprism_check(
+        (str_contains($driftError, 'extra network attachment') || str_contains($driftError, 'live topology drifted'))
+            && !str_contains($driftError, 'sanitized immutable snapshot'),
+        'post-restore topology drift refuses on live topology rather than disposed snapshot absence'
+    );
 }
 unlink($drift);
 $afterDrift = json_decode((string) file_get_contents($stateRoot . '/state.json'), true, 512, JSON_THROW_ON_ERROR);
@@ -374,6 +469,34 @@ fclose($cronPipes[1]);
 fclose($cronPipes[2]);
 wprism_check_same(0, proc_close($cronProcess), 'staged cron guard terminates a direct DOING_CRON bootstrap cleanly');
 wprism_check(!file_exists($cronCanary), 'staged MU cron guard prevents the canary hook from running');
+$wpCliCronCanary = $scratch . '/wp-cli-cron-canary-ran';
+$wpCliCronProcess = proc_open(
+    [
+        PHP_BINARY,
+        '-r',
+        'define("WP_CLI",true);$_SERVER["argv"]=["wp","--path=/var/www/html","cron","event","run","--all"];require $argv[1];file_put_contents($argv[2],"ran");',
+        $root . '/sandbox/containment/block-cron.php',
+        $wpCliCronCanary,
+    ],
+    [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+    $wpCliCronPipes,
+    null,
+    null,
+    ['bypass_shell' => true]
+);
+if (!is_resource($wpCliCronProcess)) throw new RuntimeException('could not run staged WP-CLI cron guard canary');
+$wpCliCronOutput = (string) stream_get_contents($wpCliCronPipes[1]);
+$wpCliCronError = (string) stream_get_contents($wpCliCronPipes[2]);
+fclose($wpCliCronPipes[1]);
+fclose($wpCliCronPipes[2]);
+wprism_check_same(75, proc_close($wpCliCronProcess), 'staged cron guard makes direct WP-CLI cron execution fail');
+wprism_check_same('', $wpCliCronOutput, 'direct WP-CLI cron denial emits no misleading success output');
+wprism_check_same(
+    "Error: contained preview refuses WP-CLI cron event execution.\n",
+    $wpCliCronError,
+    'direct WP-CLI cron denial emits one operator-readable refusal'
+);
+wprism_check(!file_exists($wpCliCronCanary), 'direct WP-CLI cron denial prevents the canary hook from running');
 $nginx = (string) file_get_contents($root . '/sandbox/containment/nginx.conf');
 wprism_check(preg_match('~location = /wp-cron\\.php\\s*\\{\\s*return 404;\\s*\\}~', $nginx) === 1, 'proxy configuration blocks direct wp-cron.php before PHP');
 
@@ -433,10 +556,81 @@ $beforeUnrestoredReap = json_decode((string) file_get_contents($stateRoot . '/st
 $key2 = 'mup1|' . $reapOperation;
 $preparedPath2 = (string) $beforeUnrestoredReap['sessions'][$key2]['path'];
 $snapshotPath2 = dirname((string) $beforeUnrestoredReap['snapshots'][$key2]['database_path']);
-$provider->perform('destroy', $reapOperation, $fenced2 + ['compare_and_reap' => true]);
+$runtimeRoot2 = (string) $beforeUnrestoredReap['resources'][$create2['resource_id']]['contained_runtime']['runtime_root'];
+$databasePassword2 = (string) $beforeUnrestoredReap['resources'][$create2['resource_id']]['contained_runtime']['database_password'];
+$destroyInput2 = $fenced2 + ['compare_and_reap' => true];
+touch($failAfterDown);
+try {
+    $provider->perform('destroy', $reapOperation, $destroyInput2);
+    wprism_check(false, 'an injected provider death after physical teardown interrupts reap');
+} catch (Throwable) {
+    wprism_check(true, 'an injected provider death after physical teardown interrupts reap before terminal state');
+}
+$interruptedReap = json_decode((string) file_get_contents($stateRoot . '/state.json'), true, 512, JSON_THROW_ON_ERROR);
+$interruptedPhysical = json_decode((string) file_get_contents($physicalState), true, 512, JSON_THROW_ON_ERROR);
+wprism_check_same('reaping', $interruptedReap['resources'][$create2['resource_id']]['state'] ?? null, 'post-down interruption retains the exact durable reap intent');
+wprism_check(
+    ($interruptedPhysical['database'] ?? null) === false
+        && ($interruptedPhysical['wordpress'] ?? null) === false
+        && ($interruptedPhysical['proxy'] ?? null) === false,
+    'post-down interruption leaves the contained Docker topology physically absent'
+);
+$reapProbeCommands = count(file($physicalLog, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: []);
+try {
+    $provider->perform('destroy', $reapOperation, $destroyInput2 + ['unexpected' => true]);
+    wprism_check(false, 'interrupted reap refuses changed retry input');
+} catch (Throwable) {
+    wprism_check(true, 'interrupted reap refuses changed retry input');
+}
+try {
+    $provider->perform('destroy', 'contained-preview-operation-foreign-reap-0001', $destroyInput2);
+    wprism_check(false, 'interrupted reap refuses another operation');
+} catch (Throwable) {
+    wprism_check(true, 'interrupted reap refuses another operation');
+}
+$foreignFence2 = $destroyInput2;
+$foreignFence2['expected_mutation_receipt_sha256'] = str_repeat('0', 64);
+try {
+    $provider->perform('destroy', $reapOperation, $foreignFence2);
+    wprism_check(false, 'interrupted reap refuses a foreign mutation fence');
+} catch (Throwable) {
+    wprism_check(true, 'interrupted reap refuses a foreign mutation fence');
+}
+wprism_check_same(
+    $reapProbeCommands,
+    count(file($physicalLog, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: []),
+    'changed operation, input and fence refuse interrupted reap before Docker absence probes'
+);
+$interruptedStateSha = hash_file('sha256', $stateRoot . '/state.json');
+touch($failAbsenceProbe);
+try {
+    $provider->perform('destroy', $reapOperation, $destroyInput2);
+    wprism_check(false, 'interrupted reap refuses when Docker cannot prove physical absence');
+} catch (Throwable) {
+    wprism_check(true, 'interrupted reap does not interpret a failed Docker query as physical absence');
+}
+unlink($failAbsenceProbe);
+wprism_check_same($interruptedStateSha, hash_file('sha256', $stateRoot . '/state.json'), 'an ambiguous absence probe cannot advance durable reap state');
+$partialPhysical = $interruptedPhysical;
+$partialPhysical['database'] = true;
+file_put_contents($physicalState, json_encode($partialPhysical, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
+try {
+    $provider->perform('destroy', $reapOperation, $destroyInput2);
+    wprism_check(false, 'interrupted reap refuses an ambiguous partial live topology');
+} catch (Throwable) {
+    wprism_check(true, 'interrupted reap never treats an ambiguous partial live topology as absent');
+}
+file_put_contents($physicalState, json_encode($interruptedPhysical, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
+$resumedDestroy2 = $provider->perform('destroy', $reapOperation, $destroyInput2);
+wprism_check_same('destroyed', $resumedDestroy2['disposition'] ?? null, 'exact reap retry finalizes an already absent contained project');
 $afterUnrestoredReap = json_decode((string) file_get_contents($stateRoot . '/state.json'), true, 512, JSON_THROW_ON_ERROR);
 wprism_check(!isset($afterUnrestoredReap['sessions'][$key2], $afterUnrestoredReap['snapshots'][$key2]), 'reap disposes its exact unrestored snapshot/session state');
 wprism_check(!file_exists($preparedPath2) && !file_exists($snapshotPath2), 'reap logically deletes its exact unrestored snapshot/session bytes');
+wprism_check(!isset($afterUnrestoredReap['resources'][$create2['resource_id']]['contained_runtime']), 'resumed reap removes plaintext lease credentials from provider state');
+wprism_check(!is_dir($runtimeRoot2), 'resumed reap removes the exact lease runtime tree');
+$driverAfterReap2 = (string) file_get_contents($stateRoot . '/contained-preview.env');
+wprism_check(!str_contains($driverAfterReap2, $databasePassword2), 'resumed reap replaces the plaintext driver credential file');
+wprism_check_same($resumedDestroy2, $provider->perform('destroy', $reapOperation, $destroyInput2), 'resumed reap publishes an idempotent terminal receipt');
 
 $abortOperation = 'contained-preview-operation-0000000000000003';
 $sourceIdentity3 = $sourceProvider->perform('inspect', $abortOperation, ['role' => 'source']);

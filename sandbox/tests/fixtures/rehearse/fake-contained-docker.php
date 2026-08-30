@@ -7,6 +7,8 @@ $statePath = (string) getenv('WPRISM_CONTAINED_FAKE_STATE');
 $logPath = (string) getenv('WPRISM_CONTAINED_FAKE_LOG');
 $driftPath = (string) getenv('WPRISM_CONTAINED_FAKE_DRIFT');
 $cliDriftPath = (string) getenv('WPRISM_CONTAINED_FAKE_CLI_DRIFT');
+$failAfterDownPath = (string) getenv('WPRISM_CONTAINED_FAKE_FAIL_AFTER_DOWN');
+$failAbsenceProbePath = (string) getenv('WPRISM_CONTAINED_FAKE_FAIL_ABSENCE_PROBE');
 if ($statePath === '' || $logPath === '') exit(90);
 $arguments = array_slice($_SERVER['argv'] ?? [], 1);
 $stdin = (string) stream_get_contents(STDIN);
@@ -207,6 +209,14 @@ if (($arguments[0] ?? null) === 'compose') {
     }
     if ($command === 'down') {
         $save(['database' => false, 'proxy' => false, 'wordpress' => false]);
+        if ($failAfterDownPath !== '' && is_file($failAfterDownPath)) {
+            unlink($failAfterDownPath);
+            $providerPid = function_exists('posix_getppid') ? posix_getppid() : 0;
+            if ($providerPid > 1 && function_exists('posix_kill') && posix_kill($providerPid, SIGKILL)) {
+                usleep(10000);
+            }
+            exit(97);
+        }
         exit(0);
     }
     if ($command === 'config') {
@@ -350,6 +360,15 @@ if (($arguments[0] ?? null) === 'inspect') {
     echo json_encode($rows, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     exit(0);
 }
+if (($arguments[0] ?? null) === 'network' && ($arguments[1] ?? null) === 'ls') {
+    if ($state['database'] || $state['wordpress'] || $state['proxy']) {
+        $filterIndex = array_search('--filter', $arguments, true);
+        $filter = is_int($filterIndex) ? (string) ($arguments[$filterIndex + 1] ?? '') : '';
+        if (str_contains($filter, $ingress)) echo $ingress . "\n";
+        elseif (str_contains($filter, $network)) echo $network . "\n";
+    }
+    exit(0);
+}
 if (($arguments[0] ?? null) === 'network' && ($arguments[1] ?? null) === 'inspect') {
     if (!$state['database'] && !$state['wordpress'] && !$state['proxy']) exit(1);
     $requestedNetwork = (string) ($arguments[2] ?? '');
@@ -374,10 +393,20 @@ if (($arguments[0] ?? null) === 'network' && ($arguments[1] ?? null) === 'inspec
     ]], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     exit(0);
 }
+if (($arguments[0] ?? null) === 'volume' && ($arguments[1] ?? null) === 'ls') {
+    if ($state['database'] || $state['wordpress'] || $state['proxy']) {
+        $filterIndex = array_search('--filter', $arguments, true);
+        $filter = is_int($filterIndex) ? (string) ($arguments[$filterIndex + 1] ?? '') : '';
+        if (str_contains($filter, '-database')) echo "$project-database\n";
+        elseif (str_contains($filter, '-wordpress')) echo "$project-wordpress\n";
+    }
+    exit(0);
+}
 if (($arguments[0] ?? null) === 'volume' && ($arguments[1] ?? null) === 'inspect') {
     exit($state['database'] || $state['wordpress'] || $state['proxy'] ? 0 : 1);
 }
 if (($arguments[0] ?? null) === 'ps') {
+    if ($failAbsenceProbePath !== '' && is_file($failAbsenceProbePath)) exit(98);
     if ($state['database']) echo $databaseName . "\n";
     if ($state['wordpress']) echo $wordpressName . "\n";
     if ($state['proxy']) echo $proxyName . "\n";

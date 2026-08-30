@@ -921,8 +921,9 @@ absence of workers/default routes, and the exact mail/proxy/cron control-file ha
 payment and webhook escape are denied by the app containers' internal-only network.
 Queue escape is denied by that same boundary plus the isolated lease DB and disabled
 WordPress cron/updaters with no worker service; nginx and a hash-pinned staged MU guard
-both block direct `/wp-cron.php`. Mail is forced through the hashed refusal/
-capture shim.
+both block direct `/wp-cron.php`, and the same pinned guard rejects direct
+`wp cron event run` execution with a nonzero operator-readable refusal. Mail is
+forced through the hashed refusal/capture shim.
 
 Only the sanitized set is durably published, before WordPress can execute restored bytes.
 The receipt records policy/review, sanitization and exact snapshot witnesses without
