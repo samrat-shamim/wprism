@@ -9,6 +9,25 @@ require_once __DIR__ . '/HostProcess.php';
 /** Source-checkout, disposable two-site journey over the real WPrism commands. */
 final class DemoCommand {
     private const FORMAT = 'wprism-demo-session/v2';
+    private const LEGACY_FORMAT = 'wprism-demo-session/v1';
+    private const LEGACY_KEYS = [
+        'format',
+        'name',
+        'source_port',
+        'target_port',
+        'source_repo',
+        'target_repo',
+        'origin',
+        'compose_file',
+        'compose_env_file',
+        'state_file',
+        'phase',
+        'ownership_token',
+        'runtime_before',
+        'last_applied_revision',
+        'pending_revision',
+        'owned_paths',
+    ];
     private const DEFAULT_NAME = 'wprismdemo';
     private const DEFAULT_SOURCE_PORT = 8781;
     private const DEFAULT_TARGET_PORT = 8782;
@@ -220,15 +239,21 @@ final class DemoCommand {
     }
 
     private static function status(string $sourceRoot, string $name): int {
-        $session = self::readSession($sourceRoot, $name);
+        $session = self::readSession($sourceRoot, $name, null, true);
         echo "Demo '$name' phase: {$session['phase']}.\n";
         echo "  scenario: {$session['scenario']}\n";
         echo "  source: http://localhost:{$session['source_port']} ({$session['source_repo']})\n";
         echo "  target: http://localhost:{$session['target_port']} ({$session['target_repo']})\n";
         if ($session['runtime_before'] !== '') {
-            echo "  runtime proof: {$session['runtime_before']}\n";
+            echo '  runtime proof: ' . self::runtimeStatusWitness((string) $session['scenario']) . "\n";
         }
         return 0;
+    }
+
+    private static function runtimeStatusWitness(string $scenario): string {
+        return $scenario === 'woocommerce'
+            ? 'target-only WooCommerce order and live stock retained; exact internal row witness recorded'
+            : 'target-only WordPress comment and comment metadata retained; exact internal row witness recorded';
     }
 
     private static function capture(string $sourceRoot, string $name): int {
@@ -334,7 +359,7 @@ final class DemoCommand {
     }
 
     private static function stop(string $sourceRoot, string $name, ?callable $phaseHook): int {
-        $session = self::readSession($sourceRoot, $name, $phaseHook);
+        $session = self::readSession($sourceRoot, $name, $phaseHook, true);
         self::teardownSession($sourceRoot, $session, true, $phaseHook);
         echo "Removed demo '$name': containers, volumes, databases, and its three disposable repositories.\n";
         return 0;
@@ -809,7 +834,12 @@ SH;
     }
 
     /** @return array<string,mixed> */
-    private static function readSession(string $sourceRoot, string $name, ?callable $phaseHook = null): array {
+    private static function readSession(
+        string $sourceRoot,
+        string $name,
+        ?callable $phaseHook = null,
+        bool $acceptLegacy = false
+    ): array {
         $stateFile = $sourceRoot . '/sandbox/tmp/demo-' . $name . '.json';
         self::restoreClaimedSession($stateFile, $name);
         $handle = !is_link($stateFile) && is_file($stateFile) ? @fopen($stateFile, 'rb') : false;
@@ -820,24 +850,26 @@ SH;
             fclose($handle);
         }
         $data = is_string($bytes) ? json_decode($bytes, true) : null;
+        $legacy = $acceptLegacy && is_array($data) && self::isLegacySession($data);
         if (!is_array($data)
             || !is_array($opened) || !is_array($named)
             || $opened['dev'] !== $named['dev'] || $opened['ino'] !== $named['ino']
             || is_link($stateFile) || !is_file($stateFile)
-            || ($data['format'] ?? null) !== self::FORMAT
+            || (!$legacy && ($data['format'] ?? null) !== self::FORMAT)
             || ($data['name'] ?? null) !== $name
-            || !in_array($data['scenario'] ?? null, ['core', 'woocommerce'], true)
+            || (!$legacy && !in_array($data['scenario'] ?? null, ['core', 'woocommerce'], true))
             || !is_int($data['source_port'] ?? null)
             || !is_int($data['target_port'] ?? null)) {
             throw new \RuntimeException("demo '$name' is not active; run `wprism demo start --name=$name`");
         }
+        $scenario = $legacy ? 'woocommerce' : (string) $data['scenario'];
         self::port((string) $data['source_port'], 'stored source port');
         self::port((string) $data['target_port'], 'stored target port');
         $expected = self::sessionShape($sourceRoot, [
             'name' => $name,
             'source_port' => $data['source_port'],
             'target_port' => $data['target_port'],
-            'scenario' => $data['scenario'],
+            'scenario' => $scenario,
             'ownership_token' => $data['ownership_token'] ?? null,
         ]);
         foreach (['source_repo', 'target_repo', 'origin', 'compose_file', 'compose_env_file', 'state_file'] as $field) {
@@ -866,7 +898,29 @@ SH;
             throw new \RuntimeException("demo '$name' session identity changed while it was read");
         }
         $data['_state_identity'] = $identity;
+        if ($legacy) {
+            // V1 was emitted only by the Woo journey. Migrate that one exact
+            // historical shape after every path, lifecycle and opened-inode
+            // proof has passed; accepting a partial/hybrid shape here would
+            // turn recovery into an unreviewed compatibility parser.
+            $data['format'] = self::FORMAT;
+            $data['scenario'] = 'woocommerce';
+            self::replaceSession($data);
+        }
         return $data;
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function isLegacySession(array $session): bool {
+        if (($session['format'] ?? null) !== self::LEGACY_FORMAT) {
+            return false;
+        }
+        $keys = array_keys($session);
+        $expected = self::LEGACY_KEYS;
+        sort($keys, SORT_STRING);
+        sort($expected, SORT_STRING);
+
+        return $keys === $expected;
     }
 
     private static function restoreClaimedSession(string $stateFile, string $name): void {
@@ -882,10 +936,14 @@ SH;
         $session = is_string($bytes) ? json_decode($bytes, true) : null;
         $token = is_array($session) ? ($session['ownership_token'] ?? null) : null;
         $owned = is_array($session) ? ($session['owned_paths'] ?? null) : null;
+        $supported = is_array($session)
+            && (self::isLegacySession($session)
+                || (($session['format'] ?? null) === self::FORMAT
+                    && in_array($session['scenario'] ?? null, ['core', 'woocommerce'], true)));
         if (!is_string($token)
             || preg_match('/^[a-f0-9]{64}$/D', $token) !== 1
             || $claim !== $stateFile . '.remove-' . $token
-            || ($session['format'] ?? null) !== self::FORMAT
+            || !$supported
             || ($session['name'] ?? null) !== $name
             || ($session['state_file'] ?? null) !== $stateFile
             || ($session['phase'] ?? null) !== 'stopping'

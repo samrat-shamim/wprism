@@ -105,11 +105,13 @@ final class AssessCommand {
     ): int {
         $json = self::wantsJson($extra);
         try {
-            $flags = self::flags($extra, ['--limit', '--cursor', '--format', '--operation']);
+            $arguments = self::arguments($extra);
+            $json = $arguments['json'];
+            $flags = self::flags($arguments['flags'], ['--limit', '--cursor', '--operation']);
             $limit = AssessRenderer::limitFromArgs($flags);
             $viewRequest = AssessReport::viewRequest($flags, $limit, $json);
-            $operations = self::operationsFromArgs($extra);
-            $viewOperation = self::viewOperation($extra, $operations);
+            $operations = self::operationsFromArgs($flags);
+            $viewOperation = self::viewOperation($flags, $operations);
             $result = self::assess($driver, [
                 'operations' => $operations,
                 'source_root' => $sourceRoot,
@@ -684,6 +686,61 @@ final class AssessCommand {
     }
 
     /**
+     * Parse assess's complete output-selector grammar before any target read.
+     *
+     * The three spellings are retained deliberately, but they are one
+     * selector: duplicates, mixtures, value-bearing `--json`, non-JSON
+     * formats and a detached bare `json` token all refuse instead of being
+     * ignored or interpreted last-wins.
+     *
+     * @param list<mixed> $extra
+     * @return array{json:bool,flags:list<string>}
+     */
+    private static function arguments(array $extra): array {
+        $json = false;
+        $selectorSeen = false;
+        $flags = [];
+        $count = count($extra);
+        for ($index = 0; $index < $count; ++$index) {
+            $arg = $extra[$index];
+            if (!is_string($arg)) {
+                throw self::invalidArguments();
+            }
+            if ($arg === '--json' || $arg === '--format=json') {
+                if ($selectorSeen) {
+                    throw self::invalidArguments();
+                }
+                $selectorSeen = true;
+                $json = true;
+                continue;
+            }
+            if ($arg === '--format') {
+                if ($selectorSeen || ($extra[$index + 1] ?? null) !== 'json') {
+                    throw self::invalidArguments();
+                }
+                $selectorSeen = true;
+                $json = true;
+                ++$index;
+                continue;
+            }
+            if ($arg === 'json' || str_starts_with($arg, '--format') || str_starts_with($arg, '--json')) {
+                throw self::invalidArguments();
+            }
+            $flags[] = $arg;
+        }
+
+        return ['json' => $json, 'flags' => $flags];
+    }
+
+    private static function invalidArguments(): CommandRefusalException {
+        return new CommandRefusalException(
+            'invalid_arguments',
+            'assess received a malformed output selector',
+            'use at most one of --format=json, --format json, or --json'
+        );
+    }
+
+    /**
      * One read-only bootstrap probe, or a stated reason there was none.
      *
      * `BootstrapEligibilityReport::inspect()` only reads — it proves a safe
@@ -1033,12 +1090,9 @@ final class AssessCommand {
         $out = [];
         foreach ($extra as $arg) {
             if (!is_string($arg)) {
-                continue;
+                throw self::invalidArguments();
             }
             $name = str_contains($arg, '=') ? explode('=', $arg, 2)[0] : $arg;
-            if ($arg === 'json' || $name === '--json') {
-                continue;
-            }
             if (!in_array($name, $allowed, true)) {
                 throw new CommandRefusalException(
                     'invalid_arguments',

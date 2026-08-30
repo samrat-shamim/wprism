@@ -58,6 +58,7 @@ final class AssessReport {
 
     /** The bounded, non-authoritative projection selected by JSON view flags. */
     public const VIEW_FORMAT = 'wprism-assess-view/v1';
+    private const VIEW_CURSOR_VERSION = 2;
 
     /**
      * The `dispositions` block's two sentences, owned by the schema's
@@ -175,9 +176,7 @@ final class AssessReport {
             }
             $cursorSeen = true;
             $cursor = substr($arg, strlen('--cursor='));
-            if (!self::canonicalCursor($cursor)) {
-                throw self::invalidViewArguments();
-            }
+            self::decodeViewCursor($cursor);
         }
         if ($cursorSeen && !$json) {
             throw self::invalidViewArguments();
@@ -288,7 +287,7 @@ final class AssessReport {
         $facts = $report;
         unset($facts['generated_at'], $facts['assess_digest']);
 
-        return hash('sha256', "wprism-assess-view-cursor/v1\n"
+        return hash('sha256', "wprism-assess-view-cursor-facts/v2\n"
             . implode(',', $operations) . "\n" . Canon::encode($facts), true);
     }
 
@@ -296,9 +295,10 @@ final class AssessReport {
         if ($cursor === null) {
             return 0;
         }
-        $raw = self::decodeViewCursor($cursor);
-        $offset = unpack('Noffset', substr($raw, 32, 4))['offset'] ?? 0;
-        if (!hash_equals($digest, substr($raw, 0, 32)) || $offset < 1 || $offset >= $total) {
+        $decoded = self::decodeViewCursor($cursor);
+        $offset = $decoded['offset'];
+        $expected = self::viewCursorAuthenticator($digest, $offset);
+        if (!hash_equals($expected, $decoded['authenticator']) || $offset < 1 || $offset >= $total) {
             throw new CommandRefusalException(
                 'assess_view_cursor_stale',
                 'the assessment changed since this view cursor was issued',
@@ -310,30 +310,50 @@ final class AssessReport {
     }
 
     private static function encodeViewCursor(string $digest, int $offset): string {
-        return rtrim(strtr(base64_encode($digest . pack('N', $offset)), '+/', '-_'), '=');
+        $wire = chr(self::VIEW_CURSOR_VERSION) . pack('N', $offset)
+            . self::viewCursorAuthenticator($digest, $offset);
+
+        return self::base64Url($wire);
     }
 
-    private static function decodeViewCursor(string $cursor): string {
+    private static function viewCursorAuthenticator(string $digest, int $offset): string {
+        $subject = chr(self::VIEW_CURSOR_VERSION) . pack('N', $offset);
+
+        return hash_hmac('sha256', "wprism-assess-view-cursor/v2\n" . $subject, $digest, true);
+    }
+
+    /** @return array{offset:int,authenticator:string} */
+    private static function decodeViewCursor(string $cursor): array {
         $raw = base64_decode(strtr($cursor, '-_', '+/'), true);
-        if (!is_string($raw) || strlen($raw) !== 36
-            || self::encodeViewCursor(
-                substr($raw, 0, 32),
-                unpack('Noffset', substr($raw, 32, 4))['offset'] ?? 0
-            ) !== $cursor) {
+        if (!is_string($raw) || self::base64Url($raw) !== $cursor) {
             throw self::invalidViewArguments();
         }
+        // V1 carried digest || offset in 36 bytes. It cannot be silently
+        // reinterpreted because its offset was outside the checksum.
+        if (strlen($raw) === 36) {
+            throw self::unsupportedViewCursor();
+        }
+        if (strlen($raw) !== 37) {
+            throw self::invalidViewArguments();
+        }
+        if (ord($raw[0]) !== self::VIEW_CURSOR_VERSION) {
+            throw self::unsupportedViewCursor();
+        }
+        $offset = unpack('Noffset', substr($raw, 1, 4))['offset'] ?? 0;
 
-        return $raw;
+        return ['offset' => $offset, 'authenticator' => substr($raw, 5, 32)];
     }
 
-    private static function canonicalCursor(string $cursor): bool {
-        try {
-            self::decodeViewCursor($cursor);
-        } catch (CommandRefusalException) {
-            return false;
-        }
+    private static function base64Url(string $bytes): string {
+        return rtrim(strtr(base64_encode($bytes), '+/', '-_'), '=');
+    }
 
-        return true;
+    private static function unsupportedViewCursor(): CommandRefusalException {
+        return new CommandRefusalException(
+            'assess_view_cursor_version_unsupported',
+            'this assess view cursor version is no longer supported',
+            'rerun assess with --format=json and --limit=<1..200> without --cursor, then follow its next_cursor'
+        );
     }
 
     private static function invalidViewArguments(): CommandRefusalException {

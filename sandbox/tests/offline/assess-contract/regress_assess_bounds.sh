@@ -52,6 +52,16 @@ run() {
 # count in this suite two short and none of the assertions would say so.
 surface_rows() { grep -cE '^[a-z_]+:[A-Za-z0-9_:.-]+ +' "$1" || true; }
 
+php "$ROOT/cli/wprism" --help > "$TMP/help.txt" 2> "$TMP/help.txt.err"
+STATUS=$?
+if [ "$STATUS" = 0 ] \
+  && grep -Fq 'wprism assess <env> [--operation=<ops>] [--limit=<1..200>] [--cursor=<token>] [--format=json]' "$TMP/help.txt" \
+  && grep -Fq '[--cursor=<token>]    unknown queue.' "$TMP/help.txt"; then
+  pass 'built-in help advertises the assess cursor in both synopsis and detail'
+else
+  fail 'built-in help omitted the assess --cursor option'
+fi
+
 # --------------------------------------------------------------- true totals
 say 'the true totals'
 run "$TMP/full.json" assess fixture --format=json
@@ -150,6 +160,59 @@ else
   fail 'a malformed bound did not produce a typed JSON refusal'
 fi
 
+# ---------------------------------------------------- output selector grammar
+say 'the closed output selector grammar'
+PROPOSAL="$WPRISM_SITE_REPO/.wprism/contract/fixture/proposed.json"
+check_invalid_selector() {
+  local label="$1"; shift
+  local out="$TMP/selector-$label.out"
+  local before after
+  before=$(shasum -a 256 "$PROPOSAL" | awk '{print $1}')
+  : > "$WPRISM_CALLS"
+  run "$out" assess fixture "$@"
+  STATUS=$?
+  after=$(shasum -a 256 "$PROPOSAL" | awk '{print $1}')
+  if [ "$STATUS" = 1 ] \
+    && { grep -Fq '"reason_code":"invalid_arguments"' "$out" \
+      || grep -Fq '[invalid_arguments]' "$out.err"; } \
+    && [ ! -s "$WPRISM_CALLS" ] \
+    && [ "$before" = "$after" ]; then
+    pass "$label typed-refuses before target reads or proposal publication"
+  else
+    fail "$label was not a pre-assessment invalid_arguments refusal"
+  fi
+}
+
+check_invalid_selector duplicate-format --format=json --format=json
+check_invalid_selector mixed-json-format --json --format=json
+check_invalid_selector format-non-json --format=xml
+check_invalid_selector format-missing-value --format
+check_invalid_selector json-with-value --json=compact
+check_invalid_selector detached-json json
+check_invalid_selector hostile-format --format=json=hostile
+
+run "$TMP/spaced-format.json" assess fixture --format json
+STATUS=$?
+if [ "$STATUS" = 3 ] && php -r '
+$d = json_decode(file_get_contents($argv[1]), true);
+exit(($d["format"] ?? null) === "wprism-assess-report/v1" ? 0 : 1);
+' "$TMP/spaced-format.json"; then
+  pass 'the exact spaced --format json selector remains accepted'
+else
+  fail 'the exact spaced --format json selector was not accepted'
+fi
+
+run "$TMP/json-alias.json" assess fixture --json
+STATUS=$?
+if [ "$STATUS" = 3 ] && php -r '
+$d = json_decode(file_get_contents($argv[1]), true);
+exit(($d["format"] ?? null) === "wprism-assess-report/v1" ? 0 : 1);
+' "$TMP/json-alias.json"; then
+  pass 'the exact --json selector remains accepted'
+else
+  fail 'the exact --json selector was not accepted'
+fi
+
 # -------------------------------------- complete report and bounded JSON view
 say 'the machine report and its bounded view'
 MACHINE=$(php -r 'echo count(json_decode(file_get_contents($argv[1]), true)["surfaces"]);' "$TMP/full.json")
@@ -177,6 +240,14 @@ VIEW_BYTES=$(wc -c < "$TMP/full5.json" | tr -d ' ')
   || fail "the five-row view did not bound output bytes ($VIEW_BYTES >= $FULL_BYTES)"
 
 CURSOR=$(php -r 'echo json_decode(file_get_contents($argv[1]), true)["page"]["next_cursor"] ?? "";' "$TMP/full5.json")
+if php -r '
+$raw = base64_decode(strtr($argv[1], "-_", "+/"), true);
+exit(is_string($raw) && strlen($raw) === 37 && ord($raw[0]) === 2 ? 0 : 1);
+' "$CURSOR"; then
+  pass 'an emitted cursor uses the explicit v2 version/offset/authenticator wire'
+else
+  fail 'the emitted cursor does not use the canonical v2 wire'
+fi
 run "$TMP/next.json" assess fixture --cursor="$CURSOR" --limit=200 --format=json
 STATUS=$?
 if [ "$STATUS" = 3 ] && php -r '
@@ -211,6 +282,32 @@ if [ "$STATUS" = 1 ] && grep -Fq '"reason_code":"invalid_arguments"' "$TMP/curso
   pass 'a malformed cursor produces the typed JSON refusal'
 else
   fail 'a malformed cursor was not refused by the JSON view grammar'
+fi
+
+TAMPERED_CURSOR=$(php -r '
+$raw = base64_decode(strtr($argv[1], "-_", "+/"), true);
+if (!is_string($raw) || strlen($raw) !== 37) { exit(1); }
+$raw[4] = chr((ord($raw[4]) + 1) % 256);
+echo rtrim(strtr(base64_encode($raw), "+/", "-_"), "=");
+' "$CURSOR")
+run "$TMP/cursor-offset-tampered.json" assess fixture --cursor="$TAMPERED_CURSOR" --format=json
+STATUS=$?
+if [ "$STATUS" = 1 ] && grep -Fq '"reason_code":"assess_view_cursor_stale"' "$TMP/cursor-offset-tampered.json"; then
+  pass 'changing only the cursor offset breaks its authenticator and refuses'
+else
+  fail 'an unauthenticated cursor offset change was accepted'
+fi
+
+LEGACY_CURSOR=$(php -r '
+$raw = str_repeat("\0", 32) . pack("N", 5);
+echo rtrim(strtr(base64_encode($raw), "+/", "-_"), "=");
+')
+run "$TMP/cursor-v1.json" assess fixture --cursor="$LEGACY_CURSOR" --format=json
+STATUS=$?
+if [ "$STATUS" = 1 ] && grep -Fq '"reason_code":"assess_view_cursor_version_unsupported"' "$TMP/cursor-v1.json"; then
+  pass 'a canonical v1 cursor refuses loudly instead of being reinterpreted'
+else
+  fail 'a canonical v1 cursor did not produce the version refusal'
 fi
 
 php -r '

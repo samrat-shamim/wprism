@@ -364,7 +364,7 @@ Usage:
   wprism init   <env> [--yes] [--allow-unmanaged-plugins] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
   wprism init   <env> --archive-interrupted-to=<absolute-sibling> [--yes]
   wprism status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--cursor=<token>] [--limit=<1..200>]
-  wprism assess <env> [--operation=<ops>] [--limit=<1..200>] [--format=json]
+  wprism assess <env> [--operation=<ops>] [--limit=<1..200>] [--cursor=<token>] [--format=json]
   wprism contract <env> show|propose|accept|attest [--limit=<1..200>] [--format=json]
   wprism code-classify <env> [--dry-run] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
   wprism code-resolve  <env> [--dry-run] [--offline] [--cache-dir=<path>]
@@ -1011,9 +1011,10 @@ Verbs:
                           comment. Underlying plan failure/unparseable JSON is
                           also non-zero. Warnings alone never flip this.
   assess <env>            Decision-first, READ-ONLY assessment of one
-    [--operation=<ops>]   environment: the stack and the authority WPrism
-    [--limit=<1..200>]    actually has, one row per WordPress-language
-    [--format=json]       surface carrying its state class, handling,
+    [--operation=<ops>]   environment: its stack and WPrism's actual authority,
+    [--limit=<1..200>]    one row per WordPress-language surface, and the
+    [--cursor=<token>]    unknown queue. A cursor follows only an emitted
+    [--format=json]       bounded JSON page and requires JSON. Surface rows carry
                           technical readiness, certification provenance,
                           effect containment and effect recovery semantics,
                           the unknown/unclassified queue counted and named,
@@ -1040,7 +1041,9 @@ Verbs:
                           operations (capture, merge, release, verify,
                           delete, recover; default all six); --limit bounds
                           every human listing (default 50, `N more (use
-                          --format=json)` tail). Exit 0 means all requested
+                          --format=json)` tail). --cursor is JSON-only and
+                          follows the next_cursor emitted by a bounded page.
+                          Exit 0 means all requested
                           projections are Ready/Ready with conditions, 3 is a
                           complete assessment with red readiness, and 1 means
                           the assessment itself refused (unreachable target,

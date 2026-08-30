@@ -171,6 +171,14 @@ function ideal_demo_session(string $root, string $name, int $sourcePort, int $ta
     ];
 }
 
+/** @param array<string,mixed> $session @return array<string,mixed> */
+function legacy_ideal_demo_session(array $session): array {
+    $session['format'] = 'wprism-demo-session/v1';
+    unset($session['scenario']);
+
+    return $session;
+}
+
 /** @return array{dev:string,ino:string,type:string} */
 function ideal_path_identity(string $path): array {
     $stat = lstat($path);
@@ -1669,6 +1677,134 @@ foreach ([
         throw new RuntimeException('could not prepare demo fault fixture: ' . trim($result['stderr']));
     }
 }
+
+$legacyStatus = legacy_ideal_demo_session(
+    ideal_demo_session($faultRoot, 'legacyview', 9246, 9247, 'woocommerce')
+);
+$legacyStatus['phase'] = 'ready';
+$legacyStatus['runtime_before'] = '{"items":1,"order_id":987654321,"status":"processing","stock":37,"total":"19.99"}';
+write_ideal_demo_session($legacyStatus);
+ob_start();
+$legacyStatusExit = DemoCommand::run(['status', '--name=legacyview'], $faultRoot);
+$legacyStatusOutput = (string) ob_get_clean();
+$migratedLegacy = json_decode((string) file_get_contents((string) $legacyStatus['state_file']), true);
+wprism_check_same(0, $legacyStatusExit, 'demo status accepts an exact historical v1 session');
+wprism_check_same('wprism-demo-session/v2', $migratedLegacy['format'] ?? null, 'v1 status atomically republishes the current session format');
+wprism_check_same('woocommerce', $migratedLegacy['scenario'] ?? null, 'v1 migration restores its historically fixed WooCommerce scenario');
+wprism_check(
+    str_contains($legacyStatusOutput, 'target-only WooCommerce order and live stock retained; exact internal row witness recorded')
+        && !str_contains($legacyStatusOutput, '987654321'),
+    'legacy status renders a bounded semantic witness without its target-local order id'
+);
+unlink((string) $legacyStatus['state_file']);
+
+$legacyAction = legacy_ideal_demo_session(
+    ideal_demo_session($faultRoot, 'legacyaction', 9258, 9259, 'woocommerce')
+);
+$legacyAction['phase'] = 'ready';
+$legacyAction['runtime_before'] = '{"items":1}';
+write_ideal_demo_session($legacyAction);
+ob_start();
+$legacyActionExit = DemoCommand::run(['capture', '--name=legacyaction'], $faultRoot);
+ob_end_clean();
+$retainedLegacyAction = json_decode((string) file_get_contents((string) $legacyAction['state_file']), true);
+wprism_check_same(1, $legacyActionExit, 'v1 compatibility is limited to status and recovery actions');
+wprism_check_same('wprism-demo-session/v1', $retainedLegacyAction['format'] ?? null, 'an ordinary v1 journey action cannot trigger migration');
+unlink((string) $legacyAction['state_file']);
+
+$coreStatus = ideal_demo_session($faultRoot, 'coreproof', 9248, 9249, 'core');
+$coreStatus['phase'] = 'ready';
+$coreCommentId = '314159265';
+$coreRowHash = str_repeat('a', 64);
+$coreMetaHash = str_repeat('b', 64);
+$coreStatus['runtime_before'] = json_encode([
+    'comment_id' => (int) $coreCommentId,
+    'comment_row_sha256' => $coreRowHash,
+    'commentmeta_rows' => 2,
+    'commentmeta_sha256' => $coreMetaHash,
+], JSON_UNESCAPED_SLASHES);
+write_ideal_demo_session($coreStatus);
+ob_start();
+$coreStatusExit = DemoCommand::run(['status', '--name=coreproof'], $faultRoot);
+$coreStatusOutput = (string) ob_get_clean();
+wprism_check_same(0, $coreStatusExit, 'demo status renders the current core session');
+wprism_check(
+    str_contains($coreStatusOutput, 'target-only WordPress comment and comment metadata retained; exact internal row witness recorded'),
+    'core status names the semantic target-only witness'
+);
+wprism_check(
+    !str_contains($coreStatusOutput, $coreCommentId)
+        && !str_contains($coreStatusOutput, $coreRowHash)
+        && !str_contains($coreStatusOutput, $coreMetaHash)
+        && preg_match('/[a-f0-9]{64}/D', $coreStatusOutput) !== 1,
+    'core status never prints its raw comment id or full row hashes'
+);
+unlink((string) $coreStatus['state_file']);
+
+$legacyStop = legacy_ideal_demo_session(
+    ideal_demo_session($faultRoot, 'legacystop', 9250, 9251, 'woocommerce')
+);
+foreach (['source_repo', 'target_repo', 'origin'] as $field) {
+    mkdir((string) $legacyStop[$field], 0700, true);
+}
+file_put_contents((string) $legacyStop['compose_env_file'], "WPRISM_PAIR=legacystop\n");
+$legacyStop = own_ideal_demo_paths($legacyStop, ['source_repo', 'target_repo', 'origin', 'compose_env_file']);
+write_ideal_demo_session($legacyStop);
+ob_start();
+$legacyStopExit = DemoCommand::run(['stop', '--name=legacystop'], $faultRoot);
+ob_end_clean();
+wprism_check_same(0, $legacyStopExit, 'demo stop migrates and removes an exact v1 Woo session');
+foreach (['source_repo', 'target_repo', 'origin', 'compose_env_file', 'state_file'] as $field) {
+    wprism_check(!file_exists((string) $legacyStop[$field]), "v1 stop removes its owned $field");
+}
+
+$legacyClaim = legacy_ideal_demo_session(
+    ideal_demo_session($faultRoot, 'legacyclaim', 9252, 9253, 'woocommerce')
+);
+$legacyClaim['phase'] = 'stopping';
+foreach ($legacyClaim['owned_paths'] as $field => $_row) {
+    $legacyClaim['owned_paths'][$field] = ['state' => 'deleted', 'identity' => null];
+}
+write_ideal_demo_session($legacyClaim);
+$legacyClaimPath = $legacyClaim['state_file'] . '.remove-' . $legacyClaim['ownership_token'];
+rename((string) $legacyClaim['state_file'], $legacyClaimPath);
+ob_start();
+$legacyClaimExit = DemoCommand::run(['stop', '--name=legacyclaim'], $faultRoot);
+ob_end_clean();
+wprism_check_same(0, $legacyClaimExit, 'demo stop restores, migrates, and completes an interrupted v1 cleanup claim');
+wprism_check(
+    !file_exists((string) $legacyClaim['state_file']) && !file_exists($legacyClaimPath),
+    'completed v1 claim cleanup removes both canonical and claimed session journals'
+);
+
+$legacyHybrid = legacy_ideal_demo_session(
+    ideal_demo_session($faultRoot, 'legacyhybrid', 9254, 9255, 'woocommerce')
+);
+$legacyHybrid['scenario'] = 'woocommerce';
+write_ideal_demo_session($legacyHybrid);
+ob_start();
+$legacyHybridExit = DemoCommand::run(['status', '--name=legacyhybrid'], $faultRoot);
+ob_end_clean();
+$retainedHybrid = json_decode((string) file_get_contents((string) $legacyHybrid['state_file']), true);
+wprism_check_same(1, $legacyHybridExit, 'demo refuses a hybrid v1 shape instead of enabling a broad compatibility path');
+wprism_check_same('wprism-demo-session/v1', $retainedHybrid['format'] ?? null, 'a refused hybrid session is retained byte-semantically unmigrated');
+unlink((string) $legacyHybrid['state_file']);
+
+$legacySentinel = $tmp . '/legacy-path-sentinel';
+mkdir($legacySentinel, 0700);
+file_put_contents($legacySentinel . '/keep', "foreign\n");
+$legacyTampered = legacy_ideal_demo_session(
+    ideal_demo_session($faultRoot, 'legacypath', 9256, 9257, 'woocommerce')
+);
+$legacyTampered['source_repo'] = $legacySentinel;
+write_ideal_demo_session($legacyTampered);
+ob_start();
+$legacyTamperedExit = DemoCommand::run(['stop', '--name=legacypath'], $faultRoot);
+ob_end_clean();
+wprism_check_same(1, $legacyTamperedExit, 'v1 acceptance still refuses a cleanup path outside its derived ownership set');
+wprism_check(is_file($legacySentinel . '/keep'), 'v1 path validation retains the foreign sentinel');
+unlink((string) $legacyTampered['state_file']);
+
 $faultHookCalls = 0;
 $faultHook = static function (string $phase) use (&$faultHookCalls, $faultRoot): void {
     if ($phase !== 'compose_env_published') {
