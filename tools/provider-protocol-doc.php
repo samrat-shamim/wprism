@@ -331,7 +331,8 @@ function provider_doc_build(string $repo): string {
     $out .= "`tools/reference-env-provider.php`, then add the following object. Every path is\n";
     $out .= "absolute; replace `mup` consistently if the pair name differs. The target environment\n";
     $out .= "must use container `wprism-mup-preview-wp-1`, service `cli`, database\n";
-    $out .= "`wprism_preview`, and its own host repository directory.\n\n";
+    $out .= "`wprism_preview`, and its own host repository directory. Each image field is an\n";
+    $out .= "immutable `repository@sha256:<digest>` reference; mutable tags are refused before boot.\n\n";
     $out .= <<<'DOC'
 ```json
 "contained_preview": {
@@ -347,10 +348,10 @@ function provider_doc_build(string $repo): string {
   "wordpress_service": "wp",
   "cli_service": "cli",
   "database": "wprism_preview",
-  "wordpress_image": "wordpress:7.1-php8.3-apache",
-  "cli_image": "wordpress:cli-php8.3",
-  "database_image": "mariadb:11",
-  "proxy_image": "nginx:1.29-alpine",
+  "wordpress_image": "wordpress@sha256:65919a9ca10940feb10d9400fead0d639bf86241f47c91e2b9ea4703aa8452cf",
+  "cli_image": "wordpress@sha256:2b5e9d4d3e51909dca1aaa4732e9f5e5bf0377c2114dbd8ff39f060bff202586",
+  "database_image": "mariadb@sha256:d9f7eb2637296652f24b484afd5d246f759f49f5babcadc6a9e344c9acb75fbf",
+  "proxy_image": "nginx@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de",
   "cron_guard": "<repo>/sandbox/containment/block-cron.php",
   "mail_shim": "<repo>/sandbox/containment/refuse-sendmail.sh",
   "php_ini": "<repo>/sandbox/containment/php.ini",
@@ -428,7 +429,7 @@ DOC;
     $out .= "An exact retry re-runs the probes and returns the same receipt; any topology or control\n";
     $out .= "drift refuses. Reap proves the lease's containers, networks, volumes, staged runtime and\n";
     $out .= "credentials absent.\n\n";
-    $out .= "This boundary trusts the host kernel, Docker daemon, configured image identities, provider\n";
+    $out .= "This boundary trusts the host kernel, Docker daemon, configured immutable image digests, provider\n";
     $out .= "and control files, plus the human assertion that the machine-local policy is exhaustive.\n";
     $out .= "The provider does not infer undeclared secrets. A host/Docker administrator can bypass\n";
     $out .= "it and is out of scope. Browser-side effects outside the server containers are also\n";

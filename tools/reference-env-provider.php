@@ -710,8 +710,9 @@ function ref_config(string $path): array {
         }
         foreach (['cli_image', 'database_image', 'proxy_image', 'wordpress_image'] as $imageKey) {
             ref_require(
-                is_string($contained[$imageKey] ?? null) && preg_match('/^[A-Za-z0-9._:@+\/-]{3,256}$/D', $contained[$imageKey]) === 1,
-                "contained_preview '$imageKey' is invalid"
+                is_string($contained[$imageKey] ?? null)
+                    && preg_match('/^[A-Za-z0-9._:+\/-]+@sha256:[a-f0-9]{64}$/D', $contained[$imageKey]) === 1,
+                "contained_preview '$imageKey' must be an immutable sha256 image reference"
             );
         }
         ref_require(is_file($contained['compose_file']), 'contained_preview compose file is unavailable');

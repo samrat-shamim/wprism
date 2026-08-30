@@ -841,7 +841,8 @@ Start with the ordinary reference config shape documented at the top of
 `tools/reference-env-provider.php`, then add the following object. Every path is
 absolute; replace `mup` consistently if the pair name differs. The target environment
 must use container `wprism-mup-preview-wp-1`, service `cli`, database
-`wprism_preview`, and its own host repository directory.
+`wprism_preview`, and its own host repository directory. Each image field is an
+immutable `repository@sha256:<digest>` reference; mutable tags are refused before boot.
 
 ```json
 "contained_preview": {
@@ -857,10 +858,10 @@ must use container `wprism-mup-preview-wp-1`, service `cli`, database
   "wordpress_service": "wp",
   "cli_service": "cli",
   "database": "wprism_preview",
-  "wordpress_image": "wordpress:7.1-php8.3-apache",
-  "cli_image": "wordpress:cli-php8.3",
-  "database_image": "mariadb:11",
-  "proxy_image": "nginx:1.29-alpine",
+  "wordpress_image": "wordpress@sha256:65919a9ca10940feb10d9400fead0d639bf86241f47c91e2b9ea4703aa8452cf",
+  "cli_image": "wordpress@sha256:2b5e9d4d3e51909dca1aaa4732e9f5e5bf0377c2114dbd8ff39f060bff202586",
+  "database_image": "mariadb@sha256:d9f7eb2637296652f24b484afd5d246f759f49f5babcadc6a9e344c9acb75fbf",
+  "proxy_image": "nginx@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de",
   "cron_guard": "<repo>/sandbox/containment/block-cron.php",
   "mail_shim": "<repo>/sandbox/containment/refuse-sendmail.sh",
   "php_ini": "<repo>/sandbox/containment/php.ini",
@@ -939,7 +940,7 @@ An exact retry re-runs the probes and returns the same receipt; any topology or 
 drift refuses. Reap proves the lease's containers, networks, volumes, staged runtime and
 credentials absent.
 
-This boundary trusts the host kernel, Docker daemon, configured image identities, provider
+This boundary trusts the host kernel, Docker daemon, configured immutable image digests, provider
 and control files, plus the human assertion that the machine-local policy is exhaustive.
 The provider does not infer undeclared secrets. A host/Docker administrator can bypass
 it and is out of scope. Browser-side effects outside the server containers are also

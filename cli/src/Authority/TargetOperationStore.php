@@ -448,11 +448,12 @@ if (!is_array($authority) || !is_resource($authority[0]) || !@flock($authority[0
     || !$lockBound($authority[0], $authorityPath)) {
     fwrite(STDERR, "authority-lock\n"); exit(32);
 }
-$policyOpened = $openRegular($root . '/authority-policy.json', 'rb', $root);
+$policyPath = $root . '/authority-policy.json';
+$policyOpened = $openRegular($policyPath, 'rb', $root);
 $policyHandle = is_array($policyOpened) ? $policyOpened[0] : false;
 $policyBytes = is_resource($policyHandle) ? @stream_get_contents($policyHandle) : false;
-if (is_resource($policyHandle)) @fclose($policyHandle);
 $policy = is_string($policyBytes) ? json_decode($policyBytes, true) : null;
+if (!$lockBound($policyHandle, $policyPath)) { fwrite(STDERR, "authority-policy\n"); exit(33); }
 $envelope = json_decode($envelopeBytes, true);
 $subject = json_decode($subjectBytes, true);
 $keys = static function (array $value, array $expected): bool { $actual = array_keys($value); sort($actual, SORT_STRING); sort($expected, SORT_STRING); return $actual === $expected; };
@@ -572,12 +573,13 @@ $identityPath = $root . '/target-id';
 $identityOpened = $openRegular($identityPath, 'rb', $root);
 $identityHandle = is_array($identityOpened) ? $identityOpened[0] : false;
 $identityRaw = is_resource($identityHandle) ? @stream_get_contents($identityHandle) : false;
-if (is_resource($identityHandle)) @fclose($identityHandle);
 $identity = is_string($identityRaw) && str_ends_with($identityRaw, "\n")
     ? substr($identityRaw, 0, -1) : '';
 if (!$lockBound($operationLock, $operationLockPath) || !$lockBound($authority[0], $authorityPath)) {
     fwrite(STDERR, "operation-lock\n"); exit(32);
 }
+if (!$lockBound($policyHandle, $policyPath)) { fwrite(STDERR, "authority-policy\n"); exit(33); }
+if (!$lockBound($identityHandle, $identityPath)) { fwrite(STDERR, "target-mismatch\n"); exit(34); }
 if (!hash_equals($targetId, $identity)) { fwrite(STDERR, "target-mismatch\n"); exit(34); }
 $authorizations = $root . '/authorizations';
 if ((file_exists($authorizations) || is_link($authorizations))
@@ -595,13 +597,31 @@ $completionState = static function (string $directory): string {
     $outcome = $publication . '/outcome.json';
     return !is_link($outcome) && is_file($outcome) ? 'complete' : 'uncertain';
 };
-$replay = static function (string $directory, string $expected): never {
+$assertControlBound = static function () use (
+    $lockBound,
+    $operationLock,
+    $operationLockPath,
+    $authority,
+    $authorityPath,
+    $policyHandle,
+    $policyPath,
+    $identityHandle,
+    $identityPath
+): void {
+    if (!$lockBound($operationLock, $operationLockPath) || !$lockBound($authority[0], $authorityPath)) {
+        fwrite(STDERR, "operation-lock\n"); exit(32);
+    }
+    if (!$lockBound($policyHandle, $policyPath)) { fwrite(STDERR, "authority-policy\n"); exit(33); }
+    if (!$lockBound($identityHandle, $identityPath)) { fwrite(STDERR, "target-mismatch\n"); exit(34); }
+};
+$replay = static function (string $directory, string $expected) use ($assertControlBound): never {
     if (!is_dir($directory) || is_link($directory)) { fwrite(STDERR, "record-type\n"); exit(26); }
     $path = $directory . '/consumption.json';
     if (is_link($path) || !is_file($path)) { fwrite(STDERR, "record-uncertain\n"); exit(27); }
     $actual = @file_get_contents($path);
     if (!is_string($actual)) { fwrite(STDERR, "record-unreadable\n"); exit(28); }
     if (!hash_equals($expected, $actual)) { fwrite(STDERR, "record-conflict\n"); exit(29); }
+    $assertControlBound();
     echo "replay\n"; exit(0);
 };
 $validElection = static function (array $document, string $raw, string $electionFormat)
@@ -793,12 +813,11 @@ if (is_array($precondition)) {
 if (is_array($precondition) && !$lockBound($repositoryLock, $repositoryLockPath)) {
     fwrite(STDERR, "precondition-repository-lock\n"); exit(31);
 }
+$assertControlBound();
 if (!is_dir($authorizations) && !@mkdir($authorizations, 0700, true) && !is_dir($authorizations)) {
     fwrite(STDERR, "store-create\n"); exit(24);
 }
-if (!$lockBound($operationLock, $operationLockPath) || !$lockBound($authority[0], $authorityPath)) {
-    fwrite(STDERR, "operation-lock\n"); exit(32);
-}
+$assertControlBound();
 @chmod($authorizations, 0700);
 // The expiry check immediately before winner election is the target clock's
 // mutation boundary. An existing exact record remains readable after expiry.
@@ -826,6 +845,7 @@ if (!$regularPath($operations, true, $root)) { fwrite(STDERR, "store-type\n"); e
 @chmod($operations, 0700);
 if (!@mkdir($operationDirectory, 0700)) { fwrite(STDERR, "election-uncertain\n"); exit(35); }
 @chmod($operationDirectory, 0700);
+$assertControlBound();
 $publish($operationDirectory, $electionPath, $expectedElection, 'election');
 foreach ([$operationDirectory, $operations, $authorizations, $root] as $syncDirectory) {
     $sync = @fopen($syncDirectory, 'rb');
@@ -834,8 +854,10 @@ foreach ([$operationDirectory, $operations, $authorizations, $root] as $syncDire
         fwrite(STDERR, "publish-uncertain\n"); exit(25);
     }
 }
+$assertControlBound();
 if (!@mkdir($directory, 0700)) { fwrite(STDERR, "publish-uncertain\n"); exit(25); }
 @chmod($directory, 0700);
+$assertControlBound();
 $publish($directory, $directory . '/consumption.json', $expected, 'consumption');
 foreach ([$directory, $authorizations, $root] as $syncDirectory) {
         $sync = @fopen($syncDirectory, 'rb');
@@ -848,6 +870,7 @@ $readback = @file_get_contents($directory . '/consumption.json');
 if (!is_string($readback) || !hash_equals($expected, $readback)) {
     fwrite(STDERR, "publish-uncertain\n"); exit(25);
 }
+$assertControlBound();
 echo "first\n"; exit(0);
 PHP;
         $result = $driver->captureRaw(self::php($script, [
@@ -1072,7 +1095,7 @@ $identityPath = $root . '/target-id';
 $identityBefore = @lstat($identityPath); $identityHandle = @fopen($identityPath, 'rb');
 $identityAfter = is_resource($identityHandle) ? @fstat($identityHandle) : false;
 $identityBytes = is_resource($identityHandle) ? @stream_get_contents($identityHandle) : false;
-if (is_resource($identityHandle)) @fclose($identityHandle); $identityNamed = @lstat($identityPath);
+$identityNamed = @lstat($identityPath);
 $identity = is_string($identityBytes) && str_ends_with($identityBytes, "\n")
     ? substr($identityBytes, 0, -1) : '';
 if (!$lockBound($operationLock, $operationLockPath) || !is_array($identityBefore)
@@ -1084,6 +1107,16 @@ if (!$lockBound($operationLock, $operationLockPath) || !is_array($identityBefore
     || ($identityBefore['ino'] ?? null) !== ($identityNamed['ino'] ?? null)) {
     fwrite(STDERR, "target-mismatch\n"); exit(20);
 }
+$assertCompletionBound = static function () use (
+    $lockBound,
+    $operationLock,
+    $operationLockPath,
+    $identityHandle,
+    $identityPath
+): void {
+    if (!$lockBound($operationLock, $operationLockPath)) { fwrite(STDERR, "operation-lock\n"); exit(20); }
+    if (!$lockBound($identityHandle, $identityPath)) { fwrite(STDERR, "target-mismatch\n"); exit(20); }
+};
 $directory = $root . '/authorizations/' . $hex;
 if (!$regularPath($directory, true, $root)) { fwrite(STDERR, "consumption-missing\n"); exit(20); }
 $consumption = $directory . '/consumption.json';
@@ -1095,7 +1128,8 @@ if (!hash_equals($expectedConsumption, $actualConsumption)) {
 }
 $consumptionDocument = json_decode($actualConsumption, true);
 if (!is_array($consumptionDocument) || !hash_equals((string) ($consumptionDocument['target_id'] ?? ''), $identity)
-    || !$lockBound($operationLock, $operationLockPath)) { fwrite(STDERR, "target-mismatch\n"); exit(20); }
+    || !$lockBound($operationLock, $operationLockPath)
+    || !$lockBound($identityHandle, $identityPath)) { fwrite(STDERR, "target-mismatch\n"); exit(20); }
 $electionPath = $root . '/authorizations/operations/' . $tupleHex . '/election.json';
 if (!$regularPath($root . '/authorizations', true, $root)
     || ((file_exists(dirname($electionPath)) || is_link(dirname($electionPath)))
@@ -1121,9 +1155,10 @@ if (file_exists($electionPath) || is_link($electionPath)) {
 }
 $publication = $directory . '/completion';
 $path = $publication . '/outcome.json';
-if (!$lockBound($operationLock, $operationLockPath)) { fwrite(STDERR, "operation-lock\n"); exit(20); }
+$assertCompletionBound();
 if (@mkdir($publication, 0700)) {
     @chmod($publication, 0700);
+    $assertCompletionBound();
     $temporary = @tempnam($publication, '.outcome-');
     $handle = is_string($temporary) ? @fopen($temporary, 'r+b') : false;
     if (!is_resource($handle)
@@ -1132,10 +1167,21 @@ if (@mkdir($publication, 0700)) {
         || !function_exists('fsync')
         || !@fsync($handle)
         || !@fclose($handle)
-        || !@chmod($temporary, 0600)
-        || !@rename($temporary, $path)) {
+        || !@chmod($temporary, 0600)) {
         if (is_resource($handle)) @fclose($handle);
         if (is_string($temporary) && is_file($temporary)) @unlink($temporary);
+        fwrite(STDERR, "outcome-uncertain\n"); exit(27);
+    }
+    if (!$lockBound($operationLock, $operationLockPath)) {
+        if (is_file($temporary)) @unlink($temporary);
+        fwrite(STDERR, "operation-lock\n"); exit(20);
+    }
+    if (!$lockBound($identityHandle, $identityPath)) {
+        if (is_file($temporary)) @unlink($temporary);
+        fwrite(STDERR, "target-mismatch\n"); exit(20);
+    }
+    if (!@rename($temporary, $path)) {
+        if (is_file($temporary)) @unlink($temporary);
         fwrite(STDERR, "outcome-uncertain\n"); exit(27);
     }
     foreach ([$publication, $directory] as $syncDirectory) {
@@ -1149,6 +1195,7 @@ if (@mkdir($publication, 0700)) {
     if (!is_string($readback) || !hash_equals($expected, $readback)) {
         fwrite(STDERR, "outcome-uncertain\n"); exit(27);
     }
+    $assertCompletionBound();
     echo "first\n"; exit(0);
 }
 if (!is_dir($publication) || is_link($publication)) { fwrite(STDERR, "outcome-type\n"); exit(24); }
@@ -1157,6 +1204,7 @@ if (file_exists($path) || is_link($path)) {
     $actual = @file_get_contents($path);
     if (!is_string($actual)) { fwrite(STDERR, "outcome-read\n"); exit(25); }
     if (!hash_equals($expected, $actual)) { fwrite(STDERR, "outcome-conflict\n"); exit(26); }
+    $assertCompletionBound();
     echo "replay\n"; exit(0);
 }
 fwrite(STDERR, "outcome-uncertain\n"); exit(27);
@@ -1238,7 +1286,7 @@ $lockBound = static function (mixed $handle, string $path): bool {
 };
 if (!$regularPath($root, true)) { fwrite(STDERR, "lock\n"); exit(20); }
 $lockBefore = @lstat($lockPath);
-$lock = @fopen($lockPath, 'c');
+$lock = @fopen($lockPath, 'rb');
 $lockAfter = is_resource($lock) ? @fstat($lock) : false;
 if (!is_array($lockBefore) || !is_array($lockAfter)
     || (($lockBefore['mode'] ?? 0) & 0170000) !== 0100000
@@ -1423,7 +1471,7 @@ $validElection = static function (array $document, string $raw, string $election
 $lockPath = $root . '/identity.lock';
 if (!$regularPath($root, true)) { fwrite(STDERR, "lock\n"); exit(21); }
 $lockBefore = @lstat($lockPath);
-$lock = @fopen($lockPath, 'c');
+$lock = @fopen($lockPath, 'rb');
 $lockAfter = is_resource($lock) ? @fstat($lock) : false;
 if (!is_array($lockBefore) || !is_array($lockAfter)
     || (($lockBefore['mode'] ?? 0) & 0170000) !== 0100000

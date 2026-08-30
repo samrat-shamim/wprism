@@ -93,6 +93,36 @@ $loadedTrust = OperationAuthorization::trust($scratch);
 wprism_check_same($trust, $loadedTrust, 'the site operation authority policy is canonical and closed');
 
 $driver = new AuthorizationStoreDriver($scratch);
+$partialControlRoot = trim(authorization_run(['git', '-C', $scratch, 'rev-parse', '--absolute-git-dir'])['stdout'])
+    . '/wprism-control';
+mkdir($partialControlRoot, 0700);
+wprism_check_refuses(
+    static fn () => TargetOperationStore::status($driver, 'sha256:' . str_repeat('0', 64)),
+    'authorization_consumption_uncertain',
+    'authorization status refuses a partially initialized target'
+);
+wprism_check(
+    !file_exists($partialControlRoot . '/identity.lock'),
+    'authorization status creates no identity lock while refusing a partially initialized target'
+);
+@unlink($partialControlRoot . '/identity.lock');
+$partialSubject = [
+    'operation' => 'release',
+    'operation_id' => 'release:partial-target-status',
+    'presentation_digest' => 'sha256:' . str_repeat('1', 64),
+    'subject_digest' => 'sha256:' . str_repeat('2', 64),
+    'target_id' => 'wprism-target:' . str_repeat('3', 64),
+];
+wprism_check_refuses(
+    static fn () => TargetOperationStore::statusForSubject($driver, $partialSubject),
+    'authorized_operation_status_invalid',
+    'operation-subject status refuses a partially initialized target'
+);
+wprism_check(
+    !file_exists($partialControlRoot . '/identity.lock'),
+    'operation-subject status creates no identity lock while refusing a partially initialized target'
+);
+rmdir($partialControlRoot);
 $targetId = TargetOperationStore::ensureIdentity($driver);
 wprism_check_same($targetId, TargetOperationStore::ensureIdentity($driver), 'target identity establishment is idempotent');
 wprism_check_same($targetId, TargetOperationStore::readIdentity($driver), 'read-only prepare can re-read the stable target identity');
@@ -359,8 +389,8 @@ $lockSwapDriver = new AuthorizationStoreDriver(
     static function (string $script): string {
         $needle = '$identityPath = $root . ';
         if (!str_contains($script, 'authorityPath') || !str_contains($script, 'operationLock')) return $script;
-        $swap = "\$heldLockPath=\$operationLockPath . \".held\"; \$newLock=false;"
-            . "if(!@rename(\$operationLockPath,\$heldLockPath)||!is_resource(\$newLock=@fopen(\$operationLockPath,\"x\"))"
+        $swap = '$heldLockPath=$operationLockPath . ".held"; $newLock=false;'
+            . 'if(!@rename($operationLockPath,$heldLockPath)||!is_resource($newLock=@fopen($operationLockPath,"x"))'
             . "||!@fclose(\$newLock)){fwrite(STDERR,\"swap\\n\");exit(99);}\n";
         $changed = str_replace($needle, $swap . $needle, $script, $count);
         if ($count !== 1) throw new RuntimeException('lock rebind fixture did not reach the acquired operation lock');
@@ -384,6 +414,202 @@ $lockSwapSuccess = TargetOperationStore::consume(
     $lockSwapAuthorization['subject']
 );
 wprism_check_same(false, $lockSwapSuccess['replayed'], 'the canonical replacement lock admits one later first worker, never a split publication');
+$hardeningPolicyPath = $hardeningRoot . '/authority-policy.json';
+$policySwapAuthorization = $authFor(
+    $hardeningTarget,
+    'release:authority-policy-path-rebind',
+    'nonce-authority-policy-path-rebind'
+);
+$policySwapDriver = new AuthorizationStoreDriver(
+    $hardeningScratch,
+    static function (string $script): string {
+        $needle = '$policy = is_string($policyBytes)';
+        if (!str_contains($script, 'authorityPath') || !str_contains($script, $needle)) return $script;
+        $swap = '$activePolicyPath=$root . "/authority-policy.json";'
+            . '$heldPolicyPath=$activePolicyPath . ".held";'
+            . 'if(!@rename($activePolicyPath,$heldPolicyPath)||!@copy($heldPolicyPath,$activePolicyPath))'
+            . '{fwrite(STDERR,"policy-swap\n");exit(99);}' . "\n";
+        $changed = str_replace($needle, $swap . $needle, $script, $count);
+        if ($count !== 1) throw new RuntimeException('policy rebind fixture did not reach the completed policy read');
+        return $changed;
+    }
+);
+wprism_check_refuses(
+    static fn () => TargetOperationStore::consume(
+        $policySwapDriver,
+        $policySwapAuthorization['verified'],
+        $policySwapAuthorization['envelope'],
+        $policySwapAuthorization['subject']
+    ),
+    'authorization_authority_policy_changed',
+    'consumption refuses an authority-policy inode replaced after its bytes were read'
+);
+unlink($hardeningPolicyPath);
+rename($hardeningPolicyPath . '.held', $hardeningPolicyPath);
+wprism_check_same(
+    null,
+    TargetOperationStore::status($hardeningDriver, $policySwapAuthorization['verified']['authorization_digest']),
+    'the authority-policy replacement leaves its authorization unconsumed'
+);
+$hardeningIdentityPath = $hardeningRoot . '/target-id';
+$identitySwapAuthorization = $authFor(
+    $hardeningTarget,
+    'release:target-identity-path-rebind',
+    'nonce-target-identity-path-rebind'
+);
+$identitySwapDriver = new AuthorizationStoreDriver(
+    $hardeningScratch,
+    static function (string $script): string {
+        $needle = 'if (!hash_equals($targetId, $identity))';
+        if (!str_contains($script, 'authorityPath') || !str_contains($script, $needle)) return $script;
+        $swap = '$heldIdentityPath=$identityPath . ".held";'
+            . 'if(!@rename($identityPath,$heldIdentityPath)'
+            . '||@file_put_contents($identityPath,"wprism-target:" . str_repeat("f",64) . "\\n")===false)'
+            . '{fwrite(STDERR,"identity-swap\n");exit(99);}' . "\n";
+        $changed = str_replace($needle, $swap . $needle, $script, $count);
+        if ($count !== 1) throw new RuntimeException('identity rebind fixture did not reach the completed identity read');
+        return $changed;
+    }
+);
+wprism_check_refuses(
+    static fn () => TargetOperationStore::consume(
+        $identitySwapDriver,
+        $identitySwapAuthorization['verified'],
+        $identitySwapAuthorization['envelope'],
+        $identitySwapAuthorization['subject']
+    ),
+    'authorization_target_mismatch',
+    'consumption refuses a target-identity inode replaced after its bytes were read'
+);
+unlink($hardeningIdentityPath);
+rename($hardeningIdentityPath . '.held', $hardeningIdentityPath);
+wprism_check_same(
+    null,
+    TargetOperationStore::status($hardeningDriver, $identitySwapAuthorization['verified']['authorization_digest']),
+    'the target-identity replacement leaves its authorization unconsumed'
+);
+$completionSwapAuthorization = $authFor(
+    $hardeningTarget,
+    'release:completion-target-identity-path-rebind',
+    'nonce-completion-target-identity-path-rebind'
+);
+$completionSwapConsumption = TargetOperationStore::consume(
+    $hardeningDriver,
+    $completionSwapAuthorization['verified'],
+    $completionSwapAuthorization['envelope'],
+    $completionSwapAuthorization['subject']
+);
+$completionSwapDriver = new AuthorizationStoreDriver(
+    $hardeningScratch,
+    static function (string $script): string {
+        $needle = '$directory = $root . ';
+        if (!str_contains($script, 'expectedConsumption') || !str_contains($script, $needle)) return $script;
+        $swap = '$heldIdentityPath=$identityPath . ".held";'
+            . 'if(!@rename($identityPath,$heldIdentityPath)'
+            . '||@file_put_contents($identityPath,"wprism-target:" . str_repeat("f",64) . "\\n")===false)'
+            . '{fwrite(STDERR,"identity-swap\n");exit(99);}' . "\n";
+        $changed = str_replace($needle, $swap . $needle, $script, $count);
+        if ($count !== 1) throw new RuntimeException('completion identity rebind fixture did not reach the completed identity read');
+        return $changed;
+    }
+);
+wprism_check_refuses(
+    static fn () => TargetOperationStore::complete(
+        $completionSwapDriver,
+        $completionSwapConsumption['consumption'],
+        ['format' => 'fixture-release-outcome/v1', 'status' => 'complete']
+    ),
+    'authorized_operation_outcome_uncertain',
+    'completion refuses a target-identity inode replaced after its bytes were read'
+);
+unlink($hardeningIdentityPath);
+rename($hardeningIdentityPath . '.held', $hardeningIdentityPath);
+$completionSwapStatus = TargetOperationStore::status(
+    $hardeningDriver,
+    $completionSwapAuthorization['verified']['authorization_digest']
+);
+wprism_check_same(
+    null,
+    $completionSwapStatus['completion'] ?? null,
+    'the target-identity replacement publishes no terminal outcome'
+);
+$latePolicySwapAuthorization = $authFor(
+    $hardeningTarget,
+    'release:late-authority-policy-path-rebind',
+    'nonce-late-authority-policy-path-rebind'
+);
+$latePolicySwapDriver = new AuthorizationStoreDriver(
+    $hardeningScratch,
+    static function (string $script): string {
+        $needle = 'if (!@mkdir($directory, 0700))';
+        if (!str_contains($script, 'authorityPath') || !str_contains($script, $needle)) return $script;
+        $swap = '$activePolicyPath=$root . "/authority-policy.json";'
+            . '$heldPolicyPath=$activePolicyPath . ".held";'
+            . 'if(!@rename($activePolicyPath,$heldPolicyPath)||!@copy($heldPolicyPath,$activePolicyPath))'
+            . '{fwrite(STDERR,"policy-swap\n");exit(99);}' . "\n";
+        $changed = str_replace($needle, $swap . $needle, $script, $count);
+        if ($count !== 1) throw new RuntimeException('late policy rebind fixture did not cross durable election');
+        return $changed;
+    }
+);
+wprism_check_refuses(
+    static fn () => TargetOperationStore::consume(
+        $latePolicySwapDriver,
+        $latePolicySwapAuthorization['verified'],
+        $latePolicySwapAuthorization['envelope'],
+        $latePolicySwapAuthorization['subject']
+    ),
+    'authorization_authority_policy_changed',
+    'consumption rebinds authority policy after election and before consumption publication'
+);
+unlink($hardeningPolicyPath);
+rename($hardeningPolicyPath . '.held', $hardeningPolicyPath);
+$latePolicyHex = substr($latePolicySwapAuthorization['verified']['authorization_digest'], 7);
+wprism_check(
+    !file_exists($hardeningRoot . '/authorizations/' . $latePolicyHex . '/consumption.json'),
+    'a late authority-policy replacement publishes no consumption record'
+);
+$lateCompletionAuthorization = $authFor(
+    $hardeningTarget,
+    'release:late-completion-target-identity-path-rebind',
+    'nonce-late-completion-target-identity-path-rebind'
+);
+$lateCompletionConsumption = TargetOperationStore::consume(
+    $hardeningDriver,
+    $lateCompletionAuthorization['verified'],
+    $lateCompletionAuthorization['envelope'],
+    $lateCompletionAuthorization['subject']
+);
+$lateCompletionDriver = new AuthorizationStoreDriver(
+    $hardeningScratch,
+    static function (string $script): string {
+        $needle = '$temporary = @tempnam($publication, ';
+        if (!str_contains($script, 'expectedConsumption') || !str_contains($script, $needle)) return $script;
+        $swap = '$heldIdentityPath=$identityPath . ".held";'
+            . 'if(!@rename($identityPath,$heldIdentityPath)'
+            . '||@file_put_contents($identityPath,"wprism-target:" . str_repeat("f",64) . "\\n")===false)'
+            . '{fwrite(STDERR,"identity-swap\n");exit(99);}' . "\n";
+        $changed = str_replace($needle, $swap . $needle, $script, $count);
+        if ($count !== 1) throw new RuntimeException('late completion identity rebind fixture did not cross directory publication');
+        return $changed;
+    }
+);
+wprism_check_refuses(
+    static fn () => TargetOperationStore::complete(
+        $lateCompletionDriver,
+        $lateCompletionConsumption['consumption'],
+        ['format' => 'fixture-release-outcome/v1', 'status' => 'complete']
+    ),
+    'authorized_operation_outcome_uncertain',
+    'completion rebinds target identity immediately before outcome publication'
+);
+unlink($hardeningIdentityPath);
+rename($hardeningIdentityPath . '.held', $hardeningIdentityPath);
+$lateCompletionHex = substr($lateCompletionAuthorization['verified']['authorization_digest'], 7);
+wprism_check(
+    !file_exists($hardeningRoot . '/authorizations/' . $lateCompletionHex . '/completion/outcome.json'),
+    'a late target-identity replacement publishes no terminal outcome'
+);
 $preconditionParent = $hardeningScratch . '/precondition-parent';
 mkdir($preconditionParent, 0700, true);
 file_put_contents($preconditionParent . '/data.txt', "parent-data\n");
@@ -443,9 +669,9 @@ $repositoryLockSwapDriver = new AuthorizationStoreDriver(
         if (!str_contains($script, 'precondition-repository-lock') || !str_contains($script, $needle)) {
             return $script;
         }
-        $swap = "\$heldRepositoryLockPath=\$repositoryLockPath . \".held\"; \$replacementRepositoryLock=false;"
-            . "if(!@rename(\$repositoryLockPath,\$heldRepositoryLockPath)"
-            . "||!is_resource(\$replacementRepositoryLock=@fopen(\$repositoryLockPath,\"x\"))"
+        $swap = '$heldRepositoryLockPath=$repositoryLockPath . ".held"; $replacementRepositoryLock=false;'
+            . 'if(!@rename($repositoryLockPath,$heldRepositoryLockPath)'
+            . '||!is_resource($replacementRepositoryLock=@fopen($repositoryLockPath,"x"))'
             . "||!@fclose(\$replacementRepositoryLock)){fwrite(STDERR,\"repository-swap\\n\");exit(99);}\n";
         $changed = str_replace($needle, $swap . $needle, $script, $count);
         if ($count !== 1) throw new RuntimeException('repository-lock rebind fixture did not reach the acquired lock');

@@ -83,6 +83,21 @@ $providerFor = static function (string $environment, ?string $path = null) use (
         'environment_provider' => ['command' => [PHP_BINARY, $providerScript, $path ?? $configPath], 'timeout_seconds' => 30],
     ]);
 };
+foreach (['cli_image', 'database_image', 'proxy_image', 'wordpress_image'] as $imageKey) {
+    $mutableImageConfig = $config;
+    $mutableImageConfig['contained_preview'][$imageKey] = 'example.invalid/runtime:mutable';
+    $mutableImagePath = $scratch . '/mutable-' . $imageKey . '-provider.json';
+    file_put_contents(
+        $mutableImagePath,
+        json_encode($mutableImageConfig, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
+    );
+    try {
+        $providerFor('mup2', $mutableImagePath)->capabilities('contained-mutable-image-' . $imageKey);
+        wprism_check(false, "contained mode refuses mutable $imageKey tags");
+    } catch (Throwable) {
+        wprism_check(true, "contained mode refuses mutable $imageKey tags");
+    }
+}
 $badModeRoot = $scratch . '/bad-mode-state';
 mkdir($badModeRoot, 0755);
 $badModeConfig = $config;
