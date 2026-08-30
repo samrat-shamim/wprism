@@ -445,6 +445,18 @@ wprism_check_throws(
 );
 wprism_check_throws(
     static fn(): string => ColumnCodecGrammar::capture_value(
+        serialize(['nested' => ['sk_live_COLUMNKEY1234567890' => 'enabled']]),
+        $codec,
+        $sourceTokens,
+        'C5',
+        'action_data'
+    ),
+    RuntimeException::class,
+    'C5: a hard secret in a decoded serialized-column key cannot evade clearance',
+    'stripe key'
+);
+wprism_check_throws(
+    static fn(): string => ColumnCodecGrammar::capture_value(
         serialize(['customerProfile' => ['firstName' => 'Private Customer']]),
         $codec,
         $sourceTokens,
@@ -454,6 +466,18 @@ wprism_check_throws(
     RuntimeException::class,
     'C5: decoded typed-column personal-data keys refuse before re-encoding',
     'personal name'
+);
+wprism_check_throws(
+    static fn(): string => ColumnCodecGrammar::capture_value(
+        serialize(['audience' => ['alice@example.test' => 'enabled']]),
+        $codec,
+        $sourceTokens,
+        'C5',
+        'action_data'
+    ),
+    RuntimeException::class,
+    'C5: PII in a decoded serialized-column key cannot evade clearance',
+    'email address'
 );
 wprism_check_same(
     serialize(['customerProfile' => ['firstName' => 'Private Customer']]),

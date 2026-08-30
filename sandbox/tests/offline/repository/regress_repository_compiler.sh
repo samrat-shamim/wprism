@@ -53,6 +53,7 @@ use WPrism\Policy;
 use WPrism\CommandRefusalException;
 use WPrism\RepositoryCompilationException;
 use WPrism\RepositoryCompiler;
+use WPrism\RepositoryAuthorization;
 use WPrism\RepositoryAuthorizationException;
 use WPrism\UserMetaState;
 
@@ -740,6 +741,26 @@ foreach ([
         'ref' => 'https://partner.example.test/connect?api+key=aB3dE6fG7hI8jK9lMnOp',
         'code' => 'repository_secret_not_allowed',
     ],
+    'duplicate-menu-secret' => [
+        'ref' => 'https://partner.example.test/connect?smtp_pass=GeneratedValue-2026-Blocked&smtp_pass=disabled',
+        'code' => 'repository_secret_not_allowed',
+    ],
+    'encoded-name-menu-secret' => [
+        'ref' => 'https://partner.example.test/connect?smtp%5Fpass=GeneratedValue-2026-Blocked',
+        'code' => 'repository_secret_not_allowed',
+    ],
+    'hard-secret-menu-key' => [
+        'ref' => 'https://partner.example.test/connect?sk%5Flive%5FQUERYKEY1234567890=enabled',
+        'code' => 'repository_secret_not_allowed',
+    ],
+    'pii-menu-key' => [
+        'ref' => 'https://partner.example.test/connect?alice%40example.test=enabled',
+        'code' => 'repository_pii_not_allowed',
+    ],
+    'numeric-phone-menu-key' => [
+        'ref' => 'https://partner.example.test/connect?%2D14155552671=enabled',
+        'code' => 'repository_pii_not_allowed',
+    ],
 ] as $fixture => $probe) {
     $encodedMenuRef = "$tmp/$fixture";
     build_valid($encodedMenuRef);
@@ -760,7 +781,72 @@ foreach ([
         fail("$fixture bypassed semantic URL clearance: " . json_encode($encodedAuth));
     }
 }
-ok('menu-ref clearance scans decoded URL semantics while preserving canonical encoded bytes');
+ok('menu-ref clearance scans ordered duplicate query names and values through decoded semantic roles');
+
+$queryParser = new ReflectionMethod(RepositoryAuthorization::class, 'menu_query_clearance_pairs');
+$clearanceBuilder = new ReflectionMethod(RepositoryAuthorization::class, 'menu_query_clearance_value');
+$numericNamePairs = $queryParser->invoke(
+    null,
+    'https://partner.example.test/connect?%2D14155552671=enabled'
+);
+$numericNameClearance = $clearanceBuilder->invoke(
+    null,
+    'https://partner.example.test/connect?%2D14155552671=enabled',
+    $numericNamePairs
+);
+if (($numericNameClearance[1] ?? null) !== '-14155552671'
+    || !is_string($numericNameClearance[1] ?? null)) {
+    fail('decoded numeric query name was not retained as an exact string candidate value');
+}
+ok('decoded numeric query names remain exact string values even when PHP coerces their semantic map keys');
+
+$overworkedMenuQuery = 'authorization=Bearer aB3dE6fG7hI8jK9lMnOp';
+for ($encodingLayer = 0; $encodingLayer < 80; $encodingLayer++) {
+    $overworkedMenuQuery = rawurlencode($overworkedMenuQuery);
+}
+$invalidMenuQueries = [
+    'malformed-menu-query' => 'https://partner.example.test/connect?value=%ZZ',
+    'oversize-menu-query' => 'https://partner.example.test/connect?value=' . str_repeat('x', 8193),
+    'too-many-menu-query-pairs' => 'https://partner.example.test/connect?'
+        . implode('&', array_fill(0, 513, 'value=ordinary')),
+    'overworked-menu-query' => 'https://partner.example.test/connect?payload=' . $overworkedMenuQuery,
+];
+foreach ($invalidMenuQueries as $fixture => $ref) {
+    $invalidMenuRef = "$tmp/$fixture";
+    build_valid($invalidMenuRef);
+    $invalidMenuPath = "$invalidMenuRef/state/menus/main.json";
+    $invalidMenuDocument = Canon::decode(file_get_contents($invalidMenuPath));
+    $invalidMenuDocument['items'][0]['type'] = 'custom';
+    $invalidMenuDocument['items'][0]['object'] = 'custom';
+    $invalidMenuDocument['items'][0]['ref'] = $ref;
+    put($invalidMenuPath, Canon::encode($invalidMenuDocument));
+    $invalidAuth = authorization_failure($invalidMenuRef);
+    $invalidFindings = array_values(array_filter(
+        $invalidAuth['diagnostics'],
+        static fn(array $d): bool => ($d['code'] ?? null) === 'repository_menu_url_query_invalid'
+            && ($d['surface'] ?? null) === 'menu_item[0]'
+            && ($d['field'] ?? null) === 'ref'
+    ));
+    if (count($invalidFindings) !== 1 || str_contains((string) json_encode($invalidAuth), $ref)) {
+        fail("$fixture did not refuse with one redacted bounded-query finding");
+    }
+}
+ok('malformed, oversized, and over-count custom-menu queries refuse without reflecting URL bytes');
+
+$safeMenuRef = "$tmp/safe-encoded-menu-query";
+$safeIds = build_valid($safeMenuRef);
+$safeMenuPath = "$safeMenuRef/state/menus/main.json";
+$safeMenuDocument = Canon::decode(file_get_contents($safeMenuPath));
+$safeMenuDocument['items'][0]['type'] = 'custom';
+$safeMenuDocument['items'][0]['object'] = 'custom';
+$safeEncodedRef = 'https://partner.example.test/connect?color=blue&color=green&label=Agency%20Portal';
+$safeMenuDocument['items'][0]['ref'] = $safeEncodedRef;
+put($safeMenuPath, Canon::encode($safeMenuDocument));
+$safeCompiled = compile_repo($safeMenuRef);
+if (($safeCompiled->tree()[$safeIds['menu']]['data']['items'][0]['ref'] ?? null) !== $safeEncodedRef) {
+    fail('menu query clearance rebuilt or canonicalized the stored URL bytes');
+}
+ok('safe duplicate query parsing leaves the compiled canonical menu URL byte-identical');
 
 $braceMenu = "$tmp/menu-brace-literal-clearance";
 build_valid($braceMenu);

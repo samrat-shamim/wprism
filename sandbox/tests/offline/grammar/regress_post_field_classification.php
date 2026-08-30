@@ -771,6 +771,30 @@ check(
     )) === 1,
     'RepositoryAuthorization opens serialized bodies before credential-key clearance'
 );
+$serializedSecretKeyDiagnostics = post_authorization_diagnostics(
+    $acfPolicy,
+    $serializedFront,
+    serialize(['integration' => ['sk_live_REPOSITORYKEY1234567890' => 'enabled']])
+);
+check(
+    count(array_filter($serializedSecretKeyDiagnostics, static fn(array $d): bool =>
+        ($d['code'] ?? '') === 'repository_secret_not_allowed'
+        && ($d['field'] ?? '') === 'body'
+    )) === 1,
+    'RepositoryAuthorization opens serialized bodies and refuses hard secrets in associative keys'
+);
+$serializedPiiKeyDiagnostics = post_authorization_diagnostics(
+    $acfPolicy,
+    $serializedFront,
+    serialize(['audience' => ['alice@example.test' => 'enabled']])
+);
+check(
+    count(array_filter($serializedPiiKeyDiagnostics, static fn(array $d): bool =>
+        ($d['code'] ?? '') === 'repository_pii_not_allowed'
+        && ($d['field'] ?? '') === 'body'
+    )) === 1,
+    'RepositoryAuthorization opens serialized bodies and refuses PII in associative keys'
+);
 
 $jsonPolicy = Policy::load(null, ['json-body-clearance'], adapterLibrary: $fixtureLibrary);
 $jsonPolicy->site = ['policy' => [
@@ -794,6 +818,36 @@ check(
         && ($d['field'] ?? '') === 'body'
     )) === 1,
     'RepositoryAuthorization opens structured JSON bodies before personal-data-key clearance'
+);
+$jsonSecretKeyDiagnostics = post_authorization_diagnostics(
+    $jsonPolicy,
+    $jsonFront,
+    json_encode([
+        'target' => '{{post:018f0000-0000-7000-8000-000000000001}}',
+        'integration' => ['sk_live_REPOSITORYJSONKEY123456' => 'enabled'],
+    ], JSON_THROW_ON_ERROR)
+);
+check(
+    count(array_filter($jsonSecretKeyDiagnostics, static fn(array $d): bool =>
+        ($d['code'] ?? '') === 'repository_secret_not_allowed'
+        && ($d['field'] ?? '') === 'body'
+    )) === 1,
+    'RepositoryAuthorization opens structured JSON bodies and refuses hard secrets in associative keys'
+);
+$jsonPiiKeyDiagnostics = post_authorization_diagnostics(
+    $jsonPolicy,
+    $jsonFront,
+    json_encode([
+        'target' => '{{post:018f0000-0000-7000-8000-000000000001}}',
+        'audience' => ['alice@example.test' => 'enabled'],
+    ], JSON_THROW_ON_ERROR)
+);
+check(
+    count(array_filter($jsonPiiKeyDiagnostics, static fn(array $d): bool =>
+        ($d['code'] ?? '') === 'repository_pii_not_allowed'
+        && ($d['field'] ?? '') === 'body'
+    )) === 1,
+    'RepositoryAuthorization opens structured JSON bodies and refuses PII in associative keys'
 );
 $unknownFrontField = $source;
 $unknownFrontField['unsupported_front_field'] = 'must refuse';

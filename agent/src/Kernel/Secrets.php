@@ -63,7 +63,7 @@ final class Secrets {
 
     /** Key-name signal for the heuristic tier (never sufficient alone). */
     private const SUSPICIOUS_KEY = '/(^|_)(?:api_?key|authorization(?:_header)?|credentials?'
-        . '|licen[cs]e_?key|secret|token|passw(?:or)?d|private_?key)$/i';
+        . '|licen[cs]e_?key|secret|token|pass(?:w(?:or)?d)?|private_?key)$/i';
 
     /**
      * High-confidence match. Returns a short label ('stripe key', 'aws key',
@@ -126,15 +126,25 @@ final class Secrets {
      *
      * Non-string, non-array leaves (int/float/bool/null) can never match a
      * pattern built entirely from PCRE over text, so they're skipped without
-     * a wasted call; MAX_LEN is still enforced per-leaf, for free, since
-     * every leaf ultimately calls the same hard_match($string).
+     * a wasted call. Long leaves and keys use the same overlapping MAX_LEN
+     * windows as blocking clearance, retaining the bounded regex contract.
      */
     public static function hard_match_deep($v): ?string {
         if (is_string($v)) {
-            return self::hard_match($v);
+            return self::hard_match_windowed($v);
         }
         if (is_array($v)) {
-            foreach ($v as $x) {
+            foreach ($v as $key => $x) {
+                // An associative key is persisted input, not metadata about
+                // the PHP array. Scan its bytes for factual hard signatures,
+                // but do not run suspicious($key, $key): a literal semantic
+                // alias such as `password` is not itself a credential value.
+                if (is_string($key)) {
+                    $keyLabel = self::hard_match_windowed($key);
+                    if ($keyLabel !== null) {
+                        return $keyLabel;
+                    }
+                }
                 $label = self::hard_match_deep($x);
                 if ($label !== null) {
                     return $label;
@@ -179,8 +189,24 @@ final class Secrets {
             return null;
         }
         foreach ($v as $childKey => $child) {
+            if (is_string($childKey)) {
+                $keyLabel = self::hard_match_windowed($childKey);
+                if ($keyLabel !== null) {
+                    return $keyLabel;
+                }
+            }
             $nestedKey = is_string($childKey) ? $childKey : $key;
             $label = self::clearance_match_deep($nestedKey, $child);
+            if ($label !== null) {
+                return $label;
+            }
+        }
+        return null;
+    }
+
+    private static function hard_match_windowed(string $value): ?string {
+        foreach (self::windows($value) as $window) {
+            $label = self::hard_match($window);
             if ($label !== null) {
                 return $label;
             }

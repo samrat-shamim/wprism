@@ -74,6 +74,10 @@ final class RepositoryAuthorization {
     private const TABLE_FIELDS = ['columns', 'meta', 'table', 'uuid'];
     private const USER_META_FIELDS = ['login', 'meta'];
     private const MANAGED_OPTIONS = ['active_plugins', 'template', 'stylesheet'];
+    private const MAX_MENU_QUERY_BYTES = 65536;
+    private const MAX_MENU_QUERY_COMPONENT_BYTES = 8192;
+    private const MAX_MENU_QUERY_PAIRS = 512;
+    private const MENU_QUERY_DECODE_WORK_FACTOR = 32;
 
     /**
      * One filesystem read produces the exact tree both authorization and the
@@ -376,27 +380,30 @@ final class RepositoryAuthorization {
                 // the same clearance before its separate reference grammar.
                 $clearanceValue = $item['ref'];
                 if (($item['type'] ?? '') === 'custom' && is_string($clearanceValue)) {
-                    // Inspect URL semantics without changing the canonical
-                    // value apply consumes. Literal `+` is query-form space;
-                    // converting it before percent decoding preserves an
-                    // encoded `%2B` as a plus. Every changed rawurldecode()
-                    // pass then removes at least two bytes, so the input byte
-                    // length is a proof-bearing fixed-point bound rather than
-                    // an arbitrary nesting cap.
-                    $decoded = $clearanceValue;
-                    $queryAt = strpos($decoded, '?');
-                    if ($queryAt !== false) {
-                        $decoded = substr($decoded, 0, $queryAt + 1)
-                            . str_replace('+', ' ', substr($decoded, $queryAt + 1));
+                    $pairs = self::menu_query_clearance_pairs($clearanceValue);
+                    if ($pairs === null) {
+                        // The diagnostic carries coordinates only: malformed
+                        // query bytes may themselves be credentials and must
+                        // never be reflected into a refusal message.
+                        self::finding(
+                            $out,
+                            'repository_menu_url_query_invalid',
+                            $path,
+                            $uuid,
+                            "menu_item[$index]",
+                            'ref',
+                            'invalid',
+                            'platform',
+                            'replace the custom menu URL with a bounded query whose percent escapes are well formed'
+                        );
+                        $pairs = [];
                     }
-                    for ($remaining = strlen($decoded); $remaining > 0; $remaining--) {
-                        $next = rawurldecode($decoded);
-                        if ($next === $decoded) {
-                            break;
-                        }
-                        $decoded = $next;
-                    }
-                    $clearanceValue = [$clearanceValue, $decoded];
+                    // Ordered scalar-name + one-entry-map pairs retain every
+                    // duplicate while letting the recursive scanners inspect
+                    // the decoded name and apply its semantic role to its own
+                    // value. The raw URL remains first for path/fragment
+                    // signatures; no decoded form is ever written back.
+                    $clearanceValue = self::menu_query_clearance_value($clearanceValue, $pairs);
                 }
                 self::authorize_sensitivity(
                     $out, $path, $uuid, "menu_item[$index]", 'ref', $clearanceValue, [], 'platform'
@@ -426,6 +433,93 @@ final class RepositoryAuthorization {
                 }
             }
         }
+    }
+
+    /** @return ?list<array{string,string}> null means malformed or over budget */
+    private static function menu_query_clearance_pairs(string $url): ?array {
+        $queryAt = strpos($url, '?');
+        $fragmentAt = strpos($url, '#');
+        if ($queryAt === false || ($fragmentAt !== false && $fragmentAt < $queryAt)) {
+            return [];
+        }
+        $queryEnd = $fragmentAt === false ? strlen($url) : $fragmentAt;
+        $query = substr($url, $queryAt + 1, $queryEnd - $queryAt - 1);
+        if (strlen($query) > self::MAX_MENU_QUERY_BYTES) {
+            return null;
+        }
+        if ($query === '') {
+            return [];
+        }
+        // A custom menu ref is stored and emitted as an opaque URI here. `&`
+        // is the URL query pair delimiter; `;` remains component data rather
+        // than inheriting a process-local PHP arg_separator.input setting.
+        $parts = explode('&', $query, self::MAX_MENU_QUERY_PAIRS + 1);
+        if (count($parts) > self::MAX_MENU_QUERY_PAIRS) {
+            return null;
+        }
+        $workRemaining = max(1, strlen($query)) * self::MENU_QUERY_DECODE_WORK_FACTOR;
+        $pairs = [];
+        foreach ($parts as $part) {
+            $separator = strpos($part, '=');
+            $rawName = $separator === false ? $part : substr($part, 0, $separator);
+            $rawValue = $separator === false ? '' : substr($part, $separator + 1);
+            if (strlen($rawName) > self::MAX_MENU_QUERY_COMPONENT_BYTES
+                || strlen($rawValue) > self::MAX_MENU_QUERY_COMPONENT_BYTES
+                || preg_match('/%(?![0-9A-Fa-f]{2})/', $rawName)
+                || preg_match('/%(?![0-9A-Fa-f]{2})/', $rawValue)) {
+                return null;
+            }
+            $name = self::decode_menu_query_component($rawName, $workRemaining);
+            $value = self::decode_menu_query_component($rawValue, $workRemaining);
+            if ($name === null || $value === null) {
+                return null;
+            }
+            $pairs[] = [$name, $value];
+        }
+        return $pairs;
+    }
+
+    private static function decode_menu_query_component(string $raw, int &$workRemaining): ?string {
+        $rawBytes = strlen($raw);
+        if ($rawBytes > $workRemaining) {
+            return null;
+        }
+        $workRemaining -= $rawBytes;
+        $decoded = str_replace('+', ' ', $raw);
+        while (true) {
+            $bytes = strlen($decoded);
+            if ($bytes > $workRemaining) {
+                return null;
+            }
+            $workRemaining -= $bytes;
+            $next = rawurldecode($decoded);
+            if ($next === $decoded) {
+                break;
+            }
+            $decoded = $next;
+        }
+        if (strlen($decoded) > self::MAX_MENU_QUERY_COMPONENT_BYTES
+            || preg_match('/[\x00-\x1F\x7F]/', $decoded)) {
+            return null;
+        }
+        return $decoded;
+    }
+
+    /**
+     * @param list<array{string,string}> $pairs
+     * @return list<mixed>
+     */
+    private static function menu_query_clearance_value(string $url, array $pairs): array {
+        $clearance = [$url];
+        foreach ($pairs as [$name, $value]) {
+            // PHP coerces canonical decimal string keys to ints. Retain the
+            // decoded name separately as a string value so that coercion can
+            // never remove it from scalar PII/hard-secret scanning, then keep
+            // the one-entry map to apply its semantic role to its own value.
+            $clearance[] = $name;
+            $clearance[] = [$name => $value];
+        }
+        return $clearance;
     }
 
     private static function authorize_sidebar(Policy $policy, string $stateKey, array $entity, array &$out): void {

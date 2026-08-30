@@ -16,35 +16,43 @@ final class PersonalData {
         '/(^|_)(first_?name|last_?name|full_?name|display_?name|nickname|from_?name|reply_?to_?name)$/i' => 'personal name',
         '/(^|_)(email|e_?mail|from_?email|reply_?to_?email|email_(?:from|reply_?to)_address)$/i' => 'email address',
         '/(^|_)(phone(?:_number)?|mobile(?:_number)?|telephone(?:_number)?|tel)$/i' => 'phone number',
-        '/(^|_)(address(?:_[12])?|street(?:_[12])?|city|state|province|postcode|postal(?:_code)?|zip(?:_code)?|country(?:_code)?)$/i' => 'postal address',
+        '/(^|_)(address(?:_[12])?|street(?:_[12])?|city|province|postcode|postal(?:_code)?|zip(?:_code)?|country(?:_code)?)$/i' => 'postal address',
         '/(^|_)(birth|birthday|dob|ssn|national_?id|passport|tax_?id)$/i' => 'personal identifier',
+    ];
+
+    /** @var list<string> Closed positive context for otherwise-ambiguous terminal `state`. */
+    private const ADDRESS_STATE_QUALIFIERS = [
+        'address', 'billing', 'destination', 'location', 'mailing', 'merchant',
+        'office', 'origin', 'postal', 'residential', 'shipping', 'store', 'tax',
     ];
 
     /** Return a short PII label, or null when no conservative signal matches. */
     public static function match_deep(string $key, $value): ?string {
-        $keyMatch = self::match_key($key);
+        $keyMatch = self::match_key($key, []);
         if ($keyMatch !== null && !self::is_template_reference($value)) {
             return $keyMatch;
         }
-        return self::match_value_deep($value);
+        return self::match_value_deep($value, [$key]);
     }
 
-    private static function match_key(string $key): ?string {
+    /** @param list<string> $ancestors */
+    private static function match_key(string $key, array $ancestors): ?string {
         // JSON and serialized plugin state uses both snake_case and camelCase.
         // Normalize only separators and case transitions, then keep the same
         // terminal-field grammar below: firstName/customerEmail become
         // first_name/customer_email, while emailType/checkoutPhoneField stay
         // technical controls rather than personal-data-bearing fields.
-        $key = preg_replace('/(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/', '_', $key) ?? $key;
-        $key = preg_replace('/[^A-Za-z0-9]+/', '_', $key) ?? $key;
-        $key = trim($key, '_');
+        $key = self::normalize_key($key);
+        if (self::is_address_state_key($key, $ancestors)) {
+            return 'postal address';
+        }
         foreach (self::KEY_PATTERNS as $pattern => $label) {
             if (preg_match($pattern, $key)) {
                 // These terminal address phrases describe boolean/enum
                 // controls, not address-bearing values. Actual address keys
                 // (including address_1/address_2) and value scanning remain.
                 if ($label === 'postal address'
-                    && preg_match('/(^|_)(?:(?:requires|default_customer)_address|(?:editor|workflow)_state)$/i', $key)) {
+                    && preg_match('/(^|_)(?:requires|default_customer)_address$/i', $key)) {
                     continue;
                 }
                 return $label;
@@ -53,16 +61,27 @@ final class PersonalData {
         return null;
     }
 
-    private static function match_value_deep($value): ?string {
+    /** @param list<string> $ancestors */
+    private static function match_value_deep($value, array $ancestors): ?string {
         if (is_array($value)) {
             foreach ($value as $childKey => $child) {
+                $childAncestors = $ancestors;
                 if (is_string($childKey)) {
-                    $keyMatch = self::match_key($childKey);
+                    $keyMatch = self::match_key($childKey, $ancestors);
                     if ($keyMatch !== null && !self::is_template_reference($child)) {
                         return $keyMatch;
                     }
+                    // Associative keys are stored bytes too: plugin maps may
+                    // key records by an email/IP/phone. Keep this scalar-value
+                    // scan separate from match_key(), whose semantic role
+                    // still applies to the corresponding child value above.
+                    $keyValueMatch = self::match_value_deep($childKey, []);
+                    if ($keyValueMatch !== null) {
+                        return $keyValueMatch;
+                    }
+                    $childAncestors[] = $childKey;
                 }
-                $label = self::match_value_deep($child);
+                $label = self::match_value_deep($child, $childAncestors);
                 if ($label !== null) {
                     return $label;
                 }
@@ -160,6 +179,28 @@ final class PersonalData {
             }
         }
         return null;
+    }
+
+    private static function normalize_key(string $key): string {
+        $key = preg_replace('/(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/', '_', $key) ?? $key;
+        $key = preg_replace('/[^A-Za-z0-9]+/', '_', $key) ?? $key;
+        return strtolower(trim($key, '_'));
+    }
+
+    /** @param list<string> $ancestors */
+    private static function is_address_state_key(string $key, array $ancestors): bool {
+        if ($key !== 'state' && !str_ends_with($key, '_state')) {
+            return false;
+        }
+        $contexts = $ancestors;
+        $contexts[] = substr($key, 0, -strlen('state'));
+        foreach ($contexts as $context) {
+            $tokens = array_filter(explode('_', self::normalize_key($context)), 'strlen');
+            if (array_intersect($tokens, self::ADDRESS_STATE_QUALIFIERS) !== []) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Exact canonical tokens and audited WPForms smart tags name future sources, not captured PII. */

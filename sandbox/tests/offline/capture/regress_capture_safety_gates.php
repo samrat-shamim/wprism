@@ -168,12 +168,37 @@ foreach (['Authorization', 'credential', 'license_key'] as $credentialKey) {
     );
 }
 
+foreach (['smtp_pass', 'smtpPass', 'pass'] as $credentialKey) {
+    $aliasShape = refusal(static fn() => $gates->guardSecret(
+        'options',
+        'integration_settings',
+        [$credentialKey => 'GeneratedValue-2026-Blocked'],
+        []
+    ));
+    check(
+        $aliasShape->reasonCode === 'secret_state_refused',
+        "$credentialKey is an exact terminal credential alias"
+    );
+}
+
+$gates->guardSecret('options', 'integration_settings', [
+    'compass' => 'GeneratedValue-2026-Allowed',
+    'bypass' => 'GeneratedValue-2026-Allowed',
+    'pass_label' => 'GeneratedValue-2026-Allowed',
+    'pass_endpoint' => 'https://login.example.test/password/reset',
+    'password' => 'disabled',
+], []);
+check(true, 'pass aliases are terminal tokens and a bare alias is not itself a credential value');
+
 foreach ([
     'firstName' => 'personal name',
     'replyToEmail' => 'email address',
     'postalCode' => 'postal address',
     'phoneNumber' => 'phone number',
     'billing[firstName]' => 'personal name',
+    'billingState' => 'postal address',
+    'taxState' => 'postal address',
+    'address[state]' => 'postal address',
 ] as $key => $shape) {
     $camelCasePii = refusal(static fn() => $gates->guardPersonalData(
         'options',
@@ -192,11 +217,40 @@ $gates->guardPersonalData('options', 'technical_settings', [
     'defaultCustomerAddress' => 'base',
     'editorState' => ['dirty' => false],
     'workflowState' => 'draft',
+    'uiState' => 'open',
+    'checkoutState' => 'ready',
     'email' => '{admin_email}',
     'displayName' => '{all_fields}',
     'replyToEmail' => '{field_id="2"}',
 ], []);
 check(true, 'camelCase controls and closed-grammar plugin smart tags stay outside captured personal data');
+
+$nestedAddressState = refusal(static fn() => $gates->guardPersonalData(
+    'options',
+    'regional_settings',
+    ['billing' => ['state' => 'CA']],
+    []
+));
+check(
+    ($nestedAddressState->diagnostics[0]['personal_data_shape'] ?? null) === 'postal address',
+    'a nested state leaf inherits the closed billing-address context'
+);
+
+$secretMapKey = refusal(static fn() => $gates->guardSecret(
+    'options',
+    'integration_settings',
+    ['sk_live_ASSOCIATIVEKEY1234567890' => 'enabled'],
+    []
+));
+check($secretMapKey->reasonCode === 'secret_state_refused', 'a hard secret in an associative key cannot bypass capture');
+
+$piiMapKey = refusal(static fn() => $gates->guardPersonalData(
+    'options',
+    'audience_map',
+    ['alice@example.test' => 'enabled'],
+    []
+));
+check($piiMapKey->reasonCode === 'personal_data_refused', 'an email in an associative key cannot bypass capture');
 
 foreach ([
     'firstName' => '{Alice Smith}',

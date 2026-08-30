@@ -450,6 +450,20 @@ wprism_check_throws(
     'C2: decoded JSON key/value pairs receive full credential clearance rather than only hard-token scanning',
     'credential-shaped value'
 );
+$secretKeyDocument = json_decode($formB, true, 512, JSON_THROW_ON_ERROR);
+$secretKeyDocument['settings']['integration'] = ['sk_live_JSONKEY1234567890' => 'enabled'];
+wprism_check_throws(
+    static fn(): string => BodyRefGrammar::capture(
+        json_encode($secretKeyDocument, JSON_THROW_ON_ERROR),
+        $rule,
+        $idToToken($tokensFor()),
+        static function (): void {},
+        "wpforms 'secret-key-clearance'"
+    ),
+    RuntimeException::class,
+    'C2: a hard secret used as a decoded JSON map key cannot evade clearance',
+    'stripe key'
+);
 $piiDocument = json_decode($formB, true, 512, JSON_THROW_ON_ERROR);
 $piiDocument['settings']['customerProfile'] = ['firstName' => 'Private Customer'];
 wprism_check_throws(
@@ -463,6 +477,20 @@ wprism_check_throws(
     RuntimeException::class,
     'C2: decoded JSON personal-data keys refuse before canonical publication',
     'personal name'
+);
+$piiKeyDocument = json_decode($formB, true, 512, JSON_THROW_ON_ERROR);
+$piiKeyDocument['settings']['audience'] = ['alice@example.test' => 'enabled'];
+wprism_check_throws(
+    static fn(): string => BodyRefGrammar::capture(
+        json_encode($piiKeyDocument, JSON_THROW_ON_ERROR),
+        $rule,
+        $idToToken($tokensFor()),
+        static function (): void {},
+        "wpforms 'pii-key-clearance'"
+    ),
+    RuntimeException::class,
+    'C2: an email used as a decoded JSON map key cannot evade clearance',
+    'email address'
 );
 
 wprism_check_same(
@@ -776,6 +804,70 @@ wprism_check_throws(
     RuntimeException::class,
     'D6: a secret-shaped leaf in json authored configuration refuses capture rather than warning',
     'refusing to capture json authored configuration'
+);
+wprism_check_throws(
+    static fn(): array => $postCapture->capture(
+        $formPost('{"settings":{"sk_live_PRODUCTKEY1234567890":"enabled"}}', 'recon-secret-key'),
+        '019200cc-0000-7000-8000-0000000000d1',
+        []
+    ),
+    RuntimeException::class,
+    'D6: the PostCapture JSON product path refuses a hard secret in an associative key',
+    'refusing to capture json authored configuration'
+);
+wprism_check_throws(
+    static fn(): array => $postCapture->capture(
+        $formPost('{"settings":{"alice@example.test":"enabled"}}', 'recon-pii-key'),
+        '019200cc-0000-7000-8000-0000000000d2',
+        []
+    ),
+    RuntimeException::class,
+    'D6: the PostCapture JSON product path refuses PII in an associative key',
+    'refusing to capture json authored configuration'
+);
+
+$serializedPolicy = $load(['serialized-key-clearance' => [
+    'name' => 'serialized-key-clearance',
+    'spec_version' => WPRISM_SPEC_VERSION,
+    'post_types' => ['serialized_config' => ['class' => 'authored', 'body' => 'serialized']],
+]]);
+$serializedTokens = new Tokens('https://source.example', 'https://source.example/wp-content/uploads');
+$serializedCapture = new PostCapture(
+    $serializedPolicy,
+    $serializedTokens,
+    new EntityMetaCapture(
+        $serializedPolicy,
+        $serializedTokens,
+        static function (): void {},
+        static function (): void {},
+        static function (): void {}
+    ),
+    new MediaCapture()
+);
+$serializedPost = static function (string $body, string $slug) use ($formPost): object {
+    $post = $formPost($body, $slug);
+    $post->post_type = 'serialized_config';
+    return $post;
+};
+wprism_check_throws(
+    static fn(): array => $serializedCapture->capture(
+        $serializedPost(serialize(['sk_live_SERIALIZEDKEY1234567890' => 'enabled']), 'serialized-secret-key'),
+        '019200cc-0000-7000-8000-0000000000d3',
+        []
+    ),
+    RuntimeException::class,
+    'D6: the PostCapture serialized product path refuses a hard secret in an associative key',
+    'refusing to capture serialized authored configuration'
+);
+wprism_check_throws(
+    static fn(): array => $serializedCapture->capture(
+        $serializedPost(serialize(['alice@example.test' => 'enabled']), 'serialized-pii-key'),
+        '019200cc-0000-7000-8000-0000000000d4',
+        []
+    ),
+    RuntimeException::class,
+    'D6: the PostCapture serialized product path refuses PII in an associative key',
+    'refusing to capture serialized authored configuration'
 );
 
 // D7 — the coordinates that stay OPEN. This fixture claims neither the
