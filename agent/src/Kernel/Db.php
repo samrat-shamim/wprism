@@ -224,6 +224,22 @@ final class Db {
         return $state['active'];
     }
 
+    /** Return the exact active session identity established by start*(). */
+    public static function transaction_connection_id(string $context): string {
+        $expected = self::$transactionConnectionId;
+        if ($expected === null) {
+            throw new DatabaseTransactionOutcomeException($context . ' has no tracked transaction identity');
+        }
+        $state = self::transaction_state($context . ' state proof');
+        if (!hash_equals($expected, $state['connection_id'])) {
+            throw new DatabaseTransactionOutcomeException($context . ' changed database connection');
+        }
+        if (!$state['active']) {
+            throw new DatabaseTransactionOutcomeException($context . ' transaction is not active');
+        }
+        return $expected;
+    }
+
     /** Forget only process-local tracking after a terminal recovery refusal. */
     public static function forget_transaction_tracking(): void {
         self::$transactionConnectionId = null;

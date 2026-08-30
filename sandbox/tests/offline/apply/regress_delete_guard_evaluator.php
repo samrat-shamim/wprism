@@ -15,11 +15,18 @@ if (!defined('ARRAY_A')) {
 }
 require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require_once __DIR__ . '/../../../../agent/src/Delete/DeleteGuardEvaluator.php';
+require_once __DIR__ . '/../../../../agent/src/Apply/ProtectedPostIdentity.php';
 
 use WPrism\DeleteGuardEvaluator;
 use WPrism\Db;
+use WPrism\ProtectedPostIdentity;
 
 final class DeleteGuardEvaluatorFakeWpdb {
+    public string $prefix = 'wp_';
+    public string $posts = 'wp_posts';
+    public string $postmeta = 'wp_postmeta';
+    public string $terms = 'wp_terms';
+    public string $termmeta = 'wp_termmeta';
     public string $last_error = '';
     /** @var list<string> */
     public array $queries = [];
@@ -54,6 +61,16 @@ final class DeleteGuardEvaluatorFakeWpdb {
     public ?int $replaceConnectionAtStateProbeStep = null;
     public int $stateProbeStep = 0;
     public mixed $replacementActiveTransaction = '0';
+    public bool $protectedLockFixture = false;
+    public bool $replaceConnectionOnProtectedOwnerLock = false;
+    public bool $replaceConnectionOnProtectedUpdate = false;
+    public bool $replaceConnectionOnProtectedReadback = false;
+    public bool $endTransactionBeforeProtectedUpdate = false;
+    public int $protectedPasswordMutations = 0;
+    public string $protectedPassword = 'old-password';
+    public string $protectedTransactionPassword = 'old-password';
+    public string $protectedConnectionId = '7001';
+    public string $protectedUuid = '019200cc-0000-7000-8000-0000000000c7';
 
     /** @param list<array<string,mixed>> $indexRows */
     public function __construct(
@@ -150,12 +167,49 @@ final class DeleteGuardEvaluatorFakeWpdb {
             $this->savepointExists = false;
             return 1;
         }
+        if (str_starts_with($sql, 'UPDATE wp_posts SET post_password = ')) {
+            if ($this->endTransactionBeforeProtectedUpdate) {
+                $this->activeTransaction = '0';
+                $this->savepointExists = false;
+            }
+            if ($this->replaceConnectionOnProtectedUpdate) {
+                $this->connectionId = (string) ((int) $this->connectionId + 1);
+                $this->activeTransaction = '0';
+                $this->savepointExists = false;
+                $this->protectedPassword = $this->protectedTransactionPassword;
+            }
+            if (preg_match("/SET post_password = '((?:''|[^'])*)'/D", $sql, $match) !== 1) {
+                throw new RuntimeException('protected password update carried no bounded value');
+            }
+            $intended = str_replace("''", "'", $match[1]);
+            $guarded = $this->activeTransaction === '1'
+                && hash_equals($this->protectedConnectionId, (string) $this->connectionId)
+                && str_contains($sql, "CONNECTION_ID() = '{$this->protectedConnectionId}'")
+                && str_contains($sql, '@@in_transaction = 1')
+                && str_contains($sql, "BINARY post_password = BINARY '"
+                    . str_replace("'", "''", $this->protectedPassword) . "'")
+                && str_contains($sql, "BINARY m.uuid = BINARY '{$this->protectedUuid}'")
+                && str_contains($sql, "BINARY pm.meta_value = BINARY '{$this->protectedUuid}'");
+            if (!$guarded || hash_equals($this->protectedPassword, $intended)) {
+                return 0;
+            }
+            $this->protectedPassword = $intended;
+            ++$this->protectedPasswordMutations;
+            return 1;
+        }
         throw new RuntimeException("unexpected mutation query: $sql");
     }
 
     public function prepare(string $sql, ...$args): string {
         foreach ($args as $arg) {
-            $sql = preg_replace('/%s/', "'" . str_replace("'", "''", (string) $arg) . "'", $sql, 1);
+            $sql = (string) preg_replace_callback(
+                '/%[sd]/',
+                static fn(array $match): string => $match[0] === '%d'
+                    ? (string) (int) $arg
+                    : "'" . str_replace("'", "''", (string) $arg) . "'",
+                $sql,
+                1
+            );
         }
         return $sql;
     }
@@ -178,6 +232,23 @@ final class DeleteGuardEvaluatorFakeWpdb {
             }
             return $this->activeTransaction;
         }
+        if (str_starts_with($sql, 'SELECT post_password FROM wp_posts WHERE ')) {
+            if ($this->replaceConnectionOnProtectedReadback) {
+                $this->connectionId = (string) ((int) $this->connectionId + 1);
+                $this->activeTransaction = '0';
+                $this->savepointExists = false;
+                $this->protectedPassword = $this->protectedTransactionPassword;
+            }
+            $guarded = $this->activeTransaction === '1'
+                && hash_equals($this->protectedConnectionId, (string) $this->connectionId)
+                && str_contains($sql, "CONNECTION_ID() = '{$this->protectedConnectionId}'")
+                && str_contains($sql, '@@in_transaction = 1')
+                && str_contains($sql, "BINARY post_password = BINARY '"
+                    . str_replace("'", "''", $this->protectedPassword) . "'")
+                && str_contains($sql, "BINARY m.uuid = BINARY '{$this->protectedUuid}'")
+                && str_contains($sql, "BINARY pm.meta_value = BINARY '{$this->protectedUuid}'");
+            return $guarded ? $this->protectedPassword : null;
+        }
         if ($this->metadataProbeFails) {
             $this->last_error = 'simulated metadata probe failure';
             return false;
@@ -199,6 +270,43 @@ final class DeleteGuardEvaluatorFakeWpdb {
                 }
             }
             return $rows;
+        }
+        if ($this->protectedLockFixture) {
+            if (str_contains($sql, 'FROM `wp_wprism_map` FORCE INDEX')) {
+                return [[
+                    'uuid' => $this->protectedUuid,
+                    'id_kind' => 'post',
+                    'local_id' => '41',
+                    'entity_type' => 'post',
+                ]];
+            }
+            if (str_contains($sql, 'SELECT ID, post_type, post_password FROM wp_posts')) {
+                return [[
+                    'ID' => '41',
+                    'post_type' => 'post',
+                    'post_password' => $this->protectedPassword,
+                ]];
+            }
+            if (str_contains($sql, 'SELECT meta_id, `post_id` AS owner_id')) {
+                return [[
+                    'meta_id' => '71',
+                    'owner_id' => '41',
+                    'meta_key' => '_wprism_uuid',
+                    'meta_value_prefix' => $this->protectedUuid,
+                    'meta_value_bytes' => '36',
+                ]];
+            }
+            if (str_contains($sql, 'SELECT meta_id, `term_id` AS owner_id')) {
+                return [];
+            }
+            if (str_contains($sql, 'SELECT `ID` AS owner_id FROM `wp_posts`')) {
+                if ($this->replaceConnectionOnProtectedOwnerLock) {
+                    $this->connectionId = (string) ((int) $this->connectionId + 1);
+                    $this->activeTransaction = '0';
+                    $this->savepointExists = false;
+                }
+                return [['owner_id' => '41']];
+            }
         }
         if ($this->indexResultMode === 'false') return false;
         if ($this->indexResultMode === 'null') return null;
@@ -658,6 +766,154 @@ try {
 $check($restartedTransactionRefused, 'same-isolation transaction restart cannot reuse the authored lock boundary');
 DeleteGuardEvaluator::end_authored_transaction();
 Db::rollback('fixture transaction cleanup');
+
+$protectedIndexes = [
+    ['Key_name' => 'map_pair', 'Seq_in_index' => '1', 'Column_name' => 'uuid', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+    ['Key_name' => 'map_pair', 'Seq_in_index' => '2', 'Column_name' => 'id_kind', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+    ['Key_name' => 'post_id_unique', 'Seq_in_index' => '1', 'Column_name' => 'ID', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+    ['Key_name' => 'term_id_unique', 'Seq_in_index' => '1', 'Column_name' => 'term_id', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+    ['Key_name' => 'meta_key', 'Seq_in_index' => '1', 'Column_name' => 'meta_key', 'Sub_part' => '191', 'Non_unique' => '1', 'Index_type' => 'BTREE'],
+];
+$protectedEngines = [
+    'wp_wprism_map' => 'InnoDB',
+    'wp_posts' => 'InnoDB',
+    'wp_postmeta' => 'InnoDB',
+    'wp_terms' => 'InnoDB',
+    'wp_termmeta' => 'InnoDB',
+];
+$reconnectedLock = new DeleteGuardEvaluatorFakeWpdb($protectedIndexes, $protectedEngines);
+$reconnectedLock->activeTransaction = '0';
+$reconnectedLock->protectedLockFixture = true;
+$reconnectedLock->replaceConnectionOnProtectedOwnerLock = true;
+$GLOBALS['wpdb'] = $reconnectedLock;
+Db::forget_transaction_tracking();
+Db::start_repeatable_read('protected reconnect-at-lock start');
+DeleteGuardEvaluator::begin_authored_transaction();
+try {
+    ProtectedPostIdentity::lock($reconnectedLock->protectedUuid, 'post');
+    $reconnectedLockRefused = false;
+} catch (Throwable $failure) {
+    $reconnectedLockRefused = $failure instanceof \WPrism\DatabaseTransactionOutcomeException;
+}
+$check(
+    $reconnectedLockRefused
+        && $reconnectedLock->protectedPassword === 'old-password'
+        && !array_filter(
+            $reconnectedLock->queries,
+            static fn(string $query): bool => str_starts_with($query, 'UPDATE wp_posts SET post_password')
+        ),
+    'reconnect while replaying the final owner lock fails post-lock continuity before any secret mutation'
+);
+DeleteGuardEvaluator::end_authored_transaction();
+Db::forget_transaction_tracking();
+
+/**
+ * @return array{result:?bool,failure:?Throwable,password:string,mutations:int,queries:list<string>}
+ */
+$exerciseProtectedPasswordUpdate = static function (
+    string $oldValue,
+    string $newValue,
+    ?callable $configure = null
+): array {
+    $fixture = new DeleteGuardEvaluatorFakeWpdb([]);
+    $fixture->activeTransaction = '0';
+    $fixture->protectedPassword = $oldValue;
+    $fixture->protectedTransactionPassword = $oldValue;
+    $GLOBALS['wpdb'] = $fixture;
+    Db::forget_transaction_tracking();
+    Db::start_repeatable_read('protected password fixture start');
+    DeleteGuardEvaluator::begin_authored_transaction();
+    $connectionId = Db::transaction_connection_id('protected password fixture token');
+    if ($configure !== null) {
+        $configure($fixture);
+    }
+    $result = null;
+    $failure = null;
+    try {
+        $result = ProtectedPostIdentity::update_password(
+            $fixture->protectedUuid,
+            41,
+            'post',
+            $oldValue,
+            $newValue,
+            $connectionId
+        );
+    } catch (Throwable $caught) {
+        $failure = $caught;
+    }
+    $outcome = [
+        'result' => $result,
+        'failure' => $failure,
+        'password' => $fixture->protectedPassword,
+        'mutations' => $fixture->protectedPasswordMutations,
+        'queries' => $fixture->queries,
+    ];
+    try {
+        if ((string) $fixture->connectionId === $connectionId && $fixture->activeTransaction === '1') {
+            Db::rollback('protected password fixture rollback');
+        } else {
+            Db::forget_transaction_tracking();
+        }
+    } finally {
+        DeleteGuardEvaluator::end_authored_transaction();
+    }
+    return $outcome;
+};
+
+$ordinaryProtectedUpdate = $exerciseProtectedPasswordUpdate('old-password', 'new-password');
+$check(
+    $ordinaryProtectedUpdate['result'] === true
+        && $ordinaryProtectedUpdate['failure'] === null
+        && $ordinaryProtectedUpdate['password'] === 'new-password'
+        && $ordinaryProtectedUpdate['mutations'] === 1,
+    'protected password CAS changes one row on the verified active session and confirms its guarded readback'
+);
+$idempotentProtectedUpdate = $exerciseProtectedPasswordUpdate('same-password', 'same-password');
+$check(
+    $idempotentProtectedUpdate['result'] === true
+        && $idempotentProtectedUpdate['failure'] === null
+        && $idempotentProtectedUpdate['password'] === 'same-password'
+        && $idempotentProtectedUpdate['mutations'] === 0,
+    'idempotent protected password CAS accepts zero affected rows only after guarded same-session readback'
+);
+$reconnectedProtectedUpdate = $exerciseProtectedPasswordUpdate(
+    'old-password',
+    'must-not-autocommit',
+    static function (DeleteGuardEvaluatorFakeWpdb $fixture): void {
+        $fixture->replaceConnectionOnProtectedUpdate = true;
+    }
+);
+$check(
+    $reconnectedProtectedUpdate['failure'] instanceof \WPrism\DatabaseTransactionOutcomeException
+        && $reconnectedProtectedUpdate['password'] === 'old-password'
+        && $reconnectedProtectedUpdate['mutations'] === 0,
+    'wpdb reconnect-and-replay at protected UPDATE matches zero on the replacement and cannot publish the secret'
+);
+$inactiveProtectedUpdate = $exerciseProtectedPasswordUpdate(
+    'old-password',
+    'must-not-autocommit',
+    static function (DeleteGuardEvaluatorFakeWpdb $fixture): void {
+        $fixture->endTransactionBeforeProtectedUpdate = true;
+    }
+);
+$check(
+    $inactiveProtectedUpdate['failure'] instanceof \WPrism\DatabaseTransactionOutcomeException
+        && $inactiveProtectedUpdate['password'] === 'old-password'
+        && $inactiveProtectedUpdate['mutations'] === 0,
+    'same-session transaction loss at protected UPDATE matches zero under @@in_transaction and publishes no secret'
+);
+$reconnectedProtectedReadback = $exerciseProtectedPasswordUpdate(
+    'old-password',
+    'must-roll-back',
+    static function (DeleteGuardEvaluatorFakeWpdb $fixture): void {
+        $fixture->replaceConnectionOnProtectedReadback = true;
+    }
+);
+$check(
+    $reconnectedProtectedReadback['failure'] instanceof \WPrism\DatabaseTransactionOutcomeException
+        && $reconnectedProtectedReadback['password'] === 'old-password',
+    'reconnect at guarded password readback rolls back the original transaction and refuses before commit'
+);
 
 $setFailureWpdb = new DeleteGuardEvaluatorFakeWpdb([]);
 $setFailureWpdb->activeTransaction = '0';

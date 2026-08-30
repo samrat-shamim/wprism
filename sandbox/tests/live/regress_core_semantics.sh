@@ -38,6 +38,10 @@ done
 cleanup() {
   rm -rf "$R1/state-check"
   [ -z "${PROTECTED_PLAN_ERR:-}" ] || rm -f "$PROTECTED_PLAN_ERR"
+  [ -z "${STALE_PLAN_ERR:-}" ] || rm -f "$STALE_PLAN_ERR"
+  [ -z "${STALE_ENV_SET_ERR:-}" ] || rm -f "$STALE_ENV_SET_ERR"
+  [ -z "${ORPHAN_PLAN_ERR:-}" ] || rm -f "$ORPHAN_PLAN_ERR"
+  [ -z "${ORPHAN_ENV_SET_ERR:-}" ] || rm -f "$ORPHAN_ENV_SET_ERR"
 }
 trap cleanup EXIT
 
@@ -180,6 +184,63 @@ assert_protected_identity_refusal() {
   [ "$(shasum -a 256 "$R2/.wprism-env-values.json" | awk '{print $1}')" = "$ENV_VALUES_HASH" ] \
     || fail "$REFUSAL_LABEL refusal published a new intended password"
 }
+
+ORPHAN_IDENTITY_ROWS=$(wp2 eval "
+  global \$wpdb;
+  \$postOwner = (int) \$wpdb->get_var(\"SELECT COALESCE(MAX(ID), 0) + 1000000 FROM {\$wpdb->posts}\");
+  \$termOwner = (int) \$wpdb->get_var(\"SELECT COALESCE(MAX(term_id), 0) + 1000000 FROM {\$wpdb->terms}\");
+  if (get_post(\$postOwner) !== null || get_term(\$termOwner) instanceof WP_Term) {
+    throw new RuntimeException('could not allocate absent protected-post identity owners');
+  }
+  if (\$wpdb->insert(\$wpdb->postmeta, [
+    'post_id' => \$postOwner, 'meta_key' => '_wprism_uuid', 'meta_value' => '$PROTECTED_UUID',
+  ], ['%d', '%s', '%s']) !== 1) {
+    throw new RuntimeException('could not seed orphan protected-post postmeta');
+  }
+  \$postMeta = (int) \$wpdb->insert_id;
+  if (\$wpdb->insert(\$wpdb->termmeta, [
+    'term_id' => \$termOwner, 'meta_key' => '_wprism_uuid', 'meta_value' => '$PROTECTED_UUID',
+  ], ['%d', '%s', '%s']) !== 1) {
+    throw new RuntimeException('could not seed orphan protected-post termmeta');
+  }
+  echo \$postMeta . ':' . (int) \$wpdb->insert_id;
+")
+IFS=: read -r ORPHAN_POST_META ORPHAN_TERM_META <<<"$ORPHAN_IDENTITY_ROWS"
+ORPHAN_PLAN_ERR=$(mktemp "${TMPDIR:-/tmp}/wprism-protected-orphan-plan.XXXXXX")
+ORPHAN_ENV_SET_ERR=$(mktemp "${TMPDIR:-/tmp}/wprism-protected-orphan-env-set.XXXXXX")
+set +e
+wp2 wprism plan --repo=/siterepo --default-author=admin --format=json \
+  >/dev/null 2>"$ORPHAN_PLAN_ERR"
+ORPHAN_PLAN_RC=$?
+printf '%s\n' 'target-local-password' \
+  | wp2 wprism env-set --repo=/siterepo --name="post_password:${PROTECTED_UUID}" --stdin \
+    >/dev/null 2>"$ORPHAN_ENV_SET_ERR"
+ORPHAN_ENV_SET_RC=$?
+set -e
+[ "$ORPHAN_PLAN_RC" -eq 0 ] \
+  || fail "orphan protected-post identities blocked plan: $(cat "$ORPHAN_PLAN_ERR")"
+[ "$ORPHAN_ENV_SET_RC" -eq 0 ] \
+  || fail "orphan protected-post identities blocked env-set: $(cat "$ORPHAN_ENV_SET_ERR")"
+[ "$(wp2 post get "$PROTECTED2" --field=post_password)" = 'target-local-password' ] \
+  || fail "orphan identity acceptance changed the protected post password"
+[ "$(shasum -a 256 "$R2/.wprism-env-values.json" | awk '{print $1}')" = "$ENV_VALUES_HASH" ] \
+  || fail "orphan identity acceptance changed the intended password document"
+wp2 eval "
+  global \$wpdb;
+  if (\$wpdb->delete(\$wpdb->postmeta, ['meta_id' => $ORPHAN_POST_META], ['%d']) !== 1
+      || \$wpdb->delete(\$wpdb->termmeta, ['meta_id' => $ORPHAN_TERM_META], ['%d']) !== 1) {
+    throw new RuntimeException('could not remove orphan protected-post identities');
+  }
+" >/dev/null
+pass "protected-post identity ignores postmeta and termmeta whose owners no longer exist"
+
+IDENTITY_TERM_DECOY=$(wp2 term create category 'Protected identity term decoy' \
+  --slug=protected-identity-term-decoy --porcelain)
+wp2 term meta add "$IDENTITY_TERM_DECOY" _wprism_uuid "$PROTECTED_UUID" >/dev/null
+assert_protected_identity_refusal 'live term duplicate of protected-post identity'
+[ "$(wp2 post get "$PROTECTED2" --field=post_password)" = 'target-local-password' ] \
+  || fail "live term duplicate refusal changed the canonical protected post"
+wp2 term delete category "$IDENTITY_TERM_DECOY" >/dev/null
 
 IDENTITY_DECOY=$(wp2 post create --post_type=post --post_status=publish \
   --post_title='Protected identity decoy' --post_name=protected-identity-decoy \

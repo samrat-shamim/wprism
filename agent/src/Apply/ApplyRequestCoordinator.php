@@ -602,37 +602,39 @@ final class ApplyRequestCoordinator {
                 $transactionStarted = true;
                 DeleteGuardEvaluator::begin_authored_transaction();
                 $continuityStarted = true;
-                $postId = ProtectedPostIdentity::lock($passwordUuid, $postType);
+                $postWitness = ProtectedPostIdentity::lock($passwordUuid, $postType);
+                $postId = $postWitness['post_id'] ?? null;
+                $oldPassword = $postWitness['post_password'] ?? null;
+                $connectionId = Db::transaction_connection_id(
+                    'env-set protected post publication session proof'
+                );
+                DeleteGuardEvaluator::assert_transaction_isolation(
+                    'env-set protected post publication continuity'
+                );
 
                 // Publish intended state only after exact live identity is
                 // proven under lock. A later DB failure leaves loud drift,
                 // while a stale/reused map row changes neither side.
                 EnvironmentValues::set($repo, $name, $value);
                 if ($postId !== null) {
-                    global $wpdb;
-                    Db::update(
-                        $wpdb->posts,
-                        ['post_password' => $value],
-                        ['ID' => $postId],
-                        ['%s'],
-                        ['%d'],
-                        'env-set protected post password'
-                    );
-                    if (property_exists($wpdb, 'last_error')) {
-                        $wpdb->last_error = '';
-                    }
-                    $confirm = $wpdb->get_var($wpdb->prepare(
-                        "SELECT post_password FROM {$wpdb->posts} WHERE ID = %d LIMIT 1 FOR UPDATE",
-                        $postId
-                    ));
-                    if (trim((string) ($wpdb->last_error ?? '')) !== ''
-                        || !is_string($confirm)
-                        || !hash_equals($value, $confirm)) {
+                    if (!is_string($oldPassword)
+                        || !ProtectedPostIdentity::update_password(
+                            $passwordUuid,
+                            $postId,
+                            $postType,
+                            $oldPassword,
+                            $value,
+                            $connectionId
+                        )) {
                         throw new \RuntimeException(
                             "wprism: env-set: wrote '$name' but the live post password does not match afterward"
                         );
                     }
                 }
+                Db::transaction_connection_id('env-set protected post precommit session proof');
+                DeleteGuardEvaluator::assert_transaction_isolation(
+                    'env-set protected post precommit continuity'
+                );
                 Db::commit('env-set protected post transaction commit');
                 $transactionStarted = false;
                 DeleteGuardEvaluator::end_authored_transaction();

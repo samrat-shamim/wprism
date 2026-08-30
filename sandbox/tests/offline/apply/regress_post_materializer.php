@@ -34,6 +34,7 @@ require_once __DIR__ . '/../../../../agent/src/Apply/RelationshipMaterializer.ph
 require_once __DIR__ . '/../../../../agent/src/Repository/CompiledArtifact.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/AttachmentMaterializer.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/PostMaterializer.php';
+require_once __DIR__ . '/../../../../agent/src/Apply/ProtectedPostIdentity.php';
 
 use WPrism\ApplyFieldMaterializer;
 use WPrism\AttachmentMaterializer;
@@ -41,6 +42,7 @@ use WPrism\CompiledRepository;
 use WPrism\EnvironmentValues;
 use WPrism\Policy;
 use WPrism\PostMaterializer;
+use WPrism\ProtectedPostIdentity;
 use WPrism\RelationshipMaterializer;
 use WPrism\Tokens;
 
@@ -133,14 +135,68 @@ $intendedValuePosition = strpos($requestCoordinatorSource, 'EnvironmentValues::s
 $check(
     str_contains($protectedIdentitySource, 'DeleteGuardEvaluator::assert_innodb_tables([')
         && substr_count($protectedIdentitySource, 'DeleteGuardEvaluator::full_width_composite_unique_lock_index(') === 1
-        && substr_count($protectedIdentitySource, 'DeleteGuardEvaluator::full_width_lock_index(') === 1
+        && substr_count($protectedIdentitySource, 'DeleteGuardEvaluator::full_width_lock_index(') === 2
         && substr_count($protectedIdentitySource, 'DeleteGuardEvaluator::bounded_prefix_lock_index(') === 2
+        && str_contains($protectedIdentitySource, '$wpdb->terms,')
         && str_contains($protectedIdentitySource, 'SELECT uuid, id_kind, local_id, entity_type')
-        && str_contains($protectedIdentitySource, 'SELECT ID, post_type FROM {$wpdb->posts} FORCE INDEX')
-        && substr_count($protectedIdentitySource, 'FOR UPDATE') >= 3
+        && str_contains($protectedIdentitySource, 'SELECT ID, post_type, post_password FROM {$wpdb->posts} FORCE INDEX')
+        && substr_count($protectedIdentitySource, 'FOR UPDATE') >= 4
         && str_contains($protectedIdentitySource, 'self::locked_meta_rows($wpdb->postmeta')
-        && str_contains($protectedIdentitySource, 'self::locked_meta_rows($wpdb->termmeta'),
-    'protected-post provisioning proves transactional tables/indexes and locks the map, post, and global UUID ranges'
+        && str_contains($protectedIdentitySource, 'self::locked_meta_rows($wpdb->termmeta')
+        && str_contains($protectedIdentitySource, 'self::locked_live_owner_ids(')
+        && str_contains($protectedIdentitySource, 'EXISTS (SELECT 1 FROM {$wpdb->posts} gpo')
+        && str_contains($protectedIdentitySource, 'EXISTS (SELECT 1 FROM {$wpdb->terms} gto')
+        && str_contains($protectedIdentitySource, 'CONNECTION_ID() = %s AND @@in_transaction = 1')
+        && str_contains($protectedIdentitySource, 'BINARY post_password = BINARY %s')
+        && str_contains($protectedIdentitySource, 'Db::transaction_connection_id('),
+    'protected-post provisioning proves transactional tables/indexes and locks the map, metadata ranges, and live-owner rows or gaps'
+);
+$identityAssertion = new ReflectionMethod(ProtectedPostIdentity::class, 'assert_locked_global_identity');
+$canonicalIdentityRow = [
+    'meta_id' => '1',
+    'owner_id' => '41',
+    'meta_key' => '_wprism_uuid',
+    'meta_value_prefix' => $passwordUuid,
+    'meta_value_bytes' => '36',
+];
+$orphanPostIdentityRow = array_replace($canonicalIdentityRow, ['meta_id' => '2', 'owner_id' => '901']);
+$orphanTermIdentityRow = array_replace($canonicalIdentityRow, ['meta_id' => '3', 'owner_id' => '902']);
+$orphanRefusal = null;
+try {
+    $identityAssertion->invoke(
+        null,
+        $passwordUuid,
+        41,
+        [$canonicalIdentityRow, $orphanPostIdentityRow],
+        [$orphanTermIdentityRow],
+        [41 => true],
+        []
+    );
+} catch (RuntimeException $failure) {
+    $orphanRefusal = $failure->getMessage();
+}
+$check(
+    $orphanRefusal === null,
+    'protected-post UUID uniqueness ignores exact orphan postmeta and termmeta sidecars after locking their missing-owner gaps'
+);
+$liveTermDuplicateRefusal = null;
+try {
+    $identityAssertion->invoke(
+        null,
+        $passwordUuid,
+        41,
+        [$canonicalIdentityRow, $orphanPostIdentityRow],
+        [$orphanTermIdentityRow],
+        [41 => true],
+        [902 => true]
+    );
+} catch (RuntimeException $failure) {
+    $liveTermDuplicateRefusal = $failure->getMessage();
+}
+$check(
+    $liveTermDuplicateRefusal
+        === 'wprism: protected post binding identity does not match its unique exact live backing row',
+    'protected-post UUID uniqueness refuses an exact termmeta duplicate when that term owner is live'
 );
 $check(
     is_int($identityLockPosition)
@@ -149,10 +205,13 @@ $check(
         && str_contains($requestCoordinatorSource, "Db::start_repeatable_read('env-set protected post transaction start')")
         && str_contains($requestCoordinatorSource, 'DeleteGuardEvaluator::begin_authored_transaction();')
         && str_contains($requestCoordinatorSource, 'DeleteGuardEvaluator::end_authored_transaction();')
+        && str_contains($requestCoordinatorSource, 'ProtectedPostIdentity::update_password(')
+        && str_contains($requestCoordinatorSource, 'env-set protected post publication continuity')
+        && str_contains($requestCoordinatorSource, 'env-set protected post precommit continuity')
         && str_contains($planEnvironmentSource, 'ProtectedPostIdentity::observe((string) $uuid, $postType)')
         && str_contains($planEnvironmentSource, '$live = $postWitness[\'post_password\'] ?? null;')
         && !str_contains($planEnvironmentSource, 'SELECT post_password'),
-    'env-set carries transaction continuity through identity/write and plan consumes one coherent identity/password witness'
+    'env-set carries verified session continuity through identity/write/commit and plan consumes one coherent identity/password witness'
 );
 $check(
     array_map(static fn(ReflectionParameter $p): string => $p->getName(), (new ReflectionMethod(PostMaterializer::class, 'ensure_post_row'))->getParameters()) === ['front'],
