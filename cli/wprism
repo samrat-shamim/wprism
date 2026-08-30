@@ -1265,8 +1265,9 @@ Verbs:
                           1 refusal/failure, 2 usage.
   release <env> status    Read only the target-private operation election,
     --prepare=<path>      consumption and write-once completion for one exact
-    --expected-subject-   prepared subject. The canonical status sequence is
-      sha256=sha256:<h>   bounded to prepared=0, elected=1, consumed=2 and
+    --expected-subject-sha256=sha256:<h>
+                          prepared subject. The canonical status sequence is
+                          bounded to prepared=0, elected=1, consumed=2 and
     --format=json         completed=3; it is not a general event stream.
                           Elected/consumed state exits non-zero and requires
                           reconciliation without re-entering mutation. A
@@ -1816,8 +1817,8 @@ function main(array $argv): int {
     try {
         $capabilityOperation = match (true) {
             $verb === 'onboard' && in_array('--handoff-only', $extra, true) => 'onboard-handoff',
-            $verb === 'release' && in_array(($extra[0] ?? null), ['prepare', 'status'], true) =>
-                'release-prepare',
+            $verb === 'release' && ($extra[0] ?? null) === 'prepare' => 'release-prepare',
+            $verb === 'release' && ($extra[0] ?? null) === 'status' => 'release-status',
             default => $verb,
         };
         $driverReport = EnvironmentCommandPreflight::capabilityReport($transport, $capabilityOperation);

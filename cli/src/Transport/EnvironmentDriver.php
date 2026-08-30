@@ -252,6 +252,10 @@ final class DriverCapabilityReport {
             // reads that state and the existing WP planning surface, so it
             // must not inherit promote's checkpoint/materialization demands.
             'stage-source', 'authority-policy' => [DriverCapability::ATTACH, DriverCapability::RAW_CONTROL],
+            // Release status reads only the caller-selected prepare document
+            // and target-private operation records through captureRaw(). It
+            // must remain available when WordPress itself is unreachable.
+            'release-status' => [DriverCapability::ATTACH, DriverCapability::RAW_CONTROL],
             'release-prepare' => [
                 DriverCapability::ATTACH, DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,
             ],
@@ -327,7 +331,7 @@ final class DriverCapabilityReport {
                 "unknown driver operation '$operation' (expected attach, doctor, init, status, capabilities, capture, "
                 . 'lint, plan, explain, apply, env-set, pending, classify, coverage, scope, assess, contract, verify, '
                 . 'refresh, rebase, adapter-observe, adopt, onboard, deploy, promote, stage-source, authority-policy, '
-                . 'release-prepare, release, '
+                . 'release-status, release-prepare, release, '
                 . 'recover, rehearse, create, destroy, '
                 . 'ttl, media-snapshot, maintenance, or url)'
             ),

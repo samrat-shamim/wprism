@@ -59,6 +59,7 @@ wprism authority-policy <env> status --format=json
 wprism authority-policy <env> sync --policy=<file> --expected-current=absent|sha256:<hex> --format=json
 wprism release <env> prepare --stage-receipt=<file> --expected-stage-receipt-sha256=<digest> [--format=json]
 wprism release <env> execute --prepare=<file> --authorization=<file> --expected-authorization-sha256=<digest> --expected-subject-sha256=<digest> --expected-presentation-sha256=<digest> --expected-plan-digest=<digest> --expected-stage-receipt-sha256=<digest> --format=json
+wprism release <env> status --prepare=<file> --expected-subject-sha256=<digest> --format=json
 wprism release <env> --plan-only [--from=<ref>] [--profile=<p>] [--accept-weaker-recovery] [--with-deletes] [--limit=<1..200>] [--format=json]
 wprism verify <env> [--plan=<digest>] [--limit=<1..200>] [--format=json]
 wprism recover <env> [--list] [--restore=<checkpoint>] [--writers-excluded] [--operator-directed] [--limit=<1..200>] [--format=json]

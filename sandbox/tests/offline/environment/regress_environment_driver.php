@@ -140,6 +140,27 @@ assert_true(!$dockerExec->capabilityReport('adopt')->ready(), 'container driver 
 assert_true($ssh->capabilityReport('adopt')->ready(), 'SSH adoption path did not declare its actual upload/bootstrap support');
 pass('driver-specific bootstrap support is explicit and truthful');
 
+$rawOnly = [DriverCapability::ATTACH => true, DriverCapability::RAW_CONTROL => true];
+$releaseStatus = DriverCapabilityReport::forDriver(
+    'raw-only',
+    'raw-only',
+    'release-status',
+    $rawOnly
+);
+$releasePrepare = DriverCapabilityReport::forDriver(
+    'raw-only',
+    'raw-only',
+    'release-prepare',
+    $rawOnly
+);
+assert_true($releaseStatus->ready(), 'release status incorrectly requires a reachable WordPress control path');
+assert_true(!$releasePrepare->ready(), 'release prepare no longer requires its WordPress planning surface');
+assert_true(
+    required_capabilities($releaseStatus) === ['control.raw', 'environment.attach'],
+    'release status does not demand exactly attach plus raw target control'
+);
+pass('release status remains available over raw control while release prepare still requires WordPress');
+
 $first = $local->capabilityReport('promote')->toArray();
 $second = $local->capabilityReport('promote')->toArray();
 assert_true($first === $second, 'identical capability reports are not byte-stable');
@@ -405,6 +426,11 @@ assert_true(
 assert_true(
     str_contains($wprismSource, 'EnvironmentCommandPreflight::capabilityReport('),
     'cli/wprism does not route driver capability checks through the preflight collaborator'
+);
+assert_true(
+    str_contains($wprismSource, "(\$extra[0] ?? null) === 'status' => 'release-status'")
+        && str_contains($wprismSource, "(\$extra[0] ?? null) === 'prepare' => 'release-prepare'"),
+    'public release dispatch does not keep status raw-only and prepare WP-aware'
 );
 
 $requirements = new ReflectionMethod(DriverCapabilityReport::class, 'requirements');
