@@ -250,6 +250,24 @@ $crashElectionDirectory = $gitDirectory . '/wprism-control/authorizations/operat
     . substr($crashTupleDigest, 7);
 mkdir($crashElectionDirectory, 0700, true);
 file_put_contents($crashElectionDirectory . '/election.json', Canon::encode($crashElection));
+$crashStatus = TargetOperationStore::statusForSubject($driver, $crashSubject);
+wprism_check_same(
+    [
+        'authorization_digest' => $crashVerifiedA['authorization_digest'],
+        'completion' => null,
+        'consumption' => null,
+    ],
+    $crashStatus,
+    'status exposes a durable election before its winner directory exists as explicit nonterminal evidence'
+);
+$crashAuthorizationDirectory = $gitDirectory . '/wprism-control/authorizations/'
+    . substr($crashVerifiedA['authorization_digest'], 7);
+mkdir($crashAuthorizationDirectory, 0700);
+wprism_check_same(
+    $crashStatus,
+    TargetOperationStore::statusForSubject($driver, $crashSubject),
+    'status keeps the normal post-mkdir pre-consumption crash at the same explicit election sequence'
+);
 wprism_check_refuses(
     static fn () => TargetOperationStore::consume($driver, $crashVerifiedA, $crashEnvelopeA, $crashSubject),
     'authorization_consumption_uncertain',

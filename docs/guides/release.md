@@ -472,17 +472,37 @@ compile and lease reaches no site mutation.
 
 ### Crash, retry and status semantics
 
-The exact same `release … execute` command is also the status/replay operation;
-there is no separate command that could acquire a second mutation authority.
-Its first target read looks up the authorization-envelope digest **before**
-checking signature expiry or current stage state.
+The exact same `release … execute` command remains the only replay that can
+proceed when no target-side election exists. Its first target read looks up the
+authorization-envelope digest **before** checking signature expiry or current
+stage state. A separate status command is strictly read-only and needs no
+authorization envelope:
 
-| Observed state | Exact retry result |
-|---|---|
-| no consumption exists | revalidate everything; consume and execute only if it still matches |
-| consumption exists, no complete outcome | refuse `release_operation_reconciliation_required`; never retry mutation |
-| consumption and completion exist | return the byte-identical stored outcome, even after authority expiry/revocation or later target/stage movement |
-| different bytes under the same operation/authorization identity | refuse the named conflict; reconcile manually |
+```sh
+"$WPRISM_CLI" release production status \
+  --prepare=release-prepare.json \
+  --expected-subject-sha256="$SUBJECT_SHA" \
+  --format=json > release-status.json
+```
+
+`wprism-release-operation-status/v1` projects only durable target-private
+records. Its sequence is the closed four-step set `prepared=0`, `elected=1`,
+`consumed=2`, `completed=3`; it is not an event stream and has no inferred
+progress between those states. It repeats the exact target, source-stage,
+presentation, plan and subject identities. Once election occurs it names the
+winning authorization, and once completion occurs it embeds the stored release
+outcome and its digest. Status never verifies an expired signature, creates a
+record, resumes promotion or permits mutation. `elected` and `consumed` set
+`reconciliation_required: true` and exit 1, while `completed` returns the
+stored outcome's exit status.
+
+| Durable status | Sequence | Exact execute retry result |
+|---|---|---|
+| prepared, no election | 0 | revalidate everything; consume and execute only if it still matches |
+| election exists, consumption publication absent | 1 | refuse reconciliation; never repair the partial election |
+| consumption exists, completion absent | 2 | refuse `release_operation_reconciliation_required`; never retry mutation |
+| consumption and completion exist | 3 | return the byte-identical stored outcome, even after authority expiry/revocation or later target/stage movement |
+| different bytes under the same operation/authorization identity | none | refuse the named conflict; preserve and reconcile target evidence |
 
 The staging lock is a kernel-released `flock`, so process death or power loss
 cannot leave a permanent lock directory. A crash before receipt publication
@@ -497,9 +517,10 @@ authority. A retry reuses only the exact same canonical plan bytes. Because
 clock presentation fields are outside the semantic `plan_digest`, a document
 with the same digest but different presentation bytes is a conflict and never
 silently substitutes the older frozen evidence.
-Never delete retained control evidence to make a refusal disappear: inspect
-the target's Git-private `wprism-release/` and `wprism-control/` records and
-reconcile the exact operation lineage.
+Never delete retained control evidence to make a refusal disappear. Use the
+public status document as the reconciliation handoff; preserve the target's
+Git-private `wprism-release/` and `wprism-control/` records for operator
+inspection when it reports sequence 1 or 2.
 
 ## `--profile` and `--accept-weaker-recovery`
 

@@ -1381,7 +1381,11 @@ PHP;
      * operation; only status by the elected authorization may replay outcome.
      *
      * @param array<string,mixed> $subject OperationAuthorization subject projection
-     * @return ?array{authorization_digest:string,completion:?array<string,mixed>,consumption:array<string,mixed>}
+     * An election without consumption is a durable ambiguous state, not a
+     * malformed absence. Public release status reports it at sequence 1 while
+     * mutation callers continue to refuse it.
+     *
+     * @return ?array{authorization_digest:string,completion:?array<string,mixed>,consumption:?array<string,mixed>}
      */
     public static function statusForSubject(EnvironmentDriver $driver, array $subject): ?array {
         $tuple = self::operationTuple($subject);
@@ -1546,17 +1550,49 @@ if ($winner === null) {
 if (!is_string($winner) || preg_match('/^sha256:[a-f0-9]{64}$/D', $winner) !== 1) {
     fwrite(STDERR, "winner\n"); exit(24);
 }
+$winnerDirectory = $authorizations . '/' . substr($winner, 7);
+if (!file_exists($winnerDirectory) && !is_link($winnerDirectory)) {
+    if (!$lockBound($lock, $lockPath)) { fwrite(STDERR, "lock\n"); exit(21); }
+    echo 'elected:' . $winner . "\n"; exit(0);
+}
+if (!$regularPath($winnerDirectory, true, $root)) {
+    fwrite(STDERR, "winner-record\n"); exit(24);
+}
+$winnerConsumption = $winnerDirectory . '/consumption.json';
+if (!file_exists($winnerConsumption) && !is_link($winnerConsumption)) {
+    $winnerCompletion = $winnerDirectory . '/completion';
+    if (file_exists($winnerCompletion) || is_link($winnerCompletion)) {
+        fwrite(STDERR, "winner-record\n"); exit(24);
+    }
+    if (!$lockBound($lock, $lockPath)) { fwrite(STDERR, "lock\n"); exit(21); }
+    echo 'elected:' . $winner . "\n"; exit(0);
+}
+if (is_link($winnerConsumption) || !is_file($winnerConsumption)) {
+    fwrite(STDERR, "winner-record\n"); exit(24);
+}
 if (!$lockBound($lock, $lockPath)) { fwrite(STDERR, "lock\n"); exit(21); }
-echo $winner . "\n";
+echo 'stored:' . $winner . "\n";
 PHP;
         $result = $driver->captureRaw(self::php(
             $script,
             [$root, $tupleHex, base64_encode($tupleBytes), self::ELECTION_FORMAT]
         ));
         if (($result['exit'] ?? 1) !== 0) throw self::statusMalformed();
-        $winner = rtrim((string) ($result['stdout'] ?? ''), "\n");
-        if ($winner === 'absent') return null;
+        $answer = rtrim((string) ($result['stdout'] ?? ''), "\n");
+        if ($answer === 'absent') return null;
+        if (preg_match('/^(elected|stored):(sha256:[a-f0-9]{64})$/D', $answer, $matches) !== 1) {
+            throw self::statusMalformed();
+        }
+        $state = $matches[1];
+        $winner = $matches[2];
         self::assertDigest($winner, 'elected authorization digest');
+        if ($state === 'elected') {
+            return [
+                'authorization_digest' => $winner,
+                'completion' => null,
+                'consumption' => null,
+            ];
+        }
         $stored = self::status($driver, $winner);
         if ($stored === null) throw self::statusMalformed();
 

@@ -59,6 +59,7 @@ wprism authority-policy <env> status --format=json
 wprism authority-policy <env> sync --policy=<file> --expected-current=absent|sha256:<hex> --format=json
 wprism release <env> prepare --stage-receipt=<file> --expected-stage-receipt-sha256=<digest> [--format=json]
 wprism release <env> execute --prepare=<file> --authorization=<file> --expected-authorization-sha256=<digest> --expected-subject-sha256=<digest> --expected-presentation-sha256=<digest> --expected-plan-digest=<digest> --expected-stage-receipt-sha256=<digest> --format=json
+wprism release <env> status --prepare=<file> --expected-subject-sha256=<digest> --format=json
 wprism release <env> --plan-only [--from=<ref>] [--profile=<p>] [--accept-weaker-recovery] [--with-deletes] [--limit=<1..200>] [--format=json]
 wprism verify <env> [--plan=<digest>] [--limit=<1..200>] [--format=json]
 wprism recover <env> [--list] [--restore=<checkpoint>] [--writers-excluded] [--operator-directed] [--limit=<1..200>] [--format=json]
@@ -680,20 +681,23 @@ semantics remain the rehearsal implementation's.
   Production mutation is available only through the signed stage/prepare/
   execute seam below. Exit 0 read-only plan, 1 refusal/failure, 2 usage.
 
-- **`wprism stage-source` / `wprism release <env> prepare|execute`** — the
+- **`wprism stage-source` / `wprism release <env> prepare|execute|status`** — the
   externally authorized control-plane form of the same release. `stage-source`
   retains the exact advertised commit under target-private Git state without
   moving canonical `HEAD`, index or worktree and returns one durable receipt.
   `prepare` reads that inert checkout, current target facts and the already
   enrolled target-authoritative policy into one canonical subject without writing target or local
   repository bytes. An external Ed25519 actor signs its exact presentation and
-  complete subject. `execute` requires explicit digests for the prepare,
+  complete subject. `status` projects the target-private election, consumption
+  and completion records for that exact subject as canonical
+  `wprism-release-operation-status/v1`. Its monotonic sequence is bounded to
+  four states and it never resumes mutation. `execute` requires explicit digests for the prepare,
   authorization, plan and stage; it refuses any plan, target-HEAD or source
   drift before one-time target-side consumption, then materializes the staged
-  commit and composes promote. Repeating the exact execute command is also the
-  status call: a complete target record returns its stored outcome even after
-  authorization expiry, while consumed-without-completion always requires
-  reconciliation. The full signer wire, command sequence and crash semantics
+  commit and composes promote. Repeating the exact execute command remains the
+  exact replay: a complete target record returns its stored outcome even after
+  authorization expiry, while elected/consumed-without-completion status exits
+  non-zero and requires reconciliation without retrying mutation. The full signer wire, command sequence and crash semantics
   are in [docs/guides/release.md](../docs/guides/release.md#control-plane-release-stage-prepare-sign-execute).
 
 - **`wprism authority-policy <env> status|sync`** — the explicit target-control

@@ -121,6 +121,7 @@ return [
     'WPrism\\Orchestrator\\RehearsalPlanPreview' => 'src/Rehearse/RehearsalPlanPreview.php',
     'WPrism\\Orchestrator\\RehearseCommand' => 'src/Command/RehearseCommand.php',
     'WPrism\\Orchestrator\\ReleaseCommand' => 'src/Command/ReleaseCommand.php',
+    'WPrism\\Orchestrator\\ReleaseOperationStatus' => 'src/Release/ReleaseOperationStatus.php',
     'WPrism\\Orchestrator\\ReleaseOutcome' => 'src/Release/ReleaseOutcome.php',
     'WPrism\\Orchestrator\\ReleasePrepare' => 'src/Release/ReleasePrepare.php',
     'WPrism\\Orchestrator\\RetainedCheckpoints' => 'src/Recovery/RetainedCheckpoints.php',

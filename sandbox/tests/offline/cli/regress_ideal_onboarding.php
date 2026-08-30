@@ -1411,6 +1411,76 @@ try {
     wprism_check(str_contains($error->getMessage(), "first demo scenario is 'woocommerce'"), 'demo refusal names the one executable scenario');
 }
 
+$wooFixtureRoot = $tmp . '/demo-woo-activation';
+$wooFixtureSandbox = $wooFixtureRoot . '/sandbox';
+$wooFixtureBin = $wooFixtureRoot . '/bin';
+foreach ([$wooFixtureRoot, $wooFixtureSandbox, $wooFixtureSandbox . '/bin', $wooFixtureBin] as $directory) {
+    if (!is_dir($directory)) {
+        mkdir($directory, 0700);
+    }
+}
+file_put_contents($wooFixtureSandbox . '/pair.yml', "services: {}\n");
+file_put_contents($wooFixtureSandbox . '/bin/fetch-artifact.sh', <<<'SH'
+fetch_artifact() {
+  printf '/tmp/woocommerce-fixture.zip\n'
+}
+SH
+);
+$wooDocker = <<<'SH'
+#!/usr/bin/env bash
+set -eu
+line=" $* "
+printf '%s\n' "$line" >> "$WPRISM_DEMO_DOCKER_LOG"
+case "$line" in
+  *" cli2 wp plugin activate woocommerce "*)
+    : > "$WPRISM_DEMO_WOO_ACTIVE"
+    ;;
+  *" cli2 wp eval WC_Install::maybe_enable_hpos(); "*)
+    if [ ! -f "$WPRISM_DEMO_WOO_ACTIVE" ]; then
+      printf 'WooCommerce inactive on cli2\n' >&2
+      exit 42
+    fi
+    ;;
+esac
+exit 0
+SH;
+$wooDockerPath = $wooFixtureBin . '/docker';
+file_put_contents($wooDockerPath, $wooDocker);
+chmod($wooDockerPath, 0700);
+$wooComposeEnv = $wooFixtureRoot . '/pair.env';
+file_put_contents($wooComposeEnv, "WPRISM_PAIR=woo-activation-fixture\n");
+$wooLog = $wooFixtureRoot . '/docker.log';
+$wooActive = $wooFixtureRoot . '/cli2-woocommerce-active';
+$wooSession = [
+    'compose_env_file' => $wooComposeEnv,
+    'compose_file' => $wooFixtureSandbox . '/pair.yml',
+];
+$installWoo = new ReflectionMethod(DemoCommand::class, 'installWooCommerce');
+$establishHpos = new ReflectionMethod(DemoCommand::class, 'establishHpos');
+$wooPriorPath = getenv('PATH');
+putenv('PATH=' . $wooFixtureBin . ':' . (is_string($wooPriorPath) ? $wooPriorPath : ''));
+putenv('WPRISM_DEMO_DOCKER_LOG=' . $wooLog);
+putenv('WPRISM_DEMO_WOO_ACTIVE=' . $wooActive);
+$wooSetupError = null;
+try {
+    $installWoo->invoke(null, $wooSession, $wooFixtureRoot);
+    $establishHpos->invoke(null, $wooSession, 2);
+} catch (Throwable $error) {
+    $wooSetupError = $error;
+} finally {
+    is_string($wooPriorPath) ? putenv('PATH=' . $wooPriorPath) : putenv('PATH');
+    putenv('WPRISM_DEMO_DOCKER_LOG');
+    putenv('WPRISM_DEMO_WOO_ACTIVE');
+}
+$wooCalls = is_file($wooLog) ? (string) file_get_contents($wooLog) : '';
+$targetActivation = strpos($wooCalls, ' cli2 wp plugin activate woocommerce ');
+$targetHpos = strpos($wooCalls, ' cli2 wp eval WC_Install::maybe_enable_hpos(); ');
+wprism_check_same(null, $wooSetupError, 'demo activates target WooCommerce before target HPOS setup');
+wprism_check(
+    $targetActivation !== false && $targetHpos !== false && $targetActivation < $targetHpos,
+    'the real demo installer orders cli2 activation before its WC_Install HPOS call'
+);
+
 $largeProcess = HostProcess::run([
     PHP_BINARY,
     '-r',

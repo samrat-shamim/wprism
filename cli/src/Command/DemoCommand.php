@@ -357,7 +357,7 @@ final class DemoCommand {
             . ' -f pair.yml -f pair.artifacts.yml); . bin/fetch-artifact.sh; '
             . 'for side in 1 2; do artifact=$(fetch_artifact woocommerce ' . self::WOO_VERSION
             . ' "cli$side" plugin); "${PAIR_COMPOSE[@]}" run --rm -T "cli$side" wp plugin install "$artifact" --force; done; '
-            . '"${PAIR_COMPOSE[@]}" run --rm -T cli1 wp plugin activate woocommerce';
+            . 'for side in 1 2; do "${PAIR_COMPOSE[@]}" run --rm -T "cli$side" wp plugin activate woocommerce; done';
         $result = self::runProcess(
             ['bash', '-c', $script],
             $sourceRoot . '/sandbox',

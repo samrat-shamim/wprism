@@ -17,6 +17,7 @@ php -l "$ROOT/cli/wprism" >/dev/null || fail 'php -l cli/wprism'
 php -l "$ROOT/cli/src/Command/StageSourceCommand.php" >/dev/null || fail 'php -l StageSourceCommand.php'
 php -l "$ROOT/cli/src/Release/SourceStageReceipt.php" >/dev/null || fail 'php -l SourceStageReceipt.php'
 php -l "$ROOT/cli/src/Release/ReleasePrepare.php" >/dev/null || fail 'php -l ReleasePrepare.php'
+php -l "$ROOT/cli/src/Release/ReleaseOperationStatus.php" >/dev/null || fail 'php -l ReleaseOperationStatus.php'
 
 php -r '
 require $argv[1] . "/cli/src/Command/ReleaseCommand.php";
@@ -503,7 +504,55 @@ echo $count;
 ' "$AUTHORIZATION_ROOT"
 }
 
+run_status() {
+  local out="$1"
+  local expected_subject="$2"
+  wprism "$out" release fixture status --prepare="$TMP/prepare.json" \
+    --expected-subject-sha256="$expected_subject" --format=json
+}
+
+CONTROL_BEFORE_RELEASE_STATUS="$(control_snapshot)"
+run_status "$TMP/status-prepared.json" "$SUBJECT_DIGEST"
+PREPARED_STATUS=$?
+php -r '
+require $argv[1] . "/cli/src/Release/ReleaseOperationStatus.php";
+$bytes = (string) file_get_contents($argv[2]);
+$status = json_decode($bytes, true);
+\WPrism\Orchestrator\ReleaseOperationStatus::validate($status);
+if (\WPrism\Orchestrator\ReleaseOperationStatus::encode($status) !== $bytes
+    || ($status["state"] ?? null) !== "prepared"
+    || ($status["sequence"] ?? null) !== 0
+    || ($status["terminal"] ?? null) !== false
+    || ($status["reconciliation_required"] ?? null) !== false
+    || ($status["authorization_digest"] ?? "sentinel") !== null) exit(1);
+' "$ROOT" "$TMP/status-prepared.json"
+[ "$PREPARED_STATUS" = 1 ] \
+  && [ ! -s "$TMP/status-prepared.json.err" ] \
+  && [ "$(control_snapshot)" = "$CONTROL_BEFORE_RELEASE_STATUS" ] \
+  && pass 'release status reports prepared sequence 0 without creating target control bytes' \
+  || fail 'prepared release status mutated the target, changed sequence, or returned green'
+
+php -r '
+require $argv[1] . "/cli/src/Release/ReleaseOperationStatus.php";
+$prepare = \WPrism\Orchestrator\ReleasePrepare::read($argv[2]);
+$status = \WPrism\Orchestrator\ReleaseOperationStatus::build($prepare, [
+    "authorization_digest" => "sha256:" . str_repeat("e", 64),
+    "completion" => null,
+    "consumption" => null,
+]);
+if ($status["state"] !== "elected" || $status["sequence"] !== 1
+    || $status["terminal"] !== false || $status["reconciliation_required"] !== true) exit(1);
+' "$ROOT" "$TMP/prepare.json" \
+  && pass 'a durable election without consumption is explicit reconciliation sequence 1' \
+  || fail 'partial election was hidden or represented as executable status'
+
 ZERO_DIGEST="sha256:$(printf '0%.0s' {1..64})"
+run_status "$TMP/status-digest-refusal.json" "$ZERO_DIGEST"
+[ "$?" = 1 ] && grep -Fq 'release_status_digest_mismatch' "$TMP/status-digest-refusal.json" \
+  && [ "$(authorization_count)" = 0 ] \
+  && pass 'release status binds the caller-selected prepare to its explicit subject digest' \
+  || fail 'release status accepted the wrong prepared subject'
+
 run_execute "$TMP/execute-digest-refusal.json" "$ZERO_DIGEST"
 [ "$?" = 1 ] && grep -Fq 'release_execute_digest_mismatch' "$TMP/execute-digest-refusal.json" \
   && [ "$(authorization_count)" = 0 ] \
@@ -919,6 +968,28 @@ if (\WPrism\Orchestrator\ReleaseOutcome::encode($outcome) !== $bytes
   && pass 'durable one-time consumption precedes the exact staged source materialization and completion' \
   || fail 'execute did not bind consumption and the exact source tuple through target promotion-begin'
 
+run_status "$TMP/status-completed.json" "$SUBJECT_DIGEST"
+COMPLETED_STATUS=$?
+php -r '
+require $argv[1] . "/cli/src/Release/ReleaseOperationStatus.php";
+$statusBytes = (string) file_get_contents($argv[2]);
+$outcomeBytes = (string) file_get_contents($argv[3]);
+$status = json_decode($statusBytes, true);
+$outcome = json_decode($outcomeBytes, true);
+\WPrism\Orchestrator\ReleaseOperationStatus::validate($status);
+if (\WPrism\Orchestrator\ReleaseOperationStatus::encode($status) !== $statusBytes
+    || ($status["state"] ?? null) !== "completed"
+    || ($status["sequence"] ?? null) !== 3
+    || ($status["terminal"] ?? null) !== true
+    || ($status["reconciliation_required"] ?? null) !== false
+    || ($status["authorization_digest"] ?? null) !== $argv[4]
+    || ($status["outcome"] ?? null) !== $outcome) exit(1);
+' "$ROOT" "$TMP/status-completed.json" "$TMP/execute.json" "$AUTH_DIGEST"
+[ "$COMPLETED_STATUS" = "$EXECUTE_STATUS" ] \
+  && [ ! -s "$TMP/status-completed.json.err" ] \
+  && pass 'release status returns completed sequence 3 with the exact durable outcome and exit status' \
+  || fail 'completed release status lost its outcome, lineage, or terminal exit status'
+
 # A completed replay is a status read. Make both authorization verification
 # and stage validation fail if they were attempted, then require the exact
 # stored outcome anyway.
@@ -949,6 +1020,27 @@ REPLAY_STATUS=$?
 
 COMPLETION_DIR="$AUTHORIZATION_ROOT/${AUTH_DIGEST#sha256:}/completion"
 mv "$COMPLETION_DIR" "$COMPLETION_DIR.saved"
+run_status "$TMP/status-consumed.json" "$SUBJECT_DIGEST"
+CONSUMED_STATUS=$?
+php -r '
+require $argv[1] . "/cli/src/Release/ReleaseOperationStatus.php";
+$bytes = (string) file_get_contents($argv[2]);
+$status = json_decode($bytes, true);
+\WPrism\Orchestrator\ReleaseOperationStatus::validate($status);
+if (\WPrism\Orchestrator\ReleaseOperationStatus::encode($status) !== $bytes
+    || ($status["state"] ?? null) !== "consumed"
+    || ($status["sequence"] ?? null) !== 2
+    || ($status["terminal"] ?? null) !== false
+    || ($status["reconciliation_required"] ?? null) !== true
+    || ($status["authorization_digest"] ?? null) !== $argv[3]
+    || ($status["outcome"] ?? "sentinel") !== null) exit(1);
+' "$ROOT" "$TMP/status-consumed.json" "$AUTH_DIGEST"
+[ "$CONSUMED_STATUS" = 1 ] \
+  && [ ! -s "$TMP/status-consumed.json.err" ] \
+  && [ "$(authorization_count)" = 5 ] \
+  && [ "$(git -C "$TMP/target" rev-parse HEAD)" = "$SOURCE_COMMIT" ] \
+  && pass 'release status exposes consumed sequence 2 for fail-closed reconciliation without mutation' \
+  || fail 'consumed release status retried mutation or hid its nonterminal evidence'
 run_execute "$TMP/execute-reconciliation.json" "$SUBJECT_DIGEST"
 RECONCILIATION_STATUS=$?
 [ "$RECONCILIATION_STATUS" = 1 ] \
