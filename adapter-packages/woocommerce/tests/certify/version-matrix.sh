@@ -198,14 +198,14 @@ check_woocommerce_allow_pii_roundtrip() { # <exact-version> <exact-target-artifa
   [ "$source_captured" = "$source_native" ] \
     || fail "WooCommerce $version captured WPRA-019 values did not equal exact native source readback"
   jq -en --argjson before "$source_before" --argjson after "$source_captured" '
-    ($before | keys) == ($after | keys) and ($before | keys | all(. as $key; $before[$key] != $after[$key]))
+    ($before | keys) == ($after | keys) and ($before | keys | all(.[]; . as $key | $before[$key] != $after[$key]))
   ' >/dev/null || fail "WooCommerce $version capture did not change every WPRA-019 value fingerprint"
 
   woocommerce_write_pii_profile wp2 target
   target_divergent=$(woocommerce_native_pii_fingerprints wp2)
   woocommerce_assert_pii_fingerprint_map "WooCommerce $version divergent target native readback" "$target_divergent"
   jq -en --argjson source "$source_native" --argjson target "$target_divergent" '
-    ($source | keys) == ($target | keys) and ($source | keys | all(. as $key; $source[$key] != $target[$key]))
+    ($source | keys) == ($target | keys) and ($source | keys | all(.[]; . as $key | $source[$key] != $target[$key]))
   ' >/dev/null || fail "WooCommerce $version WPRA-019 source/target profiles were not divergent for all grants"
 
   woocommerce_assert_pii_log_redacted "WooCommerce $version WPRA-019 capture output" "$pii_capture_log"
@@ -216,7 +216,7 @@ check_woocommerce_allow_pii_roundtrip() { # <exact-version> <exact-target-artifa
   git -C "$target_repo" pull -q origin main
   pii_revision=$(git -C "$target_repo" rev-parse HEAD)
   pii_apply_log="$target_repo/.tmp-woo-pii-apply.log"
-  wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$pii_revision" >"$pii_apply_log" 2>&1
+  wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$pii_revision" --force-theirs >"$pii_apply_log" 2>&1
   grep -q 'canary clean' "$pii_apply_log" || fail "WooCommerce $version WPRA-019 apply was not canary-clean"
   target_applied=$(woocommerce_native_pii_fingerprints wp2)
   [ "$target_applied" = "$source_native" ] \
