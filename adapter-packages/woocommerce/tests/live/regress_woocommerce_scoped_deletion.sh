@@ -34,10 +34,53 @@ wprism_ssh_adopt_extension() {
     chmod 0600 "$diagnostic_file"
   done
 
+  say "enroll the full upload/effect recovery providers required for deletion"
+  ( umask 077; openssl rand 32 >"$TMP/woocommerce-upload.key" )
+  chmod 0600 "$TMP/woocommerce-upload.key"
+  scp -F "$TMP/ssh_config" \
+    "$ROOT/sandbox/tests/fixtures/upload-provider.php" \
+    "$ROOT/sandbox/tests/fixtures/effect-provider.php" \
+    "$TMP/woocommerce-upload.key" \
+    wprism-adopt-fixture:/home/wprism/recovery-fixture/ >/dev/null
+  ssh_fixture '
+    chmod 700 /home/wprism/recovery-fixture/upload-provider.php /home/wprism/recovery-fixture/effect-provider.php
+    chmod 600 /home/wprism/recovery-fixture/woocommerce-upload.key
+    mkdir -p /home/wprism/recovery-fixture/offload /home/wprism/recovery-fixture/media
+    chmod 700 /home/wprism/recovery-fixture/offload /home/wprism/recovery-fixture/media
+  '
+  jq '
+    .envs.target.rollback_recovery.upload_provider = [
+      "/usr/local/bin/php",
+      "/home/wprism/recovery-fixture/upload-provider.php",
+      "/home/wprism/recovery-fixture/upload-provider-state",
+      "/var/www/html/wp-content/uploads",
+      "/home/wprism/recovery-fixture/offload",
+      "/home/wprism/recovery-fixture/media",
+      "/home/wprism/recovery-fixture/woocommerce-upload.key"
+    ]
+    | .envs.target.rollback_recovery.effect_provider = [
+      "/usr/local/bin/php",
+      "/home/wprism/recovery-fixture/effect-provider.php",
+      "/home/wprism/recovery-fixture/effect-provider-state",
+      "/var/www/html"
+    ]
+  ' "$TMP/envs.json" >"$TMP/envs.full-recovery.json"
+  mv "$TMP/envs.full-recovery.json" "$TMP/envs.json"
+  "$WPRISM" --envs-file="$TMP/envs.json" adopt target >/dev/null \
+    || fail "WooCommerce scoped-deletion extension could not enroll full recovery providers"
+  pass "candidate-bound upload/effect providers are enrolled for full automatic recovery"
+
   say "install the exact WooCommerce deletion boundary on the adopted SSH target"
   ssh_fixture "cd /var/www/html && wp plugin install woocommerce --version=$woo_version --activate --quiet"
   [ "$(ssh_fixture 'cd /var/www/html && wp plugin get woocommerce --field=version')" = "$woo_version" ] \
     || fail "WooCommerce scoped-deletion extension left its exact plugin boundary"
+  ssh_fixture 'cd /var/www/html && wp eval '\''
+    WC_Install::maybe_enable_hpos();
+    WC_Install::create_tables();
+    if (!\Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled()) {
+        throw new RuntimeException("WooCommerce deletion proof did not enable HPOS");
+    }
+  '\''' >/dev/null
   stock_topology="$(ssh_fixture "cd /var/www/html && wp db query \"SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND BINARY TABLE_NAME=BINARY 'wp_wc_stock_notifications'\" --skip-column-names" | tr -d '[:space:]')"
   case "$woo_version:$stock_topology" in
     11.0.0:0|11.0.1:1) ;;
