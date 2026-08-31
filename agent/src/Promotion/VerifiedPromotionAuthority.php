@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 namespace WPrism;
 
-require_once __DIR__ . '/../Kernel/Canon.php';
-
 /**
  * Verify the deletion-admitting full-promotion receipt through the fixed
  * recovery runtime installed by adoption. The signed v3 receipt, rather than
@@ -155,7 +153,7 @@ final class VerifiedPromotionAuthority {
                     ])
                 ));
             }
-            $actual = hash('sha256', Canon::encode([
+            $actual = hash('sha256', self::recovery_canonical([
                 'code' => $code,
                 'effects_inventory' => $selectedEffects,
                 'selected_actions' => $actions,
@@ -168,6 +166,53 @@ final class VerifiedPromotionAuthority {
         throw new \RuntimeException(
             'wprism: verified promotion receipt resources do not match the fresh target plan selection'
         );
+    }
+
+    /**
+     * The signed receipt is produced by recovery/CanonicalJson.php, whose
+     * compact bytes deliberately differ from repository Canon::encode(). The
+     * drop-in cannot load recovery code, so this exact codec twin is guarded
+     * against RollbackControl::canonical() by the scoped-promotion regression.
+     *
+     * @param array<string,mixed> $value
+     */
+    private static function recovery_canonical(array $value): string {
+        try {
+            return (string) json_encode(
+                self::normalize_recovery_value($value),
+                JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+            );
+        } catch (\JsonException $failure) {
+            throw new \RuntimeException(
+                'wprism: verified promotion recovery resource encoding failed',
+                0,
+                $failure
+            );
+        }
+    }
+
+    private static function normalize_recovery_value(mixed $value): mixed {
+        if (!is_array($value)) {
+            if (is_float($value) || is_resource($value) || is_object($value)) {
+                throw new \RuntimeException(
+                    'wprism: verified promotion plan contains an unsupported recovery resource value'
+                );
+            }
+            return $value;
+        }
+        if (array_is_list($value)) {
+            return array_map(self::normalize_recovery_value(...), $value);
+        }
+        ksort($value, SORT_STRING);
+        foreach ($value as $key => $item) {
+            if (!is_string($key)) {
+                throw new \RuntimeException(
+                    'wprism: verified promotion recovery resource object keys must be strings'
+                );
+            }
+            $value[$key] = self::normalize_recovery_value($item);
+        }
+        return $value;
     }
 
     /** @return array{control_root:string,format:string} */

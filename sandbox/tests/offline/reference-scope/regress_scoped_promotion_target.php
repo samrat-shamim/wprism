@@ -177,6 +177,7 @@ namespace {
     use WPrism\VerifiedPromotionAuthority;
     use WPrism\ScopedPromotionTargetLedger;
     use WPrism\Orchestrator\CodeDeploy;
+    use WPrism\Recovery\RollbackControl;
 
     /**
      * Enough of wpdb's promotion-lock surface to drive the real SQL-facing
@@ -332,6 +333,7 @@ namespace {
     require_once "$root/agent/src/Promotion/PromotionLock.php";
     require_once "$root/agent/src/Promotion/ScopedPromotionAuthority.php";
     require_once "$root/agent/src/Promotion/VerifiedPromotionAuthority.php";
+    require_once "$root/recovery/rollback-control.php";
     require_once "$root/agent/src/Apply/Apply.php";
     require_once "$root/agent/src/Command/Cli.php";
     require_once "$root/cli/src/Transport/CodeDeploy.php";
@@ -476,7 +478,7 @@ namespace {
         ]],
         'uploads_inventory' => [],
     ];
-    $resourceHash = hash('sha256', \WPrism\Canon::encode([
+    $resourceHash = hash('sha256', RollbackControl::canonical([
         'code' => $resourcePlan['code'],
         'effects_inventory' => $resourcePlan['effects_inventory'],
         'selected_actions' => $resourcePlan['selected_actions'],
@@ -491,7 +493,7 @@ namespace {
     } catch (Throwable $failure) {
         $check(false, 'valid plan-bound resource authority was refused (' . $failure->getMessage() . ')');
     }
-    $lifecycleResourceHash = hash('sha256', \WPrism\Canon::encode([
+    $lifecycleResourceHash = hash('sha256', RollbackControl::canonical([
         'code' => $resourcePlan['code'],
         'effects_inventory' => array_merge(
             $resourcePlan['lifecycle_effects_inventory'],
