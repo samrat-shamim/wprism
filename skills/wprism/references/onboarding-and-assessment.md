@@ -13,6 +13,14 @@ CLI's `--help`; the examples show the current workflow shape.
 | Existing local site with authorized bootstrap | `wprism adopt <env>`, then `wprism init <env>` | Installs the control plane and establishes baselines only through the explicit local bootstrap contract |
 | Existing Docker or already adopted target | `wprism assess <env>` | Docker never infers delivery authority from shell or bind-mount access |
 
+The demo surface is intentionally human-oriented. Its public verbs emit prose,
+`demo apply` accepts no expected candidate digest and may commit the current
+dirty source tree, and interrupted cleanup has no machine-readable terminal
+result or public reconciliation token. Treat demo output as diagnostic text,
+never claim that it applied an exact previously reviewed candidate, and report
+cleanup as `outcome unknown` if `demo stop` is interrupted or ownership cannot
+be reconciled through the public command.
+
 Do not invent `site.wprism.json` or silently add environment authority. The
 committed site file and the untracked, machine-local `.wprism-envs.json` have
 different trust roles. An overlay entry replaces a committed entry whole; it
@@ -32,23 +40,41 @@ adopt -> assess -> init -> optional initial Git publication/handoff
 Use it only when the user requested onboarding. Without a Git URL it stops
 after init and prints a handoff-only continuation; do not improvise repository
 publication. The remote must be empty and independently reachable by both the
-controller and target.
+controller and target. Success and handoff are prose-only: there is no canonical
+receipt binding target, repository, environment generation, capability or
+contract evidence, and a release-preparation next action. Re-observe those facts
+through their public commands before later work, and never carry onboarding
+prose forward as release readiness or authority.
 
-## Read-only assessment
+## Assessment observation
 
-Start with:
+Start with the two observations that do not write the site repository:
 
 ```sh
 wprism doctor <env>
 wprism driver-capabilities <env> --operation=<workflow> --format=json
-wprism assess <env> --format=json
 ```
 
 `driver-capabilities` is local configuration admission and contacts no target.
-`doctor` contacts the environment. `assess` is the authoritative read-only
-inventory/readiness projection and can be substantially larger than ordinary
+`doctor` contacts the environment. Before assessment, inspect Git status and
+`.wprism/contract/<env>/proposed.json` plus
+`.wprism/contract/projection.json`. `assess` writes a fresh local proposal and,
+when an accepted contract exists, rewrites the local projection. It does not
+write the target, but it can overwrite an in-progress proposal for the same
+environment. If either local file contains review work that has not been
+preserved by the responsible reviewer, stop before assessment.
+
+Then capture the authoritative complete report:
+
+```sh
+wprism assess <env> --format=json
+```
+
+The inventory/readiness projection can be substantially larger than ordinary
 command results. Capture its complete stdout without a generic small ceiling.
-If it is truncated, reject it as evidence and do not infer omitted rows.
+If it is truncated, reject it as evidence and do not infer omitted rows. Exit
+`3` is a complete assessment with one or more red readiness rows; it is not a
+refusal. Exit `1` means the assessment refused.
 
 Assessment next actions are a closed vocabulary. Follow the exact action and
 operation named by the document:
@@ -73,23 +99,27 @@ assessment does not emit them as executable advice.
 The contract sequence is:
 
 ```sh
-wprism contract <env> propose
-wprism contract <env> show
+wprism contract <env> propose --format=json
 # human reviews and edits .wprism/contract/<env>/proposed.json
 wprism contract <env> accept
 wprism contract <env> show
 ```
 
-`propose` re-assesses and writes a repository-local proposal. It deliberately
-contains unresolved decisions and is never authority. Present the exact
-proposal, unsupported boundaries, journeys, and external effects to the human
-reviewer. Do not invent `decided_by`, a reason, or a journey on their behalf.
+Inspect and preserve any existing proposal before `propose`, because proposing
+re-assesses and replaces that repository-local file. The JSON form returns the
+same new proposal for review. `show` is not a proposal viewer: it reads only the
+already accepted site-level contract and refuses with `contract_missing` on a
+fresh site. The proposal deliberately contains unresolved decisions and is
+never authority. Present its exact bytes, unsupported boundaries, journeys,
+and external effects to the human reviewer. Do not invent `decided_by`, a
+reason, or a journey on their behalf.
 
 `accept` is appropriate only after that review. It re-assesses, refuses a stale
 or cross-environment proposal, writes canonical site-level `contract.json` and
 `projection.json`, and stages them. It never commits. The commit is the
-organization's review signature, so leave it for the responsible human unless
-they explicitly instruct the exact commit after reviewing the staged bytes.
+organization's review signature, so the responsible human makes it. The agent
+never makes this commit on the reviewer's behalf, even when it performed the
+mechanical proposal or acceptance steps.
 
 An adapter certificate and a contract attestation are different claims under
 different trust roots. Neither means WPrism tested the site, and neither may be
@@ -97,9 +127,14 @@ inferred from an accepted proposal.
 
 ## Canonical repository guides
 
-For the matching WPrism checkout, consult:
+When a matching WPrism source checkout is available, cross-check:
 
 - `docs/guides/quickstart.md`
 - `docs/guides/assess.md`
 - `docs/adoption.md`
 - `cli/README.md`
+
+These checkout guides add version-specific examples; their absence from an
+installed-CLI environment does not weaken or replace the safety boundaries in
+this skill. Bind every executable detail to the installed command's help and
+validated output format.

@@ -85,9 +85,13 @@ nonzero status green. Review the exact tombstones and affected surface first.
 
 ## Canonical repository guides
 
-For the matching WPrism checkout, consult:
+When a matching WPrism source checkout is available, cross-check:
 
 - `docs/guides/daily-workflow.md`
 - `docs/guides/release.md` for preview/rehearsal containment
 - `docs/guides/capabilities-and-limits.md`
 - `docs/guides/code-updates.md` for plugin/theme code changes
+
+These guides add version-specific examples. For an installed CLI without its
+source checkout, retain this reference's boundaries and bind executable details
+to the installed help and validated machine formats.

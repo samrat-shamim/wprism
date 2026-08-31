@@ -18,11 +18,22 @@ wprism recover <env> --list --format=json
 wprism status <env>
 ```
 
-Select a receipt only from the target's current public catalog and bind its
-exact identity, generation, state, kind, coverage, checkpoint evidence, and
-claim. Never infer the correct checkpoint from timestamps, filenames, or the
+The current public catalog supplies a row's identity, state, kind, coverage and,
+for the active signed receipt, generation and artifact identity. It does not
+bind a retained row to the failed release or publish that row's checkpoint
+evidence and recovery claim; the release outcome/status does not identify the
+retained recovery receipt either. Therefore the agent cannot derive the right
+retained checkpoint from the catalog. Use only an exact selection supplied and
+reconciled by the incident operator or backup provider against independently
+preserved release evidence. If that binding is unavailable, stop and report
+`reconciliation required`; never infer it from timestamps, filenames, or the
 latest-looking row. A newer begun release can make an older retained checkpoint
 unsafe even while the file still exists.
+
+For the narrow signed-receipt path below, select the operator-identified current
+public row and let `recover prepare` freeze and validate its exact evidence and
+claim. A prepare refusal is the boundary; it does not justify choosing a
+different receipt.
 
 Read the literal `restores`, `does_not_restore`, and maximum-loss boundary to
 the human responsible for the incident. Do not soften or summarize away an
@@ -111,6 +122,9 @@ that owns backups.
 
 ## Canonical repository guide
 
-For the matching WPrism checkout, read `docs/guides/recovery.md` before any
-recovery mutation. It is authoritative for eligible receipts, current formats,
-profile coverage, refusal remedies, and enforced ordering.
+When a matching WPrism source checkout is available, cross-check
+`docs/guides/recovery.md` for version-specific examples and refusal remedies.
+The skill package itself carries the required safety decisions for an installed
+CLI. In either case, admit only flags and formats exposed by that installed
+command; an unavailable guide never permits guessing across a compatibility
+mismatch.

@@ -81,6 +81,16 @@ The composed customer loop sits on top of those: `wprism assess` is a read-only,
 
 The core loop for unclassified writes: loud block → `wprism pending <env>` (journal-evidenced proposals, ref hints, secret flags) → `wprism classify <env>` triage (interactive or `--accept-proposals`; secrets can never be authored silently) → clean capture → `wp wprism policy-to-manifest` export. `wprism adapter-draft` turns captured state into inert `_draft` manifest candidates for human ratification.
 
+## Agent skill
+
+The portable [WPrism skill package](skills/wprism/) teaches a skill-capable
+agent to operate the public CLI and its versioned machine contracts. Install or
+load the complete directory through the agent harness's normal skill mechanism;
+the package is usable with a matching installed `wprism` executable and does
+not require this source checkout for its core workflows. It is guidance, not an
+authority source: it supplies no credentials, signatures, or permission to
+mutate a WordPress environment.
+
 ## Reviewed and tested, not asserted
 
 Capability claims are derived, never duplicated by hand. A claim passes three gates in order: `adapter-packages/<slug>/package/manifest.json` **declares** the surface; its sibling `package/disposition.json`, kept outside the manifest document so no adapter can certify itself, records a human's **reviewed** status and reason; and the capsule's named conformance/live tests (or an explicit participant-declared [integration scenario](integration-scenarios/)) **exercise** it against a live WordPress pair. Core and shared compatibility live separately in [platform/adapter-library/](platform/adapter-library/). `tools/capability-doc.php render` projects the current source set to stdout, while `make release-gate` validates it without requiring an adapter edit outside its capsule. `wprism capabilities` answers the same question against a live target. Review can also *reduce* capability: working but unreviewable behavior is removed and refused, not shipped under-proven.
@@ -99,6 +109,7 @@ What this deliberately is not: a claim is not sealed to a content-addressed evid
 | [docs/roadmap.md](docs/roadmap.md) | Owner roadmap: thesis, horizons, standing decisions |
 | [agent/](agent/) | The WPrism agent — drop-in mu-plugin + `wp wprism …` engine commands |
 | [cli/](cli/) | The `wprism` orchestrator CLI + transports |
+| [skills/wprism/](skills/wprism/) | Portable agent skill for the public CLI and machine-contract workflows |
 | [adapter-packages/](adapter-packages/) | One capsule per plugin adapter: shipped package bytes plus package-local tests, fixtures, and evidence |
 | [platform/adapter-library/](platform/adapter-library/) | Core classification, profiles, platform compatibility, and adapter authority roots |
 | [integration-scenarios/](integration-scenarios/) | Explicitly participant-declared cross-adapter evidence |

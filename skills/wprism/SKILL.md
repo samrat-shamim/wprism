@@ -13,11 +13,15 @@ credentials, or permission to mutate an environment.
 
 1. Locate the site repository root containing `site.wprism.json` and the CLI
    selected by the user or project. In a WPrism source checkout, use
-   `cli/wprism`; otherwise use the installed `wprism` executable.
+   `cli/wprism`; otherwise use the installed `wprism` executable. The complete
+   `skills/wprism` directory is the portable skill package; do not assume its
+   parent WPrism source checkout is present.
 2. Run `<cli> --help` before relying on a command or format. The skill can be
    newer than the installed distribution. If a required verb, flag, or format
    is absent, stop and report the compatibility mismatch; do not substitute a
-   legacy or internal command.
+   legacy or internal command. Before consuming machine output, read the
+   [compatibility contract](references/compatibility.md) and reject any
+   document shape or version it does not admit.
 3. Inspect `git status`, `<cli> envs`, and the target environment named by the
    user. Do not silently choose an environment from a suggestive name such as
    `production` or `stage`.
@@ -39,7 +43,9 @@ credentials, or permission to mutate an environment.
 - For plugin/theme updates, follow `docs/guides/code-updates.md` from the
   matching WPrism checkout. For missing or incomplete adapters, follow
   `docs/guides/adapter-authoring.md`. Those are specialist authoring workflows,
-  not shortcuts around an assessment refusal.
+  not shortcuts around an assessment refusal. If that version-matched source
+  checkout is unavailable, report that the authoring workflow is unavailable;
+  do not apply guidance from a different distribution.
 
 ## Hold the public-contract boundary
 
@@ -78,10 +84,13 @@ credentials, or permission to mutate an environment.
 - Never assert `--writers-excluded` merely because no WPrism process is
   visible. It means an external maintenance window excludes every writer for
   the entire recovery window.
-- On a nonzero exit, refusal envelope, unknown format, uncertain publication,
-  or ambiguous consumption/mutation boundary, stop. Preserve the evidence and
-  use the documented read-only status or reconciliation path. Never make an
-  automatic second mutation attempt.
+- Interpret exit status through the installed command's public contract. For
+  example, assessment and merge-check exit `3` can carry a complete, valid
+  result with blockers or conflicts; that is not a refusal or authority to
+  mutate. On a refusal envelope, usage/error exit, unknown format, uncertain
+  publication, or ambiguous consumption/mutation boundary, stop. Preserve the
+  evidence and use the documented read-only status or reconciliation path.
+  Never make an automatic second mutation attempt.
 - `wprism demo` is a disposable local exercise, not a production release or
   recovery contract. Do not promote its receipts or prose into production
   evidence.

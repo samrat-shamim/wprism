@@ -126,6 +126,9 @@ pre-consumption cases earn retry; ambiguous commitment never does.
 
 ## Canonical repository guide
 
-For the matching WPrism checkout, read `docs/guides/release.md` before executing
-a production release. It is authoritative for the installed command's current
-formats, flags, refusal families, and recovery-profile semantics.
+When a matching WPrism source checkout is available, cross-check
+`docs/guides/release.md` for version-specific examples and refusal remedies.
+The skill package itself carries the required release safety decisions for an
+installed CLI. In either case, admit only flags and formats exposed by that
+installed command; an unavailable guide never permits guessing across a
+compatibility mismatch.
