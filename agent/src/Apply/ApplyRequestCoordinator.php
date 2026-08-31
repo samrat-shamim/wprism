@@ -384,6 +384,11 @@ final class ApplyRequestCoordinator {
         }
         Snapshot::repair_truncated_entity_types($policy); // issue #3246
         $plan = $a->build_plan($opts, $compiled);
+        // A full plan can authorize target-relative rollback resources only
+        // when its selected actions/effects are bound to the exact compiled
+        // bytes it observed. Older hosts may ignore this additive witness;
+        // verified promotion requires and rechecks it before any mutation.
+        $plan['artifact_hash'] = $compiled->artifact_hash();
         if (Ledger::kv_get('apply_in_progress') !== null) {
             $a->warnings[] = 'previous apply did not complete required rebuilds; canonical entities require retry';
         }

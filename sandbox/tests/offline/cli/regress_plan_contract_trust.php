@@ -629,6 +629,8 @@ pct_refuses(
 );
 pct_ok($contract::requireComplete(pct_plan(), 'unit surface') === pct_plan(),
     'requireComplete returns the same plan once it is trustworthy');
+pct_ok(in_array('artifact_hash', $contract::optionalProjections(), true),
+    'a full plan may publish the compiled identity that verified promotion explicitly requires');
 
 // ------------------------------------------- emitter/validator drift (pin)
 //
