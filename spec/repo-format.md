@@ -3318,7 +3318,7 @@ other effect type or provider resource.
    a native/provider action or attachment-offload hook, or write target state.
    Invalid, unsupported, absent, ambiguous, and source-missing selectors
    use finite refusal codes and never echo the untrusted selector.
-3. **Reference safety**: compilation blocks surviving canonical references. Adapter guards check runtime reverse references; a missing required guard table also blocks. `--force-delete-referenced` is an explicit report-not-hide escape hatch.
+3. **Reference safety**: compilation blocks surviving canonical references. Adapter guards check runtime reverse references; a missing required guard table also blocks. A guard may declare `optional_table: true` only when an adapter-reviewed supported version legitimately omits that storage surface: exact absence then proves zero rows under the signed writer exclusion, while presence still requires the ordinary InnoDB/index/locked-row proof and any probe error blocks. `--force-delete-referenced` is an explicit report-not-hide escape hatch.
 4. **Canary armed**: listeners on `save_post`, `transition_post_status`, `created_term`, `wp_insert_comment` + `pre_wp_mail` + `pre_http_request`; any fire during apply = hard failure.
 5. **Phase 1** — upsert rows (posts, terms) with placeholder refs, direct `$wpdb`; mint local ids; write `_wprism_uuid`.
 6. **Phase 2** — resolve refs through the ledger: parents, metas, term relationships, menu structure, option values, body detokenization (block registry restores numeric types).

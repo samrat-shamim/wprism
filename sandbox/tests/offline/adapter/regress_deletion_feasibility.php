@@ -649,7 +649,7 @@ wprism_check_throws(
 // …and the refusal NAMES it. The author who hits this is annotating a guard
 // by hand, and `wp help wprism adapter-deletion-feasibility` documents
 // `--proposal` only as "`<selector>: {"guards": [...]}` — minus `cascades`",
-// listing none of the 13 keys in GUARD_KEYS. Measured on a live WPForms Lite
+// listing none of the 14 keys in GUARD_KEYS. Measured on a live WPForms Lite
 // pair: the field that hit it was `note`, and neither the key nor the legal
 // set reached the terminal.
 $unmodelled = null;
@@ -915,7 +915,7 @@ wprism_check(
 );
 wprism_check(
     is_string($noteEnvelope['remediation'] ?? null)
-        && str_contains($noteEnvelope['remediation'], 'option_name_ref, reason, ref'),
+        && str_contains($noteEnvelope['remediation'], 'option_name_ref, optional_table, reason, ref'),
     'and the remediation hands the author the closed guard grammar instead of "inspect the proposed guards"'
 );
 wprism_check(

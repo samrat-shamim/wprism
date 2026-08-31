@@ -120,7 +120,26 @@ final class DeleteGuardLockCoordinator {
                     $invalidGuards[] = (string) ($guard['table'] ?? '');
                     continue;
                 }
-                $tables[(string) $wpdb->prefix . $declared] = true;
+                $table = (string) $wpdb->prefix . $declared;
+                if (($guard['optional_table'] ?? null) === true) {
+                    // The signed all-database-writer exclusion is already
+                    // bound for this transaction. An exact absence probe can
+                    // therefore omit a table that this reviewed adapter says
+                    // the supported version may not install, while a present
+                    // table still enters the ordinary MDL/InnoDB lock proof.
+                    $wpdb->last_error = '';
+                    $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+                    $error = trim((string) ($wpdb->last_error ?? ''));
+                    if ($error !== '') {
+                        throw new \RuntimeException(
+                            "wprism: deletion guard locking refused — optional guard table existence probe failed: $error"
+                        );
+                    }
+                    if (!$exists) {
+                        continue;
+                    }
+                }
+                $tables[$table] = true;
             }
         }
         if ($invalidGuards) {

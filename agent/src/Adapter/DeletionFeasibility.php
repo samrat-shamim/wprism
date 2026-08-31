@@ -125,7 +125,7 @@ final class DeletionFeasibility {
      */
     private const GUARD_KEYS = [
         'cast', 'column', 'exclude_where', 'id_kind', 'identity_column', 'meta_key',
-        'option_name_ref', 'reason', 'ref', 'source_id_kind', 'source_pk', 'table', 'where',
+        'option_name_ref', 'optional_table', 'reason', 'ref', 'source_id_kind', 'source_pk', 'table', 'where',
     ];
 
     /**
@@ -277,7 +277,7 @@ final class DeletionFeasibility {
                     // the obvious thing an author annotating a guard writes,
                     // `wp help wprism adapter-deletion-feasibility` documents
                     // `--proposal` only as "`<selector>: {"guards": [...]}` —
-                    // minus `cascades`" and lists none of the 13 legal keys,
+                    // minus `cascades`" and lists none of the 14 legal keys,
                     // and the sentence that would have explained it was being
                     // swallowed (see refuse() below). So the refusal names the
                     // key, its position, and the closed set it is missing from.

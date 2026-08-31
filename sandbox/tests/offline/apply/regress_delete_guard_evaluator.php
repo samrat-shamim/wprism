@@ -15,10 +15,13 @@ if (!defined('ARRAY_A')) {
 }
 require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require_once __DIR__ . '/../../../../agent/src/Delete/DeleteGuardEvaluator.php';
+require_once __DIR__ . '/../../../../agent/src/Delete/DeleteGuardReferenceScanner.php';
 require_once __DIR__ . '/../../../../agent/src/Apply/ProtectedPostIdentity.php';
 
 use WPrism\DeleteGuardEvaluator;
+use WPrism\DeleteGuardReferenceScanner;
 use WPrism\Db;
+use WPrism\Policy;
 use WPrism\ProtectedPostIdentity;
 
 final class DeleteGuardEvaluatorFakeWpdb {
@@ -62,6 +65,9 @@ final class DeleteGuardEvaluatorFakeWpdb {
     public int $stateProbeStep = 0;
     public mixed $replacementActiveTransaction = '0';
     public bool $protectedLockFixture = false;
+    /** @var list<string> */
+    public array $absentGuardTables = [];
+    public bool $guardTableProbeError = false;
     public bool $replaceConnectionOnProtectedOwnerLock = false;
     public bool $replaceConnectionOnProtectedUpdate = false;
     public bool $replaceConnectionOnProtectedReadback = false;
@@ -216,6 +222,13 @@ final class DeleteGuardEvaluatorFakeWpdb {
 
     public function get_var(string $sql): int|string|null|false {
         $this->queries[] = $sql;
+        if (preg_match("/^SHOW TABLES LIKE '([^']+)'$/D", $sql, $match) === 1) {
+            if ($this->guardTableProbeError) {
+                $this->last_error = 'simulated guard table existence failure';
+                return false;
+            }
+            return in_array($match[1], $this->absentGuardTables, true) ? null : $match[1];
+        }
         if (in_array($sql, ['SELECT CONNECTION_ID()', 'SELECT @@in_transaction'], true)) {
             $this->stateProbeStep++;
             if ($this->replaceConnectionAtStateProbeStep === $this->stateProbeStep) {
@@ -357,6 +370,49 @@ $GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([
 $check(
     DeleteGuardEvaluator::lock_index(['option_name_ref' => true, 'column' => 'ignored'], 'wp_options') === 'option_name',
     'option-name guard locks the declared option-name range rather than its incidental column'
+);
+
+$optionalDb = new DeleteGuardEvaluatorFakeWpdb([]);
+$optionalDb->absentGuardTables = ['wp_version_optional_refs'];
+$GLOBALS['wpdb'] = $optionalDb;
+$policyWithoutConstructor = (new ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
+$scanner = new DeleteGuardReferenceScanner($policyWithoutConstructor);
+$requiredAbsent = $scanner->count(
+    ['table' => 'version_optional_refs', 'column' => 'product_id', 'id_kind' => 'post'],
+    '00000000-0000-0000-0000-000000000001',
+    [],
+    []
+);
+$optionalAbsent = $scanner->count(
+    [
+        'table' => 'version_optional_refs', 'column' => 'product_id',
+        'id_kind' => 'post', 'optional_table' => true,
+    ],
+    '00000000-0000-0000-0000-000000000001',
+    [],
+    []
+);
+$check(
+    $requiredAbsent === [
+        'count' => 0,
+        'error' => "required guard table 'version_optional_refs' is absent",
+        'rows' => [],
+    ] && $optionalAbsent === ['count' => 0, 'error' => null, 'rows' => []],
+    'only an explicit optional-table guard treats exact table absence as zero references'
+);
+$optionalDb->guardTableProbeError = true;
+$probeFailure = $scanner->count(
+    [
+        'table' => 'version_optional_refs', 'column' => 'product_id',
+        'id_kind' => 'post', 'optional_table' => true,
+    ],
+    '00000000-0000-0000-0000-000000000001',
+    [],
+    []
+);
+$check(
+    str_contains((string) $probeFailure['error'], 'existence probe failed') && $probeFailure['rows'] === [],
+    'an optional-table existence probe error remains blocking rather than masquerading as absence'
 );
 
 $GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([

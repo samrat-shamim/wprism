@@ -194,6 +194,29 @@ $assertThrows(
     'an unrelated lock column cannot claim a next-key boundary'
 );
 
+$optionalTable = $manifests;
+$optionalTable[0]['deletions']['table:things']['guards'][0]['optional_table'] = true;
+$optionalCapability = (new DeletionCapabilityResolver(
+    $optionalTable,
+    $optionRules($optionalTable),
+    ['string', 'csv']
+))->capability('table:things');
+$check(
+    ($optionalCapability['guards'][0]['optional_table'] ?? null) === true,
+    'an adapter may explicitly declare a version-optional guard table without weakening the present-table guard'
+);
+$badOptionalTable = $optionalTable;
+$badOptionalTable[0]['deletions']['table:things']['guards'][0]['optional_table'] = false;
+$assertThrows(
+    static fn() => (new DeletionCapabilityResolver(
+        $badOptionalTable,
+        $optionRules($badOptionalTable),
+        ['string', 'csv']
+    ))->capability('table:things'),
+    'optional_table may only be true',
+    'a false-like optional-table declaration refuses instead of silently changing missing-table safety'
+);
+
 $closed = $manifests;
 foreach ($closed as $position => &$manifest) {
     $manifest['plugin'] = "fixture-$position/plugin.php";

@@ -38,7 +38,20 @@ final class DeleteGuardReferenceScanner {
         global $wpdb;
         $table = $wpdb->prefix . preg_replace('/[^A-Za-z0-9_]/', '', $guard['table']);
         $column = preg_replace('/[^A-Za-z0-9_]/', '', $guard['column']);
-        if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table))) {
+        $wpdb->last_error = '';
+        $tableExists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+        $tableProbeError = trim((string) ($wpdb->last_error ?? ''));
+        if ($tableProbeError !== '') {
+            return [
+                'count' => 0,
+                'error' => "guard table '{$guard['table']}' existence probe failed: $tableProbeError",
+                'rows' => [],
+            ];
+        }
+        if (!$tableExists) {
+            if (($guard['optional_table'] ?? null) === true) {
+                return ['count' => 0, 'error' => null, 'rows' => []];
+            }
             return ['count' => 0, 'error' => "required guard table '{$guard['table']}' is absent", 'rows' => []];
         }
         $localId = Ledger::id_for($targetUuid, (string) $guard['id_kind']);

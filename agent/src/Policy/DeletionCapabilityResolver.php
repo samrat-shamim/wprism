@@ -100,6 +100,11 @@ final class DeletionCapabilityResolver {
                         "wprism: manifest deletion capability '$selector' guard[$i].forceable may only be false"
                     );
                 }
+                if (array_key_exists('optional_table', $guard) && $guard['optional_table'] !== true) {
+                    throw new \RuntimeException(
+                        "wprism: manifest deletion capability '$selector' guard[$i].optional_table may only be true"
+                    );
+                }
                 $hasMetaKey = array_key_exists('meta_key', $guard);
                 $hasMetaRef = array_key_exists('ref', $guard);
                 if ($hasMetaKey !== $hasMetaRef) {
