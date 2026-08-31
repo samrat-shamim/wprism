@@ -116,6 +116,7 @@ use WPrismTest\WpStore;
 final class RecordedIndexWpdb {
     /** @var list<string> every recorded statement served, in order */
     public array $served = [];
+    private ?int $warningCode = null;
 
     /** @param array<string,array{rows?:list<array<string,mixed>>,error?:string,then?:array<string,mixed>}> $recorded collapsed SQL => answer */
     /** @param list<string> $tables */
@@ -143,10 +144,28 @@ final class RecordedIndexWpdb {
     }
 
     public function get_var($sql = null, $x = 0, $y = 0): mixed {
+        if (preg_match('/^SELECT 1 FROM `([A-Za-z0-9_]+)` LIMIT 0$/D', (string) $sql, $match) === 1) {
+            if (in_array($match[1], $this->tables, true)) {
+                $this->inner->last_error = '';
+                $this->warningCode = null;
+                return null;
+            }
+            $this->inner->last_error = 'simulated absent table';
+            $this->warningCode = 1146;
+            return false;
+        }
         return $this->inner->get_var($sql, $x, $y);
     }
 
     public function get_results($sql = null, $format = null): mixed {
+        if ((string) $sql === 'SHOW WARNINGS') {
+            $this->inner->last_error = '';
+            return $this->warningCode === null ? [] : [[
+                'Level' => 'Error',
+                'Code' => $this->warningCode,
+                'Message' => 'simulated absent table',
+            ]];
+        }
         if (str_contains((string) $sql, 'information_schema.TABLES')) {
             $this->inner->last_error = '';
             return array_values(array_map(
@@ -367,6 +386,74 @@ wprism_check_same(
     [['index' => 'post_parent', 'prefix' => null]],
     $coreRows[1]['leading'],
     'a column that is only a LATER part of a composite index is not reported as leading it'
+);
+
+// The certified WooCommerce deletion guards are the product path that first
+// exercises `forceable`, `table_absence`, and an explicit `lock_column` in one
+// shipped selector. Feed those exact objects through the authoring report so
+// its grammar and lock-column projection cannot drift from the evaluator.
+$woo = json_decode(
+    (string) file_get_contents($repoRoot . '/adapter-packages/woocommerce/package/manifest.json'),
+    true
+);
+$wooProductGuards = (array) ($woo['deletions']['post:product']['guards'] ?? []);
+$guardByTable = static function (string $table) use ($wooProductGuards): array {
+    foreach ($wooProductGuards as $guard) {
+        if (is_array($guard) && ($guard['table'] ?? null) === $table) {
+            return $guard;
+        }
+    }
+    throw new RuntimeException("shipped WooCommerce guard not found: $table");
+};
+$stockNotificationGuard = $guardByTable('wc_stock_notifications');
+$legacyOrderGuard = $guardByTable('woocommerce_order_itemmeta');
+
+$target([], []);
+$stockAbsent = DeletionFeasibility::report([
+    'post:product' => ['guards' => [$stockNotificationGuard]],
+])['selectors']['post:product']['guards'][0];
+wprism_check_same(
+    [true, false, null],
+    [$stockAbsent['absence_means_empty'], $stockAbsent['table_present'], $stockAbsent['reason']],
+    'the exact Woo stock-notification guard accepts proven 11.0.0 table absence as empty'
+);
+
+$target(['wp_wc_stock_notifications'], [
+    'SHOW INDEX FROM `wp_wc_stock_notifications`' => ['rows' => [
+        $idx('product_id', 'product_id'),
+    ]],
+]);
+$stockPresent = DeletionFeasibility::report([
+    'post:product' => ['guards' => [$stockNotificationGuard]],
+])['selectors']['post:product']['guards'][0];
+wprism_check_same(
+    [true, true, 'product_id', 'product_id'],
+    [
+        $stockPresent['absence_means_empty'],
+        $stockPresent['table_present'],
+        $stockPresent['lock_column'],
+        $stockPresent['index'],
+    ],
+    'the exact Woo stock-notification guard accepts forceable=false and proves the present-table lock index'
+);
+
+$target(['wp_woocommerce_order_itemmeta'], [
+    'SHOW INDEX FROM `wp_woocommerce_order_itemmeta`' => ['rows' => [
+        $idx('meta_key', 'meta_key', 1, 32),
+    ]],
+]);
+$legacyOrder = DeletionFeasibility::report([
+    'post:product' => ['guards' => [$legacyOrderGuard]],
+])['selectors']['post:product']['guards'][0];
+wprism_check_same(
+    ['meta_value', 'meta_key', 'meta_key', 32],
+    [
+        $legacyOrder['column'],
+        $legacyOrder['lock_column'],
+        $legacyOrder['index'],
+        $legacyOrder['prefix'],
+    ],
+    'the exact Woo legacy-order guard honors its explicit lock_column instead of misreporting meta_value'
 );
 
 // --------------------------------------------------------------------------
@@ -687,7 +774,7 @@ wprism_check_throws(
 // …and the refusal NAMES it. The author who hits this is annotating a guard
 // by hand, and `wp help wprism adapter-deletion-feasibility` documents
 // `--proposal` only as "`<selector>: {"guards": [...]}` — minus `cascades`",
-// listing none of the 14 keys in GUARD_KEYS. Measured on a live WPForms Lite
+// listing none of the 16 keys in GUARD_KEYS. Measured on a live WPForms Lite
 // pair: the field that hit it was `note`, and neither the key nor the legal
 // set reached the terminal.
 $unmodelled = null;
@@ -705,9 +792,10 @@ wprism_check(
     'the refusal names the offending guard field and where it sits, not merely that one exists'
 );
 wprism_check(
-    $unmodelled instanceof \WPrism\CommandRefusalException
-        && str_contains($unmodelled->remediation, 'cast, column, exclude_where, id_kind, identity_column, meta_key')
-        && str_contains($unmodelled->remediation, 'source_id_kind, source_pk, table, table_absence, where'),
+$unmodelled instanceof \WPrism\CommandRefusalException
+        && str_contains($unmodelled->remediation, 'cast, column, exclude_where, forceable, id_kind, identity_column, lock_column')
+        && str_contains($unmodelled->remediation, 'meta_key, option_name_ref, reason, ref, source_id_kind, source_pk, table')
+        && str_contains($unmodelled->remediation, 'table_absence, where'),
     'and its remediation lists the whole closed guard grammar, which is the fact `wp help` never gives'
 );
 wprism_check(

@@ -109,23 +109,24 @@ final class DeletionFeasibility {
      * The guard fields this report models — `DeletionCapabilityResolver::
      * capability()`'s own guard grammar (`:47-162`: `table`/`column`/`id_kind`
      * required, `meta_key`+`ref` paired, `option_name_ref`, `identity_column`,
-     * `source_id_kind`+`source_pk` paired, `where`, `exclude_where`, `cast`),
-     * plus `reason`, the authored prose the evaluator prints when a guard
-     * blocks (`DeleteGuardEvaluator.php:263`).
+     * `source_id_kind`+`source_pk` paired, `where`, `exclude_where`, `cast`,
+     * `forceable`, `lock_column`, and `table_absence`), plus `reason`, the
+     * authored prose the evaluator prints when a guard blocks.
      *
      * A field outside this set is refused rather than ignored: which column a
-     * guard locks on is decided by exactly `meta_key`/`ref`/`option_name_ref`/
-     * `column` (`DeleteGuardEvaluator.php:427-429`), so an unrecognized field
-     * could be a future selector rule, and silently dropping it would produce
-     * a confident answer about the wrong column. The set is copied from that
+     * guard locks on is decided by exactly `lock_column`/`meta_key`/`ref`/
+     * `option_name_ref`/`column`, so an unrecognized field could be a future
+     * selector rule, and silently dropping it would produce a confident
+     * answer about the wrong column. The set is copied from that
      * resolver rather than narrowed to the fields this report READS, because
      * refusing `cast` — a shape the manifest grammar accepts
      * (`DeletionCapabilityResolver.php:123-127`) — would refuse a legitimate
      * proposal over a field that cannot change which index answers it.
      */
     private const GUARD_KEYS = [
-        'cast', 'column', 'exclude_where', 'id_kind', 'identity_column', 'meta_key',
-        'option_name_ref', 'reason', 'ref', 'source_id_kind', 'source_pk', 'table', 'table_absence', 'where',
+        'cast', 'column', 'exclude_where', 'forceable', 'id_kind', 'identity_column', 'lock_column',
+        'meta_key', 'option_name_ref', 'reason', 'ref', 'source_id_kind', 'source_pk', 'table',
+        'table_absence', 'where',
     ];
 
     /**
@@ -418,6 +419,9 @@ final class DeletionFeasibility {
      * @param array<string,mixed> $guard
      */
     private static function lock_column(array $guard): string {
+        if (array_key_exists('lock_column', $guard)) {
+            return (string) $guard['lock_column'];
+        }
         return array_key_exists('meta_key', $guard) || array_key_exists('ref', $guard)
             ? 'meta_key'
             : (!empty($guard['option_name_ref']) ? 'option_name' : (string) ($guard['column'] ?? ''));

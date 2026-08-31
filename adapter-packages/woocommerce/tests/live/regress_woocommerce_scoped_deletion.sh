@@ -11,11 +11,17 @@ export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 # it back when that exclusion disappears at Delete's final pre-COMMIT check.
 
 wprism_ssh_adopt_extension() {
-  local woo_version="11.0.1"
+  local woo_version="${WPRISM_WOO_DELETE_VERSION:-}"
+  case "$woo_version" in
+    11.0.0|11.0.1) ;;
+    *) fail "WPRISM_WOO_DELETE_VERSION must select exact WooCommerce 11.0.0 or 11.0.1" ;;
+  esac
+  local woo_suffix="${woo_version//./}"
+  local woo_sku="WPRISM-SSH-DELETE-${woo_suffix}"
   local woo_pin executable_owners product_id product_file product_base product_uuid
   local expected_hash expected_revision source_path scope_hash plan_json
   local lookup_before failed_code failed_product failed_lookup retry_code
-  local status_json success_product success_lookup converged_plan
+  local status_json stock_topology success_product success_lookup converged_plan
   local failure_stdout="$DIAG_DIR/woocommerce-delete-failure.stdout"
   local failure_stderr="$DIAG_DIR/woocommerce-delete-failure.stderr"
   local success_stdout="$DIAG_DIR/woocommerce-delete-success.stdout"
@@ -31,6 +37,12 @@ wprism_ssh_adopt_extension() {
   ssh_fixture "cd /var/www/html && wp plugin install woocommerce --version=$woo_version --activate --quiet"
   [ "$(ssh_fixture 'cd /var/www/html && wp plugin get woocommerce --field=version')" = "$woo_version" ] \
     || fail "WooCommerce scoped-deletion extension left its exact plugin boundary"
+  stock_topology="$(ssh_fixture "cd /var/www/html && wp db query \"SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND BINARY TABLE_NAME=BINARY 'wp_wc_stock_notifications'\" --skip-column-names" | tr -d '[:space:]')"
+  case "$woo_version:$stock_topology" in
+    11.0.0:0|11.0.1:1) ;;
+    *) fail "WooCommerce $woo_version did not expose its reviewed stock-notification table topology" ;;
+  esac
+  pass "WooCommerce $woo_version exposes its exact reviewed stock-notification table topology ($stock_topology)"
 
   cat >"$TMP/woocommerce-owner-agreements.php" <<'PHP'
 <?php
@@ -172,7 +184,10 @@ PHP
 <?php
 declare(strict_types=1);
 
-$sku = 'WPRISM-SSH-DELETE-1101';
+$sku = getenv('WPRISM_DELETE_SKU');
+if (!is_string($sku) || preg_match('/^WPRISM-SSH-DELETE-110(?:0|1)$/D', $sku) !== 1) {
+    throw new RuntimeException('WooCommerce scoped-deletion SKU is missing or malformed');
+}
 if (wc_get_product_id_by_sku($sku)) {
     throw new RuntimeException('WooCommerce scoped-deletion product already exists');
 }
@@ -188,7 +203,7 @@ echo $product->save();
 PHP
   scp -F "$TMP/ssh_config" "$TMP/woocommerce-delete-product.php" \
     wprism-adopt-fixture:/home/wprism/recovery-fixture/woocommerce-delete-product.php >/dev/null
-  product_id="$(ssh_fixture 'cd /var/www/html && wp eval-file /home/wprism/recovery-fixture/woocommerce-delete-product.php')"
+  product_id="$(ssh_fixture "cd /var/www/html && WPRISM_DELETE_SKU='$woo_sku' wp eval-file /home/wprism/recovery-fixture/woocommerce-delete-product.php")"
   ssh_fixture 'rm -f /home/wprism/recovery-fixture/woocommerce-delete-product.php'
   [[ "$product_id" =~ ^[1-9][0-9]*$ ]] \
     || fail "WooCommerce scoped-deletion extension did not create its real product"
@@ -265,7 +280,7 @@ PHP
     and .state == "rolled_back" and .terminal == true
   ' <<<"$status_json" >/dev/null \
     || fail "WooCommerce provider-loss failure did not leave exact signed rolled-back deletion authority"
-  failed_product="$(ssh_fixture 'cd /var/www/html && wp eval '\''echo (int) wc_get_product_id_by_sku("WPRISM-SSH-DELETE-1101");'\''')"
+  failed_product="$(ssh_fixture "cd /var/www/html && wp eval 'echo (int) wc_get_product_id_by_sku(\"$woo_sku\");'")"
   failed_lookup="$(ssh_fixture "cd /var/www/html && wp db query \"SELECT COUNT(*) FROM wp_wc_product_meta_lookup WHERE product_id=$product_id\" --skip-column-names" | tr -d '[:space:]')"
   [ "$failed_product" = "$product_id" ] && [ "$failed_lookup" = "$lookup_before" ] \
     || fail "WooCommerce provider-loss rollback did not restore product and native lookup rows completely"
@@ -293,7 +308,7 @@ PHP
     and .scoped_apply.scoped_receipt.phase == "complete"
   ' "$success_stdout" >/dev/null \
     || fail "WooCommerce successful retry lacked its exact terminal deletion receipt"
-  success_product="$(ssh_fixture 'cd /var/www/html && wp eval '\''echo (int) wc_get_product_id_by_sku("WPRISM-SSH-DELETE-1101");'\''')"
+  success_product="$(ssh_fixture "cd /var/www/html && wp eval 'echo (int) wc_get_product_id_by_sku(\"$woo_sku\");'")"
   success_lookup="$(ssh_fixture "cd /var/www/html && wp db query \"SELECT COUNT(*) FROM wp_wc_product_meta_lookup WHERE product_id=$product_id\" --skip-column-names" | tr -d '[:space:]')"
   [ "$success_product" = "0" ] && [ "$success_lookup" = "0" ] \
     || fail "WooCommerce successful retry retained product or native lookup rows"

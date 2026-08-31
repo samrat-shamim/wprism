@@ -68,6 +68,9 @@ final class DeleteGuardEvaluatorFakeWpdb {
     /** @var ?list<array<string,mixed>> */
     public ?array $topologyRowsOverride = null;
     public bool $topologyProbeError = false;
+    /** @var array<string,int> exact table => MySQL error code */
+    public array $exactTableProbeErrorCodes = [];
+    private ?int $warningCode = null;
     public bool $replaceConnectionOnProtectedOwnerLock = false;
     public bool $replaceConnectionOnProtectedUpdate = false;
     public bool $replaceConnectionOnProtectedReadback = false;
@@ -222,6 +225,21 @@ final class DeleteGuardEvaluatorFakeWpdb {
 
     public function get_var(string $sql): int|string|null|false {
         $this->queries[] = $sql;
+        if (preg_match('/^SELECT 1 FROM `([A-Za-z0-9_]+)` LIMIT 0$/D', $sql, $match) === 1) {
+            $table = $match[1];
+            $code = $this->exactTableProbeErrorCodes[$table] ?? null;
+            if ($code === null && !array_key_exists($table, $this->tableEngines)) {
+                $code = 1146;
+            }
+            if ($code !== null) {
+                $this->warningCode = $code;
+                $this->last_error = "simulated exact table probe error $code";
+                return false;
+            }
+            $this->warningCode = null;
+            $this->last_error = '';
+            return null;
+        }
         if (in_array($sql, ['SELECT CONNECTION_ID()', 'SELECT @@in_transaction'], true)) {
             $this->stateProbeStep++;
             if ($this->replaceConnectionAtStateProbeStep === $this->stateProbeStep) {
@@ -264,6 +282,15 @@ final class DeleteGuardEvaluatorFakeWpdb {
 
     public function get_results(string $sql, $format = null): mixed {
         $this->queries[] = $sql;
+        if ($sql === 'SHOW WARNINGS') {
+            $code = $this->warningCode;
+            $this->last_error = '';
+            return $code === null ? [] : [[
+                'Level' => 'Error',
+                'Code' => $code,
+                'Message' => 'simulated exact table probe diagnostic',
+            ]];
+        }
         if (str_contains($sql, 'information_schema.TABLES')) {
             if (str_contains($sql, 'SELECT TABLE_NAME FROM')) {
                 if ($this->topologyProbeError) {
@@ -427,6 +454,29 @@ $check(
     str_contains((string) $probeFailure['error'], 'exact guard-table topology census failed')
         && $probeFailure['rows'] === [],
     'an exact topology census error remains blocking rather than masquerading as absence'
+);
+$restrictedDb = new DeleteGuardEvaluatorFakeWpdb([], [
+    'wp_options' => 'InnoDB',
+    'wp_postmeta' => 'InnoDB',
+    'wp_version_optional_refs' => 'InnoDB',
+]);
+$restrictedDb->topologyRowsOverride = [];
+$restrictedDb->exactTableProbeErrorCodes['wp_version_optional_refs'] = 1142;
+$GLOBALS['wpdb'] = $restrictedDb;
+$restrictedFailure = $scanner->count(
+    [
+        'table' => 'version_optional_refs', 'column' => 'product_id',
+        'id_kind' => 'post', 'table_absence' => 'empty',
+    ],
+    '00000000-0000-0000-0000-000000000001',
+    [],
+    []
+);
+$check(
+    str_contains((string) $restrictedFailure['error'], 'exact absence confirmation failed')
+        && str_contains((string) $restrictedFailure['error'], 'server code 1142')
+        && $restrictedFailure['rows'] === [],
+    'an existing exact table hidden by restricted database privileges cannot masquerade as absence'
 );
 $nearMatchDb = new DeleteGuardEvaluatorFakeWpdb([]);
 $nearMatchDb->topologyRowsOverride = [['TABLE_NAME' => 'wpXversion_optional_refs']];

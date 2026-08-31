@@ -638,6 +638,12 @@ adopt_assert_ordered(
 );
 
 $sourceRoot = dirname(__DIR__, 4);
+$adoptSource = (string) file_get_contents($sourceRoot . '/cli/src/Onboarding/Adopt.php');
+adopt_check(
+    str_contains($adoptSource, "'COPYFILE_DISABLE=1 tar -C '")
+        && !str_contains($adoptSource, "'tar -C ' . escapeshellarg(\$localStage)"),
+    'local adoption disables macOS AppleDouble archive entries before packaging the exact agent and recovery roots'
+);
 $filesystemFixture = rtrim(sys_get_temp_dir(), '/') . '/wprism-adopt-regress-' . bin2hex(random_bytes(8));
 register_shutdown_function(static function () use ($filesystemFixture): void {
     if (is_dir($filesystemFixture)) {

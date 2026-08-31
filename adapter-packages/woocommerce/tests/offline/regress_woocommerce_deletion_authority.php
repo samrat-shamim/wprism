@@ -196,6 +196,7 @@ final class WooDeletionFakeWpdb {
     public ?string $guardReadErrorTable = null;
     public bool $savepointExists = false;
     public int $insert_id = 0;
+    private ?int $warningCode = null;
     /** @var list<string> */
     public array $lockingQueries = [];
     /** @var list<string> */
@@ -268,6 +269,16 @@ final class WooDeletionFakeWpdb {
         }
         if (str_contains($sql, 'SELECT @@tx_isolation')) {
             return $this->legacyIsolation;
+        }
+        if (preg_match('/^SELECT 1 FROM `([A-Za-z0-9_]+)` LIMIT 0$/D', $sql, $match) === 1) {
+            if (array_key_exists($match[1], $this->tableEngines)) {
+                $this->last_error = '';
+                $this->warningCode = null;
+                return null;
+            }
+            $this->last_error = 'simulated absent table';
+            $this->warningCode = 1146;
+            return false;
         }
         if (str_contains($sql, 'SELECT 1 FROM `')) {
             $this->metadataQueries[] = $sql;
@@ -376,6 +387,14 @@ final class WooDeletionFakeWpdb {
     }
 
     public function get_results(string $sql, $format = null): array {
+        if ($sql === 'SHOW WARNINGS') {
+            $this->last_error = '';
+            return $this->warningCode === null ? [] : [[
+                'Level' => 'Error',
+                'Code' => $this->warningCode,
+                'Message' => 'simulated absent table',
+            ]];
+        }
         if ($this->optionScanError && str_contains($sql, 'SELECT `option_name` FROM `wp_options`')) {
             $this->last_error = 'simulated option scan failure';
             return [];

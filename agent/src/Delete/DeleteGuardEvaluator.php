@@ -72,9 +72,85 @@ final class DeleteGuardEvaluator {
 
         $topology = [];
         foreach ($tables as $table) {
-            $topology[$table] = isset($found[$table]) ? 'present' : 'absent';
+            if (isset($found[$table])) {
+                $topology[$table] = 'present';
+                continue;
+            }
+            self::assert_exact_table_absent($table, $purpose);
+            $topology[$table] = 'absent';
         }
         return $topology;
+    }
+
+    /**
+     * information_schema hides tables for which the account has no table
+     * privilege, so a missing census row is only a candidate absence. An
+     * exact, error-suppressed probe plus MySQL's numeric diagnostic is the
+     * distinction between ER_NO_SUCH_TABLE (1146) and an unreadable existing
+     * guard table; every other outcome remains destructive refusal.
+     */
+    private static function assert_exact_table_absent(string $table, string $purpose): void {
+        global $wpdb;
+
+        $previousSuppression = null;
+        if (method_exists($wpdb, 'suppress_errors')) {
+            $previousSuppression = $wpdb->suppress_errors(true);
+        }
+        try {
+            $wpdb->last_error = '';
+            $result = $wpdb->get_var("SELECT 1 FROM `$table` LIMIT 0");
+            $probeError = trim((string) ($wpdb->last_error ?? ''));
+            if ($probeError === '' && $result !== false) {
+                throw new \RuntimeException(
+                    "wprism: $purpose refused — exact guard-table topology census omitted an existing table: $table"
+                );
+            }
+            if ($probeError === '') {
+                throw new \RuntimeException(
+                    "wprism: $purpose refused — exact absence confirmation returned an ambiguous result for $table"
+                );
+            }
+
+            $wpdb->last_error = '';
+            $warnings = $wpdb->get_results('SHOW WARNINGS', ARRAY_A);
+            $warningError = trim((string) ($wpdb->last_error ?? ''));
+            if (!is_array($warnings) || !array_is_list($warnings) || $warningError !== '') {
+                throw new \RuntimeException(
+                    "wprism: $purpose refused — exact absence confirmation could not read the server diagnostic for $table"
+                );
+            }
+            $errorCodes = [];
+            foreach ($warnings as $warning) {
+                if (!is_array($warning)
+                    || !is_string($warning['Level'] ?? null)
+                    || (!is_int($warning['Code'] ?? null) && !is_string($warning['Code'] ?? null))
+                ) {
+                    throw new \RuntimeException(
+                        "wprism: $purpose refused — exact absence confirmation returned a malformed server diagnostic for $table"
+                    );
+                }
+                $code = (string) $warning['Code'];
+                if (preg_match('/^[0-9]+$/D', $code) !== 1) {
+                    throw new \RuntimeException(
+                        "wprism: $purpose refused — exact absence confirmation returned a malformed server diagnostic for $table"
+                    );
+                }
+                if (strcasecmp($warning['Level'], 'Error') === 0) {
+                    $errorCodes[] = (int) $code;
+                }
+            }
+            if ($errorCodes !== [1146]) {
+                $detail = count($errorCodes) === 1 ? 'server code ' . $errorCodes[0] : 'ambiguous server diagnostics';
+                throw new \RuntimeException(
+                    "wprism: $purpose refused — exact absence confirmation failed for $table ($detail)"
+                );
+            }
+            $wpdb->last_error = '';
+        } finally {
+            if ($previousSuppression !== null) {
+                $wpdb->suppress_errors((bool) $previousSuppression);
+            }
+        }
     }
 
     /** Establish the transaction identity immediately after START TRANSACTION. */

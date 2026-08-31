@@ -2464,6 +2464,9 @@ woo_ok(
 );
 foreach ([
     'wprism_ssh_adopt_extension() {',
+    'WPRISM_WOO_DELETE_VERSION',
+    '11.0.0|11.0.1',
+    'WPRISM_DELETE_SKU',
     'wp plugin install woocommerce --version=$woo_version --activate',
     'wp wprism manifest-pin --repo=/home/wprism/site --name=woocommerce',
     '"wprism-deletion-owner-agreements/v2"',

@@ -221,7 +221,7 @@ IGNORE
                 );
             }
             $archive = self::runLocal(
-                'tar -C ' . escapeshellarg($localStage)
+                'COPYFILE_DISABLE=1 tar -C ' . escapeshellarg($localStage)
                 . ' -cf ' . escapeshellarg($localArchive) . ' agent recovery'
             );
             if ($archive['exit'] !== 0) {
