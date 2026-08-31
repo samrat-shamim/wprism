@@ -1007,12 +1007,28 @@ $woocommerceMatrixHarness = (string) file_get_contents(dirname(__DIR__) . '/cert
 $matrixHarness .= "\n" . $woocommerceMatrixHarness;
 $woocommerceScopedDeletionHarnessPath = dirname(__DIR__) . '/live/regress_woocommerce_scoped_deletion.sh';
 $woocommerceScopedDeletionHarness = (string) file_get_contents($woocommerceScopedDeletionHarnessPath);
+$woocommerceCodeReleaseProviderPath = dirname(__DIR__, 2) . '/fixtures/plan-bound-code-release-provider.php';
+$woocommerceCodeReleaseProvider = (string) file_get_contents($woocommerceCodeReleaseProviderPath);
 $sshAdoptHarness = (string) file_get_contents($root . '/sandbox/tests/live/regress_ssh_adopt.sh');
 woo_ok(is_file($woocommerceScopedDeletionHarnessPath)
     && str_contains($sshAdoptHarness, 'WPRISM_SSH_ADOPT_EXTENSION')
     && str_contains($sshAdoptHarness, 'wprism_ssh_adopt_extension')
     && str_contains($sshAdoptHarness, 'tests/live/*.sh'),
     'WooCommerce deletion live proof is selected only through the candidate-bound standalone SSH extension hook');
+woo_ok(is_file($woocommerceCodeReleaseProviderPath),
+    'WooCommerce deletion live proof owns its exact plan-bound code-release provider fixture');
+foreach ([
+    'wprism-code-release-provider-request/v2',
+    'desired_code_inventory',
+    'woo_release_owned_roots',
+    'unrecorded or linked owned path refused',
+    "'target_git_history' => false",
+    "'target_registry_credentials' => false",
+    "'plan_bound_code_inventory' => true",
+] as $codeReleaseWitness) {
+    woo_ok(str_contains($woocommerceCodeReleaseProvider, $codeReleaseWitness),
+        "WooCommerce plan-bound code-release provider pins $codeReleaseWitness");
+}
 $piiObserverPath = dirname(__DIR__, 2) . '/fixtures/woocommerce-pii-fingerprints.php';
 require_once $piiObserverPath;
 $manifestPiiGrants = [];
@@ -2469,12 +2485,20 @@ foreach ([
     'WPRISM_DELETE_SKU',
     'sandbox/tests/fixtures/upload-provider.php',
     'sandbox/tests/fixtures/effect-provider.php',
+    'fixtures/plan-bound-code-release-provider.php',
     '.envs.target.rollback_recovery.upload_provider',
     '.envs.target.rollback_recovery.effect_provider',
+    '.envs.target.rollback_recovery.code_release_provider',
     'adopt target >/dev/null',
     'wp plugin install woocommerce --version=$woo_version --activate',
+    'WOOCOMMERCE_BIS_ALPHA_ENABLED',
     'WC_Install::maybe_enable_hpos();',
     'WC_Install::create_tables();',
+    '$site["code"] = ["format" => 1, "layout" => "wp-content", "source" => "code/wp-content"]',
+    'git -C /home/wprism/site commit -m "Bind exact WooCommerce deletion code release"',
+    'release-prior',
+    'release-desired-$next_generation',
+    'release-desired-$retry_generation',
     'wp wprism manifest-pin --repo=/home/wprism/site --name=woocommerce',
     'capture target --target-branch="$TARGET_REPOSITORY_BRANCH" --format=json',
     '"wprism-deletion-owner-agreements/v2"',

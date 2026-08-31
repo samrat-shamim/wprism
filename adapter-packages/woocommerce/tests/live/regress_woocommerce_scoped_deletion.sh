@@ -23,6 +23,7 @@ wprism_ssh_adopt_extension() {
   local expected_hash expected_revision source_path scope_hash plan_json full_plan_json scoped_code
   local lookup_before failed_code failed_product failed_lookup retry_code
   local status_json stock_topology success_product success_lookup converged_plan
+  local next_generation retry_generation
   local failure_stdout="$DIAG_DIR/woocommerce-delete-failure.stdout"
   local failure_stderr="$DIAG_DIR/woocommerce-delete-failure.stderr"
   local success_stdout="$DIAG_DIR/woocommerce-delete-success.stdout"
@@ -40,10 +41,11 @@ wprism_ssh_adopt_extension() {
   scp -F "$TMP/ssh_config" \
     "$ROOT/sandbox/tests/fixtures/upload-provider.php" \
     "$ROOT/sandbox/tests/fixtures/effect-provider.php" \
+    "$PACKAGE_ROOT/fixtures/plan-bound-code-release-provider.php" \
     "$TMP/woocommerce-upload.key" \
     wprism-adopt-fixture:/home/wprism/recovery-fixture/ >/dev/null
   ssh_fixture '
-    chmod 700 /home/wprism/recovery-fixture/upload-provider.php /home/wprism/recovery-fixture/effect-provider.php
+    chmod 700 /home/wprism/recovery-fixture/upload-provider.php /home/wprism/recovery-fixture/effect-provider.php /home/wprism/recovery-fixture/plan-bound-code-release-provider.php
     chmod 600 /home/wprism/recovery-fixture/woocommerce-upload.key
     mkdir -p /home/wprism/recovery-fixture/offload /home/wprism/recovery-fixture/media
     chmod 700 /home/wprism/recovery-fixture/offload /home/wprism/recovery-fixture/media
@@ -64,17 +66,27 @@ wprism_ssh_adopt_extension() {
       "/home/wprism/recovery-fixture/effect-provider-state",
       "/var/www/html"
     ]
+    | .envs.target.rollback_recovery.code_release_provider = [
+      "/usr/local/bin/php",
+      "/home/wprism/recovery-fixture/plan-bound-code-release-provider.php",
+      "/home/wprism/recovery-fixture/woocommerce-code-release-state",
+      "/home/wprism/code-releases",
+      "/home/wprism/code-current"
+    ]
   ' "$TMP/envs.json" >"$TMP/envs.full-recovery.json"
   mv "$TMP/envs.full-recovery.json" "$TMP/envs.json"
   "$WPRISM" --envs-file="$TMP/envs.json" adopt target >/dev/null \
     || fail "WooCommerce scoped-deletion extension could not enroll full recovery providers"
-  pass "candidate-bound upload/effect providers are enrolled for full automatic recovery"
+  pass "candidate-bound upload/effect/code-release providers are enrolled for full automatic recovery"
 
   say "install the exact WooCommerce deletion boundary on the adopted SSH target"
   ssh_fixture "cd /var/www/html && wp plugin install woocommerce --version=$woo_version --activate --quiet"
   [ "$(ssh_fixture 'cd /var/www/html && wp plugin get woocommerce --field=version')" = "$woo_version" ] \
     || fail "WooCommerce scoped-deletion extension left its exact plugin boundary"
   ssh_fixture 'cd /var/www/html && wp eval '\''
+    if (!defined("WOOCOMMERCE_BIS_ALPHA_ENABLED")) {
+        define("WOOCOMMERCE_BIS_ALPHA_ENABLED", true);
+    }
     WC_Install::maybe_enable_hpos();
     WC_Install::create_tables();
     if (!\Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled()) {
@@ -87,6 +99,53 @@ wprism_ssh_adopt_extension() {
     *) fail "WooCommerce $woo_version did not expose its reviewed stock-notification table topology" ;;
   esac
   pass "WooCommerce $woo_version exposes its exact reviewed stock-notification table topology ($stock_topology)"
+
+  say "bind the exact WooCommerce and active-theme bytes to immutable code releases"
+  ssh_fixture 'test -z "$(git -C /home/wprism/site status --porcelain)"' \
+    || fail "WooCommerce code release setup found a dirty target repository"
+  ssh_fixture '
+    set -eu
+    mkdir -p /home/wprism/site/code/wp-content/plugins /home/wprism/site/code/wp-content/themes
+    cp -a /var/www/html/wp-content/plugins/woocommerce /home/wprism/site/code/wp-content/plugins/woocommerce
+    stylesheet="$(cd /var/www/html && wp option get stylesheet)"
+    template="$(cd /var/www/html && wp option get template)"
+    for theme in "$stylesheet" "$template"; do
+      case "$theme" in
+        ""|*[!A-Za-z0-9._-]*) exit 41 ;;
+      esac
+      test -d "/var/www/html/wp-content/themes/$theme"
+      if [ ! -e "/home/wprism/site/code/wp-content/themes/$theme" ]; then
+        cp -a "/var/www/html/wp-content/themes/$theme" "/home/wprism/site/code/wp-content/themes/$theme"
+      fi
+    done
+    php -r '\''
+      $path = "/home/wprism/site/site.wprism.json";
+      $site = json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
+      $site["code"] = ["format" => 1, "layout" => "wp-content", "source" => "code/wp-content"];
+      file_put_contents($path, json_encode($site, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
+    '\''
+    git -C /home/wprism/site add -- site.wprism.json code
+    git -C /home/wprism/site commit -m "Bind exact WooCommerce deletion code release" >/dev/null
+    test -z "$(git -C /home/wprism/site status --porcelain)"
+  ' || fail "WooCommerce deletion proof could not commit its exact code half"
+  next_generation="$(ssh_fixture 'php /home/wprism/site/.wprism/control/recovery-runtime/rollback-control.php authority-status --root=/home/wprism/site/.wprism/control' | jq -r '.generation + 1')"
+  [[ "$next_generation" =~ ^[1-9][0-9]*$ ]] \
+    || fail "WooCommerce deletion proof could not derive its next signed generation"
+  retry_generation=$((next_generation + 1))
+  ssh_fixture "
+    set -eu
+    test ! -e /home/wprism/code-releases
+    test ! -e /home/wprism/code-current
+    mkdir -p /home/wprism/code-releases/release-prior
+    mkdir -p /home/wprism/code-releases/release-desired-$next_generation
+    mkdir -p /home/wprism/code-releases/release-desired-$retry_generation
+    cp -a /home/wprism/site/code/wp-content /home/wprism/code-releases/release-prior/wp-content
+    cp -a /home/wprism/site/code/wp-content /home/wprism/code-releases/release-desired-$next_generation/wp-content
+    cp -a /home/wprism/site/code/wp-content /home/wprism/code-releases/release-desired-$retry_generation/wp-content
+    printf '%s\\n' release-prior > /home/wprism/code-current
+    chmod 600 /home/wprism/code-current
+  " || fail "WooCommerce deletion proof could not stage immutable prior/failure/retry releases"
+  pass "WooCommerce code inventory and immutable generations $next_generation/$retry_generation are exact and target-credential-free"
 
   cat >"$TMP/woocommerce-owner-agreements.php" <<'PHP'
 <?php
