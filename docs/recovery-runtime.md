@@ -11,10 +11,14 @@ harness composes its checkpoint, code/storage, effect, fresh-verifier, and
 external-authority paths end to end and certifies the closed crash matrix.
 `wprism promote` selects that automatic profile only when this complete provider
 set and the controller's explicit `verified_rollback` policy pass preflight;
-otherwise it warns and retains the operator-directed recovery contract.
+otherwise it warns and retains the operator-directed recovery contract for
+non-deletion promotion. A deletion-authorizing promotion refuses before
+promotion-begin/checkpoint when the automatic profile is unavailable.
 The code provider must additionally attest plan-bound compiled-code inventory;
-automatic preparation sends that inventory through the signed v2 request and
-refuses a generation-specific descriptor whose roots or file hashes diverge.
+ordinary automatic preparation sends that inventory through the signed v2
+request, preserving compatibility with already-adopted v2 recovery runtimes.
+`promote --with-deletes` instead signs the deletion intent into the v3 receipt
+and refuses a generation-specific descriptor whose roots or file hashes diverge.
 
 ## Read-only preparation and the external execute boundary
 
@@ -26,8 +30,11 @@ target head, stable target identity and the separately provisioned
 operation-authority policy. It does not write a plan file, take exclusion,
 append an event, allocate a handoff, consume authority or invoke a provider.
 
-Preparation accepts only a nonterminal full v2 receipt with all four resource
-identities on a proven single-site target. Retained checkpoint files, scoped
+Preparation accepts a nonterminal full v2 receipt or a deletion-admitting full
+v3 receipt with all four resource identities on a proven single-site target.
+The frozen scope carries `allow_deletes: true` for v3 and `null` for legacy v2,
+so review and re-verification preserve the destructive permission explicitly.
+Retained checkpoint files, scoped
 receipts, terminal generations, incomplete legacy hashes, absent stable target
 identity/trust, and expired claimant leases refuse. The claim is re-derived
 again at execute from current receipt/repository evidence; feeding the plan's

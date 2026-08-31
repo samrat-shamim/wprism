@@ -290,8 +290,8 @@ final class RollbackAuthority {
         $effectProviderConfigured = $this->transport->effectProviderConfigured();
         $receiptFormat = RollbackControl::RECEIPT_FORMAT;
         if (array_key_exists('allow_deletes', $fields)) {
-            if (!is_bool($fields['allow_deletes'])) {
-                throw new \RuntimeException('wprism rollback: verified promotion allow_deletes must be boolean');
+            if ($fields['allow_deletes'] !== true) {
+                throw new \RuntimeException('wprism rollback: verified promotion v3 requires explicit deletion intent');
             }
             $receiptFormat = RollbackControl::VERIFIED_PROMOTION_RECEIPT_FORMAT;
         }

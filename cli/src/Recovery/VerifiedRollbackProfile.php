@@ -175,7 +175,6 @@ final class VerifiedRollbackProfile {
                 'sha256',
                 RollbackControl::canonical((array) ($plan['resolved_adapters'] ?? []))
             ),
-            'allow_deletes' => $allowDeletes,
             'artifact_hash' => $artifact,
             'claim_ttl_seconds' => $ttl,
             'desired_code_revision' => $revision,
@@ -186,6 +185,12 @@ final class VerifiedRollbackProfile {
             'retention_until' => gmdate('Y-m-d\TH:i:s\Z', $created + $retention),
             'upload_inventory' => $uploads,
         ];
+        // Preserve the v2 wire contract for ordinary promotions so a newer
+        // controller can update a target whose installed recovery runtime has
+        // not learned v3 yet. Only explicit delete intent needs the v3 field.
+        if ($allowDeletes) {
+            $fields['allow_deletes'] = true;
+        }
         if ($descriptorHash !== null) {
             $fields['desired_descriptor_sha256'] = $descriptorHash;
         } else {

@@ -2882,6 +2882,7 @@ function cmd_promote_internal(
     ?array $frozenContext,
     ?array $authorizedSource = null
 ): array|int {
+    $allowDeletes = in_array('--with-deletes', $extra, true);
     foreach ($extra as $arg) {
         if (is_string($arg) && is_scope_contract_flag($arg)) {
             return scope_wire_refusal(
@@ -3021,6 +3022,7 @@ function cmd_promote_internal(
         $runtimePreflightDone = true;
     }
 
+    $verifiedUnavailableReason = 'target carries no signed automatic rollback authority';
     if ($t instanceof \WPrism\Orchestrator\RecoveryTransport && $t->carriesRollbackAuthority()) {
         try {
             $selection = VerifiedRollbackProfile::select($t, $compile['summary']);
@@ -3088,11 +3090,28 @@ function cmd_promote_internal(
             );
             return $verifiedResult;
         }
+        $verifiedUnavailableReason = (string) $selection['reason'];
+        if ($allowDeletes) {
+            fwrite(
+                STDERR,
+                "wprism: promote: deletion requires automatic verified rollback ({$verifiedUnavailableReason}); "
+                . "refusing before promotion-begin/checkpoint\n"
+            );
+            return 1;
+        }
         fwrite(
             STDERR,
             "wprism: promote: WARN automatic verified rollback unavailable ({$selection['reason']}); "
             . "using operator-directed checkpoint/recovery\n"
         );
+    }
+    if ($allowDeletes) {
+        fwrite(
+            STDERR,
+            "wprism: promote: deletion requires automatic verified rollback ({$verifiedUnavailableReason}); "
+            . "refusing before promotion-begin/checkpoint\n"
+        );
+        return 1;
     }
 
     if ($frozen !== null) {

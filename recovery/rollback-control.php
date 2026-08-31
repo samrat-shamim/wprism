@@ -1161,8 +1161,8 @@ final class RollbackControl {
             $hashes[] = 'scope_hash';
         } else {
             if ($format === self::VERIFIED_PROMOTION_RECEIPT_FORMAT
-                && !is_bool($receipt['allow_deletes'] ?? null)) {
-                throw new \RuntimeException('wprism rollback: verified promotion receipt allow_deletes must be boolean');
+                && ($receipt['allow_deletes'] ?? null) !== true) {
+                throw new \RuntimeException('wprism rollback: verified promotion receipt must explicitly allow deletes');
             }
             if (in_array($format, [self::RECEIPT_FORMAT, self::VERIFIED_PROMOTION_RECEIPT_FORMAT], true)) {
                 $hashes[] = 'code_release_metadata_sha256';

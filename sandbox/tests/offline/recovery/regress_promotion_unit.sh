@@ -280,6 +280,31 @@ run_promote() {
   fi
 }
 
+run_promote_with_deletes() {
+  local code="$1"; shift
+  : > "$LOG"
+  : > "$TRACE"
+  if OUT="$(FAKE_CODE_ENABLED="$code" "$@" "$WPRISM" --envs-file="$ENVS" promote unit --with-deletes 2>&1)"; then
+    CODE=0
+  else
+    CODE=$?
+  fi
+}
+
+# A deletion-capable invocation cannot fall through to the database-only
+# operator-directed profile: that path could stage/finalize code before Apply
+# discovers it has no signed writer-exclusion witness.
+run_promote_with_deletes 1 env
+[ "$CODE" -ne 0 ] || fail "deletion promotion without automatic rollback unexpectedly succeeded"
+mapfile -t CALLS < "$LOG"
+[ "${#CALLS[@]}" -eq 1 ] || fail "deletion refusal reached promotion-begin, checkpoint, code, lifecycle, or apply"
+[[ "${CALLS[0]}" == *"wprism compile"* ]] || fail "deletion refusal lost its read-only compiled plan"
+has "$OUT" 'deletion requires automatic verified rollback' \
+  || fail "deletion refusal did not name the missing automatic recovery authority"
+has "$OUT" 'refusing before promotion-begin/checkpoint' \
+  || fail "deletion refusal did not name its pre-mutation boundary"
+pass "deletion intent refuses before begin/checkpoint when only operator-directed recovery is available"
+
 # A state-only repository acquires the target-authoritative lease and
 # checkpoint, then applies without invoking extension lifecycle hooks.
 run_promote 0 env

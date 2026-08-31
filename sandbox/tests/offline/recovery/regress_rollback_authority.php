@@ -441,8 +441,21 @@ try {
     ok_test(
         ($claimFields['desired_code_inventory'] ?? null) === $compiledCode
             && !array_key_exists('desired_descriptor_sha256', $claimFields)
+            && !array_key_exists('allow_deletes', $claimFields)
             && $claimFields['retention_until'] === '2026-08-08T01:00:00Z',
-        'automatic claim binds compiled code identity and explicit retention policy'
+        'ordinary automatic claim binds code and retention while preserving the v2 rolling-upgrade wire contract'
+    );
+    $deleteClaimFields = VerifiedRollbackProfile::claimFields(
+        $compiledPlan,
+        ['claim_ttl_seconds' => 90, 'encryption_key_id' => 'kms-plan', 'retention_seconds' => 3600],
+        'controller:plan-delete-test',
+        '2026-08-08T00:00:00Z',
+        null,
+        true
+    );
+    ok_test(
+        ($deleteClaimFields['allow_deletes'] ?? null) === true,
+        'only explicit deletion intent moves the automatic claim to its v3 wire contract'
     );
     $providerCommand = ['/bin/true'];
     $automaticTransport = new SshTransport('automatic-test', [

@@ -343,8 +343,14 @@ try {
     // The signed chain refuses an event whose timestamp moved backwards, and
     // every later transition stamps itself with the real clock, so the claim
     // has to be stamped from the same clock rather than a frozen fixture date.
-    $claim = $profile->claim($plan, $owner, $claimant, gmdate('Y-m-d\TH:i:s\Z'));
+    $claim = $profile->claim($plan, $owner, $claimant, gmdate('Y-m-d\TH:i:s\Z'), true);
     wprism_check_same('prepared', $claim['status']['state'], 'the claim publishes a signed prepared receipt on a local target');
+    wprism_check_same(
+        RollbackControl::VERIFIED_PROMOTION_RECEIPT_FORMAT,
+        $claim['receipt']['format'] ?? null,
+        'a deletion-admitting promotion publishes the explicit v3 recovery receipt'
+    );
+    wprism_check_same(true, $claim['receipt']['allow_deletes'] ?? null, 'the v3 receipt signs the deletion intent');
     wprism_check_same(
         1,
         (int) $claim['status']['generation'],
@@ -464,6 +470,21 @@ try {
         wprism_check_same(0, $prepareExit, 'public recover prepare freezes the rolling-back generation read-only');
         wprism_check(is_array($recoveryPlan), 'public recover prepare emits a canonical plan for external signing');
         if (!is_array($recoveryPlan)) wprism_check_summary('local verified rollback');
+        wprism_check_same(
+            true,
+            $recoveryPlan['scope']['allow_deletes'] ?? null,
+            'v3 recovery preparation exposes signed deletion intent in the frozen review scope'
+        );
+        $reverifiedV3 = RecoverCommand::reverifyPreparation(
+            $transport,
+            $recoveryPlan,
+            static fn (): string => $authorizedAt
+        );
+        wprism_check_same(
+            $recoveryPlan['plan_digest'],
+            $reverifiedV3['plan_digest'] ?? null,
+            'v3 recovery preparation re-verifies against the active deletion-admitting receipt'
+        );
         $planPath = $tmp . '/recovery-plan.json';
         lvr_write($planPath, $planBytes);
         $statement = [
@@ -984,6 +1005,81 @@ SH;
     $final = RollbackAuthority::status($transport);
     wprism_check_same(true, $final['ok'], 'the signed chain verifies from a fresh controller read');
     wprism_check_same('rolled_back', $final['state'], 'the fresh read agrees with the terminal state');
+
+    // Rolling upgrade: point a fresh LocalTransport at a wrapper that models
+    // the previously shipped v2-only runtime. Ordinary automatic promotion
+    // must remain v2 and complete its real claim through that old boundary.
+    $compatRepo = $tmp . '/compat-site';
+    mkdir($compatRepo, 0700, true);
+    lvr_write($compatRepo . '/site.wprism.json', Canon::encode(['environments' => []]), 0644);
+    $compatRoot = $compatRepo . '/.wprism/control';
+    RollbackControl::initialize($compatRoot);
+    RollbackControl::installPublicKey($compatRoot, $keyId, base64_encode($public));
+    $compatRuntime = $compatRoot . '/recovery-runtime';
+    mkdir($compatRuntime, 0700, true);
+    foreach ([
+        'CanonicalJson.php', 'AtomicStore.php', 'ProtocolLock.php', 'ProviderClient.php',
+        'rollback-control.php', 'RecoveryExecutor.php', 'CheckpointBundle.php', 'CodeRelease.php',
+        'UploadBundle.php', 'EffectBundle.php',
+    ] as $file) {
+        copy(dirname(__DIR__, 4) . '/recovery/' . $file, $compatRuntime . '/' . $file);
+    }
+    rename($compatRuntime . '/rollback-control.php', $compatRuntime . '/rollback-control-current.php');
+    lvr_write(
+        $compatRuntime . '/rollback-control.php',
+        <<<'PHP'
+<?php
+declare(strict_types=1);
+$requestPath = '';
+foreach ($argv as $arg) {
+    if (str_starts_with($arg, '--request=')) $requestPath = substr($arg, 10);
+}
+if (($argv[1] ?? '') === 'handle-request' && $requestPath !== '') {
+    $request = json_decode((string) file_get_contents($requestPath), true);
+    $format = $request['receipt']['payload']['format'] ?? null;
+    if ($format !== null && $format !== 'wprism-rollback-receipt/v2') {
+        fwrite(STDERR, "legacy runtime: unsupported receipt format\n");
+        exit(1);
+    }
+}
+require __DIR__ . '/rollback-control-current.php';
+exit(\WPrism\Recovery\rollback_control_main($argv));
+PHP
+        . "\n",
+        0700
+    );
+    $compatRecovery = $recovery;
+    $compatRecovery['checkpoint_provider'][2] = $tmp . '/compat-checkpoint-state';
+    $compatRecovery['code_release_provider'][2] = $tmp . '/compat-code-state';
+    $compatRecovery['effect_provider'][2] = $tmp . '/compat-effect-state';
+    $compatRecovery['exclusion_provider'][2] = $tmp . '/compat-exclusion.json';
+    $compatRecovery['upload_provider'][2] = $tmp . '/compat-upload-state';
+    $compatTargetConfig = $compatRecovery + ['format' => 'wprism-recovery-config/v1'];
+    ksort($compatTargetConfig, SORT_STRING);
+    $compatConfigPath = $tmp . '/compat-recovery-config.json';
+    lvr_write($compatConfigPath, RollbackControl::canonical($compatTargetConfig) . "\n");
+    \WPrism\Recovery\RecoveryExecutor::configureFromFile($compatRoot, $compatConfigPath);
+    $compatTransport = new LocalTransport('compat-v2-runtime', [
+        '_machine_local' => true,
+        'repo_path' => $compatRepo,
+        'rollback_key_id' => $keyId,
+        'rollback_recovery' => $compatRecovery,
+        'rollback_signing_key' => $signingKeyPath,
+        'transport' => 'local',
+        'verified_rollback' => $envConfig['verified_rollback'],
+        'wp_path' => $tmp . '/wordpress',
+    ]);
+    $compatClaim = (new VerifiedRollbackProfile($compatTransport))->claim(
+        $plan,
+        'controller:compat-v2-runtime',
+        'compat-v2-worker',
+        gmdate('Y-m-d\TH:i:s\Z')
+    );
+    wprism_check_same(
+        RollbackControl::RECEIPT_FORMAT,
+        $compatClaim['receipt']['format'] ?? null,
+        'a new controller completes ordinary automatic claim through the v2-only installed runtime'
+    );
 } finally {
     sodium_memzero($secret);
     sodium_memzero($wrongRollbackSecret);
