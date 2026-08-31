@@ -2480,6 +2480,7 @@ woo_ok(
 );
 foreach ([
     'wprism_ssh_adopt_extension() {',
+    'dirname "${BASH_SOURCE[0]}"',
     'WPRISM_WOO_DELETE_VERSION',
     '11.0.0|11.0.1',
     'WPRISM_DELETE_SKU',
