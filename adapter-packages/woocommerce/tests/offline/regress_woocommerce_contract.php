@@ -2511,6 +2511,9 @@ foreach ([
     'release-desired-$next_generation',
     'release-desired-$retry_generation',
     'wp wprism manifest-pin --repo=/home/wprism/site --name=woocommerce',
+    'git -C /home/wprism/site add -- media site.wprism.json state',
+    'deploy target >"$TMP/woocommerce-code-baseline.stdout"',
+    'reviewed WooCommerce lifecycle state and exact code bytes are completed through public capture and deploy',
     'capture target --target-branch="$TARGET_REPOSITORY_BRANCH" --format=json',
     '"wprism-deletion-owner-agreements/v2"',
     '--roots="tombstone:$product_uuid" --contract',
@@ -2562,7 +2565,7 @@ woo_ok($failurePromotion !== false
     && $failureCommitFrontier < $failureRollbackReceipt
     && $failureRollbackReceipt < $retryPromotion
     && $retryPromotion < $retryDeletionReceipt
-    && substr_count($woocommerceScopedDeletionHarness, 'printf "11\\n"') === 1,
+    && substr_count($woocommerceScopedDeletionHarness, 'printf "20\\n"') === 1,
     'public SSH deletion keeps scoped promotion closed, fails once at the calibrated full-profile pre-COMMIT verify, proves signed rollback, then retries once to a terminal deletion receipt');
 woo_ok(
     str_contains($woocommerceMatrixHarness, 'woocommerce_deletion_owner_agreements()')

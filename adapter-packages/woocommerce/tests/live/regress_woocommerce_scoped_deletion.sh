@@ -413,11 +413,12 @@ PHP
   pass "WooCommerce exact adapter pin, product tombstone, scoped refusal, and full automatic plan are bound"
 
   say "lose the external writer exclusion at Delete's final pre-COMMIT frontier"
-  # The captured code revision is already live, so the full profile performs
-  # five controller-side held-exclusion reads before Apply. Apply then proves
-  # admission twice and re-verifies at plan, transaction, delete, and commit;
-  # the eleventh verify is therefore the final operation before DB COMMIT.
-  ssh_fixture 'printf "11\n" > /home/wprism/recovery-fixture/provider-state.json.fail-verify-after && chmod 600 /home/wprism/recovery-fixture/provider-state.json.fail-verify-after'
+  # The captured code revision is already live. Recovery preparation/claim
+  # performs five held-exclusion reads, the promotion transition performs two,
+  # and the upload operation performs seven. Apply then proves admission twice
+  # and re-verifies at plan, transaction, delete, and commit; the twentieth
+  # verify is therefore the final operation before DB COMMIT.
+  ssh_fixture 'printf "20\n" > /home/wprism/recovery-fixture/provider-state.json.fail-verify-after && chmod 600 /home/wprism/recovery-fixture/provider-state.json.fail-verify-after'
   if "$WPRISM" --envs-file="$TMP/envs.json" promote target --with-deletes >"$failure_stdout" 2>"$failure_stderr"; then
     failed_code=0
   else
