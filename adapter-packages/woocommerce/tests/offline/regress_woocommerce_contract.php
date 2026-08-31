@@ -2474,12 +2474,14 @@ foreach ([
     '--roots="tombstone:$product_uuid" --contract',
     'and ([.delete[]? | select(.uuid == $uuid and .type == "post" and .deletion_type == "product" and ((.blocked // "") == ""))] | length) == 1',
     'promote target --scope-contract="$contract" --with-deletes --format=json',
+    'promote target --with-deletes >"$failure_stdout"',
     'provider-state.json.fail-verify-after',
     'delete commit boundary',
-    '.state == "rolled_back" and .terminal == true',
+    '.receipt.format == "wprism-rollback-receipt/v3"',
+    '.status.state == "rolled_back" and .status.terminal == true',
     'failed_product" = "$product_id"',
     'failed_lookup" = "$lookup_before"',
-    '.scoped_apply.verification.selected_deletions == 1',
+    'promote complete: verified committed receipt; traffic exclusion released',
     'success_product" = "0"',
     'success_lookup" = "0"',
     '.delete == [] and .delete_conflict == []',
@@ -2494,20 +2496,20 @@ woo_ok(
 );
 $failurePromotion = strpos(
     $woocommerceScopedDeletionHarness,
-    'promote target --scope-contract="$contract" --with-deletes --format=json >"$failure_stdout"'
+    'promote target --with-deletes >"$failure_stdout"'
 );
 $failureCommitFrontier = strpos($woocommerceScopedDeletionHarness, "grep -Fq 'delete commit boundary'");
 $failureRollbackReceipt = strpos(
     $woocommerceScopedDeletionHarness,
-    '.state == "rolled_back" and .terminal == true'
+    '.status.state == "rolled_back" and .status.terminal == true'
 );
 $retryPromotion = strpos(
     $woocommerceScopedDeletionHarness,
-    'promote target --scope-contract="$contract" --with-deletes --format=json >"$success_stdout"'
+    'promote target --with-deletes >"$success_stdout"'
 );
 $retryDeletionReceipt = strpos(
     $woocommerceScopedDeletionHarness,
-    '.scoped_apply.verification.selected_deletions == 1'
+    'promote complete: verified committed receipt; traffic exclusion released'
 );
 woo_ok($failurePromotion !== false
     && $failureCommitFrontier !== false
@@ -2518,8 +2520,8 @@ woo_ok($failurePromotion !== false
     && $failureCommitFrontier < $failureRollbackReceipt
     && $failureRollbackReceipt < $retryPromotion
     && $retryPromotion < $retryDeletionReceipt
-    && substr_count($woocommerceScopedDeletionHarness, 'printf "6\\n"') === 1,
-    'public SSH deletion fails once at the calibrated final pre-COMMIT verify, proves signed rollback, then retries once to a terminal deletion receipt');
+    && substr_count($woocommerceScopedDeletionHarness, 'printf "11\\n"') === 1,
+    'public SSH deletion keeps scoped promotion closed, fails once at the calibrated full-profile pre-COMMIT verify, proves signed rollback, then retries once to a terminal deletion receipt');
 woo_ok(
     str_contains($woocommerceMatrixHarness, 'woocommerce_deletion_owner_agreements()')
         && str_contains($woocommerceMatrixHarness, '"format": "wprism-deletion-owner-agreements/v2"')

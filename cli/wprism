@@ -3753,11 +3753,12 @@ function cmd_promote_verified(
     $uploadsApplied = false;
     $effectsTouched = false;
     $claimReceipt = null;
+    $allowDeletes = in_array('--with-deletes', $extra, true);
 
     echo "promote profile: automatic verified rollback\n";
     echo "promote phase: rollback-claim\n";
     try {
-        $claim = $profile->claim($plan, $runId, $runId);
+        $claim = $profile->claim($plan, $runId, $runId, null, $allowDeletes);
         if (($claim['status']['state'] ?? '') !== 'prepared') {
             throw new \RuntimeException('target did not publish the prepared receipt');
         }
@@ -3907,13 +3908,26 @@ function cmd_promote_verified(
     }
 
     echo "promote phase: apply\n";
+    $applyExtra = $extra;
+    if ($allowDeletes) {
+        if (!is_array($claimReceipt)
+            || ($claimReceipt['format'] ?? null) !== \WPrism\Recovery\RollbackControl::VERIFIED_PROMOTION_RECEIPT_FORMAT) {
+            return promote_verified_failed(
+                $profile, 'apply-authority', 1, $effectsTouched, $uploadsApplied, $codeSelected
+            );
+        }
+        $applyExtra[] = '--verified-promotion-receipt=' . hash(
+            'sha256',
+            \WPrism\Recovery\RollbackControl::canonical($claimReceipt)
+        );
+    }
     if ($frozenContext === null) {
         $apply = $t->streamWp(array_merge(
             [
                 'wprism', 'apply', '--repo=' . $repo, '--compiled=' . $artifact,
                 '--promotion-owner=' . $runId, '--artifact-hash=' . $artifactHash,
             ],
-            $extra
+            $applyExtra
         ));
         if ($apply !== 0) {
             return promote_verified_failed(
@@ -3927,7 +3941,7 @@ function cmd_promote_verified(
                 '--promotion-owner=' . $runId, '--artifact-hash=' . $artifactHash,
                 '--format=json',
             ],
-            $extra
+            $applyExtra
         ));
         if (($applyResult['exit'] ?? 1) !== 0) {
             print_transport_detail($applyResult);

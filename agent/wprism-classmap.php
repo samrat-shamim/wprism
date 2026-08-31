@@ -292,6 +292,7 @@ return [
     'WPrism\\UserMetaMaterializer' => 'src/Apply/UserMetaMaterializer.php',
     'WPrism\\UserMetaState' => 'src/Kernel/UserMetaState.php',
     'WPrism\\Uuid' => 'src/Kernel/Uuid.php',
+    'WPrism\\VerifiedPromotionAuthority' => 'src/Promotion/VerifiedPromotionAuthority.php',
     'WPrism\\VersionEvidenceGrammar' => 'src/Policy/VersionEvidenceGrammar.php',
     'WPrism\\WidgetTypeResolver' => 'src/Grammar/WidgetTypeResolver.php',
     'WPrism\\WithdrawnAuthoritySiteAdapterCertificate' => 'src/Adapter/AdapterCertification.php',

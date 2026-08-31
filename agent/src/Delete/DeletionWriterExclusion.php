@@ -12,17 +12,24 @@ require_once __DIR__ . '/DeleteGuardEvaluator.php';
  * ProcessFence serializes only cooperating WPrism database connections. The
  * caller supplies the target-owned recovery verifier; this Delete-private
  * object never reaches across the module ladder into Promotion. It binds one
- * signed scoped-promotion generation, re-verifies it at every destructive
+ * signed recovery generation, re-verifies it at every destructive
  * frontier, and issues a one-use token that DeleteExecutor must consume before
  * it can touch a row.
  */
 final class DeletionWriterExclusion {
     /** @var list<string> */
-    private const WITNESS_KEYS = [
+    private const SCOPED_WITNESS_KEYS = [
         'active', 'allow_deletes', 'artifact_hash', 'exclusion_state', 'format',
         'generation', 'ok', 'owner', 'receipt_format', 'receipt_id',
         'receipt_payload_sha256', 'recovery_ready', 'scope_hash', 'signing_key_id',
         'state', 'target_id', 'terminal',
+    ];
+    /** @var list<string> */
+    private const VERIFIED_WITNESS_KEYS = [
+        'active', 'allow_deletes', 'artifact_hash', 'exclusion_state', 'format',
+        'generation', 'ok', 'owner', 'receipt_format', 'receipt_id',
+        'receipt_payload_sha256', 'recovery_ready', 'signing_key_id', 'state',
+        'target_id', 'terminal',
     ];
 
     /** @var ?array<string,mixed> */
@@ -66,13 +73,13 @@ final class DeletionWriterExclusion {
         if ($this->binding === null) {
             throw new CommandRefusalException(
                 'deletion_writer_exclusion_required',
-                'deletion requires a signed scoped promotion whose external exclusion blocks all target writers',
-                'run the deletion through the verified scoped-promotion workflow with its recovery exclusion held',
+                'deletion requires a signed recovery promotion whose external exclusion blocks all target writers',
+                'run the deletion through automatic verified promotion with its recovery exclusion held',
                 [[
                     'code' => 'deletion_writer_exclusion_required',
                     'surface' => 'deletion',
                     'message' => 'no exact external writer-exclusion generation is bound',
-                    'remediation' => 'use the verified scoped-promotion workflow for this deletion',
+                    'remediation' => 'use automatic verified promotion for this deletion',
                 ]],
                 'wprism: deletion refused before mutation — no exact held external writer exclusion is bound'
             );
@@ -143,7 +150,7 @@ final class DeletionWriterExclusion {
             throw new CommandRefusalException(
                 'deletion_writer_exclusion_not_bound',
                 "deletion $purpose is outside the authored transaction's verified external writer exclusion",
-                'retry through the scoped-promotion transaction coordinator',
+                'retry through the promotion transaction coordinator holding the signed recovery exclusion',
                 [],
                 "wprism: deletion $purpose refused outside its coordinator-bound external exclusion"
             );
@@ -162,7 +169,7 @@ final class DeletionWriterExclusion {
             throw new CommandRefusalException(
                 'deletion_writer_exclusion_lost',
                 "deletion refused because the complete external writer exclusion could not be verified at the $purpose frontier",
-                'retain the failed scoped generation for recovery; do not retry outside its verified exclusion',
+                'retain the failed recovery generation; do not retry outside its verified exclusion',
                 [],
                 "wprism: deletion external writer exclusion was lost or unverifiable at $purpose",
                 $failure
@@ -172,7 +179,7 @@ final class DeletionWriterExclusion {
             throw new CommandRefusalException(
                 'deletion_writer_exclusion_changed',
                 "deletion refused because external writer-exclusion authority changed at the $purpose frontier",
-                'recover the exact original scoped promotion generation before another deletion attempt',
+                'recover the exact original promotion generation before another deletion attempt',
                 [],
                 "wprism: deletion external writer-exclusion binding changed at $purpose"
             );
@@ -181,21 +188,33 @@ final class DeletionWriterExclusion {
 
     /** @return array<string,mixed> */
     private static function validate_witness(array $witness): array {
+        $reportedProfile = $witness['profile'] ?? null;
+        unset($witness['profile']);
+        $format = $witness['format'] ?? null;
+        if ($format === 'wprism-scoped-promotion-witness/v1') {
+            $expected = self::SCOPED_WITNESS_KEYS;
+            $profile = 'scoped';
+        } elseif ($format === 'wprism-verified-promotion-witness/v1') {
+            $expected = self::VERIFIED_WITNESS_KEYS;
+            $profile = 'verified';
+        } else {
+            throw new \RuntimeException('wprism: deletion writer-exclusion witness has an unsupported profile');
+        }
+        if ($reportedProfile !== null && $reportedProfile !== $profile) {
+            throw new \RuntimeException('wprism: deletion writer-exclusion witness profile changed');
+        }
         $keys = array_keys($witness);
         sort($keys, SORT_STRING);
-        $expected = self::WITNESS_KEYS;
         sort($expected, SORT_STRING);
         if ($keys !== $expected) {
             throw new \RuntimeException('wprism: deletion writer-exclusion witness has missing or unknown fields');
         }
+        $witness['profile'] = $profile;
         return $witness;
     }
 
     private static function binding_hash(array $witness): string {
-        $binding = [];
-        foreach (self::WITNESS_KEYS as $key) {
-            $binding[$key] = $witness[$key];
-        }
+        $binding = $witness;
         ksort($binding, SORT_STRING);
         $json = json_encode($binding, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         return hash('sha256', $json);

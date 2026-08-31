@@ -153,7 +153,11 @@ final class RollbackAuthority {
             || ($status['ok'] ?? null) !== true
             || !in_array(
                 $receipt['format'] ?? null,
-                [RollbackControl::RECEIPT_FORMAT, RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT],
+                [
+                    RollbackControl::RECEIPT_FORMAT,
+                    RollbackControl::VERIFIED_PROMOTION_RECEIPT_FORMAT,
+                    RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT,
+                ],
                 true
             )) {
             throw new \RuntimeException('wprism rollback: active authority evidence is malformed');
@@ -285,6 +289,12 @@ final class RollbackAuthority {
         $uploadProviderConfigured = $this->transport->uploadProviderConfigured();
         $effectProviderConfigured = $this->transport->effectProviderConfigured();
         $receiptFormat = RollbackControl::RECEIPT_FORMAT;
+        if (array_key_exists('allow_deletes', $fields)) {
+            if (!is_bool($fields['allow_deletes'])) {
+                throw new \RuntimeException('wprism rollback: verified promotion allow_deletes must be boolean');
+            }
+            $receiptFormat = RollbackControl::VERIFIED_PROMOTION_RECEIPT_FORMAT;
+        }
         if (!$codeReleaseConfigured && !is_string($fields['code_release_metadata_sha256'] ?? null)) {
             throw new \RuntimeException(
                 'wprism rollback: no code-release provider requires a caller-supplied code release metadata hash'

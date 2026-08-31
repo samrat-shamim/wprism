@@ -128,7 +128,8 @@ final class VerifiedRollbackProfile {
         array $policy,
         string $owner,
         string $createdAt,
-        ?array $codeReleaseIdentity = null
+        ?array $codeReleaseIdentity = null,
+        bool $allowDeletes = false
     ): array {
         $artifact = (string) ($plan['artifact_hash'] ?? '');
         if (preg_match('/^[a-f0-9]{64}$/', $artifact) !== 1) {
@@ -174,6 +175,7 @@ final class VerifiedRollbackProfile {
                 'sha256',
                 RollbackControl::canonical((array) ($plan['resolved_adapters'] ?? []))
             ),
+            'allow_deletes' => $allowDeletes,
             'artifact_hash' => $artifact,
             'claim_ttl_seconds' => $ttl,
             'desired_code_revision' => $revision,
@@ -193,7 +195,13 @@ final class VerifiedRollbackProfile {
     }
 
     /** @param array<string,mixed> $plan @return array{receipt:array<string,mixed>,status:array<string,mixed>} */
-    public function claim(array $plan, string $owner, string $claimant, ?string $timestamp = null): array {
+    public function claim(
+        array $plan,
+        string $owner,
+        string $claimant,
+        ?string $timestamp = null,
+        bool $allowDeletes = false
+    ): array {
         $policy = $this->transport->verifiedRollbackConfig();
         if ($policy === null) {
             throw new \RuntimeException('wprism rollback: verified_rollback policy is not configured');
@@ -209,7 +217,7 @@ final class VerifiedRollbackProfile {
                     : self::timestamp();
         }
         return $this->authority->claim(
-            self::claimFields($plan, $policy, $owner, $timestamp),
+            self::claimFields($plan, $policy, $owner, $timestamp, null, $allowDeletes),
             $claimant,
             $timestamp
         );

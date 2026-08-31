@@ -170,6 +170,15 @@ function woo_writer_witness(): array {
     ];
 }
 
+/** @return array<string,mixed> */
+function woo_verified_writer_witness(): array {
+    $witness = woo_writer_witness();
+    unset($witness['scope_hash']);
+    $witness['format'] = 'wprism-verified-promotion-witness/v1';
+    $witness['receipt_format'] = 'wprism-rollback-receipt/v3';
+    return $witness;
+}
+
 function woo_writer_verifier(bool &$held, int &$verifications): Closure {
     return static function (array $binding) use (&$held, &$verifications): array {
         $verifications++;
@@ -1522,6 +1531,36 @@ try {
 }
 check($defaultWriterRefused,
     'default deletion coordinator refuses when no installed external-exclusion verifier was injected');
+$fullWriterVerifications = 0;
+$fullWriterCoordinator = new \WPrism\DeleteGuardLockCoordinator(
+    $policy,
+    new \WPrism\DeleteGuardReferenceScanner($policy),
+    $rows,
+    woo_writer_verifier($applyWriterHeld, $fullWriterVerifications)
+);
+$fullWriterCoordinator->bind_writer_exclusion(woo_verified_writer_witness());
+$fullWriterCoordinator->assert_writer_exclusion_plan_authority();
+check(
+    $fullWriterVerifications === 1,
+    'signed full-promotion witness reaches the same reverified deletion plan frontier without a fake scope'
+);
+$crossProfileCoordinator = new \WPrism\DeleteGuardLockCoordinator(
+    $policy,
+    new \WPrism\DeleteGuardReferenceScanner($policy),
+    $rows,
+    static fn(array $_binding): array => woo_writer_witness()
+);
+$crossProfileCoordinator->bind_writer_exclusion(woo_verified_writer_witness());
+$crossProfileRefused = false;
+try {
+    $crossProfileCoordinator->assert_writer_exclusion_plan_authority();
+} catch (\WPrism\CommandRefusalException $refusal) {
+    $crossProfileRefused = $refusal->reasonCode === 'deletion_writer_exclusion_changed';
+}
+check(
+    $crossProfileRefused,
+    'a scoped witness cannot replace a bound full-promotion generation at reverify'
+);
 $apply = new \WPrism\DeleteGuardLockCoordinator(
     $policy,
     new \WPrism\DeleteGuardReferenceScanner($policy),

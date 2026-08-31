@@ -773,7 +773,11 @@ final class RecoverCommand {
         $receipt = (array) $evidence['receipt'];
         $status = (array) $evidence['status'];
         self::assertSelectedEvidence($row, $receipt, $status, $audit);
-        if (($receipt['format'] ?? null) !== RollbackControl::RECEIPT_FORMAT
+        if (!in_array(
+                $receipt['format'] ?? null,
+                [RollbackControl::RECEIPT_FORMAT, RollbackControl::VERIFIED_PROMOTION_RECEIPT_FORMAT],
+                true
+            )
             || ($status['terminal'] ?? null) !== false
             || !in_array((string) ($status['state'] ?? ''), RecoveryPlan::ELIGIBLE_STATES, true)) {
             throw new CommandRefusalException(

@@ -277,6 +277,54 @@ final class RecoveryExecutor {
         ];
     }
 
+    /**
+     * Minimal target-agent proof for an ordinary automatic promotion whose
+     * immutable full-recovery receipt explicitly admitted deletions. Legacy
+     * v2 receipts remain recoverable, but cannot mint this authority.
+     *
+     * @return array<string,mixed>
+     */
+    public static function verifiedPromotionWitness(string $root): array {
+        $evidence = RollbackControl::activeEvidence($root);
+        $status = $evidence['status'] ?? null;
+        $receipt = $evidence['receipt'] ?? null;
+        if (!is_array($status) || !is_array($receipt)
+            || ($status['active'] ?? false) !== true
+            || ($status['ok'] ?? false) !== true
+            || ($status['state'] ?? null) !== 'promoting'
+            || ($status['terminal'] ?? true) !== false
+            || ($receipt['format'] ?? null) !== RollbackControl::VERIFIED_PROMOTION_RECEIPT_FORMAT
+            || ($receipt['allow_deletes'] ?? null) !== true) {
+            throw new \RuntimeException('wprism recovery: no active deletion-admitting verified promotion authority is available');
+        }
+        $record = self::readExclusion($root, true);
+        self::validateRecord($record);
+        self::assertRecordIdentity($record, $status, true);
+        if (($record['state'] ?? null) !== 'held'
+            || !hash_equals((string) $status['exclusion_token_sha256'], (string) $record['token_sha256'])) {
+            throw new \RuntimeException('wprism recovery: verified promotion exclusion is not held by the active receipt');
+        }
+        self::verifyHeld($root, $record, 'verify');
+        return [
+            'active' => true,
+            'allow_deletes' => true,
+            'artifact_hash' => (string) $status['artifact_hash'],
+            'exclusion_state' => 'held',
+            'format' => 'wprism-verified-promotion-witness/v1',
+            'generation' => (int) $status['generation'],
+            'ok' => true,
+            'owner' => (string) $status['owner'],
+            'receipt_format' => RollbackControl::VERIFIED_PROMOTION_RECEIPT_FORMAT,
+            'receipt_id' => (string) $status['receipt_id'],
+            'receipt_payload_sha256' => hash('sha256', RollbackControl::canonical($receipt)),
+            'recovery_ready' => true,
+            'signing_key_id' => (string) $receipt['signing_key_id'],
+            'state' => 'promoting',
+            'target_id' => (string) $status['target_id'],
+            'terminal' => false,
+        ];
+    }
+
     /** @return array<string,mixed> */
     public static function handleExclusionRequest(string $root, string $requestPath): array {
         self::assertAbsoluteRegularFile($requestPath, 'signed exclusion request');

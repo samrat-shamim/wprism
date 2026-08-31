@@ -2094,6 +2094,7 @@ final class Cli {
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
      * [--promotion-owner=<token>] : Internal orchestrator lease token shared with deploy.
      * [--scoped-promotion-receipt=<sha256>] : Internal external-checkpoint receipt payload hash supplied only by the SSH scoped-promotion orchestrator.
+     * [--verified-promotion-receipt=<sha256>] : Internal full-recovery receipt payload hash supplied only by automatic host promotion with deletions.
      * [--rebind-from-home=<url>] : Internal materializer flag (see `wprism plan`): the restored snapshot's home URL;
      *   foreign-bound entities are converged as updates marked `rebind` instead of being left as drift.
      * [--rebind-from-uploads=<url>] : The restored snapshot's uploads base URL; requires --rebind-from-home.
@@ -2116,6 +2117,7 @@ final class Cli {
                 'promotion_owner' => $assoc['promotion-owner'] ?? '',
                 'artifact_hash' => $assoc['artifact-hash'] ?? '',
                 'scoped_promotion_receipt' => $assoc['scoped-promotion-receipt'] ?? '',
+                'verified_promotion_receipt' => $assoc['verified-promotion-receipt'] ?? '',
             ] + self::rebind_from_options($assoc);
             // Same object-only seam as plan(); no registered WP-CLI flag can
             // turn an arbitrary path into mutation authority.

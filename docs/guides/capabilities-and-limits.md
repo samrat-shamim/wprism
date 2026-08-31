@@ -551,10 +551,10 @@ from the same list:
 | Bucket | What it means | Remedy |
 |---|---|---|
 | `conflict` | Repo and environment both changed the same entity. Plan JSON and human output identify the last-synced base, repository intent, and target intent without exposing raw values. | The recommended choice is to capture/reconcile both intents in the repository and re-plan. `wprism apply --force-theirs` selects the explicitly destructive alternative and reports every override; when that intent includes declared option deletion, the view also requires `--with-deletes`. Supplying deletion authority alone does not select the conflict override. |
-| `delete_conflict` | The target no longer matches the base a deletion tombstone expected — someone changed the entity after the tombstone was written. Distinct from a blocked delete: nothing is referencing it, the *base* moved. The view includes the tombstone's expected-base and receipt evidence. | Capture/reconcile first, or knowingly use `wprism apply --with-deletes --force-theirs`; both flags are mandatory. Once `--force-theirs` selects the override, a missing companion flag refuses before mutation and reports required versus supplied flags without calling the override authorized. `--with-deletes` alone retains the ordinary conflict refusal. |
+| `delete_conflict` | The target no longer matches the base a deletion tombstone expected — someone changed the entity after the tombstone was written. Distinct from a blocked delete: nothing is referencing it, the *base* moved. The view includes the tombstone's expected-base and receipt evidence. | Capture/reconcile first, or knowingly use `wprism promote <env> --with-deletes --force-theirs`; both flags are mandatory. Once `--force-theirs` selects the override, a missing companion flag refuses before mutation and reports required versus supplied flags without calling the override authorized. `--with-deletes` alone retains the ordinary conflict refusal. |
 | `collision` | An unmanaged environment entity already holds this slug. | `wprism apply --adopt-by-slug=<kinds>`, or rename. Inspect every collision first. |
-| pending `delete` (unauthorized) | The repository authored a deletion this environment still holds. An ordinary `wprism apply`/`wprism promote` without `--with-deletes` refuses before any authored mutation; it cannot apply the rest or record the revision while tombstones remain pending. | Review the rows, then use `wprism promote <env> --with-deletes` (or `wp wprism apply --with-deletes`) once they are the deletions you intend. |
-| blocked `delete` | A referential guard found live rows pointing at the deletion target. | Repair the referencing owner, or `wprism apply --with-deletes --force-delete-referenced`. Forced execution stays loud. |
+| pending `delete` (unauthorized) | The repository authored a deletion this environment still holds. An ordinary `wprism apply`/`wprism promote` without `--with-deletes` refuses before any authored mutation; it cannot apply the rest or record the revision while tombstones remain pending. | Review the rows, then use `wprism promote <env> --with-deletes`. Automatic verified promotion signs that intent into its full-recovery receipt; direct agent apply cannot mint deletion authority. |
+| blocked `delete` | A referential guard found live rows pointing at the deletion target. | Repair the referencing owner, or `wprism promote <env> --with-deletes --force-delete-referenced`. Forced execution stays loud. |
 | `missing_user` | An authored user-meta sidecar names an exact login that does not exist here. Apply refuses before mutation. | Create or reconcile the user outside WPrism, or declare `missing_user: "warn"` on every authored key in that sidecar to warn-and-skip it. |
 | `code_mismatch` | Installed code disagrees with what state declares active. | Install/vendor the code, deploy first, or `--force-code-mismatch`. |
 | `code_drift` | Managed code changed here since WPrism's last trusted observation. | Re-deploy to accept the new baseline, restore the recorded version yourself, or `--force-code-drift`. Unlike ordinary `drift` below, a `wprism capture` does **not** clear this one: capture observes the drift and warns once per finding, it does not accept a code change (issue #3507). |
@@ -575,8 +575,8 @@ top-level MU plugin, and recognized WordPress drop-ins. It hashes each exact
 installed tree. The selector must then carry a reviewed v2 agreement for every
 owner except WPrism's own loader.
 
-Use a staging target with the exact production code and the normal scoped
-promotion/writer-exclusion provider. The first attempt refuses before authored
+Use a staging target with the exact production code and the normal automatic
+verified-promotion recovery/writer-exclusion provider. The first attempt refuses before authored
 mutation and reports each missing owner with a safe `code_identity` tuple:
 
 ```json

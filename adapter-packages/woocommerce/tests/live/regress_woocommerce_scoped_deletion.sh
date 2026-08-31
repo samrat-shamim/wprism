@@ -7,8 +7,9 @@ export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 # WooCommerce capsule extension for sandbox/tests/live/regress_ssh_adopt.sh.
 # The shared suite owns the standalone SSH host, signed rollback authority,
 # encrypted database checkpoint, and complete external writer exclusion. This
-# extension adds one product tombstone and proves the public promote path rolls
-# it back when that exclusion disappears at Delete's final pre-COMMIT check.
+# extension adds one product tombstone and proves the checkpoint-only scoped
+# profile stays closed while automatic full promotion rolls the deletion back
+# when its exclusion disappears at Delete's final pre-COMMIT check.
 
 wprism_ssh_adopt_extension() {
   local woo_version="${WPRISM_WOO_DELETE_VERSION:-}"
@@ -19,7 +20,7 @@ wprism_ssh_adopt_extension() {
   local woo_suffix="${woo_version//./}"
   local woo_sku="WPRISM-SSH-DELETE-${woo_suffix}"
   local woo_pin executable_owners product_id product_file product_base product_uuid
-  local expected_hash expected_revision source_path scope_hash plan_json
+  local expected_hash expected_revision source_path scope_hash plan_json full_plan_json scoped_code
   local lookup_before failed_code failed_product failed_lookup retry_code
   local status_json stock_topology success_product success_lookup converged_plan
   local failure_stdout="$DIAG_DIR/woocommerce-delete-failure.stdout"
@@ -245,19 +246,35 @@ PHP
     and ([.delete[]? | select(.uuid == $uuid and .type == "post" and .deletion_type == "product" and ((.blocked // "") == ""))] | length) == 1
   ' <<<"$plan_json" >/dev/null \
     || fail "WooCommerce scoped-deletion extension did not plan one clean product delete"
+  if "$WPRISM" --envs-file="$TMP/envs.json" promote target --scope-contract="$contract" --with-deletes --format=json \
+      >"$TMP/woocommerce-scoped-refusal.stdout" 2>"$TMP/woocommerce-scoped-refusal.stderr"; then
+    scoped_code=0
+  else
+    scoped_code=$?
+  fi
+  [ "$scoped_code" -ne 0 ] \
+    || fail "WooCommerce post tombstone escaped the checkpoint-only scoped profile"
+  grep -Fq 'scoped_promotion_preflight_failed' \
+    "$TMP/woocommerce-scoped-refusal.stdout" "$TMP/woocommerce-scoped-refusal.stderr" \
+    || fail "WooCommerce checkpoint-only scoped refusal lost its typed preflight boundary"
+  full_plan_json="$("$WPRISM" --envs-file="$TMP/envs.json" plan target --format=json)" \
+    || fail "WooCommerce scoped-deletion extension could not plan its full automatic promotion"
+  jq -e --arg uuid "$product_uuid" '
+    ([.delete[]? | select(.uuid == $uuid and .type == "post" and .deletion_type == "product" and ((.blocked // "") == ""))] | length) == 1
+  ' <<<"$full_plan_json" >/dev/null \
+    || fail "WooCommerce full promotion did not retain one clean product delete"
   lookup_before="$(ssh_fixture "cd /var/www/html && wp db query \"SELECT COUNT(*) FROM wp_wc_product_meta_lookup WHERE product_id=$product_id\" --skip-column-names" | tr -d '[:space:]')"
   [ "$lookup_before" -ge 1 ] \
     || fail "WooCommerce scoped-deletion product has no native lookup preimage"
-  pass "WooCommerce exact adapter pin, theme identities, product, tombstone, and public scoped plan are bound"
+  pass "WooCommerce exact adapter pin, product tombstone, scoped refusal, and full automatic plan are bound"
 
   say "lose the external writer exclusion at Delete's final pre-COMMIT frontier"
-  # The public scoped-promotion sequence performs one recovery claim verify,
-  # then five target-agent witnesses: apply admission, delete-plan admission,
-  # executable-owner binding, destructive-unit authorization, and the final
-  # commit boundary. The sixth verify is therefore the exact last operation
-  # before the authored database COMMIT.
-  ssh_fixture 'printf "6\n" > /home/wprism/recovery-fixture/provider-state.json.fail-verify-after && chmod 600 /home/wprism/recovery-fixture/provider-state.json.fail-verify-after'
-  if "$WPRISM" --envs-file="$TMP/envs.json" promote target --scope-contract="$contract" --with-deletes --format=json >"$failure_stdout" 2>"$failure_stderr"; then
+  # The captured code revision is already live, so the full profile performs
+  # five controller-side held-exclusion reads before Apply. Apply then proves
+  # admission twice and re-verifies at plan, transaction, delete, and commit;
+  # the eleventh verify is therefore the final operation before DB COMMIT.
+  ssh_fixture 'printf "11\n" > /home/wprism/recovery-fixture/provider-state.json.fail-verify-after && chmod 600 /home/wprism/recovery-fixture/provider-state.json.fail-verify-after'
+  if "$WPRISM" --envs-file="$TMP/envs.json" promote target --with-deletes >"$failure_stdout" 2>"$failure_stderr"; then
     failed_code=0
   else
     failed_code=$?
@@ -271,11 +288,11 @@ PHP
   ssh_fixture 'test ! -e /home/wprism/recovery-fixture/provider-state.json.fail-verify-after' \
     || fail "WooCommerce scoped deletion did not consume its one-use provider-loss control"
 
-  status_json="$(ssh_fixture 'php /home/wprism/site/.wprism/control/recovery-runtime/rollback-control.php authority-status --root=/home/wprism/site/.wprism/control')"
-  jq -e --arg scope "$scope_hash" '
-    .ok == true and .receipt_format == "wprism-scoped-promotion-receipt/v1"
-    and .scope_hash == $scope and .allow_deletes == true
-    and .state == "rolled_back" and .terminal == true
+  status_json="$(ssh_fixture 'php /home/wprism/site/.wprism/control/recovery-runtime/rollback-control.php active-evidence --root=/home/wprism/site/.wprism/control')"
+  jq -e '
+    .receipt.format == "wprism-rollback-receipt/v3"
+    and .receipt.allow_deletes == true
+    and .status.state == "rolled_back" and .status.terminal == true
   ' <<<"$status_json" >/dev/null \
     || fail "WooCommerce provider-loss failure did not leave exact signed rolled-back deletion authority"
   failed_product="$(ssh_fixture "cd /var/www/html && wp eval 'echo (int) wc_get_product_id_by_sku(\"$woo_sku\");'")"
@@ -286,41 +303,32 @@ PHP
     || fail "WooCommerce provider-loss rollback retained a promotion lock"
   jq -e '.state == "released"' <<<"$(ssh_fixture 'cat /home/wprism/recovery-fixture/provider-state.json')" >/dev/null \
     || fail "WooCommerce provider-loss rollback did not release the external exclusion"
-  pass "final pre-COMMIT provider loss rolls back the product, lookup rows, and signed scoped generation"
+  pass "final pre-COMMIT provider loss rolls back the product, lookup rows, and signed full generation"
 
   say "retry the same public WooCommerce tombstone after recovery"
-  if "$WPRISM" --envs-file="$TMP/envs.json" promote target --scope-contract="$contract" --with-deletes --format=json >"$success_stdout" 2>"$success_stderr"; then
+  if "$WPRISM" --envs-file="$TMP/envs.json" promote target --with-deletes >"$success_stdout" 2>"$success_stderr"; then
     retry_code=0
   else
     retry_code=$?
   fi
   [ "$retry_code" -eq 0 ] \
     || fail "WooCommerce scoped deletion did not succeed after the verified rollback"
-  jq -e --arg scope "$scope_hash" '
-    .format == "wprism-scoped-promotion-result/v1"
-    and .scope_hash == $scope and .state == "committed"
-    and .rollback.format == "wprism-scoped-promotion-receipt/v1"
-    and .rollback.automatic_window_closed == true
-    and .scoped_apply.format == "wprism-scoped-apply-result/v1"
-    and .scoped_apply.verification.selected_deletions == 1
-    and .scoped_apply.scoped_receipt.phase == "complete"
-  ' "$success_stdout" >/dev/null \
-    || fail "WooCommerce successful retry lacked its exact terminal deletion receipt"
+  grep -Fq 'promote complete: verified committed receipt; traffic exclusion released' "$success_stdout" \
+    || fail "WooCommerce successful retry lacked its verified committed full-recovery receipt"
   success_product="$(ssh_fixture "cd /var/www/html && wp eval 'echo (int) wc_get_product_id_by_sku(\"$woo_sku\");'")"
   success_lookup="$(ssh_fixture "cd /var/www/html && wp db query \"SELECT COUNT(*) FROM wp_wc_product_meta_lookup WHERE product_id=$product_id\" --skip-column-names" | tr -d '[:space:]')"
   [ "$success_product" = "0" ] && [ "$success_lookup" = "0" ] \
     || fail "WooCommerce successful retry retained product or native lookup rows"
-  converged_plan="$("$WPRISM" --envs-file="$TMP/envs.json" plan target --scope-contract="$contract" --format=json)" \
-    || fail "WooCommerce successful retry did not permit a converged scoped plan"
+  converged_plan="$("$WPRISM" --envs-file="$TMP/envs.json" plan target --format=json)" \
+    || fail "WooCommerce successful retry did not permit a converged full plan"
   jq -e '
-    .format == "wprism-scoped-plan/v1"
-    and .create == [] and .update == [] and .drift == [] and .conflict == []
+    .create == [] and .update == [] and .drift == [] and .conflict == []
     and .delete == [] and .delete_conflict == []
   ' <<<"$converged_plan" >/dev/null \
     || fail "WooCommerce successful retry did not converge the selected tombstone"
-  [ -z "$(target_ledger_value promotion_lock)" ] && [ -z "$(target_ledger_value promotion_session)" ] \
-    || fail "WooCommerce successful retry retained a target promotion session"
+  [ -z "$(target_ledger_value promotion_lock)" ] \
+    || fail "WooCommerce successful retry retained a target promotion lock"
   jq -e '.state == "released"' <<<"$(ssh_fixture 'cat /home/wprism/recovery-fixture/provider-state.json')" >/dev/null \
     || fail "WooCommerce successful retry did not release the external exclusion"
-  pass "public signed scoped promotion retries cleanly and deletes the exact WooCommerce product"
+  pass "public automatic verified promotion retries cleanly and deletes the exact WooCommerce product"
 }

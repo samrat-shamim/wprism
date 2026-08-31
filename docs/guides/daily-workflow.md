@@ -442,7 +442,11 @@ That deletion refusal now holds at every mutation entry point. `wprism release`,
 `wprism promote`, and direct `wp wprism apply` all require `--with-deletes` before a
 plan containing live tombstones can mutate anything. Release additionally
 freezes that authority in its reviewed plan; the lower-level verbs enforce the
-same no-partial-success invariant at apply preparation.
+same no-partial-success invariant at apply preparation. The flag alone is not
+writer-exclusion authority: an executable deletion runs through automatic
+verified promotion, whose signed v3 recovery receipt binds that delete intent.
+Direct apply remains a useful refusal/diagnostic surface but cannot mint the
+external recovery witness required to delete.
 
 Behind: `wprism verify`, which pairs a fresh read-only convergence re-read with
 the HTTP journey oracles your contract declares. Both must pass. If you

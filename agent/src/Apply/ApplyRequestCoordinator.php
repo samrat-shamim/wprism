@@ -60,6 +60,7 @@ require_once __DIR__ . '/ApplyPreparationRequest.php';
 require_once __DIR__ . '/ApplyWorkset.php';
 require_once __DIR__ . '/../Delete/DeletionAuthority.php';
 require_once __DIR__ . '/../Promotion/ScopedPromotionAuthority.php';
+require_once __DIR__ . '/../Promotion/VerifiedPromotionAuthority.php';
 require_once __DIR__ . '/../Rebuild/RebuildRequest.php';
 
 /**
@@ -190,14 +191,26 @@ final class ApplyRequestCoordinator {
             $policy,
             $this->services->delete_guard_reference_scanner(),
             $this->services->snapshot_row_tables(),
-            static fn(array $binding): array => ScopedPromotionAuthority::require_installed(
-                (string) $binding['owner'],
-                (string) $binding['artifact_hash'],
-                (string) $binding['receipt_payload_sha256'],
-                (string) $binding['scope_hash'],
-                ['promoting'],
-                true
-            )
+            static function (array $binding): array {
+                if (($binding['profile'] ?? null) === 'scoped') {
+                    return ScopedPromotionAuthority::require_installed(
+                        (string) $binding['owner'],
+                        (string) $binding['artifact_hash'],
+                        (string) $binding['receipt_payload_sha256'],
+                        (string) $binding['scope_hash'],
+                        ['promoting'],
+                        true
+                    );
+                }
+                if (($binding['profile'] ?? null) === 'verified') {
+                    return VerifiedPromotionAuthority::require_installed(
+                        (string) $binding['owner'],
+                        (string) $binding['artifact_hash'],
+                        (string) $binding['receipt_payload_sha256']
+                    );
+                }
+                throw new \RuntimeException('wprism: deletion writer-exclusion profile is unsupported');
+            }
         );
         $this->taxonomyContext = new TaxonomyApplyContext($policy, $compiled);
         $this->rebuildSelection = new RebuildSelection($policy);
@@ -733,6 +746,7 @@ final class ApplyRequestCoordinator {
         $scopeRequest = $opts['scope_request'] ?? null;
         $scoped = is_array($scopeRequest);
         $scopedPromotionWitness = self::assert_scoped_promotion_request($opts, $scoped);
+        $verifiedPromotionWitness = self::assert_verified_promotion_request($opts, $scoped);
         $allowDeletes = !empty($opts['with_deletes']);
         if ($scoped) {
             Ledger::assert_read_only_schema();
@@ -996,7 +1010,7 @@ final class ApplyRequestCoordinator {
                 $a->services->attachment_materializer()->recover_pending_filesystem();
             }
             $a->scopedWorkflow->session = $recoveringScopedSession ? $existingScopedSession : null;
-            $a->scopedWorkflow->promotionWitness = $scopedPromotionWitness;
+            $a->scopedWorkflow->promotionWitness = $scopedPromotionWitness ?? $verifiedPromotionWitness;
             $a->scopedWorkflow->terminalSessionToArchive = $terminalScopedSessionToArchive;
             if ($scoped) {
                 $a->scopedWorkflow->scopeContract = ScopedApply::resolve_contract(
@@ -1031,6 +1045,14 @@ final class ApplyRequestCoordinator {
                     $scopeHash,
                     $scopedPromotionWitness
                 );
+            }
+            if ($verifiedPromotionWitness !== null) {
+                $verifiedPromotionWitness = VerifiedPromotionAuthority::require_installed(
+                    $promotionOwner,
+                    $promotionArtifact,
+                    (string) $opts['verified_promotion_receipt']
+                );
+                $a->scopedWorkflow->promotionWitness = $verifiedPromotionWitness;
             }
             $summary = $a->run($opts, $lockedCompiled);
             PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'complete');
@@ -1269,7 +1291,7 @@ final class ApplyRequestCoordinator {
         // ProcessFence as a substitute for target-wide writer exclusion.
         if ($deleteWork !== []) {
             $witness = $this->scopedWorkflow->promotionWitness;
-            if (!$scopedPromotion || !is_array($witness)) {
+            if (!is_array($witness)) {
                 $this->deleteGuardCoordinator->assert_writer_exclusion_plan_authority();
             }
             $this->deleteGuardCoordinator->bind_writer_exclusion((array) $witness);
@@ -1828,6 +1850,33 @@ final class ApplyRequestCoordinator {
             $authorityWitness
         );
         return $authorityWitness;
+    }
+
+    /**
+     * Admit destructive full apply only as the exact continuation of the
+     * signed automatic rollback generation whose v3 receipt records the same
+     * --with-deletes intent. Direct apply and legacy v2 receipts stay closed.
+     */
+    private static function assert_verified_promotion_request(array $opts, bool $scoped): ?array {
+        $receipt = (string) ($opts['verified_promotion_receipt'] ?? '');
+        if ($receipt === '') {
+            return null;
+        }
+        if ($scoped
+            || empty($opts['with_deletes'])
+            || (string) ($opts['promotion_owner'] ?? '') === ''
+            || preg_match('/^[a-f0-9]{64}$/D', $receipt) !== 1) {
+            throw CommandRefusalException::applyRefused(
+                'verified deletion continuation requires full apply, --with-deletes, exact host owner, and signed receipt hash',
+                'retry through automatic host `wprism promote <env> --with-deletes`',
+                'wprism: invalid verified deletion continuation'
+            );
+        }
+        return VerifiedPromotionAuthority::require_installed(
+            (string) $opts['promotion_owner'],
+            (string) ($opts['artifact_hash'] ?? ''),
+            $receipt
+        );
     }
 
 

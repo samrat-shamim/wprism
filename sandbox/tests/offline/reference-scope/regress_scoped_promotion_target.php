@@ -174,6 +174,7 @@ namespace {
     use WPrism\CommandRefusalException;
     use WPrism\PromotionLock;
     use WPrism\ScopedPromotionAuthority;
+    use WPrism\VerifiedPromotionAuthority;
     use WPrism\ScopedPromotionTargetLedger;
     use WPrism\Orchestrator\CodeDeploy;
 
@@ -330,6 +331,7 @@ namespace {
     $GLOBALS['wpdb'] = new ScopedPromotionTargetFakeWpdb();
     require_once "$root/agent/src/Promotion/PromotionLock.php";
     require_once "$root/agent/src/Promotion/ScopedPromotionAuthority.php";
+    require_once "$root/agent/src/Promotion/VerifiedPromotionAuthority.php";
     require_once "$root/agent/src/Apply/Apply.php";
     require_once "$root/agent/src/Command/Cli.php";
     require_once "$root/cli/src/Transport/CodeDeploy.php";
@@ -427,6 +429,47 @@ namespace {
         $check(true, 'delayed target completion accepts the exact committed held-exclusion witness');
     } catch (Throwable $failure) {
         $check(false, 'valid committed completion witness was refused (' . $failure->getMessage() . ')');
+    }
+    $verifiedWitness = [
+        'active' => true,
+        'allow_deletes' => true,
+        'artifact_hash' => $artifact,
+        'exclusion_state' => 'held',
+        'format' => 'wprism-verified-promotion-witness/v1',
+        'generation' => 8,
+        'ok' => true,
+        'owner' => $owner,
+        'receipt_format' => 'wprism-rollback-receipt/v3',
+        'receipt_id' => str_repeat('8', 48),
+        'receipt_payload_sha256' => $receipt,
+        'recovery_ready' => true,
+        'signing_key_id' => 'offline-key-1',
+        'state' => 'promoting',
+        'target_id' => str_repeat('f', 32),
+        'terminal' => false,
+    ];
+    try {
+        VerifiedPromotionAuthority::validate($verifiedWitness, $owner, $artifact, $receipt);
+        $check(true, 'full promotion witness accepts the exact v3 deletion-admitting recovery generation');
+    } catch (Throwable $failure) {
+        $check(false, 'valid full promotion witness was refused (' . $failure->getMessage() . ')');
+    }
+    foreach ([
+        'legacy receipt' => ['receipt_format' => 'wprism-rollback-receipt/v2'],
+        'unsigned delete intent' => ['allow_deletes' => false],
+        'terminal generation' => ['state' => 'committed', 'terminal' => true],
+        'released exclusion' => ['exclusion_state' => 'released'],
+    ] as $label => $replacement) {
+        $expect(
+            static fn() => VerifiedPromotionAuthority::validate(
+                array_replace($verifiedWitness, $replacement),
+                $owner,
+                $artifact,
+                $receipt
+            ),
+            'does not match the exact held full-recovery generation',
+            "$label cannot authorize full-promotion deletion"
+        );
     }
     $first = PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300);
     $sessionBytes = ScopedPromotionTargetLedger::$values['promotion_session'] ?? '';

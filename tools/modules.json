@@ -426,7 +426,7 @@
           {
             "module": "Code",
             "kind": "intra-layer",
-            "count": 6,
+            "count": 7,
             "edges": [
               "CompiledArtifact.php -> Code.php",
               "CompiledArtifactReader.php -> CodeStateContract.php",
@@ -696,7 +696,8 @@
               "ApplyPreparationCoordinator.php -> PromotionLock.php",
               "ApplyPreparationCoordinator.php -> ScopedPromotionAuthority.php",
               "ApplyRequestCoordinator.php -> PromotionLock.php",
-              "ApplyRequestCoordinator.php -> ScopedPromotionAuthority.php"
+              "ApplyRequestCoordinator.php -> ScopedPromotionAuthority.php",
+              "ApplyRequestCoordinator.php -> VerifiedPromotionAuthority.php"
             ]
           },
           {
@@ -937,7 +938,8 @@
           "AuthorizedReleaseRepository",
           "PromotionLock",
           "Deploy",
-          "ScopedPromotionAuthority"
+          "ScopedPromotionAuthority",
+          "VerifiedPromotionAuthority"
         ],
         "depends_on": [
           "Code",
@@ -956,7 +958,7 @@
             ]
           }
         ],
-        "file_count": 12,
+        "file_count": 13,
         "files": [
           "AuthorizedReleaseRepository.php",
           "Deploy.php",
@@ -969,7 +971,8 @@
           "PromotionSessionJournal.php",
           "ScopedPromotionAuthority.php",
           "StateHandoffVerifier.php",
-          "StateTransitionJournal.php"
+          "StateTransitionJournal.php",
+          "VerifiedPromotionAuthority.php"
         ]
       },
       "Recovery": {
