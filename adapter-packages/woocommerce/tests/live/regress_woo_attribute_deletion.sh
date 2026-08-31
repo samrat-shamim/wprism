@@ -23,7 +23,7 @@
 # The pair is destroyed only when every assertion is green. A failed run leaves
 # it available for inspection, matching the sandbox certification convention.
 set -euo pipefail
-PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 cd "$(dirname "$0")/../../../../sandbox"
 

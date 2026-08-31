@@ -228,7 +228,8 @@ unset WPRISM_ARTIFACT_PACKAGE
 
 # A package live shell always belongs to exactly one capsule, even before it
 # opts into cached artifacts. Requiring one canonical first-three-statement
-# preamble makes arbitrary variable/wrapper flag construction irrelevant;
+# preamble makes arbitrary variable/wrapper flag construction irrelevant and
+# remains correct when a package live script is sourced as an extension;
 # ActiveShellSource removes comments and heredoc bodies before this order check.
 validate_package_artifact_caller() { # <package tests/live shell suite>
   local package_live="$1" active diagnostic status
@@ -238,7 +239,7 @@ validate_package_artifact_caller() { # <package tests/live shell suite>
   fi
 
   if diagnostic="$(printf '%s\n' "$active" | awk \
-    -v root_stmt='PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"' \
+    -v root_stmt='PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"' \
     -v export_stmt='export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"' '
     {
       statement = $0
@@ -288,7 +289,7 @@ mkdir -p "$CALLER_PROBE"
 cat > "$CALLER_PROBE/regress_fourth_artifact_pair.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 PAIR_BIN=bin/pair.sh
 UP_FLAGS=(--arti""facts)
 run_pair() { bash "$PAIR_BIN" "$@"; }
@@ -300,7 +301,7 @@ fi
 cat > "$CALLER_PROBE/regress_fourth_artifact_pair.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 PAIR_BIN=bin/pair.sh
 UP_FLAGS=(--arti""facts)
@@ -312,7 +313,7 @@ validate_package_artifact_callers "$TMP/artifact-caller-probe/adapter-packages" 
 cat > "$CALLER_PROBE/regress_comment_only.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 # export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 exit 0
 EOF
@@ -322,7 +323,7 @@ fi
 cat > "$CALLER_PROBE/regress_comment_only.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 # Documentation example only: pair.sh up demo 9901 9902 --artifacts
 exit 0
@@ -333,7 +334,7 @@ validate_package_artifact_callers "$TMP/artifact-caller-probe/adapter-packages" 
 cat > "$CALLER_PROBE/regress_late_scope.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 PAIR_BIN=bin/pair.sh
 export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 PREFIX=--arti
@@ -346,7 +347,7 @@ fi
 cat > "$CALLER_PROBE/regress_late_scope.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 PAIR_BIN=bin/pair.sh
 PREFIX=--arti
@@ -359,7 +360,7 @@ validate_package_artifact_callers "$TMP/artifact-caller-probe/adapter-packages" 
 cat > "$CALLER_PROBE/regress_scope_unset.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 unset WPRISM_ARTIFACT_PACKAGE
 bash bin/pair.sh up fourth 9901 9902 --artifacts
@@ -370,7 +371,7 @@ fi
 cat > "$CALLER_PROBE/regress_scope_function_redirect.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 redirect_scope() { export WPRISM_ARTIFACT_PACKAGE=other; }
 redirect_scope
@@ -382,7 +383,7 @@ fi
 cat > "$CALLER_PROBE/regress_scope_compound_redirect.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 if true; then WPRISM_ARTIFACT_PACKAGE=other; export WPRISM_ARTIFACT_PACKAGE; fi
 bash bin/pair.sh up fourth 9901 9902 --artifacts
@@ -393,7 +394,7 @@ fi
 cat > "$CALLER_PROBE/regress_scope_spliced_redirect.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 export WPRISM_ARTIFACT_""PACKAGE=other
 bash bin/pair.sh up fourth 9901 9902 --artifacts
@@ -404,7 +405,7 @@ fi
 cat > "$CALLER_PROBE/regress_scope_spliced_unset.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 unset WPRISM_ARTIFACT_''PACKAGE
 bash bin/pair.sh up fourth 9901 9902 --artifacts
@@ -416,7 +417,7 @@ fi
 cat > "$CALLER_PROBE/regress_malformed_scope.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 exit 0
 EOF
