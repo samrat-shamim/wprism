@@ -92,6 +92,29 @@ $check(
     . 'adopt installed'
 );
 
+$dockerfilePath = $root . '/sandbox/tests/fixtures/ssh-adopt.Dockerfile';
+$dockerfile = file_get_contents($dockerfilePath);
+$check(
+    is_string($dockerfile) && str_contains($dockerfile, 'apk add --no-cache git mariadb-client openssh-server'),
+    'the SSH target image carries Git for the repository branch fence enforced by capture'
+);
+$targetRepositorySetup = <<<'SH'
+php -r 'require $argv[1]; echo \WPrism\Cli\Onboarding\Adopt::repositoryGitignoreBytes();' \
+  "$ROOT/cli/src/Onboarding/Adopt.php" >"$TMP/repository.gitignore"
+SH;
+$failureCapture = 'capture target --target-branch="$TARGET_REPOSITORY_BRANCH" --format=json >"$TMP/scoped-apply-failure-capture.json"';
+$successCapture = 'capture target --target-branch="$TARGET_REPOSITORY_BRANCH" --format=json >"$TMP/scoped-apply-success-capture.json"';
+$check(
+    str_contains($harness, 'TARGET_REPOSITORY_BRANCH="wprism-live-evidence"')
+        && str_contains($harness, $targetRepositorySetup)
+        && str_contains($harness, 'git init -b \'$TARGET_REPOSITORY_BRANCH\'')
+        && str_contains($harness, "git add .gitignore site.wprism.json && git commit -m 'Initialize WPrism live repository'")
+        && str_contains($harness, 'git -C /home/wprism/site symbolic-ref --quiet --short HEAD\')" = "$TARGET_REPOSITORY_BRANCH"')
+        && substr_count($harness, $failureCapture) === 1
+        && substr_count($harness, $successCapture) === 1,
+    'the live journey commits the canonical repository seed on one named branch and binds both capture writes to it'
+);
+
 $diagnosticAssignments = [
     'SCOPED_PLAN_STDOUT="$DIAG_DIR/scoped-plan.stdout"',
     'SCOPED_PLAN_STDERR="$DIAG_DIR/scoped-plan.stderr"',

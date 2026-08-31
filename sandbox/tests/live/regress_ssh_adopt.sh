@@ -37,6 +37,7 @@ WPRISM="$ROOT/cli/wprism"
 SUITE_LABEL="${WPRISM_SSH_SUITE_LABEL:-regress-ssh-adopt}"
 FINAL_LABEL="${WPRISM_SSH_FINAL_LABEL:-REGRESS_SSH_ADOPT}"
 EXTENSION="${WPRISM_SSH_ADOPT_EXTENSION:-}"
+TARGET_REPOSITORY_BRANCH="wprism-live-evidence"
 RUN_ID=""
 BODY_COMPLETE=0
 IMAGE_OWNED=0
@@ -467,6 +468,18 @@ ssh_fixture 'test ! -e /home/wprism/site/.wprism/control/rollback-signing.key &&
   || fail "adoption copied private signing material to the target"
 pass "agent with embedded adapters, seed repo, public-key-only rollback authority, and doctor verify through SSH"
 
+say "establish the named target repository boundary required by capture"
+php -r 'require $argv[1]; echo \WPrism\Cli\Onboarding\Adopt::repositoryGitignoreBytes();' \
+  "$ROOT/cli/src/Onboarding/Adopt.php" >"$TMP/repository.gitignore"
+scp -F "$TMP/ssh_config" "$TMP/repository.gitignore" \
+  wprism-adopt-fixture:/home/wprism/site/.gitignore >/dev/null
+ssh_fixture "cd /home/wprism/site && git init -b '$TARGET_REPOSITORY_BRANCH' >/dev/null && git config user.name 'WPrism live fixture' && git config user.email 'wprism-live@example.invalid' && git add .gitignore site.wprism.json && git commit -m 'Initialize WPrism live repository' >/dev/null"
+[ "$(ssh_fixture 'git -C /home/wprism/site symbolic-ref --quiet --short HEAD')" = "$TARGET_REPOSITORY_BRANCH" ] \
+  || fail "target repository was not initialized on the capture branch"
+ssh_fixture 'git -C /home/wprism/site diff --quiet HEAD -- .gitignore site.wprism.json && git -C /home/wprism/site diff --cached --quiet' \
+  || fail "target repository seed was not committed cleanly"
+pass "target repository has the canonical ignore boundary and a committed named capture branch"
+
 ssh_fixture 'mv /var/www/html/wp-config.php /var/www/html/wp-config.broken; printf "%s\n" "<?php throw new RuntimeException(\"broken bootstrap\");" > /var/www/html/wp-config.php'
 ssh_fixture 'php /home/wprism/site/.wprism/control/recovery-runtime/rollback-control.php recovery-probe --root=/home/wprism/site/.wprism/control' \
   | grep -q '"provider_id":"ssh-fixture-provider"' \
@@ -551,7 +564,7 @@ pass "target carries the shipped platform boundary and a cited disposition for e
 say "exercise a real checkpointed SSH scoped promotion and its recovery boundary"
 ssh_fixture 'php -r '\''$p="/home/wprism/site/site.wprism.json"; $d=json_decode(file_get_contents($p),true,512,JSON_THROW_ON_ERROR); $d["policy"]["options"]["scoped-apply_scoped_option"]=["autoload"=>"preserve","class"=>"authored"]; file_put_contents($p,json_encode($d,JSON_UNESCAPED_SLASHES)."\n");'\'''
 ssh_fixture 'cd /var/www/html && wp option update scoped-apply_scoped_option desired-failure --autoload=no >/dev/null'
-"$WPRISM" --envs-file="$TMP/envs.json" capture target --format=json >"$TMP/scoped-apply-failure-capture.json" \
+"$WPRISM" --envs-file="$TMP/envs.json" capture target --target-branch="$TARGET_REPOSITORY_BRANCH" --format=json >"$TMP/scoped-apply-failure-capture.json" \
   || fail "could not capture the desired scoped-promotion source state"
 "$WPRISM" --envs-file="$TMP/envs.json" scope target --roots=options --contract >"$TMP/scoped-apply-failure-scope.json" \
   || fail "could not mint the desired scoped-promotion contract"
@@ -707,7 +720,7 @@ jq -e '.state == "released"' <<<"$(ssh_fixture 'cat /home/wprism/recovery-fixtur
   || fail "v2 exclusion provider did not release after scoped rollback"
 
 ssh_fixture 'cd /var/www/html && wp option update scoped-apply_scoped_option desired-success --autoload=no >/dev/null'
-"$WPRISM" --envs-file="$TMP/envs.json" capture target --format=json >"$TMP/scoped-apply-success-capture.json" \
+"$WPRISM" --envs-file="$TMP/envs.json" capture target --target-branch="$TARGET_REPOSITORY_BRANCH" --format=json >"$TMP/scoped-apply-success-capture.json" \
   || fail "could not capture the successful scoped-promotion source state"
 "$WPRISM" --envs-file="$TMP/envs.json" scope target --roots=options --contract >"$TMP/scoped-apply-success-scope.json" \
   || fail "could not mint the successful scoped-promotion contract"

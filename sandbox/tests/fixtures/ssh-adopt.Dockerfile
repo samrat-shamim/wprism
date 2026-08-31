@@ -1,7 +1,7 @@
 FROM wordpress:cli-php8.3
 
 USER root
-RUN apk add --no-cache mariadb-client openssh-server \
+RUN apk add --no-cache git mariadb-client openssh-server \
     && adduser -D -s /bin/sh wprism \
     && passwd -d wprism \
     && ssh-keygen -A \
