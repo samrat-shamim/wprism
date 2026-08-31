@@ -35,10 +35,10 @@ use WPrism\Canon;
 use WPrism\ManifestDispositions;
 use WPrism\Policy;
 
-const BASELINE_FIXTURE_SHA256 = '39fb508e98f133f8a53712c228621e4f7be96bc364a7253d1532ad93115ff9c2';
-const ALL_MANIFEST_HASH = 'd797fe693d5b6a722adb7147dff24c474a17d65da69f1ecf6f5fae77f037cf4c';
-const REGISTRY_SHA256 = 'c905083db17b0b8fa0ff2b2d27a79e9c68e338bfd58bf6c8124ad961c0965b3a';
-const SNAPSHOT_SHA256 = '37aa51c820f5909d1758552fde35b91dc0cae78623dda40cdd7370fa50e94d83';
+const BASELINE_FIXTURE_SHA256 = '6b7d8f1fbb945a2472f1169ed78e75c1467337695447b1c46d72b92b1c7c2cff';
+const ALL_MANIFEST_HASH = '66e76a18e9731c2f2b85a9023f816b53d6c5ef4ddb5ed4e4ba826f3e4b3d7c08';
+const REGISTRY_SHA256 = '99e02ee9b61b7b471b9e651e140efbe396dd437851c6ef7dac4a725d3ff18faa';
+const SNAPSHOT_SHA256 = '0c861c30900f044571821184dd865d2666540634a8b885bd52fda71330a5ccc7';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';

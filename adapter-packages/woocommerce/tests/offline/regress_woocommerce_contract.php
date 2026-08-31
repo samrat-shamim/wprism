@@ -953,6 +953,17 @@ foreach ($supportedDeletes as $selector) {
         && ($runtimeGuards['wc_stock_notifications']['column'] ?? null) === 'product_id'
         && ($runtimeGuards['wc_stock_notifications']['forceable'] ?? null) === false,
         "$selector deletion blocks Woo lifecycle-owned reservation and stock-notification rows even under force");
+    $childPostGuards = array_values(array_filter(
+        (array) ($capability['guards'] ?? []),
+        static fn(array $guard): bool => ($guard['table'] ?? null) === 'posts'
+            && ($guard['column'] ?? null) === 'post_parent'
+    ));
+    woo_ok(
+        count($childPostGuards) === 1
+            && ($childPostGuards[0]['exclude_where'] ?? null) === ['post_type' => 'revision']
+            && ($childPostGuards[0]['forceable'] ?? null) === false,
+        "$selector deletion keeps surviving non-revision children non-forceable because variation cleanup is unsupported"
+    );
 }
 foreach ($unsupportedDeletes as $selector) {
     woo_ok($policy->deletion_capability($selector) === null, "$selector deletion is fail-closed");

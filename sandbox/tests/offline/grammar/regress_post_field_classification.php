@@ -1006,7 +1006,7 @@ check(
 
 $protectedUuid = '018f0000-0000-7000-8000-000000000006';
 $passwordBinding = \WPrism\EnvironmentValues::postPasswordName($protectedUuid);
-$maximumPassword = str_repeat('p', 255);
+$maximumPassword = str_repeat('🔒', 255);
 \WPrism\EnvironmentValues::set($fixtureDir, $passwordBinding, $maximumPassword);
 $protectedApply = apply_instance(
     $policy,
@@ -1029,10 +1029,11 @@ foreach ($wpdb->inserts as $insert) {
 }
 check(
     is_array($protectedInsert)
-        && strlen((string) $protectedInsert['post_password']) === 255
+        && preg_match_all('/./us', (string) $protectedInsert['post_password']) === 255
+        && strlen((string) $protectedInsert['post_password']) > 255
         && (\WPrism\EnvironmentValues::read($fixtureDir)[$passwordBinding] ?? null)
             === $protectedInsert['post_password'],
-    'absent-post apply writes the exact 255-byte value read back from env-set intent without truncation'
+    'absent-post apply writes the exact 255-character multibyte value read back from env-set intent without truncation'
 );
 
 if ($failures > 0) {

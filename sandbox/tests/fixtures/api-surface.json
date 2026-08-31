@@ -49058,7 +49058,7 @@
         "WPrism\\PostPasswordBinding": {
             "abstract": false,
             "constants": {
-                "MAX_VALUE_BYTES": {
+                "MAX_VALUE_CHARACTERS": {
                     "value_repr": 255
                 },
                 "PREFIX": {

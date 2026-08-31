@@ -12,7 +12,7 @@
         "polylang": "60edabfdaab55d4ea74d0c6ac71228bffc2b2911afe57a962ac898ee73064548",
         "redirection": "6ba607e26345be23b0a89eeee69dadc0ceff75ca40b8cdf9d0ab88d066303bc7",
         "the-events-calendar": "cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee",
-        "woocommerce": "942f64913e8e411a3cec8611047d2591eef220b066ad54dd9ceed4441551244e",
+        "woocommerce": "62331a62fe4a934d4ec6a82ac926650844f31f6aa98df7e501b49d2044eceb35",
         "wprism-agency-cpt": "174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab",
         "wps-hide-login": "4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050",
         "yoast": "565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea",
@@ -32,7 +32,7 @@
         "polylang": "ce528f0361b733048822c182039f572689c91a002de82c57f596d3dfef1c6e13",
         "redirection": "9d19654602f48d32610679cf701995bfb906d632da4990ffd0de1f813e7eeb8c",
         "the-events-calendar": "c76dcf086a1b7e7d4027435b267bb440103147f17ad2841ab1179c15057196d6",
-        "woocommerce": "4d3127bc433c580c468130810e7551a3b8fdae78702fd42dc2190f7daecf8e8c",
+        "woocommerce": "70aa6e1799549274d1f54b0f5169adc5bc3fbcd7d1a64d36583e11a4a4fdcbe6",
         "wprism-agency-cpt": "015eca9b986cf7a15e87455ac0ed71a4dfe1d49a16bd68590a188191fee306cf",
         "wps-hide-login": "7c06d55543f0395408bd00a3ec89705e1d626fc21d211561be61426fa84004f5",
         "yoast": "e319300014e96b089e456ebf68d32098b4bde13691c712c206876d3ae9a0c852",
@@ -40,7 +40,7 @@
     },
     "pin_sets": {
         "all-17": {
-            "manifest_hash": "d797fe693d5b6a722adb7147dff24c474a17d65da69f1ecf6f5fae77f037cf4c",
+            "manifest_hash": "66e76a18e9731c2f2b85a9023f816b53d6c5ef4ddb5ed4e4ba826f3e4b3d7c08",
             "pins": [
                 "acf",
                 "advanced-editor-tools",
@@ -74,7 +74,7 @@
             "pins": ["core", "polylang", "the-events-calendar"]
         },
         "core+woocommerce+acf": {
-            "manifest_hash": "37118791f57df21e439e795d355f4adedac22e63854c97e928a88392a629a23a",
+            "manifest_hash": "6223d5d94b8addcca5b17c199dfd59d87f5ac8507501e73b4d8dcff3e03d661a",
             "pins": ["acf", "core", "woocommerce"]
         },
         "core-only": {
@@ -86,6 +86,6 @@
             "pins": ["wprism-agency-cpt"]
         }
     },
-    "registry_sha256": "c905083db17b0b8fa0ff2b2d27a79e9c68e338bfd58bf6c8124ad961c0965b3a",
-    "snapshot_sha256": "37aa51c820f5909d1758552fde35b91dc0cae78623dda40cdd7370fa50e94d83"
+    "registry_sha256": "99e02ee9b61b7b471b9e651e140efbe396dd437851c6ef7dac4a725d3ff18faa",
+    "snapshot_sha256": "0c861c30900f044571821184dd865d2666540634a8b885bd52fda71330a5ccc7"
 }

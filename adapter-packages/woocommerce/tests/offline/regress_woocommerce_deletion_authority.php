@@ -630,6 +630,17 @@ $productMetaGuard = array_values(array_filter(
     static fn(array $guard): bool => ($guard['meta_key'] ?? null) === '_children'
 ))[0] ?? null;
 check(is_array($productMetaGuard), 'simple/variable product deletion has the same grouped-child safety guard');
+$productChildGuard = array_values(array_filter(
+    $product['guards'],
+    static fn(array $guard): bool => ($guard['table'] ?? null) === 'posts'
+        && ($guard['column'] ?? null) === 'post_parent'
+))[0] ?? null;
+check(
+    is_array($productChildGuard)
+        && ($productChildGuard['exclude_where'] ?? null) === ['post_type' => 'revision']
+        && ($productChildGuard['forceable'] ?? null) === false,
+    'shipped product deletion makes surviving non-revision child posts non-forceable'
+);
 
 $tables = [
     'woocommerce_shipping_zones',
@@ -1171,6 +1182,42 @@ check(str_contains(
 $fakeWpdb->guardReadErrorTable = null;
 $fakeWpdb->last_error = '';
 unset($fakeWpdb->tableEngines['wp_wc_reserved_stock'], $fakeWpdb->indexRows['wp_wc_reserved_stock']);
+
+$variableProductPlan = \WPrism\DeleteGuardEvaluator::annotate_plan_guard_findings(
+    ['delete' => [[
+        'deletion_kind' => 'post',
+        'deletion_type' => 'product',
+        'type' => 'product',
+        'uuid' => $childUuid,
+    ]], 'delete_conflict' => []],
+    [$childUuid => ['guards' => [$productChildGuard]]],
+    static fn(array $_guard, string $_uuid, bool $_forUpdate): array => [
+        'count' => 1,
+        'error' => null,
+        'rows' => ['posts.ID=43'],
+        'witness' => hash('sha256', 'variable-product-child'),
+    ],
+    static fn(string $_table): bool => false,
+    str_repeat('0', 64)
+);
+$forcedVariableMutationCount = 0;
+$forcedVariableRefused = false;
+try {
+    // ApplyPreparationCoordinator calls this before its force-warning path;
+    // reaching the increment models the mutation a force flag would admit.
+    \WPrism\DeleteGuardLockCoordinator::assert_no_non_forceable_delete_guards(
+        $variableProductPlan['delete']
+    );
+    $forcedVariableMutationCount++;
+} catch (\WPrism\CommandRefusalException $refusal) {
+    $forcedVariableRefused = $refusal->reasonCode === 'apply_refused'
+        && str_contains($refusal->getMessage(), 'non-forceable semantic guards')
+        && str_contains($refusal->getMessage(), 'unscheduled child posts reference this product');
+}
+check(
+    $forcedVariableRefused && $forcedVariableMutationCount === 0,
+    '--force-delete-referenced cannot delete a variable product parent while its variation child survives'
+);
 
 // The destructive boundary must inventory code that can execute outside the
 // Woo plugin itself. Its three option facts are direct FOR UPDATE reads, and

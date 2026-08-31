@@ -595,20 +595,30 @@ $check(
         && file_get_contents($envPath) === "{\n    \"alpha\": \"first-secret\",\n    \"zeta\": \"second-secret\"\n}\n",
     'env intended values: writes are canonical, cumulative, and owner-only'
 );
-$maximumPostPassword = str_repeat('p', 255);
+$maximumPostPassword = str_repeat('🔒', 255);
 EnvironmentValues::set($envRepo, $postPasswordName, $maximumPostPassword);
 $passwordBoundaryBytes = (string) file_get_contents($envPath);
 $overlongPasswordRefusal = null;
 try {
-    EnvironmentValues::set($envRepo, $postPasswordName, str_repeat('p', 256));
+    EnvironmentValues::set($envRepo, $postPasswordName, str_repeat('🔒', 256));
 } catch (\RuntimeException $failure) {
     $overlongPasswordRefusal = $failure->getMessage();
 }
+$invalidUtf8Refusal = null;
+try {
+    EnvironmentValues::set($envRepo, $postPasswordName, "\xFF");
+} catch (\RuntimeException $failure) {
+    $invalidUtf8Refusal = $failure->getMessage();
+}
 $check(
     (EnvironmentValues::read($envRepo)[$postPasswordName] ?? null) === $maximumPostPassword
-        && $overlongPasswordRefusal === 'wprism: protected post password must contain 1 to 255 bytes'
+        && strlen($maximumPostPassword) > 255
+        && $overlongPasswordRefusal
+            === 'wprism: protected post password must contain 1 to 255 valid UTF-8 characters'
+        && $invalidUtf8Refusal
+            === 'wprism: protected post password must contain 1 to 255 valid UTF-8 characters'
         && file_get_contents($envPath) === $passwordBoundaryBytes,
-    'env intended values: a 255-byte protected-post value persists exactly while 256 bytes refuses before changing intent'
+    'env intended values: 255 multibyte characters persist exactly while 256 characters and invalid UTF-8 refuse before changing intent'
 );
 chmod($envPath, 0644);
 $insecureRefusal = null;
