@@ -487,6 +487,10 @@ foreach ([
     'Completed at 2026-02-03 04:05:06 UTC',
     'Dated permalink https://example.test/2026/08/30/story',
     'Tokenized dated permalink {{home}}/2026/08/30/story',
+    'Published 08/30/2026',
+    'Published 30/08/2026',
+    'Published 30.08.2026',
+    'Published 30-08-2026',
     'Catalog identifier ISBN 978-1-4028-9462-6',
     'Support ticket ABC-123-4567',
     'Catalog SKU 123-456-789',
@@ -509,6 +513,17 @@ check(
     'a punctuated international telephone number remains protected'
 );
 
+$ticketProsePhone = refusal(static fn() => $gates->guardPersonalData(
+    'options',
+    'support_copy',
+    'Ticket support 415-555-2671',
+    []
+));
+check(
+    ($ticketProsePhone->diagnostics[0]['personal_data_shape'] ?? null) === 'phone number',
+    'ordinary prose after the word ticket cannot hide a real phone number'
+);
+
 foreach (['+1.415.555.2671', '+44.20.7946.0958'] as $dottedPhone) {
     $dottedPhoneRefusal = refusal(static fn() => $gates->guardPersonalData(
         'options',
@@ -522,15 +537,17 @@ foreach (['+1.415.555.2671', '+44.20.7946.0958'] as $dottedPhone) {
     );
 }
 
-$slashPhone = refusal(static fn() => $gates->guardPersonalData(
-    'options',
-    'support_copy',
-    '+1/415/555/2671',
-    []
-));
-check(
-    ($slashPhone->diagnostics[0]['personal_data_shape'] ?? null) === 'phone number',
-    'a slash-formatted international telephone number remains protected after dated-link exclusions'
-);
+foreach (['415/555/2671', '+1/415/555/2671'] as $slashPhoneValue) {
+    $slashPhone = refusal(static fn() => $gates->guardPersonalData(
+        'options',
+        'support_copy',
+        $slashPhoneValue,
+        []
+    ));
+    check(
+        ($slashPhone->diagnostics[0]['personal_data_shape'] ?? null) === 'phone number',
+        "$slashPhoneValue remains a phone number after slash-date exemptions"
+    );
+}
 
 echo "REGRESS_CAPTURE_SAFETY_GATES PASSED\n";

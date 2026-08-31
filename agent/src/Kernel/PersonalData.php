@@ -159,6 +159,18 @@ final class PersonalData {
                     if (preg_match('/^\/?[0-9]{4}([.\/-])[0-9]{2}\\1[0-9]{2}(?:[ T][0-9]{1,2})?$/D', $candidate)) {
                         continue;
                     }
+                    // Common authored copy uses both month-first and
+                    // day-first dates with slash, dot, or hyphen separators.
+                    // Admit only calendar-range components with one repeated
+                    // separator, so 415/555/2671 does not inherit the date
+                    // exemption.
+                    if (preg_match(
+                        '/^(?:(?:0?[1-9]|1[0-2])([.\/-])(?:0?[1-9]|[12][0-9]|3[01])\1[0-9]{4}|'
+                        . '(?:0?[1-9]|[12][0-9]|3[01])([.\/-])(?:0?[1-9]|1[0-2])\2[0-9]{4})$/D',
+                        $candidate
+                    )) {
+                        continue;
+                    }
                     $digits = preg_replace('/[^0-9]/', '', $candidate) ?? '';
                     $prefix = substr($window, max(0, (int) $phoneOffset - 16), min(16, (int) $phoneOffset));
                     $isbnLabelled = preg_match('/ISBN(?:-1[03])?\s*[:#]?\s*$/i', $prefix) === 1;
@@ -171,7 +183,10 @@ final class PersonalData {
                     // authored prose. Scope this exception to the explicit
                     // labels immediately before the numeric candidate so an
                     // unlabelled 3-3-4 or slash-formatted phone still blocks.
-                    if (preg_match('/(?:^|\b)(?:ticket|sku)(?:\s+[A-Z0-9]+)?\s*$/i', $prefix) === 1) {
+                    $labelledIdentifier = preg_match('/(?:^|\b)(?i:ticket|sku)\s*$/', $prefix) === 1
+                        || (str_starts_with($candidate, '-')
+                            && preg_match('/(?:^|\b)(?i:ticket|sku)\s+[A-Z][A-Z0-9]*$/', $prefix) === 1);
+                    if ($labelledIdentifier) {
                         continue;
                     }
                     $labelledVersion = preg_match('/(?:^|\b)(?:v(?:ersion)?|release)\s*$/i', $prefix) === 1
