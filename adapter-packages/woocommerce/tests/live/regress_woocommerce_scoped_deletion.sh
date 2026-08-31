@@ -47,8 +47,8 @@ wprism_ssh_adopt_extension() {
   ssh_fixture '
     chmod 700 /home/wprism/recovery-fixture/upload-provider.php /home/wprism/recovery-fixture/effect-provider.php /home/wprism/recovery-fixture/plan-bound-code-release-provider.php
     chmod 600 /home/wprism/recovery-fixture/woocommerce-upload.key
-    mkdir -p /home/wprism/recovery-fixture/offload /home/wprism/recovery-fixture/media
-    chmod 700 /home/wprism/recovery-fixture/offload /home/wprism/recovery-fixture/media
+    mkdir -p /home/wprism/recovery-fixture/offload
+    chmod 700 /home/wprism/recovery-fixture/offload
   '
   jq '
     .envs.target.rollback_recovery.upload_provider = [
@@ -57,7 +57,7 @@ wprism_ssh_adopt_extension() {
       "/home/wprism/recovery-fixture/upload-provider-state",
       "/var/www/html/wp-content/uploads",
       "/home/wprism/recovery-fixture/offload",
-      "/home/wprism/recovery-fixture/media",
+      "/home/wprism/site/media",
       "/home/wprism/recovery-fixture/woocommerce-upload.key"
     ]
     | .envs.target.rollback_recovery.effect_provider = [

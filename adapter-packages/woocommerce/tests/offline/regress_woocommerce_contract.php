@@ -2495,6 +2495,7 @@ foreach ([
     'sandbox/tests/fixtures/effect-provider.php',
     'fixtures/plan-bound-code-release-provider.php',
     '.envs.target.rollback_recovery.upload_provider',
+    '"/home/wprism/site/media"',
     '.envs.target.rollback_recovery.effect_provider',
     '.envs.target.rollback_recovery.code_release_provider',
     'adopt target >/dev/null',
