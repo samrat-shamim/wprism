@@ -312,7 +312,7 @@ PHP
     || fail "WooCommerce deletion proof could not capture its reviewed active lifecycle state before code ownership"
   ssh_fixture '
     set -eu
-    git -C /home/wprism/site add -- site.wprism.json state
+    git -C /home/wprism/site add -- media site.wprism.json state
     git -C /home/wprism/site commit -m "Capture reviewed WooCommerce lifecycle state" >/dev/null
     test -z "$(git -C /home/wprism/site status --porcelain)"
   ' || fail "WooCommerce deletion proof could not commit its reviewed active lifecycle state"
