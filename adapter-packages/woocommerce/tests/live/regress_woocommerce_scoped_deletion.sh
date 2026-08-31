@@ -153,22 +153,6 @@ wprism_ssh_adopt_extension() {
     git -C /home/wprism/site commit -m "Bind shared state and exact WooCommerce deletion code release" >/dev/null
     test -z "$(git -C /home/wprism/site status --porcelain)"
   ' || fail "WooCommerce deletion proof could not commit its exact code half"
-  "$WPRISM" --envs-file="$TMP/envs.json" capture target --target-branch="$TARGET_REPOSITORY_BRANCH" \
-    --format=json >"$TMP/woocommerce-code-baseline-capture.json" \
-    || fail "WooCommerce deletion proof could not capture its active lifecycle state before code ownership"
-  ssh_fixture '
-    set -eu
-    git -C /home/wprism/site add -- state
-    git -C /home/wprism/site commit -m "Capture WooCommerce active lifecycle state" >/dev/null
-    test -z "$(git -C /home/wprism/site status --porcelain)"
-  ' || fail "WooCommerce deletion proof could not commit its active lifecycle state"
-  "$WPRISM" --envs-file="$TMP/envs.json" deploy target >"$TMP/woocommerce-code-baseline.stdout" \
-    2>"$TMP/woocommerce-code-baseline.stderr" \
-    || fail "WooCommerce deletion proof could not complete its exact code baseline through the product deploy workflow"
-  grep -Fq 'deploy complete: code-stage -> lifecycle-retire -> lifecycle-activate -> lifecycle-settle -> code-finalize' \
-    "$TMP/woocommerce-code-baseline.stdout" \
-    || fail "WooCommerce deletion proof did not complete the full code lifecycle before state-only deletion"
-  pass "WooCommerce and active-theme bytes are completed through the public deploy lifecycle"
   next_generation="$(ssh_fixture 'php /home/wprism/site/.wprism/control/recovery-runtime/rollback-control.php authority-status --root=/home/wprism/site/.wprism/control' | jq -r '.generation + 1')"
   [[ "$next_generation" =~ ^[1-9][0-9]*$ ]] \
     || fail "WooCommerce deletion proof could not derive its next signed generation"
@@ -322,6 +306,23 @@ PHP
   ' "$TMP/woocommerce-site.before.json" >"$TMP/woocommerce-site.json"
   scp -F "$TMP/ssh_config" "$TMP/woocommerce-site.json" \
     wprism-adopt-fixture:/home/wprism/site/site.wprism.json >/dev/null
+
+  "$WPRISM" --envs-file="$TMP/envs.json" capture target --target-branch="$TARGET_REPOSITORY_BRANCH" \
+    --format=json >"$TMP/woocommerce-code-baseline-capture.json" \
+    || fail "WooCommerce deletion proof could not capture its reviewed active lifecycle state before code ownership"
+  ssh_fixture '
+    set -eu
+    git -C /home/wprism/site add -- site.wprism.json state
+    git -C /home/wprism/site commit -m "Capture reviewed WooCommerce lifecycle state" >/dev/null
+    test -z "$(git -C /home/wprism/site status --porcelain)"
+  ' || fail "WooCommerce deletion proof could not commit its reviewed active lifecycle state"
+  "$WPRISM" --envs-file="$TMP/envs.json" deploy target >"$TMP/woocommerce-code-baseline.stdout" \
+    2>"$TMP/woocommerce-code-baseline.stderr" \
+    || fail "WooCommerce deletion proof could not complete its exact code baseline through the product deploy workflow"
+  grep -Fq 'deploy complete: code-stage -> lifecycle-retire -> lifecycle-activate -> lifecycle-settle -> code-finalize' \
+    "$TMP/woocommerce-code-baseline.stdout" \
+    || fail "WooCommerce deletion proof did not complete the full code lifecycle before state-only deletion"
+  pass "reviewed WooCommerce lifecycle state and exact code bytes are completed through public capture and deploy"
 
   cat >"$TMP/woocommerce-delete-product.php" <<'PHP'
 <?php
