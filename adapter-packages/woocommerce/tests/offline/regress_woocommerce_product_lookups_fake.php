@@ -2299,7 +2299,6 @@ namespace {
         'entities' => [
             'entities' => [['kind' => 'post:product', 'id' => 90]],
             'always_on_write' => true,
-            'deletions' => [],
             'reparents' => [],
             'retry' => true,
         ],
@@ -3663,7 +3662,6 @@ namespace {
         'entities' => [
             'entities' => [['kind' => 'post:product', 'id' => 17]],
             'always_on_write' => true,
-            'deletions' => [],
             'reparents' => [],
             'retry' => true,
         ],
@@ -3702,7 +3700,6 @@ namespace {
         'entities' => [
             'entities' => [['kind' => 'post:product', 'id' => 17]],
             'always_on_write' => true,
-            'deletions' => [],
             'reparents' => [],
             'retry' => true,
         ],
@@ -3867,7 +3864,6 @@ namespace {
         'entities' => [
             'entities' => [['kind' => 'post:product', 'id' => 13]],
             'always_on_write' => true,
-            'deletions' => [],
             'reparents' => [],
             'retry' => true,
         ],
@@ -4096,7 +4092,6 @@ namespace {
         'entities' => [
             'entities' => [['kind' => 'post:product_variation', 'id' => 11]],
             'always_on_write' => true,
-            'deletions' => [],
             'reparents' => [],
             'retry' => true,
         ],
@@ -5628,36 +5623,35 @@ namespace {
         && ($mapped[1]['parent_id'] ?? null) === 22,
         'the old/new pair rides along for the pre-root_ids fallback the batch entry point still honors');
 
-    // The whole envelope, through the real invoke(), against the same fixture
-    // the deletion scenarios above used: a receipt whose before/after are
-    // observed row cardinalities and whose verified is true only because the
-    // exact-state pass inside regenerate_batch() already ran.
+    // The ordinary capability must not regain the deletion channel removed
+    // from its manifest contract: only the separate database-contained
+    // cleanup may consume product tombstones.
     $fakeMetaLookup[11] = $fakeMetaLookup[12];
     $fakeMetaLookup[11]['product_id'] = 11;
-    $receipt = $adapter->invoke('rebuild_product_lookups', [
-        'entities' => [
-            'entities' => [['kind' => 'post:product', 'id' => 10]],
-            'always_on_write' => true,
-            'deletions' => [[
-                'kind' => 'post:product_variation', 'uuid' => 'variation-delete', 'id' => 11,
-                'post_type' => 'product_variation', 'parent_id' => 10, 'child_ids' => [],
-            ]],
-            'reparents' => [],
-            'retry' => false,
-        ],
-    ]);
-    $check(array_keys($receipt) === ['before', 'after', 'verified'] && $receipt['verified'] === true,
-        'invoke() returns exactly the before/after/verified receipt the provider contract requires');
-    $check(($receipt['before']['scoped_products'] ?? null) === 2
-        && ($receipt['before']['meta_lookup_rows'] ?? null) === 2
-        && ($receipt['after']['meta_lookup_rows'] ?? null) === 1,
-        'the receipt observes the ids it was handed on both sides, and records the deleted row disappearing');
+    $unexpectedDeletionRefused = false;
+    try {
+        $adapter->invoke('rebuild_product_lookups', [
+            'entities' => [
+                'entities' => [['kind' => 'post:product', 'id' => 10]],
+                'always_on_write' => true,
+                'deletions' => [[
+                    'kind' => 'post:product_variation', 'uuid' => 'variation-delete', 'id' => 11,
+                    'post_type' => 'product_variation', 'parent_id' => 10, 'child_ids' => [],
+                ]],
+                'reparents' => [],
+                'retry' => false,
+            ],
+        ]);
+    } catch (\Throwable $failure) {
+        $unexpectedDeletionRefused = str_contains($failure->getMessage(), 'reserved for the narrow cleanup');
+    }
+    $check($unexpectedDeletionRefused && isset($fakeMetaLookup[11]),
+        'the broad product rebuild refuses a deletion channel without mutating the variation projection');
+
     $check(in_array($unrelatedAttributeRow, $fakeAttrLookup, true)
         && $attributeStoreProbe->createCalls > 0
         && $attributeStoreProbe->deleteCalls === 0,
-        'product, reparent, retry, and invoke paths repair scoped attributes while preserving unrelated rows');
-    $check(!isset($fakeMetaLookup[11]),
-        'and the envelope really reached the deletion path — the deleted lookup row is gone');
+        'product, reparent, retry, and lower-level deletion-context paths preserve unrelated attribute rows');
     $unknownCapabilityCaught = false;
     try {
         $adapter->invoke('regenerate_everything', ['entities' => []]);
@@ -5672,8 +5666,7 @@ namespace {
         $missingEnvelopeCaught = str_contains($failure->getMessage(), 'no engine batch envelope');
     }
     $check($missingEnvelopeCaught,
-        'a bare batch where the declared channels belong fails closed — a missing channel would mean this '
-        . 'adapter silently stopped seeing tombstones');
+        'a bare batch where the declared channels belong fails closed rather than silently dropping reparent evidence');
 
     if ($failures > 0) {
         echo "FAIL: $failures check(s) failed\n";

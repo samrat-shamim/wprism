@@ -318,7 +318,13 @@ final class ApplyRequestCoordinator {
                 $work['rebuild_delete_work'],
                 $policy
             );
-            $selectedActions = $policy->actions_for($surfaces);
+            $selectedActions = $policy->actions_for(
+                $surfaces,
+                CanonicalSurfaces::mutation_channels_for_apply(
+                    $work['work'],
+                    $work['rebuild_delete_work']
+                )
+            );
             foreach ($selectedActions as $action) {
                 if (!array_key_exists('triggers', $action)) {
                     throw new \RuntimeException(
@@ -529,7 +535,10 @@ final class ApplyRequestCoordinator {
         }
         $surfaces = array_values(array_unique(array_map('strval', $surfaces)));
         sort($surfaces, SORT_STRING);
-        $actions = $policy->actions_for($surfaces);
+        $actions = $policy->actions_for(
+            $surfaces,
+            $bucket === 'delete' ? ['deletions'] : ($surfaces === [] ? [] : ['always_on_write'])
+        );
         $adoptBySlug = array_values(array_filter(array_map(
             'strval',
             explode(',', (string) ($opts['adopt_by_slug'] ?? ''))
@@ -1209,6 +1218,7 @@ final class ApplyRequestCoordinator {
         $this->services->shortcode_alternate_registrar()->register($tree);
         $scoped = $this->scopedWorkflow->scopeContract !== null;
         $scopedPromotion = (string) ($opts['scoped_promotion_receipt'] ?? '') !== '';
+        $verifiedPromotion = (string) ($opts['verified_promotion_receipt'] ?? '') !== '';
         $recoveringScoped = $scoped && $this->scopedWorkflow->session !== null;
         $retryingIncompleteApply = Ledger::kv_get('apply_in_progress') !== null;
         if ($scoped && $retryingIncompleteApply) {
@@ -1283,6 +1293,19 @@ final class ApplyRequestCoordinator {
         $executeDeletes = $prepared->executeDeletes;
         $this->defaultAuthor = $prepared->defaultAuthor;
         $freshActual = $prepared->freshActual;
+
+        if ($verifiedPromotion) {
+            $verifiedPromotionWitness = $this->scopedWorkflow->promotionWitness;
+            if (!is_array($verifiedPromotionWitness)) {
+                throw new \RuntimeException(
+                    'wprism: verified promotion witness is absent before fresh plan authorization'
+                );
+            }
+            VerifiedPromotionAuthority::assert_plan_resources(
+                $freshPlan,
+                $verifiedPromotionWitness
+            );
+        }
 
         // A repository tombstone is destructive intent even before the row
         // loop begins. Bind the exact signed external exclusion now, before a

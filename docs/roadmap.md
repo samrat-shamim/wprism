@@ -57,9 +57,10 @@ no public registry.
 surface-boundary program complete, raw-ID elimination shipped, every ruling's
 deliverables landed, version-boundary matrix certified on pinned artifacts,
 WooCommerce closed as a contract (issue #3225) — initially by honest reduction;
-product/variation deletion is now admitted only inside an all-executable-owner
-contract with exact v2 agreements, signed writer exclusion, and locked native
-reverse-reference guards. Exit criterion
+standalone-product deletion is now admitted only inside an all-executable-owner
+contract with exact v2 agreements, signed writer exclusion, locked native
+reverse-reference guards, and a database-contained deletion cleanup. Variation
+deletion remains a loud unsupported boundary. Exit criterion
 met as stated: no known path by which authored data silently fails to
 propagate. The former tail items have since landed: issue #3248 (journal table
 provenance bounded), issue #3274 (fixture-staleness sweep reconciled), issue #3301

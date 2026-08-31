@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
-PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
 export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 
 # WooCommerce capsule extension for sandbox/tests/live/regress_ssh_adopt.sh.

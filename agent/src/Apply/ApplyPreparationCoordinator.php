@@ -315,6 +315,9 @@ final class ApplyPreparationCoordinator {
                 $tree,
                 $freshRebuildWork['rebuild_delete_work'],
                 $this->policy
+            ), CanonicalSurfaces::mutation_channels_for_apply(
+                $freshRebuildWork['work'],
+                $freshRebuildWork['rebuild_delete_work']
             ));
             if (Canon::encode($freshSelectedActions) !== Canon::encode($negotiatedSelectedActions)) {
                 throw new \RuntimeException(

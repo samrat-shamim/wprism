@@ -318,6 +318,7 @@ final class RecoveryExecutor {
             'receipt_id' => (string) $status['receipt_id'],
             'receipt_payload_sha256' => hash('sha256', RollbackControl::canonical($receipt)),
             'recovery_ready' => true,
+            'resources_inventory_sha256' => (string) $receipt['resources_inventory_sha256'],
             'signing_key_id' => (string) $receipt['signing_key_id'],
             'state' => 'promoting',
             'target_id' => (string) $status['target_id'],

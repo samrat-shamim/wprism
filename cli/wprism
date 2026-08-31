@@ -3804,7 +3804,14 @@ function cmd_promote_verified(
     echo "promote profile: automatic verified rollback\n";
     echo "promote phase: rollback-claim\n";
     try {
-        $claim = $profile->claim($plan, $runId, $runId, null, $allowDeletes);
+        $claim = $profile->claim(
+            $plan,
+            $runId,
+            $runId,
+            null,
+            $allowDeletes,
+            $codeChangeRequired
+        );
         if (($claim['status']['state'] ?? '') !== 'prepared') {
             throw new \RuntimeException('target did not publish the prepared receipt');
         }
@@ -3954,6 +3961,10 @@ function cmd_promote_verified(
     }
 
     echo "promote phase: apply\n";
+    // Apply can run exact selected rebuild providers even when code is already
+    // current. From the first call onward rollback must reconcile the prepared
+    // effect bundle before restoring the database checkpoint.
+    $effectsTouched = (array) ($plan['effects_inventory'] ?? []) !== [];
     $applyExtra = $extra;
     if ($allowDeletes) {
         if (!is_array($claimReceipt)

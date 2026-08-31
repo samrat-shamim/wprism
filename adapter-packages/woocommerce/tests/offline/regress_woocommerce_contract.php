@@ -832,6 +832,7 @@ woo_ok($actionSources === [
     'provider:woocommerce-scheduler-settings/reconcile_analytics_import_schedule',
     'provider:woocommerce-scheduler-settings/reconcile_stock_notification_retention',
     'provider:woocommerce-product-lookups/rebuild_product_lookups',
+    'provider:woocommerce-product-lookups/cleanup_product_deletions',
     'native:rewrite.flush',
     'provider:woocommerce-hierarchy-lookups/rebuild_product_permalink_routes',
     'provider:woocommerce-lifecycle-migrations/settle_lifecycle_migrations',
@@ -849,13 +850,18 @@ woo_ok(in_array('option:pickup_location_pickup_locations', $cacheAction['trigger
     && in_array('option:woocommerce_pickup_location_settings', $cacheAction['triggers'] ?? [], true),
     'both local-pickup REST records trigger the receipt-bound native shipping-cache invalidation');
 $productAction = $productActions[0] ?? [];
+$productDeletionAction = $productActions[1] ?? [];
 // issue #3342: the third entry is a MIGRATED dispatch, not a new repair. It is
 // bounded by the same two post-type triggers the retired regen_dependency
 // declarations covered, and those declarations are gone — a manifest carrying
 // both would be two dispatchers over one post type, which negotiation refuses.
-woo_ok(count($productActions) === 1
+woo_ok(count($productActions) === 2
     && ($productAction['triggers'] ?? null) === ['post:product', 'post:product_variation'],
     'the product lookup repair stays bounded to the two product post types it always covered');
+woo_ok(($productDeletionAction['capability'] ?? null) === 'cleanup_product_deletions'
+    && ($productDeletionAction['triggers'] ?? null) === ['post:product']
+    && count((array) ($productDeletionAction['effects'] ?? [])) === 4,
+    'standalone product tombstones select a separate database-contained cleanup action');
 woo_ok($policy->regen_batch_post_types() === [] && $policy->regen_dependency('product') === null,
     'and the batch regenerator channel it replaced claims no Woo post type any more');
 // issue #3341: the legacy whole-catalog projection class is deleted outright,
@@ -883,6 +889,7 @@ $wooNamedEngineSources = array_values(array_filter(
 woo_ok($wooNamedEngineSources === [], 'no WooCommerce-named production class remains under agent/src (issue #3341)');
 woo_ok(!str_contains((string) file_get_contents($root . '/agent/wprism.php'), 'WooCommerce'), 'agent bootstrap loads no WooCommerce-named engine source (issue #3341)');
 $unsupportedDeletes = [
+    'post:product_variation',
     'table:woocommerce_attribute_taxonomies',
     'table:woocommerce_shipping_zone_locations',
     'table:woocommerce_shipping_zone_methods',
@@ -890,7 +897,7 @@ $unsupportedDeletes = [
     'table:woocommerce_tax_rate_locations',
     'table:woocommerce_tax_rates',
 ];
-$supportedDeletes = ['post:product', 'post:product_variation'];
+$supportedDeletes = ['post:product'];
 $reviewedWooExecutableIdentities = ['plugin:woocommerce/woocommerce.php' => [
     [
         'format' => 'wprism-executable-tree/v1',
@@ -904,7 +911,7 @@ $reviewedWooExecutableIdentities = ['plugin:woocommerce/woocommerce.php' => [
     ],
 ]];
 woo_ok(array_keys((array) ($manifest['deletions'] ?? [])) === $supportedDeletes,
-    'shipped Woo manifest owns only product and variation deletion');
+    'shipped Woo manifest owns only standalone product deletion');
 foreach ($supportedDeletes as $selector) {
     $capability = $policy->deletion_capability($selector);
     woo_ok(
@@ -953,7 +960,7 @@ foreach ($unsupportedDeletes as $selector) {
 $wooDisposition = $wooDispositionDocument;
 woo_ok(in_array('delete', $wooDisposition['capabilities']['operations'] ?? [], true), 'external capability registry advertises reviewed Woo deletion');
 woo_ok(($wooDisposition['capabilities']['deletion_semantics']['supported'] ?? null) === $supportedDeletes,
-    'external capability registry declares product and variation deletion supported');
+    'external capability registry declares only standalone product deletion supported');
 woo_ok(str_contains((string) ($wooDisposition['reason'] ?? ''),
     'exact PII clearance for coupon customer-email restrictions, tax-rate country/state business-jurisdiction fields'),
     'the human-reviewed disposition explains coupon-email and tax-jurisdiction PII exceptions');
@@ -1278,7 +1285,7 @@ woo_ok(
 $expectedWooProviderContracts = [
     'woocommerce-product-lookups' => [
         'plugin' => 'woocommerce/woocommerce.php',
-        'version' => '3.0.0',
+        'version' => '3.1.0',
         'capability' => 'rebuild_product_lookups',
         'class' => \WPrism\Providers\WoocommerceProductLookups::class,
     ],
@@ -2390,7 +2397,7 @@ $wooUpgradeLookupReceipt = $wooUpgradeProviderAssertion === false
     ? false
     : strpos(
         $wooMatrixCase,
-        'woocommerce-product-lookups@3\\.0\\.0 rebuild_product_lookups \\([0-9]+(\\.[0-9]+)?s, verified\\)',
+        'woocommerce-product-lookups@3\\.1\\.0 rebuild_product_lookups \\([0-9]+(\\.[0-9]+)?s, verified\\)',
         $wooUpgradeProviderAssertion
     );
 $wooUpgradeCheck = $wooUpgradeLookupReceipt === false
@@ -2480,7 +2487,7 @@ woo_ok(
 );
 foreach ([
     'wprism_ssh_adopt_extension() {',
-    'dirname "${BASH_SOURCE[0]}"',
+    'dirname "$0"',
     'WPRISM_WOO_DELETE_VERSION',
     '11.0.0|11.0.1',
     'WPRISM_DELETE_SKU',

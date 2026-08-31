@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace WPrism;
 
+require_once __DIR__ . '/../Kernel/Canon.php';
+
 /**
  * Verify the deletion-admitting full-promotion receipt through the fixed
  * recovery runtime installed by adoption. The signed v3 receipt, rather than
@@ -72,7 +74,8 @@ final class VerifiedPromotionAuthority {
         $expectedKeys = [
             'active', 'allow_deletes', 'artifact_hash', 'exclusion_state', 'format', 'ok', 'owner',
             'generation', 'receipt_format', 'receipt_id', 'receipt_payload_sha256',
-            'recovery_ready', 'signing_key_id', 'state', 'target_id', 'terminal',
+            'recovery_ready', 'resources_inventory_sha256', 'signing_key_id',
+            'state', 'target_id', 'terminal',
         ];
         $keys = array_keys($witness);
         sort($keys, SORT_STRING);
@@ -91,6 +94,7 @@ final class VerifiedPromotionAuthority {
             || preg_match('/^[A-Za-z0-9._-]{1,64}$/D', (string) ($witness['signing_key_id'] ?? '')) !== 1
             || preg_match('/^[A-Za-z0-9._-]{32,64}$/D', (string) ($witness['receipt_id'] ?? '')) !== 1
             || preg_match('/^[A-Za-z0-9._-]{32}$/D', (string) ($witness['target_id'] ?? '')) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', (string) ($witness['resources_inventory_sha256'] ?? '')) !== 1
             || !hash_equals($owner, (string) ($witness['owner'] ?? ''))
             || !hash_equals($artifactHash, (string) ($witness['artifact_hash'] ?? ''))
             || !hash_equals($receiptHash, (string) ($witness['receipt_payload_sha256'] ?? ''))) {
@@ -99,6 +103,71 @@ final class VerifiedPromotionAuthority {
             );
         }
         return $witness;
+    }
+
+    /**
+     * Re-prove the plan-bound action/effect authority after the target's fresh
+     * pre-mutation plan. The receipt may include lifecycle rows only when the
+     * controller actually ran a code transition, so compare the two closed
+     * projections rather than trusting a caller-supplied boolean.
+     */
+    public static function assert_plan_resources(array $plan, array $witness): void {
+        $code = $plan['code'] ?? null;
+        $uploads = $plan['uploads_inventory'] ?? null;
+        $effects = $plan['effects_inventory'] ?? null;
+        $lifecycle = $plan['lifecycle_effects_inventory'] ?? null;
+        $actions = $plan['selected_actions'] ?? null;
+        if (!is_array($code)
+            || !is_array($uploads) || !array_is_list($uploads)
+            || !is_array($effects) || !array_is_list($effects)
+            || !is_array($lifecycle) || !array_is_list($lifecycle)
+            || !is_array($actions) || !array_is_list($actions)) {
+            throw new \RuntimeException(
+                'wprism: verified promotion plan lacks its plan-bound recovery inventories'
+            );
+        }
+        foreach ($actions as $action) {
+            $keys = is_array($action) ? array_keys($action) : [];
+            sort($keys, SORT_STRING);
+            if ($keys !== ['declaration_hash', 'index', 'manifest']
+                || preg_match('/^[a-f0-9]{64}$/D', (string) ($action['declaration_hash'] ?? '')) !== 1
+                || !is_int($action['index'] ?? null) || (int) $action['index'] < 0
+                || !is_string($action['manifest'] ?? null) || $action['manifest'] === '') {
+                throw new \RuntimeException(
+                    'wprism: verified promotion selected-action evidence is malformed'
+                );
+            }
+        }
+        $expected = (string) ($witness['resources_inventory_sha256'] ?? '');
+        foreach ([false, true] as $withLifecycle) {
+            $selectedEffects = $withLifecycle ? array_merge($effects, $lifecycle) : $effects;
+            if ($withLifecycle) {
+                usort($selectedEffects, static fn(array $a, array $b): int => strcmp(
+                    implode("\0", [
+                        (string) ($a['phase'] ?? ''),
+                        (string) ($a['manifest'] ?? ''),
+                        (string) (($a['effect'] ?? [])['id'] ?? ''),
+                    ]),
+                    implode("\0", [
+                        (string) ($b['phase'] ?? ''),
+                        (string) ($b['manifest'] ?? ''),
+                        (string) (($b['effect'] ?? [])['id'] ?? ''),
+                    ])
+                ));
+            }
+            $actual = hash('sha256', Canon::encode([
+                'code' => $code,
+                'effects_inventory' => $selectedEffects,
+                'selected_actions' => $actions,
+                'uploads_inventory' => $uploads,
+            ]));
+            if (hash_equals($expected, $actual)) {
+                return;
+            }
+        }
+        throw new \RuntimeException(
+            'wprism: verified promotion receipt resources do not match the fresh target plan selection'
+        );
     }
 
     /** @return array{control_root:string,format:string} */

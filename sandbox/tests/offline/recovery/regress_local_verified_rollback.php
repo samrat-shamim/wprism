@@ -253,6 +253,23 @@ try {
         'effects_inventory' => [
             [
                 'effect' => [
+                    'id' => 'rebuild-table',
+                    'kind' => 'database',
+                    'mode' => 'restorable',
+                    'selector' => [
+                        'scope' => 'database_checkpoint',
+                        'type' => 'table',
+                        'value' => 'wprism_local_state',
+                    ],
+                ],
+                'manifest' => 'rollback-fixture',
+                'phase' => 'rebuild',
+                'source' => 'provider:rollback-fixture/rebuild_table',
+            ],
+        ],
+        'lifecycle_effects_inventory' => [
+            [
+                'effect' => [
                     'adapter' => [
                         'id' => 'fixture-file',
                         'inverse' => 'restore-bytes',
@@ -276,21 +293,6 @@ try {
             ],
             [
                 'effect' => [
-                    'id' => 'rebuild-table',
-                    'kind' => 'database',
-                    'mode' => 'restorable',
-                    'selector' => [
-                        'scope' => 'database_checkpoint',
-                        'type' => 'table',
-                        'value' => 'wprism_local_state',
-                    ],
-                ],
-                'manifest' => 'rollback-fixture',
-                'phase' => 'rebuild',
-                'source' => 'provider:rollback-fixture/rebuild_table',
-            ],
-            [
-                'effect' => [
                     'id' => 'prevent-http',
                     'kind' => 'http',
                     'mode' => 'prevented',
@@ -307,6 +309,11 @@ try {
             ],
         ],
         'resolved_adapters' => [['name' => 'rollback-fixture', 'version' => '1.0.0']],
+        'selected_actions' => [[
+            'declaration_hash' => hash('sha256', 'rollback-fixture-action'),
+            'index' => 0,
+            'manifest' => 'rollback-fixture',
+        ]],
         'uploads_inventory' => [[
             'attachment_uuid' => '11111111-1111-4111-8111-111111111111',
             'derivative_basename_prefix' => 'photo-',
@@ -343,7 +350,7 @@ try {
     // The signed chain refuses an event whose timestamp moved backwards, and
     // every later transition stamps itself with the real clock, so the claim
     // has to be stamped from the same clock rather than a frozen fixture date.
-    $claim = $profile->claim($plan, $owner, $claimant, gmdate('Y-m-d\TH:i:s\Z'), true);
+    $claim = $profile->claim($plan, $owner, $claimant, gmdate('Y-m-d\TH:i:s\Z'), true, true);
     wprism_check_same('prepared', $claim['status']['state'], 'the claim publishes a signed prepared receipt on a local target');
     wprism_check_same(
         RollbackControl::VERIFIED_PROMOTION_RECEIPT_FORMAT,

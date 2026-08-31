@@ -474,6 +474,7 @@ final class WooDeletionFakeWpdb {
 function synthetic_woo_deletions(): array {
     return [
         'post:product' => [
+            'executable_owner_boundary' => 'all_active_owners',
             'cascades' => ['postmeta', 'post_revisions', 'term_relationships'],
             'guards' => [
                 ['column' => 'comment_post_ID', 'id_kind' => 'post', 'reason' => 'comments reference this product', 'table' => 'comments'],
@@ -483,10 +484,11 @@ function synthetic_woo_deletions(): array {
             ],
         ],
         'post:product_variation' => [
+            'executable_owner_boundary' => 'all_active_owners',
             'cascades' => ['postmeta', 'post_revisions', 'term_relationships'],
             'guards' => [
                 ['column' => 'comment_post_ID', 'id_kind' => 'post', 'reason' => 'comments reference this product variation', 'table' => 'comments'],
-                ['column' => 'product_id', 'id_kind' => 'post', 'reason' => 'orders reference this product variation', 'table' => 'wc_order_product_lookup'],
+                ['column' => 'product_id', 'id_kind' => 'post', 'reason' => 'orders reference this variation', 'table' => 'wc_order_product_lookup'],
                 ['column' => 'post_id', 'identity_column' => 'meta_id', 'id_kind' => 'post', 'meta_key' => '_children', 'reason' => 'grouped products reference this product variation', 'ref' => 'post[]', 'source_id_kind' => 'post', 'source_pk' => 'post_id', 'table' => 'postmeta'],
             ],
         ],
@@ -539,6 +541,8 @@ check(
         ],
     'shipped Woo product deletion binds its owner to both exact adapter-reviewed 11.0.0/11.0.1 trees'
 );
+check($shippedPolicy->deletion_capability('post:product_variation') === null,
+    'shipped Woo variation deletion stays unsupported until parent regeneration has a reversible boundary');
 $fixtureManifest = $shippedPolicy->manifests[0];
 $fixtureManifest['deletions'] = array_merge(
     synthetic_woo_deletions(),
@@ -599,7 +603,7 @@ $policy->site = ['policy' => ['deletion_owner_agreements' => [
 $variation = $policy->deletion_capability('post:product_variation');
 $product = $policy->deletion_capability('post:product');
 
-check($variation !== null, 'shipped product_variation contract exercises explicit deletion authority');
+check($variation !== null, 'the synthetic engine fixture still exercises explicit variation deletion authority');
 check(Deletion::descriptor(['type' => 'post', 'data' => ['type' => 'product_variation']]) === [
     'kind' => 'post', 'type' => 'product_variation',
 ], 'capture deletion descriptor preserves the product_variation selector');
@@ -1022,7 +1026,7 @@ $reservedStockGuard = array_values(array_filter(
 check(is_array($reservedStockGuard) && ($reservedStockGuard['forceable'] ?? null) === false,
     'shipped Woo product deletion marks live stock reservations non-forceable');
 $stockNotificationGuards = [];
-foreach (['post:product', 'post:product_variation'] as $selector) {
+foreach (['post:product'] as $selector) {
     foreach ((array) ($shippedPolicy->deletion_capability($selector)['guards'] ?? []) as $guard) {
         if (($guard['table'] ?? null) === 'wc_stock_notifications') {
             $stockNotificationGuards[$selector] = $guard;
@@ -1030,7 +1034,7 @@ foreach (['post:product', 'post:product_variation'] as $selector) {
     }
 }
 check(
-    array_keys($stockNotificationGuards) === ['post:product', 'post:product_variation']
+    array_keys($stockNotificationGuards) === ['post:product']
         && array_reduce(
             $stockNotificationGuards,
             static fn(bool $ok, array $guard): bool => $ok
@@ -1039,7 +1043,7 @@ check(
                 && ($guard['table_absence'] ?? null) === 'empty',
             true
         ),
-    'both shipped stock-notification guards bind the exact absence-means-empty topology and remain non-forceable when present'
+    'the shipped product stock-notification guard binds the exact absence-means-empty topology and remains non-forceable when present'
 );
 $runtimeGuardManifest = $shippedPolicy->manifests[0];
 $runtimeGuardManifest['deletions']['post:product']['guards'] = [$reservedStockGuard];

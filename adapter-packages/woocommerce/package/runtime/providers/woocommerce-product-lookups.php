@@ -23,13 +23,11 @@ use WPrism\ManifestProviderRuntime;
  * that forced the older channel are both gone: issue #3369 gave a capability
  * structured arguments and the engine batch CHANNELS (`deletions`,
  * `reparents`, `retry`, `always_on_write`), and issue #3342 made those channels
- * carry the pre-delete inventory and own their durable markers, so the
- * deletion and reparent context this adapter requires is expressible without
- * loss. Everything below invoke() is the regenerator code MOVED, not
- * rewritten: the batch entry point keeps its `regenerate_batch(array
- * $liveIds, array $deletionContext, ?callable $heartbeat = null)` shape and
- * its internal contract with the deletion-context rows, and invoke() is the
- * thin mapping from the engine envelope onto exactly those two arguments.
+ * carry reparent context and own its durable markers. The ordinary lookup
+ * capability keeps the regenerator's batch entry point but now receives only
+ * live writes/reparents; the separate deletion capability below intentionally
+ * implements the smaller database-contained cleanup that automatic rollback
+ * can reverse without invoking Woo's broad hook surface.
  *
  * What did NOT survive the move: the single-id `regenerate()` boundary, which
  * existed only for the regenerator channel's per-entity path. Nothing calls it
@@ -52,6 +50,9 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
     private const MAX_GROUPED_REVERSE_CANDIDATES_PER_QUERY = 32;
     private const MAX_GROUPED_REVERSE_RESULT_ROWS = 50000;
     private const MAX_GROUPED_REVERSE_CLOSURE_PASSES = 16;
+    private const MAX_DELETION_PRODUCTS = 1000;
+    private const MAX_DELETION_ATTRIBUTE_ROWS = 200000;
+    private const MAX_DELETION_SALE_ACTIONS = 10000;
     private const MAX_GROUPED_CHILD_BYTES = 4194304;
     private const MAX_LOOKUP_SCALAR_BYTES = 1024;
     private const MAX_LOOKUP_ROW_BYTES = 16384;
@@ -140,14 +141,19 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
     protected function invoke_rebuild_product_lookups(array $args): array {
         $envelope = $args[\WPrism\Providers::ENTITIES_ARG] ?? null;
         if (!is_array($envelope) || !array_key_exists('entities', $envelope)
-            || !array_key_exists('deletions', $envelope) || !array_key_exists('reparents', $envelope)) {
+            || !array_key_exists('reparents', $envelope)) {
             // Unreachable through the engine, which assembles exactly the
             // declared channels or refuses. Fail closed rather than repair an
             // empty batch and report it as done: a missing channel here would
             // mean this adapter silently stopped seeing tombstones.
             throw new \RuntimeException(
                 'wprism: WooCommerce product lookup repair received no engine batch envelope; expected the '
-                . 'entities/deletions/reparents channels its capability declares'
+                . 'entities/reparents channels its capability declares'
+            );
+        }
+        if (array_key_exists('deletions', $envelope)) {
+            throw new \RuntimeException(
+                'wprism: WooCommerce product lookup repair received a deletion channel reserved for the narrow cleanup capability'
             );
         }
         $liveIds = [];
@@ -158,7 +164,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
             }
         }
         $deletionContext = $this->deletion_context_from_channels(
-            (array) $envelope['deletions'],
+            [],
             (array) $envelope['reparents']
         );
 
@@ -206,6 +212,411 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         ];
     }
 
+    /**
+     * Clear only the database-contained native rows WooCommerce 11.0.0/11.0.1
+     * leaves behind after WPrism's transaction-bound post delete. Calling the
+     * ordinary Woo deletion hooks here would expose the automatic rollback
+     * profile to the provider's 80+ irreversible hook/frontier effects. This
+     * capability instead reproduces the exact bounded storage consequences:
+     * lookup rows are removed, pending per-product sale actions are canceled,
+     * and Woo's fixed/product-specific transients are deleted. The encrypted
+     * checkpoint owns every table named by this method.
+     *
+     * Variation deletion is intentionally absent from the manifest. A
+     * variation must also regenerate its live parent; a standalone product
+     * tombstone has no such external projection. Refuse any child or parent
+     * context here so a future trigger broadening cannot silently turn this
+     * narrow database action into composite-product repair.
+     *
+     * @param array<string,mixed> $args
+     * @return array{before:array<string,int|string>,after:array<string,int|string>,verified:true}
+     */
+    protected function invoke_cleanup_product_deletions(array $args): array {
+        $envelope = $args[\WPrism\Providers::ENTITIES_ARG] ?? null;
+        if (!is_array($envelope) || !is_array($envelope['deletions'] ?? null)) {
+            throw new \RuntimeException(
+                'wprism: WooCommerce product deletion cleanup received no engine deletions channel'
+            );
+        }
+        $ids = [];
+        foreach ($envelope['deletions'] as $row) {
+            if (!is_array($row)
+                || ($row['kind'] ?? null) !== 'post:product'
+                || ($row['post_type'] ?? null) !== 'product'
+                || !is_string($row['uuid'] ?? null) || $row['uuid'] === ''
+                || (int) ($row['parent_id'] ?? -1) !== 0
+                || !is_array($row['child_ids'] ?? null) || $row['child_ids'] !== []) {
+                throw new \RuntimeException(
+                    'wprism: WooCommerce product deletion cleanup accepts only standalone product tombstones'
+                );
+            }
+            $id = (int) ($row['id'] ?? 0);
+            if ($id <= 0 || (string) $id !== (string) ($row['id'] ?? '')) {
+                throw new \RuntimeException(
+                    'wprism: WooCommerce product deletion cleanup received no exact target product id'
+                );
+            }
+            $ids[$id] = $id;
+        }
+        $ids = array_values($ids);
+        sort($ids, SORT_NUMERIC);
+        if ($ids === [] || count($ids) > self::MAX_DELETION_PRODUCTS) {
+            throw new \RuntimeException(
+                'wprism: WooCommerce product deletion cleanup has an empty or oversized product scope'
+            );
+        }
+
+        $inTransaction = \WPrism\ProviderSdk::checked_get_var(
+            'SELECT @@in_transaction',
+            'WooCommerce product deletion cleanup transaction-state inspection'
+        );
+        if ($inTransaction === null || !in_array((string) $inTransaction, ['0', '1'], true)) {
+            throw new \RuntimeException(
+                'wprism: WooCommerce product deletion cleanup could not classify transaction state'
+            );
+        }
+        if ((string) $inTransaction === '1') {
+            throw new \RuntimeException(
+                'wprism: WooCommerce product deletion cleanup cannot start inside an active transaction'
+            );
+        }
+
+        $transactionActive = false;
+        try {
+            $this->deletion_cleanup_query(
+                'START TRANSACTION',
+                'WooCommerce product deletion cleanup start'
+            );
+            $transactionActive = true;
+            $beforeRows = $this->deletion_cleanup_roster($ids, true);
+            $this->delete_product_lookup_rows($ids);
+            $this->delete_product_attribute_lookup_rows($ids);
+            $this->cancel_product_sale_actions($beforeRows['sale_action_ids']);
+            $this->delete_product_transient_rows($ids);
+            $afterRows = $this->deletion_cleanup_roster($ids, true);
+            $this->assert_deletion_cleanup_empty($afterRows);
+            $this->deletion_cleanup_query(
+                'COMMIT',
+                'WooCommerce product deletion cleanup commit'
+            );
+            $transactionActive = false;
+        } catch (\Throwable $failure) {
+            if ($transactionActive) {
+                try {
+                    $this->deletion_cleanup_query(
+                        'ROLLBACK',
+                        'WooCommerce product deletion cleanup rollback'
+                    );
+                } catch (\Throwable $rollbackFailure) {
+                    throw new \RuntimeException(
+                        'wprism: WooCommerce product deletion cleanup failed and rollback could not be confirmed; recovery_required',
+                        0,
+                        $failure
+                    );
+                }
+            }
+            throw $failure;
+        }
+
+        $persistedRows = $this->deletion_cleanup_roster($ids, false);
+        $this->assert_deletion_cleanup_empty($persistedRows);
+        return [
+            'before' => $this->deletion_cleanup_receipt($ids, $beforeRows),
+            'after' => $this->deletion_cleanup_receipt($ids, $persistedRows),
+            'verified' => true,
+        ];
+    }
+
+    /**
+     * @param list<int> $ids
+     * @return array{attribute_rows:list<array<string,mixed>>,meta_ids:list<int>,option_names:list<string>,sale_action_ids:list<int>}
+     */
+    private function deletion_cleanup_roster(array $ids, bool $forUpdate): array {
+        global $wpdb;
+        $metaTable = $this->prefixed_table(self::META_LOOKUP);
+        $attributeTable = $this->prefixed_table(self::ATTRIBUTE_LOOKUP);
+        $optionsTable = $this->prefixed_table('options');
+        $metaIds = [];
+        $attributeRows = [];
+        $optionNames = [];
+        $lock = $forUpdate ? ' FOR UPDATE' : '';
+        foreach (array_chunk($ids, 200) as $chunk) {
+            $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
+            $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
+                "SELECT product_id FROM `$metaTable` WHERE product_id IN ($placeholders) "
+                . 'ORDER BY product_id ASC LIMIT ' . (count($chunk) + 1) . $lock,
+                ...$chunk
+            ), 'WooCommerce deleted-product meta lookup inventory');
+            if (count($rows) > count($chunk)) {
+                throw new \RuntimeException(
+                    'wprism: WooCommerce deleted-product meta lookup inventory exceeded its owner bound'
+                );
+            }
+            foreach ($rows as $row) {
+                $id = $this->strict_positive_db_uint(
+                    $row['product_id'] ?? null,
+                    'deleted-product meta lookup owner'
+                );
+                if (!in_array($id, $chunk, true)) {
+                    throw new \RuntimeException(
+                        'wprism: WooCommerce deleted-product meta lookup returned an out-of-scope owner'
+                    );
+                }
+                $metaIds[$id] = $id;
+            }
+
+            $limit = self::MAX_DELETION_ATTRIBUTE_ROWS - count($attributeRows) + 1;
+            if ($limit < 1) {
+                throw new \RuntimeException(
+                    'wprism: WooCommerce deleted-product attribute lookup inventory exceeded its row bound'
+                );
+            }
+            $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
+                "SELECT product_id, product_or_parent_id, taxonomy, term_id, is_variation_attribute, in_stock "
+                . "FROM `$attributeTable` WHERE product_id IN ($placeholders) "
+                . "OR product_or_parent_id IN ($placeholders) "
+                . "ORDER BY product_or_parent_id ASC, product_id ASC, taxonomy ASC, term_id ASC LIMIT $limit$lock",
+                ...array_merge($chunk, $chunk)
+            ), 'WooCommerce deleted-product attribute lookup inventory');
+            foreach ($rows as $row) {
+                $attributeRows[] = $row;
+                if (count($attributeRows) > self::MAX_DELETION_ATTRIBUTE_ROWS) {
+                    throw new \RuntimeException(
+                        'wprism: WooCommerce deleted-product attribute lookup inventory exceeded its row bound'
+                    );
+                }
+            }
+        }
+
+        foreach (array_chunk($this->deletion_transient_names($ids), 200) as $chunk) {
+            $placeholders = implode(', ', array_fill(0, count($chunk), '%s'));
+            $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
+                "SELECT option_name FROM `$optionsTable` WHERE option_name IN ($placeholders) "
+                . 'ORDER BY option_name ASC LIMIT ' . (count($chunk) + 1) . $lock,
+                ...$chunk
+            ), 'WooCommerce deleted-product transient inventory');
+            if (count($rows) > count($chunk)) {
+                throw new \RuntimeException(
+                    'wprism: WooCommerce deleted-product transient inventory exceeded its name bound'
+                );
+            }
+            foreach ($rows as $row) {
+                $name = $row['option_name'] ?? null;
+                if (!is_string($name) || !in_array($name, $chunk, true)) {
+                    throw new \RuntimeException(
+                        'wprism: WooCommerce deleted-product transient inventory returned an out-of-scope name'
+                    );
+                }
+                $optionNames[$name] = $name;
+            }
+        }
+        ksort($optionNames, SORT_STRING);
+        ksort($metaIds, SORT_NUMERIC);
+        return [
+            'attribute_rows' => $attributeRows,
+            'meta_ids' => array_values($metaIds),
+            'option_names' => array_values($optionNames),
+            'sale_action_ids' => $this->pending_product_sale_action_ids($ids, $forUpdate),
+        ];
+    }
+
+    /** @param list<int> $ids @return list<int> */
+    private function pending_product_sale_action_ids(array $ids, bool $forUpdate): array {
+        global $wpdb;
+        $actionsTable = $this->prefixed_table('actionscheduler_actions');
+        $groupsTable = $this->prefixed_table('actionscheduler_groups');
+        $actionIds = [];
+        $lock = $forUpdate ? ' FOR UPDATE' : '';
+        foreach (array_chunk($ids, 200) as $chunk) {
+            $args = [];
+            foreach ($chunk as $id) {
+                $encoded = json_encode(['product_id' => $id], JSON_UNESCAPED_SLASHES);
+                if (!is_string($encoded)) {
+                    throw new \RuntimeException(
+                        'wprism: WooCommerce product deletion cleanup could not encode a sale-action identity'
+                    );
+                }
+                $args[] = $encoded;
+            }
+            $placeholders = implode(', ', array_fill(0, count($args), '%s'));
+            $limit = self::MAX_DELETION_SALE_ACTIONS - count($actionIds) + 1;
+            if ($limit < 1) {
+                throw new \RuntimeException(
+                    'wprism: WooCommerce deleted-product sale-action inventory exceeded its row bound'
+                );
+            }
+            $rows = \WPrism\ProviderSdk::checked_get_results($wpdb->prepare(
+                "SELECT a.action_id FROM `$actionsTable` a INNER JOIN `$groupsTable` g ON g.group_id = a.group_id "
+                . "WHERE a.status = 'pending' AND g.slug = 'woocommerce-sales' "
+                . "AND a.hook IN ('wc_product_start_scheduled_sale', 'wc_product_end_scheduled_sale') "
+                . "AND a.args IN ($placeholders) ORDER BY a.action_id ASC LIMIT $limit$lock",
+                ...$args
+            ), 'WooCommerce deleted-product sale-action inventory');
+            foreach ($rows as $row) {
+                $actionId = $this->strict_positive_db_uint(
+                    $row['action_id'] ?? null,
+                    'deleted-product sale action id'
+                );
+                $actionIds[$actionId] = $actionId;
+                if (count($actionIds) > self::MAX_DELETION_SALE_ACTIONS) {
+                    throw new \RuntimeException(
+                        'wprism: WooCommerce deleted-product sale-action inventory exceeded its row bound'
+                    );
+                }
+            }
+        }
+        ksort($actionIds, SORT_NUMERIC);
+        return array_values($actionIds);
+    }
+
+    /** @param list<int> $ids */
+    private function delete_product_lookup_rows(array $ids): void {
+        $table = $this->prefixed_table(self::META_LOOKUP);
+        foreach (array_chunk($ids, 200) as $chunk) {
+            $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
+            $this->deletion_cleanup_prepared_query(
+                "DELETE FROM `$table` WHERE product_id IN ($placeholders)",
+                $chunk,
+                'WooCommerce deleted-product meta lookup removal'
+            );
+        }
+    }
+
+    /** @param list<int> $ids */
+    private function delete_product_attribute_lookup_rows(array $ids): void {
+        $table = $this->prefixed_table(self::ATTRIBUTE_LOOKUP);
+        foreach (array_chunk($ids, 200) as $chunk) {
+            $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
+            $this->deletion_cleanup_prepared_query(
+                "DELETE FROM `$table` WHERE product_id IN ($placeholders) "
+                . "OR product_or_parent_id IN ($placeholders)",
+                array_merge($chunk, $chunk),
+                'WooCommerce deleted-product attribute lookup removal'
+            );
+        }
+    }
+
+    /** @param list<int> $actionIds */
+    private function cancel_product_sale_actions(array $actionIds): void {
+        $table = $this->prefixed_table('actionscheduler_actions');
+        foreach (array_chunk($actionIds, 200) as $chunk) {
+            $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
+            $this->deletion_cleanup_prepared_query(
+                "UPDATE `$table` SET status = 'canceled' WHERE status = 'pending' "
+                . "AND action_id IN ($placeholders)",
+                $chunk,
+                'WooCommerce deleted-product sale-action cancellation'
+            );
+        }
+    }
+
+    /** @param list<int> $ids */
+    private function delete_product_transient_rows(array $ids): void {
+        $table = $this->prefixed_table('options');
+        foreach (array_chunk($this->deletion_transient_names($ids), 200) as $chunk) {
+            $placeholders = implode(', ', array_fill(0, count($chunk), '%s'));
+            $this->deletion_cleanup_prepared_query(
+                "DELETE FROM `$table` WHERE option_name IN ($placeholders)",
+                $chunk,
+                'WooCommerce deleted-product transient removal'
+            );
+        }
+    }
+
+    /** @param list<int> $ids @return list<string> */
+    private function deletion_transient_names(array $ids): array {
+        $transients = [
+            'wc_products_onsale',
+            'wc_featured_products',
+            'wc_outofstock_count',
+            'wc_low_stock_count',
+            'product-transient-version',
+        ];
+        foreach ($ids as $id) {
+            foreach ([
+                'wc_product_children_',
+                'wc_var_prices_',
+                'wc_related_',
+                'wc_child_has_weight_',
+                'wc_child_has_dimensions_',
+            ] as $prefix) {
+                $transients[] = $prefix . $id;
+            }
+        }
+        $names = [];
+        foreach ($transients as $transient) {
+            $names['_transient_' . $transient] = '_transient_' . $transient;
+            $names['_transient_timeout_' . $transient] = '_transient_timeout_' . $transient;
+        }
+        ksort($names, SORT_STRING);
+        return array_values($names);
+    }
+
+    /** @param array{attribute_rows:list<array<string,mixed>>,meta_ids:list<int>,option_names:list<string>,sale_action_ids:list<int>} $rows */
+    private function assert_deletion_cleanup_empty(array $rows): void {
+        if ($rows['attribute_rows'] !== []
+            || $rows['meta_ids'] !== []
+            || $rows['option_names'] !== []
+            || $rows['sale_action_ids'] !== []) {
+            throw new \RuntimeException(
+                'wprism: WooCommerce product deletion cleanup did not reach exact empty derived state; recovery_required'
+            );
+        }
+    }
+
+    /**
+     * @param list<int> $ids
+     * @param array{attribute_rows:list<array<string,mixed>>,meta_ids:list<int>,option_names:list<string>,sale_action_ids:list<int>} $rows
+     * @return array<string,int|string>
+     */
+    private function deletion_cleanup_receipt(array $ids, array $rows): array {
+        $fingerprint = hash_init('sha256');
+        foreach ($ids as $id) {
+            $this->fingerprint_part($fingerprint, 'product:' . $id);
+        }
+        foreach ($rows['meta_ids'] as $id) {
+            $this->fingerprint_part($fingerprint, 'meta:' . $id);
+        }
+        foreach ($rows['attribute_rows'] as $row) {
+            $this->fingerprint_part($fingerprint, 'attribute:' . implode(':', array_map(
+                static fn(mixed $value): string => is_scalar($value) ? (string) $value : get_debug_type($value),
+                $row
+            )));
+        }
+        foreach ($rows['sale_action_ids'] as $id) {
+            $this->fingerprint_part($fingerprint, 'sale-action:' . $id);
+        }
+        foreach ($rows['option_names'] as $name) {
+            $this->fingerprint_part($fingerprint, 'transient:' . $name);
+        }
+        return [
+            'attribute_lookup_rows' => count($rows['attribute_rows']),
+            'meta_lookup_rows' => count($rows['meta_ids']),
+            'pending_sale_actions' => count($rows['sale_action_ids']),
+            'products' => count($ids),
+            'scope_sha256' => hash_final($fingerprint),
+            'transient_rows' => count($rows['option_names']),
+        ];
+    }
+
+    /** @param list<int|string> $values */
+    private function deletion_cleanup_prepared_query(string $sql, array $values, string $context): void {
+        global $wpdb;
+        $this->deletion_cleanup_query($wpdb->prepare($sql, ...$values), $context);
+    }
+
+    private function deletion_cleanup_query(string $sql, string $context): void {
+        global $wpdb;
+        if (!is_callable([$wpdb, 'query'])) {
+            throw new \RuntimeException("wprism: $context has no database mutation boundary");
+        }
+        $wpdb->last_error = '';
+        $result = $wpdb->query($sql);
+        if ($result === false || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException("wprism: $context failed; recovery_required");
+        }
+    }
+
     /** @param array<string,mixed> $args @return array<string,mixed> */
     protected function reconcile_rebuild_product_lookups(array $args): array {
         return $this->scoped_postcondition($args);
@@ -244,10 +655,15 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
     private function scoped_observed_ids(array $args): array {
         $envelope = $args[\WPrism\Providers::ENTITIES_ARG] ?? null;
         if (!is_array($envelope) || !array_key_exists('entities', $envelope)
-            || !array_key_exists('deletions', $envelope) || !array_key_exists('reparents', $envelope)) {
+            || !array_key_exists('reparents', $envelope)) {
             throw new \RuntimeException(
                 'wprism: WooCommerce product lookup reconciliation received no engine batch envelope; expected the '
-                . 'entities/deletions/reparents channels its capability declares'
+                . 'entities/reparents channels its capability declares'
+            );
+        }
+        if (array_key_exists('deletions', $envelope)) {
+            throw new \RuntimeException(
+                'wprism: WooCommerce product lookup reconciliation received a deletion channel reserved for the narrow cleanup capability'
             );
         }
         $liveIds = [];
@@ -259,7 +675,7 @@ final class WoocommerceProductLookups extends ManifestProviderRuntime {
         }
         $observed = array_values($liveIds);
         foreach ($this->deletion_context_from_channels(
-            (array) $envelope['deletions'],
+            [],
             (array) $envelope['reparents']
         ) as $context) {
             foreach (array_merge(

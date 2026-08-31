@@ -86,7 +86,12 @@ final class VerifiedRollbackProfile {
                 'status' => $status ?? [],
             ];
         }
-        foreach (['uploads_inventory', 'effects_inventory'] as $inventory) {
+        foreach ([
+            'uploads_inventory',
+            'effects_inventory',
+            'lifecycle_effects_inventory',
+            'selected_actions',
+        ] as $inventory) {
             if (!is_array($plan[$inventory] ?? null) || !array_is_list($plan[$inventory])) {
                 return [
                     'automatic' => false,
@@ -129,7 +134,8 @@ final class VerifiedRollbackProfile {
         string $owner,
         string $createdAt,
         ?array $codeReleaseIdentity = null,
-        bool $allowDeletes = false
+        bool $allowDeletes = false,
+        bool $codeChangeRequired = false
     ): array {
         $artifact = (string) ($plan['artifact_hash'] ?? '');
         if (preg_match('/^[a-f0-9]{64}$/', $artifact) !== 1) {
@@ -137,9 +143,28 @@ final class VerifiedRollbackProfile {
         }
         $uploads = $plan['uploads_inventory'] ?? null;
         $effects = $plan['effects_inventory'] ?? null;
+        $lifecycleEffects = $plan['lifecycle_effects_inventory'] ?? null;
+        $selectedActions = $plan['selected_actions'] ?? null;
         if (!is_array($uploads) || !array_is_list($uploads)
-            || !is_array($effects) || !array_is_list($effects)) {
+            || !is_array($effects) || !array_is_list($effects)
+            || !is_array($lifecycleEffects) || !array_is_list($lifecycleEffects)
+            || !is_array($selectedActions) || !array_is_list($selectedActions)) {
             throw new \RuntimeException('wprism rollback: automatic profile needs compiled plan inventories');
+        }
+        if ($codeChangeRequired) {
+            $effects = array_merge($effects, $lifecycleEffects);
+            usort($effects, static fn(array $a, array $b): int => strcmp(
+                implode("\0", [
+                    (string) ($a['phase'] ?? ''),
+                    (string) ($a['manifest'] ?? ''),
+                    (string) (($a['effect'] ?? [])['id'] ?? ''),
+                ]),
+                implode("\0", [
+                    (string) ($b['phase'] ?? ''),
+                    (string) ($b['manifest'] ?? ''),
+                    (string) (($b['effect'] ?? [])['id'] ?? ''),
+                ])
+            ));
         }
         $code = $plan['code'] ?? null;
         if (!is_array($code)) {
@@ -168,6 +193,7 @@ final class VerifiedRollbackProfile {
         $resources = [
             'code' => $code,
             'effects_inventory' => $effects,
+            'selected_actions' => $selectedActions,
             'uploads_inventory' => $uploads,
         ];
         $fields = [
@@ -205,7 +231,8 @@ final class VerifiedRollbackProfile {
         string $owner,
         string $claimant,
         ?string $timestamp = null,
-        bool $allowDeletes = false
+        bool $allowDeletes = false,
+        bool $codeChangeRequired = false
     ): array {
         $policy = $this->transport->verifiedRollbackConfig();
         if ($policy === null) {
@@ -222,7 +249,15 @@ final class VerifiedRollbackProfile {
                     : self::timestamp();
         }
         return $this->authority->claim(
-            self::claimFields($plan, $policy, $owner, $timestamp, null, $allowDeletes),
+            self::claimFields(
+                $plan,
+                $policy,
+                $owner,
+                $timestamp,
+                null,
+                $allowDeletes,
+                $codeChangeRequired
+            ),
             $claimant,
             $timestamp
         );

@@ -8356,6 +8356,31 @@
                     "return_type": "array",
                     "static": true,
                     "visibility": "public"
+                },
+                "mutation_channels_for_apply": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "work",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "deleteWork",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
                 }
             },
             "parent": null,
@@ -44246,6 +44271,14 @@
                             "name": "allowDeletes",
                             "type": "bool",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "codeChangeRequired",
+                            "type": "bool",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -44301,6 +44334,14 @@
                             "default": false,
                             "has_default": true,
                             "name": "allowDeletes",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "codeChangeRequired",
                             "type": "bool",
                             "variadic": false
                         }
@@ -46114,6 +46155,23 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "action_identities": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "actions",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "action_source": {
                     "abstract": false,
                     "final": false,
@@ -46157,6 +46215,14 @@
                             "has_default": false,
                             "name": "surfaces",
                             "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "mutationChannels",
+                            "type": "?array",
                             "variadic": false
                         }
                     ],
@@ -46828,6 +46894,39 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "execution_effects_inventory": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "selectedActions",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "engineSources",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "regeneratorPostTypes",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "export_manifest": {
                     "abstract": false,
                     "final": false,
@@ -46990,6 +47089,14 @@
                         }
                     ],
                     "return_type": "bool",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "lifecycle_effects_inventory": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
                     "static": false,
                     "visibility": "public"
                 },
@@ -68996,6 +69103,31 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "assert_plan_resources": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "plan",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "witness",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "require_installed": {
                     "abstract": false,
                     "final": false,

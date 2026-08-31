@@ -3395,10 +3395,11 @@ final class Policy {
      * exact same canonical surface from this request. The empty surface set
      * is a no-op, so a read-only apply cannot fire an action.
      *
-     * @param list<string> $surfaces
+     * @param list<string>      $surfaces
+     * @param ?list<string>     $mutationChannels
      * @return list<array<string,mixed>>
      */
-    public function actions_for(array $surfaces): array {
+    public function actions_for(array $surfaces, ?array $mutationChannels = null): array {
         $wanted = [];
         foreach ($surfaces as $surface) {
             if (is_string($surface) && $surface !== '') {
@@ -3410,8 +3411,18 @@ final class Policy {
         }
 
         $out = [];
+        $declarations = $mutationChannels === null ? [] : $this->provider_declarations();
         foreach ($this->actions() as $action) {
             if (($action['phase'] ?? null) === 'lifecycle_settle') {
+                continue;
+            }
+            if (($action['kind'] ?? null) === 'provider'
+                && $mutationChannels !== null
+                && !self::provider_action_matches_mutation_channels(
+                    $action,
+                    $mutationChannels,
+                    $declarations
+                )) {
                 continue;
             }
             if (!array_key_exists('triggers', $action)) {
@@ -3426,6 +3437,35 @@ final class Policy {
             }
         }
         return $out;
+    }
+
+    /**
+     * Provider `context` is already the closed statement of which engine
+     * mutation channel a capability consumes. Use it for selection as well as
+     * payload construction so two capabilities may own the same canonical
+     * surface without both running for a tombstone. Callers which omit channel
+     * evidence retain the historical surface-only behavior.
+     *
+     * @param array<string,array<string,mixed>> $declarations
+     */
+    private static function provider_action_matches_mutation_channels(
+        array $action,
+        array $mutationChannels,
+        array $declarations
+    ): bool {
+        $provider = (string) ($action['provider'] ?? '');
+        $capability = (string) ($action['capability'] ?? '');
+        $contract = $declarations[$provider]['contracts'][$capability] ?? null;
+        if (!is_array($contract) || !array_key_exists('context', $contract)) {
+            return true;
+        }
+        $declared = array_fill_keys(array_map('strval', (array) $contract['context']), true);
+        foreach ($mutationChannels as $channel) {
+            if (isset($declared[(string) $channel])) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -3580,6 +3620,97 @@ final class Policy {
             implode("\0", [$b['phase'], $b['manifest'], (string) $b['effect']['id']])
         ));
         return $out;
+    }
+
+    /**
+     * Project the immutable effect authority reachable by one ordinary apply.
+     * The policy-wide inventory remains the certification/diagnostic surface;
+     * a recovery receipt gets only selected engine sources, exact action
+     * declarations, and selected legacy regenerators.
+     *
+     * @param list<array<string,mixed>> $selectedActions
+     * @param list<string> $engineSources
+     * @param list<string> $regeneratorPostTypes
+     * @return list<array<string,mixed>>
+     */
+    public function execution_effects_inventory(
+        array $selectedActions,
+        array $engineSources,
+        array $regeneratorPostTypes = []
+    ): array {
+        $wanted = [];
+        foreach ($engineSources as $source) {
+            $wanted["core\0rebuild\0" . (string) $source] = true;
+        }
+        foreach ($regeneratorPostTypes as $postType) {
+            foreach ($this->manifests as $manifest) {
+                $name = (string) ($manifest['name'] ?? '?');
+                if (is_array($manifest['post_types'][(string) $postType]['regen_dependency'] ?? null)) {
+                    $wanted[$name . "\0regenerator\0" . (string) $postType] = true;
+                }
+            }
+        }
+        $out = array_values(array_filter(
+            $this->effects_inventory(),
+            static fn(array $row): bool => isset($wanted[
+                (string) ($row['manifest'] ?? '') . "\0"
+                . (string) ($row['phase'] ?? '') . "\0"
+                . (string) ($row['source'] ?? '')
+            ])
+        ));
+        // A source spelling is not an action identity: multiple native
+        // declarations may share `native:transient.delete` while naming
+        // different exact effects. Rebuild these rows from the selected
+        // declarations so the receipt cannot acquire an unselected sibling.
+        foreach ($selectedActions as $action) {
+            $index = (int) ($action['index'] ?? 0);
+            foreach (self::action_effects($action, $index) as $effect) {
+                $out[] = [
+                    'manifest' => (string) ($action['manifest'] ?? '?'),
+                    'phase' => ($action['phase'] ?? null) === 'lifecycle_settle'
+                        ? 'lifecycle-settle'
+                        : 'rebuild',
+                    'source' => self::action_source($action, $index),
+                    'effect' => $effect,
+                ];
+            }
+        }
+        usort($out, static fn(array $a, array $b): int => strcmp(
+            implode("\0", [$a['phase'], $a['manifest'], (string) $a['effect']['id']]),
+            implode("\0", [$b['phase'], $b['manifest'], (string) $b['effect']['id']])
+        ));
+        return $out;
+    }
+
+    /** @return list<array<string,mixed>> */
+    public function lifecycle_effects_inventory(): array {
+        return array_values(array_filter(
+            $this->effects_inventory(),
+            static fn(array $row): bool => in_array(
+                (string) ($row['phase'] ?? ''),
+                ['lifecycle', 'lifecycle-settle'],
+                true
+            )
+        ));
+    }
+
+    /**
+     * Hash-only action selection proof published by ordinary and scoped plans.
+     * Effects alone cannot distinguish two declarations sharing one provider
+     * source, while this digest binds triggers, args, channels, and effects.
+     *
+     * @param list<array<string,mixed>> $actions
+     * @return list<array{declaration_hash:string,index:int,manifest:string}>
+     */
+    public static function action_identities(array $actions): array {
+        return array_map(
+            static fn(array $action): array => [
+                'declaration_hash' => hash('sha256', Canon::encode($action)),
+                'index' => (int) ($action['index'] ?? 0),
+                'manifest' => (string) ($action['manifest'] ?? ''),
+            ],
+            $actions
+        );
     }
 
     /**

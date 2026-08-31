@@ -443,6 +443,7 @@ namespace {
         'receipt_id' => str_repeat('8', 48),
         'receipt_payload_sha256' => $receipt,
         'recovery_ready' => true,
+        'resources_inventory_sha256' => hash('sha256', 'verified-plan-resources'),
         'signing_key_id' => 'offline-key-1',
         'state' => 'promoting',
         'target_id' => str_repeat('f', 32),
@@ -454,6 +455,72 @@ namespace {
     } catch (Throwable $failure) {
         $check(false, 'valid full promotion witness was refused (' . $failure->getMessage() . ')');
     }
+    $resourcePlan = [
+        'code' => ['code_revision' => str_repeat('1', 64)],
+        'effects_inventory' => [[
+            'effect' => ['id' => 'selected-rebuild-effect'],
+            'manifest' => 'fixture',
+            'phase' => 'rebuild',
+            'source' => 'provider:fixture/selected',
+        ]],
+        'lifecycle_effects_inventory' => [[
+            'effect' => ['id' => 'selected-lifecycle-effect'],
+            'manifest' => 'fixture',
+            'phase' => 'lifecycle',
+            'source' => 'fixture/plugin.php',
+        ]],
+        'selected_actions' => [[
+            'declaration_hash' => hash('sha256', 'selected-action'),
+            'index' => 2,
+            'manifest' => 'fixture',
+        ]],
+        'uploads_inventory' => [],
+    ];
+    $resourceHash = hash('sha256', \WPrism\Canon::encode([
+        'code' => $resourcePlan['code'],
+        'effects_inventory' => $resourcePlan['effects_inventory'],
+        'selected_actions' => $resourcePlan['selected_actions'],
+        'uploads_inventory' => [],
+    ]));
+    try {
+        VerifiedPromotionAuthority::assert_plan_resources(
+            $resourcePlan,
+            array_replace($verifiedWitness, ['resources_inventory_sha256' => $resourceHash])
+        );
+        $check(true, 'the fresh target plan re-proves the exact controller-selected action and execution effects');
+    } catch (Throwable $failure) {
+        $check(false, 'valid plan-bound resource authority was refused (' . $failure->getMessage() . ')');
+    }
+    $lifecycleResourceHash = hash('sha256', \WPrism\Canon::encode([
+        'code' => $resourcePlan['code'],
+        'effects_inventory' => array_merge(
+            $resourcePlan['lifecycle_effects_inventory'],
+            $resourcePlan['effects_inventory']
+        ),
+        'selected_actions' => $resourcePlan['selected_actions'],
+        'uploads_inventory' => [],
+    ]));
+    try {
+        VerifiedPromotionAuthority::assert_plan_resources(
+            $resourcePlan,
+            array_replace($verifiedWitness, ['resources_inventory_sha256' => $lifecycleResourceHash])
+        );
+        $check(true, 'the same fresh plan re-proves a receipt that signed lifecycle effects for an actual code transition');
+    } catch (Throwable $failure) {
+        $check(false, 'valid lifecycle-bound resource authority was refused (' . $failure->getMessage() . ')');
+    }
+    $expect(
+        static fn() => VerifiedPromotionAuthority::assert_plan_resources(
+            array_replace($resourcePlan, ['selected_actions' => [[
+                'declaration_hash' => hash('sha256', 'substituted-action'),
+                'index' => 2,
+                'manifest' => 'fixture',
+            ]]]),
+            array_replace($verifiedWitness, ['resources_inventory_sha256' => $resourceHash])
+        ),
+        'receipt resources do not match the fresh target plan selection',
+        'a substituted fresh-plan action is refused before deletion can enter its writer transaction'
+    );
     foreach ([
         'legacy receipt' => ['receipt_format' => 'wprism-rollback-receipt/v2'],
         'unsigned delete intent' => ['allow_deletes' => false],

@@ -58,7 +58,7 @@ reviewed theme-state intent, and exact rollback while preserving theme settings,
 navigation, and media. It also exercises one representative plugin identity
 replacement through the generic plan/promote path and one bounded named
 WordPress-cron event. Its historical issue #3338 Woo deletion refusal predates
-the later all-executable-owner, writer-excluded product/variation contract; dependency refusal
+the later all-executable-owner, writer-excluded standalone-product contract; variation deletion remains unsupported; dependency refusal
 remains current. Compatibility refusal (issue #3326)
 is exercised by the live proof. These
 statuses prevent the current clone-based setup from being mistaken for

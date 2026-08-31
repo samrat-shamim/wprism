@@ -615,11 +615,11 @@ pct_ok(
 $emitted = array_values(array_unique(array_merge($initializerKeys[1], $assignedKeys[1])));
 sort($emitted, SORT_STRING);
 pct_ok(count($initializerKeys[1]) > 0 && count($assignedKeys[1]) > 0, 'the drift pin actually read the emitter');
-$required = array_merge(
+$required = array_values(array_unique(array_merge(
     $contract::requiredBuckets(),
     $contract::optionalProjections(),
     $contract::scopedProjections()
-);
+)));
 sort($required, SORT_STRING);
 $drift = array_merge(
     array_map(static fn(string $b): string => "emitted but not required: $b", array_values(array_diff($emitted, $required))),

@@ -188,7 +188,12 @@ final class PlanContract {
 
     /** @return list<string> */
     public static function optionalProjections(): array {
-        return ['category_summary', 'plan_view'];
+        return [
+            'category_summary',
+            'lifecycle_effects_inventory',
+            'plan_view',
+            'selected_actions',
+        ];
     }
 
     /**

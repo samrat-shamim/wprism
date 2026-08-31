@@ -1276,7 +1276,7 @@ if [ -z "$PROVIDER_RECEIPT" ] && [ -n "${VMATRIX_APPLY_LOG:-}" ] && [ -f "$VMATR
 fi
 grep -Eq 'woocommerce-cache@1\.0\.0 invalidate_cache_groups .*verified' <<<"$PROVIDER_RECEIPT" \
   || fail "initial apply receipt omitted the verified WooCommerce cache provider: ${PROVIDER_RECEIPT:-<missing>}"
-grep -Eq 'woocommerce-product-lookups@3\.0\.0 rebuild_product_lookups .*verified' <<<"$PROVIDER_RECEIPT" \
+grep -Eq 'woocommerce-product-lookups@3\.1\.0 rebuild_product_lookups .*verified' <<<"$PROVIDER_RECEIPT" \
   || fail "initial apply receipt omitted the verified WooCommerce lookup provider: ${PROVIDER_RECEIPT:-<missing>}"
 grep -Eq 'woocommerce-hierarchy-lookups@2\.0\.0 rebuild_hierarchy_lookups .*verified' <<<"$PROVIDER_RECEIPT" \
   || fail "initial apply receipt omitted the verified WooCommerce hierarchy provider: ${PROVIDER_RECEIPT:-<missing>}"

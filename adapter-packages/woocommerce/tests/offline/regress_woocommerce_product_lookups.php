@@ -57,9 +57,9 @@ check($policy->regen_batch('product') === null && $policy->regen_batch('product_
 $declaration = $policy->provider_declarations()['woocommerce-product-lookups'] ?? null;
 check(is_array($declaration)
     && $declaration['source'] === 'manifest'
-    && $declaration['version'] === '3.0.0'
+    && $declaration['version'] === '3.1.0'
     && $declaration['plugin'] === 'woocommerce/woocommerce.php'
-    && $declaration['capabilities'] === ['rebuild_product_lookups'],
+    && $declaration['capabilities'] === ['cleanup_product_deletions', 'rebuild_product_lookups'],
     'the lookup repair is declared as a manifest-sourced provider pinned to the same plugin the manifest claims');
 $expectedRequires = [
     'functions' => [
@@ -109,17 +109,23 @@ $adapter = new \WPrism\Providers\WoocommerceProductLookups($declaration);
 check($adapter->identity() === [
     'id' => 'woocommerce-product-lookups',
     'plugin' => 'woocommerce/woocommerce.php',
-    'version' => '3.0.0',
+    'version' => '3.1.0',
 ], "the provider's self-reported identity matches its declaration exactly (negotiation compares these)");
 $capabilities = $adapter->capabilities();
+$cleanupCapability = $capabilities['cleanup_product_deletions'] ?? null;
 $capability = $capabilities['rebuild_product_lookups'] ?? null;
-check(array_keys($capabilities) === ['rebuild_product_lookups'],
-    'it advertises exactly the one capability the manifest names');
+check(array_keys($capabilities) === ['cleanup_product_deletions', 'rebuild_product_lookups'],
+    'it advertises the narrow deletion cleanup separately from ordinary product lookup rebuilds');
+check(is_array($cleanupCapability)
+    && ($cleanupCapability['context'] ?? null) === ['deletions', 'retry']
+    && ($cleanupCapability['scope'] ?? null) === 'entity'
+    && ($cleanupCapability['idempotent'] ?? null) === true,
+    'the deletion capability consumes only tombstone/retry evidence and is safe to replay');
 check(is_array($capability) && $capability['scope'] === 'entity' && $capability['idempotent'] === true,
     'entity-scoped and idempotent — apply re-fires the rebuild pass on retry, so anything else refuses');
 check(is_array($capability)
-    && ($capability['context'] ?? null) === ['always_on_write', 'deletions', 'reparents', 'retry'],
-    'and it declares every engine batch channel the regenerator channel used to hand this same code');
+    && ($capability['context'] ?? null) === ['always_on_write', 'reparents', 'retry'],
+    'and the broad native rebuild no longer receives deletion tombstones');
 check(is_array($capability) && $capability['args'] === [],
     'no manifest-supplied arguments: every input is engine-assembled, and the reserved entities argument '
     . 'may not be declared at all');
@@ -315,6 +321,7 @@ check($sources === [
     'provider:woocommerce-scheduler-settings/reconcile_analytics_import_schedule',
     'provider:woocommerce-scheduler-settings/reconcile_stock_notification_retention',
     'provider:woocommerce-product-lookups/rebuild_product_lookups',
+    'provider:woocommerce-product-lookups/cleanup_product_deletions',
     'native:rewrite.flush',
     'provider:woocommerce-hierarchy-lookups/rebuild_product_permalink_routes',
     'provider:woocommerce-lifecycle-migrations/settle_lifecycle_migrations',
@@ -328,8 +335,42 @@ $lookupActions = array_values(array_filter(
     static fn(array $row): bool => ($row['provider'] ?? null) === 'woocommerce-product-lookups'
 ));
 $lookupAction = $lookupActions[0] ?? [];
+$cleanupAction = $lookupActions[1] ?? [];
 check(($lookupAction['triggers'] ?? null) === ['post:product', 'post:product_variation'],
     'the lookup action is narrowed to exactly the two post types the regen_dependency declarations covered');
+check(($cleanupAction['capability'] ?? null) === 'cleanup_product_deletions'
+    && ($cleanupAction['triggers'] ?? null) === ['post:product']
+    && count((array) ($cleanupAction['effects'] ?? [])) === 4,
+    'the deletion action is product-only and every effect is database-checkpoint restorable');
+$writeSelection = array_map(
+    static fn(array $row): string => Policy::action_source($row, (int) $row['index']),
+    $policy->actions_for(['post:product'], ['always_on_write'])
+);
+$deleteActions = $policy->actions_for(['post:product'], ['deletions']);
+$deleteSelection = array_map(
+    static fn(array $row): string => Policy::action_source($row, (int) $row['index']),
+    $deleteActions
+);
+$mixedSelection = array_map(
+    static fn(array $row): string => Policy::action_source($row, (int) $row['index']),
+    $policy->actions_for(['post:product'], ['always_on_write', 'deletions'])
+);
+check($writeSelection === ['provider:woocommerce-product-lookups/rebuild_product_lookups']
+    && $deleteSelection === ['provider:woocommerce-product-lookups/cleanup_product_deletions']
+    && $mixedSelection === [
+        'provider:woocommerce-product-lookups/rebuild_product_lookups',
+        'provider:woocommerce-product-lookups/cleanup_product_deletions',
+    ], 'action selection uses the plan mutation channel: writes rebuild, deletions clean up, and mixed work does both');
+$deleteEffects = $policy->execution_effects_inventory($deleteActions, [], []);
+check(
+    array_column(array_column($deleteEffects, 'effect'), 'id') === [
+        'woocommerce-product-deletion-attribute-lookup',
+        'woocommerce-product-deletion-meta-lookup',
+        'woocommerce-product-deletion-sale-actions',
+        'woocommerce-product-deletion-transients',
+    ],
+    'the signed execution projection contains only the selected deletion capability effects, never the sibling rebuild effects'
+);
 $effectIds = array_map(static fn(array $e): string => (string) $e['id'], (array) ($lookupAction['effects'] ?? []));
 check(count($effectIds) === 128 && count(array_unique($effectIds)) === 128,
     'both post types\' supported effect lists remain distinct (64 + 64), including exact visibility, attribute lookup, approved-directory repair, bounded late taxonomy registration filters, and permalink reads — the manifest note '

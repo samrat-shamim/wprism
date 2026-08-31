@@ -1386,7 +1386,7 @@ EOF
       || fail 'apply canary not clean after woocommerce 11.0.0 to 11.0.1 in-place upgrade'
     UPGRADE_PROVIDER_COUNT=$(grep -Ec 'provider capability fired:' "$VMATRIX_APPLY_LOG" || true)
     [ "$UPGRADE_PROVIDER_COUNT" -eq 1 ] \
-      && grep -Eq 'provider capability fired: woocommerce-product-lookups@3\.0\.0 rebuild_product_lookups \([0-9]+(\.[0-9]+)?s, verified\)' "$VMATRIX_APPLY_LOG" \
+      && grep -Eq 'provider capability fired: woocommerce-product-lookups@3\.1\.0 rebuild_product_lookups \([0-9]+(\.[0-9]+)?s, verified\)' "$VMATRIX_APPLY_LOG" \
       || fail 'WooCommerce 11.0.0 -> 11.0.1 product-note upgrade did not invoke exactly one verified product-lookup provider'
     SAVED_WOO_VERSION="$WOO_VERSION"
     WOO_VERSION=11.0.1

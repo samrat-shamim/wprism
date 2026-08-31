@@ -24,7 +24,8 @@ final class RebuildActionNegotiator {
         bool $scopedPromotion
     ): array {
         $selectedActions = $this->policy->actions_for(
-            CanonicalSurfaces::for_apply($work, $tree, $rebuildDeleteWork, $this->policy)
+            CanonicalSurfaces::for_apply($work, $tree, $rebuildDeleteWork, $this->policy),
+            CanonicalSurfaces::mutation_channels_for_apply($work, $rebuildDeleteWork)
         );
         if ($scopedPromotion) {
             self::assert_scoped_promotion_selection($selectedActions, $work, $deleteWork, $tree);
