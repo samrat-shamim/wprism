@@ -3052,7 +3052,8 @@ function cmd_promote_internal(
     $verifiedUnavailableReason = 'target carries no signed automatic rollback authority';
     if ($t instanceof \WPrism\Orchestrator\RecoveryTransport && $t->carriesRollbackAuthority()) {
         try {
-            $selection = VerifiedRollbackProfile::select($t, $compile['summary']);
+            $verifiedPlan = verified_promotion_plan($t, $repo, $artifact, $artifactHash);
+            $selection = VerifiedRollbackProfile::select($t, $verifiedPlan);
         } catch (\Throwable $e) {
             fwrite(STDERR, 'wprism: promote: verified rollback preflight failed; refusing before promotion-begin: '
                 . $e->getMessage() . "\n");
@@ -3105,7 +3106,7 @@ function cmd_promote_internal(
             }
             $verifiedResult = cmd_promote_verified(
                 $t,
-                $compile['summary'],
+                $verifiedPlan,
                 $repo,
                 $artifact,
                 $verifiedRunId,
@@ -3776,6 +3777,44 @@ function frozen_promotion_code_revision(array $summary): ?string {
 function frozen_promotion_canonical(mixed $value): string {
     return \WPrism\Orchestrator\EnvironmentLifecycleCanon::encode($value);
 }
+
+/**
+ * Read the exact target plan whose selected actions and effects a verified
+ * receipt will sign. Compile proves immutable source identity; only plan can
+ * project target-relative work. Apply re-proves this address after its locked
+ * fresh plan, so drift between these two reads refuses before deletion.
+ *
+ * @return array<string,mixed>
+ */
+function verified_promotion_plan(
+    \WPrism\Orchestrator\RecoveryTransport $transport,
+    string $repo,
+    string $artifact,
+    string $artifactHash
+): array {
+    $result = $transport->captureWp([
+        'wprism', 'plan', '--repo=' . $repo, '--compiled=' . $artifact, '--format=json',
+    ]);
+    if (($result['exit'] ?? 1) !== 0) {
+        throw new \RuntimeException('target refused the exact compiled recovery plan');
+    }
+    try {
+        $decoded = json_decode(
+            trim((string) ($result['stdout'] ?? '')),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+    } catch (\Throwable $error) {
+        throw new \RuntimeException('target returned a malformed compiled recovery plan', 0, $error);
+    }
+    $plan = PlanContract::requireComplete($decoded, 'verified promotion recovery preflight');
+    if (!hash_equals($artifactHash, (string) ($plan['artifact_hash'] ?? ''))) {
+        throw new \RuntimeException('target recovery plan does not match the compiled artifact');
+    }
+    return $plan;
+}
+
 /**
  * Provider-backed promotion through the rollback authority. The external
  * receipt/checkpoint is prepared before the target's database lease or code
