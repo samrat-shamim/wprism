@@ -153,6 +153,13 @@ wprism_ssh_adopt_extension() {
     git -C /home/wprism/site commit -m "Bind shared state and exact WooCommerce deletion code release" >/dev/null
     test -z "$(git -C /home/wprism/site status --porcelain)"
   ' || fail "WooCommerce deletion proof could not commit its exact code half"
+  "$WPRISM" --envs-file="$TMP/envs.json" deploy target >"$TMP/woocommerce-code-baseline.stdout" \
+    2>"$TMP/woocommerce-code-baseline.stderr" \
+    || fail "WooCommerce deletion proof could not complete its exact code baseline through the product deploy workflow"
+  grep -Fq 'deploy complete: code-stage -> lifecycle-retire -> lifecycle-activate -> lifecycle-settle -> code-finalize' \
+    "$TMP/woocommerce-code-baseline.stdout" \
+    || fail "WooCommerce deletion proof did not complete the full code lifecycle before state-only deletion"
+  pass "WooCommerce and active-theme bytes are completed through the public deploy lifecycle"
   next_generation="$(ssh_fixture 'php /home/wprism/site/.wprism/control/recovery-runtime/rollback-control.php authority-status --root=/home/wprism/site/.wprism/control' | jq -r '.generation + 1')"
   [[ "$next_generation" =~ ^[1-9][0-9]*$ ]] \
     || fail "WooCommerce deletion proof could not derive its next signed generation"
