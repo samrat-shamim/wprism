@@ -153,6 +153,15 @@ wprism_ssh_adopt_extension() {
     git -C /home/wprism/site commit -m "Bind shared state and exact WooCommerce deletion code release" >/dev/null
     test -z "$(git -C /home/wprism/site status --porcelain)"
   ' || fail "WooCommerce deletion proof could not commit its exact code half"
+  "$WPRISM" --envs-file="$TMP/envs.json" capture target --target-branch="$TARGET_REPOSITORY_BRANCH" \
+    --format=json >"$TMP/woocommerce-code-baseline-capture.json" \
+    || fail "WooCommerce deletion proof could not capture its active lifecycle state before code ownership"
+  ssh_fixture '
+    set -eu
+    git -C /home/wprism/site add -- state
+    git -C /home/wprism/site commit -m "Capture WooCommerce active lifecycle state" >/dev/null
+    test -z "$(git -C /home/wprism/site status --porcelain)"
+  ' || fail "WooCommerce deletion proof could not commit its active lifecycle state"
   "$WPRISM" --envs-file="$TMP/envs.json" deploy target >"$TMP/woocommerce-code-baseline.stdout" \
     2>"$TMP/woocommerce-code-baseline.stderr" \
     || fail "WooCommerce deletion proof could not complete its exact code baseline through the product deploy workflow"
