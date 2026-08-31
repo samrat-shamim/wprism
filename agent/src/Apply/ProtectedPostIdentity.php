@@ -4,7 +4,9 @@ declare(strict_types=1);
 namespace WPrism;
 
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
-require_once __DIR__ . '/../Kernel/Db.php';
+if (!class_exists(Db::class, false)) {
+    require_once __DIR__ . '/../Kernel/Db.php';
+}
 require_once __DIR__ . '/../Kernel/MetaRows.php';
 require_once __DIR__ . '/../Kernel/Uuid.php';
 if (!class_exists(Ledger::class, false)) {

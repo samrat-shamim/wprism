@@ -898,8 +898,8 @@ foreach ($supportedDeletes as $selector) {
     woo_ok(
         ($capability['executable_owner_boundary'] ?? null) === 'all_active_owners'
             && ($capability['declaring_executable_owners'] ?? null) === ['plugin:woocommerce/woocommerce.php']
-            && count((array) ($capability['guards'] ?? [])) === 10,
-        "$selector deletion has an all-active-executable-owner boundary and ten locked reverse-reference families"
+            && count((array) ($capability['guards'] ?? [])) === 13,
+        "$selector deletion has an all-active-executable-owner boundary and thirteen locked reverse-reference families"
     );
     $metaGuards = [];
     foreach ((array) ($capability['guards'] ?? []) as $guard) {
@@ -908,15 +908,30 @@ foreach ($supportedDeletes as $selector) {
         }
     }
     woo_ok(array_keys($metaGuards) === [
-        '_children', '_crosssell_ids', '_upsell_ids', 'exclude_product_ids', 'product_ids',
+        '_children', '_crosssell_ids', '_upsell_ids', 'exclude_product_ids', 'product_ids', '_menu_item_object_id',
     ], "$selector deletion guards every declared Woo product/coupon post-reference family");
     woo_ok(
         ($metaGuards['_crosssell_ids']['cast'] ?? null) === 'string'
+            && ($metaGuards['_menu_item_object_id']['cast'] ?? null) === 'string'
+            && ($metaGuards['_menu_item_object_id']['ref'] ?? null) === 'post'
+            && ($metaGuards['_menu_item_object_id']['forceable'] ?? null) === false
             && ($metaGuards['_upsell_ids']['cast'] ?? null) === 'string'
             && ($metaGuards['exclude_product_ids']['cast'] ?? null) === 'csv'
             && ($metaGuards['product_ids']['cast'] ?? null) === 'csv',
-        "$selector deletion guard casts match the manifest's exact post-meta reference grammar"
+        "$selector deletion guard casts match the manifest's exact post-meta reference grammar and menu refs are non-forceable"
     );
+    $runtimeGuards = [];
+    foreach ((array) ($capability['guards'] ?? []) as $guard) {
+        if (in_array($guard['table'] ?? null, ['wc_reserved_stock', 'wc_stock_notifications'], true)) {
+            $runtimeGuards[(string) $guard['table']] = $guard;
+        }
+    }
+    woo_ok(array_keys($runtimeGuards) === ['wc_reserved_stock', 'wc_stock_notifications']
+        && ($runtimeGuards['wc_reserved_stock']['column'] ?? null) === 'product_id'
+        && ($runtimeGuards['wc_reserved_stock']['forceable'] ?? null) === false
+        && ($runtimeGuards['wc_stock_notifications']['column'] ?? null) === 'product_id'
+        && ($runtimeGuards['wc_stock_notifications']['forceable'] ?? null) === false,
+        "$selector deletion blocks Woo lifecycle-owned reservation and stock-notification rows even under force");
 }
 foreach ($unsupportedDeletes as $selector) {
     woo_ok($policy->deletion_capability($selector) === null, "$selector deletion is fail-closed");
@@ -976,6 +991,94 @@ woo_ok(!in_array('derived.wc_product_attributes_lookup', array_column(
 $matrixHarness = (string) file_get_contents($root . '/sandbox/tests/certify/certify_version_matrix.sh');
 $woocommerceMatrixHarness = (string) file_get_contents(dirname(__DIR__) . '/certify/version-matrix.sh');
 $matrixHarness .= "\n" . $woocommerceMatrixHarness;
+$woocommerceScopedDeletionHarnessPath = dirname(__DIR__) . '/live/regress_woocommerce_scoped_deletion.sh';
+$woocommerceScopedDeletionHarness = (string) file_get_contents($woocommerceScopedDeletionHarnessPath);
+$sshAdoptHarness = (string) file_get_contents($root . '/sandbox/tests/live/regress_ssh_adopt.sh');
+woo_ok(is_file($woocommerceScopedDeletionHarnessPath)
+    && str_contains($sshAdoptHarness, 'WPRISM_SSH_ADOPT_EXTENSION')
+    && str_contains($sshAdoptHarness, 'wprism_ssh_adopt_extension')
+    && str_contains($sshAdoptHarness, 'tests/live/*.sh'),
+    'WooCommerce deletion live proof is selected only through the candidate-bound standalone SSH extension hook');
+$piiObserverPath = dirname(__DIR__, 2) . '/fixtures/woocommerce-pii-fingerprints.php';
+require_once $piiObserverPath;
+$manifestPiiGrants = [];
+foreach ((array) ($manifest['options'] ?? []) as $name => $rule) {
+    if (($rule['allow_pii'] ?? false) === true) {
+        $manifestPiiGrants[] = 'option:' . $name;
+    }
+}
+foreach ((array) ($manifest['post_meta'] ?? []) as $name => $rule) {
+    if (($rule['allow_pii'] ?? false) === true) {
+        $manifestPiiGrants[] = 'post_meta:' . $name;
+    }
+}
+foreach ((array) ($manifest['tables'] ?? []) as $table => $declaration) {
+    foreach ((array) ($declaration['columns'] ?? []) as $column => $rule) {
+        if (($rule['allow_pii'] ?? false) === true) {
+            $manifestPiiGrants[] = "table:$table.$column";
+        }
+    }
+}
+sort($manifestPiiGrants, SORT_STRING);
+$observerPiiGrants = WPRISM_WOO_ALLOW_PII_GRANTS;
+sort($observerPiiGrants, SORT_STRING);
+woo_ok($manifestPiiGrants === $observerPiiGrants && count($observerPiiGrants) === 14,
+    'the hash-only WPRA-019 observer enumerates every and only the fourteen finite manifest grants');
+$redactionRoster = [];
+if (preg_match(
+    "/woocommerce_pii_redaction_witnesses\\(\\) \\{.*?cat <<'EOF'\\n(.*?)\\nEOF\\n\\}/s",
+    $woocommerceMatrixHarness,
+    $redactionMatch
+) === 1) {
+    foreach (explode("\n", $redactionMatch[1]) as $line) {
+        $parts = explode("\t", $line, 2);
+        if (count($parts) === 2 && $parts[0] !== '' && $parts[1] !== '') {
+            $redactionRoster[$parts[0]] = $parts[1];
+        }
+    }
+}
+$redactionGrants = array_keys($redactionRoster);
+sort($redactionGrants, SORT_STRING);
+woo_ok($redactionGrants === $observerPiiGrants
+    && count(array_unique(array_values($redactionRoster), SORT_STRING)) === 14
+    && ($redactionRoster['table:woocommerce_tax_rates.tax_rate_country'] ?? null) === 'QZ'
+    && ($redactionRoster['table:woocommerce_tax_rates.tax_rate_state'] ?? null) === 'WPRA19TAXSTATE14',
+    'capture/apply redaction owns one unique grep-safe source-value witness per WPRA-019 grant, including both tax fields');
+foreach ($redactionRoster as $grant => $witness) {
+    woo_ok(substr_count($woocommerceMatrixHarness, $witness) >= 2,
+        "$grant redaction witness is both declared and written through the native source profile");
+}
+foreach ([
+    'woocommerce_write_pii_profile wp1 source',
+    'source_native=$(woocommerce_native_pii_fingerprints wp1)',
+    'source_captured=$(php "$package_tests/../fixtures/woocommerce-pii-fingerprints.php" "$source_repo/state")',
+    'woocommerce_write_pii_profile wp2 target',
+    'target_divergent=$(woocommerce_native_pii_fingerprints wp2)',
+    'target_applied=$(woocommerce_native_pii_fingerprints wp2)',
+    'wp2 plugin deactivate woocommerce',
+    'wp2 plugin delete woocommerce',
+    'wp2 plugin install "$target_artifact" --activate',
+    'target_reinstalled=$(woocommerce_native_pii_fingerprints wp2)',
+    'target_recaptured=$(php "$package_tests/../fixtures/woocommerce-pii-fingerprints.php"',
+    'pii_diff=$(diff -rq "$source_repo/state" "$target_repo/.tmp-woo-pii-final"',
+    'woocommerce_assert_pii_log_redacted "WooCommerce $version WPRA-019 capture output"',
+    'woocommerce_assert_pii_log_redacted "WooCommerce $version WPRA-019 apply output"',
+    'check_woocommerce_allow_pii_roundtrip "$WOO_VERSION" "$ARTIFACT_2"',
+] as $piiWitness) {
+    woo_ok(str_contains($woocommerceMatrixHarness, $piiWitness),
+        "exact WooCommerce matrix pins WPRA-019 evidence step $piiWitness");
+}
+$boundaryLoop = strpos($woocommerceMatrixHarness, 'for WOO_VERSION in 11.0.0 11.0.1; do');
+$piiInvocation = strpos(
+    $woocommerceMatrixHarness,
+    'check_woocommerce_allow_pii_roundtrip "$WOO_VERSION" "$ARTIFACT_2"'
+);
+woo_ok($boundaryLoop !== false
+    && $piiInvocation !== false
+    && $boundaryLoop < $piiInvocation
+    && substr_count($woocommerceMatrixHarness,
+        'check_woocommerce_allow_pii_roundtrip "$WOO_VERSION" "$ARTIFACT_2"') === 1,
+    'all fourteen WPRA-019 grants run once inside each exact 11.0.0/11.0.1 boundary case');
 $wooEntry = json_decode(
     (string) file_get_contents(dirname(__DIR__) . '/conformance/entry.json'),
     true,
@@ -2282,12 +2385,11 @@ foreach ([
     'wc_order_product_lookup',
     'deletes blocked by referential guards',
     'WPRISM-DELETE-${version//./-}',
-    '--with-deletes --default-author=admin --revision="$revision" --format=json',
     '.deletion_type == "product"',
     'wp_wc_product_attributes_lookup',
-    'product deletion recapture diverged',
-    'refs/remotes/origin/main',
-    'deletion retry did not settle after intent removal',
+    '.reason_code == "deletion_writer_exclusion_required"',
+    'external-exclusion refusal changed product lookup rows',
+    'local product deletion refuses before mutation without signed external writer exclusion',
 ] as $deletionWitness) {
     woo_ok(str_contains($woocommerceMatrixHarness, $deletionWitness),
         "exact WooCommerce product-deletion matrix pins $deletionWitness");
@@ -2295,24 +2397,77 @@ foreach ([
 foreach ([
     'WPRISM-DELETE-VARIATION-${version//./-}',
     'new WC_Product_Variation()',
-    'source capture did not emit the exact named product_variation tombstone',
+    'source capture omitted the named product_variation',
+    'local product_variation tombstone was malformed',
     '.deletion_type == "product_variation"',
-    'named product_variation deletion did not finish canary-clean',
-    'deleted product_variation residue count',
     'wp_wc_product_meta_lookup WHERE product_id=$variation_target',
     'wp_wc_product_attributes_lookup WHERE product_id=$variation_target',
-    '.tmp-woo-variation-delete-final',
-    'named product_variation capture/tombstone/plan/apply clears exact lookups and recaptures byte-identically',
+    '.reason_code == "deletion_writer_exclusion_required"',
+    'external-exclusion refusal changed the named variation',
+    'external-exclusion refusal changed variation lookup rows',
+    'local product_variation deletion refuses before mutation without signed external writer exclusion',
 ] as $variationDeletionWitness) {
     woo_ok(str_contains($woocommerceMatrixHarness, $variationDeletionWitness),
         "exact WooCommerce product_variation-deletion matrix pins $variationDeletionWitness");
 }
+foreach ([
+    'wprism_ssh_adopt_extension() {',
+    'wp plugin install woocommerce --version=$woo_version --activate',
+    'wp wprism manifest-pin --repo=/home/wprism/site --name=woocommerce',
+    '"wprism-deletion-owner-agreements/v2"',
+    '--roots="tombstone:$product_uuid" --contract',
+    'promote target --scope-contract="$contract" --with-deletes --format=json',
+    'provider-state.json.fail-verify-after',
+    'delete commit boundary',
+    '.state == "rolled_back" and .terminal == true',
+    'failed_product" = "$product_id"',
+    'failed_lookup" = "$lookup_before"',
+    '.scoped_apply.verification.selected_deletions == 1',
+    'success_product" = "0"',
+    'success_lookup" = "0"',
+    '.delete == [] and .delete_conflict == []',
+] as $scopedDeletionWitness) {
+    woo_ok(str_contains($woocommerceScopedDeletionHarness, $scopedDeletionWitness),
+        "candidate-bound WooCommerce scoped-deletion live proof pins $scopedDeletionWitness");
+}
+$failurePromotion = strpos(
+    $woocommerceScopedDeletionHarness,
+    'promote target --scope-contract="$contract" --with-deletes --format=json >"$failure_stdout"'
+);
+$failureCommitFrontier = strpos($woocommerceScopedDeletionHarness, "grep -Fq 'delete commit boundary'");
+$failureRollbackReceipt = strpos(
+    $woocommerceScopedDeletionHarness,
+    '.state == "rolled_back" and .terminal == true'
+);
+$retryPromotion = strpos(
+    $woocommerceScopedDeletionHarness,
+    'promote target --scope-contract="$contract" --with-deletes --format=json >"$success_stdout"'
+);
+$retryDeletionReceipt = strpos(
+    $woocommerceScopedDeletionHarness,
+    '.scoped_apply.verification.selected_deletions == 1'
+);
+woo_ok($failurePromotion !== false
+    && $failureCommitFrontier !== false
+    && $failureRollbackReceipt !== false
+    && $retryPromotion !== false
+    && $retryDeletionReceipt !== false
+    && $failurePromotion < $failureCommitFrontier
+    && $failureCommitFrontier < $failureRollbackReceipt
+    && $failureRollbackReceipt < $retryPromotion
+    && $retryPromotion < $retryDeletionReceipt
+    && substr_count($woocommerceScopedDeletionHarness, 'printf "6\\n"') === 1,
+    'public SSH deletion fails once at the calibrated final pre-COMMIT verify, proves signed rollback, then retries once to a terminal deletion receipt');
 woo_ok(
-    str_contains($woocommerceMatrixHarness, 'active_theme_owners=$(wp1 eval')
-        && str_contains($woocommerceMatrixHarness, '"post:product": $theme_deletion_agreements')
-        && str_contains($woocommerceMatrixHarness, '"post:product_variation": $theme_deletion_agreements')
+    str_contains($woocommerceMatrixHarness, 'woocommerce_theme_deletion_agreements()')
+        && str_contains($woocommerceMatrixHarness, '"format": "wprism-deletion-owner-agreements/v2"')
+        && str_contains($woocommerceMatrixHarness,
+            '{"selector": "post:product", "owners": $theme_deletion_agreements}')
+        && str_contains($woocommerceMatrixHarness,
+            '{"selector": "post:product_variation", "owners": $theme_deletion_agreements}')
+        && str_contains($woocommerceMatrixHarness, '"format" => "wprism-executable-tree/v1"')
         && !str_contains($woocommerceMatrixHarness, '"theme:twentytwentyfive"'),
-    'matrix writes exact observed child/parent theme owner agreements instead of hardcoding a permissive theme'
+    'matrix writes duplicate-resistant v2 exact observed theme code identities instead of a permissive filename agreement'
 );
 woo_ok(str_contains($woocommerceMatrixHarness, 'version_matrix_preflight()')
     && str_contains($woocommerceMatrixHarness, '$VMATRIX_MANIFEST version-matrix evidence requires WPRISM_EXPECTED_SOURCE_SHA')

@@ -34,7 +34,7 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
 };
 
 $cleanupStart = strpos($harness, "cleanup() {\n");
-$cleanupEnd = strpos($harness, "for command in git docker lsof; do\n");
+$cleanupEnd = strpos($harness, "for command in git docker lsof php; do\n");
 $check(
     is_int($cleanupStart) && is_int($cleanupEnd) && $cleanupStart < $cleanupEnd,
     'the harness defines bounded EXIT cleanup before live preflight'
@@ -299,7 +299,7 @@ $successGate = 'if [ "$BODY_COMPLETE" -eq 1 ] && [ "$incoming" -eq 0 ] && [ "$cl
 $diagRemoval = 'rm -rf -- "$DIAG_DIR" || cleanup_failed=1';
 $diagAbsence = '[ ! -e "$DIAG_DIR" ] && [ ! -L "$DIAG_DIR" ] || cleanup_failed=1';
 $retainedPath = 'FAIL: SSH-adoption diagnostic evidence retained privately at %s';
-$finalMarker = '✔ REGRESS_SSH_ADOPT PASSED';
+$finalMarker = 'printf \'\\n\\033[1;32m✔ %s PASSED\\033[0m\\n\' "$FINAL_LABEL"';
 $tmpRemovalAt = strpos($cleanup, $tmpRemoval);
 $tmpAbsenceAt = strpos($cleanup, $tmpAbsence);
 $successGateAt = strpos($cleanup, $successGate);

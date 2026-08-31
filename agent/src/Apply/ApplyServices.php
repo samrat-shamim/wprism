@@ -60,7 +60,6 @@ final class ApplyServices {
     private ?ApplyPlanner $applyPlanner = null;
     /** @var array<string,array>|null */
     private ?array $snapshotRowTables = null;
-
     public function __construct(
         private readonly Policy $policy,
         private readonly CompiledRepository $compiled,
@@ -149,7 +148,8 @@ final class ApplyServices {
             $this->policy,
             $this->relationship_materializer(),
             $this->menu_materializer(),
-            $this->field_materializer()
+            $this->field_materializer(),
+            $this->callbacks->consumeDeleteAuthority
         );
     }
 
@@ -232,7 +232,9 @@ final class ApplyServices {
             $this->callbacks->taxonomyOwnership,
             $this->callbacks->renewPromotionLock,
             $this->callbacks->lockDeleteGuards,
-            $this->callbacks->recheckDeleteGuard
+            $this->callbacks->recheckDeleteGuard,
+            $this->callbacks->verifyDeleteCommit,
+            $this->callbacks->endDeleteTransaction
         );
     }
 

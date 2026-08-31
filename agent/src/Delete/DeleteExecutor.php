@@ -7,6 +7,7 @@ require_once __DIR__ . '/../Apply/RelationshipMaterializer.php';
 require_once __DIR__ . '/../Apply/MenuMaterializer.php';
 require_once __DIR__ . '/../Apply/CacheInvalidationTransaction.php';
 require_once __DIR__ . '/../Apply/ApplyFieldMaterializer.php';
+require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 // Deliberately NOT require_once('Ledger.php') or require_once('Db.php') here:
 // sandbox/tests/offline/code-half/regress_code_revision_enforcement.php and
 // regress_scoped_promotion_target.php both reach this file transitively
@@ -75,16 +76,34 @@ require_once __DIR__ . '/../Apply/ApplyFieldMaterializer.php';
 final class DeleteExecutor {
     private const MAX_REVISIONS = 100000;
     private const MAX_TERM_TAXONOMIES = 1024;
+    /** @var \Closure():void */
+    private readonly \Closure $consumeDeleteAuthority;
+
     public function __construct(
         private readonly Policy $policy,
         private readonly RelationshipMaterializer $relationshipMaterializer,
         private readonly MenuMaterializer $menuMaterializer,
-        private readonly ApplyFieldMaterializer $fieldMaterializer
+        private readonly ApplyFieldMaterializer $fieldMaterializer,
+        ?\Closure $consumeDeleteAuthority = null
     ) {
+        $this->consumeDeleteAuthority = $consumeDeleteAuthority ?? static function (): void {
+            throw new CommandRefusalException(
+                'deletion_writer_exclusion_not_authorized',
+                'direct deletion lacks a one-use destructive-unit authorization under the held writer exclusion',
+                'invoke deletion only through the transaction coordinator that re-verifies the external exclusion',
+                [],
+                'wprism: direct delete execution refused without coordinator-bound external exclusion authority'
+            );
+        };
     }
 
     /** @param array<string,array> $rowTables Apply::snapshotRowTables()'s roster, entity type => declared table info. */
     public function delete_entity(string $uuid, string $type, array $rowTables, array &$warnings): void {
+        // The transaction coordinator verifies the exact external exclusion
+        // and arms one unit immediately before this call. A test, plugin, or
+        // future facade that invokes DeleteExecutor directly has no token and
+        // is refused before even resolving the target identity.
+        ($this->consumeDeleteAuthority)();
         global $wpdb;
         if (isset($rowTables[$type])) {
             $idKind = (string) $rowTables[$type]['id_kind'];

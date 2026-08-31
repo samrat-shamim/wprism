@@ -558,7 +558,7 @@ $knownGapsByFile = [
     // standalone load can reach a class-not-found through it.
     'AdapterRegistry' => ['Policy'],
     'AdapterSources' => ['Canon', 'ManifestDispositions', 'Policy'],
-    'ApplyRequestCoordinator' => ['Canary', 'Canon', 'Capture', 'CompiledRepository', 'Ledger', 'LedgerScopedApplySessionStorage', 'Policy', 'PromotionLock', 'RepositoryCompiler', 'ScopeContract', 'ScopedApply', 'ScopedApplySession', 'ScopedPromotionAuthority', 'ScopedStateOverlay', 'Snapshot', 'Tokens'],
+    'ApplyRequestCoordinator' => ['Canary', 'Canon', 'Capture', 'CompiledRepository', 'Ledger', 'LedgerScopedApplySessionStorage', 'Policy', 'PromotionLock', 'RepositoryCompiler', 'ScopeContract', 'ScopedApply', 'ScopedApplySession', 'ScopedStateOverlay', 'Snapshot', 'Tokens'],
     'ApplyFieldMaterializer' => ['Db', 'StructuredValue'],
     'AttachmentMaterializer' => ['CompiledRepository'],
     'Blocks' => ['Policy', 'Shortcodes', 'Tokens'],

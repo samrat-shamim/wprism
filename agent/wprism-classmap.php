@@ -96,6 +96,7 @@ return [
     'WPrism\\DeletionAuthority' => 'src/Delete/DeletionAuthority.php',
     'WPrism\\DeletionCapabilityResolver' => 'src/Policy/DeletionCapabilityResolver.php',
     'WPrism\\DeletionFeasibility' => 'src/Adapter/DeletionFeasibility.php',
+    'WPrism\\DeletionWriterExclusion' => 'src/Delete/DeletionWriterExclusion.php',
     'WPrism\\DependencyRegenerator' => 'src/Rebuild/DependencyRegenerator.php',
     'WPrism\\Deploy' => 'src/Promotion/Deploy.php',
     'WPrism\\DeployPlanner' => 'src/Promotion/DeployPlanner.php',

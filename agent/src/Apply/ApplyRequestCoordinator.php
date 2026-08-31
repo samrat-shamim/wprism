@@ -3,7 +3,9 @@ namespace WPrism;
 
 require_once __DIR__ . '/EnvironmentValues.php';
 require_once __DIR__ . '/ProtectedPostIdentity.php';
-require_once __DIR__ . '/../Kernel/Db.php';
+if (!class_exists(Db::class, false)) {
+    require_once __DIR__ . '/../Kernel/Db.php';
+}
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 
 require_once __DIR__ . '/../Kernel/PlainData.php';
@@ -56,6 +58,7 @@ require_once __DIR__ . '/../Delete/DeleteGuardLockCoordinator.php';
 require_once __DIR__ . '/ApplyPreparationRequest.php';
 require_once __DIR__ . '/ApplyWorkset.php';
 require_once __DIR__ . '/../Delete/DeletionAuthority.php';
+require_once __DIR__ . '/../Promotion/ScopedPromotionAuthority.php';
 require_once __DIR__ . '/../Rebuild/RebuildRequest.php';
 
 /**
@@ -147,7 +150,7 @@ final class ApplyRequestCoordinator {
                     $this->warnings
                 );
                 return function (): void {
-                    $this->deleteGuardCoordinator->assert_executable_owner_boundary();
+                    $this->deleteGuardCoordinator->authorize_destructive_unit();
                 };
             },
             selectionDeclaresChannelFor: fn(string $channel, string $surface): bool =>
@@ -168,13 +171,32 @@ final class ApplyRequestCoordinator {
                 string $idCol
             ): mixed => $this->services->field_materializer()->upsert_meta(
                 $table, $fkCol, $objectId, $key, $value, $context, $idCol
-            )
+            ),
+            consumeDeleteAuthority: fn(): mixed =>
+                $this->deleteGuardCoordinator->consume_destructive_unit(),
+            verifyDeleteCommit: fn(): mixed =>
+                $this->deleteGuardCoordinator->assert_writer_exclusion_commit_boundary(),
+            endDeleteTransaction: fn(): mixed =>
+                $this->deleteGuardCoordinator->end_writer_exclusion_transaction()
         );
-        $this->services = new ApplyServices($policy, $compiled, $callbacks, $this->repo);
+        $this->services = new ApplyServices(
+            $policy,
+            $compiled,
+            $callbacks,
+            $this->repo
+        );
         $this->deleteGuardCoordinator = new DeleteGuardLockCoordinator(
             $policy,
             $this->services->delete_guard_reference_scanner(),
-            $this->services->snapshot_row_tables()
+            $this->services->snapshot_row_tables(),
+            static fn(array $binding): array => ScopedPromotionAuthority::require_installed(
+                (string) $binding['owner'],
+                (string) $binding['artifact_hash'],
+                (string) $binding['receipt_payload_sha256'],
+                (string) $binding['scope_hash'],
+                ['promoting'],
+                true
+            )
         );
         $this->taxonomyContext = new TaxonomyApplyContext($policy, $compiled);
         $this->rebuildSelection = new RebuildSelection($policy);
@@ -1237,6 +1259,20 @@ final class ApplyRequestCoordinator {
         $executeDeletes = $prepared->executeDeletes;
         $this->defaultAuthor = $prepared->defaultAuthor;
         $freshActual = $prepared->freshActual;
+
+        // A repository tombstone is destructive intent even before the row
+        // loop begins. Bind the exact signed external exclusion now, before a
+        // scoped-session CAS, apply_in_progress marker, or authored row can be
+        // written. Ordinary/scoped-direct --with-deletes therefore cannot use
+        // ProcessFence as a substitute for target-wide writer exclusion.
+        if ($deleteWork !== []) {
+            $witness = $this->scopedWorkflow->promotionWitness;
+            if (!$scopedPromotion || !is_array($witness)) {
+                $this->deleteGuardCoordinator->assert_writer_exclusion_plan_authority();
+            }
+            $this->deleteGuardCoordinator->bind_writer_exclusion((array) $witness);
+            $this->deleteGuardCoordinator->assert_writer_exclusion_plan_authority();
+        }
 
         $performAuthoredTransaction = true;
         $authorIntent = null;

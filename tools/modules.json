@@ -1019,16 +1019,17 @@
             ]
           }
         ],
-        "file_count": 9,
+      "file_count": 10,
         "files": [
           "DeleteExecutor.php",
           "DeleteGuardEvaluator.php",
           "DeleteGuardLockCoordinator.php",
           "DeleteGuardReferenceScanner.php",
           "DeleteGuardValueCodec.php",
-          "Deletion.php",
-          "DeletionAuthority.php",
-          "ExecutableOwnerBoundary.php",
+        "Deletion.php",
+        "DeletionAuthority.php",
+        "DeletionWriterExclusion.php",
+        "ExecutableOwnerBoundary.php",
           "Orphans.php"
         ]
       },

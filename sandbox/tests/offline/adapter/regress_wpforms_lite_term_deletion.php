@@ -392,6 +392,20 @@ $delta = static function (array $before, array $after): array {
 
 $tokens = new Tokens('https://target.test', 'https://target.test/wp-content/uploads');
 
+/** @return array<string,mixed> */
+function wpforms_delete_writer_witness(): array {
+    return [
+        'active' => true, 'allow_deletes' => true, 'artifact_hash' => str_repeat('a', 64),
+        'exclusion_state' => 'held', 'format' => 'wprism-scoped-promotion-witness/v1',
+        'generation' => 1, 'ok' => true, 'owner' => 'wpforms-offline',
+        'receipt_format' => 'wprism-scoped-promotion-receipt/v1',
+        'receipt_id' => str_repeat('r', 32), 'receipt_payload_sha256' => str_repeat('b', 64),
+        'recovery_ready' => true, 'scope_hash' => str_repeat('c', 64),
+        'signing_key_id' => 'wpforms-test', 'state' => 'promoting',
+        'target_id' => str_repeat('t', 32), 'terminal' => false,
+    ];
+}
+
 /**
  * Run the real DeleteExecutor over a target, inside the transaction shape
  * AuthoredTransactionExecutor establishes around it, and report the census on
@@ -409,11 +423,24 @@ $runDelete = static function (
     $GLOBALS['wpdb'] = $db;
     WpStore::reset();
     $field = new ApplyFieldMaterializer($runPolicy, $tokens);
+    $deleteAuthorized = false;
     $executor = new DeleteExecutor(
         $runPolicy,
         new RelationshipMaterializer($runPolicy, $field),
         new MenuMaterializer($runPolicy, $tokens, $field),
-        $field
+        $field,
+        static function () use (&$deleteAuthorized): void {
+            if (!$deleteAuthorized) {
+                throw new CommandRefusalException(
+                    'deletion_writer_exclusion_not_authorized',
+                    'test deletion unit was not authorized',
+                    'authorize the exact test deletion unit',
+                    [],
+                    'test deletion unit was not authorized'
+                );
+            }
+            $deleteAuthorized = false;
+        }
     );
     $before = $census($db);
     $warnings = [];
@@ -423,6 +450,7 @@ $runDelete = static function (
     \WPrism\CacheInvalidationTransaction::begin();
     \WPrism\CacheInvalidationTransaction::prepare_term_hierarchy_options(['wpforms_form_tag' => false]);
     try {
+        $deleteAuthorized = true;
         $executor->delete_entity($uuid, 'term', [], $warnings);
     } catch (Throwable $thrown) {
         $failure = $thrown;
@@ -463,7 +491,8 @@ $guardFindings = static function (
     $coordinator = new DeleteGuardLockCoordinator(
         $runPolicy,
         new DeleteGuardReferenceScanner($runPolicy),
-        []
+        [],
+        static fn(array $binding): array => $binding
     );
     $deleteUuids = [$uuid => true];
     $deletions = [$uuid => ['data' => ['kind' => 'term', 'type' => 'wpforms_form_tag']]];

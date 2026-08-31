@@ -1419,7 +1419,8 @@ $check(
         && $findings['guard_witnesses'] === [
             '0' => 'postmeta-witness',
             '1' => 'options-witness',
-        ],
+        ]
+        && $findings['non_forceable_blocks'] === [],
     'reference evaluator collects deterministic blocks and repair witnesses through narrow callbacks'
 );
 
@@ -1435,10 +1436,30 @@ $errorFindings = DeleteGuardEvaluator::reference_findings(
 $check(
     $errorFindings === [
         'blocks' => ['simulated reference query failure'],
+        'non_forceable_blocks' => [],
         'guard_refs' => [],
         'guard_witnesses' => ['0' => ''],
     ],
     'reference evaluator preserves fail-closed query errors and empty witnesses without inventing warning rows'
+);
+
+$nonForceableErrorFindings = DeleteGuardEvaluator::reference_findings(
+    [[
+        'table' => 'wp_wc_reserved_stock',
+        'column' => 'product_id',
+        'forceable' => false,
+    ]],
+    static fn(array $guard, bool $forUpdate): array => [
+        'count' => 0,
+        'error' => 'simulated unreadable Woo runtime guard',
+        'rows' => [],
+    ],
+    static fn(string $table): bool => false
+);
+$check(
+    $nonForceableErrorFindings['blocks'] === ['simulated unreadable Woo runtime guard']
+        && $nonForceableErrorFindings['non_forceable_blocks'] === ['simulated unreadable Woo runtime guard'],
+    'a failed non-forceable guard remains non-forceable instead of becoming force-authorizable'
 );
 
 $planGuardCalls = [];
@@ -1598,6 +1619,31 @@ try {
         && str_contains($e->getMessage(), '1 row(s)');
 }
 $check($finalRecheckRefused, 'final recheck evaluator refuses an unforced changed guard before mutation');
+
+$forcedNonForceableErrorRefused = false;
+try {
+    DeleteGuardEvaluator::final_recheck_findings(
+        ['type' => 'post', 'uuid' => 'final-runtime-target'],
+        [[
+            'table' => 'wp_wc_reserved_stock',
+            'column' => 'product_id',
+            'forceable' => false,
+        ]],
+        static fn(array $guard, bool $forUpdate): array => [
+            'count' => 0,
+            'error' => 'simulated locked Woo runtime guard read failure',
+            'rows' => [],
+        ],
+        static fn(string $table): bool => false,
+        true,
+        true
+    );
+} catch (RuntimeException $e) {
+    $forcedNonForceableErrorRefused = str_contains($e->getMessage(), 'simulated locked Woo runtime guard read failure')
+        && str_contains($e->getMessage(), 'not forceable');
+}
+$check($forcedNonForceableErrorRefused,
+    'force cannot cross a failed non-forceable guard at the final locked recheck');
 
 $cleanFinalRecheck = DeleteGuardEvaluator::final_recheck_findings(
     ['type' => 'post', 'uuid' => 'clean-target'],

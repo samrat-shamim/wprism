@@ -214,6 +214,7 @@ final class ApplyPreparationCoordinator {
 
         if ($executeDeletes) {
             $blocked = array_filter($deleteWork, fn($row) => isset($row['blocked']));
+            DeleteGuardLockCoordinator::assert_no_non_forceable_delete_guards($blocked);
             if ($blocked && empty($opts['force_delete_referenced'])) {
                 $list = implode("\n  - ", array_map(
                     fn($row) => "{$row['type']} {$row['uuid']}: {$row['blocked']}",

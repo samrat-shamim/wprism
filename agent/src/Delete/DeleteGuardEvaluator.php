@@ -242,7 +242,7 @@ final class DeleteGuardEvaluator {
      * @param list<array<string,mixed>> $guards
      * @param callable(array<string,mixed>,bool):array{count:int,error:?string,rows:list<string>,witness?:string} $countRefs
      * @param callable(string):bool $isRepairable
-     * @return array{blocks:list<string>,guard_refs:list<array{table:string,rows:list<string>,repairable:bool,option_name_ref:bool}>,guard_witnesses:array<string,string>}
+     * @return array{blocks:list<string>,non_forceable_blocks:list<string>,guard_refs:list<array{table:string,rows:list<string>,repairable:bool,option_name_ref:bool}>,guard_witnesses:array<string,string>}
      */
     public static function reference_findings(
         array $guards,
@@ -252,16 +252,28 @@ final class DeleteGuardEvaluator {
         string $emptyWitness = ''
     ): array {
         $blocks = [];
+        $nonForceableBlocks = [];
         $guardRefs = [];
         $guardWitnesses = [];
         foreach ($guards as $guardIndex => $guard) {
             $result = $countRefs($guard, $forUpdate);
             $guardWitnesses[(string) $guardIndex] = (string) ($result['witness'] ?? $emptyWitness);
             if ($result['error'] !== null) {
-                $blocks[] = $result['error'];
+                $block = $result['error'];
+                $blocks[] = $block;
+                // An unreadable non-forceable guard is at least as unsafe as
+                // an observed live row. Force cannot turn failed evidence
+                // into proof that Woo's owning lifecycle is clear.
+                if (($guard['forceable'] ?? null) === false) {
+                    $nonForceableBlocks[] = $block;
+                }
             } elseif ($result['count'] > 0) {
-                $blocks[] = ($guard['reason'] ?? "referenced by {$guard['table']}.{$guard['column']}")
+                $block = ($guard['reason'] ?? "referenced by {$guard['table']}.{$guard['column']}")
                     . " — {$result['count']} row(s)";
+                $blocks[] = $block;
+                if (($guard['forceable'] ?? null) === false) {
+                    $nonForceableBlocks[] = $block;
+                }
                 $guardRefs[] = [
                     'table' => (string) $guard['table'],
                     'rows' => $result['rows'],
@@ -272,6 +284,7 @@ final class DeleteGuardEvaluator {
         }
         return [
             'blocks' => $blocks,
+            'non_forceable_blocks' => $nonForceableBlocks,
             'guard_refs' => $guardRefs,
             'guard_witnesses' => $guardWitnesses,
         ];
@@ -314,6 +327,9 @@ final class DeleteGuardEvaluator {
                 $guardRefs = $findings['guard_refs'];
                 if ($blocks) {
                     $row['blocked'] = implode('; ', $blocks);
+                    if ($findings['non_forceable_blocks'] !== []) {
+                        $row['non_forceable_guard'] = implode('; ', $findings['non_forceable_blocks']);
+                    }
                     if ($bucket === 'delete_conflict' && isset($row['conflict_view']['choices'])) {
                         // A referential guard is a separate authorization
                         // boundary. Do not advertise the destructive
@@ -391,7 +407,7 @@ final class DeleteGuardEvaluator {
      * @param list<array<string,mixed>> $guards
      * @param callable(array<string,mixed>,bool):array{count:int,error:?string,rows:list<string>,witness?:string} $countRefs
      * @param callable(string):bool $isRepairable
-     * @return array{blocks:list<string>,guard_refs:list<array{table:string,rows:list<string>,repairable:bool,option_name_ref:bool}>,guard_witnesses:array<string,string>}
+     * @return array{blocks:list<string>,non_forceable_blocks:list<string>,guard_refs:list<array{table:string,rows:list<string>,repairable:bool,option_name_ref:bool}>,guard_witnesses:array<string,string>}
      */
     public static function final_recheck_findings(
         array $row,
@@ -407,10 +423,14 @@ final class DeleteGuardEvaluator {
             $isRepairable,
             $forUpdate
         );
-        if ($findings['blocks'] && !$forced) {
-            $reason = implode('; ', $findings['blocks']);
+        if ($findings['blocks'] && (!$forced || $findings['non_forceable_blocks'] !== [])) {
+            $blocks = $findings['non_forceable_blocks'] !== []
+                ? $findings['non_forceable_blocks']
+                : $findings['blocks'];
+            $reason = implode('; ', $blocks);
             throw new \RuntimeException(
                 "wprism: delete guard changed before mutation for {$row['type']} {$row['uuid']}: $reason"
+                . ($findings['non_forceable_blocks'] !== [] ? ' (this semantic guard is not forceable)' : '')
             );
         }
         return $findings;

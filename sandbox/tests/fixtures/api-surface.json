@@ -1,5 +1,5 @@
 {
-    "class_count": 425,
+    "class_count": 426,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -4753,6 +4753,30 @@
                             "name": "upsertMeta",
                             "type": "Closure",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "consumeDeleteAuthority",
+                            "type": "?Closure",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "verifyDeleteCommit",
+                            "type": "?Closure",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "endDeleteTransaction",
+                            "type": "?Closure",
+                            "variadic": false
                         }
                     ],
                     "return_type": null,
@@ -4762,6 +4786,18 @@
             },
             "parent": null,
             "properties": {
+                "consumeDeleteAuthority": {
+                    "readonly": true,
+                    "static": false,
+                    "type": "Closure",
+                    "visibility": "public"
+                },
+                "endDeleteTransaction": {
+                    "readonly": true,
+                    "static": false,
+                    "type": "Closure",
+                    "visibility": "public"
+                },
                 "lockDeleteGuards": {
                     "readonly": true,
                     "static": false,
@@ -4823,6 +4859,12 @@
                     "visibility": "public"
                 },
                 "upsertMeta": {
+                    "readonly": true,
+                    "static": false,
+                    "type": "Closure",
+                    "visibility": "public"
+                },
+                "verifyDeleteCommit": {
                     "readonly": true,
                     "static": false,
                     "type": "Closure",
@@ -6625,6 +6667,22 @@
                             "default": null,
                             "has_default": false,
                             "name": "recheckDeleteGuard",
+                            "type": "Closure",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "verifyDeleteCommit",
+                            "type": "Closure",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "endDeleteTransaction",
                             "type": "Closure",
                             "variadic": false
                         }
@@ -14657,6 +14715,14 @@
                             "name": "fieldMaterializer",
                             "type": "WPrism\\ApplyFieldMaterializer",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "consumeDeleteAuthority",
+                            "type": "?Closure",
+                            "variadic": false
                         }
                     ],
                     "return_type": null,
@@ -15183,6 +15249,14 @@
                             "name": "snapshotRowTables",
                             "type": "array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "verifyWriterExclusion",
+                            "type": "?Closure",
+                            "variadic": false
                         }
                     ],
                     "return_type": null,
@@ -15255,6 +15329,72 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "assert_no_non_forceable_delete_guards": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "deleteWork",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "assert_writer_exclusion_commit_boundary": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "assert_writer_exclusion_plan_authority": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "authorize_destructive_unit": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "bind_writer_exclusion": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "witness",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "consume_destructive_unit": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "count": {
                     "abstract": false,
                     "final": false,
@@ -15317,6 +15457,14 @@
                         }
                     ],
                     "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "end_writer_exclusion_transaction": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
                     "static": false,
                     "visibility": "public"
                 },
@@ -15935,6 +16083,108 @@
                     ],
                     "return_type": "array",
                     "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\DeletionWriterExclusion": {
+            "abstract": false,
+            "constants": [],
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "__construct": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "verify",
+                            "type": "?Closure",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
+                "assert_commit_boundary": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "assert_plan_authority": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "authorize_next_delete": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "begin_authored_transaction": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "bind": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "witness",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "cancel_next_delete": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "consume_delete_authority": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "end_authored_transaction": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "void",
+                    "static": false,
                     "visibility": "public"
                 }
             },
@@ -39667,14 +39917,14 @@
             "constants": {
                 "BASE_LIFECYCLE_PHASES": {
                     "value_repr": [
-                        "retire",
-                        "activate",
                         "verify"
                     ]
                 },
                 "CODE_LIFECYCLE_PHASES": {
                     "value_repr": [
                         "deploy",
+                        "retire",
+                        "activate",
                         "finalize"
                     ]
                 },

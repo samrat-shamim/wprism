@@ -69,6 +69,11 @@ final class DeletionCapabilityResolver {
                         "wprism: manifest deletion capability '$selector' guard[$i] must declare table, column, and id_kind"
                     );
                 }
+                if (array_key_exists('forceable', $guard) && $guard['forceable'] !== false) {
+                    throw new \RuntimeException(
+                        "wprism: manifest deletion capability '$selector' guard[$i].forceable may only be false"
+                    );
+                }
                 $hasMetaKey = array_key_exists('meta_key', $guard);
                 $hasMetaRef = array_key_exists('ref', $guard);
                 if ($hasMetaKey !== $hasMetaRef) {

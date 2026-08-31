@@ -53,6 +53,10 @@ final class AuthoredTransactionExecutor {
     private readonly \Closure $lockDeleteGuards;
     /** @var \Closure(array,array,array,bool,array,array,bool):(\Closure():void) */
     private readonly \Closure $recheckDeleteGuard;
+    /** @var \Closure():void */
+    private readonly \Closure $verifyDeleteCommit;
+    /** @var \Closure():void */
+    private readonly \Closure $endDeleteTransaction;
 
     public function __construct(
         private readonly Policy $policy,
@@ -72,12 +76,16 @@ final class AuthoredTransactionExecutor {
         \Closure $taxonomyOwnership,
         \Closure $renewLease,
         \Closure $lockDeleteGuards,
-        \Closure $recheckDeleteGuard
+        \Closure $recheckDeleteGuard,
+        \Closure $verifyDeleteCommit,
+        \Closure $endDeleteTransaction
     ) {
         $this->taxonomyOwnership = $taxonomyOwnership;
         $this->renewLease = $renewLease;
         $this->lockDeleteGuards = $lockDeleteGuards;
         $this->recheckDeleteGuard = $recheckDeleteGuard;
+        $this->verifyDeleteCommit = $verifyDeleteCommit;
+        $this->endDeleteTransaction = $endDeleteTransaction;
     }
 
     /** @return array{attachment_ids:list<int|null>,regen_context:list<array<string,mixed>>} */
@@ -339,6 +347,13 @@ final class AuthoredTransactionExecutor {
                 $scopedCommitParticipantStarted = true;
                 $commitScopedAuthoring();
             }
+            if ($executeDeletes && $deleteWork !== []) {
+                // This is the last operation before COMMIT. The provider's
+                // admission gate spans every authored/scoped participant; a
+                // lost or mismatched exclusion is an ordinary transaction
+                // failure and runs the complete rollback path below.
+                ($this->verifyDeleteCommit)();
+            }
             Db::commit('apply transaction commit');
             $transactionStarted = false;
             $postCommitFailures = [];
@@ -504,6 +519,7 @@ final class AuthoredTransactionExecutor {
             $this->attachmentMaterializer->end_authored_transaction($retainNativeRebuildAuthority);
             SidebarState::end_authored_transaction();
             CacheInvalidationTransaction::end();
+            ($this->endDeleteTransaction)();
         }
         Canary::disarm();
         return ['attachment_ids' => $attachmentIds, 'regen_context' => $regenContext];

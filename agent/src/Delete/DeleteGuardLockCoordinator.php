@@ -2,22 +2,37 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Policy/Policy.php';
+require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/DeleteGuardReferenceScanner.php';
 require_once __DIR__ . '/DeleteGuardEvaluator.php';
 require_once __DIR__ . '/Deletion.php';
 require_once __DIR__ . '/ExecutableOwnerBoundary.php';
+require_once __DIR__ . '/DeletionWriterExclusion.php';
 
 /** Owns the transactional lock-and-recheck boundary for deletion guards. */
 final class DeleteGuardLockCoordinator {
     private bool $guardTableTouched = false;
     private ExecutableOwnerBoundary $executableOwnerBoundary;
+    private DeletionWriterExclusion $writerExclusion;
 
     public function __construct(
         private readonly Policy $policy,
         private readonly DeleteGuardReferenceScanner $scanner,
-        private readonly array $snapshotRowTables
+        private readonly array $snapshotRowTables,
+        ?\Closure $verifyWriterExclusion = null
     ) {
         $this->executableOwnerBoundary = new ExecutableOwnerBoundary($policy);
+        $this->writerExclusion = new DeletionWriterExclusion($verifyWriterExclusion);
+    }
+
+    /** Bind the exact scoped-promotion witness before any target mutation. */
+    public function bind_writer_exclusion(array $witness): void {
+        $this->writerExclusion->bind($witness);
+    }
+
+    /** Refuse delete intent whose signed external exclusion is absent or lost. */
+    public function assert_writer_exclusion_plan_authority(): void {
+        $this->writerExclusion->assert_plan_authority();
     }
 
     /** @return array{count:int,error:?string,rows:string[],witness?:string} */
@@ -48,6 +63,10 @@ final class DeleteGuardLockCoordinator {
         array $tree,
         array $guardRepairUuids
     ): void {
+        // Only the external recovery provider covers web/cron/CLI lifecycle
+        // and filesystem writers. Verify that exact signed generation inside
+        // this transaction before binding any activation/code owner fact.
+        $this->writerExclusion->begin_authored_transaction();
         // Activation options are mutable authored rows. Bind their raw bytes
         // under the same transaction as guard rows before any delete can run;
         // get_option() would only attest an unversioned request-cache value.
@@ -175,6 +194,52 @@ final class DeleteGuardLockCoordinator {
     /** Re-sample filesystem owners at the actual row-delete boundary. */
     public function assert_executable_owner_boundary(): void {
         $this->executableOwnerBoundary->assert_unchanged();
+    }
+
+    /** Verify external exclusion + executable identity and arm one delete. */
+    public function authorize_destructive_unit(): void {
+        $this->writerExclusion->authorize_next_delete();
+        try {
+            $this->executableOwnerBoundary->assert_unchanged();
+        } catch (\Throwable $failure) {
+            $this->writerExclusion->cancel_next_delete();
+            throw $failure;
+        }
+    }
+
+    /** Same-module callback target consumed by DeleteExecutor before lookup. */
+    public function consume_destructive_unit(): void {
+        $this->writerExclusion->consume_delete_authority();
+    }
+
+    /** Last authored-transaction operation before the database COMMIT. */
+    public function assert_writer_exclusion_commit_boundary(): void {
+        $this->writerExclusion->assert_commit_boundary();
+    }
+
+    /** Clear the transaction-local token after either commit or rollback. */
+    public function end_writer_exclusion_transaction(): void {
+        $this->writerExclusion->end_authored_transaction();
+    }
+
+    /** Refuse runtime-owned semantic guards before force can authorize work. */
+    public static function assert_no_non_forceable_delete_guards(array $deleteWork): void {
+        $blocked = array_filter(
+            $deleteWork,
+            static fn(array $row): bool => isset($row['blocked'], $row['non_forceable_guard'])
+        );
+        if ($blocked === []) {
+            return;
+        }
+        $list = implode("\n  - ", array_map(
+            static fn(array $row): string => "{$row['type']} {$row['uuid']}: {$row['non_forceable_guard']}",
+            $blocked
+        ));
+        throw CommandRefusalException::applyRefused(
+            'deletion is blocked by runtime state whose owning WooCommerce lifecycle has no safe generic cascade',
+            'remove or expire the named runtime rows through WooCommerce, then rebuild the plan',
+            "wprism: deletes blocked by non-forceable semantic guards; no target mutation attempted:\n  - $list"
+        );
     }
 
     public static function append_forced_warnings(array &$warnings, array $row, string $prefix): void {
