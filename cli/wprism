@@ -3052,7 +3052,13 @@ function cmd_promote_internal(
     $verifiedUnavailableReason = 'target carries no signed automatic rollback authority';
     if ($t instanceof \WPrism\Orchestrator\RecoveryTransport && $t->carriesRollbackAuthority()) {
         try {
-            $verifiedPlan = verified_promotion_plan($t, $repo, $artifact, $artifactHash);
+            $verifiedPlan = verified_promotion_plan(
+                $t,
+                $repo,
+                $artifact,
+                $artifactHash,
+                $compile['summary']
+            );
             $selection = VerifiedRollbackProfile::select($t, $verifiedPlan);
         } catch (\Throwable $e) {
             fwrite(STDERR, 'wprism: promote: verified rollback preflight failed; refusing before promotion-begin: '
@@ -3790,7 +3796,8 @@ function verified_promotion_plan(
     \WPrism\Orchestrator\RecoveryTransport $transport,
     string $repo,
     string $artifact,
-    string $artifactHash
+    string $artifactHash,
+    array $compiledSummary
 ): array {
     $result = $transport->captureWp([
         'wprism', 'plan', '--repo=' . $repo, '--compiled=' . $artifact, '--format=json',
@@ -3812,6 +3819,13 @@ function verified_promotion_plan(
     if (!hash_equals($artifactHash, (string) ($plan['artifact_hash'] ?? ''))) {
         throw new \RuntimeException('target recovery plan does not match the compiled artifact');
     }
+    // Compose only the immutable fields a target-relative plan cannot derive.
+    // The compiled artifact owns code and adapter identity; the target plan
+    // owns the exact action/effect/upload selection the receipt will sign.
+    $plan['code'] = $compiledSummary['code'] ?? null;
+    $plan['resolved_adapters'] = is_array($compiledSummary['resolved_adapters'] ?? null)
+        ? $compiledSummary['resolved_adapters']
+        : [];
     return $plan;
 }
 

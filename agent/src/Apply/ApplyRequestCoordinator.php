@@ -1307,7 +1307,7 @@ final class ApplyRequestCoordinator {
                 );
             }
             VerifiedPromotionAuthority::assert_plan_resources(
-                $freshPlan,
+                array_replace($freshPlan, ['code' => $compiled->code_descriptor()]),
                 $verifiedPromotionWitness
             );
         }

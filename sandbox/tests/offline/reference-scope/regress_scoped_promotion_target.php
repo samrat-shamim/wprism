@@ -509,6 +509,19 @@ namespace {
     } catch (Throwable $failure) {
         $check(false, 'valid lifecycle-bound resource authority was refused (' . $failure->getMessage() . ')');
     }
+    $applyCoordinatorSource = (string) file_get_contents(
+        "$root/agent/src/Apply/ApplyRequestCoordinator.php"
+    );
+    $compiledCodeAt = strpos(
+        $applyCoordinatorSource,
+        "array_replace(\$freshPlan, ['code' => \$compiled->code_descriptor()])"
+    );
+    $resourceAssertionAt = strpos(
+        $applyCoordinatorSource,
+        'VerifiedPromotionAuthority::assert_plan_resources('
+    );
+    $check($compiledCodeAt !== false && $resourceAssertionAt !== false && $compiledCodeAt > $resourceAssertionAt,
+        'fresh target resource verification composes the immutable compiled code descriptor with plan-selected effects');
     $expect(
         static fn() => VerifiedPromotionAuthority::assert_plan_resources(
             array_replace($resourcePlan, ['selected_actions' => [[

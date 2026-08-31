@@ -67,7 +67,7 @@ function pct_ok(bool $condition, string $message): void {
 // validated result.
 pct_ok(str_contains(
     $wprismSource,
-    '$verifiedPlan = verified_promotion_plan($t, $repo, $artifact, $artifactHash);'
+    '$verifiedPlan = verified_promotion_plan('
 ) && str_contains(
     $wprismSource,
     '$selection = VerifiedRollbackProfile::select($t, $verifiedPlan);'
@@ -483,8 +483,17 @@ PHP);
     $selectedPlan['selected_actions'] = [['action' => 'cleanup_product_deletions']];
     pct_write($planFile, pct_json($selectedPlan) . "\n");
     putenv('WPRISM_PLAN_CONTRACT_PLAN=' . $planFile);
-    pct_ok(verified_promotion_plan($transport, $sshRepo, $sshArtifactPath, $artifactHash) === $selectedPlan,
-        'verified promotion preflight preserves the target-selected actions and effects');
+    $composedPlan = $selectedPlan;
+    $composedPlan['code'] = $summary['code'];
+    $composedPlan['resolved_adapters'] = [];
+    pct_ok(verified_promotion_plan(
+        $transport,
+        $sshRepo,
+        $sshArtifactPath,
+        $artifactHash,
+        $summary
+    ) === $composedPlan,
+        'verified promotion preflight composes immutable code with target-selected actions and effects');
     $capturedPlanArgs = json_decode((string) file_get_contents($planArgsFile), true, 512, JSON_THROW_ON_ERROR);
     pct_ok($capturedPlanArgs === [
         'wprism', 'plan', '--repo=' . $sshRepo, '--compiled=' . $sshArtifactPath, '--format=json',
@@ -494,25 +503,25 @@ PHP);
     $mismatchedPlan['artifact_hash'] = hash('sha256', 'another artifact');
     pct_write($planFile, pct_json($mismatchedPlan) . "\n");
     pct_refuses(
-        static fn() => verified_promotion_plan($transport, $sshRepo, $sshArtifactPath, $artifactHash),
+        static fn() => verified_promotion_plan($transport, $sshRepo, $sshArtifactPath, $artifactHash, $summary),
         'target recovery plan does not match the compiled artifact',
         'verified promotion preflight refuses a plan for another artifact'
     );
     pct_write($planFile, "not-json\n");
     pct_refuses(
-        static fn() => verified_promotion_plan($transport, $sshRepo, $sshArtifactPath, $artifactHash),
+        static fn() => verified_promotion_plan($transport, $sshRepo, $sshArtifactPath, $artifactHash, $summary),
         'target returned a malformed compiled recovery plan',
         'verified promotion preflight refuses malformed target output'
     );
     pct_write($planFile, "{}\n");
     pct_refuses(
-        static fn() => verified_promotion_plan($transport, $sshRepo, $sshArtifactPath, $artifactHash),
+        static fn() => verified_promotion_plan($transport, $sshRepo, $sshArtifactPath, $artifactHash, $summary),
         'verified promotion recovery preflight: incomplete agent plan envelope',
         'verified promotion preflight refuses an incomplete plan before rollback selection'
     );
     putenv('WPRISM_PLAN_CONTRACT_FAIL=1');
     pct_refuses(
-        static fn() => verified_promotion_plan($transport, $sshRepo, $sshArtifactPath, $artifactHash),
+        static fn() => verified_promotion_plan($transport, $sshRepo, $sshArtifactPath, $artifactHash, $summary),
         'target refused the exact compiled recovery plan',
         'verified promotion preflight refuses a failed target plan command'
     );
