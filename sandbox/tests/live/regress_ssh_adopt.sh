@@ -469,7 +469,7 @@ ssh_fixture 'test ! -e /home/wprism/site/.wprism/control/rollback-signing.key &&
 pass "agent with embedded adapters, seed repo, public-key-only rollback authority, and doctor verify through SSH"
 
 say "establish the named target repository boundary required by capture"
-php -r 'require $argv[1]; echo \WPrism\Cli\Onboarding\Adopt::repositoryGitignoreBytes();' \
+php -r 'require $argv[1]; echo \WPrism\Orchestrator\Adopt::repositoryGitignoreBytes();' \
   "$ROOT/cli/src/Onboarding/Adopt.php" >"$TMP/repository.gitignore"
 scp -F "$TMP/ssh_config" "$TMP/repository.gitignore" \
   wprism-adopt-fixture:/home/wprism/site/.gitignore >/dev/null

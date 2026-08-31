@@ -99,7 +99,7 @@ $check(
     'the SSH target image carries Git for the repository branch fence enforced by capture'
 );
 $targetRepositorySetup = <<<'SH'
-php -r 'require $argv[1]; echo \WPrism\Cli\Onboarding\Adopt::repositoryGitignoreBytes();' \
+php -r 'require $argv[1]; echo \WPrism\Orchestrator\Adopt::repositoryGitignoreBytes();' \
   "$ROOT/cli/src/Onboarding/Adopt.php" >"$TMP/repository.gitignore"
 SH;
 $failureCapture = 'capture target --target-branch="$TARGET_REPOSITORY_BRANCH" --format=json >"$TMP/scoped-apply-failure-capture.json"';
