@@ -2882,7 +2882,34 @@ function cmd_promote_internal(
     ?array $frozenContext,
     ?array $authorizedSource = null
 ): array|int {
-    $allowDeletes = in_array('--with-deletes', $extra, true);
+    $allowDeletes = false;
+    foreach ($extra as $arg) {
+        if (!is_string($arg)) {
+            continue;
+        }
+        if ($arg === '--with-deletes') {
+            if ($allowDeletes) {
+                return scope_wire_refusal(
+                    'promote',
+                    $extra,
+                    'invalid_arguments',
+                    'promote received duplicate --with-deletes',
+                    'supply the valueless --with-deletes flag at most once'
+                );
+            }
+            $allowDeletes = true;
+            continue;
+        }
+        if (str_starts_with($arg, '--with-deletes=')) {
+            return scope_wire_refusal(
+                'promote',
+                $extra,
+                'invalid_arguments',
+                'promote received a valued --with-deletes boolean',
+                'supply exactly the valueless --with-deletes flag'
+            );
+        }
+    }
     foreach ($extra as $arg) {
         if (is_string($arg) && is_scope_contract_flag($arg)) {
             return scope_wire_refusal(

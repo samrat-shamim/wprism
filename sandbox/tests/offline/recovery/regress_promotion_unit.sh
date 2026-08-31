@@ -280,11 +280,11 @@ run_promote() {
   fi
 }
 
-run_promote_with_deletes() {
-  local code="$1"; shift
+run_promote_delete_flag() {
+  local code="$1" delete_flag="$2"; shift 2
   : > "$LOG"
   : > "$TRACE"
-  if OUT="$(FAKE_CODE_ENABLED="$code" "$@" "$WPRISM" --envs-file="$ENVS" promote unit --with-deletes 2>&1)"; then
+  if OUT="$(FAKE_CODE_ENABLED="$code" "$@" "$WPRISM" --envs-file="$ENVS" promote unit "$delete_flag" 2>&1)"; then
     CODE=0
   else
     CODE=$?
@@ -294,7 +294,7 @@ run_promote_with_deletes() {
 # A deletion-capable invocation cannot fall through to the database-only
 # operator-directed profile: that path could stage/finalize code before Apply
 # discovers it has no signed writer-exclusion witness.
-run_promote_with_deletes 1 env
+run_promote_delete_flag 1 --with-deletes env
 [ "$CODE" -ne 0 ] || fail "deletion promotion without automatic rollback unexpectedly succeeded"
 mapfile -t CALLS < "$LOG"
 [ "${#CALLS[@]}" -eq 1 ] || fail "deletion refusal reached promotion-begin, checkpoint, code, lifecycle, or apply"
@@ -304,6 +304,29 @@ has "$OUT" 'deletion requires automatic verified rollback' \
 has "$OUT" 'refusing before promotion-begin/checkpoint' \
   || fail "deletion refusal did not name its pre-mutation boundary"
 pass "deletion intent refuses before begin/checkpoint when only operator-directed recovery is available"
+
+for valued_delete in --with-deletes=true --with-deletes=1; do
+  run_promote_delete_flag 1 "$valued_delete" env
+  [ "$CODE" -ne 0 ] || fail "$valued_delete unexpectedly entered promotion"
+  [ ! -s "$LOG" ] && [ ! -s "$TRACE" ] \
+    || fail "$valued_delete reached compile or target contact before argument refusal"
+  has "$OUT" 'valued --with-deletes boolean' \
+    || fail "$valued_delete did not receive the closed boolean-wire refusal"
+done
+pass "valued deletion flags cannot bypass host admission through WP-CLI assoc parsing"
+
+: > "$LOG"
+: > "$TRACE"
+if OUT="$(FAKE_CODE_ENABLED=1 "$WPRISM" --envs-file="$ENVS" promote unit --with-deletes --with-deletes 2>&1)"; then
+  CODE=0
+else
+  CODE=$?
+fi
+[ "$CODE" -ne 0 ] && [ ! -s "$LOG" ] && [ ! -s "$TRACE" ] \
+  || fail "duplicate --with-deletes reached compile or target contact"
+has "$OUT" 'duplicate --with-deletes' \
+  || fail "duplicate --with-deletes did not receive the closed boolean-wire refusal"
+pass "duplicate deletion flags refuse before compile or target contact"
 
 # A state-only repository acquires the target-authoritative lease and
 # checkpoint, then applies without invoking extension lifecycle hooks.

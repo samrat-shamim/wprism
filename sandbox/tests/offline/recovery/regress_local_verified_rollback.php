@@ -1034,9 +1034,10 @@ $requestPath = '';
 foreach ($argv as $arg) {
     if (str_starts_with($arg, '--request=')) $requestPath = substr($arg, 10);
 }
-if (($argv[1] ?? '') === 'handle-request' && $requestPath !== '') {
+if (($argv[1] ?? '') === 'request' && $requestPath !== '') {
     $request = json_decode((string) file_get_contents($requestPath), true);
     $format = $request['receipt']['payload']['format'] ?? null;
+    file_put_contents(__DIR__ . '/legacy-format-seen', (string) $format);
     if ($format !== null && $format !== 'wprism-rollback-receipt/v2') {
         fwrite(STDERR, "legacy runtime: unsupported receipt format\n");
         exit(1);
@@ -1048,6 +1049,19 @@ PHP
         . "\n",
         0700
     );
+    $compatV3Probe = $tmp . '/compat-v3-probe.json';
+    lvr_write(
+        $compatV3Probe,
+        Canon::encode(['receipt' => ['payload' => ['format' => RollbackControl::VERIFIED_PROMOTION_RECEIPT_FORMAT]]]) . "\n"
+    );
+    exec(
+        escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($compatRuntime . '/rollback-control.php')
+            . ' request --root=' . escapeshellarg($compatRoot)
+            . ' --request=' . escapeshellarg($compatV3Probe),
+        $compatProbeOutput,
+        $compatProbeExit
+    );
+    wprism_check_same(1, $compatProbeExit, 'the compatibility fixture is genuinely v2-only and rejects v3');
     $compatRecovery = $recovery;
     $compatRecovery['checkpoint_provider'][2] = $tmp . '/compat-checkpoint-state';
     $compatRecovery['code_release_provider'][2] = $tmp . '/compat-code-state';
@@ -1079,6 +1093,11 @@ PHP
         RollbackControl::RECEIPT_FORMAT,
         $compatClaim['receipt']['format'] ?? null,
         'a new controller completes ordinary automatic claim through the v2-only installed runtime'
+    );
+    wprism_check_same(
+        RollbackControl::RECEIPT_FORMAT,
+        (string) file_get_contents($compatRuntime . '/legacy-format-seen'),
+        'the v2-only wrapper inspected the real product claim request rather than delegating unchecked'
     );
 } finally {
     sodium_memzero($secret);
