@@ -2472,6 +2472,7 @@ foreach ([
     'capture target --target-branch="$TARGET_REPOSITORY_BRANCH" --format=json',
     '"wprism-deletion-owner-agreements/v2"',
     '--roots="tombstone:$product_uuid" --contract',
+    'and ([.delete[]? | select(.uuid == $uuid and .type == "post" and .deletion_type == "product" and ((.blocked // "") == ""))] | length) == 1',
     'promote target --scope-contract="$contract" --with-deletes --format=json',
     'provider-state.json.fail-verify-after',
     'delete commit boundary',

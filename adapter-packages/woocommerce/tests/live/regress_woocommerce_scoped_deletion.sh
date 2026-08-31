@@ -242,7 +242,7 @@ PHP
     || fail "WooCommerce scoped-deletion extension could not plan its public tombstone"
   jq -e --arg uuid "$product_uuid" '
     .format == "wprism-scoped-plan/v1"
-    and [.delete[]? | select(.uuid == $uuid and .type == "post" and .deletion_type == "product" and ((.blocked // "") == ""))] | length == 1
+    and ([.delete[]? | select(.uuid == $uuid and .type == "post" and .deletion_type == "product" and ((.blocked // "") == ""))] | length) == 1
   ' <<<"$plan_json" >/dev/null \
     || fail "WooCommerce scoped-deletion extension did not plan one clean product delete"
   lookup_before="$(ssh_fixture "cd /var/www/html && wp db query \"SELECT COUNT(*) FROM wp_wc_product_meta_lookup WHERE product_id=$product_id\" --skip-column-names" | tr -d '[:space:]')"
