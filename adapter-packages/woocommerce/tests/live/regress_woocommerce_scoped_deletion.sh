@@ -428,7 +428,8 @@ PHP
     || fail "WooCommerce scoped deletion committed after its external exclusion disappeared"
   grep -Fq 'delete commit boundary' "$failure_stdout" "$failure_stderr" \
     || fail "WooCommerce scoped deletion did not fail at the exact final pre-COMMIT exclusion frontier"
-  grep -q 'rolled_back and exclusion released' "$failure_stdout" "$failure_stderr" \
+  grep -Eq 'prior world verified; rollback generation [0-9]+ is rolled_back and exclusion is released' \
+    "$failure_stdout" "$failure_stderr" \
     || fail "WooCommerce scoped deletion did not report complete checkpoint rollback"
   ssh_fixture 'test ! -e /home/wprism/recovery-fixture/provider-state.json.fail-verify-after' \
     || fail "WooCommerce scoped deletion did not consume its one-use provider-loss control"

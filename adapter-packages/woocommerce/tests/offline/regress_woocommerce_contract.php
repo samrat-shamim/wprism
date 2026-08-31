@@ -2523,6 +2523,7 @@ foreach ([
     'promote target --with-deletes >"$failure_stdout"',
     'provider-state.json.fail-verify-after',
     'delete commit boundary',
+    'prior world verified; rollback generation [0-9]+ is rolled_back and exclusion is released',
     '.receipt.format == "wprism-rollback-receipt/v3"',
     '.status.state == "rolled_back" and .status.terminal == true',
     'failed_product" = "$product_id"',
