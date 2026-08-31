@@ -83,16 +83,26 @@ wprism_ssh_adopt_extension() {
   ssh_fixture "cd /var/www/html && wp plugin install woocommerce --version=$woo_version --activate --quiet"
   [ "$(ssh_fixture 'cd /var/www/html && wp plugin get woocommerce --field=version')" = "$woo_version" ] \
     || fail "WooCommerce scoped-deletion extension left its exact plugin boundary"
-  ssh_fixture 'cd /var/www/html && wp eval '\''
-    if (!defined("WOOCOMMERCE_BIS_ALPHA_ENABLED")) {
-        define("WOOCOMMERCE_BIS_ALPHA_ENABLED", true);
-    }
-    WC_Install::maybe_enable_hpos();
-    WC_Install::create_tables();
-    if (!\Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled()) {
-        throw new RuntimeException("WooCommerce deletion proof did not enable HPOS");
-    }
-  '\''' >/dev/null
+  if [ "$woo_version" = "11.0.1" ]; then
+    ssh_fixture 'cd /var/www/html && wp eval '\''
+      if (!defined("WOOCOMMERCE_BIS_ALPHA_ENABLED")) {
+          define("WOOCOMMERCE_BIS_ALPHA_ENABLED", true);
+      }
+      WC_Install::maybe_enable_hpos();
+      WC_Install::create_tables();
+      if (!\Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled()) {
+          throw new RuntimeException("WooCommerce deletion proof did not enable HPOS");
+      }
+    '\''' >/dev/null
+  else
+    ssh_fixture 'cd /var/www/html && wp eval '\''
+      WC_Install::maybe_enable_hpos();
+      WC_Install::create_tables();
+      if (!\Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled()) {
+          throw new RuntimeException("WooCommerce deletion proof did not enable HPOS");
+      }
+    '\''' >/dev/null
+  fi
   stock_topology="$(ssh_fixture "cd /var/www/html && wp db query \"SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND BINARY TABLE_NAME=BINARY 'wp_wc_stock_notifications'\" --skip-column-names" | tr -d '[:space:]')"
   case "$woo_version:$stock_topology" in
     11.0.0:0|11.0.1:1) ;;
@@ -101,8 +111,23 @@ wprism_ssh_adopt_extension() {
   pass "WooCommerce $woo_version exposes its exact reviewed stock-notification table topology ($stock_topology)"
 
   say "bind the exact WooCommerce and active-theme bytes to immutable code releases"
-  ssh_fixture 'test -z "$(git -C /home/wprism/site status --porcelain)"' \
-    || fail "WooCommerce code release setup found a dirty target repository"
+  ssh_fixture 'git -C /home/wprism/site status --porcelain=v1 --untracked-files=all | php -r '\''
+    $site = false;
+    $state = false;
+    foreach (file("php://stdin", FILE_IGNORE_NEW_LINES) ?: [] as $line) {
+        if ($line === " M site.wprism.json") {
+            $site = true;
+            continue;
+        }
+        if (preg_match("/^\\?\\? state\\/[A-Za-z0-9._\\/-]+$/D", $line) === 1) {
+            $state = true;
+            continue;
+        }
+        fwrite(STDERR, "unexpected shared repository status\n");
+        exit(41);
+    }
+    exit($site && $state ? 0 : 42);
+  '\''' || fail "WooCommerce code release setup found repository changes outside the shared captured site/state evidence"
   ssh_fixture '
     set -eu
     mkdir -p /home/wprism/site/code/wp-content/plugins /home/wprism/site/code/wp-content/themes
@@ -124,8 +149,8 @@ wprism_ssh_adopt_extension() {
       $site["code"] = ["format" => 1, "layout" => "wp-content", "source" => "code/wp-content"];
       file_put_contents($path, json_encode($site, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
     '\''
-    git -C /home/wprism/site add -- site.wprism.json code
-    git -C /home/wprism/site commit -m "Bind exact WooCommerce deletion code release" >/dev/null
+    git -C /home/wprism/site add -- site.wprism.json state code
+    git -C /home/wprism/site commit -m "Bind shared state and exact WooCommerce deletion code release" >/dev/null
     test -z "$(git -C /home/wprism/site status --porcelain)"
   ' || fail "WooCommerce deletion proof could not commit its exact code half"
   next_generation="$(ssh_fixture 'php /home/wprism/site/.wprism/control/recovery-runtime/rollback-control.php authority-status --root=/home/wprism/site/.wprism/control' | jq -r '.generation + 1')"
