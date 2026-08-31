@@ -1082,9 +1082,12 @@ foreach ($redactionRoster as $grant => $witness) {
 }
 foreach ([
     'woocommerce_write_pii_profile wp1 source',
+    'source_native_before=$(woocommerce_native_pii_fingerprints wp1)',
+    'hash("sha256", "wprism-woo-option-record\0absent")',
     'source_native=$(woocommerce_native_pii_fingerprints wp1)',
     'source_captured=$(php "$package_tests/../fixtures/woocommerce-pii-fingerprints.php" "$source_repo/state")',
     'woocommerce_write_pii_profile wp2 target',
+    'target_before=$(woocommerce_native_pii_fingerprints wp2)',
     'target_divergent=$(woocommerce_native_pii_fingerprints wp2)',
     'target_applied=$(woocommerce_native_pii_fingerprints wp2)',
     'wp2 plugin deactivate woocommerce',
@@ -1095,6 +1098,12 @@ foreach ([
     'pii_diff=$(diff -rq "$source_repo/state" "$target_repo/.tmp-woo-pii-final"',
     'woocommerce_assert_pii_log_redacted "WooCommerce $version WPRA-019 capture output"',
     'woocommerce_assert_pii_log_redacted "WooCommerce $version WPRA-019 apply output"',
+    '"${GIT1[@]}" revert --no-edit "$pii_commit"',
+    'woocommerce_write_pii_profile wp1 baseline',
+    'source_restored=$(woocommerce_native_pii_fingerprints wp1)',
+    'woocommerce_write_pii_profile wp2 baseline',
+    'target_restored=$(woocommerce_native_pii_fingerprints wp2)',
+    'WPRA-019 target restore did not recover the exact preimage',
     'check_woocommerce_allow_pii_roundtrip "$WOO_VERSION" "$ARTIFACT_2"',
 ] as $piiWitness) {
     woo_ok(str_contains($woocommerceMatrixHarness, $piiWitness),
@@ -2442,6 +2451,17 @@ foreach ([
     woo_ok(str_contains($woocommerceMatrixHarness, $variationDeletionWitness),
         "exact WooCommerce product_variation-deletion matrix pins $variationDeletionWitness");
 }
+$malformedShellInterpolation = <<<'SHELL'
+'"'"'"$
+SHELL;
+$variableSkuInterpolation = <<<'SHELL'
+wc_get_product_id_by_sku('"'"$
+SHELL;
+woo_ok(
+    !str_contains($woocommerceMatrixHarness, $malformedShellInterpolation)
+        && substr_count($woocommerceMatrixHarness, $variableSkuInterpolation) >= 6,
+    'exact WooCommerce deletion fixture commands interpolate their disposable SKUs instead of passing literal shell variables'
+);
 foreach ([
     'wprism_ssh_adopt_extension() {',
     'wp plugin install woocommerce --version=$woo_version --activate',

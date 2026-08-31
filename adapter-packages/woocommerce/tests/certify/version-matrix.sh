@@ -48,18 +48,25 @@ $tax = $taxId > 0 && method_exists(WC_Tax::class, "_get_tax_rate")
 if (!$coupon->get_id() || !is_array($tax)) {
     throw new RuntimeException("WPRA-019 native observer premise is incomplete");
 }
+$readOption = static function (string $name): array {
+    $absent = new stdClass();
+    $value = get_option($name, $absent);
+    return $value === $absent
+        ? ["state" => "absent"]
+        : ["state" => "present", "value" => $value];
+};
 $values = [
-    "option:pickup_location_pickup_locations" => get_option("pickup_location_pickup_locations"),
-    "option:woocommerce_default_country" => get_option("woocommerce_default_country"),
-    "option:woocommerce_email_from_name" => get_option("woocommerce_email_from_name"),
-    "option:woocommerce_email_reply_to_name" => get_option("woocommerce_email_reply_to_name"),
-    "option:woocommerce_pos_store_address" => get_option("woocommerce_pos_store_address"),
-    "option:woocommerce_pos_store_email" => get_option("woocommerce_pos_store_email"),
-    "option:woocommerce_pos_store_phone" => get_option("woocommerce_pos_store_phone"),
-    "option:woocommerce_store_address" => get_option("woocommerce_store_address"),
-    "option:woocommerce_store_address_2" => get_option("woocommerce_store_address_2"),
-    "option:woocommerce_store_city" => get_option("woocommerce_store_city"),
-    "option:woocommerce_store_postcode" => get_option("woocommerce_store_postcode"),
+    "option:pickup_location_pickup_locations" => $readOption("pickup_location_pickup_locations"),
+    "option:woocommerce_default_country" => $readOption("woocommerce_default_country"),
+    "option:woocommerce_email_from_name" => $readOption("woocommerce_email_from_name"),
+    "option:woocommerce_email_reply_to_name" => $readOption("woocommerce_email_reply_to_name"),
+    "option:woocommerce_pos_store_address" => $readOption("woocommerce_pos_store_address"),
+    "option:woocommerce_pos_store_email" => $readOption("woocommerce_pos_store_email"),
+    "option:woocommerce_pos_store_phone" => $readOption("woocommerce_pos_store_phone"),
+    "option:woocommerce_store_address" => $readOption("woocommerce_store_address"),
+    "option:woocommerce_store_address_2" => $readOption("woocommerce_store_address_2"),
+    "option:woocommerce_store_city" => $readOption("woocommerce_store_city"),
+    "option:woocommerce_store_postcode" => $readOption("woocommerce_store_postcode"),
     "post_meta:customer_email" => array_values($coupon->get_email_restrictions("edit")),
     "table:woocommerce_tax_rates.tax_rate_country" => (string) ($tax["tax_rate_country"] ?? ""),
     "table:woocommerce_tax_rates.tax_rate_state" => (string) ($tax["tax_rate_state"] ?? ""),
@@ -73,6 +80,22 @@ $canonicalize = static function (mixed $value) use (&$canonicalize): mixed {
 };
 $out = [];
 foreach ($values as $grant => $value) {
+    if (str_starts_with($grant, "option:")) {
+        if (!is_array($value) || !in_array($value["state"] ?? null, ["absent", "present"], true)) {
+            throw new RuntimeException("WPRA-019 native option observer returned a malformed record");
+        }
+        if ($value["state"] === "absent") {
+            if (count($value) !== 1) {
+                throw new RuntimeException("WPRA-019 absent native option carried a value");
+            }
+            $out[$grant] = hash("sha256", "wprism-woo-option-record\0absent");
+            continue;
+        }
+        if (count($value) !== 2 || !array_key_exists("value", $value)) {
+            throw new RuntimeException("WPRA-019 present native option lacks a value");
+        }
+        $value = $value["value"];
+    }
     $out[$grant] = hash("sha256", wp_json_encode(
         $canonicalize($value),
         JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
@@ -88,6 +111,28 @@ woocommerce_write_pii_profile() { # <wp1|wp2> <source|target>
 global $wpdb;
 $profile = '"'"$profile"'"';
 $profiles = [
+    "baseline" => [
+        "emails" => ["buyer@example.test", "*@agency.example.test"],
+        "tax" => ["country" => "US", "state" => "CA"],
+        "options" => [
+            "pickup_location_pickup_locations" => [[
+                "name" => "<strong>مخزن</strong> 東京",
+                "address" => ["address_1" => "١٢ شارع الاختبار", "city" => "東京", "state" => "13", "postcode" => "100-0001", "country" => "JP"],
+                "details" => "<em>بوابة ٢</em><br>南口",
+                "enabled" => true,
+            ]],
+            "woocommerce_default_country" => "US:CA",
+            "woocommerce_email_from_name" => null,
+            "woocommerce_email_reply_to_name" => "",
+            "woocommerce_pos_store_address" => "",
+            "woocommerce_pos_store_email" => "admin@example.test",
+            "woocommerce_pos_store_phone" => "",
+            "woocommerce_store_address" => "",
+            "woocommerce_store_address_2" => "",
+            "woocommerce_store_city" => "",
+            "woocommerce_store_postcode" => "",
+        ],
+    ],
     "source" => [
         "emails" => ["wpra19-coupon-email-12@agency.example", "*@wpra19-coupon-domain-12.example"],
         "tax" => ["country" => "QZ", "state" => "WPRA19TAXSTATE14"],
@@ -136,6 +181,13 @@ $profiles = [
 $selected = $profiles[$profile] ?? null;
 if (!is_array($selected)) { throw new RuntimeException("unknown WPRA-019 profile"); }
 foreach ($selected["options"] as $name => $value) {
+    if ($value === null) {
+        delete_option($name);
+        if (get_option($name, false) !== false) {
+            throw new RuntimeException("WPRA-019 native option delete readback disagrees for " . $name);
+        }
+        continue;
+    }
     update_option($name, $value);
     if (get_option($name) !== $value) {
         throw new RuntimeException("WPRA-019 native option readback disagrees for " . $name);
@@ -182,12 +234,16 @@ woocommerce_assert_pii_fingerprint_map() { # <label> <json>
 
 check_woocommerce_allow_pii_roundtrip() { # <exact-version> <exact-target-artifact>
   local version="$1" target_artifact="$2" source_repo="siterepo/${PAIR}1" target_repo="siterepo/${PAIR}2"
-  local source_before source_native source_captured target_divergent target_applied target_reinstalled target_recaptured
-  local pii_revision pii_capture_log pii_apply_log pii_diff package_tests
+  local source_before source_native_before source_native source_captured target_before target_divergent
+  local target_applied target_reinstalled target_recaptured source_restored target_restored
+  local pii_revision pii_commit pii_capture_log pii_apply_log pii_diff package_tests
   package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 
   source_before=$(php "$package_tests/../fixtures/woocommerce-pii-fingerprints.php" "$source_repo/state")
   woocommerce_assert_pii_fingerprint_map "WooCommerce $version pre-mutation capture" "$source_before"
+  source_native_before=$(woocommerce_native_pii_fingerprints wp1)
+  [ "$source_native_before" = "$source_before" ] \
+    || fail "WooCommerce $version WPRA-019 source preimage disagreed with its canonical capture"
   woocommerce_write_pii_profile wp1 source
   source_native=$(woocommerce_native_pii_fingerprints wp1)
   woocommerce_assert_pii_fingerprint_map "WooCommerce $version source native readback" "$source_native"
@@ -201,6 +257,9 @@ check_woocommerce_allow_pii_roundtrip() { # <exact-version> <exact-target-artifa
     ($before | keys) == ($after | keys) and ($before | keys | all(.[]; . as $key | $before[$key] != $after[$key]))
   ' >/dev/null || fail "WooCommerce $version capture did not change every WPRA-019 value fingerprint"
 
+  target_before=$(woocommerce_native_pii_fingerprints wp2)
+  [ "$target_before" = "$source_before" ] \
+    || fail "WooCommerce $version WPRA-019 target preimage disagreed with the canonical source"
   woocommerce_write_pii_profile wp2 target
   target_divergent=$(woocommerce_native_pii_fingerprints wp2)
   woocommerce_assert_pii_fingerprint_map "WooCommerce $version divergent target native readback" "$target_divergent"
@@ -212,6 +271,7 @@ check_woocommerce_allow_pii_roundtrip() { # <exact-version> <exact-target-artifa
   rm "$pii_capture_log"
   "${GIT1[@]}" add -A
   "${GIT1[@]}" commit -qm "capture: woocommerce $version WPRA-019 finite PII matrix"
+  pii_commit=$(git -C "$source_repo" rev-parse HEAD)
   "${GIT1[@]}" push -q origin main
   git -C "$target_repo" pull -q origin main
   pii_revision=$(git -C "$target_repo" rev-parse HEAD)
@@ -241,7 +301,26 @@ check_woocommerce_allow_pii_roundtrip() { # <exact-version> <exact-target-artifa
   pii_diff=$(diff -rq "$source_repo/state" "$target_repo/.tmp-woo-pii-final" || true)
   rm -rf "$target_repo/.tmp-woo-pii-final"
   [ -z "$pii_diff" ] || fail "WooCommerce $version WPRA-019 target recapture was not byte-identical"
+
+  # The next lifecycle and version-boundary legs must start from the exact
+  # portable fixture they certify. Revert the evidence commit, then restore
+  # the finite native fixture through its owning Woo APIs and prove the
+  # original closed 14-grant fingerprint map. Absence is not generic deletion
+  # authority, so the baseline profile explicitly removes its one absent
+  # authored option instead of asking Apply to infer that intent.
+  "${GIT1[@]}" revert --no-edit "$pii_commit" >/dev/null
+  "${GIT1[@]}" push -q origin main
+  woocommerce_write_pii_profile wp1 baseline
+  source_restored=$(woocommerce_native_pii_fingerprints wp1)
+  [ "$source_restored" = "$source_before" ] \
+    || fail "WooCommerce $version WPRA-019 source restore did not recover the exact preimage"
+  git -C "$target_repo" pull -q origin main
+  woocommerce_write_pii_profile wp2 baseline
+  target_restored=$(woocommerce_native_pii_fingerprints wp2)
+  [ "$target_restored" = "$source_before" ] \
+    || fail "WooCommerce $version WPRA-019 target restore did not recover the exact preimage"
   pass "WooCommerce $version independently applies all 14 finite WPRA-019 grants, preserves them across exact-artifact reinstall, redacts output, and recaptures byte-identically"
+  pass "WooCommerce $version restores the exact pre-WPRA-019 fixture before deletion and lifecycle evidence"
 }
 
 seed_woocommerce_content() {
@@ -885,7 +964,7 @@ SELECT
   [ "$delete_rc" -ne 0 ] \
     && echo "$delete_apply" | tail -1 | jq -e '.reason_code == "deletion_writer_exclusion_required"' >/dev/null \
     || fail "WooCommerce $version local product delete did not refuse for absent external exclusion"
-  [ "$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"'"$disposable_sku"'"'"');')" = "$disposable_target" ] \
+  [ "$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"$disposable_sku"'"');')" = "$disposable_target" ] \
     || fail "WooCommerce $version external-exclusion refusal changed the target product"
   product_lookup_after=$(wp2 db query "
 SELECT
@@ -913,8 +992,8 @@ SELECT
   variation_parent_sku="WPRISM-VARIATION-PARENT-${version//./-}"
   variation_sku="WPRISM-DELETE-VARIATION-${version//./-}"
   variation_ids=$(wp1 eval '
-$parentSku = '"'"'"$variation_parent_sku"'"'"';
-$variationSku = '"'"'"$variation_sku"'"'"';
+$parentSku = '"'"$variation_parent_sku"'"';
+$variationSku = '"'"$variation_sku"'"';
 if (wc_get_product_id_by_sku($parentSku) || wc_get_product_id_by_sku($variationSku)) {
     throw new RuntimeException("disposable variation deletion SKU already exists");
 }
@@ -947,8 +1026,8 @@ echo $parentId . "|" . $variationId;')
   git -C "$repo" pull -q origin main
   revision=$(git -C "$repo" rev-parse HEAD)
   wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$revision" >/dev/null
-  variation_parent_target=$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"'"$variation_parent_sku"'"'"');')
-  variation_target=$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"'"$variation_sku"'"'"');')
+  variation_parent_target=$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"$variation_parent_sku"'"');')
+  variation_target=$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"$variation_sku"'"');')
   require_fixture_ids variation_parent_target variation_target
   variation_lookup_before=$(wp2 db query "
 SELECT
@@ -990,9 +1069,9 @@ SELECT
   [ "$variation_apply_rc" -ne 0 ] \
     && echo "$variation_apply" | tail -1 | jq -e '.reason_code == "deletion_writer_exclusion_required"' >/dev/null \
     || fail "WooCommerce $version local product_variation delete did not refuse for absent external exclusion"
-  [ "$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"'"$variation_sku"'"'"');')" = "$variation_target" ] \
+  [ "$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"$variation_sku"'"');')" = "$variation_target" ] \
     || fail "WooCommerce $version external-exclusion refusal changed the named variation"
-  [ "$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"'"$variation_parent_sku"'"'"');')" = "$variation_parent_target" ] \
+  [ "$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"$variation_parent_sku"'"');')" = "$variation_parent_target" ] \
     || fail "WooCommerce $version external-exclusion refusal changed the variation parent"
   variation_lookup_after=$(wp2 db query "
 SELECT
