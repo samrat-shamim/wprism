@@ -549,7 +549,8 @@ fi
 pass "target carries the shipped platform boundary and a cited disposition for every certified claim"
 
 say "exercise a real checkpointed SSH scoped promotion and its recovery boundary"
-ssh_fixture 'cd /var/www/html && wp option update blogdescription desired-failure --autoload=no >/dev/null'
+ssh_fixture 'php -r '\''$p="/home/wprism/site/site.wprism.json"; $d=json_decode(file_get_contents($p),true,512,JSON_THROW_ON_ERROR); $d["policy"]["options"]["scoped-apply_scoped_option"]=["autoload"=>"preserve","class"=>"authored"]; file_put_contents($p,json_encode($d,JSON_UNESCAPED_SLASHES)."\n");'\'''
+ssh_fixture 'cd /var/www/html && wp option update scoped-apply_scoped_option desired-failure --autoload=no >/dev/null'
 "$WPRISM" --envs-file="$TMP/envs.json" capture target --format=json >"$TMP/scoped-apply-failure-capture.json" \
   || fail "could not capture the desired scoped-promotion source state"
 "$WPRISM" --envs-file="$TMP/envs.json" scope target --roots=options --contract >"$TMP/scoped-apply-failure-scope.json" \
@@ -580,7 +581,7 @@ jq -e --arg h "$FAILURE_SCOPE_HASH" \
 jq -r '(.scope.selected_identities // [])[]' "$SCOPED_REFRESH_STDOUT" | LC_ALL=C sort >"$TMP/scoped-apply-refresh-identities"
 diff -u "$TMP/scoped-apply-failure-scope-identities" "$TMP/scoped-apply-refresh-identities" >/dev/null \
   || fail "target scoped refresh-export changed the selected identity set"
-ssh_fixture 'cd /var/www/html && wp option update blogdescription prior-failure --autoload=no >/dev/null'
+ssh_fixture 'cd /var/www/html && wp option update scoped-apply_scoped_option prior-failure --autoload=no >/dev/null'
 
 # Begin and abort an ordinary promotion first. The target deliberately retains
 # its completed ordinary session record, exercising the scoped begin reclaim
@@ -689,7 +690,7 @@ ssh_fixture "test -s /home/wprism/site/.wprism/rollback/$FAIL_RECEIPT/artifacts/
   || fail "rolled-back scoped generation did not retain its real encrypted database checkpoint"
 [ "$(target_checkpoint_state)" = "prior-db" ] \
   || fail "encrypted scoped rollback did not restore the prior database value"
-[ "$(ssh_fixture 'cd /var/www/html && wp option get blogdescription')" = "prior-failure" ] \
+[ "$(ssh_fixture 'cd /var/www/html && wp option get scoped-apply_scoped_option')" = "prior-failure" ] \
   || fail "encrypted scoped rollback did not restore the prior authored option"
 if ssh_fixture 'cd /var/www/html && wp option get scoped-apply_scoped_restore_probe' >/dev/null 2>&1; then
   fail "encrypted scoped rollback retained the post-checkpoint restore probe"
@@ -705,13 +706,13 @@ jq -e --arg owner "$ORDINARY_OWNER" --arg artifact "$ORDINARY_ARTIFACT" '
 jq -e '.state == "released"' <<<"$(ssh_fixture 'cat /home/wprism/recovery-fixture/provider-state.json')" >/dev/null \
   || fail "v2 exclusion provider did not release after scoped rollback"
 
-ssh_fixture 'cd /var/www/html && wp option update blogdescription desired-success --autoload=no >/dev/null'
+ssh_fixture 'cd /var/www/html && wp option update scoped-apply_scoped_option desired-success --autoload=no >/dev/null'
 "$WPRISM" --envs-file="$TMP/envs.json" capture target --format=json >"$TMP/scoped-apply-success-capture.json" \
   || fail "could not capture the successful scoped-promotion source state"
 "$WPRISM" --envs-file="$TMP/envs.json" scope target --roots=options --contract >"$TMP/scoped-apply-success-scope.json" \
   || fail "could not mint the successful scoped-promotion contract"
 SUCCESS_SCOPE_HASH="$(jq -r '.scope_hash' "$TMP/scoped-apply-success-scope.json")"
-ssh_fixture 'cd /var/www/html && wp option update blogdescription prior-success --autoload=no >/dev/null'
+ssh_fixture 'cd /var/www/html && wp option update scoped-apply_scoped_option prior-success --autoload=no >/dev/null'
 
 # Keep the committed retry's bounded public result private when it fails or
 # its receipt cannot be parsed. TMP remains exclusively secret-bearing
@@ -748,7 +749,7 @@ jq -e '
   and .completed_operations.scoped_apply.operation_status == "completed"
 ' <<<"$SUCCESS_EVIDENCE" >/dev/null \
   || fail "successful scoped promotion did not bind the terminal target Apply receipt into signed evidence"
-[ "$(ssh_fixture 'cd /var/www/html && wp option get blogdescription')" = "desired-success" ] \
+[ "$(ssh_fixture 'cd /var/www/html && wp option get scoped-apply_scoped_option')" = "desired-success" ] \
   || fail "successful scoped promotion did not converge the target authored option"
 "$WPRISM" --envs-file="$TMP/envs.json" plan target --scope-contract="$TMP/scoped-apply-success-scope.json" --format=json >"$TMP/scoped-apply-success-plan.json" \
   || fail "successful scoped promotion did not permit a converged public scoped plan"
