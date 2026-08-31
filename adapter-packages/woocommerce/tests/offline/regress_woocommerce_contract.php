@@ -2469,6 +2469,7 @@ foreach ([
     'WPRISM_DELETE_SKU',
     'wp plugin install woocommerce --version=$woo_version --activate',
     'wp wprism manifest-pin --repo=/home/wprism/site --name=woocommerce',
+    'capture target --target-branch="$TARGET_REPOSITORY_BRANCH" --format=json',
     '"wprism-deletion-owner-agreements/v2"',
     '--roots="tombstone:$product_uuid" --contract',
     'promote target --scope-contract="$contract" --with-deletes --format=json',
@@ -2485,6 +2486,11 @@ foreach ([
     woo_ok(str_contains($woocommerceScopedDeletionHarness, $scopedDeletionWitness),
         "candidate-bound WooCommerce scoped-deletion live proof pins $scopedDeletionWitness");
 }
+woo_ok(
+    substr_count($woocommerceScopedDeletionHarness, 'wp eval-file /home/wprism/recovery-fixture/') === 2
+        && !str_contains($woocommerceScopedDeletionHarness, 'declare(strict_types=1);'),
+    'WP-CLI eval-file deletion fixtures omit the declaration that its eval wrapper cannot execute'
+);
 $failurePromotion = strpos(
     $woocommerceScopedDeletionHarness,
     'promote target --scope-contract="$contract" --with-deletes --format=json >"$failure_stdout"'

@@ -46,7 +46,6 @@ wprism_ssh_adopt_extension() {
 
   cat >"$TMP/woocommerce-owner-agreements.php" <<'PHP'
 <?php
-declare(strict_types=1);
 
 $themes = array_values(array_unique([get_stylesheet(), get_template()]));
 sort($themes, SORT_STRING);
@@ -182,7 +181,6 @@ PHP
 
   cat >"$TMP/woocommerce-delete-product.php" <<'PHP'
 <?php
-declare(strict_types=1);
 
 $sku = getenv('WPRISM_DELETE_SKU');
 if (!is_string($sku) || preg_match('/^WPRISM-SSH-DELETE-110(?:0|1)$/D', $sku) !== 1) {
@@ -208,7 +206,7 @@ PHP
   [[ "$product_id" =~ ^[1-9][0-9]*$ ]] \
     || fail "WooCommerce scoped-deletion extension did not create its real product"
 
-  "$WPRISM" --envs-file="$TMP/envs.json" capture target --format=json >"$TMP/woocommerce-delete-capture.json" \
+  "$WPRISM" --envs-file="$TMP/envs.json" capture target --target-branch="$TARGET_REPOSITORY_BRANCH" --format=json >"$TMP/woocommerce-delete-capture.json" \
     || fail "WooCommerce scoped-deletion extension could not capture the exact product"
   product_file="$(ssh_fixture 'find /home/wprism/site/state/posts/product -type f -name "*--wprism-ssh-deletion-proof.md" -print')"
   [ "$(wc -l <<<"$product_file" | tr -d ' ')" -eq 1 ] && [ -n "$product_file" ] \
