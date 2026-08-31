@@ -432,7 +432,7 @@ ssh_fixture 'test ! -e /var/www/html/wp-content/mu-plugins/wprism && test ! -e /
 pass "SSH driver reports adopt ready, create unsupported, and performs zero target mutation during negotiation"
 
 say "refuse an unsafe durable-control destination before first adoption"
-ssh_fixture 'cd /var/www/html/wp-content/mu-plugins && mkdir wprism-control-real && printf "%s\n" preserve > wprism-control-real/sentinel && ln -s wprism-control-real wprism-control'
+ssh_fixture 'mkdir -p /var/www/html/wp-content/mu-plugins && cd /var/www/html/wp-content/mu-plugins && mkdir wprism-control-real && printf "%s\n" preserve > wprism-control-real/sentinel && ln -s wprism-control-real wprism-control'
 if OUT="$("$WPRISM" --envs-file="$TMP/envs.json" adopt target 2>&1)"; then CODE=0; else CODE=$?; fi
 echo "$OUT"
 [ "$CODE" -ne 0 ] || fail "adopt followed a symlink durable-control destination"
