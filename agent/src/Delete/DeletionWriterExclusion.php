@@ -28,8 +28,8 @@ final class DeletionWriterExclusion {
     private const VERIFIED_WITNESS_KEYS = [
         'active', 'allow_deletes', 'artifact_hash', 'exclusion_state', 'format',
         'generation', 'ok', 'owner', 'receipt_format', 'receipt_id',
-        'receipt_payload_sha256', 'recovery_ready', 'signing_key_id', 'state',
-        'target_id', 'terminal',
+        'receipt_payload_sha256', 'recovery_ready', 'resources_inventory_sha256',
+        'signing_key_id', 'state', 'target_id', 'terminal',
     ];
 
     /** @var ?array<string,mixed> */

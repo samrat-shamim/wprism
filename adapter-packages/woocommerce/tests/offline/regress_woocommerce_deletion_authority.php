@@ -176,6 +176,7 @@ function woo_verified_writer_witness(): array {
     unset($witness['scope_hash']);
     $witness['format'] = 'wprism-verified-promotion-witness/v1';
     $witness['receipt_format'] = 'wprism-rollback-receipt/v3';
+    $witness['resources_inventory_sha256'] = str_repeat('d', 64);
     return $witness;
 }
 
