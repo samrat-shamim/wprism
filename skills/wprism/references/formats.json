@@ -1,0 +1,120 @@
+{
+  "format": "wprism-skill-compatibility/v1",
+  "commands": {
+    "assess": "assess-report",
+    "contract propose": "contract-proposal",
+    "driver-capabilities": "driver-capabilities",
+    "env materialize": "branch-environment-receipt",
+    "env reap": "branch-environment-reap",
+    "explain": "explain-report",
+    "merge-check": "merge-check",
+    "plan": "complete-plan",
+    "recover execute": "recovery-outcome",
+    "recover list": "checkpoint-catalog",
+    "recover prepare": "recovery-plan",
+    "recover restore": "legacy-recovery-outcome",
+    "refresh": "refresh-plan",
+    "release execute": "release-outcome",
+    "release prepare": "release-prepare",
+    "release status": "release-status",
+    "stage-source": "source-stage-receipt",
+    "verify": "verify-report"
+  },
+  "artifacts": {
+    "authorization.json": "operation-authorization",
+    "recovery-authorization.json": "operation-authorization",
+    "recovery-outcome.json": "recovery-outcome",
+    "recovery-plan.json": "recovery-plan",
+    "release-outcome.json": "release-outcome",
+    "release-prepare.json": "release-prepare",
+    "release-status.json": "release-status",
+    "stage-receipt.json": "source-stage-receipt"
+  },
+  "documents": {
+    "assess-report": {
+      "format": "wprism-assess-report/v1",
+      "required": ["format", "env", "target", "surfaces", "unknown", "evidence", "assess_digest"]
+    },
+    "branch-environment-reap": {
+      "format": "wprism-branch-environment-reap/v1",
+      "required": ["format", "operation_id", "resource_id", "environment_identity", "disposition", "absence_proof_sha256", "receipt_sha256"]
+    },
+    "branch-environment-receipt": {
+      "format": "wprism-branch-environment-receipt/v1",
+      "required": ["format", "operation_id", "resource_id", "environment_identity", "branch_commit", "plan_hash", "receipt_sha256"]
+    },
+    "checkpoint-catalog": {
+      "format": "wprism-checkpoint-catalog/v1",
+      "required": ["format", "disclosures", "rows"]
+    },
+    "command-refusal": {
+      "format": "wprism-command-refusal/v1",
+      "required": ["format", "ok", "command", "error", "reason_code", "message", "remediation"]
+    },
+    "complete-plan": {
+      "format": null,
+      "required": ["create", "update", "adopt", "unchanged", "drift", "conflict", "collision", "delete", "delete_conflict", "deleted", "category_summary"],
+      "embedded_formats": {"category_summary": "wprism-plan-category-summary/v1"}
+    },
+    "contract-proposal": {
+      "format": "wprism-application-contract-proposal/v1",
+      "required": ["format", "environment", "assess_digest", "contract", "review_required", "review_required_count"]
+    },
+    "driver-capabilities": {
+      "format": "wprism-environment-driver-capabilities/v1",
+      "required": ["format", "driver", "operation", "ready", "requirements", "capabilities", "digest"]
+    },
+    "explain-report": {
+      "format": "wprism-explain/v1",
+      "required": ["format", "ok", "selector", "basis", "action", "execution", "verification", "redaction"]
+    },
+    "legacy-recovery-outcome": {
+      "format": "wprism-recovery-outcome/v1",
+      "required": ["format", "environment", "checkpoint", "claim", "recovered", "steps"]
+    },
+    "merge-check": {
+      "format": "wprism-merge-check/v1",
+      "required": ["format", "mode", "refs", "verdict", "exit_code"]
+    },
+    "operation-authorization": {
+      "format": "wprism-operation-authorization/v1",
+      "required": ["format", "signature", "statement"]
+    },
+    "plan-view": {
+      "format": "wprism-plan-view/v2",
+      "required": ["format", "authoritative", "filters", "rows", "page"]
+    },
+    "recovery-outcome": {
+      "format": "wprism-recovery-outcome/v2",
+      "required": ["format", "environment", "operation_id", "plan_digest", "subject_digest", "authorization_digest", "status", "steps", "target_after", "outcome_digest"]
+    },
+    "recovery-plan": {
+      "format": "wprism-recovery-plan/v1",
+      "required": ["format", "environment", "operation_id", "checkpoint", "claim", "target", "plan_digest", "presentation_digest", "subject_digest"]
+    },
+    "refresh-plan": {
+      "format": "wprism-refresh-plan/v1",
+      "required": ["format", "context", "plan_hash"]
+    },
+    "release-outcome": {
+      "format": "wprism-release-outcome/v1",
+      "required": ["format", "environment", "status", "plan_digest", "conditions_rechecked", "refusal", "failure", "verify"]
+    },
+    "release-prepare": {
+      "format": "wprism-release-prepare/v1",
+      "required": ["format", "environment", "operation_id", "stage_receipt", "authorization_plan", "plan_digest", "presented_plan_sha256", "subject_sha256", "authority_policy_digest", "required_grants", "target_id"]
+    },
+    "release-status": {
+      "format": "wprism-release-operation-status/v1",
+      "required": ["format", "operation_id", "state", "sequence", "terminal", "reconciliation_required", "subject_digest", "plan_digest", "status_sha256"]
+    },
+    "source-stage-receipt": {
+      "format": "wprism-source-stage-receipt/v1",
+      "required": ["format", "environment", "operation_id", "base", "source", "stage", "target", "receipt_sha256"]
+    },
+    "verify-report": {
+      "format": "wprism-verify-report/v1",
+      "required": ["format", "environment", "plan_digest", "convergence", "journeys", "uncovered_surfaces", "verdict"]
+    }
+  }
+}
