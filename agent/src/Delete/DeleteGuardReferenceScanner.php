@@ -38,19 +38,23 @@ final class DeleteGuardReferenceScanner {
         global $wpdb;
         $table = $wpdb->prefix . preg_replace('/[^A-Za-z0-9_]/', '', $guard['table']);
         $column = preg_replace('/[^A-Za-z0-9_]/', '', $guard['column']);
-        $wpdb->last_error = '';
-        $tableExists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
-        $tableProbeError = trim((string) ($wpdb->last_error ?? ''));
-        if ($tableProbeError !== '') {
+        try {
+            $topology = DeleteGuardEvaluator::guard_table_topology([$table]);
+        } catch (\Throwable $failure) {
             return [
                 'count' => 0,
-                'error' => "guard table '{$guard['table']}' existence probe failed: $tableProbeError",
+                'error' => "guard table '{$guard['table']}' topology probe failed: " . $failure->getMessage(),
                 'rows' => [],
             ];
         }
-        if (!$tableExists) {
-            if (($guard['optional_table'] ?? null) === true) {
-                return ['count' => 0, 'error' => null, 'rows' => []];
+        if (($topology[$table] ?? null) === 'absent') {
+            if (($guard['table_absence'] ?? null) === 'empty') {
+                return [
+                    'count' => 0,
+                    'error' => null,
+                    'rows' => [],
+                    'witness' => self::guard_witness($guard, $table, 'absent', []),
+                ];
             }
             return ['count' => 0, 'error' => "required guard table '{$guard['table']}' is absent", 'rows' => []];
         }
@@ -151,7 +155,7 @@ final class DeleteGuardReferenceScanner {
                     'count' => 0,
                     'error' => "guard table '{$guard['table']}' has no complete indexed lock boundary for {$guard['column']}",
                     'rows' => [],
-                    'witness' => hash('sha256', Canon::encode([])),
+                    'witness' => self::guard_witness($guard, $table, 'present', []),
                 ];
             }
         }
@@ -165,31 +169,31 @@ final class DeleteGuardReferenceScanner {
             $sql .= ' FOR UPDATE';
             $found = $wpdb->get_results($wpdb->prepare($sql, ...$args), ARRAY_A);
             if ($wpdb->last_error) {
-                return ['count' => 0, 'error' => "guard query failed for {$guard['table']}.{$guard['column']}: {$wpdb->last_error}", 'rows' => [], 'witness' => hash('sha256', Canon::encode([]))];
+                return ['count' => 0, 'error' => "guard query failed for {$guard['table']}.{$guard['column']}: {$wpdb->last_error}", 'rows' => [], 'witness' => self::guard_witness($guard, $table, 'present', [])];
             }
         } else {
             $countSql = "SELECT COUNT(*) FROM `$table` WHERE " . implode(' AND ', $where);
             $count = $wpdb->get_var($wpdb->prepare($countSql, ...$args));
             if ($wpdb->last_error) {
-                return ['count' => 0, 'error' => "guard query failed for {$guard['table']}.{$guard['column']}", 'rows' => [], 'witness' => hash('sha256', Canon::encode([]))];
+                return ['count' => 0, 'error' => "guard query failed for {$guard['table']}.{$guard['column']}", 'rows' => [], 'witness' => self::guard_witness($guard, $table, 'present', [])];
             }
             if ((int) $count === 0) {
-                return ['count' => 0, 'error' => null, 'rows' => [], 'witness' => hash('sha256', Canon::encode([]))];
+                return ['count' => 0, 'error' => null, 'rows' => [], 'witness' => self::guard_witness($guard, $table, 'present', [])];
             }
             $found = $wpdb->get_results($wpdb->prepare($sql, ...$args), ARRAY_A);
             if ($wpdb->last_error) {
-                return ['count' => 0, 'error' => "guard query failed for {$guard['table']}.{$guard['column']}", 'rows' => [], 'witness' => hash('sha256', Canon::encode([]))];
+                return ['count' => 0, 'error' => "guard query failed for {$guard['table']}.{$guard['column']}", 'rows' => [], 'witness' => self::guard_witness($guard, $table, 'present', [])];
             }
         }
         if (!$found) {
-            return ['count' => 0, 'error' => null, 'rows' => [], 'witness' => hash('sha256', Canon::encode([]))];
+            return ['count' => 0, 'error' => null, 'rows' => [], 'witness' => self::guard_witness($guard, $table, 'present', [])];
         }
         if (!$identityCols) {
             return [
                 'count' => 0,
                 'error' => "guard table '{$guard['table']}' has no stable row identity; refusing an unenumerated force-delete warning",
                 'rows' => [],
-                'witness' => hash('sha256', Canon::encode($found)),
+                'witness' => self::guard_witness($guard, $table, 'present', (array) $found),
             ];
         }
         $rows = array_map(function (array $foundRow) use ($guard, $identityCols): string {
@@ -203,8 +207,24 @@ final class DeleteGuardReferenceScanner {
             'count' => count($rows),
             'error' => null,
             'rows' => $rows,
-            'witness' => hash('sha256', Canon::encode(array_values($found))),
+            'witness' => self::guard_witness($guard, $table, 'present', array_values($found)),
         ];
+    }
+
+    /**
+     * Absence-means-empty guards bind physical topology as well as rows, so
+     * absent and present-empty can never share a planning witness.
+     */
+    private static function guard_witness(array $guard, string $table, string $state, array $rows): string {
+        if (($guard['table_absence'] ?? null) !== 'empty') {
+            return hash('sha256', Canon::encode($rows));
+        }
+        return hash('sha256', Canon::encode([
+            'format' => 'wprism-delete-guard-witness/v2',
+            'rows' => $rows,
+            'state' => $state,
+            'table' => $table,
+        ]));
     }
 
     /** @return array{count:int,error:?string,rows:string[],witness?:string} */
@@ -231,7 +251,7 @@ final class DeleteGuardReferenceScanner {
                     'count' => 0,
                     'error' => "guard table '{$guard['table']}' has no complete indexed lock boundary for option_name",
                     'rows' => [],
-                    'witness' => hash('sha256', Canon::encode([])),
+                    'witness' => self::guard_witness($guard, $table, 'present', []),
                 ];
             }
         }
@@ -248,7 +268,7 @@ final class DeleteGuardReferenceScanner {
                 'count' => 0,
                 'error' => "guard query failed for {$guard['table']} option-name refs: {$wpdb->last_error}",
                 'rows' => [],
-                'witness' => hash('sha256', Canon::encode([])),
+                'witness' => self::guard_witness($guard, $table, 'present', []),
             ];
         }
 
@@ -265,7 +285,7 @@ final class DeleteGuardReferenceScanner {
                     'count' => 0,
                     'error' => $e->getMessage(),
                     'rows' => [],
-                    'witness' => hash('sha256', Canon::encode([])),
+                    'witness' => self::guard_witness($guard, $table, 'present', []),
                 ];
             }
             if ($details === null || ($details['rule']['class'] ?? '') !== 'authored'
@@ -280,7 +300,7 @@ final class DeleteGuardReferenceScanner {
                     'count' => 0,
                     'error' => "guard {$guard['table']} option-name rule captured an unsafe local id",
                     'rows' => [],
-                    'witness' => hash('sha256', Canon::encode([])),
+                    'witness' => self::guard_witness($guard, $table, 'present', []),
                 ];
             }
             if ($matchedId !== $targetId) {
@@ -293,7 +313,7 @@ final class DeleteGuardReferenceScanner {
                     'count' => 0,
                     'error' => "guard {$guard['table']} option-name rule did not expose its named id capture",
                     'rows' => [],
-                    'witness' => hash('sha256', Canon::encode([])),
+                    'witness' => self::guard_witness($guard, $table, 'present', []),
                 ];
             }
             $canonicalName = substr($name, 0, $offset)
@@ -321,7 +341,7 @@ final class DeleteGuardReferenceScanner {
             'count' => count($found),
             'error' => null,
             'rows' => $found,
-            'witness' => hash('sha256', Canon::encode(array_values($witnessRows))),
+            'witness' => self::guard_witness($guard, $table, 'present', array_values($witnessRows)),
         ];
     }
 
@@ -375,7 +395,7 @@ final class DeleteGuardReferenceScanner {
                     'count' => 0,
                     'error' => "guard table '{$guard['table']}' has no complete indexed lock boundary for metadata key '$metaKey'",
                     'rows' => [],
-                    'witness' => hash('sha256', Canon::encode([])),
+                    'witness' => self::guard_witness($guard, $table, 'present', []),
                 ];
             }
         }
@@ -392,7 +412,7 @@ final class DeleteGuardReferenceScanner {
                 'count' => 0,
                 'error' => "guard query failed for {$guard['table']} metadata key '$metaKey': {$wpdb->last_error}",
                 'rows' => [],
-                'witness' => hash('sha256', Canon::encode([])),
+                'witness' => self::guard_witness($guard, $table, 'present', []),
             ];
         }
         $targetId = Ledger::id_for($targetUuid, (string) ($guard['id_kind'] ?? ''));
@@ -401,7 +421,7 @@ final class DeleteGuardReferenceScanner {
                 'count' => 0,
                 'error' => "required {$guard['id_kind']} identity mapping is absent for guard {$guard['table']} metadata key '$metaKey'",
                 'rows' => [],
-                'witness' => hash('sha256', Canon::encode($rows ?: [])),
+                'witness' => self::guard_witness($guard, $table, 'present', $rows ?: []),
             ];
         }
         $found = [];
@@ -420,7 +440,7 @@ final class DeleteGuardReferenceScanner {
                     'count' => 0,
                     'error' => "guard {$guard['table']} metadata key '$metaKey' has an unsupported {$guard['ref']} value shape",
                     'rows' => [],
-                    'witness' => hash('sha256', Canon::encode($rows ?: [])),
+                    'witness' => self::guard_witness($guard, $table, 'present', $rows ?: []),
                 ];
             }
             if (!in_array($targetId, $valueIds, true)) {
@@ -440,7 +460,7 @@ final class DeleteGuardReferenceScanner {
                         'count' => 0,
                         'error' => "guard {$guard['table']} metadata key '$metaKey' has an unsupported desired {$guard['ref']} value shape",
                         'rows' => [],
-                        'witness' => hash('sha256', Canon::encode($rows ?: [])),
+                        'witness' => self::guard_witness($guard, $table, 'present', $rows ?: []),
                     ];
                 }
                 if (!$desiredContains) {
@@ -473,7 +493,7 @@ final class DeleteGuardReferenceScanner {
                     'count' => 0,
                     'error' => "guard {$guard['table']} metadata key '$metaKey' has an unsupported desired {$guard['ref']} value shape",
                     'rows' => [],
-                    'witness' => hash('sha256', Canon::encode($rows ?: [])),
+                    'witness' => self::guard_witness($guard, $table, 'present', $rows ?: []),
                 ];
             }
             if (!$desiredContains) {
@@ -486,7 +506,7 @@ final class DeleteGuardReferenceScanner {
             'count' => count($found),
             'error' => null,
             'rows' => $found,
-            'witness' => hash('sha256', Canon::encode($rows ?: [])),
+            'witness' => self::guard_witness($guard, $table, 'present', $rows ?: []),
         ];
     }
 }

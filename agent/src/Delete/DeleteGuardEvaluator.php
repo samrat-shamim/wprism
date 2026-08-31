@@ -18,6 +18,65 @@ namespace WPrism;
 final class DeleteGuardEvaluator {
     private static ?string $continuitySavepoint = null;
 
+    /**
+     * Census exact guard-table topology without turning a read failure or a
+     * case-fold/LIKE near-match into destructive authority.
+     *
+     * @param list<string> $tables
+     * @return array<string,string> exact table name => absent|present
+     */
+    public static function guard_table_topology(
+        array $tables,
+        string $purpose = 'deletion guard topology'
+    ): array {
+        global $wpdb;
+
+        self::assert_table_identifiers($tables, $purpose);
+        $tables = array_values(array_unique($tables));
+        sort($tables, SORT_STRING);
+        if ($tables === []) {
+            return [];
+        }
+        $tableSet = array_fill_keys($tables, true);
+        $placeholders = implode(',', array_fill(0, count($tables), '%s'));
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT TABLE_NAME FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ($placeholders)
+             ORDER BY TABLE_NAME ASC",
+            ...$tables
+        ), ARRAY_A);
+        $error = trim((string) ($wpdb->last_error ?? ''));
+        if (!is_array($rows) || !array_is_list($rows) || $error !== '') {
+            $detail = $error !== '' ? $error : 'malformed result returned';
+            throw new \RuntimeException(
+                "wprism: $purpose refused — exact guard-table topology census failed: $detail"
+            );
+        }
+
+        $found = [];
+        foreach ($rows as $row) {
+            if (!is_array($row) || !is_string($row['TABLE_NAME'] ?? null)) {
+                throw new \RuntimeException(
+                    "wprism: $purpose refused — exact guard-table topology census returned a malformed row"
+                );
+            }
+            $name = $row['TABLE_NAME'];
+            if (!isset($tableSet[$name]) || isset($found[$name])) {
+                throw new \RuntimeException(
+                    "wprism: $purpose refused — exact guard-table topology census returned an ambiguous table identity"
+                );
+            }
+            $found[$name] = true;
+        }
+
+        $topology = [];
+        foreach ($tables as $table) {
+            $topology[$table] = isset($found[$table]) ? 'present' : 'absent';
+        }
+        return $topology;
+    }
+
     /** Establish the transaction identity immediately after START TRANSACTION. */
     public static function begin_authored_transaction(): void {
         self::$continuitySavepoint = null;

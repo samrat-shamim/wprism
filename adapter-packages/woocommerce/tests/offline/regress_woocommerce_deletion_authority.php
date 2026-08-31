@@ -203,6 +203,8 @@ final class WooDeletionFakeWpdb {
     /** @var list<string> */
     public array $engineQueries = [];
     /** @var list<string> */
+    public array $topologyQueries = [];
+    /** @var list<string> */
     public array $events = [];
     /** @var array<string,string|null> */
     public array $tableEngines = [
@@ -379,8 +381,13 @@ final class WooDeletionFakeWpdb {
             return [];
         }
         if (str_contains($sql, 'information_schema.TABLES')) {
-            $this->engineQueries[] = $sql;
-            $this->events[] = 'engine';
+            if (str_contains($sql, 'SELECT TABLE_NAME FROM')) {
+                $this->topologyQueries[] = $sql;
+                $this->events[] = 'topology';
+            } else {
+                $this->engineQueries[] = $sql;
+                $this->events[] = 'engine';
+            }
             if ($this->engineIntrospectionError) {
                 $this->last_error = 'simulated information_schema failure';
                 return [];
@@ -986,6 +993,26 @@ $reservedStockGuard = array_values(array_filter(
 ))[0] ?? null;
 check(is_array($reservedStockGuard) && ($reservedStockGuard['forceable'] ?? null) === false,
     'shipped Woo product deletion marks live stock reservations non-forceable');
+$stockNotificationGuards = [];
+foreach (['post:product', 'post:product_variation'] as $selector) {
+    foreach ((array) ($shippedPolicy->deletion_capability($selector)['guards'] ?? []) as $guard) {
+        if (($guard['table'] ?? null) === 'wc_stock_notifications') {
+            $stockNotificationGuards[$selector] = $guard;
+        }
+    }
+}
+check(
+    array_keys($stockNotificationGuards) === ['post:product', 'post:product_variation']
+        && array_reduce(
+            $stockNotificationGuards,
+            static fn(bool $ok, array $guard): bool => $ok
+                && ($guard['column'] ?? null) === 'product_id'
+                && ($guard['forceable'] ?? null) === false
+                && ($guard['table_absence'] ?? null) === 'empty',
+            true
+        ),
+    'both shipped stock-notification guards bind the exact absence-means-empty topology and remain non-forceable when present'
+);
 $runtimeGuardManifest = $shippedPolicy->manifests[0];
 $runtimeGuardManifest['deletions']['post:product']['guards'] = [$reservedStockGuard];
 $runtimeGuardPolicy = clone $shippedPolicy;
@@ -996,6 +1023,34 @@ $runtimeGuardCoordinator = new \WPrism\DeleteGuardLockCoordinator(
     Snapshot::row_tables($runtimeGuardPolicy),
     static fn(array $binding): array => $binding
 );
+$absenceTables = new ReflectionProperty(\WPrism\DeleteGuardLockCoordinator::class, 'absenceEmptyTables');
+$absenceTables->setValue($runtimeGuardCoordinator, ['wp_wc_stock_notifications' => true]);
+$fakeWpdb->topologyQueries = [];
+$absentCommitReachedWriterGate = false;
+try {
+    $runtimeGuardCoordinator->assert_writer_exclusion_commit_boundary();
+} catch (Throwable $failure) {
+    $absentCommitReachedWriterGate = !str_contains($failure->getMessage(), 'appeared before commit');
+}
+check(
+    $absentCommitReachedWriterGate
+        && count($fakeWpdb->topologyQueries) === 1
+        && str_contains($fakeWpdb->topologyQueries[0], "TABLE_NAME IN ('wp_wc_stock_notifications')"),
+    'the final commit boundary re-censuses the exact absence-means-empty table before checking writer exclusion'
+);
+$fakeWpdb->tableEngines['wp_wc_stock_notifications'] = 'InnoDB';
+$appearedBeforeCommitRefused = false;
+try {
+    $runtimeGuardCoordinator->assert_writer_exclusion_commit_boundary();
+} catch (Throwable $failure) {
+    $appearedBeforeCommitRefused = str_contains($failure->getMessage(), 'appeared before commit');
+}
+check(
+    $appearedBeforeCommitRefused,
+    'an absence-means-empty table that appears before commit rolls the destructive boundary closed'
+);
+unset($fakeWpdb->tableEngines['wp_wc_stock_notifications']);
+$absenceTables->setValue($runtimeGuardCoordinator, []);
 $fakeWpdb->tableEngines['wp_wc_reserved_stock'] = 'InnoDB';
 $fakeWpdb->indexRows['wp_wc_reserved_stock'] = [[
     'Key_name' => 'product_id', 'Seq_in_index' => '1',
@@ -1751,6 +1806,7 @@ $fakeWpdb->modernIsolationError = true; // retained to prove no privileged/sessi
 $fakeWpdb->lockingQueries = [];
 $fakeWpdb->metadataQueries = [];
 $fakeWpdb->engineQueries = [];
+$fakeWpdb->topologyQueries = [];
 $fakeWpdb->events = [];
 \WPrism\DeleteGuardEvaluator::begin_authored_transaction();
 $plannedMeta = $countGuard->invoke(
@@ -1785,6 +1841,7 @@ try {
 check($metaLockSafe && count($fakeWpdb->lockingQueries) > 0,
     'metadata guard locks its indexed current-read range before phase-2 repair');
 check(count($fakeWpdb->engineQueries) === 2
+    && count($fakeWpdb->topologyQueries) === 3
     && $fakeWpdb->metadataQueries === [
         'SELECT 1 FROM `wp_options` LIMIT 1',
         'SELECT 1 FROM `wp_postmeta` LIMIT 1',
@@ -1793,8 +1850,9 @@ check(count($fakeWpdb->engineQueries) === 2
     && str_contains($fakeWpdb->engineQueries[1], "TABLE_NAME IN ('wp_postmeta')")
     && !str_contains($fakeWpdb->engineQueries[1], 'wp_comments'),
     'deletion guard accepts InnoDB activation/guard tables and introspects only its exact prefixed scopes');
-check($fakeWpdb->events === ['metadata', 'engine', 'metadata', 'engine', 'locking'],
-    'deletion boundary locks activation facts, then metadata-locks and validates guard engines before its first guard row lock');
+check($fakeWpdb->events === [
+    'topology', 'metadata', 'engine', 'topology', 'metadata', 'engine', 'topology', 'locking',
+], 'deletion boundary binds plan topology, locks activation facts, and re-censuses before its first guard row lock');
 
 // Guard rechecks precede context capture, so filesystem owners need one more
 // census at the exact row-delete boundary. Introduce a drop-in after a real
@@ -1838,9 +1896,9 @@ check(
     'a drop-in introduced after guard recheck is refused by the assertion consumed immediately before delete'
 );
 
-// A metadata-lock failure is a hard refusal at the first gate: information
-// schema must not be consulted and no guard read may be issued after the
-// database has already said the table boundary could not be acquired.
+// After the exact topology census identifies a present guard table, metadata
+// locking is the first physical-table gate. No engine or guard-row read may be
+// issued after the database says that lock boundary could not be acquired.
 $fakeWpdb->metadataProbeError = true;
 $fakeWpdb->last_error = '';
 $fakeWpdb->metadataQueries = [];
@@ -1864,10 +1922,10 @@ try {
 $metaRaceApply->end_writer_exclusion_transaction();
 check(
     $metadataProbeRefused
-        && $fakeWpdb->events === ['metadata']
+        && $fakeWpdb->events === ['topology', 'metadata']
         && $fakeWpdb->engineQueries === []
         && $fakeWpdb->lockingQueries === [],
-    'deletion guard fails closed on a metadata-lock error before engine or row-lock reads'
+    'deletion guard fails closed on a metadata-lock error after topology but before engine or row-lock reads'
 );
 $fakeWpdb->metadataProbeError = false;
 $fakeWpdb->last_error = '';
@@ -1928,12 +1986,13 @@ try {
         []
     );
 } catch (Throwable $e) {
-    $missingEngineRowRefused = str_contains($e->getMessage(), 'missing from information_schema.TABLES')
+    $missingEngineRowRefused = str_contains($e->getMessage(), 'required guard table')
+        && str_contains($e->getMessage(), 'is absent')
         && str_contains($e->getMessage(), 'wp_postmeta');
 }
 $metaRaceApply->end_writer_exclusion_transaction();
 check($missingEngineRowRefused && $fakeWpdb->lockingQueries === [],
-    'deletion guard refuses a missing information_schema engine row before locking');
+    'deletion guard refuses required physical table absence before engine or row locking');
 
 $fakeWpdb->tableEngines = $tableEngineBeforeRefusals;
 $fakeWpdb->engineIntrospectionError = true;
@@ -1949,12 +2008,12 @@ try {
         []
     );
 } catch (Throwable $e) {
-    $introspectionRefused = str_contains($e->getMessage(), 'storage-engine introspection failed')
+    $introspectionRefused = str_contains($e->getMessage(), 'exact guard-table topology census failed')
         && str_contains($e->getMessage(), 'simulated information_schema failure');
 }
 $metaRaceApply->end_writer_exclusion_transaction();
 check($introspectionRefused && $fakeWpdb->lockingQueries === [],
-    'deletion guard refuses a failed information_schema query before locking');
+    'deletion guard refuses a failed exact topology census before locking');
 $fakeWpdb->engineIntrospectionError = false;
 $fakeWpdb->last_error = '';
 

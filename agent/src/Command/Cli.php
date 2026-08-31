@@ -3743,16 +3743,20 @@ final class Cli {
                 continue;
             }
             foreach ($guards as $guard) {
+                $lockAnswer = $guard['table_present'] === false
+                    && ($guard['absence_means_empty'] ?? false) === true
+                        ? 'table absent; declared absence means empty — no lock needed'
+                        : ($guard['index'] !== null
+                            ? 'index `' . $guard['index'] . '`'
+                                . ($guard['prefix'] !== null ? ' (prefix ' . $guard['prefix'] . ')' : '')
+                            : 'NO covering index: ' . $guard['reason']);
                 WP_CLI::line(sprintf(
                     '%s: %s.%s locks on %s — %s',
                     $selector,
                     $guard['table'],
                     $guard['column'],
                     $guard['lock_column'],
-                    $guard['index'] !== null
-                        ? 'index `' . $guard['index'] . '`'
-                            . ($guard['prefix'] !== null ? ' (prefix ' . $guard['prefix'] . ')' : '')
-                        : 'NO covering index: ' . $guard['reason']
+                    $lockAnswer
                 ));
             }
         }

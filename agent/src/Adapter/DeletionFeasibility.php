@@ -8,7 +8,7 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 
 /**
- * Can each PROPOSED deletion guard lock? (`wprism-deletion-feasibility/v1`)
+ * Can each PROPOSED deletion guard lock? (`wprism-deletion-feasibility/v2`)
  *
  * A manifest's deletion contract is only as strong as its guards' lock
  * boundaries: `DeleteGuardReferenceScanner` runs each guard's final
@@ -70,7 +70,7 @@ require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
  * so it is checked on every guard rather than assumed.
  */
 final class DeletionFeasibility {
-    public const FORMAT = 'wprism-deletion-feasibility/v1';
+    public const FORMAT = 'wprism-deletion-feasibility/v2';
 
     /** Same word `AdapterProbe`/`AdapterObservation` publish: values never enter the document. */
     public const REDACTION = 'values_omitted';
@@ -125,13 +125,13 @@ final class DeletionFeasibility {
      */
     private const GUARD_KEYS = [
         'cast', 'column', 'exclude_where', 'id_kind', 'identity_column', 'meta_key',
-        'option_name_ref', 'optional_table', 'reason', 'ref', 'source_id_kind', 'source_pk', 'table', 'where',
+        'option_name_ref', 'reason', 'ref', 'source_id_kind', 'source_pk', 'table', 'table_absence', 'where',
     ];
 
     /**
      * @param array<string,mixed> $proposal `<selector> => {guards: [...]}` — the shape a
      *   manifest's `deletions` section has, minus `cascades`, which is refused
-     * @return array<string,mixed> a `wprism-deletion-feasibility/v1` document
+     * @return array<string,mixed> a `wprism-deletion-feasibility/v2` document
      */
     public static function report(array $proposal): array {
         global $wpdb;
@@ -317,8 +317,10 @@ final class DeletionFeasibility {
         self::assert_authored_identifier($column, 'column');
         $lockColumn = self::lock_column($guard);
         self::assert_authored_identifier($lockColumn, 'column');
+        $absenceMeansEmpty = ($guard['table_absence'] ?? null) === 'empty';
 
         $row = [
+            'absence_means_empty' => $absenceMeansEmpty,
             'column' => $column,
             'index' => null,
             'leading' => [],
@@ -340,7 +342,14 @@ final class DeletionFeasibility {
         // halves, and answering that question differently here would report a
         // lock boundary the deletion would never use.
         $prefixed = $wpdb->prefix . $table;
-        if (!self::table_exists($prefixed)) {
+        $topology = DeleteGuardEvaluator::guard_table_topology(
+            [$prefixed],
+            'deletion feasibility guard table topology'
+        );
+        if (($topology[$prefixed] ?? null) === 'absent') {
+            if ($absenceMeansEmpty) {
+                $row['reason'] = null;
+            }
             return $row;
         }
         $row['table_present'] = true;
@@ -480,20 +489,6 @@ final class DeletionFeasibility {
         );
     }
 
-    /**
-     * `SHOW TABLES LIKE` is the existence probe both the scanner
-     * (`DeleteGuardReferenceScanner.php:41`) and the probe already use. The
-     * result is compared byte-exactly because `_` is a LIKE wildcard and every
-     * WordPress prefix contains one.
-     */
-    private static function table_exists(string $prefixed): bool {
-        global $wpdb;
-        $wpdb->last_error = '';
-        $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed));
-        self::assert_read_ok('guard table existence');
-        return is_string($found) && $found === $prefixed;
-    }
-
     private static function assert_identifier(string $value, string $kind): void {
         if (preg_match(self::IDENTIFIER, $value) !== 1) {
             throw new \RuntimeException(
@@ -592,10 +587,10 @@ final class DeletionFeasibility {
                 . 'about whether removing this entity is right for a site, and nothing here decides that',
             'the verdict per guard is DeleteGuardEvaluator::lock_index()\'s own return value; the reason beside it '
                 . 'explains that verdict, and a disagreement between the two is refused rather than published',
-            'row values are never read: the only statements issued are SHOW TABLES LIKE and SHOW INDEX, the same '
-                . 'two the guard scanner runs before it locks',
-            'a guard table this target does not have is answered rather than inferred, so a missing table stays '
-                . 'distinguishable from an unindexed one',
+            'row values are never read: the only statements issued are the exact information_schema table census '
+                . 'and SHOW INDEX, the same topology and index evidence the guard scanner uses before it locks',
+            'a guard table this target does not have is answered rather than inferred: required absence remains '
+                . 'a blocker, while declared table_absence=empty is feasible without inventing an index',
             'a null is a live fact about THIS target\'s schema today: a plugin that ships an index tomorrow changes '
                 . 'the answer, and so does a site that added one by hand',
         ];

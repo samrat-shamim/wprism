@@ -194,27 +194,52 @@ $assertThrows(
     'an unrelated lock column cannot claim a next-key boundary'
 );
 
-$optionalTable = $manifests;
-$optionalTable[0]['deletions']['table:things']['guards'][0]['optional_table'] = true;
-$optionalCapability = (new DeletionCapabilityResolver(
-    $optionalTable,
-    $optionRules($optionalTable),
+$absenceEmpty = $manifests;
+$absenceEmpty[0]['tables']['children'] = ['class' => 'runtime'];
+$absenceEmpty[0]['deletions']['table:things']['guards'][0]['table_absence'] = 'empty';
+$absenceCapability = (new DeletionCapabilityResolver(
+    $absenceEmpty,
+    $optionRules($absenceEmpty),
     ['string', 'csv']
 ))->capability('table:things');
 $check(
-    ($optionalCapability['guards'][0]['optional_table'] ?? null) === true,
-    'an adapter may explicitly declare a version-optional guard table without weakening the present-table guard'
+    ($absenceCapability['guards'][0]['table_absence'] ?? null) === 'empty',
+    'a same-manifest table may explicitly declare the absence-means-empty topology contract'
 );
-$badOptionalTable = $optionalTable;
-$badOptionalTable[0]['deletions']['table:things']['guards'][0]['optional_table'] = false;
+foreach ([false, true, 'optional'] as $invalidAbsence) {
+    $badAbsence = $absenceEmpty;
+    $badAbsence[0]['deletions']['table:things']['guards'][0]['table_absence'] = $invalidAbsence;
+    $assertThrows(
+        static fn() => (new DeletionCapabilityResolver(
+            $badAbsence,
+            $optionRules($badAbsence),
+            ['string', 'csv']
+        ))->capability('table:things'),
+        'table_absence must be empty',
+        'table_absence is the exact enum empty, never a truthy or optional-like hint'
+    );
+}
+$foreignAbsence = $absenceEmpty;
+unset($foreignAbsence[0]['tables']['children']);
 $assertThrows(
     static fn() => (new DeletionCapabilityResolver(
-        $badOptionalTable,
-        $optionRules($badOptionalTable),
+        $foreignAbsence,
+        $optionRules($foreignAbsence),
         ['string', 'csv']
     ))->capability('table:things'),
-    'optional_table may only be true',
-    'a false-like optional-table declaration refuses instead of silently changing missing-table safety'
+    'may only describe a table declared by the same manifest',
+    'absence-means-empty authority cannot be borrowed from another manifest or an undeclared table'
+);
+$mixedAbsence = $absenceEmpty;
+$mixedAbsence[0]['deletions']['table:things']['guards'][] = $guard();
+$assertThrows(
+    static fn() => (new DeletionCapabilityResolver(
+        $mixedAbsence,
+        $optionRules($mixedAbsence),
+        ['string', 'csv']
+    ))->capability('table:things'),
+    'disagrees on table_absence',
+    'one selector cannot treat the same physical guard table as both required and absence-means-empty'
 );
 
 $closed = $manifests;

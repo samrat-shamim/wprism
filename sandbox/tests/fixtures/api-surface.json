@@ -15136,6 +15136,31 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "guard_table_topology": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tables",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "deletion guard topology",
+                            "has_default": true,
+                            "name": "purpose",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "lock_index": {
                     "abstract": false,
                     "final": false,
@@ -16029,7 +16054,7 @@
             "abstract": false,
             "constants": {
                 "FORMAT": {
-                    "value_repr": "wprism-deletion-feasibility/v1"
+                    "value_repr": "wprism-deletion-feasibility/v2"
                 },
                 "MAX_GUARDS": {
                     "value_repr": 32

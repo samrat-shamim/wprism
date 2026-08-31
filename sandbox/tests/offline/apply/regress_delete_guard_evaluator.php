@@ -65,9 +65,9 @@ final class DeleteGuardEvaluatorFakeWpdb {
     public int $stateProbeStep = 0;
     public mixed $replacementActiveTransaction = '0';
     public bool $protectedLockFixture = false;
-    /** @var list<string> */
-    public array $absentGuardTables = [];
-    public bool $guardTableProbeError = false;
+    /** @var ?list<array<string,mixed>> */
+    public ?array $topologyRowsOverride = null;
+    public bool $topologyProbeError = false;
     public bool $replaceConnectionOnProtectedOwnerLock = false;
     public bool $replaceConnectionOnProtectedUpdate = false;
     public bool $replaceConnectionOnProtectedReadback = false;
@@ -222,13 +222,6 @@ final class DeleteGuardEvaluatorFakeWpdb {
 
     public function get_var(string $sql): int|string|null|false {
         $this->queries[] = $sql;
-        if (preg_match("/^SHOW TABLES LIKE '([^']+)'$/D", $sql, $match) === 1) {
-            if ($this->guardTableProbeError) {
-                $this->last_error = 'simulated guard table existence failure';
-                return false;
-            }
-            return in_array($match[1], $this->absentGuardTables, true) ? null : $match[1];
-        }
         if (in_array($sql, ['SELECT CONNECTION_ID()', 'SELECT @@in_transaction'], true)) {
             $this->stateProbeStep++;
             if ($this->replaceConnectionAtStateProbeStep === $this->stateProbeStep) {
@@ -272,6 +265,15 @@ final class DeleteGuardEvaluatorFakeWpdb {
     public function get_results(string $sql, $format = null): mixed {
         $this->queries[] = $sql;
         if (str_contains($sql, 'information_schema.TABLES')) {
+            if (str_contains($sql, 'SELECT TABLE_NAME FROM')) {
+                if ($this->topologyProbeError) {
+                    $this->last_error = 'simulated exact topology census failure';
+                    return [];
+                }
+                if ($this->topologyRowsOverride !== null) {
+                    return $this->topologyRowsOverride;
+                }
+            }
             if ($this->introspectionFails) {
                 $this->last_error = 'simulated information_schema failure';
                 return [];
@@ -372,9 +374,8 @@ $check(
     'option-name guard locks the declared option-name range rather than its incidental column'
 );
 
-$optionalDb = new DeleteGuardEvaluatorFakeWpdb([]);
-$optionalDb->absentGuardTables = ['wp_version_optional_refs'];
-$GLOBALS['wpdb'] = $optionalDb;
+$absenceDb = new DeleteGuardEvaluatorFakeWpdb([]);
+$GLOBALS['wpdb'] = $absenceDb;
 $policyWithoutConstructor = (new ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
 $scanner = new DeleteGuardReferenceScanner($policyWithoutConstructor);
 $requiredAbsent = $scanner->count(
@@ -383,10 +384,10 @@ $requiredAbsent = $scanner->count(
     [],
     []
 );
-$optionalAbsent = $scanner->count(
+$absenceEmpty = $scanner->count(
     [
         'table' => 'version_optional_refs', 'column' => 'product_id',
-        'id_kind' => 'post', 'optional_table' => true,
+        'id_kind' => 'post', 'table_absence' => 'empty',
     ],
     '00000000-0000-0000-0000-000000000001',
     [],
@@ -397,22 +398,51 @@ $check(
         'count' => 0,
         'error' => "required guard table 'version_optional_refs' is absent",
         'rows' => [],
-    ] && $optionalAbsent === ['count' => 0, 'error' => null, 'rows' => []],
-    'only an explicit optional-table guard treats exact table absence as zero references'
+    ] && $absenceEmpty['count'] === 0 && $absenceEmpty['error'] === null && $absenceEmpty['rows'] === []
+        && ($absenceEmpty['witness'] ?? null) === hash('sha256', \WPrism\Canon::encode([
+            'format' => 'wprism-delete-guard-witness/v2',
+            'rows' => [],
+            'state' => 'absent',
+            'table' => 'wp_version_optional_refs',
+        ]))
+        && ($absenceEmpty['witness'] ?? null) !== hash('sha256', \WPrism\Canon::encode([
+            'format' => 'wprism-delete-guard-witness/v2',
+            'rows' => [],
+            'state' => 'present',
+            'table' => 'wp_version_optional_refs',
+        ])),
+    'only table_absence=empty accepts exact absence, and its witness cannot equal present-empty topology'
 );
-$optionalDb->guardTableProbeError = true;
+$absenceDb->topologyProbeError = true;
 $probeFailure = $scanner->count(
     [
         'table' => 'version_optional_refs', 'column' => 'product_id',
-        'id_kind' => 'post', 'optional_table' => true,
+        'id_kind' => 'post', 'table_absence' => 'empty',
     ],
     '00000000-0000-0000-0000-000000000001',
     [],
     []
 );
 $check(
-    str_contains((string) $probeFailure['error'], 'existence probe failed') && $probeFailure['rows'] === [],
-    'an optional-table existence probe error remains blocking rather than masquerading as absence'
+    str_contains((string) $probeFailure['error'], 'exact guard-table topology census failed')
+        && $probeFailure['rows'] === [],
+    'an exact topology census error remains blocking rather than masquerading as absence'
+);
+$nearMatchDb = new DeleteGuardEvaluatorFakeWpdb([]);
+$nearMatchDb->topologyRowsOverride = [['TABLE_NAME' => 'wpXversion_optional_refs']];
+$GLOBALS['wpdb'] = $nearMatchDb;
+$nearMatchFailure = $scanner->count(
+    [
+        'table' => 'version_optional_refs', 'column' => 'product_id',
+        'id_kind' => 'post', 'table_absence' => 'empty',
+    ],
+    '00000000-0000-0000-0000-000000000001',
+    [],
+    []
+);
+$check(
+    str_contains((string) $nearMatchFailure['error'], 'ambiguous table identity'),
+    'a case-fold or wildcard-like near match never proves exact guard-table absence'
 );
 
 $GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([
@@ -1720,7 +1750,9 @@ $check(
 
 $evaluator = new ReflectionClass(DeleteGuardEvaluator::class);
 $check(
-    (new ReflectionMethod(DeleteGuardEvaluator::class, 'lock_index'))->isPublic()
+    (new ReflectionMethod(DeleteGuardEvaluator::class, 'guard_table_topology'))->isPublic()
+        && (new ReflectionMethod(DeleteGuardEvaluator::class, 'guard_table_topology'))->isStatic()
+        && (new ReflectionMethod(DeleteGuardEvaluator::class, 'lock_index'))->isPublic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'lock_index'))->isStatic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'full_width_lock_index'))->isPublic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'full_width_lock_index'))->isStatic()
@@ -1737,7 +1769,7 @@ $check(
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'final_recheck_findings'))->isPublic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'final_recheck_findings'))->isStatic()
         && $evaluator->getConstructor() === null,
-    'evaluator exposes dependency-free static index, storage-engine, isolation, reference, plan, witness, and recheck contracts'
+    'evaluator exposes dependency-free static topology, index, storage-engine, isolation, reference, plan, witness, and recheck contracts'
 );
 
 $applySource = file_get_contents(__DIR__ . '/../../../../agent/src/Delete/DeleteGuardLockCoordinator.php');
@@ -1754,9 +1786,23 @@ $check(
         && str_contains($applySource, "require_once __DIR__ . '/DeleteGuardReferenceScanner.php';")
         && str_contains($scannerSource, "require_once __DIR__ . '/DeleteGuardEvaluator.php';")
         && substr_count($scannerSource, 'DeleteGuardEvaluator::lock_index(') === 3
-        && str_contains($engineFacade, 'DeleteGuardEvaluator::assert_innodb_tables(array_keys($tables));')
+        && str_contains($engineFacade, 'DeleteGuardEvaluator::guard_table_topology(')
+        && str_contains($engineFacade, 'DeleteGuardEvaluator::assert_innodb_tables($presentTables);')
         && !str_contains($engineFacade, 'information_schema.TABLES'),
-    'the scanner and lock coordinator delegate deletion-guard index and storage-engine decisions to the evaluator'
+    'the scanner and lock coordinator delegate exact topology, index, and storage-engine decisions to the evaluator'
+);
+$commitBoundary = substr(
+    $applySource,
+    strpos($applySource, 'public function assert_writer_exclusion_commit_boundary('),
+    strpos($applySource, 'public function end_writer_exclusion_transaction(')
+        - strpos($applySource, 'public function assert_writer_exclusion_commit_boundary(')
+);
+$check(
+    str_contains($commitBoundary, 'DeleteGuardEvaluator::guard_table_topology(')
+        && str_contains($commitBoundary, "if (\$state !== 'absent')")
+        && strpos($commitBoundary, 'guard_table_topology(')
+            < strpos($commitBoundary, '$this->writerExclusion->assert_commit_boundary();'),
+    'the final pre-COMMIT boundary re-censuses every absence-means-empty table before accepting writer exclusion'
 );
 $check(
     !str_contains($applySource, 'private function guard_lock_index(')

@@ -12,6 +12,8 @@ require_once __DIR__ . '/DeletionWriterExclusion.php';
 /** Owns the transactional lock-and-recheck boundary for deletion guards. */
 final class DeleteGuardLockCoordinator {
     private bool $guardTableTouched = false;
+    /** @var array<string,true> exact tables whose reviewed absence means zero references */
+    private array $absenceEmptyTables = [];
     private ExecutableOwnerBoundary $executableOwnerBoundary;
     private DeletionWriterExclusion $writerExclusion;
 
@@ -106,7 +108,8 @@ final class DeleteGuardLockCoordinator {
         global $wpdb;
 
         $this->guardTableTouched = false;
-        $tables = [];
+        $this->absenceEmptyTables = [];
+        $tableModes = [];
         $invalidGuards = [];
         foreach ($deleteWork as $row) {
             $capability = Deletion::capability(
@@ -121,25 +124,13 @@ final class DeleteGuardLockCoordinator {
                     continue;
                 }
                 $table = (string) $wpdb->prefix . $declared;
-                if (($guard['optional_table'] ?? null) === true) {
-                    // The signed all-database-writer exclusion is already
-                    // bound for this transaction. An exact absence probe can
-                    // therefore omit a table that this reviewed adapter says
-                    // the supported version may not install, while a present
-                    // table still enters the ordinary MDL/InnoDB lock proof.
-                    $wpdb->last_error = '';
-                    $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
-                    $error = trim((string) ($wpdb->last_error ?? ''));
-                    if ($error !== '') {
-                        throw new \RuntimeException(
-                            "wprism: deletion guard locking refused — optional guard table existence probe failed: $error"
-                        );
-                    }
-                    if (!$exists) {
-                        continue;
-                    }
+                $mode = ($guard['table_absence'] ?? null) === 'empty' ? 'empty' : 'required';
+                if (isset($tableModes[$table]) && $tableModes[$table] !== $mode) {
+                    throw new \RuntimeException(
+                        "wprism: deletion guard locking refused — guard declarations disagree on table_absence for '$table'"
+                    );
                 }
-                $tables[$table] = true;
+                $tableModes[$table] = $mode;
             }
         }
         if ($invalidGuards) {
@@ -149,8 +140,29 @@ final class DeleteGuardLockCoordinator {
                 . implode(', ', $invalidGuards)
             );
         }
-        if ($tables) {
-            DeleteGuardEvaluator::assert_innodb_tables(array_keys($tables));
+        if ($tableModes === []) {
+            return;
+        }
+
+        $topology = DeleteGuardEvaluator::guard_table_topology(
+            array_keys($tableModes),
+            'deletion guard locking'
+        );
+        $presentTables = [];
+        foreach ($tableModes as $table => $mode) {
+            if (($topology[$table] ?? null) === 'present') {
+                $presentTables[] = $table;
+                continue;
+            }
+            if ($mode !== 'empty') {
+                throw new \RuntimeException(
+                    "wprism: deletion guard locking refused — required guard table '$table' is absent"
+                );
+            }
+            $this->absenceEmptyTables[$table] = true;
+        }
+        if ($presentTables !== []) {
+            DeleteGuardEvaluator::assert_innodb_tables($presentTables);
             $this->guardTableTouched = true;
         }
     }
@@ -233,11 +245,25 @@ final class DeleteGuardLockCoordinator {
 
     /** Last authored-transaction operation before the database COMMIT. */
     public function assert_writer_exclusion_commit_boundary(): void {
+        if ($this->absenceEmptyTables !== []) {
+            $topology = DeleteGuardEvaluator::guard_table_topology(
+                array_keys($this->absenceEmptyTables),
+                'deletion guard commit boundary'
+            );
+            foreach ($topology as $table => $state) {
+                if ($state !== 'absent') {
+                    throw new \RuntimeException(
+                        "wprism: deletion guard commit refused — absence-means-empty table '$table' appeared before commit"
+                    );
+                }
+            }
+        }
         $this->writerExclusion->assert_commit_boundary();
     }
 
     /** Clear the transaction-local token after either commit or rollback. */
     public function end_writer_exclusion_transaction(): void {
+        $this->absenceEmptyTables = [];
         $this->writerExclusion->end_authored_transaction();
     }
 

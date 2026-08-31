@@ -30,6 +30,7 @@ final class DeletionCapabilityResolver {
      */
     public function capability(string $selector): ?array {
         $out = null;
+        $tableAbsenceModes = [];
         foreach ($this->manifests as $manifest) {
             $decl = $manifest['deletions'][$selector] ?? null;
             if ($decl === null) {
@@ -100,11 +101,27 @@ final class DeletionCapabilityResolver {
                         "wprism: manifest deletion capability '$selector' guard[$i].forceable may only be false"
                     );
                 }
-                if (array_key_exists('optional_table', $guard) && $guard['optional_table'] !== true) {
+                if (array_key_exists('table_absence', $guard) && $guard['table_absence'] !== 'empty') {
                     throw new \RuntimeException(
-                        "wprism: manifest deletion capability '$selector' guard[$i].optional_table may only be true"
+                        "wprism: manifest deletion capability '$selector' guard[$i].table_absence must be empty when declared"
                     );
                 }
+                if (array_key_exists('table_absence', $guard)
+                    && (!is_array($manifest['tables'] ?? null)
+                        || !array_key_exists((string) $guard['table'], $manifest['tables']))) {
+                    throw new \RuntimeException(
+                        "wprism: manifest deletion capability '$selector' guard[$i].table_absence may only describe a table declared by the same manifest"
+                    );
+                }
+                $tableName = (string) $guard['table'];
+                $absenceMode = ($guard['table_absence'] ?? null) === 'empty' ? 'empty' : 'required';
+                if (isset($tableAbsenceModes[$tableName])
+                    && $tableAbsenceModes[$tableName] !== $absenceMode) {
+                    throw new \RuntimeException(
+                        "wprism: manifest deletion capability '$selector' disagrees on table_absence for guard table '$tableName'"
+                    );
+                }
+                $tableAbsenceModes[$tableName] = $absenceMode;
                 $hasMetaKey = array_key_exists('meta_key', $guard);
                 $hasMetaRef = array_key_exists('ref', $guard);
                 if ($hasMetaKey !== $hasMetaRef) {
