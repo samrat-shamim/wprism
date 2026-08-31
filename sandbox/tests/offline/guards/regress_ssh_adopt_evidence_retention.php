@@ -147,7 +147,7 @@ $check(
 
 $failureScopeMint = '"$WPRISM" --envs-file="$TMP/envs.json" scope target --roots=options --contract >"$TMP/scoped-apply-failure-scope.json"';
 $refreshStart = strpos($harness, 'if ssh_fixture \'cd /var/www/html && wp wprism refresh-export --repo=/home/wprism/site --scope-contract=/home/wprism/site/.scoped-apply-scope-chain.json --format=json\'');
-$priorFailure = "ssh_fixture 'cd /var/www/html && wp option update scoped-apply_scoped_option prior-failure --autoload=no >/dev/null'";
+$priorFailure = "ssh_fixture 'cd /var/www/html && wp option update blogdescription prior-failure --autoload=no >/dev/null'";
 $faultArm = "ssh_fixture 'touch /home/wprism/recovery-fixture/scoped-apply-fault-active'";
 $planStart = strpos($harness, 'if "$WPRISM" --envs-file="$TMP/envs.json" plan target --scope-contract="$TMP/scoped-apply-failure-scope.json"');
 $promoteStart = strpos($harness, 'if "$WPRISM" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/scoped-apply-failure-scope.json"');
