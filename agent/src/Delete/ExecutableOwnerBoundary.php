@@ -15,7 +15,8 @@ require_once __DIR__ . '/Deletion.php';
  * get_option() is intentionally absent because its request cache can predate
  * the authored transaction. Theme/MU/drop-in code is sampled only while the
  * externally verified writer exclusion is held, then sampled again immediately
- * before each delete.
+ * before each delete. Adapter ownership admits an executable basename; it
+ * never substitutes for the site's exact live-tree agreement.
  */
 final class ExecutableOwnerBoundary {
     private const PURPOSE = 'deletion executable-owner boundary';
@@ -105,7 +106,12 @@ final class ExecutableOwnerBoundary {
         $siteAgreements = self::site_agreements($this->policy->site['policy'] ?? []);
         $diagnostics = [];
         foreach ($capabilities as $selector => $capability) {
-            $declared = array_fill_keys((array) ($capability['declaring_executable_owners'] ?? []), true);
+            $manifestDeclared = array_fill_keys(
+                (array) ($capability['declaring_executable_owners'] ?? []),
+                true
+            );
+            $manifestIdentities = (array) ($capability['declaring_executable_owner_identities'] ?? []);
+            $declared = [];
             // This exact loader is the trusted engine executing the boundary,
             // not site code whose reverse references the Woo adapter must infer.
             $declared['mu-plugin:wprism-loader.php'] = true;
@@ -129,6 +135,39 @@ final class ExecutableOwnerBoundary {
                     $diagnostics[] = $diagnostic;
                     continue;
                 }
+                if (str_starts_with($owner, 'plugin:') && !isset($manifestDeclared[$owner])) {
+                    $diagnostics[] = [
+                        'code' => 'deletion_executable_owner_not_manifest_declared',
+                        'surface' => $selector,
+                        'owner' => $owner,
+                        'owner_type' => 'plugin',
+                        'message' => 'a site agreement cannot grant deletion authority to a plugin without an adapter declaration',
+                        'remediation' => 'install a pinned adapter that declares this exact plugin owner before reviewing its code identity',
+                    ];
+                    continue;
+                }
+                if (isset($manifestDeclared[$owner])) {
+                    $identityReviewed = false;
+                    foreach ((array) ($manifestIdentities[$owner] ?? []) as $reviewedIdentity) {
+                        if (is_array($reviewedIdentity)
+                            && hash_equals(Canon::encode($actualIdentity), Canon::encode($reviewedIdentity))) {
+                            $identityReviewed = true;
+                            break;
+                        }
+                    }
+                    if (!$identityReviewed) {
+                        $diagnostics[] = [
+                            'code' => 'deletion_executable_owner_code_unreviewed',
+                            'surface' => $selector,
+                            'owner' => $owner,
+                            'owner_type' => explode(':', $owner, 2)[0],
+                            'message' => 'live executable owner bytes are outside the adapter-reviewed identity set',
+                            'remediation' => 'install an exact adapter-reviewed artifact or certify and pin the new executable-tree identity in the manifest',
+                            'code_identity' => $actualIdentity,
+                        ];
+                        continue;
+                    }
+                }
                 $declared[$owner] = true;
             }
             foreach (array_keys($owners) as $owner) {
@@ -142,7 +181,9 @@ final class ExecutableOwnerBoundary {
                     'owner' => $owner,
                     'owner_type' => $ownerType,
                     'message' => 'active executable owner has no agreeing deletion declaration',
-                    'remediation' => 'pin an adapter declaration or add one exact v2 theme/MU/drop-in code-identity agreement',
+                    'remediation' => isset($manifestDeclared[$owner])
+                        ? 'record one exact v2 live-tree identity agreement for this adapter-declared owner'
+                        : 'pin an adapter declaration where required and add one exact v2 code-identity agreement',
                 ];
                 if (is_array($owners[$owner])) {
                     $diagnostic['code_identity'] = $owners[$owner];
@@ -165,7 +206,7 @@ final class ExecutableOwnerBoundary {
         throw new CommandRefusalException(
             'deletion_executable_owner_boundary',
             'deletion intent is blocked by active executable owners outside the reviewed reverse-reference contract',
-            'pin agreeing adapters or record exact site-owned theme/MU/drop-in agreements with review rationale',
+            'pin agreeing adapters and record exact live executable-tree agreements with review rationale',
             $diagnostics,
             'wprism: deletion intent is blocked while these active executable owners have no agreeing reverse-reference contract: '
                 . implode(', ', $labels)
@@ -178,11 +219,11 @@ final class ExecutableOwnerBoundary {
         $owners = [];
         foreach ($facts['active_plugins'] as $plugin) {
             self::assert_plugin_owner($plugin, 'active_plugins');
-            $owners['plugin:' . $plugin] = null;
+            $owners['plugin:' . $plugin] = self::plugin_identity($plugin);
         }
         foreach ($facts['network_plugins'] as $plugin) {
             self::assert_plugin_owner($plugin, 'active_sitewide_plugins');
-            $owners['plugin:' . $plugin] = null;
+            $owners['plugin:' . $plugin] = self::plugin_identity($plugin);
         }
         foreach ([$facts['stylesheet'], $facts['template']] as $theme) {
             if (preg_match('/^[A-Za-z0-9._-]{1,128}$/D', $theme) !== 1) {
@@ -364,6 +405,30 @@ final class ExecutableOwnerBoundary {
             }
         }
         return self::tree_identity($root, 'themes/' . $theme);
+    }
+
+    /** @return array{format:string,root:string,sha256:string} */
+    private static function plugin_identity(string $plugin): array {
+        self::content_root();
+        $pluginsRoot = defined('WP_PLUGIN_DIR') && is_string(WP_PLUGIN_DIR) && WP_PLUGIN_DIR !== ''
+            ? WP_PLUGIN_DIR
+            : rtrim(WP_CONTENT_DIR, '/\\') . '/plugins';
+        $expectedPluginsRoot = rtrim(WP_CONTENT_DIR, '/\\') . '/plugins';
+        if (!self::same_path($pluginsRoot, $expectedPluginsRoot)) {
+            throw new \RuntimeException(
+                "wprism: active plugin '$plugin' is outside the canonical wp-content/plugins owner root"
+            );
+        }
+        $directory = str_replace('\\', '/', dirname($plugin));
+        $canonicalRoot = $directory === '.' ? 'plugins/' . $plugin : 'plugins/' . $directory;
+        $absoluteRoot = rtrim($pluginsRoot, '/\\') . '/'
+            . ($directory === '.' ? $plugin : $directory);
+        $main = rtrim($pluginsRoot, '/\\') . '/' . $plugin;
+        clearstatcache(true, $main);
+        if (!is_file($main) || is_link($main) || !is_readable($main)) {
+            throw new \RuntimeException("wprism: active plugin '$plugin' has an unsafe or unreadable main file");
+        }
+        return self::tree_identity($absoluteRoot, $canonicalRoot);
     }
 
     /** @return array{format:string,root:string,sha256:string} */
@@ -666,11 +731,6 @@ final class ExecutableOwnerBoundary {
                 $owner = $ownerRow['owner'] ?? null;
                 $rationale = $ownerRow['rationale'] ?? null;
                 $identity = $ownerRow['code_identity'] ?? null;
-                if (is_string($owner) && str_starts_with($owner, 'plugin:')) {
-                    throw new \RuntimeException(
-                        'wprism: policy.deletion_owner_agreements categorically rejects plugin:*; only a pinned manifest may declare a plugin executable owner'
-                    );
-                }
                 if ($ownerKeys !== ['code_identity', 'owner', 'rationale']
                     || !is_string($owner)
                     || !self::valid_site_owner($owner)
@@ -716,7 +776,7 @@ final class ExecutableOwnerBoundary {
     }
 
     private static function valid_site_owner(string $owner): bool {
-        if (preg_match('/^(?:theme:[A-Za-z0-9._-]{1,128}|mu-plugin:[A-Za-z0-9._-]{1,192}\.php)$/D', $owner) === 1) {
+        if (preg_match('/^(?:plugin:[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*\.php|theme:[A-Za-z0-9._-]{1,128}|mu-plugin:[A-Za-z0-9._-]{1,192}\.php)$/D', $owner) === 1) {
             return true;
         }
         return str_starts_with($owner, 'dropin:')
@@ -726,6 +786,7 @@ final class ExecutableOwnerBoundary {
     private static function expected_owner_root(string $owner): string {
         [$type, $name] = explode(':', $owner, 2);
         return match ($type) {
+            'plugin' => dirname($name) === '.' ? 'plugins/' . $name : 'plugins/' . dirname($name),
             'theme' => 'themes/' . $name,
             'mu-plugin' => 'mu-plugins',
             'dropin' => $name,

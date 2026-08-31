@@ -375,17 +375,25 @@ function option_authorization_diagnostics(Policy $policy, array $document): arra
     }
 }
 
-function apply_instance(Policy $policy, Tokens $tokens, string $repositoryRoot): \WPrism\PostMaterializer {
+function apply_instance(
+    Policy $policy,
+    Tokens $tokens,
+    string $repositoryRoot,
+    array $environmentValues = []
+): \WPrism\PostMaterializer {
     $fieldMaterializer = new \WPrism\ApplyFieldMaterializer($policy, $tokens);
     $fieldMaterializer->begin_authored_transaction();
-    \WPrism\CacheInvalidationTransaction::begin();
+    if (!\WPrism\CacheInvalidationTransaction::is_active()) {
+        \WPrism\CacheInvalidationTransaction::begin();
+    }
     $compiled = (new ReflectionClass(CompiledRepository::class))->newInstanceWithoutConstructor();
     return new \WPrism\PostMaterializer(
         $policy,
         $tokens,
         $fieldMaterializer,
         new \WPrism\RelationshipMaterializer($policy, $fieldMaterializer),
-        new \WPrism\AttachmentMaterializer($policy, $fieldMaterializer, $compiled, $repositoryRoot)
+        new \WPrism\AttachmentMaterializer($policy, $fieldMaterializer, $compiled, $repositoryRoot),
+        $environmentValues
     );
 }
 
@@ -994,6 +1002,37 @@ check(
     ($insertedPost['post_modified'] ?? null) === $newProduct['modified']
         && ($insertedPost['post_modified_gmt'] ?? null) === $newProduct['modified_gmt'],
     'new Woo product receives captured timestamp starting values'
+);
+
+$protectedUuid = '018f0000-0000-7000-8000-000000000006';
+$passwordBinding = \WPrism\EnvironmentValues::postPasswordName($protectedUuid);
+$maximumPassword = str_repeat('p', 255);
+\WPrism\EnvironmentValues::set($fixtureDir, $passwordBinding, $maximumPassword);
+$protectedApply = apply_instance(
+    $policy,
+    $tokens,
+    $fixtureDir,
+    \WPrism\EnvironmentValues::read($fixtureDir)
+);
+$protectedPost = post_front('article', $protectedUuid, '2026-08-08 00:00:05');
+$protectedPost['password_binding'] = $passwordBinding;
+check(
+    $protectedApply->ensure_post_row($protectedPost) === true,
+    'an absent protected post materializes from its persisted target-local binding'
+);
+$protectedInsert = null;
+foreach ($wpdb->inserts as $insert) {
+    if ($insert['table'] === $wpdb->posts
+        && ($insert['data']['post_password'] ?? null) === $maximumPassword) {
+        $protectedInsert = $insert['data'];
+    }
+}
+check(
+    is_array($protectedInsert)
+        && strlen((string) $protectedInsert['post_password']) === 255
+        && (\WPrism\EnvironmentValues::read($fixtureDir)[$passwordBinding] ?? null)
+            === $protectedInsert['post_password'],
+    'absent-post apply writes the exact 255-byte value read back from env-set intent without truncation'
 );
 
 if ($failures > 0) {

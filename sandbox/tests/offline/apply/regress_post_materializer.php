@@ -121,6 +121,43 @@ $check(
     is_string($missingRefusal) && str_contains($missingRefusal, 'is not provisioned on this environment'),
     'post materialization refuses a protected post before mutation when its local password binding is absent'
 );
+$maximumPassword = str_repeat('p', 255);
+$maximumPasswordMaterializer = new PostMaterializer(
+    $policy,
+    $tokens,
+    $fieldMaterializer,
+    $relationshipMaterializer,
+    $attachmentMaterializer,
+    [$passwordBinding => $maximumPassword]
+);
+$check(
+    $passwordMethod->invoke($maximumPasswordMaterializer, [
+        'uuid' => $passwordUuid,
+        'password_binding' => $passwordBinding,
+    ]) === $maximumPassword,
+    'post materialization accepts the exact 255-byte wp_posts.post_password boundary'
+);
+$overlongPasswordMaterializer = new PostMaterializer(
+    $policy,
+    $tokens,
+    $fieldMaterializer,
+    $relationshipMaterializer,
+    $attachmentMaterializer,
+    [$passwordBinding => str_repeat('p', 256)]
+);
+$overlongPasswordRefusal = null;
+try {
+    $passwordMethod->invoke($overlongPasswordMaterializer, [
+        'uuid' => $passwordUuid,
+        'password_binding' => $passwordBinding,
+    ]);
+} catch (RuntimeException $failure) {
+    $overlongPasswordRefusal = $failure->getMessage();
+}
+$check(
+    $overlongPasswordRefusal === 'wprism: protected post password must contain 1 to 255 bytes',
+    'post materialization refuses an impossible 256-byte protected-post value before a wp_posts write'
+);
 $protectedIdentitySource = (string) file_get_contents(
     __DIR__ . '/../../../../agent/src/Apply/ProtectedPostIdentity.php'
 );

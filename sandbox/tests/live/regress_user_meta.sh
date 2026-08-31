@@ -224,7 +224,7 @@ assert_typed_json_refusal \
   "capture found personal data on an authored user-meta surface" \
   "keep the named field environment-local, or record an explicit reviewed allow-pii decision" \
   contact_email personal_data_shape "email address" \
-  "authored user meta matched a personal-data signature" \
+  "authored state matched a personal-data signature" \
   "keep it environment-local or explicitly review allow-pii for this field" \
   "$PII_FAIL" "PII refusal"
 PII_FAIL_JSON=$(tail -n 1 <<<"$PII_FAIL")
@@ -244,7 +244,7 @@ assert_typed_json_refusal \
   "capture found secret-shaped data on an authored surface" \
   "reclassify the named surface as environment/runtime state, or explicitly review and allow the false positive" \
   api_token secret_shape "github token" \
-  "authored state matched a secret signature" \
+  "authored state matched a secret or credential-shape signature" \
   "reclassify it or record an explicit reviewed allow-secret decision" \
   "$SECRET_FAIL" "secret refusal"
 SECRET_FAIL_JSON=$(tail -n 1 <<<"$SECRET_FAIL")

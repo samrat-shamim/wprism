@@ -566,6 +566,89 @@ from the same list:
 | ordinary `drift` | The environment changed outside WPrism, so the repository comparison is stale. | `wprism capture` first, reconcile the captured intent, then apply a fresh plan. Ordinary apply/promote refuses during preparation before any authored mutation; the separately checkpointed scoped-promotion profile is the only reviewed path allowed to replace selected drift. |
 | `adapter_dispositions` | A pinned manifest is experimental, excluded, uncovered by any reviewed entry, installed out-of-tree and uncertified, signed but not exactly pinned, or outside its reviewed plugin version window. Each row carries the capability report's own code and remediation. | Pin a certified manifest and an in-range plugin version, sign and pin the site adapter (`wprism adapter certify … --pin`), or accept the boundary and do not promote. |
 
+### Review executable owners before a supported deletion
+
+`--with-deletes` is necessary but not sufficient when an adapter declares
+`executable_owner_boundary: "all_active_owners"`. WPrism locks the active and
+network-active plugin roster, the active child and parent themes, every
+top-level MU plugin, and recognized WordPress drop-ins. It hashes each exact
+installed tree. The selector must then carry a reviewed v2 agreement for every
+owner except WPrism's own loader.
+
+Use a staging target with the exact production code and the normal scoped
+promotion/writer-exclusion provider. The first attempt refuses before authored
+mutation and reports each missing owner with a safe `code_identity` tuple:
+
+```json
+{
+  "owner": "theme:agency-child",
+  "code_identity": {
+    "format": "wprism-executable-tree/v1",
+    "root": "themes/agency-child",
+    "sha256": "<64 lowercase hex>"
+  }
+}
+```
+
+For an adapter-declared plugin or theme, first verify that the installed build
+is one of the exact executable identities reviewed in its pinned manifest. A
+site agreement is an independent acknowledgement of that live tree, not a way
+to certify new plugin bytes: copying a modified tree's diagnostic hash back
+into policy still refuses. For a site-owned theme, MU plugin, or drop-in,
+review the installed tree and its reverse-reference behavior directly. Do not
+copy any hash blindly. Then add the tuple and a specific rationale to
+`site.wprism.json`:
+
+```json
+{
+  "policy": {
+    "deletion_owner_agreements": {
+      "format": "wprism-deletion-owner-agreements/v2",
+      "selectors": [
+        {
+          "selector": "post:product",
+          "owners": [
+            {
+              "owner": "plugin:woocommerce/woocommerce.php",
+              "code_identity": {
+                "format": "wprism-executable-tree/v1",
+                "root": "plugins/woocommerce",
+                "sha256": "<reviewed digest>"
+              },
+              "rationale": "Exact adapter-declared WooCommerce tree reviewed for product deletion."
+            },
+            {
+              "owner": "theme:agency-child",
+              "code_identity": {
+                "format": "wprism-executable-tree/v1",
+                "root": "themes/agency-child",
+                "sha256": "<reviewed digest>"
+              },
+              "rationale": "Exact child-theme tree has no product reverse-reference persistence."
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+Repeat owner rows for each selector they have been reviewed against. A
+`plugin:*` row is accepted only when the pinned adapter declares that exact
+plugin owner and the live tree matches one of the manifest's reviewed
+identities; site policy cannot grant deletion authority to a foreign plugin or
+self-approve changed plugin bytes. A manifest-declared theme follows the same
+rule. Site-owned themes, MU plugins, and drop-ins are site-reviewed because no
+adapter claims their executable bytes.
+MU-plugin owners use `mu-plugin:<top-level.php>` and share the whole
+`mu-plugins` root identity; drop-ins use `dropin:<recognized.php>`; parent and
+child themes are independent owners. Duplicate rows and legacy maps refuse.
+Any file addition, removal, or byte change moves the digest and blocks the
+delete until the changed code is reviewed and deliberately re-pinned. WPrism
+rechecks the roster and identities before every destructive unit and again at
+the final transaction frontier.
+
 If an apply fails after you explicitly authorized a conflict override, its
 JSON refusal includes `forced_overrides`: hash-only, versioned evidence of the
 choice that was authorized. It does not claim that the mutation committed;

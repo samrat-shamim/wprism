@@ -8,6 +8,7 @@ if (!class_exists(Db::class, false)) {
     require_once __DIR__ . '/../Kernel/Db.php';
 }
 require_once __DIR__ . '/../Kernel/MetaRows.php';
+require_once __DIR__ . '/../Kernel/PostPasswordBinding.php';
 require_once __DIR__ . '/../Kernel/Uuid.php';
 if (!class_exists(Ledger::class, false)) {
     require_once __DIR__ . '/../Repository/Ledger.php';
@@ -206,6 +207,7 @@ final class ProtectedPostIdentity {
         string $connectionId
     ): bool {
         self::assert_inputs($uuid, $postType);
+        PostPasswordBinding::assertValue($value);
         if ($postId < 1 || preg_match('/^[1-9][0-9]*$/D', $connectionId) !== 1) {
             throw new \RuntimeException('wprism: protected post password update carries malformed identity inputs');
         }

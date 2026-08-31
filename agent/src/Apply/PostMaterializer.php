@@ -4,6 +4,7 @@ namespace WPrism;
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
+require_once __DIR__ . '/../Kernel/PostPasswordBinding.php';
 require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/RelationshipMaterializer.php';
 require_once __DIR__ . '/AttachmentMaterializer.php';
@@ -282,6 +283,7 @@ final class PostMaterializer {
                 "wprism: protected post password binding '$binding' is not provisioned on this environment"
             );
         }
+        PostPasswordBinding::assertValue($value);
 
         return $value;
     }

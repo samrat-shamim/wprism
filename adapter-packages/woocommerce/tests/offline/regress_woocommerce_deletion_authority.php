@@ -22,6 +22,8 @@ mkdir($executableOwnerFixture . '/mu-plugins', 0777, true);
 mkdir($executableOwnerFixture . '/themes/twentytwentyfive', 0777, true);
 mkdir($executableOwnerFixture . '/themes/agency-child', 0777, true);
 mkdir($executableOwnerFixture . '/themes/agency-parent', 0777, true);
+mkdir($executableOwnerFixture . '/plugins/woocommerce', 0777, true);
+mkdir($executableOwnerFixture . '/plugins/acme-extension', 0777, true);
 file_put_contents(
     $executableOwnerFixture . '/mu-plugins/wprism-loader.php',
     "<?php\nrequire __DIR__ . '/wprism-loader-dependency.inc';\n"
@@ -30,7 +32,11 @@ file_put_contents($executableOwnerFixture . '/mu-plugins/wprism-loader-dependenc
 file_put_contents($executableOwnerFixture . '/themes/twentytwentyfive/functions.php', "<?php // fixture theme\n");
 file_put_contents($executableOwnerFixture . '/themes/agency-child/functions.php', "<?php // fixture child\n");
 file_put_contents($executableOwnerFixture . '/themes/agency-parent/functions.php', "<?php // fixture parent\n");
+file_put_contents($executableOwnerFixture . '/plugins/woocommerce/woocommerce.php', "<?php // Version: 11.0.1\n");
+file_put_contents($executableOwnerFixture . '/plugins/woocommerce/dependency.php', "<?php // dependency-v1\n");
+file_put_contents($executableOwnerFixture . '/plugins/acme-extension/acme.php', "<?php // Version: 1.0.0\n");
 define('WP_CONTENT_DIR', $executableOwnerFixture);
+define('WP_PLUGIN_DIR', $executableOwnerFixture . '/plugins');
 define('WPMU_PLUGIN_DIR', $executableOwnerFixture . '/mu-plugins');
 register_shutdown_function(static function () use ($executableOwnerFixture): void {
     if (!is_dir($executableOwnerFixture)) {
@@ -487,8 +493,16 @@ check(
     ($shippedPolicy->deletion_capability('post:product')['executable_owner_boundary'] ?? null)
         === 'all_active_owners'
         && ($shippedPolicy->deletion_capability('post:product')['declaring_executable_owners'] ?? null)
-            === ['plugin:woocommerce/woocommerce.php'],
-    'shipped Woo product deletion statically declares its exact executable owner; live facts bind only in the transaction'
+            === ['plugin:woocommerce/woocommerce.php']
+        && array_column(
+            (array) ($shippedPolicy->deletion_capability('post:product')['declaring_executable_owner_identities']
+                ['plugin:woocommerce/woocommerce.php'] ?? []),
+            'sha256'
+        ) === [
+            'd6f965acbb8f1e6d036c2dc6ce5300f6fb832c4a88ba3cf062c5c5ac85c47507',
+            'feffc5f15e569bf5eb6baa04b9b7b6e8038b47f29e1a63e80f20c24bef0d1696',
+        ],
+    'shipped Woo product deletion binds its owner to both exact adapter-reviewed 11.0.0/11.0.1 trees'
 );
 $fixtureManifest = $shippedPolicy->manifests[0];
 $fixtureManifest['deletions'] = array_merge(
@@ -503,24 +517,47 @@ $fixtureThemeIdentity = woo_fixture_code_identity(
     WP_CONTENT_DIR . '/themes/twentytwentyfive',
     'themes/twentytwentyfive'
 );
+$fixturePluginIdentity = woo_fixture_code_identity(
+    WP_PLUGIN_DIR . '/woocommerce',
+    'plugins/woocommerce'
+);
+foreach (['post:product', 'post:product_variation'] as $selector) {
+    $policy->manifests[0]['deletions'][$selector]['executable_owner_identities'] = [
+        'plugin:woocommerce/woocommerce.php' => [$fixturePluginIdentity],
+    ];
+}
 $policy->site = ['policy' => ['deletion_owner_agreements' => [
     'format' => 'wprism-deletion-owner-agreements/v2',
     'selectors' => [
         [
             'selector' => 'post:product',
-            'owners' => [[
-                'owner' => 'theme:twentytwentyfive',
-                'code_identity' => $fixtureThemeIdentity,
-                'rationale' => 'Fixture theme has no product reverse-reference persistence.',
-            ]],
+            'owners' => [
+                [
+                    'owner' => 'plugin:woocommerce/woocommerce.php',
+                    'code_identity' => $fixturePluginIdentity,
+                    'rationale' => 'Exact fixture Woo tree is the adapter-declared product owner.',
+                ],
+                [
+                    'owner' => 'theme:twentytwentyfive',
+                    'code_identity' => $fixtureThemeIdentity,
+                    'rationale' => 'Fixture theme has no product reverse-reference persistence.',
+                ],
+            ],
         ],
         [
             'selector' => 'post:product_variation',
-            'owners' => [[
-                'owner' => 'theme:twentytwentyfive',
-                'code_identity' => $fixtureThemeIdentity,
-                'rationale' => 'Fixture theme has no variation reverse-reference persistence.',
-            ]],
+            'owners' => [
+                [
+                    'owner' => 'plugin:woocommerce/woocommerce.php',
+                    'code_identity' => $fixturePluginIdentity,
+                    'rationale' => 'Exact fixture Woo tree is the adapter-declared variation owner.',
+                ],
+                [
+                    'owner' => 'theme:twentytwentyfive',
+                    'code_identity' => $fixtureThemeIdentity,
+                    'rationale' => 'Fixture theme has no variation reverse-reference persistence.',
+                ],
+            ],
         ],
     ],
 ]]];
@@ -1073,6 +1110,60 @@ check(array_values(array_filter(
         && strtolower($token[1]) === 'get_option'
 )) === [], 'executable-owner boundary cannot regress to cached activation facts');
 
+file_put_contents(WP_PLUGIN_DIR . '/woocommerce/dependency.php', "<?php // dependency-v2\n");
+$modifiedDeclaredPluginRefused = false;
+try {
+    (new \WPrism\ExecutableOwnerBoundary($policy))->bind($boundaryWork);
+} catch (\WPrism\CommandRefusalException $refusal) {
+    foreach ($refusal->diagnostics as $diagnostic) {
+        if (($diagnostic['owner'] ?? null) === 'plugin:woocommerce/woocommerce.php'
+            && ($diagnostic['code'] ?? null) === 'deletion_executable_owner_identity_mismatch') {
+            $modifiedDeclaredPluginRefused = true;
+        }
+    }
+}
+check($modifiedDeclaredPluginRefused,
+    'a same-name and same-version modified adapter-declared plugin tree refuses before deletion');
+
+$modifiedPluginIdentity = woo_fixture_code_identity(
+    WP_PLUGIN_DIR . '/woocommerce',
+    'plugins/woocommerce'
+);
+foreach ($policy->site['policy']['deletion_owner_agreements']['selectors'] as &$selectorAgreement) {
+    foreach ($selectorAgreement['owners'] as &$ownerAgreement) {
+        if (($ownerAgreement['owner'] ?? null) === 'plugin:woocommerce/woocommerce.php') {
+            $ownerAgreement['code_identity'] = $modifiedPluginIdentity;
+        }
+    }
+    unset($ownerAgreement);
+}
+unset($selectorAgreement);
+$selfBlessedModifiedPluginRefused = false;
+try {
+    (new \WPrism\ExecutableOwnerBoundary($policy))->bind($boundaryWork);
+} catch (\WPrism\CommandRefusalException $refusal) {
+    foreach ($refusal->diagnostics as $diagnostic) {
+        if (($diagnostic['owner'] ?? null) === 'plugin:woocommerce/woocommerce.php'
+            && ($diagnostic['code'] ?? null) === 'deletion_executable_owner_code_unreviewed') {
+            $selfBlessedModifiedPluginRefused = true;
+        }
+    }
+}
+check(
+    $selfBlessedModifiedPluginRefused,
+    'copying an already-modified live tree into the site agreement cannot bypass the adapter-reviewed identity set'
+);
+file_put_contents(WP_PLUGIN_DIR . '/woocommerce/dependency.php', "<?php // dependency-v1\n");
+foreach ($policy->site['policy']['deletion_owner_agreements']['selectors'] as &$selectorAgreement) {
+    foreach ($selectorAgreement['owners'] as &$ownerAgreement) {
+        if (($ownerAgreement['owner'] ?? null) === 'plugin:woocommerce/woocommerce.php') {
+            $ownerAgreement['code_identity'] = $fixturePluginIdentity;
+        }
+    }
+    unset($ownerAgreement);
+}
+unset($selectorAgreement);
+
 // The WPrism loader is implicitly trusted because it executes this boundary,
 // but its whole MU root is still part of the transaction binding. A dependency
 // change therefore cannot hide behind that implicit owner declaration.
@@ -1169,21 +1260,24 @@ check($foreignPluginRefused,
 $pluginAgreementPolicy = clone $policy;
 $pluginAgreementPolicy->site['policy']['deletion_owner_agreements']['selectors'][0]['owners'][] = [
     'owner' => 'plugin:acme-extension/acme.php',
-    'code_identity' => [
-        'format' => 'wprism-executable-tree/v1',
-        'root' => 'plugins/acme-extension',
-        'sha256' => str_repeat('a', 64),
-    ],
+    'code_identity' => woo_fixture_code_identity(
+        WP_PLUGIN_DIR . '/acme-extension',
+        'plugins/acme-extension'
+    ),
     'rationale' => 'A site file may not grant plugin deletion authority.',
 ];
 $pluginAgreementRefused = false;
 try {
     (new \WPrism\ExecutableOwnerBoundary($pluginAgreementPolicy))->bind($boundaryWork);
-} catch (RuntimeException $refusal) {
-    $pluginAgreementRefused = str_contains($refusal->getMessage(), 'categorically rejects plugin:*');
+} catch (\WPrism\CommandRefusalException $refusal) {
+    $pluginAgreementRefused = in_array(
+        'deletion_executable_owner_not_manifest_declared',
+        array_column($refusal->diagnostics, 'code'),
+        true
+    );
 }
 check($pluginAgreementRefused,
-    'site policy categorically rejects plugin:* agreements even when they include rationale and a digest');
+    'an exact site agreement cannot grant deletion authority to a plugin the adapter did not declare');
 
 $fakeWpdb->activationOptions['active_plugins'] = serialize(['woocommerce/woocommerce.php']);
 $legacyAgreementPolicy = clone $policy;

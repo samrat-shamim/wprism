@@ -1015,7 +1015,7 @@ SELECT
   pass "WooCommerce $version local product_variation deletion refuses before mutation without signed external writer exclusion"
 }
 
-woocommerce_theme_deletion_agreements() {
+woocommerce_deletion_owner_agreements() {
   wp1 eval '
 $themes = array_values(array_unique([get_stylesheet(), get_template()]));
 sort($themes, SORT_STRING);
@@ -1069,6 +1069,48 @@ foreach ($themes as $theme) {
         "rationale" => "Exact active theme code reviewed: it persists no Woo product or variation reverse-reference identity.",
     ];
 }
+$plugin = "woocommerce/woocommerce.php";
+$canonicalRoot = "plugins/woocommerce";
+$root = WP_PLUGIN_DIR . "/woocommerce";
+$resolved = realpath($root);
+if (!is_string($resolved) || $resolved !== $contentRoot . "/" . $canonicalRoot
+    || is_link($root) || !is_file(WP_PLUGIN_DIR . "/" . $plugin)) {
+    throw new RuntimeException("WPRA-019 WooCommerce owner escapes its canonical plugin root");
+}
+$files = [];
+$iterator = new RecursiveIteratorIterator(
+    new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+    RecursiveIteratorIterator::SELF_FIRST
+);
+foreach ($iterator as $entry) {
+    if (!$entry instanceof SplFileInfo) {
+        throw new RuntimeException("WPRA-019 WooCommerce entry is uninspectable");
+    }
+    $path = $entry->getPathname();
+    $stat = lstat($path);
+    $kind = is_array($stat) ? (((int) $stat["mode"]) & 0170000) : 0;
+    if ($kind === 0040000) { continue; }
+    if ($kind !== 0100000 || $entry->isLink() || !is_readable($path)) {
+        throw new RuntimeException("WPRA-019 WooCommerce tree contains a nonregular entry");
+    }
+    $relative = str_replace("\\", "/", substr($path, strlen($root) + 1));
+    $files[] = ["path" => $relative, "sha256" => hash_file("sha256", $path)];
+}
+usort($files, static fn(array $left, array $right): int => strcmp($left["path"], $right["path"]));
+$payload = [
+    "files" => $files,
+    "format" => "wprism-executable-tree/v1",
+    "root" => $canonicalRoot,
+];
+$owners[] = [
+    "owner" => "plugin:" . $plugin,
+    "code_identity" => [
+        "format" => "wprism-executable-tree/v1",
+        "root" => $canonicalRoot,
+        "sha256" => hash("sha256", \WPrism\Canon::encode($payload)),
+    ],
+    "rationale" => "Exact adapter-declared WooCommerce tree reviewed for this deletion boundary.",
+];
 echo wp_json_encode($owners, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 '
 }
@@ -1150,19 +1192,20 @@ for WOO_VERSION in 11.0.0 11.0.1; do
     || fail "side 1 could not establish HPOS through WooCommerce's native new-shop lifecycle"
   pass "side 1: woocommerce $WOO_VERSION installed from verified artifact, active, HPOS enabled"
 
-  theme_deletion_agreements=$(woocommerce_theme_deletion_agreements)
-  require_observed_nonempty "WooCommerce $WOO_VERSION active theme code identities" "$theme_deletion_agreements"
+  deletion_owner_agreements=$(woocommerce_deletion_owner_agreements)
+  require_observed_nonempty "WooCommerce $WOO_VERSION active executable-owner code identities" "$deletion_owner_agreements"
   jq -e '
-    length >= 1
+    (map(select(.owner == "plugin:woocommerce/woocommerce.php")) | length) == 1
+    and (map(select(.owner | startswith("theme:"))) | length) >= 1
     and all(.[];
-      (.owner | test("^theme:[A-Za-z0-9._-]{1,128}$"))
+      (.owner | test("^(?:plugin:woocommerce/woocommerce\\.php|theme:[A-Za-z0-9._-]{1,128})$"))
       and .code_identity.format == "wprism-executable-tree/v1"
-      and (.code_identity.root | test("^themes/[A-Za-z0-9._-]{1,128}$"))
+      and (.code_identity.root | test("^(?:plugins/woocommerce|themes/[A-Za-z0-9._-]{1,128})$"))
       and (.code_identity.sha256 | test("^[a-f0-9]{64}$"))
       and (.rationale | length >= 16)
     )
-  ' <<<"$theme_deletion_agreements" >/dev/null \
-    || fail "WooCommerce $WOO_VERSION active theme agreements were not exact v2 executable identities"
+  ' <<<"$deletion_owner_agreements" >/dev/null \
+    || fail "WooCommerce $WOO_VERSION active owner agreements were not exact v2 executable identities"
 
   cat > "siterepo/${PAIR}1/site.wprism.json" <<EOF
 {
@@ -1171,8 +1214,8 @@ for WOO_VERSION in 11.0.0 11.0.1; do
     "deletion_owner_agreements": {
       "format": "wprism-deletion-owner-agreements/v2",
       "selectors": [
-        {"selector": "post:product", "owners": $theme_deletion_agreements},
-        {"selector": "post:product_variation", "owners": $theme_deletion_agreements}
+        {"selector": "post:product", "owners": $deletion_owner_agreements},
+        {"selector": "post:product_variation", "owners": $deletion_owner_agreements}
       ]
     },
     "options": {},

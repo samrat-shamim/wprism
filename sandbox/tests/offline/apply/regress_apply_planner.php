@@ -595,6 +595,21 @@ $check(
         && file_get_contents($envPath) === "{\n    \"alpha\": \"first-secret\",\n    \"zeta\": \"second-secret\"\n}\n",
     'env intended values: writes are canonical, cumulative, and owner-only'
 );
+$maximumPostPassword = str_repeat('p', 255);
+EnvironmentValues::set($envRepo, $postPasswordName, $maximumPostPassword);
+$passwordBoundaryBytes = (string) file_get_contents($envPath);
+$overlongPasswordRefusal = null;
+try {
+    EnvironmentValues::set($envRepo, $postPasswordName, str_repeat('p', 256));
+} catch (\RuntimeException $failure) {
+    $overlongPasswordRefusal = $failure->getMessage();
+}
+$check(
+    (EnvironmentValues::read($envRepo)[$postPasswordName] ?? null) === $maximumPostPassword
+        && $overlongPasswordRefusal === 'wprism: protected post password must contain 1 to 255 bytes'
+        && file_get_contents($envPath) === $passwordBoundaryBytes,
+    'env intended values: a 255-byte protected-post value persists exactly while 256 bytes refuses before changing intent'
+);
 chmod($envPath, 0644);
 $insecureRefusal = null;
 try {

@@ -219,8 +219,9 @@ wprism_check(
 wprism_check(
     !isset($manifest['options']['pmpro_from']['allow_pii'])
         && !isset($manifest['options']['pmpro_gateway_email']['allow_pii'])
-        && !isset($manifest['options']['pmpro_email_admin_checkout']['allow_pii']),
-    'sender aliases, gateway recipients, and notification controls do not inherit PII authority'
+        && !isset($manifest['options']['pmpro_email_admin_checkout']['allow_pii'])
+        && !isset($manifest['tables']['pmpro_membership_levelmeta']['keys']['confirmation_in_email']['allow_pii']),
+    'sender aliases, gateway recipients, and delivery/notification controls do not inherit PII authority'
 );
 
 $seedFixture = (string) file_get_contents(dirname(__DIR__) . '/conformance/seed.sh');

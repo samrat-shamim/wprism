@@ -279,23 +279,23 @@ const WPRISM_CURRENT_DIGESTS = [
     'advanced-editor-tools' => 'cfc61d12273c7b72cd24c9a7cf2a4b2dd2b08a8a3b261f43c96893aa3ba4492d',
     'classic-editor' => '908c6cd00f9cd389b40105bbb1f906ae5271ad13dfafcbc65d4face4ff2156ea',
     'code-snippets' => 'ca66c5959ea2fa0d0fc39b6d5d2f3da0a866c728bd8eb2b9c0d942455054fc04',
-    'contact-form-7' => 'd1a3ad05cdc7423417d986b97a286c7528e3efb03ee21c4e1703a50e666ac44b',
+    'contact-form-7' => 'fc544747e494f54e7fb574643c5a4b3c8c5f789aecf27f8a35a7af7d5b0c06b5',
     'core' => '9f9a23cfb2be0b8dd693cecd1df6adb4e9082ca8d589675ce95bfae85c185b63',
     'elementor' => '5383779c98b51bb94e2aab363d72729fd55003798656f7d025f8773ae5793d64',
     'ninja-forms' => '35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011',
     'paid-memberships-pro' => 'e518a516bb44d144cff92bdb423c04813847064fe7113ac4e1cfc386ba37f253',
     'polylang' => '60edabfdaab55d4ea74d0c6ac71228bffc2b2911afe57a962ac898ee73064548',
     'redirection' => '6ba607e26345be23b0a89eeee69dadc0ceff75ca40b8cdf9d0ab88d066303bc7',
-    'the-events-calendar' => '9ce61ef048461919d3414629b099d8a26e9a4e5c25e90eb5fec634b48df6430e',
-    'woocommerce' => '3fbfee24dc64b758629d046a537f6d0b4b76d4dd1f190ee9784990c1367dfa07',
+    'the-events-calendar' => 'cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee',
+    'woocommerce' => 'a60b718a99660ac8cdeb31df3ad6a19b2b10be4f1571e7188cd3f3f09d8ed033',
     'wprism-agency-cpt' => '174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab',
     'wps-hide-login' => '4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050',
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456',
 ];
-const WPRISM_CURRENT_MANIFEST_HASH = '62e19eaf7adc81e3eed8bd119a7b665f72cd0c5021b3b2fd91d736285de2d1b1';
-const WPRISM_CURRENT_REGISTRY_SHA = '17678292d74210f0c1996d5f27f0a08911e6fa3ec6e5ac7cde8aa4bf8f49962d';
-const WPRISM_CURRENT_SNAPSHOT_SHA = '7b97dd3fef2e40fd8aed0dd7004212a084b34771a68f299b9cba4607d26c1741';
+const WPRISM_CURRENT_MANIFEST_HASH = 'e35aa63cb618331224d7f6e0aded27abd523c50fa275314560feb7ca30043790';
+const WPRISM_CURRENT_REGISTRY_SHA = '26e8329e0c9c4cd51c0c484e3ed88596ba4b16c0592c586cb052ea2f17e8e685';
+const WPRISM_CURRENT_SNAPSHOT_SHA = '3ec1671faf59fa682df6709499b27195fe7c66fb6f4494bdc02bacea055b0e3f';
 
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(

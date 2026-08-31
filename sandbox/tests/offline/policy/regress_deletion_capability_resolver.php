@@ -198,8 +198,20 @@ $closed = $manifests;
 foreach ($closed as $position => &$manifest) {
     $manifest['plugin'] = "fixture-$position/plugin.php";
     $manifest['deletions']['table:things']['executable_owner_boundary'] = 'all_active_owners';
+    $manifest['deletions']['table:things']['executable_owner_identities'] = [
+        "plugin:fixture-$position/plugin.php" => [[
+            'format' => 'wprism-executable-tree/v1',
+            'root' => "plugins/fixture-$position",
+            'sha256' => str_repeat((string) ($position + 1), 64),
+        ]],
+    ];
 }
 $closed[1]['theme'] = 'fixture-theme';
+$closed[1]['deletions']['table:things']['executable_owner_identities']['theme:fixture-theme'] = [[
+    'format' => 'wprism-executable-tree/v1',
+    'root' => 'themes/fixture-theme',
+    'sha256' => str_repeat('3', 64),
+]];
 unset($manifest);
 $closedCapability = (new DeletionCapabilityResolver($closed, $optionRules($closed), ['string', 'csv']))
     ->capability('table:things');
@@ -209,13 +221,55 @@ $check(
             'plugin:fixture-0/plugin.php',
             'plugin:fixture-1/plugin.php',
             'theme:fixture-theme',
+        ]
+        && ($closedCapability['declaring_executable_owner_identities'] ?? null) === [
+            'plugin:fixture-0/plugin.php' => [[
+                'format' => 'wprism-executable-tree/v1',
+                'root' => 'plugins/fixture-0',
+                'sha256' => str_repeat('1', 64),
+            ]],
+            'plugin:fixture-1/plugin.php' => [[
+                'format' => 'wprism-executable-tree/v1',
+                'root' => 'plugins/fixture-1',
+                'sha256' => str_repeat('2', 64),
+            ]],
+            'theme:fixture-theme' => [[
+                'format' => 'wprism-executable-tree/v1',
+                'root' => 'themes/fixture-theme',
+                'sha256' => str_repeat('3', 64),
+            ]],
         ],
-    'closed deletion authority enumerates every participating plugin/theme declaration'
+    'closed deletion authority enumerates every participating owner and exact reviewed executable identity'
 );
 $withoutExecutableOwnerBoundary = static function (array $declaration): array {
-    unset($declaration['executable_owner_boundary']);
+    unset($declaration['executable_owner_boundary'], $declaration['executable_owner_identities']);
     return $declaration;
 };
+$missingOwnerIdentity = $closed;
+unset(
+    $missingOwnerIdentity[1]['deletions']['table:things']['executable_owner_identities']['theme:fixture-theme']
+);
+$assertThrows(
+    static fn() => (new DeletionCapabilityResolver(
+        $missingOwnerIdentity,
+        $optionRules($missingOwnerIdentity),
+        ['string', 'csv']
+    ))->capability('table:things'),
+    'must cover exactly its declaring plugin/theme owners',
+    'closed deletion authority refuses a declaring owner with no reviewed executable identity'
+);
+$wrongOwnerRoot = $closed;
+$wrongOwnerRoot[0]['deletions']['table:things']['executable_owner_identities']['plugin:fixture-0/plugin.php'][0]['root']
+    = 'plugins/not-fixture-0';
+$assertThrows(
+    static fn() => (new DeletionCapabilityResolver(
+        $wrongOwnerRoot,
+        $optionRules($wrongOwnerRoot),
+        ['string', 'csv']
+    ))->capability('table:things'),
+    'identity[0] is malformed',
+    'reviewed executable identities cannot name a root outside their exact owner'
+);
 $legacyBoundary = $closed;
 $legacyBoundary[0]['deletions']['table:things'] = $withoutExecutableOwnerBoundary(
     $legacyBoundary[0]['deletions']['table:things']
@@ -278,6 +332,11 @@ $closedPolicy->manifests = [[
     'plugin' => 'shop/shop.php',
     'deletions' => ['post:product' => [
         'executable_owner_boundary' => 'all_active_owners',
+        'executable_owner_identities' => ['plugin:shop/shop.php' => [[
+            'format' => 'wprism-executable-tree/v1',
+            'root' => 'plugins/shop',
+            'sha256' => str_repeat('a', 64),
+        ]]],
         'cascades' => ['postmeta', 'post_revisions', 'term_relationships'],
         'guards' => [],
     ]],

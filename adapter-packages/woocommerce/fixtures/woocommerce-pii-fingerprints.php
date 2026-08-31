@@ -47,6 +47,21 @@ function wprism_woo_value_fingerprint(mixed $value): string {
     ));
 }
 
+/** @param array<string,mixed> $record */
+function wprism_woo_option_record_fingerprint(array $record, string $grant): string {
+    $state = $record['state'] ?? null;
+    if ($state === 'absent' && !array_key_exists('value', $record)) {
+        // Absence is a repository state, not the false value returned by
+        // get_option(); domain separation keeps the pre-mutation witness from
+        // colliding with any captured present value encoding.
+        return hash('sha256', "wprism-woo-option-record\0absent");
+    }
+    if ($state === 'present' && array_key_exists('value', $record)) {
+        return wprism_woo_value_fingerprint($record['value']);
+    }
+    throw new RuntimeException("$grant lacks one valid captured option record");
+}
+
 /** @return array<string,mixed> */
 function wprism_woo_read_json(string $path, string $label): array {
     $bytes = @file_get_contents($path);
@@ -115,16 +130,16 @@ if (!is_array($tax)) {
     throw new RuntimeException('named WPRA-019 tax-rate row is absent');
 }
 
-$values = [];
+$fingerprints = [];
 foreach (array_slice(WPRISM_WOO_ALLOW_PII_GRANTS, 0, 11) as $grant) {
     $option = substr($grant, strlen('option:'));
     $record = $records[$option] ?? null;
-    if (!is_array($record) || ($record['state'] ?? null) !== 'present'
-        || !array_key_exists('value', $record)) {
-        throw new RuntimeException("$grant lacks one present captured value");
+    if (!is_array($record)) {
+        throw new RuntimeException("$grant lacks one captured option record");
     }
-    $values[$grant] = $record['value'];
+    $fingerprints[$grant] = wprism_woo_option_record_fingerprint($record, $grant);
 }
+$values = [];
 $values['post_meta:customer_email'] = $coupon['meta']['customer_email'];
 foreach (['tax_rate_country', 'tax_rate_state'] as $column) {
     if (!array_key_exists($column, (array) ($tax['columns'] ?? []))) {
@@ -133,8 +148,10 @@ foreach (['tax_rate_country', 'tax_rate_state'] as $column) {
     $values['table:woocommerce_tax_rates.' . $column] = $tax['columns'][$column];
 }
 
-$fingerprints = [];
 foreach (WPRISM_WOO_ALLOW_PII_GRANTS as $grant) {
+    if (array_key_exists($grant, $fingerprints)) {
+        continue;
+    }
     if (!array_key_exists($grant, $values)) {
         throw new RuntimeException("WPRA-019 observer omitted $grant");
     }

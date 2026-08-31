@@ -3,6 +3,7 @@ namespace WPrism;
 
 require_once __DIR__ . '/EnvironmentValues.php';
 require_once __DIR__ . '/ProtectedPostIdentity.php';
+require_once __DIR__ . '/../Kernel/PostPasswordBinding.php';
 if (!class_exists(Db::class, false)) {
     require_once __DIR__ . '/../Kernel/Db.php';
 }
@@ -601,6 +602,7 @@ final class ApplyRequestCoordinator {
         }
         $passwordUuid = EnvironmentValues::postPasswordUuid($name);
         if ($passwordUuid !== null) {
+            PostPasswordBinding::assertValue($value);
             $tree = self::compiled($repo, $policy, [])->tree();
             $entity = $tree[$passwordUuid] ?? null;
             $front = is_array($entity) && is_array($entity['data'] ?? null) ? $entity['data'] : [];

@@ -48910,6 +48910,9 @@
         "WPrism\\PostPasswordBinding": {
             "abstract": false,
             "constants": {
+                "MAX_VALUE_BYTES": {
+                    "value_repr": 255
+                },
                 "PREFIX": {
                     "value_repr": "post_password:"
                 }
@@ -48918,6 +48921,23 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "assertValue": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "value",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "name": {
                     "abstract": false,
                     "final": false,

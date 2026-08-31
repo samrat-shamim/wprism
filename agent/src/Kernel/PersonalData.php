@@ -30,7 +30,9 @@ final class PersonalData {
     /** Return a short PII label, or null when no conservative signal matches. */
     public static function match_deep(string $key, $value): ?string {
         $keyMatch = self::match_key($key, []);
-        if ($keyMatch !== null && !self::is_template_reference($value)) {
+        if ($keyMatch !== null
+            && !self::is_template_reference($value)
+            && !self::is_technical_control($key, $value)) {
             return $keyMatch;
         }
         return self::match_value_deep($value, [$key]);
@@ -49,13 +51,6 @@ final class PersonalData {
         }
         foreach (self::KEY_PATTERNS as $pattern => $label) {
             if (preg_match($pattern, $key)) {
-                // These terminal address phrases describe boolean/enum
-                // controls, not address-bearing values. Actual address keys
-                // (including address_1/address_2) and value scanning remain.
-                if ($label === 'postal address'
-                    && preg_match('/(^|_)(?:requires|default_customer)_address$/i', $key)) {
-                    continue;
-                }
                 return $label;
             }
         }
@@ -69,7 +64,9 @@ final class PersonalData {
                 $childAncestors = $ancestors;
                 if (is_string($childKey)) {
                     $keyMatch = self::match_key($childKey, $ancestors);
-                    if ($keyMatch !== null && !self::is_template_reference($child)) {
+                    if ($keyMatch !== null
+                        && !self::is_template_reference($child)
+                        && !self::is_technical_control($childKey, $child)) {
                         return $keyMatch;
                     }
                     // Associative keys are stored bytes too: plugin maps may
@@ -154,7 +151,12 @@ final class PersonalData {
                     // closed technical grammars; actual international,
                     // parenthesized and 3-3-4 telephone shapes still reach the
                     // positive branch below.
-                    if (preg_match('/^[0-9]{4}[-\/][0-9]{2}[-\/][0-9]{2}(?:[ T][0-9]{1,2})?$/D', $candidate)) {
+                    // The phone matcher deliberately admits slash punctuation,
+                    // so a dated permalink contributes `/YYYY/MM/DD` as one
+                    // candidate. Keep the optional leading path separator and
+                    // the date's repeated delimiter inside one closed grammar;
+                    // a slash-formatted telephone remains outside it.
+                    if (preg_match('/^\/?[0-9]{4}([.\/-])[0-9]{2}\\1[0-9]{2}(?:[ T][0-9]{1,2})?$/D', $candidate)) {
                         continue;
                     }
                     $digits = preg_replace('/[^0-9]/', '', $candidate) ?? '';
@@ -165,11 +167,26 @@ final class PersonalData {
                     if (($isbnLabelled && in_array(strlen($digits), [10, 13], true)) || $isbn13) {
                         continue;
                     }
+                    // Ticket and stock-keeping identifiers are ordinary
+                    // authored prose. Scope this exception to the explicit
+                    // labels immediately before the numeric candidate so an
+                    // unlabelled 3-3-4 or slash-formatted phone still blocks.
+                    if (preg_match('/(?:^|\b)(?:ticket|sku)(?:\s+[A-Z0-9]+)?\s*$/i', $prefix) === 1) {
+                        continue;
+                    }
                     $labelledVersion = preg_match('/(?:^|\b)(?:v(?:ersion)?|release)\s*$/i', $prefix) === 1
                         && preg_match('/^[0-9]+(?:\.[0-9]+){2,}$/D', $candidate);
                     $bareShortDottedSequence = !str_starts_with($candidate, '+')
                         && preg_match('/^[0-9]{1,3}(?:\.[0-9]{1,3}){3,}$/D', $candidate);
                     if ($labelledVersion || $bareShortDottedSequence) {
+                        continue;
+                    }
+                    // Space-grouped integers such as `1 234 567` are a
+                    // locale-specific number format, not enough evidence for
+                    // PII. This exact thousands grammar does not exempt local
+                    // `555 2671`, hyphenated, parenthesized, or international
+                    // telephone forms.
+                    if (preg_match('/^[0-9]{1,3}(?: [0-9]{3})+$/D', $candidate)) {
                         continue;
                     }
                     if (preg_match_all('/[0-9]/', $candidate) >= 7
@@ -186,6 +203,33 @@ final class PersonalData {
         $key = preg_replace('/(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/', '_', $key) ?? $key;
         $key = preg_replace('/[^A-Za-z0-9]+/', '_', $key) ?? $key;
         return strtolower(trim($key, '_'));
+    }
+
+    /** Boolean/enum controls borrow contact nouns without storing contact data. */
+    private static function is_technical_control(string $key, $value): bool {
+        $tokens = array_values(array_filter(explode('_', self::normalize_key($key)), 'strlen'));
+        $roles = [
+            'allow', 'allowed', 'collect', 'confirmation', 'default', 'enable', 'enabled',
+            'field', 'include', 'mode', 'notify', 'notification', 'require', 'required',
+            'requires', 'send', 'show', 'use', 'via', 'in',
+        ];
+        if (array_intersect($tokens, $roles) === []) {
+            return false;
+        }
+        if ($value === null || is_bool($value)) {
+            return true;
+        }
+        if ((is_int($value) || is_float($value)) && ($value === 0 || $value === 1 || $value === 0.0 || $value === 1.0)) {
+            return true;
+        }
+        if (!is_string($value)) {
+            return false;
+        }
+        return in_array(strtolower(trim($value)), [
+            '', '0', '1', 'base', 'billing', 'default', 'disabled', 'enabled', 'false',
+            'hidden', 'inherit', 'no', 'none', 'off', 'on', 'optional', 'required',
+            'shipping', 'true', 'yes',
+        ], true);
     }
 
     /** @param list<string> $ancestors */

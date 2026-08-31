@@ -9,12 +9,18 @@ if (!defined('WPRISM_SPEC_VERSION')) {
 
 $repoRoot = dirname(__DIR__, 4);
 require_once $repoRoot . '/sandbox/tests/lib/check.php';
+require_once $repoRoot . '/sandbox/tests/lib/wp_stubs.php';
 require_once $repoRoot . '/agent/src/Kernel/Canon.php';
 require_once $repoRoot . '/agent/src/Policy/Policy.php';
+require_once $repoRoot . '/agent/src/Capture/CaptureSafetyGates.php';
+require_once $repoRoot . '/agent/src/Capture/EntityMetaCapture.php';
 require_once dirname(__DIR__, 2) . '/package/runtime/interpreters/contact-form-7.php';
 
+use WPrism\CaptureSafetyGates;
+use WPrism\EntityMetaCapture;
 use WPrism\Interpreters\ContactForm7;
 use WPrism\Policy;
+use WPrism\Tokens;
 
 /** @return array<string,mixed> */
 function cf7_readiness_mail(bool $secondary = false): array {
@@ -96,7 +102,7 @@ wprism_check_same(
 );
 wprism_check_same([], cf7_readiness_diagnostics($interpreter, cf7_readiness_meta(true)), 'the still-readable legacy CF7 property shape is clean');
 wprism_check_same(
-    ['class' => 'authored', 'plain_data' => true],
+    ['class' => 'authored', 'plain_data' => true, 'allow_pii' => true],
     $policy->meta_rule_for_post('mail', cf7_readiness_meta(true)),
     'legacy nested mail is authored through the recursive plain-data codec'
 );
@@ -106,6 +112,31 @@ wprism_check_same(
     'legacy form markup is authored text'
 );
 wprism_check_same(null, $policy->meta_rule_for_post('mail', ['mail' => ['not' => 'a CF7 owner']]), 'legacy generic meta is not claimed outside a CF7 form');
+
+$cf7Gates = new CaptureSafetyGates('/fixture/repository');
+$cf7Capture = new EntityMetaCapture(
+    $policy,
+    new Tokens('https://source.example.test', 'https://source.example.test/uploads'),
+    static function (string $section, string $key, mixed $value, array $rule, string $context) use ($cf7Gates): void {
+        $cf7Gates->guardSecret($section, $key, $value, $rule, $context);
+        $cf7Gates->guardPersonalData($section, $key, $value, $rule, $context);
+    },
+    static function (): void {},
+    static function (string $_finding): void {}
+);
+foreach (['_mail' => $current, 'mail' => cf7_readiness_meta(true)] as $mailKey => $ownerMeta) {
+    [$storeMail, $capturedMail] = $cf7Capture->classifyValue(
+        $mailKey,
+        [serialize(cf7_readiness_mail())],
+        $ownerMeta,
+        'CF7 conformance form',
+        'post_meta'
+    );
+    wprism_check($storeMail
+        && ($capturedMail['recipient'] ?? null) === 'ops@example.test'
+        && ($capturedMail['sender'] ?? null) === 'WPrism <ops@example.test>',
+        "$mailKey crosses the generic entity-meta PII gate only through its exact reviewed mail-object rule");
+}
 
 foreach ([
     '_config_errors' => 'runtime',
@@ -246,6 +277,8 @@ $manifest = json_decode((string) file_get_contents(dirname(__DIR__, 2) . '/packa
 wprism_check_same(['min' => '6.0', 'max' => '6.2.0'], $manifest['version_range'], 'CF7 admits the official 6.0 header and only the audited 6.0.x/6.1.x release lines');
 wprism_check_same(true, $manifest['post_meta']['_mail']['plain_data'], 'current mail uses recursive string-leaf rebinding');
 wprism_check_same(true, $manifest['post_meta']['_mail_2']['plain_data'], 'secondary mail uses recursive string-leaf rebinding');
+wprism_check_same(true, $manifest['post_meta']['_mail']['allow_pii'], 'current mail carries one exact reviewed PII exception');
+wprism_check_same(true, $manifest['post_meta']['_mail_2']['allow_pii'], 'secondary mail carries one exact reviewed PII exception');
 wprism_check_same(true, $manifest['post_meta']['_messages']['plain_data'], 'messages use recursive string-leaf rebinding');
 wprism_check_same('hex-prefix', $manifest['shortcode_attrs']['contact-form-7'][0]['lookup']['codec'], 'modern CF7 shortcode declares its real hash-prefix identity');
 wprism_check_same([40, 64], $manifest['shortcode_attrs']['contact-form-7'][0]['lookup']['stored_lengths'], 'modern CF7 shortcode admits exactly the native SHA-1 and SHA-256 storage widths');

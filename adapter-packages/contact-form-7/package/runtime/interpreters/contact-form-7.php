@@ -16,8 +16,8 @@ final class ContactForm7 {
     private const PROPERTY_RULES = [
         'additional_settings' => ['plain_data' => false],
         'form' => ['plain_data' => false],
-        'mail' => ['plain_data' => true],
-        'mail_2' => ['plain_data' => true],
+        'mail' => ['plain_data' => true, 'allow_pii' => true],
+        'mail_2' => ['plain_data' => true, 'allow_pii' => true],
         'messages' => ['plain_data' => true],
     ];
 
@@ -57,6 +57,9 @@ final class ContactForm7 {
             $rule = ['class' => 'authored'];
             if (self::PROPERTY_RULES[$key]['plain_data']) {
                 $rule['plain_data'] = true;
+            }
+            if (!empty(self::PROPERTY_RULES[$key]['allow_pii'])) {
+                $rule['allow_pii'] = true;
             }
             return $rule;
         }

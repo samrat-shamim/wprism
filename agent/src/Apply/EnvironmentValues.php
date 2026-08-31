@@ -51,12 +51,18 @@ final class EnvironmentValues {
                     'wprism: ' . self::FILE . ' must contain only non-empty string binding names and values'
                 );
             }
+            if (self::postPasswordUuid($name) !== null) {
+                PostPasswordBinding::assertValue($value);
+            }
         }
         ksort($values, SORT_STRING);
         return $values;
     }
 
     public static function set(string $repo, string $name, string $value): void {
+        if (self::postPasswordUuid($name) !== null) {
+            PostPasswordBinding::assertValue($value);
+        }
         $values = self::read($repo);
         $values[$name] = $value;
         ksort($values, SORT_STRING);

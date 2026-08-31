@@ -891,6 +891,18 @@ $unsupportedDeletes = [
     'table:woocommerce_tax_rates',
 ];
 $supportedDeletes = ['post:product', 'post:product_variation'];
+$reviewedWooExecutableIdentities = ['plugin:woocommerce/woocommerce.php' => [
+    [
+        'format' => 'wprism-executable-tree/v1',
+        'root' => 'plugins/woocommerce',
+        'sha256' => 'd6f965acbb8f1e6d036c2dc6ce5300f6fb832c4a88ba3cf062c5c5ac85c47507',
+    ],
+    [
+        'format' => 'wprism-executable-tree/v1',
+        'root' => 'plugins/woocommerce',
+        'sha256' => 'feffc5f15e569bf5eb6baa04b9b7b6e8038b47f29e1a63e80f20c24bef0d1696',
+    ],
+]];
 woo_ok(array_keys((array) ($manifest['deletions'] ?? [])) === $supportedDeletes,
     'shipped Woo manifest owns only product and variation deletion');
 foreach ($supportedDeletes as $selector) {
@@ -898,8 +910,10 @@ foreach ($supportedDeletes as $selector) {
     woo_ok(
         ($capability['executable_owner_boundary'] ?? null) === 'all_active_owners'
             && ($capability['declaring_executable_owners'] ?? null) === ['plugin:woocommerce/woocommerce.php']
+            && ($capability['declaring_executable_owner_identities'] ?? null)
+                === $reviewedWooExecutableIdentities
             && count((array) ($capability['guards'] ?? [])) === 13,
-        "$selector deletion has an all-active-executable-owner boundary and thirteen locked reverse-reference families"
+        "$selector deletion binds both exact official Woo trees inside its all-owner and thirteen-guard boundary"
     );
     $metaGuards = [];
     foreach ((array) ($capability['guards'] ?? []) as $guard) {
@@ -1024,6 +1038,24 @@ $observerPiiGrants = WPRISM_WOO_ALLOW_PII_GRANTS;
 sort($observerPiiGrants, SORT_STRING);
 woo_ok($manifestPiiGrants === $observerPiiGrants && count($observerPiiGrants) === 14,
     'the hash-only WPRA-019 observer enumerates every and only the fourteen finite manifest grants');
+$presentPiiFingerprint = wprism_woo_option_record_fingerprint(
+    ['state' => 'present', 'value' => ['agency' => 'source']],
+    'option:test'
+);
+$absentPiiFingerprint = wprism_woo_option_record_fingerprint(['state' => 'absent'], 'option:test');
+woo_ok($presentPiiFingerprint === wprism_woo_value_fingerprint(['agency' => 'source'])
+    && $absentPiiFingerprint === hash('sha256', "wprism-woo-option-record\0absent")
+    && $absentPiiFingerprint !== wprism_woo_value_fingerprint(false),
+    'the hash-only observer distinguishes canonical absence from a present value and native get_option false');
+$malformedPiiRecordRefused = false;
+try {
+    wprism_woo_option_record_fingerprint(['state' => 'absent', 'value' => false], 'option:test');
+} catch (RuntimeException $exception) {
+    $malformedPiiRecordRefused = $exception->getMessage()
+        === 'option:test lacks one valid captured option record';
+}
+woo_ok($malformedPiiRecordRefused,
+    'the hash-only observer refuses an absent option record carrying a value');
 $redactionRoster = [];
 if (preg_match(
     "/woocommerce_pii_redaction_witnesses\\(\\) \\{.*?cat <<'EOF'\\n(.*?)\\nEOF\\n\\}/s",
@@ -2459,15 +2491,17 @@ woo_ok($failurePromotion !== false
     && substr_count($woocommerceScopedDeletionHarness, 'printf "6\\n"') === 1,
     'public SSH deletion fails once at the calibrated final pre-COMMIT verify, proves signed rollback, then retries once to a terminal deletion receipt');
 woo_ok(
-    str_contains($woocommerceMatrixHarness, 'woocommerce_theme_deletion_agreements()')
+    str_contains($woocommerceMatrixHarness, 'woocommerce_deletion_owner_agreements()')
         && str_contains($woocommerceMatrixHarness, '"format": "wprism-deletion-owner-agreements/v2"')
         && str_contains($woocommerceMatrixHarness,
-            '{"selector": "post:product", "owners": $theme_deletion_agreements}')
+            '{"selector": "post:product", "owners": $deletion_owner_agreements}')
         && str_contains($woocommerceMatrixHarness,
-            '{"selector": "post:product_variation", "owners": $theme_deletion_agreements}')
+            '{"selector": "post:product_variation", "owners": $deletion_owner_agreements}')
         && str_contains($woocommerceMatrixHarness, '"format" => "wprism-executable-tree/v1"')
+        && str_contains($woocommerceMatrixHarness, '"owner" => "plugin:" . $plugin')
+        && str_contains($woocommerceMatrixHarness, '"root" => $canonicalRoot')
         && !str_contains($woocommerceMatrixHarness, '"theme:twentytwentyfive"'),
-    'matrix writes duplicate-resistant v2 exact observed theme code identities instead of a permissive filename agreement'
+    'matrix writes duplicate-resistant v2 exact observed plugin and theme tree identities instead of a permissive filename agreement'
 );
 woo_ok(str_contains($woocommerceMatrixHarness, 'version_matrix_preflight()')
     && str_contains($woocommerceMatrixHarness, '$VMATRIX_MANIFEST version-matrix evidence requires WPRISM_EXPECTED_SOURCE_SHA')

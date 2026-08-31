@@ -7,7 +7,7 @@
   "notes": [
     "issue #3509 records the wpcf7 environment classification below.",
     "The admitted line is exactly the audited Contact Form 7 6.0.x and 6.1.x releases ([6.0, 6.2.0)). The exact wordpress.org 6.0 package and current 6.1.7 are the boundary artifacts; 5.9.8 is the adjacent installed negative control. The minimum deliberately matches the official plugin header's 6.0 spelling because PHP version comparison does not treat 6.0 as >= 6.0.0. A future 6.2 release remains blocked until its source and exact artifact are reviewed rather than being trusted by a broad major-version range.",
-    "All current property metadata was produced through WPCF7_ContactForm::get_template()+save(), not hand-authored rows. _form and _additional_settings are strings; _mail/_mail_2 and _messages are closed string-bearing objects and use the recursive plain-data codec so home URLs rebind without changing their serialized types; _locale and _hash have exact plugin-consumed grammars.",
+    "All current property metadata was produced through WPCF7_ContactForm::get_template()+save(), not hand-authored rows. _form and _additional_settings are strings; _mail/_mail_2 and _messages are closed string-bearing objects and use the recursive plain-data codec so home URLs rebind without changing their serialized types; _locale and _hash have exact plugin-consumed grammars. The two mail objects alone carry allow_pii=true because their closed native recipient/sender fields are intentional site-builder delivery configuration populated divergently in exact conformance; form submissions, Flamingo/contact records, unknown properties, and integration state receive no exception.",
     "The modern [contact-form-7] callback resolves exactly the first seven lowercase-hex characters of persisted _hash. CF7 6.0.x generates a 40-byte SHA-1 value, 6.1.x generates a 64-byte SHA-256 value, and an in-place 6.0-to-6.1 upgrade retains the existing 40-byte identity because save() adds _hash uniquely rather than replacing it. Both exact native widths are admitted; every other width refuses. A raw source prefix can select an unrelated target form, so the required id attribute is canonicalized to the owning post token and apply restores the repository-authored witness. Missing, duplicate, malformed, unmanaged, or source/target-colliding prefixes refuse before publication or mutation; title-only, numeric, and other fallback identity forms remain unsupported rather than relying on mutable titles.",
     "The legacy formatter emits [contact-form <old_id> \"<title>\"], whose positional integer resolves through _old_cf7_unit_id rather than wp_posts.ID. The positional rule canonicalizes that alternate to the same post token in post bodies and structured string leaves, then restores the repository-authored alternate; missing, duplicate, non-positive, non-decimal, overflow, and wrong-domain values refuse loudly.",
     "CF7 6.x still reads the pre-3.3 unprefixed form/mail/mail_2/messages/additional_settings property names. The digest-bound interpreter admits exactly one current-or-legacy spelling per property and rejects dual or incomplete storage. It also classifies native _config_errors/_config_validation/_flamingo residue as runtime and _constant_contact/_sendinblue integration configuration as environment-owned, only in an anchored CF7 form context; unknown plugin extensions stay unclassified and loud.",
@@ -23,8 +23,8 @@
     "_hash": {"class": "authored"},
     "_old_cf7_unit_id": {"class": "authored"},
     "_locale": {"class": "authored"},
-    "_mail": {"class": "authored", "plain_data": true},
-    "_mail_2": {"class": "authored", "plain_data": true},
+    "_mail": {"class": "authored", "plain_data": true, "allow_pii": true},
+    "_mail_2": {"class": "authored", "plain_data": true, "allow_pii": true},
     "_messages": {"class": "authored", "plain_data": true}
   },
   "post_types": {

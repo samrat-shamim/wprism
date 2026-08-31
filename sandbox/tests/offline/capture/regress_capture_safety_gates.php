@@ -115,7 +115,32 @@ $gates->guardPersonalData('options', 'mail_settings', ['email_type' => 'multipar
 $gates->guardPersonalData('options', 'woocommerce_email_footer_text', 'Thanks for shopping', []);
 $gates->guardPersonalData('options', 'woocommerce_checkout_phone_field', 'optional', []);
 $gates->guardPersonalData('options', 'woocommerce_shipping_cost_requires_address', 'yes', []);
-check(true, 'email rendering and checkout address/phone controls do not false-positive as personal data');
+$gates->guardPersonalData("table 'pmpro_membership_levelmeta' key", 'confirmation_in_email', '1', []);
+$gates->guardPersonalData('options', 'require_name_email', '1', []);
+$gates->guardPersonalData('options', 'woocommerce_default_customer_address', 'base', []);
+check(true, 'boolean and enum controls borrowing contact-field nouns do not false-positive as personal data');
+
+$deliveryControlAddress = refusal(static fn() => $gates->guardPersonalData(
+    "table 'fixture' key",
+    'confirmation_in_email',
+    'person@example.test',
+    []
+));
+check(
+    ($deliveryControlAddress->diagnostics[0]['personal_data_shape'] ?? null) === 'email address',
+    'an address stored under a delivery-mode control remains protected by value scanning'
+);
+
+$addressControlText = refusal(static fn() => $gates->guardPersonalData(
+    'options',
+    'woocommerce_default_customer_address',
+    '100 Personal Street',
+    []
+));
+check(
+    ($addressControlText->diagnostics[0]['personal_data_shape'] ?? null) === 'postal address',
+    'a non-enum value under an address control remains protected by key-role scanning'
+);
 
 $nestedAddress = refusal(static fn() => $gates->guardPersonalData(
     'options',
@@ -460,12 +485,18 @@ check(true, 'ordinary dates and numeric build ids do not false-positive as phone
 
 foreach ([
     'Completed at 2026-02-03 04:05:06 UTC',
+    'Dated permalink https://example.test/2026/08/30/story',
+    'Tokenized dated permalink {{home}}/2026/08/30/story',
     'Catalog identifier ISBN 978-1-4028-9462-6',
+    'Support ticket ABC-123-4567',
+    'Catalog SKU 123-456-789',
     'Compatible with release 10.2.3.4567',
+    'Release calendar version=2026.08.30',
+    'Localized audience count 1 234 567',
 ] as $technicalNumber) {
     $gates->guardPersonalData('options', 'release_metadata', $technicalNumber, []);
 }
-check(true, 'timestamps, ISBNs, and dotted release versions do not false-positive as phone numbers');
+check(true, 'dated links, timestamps, identifiers, versions, and grouped counts do not false-positive as phone numbers');
 
 $actualPhone = refusal(static fn() => $gates->guardPersonalData(
     'options',
@@ -490,5 +521,16 @@ foreach (['+1.415.555.2671', '+44.20.7946.0958'] as $dottedPhone) {
         "$dottedPhone is a telephone number rather than a release-version exemption"
     );
 }
+
+$slashPhone = refusal(static fn() => $gates->guardPersonalData(
+    'options',
+    'support_copy',
+    '+1/415/555/2671',
+    []
+));
+check(
+    ($slashPhone->diagnostics[0]['personal_data_shape'] ?? null) === 'phone number',
+    'a slash-formatted international telephone number remains protected after dated-link exclusions'
+);
 
 echo "REGRESS_CAPTURE_SAFETY_GATES PASSED\n";

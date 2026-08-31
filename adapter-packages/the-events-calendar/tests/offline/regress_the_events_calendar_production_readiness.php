@@ -819,6 +819,7 @@ require_once dirname(__DIR__, 2) . '/package/runtime/regenerators/the-events-cal
 use WPrism\Interpreters\TheEventsCalendar;
 use WPrism\Blocks;
 use WPrism\CaptureCandidateBuilder;
+use WPrism\CaptureSafetyGates;
 use WPrism\Deploy;
 use WPrism\EntityMetaCapture;
 use WPrism\Policy;
@@ -2492,6 +2493,47 @@ $eventMetaKeys = [
 foreach ($eventMetaKeys as $key) {
     wprism_check_same('authored', $policy->post_meta_rule($key)['class'] ?? null, "$key is reviewed authored TEC state");
 }
+$tecPiiValues = [
+    '_EventPhone' => '+977-555-0199',
+    '_OrganizerEmail' => 'events@example.test',
+    '_OrganizerPhone' => '+977-555-0101',
+    '_VenueAddress' => '100 Portable Street',
+    '_VenueCity' => 'Kathmandu',
+    '_VenueCountry' => 'Nepal',
+    '_VenuePhone' => '+977-555-0100',
+    '_VenueProvince' => 'Bagmati Province',
+    '_VenueState' => 'Bagmati',
+    '_VenueStateProvince' => 'Bagmati Province',
+    '_VenueZip' => '44600',
+];
+$tecPiiGates = new CaptureSafetyGates('/fixture/repository');
+$tecPiiCapture = new EntityMetaCapture(
+    $policy,
+    new Tokens('https://source.example.test', 'https://source.example.test/uploads'),
+    static function (string $section, string $key, mixed $value, array $rule, string $context) use ($tecPiiGates): void {
+        $tecPiiGates->guardSecret($section, $key, $value, $rule, $context);
+        $tecPiiGates->guardPersonalData($section, $key, $value, $rule, $context);
+    },
+    static function (): void {},
+    static function (string $_finding): void {}
+);
+foreach ($tecPiiValues as $key => $value) {
+    wprism_check_same(true, $policy->post_meta_rule($key)['allow_pii'] ?? null,
+        "$key is one exact reviewed free-plugin contact coordinate");
+    [$storePii, $capturedPii] = $tecPiiCapture->classifyValue(
+        $key,
+        [$value],
+        $tecPiiValues,
+        'TEC conformance entity',
+        'post_meta'
+    );
+    wprism_check($storePii && $capturedPii === $value,
+        "$key crosses the generic entity-meta PII gate through its exact rule");
+}
+wprism_check_same(11, count(array_filter(
+    (array) ($manifest['post_meta'] ?? []),
+    static fn(array $rule): bool => ($rule['allow_pii'] ?? false) === true
+)), 'TEC PII authority is closed to the eleven native contact coordinates');
 foreach (['_preview_organizers', '_preview_venues', '_tribe_events_errors', '_tribe_modified_fields'] as $key) {
     wprism_check_same('runtime', $policy->post_meta_rule($key)['class'] ?? null, "$key remains target-runtime state");
 }

@@ -94,8 +94,8 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   and release alike.
 - A3 (loop, historical): this run predated guarded Woo deletion, so a product
   deleted from the target made capture refuse. The current adapter admits
-  product/variation tombstones only under its closed active-plugin and locked
-  reverse-reference contract; the grind's old refusal remains evidence of the
+  product/variation tombstones only under its all-executable-owner, signed
+  writer-exclusion, and locked reverse-reference contract; the grind's old refusal remains evidence of the
   earlier supported-subset decision, not the current capability.
 - A4 (first look, host side): `wprism assess`'s per-operation `wp wprism
   capabilities` reads answered the seed's core-only pin set while the

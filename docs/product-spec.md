@@ -207,8 +207,9 @@ are not ordinary user vocabulary.
 6. **Narrow, composable guarantees.** Support is stated per surface and
    operation. A site may safely merge products while deletion remains
    conditional on a closed reverse-reference contract; Woo product/variation
-   deletion, for example, closes again when a nonparticipating extension is
-   active or a native order/download/comment/child reference exists. Live
+   deletion, for example, closes again when an executable owner lacks an exact
+   code-bound v2 agreement, the signed writer exclusion is lost, or a native
+   order/download/comment/child/non-forceable reference exists. Live
    payment rollback remains unsupported.
 7. **One machine contract, two views.** Agent interfaces are structured,
    non-interactive, stable, and remediable. Human views are semantic projections

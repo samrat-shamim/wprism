@@ -308,7 +308,7 @@ final class CaptureSafetyGates {
                 'surface' => $section,
                 'key' => $key,
                 'personal_data_shape' => $label,
-                'message' => 'authored user meta matched a personal-data signature',
+                'message' => 'authored state matched a personal-data signature',
                 'remediation' => 'keep it environment-local or explicitly review allow-pii for this field',
             ]],
             $operatorMessage

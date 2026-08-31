@@ -26,7 +26,7 @@ final class DeletionCapabilityResolver {
     ) {}
 
     /**
-     * @return ?array{cascades:string[],guards:array<int,array<string,mixed>>,declared_by:string[],executable_owner_boundary?:string,declaring_executable_owners?:string[]}
+     * @return ?array{cascades:string[],guards:array<int,array<string,mixed>>,declared_by:string[],executable_owner_boundary?:string,declaring_executable_owners?:string[],declaring_executable_owner_identities?:array<string,list<array{format:string,root:string,sha256:string}>>}
      */
     public function capability(string $selector): ?array {
         $out = null;
@@ -56,6 +56,32 @@ final class DeletionCapabilityResolver {
                     "wprism: every declaration of deletion capability '$selector' must agree on its executable-owner boundary"
                 );
             }
+            $declarationOwners = [];
+            if ($ownerBoundary !== null) {
+                $plugin = $manifest['plugin'] ?? null;
+                $theme = $manifest['theme'] ?? null;
+                if (is_string($plugin) && $plugin !== '') {
+                    $declarationOwners[] = 'plugin:' . $plugin;
+                }
+                if (is_string($theme) && $theme !== '') {
+                    $declarationOwners[] = 'theme:' . $theme;
+                }
+                if ($declarationOwners === []) {
+                    throw new \RuntimeException(
+                        "wprism: deletion capability '$selector' all_active_owners boundary requires a plugin- or theme-owned manifest"
+                    );
+                }
+                sort($declarationOwners, SORT_STRING);
+            }
+            $ownerIdentities = $decl['executable_owner_identities'] ?? null;
+            if ($ownerBoundary === null && array_key_exists('executable_owner_identities', $decl)) {
+                throw new \RuntimeException(
+                    "wprism: manifest deletion capability '$selector' executable_owner_identities requires executable_owner_boundary=all_active_owners"
+                );
+            }
+            $ownerIdentities = $ownerBoundary === null
+                ? []
+                : self::executable_owner_identities($selector, $declarationOwners, $ownerIdentities);
             $guards = $decl['guards'] ?? [];
             if (!is_array($guards) || !array_is_list($guards)) {
                 throw new \RuntimeException("wprism: manifest deletion capability '$selector' guards must be a list");
@@ -201,28 +227,97 @@ final class DeletionCapabilityResolver {
             $out['guards'] = array_merge($out['guards'], $guards);
             $out['declared_by'][] = $source;
             if ($ownerBoundary !== null) {
-                $plugin = $manifest['plugin'] ?? null;
-                $theme = $manifest['theme'] ?? null;
-                $owners = [];
-                if (is_string($plugin) && $plugin !== '') {
-                    $owners[] = 'plugin:' . $plugin;
-                }
-                if (is_string($theme) && $theme !== '') {
-                    $owners[] = 'theme:' . $theme;
-                }
-                if ($owners === []) {
-                    throw new \RuntimeException(
-                        "wprism: deletion capability '$selector' all_active_owners boundary requires a plugin- or theme-owned manifest"
-                    );
-                }
                 $out['executable_owner_boundary'] = $ownerBoundary;
                 $out['declaring_executable_owners'] = array_values(array_unique(array_merge(
                     (array) ($out['declaring_executable_owners'] ?? []),
-                    $owners
+                    $declarationOwners
                 )));
                 sort($out['declaring_executable_owners'], SORT_STRING);
+                $resolvedIdentities = (array) ($out['declaring_executable_owner_identities'] ?? []);
+                foreach ($ownerIdentities as $owner => $identities) {
+                    if (isset($resolvedIdentities[$owner]) && $resolvedIdentities[$owner] !== $identities) {
+                        throw new \RuntimeException(
+                            "wprism: manifests disagree on reviewed executable identities for deletion capability '$selector' owner '$owner'"
+                        );
+                    }
+                    $resolvedIdentities[$owner] = $identities;
+                }
+                ksort($resolvedIdentities, SORT_STRING);
+                $out['declaring_executable_owner_identities'] = $resolvedIdentities;
             }
         }
         return $out;
+    }
+
+    /**
+     * @param list<string> $owners
+     * @return array<string,list<array{format:string,root:string,sha256:string}>>
+     */
+    private static function executable_owner_identities(string $selector, array $owners, mixed $declared): array {
+        if (!is_array($declared) || array_is_list($declared)) {
+            throw new \RuntimeException(
+                "wprism: manifest deletion capability '$selector' must declare executable_owner_identities as an owner-keyed object"
+            );
+        }
+        $declaredOwners = array_keys($declared);
+        sort($declaredOwners, SORT_STRING);
+        if ($declaredOwners !== $owners) {
+            throw new \RuntimeException(
+                "wprism: manifest deletion capability '$selector' executable_owner_identities must cover exactly its declaring plugin/theme owners"
+            );
+        }
+        $out = [];
+        foreach ($owners as $owner) {
+            $rows = $declared[$owner] ?? null;
+            if (!is_array($rows) || !array_is_list($rows) || $rows === [] || count($rows) > 64) {
+                throw new \RuntimeException(
+                    "wprism: manifest deletion capability '$selector' owner '$owner' must declare 1 to 64 reviewed executable identities"
+                );
+            }
+            $expectedRoot = self::executable_owner_root($owner);
+            $normalized = [];
+            foreach ($rows as $index => $identity) {
+                if (!is_array($identity) || array_is_list($identity)) {
+                    throw new \RuntimeException(
+                        "wprism: manifest deletion capability '$selector' owner '$owner' identity[$index] is malformed"
+                    );
+                }
+                $keys = array_keys($identity);
+                sort($keys, SORT_STRING);
+                if ($keys !== ['format', 'root', 'sha256']
+                    || ($identity['format'] ?? null) !== 'wprism-executable-tree/v1'
+                    || ($identity['root'] ?? null) !== $expectedRoot
+                    || preg_match('/^[a-f0-9]{64}$/D', (string) ($identity['sha256'] ?? '')) !== 1) {
+                    throw new \RuntimeException(
+                        "wprism: manifest deletion capability '$selector' owner '$owner' identity[$index] is malformed"
+                    );
+                }
+                $normalized[] = [
+                    'format' => 'wprism-executable-tree/v1',
+                    'root' => $expectedRoot,
+                    'sha256' => (string) $identity['sha256'],
+                ];
+            }
+            usort($normalized, static fn(array $left, array $right): int => strcmp($left['sha256'], $right['sha256']));
+            if (count(array_unique(array_column($normalized, 'sha256'))) !== count($normalized)) {
+                throw new \RuntimeException(
+                    "wprism: manifest deletion capability '$selector' owner '$owner' repeats an executable identity"
+                );
+            }
+            $out[$owner] = $normalized;
+        }
+        return $out;
+    }
+
+    private static function executable_owner_root(string $owner): string {
+        if (str_starts_with($owner, 'plugin:')) {
+            $plugin = substr($owner, strlen('plugin:'));
+            $directory = str_replace('\\', '/', dirname($plugin));
+            return $directory === '.' ? 'plugins/' . $plugin : 'plugins/' . $directory;
+        }
+        if (str_starts_with($owner, 'theme:')) {
+            return 'themes/' . substr($owner, strlen('theme:'));
+        }
+        throw new \RuntimeException('wprism: manifest deletion capability has an unsupported executable owner');
     }
 }

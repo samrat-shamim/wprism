@@ -12,7 +12,7 @@ export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 
 wprism_ssh_adopt_extension() {
   local woo_version="11.0.1"
-  local woo_pin theme_owners product_id product_file product_base product_uuid
+  local woo_pin executable_owners product_id product_file product_base product_uuid
   local expected_hash expected_revision source_path scope_hash plan_json
   local lookup_before failed_code failed_product failed_lookup retry_code
   local status_json success_product success_lookup converged_plan
@@ -32,7 +32,7 @@ wprism_ssh_adopt_extension() {
   [ "$(ssh_fixture 'cd /var/www/html && wp plugin get woocommerce --field=version')" = "$woo_version" ] \
     || fail "WooCommerce scoped-deletion extension left its exact plugin boundary"
 
-  cat >"$TMP/woocommerce-theme-agreements.php" <<'PHP'
+  cat >"$TMP/woocommerce-owner-agreements.php" <<'PHP'
 <?php
 declare(strict_types=1);
 
@@ -86,23 +86,64 @@ foreach ($themes as $theme) {
         'rationale' => 'Exact active theme code reviewed: it persists no Woo product reverse-reference identity.',
     ];
 }
+$plugin = 'woocommerce/woocommerce.php';
+$canonicalRoot = 'plugins/woocommerce';
+$root = WP_PLUGIN_DIR . '/woocommerce';
+$resolved = realpath($root);
+if (!is_string($resolved) || $resolved !== $contentRoot . '/' . $canonicalRoot
+    || is_link($root) || !is_file(WP_PLUGIN_DIR . '/' . $plugin)) {
+    throw new RuntimeException('WooCommerce deletion agreement found an unsafe plugin root');
+}
+$files = [];
+$iterator = new RecursiveIteratorIterator(
+    new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+    RecursiveIteratorIterator::SELF_FIRST
+);
+foreach ($iterator as $entry) {
+    if (!$entry instanceof SplFileInfo) {
+        throw new RuntimeException('WooCommerce deletion agreement found an uninspectable plugin entry');
+    }
+    $path = $entry->getPathname();
+    $stat = lstat($path);
+    $kind = is_array($stat) ? (((int) $stat['mode']) & 0170000) : 0;
+    if ($kind === 0040000) {
+        continue;
+    }
+    if ($kind !== 0100000 || $entry->isLink() || !is_readable($path)) {
+        throw new RuntimeException('WooCommerce deletion agreement found a nonregular plugin entry');
+    }
+    $relative = str_replace('\\', '/', substr($path, strlen($root) + 1));
+    $files[] = ['path' => $relative, 'sha256' => hash_file('sha256', $path)];
+}
+usort($files, static fn(array $left, array $right): int => strcmp($left['path'], $right['path']));
+$payload = ['files' => $files, 'format' => 'wprism-executable-tree/v1', 'root' => $canonicalRoot];
+$owners[] = [
+    'owner' => 'plugin:' . $plugin,
+    'code_identity' => [
+        'format' => 'wprism-executable-tree/v1',
+        'root' => $canonicalRoot,
+        'sha256' => hash('sha256', \WPrism\Canon::encode($payload)),
+    ],
+    'rationale' => 'Exact adapter-declared WooCommerce tree reviewed for this deletion boundary.',
+];
 echo wp_json_encode($owners, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 PHP
-  scp -F "$TMP/ssh_config" "$TMP/woocommerce-theme-agreements.php" \
-    wprism-adopt-fixture:/home/wprism/recovery-fixture/woocommerce-theme-agreements.php >/dev/null
-  theme_owners="$(ssh_fixture 'cd /var/www/html && wp eval-file /home/wprism/recovery-fixture/woocommerce-theme-agreements.php')"
-  ssh_fixture 'rm -f /home/wprism/recovery-fixture/woocommerce-theme-agreements.php'
+  scp -F "$TMP/ssh_config" "$TMP/woocommerce-owner-agreements.php" \
+    wprism-adopt-fixture:/home/wprism/recovery-fixture/woocommerce-owner-agreements.php >/dev/null
+  executable_owners="$(ssh_fixture 'cd /var/www/html && wp eval-file /home/wprism/recovery-fixture/woocommerce-owner-agreements.php')"
+  ssh_fixture 'rm -f /home/wprism/recovery-fixture/woocommerce-owner-agreements.php'
   jq -e '
-    length >= 1
+    (map(select(.owner == "plugin:woocommerce/woocommerce.php")) | length) == 1
+    and (map(select(.owner | startswith("theme:"))) | length) >= 1
     and all(.[];
-      (.owner | test("^theme:[A-Za-z0-9._-]{1,128}$"))
+      (.owner | test("^(?:plugin:woocommerce/woocommerce\\.php|theme:[A-Za-z0-9._-]{1,128})$"))
       and .code_identity.format == "wprism-executable-tree/v1"
-      and (.code_identity.root | test("^themes/[A-Za-z0-9._-]{1,128}$"))
+      and (.code_identity.root | test("^(?:plugins/woocommerce|themes/[A-Za-z0-9._-]{1,128})$"))
       and (.code_identity.sha256 | test("^[a-f0-9]{64}$"))
       and (.rationale | length >= 16)
     )
-  ' <<<"$theme_owners" >/dev/null \
-    || fail "WooCommerce scoped-deletion extension did not bind exact active-theme code"
+  ' <<<"$executable_owners" >/dev/null \
+    || fail "WooCommerce scoped-deletion extension did not bind exact active-owner code"
 
   woo_pin="$(ssh_fixture 'cd /var/www/html && wp wprism manifest-pin --repo=/home/wprism/site --name=woocommerce')"
   jq -e '
@@ -112,7 +153,7 @@ PHP
     || fail "WooCommerce scoped-deletion extension could not obtain the exact shipped adapter pin"
   scp -F "$TMP/ssh_config" wprism-adopt-fixture:/home/wprism/site/site.wprism.json \
     "$TMP/woocommerce-site.before.json" >/dev/null
-  jq --argjson pin "$woo_pin" --argjson owners "$theme_owners" '
+  jq --argjson pin "$woo_pin" --argjson owners "$executable_owners" '
     .manifests = ([.manifests[]? | select((if type == "string" then . else .name end) != "woocommerce")] + [$pin])
     | .policy.post_types = (((.policy.post_types // []) + ["product", "product_variation"]) | unique)
     | .policy.taxonomies = (((.policy.taxonomies // []) + ["product_brand", "product_cat", "product_shipping_class", "product_tag", "product_type", "product_visibility"]) | unique)
