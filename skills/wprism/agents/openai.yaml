@@ -1,0 +1,4 @@
+interface:
+  display_name: "WPrism"
+  short_description: "Operate WPrism through its public safety contracts"
+  default_prompt: "Use $wprism to assess this WordPress environment and recommend the next safe action."
