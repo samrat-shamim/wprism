@@ -86,7 +86,7 @@ final class CodeResolver {
     /** Staging or the rename into place failed; the component was not written. */
     public const REASON_WRITE_FAILED = 'code_resolve_write_failed';
 
-    /** Repository-relative staging root. Ignored by init's own `/.wprism/` line. */
+    /** Repository-relative staging root. Ignored by init's `/.wprism/*` default. */
     public const STAGING = '.wprism/code-resolve';
 
     private ImportedArchives $imported;

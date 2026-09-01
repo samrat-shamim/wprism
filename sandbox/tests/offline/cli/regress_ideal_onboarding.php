@@ -294,6 +294,26 @@ $connectOutput = (string) ob_get_clean();
 wprism_check_same(0, $connectExit, 'connect succeeds after three native inspection probes');
 wprism_check_same(Adopt::repositorySeedBytes(), (string) file_get_contents($workspace . '/site.wprism.json'), 'connect and target adoption share one seed byte source');
 wprism_check_same(Adopt::repositoryGitignoreBytes(), (string) file_get_contents($workspace . '/.gitignore'), 'connect publishes the target-compatible local-artifact ignore boundary');
+$authorityIgnoreRepo = $tmp . '/authority-ignore-repository';
+mkdir($authorityIgnoreRepo . '/.wprism/authority', 0700, true);
+mkdir($authorityIgnoreRepo . '/.wprism/control', 0700, true);
+file_put_contents($authorityIgnoreRepo . '/.gitignore', Adopt::repositoryGitignoreBytes());
+file_put_contents($authorityIgnoreRepo . '/.wprism/authority/authorities.json', "{}\n");
+file_put_contents($authorityIgnoreRepo . '/.wprism/authority/release.secret', "test-only-secret\n");
+file_put_contents($authorityIgnoreRepo . '/.wprism/control/runtime.json', "{}\n");
+IdealOnboardingTransport::process(['git', 'init', '--initial-branch=main', $authorityIgnoreRepo]);
+$reviewedPolicyIgnore = IdealOnboardingTransport::process([
+    'git', '-C', $authorityIgnoreRepo, 'check-ignore', '--quiet', '.wprism/authority/authorities.json',
+]);
+$secretIgnore = IdealOnboardingTransport::process([
+    'git', '-C', $authorityIgnoreRepo, 'check-ignore', '--quiet', '.wprism/authority/release.secret',
+]);
+$runtimeIgnore = IdealOnboardingTransport::process([
+    'git', '-C', $authorityIgnoreRepo, 'check-ignore', '--quiet', '.wprism/control/runtime.json',
+]);
+wprism_check_same(1, $reviewedPolicyIgnore['exit'], 'a generated site repository lets the documented release authority policy be tracked normally');
+wprism_check_same(0, $secretIgnore['exit'], 'the authority exception does not expose a colocated signing secret');
+wprism_check_same(0, $runtimeIgnore['exit'], 'the authority exception leaves WPrism runtime control state ignored');
 wprism_check((fileperms($workspace . '/.wprism-envs.json') & 0777) === 0600, 'the privileged machine-local registry is owner-only');
 wprism_check(str_contains($connectOutput, 'no explicit mutation') && str_contains($connectOutput, 'site startup code may have run') && str_contains($connectOutput, 'onboard'), 'connect reports the honest WordPress-bootstrap boundary and one next command');
 wprism_check_same(['echo wprism-connect-ready'], $probeTransport->rawCalls, 'connect makes only its declared transport reachability probe');

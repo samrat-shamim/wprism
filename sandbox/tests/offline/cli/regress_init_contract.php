@@ -1095,7 +1095,10 @@ check(
         && str_contains($ignoreTemplate, '/.wprism-init-attempt.next')
         && str_contains($ignoreTemplate, '/.wprism-init-code-*')
         && str_contains($ignoreTemplate, '/.*.wprism-init-*')
-        && str_contains($ignoreTemplate, "/.wprism/\n")
+        && str_contains($ignoreTemplate, "/.wprism/*\n")
+        && str_contains($ignoreTemplate, "!/.wprism/authority/\n")
+        && str_contains($ignoreTemplate, "/.wprism/authority/*\n")
+        && str_contains($ignoreTemplate, "!/.wprism/authority/authorities.json\n")
         && str_contains($ignoreTemplate, "/.wprism-envs.json\n")
         && str_contains($ignoreTemplate, "/.wprism-env-values.json\n")
         && str_contains($ignoreTemplate, 'state.capture-intent.previous')
@@ -1324,7 +1327,8 @@ $ignorePublication = \WPrism\InitRepositoryBoundary::ensure_gitignore($ignoreFix
 $generatedIgnore = (string) file_get_contents($ignoreFixture . '/.gitignore');
 check(is_array($ignorePublication)
     && str_contains($generatedIgnore, "/.tmp*\n")
-    && str_contains($generatedIgnore, "/.wprism/\n")
+    && str_contains($generatedIgnore, "/.wprism/*\n")
+    && str_contains($generatedIgnore, "!/.wprism/authority/authorities.json\n")
     && str_contains($generatedIgnore, "/.wprism-envs.json\n")
     && str_contains($generatedIgnore, "/.wprism-env-values.json\n")
     && str_contains($generatedIgnore, "/.wprism-init-code-*\n")
@@ -1471,13 +1475,21 @@ $migratedIgnore = (string) file_get_contents($legacyIgnoreFixture . '/.gitignore
 $migratedLines = preg_split('/\r?\n/', $migratedIgnore);
 check(str_contains($migratedIgnore, "vendor/\n"), 'init ignore migration preserves unrelated rules');
 foreach ($legacyRules as $legacyRule) {
+    $migratedRule = $legacyRule === '.wprism/' ? '/.wprism/*' : '/' . $legacyRule;
     check(
         is_array($migratedLines)
-            && in_array('/' . $legacyRule, $migratedLines, true)
+            && in_array($migratedRule, $migratedLines, true)
             && !in_array($legacyRule, $migratedLines, true),
         "init root-anchors the prior broad WPrism rule $legacyRule"
     );
 }
+check(
+    is_array($migratedLines)
+        && in_array('!/.wprism/authority/', $migratedLines, true)
+        && in_array('/.wprism/authority/*', $migratedLines, true)
+        && in_array('!/.wprism/authority/authorities.json', $migratedLines, true),
+    'init migration exposes only the reviewed operation-authority policy under the WPrism runtime root'
+);
 $recoveryReason = static fn(string $repo, array $attempt): ?string =>
     \WPrism\InitRecovery::interrupted_attempt_manual_recovery_reason($repo, $attempt);
 $directoryIdentity = static fn(string $path, string $label): string =>

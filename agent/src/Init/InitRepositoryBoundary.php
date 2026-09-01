@@ -275,7 +275,9 @@ final class InitRepositoryBoundary {
             throw new \RuntimeException('wprism: init .gitignore boundary changed after proposal review');
         }
         $required = [
-            '/.tmp*', '/.wprism/', '/.wprism-envs.json', '/.wprism-init-code-*', '/.*.wprism-init-*',
+            '/.tmp*', '/.wprism/*', '!/.wprism/authority/', '/.wprism/authority/*',
+            '!/.wprism/authority/authorities.json', '/.wprism-envs.json', '/.wprism-init-code-*',
+            '/.*.wprism-init-*',
             '/' . self::ATTEMPT_FILE, '/' . self::ATTEMPT_NEXT_FILE,
             '/state.capture.lock', '/state.capture-staging/', '/state.capture-backup/',
             '/state.capture-intent', '/state.capture-receipt', '/state.capture-intent.tmp.*',
@@ -284,8 +286,9 @@ final class InitRepositoryBoundary {
             '/state.capture-receipt.next', '/.wprism-env-values.json',
         ];
         $next = $previous ?? '';
+        $next = (string) preg_replace('/^\/?\.wprism\/(?=\r?$)/m', '/.wprism/*', $next);
         $legacyRules = [
-            '.tmp*', '.wprism/', '.wprism-envs.json', '.wprism-init-code-*', '.*.wprism-init-*',
+            '.tmp*', '.wprism-envs.json', '.wprism-init-code-*', '.*.wprism-init-*',
             self::ATTEMPT_FILE, self::ATTEMPT_NEXT_FILE,
             'state.capture.lock', 'state.capture-staging/', 'state.capture-backup/',
             'state.capture-intent', 'state.capture-receipt', 'state.capture-intent.tmp.*',

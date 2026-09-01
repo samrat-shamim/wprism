@@ -1763,7 +1763,10 @@ override for the machine-local half of the registry.
 
 ```
 /.wprism-envs.json
-/.wprism/
+/.wprism/*
+!/.wprism/authority/
+/.wprism/authority/*
+!/.wprism/authority/authorities.json
 /.wprism-env-values.json
 ```
 

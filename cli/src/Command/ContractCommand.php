@@ -642,9 +642,10 @@ final class ContractCommand {
      */
     private static function stage(string $siteRepo, array $paths): bool {
         // `-f`: the site repository's own boundary (`wprism init`'s required
-        // `/.wprism/` rule, InitRepositoryBoundary::ensure_gitignore()) ignores
-        // WPrism's whole private working area — checkpoints, artifacts, env
-        // values, control state — and that boundary is right. The two review
+        // `/.wprism/*` default, InitRepositoryBoundary::ensure_gitignore()) ignores
+        // WPrism's private working area — checkpoints, artifacts, env values,
+        // control state — while admitting only the operation-authority policy.
+        // That boundary is right. The two review
         // artifacts are the deliberate exception MUP §3.1 names as committed:
         // the contract is a reviewed declaration and the projection its
         // review record, and a `git add` that silently obeyed the boundary
