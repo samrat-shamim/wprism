@@ -13,6 +13,8 @@ use WPrism\CommandRefusalException;
 
 /** `wprism stage-source` — persistent Git staging outside the canonical checkout. */
 final class StageSourceCommand {
+    private const ENVIRONMENT_VALUES_FILE = '.wprism-env-values.json';
+
     /** @param list<string> $extra */
     public static function run(
         EnvironmentDriver $driver,
@@ -129,6 +131,7 @@ final class StageSourceCommand {
                 $sourceTree,
                 $operationId
             );
+            self::syncEnvironmentValues($driver, $existing);
             self::verify($driver, $existing);
 
             return $existing;
@@ -156,6 +159,7 @@ final class StageSourceCommand {
             'target_id' => $targetId,
             'target_repo_path' => $repo,
         ]);
+        self::syncEnvironmentValues($driver, $receipt);
 
         $stored = self::persist($driver, $receipt);
         if ($stored !== null) {
@@ -230,6 +234,13 @@ final class StageSourceCommand {
             . 'test "$ref_commit" = "$expected_source" && test "$stage_commit" = "$expected_source" '
             . '&& test "$stage_tree" = "$expected_tree" || exit 87; '
             . 'test -z "$(git -C "$expected_stage" status --porcelain --untracked-files=all)" || exit 87; '
+            . 'source_values="$repo/' . self::ENVIRONMENT_VALUES_FILE . '"; '
+            . 'stage_values="$expected_stage/' . self::ENVIRONMENT_VALUES_FILE . '"; '
+            . 'test ! -L "$source_values" && test ! -L "$stage_values" || exit 89; '
+            . 'if [ -e "$source_values" ]; then '
+            . 'test -f "$source_values" && test -f "$stage_values" '
+            . '&& cmp -s "$source_values" "$stage_values" || exit 89; '
+            . 'else test ! -e "$stage_values" || exit 89; fi; '
             . 'printf __OK__';
         $result = $driver->captureRaw($script);
         if ((int) ($result['exit'] ?? 1) !== 0 || trim((string) ($result['stdout'] ?? '')) !== '__OK__') {
@@ -239,18 +250,115 @@ final class StageSourceCommand {
                 85 => ['release_stage_receipt_changed', 'the target-side source stage receipt is missing or no longer byte-identical'],
                 86 => ['release_stage_base_changed', 'the canonical target checkout changed after source staging'],
                 87 => ['release_stage_changed', 'the inert staged Git ref, commit, tree or worktree changed after staging'],
+                89 => ['release_stage_environment_values_changed', 'the target environment bindings changed after source staging'],
                 default => ['release_stage_changed', 'the source stage could not be revalidated without ambiguity'],
             };
+            $remediation = $exit === 89
+                ? 'rerun stage-source with the same operation id and exact inputs to refresh the inert binding mirror, then prepare again'
+                : 'do not authorize this preparation; reconcile the target and create a new source stage operation';
             throw new CommandRefusalException(
                 $code,
                 $message,
-                'do not authorize this preparation; reconcile the target and create a new source stage operation',
+                $remediation,
                 [['code' => $code, 'phase' => 'stage_revalidation']],
                 self::privateDetail($result)
             );
         }
 
         return $stagePath;
+    }
+
+    /**
+     * Refresh the inert stage's target-local intended-value authority without
+     * putting secret bytes in Git, a receipt, argv, stdout or diagnostics.
+     * Preparation then compares this mirror read-only on both sides of every
+     * staged planning read, so an env-set after staging cannot authorize a
+     * plan against values that will not be present at execution.
+     *
+     * @param array<string,mixed> $receipt
+     */
+    private static function syncEnvironmentValues(EnvironmentDriver $driver, array $receipt): void {
+        SourceStageReceipt::validate($receipt);
+        $repo = $driver->repoPath();
+        $operation = (string) $receipt['operation_id'];
+        $stagePath = (string) $receipt['stage']['repository_path'];
+        $file = self::ENVIRONMENT_VALUES_FILE;
+        $writer = <<<'PHP'
+$repo = $argv[1] ?? '';
+$stage = $argv[2] ?? '';
+$file = $argv[3] ?? '';
+if ($repo === '' || $stage === '' || $file !== '.wprism-env-values.json'
+    || !is_dir($repo) || !is_dir($stage)) {
+    fwrite(STDERR, "environment-values-input\n"); exit(89);
+}
+$source = $repo . '/' . $file;
+$destination = $stage . '/' . $file;
+$sourceExists = file_exists($source) || is_link($source);
+$destinationExists = file_exists($destination) || is_link($destination);
+if (is_link($source) || ($sourceExists && !is_file($source))
+    || is_link($destination) || ($destinationExists && !is_file($destination))) {
+    fwrite(STDERR, "environment-values-type\n"); exit(89);
+}
+if (!$sourceExists) {
+    if ($destinationExists && !@unlink($destination)) {
+        fwrite(STDERR, "environment-values-remove\n"); exit(89);
+    }
+    $directory = @fopen($stage, 'rb');
+    if ($destinationExists
+        && (!is_resource($directory) || !function_exists('fsync') || !@fsync($directory) || !@fclose($directory))) {
+        if (is_resource($directory)) @fclose($directory);
+        fwrite(STDERR, "environment-values-sync\n"); exit(89);
+    }
+    echo "__SYNCED__";
+    exit(0);
+}
+$stat = @lstat($source);
+$bytes = @file_get_contents($source);
+if (!is_array($stat) || (($stat['mode'] ?? 0) & 0170000) !== 0100000
+    || (($stat['mode'] ?? 0) & 0777) !== 0600 || !is_string($bytes)) {
+    fwrite(STDERR, "environment-values-source\n"); exit(89);
+}
+$temporary = @tempnam($stage, '.wprism-env-values-stage-');
+$handle = is_string($temporary) ? @fopen($temporary, 'r+b') : false;
+if (!is_resource($handle)
+    || @fwrite($handle, $bytes) !== strlen($bytes)
+    || !@fflush($handle)
+    || !function_exists('fsync')
+    || !@fsync($handle)
+    || !@fclose($handle)
+    || !@chmod($temporary, 0600)
+    || !@rename($temporary, $destination)) {
+    if (is_resource($handle)) @fclose($handle);
+    if (is_string($temporary) && is_file($temporary)) @unlink($temporary);
+    fwrite(STDERR, "environment-values-publish\n"); exit(89);
+}
+$directory = @fopen($stage, 'rb');
+$readback = @file_get_contents($destination);
+if (!is_resource($directory) || !@fsync($directory) || !@fclose($directory)
+    || !is_string($readback) || !hash_equals($bytes, $readback)) {
+    if (is_resource($directory)) @fclose($directory);
+    fwrite(STDERR, "environment-values-readback\n"); exit(89);
+}
+echo "__SYNCED__";
+PHP;
+        $critical = 'repo=' . escapeshellarg($repo)
+            . '; operation=' . escapeshellarg($operation)
+            . '; expected_stage=' . escapeshellarg($stagePath) . '; '
+            . 'git_dir=$(git -C "$repo" rev-parse --absolute-git-dir) || exit 89; '
+            . 'derived_stage="$git_dir/wprism-release/stages/$operation/repository"; '
+            . 'test "$derived_stage" = "$expected_stage" || exit 89; '
+            . 'php -r ' . escapeshellarg($writer) . ' -- "$repo" "$expected_stage" '
+            . escapeshellarg($file);
+        $result = $driver->captureRaw(self::lockedStageScript($repo, $critical));
+        if ((int) ($result['exit'] ?? 1) !== 0 || trim((string) ($result['stdout'] ?? '')) !== '__SYNCED__') {
+            throw new CommandRefusalException(
+                'release_stage_environment_values_sync_failed',
+                'the target-local environment bindings could not be mirrored into the inert source stage',
+                'repair the target .wprism-env-values.json type and mode, then retry the same stage operation',
+                [['code' => 'release_stage_environment_values_sync_failed', 'phase' => 'environment_bindings']],
+                self::privateDetail($result)
+            );
+        }
     }
 
     /** @param array<string,mixed> $receipt @return ?array<string,mixed> */

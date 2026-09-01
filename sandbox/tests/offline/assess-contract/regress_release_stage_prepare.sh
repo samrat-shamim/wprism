@@ -47,6 +47,34 @@ if ($negative["status"] !== "failed"
   && pass 'verification refusal and non-pass report become failed post-freeze outcomes' \
   || fail 'verification refusal or non-pass report was represented as successful'
 
+php -r '
+require $argv[1] . "/cli/src/Command/ReleaseCommand.php";
+$scope = new ReflectionMethod(\WPrism\Orchestrator\ReleaseCommand::class, "scope");
+$rows = array_map(static fn(string $id): array => ["id" => $id], [
+    "option_group:core:authored",
+    "option_group:woocommerce:runtime",
+    "post_type:page",
+    "post_type:product",
+    "post_type:shop_order",
+]);
+$plan = [
+    "affected_surfaces" => ["option_group:core:authored", "post_type:product"],
+    "create" => [["kind" => "post"]],
+    "update" => [["kind" => "options"]],
+];
+$exact = $scope->invoke(null, $plan, $rows);
+if (($exact["surfaces"] ?? null) !== ["option_group:core:authored", "post_type:product"]) exit(1);
+$plan["affected_surfaces"] = ["post_type:product", "option_group:core:authored"];
+try {
+    $scope->invoke(null, $plan, $rows);
+    exit(1);
+} catch (\WPrism\CommandRefusalException $error) {
+    if ($error->reasonCode !== "release_plan_scope_invalid") exit(1);
+}
+' "$ROOT" \
+  && pass 'release scope consumes the exact agent projection and refuses malformed narrowing' \
+  || fail 'release scope widened exact product/option changes or accepted malformed narrowing'
+
 php "$ROOT/sandbox/tests/fixtures/release/make-release-site.php" "$TMP/site" >/dev/null \
   || { echo 'FAIL: could not build release fixture' >&2; exit 1; }
 
@@ -126,6 +154,12 @@ git -C "$SITE" push stage-origin "HEAD^:refs/heads/$BRANCH" >/dev/null 2>&1
 git clone "$TMP/origin.git" "$TMP/target" >/dev/null 2>&1
 git -C "$SITE" branch release-candidate HEAD
 git -C "$SITE" push stage-origin release-candidate >/dev/null 2>&1
+# The release fixture predates adoption's generated ignore file. Model the
+# same target-local exclusion an adopted repository carries without changing
+# either the base or candidate tree exercised below.
+printf '%s\n' '/.wprism-env-values.json' >> "$TMP/target/.git/info/exclude"
+printf '%s\n' '{"fixture_binding":"initial-stage-secret"}' > "$TMP/target/.wprism-env-values.json"
+chmod 0600 "$TMP/target/.wprism-env-values.json"
 php -r '
 $path = $argv[1]; $registry = json_decode((string) file_get_contents($path), true);
 $registry["envs"]["fixture"]["repo_path"] = $argv[2];
@@ -166,6 +200,18 @@ if ($receipt["format"] !== "wprism-source-stage-receipt/v1"
   && pass 'stage-source emits one canonical, digest-valid receipt bound to source and stable target identity' \
   || fail 'stage-source receipt did not validate'
 
+STAGE_REPO="$(php -r '$d=json_decode(file_get_contents($argv[1]),true);echo $d["stage"]["repository_path"];' "$TMP/receipt.json")"
+if stat -f '%Lp' "$STAGE_REPO/.wprism-env-values.json" >/dev/null 2>&1; then
+  STAGE_ENV_MODE="$(stat -f '%Lp' "$STAGE_REPO/.wprism-env-values.json")"
+else
+  STAGE_ENV_MODE="$(stat -c '%a' "$STAGE_REPO/.wprism-env-values.json")"
+fi
+cmp -s "$TMP/target/.wprism-env-values.json" "$STAGE_REPO/.wprism-env-values.json" \
+  && [ "$STAGE_ENV_MODE" = 600 ] \
+  && ! grep -Fq 'initial-stage-secret' "$TMP/receipt.json" \
+  && pass 'stage-source mirrors the mode-0600 target binding authority without exposing it in the receipt' \
+  || fail 'stage-source omitted, weakened or exposed the target binding authority'
+
 TARGET_HEAD_AFTER="$(git -C "$TMP/target" rev-parse HEAD)"
 TARGET_TREE_AFTER="$(git -C "$TMP/target" rev-parse HEAD^{tree})"
 TARGET_INDEX_AFTER="$(git -C "$TMP/target" write-tree)"
@@ -182,6 +228,24 @@ wprism "$TMP/receipt-retry.json" stage-source fixture --from=release-candidate \
 cmp -s "$TMP/receipt.json" "$TMP/receipt-retry.json" \
   && pass 'an exact stage retry returns the byte-identical durable receipt' \
   || fail 'an exact stage retry changed receipt bytes'
+
+printf '%s\n' '{"fixture_binding":"rotated-stage-secret"}' > "$TMP/target/.wprism-env-values.json"
+chmod 0600 "$TMP/target/.wprism-env-values.json"
+wprism "$TMP/prepare-stale-bindings.json" release fixture prepare --stage-receipt="$TMP/receipt.json" \
+  --expected-stage-receipt-sha256="$(php -r '$d=json_decode(file_get_contents($argv[1]),true);echo $d["receipt_sha256"];' "$TMP/receipt.json")" \
+  --format=json
+[ "$?" = 1 ] \
+  && grep -Fq 'release_stage_environment_values_changed' "$TMP/prepare-stale-bindings.json" \
+  && ! grep -Fq 'rotated-stage-secret' "$TMP/prepare-stale-bindings.json" \
+  && pass 'read-only prepare refuses a stale environment-binding mirror without exposing its bytes' \
+  || fail 'release prepare accepted or exposed stale staged environment bindings'
+
+wprism "$TMP/receipt-binding-refresh.json" stage-source fixture --from=release-candidate \
+  --operation=release-stage-prepare-fixture --format=json
+cmp -s "$TMP/receipt.json" "$TMP/receipt-binding-refresh.json" \
+  && cmp -s "$TMP/target/.wprism-env-values.json" "$STAGE_REPO/.wprism-env-values.json" \
+  && pass 'an exact stage retry refreshes target bindings without changing receipt identity' \
+  || fail 'stage retry did not refresh bindings independently of the immutable receipt'
 
 RECEIPT_DIGEST="$(php -r '$d=json_decode(file_get_contents($argv[1]),true);echo $d["receipt_sha256"];' "$TMP/receipt.json")"
 TARGET_GIT_DIR="$(git -C "$TMP/target" rev-parse --absolute-git-dir)"
@@ -312,7 +376,6 @@ if (\WPrism\Orchestrator\ReleasePrepare::encode($document) !== $bytes
   && pass 'prepare emits a canonical complete subject while preserving authorization-plan/v1' \
   || fail 'release prepare document did not validate'
 
-STAGE_REPO="$(php -r '$d=json_decode(file_get_contents($argv[1]),true);echo $d["stage"]["repository_path"];' "$TMP/receipt.json")"
 grep -Fq -- "wprism plan --repo=$STAGE_REPO" "$TMP/calls.txt" \
   && grep -Fq -- "wprism compile --repo=$STAGE_REPO" "$TMP/calls.txt" \
   && grep -Fq -- "wprism assess-inventory --repo=$STAGE_REPO" "$TMP/calls.txt" \

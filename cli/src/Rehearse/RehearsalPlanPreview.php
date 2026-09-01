@@ -47,24 +47,15 @@ use WPrism\CommandRefusalException;
  * quietly filled in by the host: an operator reading "what a release would
  * touch" is entitled to the same numbers the release will use.
  *
- * ## Why scope restriction is at the KIND level, and why that is honest
+ * ## Exact scope when available; honest compatibility otherwise
  *
  * MUP §2.2 asks for "the surface rows from §2.1 restricted to the plan's
- * actual scope". The only value-free scope evidence the agent publishes is
- * the category summary's `contained_entities` facets — entity KINDS (post,
- * attachment, term, menu, sidebar, options, user_meta, typed_table) and code
- * kinds (plugin, theme, other) with counts. It does not publish which
- * *named* post type or table a row belongs to, and it must not: those are
- * values, and the detailed rows that carry them are exactly what the host is
- * forbidden to classify.
- *
- * So the restriction this class performs is: a surface row is in scope when
- * the plan touches its **kind**. That is a superset of the true scope — a
- * plan touching one post type puts every `post_type:` surface in scope — and
- * the document says so, on every row, in `in_scope_because`. A coarse bound
- * that names its own evidence is honest; a precise-looking bound the host
- * invented would not be. Narrowing it is a later change to the *agent's*
- * projection, not to this renderer.
+ * actual scope". Current agents publish additive `affected_surfaces`: the
+ * exact, value-free assess/contract ids derived beside Apply's own mutation
+ * triggers. This renderer consumes that identity without reclassifying a
+ * detailed row. Older agents lack the field, and an entity kind with no exact
+ * projection deliberately omits it; those plans retain the prior
+ * `contained_entities` superset and say `restriction: kind` explicitly.
  *
  * Three kinds have no entity facet and are decided differently, each stated:
  *
@@ -208,6 +199,7 @@ final class RehearsalPlanPreview {
         /** @var array<string,mixed> $summary */
         $categories = self::categories($summary);
         $entities = self::entitiesInScope($categories);
+        $exactSurfaces = self::exactAffectedSurfaces($plan, $surfaces);
 
         $rows = [];
         $skipped = 0;
@@ -219,7 +211,17 @@ final class RehearsalPlanPreview {
                     'regenerate the projection rows with wprism assess before rehearsing'
                 );
             }
-            $reasons = self::inScopeBecause($surface, $categories, $entities, $context['operation']);
+            $reasons = self::inScopeBecause(
+                $surface,
+                $categories,
+                $entities,
+                $context['operation'],
+                $exactSurfaces === null
+            );
+            $id = (string) ($surface['id'] ?? '');
+            if ($exactSurfaces !== null && isset($exactSurfaces[$id])) {
+                array_unshift($reasons, 'the agent\'s exact affected-surface projection names this surface');
+            }
             if ($reasons === []) {
                 $skipped++;
                 continue;
@@ -242,7 +244,7 @@ final class RehearsalPlanPreview {
             'touch_classes' => self::touchClasses($categories),
             'scope' => [
                 'entity_kinds' => $entities,
-                'restriction' => 'kind',
+                'restriction' => $exactSurfaces === null ? 'kind' : 'exact',
                 'summable' => false,
                 'surfaces_in_scope' => count($rows),
                 'surfaces_out_of_scope' => $skipped,
@@ -343,8 +345,10 @@ final class RehearsalPlanPreview {
         $total = (int) ($scope['surfaces_total'] ?? 0);
         $inScope = (int) ($scope['surfaces_in_scope'] ?? 0);
         $lines[] = '';
-        $lines[] = 'surfaces in scope: ' . $inScope . ' of ' . $total
-            . ' (restricted by entity kind — the only value-free scope evidence the plan carries)';
+        $restriction = ($scope['restriction'] ?? null) === 'exact'
+            ? 'restricted by the agent\'s exact affected-surface projection'
+            : 'restricted by entity kind — the compatibility scope evidence this plan carries';
+        $lines[] = 'surfaces in scope: ' . $inScope . ' of ' . $total . ' (' . $restriction . ')';
 
         /** @var list<array<string,mixed>> $rows */
         $rows = is_array($preview['surfaces'] ?? null) ? $preview['surfaces'] : [];
@@ -517,12 +521,13 @@ final class RehearsalPlanPreview {
         array $surface,
         array $categories,
         array $entities,
-        string $operation
+        string $operation,
+        bool $includeEntityKinds = true
     ): array {
         $reasons = [];
         $kind = is_string($surface['kind'] ?? null) ? $surface['kind'] : '';
         $entity = self::SURFACE_KIND_ENTITY[$kind] ?? null;
-        if ($entity !== null && in_array($entity, $entities, true)) {
+        if ($includeEntityKinds && $entity !== null && in_array($entity, $entities, true)) {
             $reasons[] = "the plan touches the '$entity' entity kind";
         }
         $counts = [];
@@ -544,6 +549,46 @@ final class RehearsalPlanPreview {
         }
 
         return $reasons;
+    }
+
+    /**
+     * @param list<array<string,mixed>> $surfaces
+     * @return ?array<string,true>
+     */
+    private static function exactAffectedSurfaces(array $plan, array $surfaces): ?array {
+        if (!array_key_exists('affected_surfaces', $plan)) {
+            return null;
+        }
+        $value = $plan['affected_surfaces'];
+        if (!is_array($value) || !array_is_list($value)) {
+            throw self::refuse(
+                'rehearsal_plan_incomplete',
+                'the rehearsal plan returned a malformed exact affected-surface projection',
+                'upgrade or repair the rehearsal agent before trusting this preview'
+            );
+        }
+        $available = [];
+        foreach ($surfaces as $surface) {
+            if (is_array($surface) && is_string($surface['id'] ?? null) && $surface['id'] !== '') {
+                $available[$surface['id']] = true;
+            }
+        }
+        $out = [];
+        $previous = null;
+        foreach ($value as $surface) {
+            if (!is_string($surface) || $surface === '' || !isset($available[$surface])
+                || isset($out[$surface]) || ($previous !== null && strcmp($previous, $surface) >= 0)) {
+                throw self::refuse(
+                    'rehearsal_plan_incomplete',
+                    'the rehearsal plan returned an invalid exact affected-surface identity',
+                    'upgrade or repair the rehearsal agent before trusting this preview'
+                );
+            }
+            $out[$surface] = true;
+            $previous = $surface;
+        }
+
+        return $out;
     }
 
     /**

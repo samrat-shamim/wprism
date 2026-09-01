@@ -129,6 +129,13 @@ provenance. The secrets category emits only
 `visibility: "redacted"`—it never scans or counts warning text or environment
 names—and all other summary data is bounded counts, states, phases, and kinds.
 
+The same full-plan envelope may carry `affected_surfaces`: exact, sorted,
+value-free assess/contract surface ids computed beside Apply's mutation
+selection. Release verification and rehearsal previews prefer this projection,
+so changing one product does not widen business-journey coverage to orders,
+sessions, logs, and every other post type. Older agents omit it and keep the
+clearly labelled entity-kind superset; a present invalid projection refuses.
+
 ### Bounded large-plan views
 
 No-flag `wp wprism plan` and `wprism status` retain their existing full-plan JSON

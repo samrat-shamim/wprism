@@ -58,6 +58,8 @@ final class ApplyPlanBuilder {
     private array $warnings;
     /** @var list<array<string,mixed>> */
     private array $selectedActions = [];
+    /** @var ?list<string> exact assess/contract surface ids, or null when projection is incomplete */
+    private ?array $affectedSurfaces = null;
     /** @var array<string,int>|null */
     private ?array $categorySummaryContext = null;
 
@@ -150,6 +152,7 @@ final class ApplyPlanBuilder {
             ? $this->policy->certification_readiness_blockers()
             : [];
         $this->categorySummaryContext = null;
+        $this->affectedSurfaces = null;
         $plan = [
             'create' => [], 'update' => [], 'unchanged' => [], 'drift' => [],
             'conflict' => [], 'adopt' => [], 'collision' => [], 'delete' => [],
@@ -495,12 +498,14 @@ final class ApplyPlanBuilder {
         // turn a clean plan red while a selected missing capability stays
         // visible in adapter_dispositions.
         $rebuildWork = $this->rebuild_work($plan, $tree, $opts, $retryingIncompleteApply);
+        $canonicalSurfaces = $this->rebuild_surfaces(
+            $rebuildWork['work'],
+            $tree,
+            $rebuildWork['rebuild_delete_work']
+        );
+        $this->affectedSurfaces = CanonicalSurfaces::projection_ids($canonicalSurfaces, $this->policy);
         $this->selectedActions = $this->policy->actions_for(
-            $this->rebuild_surfaces(
-                $rebuildWork['work'],
-                $tree,
-                $rebuildWork['rebuild_delete_work']
-            ),
+            $canonicalSurfaces,
             CanonicalSurfaces::mutation_channels_for_apply(
                 $rebuildWork['work'],
                 $rebuildWork['rebuild_delete_work']
@@ -551,6 +556,7 @@ final class ApplyPlanBuilder {
             'plan' => $plan,
             'warnings' => $this->warnings,
             'selected_actions' => $this->selectedActions,
+            'affected_surfaces' => $this->affectedSurfaces,
             'category_summary_context' => $this->categorySummaryContext,
         ];
     }
