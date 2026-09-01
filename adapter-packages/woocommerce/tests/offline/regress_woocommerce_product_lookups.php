@@ -117,10 +117,10 @@ $capability = $capabilities['rebuild_product_lookups'] ?? null;
 check(array_keys($capabilities) === ['cleanup_product_deletions', 'rebuild_product_lookups'],
     'it advertises the narrow deletion cleanup separately from ordinary product lookup rebuilds');
 check(is_array($cleanupCapability)
-    && ($cleanupCapability['context'] ?? null) === ['deletions', 'retry']
+    && ($cleanupCapability['context'] ?? null) === ['deletions']
     && ($cleanupCapability['scope'] ?? null) === 'entity'
     && ($cleanupCapability['idempotent'] ?? null) === true,
-    'the deletion capability consumes only tombstone/retry evidence and is safe to replay');
+    'the deletion capability consumes durable tombstone evidence and is safe to replay without also claiming the shared retry channel');
 check(is_array($capability) && $capability['scope'] === 'entity' && $capability['idempotent'] === true,
     'entity-scoped and idempotent — apply re-fires the rebuild pass on retry, so anything else refuses');
 check(is_array($capability)

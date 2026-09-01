@@ -601,6 +601,32 @@ check(
     'a feature-gated manifest capability contract is validated at load and reaches the runtime byte-for-byte'
 );
 
+$collidingRuntimeManifest = $runtimeManifest;
+$collidingRuntimeManifest['providers'][0]['capabilities'] = ['flush', 'warm'];
+$collidingRuntimeManifest['providers'][0]['contracts'] = [
+    'flush' => array_merge($contract, [
+        'scope' => 'entity',
+        'context' => ['retry'],
+    ]),
+    'warm' => array_merge($contract, [
+        'scope' => 'entity',
+        'context' => ['retry'],
+    ]),
+];
+$collidingRuntimeManifest['actions'][1]['triggers'] = ['post:probe'];
+$collidingRuntimeManifest['actions'][] = [
+    'kind' => 'provider',
+    'provider' => 'probe-cache-offline',
+    'capability' => 'warm',
+    'args' => [],
+    'triggers' => ['post:probe'],
+];
+refuse_probe(
+    $collidingRuntimeManifest,
+    "2 capabilities consuming the 'retry' channel for post:probe: probe-cache-offline/flush, probe-cache-offline/warm",
+    'manifest-runtime channel collisions refuse during package load instead of waiting for a live target capability probe'
+);
+
 $m = $runtimeManifest;
 $m['engine_features'] = ['spec-window/v1'];
 refuse_probe(

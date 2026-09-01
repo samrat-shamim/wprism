@@ -1645,6 +1645,50 @@ putenv('WPRISM_DEMO_INVENTORY_COMMAND');
 putenv('WPRISM_DEMO_COVERAGE_FIXTURE');
 is_string($priorInventoryPath) ? putenv('PATH=' . $priorInventoryPath) : putenv('PATH');
 
+$capabilityRoot = $tmp . '/demo-capability-qualification';
+$capabilityRepo = $capabilityRoot . '/source';
+mkdir($capabilityRoot . '/cli', 0700, true);
+mkdir($capabilityRepo, 0700);
+$blockedCapabilities = json_encode([
+    'ready' => false,
+    'blockers' => [[
+        'capability' => 'environment.containment.verify',
+        'message' => 'fixture containment proof is unavailable',
+    ]],
+], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+file_put_contents(
+    $capabilityRoot . '/cli/wprism',
+    "#!/bin/sh\nprintf '%s\\n' " . escapeshellarg($blockedCapabilities) . "\nexit 1\n"
+);
+chmod($capabilityRoot . '/cli/wprism', 0700);
+$assertCapabilityQualification = new ReflectionMethod(DemoCommand::class, 'assertCapabilityQualification');
+try {
+    $assertCapabilityQualification->invoke(
+        null,
+        [],
+        $capabilityRoot,
+        'demo-source',
+        $capabilityRepo
+    );
+    wprism_check(false, 'demo capability qualification refuses a complete non-ready report');
+} catch (RuntimeException $error) {
+    wprism_check(
+        str_contains($error->getMessage(), 'environment.containment.verify')
+            && str_contains($error->getMessage(), 'fixture containment proof is unavailable'),
+        'nonzero capability output retains its exact blocker instead of collapsing to a generic command failure'
+    );
+}
+$readyCapabilities = json_encode([
+    'ready' => true,
+    'blockers' => [],
+], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+file_put_contents(
+    $capabilityRoot . '/cli/wprism',
+    "#!/bin/sh\nprintf '%s\\n' " . escapeshellarg($readyCapabilities) . "\nexit 0\n"
+);
+$assertCapabilityQualification->invoke(null, [], $capabilityRoot, 'demo-source', $capabilityRepo);
+wprism_check(true, 'demo capability qualification accepts only a ready report');
+
 $assessmentRoot = $tmp . '/demo-assessment';
 $assessmentRepo = $assessmentRoot . '/source';
 mkdir($assessmentRoot . '/cli', 0700, true);

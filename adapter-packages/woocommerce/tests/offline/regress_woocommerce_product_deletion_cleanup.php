@@ -241,7 +241,7 @@ $row = [
     'parent_id' => 0,
     'child_ids' => [],
 ];
-$args = [\WPrism\Providers::ENTITIES_ARG => ['deletions' => [$row], 'retry' => false]];
+$args = [\WPrism\Providers::ENTITIES_ARG => ['deletions' => [$row]]];
 $receipt = $provider->invoke('cleanup_product_deletions', $args);
 $check(($receipt['verified'] ?? null) === true
     && ($receipt['before']['meta_lookup_rows'] ?? null) === 1
@@ -265,10 +265,10 @@ $check(($wpdb->actions[10]['status'] ?? null) === 'canceled'
     'only pending exact-args Woo sale actions in the Woo sales group are canceled');
 $check($wpdb->options === ['_transient_unrelated' => 'keep'],
     'fixed and product-specific Woo transients are removed without touching unrelated options');
-$retry = $provider->invoke('cleanup_product_deletions', $args);
-$check(($retry['before']['meta_lookup_rows'] ?? null) === 0
-    && ($retry['after']['scope_sha256'] ?? null) === ($retry['before']['scope_sha256'] ?? null),
-    'replaying the exact tombstone is idempotent and verifies the already-empty projection');
+$replay = $provider->invoke('cleanup_product_deletions', $args);
+$check(($replay['before']['meta_lookup_rows'] ?? null) === 0
+    && ($replay['after']['scope_sha256'] ?? null) === ($replay['before']['scope_sha256'] ?? null),
+    'replaying the durable tombstone without a second retry-channel claim is idempotent and verifies the already-empty projection');
 
 $variationRejected = false;
 try {

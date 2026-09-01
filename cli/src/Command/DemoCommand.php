@@ -1570,6 +1570,7 @@ SH;
             $sourceRoot,
             $repository,
             ['capabilities', $environment, '--operation=promote', '--format=json'],
+            false,
             false
         );
         $report = json_decode($result['stdout'], true);

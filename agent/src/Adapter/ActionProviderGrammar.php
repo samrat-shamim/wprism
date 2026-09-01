@@ -255,6 +255,67 @@ final class ActionProviderGrammar {
                 $seen[$trigger] = true;
             }
         }
+        self::validate_manifest_channel_ownership($actions, $providers, $name);
+    }
+
+    /**
+     * Refuse a manifest-runtime collision while the package is still data.
+     *
+     * ManifestProviderRuntime advertises its validated `contracts` map
+     * byte-for-byte, so waiting for live negotiation to discover two
+     * capabilities claiming one durable post/channel keyspace adds no target
+     * evidence. Plugin-sourced providers remain a runtime question because
+     * their executable advertises the contract; Providers::negotiate() keeps
+     * the same fail-closed gate for that case and for cross-manifest claims.
+     *
+     * @param list<array<string,mixed>> $actions
+     * @param array<string,array<string,mixed>> $providers
+     */
+    private static function validate_manifest_channel_ownership(
+        array $actions,
+        array $providers,
+        string $manifestName
+    ): void {
+        $claims = [];
+        foreach ($actions as $action) {
+            if (($action['kind'] ?? null) !== 'provider') {
+                continue;
+            }
+            $provider = (string) ($action['provider'] ?? '');
+            $capability = (string) ($action['capability'] ?? '');
+            $declaration = $providers[$provider] ?? null;
+            $contract = is_array($declaration)
+                ? ($declaration['contracts'][$capability] ?? null)
+                : null;
+            if (($declaration['source'] ?? null) !== 'manifest' || !is_array($contract)) {
+                continue;
+            }
+            foreach ((array) ($contract['context'] ?? []) as $channel) {
+                foreach ((array) ($action['triggers'] ?? []) as $trigger) {
+                    if (!is_string($trigger) || !str_starts_with($trigger, 'post:')) {
+                        continue;
+                    }
+                    $claims[(string) $channel][$trigger]["$provider/$capability"] = true;
+                }
+            }
+        }
+        ksort($claims, SORT_STRING);
+        foreach ($claims as $channel => $surfaces) {
+            ksort($surfaces, SORT_STRING);
+            foreach ($surfaces as $surface => $claimants) {
+                if (count($claimants) < 2) {
+                    continue;
+                }
+                $names = array_keys($claimants);
+                sort($names, SORT_STRING);
+                throw new \RuntimeException(
+                    "wprism: manifest '$manifestName' declares " . count($names)
+                    . " capabilities consuming the '$channel' channel for $surface: " . implode(', ', $names)
+                    . '; exactly one capability may own a durable channel/surface keyspace — narrow the '
+                    . 'contexts or triggers, or fold the repairs into one capability'
+                );
+            }
+        }
     }
 
     /**

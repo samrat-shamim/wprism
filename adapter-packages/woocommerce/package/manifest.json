@@ -213,7 +213,7 @@
           "scope": "entity",
           "idempotent": true,
           "timeout_seconds": 120,
-          "context": ["deletions", "retry"]
+          "context": ["deletions"]
         },
         "rebuild_product_lookups": {
           "args": {},
