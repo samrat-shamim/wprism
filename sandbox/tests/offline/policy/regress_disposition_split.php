@@ -268,6 +268,17 @@ const SPLIT_LIFECYCLE_SETTLEMENT_MANIFEST_HASH = 'ebf0a904a8fa73b72c0b9a0dad5801
 const SPLIT_LIFECYCLE_SETTLEMENT_SNAPSHOT_SHA = '938b9214d772604a1aab3574e4b447d362d5a7c4aac6938035c3c52aab9adaeb';
 
 /**
+ * The duplicate durable-context declaration correction changes only the
+ * WooCommerce manifest row. Preserve the immediately preceding fleet-visible
+ * values: the disposition registry itself is byte-identical, while the
+ * adapter digest, aggregate manifest hash and policy snapshot must move.
+ */
+const PRE_CONTEXT_CHANNEL_WOOCOMMERCE_DIGEST = '62331a62fe4a934d4ec6a82ac926650844f31f6aa98df7e501b49d2044eceb35';
+const PRE_CONTEXT_CHANNEL_MANIFEST_HASH = '66e76a18e9731c2f2b85a9023f816b53d6c5ef4ddb5ed4e4ba826f3e4b3d7c08';
+const PRE_CONTEXT_CHANNEL_REGISTRY_SHA = '99e02ee9b61b7b471b9e651e140efbe396dd437851c6ef7dac4a725d3ff18faa';
+const PRE_CONTEXT_CHANNEL_SNAPSHOT_SHA = '0c861c30900f044571821184dd865d2666540634a8b885bd52fda71330a5ccc7';
+
+/**
  * The current WPrism greenfield baseline. Unlike the historical split
  * overlays above, this map includes every currently shipped subject,
  * including Redirection, and is the only expected identity set used against
@@ -287,15 +298,15 @@ const WPRISM_CURRENT_DIGESTS = [
     'polylang' => '60edabfdaab55d4ea74d0c6ac71228bffc2b2911afe57a962ac898ee73064548',
     'redirection' => '6ba607e26345be23b0a89eeee69dadc0ceff75ca40b8cdf9d0ab88d066303bc7',
     'the-events-calendar' => 'cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee',
-    'woocommerce' => '62331a62fe4a934d4ec6a82ac926650844f31f6aa98df7e501b49d2044eceb35',
+    'woocommerce' => 'c66724d62f9410b43208b172ebdf95f6a5003b81a00dd6137401da4ae5cc94e3',
     'wprism-agency-cpt' => '174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab',
     'wps-hide-login' => '4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050',
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456',
 ];
-const WPRISM_CURRENT_MANIFEST_HASH = '66e76a18e9731c2f2b85a9023f816b53d6c5ef4ddb5ed4e4ba826f3e4b3d7c08';
+const WPRISM_CURRENT_MANIFEST_HASH = '713b9224ff4de40e4ff309636875343a3b799f0e91356fff844c1c7c5488edc5';
 const WPRISM_CURRENT_REGISTRY_SHA = '99e02ee9b61b7b471b9e651e140efbe396dd437851c6ef7dac4a725d3ff18faa';
-const WPRISM_CURRENT_SNAPSHOT_SHA = '0c861c30900f044571821184dd865d2666540634a8b885bd52fda71330a5ccc7';
+const WPRISM_CURRENT_SNAPSHOT_SHA = 'db1408562dd3afa8c9fbfe3cdef208fe4ebea4df3261dd7677407b9961ee10ae';
 
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(
@@ -483,6 +494,25 @@ wprism_check_same(
     'the bounded lifecycle-migration settlement provider changes only WooCommerce and preserves the ninth '
     . 'transition as a separate reviewed identity'
 );
+$preContextChannelDigests = WPRISM_CURRENT_DIGESTS;
+$preContextChannelDigests['woocommerce'] = PRE_CONTEXT_CHANNEL_WOOCOMMERCE_DIGEST;
+$contextChannelMovedNames = [];
+foreach (WPRISM_CURRENT_DIGESTS as $name => $digest) {
+    if ($preContextChannelDigests[$name] !== $digest) {
+        $contextChannelMovedNames[] = $name;
+    }
+}
+wprism_check_same(
+    ['woocommerce'],
+    $contextChannelMovedNames,
+    'the duplicate durable-context declaration correction changes only WooCommerce and preserves its prior '
+    . 'fleet-visible identity'
+);
+wprism_check_same(
+    PRE_CONTEXT_CHANNEL_REGISTRY_SHA,
+    WPRISM_CURRENT_REGISTRY_SHA,
+    'the manifest-only durable-context correction leaves the reviewed disposition registry byte-identical'
+);
 wprism_check_same(
     WPRISM_CURRENT_DIGESTS,
     $observed,
@@ -517,10 +547,14 @@ wprism_check(
         && SPLIT_RETENTION_NATIVE_HOOK_MANIFEST_HASH !== SPLIT_MARIADB_ARGS_INDEX_MANIFEST_HASH
         && SPLIT_RETENTION_CRON_OWNER_MANIFEST_HASH !== SPLIT_RETENTION_NATIVE_HOOK_MANIFEST_HASH
         && SPLIT_LIFECYCLE_SETTLEMENT_MANIFEST_HASH !== SPLIT_RETENTION_CRON_OWNER_MANIFEST_HASH
+        && PRE_CONTEXT_CHANNEL_MANIFEST_HASH !== SPLIT_LIFECYCLE_SETTLEMENT_MANIFEST_HASH
+        && WPRISM_CURRENT_MANIFEST_HASH !== PRE_CONTEXT_CHANNEL_MANIFEST_HASH
         && WPRISM_CURRENT_MANIFEST_HASH !== SPLIT_LIFECYCLE_SETTLEMENT_MANIFEST_HASH
         && SPLIT_REVIEWED_REGISTRY_SHA !== SPLIT_FROZEN_REGISTRY_SHA
         && SPLIT_REVIEWED_SNAPSHOT_SHA !== SPLIT_FROZEN_SNAPSHOT_SHA
         && SPLIT_LIFECYCLE_SETTLEMENT_SNAPSHOT_SHA !== SPLIT_REVIEWED_SNAPSHOT_SHA
+        && PRE_CONTEXT_CHANNEL_SNAPSHOT_SHA !== SPLIT_LIFECYCLE_SETTLEMENT_SNAPSHOT_SHA
+        && WPRISM_CURRENT_SNAPSHOT_SHA !== PRE_CONTEXT_CHANNEL_SNAPSHOT_SHA
         && WPRISM_CURRENT_REGISTRY_SHA !== SPLIT_REVIEWED_REGISTRY_SHA
         && WPRISM_CURRENT_SNAPSHOT_SHA !== SPLIT_LIFECYCLE_SETTLEMENT_SNAPSHOT_SHA,
     '...and all re-pinned numbers really differ from their frozen originals, so the assertions '
