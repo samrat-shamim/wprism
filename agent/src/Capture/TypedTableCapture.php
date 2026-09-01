@@ -19,6 +19,9 @@ if (!class_exists(ReferenceRules::class, false)) {
 if (!class_exists(Secrets::class, false)) {
     require_once __DIR__ . '/../Kernel/Secrets.php';
 }
+if (!class_exists(PersonalData::class, false)) {
+    require_once __DIR__ . '/../Kernel/PersonalData.php';
+}
 if (!class_exists(Canon::class, false)) {
     require_once __DIR__ . '/../Kernel/Canon.php';
 }
@@ -112,8 +115,18 @@ final class TypedTableCapture {
                 }
                 $value = $row[$col] ?? null;
                 $context = "table '$table' column '$col' (row $localId)";
-                self::guard_secret($value, !empty($rule['allow_secret']), $context);
-                $columns[$col] = self::capture_column($value, $columnCodecs[$col] ?? null, $tokens, $context);
+                $codec = $columnCodecs[$col] ?? null;
+                if ($codec === null) {
+                    self::guard_value((string) $col, $value, $rule, $context);
+                }
+                $columns[$col] = self::capture_column(
+                    $value,
+                    $codec,
+                    $tokens,
+                    $context,
+                    (string) $col,
+                    $rule
+                );
             }
             foreach ($decl['refs'] ?? [] as $ref) {
                 $col = $ref['column'];
@@ -229,8 +242,18 @@ final class TypedTableCapture {
                 }
                 $value = $row[$col] ?? null;
                 $context = "table '$table' column '$col' (composite row $uuid)";
-                self::guard_secret($value, !empty($rule['allow_secret']), $context);
-                $columns[$col] = self::capture_column($value, $columnCodecs[$col] ?? null, $tokens, $context);
+                $codec = $columnCodecs[$col] ?? null;
+                if ($codec === null) {
+                    self::guard_value((string) $col, $value, $rule, $context);
+                }
+                $columns[$col] = self::capture_column(
+                    $value,
+                    $codec,
+                    $tokens,
+                    $context,
+                    (string) $col,
+                    $rule
+                );
             }
 
             $packed = $this->identity->packCompositeId($table, $localByCol);
@@ -307,7 +330,7 @@ final class TypedTableCapture {
                 $plain = PlainData::decode($value, $context);
                 PlainData::assert($plain, $context);
                 $decoded = StructuredValue::decode($plain, $rule, $context);
-                self::guard_secret($decoded, !empty($rule['allow_secret']), $context);
+                self::guard_value($key, $decoded, $rule, $context);
                 $captured = $tokens->struct_capture(
                     $decoded,
                     $rule['json_refs'] ?? [],
@@ -323,10 +346,10 @@ final class TypedTableCapture {
                 // post/term/options plain-data path.
                 $plain = PlainData::decode($value, $context);
                 PlainData::assert($plain, $context);
-                self::guard_secret($plain, !empty($rule['allow_secret']), $context);
+                self::guard_value($key, $plain, $rule, $context);
                 $out[$key] = $tokens->plain_data_capture($plain);
             } elseif (!empty($rule['ref'])) {
-                self::guard_secret($value, !empty($rule['allow_secret']), $context);
+                self::guard_value($key, $value, $rule, $context);
                 $localId = (int) $value;
                 if ($localId <= 0) {
                     $out[$key] = null;
@@ -340,10 +363,10 @@ final class TypedTableCapture {
                 }
                 $out[$key] = $token;
             } elseif (is_string($value)) {
-                self::guard_secret($value, !empty($rule['allow_secret']), $context);
+                self::guard_value($key, $value, $rule, $context);
                 $out[$key] = $tokens->tokenize_text($value);
             } else {
-                self::guard_secret($value, !empty($rule['allow_secret']), $context);
+                self::guard_value($key, $value, $rule, $context);
                 $out[$key] = $value;
             }
         }
@@ -369,11 +392,18 @@ final class TypedTableCapture {
      *
      * @param array{container:string,leaves:string}|null $codec
      */
-    private static function capture_column(mixed $value, ?array $codec, object $tokens, string $context): mixed {
+    private static function capture_column(
+        mixed $value,
+        ?array $codec,
+        object $tokens,
+        string $context,
+        string $key,
+        array $rule
+    ): mixed {
         if ($codec === null) {
             return is_string($value) ? $tokens->tokenize_text($value) : $value;
         }
-        return ColumnCodecGrammar::capture_value($value, $codec, $tokens, $context);
+        return ColumnCodecGrammar::capture_value($value, $codec, $tokens, $context, $key, $rule);
     }
 
     /** Portable human-readable suffix for an ordinary row's canonical path. */
@@ -384,21 +414,28 @@ final class TypedTableCapture {
         return $slug !== '' ? $slug : 'record';
     }
 
-    /** Refuse high-confidence credentials in values declared authored. */
-    private static function guard_secret($value, bool $allowSecret, string $where): void {
-        if ($allowSecret) {
-            return;
+    /** Refuse secret/PII-shaped bytes in values declared authored. */
+    private static function guard_value(string $key, $value, array $rule, string $where): void {
+        if (empty($rule['allow_secret'])) {
+            $label = Secrets::clearance_match_deep($key, $value);
+            if ($label !== null) {
+                throw new \RuntimeException(
+                    "wprism: secret guard tripped — $where looks like a $label but is classified authored; "
+                    . "refusing to capture it into state/.\n"
+                    . "If this is really a secret, reclassify it runtime/derived/env instead of authored.\n"
+                    . 'If this is a false positive, declare "allow_secret": true on its rule '
+                    . '(the manifest, or a site.wprism.json policy.tables override).'
+                );
+            }
         }
-        $label = Secrets::hard_match_deep($value);
-        if ($label === null) {
-            return;
+        if (empty($rule['allow_pii'])) {
+            $label = PersonalData::match_deep($key, $value);
+            if ($label !== null) {
+                throw new \RuntimeException(
+                    "wprism: PII guard tripped — $where looks like $label but is classified authored; "
+                    . 'refusing capture without an exact reviewed allow_pii=true rule'
+                );
+            }
         }
-        throw new \RuntimeException(
-            "wprism: secret guard tripped — $where looks like a $label but is classified authored; "
-            . "refusing to capture it into state/.\n"
-            . "If this is really a secret, reclassify it runtime/derived/env instead of authored.\n"
-            . 'If this is a false positive, declare "allow_secret": true on its rule '
-            . '(the manifest, or a site.wprism.json policy.tables override).'
-        );
     }
 }

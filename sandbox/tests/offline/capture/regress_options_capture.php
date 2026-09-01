@@ -538,9 +538,13 @@ $check(
         'post_ref',
         'zero_ref',
         'blob_setting.authored_key',
+        'blob_setting.unset_ref',
+        'blob_setting.missing_ref_sentinel',
         'native_blob.existing',
+        'native_blob.added_ref',
         'native_blob.added_text',
         'theme_mods_target.background_color',
+        'method_7_settings',
     ],
     'central secret callback runs in deterministic authored-value order before encoding; actual='
         . json_encode(array_column($initialSecretCalls, 1))

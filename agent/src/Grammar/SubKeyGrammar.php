@@ -175,6 +175,7 @@ final class SubKeyGrammar {
         'cast',
         'order_preserving',
         'plain_data',
+        'allow_pii',
         'allow_secret',
         'lint_ok',
     ];

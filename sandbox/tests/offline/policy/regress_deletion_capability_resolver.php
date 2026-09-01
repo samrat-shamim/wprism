@@ -171,10 +171,195 @@ $assertThrows(
     'must declare source_id_kind and source_pk together',
     'table-row guards refuse half-declared source identity'
 );
+$lockColumn = $manifests;
+$lockColumn[0]['deletions']['table:things']['guards'][0]['lock_column'] = 'active';
+$lockCapability = (new DeletionCapabilityResolver(
+    $lockColumn,
+    $optionRules($lockColumn),
+    ['string', 'csv']
+))->capability('table:things');
+$check(
+    ($lockCapability['guards'][0]['lock_column'] ?? null) === 'active',
+    'a guard may lock an exact indexed where predicate instead of its unindexed reference-value column'
+);
+$badLockColumn = $lockColumn;
+$badLockColumn[0]['deletions']['table:things']['guards'][0]['lock_column'] = 'missing';
+$assertThrows(
+    static fn() => (new DeletionCapabilityResolver(
+        $badLockColumn,
+        $optionRules($badLockColumn),
+        ['string', 'csv']
+    ))->capability('table:things'),
+    'lock_column must name an exact where predicate',
+    'an unrelated lock column cannot claim a next-key boundary'
+);
+
+$absenceEmpty = $manifests;
+$absenceEmpty[0]['tables']['children'] = ['class' => 'runtime'];
+$absenceEmpty[0]['deletions']['table:things']['guards'][0]['table_absence'] = 'empty';
+$absenceCapability = (new DeletionCapabilityResolver(
+    $absenceEmpty,
+    $optionRules($absenceEmpty),
+    ['string', 'csv']
+))->capability('table:things');
+$check(
+    ($absenceCapability['guards'][0]['table_absence'] ?? null) === 'empty',
+    'a same-manifest table may explicitly declare the absence-means-empty topology contract'
+);
+foreach ([false, true, 'optional'] as $invalidAbsence) {
+    $badAbsence = $absenceEmpty;
+    $badAbsence[0]['deletions']['table:things']['guards'][0]['table_absence'] = $invalidAbsence;
+    $assertThrows(
+        static fn() => (new DeletionCapabilityResolver(
+            $badAbsence,
+            $optionRules($badAbsence),
+            ['string', 'csv']
+        ))->capability('table:things'),
+        'table_absence must be empty',
+        'table_absence is the exact enum empty, never a truthy or optional-like hint'
+    );
+}
+$foreignAbsence = $absenceEmpty;
+unset($foreignAbsence[0]['tables']['children']);
+$assertThrows(
+    static fn() => (new DeletionCapabilityResolver(
+        $foreignAbsence,
+        $optionRules($foreignAbsence),
+        ['string', 'csv']
+    ))->capability('table:things'),
+    'may only describe a table declared by the same manifest',
+    'absence-means-empty authority cannot be borrowed from another manifest or an undeclared table'
+);
+$mixedAbsence = $absenceEmpty;
+$mixedAbsence[0]['deletions']['table:things']['guards'][] = $guard();
+$assertThrows(
+    static fn() => (new DeletionCapabilityResolver(
+        $mixedAbsence,
+        $optionRules($mixedAbsence),
+        ['string', 'csv']
+    ))->capability('table:things'),
+    'disagrees on table_absence',
+    'one selector cannot treat the same physical guard table as both required and absence-means-empty'
+);
+
+$closed = $manifests;
+foreach ($closed as $position => &$manifest) {
+    $manifest['plugin'] = "fixture-$position/plugin.php";
+    $manifest['deletions']['table:things']['executable_owner_boundary'] = 'all_active_owners';
+    $manifest['deletions']['table:things']['executable_owner_identities'] = [
+        "plugin:fixture-$position/plugin.php" => [[
+            'format' => 'wprism-executable-tree/v1',
+            'root' => "plugins/fixture-$position",
+            'sha256' => str_repeat((string) ($position + 1), 64),
+        ]],
+    ];
+}
+$closed[1]['theme'] = 'fixture-theme';
+$closed[1]['deletions']['table:things']['executable_owner_identities']['theme:fixture-theme'] = [[
+    'format' => 'wprism-executable-tree/v1',
+    'root' => 'themes/fixture-theme',
+    'sha256' => str_repeat('3', 64),
+]];
+unset($manifest);
+$closedCapability = (new DeletionCapabilityResolver($closed, $optionRules($closed), ['string', 'csv']))
+    ->capability('table:things');
+$check(
+    ($closedCapability['executable_owner_boundary'] ?? null) === 'all_active_owners'
+        && ($closedCapability['declaring_executable_owners'] ?? null) === [
+            'plugin:fixture-0/plugin.php',
+            'plugin:fixture-1/plugin.php',
+            'theme:fixture-theme',
+        ]
+        && ($closedCapability['declaring_executable_owner_identities'] ?? null) === [
+            'plugin:fixture-0/plugin.php' => [[
+                'format' => 'wprism-executable-tree/v1',
+                'root' => 'plugins/fixture-0',
+                'sha256' => str_repeat('1', 64),
+            ]],
+            'plugin:fixture-1/plugin.php' => [[
+                'format' => 'wprism-executable-tree/v1',
+                'root' => 'plugins/fixture-1',
+                'sha256' => str_repeat('2', 64),
+            ]],
+            'theme:fixture-theme' => [[
+                'format' => 'wprism-executable-tree/v1',
+                'root' => 'themes/fixture-theme',
+                'sha256' => str_repeat('3', 64),
+            ]],
+        ],
+    'closed deletion authority enumerates every participating owner and exact reviewed executable identity'
+);
+$withoutExecutableOwnerBoundary = static function (array $declaration): array {
+    unset($declaration['executable_owner_boundary'], $declaration['executable_owner_identities']);
+    return $declaration;
+};
+$missingOwnerIdentity = $closed;
+unset(
+    $missingOwnerIdentity[1]['deletions']['table:things']['executable_owner_identities']['theme:fixture-theme']
+);
+$assertThrows(
+    static fn() => (new DeletionCapabilityResolver(
+        $missingOwnerIdentity,
+        $optionRules($missingOwnerIdentity),
+        ['string', 'csv']
+    ))->capability('table:things'),
+    'must cover exactly its declaring plugin/theme owners',
+    'closed deletion authority refuses a declaring owner with no reviewed executable identity'
+);
+$wrongOwnerRoot = $closed;
+$wrongOwnerRoot[0]['deletions']['table:things']['executable_owner_identities']['plugin:fixture-0/plugin.php'][0]['root']
+    = 'plugins/not-fixture-0';
+$assertThrows(
+    static fn() => (new DeletionCapabilityResolver(
+        $wrongOwnerRoot,
+        $optionRules($wrongOwnerRoot),
+        ['string', 'csv']
+    ))->capability('table:things'),
+    'identity[0] is malformed',
+    'reviewed executable identities cannot name a root outside their exact owner'
+);
+$legacyBoundary = $closed;
+$legacyBoundary[0]['deletions']['table:things'] = $withoutExecutableOwnerBoundary(
+    $legacyBoundary[0]['deletions']['table:things']
+);
+$legacyBoundary[0]['deletions']['table:things']['active_plugin_boundary'] = 'declarers_only';
+$assertThrows(
+    static fn() => (new DeletionCapabilityResolver(
+        $legacyBoundary,
+        $optionRules($legacyBoundary),
+        ['string', 'csv']
+    ))->capability('table:things'),
+    'active_plugin_boundary is retired',
+    'the active-plugins-only boundary cannot silently survive as deletion authority'
+);
+$mixedBoundary = $closed;
+$mixedBoundary[1]['deletions']['table:things'] = $withoutExecutableOwnerBoundary(
+    $mixedBoundary[1]['deletions']['table:things']
+);
+$assertThrows(
+    static fn() => (new DeletionCapabilityResolver(
+        $mixedBoundary,
+        $optionRules($mixedBoundary),
+        ['string', 'csv']
+    ))->capability('table:things'),
+    'every declaration',
+    'all co-owners must agree on a closed executable-owner boundary'
+);
+$reverseMixedBoundary = array_reverse($mixedBoundary);
+$assertThrows(
+    static fn() => (new DeletionCapabilityResolver(
+        $reverseMixedBoundary,
+        $optionRules($reverseMixedBoundary),
+        ['string', 'csv']
+    ))->capability('table:things'),
+    'every declaration',
+    'executable-owner boundary disagreement refuses independently of manifest order'
+);
 
 require_once "$root/agent/src/Kernel/Canon.php";
 require_once "$root/agent/src/Kernel/OptionState.php";
 require_once "$root/agent/src/Policy/Policy.php";
+require_once "$root/agent/src/Delete/Deletion.php";
 
 $policy = new WPrism\Policy();
 $policy->manifests = $manifests;
@@ -187,6 +372,27 @@ $policy->manifests[1]['deletions']['table:things']['cascades'] = ['changed'];
 $check(
     ($policy->deletion_capability('table:things')['cascades'] ?? null) === ['changed'],
     'Policy builds a fresh resolver for each facade call so public fixture mutations are observed'
+);
+
+$closedPolicy = new WPrism\Policy();
+$closedPolicy->manifests = [[
+    'name' => 'closed-product-owner',
+    'plugin' => 'shop/shop.php',
+    'deletions' => ['post:product' => [
+        'executable_owner_boundary' => 'all_active_owners',
+        'executable_owner_identities' => ['plugin:shop/shop.php' => [[
+            'format' => 'wprism-executable-tree/v1',
+            'root' => 'plugins/shop',
+            'sha256' => str_repeat('a', 64),
+        ]]],
+        'cascades' => ['postmeta', 'post_revisions', 'term_relationships'],
+        'guards' => [],
+    ]],
+]];
+$check(
+    WPrism\Deletion::capability($closedPolicy, 'post', 'product')['declaring_executable_owners']
+        === ['plugin:shop/shop.php'],
+    'static deletion authority exposes its exact executable owner without consulting cached activation facts'
 );
 
 $policySource = (string) file_get_contents("$root/agent/src/Policy/Policy.php");

@@ -33,6 +33,7 @@ require_once __DIR__ . '/../../../../cli/src/Recovery/RecoveryProfileSelection.p
 require_once __DIR__ . '/../../../../cli/src/Release/AuthorizationPlan.php';
 require_once __DIR__ . '/../../../../cli/src/Release/NextAction.php';
 require_once __DIR__ . '/../../../../cli/src/Release/ReleaseOutcome.php';
+require_once __DIR__ . '/../../../../cli/src/Command/ReleaseCommand.php';
 
 use WPrism\Orchestrator\ApplicationContract;
 use WPrism\Orchestrator\AuthorizationPlan;
@@ -40,6 +41,7 @@ use WPrism\Orchestrator\NextAction;
 use WPrism\Orchestrator\ProjectionVocabulary;
 use WPrism\Orchestrator\RecoveryClaim;
 use WPrism\Orchestrator\RecoveryProfileSelection;
+use WPrism\Orchestrator\ReleaseCommand;
 use WPrism\Orchestrator\ReleaseOutcome;
 
 $fixtures = __DIR__ . '/../../fixtures/release';
@@ -107,6 +109,58 @@ function gate_inputs(array $overrides = []): array {
         'target' => $target,
     ], $overrides);
 }
+
+// ReleaseCommand is the product compositor that decides whether the eventual
+// promote enters WordPress's hook-firing code window. `cmd_promote_internal()`
+// runs those phases only when code changes; pin that execution truth here so
+// the authorization gate neither demands an effect for content-only apply nor
+// omits one when a plugin/theme really moves.
+$releaseScope = new ReflectionMethod(ReleaseCommand::class, 'scope');
+$stateOnlyPlan = $plan;
+foreach ($stateOnlyPlan['category_summary']['categories'] as &$category) {
+    if (($category['id'] ?? null) !== 'code') {
+        continue;
+    }
+    foreach ($category['metrics'] as $metric => $_count) {
+        $category['metrics'][$metric] = 0;
+    }
+    foreach ($category['contained_entities'] as $kind => $_count) {
+        $category['contained_entities'][$kind] = 0;
+    }
+}
+unset($category);
+$stateOnlyScope = $releaseScope->invoke(null, $stateOnlyPlan, $projection);
+wprism_check_same(
+    ['verify'],
+    $stateOnlyScope['code']['lifecycle_phases'] ?? null,
+    'ReleaseCommand mirrors content-only promote: verify runs and code lifecycle hooks do not'
+);
+wprism_check_same(
+    null,
+    gate_find(
+        AuthorizationPlan::refusals(gate_inputs([
+            'contract' => $undeclared,
+            'plan' => $stateOnlyPlan,
+            'scope' => $stateOnlyScope,
+        ])),
+        'release_live_effect_undeclared'
+    ),
+    'a state-only ReleaseCommand plan exits the lifecycle gate without inventing an external-effect declaration'
+);
+
+$codeScope = $releaseScope->invoke(null, $plan, $projection);
+wprism_check_same(
+    ['deploy', 'retire', 'activate', 'finalize', 'verify'],
+    $codeScope['code']['lifecycle_phases'] ?? null,
+    'ReleaseCommand mirrors code-changing promote in canonical execution order'
+);
+wprism_check(
+    gate_find(
+        AuthorizationPlan::refusals(gate_inputs(['contract' => $undeclared, 'scope' => $codeScope])),
+        'release_live_effect_undeclared'
+    ) !== null,
+    'code work still requires the exact reviewed lifecycle-window contract declaration'
+);
 
 // ------------------------------------------------ §1.6: the containment gate
 $refusals = AuthorizationPlan::refusals(gate_inputs(['contract' => $undeclared]));
@@ -256,8 +310,11 @@ foreach ([
 }
 
 $recomputed = $projection;
+$recomputed[0]['operations']['release'] = array_diff_key(
+    $recomputed[0]['operations']['release'],
+    ['gap_action' => true]
+);
 $recomputed[0]['operations']['release']['readiness'] = 'Unsupported';
-unset($recomputed[0]['operations']['release']['gap_action']);
 wprism_check_same(
     'exclude',
     gate_find(AuthorizationPlan::refusals(gate_inputs(['projection' => $recomputed])), 'release_surface_not_releasable')['gap_action'],

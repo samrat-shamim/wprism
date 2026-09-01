@@ -29,6 +29,7 @@ require_once __DIR__ . '/src/Kernel/CommandRefusal.php';
 // src/Policy/Policy.php.
 require_once __DIR__ . '/src/Kernel/SiteTopology.php';
 require_once __DIR__ . '/src/Kernel/PersonalData.php';
+require_once __DIR__ . '/src/Kernel/PostPasswordBinding.php';
 require_once __DIR__ . '/src/Policy/ManifestDispositions.php';
 require_once __DIR__ . '/src/Policy/PlatformCompatibility.php';
 require_once __DIR__ . '/src/Policy/AdapterPackage.php';
@@ -56,6 +57,7 @@ require_once __DIR__ . '/src/Kernel/ProcessFence.php';
 require_once __DIR__ . '/src/Repository/Identity.php';
 require_once __DIR__ . '/src/Repository/IdentityBackup.php';
 require_once __DIR__ . '/src/Delete/Deletion.php';
+require_once __DIR__ . '/src/Delete/DeletionWriterExclusion.php';
 require_once __DIR__ . '/src/Kernel/JsonRefs.php';
 require_once __DIR__ . '/src/Grammar/Tokens.php';
 require_once __DIR__ . '/src/Grammar/Blocks.php';

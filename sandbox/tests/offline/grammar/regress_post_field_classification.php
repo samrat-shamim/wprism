@@ -340,15 +340,15 @@ function ordered_post_projection_hash(Policy $policy, string $path): string {
 }
 
 /** @return array<int,array<string,mixed>> */
-function post_authorization_diagnostics(Policy $policy, array $front): array {
+function post_authorization_diagnostics(Policy $policy, array $front, string $body = ''): array {
     $entity = [
         'type' => 'post',
         'post_type' => (string) $front['type'],
         'path' => 'posts/' . $front['type'] . '/' . $front['uuid'] . '--fixture.md',
-        'hash' => hash('sha256', Canon::post_hash_basis($front, '', $policy)),
-        'content' => Canon::post_file($front, ''),
+        'hash' => hash('sha256', Canon::post_hash_basis($front, $body, $policy)),
+        'content' => Canon::post_file($front, $body),
         'data' => $front,
-        'body' => '',
+        'body' => $body,
     ];
     try {
         RepositoryAuthorization::assert_tree($policy, [(string) $front['uuid'] => $entity]);
@@ -375,17 +375,25 @@ function option_authorization_diagnostics(Policy $policy, array $document): arra
     }
 }
 
-function apply_instance(Policy $policy, Tokens $tokens, string $repositoryRoot): \WPrism\PostMaterializer {
+function apply_instance(
+    Policy $policy,
+    Tokens $tokens,
+    string $repositoryRoot,
+    array $environmentValues = []
+): \WPrism\PostMaterializer {
     $fieldMaterializer = new \WPrism\ApplyFieldMaterializer($policy, $tokens);
     $fieldMaterializer->begin_authored_transaction();
-    \WPrism\CacheInvalidationTransaction::begin();
+    if (!\WPrism\CacheInvalidationTransaction::is_active()) {
+        \WPrism\CacheInvalidationTransaction::begin();
+    }
     $compiled = (new ReflectionClass(CompiledRepository::class))->newInstanceWithoutConstructor();
     return new \WPrism\PostMaterializer(
         $policy,
         $tokens,
         $fieldMaterializer,
         new \WPrism\RelationshipMaterializer($policy, $fieldMaterializer),
-        new \WPrism\AttachmentMaterializer($policy, $fieldMaterializer, $compiled, $repositoryRoot)
+        new \WPrism\AttachmentMaterializer($policy, $fieldMaterializer, $compiled, $repositoryRoot),
+        $environmentValues
     );
 }
 
@@ -435,6 +443,17 @@ write_manifest($fixtureDir, 'bad-field-class', [
     'name' => 'bad-field-class',
     'spec_version' => WPRISM_SPEC_VERSION,
     'post_types' => ['product' => ['fields' => ['modified' => ['class' => 'runtime']]]],
+]);
+write_manifest($fixtureDir, 'json-body-clearance', [
+    'name' => 'json-body-clearance',
+    'spec_version' => WPRISM_SPEC_VERSION,
+    'engine_features' => ['spec-window/v1', 'structured-body-refs/v1'],
+    'post_types' => ['form' => ['class' => 'authored', 'body' => 'json']],
+    'body_refs' => [
+        'form' => [
+            'json_refs' => [['path' => '$.target', 'kind' => 'post']],
+        ],
+    ],
 ]);
 $fixtureLibrary = manifest_fixture_adapter_library($fixtureDir);
 
@@ -713,6 +732,158 @@ check(
     post_authorization_diagnostics($policy, $source) === [],
     'RepositoryAuthorization accepts captured Woo product derived timestamps'
 );
+$secretBodyDiagnostics = post_authorization_diagnostics(
+    $policy,
+    $source,
+    'Hand-edited deployment note: api_key=CredentialShape-2026-Blocked'
+);
+check(
+    count(array_filter($secretBodyDiagnostics, static fn(array $d): bool =>
+        ($d['code'] ?? '') === 'repository_secret_not_allowed'
+        && ($d['surface'] ?? '') === 'post_field'
+        && ($d['field'] ?? '') === 'body'
+    )) === 1,
+    'RepositoryAuthorization prevents a Git edit from bypassing canonical-content secret clearance'
+);
+$piiBodyDiagnostics = post_authorization_diagnostics(
+    $policy,
+    $source,
+    'Hand-edited private contact is person@example.test'
+);
+check(
+    count(array_filter($piiBodyDiagnostics, static fn(array $d): bool =>
+        ($d['code'] ?? '') === 'repository_pii_not_allowed'
+        && ($d['surface'] ?? '') === 'post_field'
+        && ($d['field'] ?? '') === 'body'
+    )) === 1,
+    'RepositoryAuthorization prevents a Git edit from bypassing canonical-content PII clearance'
+);
+
+$acfPolicy = Policy::load(null, ['acf'], adapterLibrary: $sourceLibrary);
+$acfPolicy->site = ['policy' => [
+    'post_types' => ['acf-field'],
+    'taxonomies' => [],
+    'post_meta' => [],
+    'options' => [],
+]];
+$serializedFront = post_front('acf-field', '018f0000-0000-7000-8000-000000000091', '2026-08-08 00:00:01');
+$serializedDiagnostics = post_authorization_diagnostics(
+    $acfPolicy,
+    $serializedFront,
+    serialize(['integration' => ['Authorization' => 'GeneratedValue-2026-Blocked']])
+);
+check(
+    count(array_filter($serializedDiagnostics, static fn(array $d): bool =>
+        ($d['code'] ?? '') === 'repository_secret_not_allowed'
+        && ($d['field'] ?? '') === 'body'
+    )) === 1,
+    'RepositoryAuthorization opens serialized bodies before credential-key clearance'
+);
+$serializedContainerDiagnostics = post_authorization_diagnostics(
+    $acfPolicy,
+    $serializedFront,
+    serialize(['integration' => ['password' => ['primary' => 'GeneratedValue-2026-Blocked']]])
+);
+check(
+    count(array_filter($serializedContainerDiagnostics, static fn(array $d): bool =>
+        ($d['code'] ?? '') === 'repository_secret_not_allowed'
+        && ($d['field'] ?? '') === 'body'
+    )) === 1,
+    'RepositoryAuthorization retains a serialized credential container role through generic child keys'
+);
+$serializedSecretKeyDiagnostics = post_authorization_diagnostics(
+    $acfPolicy,
+    $serializedFront,
+    serialize(['integration' => ['sk_live_REPOSITORYKEY1234567890' => 'enabled']])
+);
+check(
+    count(array_filter($serializedSecretKeyDiagnostics, static fn(array $d): bool =>
+        ($d['code'] ?? '') === 'repository_secret_not_allowed'
+        && ($d['field'] ?? '') === 'body'
+    )) === 1,
+    'RepositoryAuthorization opens serialized bodies and refuses hard secrets in associative keys'
+);
+$serializedPiiKeyDiagnostics = post_authorization_diagnostics(
+    $acfPolicy,
+    $serializedFront,
+    serialize(['audience' => ['alice@example.test' => 'enabled']])
+);
+check(
+    count(array_filter($serializedPiiKeyDiagnostics, static fn(array $d): bool =>
+        ($d['code'] ?? '') === 'repository_pii_not_allowed'
+        && ($d['field'] ?? '') === 'body'
+    )) === 1,
+    'RepositoryAuthorization opens serialized bodies and refuses PII in associative keys'
+);
+
+$jsonPolicy = Policy::load(null, ['json-body-clearance'], adapterLibrary: $fixtureLibrary);
+$jsonPolicy->site = ['policy' => [
+    'post_types' => ['form'],
+    'taxonomies' => [],
+    'post_meta' => [],
+    'options' => [],
+]];
+$jsonFront = post_front('form', '018f0000-0000-7000-8000-000000000092', '2026-08-08 00:00:01');
+$jsonDiagnostics = post_authorization_diagnostics(
+    $jsonPolicy,
+    $jsonFront,
+    json_encode([
+        'target' => '{{post:018f0000-0000-7000-8000-000000000001}}',
+        'customerProfile' => ['firstName' => 'Private Customer'],
+    ], JSON_THROW_ON_ERROR)
+);
+check(
+    count(array_filter($jsonDiagnostics, static fn(array $d): bool =>
+        ($d['code'] ?? '') === 'repository_pii_not_allowed'
+        && ($d['field'] ?? '') === 'body'
+    )) === 1,
+    'RepositoryAuthorization opens structured JSON bodies before personal-data-key clearance'
+);
+$jsonContainerDiagnostics = post_authorization_diagnostics(
+    $jsonPolicy,
+    $jsonFront,
+    json_encode([
+        'target' => '{{post:018f0000-0000-7000-8000-000000000001}}',
+        'integration' => ['smtp_pass' => ['primary' => 'GeneratedValue-2026-Blocked']],
+    ], JSON_THROW_ON_ERROR)
+);
+check(
+    count(array_filter($jsonContainerDiagnostics, static fn(array $d): bool =>
+        ($d['code'] ?? '') === 'repository_secret_not_allowed'
+        && ($d['field'] ?? '') === 'body'
+    )) === 1,
+    'RepositoryAuthorization retains a JSON credential container role through generic child keys'
+);
+$jsonSecretKeyDiagnostics = post_authorization_diagnostics(
+    $jsonPolicy,
+    $jsonFront,
+    json_encode([
+        'target' => '{{post:018f0000-0000-7000-8000-000000000001}}',
+        'integration' => ['sk_live_REPOSITORYJSONKEY123456' => 'enabled'],
+    ], JSON_THROW_ON_ERROR)
+);
+check(
+    count(array_filter($jsonSecretKeyDiagnostics, static fn(array $d): bool =>
+        ($d['code'] ?? '') === 'repository_secret_not_allowed'
+        && ($d['field'] ?? '') === 'body'
+    )) === 1,
+    'RepositoryAuthorization opens structured JSON bodies and refuses hard secrets in associative keys'
+);
+$jsonPiiKeyDiagnostics = post_authorization_diagnostics(
+    $jsonPolicy,
+    $jsonFront,
+    json_encode([
+        'target' => '{{post:018f0000-0000-7000-8000-000000000001}}',
+        'audience' => ['alice@example.test' => 'enabled'],
+    ], JSON_THROW_ON_ERROR)
+);
+check(
+    count(array_filter($jsonPiiKeyDiagnostics, static fn(array $d): bool =>
+        ($d['code'] ?? '') === 'repository_pii_not_allowed'
+        && ($d['field'] ?? '') === 'body'
+    )) === 1,
+    'RepositoryAuthorization opens structured JSON bodies and refuses PII in associative keys'
+);
 $unknownFrontField = $source;
 $unknownFrontField['unsupported_front_field'] = 'must refuse';
 $unknownFrontDiagnostics = post_authorization_diagnostics($policy, $unknownFrontField);
@@ -831,6 +1002,38 @@ check(
     ($insertedPost['post_modified'] ?? null) === $newProduct['modified']
         && ($insertedPost['post_modified_gmt'] ?? null) === $newProduct['modified_gmt'],
     'new Woo product receives captured timestamp starting values'
+);
+
+$protectedUuid = '018f0000-0000-7000-8000-000000000006';
+$passwordBinding = \WPrism\EnvironmentValues::postPasswordName($protectedUuid);
+$maximumPassword = str_repeat('🔒', 255);
+\WPrism\EnvironmentValues::set($fixtureDir, $passwordBinding, $maximumPassword);
+$protectedApply = apply_instance(
+    $policy,
+    $tokens,
+    $fixtureDir,
+    \WPrism\EnvironmentValues::read($fixtureDir)
+);
+$protectedPost = post_front('article', $protectedUuid, '2026-08-08 00:00:05');
+$protectedPost['password_binding'] = $passwordBinding;
+check(
+    $protectedApply->ensure_post_row($protectedPost) === true,
+    'an absent protected post materializes from its persisted target-local binding'
+);
+$protectedInsert = null;
+foreach ($wpdb->inserts as $insert) {
+    if ($insert['table'] === $wpdb->posts
+        && ($insert['data']['post_password'] ?? null) === $maximumPassword) {
+        $protectedInsert = $insert['data'];
+    }
+}
+check(
+    is_array($protectedInsert)
+        && preg_match_all('/./us', (string) $protectedInsert['post_password']) === 255
+        && strlen((string) $protectedInsert['post_password']) > 255
+        && (\WPrism\EnvironmentValues::read($fixtureDir)[$passwordBinding] ?? null)
+            === $protectedInsert['post_password'],
+    'absent-post apply writes the exact 255-character multibyte value read back from env-set intent without truncation'
 );
 
 if ($failures > 0) {

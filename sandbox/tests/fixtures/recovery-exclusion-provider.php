@@ -36,6 +36,28 @@ if ($action === 'keepalive' && is_file($statePath . '.fail-keepalive')) {
     exit(43);
 }
 
+// A capsule extending the standalone SSH regression may arm one exact
+// provider-loss frontier without changing production code. The decimal file
+// counts successful verify calls for the current extension leg; the selected
+// call fails once, removes the control, and leaves the held state untouched so
+// the controller's real checkpoint rollback can re-verify and recover.
+$verifyFaultPath = $statePath . '.fail-verify-after';
+if ($action === 'verify' && is_file($verifyFaultPath)) {
+    $remainingRaw = trim((string) file_get_contents($verifyFaultPath));
+    if (preg_match('/^[1-9][0-9]{0,3}$/D', $remainingRaw) !== 1) {
+        fwrite(STDERR, "fixture verify-fault control is malformed; exclusion remains held\n");
+        exit(44);
+    }
+    $remaining = (int) $remainingRaw;
+    if ($remaining === 1) {
+        unlink($verifyFaultPath);
+        fwrite(STDERR, "fixture verify unavailable; exclusion remains held\n");
+        exit(45);
+    }
+    file_put_contents($verifyFaultPath, (string) ($remaining - 1) . "\n", LOCK_EX);
+    chmod($verifyFaultPath, 0600);
+}
+
 if ($action === 'probe') {
     $token = null;
     $providerState = 'ready';

@@ -18,6 +18,141 @@ namespace WPrism;
 final class DeleteGuardEvaluator {
     private static ?string $continuitySavepoint = null;
 
+    /**
+     * Census exact guard-table topology without turning a read failure or a
+     * case-fold/LIKE near-match into destructive authority.
+     *
+     * @param list<string> $tables
+     * @return array<string,string> exact table name => absent|present
+     */
+    public static function guard_table_topology(
+        array $tables,
+        string $purpose = 'deletion guard topology'
+    ): array {
+        global $wpdb;
+
+        self::assert_table_identifiers($tables, $purpose);
+        $tables = array_values(array_unique($tables));
+        sort($tables, SORT_STRING);
+        if ($tables === []) {
+            return [];
+        }
+        $tableSet = array_fill_keys($tables, true);
+        $placeholders = implode(',', array_fill(0, count($tables), '%s'));
+        $wpdb->last_error = '';
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT TABLE_NAME FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ($placeholders)
+             ORDER BY TABLE_NAME ASC",
+            ...$tables
+        ), ARRAY_A);
+        $error = trim((string) ($wpdb->last_error ?? ''));
+        if (!is_array($rows) || !array_is_list($rows) || $error !== '') {
+            $detail = $error !== '' ? $error : 'malformed result returned';
+            throw new \RuntimeException(
+                "wprism: $purpose refused — exact guard-table topology census failed: $detail"
+            );
+        }
+
+        $found = [];
+        foreach ($rows as $row) {
+            if (!is_array($row) || !is_string($row['TABLE_NAME'] ?? null)) {
+                throw new \RuntimeException(
+                    "wprism: $purpose refused — exact guard-table topology census returned a malformed row"
+                );
+            }
+            $name = $row['TABLE_NAME'];
+            if (!isset($tableSet[$name]) || isset($found[$name])) {
+                throw new \RuntimeException(
+                    "wprism: $purpose refused — exact guard-table topology census returned an ambiguous table identity"
+                );
+            }
+            $found[$name] = true;
+        }
+
+        $topology = [];
+        foreach ($tables as $table) {
+            if (isset($found[$table])) {
+                $topology[$table] = 'present';
+                continue;
+            }
+            self::assert_exact_table_absent($table, $purpose);
+            $topology[$table] = 'absent';
+        }
+        return $topology;
+    }
+
+    /**
+     * information_schema hides tables for which the account has no table
+     * privilege, so a missing census row is only a candidate absence. An
+     * exact, error-suppressed probe plus MySQL's numeric diagnostic is the
+     * distinction between ER_NO_SUCH_TABLE (1146) and an unreadable existing
+     * guard table; every other outcome remains destructive refusal.
+     */
+    private static function assert_exact_table_absent(string $table, string $purpose): void {
+        global $wpdb;
+
+        $previousSuppression = null;
+        if (method_exists($wpdb, 'suppress_errors')) {
+            $previousSuppression = $wpdb->suppress_errors(true);
+        }
+        try {
+            $wpdb->last_error = '';
+            $result = $wpdb->get_var("SELECT 1 FROM `$table` LIMIT 0");
+            $probeError = trim((string) ($wpdb->last_error ?? ''));
+            if ($probeError === '' && $result !== false) {
+                throw new \RuntimeException(
+                    "wprism: $purpose refused — exact guard-table topology census omitted an existing table: $table"
+                );
+            }
+            if ($probeError === '') {
+                throw new \RuntimeException(
+                    "wprism: $purpose refused — exact absence confirmation returned an ambiguous result for $table"
+                );
+            }
+
+            $wpdb->last_error = '';
+            $warnings = $wpdb->get_results('SHOW WARNINGS', ARRAY_A);
+            $warningError = trim((string) ($wpdb->last_error ?? ''));
+            if (!is_array($warnings) || !array_is_list($warnings) || $warningError !== '') {
+                throw new \RuntimeException(
+                    "wprism: $purpose refused — exact absence confirmation could not read the server diagnostic for $table"
+                );
+            }
+            $errorCodes = [];
+            foreach ($warnings as $warning) {
+                if (!is_array($warning)
+                    || !is_string($warning['Level'] ?? null)
+                    || (!is_int($warning['Code'] ?? null) && !is_string($warning['Code'] ?? null))
+                ) {
+                    throw new \RuntimeException(
+                        "wprism: $purpose refused — exact absence confirmation returned a malformed server diagnostic for $table"
+                    );
+                }
+                $code = (string) $warning['Code'];
+                if (preg_match('/^[0-9]+$/D', $code) !== 1) {
+                    throw new \RuntimeException(
+                        "wprism: $purpose refused — exact absence confirmation returned a malformed server diagnostic for $table"
+                    );
+                }
+                if (strcasecmp($warning['Level'], 'Error') === 0) {
+                    $errorCodes[] = (int) $code;
+                }
+            }
+            if ($errorCodes !== [1146]) {
+                $detail = count($errorCodes) === 1 ? 'server code ' . $errorCodes[0] : 'ambiguous server diagnostics';
+                throw new \RuntimeException(
+                    "wprism: $purpose refused — exact absence confirmation failed for $table ($detail)"
+                );
+            }
+            $wpdb->last_error = '';
+        } finally {
+            if ($previousSuppression !== null) {
+                $wpdb->suppress_errors((bool) $previousSuppression);
+            }
+        }
+    }
+
     /** Establish the transaction identity immediately after START TRANSACTION. */
     public static function begin_authored_transaction(): void {
         self::$continuitySavepoint = null;
@@ -242,7 +377,7 @@ final class DeleteGuardEvaluator {
      * @param list<array<string,mixed>> $guards
      * @param callable(array<string,mixed>,bool):array{count:int,error:?string,rows:list<string>,witness?:string} $countRefs
      * @param callable(string):bool $isRepairable
-     * @return array{blocks:list<string>,guard_refs:list<array{table:string,rows:list<string>,repairable:bool,option_name_ref:bool}>,guard_witnesses:array<string,string>}
+     * @return array{blocks:list<string>,non_forceable_blocks:list<string>,guard_refs:list<array{table:string,rows:list<string>,repairable:bool,option_name_ref:bool}>,guard_witnesses:array<string,string>}
      */
     public static function reference_findings(
         array $guards,
@@ -252,16 +387,28 @@ final class DeleteGuardEvaluator {
         string $emptyWitness = ''
     ): array {
         $blocks = [];
+        $nonForceableBlocks = [];
         $guardRefs = [];
         $guardWitnesses = [];
         foreach ($guards as $guardIndex => $guard) {
             $result = $countRefs($guard, $forUpdate);
             $guardWitnesses[(string) $guardIndex] = (string) ($result['witness'] ?? $emptyWitness);
             if ($result['error'] !== null) {
-                $blocks[] = $result['error'];
+                $block = $result['error'];
+                $blocks[] = $block;
+                // An unreadable non-forceable guard is at least as unsafe as
+                // an observed live row. Force cannot turn failed evidence
+                // into proof that Woo's owning lifecycle is clear.
+                if (($guard['forceable'] ?? null) === false) {
+                    $nonForceableBlocks[] = $block;
+                }
             } elseif ($result['count'] > 0) {
-                $blocks[] = ($guard['reason'] ?? "referenced by {$guard['table']}.{$guard['column']}")
+                $block = ($guard['reason'] ?? "referenced by {$guard['table']}.{$guard['column']}")
                     . " — {$result['count']} row(s)";
+                $blocks[] = $block;
+                if (($guard['forceable'] ?? null) === false) {
+                    $nonForceableBlocks[] = $block;
+                }
                 $guardRefs[] = [
                     'table' => (string) $guard['table'],
                     'rows' => $result['rows'],
@@ -272,6 +419,7 @@ final class DeleteGuardEvaluator {
         }
         return [
             'blocks' => $blocks,
+            'non_forceable_blocks' => $nonForceableBlocks,
             'guard_refs' => $guardRefs,
             'guard_witnesses' => $guardWitnesses,
         ];
@@ -314,6 +462,9 @@ final class DeleteGuardEvaluator {
                 $guardRefs = $findings['guard_refs'];
                 if ($blocks) {
                     $row['blocked'] = implode('; ', $blocks);
+                    if ($findings['non_forceable_blocks'] !== []) {
+                        $row['non_forceable_guard'] = implode('; ', $findings['non_forceable_blocks']);
+                    }
                     if ($bucket === 'delete_conflict' && isset($row['conflict_view']['choices'])) {
                         // A referential guard is a separate authorization
                         // boundary. Do not advertise the destructive
@@ -391,7 +542,7 @@ final class DeleteGuardEvaluator {
      * @param list<array<string,mixed>> $guards
      * @param callable(array<string,mixed>,bool):array{count:int,error:?string,rows:list<string>,witness?:string} $countRefs
      * @param callable(string):bool $isRepairable
-     * @return array{blocks:list<string>,guard_refs:list<array{table:string,rows:list<string>,repairable:bool,option_name_ref:bool}>,guard_witnesses:array<string,string>}
+     * @return array{blocks:list<string>,non_forceable_blocks:list<string>,guard_refs:list<array{table:string,rows:list<string>,repairable:bool,option_name_ref:bool}>,guard_witnesses:array<string,string>}
      */
     public static function final_recheck_findings(
         array $row,
@@ -407,10 +558,14 @@ final class DeleteGuardEvaluator {
             $isRepairable,
             $forUpdate
         );
-        if ($findings['blocks'] && !$forced) {
-            $reason = implode('; ', $findings['blocks']);
+        if ($findings['blocks'] && (!$forced || $findings['non_forceable_blocks'] !== [])) {
+            $blocks = $findings['non_forceable_blocks'] !== []
+                ? $findings['non_forceable_blocks']
+                : $findings['blocks'];
+            $reason = implode('; ', $blocks);
             throw new \RuntimeException(
                 "wprism: delete guard changed before mutation for {$row['type']} {$row['uuid']}: $reason"
+                . ($findings['non_forceable_blocks'] !== [] ? ' (this semantic guard is not forceable)' : '')
             );
         }
         return $findings;
@@ -424,9 +579,11 @@ final class DeleteGuardEvaluator {
      */
     public static function lock_index(array $guard, string $table): ?string {
         global $wpdb;
-        $lockColumn = array_key_exists('meta_key', $guard) || array_key_exists('ref', $guard)
+        $lockColumn = isset($guard['lock_column'])
+            ? (string) $guard['lock_column']
+            : (array_key_exists('meta_key', $guard) || array_key_exists('ref', $guard)
             ? 'meta_key'
-            : (!empty($guard['option_name_ref']) ? 'option_name' : (string) ($guard['column'] ?? ''));
+            : (!empty($guard['option_name_ref']) ? 'option_name' : (string) ($guard['column'] ?? '')));
         $rows = $wpdb->get_results("SHOW INDEX FROM `$table`", ARRAY_A) ?: [];
         $indexes = [];
         foreach ($rows as $row) {
@@ -449,9 +606,11 @@ final class DeleteGuardEvaluator {
                 continue;
             }
             $prefix = $first['prefix'] ?? null;
-            if ($prefix !== null && array_key_exists('meta_key', $guard)
-                && strlen((string) $guard['meta_key']) > $prefix) {
-                continue;
+            if ($prefix !== null && $lockColumn === 'meta_key') {
+                $literal = (string) ($guard['meta_key'] ?? (($guard['where'] ?? [])['meta_key'] ?? ''));
+                if ($literal === '' || strlen($literal) > $prefix) {
+                    continue;
+                }
             }
             return $name;
         }
@@ -472,7 +631,42 @@ final class DeleteGuardEvaluator {
         string $purpose,
         bool $requireUnique = false
     ): string {
-        return self::locking_index($table, $column, $purpose, $requireUnique, null);
+        return self::locking_index(
+            $table,
+            $column,
+            $purpose,
+            $requireUnique ? [$column] : null,
+            null
+        );
+    }
+
+    /**
+     * Resolve a visible full-width unique BTREE whose complete ordered
+     * columns equal the locking predicate. This proves compound identities
+     * such as wprism_map(uuid, id_kind) without pretending the leading UUID
+     * column is unique by itself.
+     *
+     * @param list<string> $columns
+     */
+    public static function full_width_composite_unique_lock_index(
+        string $table,
+        array $columns,
+        string $purpose
+    ): string {
+        if (!array_is_list($columns)
+            || count($columns) < 2
+            || count($columns) > 16) {
+            throw new \RuntimeException("wprism: $purpose index proof received invalid compound columns");
+        }
+        foreach ($columns as $column) {
+            if (!is_string($column) || preg_match('/^[A-Za-z0-9_]{1,64}$/D', $column) !== 1) {
+                throw new \RuntimeException("wprism: $purpose index proof received invalid compound columns");
+            }
+        }
+        if (count(array_unique($columns, SORT_STRING)) !== count($columns)) {
+            throw new \RuntimeException("wprism: $purpose index proof received invalid compound columns");
+        }
+        return self::locking_index($table, $columns[0], $purpose, $columns, null);
     }
 
     /**
@@ -490,14 +684,14 @@ final class DeleteGuardEvaluator {
         if ($minimumPrefixCharacters < 1 || $minimumPrefixCharacters > 65535) {
             throw new \RuntimeException("wprism: $purpose index proof received an invalid prefix frontier");
         }
-        return self::locking_index($table, $column, $purpose, false, $minimumPrefixCharacters);
+        return self::locking_index($table, $column, $purpose, null, $minimumPrefixCharacters);
     }
 
     private static function locking_index(
         string $table,
         string $column,
         string $purpose,
-        bool $requireUnique,
+        ?array $requiredUniqueColumns,
         ?int $minimumPrefixCharacters
     ): string {
         global $wpdb;
@@ -628,13 +822,25 @@ final class DeleteGuardEvaluator {
                 }
                 ++$expectedPosition;
             }
+            $matchesRequiredUniqueColumns = $requiredUniqueColumns === null;
+            if ($requiredUniqueColumns !== null && count($indexRows) === count($requiredUniqueColumns)) {
+                $matchesRequiredUniqueColumns = true;
+                foreach ($requiredUniqueColumns as $offset => $requiredColumn) {
+                    $requiredPart = $indexRows[$offset + 1] ?? null;
+                    if (($requiredPart['column'] ?? null) !== $requiredColumn
+                        || ($requiredPart['sub_part'] ?? null) !== null) {
+                        $matchesRequiredUniqueColumns = false;
+                        break;
+                    }
+                }
+            }
             if ($first === null
-                || ($requireUnique && count($indexRows) !== 1)
+                || !$matchesRequiredUniqueColumns
                 || $first['column'] !== $column
                 || ($minimumPrefixCharacters === null
                     ? $first['sub_part'] !== null
                     : ($first['sub_part'] !== null && $first['sub_part'] < $minimumPrefixCharacters))
-                || ($requireUnique && $first['non_unique'] !== 0)
+                || ($requiredUniqueColumns !== null && $first['non_unique'] !== 0)
                 || ($first['has_visible'] && $first['visible'] !== 'YES')
                 || ($first['has_ignored'] && $first['ignored'] !== 'NO')
                 || $first['index_type'] !== 'BTREE') {
@@ -645,18 +851,23 @@ final class DeleteGuardEvaluator {
              * the complete first column still locks that owner's contiguous
              * range and terminal gap. A singleton claim may not rely on a
              * composite unique index because its first column alone is not
-             * necessarily unique.
+             * necessarily unique. The compound boundary above admits one
+             * only when every full-width ordered column is also a predicate.
              */
             $candidates[(string) $name] = true;
         }
         if ($candidates === []) {
+            $indexLabel = $requiredUniqueColumns === null
+                ? "first-column index on $column"
+                : (count($requiredUniqueColumns) === 1
+                    ? "unique first-column index on $column"
+                    : 'unique ordered-columns index on (' . implode(', ', $requiredUniqueColumns) . ')');
             throw new \RuntimeException(
                 "wprism: $purpose lacks a visible "
                 . ($minimumPrefixCharacters === null
                     ? 'full-width '
                     : "at-least-$minimumPrefixCharacters-character ")
-                . ($requireUnique ? 'unique ' : '')
-                . "first-column index on $column"
+                . $indexLabel
             );
         }
         $names = array_keys($candidates);

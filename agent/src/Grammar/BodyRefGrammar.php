@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/JsonRefs.php';
+require_once __DIR__ . '/../Kernel/PersonalData.php';
 require_once __DIR__ . '/../Kernel/ReferenceRules.php';
 require_once __DIR__ . '/../Kernel/Secrets.php';
 
@@ -503,10 +504,17 @@ final class BodyRefGrammar {
         // authored plugin CONFIGURATION rather than prose, so a credential in it
         // is a credential rather than a sentence that mentions one, and
         // PostCapture's serialized arm refuses on exactly this basis.
-        $secretLabel = Secrets::hard_match_deep($decoded);
+        $secretLabel = Secrets::clearance_match_deep('body', $decoded);
         if ($secretLabel !== null) {
             throw new \RuntimeException(
                 "wprism: $context contains a $secretLabel; refusing to capture json authored configuration"
+            );
+        }
+        $piiLabel = PersonalData::match_deep('body', $decoded);
+        if ($piiLabel !== null) {
+            throw new \RuntimeException(
+                "wprism: $context contains $piiLabel; refusing to capture json authored configuration — "
+                . 'remove or redact the personal data, or exclude its owning post type'
             );
         }
         self::walk($decoded, $rule, function (mixed $value, array $ref, string $locator) use (

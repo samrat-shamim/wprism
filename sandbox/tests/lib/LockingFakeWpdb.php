@@ -118,8 +118,16 @@ final class LockingFakeWpdb {
     public function get_results(string $sql, string $output = OBJECT): mixed {
         $this->last_error = '';
         if (str_contains($sql, 'information_schema.TABLES')) {
+            preg_match_all("/'((?:''|[^'])+)'/", $sql, $matches);
+            $requested = array_fill_keys(array_map(
+                static fn(string $table): string => str_replace("''", "'", $table),
+                $matches[1] ?? []
+            ), true);
             $rows = [];
             foreach ($this->engines as $table => $engine) {
+                if (!isset($requested[$table])) {
+                    continue;
+                }
                 $rows[] = ['TABLE_NAME' => $table, 'ENGINE' => $engine];
             }
             usort($rows, static fn(array $a, array $b): int => strcmp($a['TABLE_NAME'], $b['TABLE_NAME']));

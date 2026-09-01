@@ -25,6 +25,9 @@ if (!class_exists(JsonRefs::class, false)) {
 if (!class_exists(PlainData::class, false)) {
     require_once __DIR__ . '/../Kernel/PlainData.php';
 }
+if (!class_exists(PersonalData::class, false)) {
+    require_once __DIR__ . '/../Kernel/PersonalData.php';
+}
 if (!class_exists(Secrets::class, false)) {
     require_once __DIR__ . '/../Kernel/Secrets.php';
 }
@@ -383,13 +386,22 @@ final class RepositoryPortableShapeValidator {
             );
             return;
         }
-        $secret = Secrets::hard_match_deep($decoded);
+        $secret = Secrets::clearance_match_deep('body', $decoded);
         if ($secret !== null) {
             $this->add(
                 'repository_serialized_body_secret_not_allowed',
                 $path,
                 'body',
                 "serialized authored configuration contains a $secret"
+            );
+        }
+        $pii = PersonalData::match_deep('body', $decoded);
+        if ($pii !== null) {
+            $this->add(
+                'repository_serialized_body_pii_not_allowed',
+                $path,
+                'body',
+                "serialized authored configuration contains $pii"
             );
         }
     }

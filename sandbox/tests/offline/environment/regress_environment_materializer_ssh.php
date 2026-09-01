@@ -198,11 +198,13 @@ try {
     $planPath = $tmp . '/plan.json';
     ssh_proof_write($planPath, json_encode([
         'adapter_dispositions' => [], 'adopt' => [], 'code_drift' => [], 'code_mismatch' => [],
+        'artifact_hash' => $artifact['artifact_hash'],
         'collision' => [], 'conflict' => [], 'create' => [], 'delete' => [],
         'delete_conflict' => [], 'deleted' => [], 'drift' => [], 'effects_inventory' => [],
         'env_missing' => [], 'incomplete_apply' => [], 'incomplete_lifecycle' => [],
+        'lifecycle_effects_inventory' => [],
         'missing_user' => [], 'provider_problems' => [], 'regen_context' => [], 'regen_pending' => [],
-        'skipped_user_meta' => [],
+        'selected_actions' => [], 'skipped_user_meta' => [],
         'unchanged' => [], 'update' => [], 'uploads_inventory' => [], 'warnings' => [],
     ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
 
@@ -427,7 +429,18 @@ PHP);
     ssh_proof_ok(count($compileLines) === 2, 'target compile runs once for frozen materialization and once for final verification');
     ssh_proof_ok(count(array_filter($wpLines, static fn(string $line): bool => str_contains($line, ' promotion-begin '))) === 1, 'promotion-begin is issued once under the frozen owner');
     ssh_proof_ok(count(array_filter($wpLines, static fn(string $line): bool => str_contains($line, 'wprism apply '))) === 1, 'apply is issued once through the frozen callback');
-    ssh_proof_ok(count(array_filter($wpLines, static fn(string $line): bool => str_contains($line, ' plan '))) === 1, 'final convergence checks the exact frozen artifact');
+    $planLines = array_values(array_filter($wpLines, static fn(string $line): bool => str_contains($line, ' plan ')));
+    ssh_proof_ok(count($planLines) === 2,
+        'automatic rollback preflight and final convergence each inspect the target');
+    ssh_proof_ok(str_contains(
+        $planLines[0] ?? '',
+        '--compiled=' . $target . '/.wprism/artifacts/materialize-' . $operation . '.json'
+    ), 'rollback selection is bound to the operation-canonical promotion artifact');
+    ssh_proof_ok(str_contains(
+        $planLines[1] ?? '',
+        '--repo=' . $target . ' --format=json'
+    ) && !str_contains($planLines[1] ?? '', '--compiled='),
+        'final convergence independently checks the installed target state');
     ssh_proof_ok(str_contains($compileLines[0] ?? '', 'materialize-' . $operation . '.json'), 'initial compile path is operation-canonical');
     ssh_proof_ok(str_contains($compileLines[1] ?? '', 'materialize-verify-' . $operation . '.json'), 'verification compile path is operation-canonical');
     foreach ($wpLines as $line) {

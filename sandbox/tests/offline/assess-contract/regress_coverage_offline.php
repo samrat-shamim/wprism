@@ -392,6 +392,28 @@ $optionRows = [
     // a former theme's row is residue WordPress keeps (issue #3264)
     'theme_mods_fixture-child' => 'a:0:{}',
     'theme_mods_fixture-parent' => 'a:0:{}',
+    // Exact fresh WordPress 7.1 rows written through SidebarState's dedicated
+    // sidebar/widget artifact mechanism. They have no generic option rule and
+    // must still be visible as captured coverage subjects.
+    'sidebars_widgets' => 'a:0:{}',
+    'widget_archives' => 'a:0:{}',
+    'widget_block' => 'a:0:{}',
+    'widget_calendar' => 'a:0:{}',
+    'widget_categories' => 'a:0:{}',
+    'widget_custom_html' => 'a:0:{}',
+    'widget_media_audio' => 'a:0:{}',
+    'widget_media_gallery' => 'a:0:{}',
+    'widget_media_image' => 'a:0:{}',
+    'widget_media_video' => 'a:0:{}',
+    'widget_meta' => 'a:0:{}',
+    'widget_nav_menu' => 'a:0:{}',
+    'widget_pages' => 'a:0:{}',
+    'widget_recent-comments' => 'a:0:{}',
+    'widget_recent-posts' => 'a:0:{}',
+    'widget_rss' => 'a:0:{}',
+    'widget_search' => 'a:0:{}',
+    'widget_tag_cloud' => 'a:0:{}',
+    'widget_text' => 'a:0:{}',
     // the ONE name nothing declares
     'genuinely_unknown_thing' => 'x',
 ];
@@ -428,6 +450,13 @@ $invisiblePrefixes = array_column($o['invisible_groups'], 'prefix');
 check(!in_array('agency_cs', $invisiblePrefixes, true),
     'site-policy env/derived/runtime rules are NOT reported invisible (before issue #3505: prefix agency_cs, 2 rows) — got '
     . json_encode($o['invisible_groups']));
+check(!in_array('sidebars_widgets', $invisiblePrefixes, true)
+    && count(array_filter(
+        $invisiblePrefixes,
+        static fn (string $prefix): bool => str_starts_with($prefix, 'widget_')
+    )) === 0,
+    'SidebarState-owned sidebars/widgets are captured by their real writer mechanism, never invisible — got '
+    . json_encode(['groups' => $o['invisible_groups'], 'other' => $o['invisible_other']]));
 check($o['invisible_total'] === 1 && $invisiblePrefixes === ['genuinely_unknown'],
     'the ONE name no rule from any source matches is the whole invisible set — got '
     . $o['invisible_total'] . ' ' . json_encode($invisiblePrefixes));
@@ -437,9 +466,9 @@ check($o['invisible_transient'] === 0,
 
 // captured means exactly "WPrism writes this name into the artifact".
 // agency_cs_settings + active_plugins + template + stylesheet + blogname
-// + theme_mods_fixture-child = 6.
-check($o['captured'] === 6,
-    'captured counts the authored, the three managed and the active theme\'s dynamic row (6) — got '
+// + theme_mods_fixture-child + 19 SidebarState-owned names = 25.
+check($o['captured'] === 25,
+    'captured counts authored/managed/dynamic rows and all 19 SidebarState-owned names (25) — got '
     . var_export($o['captured'], true));
 
 // declared and excluded, by class:

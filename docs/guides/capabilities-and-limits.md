@@ -224,7 +224,9 @@ logged or placed in argv; the former `--value` form is refused because shell
 history and process listings expose command arguments. `env-set` refuses any name the loaded
 policy did not declare `class: "env"`, refuses an option declaring `sub_keys`
 (a structured plugin-managed blob a bare string write would corrupt), and
-refuses an empty value. The intended-value file must be a regular non-symlink
+refuses an empty value. Stdin framing removes exactly the terminal LF and an
+optional preceding CR; leading/trailing spaces and tabs are value bytes, so a
+whitespace-only value is non-empty. The intended-value file must be a regular non-symlink
 file readable only by its owner (mode `0600`); WPrism refuses an insecure file.
 If WordPress rejects the subsequent write, the newly published intent remains
 and the plan stays red until the live value is repaired, so a partial operation
@@ -477,15 +479,27 @@ buried here.
 a heuristic: it **aborts capture** outright, and `wp wprism classify` refuses to
 set that key `authored`.
 
-**`suspicious`** is a key-name-plus-shape heuristic. It is a weak signal that
-blocks nothing by itself; it exists solely to put a prominent `[SECRET: …]`
-flag on the item in `wprism pending` so a human looks twice.
+**`suspicious`** is a key-name-plus-shape heuristic. It remains review evidence
+while a key is pending. Once that surface is explicitly classified `authored`,
+the capture clearance promotes the signal to a refusal. Labelled credentials
+embedded in prose, nested credential keys, and long values scanned in bounded
+overlapping windows follow the same blocking path. Repository authorization
+repeats the clearance over the immutable revision plan/apply will consume.
+Structured JSON bodies, PHP-serialized bodies, and typed-column codecs are
+opened first and scanned by decoded key and value; their storage framing is
+not treated as a substitute for inspecting the authored document. Credential
+key signals include authorization headers, generic credential fields, and
+license keys as well as API keys, secrets, tokens, and passwords.
 
 The escape hatches are explicit and narrow:
 
 - Per rule, `allow_secret: true` on that exact rule permits the authored
   classification. It is a reviewed exception, not a recommendation to keep
   secrets in git.
+- For a joined direct command, spell that authority inside the exact row as
+  `allow_secret=true` (and `allow_pii=true` below). The legacy command-wide
+  flags are single-row shorthand and refuse a multi-row `--set`, so target-side
+  rereads cannot transfer one review to a sibling row.
 - In interactive `wprism classify`, an `authored` decision on a secret-flagged
   item requires typing the literal word **`allow`**. Enter alone can never
   author a secret — not even by accepting a proposal.
@@ -496,11 +510,24 @@ The escape hatches are explicit and narrow:
 
 ### The PII gate
 
-Personal-data scanning is scoped to the user-meta sidecar only, because user
-meta is credential- and PII-dense by default while the secret patterns are
-globally useful. A hit requires an explicit `allow_pii: true` on that exact
-`user_meta` rule. Unknown keys never reach the scanner at all — they stay
-target-local unless an adapter or operator classified them `authored` first.
+Personal-data scanning covers every canonical surface. Declared option,
+post/term/user meta, typed-table, attached-meta, and widget values are scanned
+recursively; post, term, menu, and user identity/prose fields are scanned before
+publication. The conservative signatures cover structured personal-data key
+names in snake_case or camelCase plus embedded email, IPv4/IPv6, and phone
+values. Date/time, ISBN, decimal, UUID, and dotted release-version grammars are
+excluded from value-only phone matching; an actual phone-key field still wins.
+A structured rule may
+record `allow_pii: true` only after exact review:
+
+```sh
+wp wprism classify --repo=/siterepo \
+  --set='post_meta:contact_email=authored,allow_pii=true'
+```
+
+Free-form canonical prose has no rule on which to attach a broad exception;
+remove/redact the value or exclude its owning content type. Unknown structured
+keys remain target-local until a manifest or operator classifies them authored.
 
 Note the related structural fact: **users are not repository entities.** They
 are environment-local by design, never captured, never auto-created. `ref:
@@ -524,10 +551,10 @@ from the same list:
 | Bucket | What it means | Remedy |
 |---|---|---|
 | `conflict` | Repo and environment both changed the same entity. Plan JSON and human output identify the last-synced base, repository intent, and target intent without exposing raw values. | The recommended choice is to capture/reconcile both intents in the repository and re-plan. `wprism apply --force-theirs` selects the explicitly destructive alternative and reports every override; when that intent includes declared option deletion, the view also requires `--with-deletes`. Supplying deletion authority alone does not select the conflict override. |
-| `delete_conflict` | The target no longer matches the base a deletion tombstone expected — someone changed the entity after the tombstone was written. Distinct from a blocked delete: nothing is referencing it, the *base* moved. The view includes the tombstone's expected-base and receipt evidence. | Capture/reconcile first, or knowingly use `wprism apply --with-deletes --force-theirs`; both flags are mandatory. Once `--force-theirs` selects the override, a missing companion flag refuses before mutation and reports required versus supplied flags without calling the override authorized. `--with-deletes` alone retains the ordinary conflict refusal. |
+| `delete_conflict` | The target no longer matches the base a deletion tombstone expected — someone changed the entity after the tombstone was written. Distinct from a blocked delete: nothing is referencing it, the *base* moved. The view includes the tombstone's expected-base and receipt evidence. | Capture/reconcile first, or knowingly use `wprism promote <env> --with-deletes --force-theirs`; both flags are mandatory. Once `--force-theirs` selects the override, a missing companion flag refuses before mutation and reports required versus supplied flags without calling the override authorized. `--with-deletes` alone retains the ordinary conflict refusal. |
 | `collision` | An unmanaged environment entity already holds this slug. | `wprism apply --adopt-by-slug=<kinds>`, or rename. Inspect every collision first. |
-| pending `delete` (unauthorized) | The repository authored a deletion this environment still holds. An ordinary `wprism apply`/`wprism promote` without `--with-deletes` refuses before any authored mutation; it cannot apply the rest or record the revision while tombstones remain pending. | Review the rows, then use `wprism promote <env> --with-deletes` (or `wp wprism apply --with-deletes`) once they are the deletions you intend. |
-| blocked `delete` | A referential guard found live rows pointing at the deletion target. | Repair the referencing owner, or `wprism apply --with-deletes --force-delete-referenced`. Forced execution stays loud. |
+| pending `delete` (unauthorized) | The repository authored a deletion this environment still holds. An ordinary `wprism apply`/`wprism promote` without `--with-deletes` refuses before any authored mutation; it cannot apply the rest or record the revision while tombstones remain pending. | Review the rows, then use `wprism promote <env> --with-deletes`. Automatic verified promotion signs that intent into its full-recovery receipt; direct agent apply cannot mint deletion authority. |
+| blocked `delete` | A referential guard found live rows pointing at the deletion target. | Repair the referencing owner, or `wprism promote <env> --with-deletes --force-delete-referenced`. Forced execution stays loud. |
 | `missing_user` | An authored user-meta sidecar names an exact login that does not exist here. Apply refuses before mutation. | Create or reconcile the user outside WPrism, or declare `missing_user: "warn"` on every authored key in that sidecar to warn-and-skip it. |
 | `code_mismatch` | Installed code disagrees with what state declares active. | Install/vendor the code, deploy first, or `--force-code-mismatch`. |
 | `code_drift` | Managed code changed here since WPrism's last trusted observation. | Re-deploy to accept the new baseline, restore the recorded version yourself, or `--force-code-drift`. Unlike ordinary `drift` below, a `wprism capture` does **not** clear this one: capture observes the drift and warns once per finding, it does not accept a code change (issue #3507). |
@@ -535,9 +562,92 @@ from the same list:
 | `incomplete_apply` | A prior promotion failed before required rebuild/convergence finished. | Re-run apply; the retry clears the marker. If the interrupted apply preserved environment drift, its row says so and names how many: the retry will *not* overwrite those entities, so `wprism capture` first — otherwise the retry fails the same convergence gate again. The retry also refuses three-way `conflict` rows on entities that apply never wrote — the marker records its own write set, so recompiling between the two runs cannot turn a real conflict into an automatic override — and the row names those too; they need the same `--force-theirs` or capture-first choice as any first apply. |
 | `incomplete_lifecycle` | A hook window failed after its durable pre-hook boundary, so a hook may already have committed state. | Restore the exact pre-lifecycle database checkpoint. **Non-forceable.** |
 | `regen_pending` | A derived table with a hard per-entity availability dependency failed post-apply verification. | Nothing: the *next* `wprism apply` retries it and either clears it or fails loudly. |
-| `env_missing` (required) | A manifest-declared `class: "env"` option is unset here. | `wprism env-set <env> --name=<name> --stdin`. |
+| `env_missing` (required) | A manifest-declared `class: "env"` option or canonical post-password binding is unset here. | `wprism env-set <env> --name=<name> --stdin`. |
 | ordinary `drift` | The environment changed outside WPrism, so the repository comparison is stale. | `wprism capture` first, reconcile the captured intent, then apply a fresh plan. Ordinary apply/promote refuses during preparation before any authored mutation; the separately checkpointed scoped-promotion profile is the only reviewed path allowed to replace selected drift. |
 | `adapter_dispositions` | A pinned manifest is experimental, excluded, uncovered by any reviewed entry, installed out-of-tree and uncertified, signed but not exactly pinned, or outside its reviewed plugin version window. Each row carries the capability report's own code and remediation. | Pin a certified manifest and an in-range plugin version, sign and pin the site adapter (`wprism adapter certify … --pin`), or accept the boundary and do not promote. |
+
+### Review executable owners before a supported deletion
+
+`--with-deletes` is necessary but not sufficient when an adapter declares
+`executable_owner_boundary: "all_active_owners"`. WPrism locks the active and
+network-active plugin roster, the active child and parent themes, every
+top-level MU plugin, and recognized WordPress drop-ins. It hashes each exact
+installed tree. The selector must then carry a reviewed v2 agreement for every
+owner except WPrism's own loader.
+
+Use a staging target with the exact production code and the normal automatic
+verified-promotion recovery/writer-exclusion provider. The first attempt refuses before authored
+mutation and reports each missing owner with a safe `code_identity` tuple:
+
+```json
+{
+  "owner": "theme:agency-child",
+  "code_identity": {
+    "format": "wprism-executable-tree/v1",
+    "root": "themes/agency-child",
+    "sha256": "<64 lowercase hex>"
+  }
+}
+```
+
+For an adapter-declared plugin or theme, first verify that the installed build
+is one of the exact executable identities reviewed in its pinned manifest. A
+site agreement is an independent acknowledgement of that live tree, not a way
+to certify new plugin bytes: copying a modified tree's diagnostic hash back
+into policy still refuses. For a site-owned theme, MU plugin, or drop-in,
+review the installed tree and its reverse-reference behavior directly. Do not
+copy any hash blindly. Then add the tuple and a specific rationale to
+`site.wprism.json`:
+
+```json
+{
+  "policy": {
+    "deletion_owner_agreements": {
+      "format": "wprism-deletion-owner-agreements/v2",
+      "selectors": [
+        {
+          "selector": "post:product",
+          "owners": [
+            {
+              "owner": "plugin:woocommerce/woocommerce.php",
+              "code_identity": {
+                "format": "wprism-executable-tree/v1",
+                "root": "plugins/woocommerce",
+                "sha256": "<reviewed digest>"
+              },
+              "rationale": "Exact adapter-declared WooCommerce tree reviewed for product deletion."
+            },
+            {
+              "owner": "theme:agency-child",
+              "code_identity": {
+                "format": "wprism-executable-tree/v1",
+                "root": "themes/agency-child",
+                "sha256": "<reviewed digest>"
+              },
+              "rationale": "Exact child-theme tree has no product reverse-reference persistence."
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+Repeat owner rows for each selector they have been reviewed against. A
+`plugin:*` row is accepted only when the pinned adapter declares that exact
+plugin owner and the live tree matches one of the manifest's reviewed
+identities; site policy cannot grant deletion authority to a foreign plugin or
+self-approve changed plugin bytes. A manifest-declared theme follows the same
+rule. Site-owned themes, MU plugins, and drop-ins are site-reviewed because no
+adapter claims their executable bytes.
+MU-plugin owners use `mu-plugin:<top-level.php>` and share the whole
+`mu-plugins` root identity; drop-ins use `dropin:<recognized.php>`; parent and
+child themes are independent owners. Duplicate rows and legacy maps refuse.
+Any file addition, removal, or byte change moves the digest and blocks the
+delete until the changed code is reviewed and deliberately re-pinned. WPrism
+rechecks the roster and identities before every destructive unit and again at
+the final transaction frontier.
 
 If an apply fails after you explicitly authorized a conflict override, its
 JSON refusal includes `forced_overrides`: hash-only, versioned evidence of the

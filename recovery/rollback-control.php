@@ -19,6 +19,7 @@ final class RollbackControl {
     private const CERTIFICATION_CRASH_MARKER_BYTES = "wprism-rollback-certification-crash-mode/v1\n";
     public const TARGET_FORMAT = 'wprism-rollback-target/v1';
     public const RECEIPT_FORMAT = 'wprism-rollback-receipt/v2';
+    public const VERIFIED_PROMOTION_RECEIPT_FORMAT = 'wprism-rollback-receipt/v3';
     public const PUBLIC_KEY_EVIDENCE_FORMAT = 'wprism-rollback-public-key-evidence/v1';
     /**
      * A checkpoint-only authority for one externally excluded scoped state
@@ -87,6 +88,33 @@ final class RollbackControl {
     /** @var list<string> */
     private const RECEIPT_KEYS = [
         'adapter_versions_sha256',
+        'artifact_hash',
+        'checkpoint_sha256',
+        'claim_ttl_seconds',
+        'code_release_metadata_sha256',
+        'created_at',
+        'encryption_key_id',
+        'exclusion_token_sha256',
+        'format',
+        'generation',
+        'ledger_session_sha256',
+        'lifecycle_receipts_sha256',
+        'owner',
+        'prior_code_descriptor_sha256',
+        'prior_verifier_inputs_sha256',
+        'receipt_id',
+        'resources_inventory_sha256',
+        'retention_until',
+        'runtime_fingerprints_sha256',
+        'signing_key_id',
+        'target_id',
+        'uploads_inventory_sha256',
+    ];
+
+    /** @var list<string> */
+    private const VERIFIED_PROMOTION_RECEIPT_KEYS = [
+        'adapter_versions_sha256',
+        'allow_deletes',
         'artifact_hash',
         'checkpoint_sha256',
         'claim_ttl_seconds',
@@ -1094,6 +1122,8 @@ final class RollbackControl {
         $format = (string) ($receipt['format'] ?? '');
         if ($format === self::RECEIPT_FORMAT) {
             self::assertExactKeys($receipt, self::RECEIPT_KEYS, 'receipt payload');
+        } elseif ($format === self::VERIFIED_PROMOTION_RECEIPT_FORMAT) {
+            self::assertExactKeys($receipt, self::VERIFIED_PROMOTION_RECEIPT_KEYS, 'receipt payload');
         } elseif ($format === self::SCOPED_PROMOTION_RECEIPT_FORMAT) {
             self::assertExactKeys($receipt, self::SCOPED_PROMOTION_RECEIPT_KEYS, 'receipt payload');
         } else {
@@ -1130,7 +1160,11 @@ final class RollbackControl {
             }
             $hashes[] = 'scope_hash';
         } else {
-            if ($format === self::RECEIPT_FORMAT) {
+            if ($format === self::VERIFIED_PROMOTION_RECEIPT_FORMAT
+                && ($receipt['allow_deletes'] ?? null) !== true) {
+                throw new \RuntimeException('wprism rollback: verified promotion receipt must explicitly allow deletes');
+            }
+            if (in_array($format, [self::RECEIPT_FORMAT, self::VERIFIED_PROMOTION_RECEIPT_FORMAT], true)) {
                 $hashes[] = 'code_release_metadata_sha256';
             }
             array_push(
@@ -1506,6 +1540,7 @@ function rollback_control_main(array $argv): int {
             'active-evidence' => RollbackControl::activeEvidence($root),
             'authority-status' => RollbackControl::status($root),
             'scoped-promotion-witness' => RecoveryExecutor::scopedPromotionWitness($root),
+            'verified-promotion-witness' => RecoveryExecutor::verifiedPromotionWitness($root),
             'audit' => RollbackControl::auditEvidence($root),
             'status' => RecoveryExecutor::decorateStatus($root, RollbackControl::status($root)),
             default => throw new \RuntimeException("wprism rollback: unknown action '$action'"),

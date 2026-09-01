@@ -104,6 +104,9 @@ pmpro_update_post_level_restrictions($restrictedPageId, [$builder->id, $agency->
 
 update_option('pmpro_currency', 'JPY');
 update_option('pmpro_business_address', ['name' => 'WPrism 東京 Office', 'street' => "1-2-3 Portable\nSuite | 4", 'city' => '東京', 'state' => 'Tokyo', 'zip' => '100-0001', 'country' => 'JP', 'phone' => '+81-03-0000-0000']);
+update_option('pmpro_from_email', 'memberships-source@example.test');
+update_option('pmpro_from_name', 'WPrism Memberships 東京');
+update_option('pmpro_tax_state', 'CA');
 update_option('pmpro_colors', ['base' => '#112233', 'accent' => '#aabbcc', 'contrast' => '#fefefe']);
 update_option('pmpro_level_order', implode(',', [$agency->id, $builder->id, $deleteProbe->id]));
 update_option('pmpro_hideadslevels', implode(',', [$builder->id, $agency->id]));

@@ -3,6 +3,8 @@ namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Kernel/PersonalData.php';
+require_once __DIR__ . '/../Kernel/Secrets.php';
 require_once __DIR__ . '/../Kernel/Uuid.php';
 
 /** Canonical sidebar ownership and ledger-only widget instance identity. */
@@ -660,11 +662,20 @@ final class SidebarState {
         $out = [];
         foreach ($settings as $key => $value) {
             $rule = (array) $rules[$key];
-            $secret = empty($rule['allow_secret']) ? Secrets::hard_match_deep($value) : null;
+            $secret = empty($rule['allow_secret'])
+                ? Secrets::clearance_match_deep((string) $key, $value)
+                : null;
             if ($secret !== null) {
                 throw new \RuntimeException(
-                    "wprism: widget_$type setting '$key' in sidebar '$sidebar' contains a hard secret ($secret); "
+                    "wprism: widget_$type setting '$key' in sidebar '$sidebar' contains a secret ($secret); "
                     . 'refusing capture without allow_secret=true'
+                );
+            }
+            $pii = empty($rule['allow_pii']) ? PersonalData::match_deep((string) $key, $value) : null;
+            if ($pii !== null) {
+                throw new \RuntimeException(
+                    "wprism: widget_$type setting '$key' in sidebar '$sidebar' contains personal data ($pii); "
+                    . 'refusing capture without allow_pii=true'
                 );
             }
             if (($rule['codec'] ?? '') === 'blocks') {

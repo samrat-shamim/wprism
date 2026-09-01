@@ -22,9 +22,10 @@ require_once __DIR__ . '/ClassificationBatch.php';
  *   Enter = accept the item's proposal (only offered when one exists)
  *   a/r/e/d/m = authored/runtime/env/derived/managed (explicit override)
  *   s = skip this item, q = quit — apply whatever was already decided
- * Choosing (or accepting a proposal of) "authored" on a secret-flagged item
- * never goes through silently: it prints a warning and requires the human
- * to type the literal word "allow" before it's added to the batch. A
+ * Choosing (or accepting a proposal of) "authored" on a secret- or
+ * PII-flagged item never goes through silently: it prints a warning and
+ * requires the human to type the literal word "allow" for each applicable
+ * clearance before it's added to the batch. A
  * ref-hint on an authored decision offers a y/N follow-up to attach
  * `ref=<kind>` to that --set clause.
  *
@@ -49,7 +50,8 @@ final class Triage {
      * @param resource $out
      * @return array{
      *   decisions: list<array{section:string, key:string, class:string, ref?:string, autoload?:string, required?:bool}>,
-     *   classified: int, skipped: int, quit: bool, needAllowSecret: bool
+     *   classified: int, skipped: int, quit: bool,
+     *   needAllowSecret: bool, needAllowPii: bool
      * }
      */
     public static function run(array $items, $in, $out): array {
@@ -57,6 +59,7 @@ final class Triage {
         $classified = 0;
         $skipped = 0;
         $needAllowSecret = false;
+        $needAllowPii = false;
         $quit = false;
         $total = count($items);
 
@@ -65,6 +68,7 @@ final class Triage {
             $key = self::str($item['key'] ?? null, '?');
             $proposal = self::strOrNull($item['proposal'] ?? null);
             $secret = self::strOrNull($item['secret'] ?? null);
+            $pii = self::strOrNull($item['pii'] ?? null);
             $refHint = is_array($item['ref_hint'] ?? null) ? $item['ref_hint'] : null;
             $evidence = is_array($item['evidence'] ?? null) ? $item['evidence'] : [];
 
@@ -76,6 +80,9 @@ final class Triage {
             }
             if ($secret !== null) {
                 fwrite($out, "  \033[1;31mSECRET: $secret\033[0m\n");
+            }
+            if ($pii !== null) {
+                fwrite($out, "  \033[1;31mPII: $pii\033[0m\n");
             }
 
             $menu = $proposal !== null ? "Enter=accept ($proposal)  " : '';
@@ -123,6 +130,22 @@ final class Triage {
                     continue;
                 }
                 $needAllowSecret = true;
+            }
+            if ($class === 'authored' && $pii !== null) {
+                fwrite($out, "\n\033[1;31mWARNING: this value looks like personal data ($pii). Authoring it commits it to git.\033[0m\n");
+                fwrite($out, '  Type "allow" to author it anyway, or press Enter to skip this item: ');
+                $line = fgets($in);
+                $confirm = $line === false ? '' : strtolower(trim($line));
+                if ($confirm !== 'allow') {
+                    $skipped++;
+                    fwrite($out, "  skipped (PII not confirmed)\n");
+                    if ($line === false) {
+                        $quit = true;
+                        break;
+                    }
+                    continue;
+                }
+                $needAllowPii = true;
             }
 
             $decision = ['section' => $section, 'key' => $key, 'class' => $class];
@@ -206,25 +229,27 @@ final class Triage {
             'skipped' => $skipped,
             'quit' => $quit,
             'needAllowSecret' => $needAllowSecret,
+            'needAllowPii' => $needAllowPii,
         ];
     }
 
     /**
      * Pure filtering for `wprism classify --accept-proposals` (non-interactive):
-     * accept every item that has a proposal, EXCEPT a secret-flagged item
-     * proposed "authored" — that always needs a human, so it comes back
-     * separately as secretSkipped rather than silently folded into
+     * accept every item that has a proposal, EXCEPT a secret- or PII-flagged
+     * item proposed "authored" — those always need a human, so they come back
+     * separately rather than being silently folded into
      * decisions. No ref-hints are attached (see cli/README.md: attaching a
      * ref is the interactive y/N prompt's judgment call, not an automated
      * one). No I/O here — `wprism classify` does the batching/streaming/exit
      * code around this.
      *
      * @param list<array<string, mixed>> $items
-     * @return array{decisions: list<array{section:string,key:string,class:string}>, secretSkipped: list<string>, storageSkipped: list<string>}
+     * @return array{decisions: list<array{section:string,key:string,class:string}>, secretSkipped: list<string>, piiSkipped: list<string>, storageSkipped: list<string>}
      */
     public static function acceptProposals(array $items): array {
         $decisions = [];
         $secretSkipped = [];
+        $piiSkipped = [];
         $storageSkipped = [];
         foreach ($items as $item) {
             $section = self::str($item['section'] ?? null, '?');
@@ -236,6 +261,11 @@ final class Triage {
             $secret = self::strOrNull($item['secret'] ?? null);
             if ($secret !== null && $proposal === 'authored') {
                 $secretSkipped[] = "$section:$key ($secret)";
+                continue;
+            }
+            $pii = self::strOrNull($item['pii'] ?? null);
+            if ($pii !== null && $proposal === 'authored') {
+                $piiSkipped[] = "$section:$key ($pii)";
                 continue;
             }
             // A journal proposal is a CLASS signal and only that: it reports
@@ -254,7 +284,12 @@ final class Triage {
             }
             $decisions[] = ['section' => $section, 'key' => $key, 'class' => $proposal];
         }
-        return ['decisions' => $decisions, 'secretSkipped' => $secretSkipped, 'storageSkipped' => $storageSkipped];
+        return [
+            'decisions' => $decisions,
+            'secretSkipped' => $secretSkipped,
+            'piiSkipped' => $piiSkipped,
+            'storageSkipped' => $storageSkipped,
+        ];
     }
 
     /** `preserve` plus the storage values, in the agent's own published order. */

@@ -104,7 +104,7 @@
         "  - CODE_DRIFT acf/acf.php: installed code differs from the recorded baseline",
         "code_drift findings — wprism apply will refuse until resolved (or run with --force-code-drift)",
         "WARNING: plan observed a stale identity mapping",
-        "ENV_MISSING (manifest-declared env-bound options not yet provisioned on this environment):",
+        "ENV_MISSING (environment-bound values not yet provisioned on this environment):",
         "  - outfitters_gateway_key (required)",
         "required env value(s) missing — pipe the value to `wp wprism env-set --name=<name> --stdin` before promoting",
         "ADAPTER_DISPOSITIONS (a pinned manifest or target is not certified for promotion):",

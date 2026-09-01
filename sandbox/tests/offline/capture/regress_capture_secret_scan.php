@@ -120,6 +120,13 @@ $listOfStrings = ['conf-color', 'conf-size', 'sk_live_INALISTNOTAMAP998877'];
 $msg = invoke_guard_secret('post_meta', '_variation_attrs', $listOfStrings, []);
 check($msg !== null, 'S2d: a secret inside a plain LIST (not just an associative map) is caught -- hard_match_deep() walks any array shape');
 
+$hardKey = WPrism\Secrets::hard_match_deep(['sk_live_ASSOCIATIVEKEY998877' => 'enabled']);
+check($hardKey === 'stripe key', 'S2e: hard_match_deep() scans associative key bytes as persisted values');
+check(
+    WPrism\Secrets::hard_match_deep(['password' => 'disabled']) === null,
+    'S2e: a bare semantic credential alias is not itself a hard-secret value'
+);
+
 // ======================================================================
 // S3 -- allow_secret escapes an array-shaped value exactly like a scalar
 // (issue #3214's stated care point: "allow_secret for arrays" -- confirmed

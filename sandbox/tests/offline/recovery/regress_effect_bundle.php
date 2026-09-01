@@ -46,11 +46,21 @@ try {
             ['adapter' => ['id' => 'fixture-file', 'inverse' => 'restore-bytes', 'inverse_inputs' => ['path', 'prior_sha256'], 'verifier' => 'fresh-readback', 'verifier_inputs' => ['path', 'prior_sha256'], 'version' => '1.0.0'], 'id' => 'probe-file', 'kind' => 'filesystem', 'mode' => 'reversible', 'selector' => ['scope' => 'external', 'type' => 'path', 'value' => 'wp-content/uploads/wprism-promotion-probe.txt']],
         ],
         'name' => 'effect-probe', 'plugin' => 'wprism-promotion-probe/wprism-promotion-probe.php',
-        'actions' => [['kind' => 'native', 'action' => 'transient.delete', 'args' => ['name' => 'wprism_probe_rebuild'], 'effects' => [['id' => 'probe-db', 'kind' => 'database', 'mode' => 'restorable', 'selector' => ['scope' => 'database_checkpoint', 'type' => 'table', 'value' => 'options']]]]],
+        'providers' => [[
+            'id' => 'effect-probe-settlement', 'version' => '1.0.0', 'source' => 'plugin',
+            'plugin' => 'wprism-promotion-probe/wprism-promotion-probe.php',
+            'capabilities' => ['settle_effect_probe'],
+        ]],
+        'actions' => [
+            ['kind' => 'native', 'action' => 'transient.delete', 'args' => ['name' => 'wprism_probe_rebuild'], 'effects' => [['id' => 'probe-db', 'kind' => 'database', 'mode' => 'restorable', 'selector' => ['scope' => 'database_checkpoint', 'type' => 'table', 'value' => 'options']]]],
+            ['kind' => 'provider', 'phase' => 'lifecycle_settle', 'provider' => 'effect-probe-settlement', 'capability' => 'settle_effect_probe', 'args' => [], 'effects' => [['id' => 'probe-settle-db', 'kind' => 'database', 'mode' => 'restorable', 'selector' => ['scope' => 'database_checkpoint', 'type' => 'table', 'value' => 'options']]]],
+        ],
         'spec_version' => 2, 'version_range' => ['max' => '2.0.0', 'min' => '1.0.0'],
     ];
     $inventory = eb_policy($manifest)->effects_inventory();
-    eb_ok(count($inventory) === 8, 'compiled inventory includes lifecycle, rebuild-action, and engine-owned effects deterministically');
+    eb_ok(count($inventory) === 9
+        && count(array_filter($inventory, fn($row) => ($row['phase'] ?? '') === 'lifecycle-settle')) === 1,
+        'compiled inventory includes lifecycle, lifecycle-settle, rebuild-action, and engine-owned effects deterministically');
     $missing = $manifest; unset($missing['lifecycle_effects']);
     $missingRows = eb_policy($missing)->effects_inventory();
     eb_ok(count(array_filter($missingRows, fn($r) => ($r['effect']['mode'] ?? '') === 'irreversible')) === 1, 'undeclared lifecycle effects become explicit automatic-profile blockers');

@@ -26,7 +26,7 @@
  *  2. Under-declaration is NAMED, with its table and item, against observed
  *     journal rows.
  *  3. Over-declaration is NAMED as `unexercised` — and `unexercised` is
- *     EXPLICITLY NOT AN ERROR: a journal with nothing in it produces 107
+ *     EXPLICITLY NOT AN ERROR: a journal with nothing in it produces 111
  *     unexercised declarations, zero findings, and a document that returns.
  *  4. A MISSING journal is a TYPED REFUSAL. The failure this closes is a report
  *     that reads an absent table as zero rows and publishes a perfect clean
@@ -41,7 +41,7 @@
  * WHAT THIS SUITE DELIBERATELY DOES NOT PIN
  * -----------------------------------------
  * That the scorer is COMPLETE. The journal sees database writes only, so of the
- * 389 effect rows the shipped library projects, 107 carry a `database_checkpoint`
+ * 393 effect rows the shipped library projects, 111 carry a `database_checkpoint`
  * selector and 282 select external hooks, cache namespaces and provider
  * resources that no journal row can confirm or refute. Eight of the seventeen
  * adapters declare no journal-observable effect at all. That is reported as
@@ -59,7 +59,9 @@
  * generic row-cache invalidation is materializer behavior rather than a
  * separately dispatched action, so the total fell by one and observability did
  * not move. Redirection adds 3 projected effects, 1 journal-observable, and
- * becomes the ninth scorable adapter. The clean sheet -- 0 findings -- survived
+ * becomes the ninth scorable adapter. WooCommerce product/variation deletion
+ * adds four unique guard-table surfaces to the derived fixture without widening
+ * the observable effect inventory. The clean sheet -- 0 findings -- survived
  * these reviewed changes unchanged, and that,
  * not the totals, is the property this suite asserts.
  */
@@ -186,21 +188,21 @@ function edc_adapter(array $report, string $name): array {
 echo "\n== the measured baseline: the 17 shipped adapters over a derived fixture ==\n";
 
 $fixture = edc_derived_fixture($policy);
-wprism_check_same(625, count($fixture), 'the derived fixture is every database surface the 17 shipped adapters declare');
+wprism_check_same(629, count($fixture), 'the derived fixture is every database surface the 17 shipped adapters declare');
 
 $baseline = EffectDeclarationCoverage::from_facts($policy, ['rows' => $fixture]);
 
 wprism_check_same(EffectDeclarationCoverage::FORMAT, $baseline['format'], 'the report names its versioned format');
 wprism_check_same(17, $baseline['totals']['adapters'], 'every pinned adapter gets a row, scorable or not');
-wprism_check_same(389, $baseline['totals']['declared_effects'], 'the declared side is Policy::effects_inventory() in full');
-wprism_check_same(107, $baseline['totals']['observable_effects'], '107 of the 389 declared effects carry a database_checkpoint selector');
+wprism_check_same(393, $baseline['totals']['declared_effects'], 'the declared side is Policy::effects_inventory() in full');
+wprism_check_same(111, $baseline['totals']['observable_effects'], '111 of the 393 declared effects carry a database_checkpoint selector');
 wprism_check_same(9, $baseline['totals']['scorable_adapters'], 'only 9 of 17 adapters declare a journal-observable effect at all');
 
-// THE NUMBER THE RISK FIELD ASKS TO BE PUBLISHED. 0 findings over 3572 scored
+// THE NUMBER THE RISK FIELD ASKS TO BE PUBLISHED. 0 findings over 3596 scored
 // (adapter, surface) judgements on the shipped library: the noise floor a
 // later argument about making this blocking has to start from.
 wprism_check_same(0, $baseline['totals']['outside_declaration'], 'the 17 shipped adapters score clean: no observed write falls outside every declared effect');
-wprism_check_same(3572, $baseline['baseline']['scored_surfaces'], 'the published rate is measured over 3572 scored (adapter, surface) judgements');
+wprism_check_same(3596, $baseline['baseline']['scored_surfaces'], 'the published rate is measured over 3596 scored (adapter, surface) judgements');
 wprism_check_same(0, $baseline['baseline']['outside_declaration_surfaces'], 'no scored judgement produced a finding');
 wprism_check_same(0.0, $baseline['baseline']['outside_declaration_rate'], 'the published false-positive baseline over the shipped library is 0.0000');
 wprism_check_same([], $baseline['unattributed'], 'every derived surface is claimed by at least one adapter territory');
@@ -236,9 +238,9 @@ wprism_check_same(2, $polylang['observable_effects'], 'two Polylang effects are 
 wprism_check_same(2, $polylang['exercised_effects'], 'the derived fixture exercises both Polylang database effects');
 
 $woo = edc_adapter($baseline, 'woocommerce');
-wprism_check_same(276, $woo['declared_effects'], 'woocommerce declares 276 of the 389 effect rows');
-wprism_check_same(82, $woo['observable_effects'], '82 of them are journal-observable');
-wprism_check_same(82, $woo['exercised_effects'], 'the derived fixture exercises every one of them');
+wprism_check_same(280, $woo['declared_effects'], 'woocommerce declares 280 of the 393 effect rows');
+wprism_check_same(86, $woo['observable_effects'], '86 of them are journal-observable');
+wprism_check_same(86, $woo['exercised_effects'], 'the derived fixture exercises every one of them');
 wprism_check_same([], $woo['unexercised_effects'], 'nothing is left unexercised when every declared surface is written');
 
 echo "\n== an under-declared write is NAMED against observed journal rows ==\n";
@@ -297,7 +299,7 @@ echo "\n== an over-declared effect is NAMED as unexercised, and that is not an e
 // unexercised; nothing is a finding. Treating this as a defect would punish
 // exactly the over-declaration this report exists to reward.
 $empty = EffectDeclarationCoverage::from_facts($policy, ['rows' => []]);
-wprism_check_same(107, $empty['totals']['unexercised'], 'all 107 journal-observable declarations report unexercised against an empty journal');
+wprism_check_same(111, $empty['totals']['unexercised'], 'all 111 journal-observable declarations report unexercised against an empty journal');
 wprism_check_same(0, $empty['totals']['outside_declaration'], 'unexercised is NOT an error: an empty journal produces zero findings');
 wprism_check_same(false, $empty['blocking'], 'the document still says it blocks nothing');
 wprism_check_same(null, $empty['baseline']['outside_declaration_rate'], 'a rate over zero scored surfaces is null, never a fabricated 0');
@@ -306,7 +308,7 @@ wprism_check(
     in_array('woocommerce-product-meta-lookup', $wooEmpty['unexercised_effects'], true),
     'the unexercised declaration is named by its exact effect id, not merely counted'
 );
-wprism_check_same(82, count($wooEmpty['unexercised_effects']), 'every one of woocommerce\'s 82 observable declarations is named');
+wprism_check_same(86, count($wooEmpty['unexercised_effects']), 'every one of woocommerce\'s 86 observable declarations is named');
 wprism_check_same([], $wooEmpty['outside_declaration'], 'an adapter whose action never fired is not a finding');
 
 // One declaration exercised, the rest not — the mixed case a real observation
@@ -315,8 +317,8 @@ $partial = EffectDeclarationCoverage::from_facts($policy, [
     'rows' => [edc_row('wc_product_meta_lookup', '', 2)],
 ]);
 $wooPartial = edc_adapter($partial, 'woocommerce');
-wprism_check_same(2, $wooPartial['exercised_effects'], 'both declarations naming wc_product_meta_lookup are exercised by one observed write');
-wprism_check_same(80, count($wooPartial['unexercised_effects']), 'the other 80 stay named as unexercised');
+wprism_check_same(3, $wooPartial['exercised_effects'], 'all three declarations naming wc_product_meta_lookup are exercised by one observed write');
+wprism_check_same(83, count($wooPartial['unexercised_effects']), 'the other 83 stay named as unexercised');
 wprism_check_same(2, $wooPartial['declared_writes'], 'the observed write counts as declared, not as a finding');
 wprism_check_same(0, $wooPartial['classified_writes'], 'a surface inside a declared effect selector is scored declared, not merely classified');
 

@@ -47,7 +47,6 @@ require __DIR__ . '/src/Command/DeployCommand.php';
 require __DIR__ . '/src/Command/AdoptCommand.php';
 require __DIR__ . '/src/Command/UnadoptCommand.php';
 require __DIR__ . '/src/Command/ConnectCommand.php';
-require __DIR__ . '/src/Command/DemoCommand.php';
 require __DIR__ . '/src/Command/ScopeCommand.php';
 require __DIR__ . '/src/Plan/PlanContract.php';
 require __DIR__ . '/src/Plan/PlanSummary.php';
@@ -144,6 +143,11 @@ require __DIR__ . '/src/Command/CodeClassifyCommand.php';
 require_once __DIR__ . '/src/Command/CodeResolveCommand.php';
 require_once __DIR__ . '/src/Command/CodeImportCommand.php';
 require __DIR__ . '/src/Command/ContractCommand.php';
+// Demo now composes the real contract propose/accept reader. Keep its plain
+// shell load after the Contract module's owners above; loading it beside
+// Connect would pull ProjectionVocabulary through require_once before this
+// file's deliberate plain-require block and redeclare the class.
+require __DIR__ . '/src/Command/DemoCommand.php';
 // Round-3 MUP §2.2-§2.5, in the same last-in-block position and for the same
 // reason: every class below require_once's its own dependencies by path, so a
 // leaf loaded earlier here would be redeclared when its dependant pulled it
@@ -364,7 +368,7 @@ Usage:
   wprism init   <env> [--yes] [--allow-unmanaged-plugins] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
   wprism init   <env> --archive-interrupted-to=<absolute-sibling> [--yes]
   wprism status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--cursor=<token>] [--limit=<1..200>]
-  wprism assess <env> [--operation=<ops>] [--limit=<1..200>] [--format=json]
+  wprism assess <env> [--operation=<ops>] [--limit=<1..200>] [--cursor=<token>] [--format=json]
   wprism contract <env> show|propose|accept|attest [--limit=<1..200>] [--format=json]
   wprism code-classify <env> [--dry-run] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
   wprism code-resolve  <env> [--dry-run] [--offline] [--cache-dir=<path>]
@@ -374,8 +378,9 @@ Usage:
   wprism rehearse <env> --reap [--format=json]
   wprism preview create <env> --from <production-env> [rehearse flags...]
   wprism preview remove <env> [--format=json]
-  wprism demo start [--scenario=woocommerce] [--name=<name>]
+  wprism demo start [--scenario=core|woocommerce] [--name=<name>]
                  [--source-port=<port>] [--target-port=<port>]
+  wprism demo review [--name=<name>] --accept-page-only
   wprism demo status|capture|apply|refusal|stop [--name=<name>]
   wprism stage-source <env> --from=<branch-or-tag> --operation=<id> [--format=json]
   wprism authority-policy <env> status --format=json
@@ -1011,9 +1016,10 @@ Verbs:
                           comment. Underlying plan failure/unparseable JSON is
                           also non-zero. Warnings alone never flip this.
   assess <env>            Decision-first, READ-ONLY assessment of one
-    [--operation=<ops>]   environment: the stack and the authority WPrism
-    [--limit=<1..200>]    actually has, one row per WordPress-language
-    [--format=json]       surface carrying its state class, handling,
+    [--operation=<ops>]   environment: its stack and WPrism's actual authority,
+    [--limit=<1..200>]    one row per WordPress-language surface, and the
+    [--cursor=<token>]    unknown queue. A cursor follows only an emitted
+    [--format=json]       bounded JSON page and requires JSON. Surface rows carry
                           technical readiness, certification provenance,
                           effect containment and effect recovery semantics,
                           the unknown/unclassified queue counted and named,
@@ -1040,7 +1046,9 @@ Verbs:
                           operations (capture, merge, release, verify,
                           delete, recover; default all six); --limit bounds
                           every human listing (default 50, `N more (use
-                          --format=json)` tail). Exit 0 means all requested
+                          --format=json)` tail). --cursor is JSON-only and
+                          follows the next_cursor emitted by a bounded page.
+                          Exit 0 means all requested
                           projections are Ready/Ready with conditions, 3 is a
                           complete assessment with red readiness, and 1 means
                           the assessment itself refused (unreachable target,
@@ -1141,7 +1149,8 @@ Verbs:
                           to restore from if a later phase fails.
   env-set <env>           `wp wprism env-set --repo=<repo_path> --name=<name>
     --name=<name>         --stdin`. Provisions one manifest-declared
-    --stdin               class="env" option on <env> —
+    --stdin               class="env" option or canonical
+                          post_password:<uuid> binding on <env> —
                           see `wprism status`'s env_missing checklist for what
                           still needs a value. Interactive --stdin masks the
                           local terminal before Docker/SSH passthrough and is
@@ -2873,6 +2882,34 @@ function cmd_promote_internal(
     ?array $frozenContext,
     ?array $authorizedSource = null
 ): array|int {
+    $allowDeletes = false;
+    foreach ($extra as $arg) {
+        if (!is_string($arg)) {
+            continue;
+        }
+        if ($arg === '--with-deletes') {
+            if ($allowDeletes) {
+                return scope_wire_refusal(
+                    'promote',
+                    $extra,
+                    'invalid_arguments',
+                    'promote received duplicate --with-deletes',
+                    'supply the valueless --with-deletes flag at most once'
+                );
+            }
+            $allowDeletes = true;
+            continue;
+        }
+        if (str_starts_with($arg, '--with-deletes=')) {
+            return scope_wire_refusal(
+                'promote',
+                $extra,
+                'invalid_arguments',
+                'promote received a valued --with-deletes boolean',
+                'supply exactly the valueless --with-deletes flag'
+            );
+        }
+    }
     foreach ($extra as $arg) {
         if (is_string($arg) && is_scope_contract_flag($arg)) {
             return scope_wire_refusal(
@@ -3012,9 +3049,17 @@ function cmd_promote_internal(
         $runtimePreflightDone = true;
     }
 
+    $verifiedUnavailableReason = 'target carries no signed automatic rollback authority';
     if ($t instanceof \WPrism\Orchestrator\RecoveryTransport && $t->carriesRollbackAuthority()) {
         try {
-            $selection = VerifiedRollbackProfile::select($t, $compile['summary']);
+            $verifiedPlan = verified_promotion_plan(
+                $t,
+                $repo,
+                $artifact,
+                $artifactHash,
+                $compile['summary']
+            );
+            $selection = VerifiedRollbackProfile::select($t, $verifiedPlan);
         } catch (\Throwable $e) {
             fwrite(STDERR, 'wprism: promote: verified rollback preflight failed; refusing before promotion-begin: '
                 . $e->getMessage() . "\n");
@@ -3067,7 +3112,7 @@ function cmd_promote_internal(
             }
             $verifiedResult = cmd_promote_verified(
                 $t,
-                $compile['summary'],
+                $verifiedPlan,
                 $repo,
                 $artifact,
                 $verifiedRunId,
@@ -3079,11 +3124,28 @@ function cmd_promote_internal(
             );
             return $verifiedResult;
         }
+        $verifiedUnavailableReason = (string) $selection['reason'];
+        if ($allowDeletes) {
+            fwrite(
+                STDERR,
+                "wprism: promote: deletion requires automatic verified rollback ({$verifiedUnavailableReason}); "
+                . "refusing before promotion-begin/checkpoint\n"
+            );
+            return 1;
+        }
         fwrite(
             STDERR,
             "wprism: promote: WARN automatic verified rollback unavailable ({$selection['reason']}); "
             . "using operator-directed checkpoint/recovery\n"
         );
+    }
+    if ($allowDeletes) {
+        fwrite(
+            STDERR,
+            "wprism: promote: deletion requires automatic verified rollback ({$verifiedUnavailableReason}); "
+            . "refusing before promotion-begin/checkpoint\n"
+        );
+        return 1;
     }
 
     if ($frozen !== null) {
@@ -3721,6 +3783,52 @@ function frozen_promotion_code_revision(array $summary): ?string {
 function frozen_promotion_canonical(mixed $value): string {
     return \WPrism\Orchestrator\EnvironmentLifecycleCanon::encode($value);
 }
+
+/**
+ * Read the exact target plan whose selected actions and effects a verified
+ * receipt will sign. Compile proves immutable source identity; only plan can
+ * project target-relative work. Apply re-proves this address after its locked
+ * fresh plan, so drift between these two reads refuses before deletion.
+ *
+ * @return array<string,mixed>
+ */
+function verified_promotion_plan(
+    \WPrism\Orchestrator\RecoveryTransport $transport,
+    string $repo,
+    string $artifact,
+    string $artifactHash,
+    array $compiledSummary
+): array {
+    $result = $transport->captureWp([
+        'wprism', 'plan', '--repo=' . $repo, '--compiled=' . $artifact, '--format=json',
+    ]);
+    if (($result['exit'] ?? 1) !== 0) {
+        throw new \RuntimeException('target refused the exact compiled recovery plan');
+    }
+    try {
+        $decoded = json_decode(
+            trim((string) ($result['stdout'] ?? '')),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+    } catch (\Throwable $error) {
+        throw new \RuntimeException('target returned a malformed compiled recovery plan', 0, $error);
+    }
+    $plan = PlanContract::requireComplete($decoded, 'verified promotion recovery preflight');
+    if (!hash_equals($artifactHash, (string) ($plan['artifact_hash'] ?? ''))) {
+        throw new \RuntimeException('target recovery plan does not match the compiled artifact');
+    }
+    // Compose only the immutable fields a target-relative plan cannot derive.
+    // The compiled artifact owns code and adapter identity; the target plan
+    // owns the exact action/effect/upload selection the receipt will sign.
+    $plan['code'] = $compiledSummary['code'] ?? null;
+    $plan['resolved_adapters'] = is_array($compiledSummary['resolved_adapters'] ?? null)
+        ? $compiledSummary['resolved_adapters']
+        : [];
+    return $plan;
+}
+
 /**
  * Provider-backed promotion through the rollback authority. The external
  * receipt/checkpoint is prepared before the target's database lease or code
@@ -3744,11 +3852,19 @@ function cmd_promote_verified(
     $uploadsApplied = false;
     $effectsTouched = false;
     $claimReceipt = null;
+    $allowDeletes = in_array('--with-deletes', $extra, true);
 
     echo "promote profile: automatic verified rollback\n";
     echo "promote phase: rollback-claim\n";
     try {
-        $claim = $profile->claim($plan, $runId, $runId);
+        $claim = $profile->claim(
+            $plan,
+            $runId,
+            $runId,
+            null,
+            $allowDeletes,
+            $codeChangeRequired
+        );
         if (($claim['status']['state'] ?? '') !== 'prepared') {
             throw new \RuntimeException('target did not publish the prepared receipt');
         }
@@ -3898,13 +4014,30 @@ function cmd_promote_verified(
     }
 
     echo "promote phase: apply\n";
+    // Apply can run exact selected rebuild providers even when code is already
+    // current. From the first call onward rollback must reconcile the prepared
+    // effect bundle before restoring the database checkpoint.
+    $effectsTouched = (array) ($plan['effects_inventory'] ?? []) !== [];
+    $applyExtra = $extra;
+    if ($allowDeletes) {
+        if (!is_array($claimReceipt)
+            || ($claimReceipt['format'] ?? null) !== \WPrism\Recovery\RollbackControl::VERIFIED_PROMOTION_RECEIPT_FORMAT) {
+            return promote_verified_failed(
+                $profile, 'apply-authority', 1, $effectsTouched, $uploadsApplied, $codeSelected
+            );
+        }
+        $applyExtra[] = '--verified-promotion-receipt=' . hash(
+            'sha256',
+            \WPrism\Recovery\RollbackControl::canonical($claimReceipt)
+        );
+    }
     if ($frozenContext === null) {
         $apply = $t->streamWp(array_merge(
             [
                 'wprism', 'apply', '--repo=' . $repo, '--compiled=' . $artifact,
                 '--promotion-owner=' . $runId, '--artifact-hash=' . $artifactHash,
             ],
-            $extra
+            $applyExtra
         ));
         if ($apply !== 0) {
             return promote_verified_failed(
@@ -3918,7 +4051,7 @@ function cmd_promote_verified(
                 '--promotion-owner=' . $runId, '--artifact-hash=' . $artifactHash,
                 '--format=json',
             ],
-            $extra
+            $applyExtra
         ));
         if (($applyResult['exit'] ?? 1) !== 0) {
             print_transport_detail($applyResult);

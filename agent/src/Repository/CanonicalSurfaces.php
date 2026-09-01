@@ -45,6 +45,27 @@ final class CanonicalSurfaces {
     }
 
     /**
+     * Exact primary engine channels present in one apply selection. `retry`
+     * supplements, but never substitutes for, the mutation that is being
+     * retried; otherwise a deletion retry could select an ordinary writer
+     * merely because both capabilities support retry receipts.
+     *
+     * @param array<int,array<string,mixed>> $work
+     * @param array<int,array<string,mixed>> $deleteWork
+     * @return list<string>
+     */
+    public static function mutation_channels_for_apply(array $work, array $deleteWork = []): array {
+        $channels = [];
+        if ($work !== []) {
+            $channels[] = 'always_on_write';
+        }
+        if ($deleteWork !== []) {
+            $channels[] = 'deletions';
+        }
+        return $channels;
+    }
+
+    /**
      * Static projection over a contract's whole resolved closure. Unlike an
      * Apply plan, the contract has no target comparison from which to learn a
      * changed option subset, so every non-absent, non-managed option record

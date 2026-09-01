@@ -108,7 +108,7 @@ final class ReferenceRules {
             && (!is_string($rule['cast']) || !in_array($rule['cast'], ['string', 'csv'], true))) {
             throw new \RuntimeException("wprism: $where.cast must be 'string' or 'csv'");
         }
-        foreach (['allow_secret', 'order_preserving', 'plain_data'] as $booleanField) {
+        foreach (['allow_pii', 'allow_secret', 'order_preserving', 'plain_data'] as $booleanField) {
             if (array_key_exists($booleanField, $rule) && !is_bool($rule[$booleanField])) {
                 throw new \RuntimeException("wprism: $where.$booleanField must be a boolean");
             }

@@ -773,7 +773,14 @@ final class RecoverCommand {
         $receipt = (array) $evidence['receipt'];
         $status = (array) $evidence['status'];
         self::assertSelectedEvidence($row, $receipt, $status, $audit);
-        if (($receipt['format'] ?? null) !== RollbackControl::RECEIPT_FORMAT
+        $receiptFormat = $receipt['format'] ?? null;
+        if (!in_array(
+                $receiptFormat,
+                [RollbackControl::RECEIPT_FORMAT, RollbackControl::VERIFIED_PROMOTION_RECEIPT_FORMAT],
+                true
+            )
+            || ($receiptFormat === RollbackControl::VERIFIED_PROMOTION_RECEIPT_FORMAT
+                && ($receipt['allow_deletes'] ?? null) !== true)
             || ($status['terminal'] ?? null) !== false
             || !in_array((string) ($status['state'] ?? ''), RecoveryPlan::ELIGIBLE_STATES, true)) {
             throw new CommandRefusalException(
@@ -824,7 +831,9 @@ final class RecoverCommand {
             'required_grants' => ['business_owner', 'operator_confirmation'],
             'scope' => [
                 'adapter_versions_sha256' => (string) ($receipt['adapter_versions_sha256'] ?? ''),
-                'allow_deletes' => null,
+                'allow_deletes' => $receiptFormat === RollbackControl::VERIFIED_PROMOTION_RECEIPT_FORMAT
+                    ? true
+                    : null,
                 'code_release_metadata_sha256' => $receipt['code_release_metadata_sha256'] ?? null,
                 'effects_metadata_sha256' => $receipt['lifecycle_receipts_sha256'] ?? null,
                 'ledger_session_sha256' => (string) ($receipt['ledger_session_sha256'] ?? ''),

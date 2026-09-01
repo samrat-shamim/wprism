@@ -75,6 +75,7 @@
           "UserMetaState",
           "OrderPreserved",
           "PersonalData",
+          "PostPasswordBinding",
           "JsonRefs",
           "ReferenceKindGrammar",
           "ReferenceShapeGrammar",
@@ -114,7 +115,7 @@
             ]
           }
         ],
-        "file_count": 34,
+        "file_count": 35,
         "files": [
           "Canary.php",
           "Canon.php",
@@ -130,6 +131,7 @@
           "PathSafety.php",
           "PersonalData.php",
           "PlainData.php",
+          "PostPasswordBinding.php",
           "ProcessFence.php",
           "ReferenceKeyspaceGrammar.php",
           "ReferenceKindGrammar.php",
@@ -424,7 +426,7 @@
           {
             "module": "Code",
             "kind": "intra-layer",
-            "count": 6,
+            "count": 7,
             "edges": [
               "CompiledArtifact.php -> Code.php",
               "CompiledArtifactReader.php -> CodeStateContract.php",
@@ -668,18 +670,20 @@
           {
             "module": "Delete",
             "kind": "intra-layer",
-            "count": 10,
+            "count": 12,
             "edges": [
               "ApplyPlanBuilder.php -> DeleteGuardEvaluator.php",
               "ApplyPlanBuilder.php -> DeleteGuardReferenceScanner.php",
               "ApplyPlanBuilder.php -> Deletion.php",
               "ApplyPreparationCoordinator.php -> DeleteGuardLockCoordinator.php",
+              "ApplyRequestCoordinator.php -> DeleteGuardEvaluator.php",
               "ApplyRequestCoordinator.php -> DeleteGuardLockCoordinator.php",
               "ApplyRequestCoordinator.php -> DeletionAuthority.php",
               "ApplyServices.php -> DeleteExecutor.php",
               "ApplyServices.php -> DeleteGuardReferenceScanner.php",
               "AuthoredTransactionExecutor.php -> DeleteExecutor.php",
-              "AuthoredTransactionRequest.php -> DeletionAuthority.php"
+              "AuthoredTransactionRequest.php -> DeletionAuthority.php",
+              "ProtectedPostIdentity.php -> DeleteGuardEvaluator.php"
             ]
           },
           {
@@ -692,7 +696,8 @@
               "ApplyPreparationCoordinator.php -> PromotionLock.php",
               "ApplyPreparationCoordinator.php -> ScopedPromotionAuthority.php",
               "ApplyRequestCoordinator.php -> PromotionLock.php",
-              "ApplyRequestCoordinator.php -> ScopedPromotionAuthority.php"
+              "ApplyRequestCoordinator.php -> ScopedPromotionAuthority.php",
+              "ApplyRequestCoordinator.php -> VerifiedPromotionAuthority.php"
             ]
           },
           {
@@ -747,7 +752,7 @@
             ]
           }
         ],
-        "file_count": 33,
+        "file_count": 34,
         "files": [
           "Apply.php",
           "ApplyFieldMaterializer.php",
@@ -777,6 +782,7 @@
           "OptionsMaterializer.php",
           "PostMaterializer.php",
           "PreparedApply.php",
+          "ProtectedPostIdentity.php",
           "RelationshipMaterializer.php",
           "TaxonomyApplyContext.php",
           "TermMaterializer.php",
@@ -932,7 +938,8 @@
           "AuthorizedReleaseRepository",
           "PromotionLock",
           "Deploy",
-          "ScopedPromotionAuthority"
+          "ScopedPromotionAuthority",
+          "VerifiedPromotionAuthority"
         ],
         "depends_on": [
           "Code",
@@ -951,7 +958,7 @@
             ]
           }
         ],
-        "file_count": 12,
+        "file_count": 13,
         "files": [
           "AuthorizedReleaseRepository.php",
           "Deploy.php",
@@ -964,7 +971,8 @@
           "PromotionSessionJournal.php",
           "ScopedPromotionAuthority.php",
           "StateHandoffVerifier.php",
-          "StateTransitionJournal.php"
+          "StateTransitionJournal.php",
+          "VerifiedPromotionAuthority.php"
         ]
       },
       "Recovery": {
@@ -994,6 +1002,7 @@
           "DeleteGuardReferenceScanner",
           "DeletionAuthority",
           "DeleteGuardEvaluator",
+          "ExecutableOwnerBoundary",
           "Orphans"
         ],
         "depends_on": [
@@ -1013,15 +1022,17 @@
             ]
           }
         ],
-        "file_count": 8,
+      "file_count": 10,
         "files": [
           "DeleteExecutor.php",
           "DeleteGuardEvaluator.php",
           "DeleteGuardLockCoordinator.php",
           "DeleteGuardReferenceScanner.php",
           "DeleteGuardValueCodec.php",
-          "Deletion.php",
-          "DeletionAuthority.php",
+        "Deletion.php",
+        "DeletionAuthority.php",
+        "DeletionWriterExclusion.php",
+        "ExecutableOwnerBoundary.php",
           "Orphans.php"
         ]
       },

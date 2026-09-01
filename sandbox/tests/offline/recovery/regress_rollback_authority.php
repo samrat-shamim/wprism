@@ -409,6 +409,12 @@ try {
 
     $compiledUploads = [['attachment_uuid' => 'plan-upload-marker']];
     $compiledEffects = [['effect' => ['id' => 'plan-effect-marker']]];
+    $compiledLifecycleEffects = [['effect' => ['id' => 'plan-lifecycle-effect-marker']]];
+    $compiledActions = [[
+        'declaration_hash' => hash('sha256', 'plan-action-marker'),
+        'index' => 4,
+        'manifest' => 'plan-adapter',
+    ]];
     $compiledCode = [
         'files' => [['path' => 'plugins/acme/acme.php', 'sha256' => hash('sha256', 'plan-code')]],
         'format' => 'wprism-code/v1',
@@ -424,7 +430,9 @@ try {
         'artifact_hash' => hash('sha256', 'plan-artifact'),
         'code' => $compiledCode,
         'effects_inventory' => $compiledEffects,
+        'lifecycle_effects_inventory' => $compiledLifecycleEffects,
         'resolved_adapters' => [['name' => 'plan-adapter', 'version' => '1.0.0']],
+        'selected_actions' => $compiledActions,
         'uploads_inventory' => $compiledUploads,
     ];
     $claimFields = VerifiedRollbackProfile::claimFields(
@@ -436,13 +444,55 @@ try {
     ok_test(
         $claimFields['upload_inventory'] === $compiledUploads
             && $claimFields['effect_inventory'] === $compiledEffects,
-        'automatic profile carries the exact compiled plan inventories into the receipt claim'
+        'automatic profile carries only the exact plan-selected execution inventories into the receipt claim'
+    );
+    ok_test(
+        $claimFields['resources_inventory_sha256'] === hash('sha256', RollbackControl::canonical([
+            'code' => $compiledCode,
+            'effects_inventory' => $compiledEffects,
+            'selected_actions' => $compiledActions,
+            'uploads_inventory' => $compiledUploads,
+        ])),
+        'automatic profile binds the selected action identities into the signed resources address'
     );
     ok_test(
         ($claimFields['desired_code_inventory'] ?? null) === $compiledCode
             && !array_key_exists('desired_descriptor_sha256', $claimFields)
+            && !array_key_exists('allow_deletes', $claimFields)
             && $claimFields['retention_until'] === '2026-08-08T01:00:00Z',
-        'automatic claim binds compiled code identity and explicit retention policy'
+        'ordinary automatic claim binds code and retention while preserving the v2 rolling-upgrade wire contract'
+    );
+    $deleteClaimFields = VerifiedRollbackProfile::claimFields(
+        $compiledPlan,
+        ['claim_ttl_seconds' => 90, 'encryption_key_id' => 'kms-plan', 'retention_seconds' => 3600],
+        'controller:plan-delete-test',
+        '2026-08-08T00:00:00Z',
+        null,
+        true
+    );
+    ok_test(
+        ($deleteClaimFields['allow_deletes'] ?? null) === true,
+        'only explicit deletion intent moves the automatic claim to its v3 wire contract'
+    );
+    $codeChangeClaimFields = VerifiedRollbackProfile::claimFields(
+        $compiledPlan,
+        ['claim_ttl_seconds' => 90, 'encryption_key_id' => 'kms-plan', 'retention_seconds' => 3600],
+        'controller:plan-code-change-test',
+        '2026-08-08T00:00:00Z',
+        null,
+        false,
+        true
+    );
+    ok_test(
+        $codeChangeClaimFields['effect_inventory'] === array_merge(
+            $compiledEffects,
+            $compiledLifecycleEffects
+        )
+            && !hash_equals(
+                (string) $claimFields['resources_inventory_sha256'],
+                (string) $codeChangeClaimFields['resources_inventory_sha256']
+            ),
+        'lifecycle recovery authority is signed only when the code preflight selected a code transition'
     );
     $providerCommand = ['/bin/true'];
     $automaticTransport = new SshTransport('automatic-test', [

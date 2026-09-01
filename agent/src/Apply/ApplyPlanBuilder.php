@@ -52,7 +52,7 @@ if (!class_exists(Db::class, false)) {
 final class ApplyPlanBuilder {
     /** @var \Closure():array */
     private readonly \Closure $regenerationDebtProjection;
-    /** @var \Closure():array */
+    /** @var \Closure(array):array */
     private readonly \Closure $envMissingProjection;
     /** @var string[] */
     private array $warnings;
@@ -163,7 +163,13 @@ final class ApplyPlanBuilder {
             // receipts; this list itself never claims that an undeclared
             // derivative is safe.
             'uploads_inventory' => $compiled->uploads_inventory(),
-            'effects_inventory' => $compiled->effects_inventory(),
+            // Filled after exact work/action selection below. The compiled
+            // artifact retains Policy::effects_inventory() as the complete
+            // certification surface; a promotion plan must not grant recovery
+            // authority to unrelated irreversible actions.
+            'effects_inventory' => [],
+            'lifecycle_effects_inventory' => [],
+            'selected_actions' => [],
             // Source/evidence facts are plan-independent. Provider runtime
             // blockers are appended at the end from this plan's exact
             // rebuild-surface selection; see rebuild_work() below.
@@ -423,7 +429,7 @@ final class ApplyPlanBuilder {
         // source-vs-target checklist gets one by running `wprism plan`
         // against both named environments and diffing the two
         // env_missing lists client-side — see cli/README.md).
-        $envMissing = $this->env_missing_projection();
+        $envMissing = $this->env_missing_projection($tree);
         $plan['env_missing'] = $envMissing['env_missing'];
         foreach ($envMissing['warnings'] as $warning) {
             $this->warnings[] = $warning;
@@ -494,8 +500,22 @@ final class ApplyPlanBuilder {
                 $rebuildWork['work'],
                 $tree,
                 $rebuildWork['rebuild_delete_work']
+            ),
+            CanonicalSurfaces::mutation_channels_for_apply(
+                $rebuildWork['work'],
+                $rebuildWork['rebuild_delete_work']
             )
         );
+        $plan['selected_actions'] = Policy::action_identities($this->selectedActions);
+        $plan['effects_inventory'] = $this->policy->execution_effects_inventory(
+            $this->selectedActions,
+            self::engine_effect_sources(
+                $rebuildWork['work'],
+                $tree
+            ),
+            self::regenerator_post_types($rebuildWork['work'], $tree, $this->policy)
+        );
+        $plan['lifecycle_effects_inventory'] = $this->policy->lifecycle_effects_inventory();
         $selectedProviderBlockers = [];
         if ($diagnoseAdapters) {
             $selectedProviderBlockers = $this->policy->provider_readiness_blockers($this->selectedActions);
@@ -613,8 +633,8 @@ final class ApplyPlanBuilder {
         return ($this->regenerationDebtProjection)();
     }
 
-    private function env_missing_projection(): array {
-        return ($this->envMissingProjection)();
+    private function env_missing_projection(array $tree): array {
+        return ($this->envMissingProjection)($tree);
     }
 
     private function rebuild_work(
@@ -640,6 +660,58 @@ final class ApplyPlanBuilder {
             $deleteWork,
             $this->policy
         );
+    }
+
+    /**
+     * Engine effects reached by NativeRebuildExecutor and provider dispatch.
+     * These names are the core rows Policy::effects_inventory() publishes.
+     *
+     * @return list<string>
+     */
+    private static function engine_effect_sources(array $work, array $tree): array {
+        $sources = [
+            // Ordinary Apply always performs the final cache flush and runs
+            // the full taxonomy recount path, even when no action matched.
+            'object-cache-flush' => true,
+            'taxonomy-counts' => true,
+        ];
+        $attachment = false;
+        foreach ($work as $row) {
+            $entity = $tree[(string) ($row['uuid'] ?? '')] ?? null;
+            if (!is_array($entity)) {
+                continue;
+            }
+            $entityType = (string) ($entity['type'] ?? '');
+            if ($entityType === 'post') {
+                $sources['future-post-schedule'] = true;
+                if (($entity['data']['type'] ?? null) === 'attachment') {
+                    $attachment = true;
+                }
+            }
+        }
+        if ($attachment) {
+            $sources['attachment-metadata'] = true;
+        }
+        $out = array_keys($sources);
+        sort($out, SORT_STRING);
+        return $out;
+    }
+
+    /** @return list<string> */
+    private static function regenerator_post_types(array $work, array $tree, Policy $policy): array {
+        $types = [];
+        foreach ($work as $row) {
+            $entity = $tree[(string) ($row['uuid'] ?? '')] ?? null;
+            $postType = is_array($entity) && ($entity['type'] ?? null) === 'post'
+                ? (string) ($entity['data']['type'] ?? '')
+                : '';
+            if ($postType !== '' && $policy->regen_dependency($postType) !== null) {
+                $types[$postType] = true;
+            }
+        }
+        $out = array_keys($types);
+        sort($out, SORT_STRING);
+        return $out;
     }
 
     private static function nested_delete_candidate_counts(

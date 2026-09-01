@@ -32,7 +32,8 @@
     "issue #3232: every exact env-classified option below carries the mandatory `required` flag (Policy::validate_env_options()). Payment selection, sandbox/live mode, credentials, webhook/connect identifiers, anti-spam credentials, license state, URL/SSL state, and optional integration switches are all target-owned. They are `required: false` because PMPro supports free levels and multiple mutually-exclusive gateways: no unconditional manifest rule can honestly require one gateway's values on every target. A configured operator can provision the selected target gateway through env-set; an unconfigured free-level site remains valid.",
     "Production-readiness closure 2026-08-23: the admitted range is the two inspected official tags 3.8.2 and 3.8.3, whose PMPro table schema is byte-identical; exact clean installs and the supported in-place 3.8.2-to-3.8.3 upgrade are exercised from SHA-256-pinned upstream archives. Official adjacent tags 3.8.1 and 3.8.4 are refusal fixtures. Five former intent-only tables are now real declarations: discount codes use their plugin-enforced unique code as natural identity; groups and the level-group edge keep mapped surrogate identity because PMPro permits duplicate names and the edge has its own id; discount-level and category restrictions use composite references. Parent level, discount-code, and group deletion stays unsupported because PMPro runtime memberships/orders/uses and extension-owned references make the reverse-reference boundary open; only the four pure authored edge rows have positive deletion authority.",
     "The membership-level EAV keyspace is closed to the five keys written or consumed by the exact free artifact: confirmation_in_email, membership_account_message, enable_avatars, stripe_product_id, and stripe_product_id_sandbox. The first three are authored; the Stripe product ids are environment-owned remote identifiers and never enter canonical state. A later core or add-on key refuses at the keyspace gate rather than inheriting an authored default. WP-6.2's row_cache_entry_invalidation primitive replaces the retired paid-memberships-pro-cache provider: after materialization the engine drops and independently proves absent exactly the current level's entry in pmpro_membership_level_meta, including on persistent object-cache installations; it does not flush unrelated cache groups.",
-    "PMPro's pmpro_user_fields_settings option stores nested stdClass objects. WPrism's portable-state contract intentionally rejects PHP object payloads, and there is no plugin API that losslessly exports and imports that graph as plain data at these tags. That optional custom-checkout-field surface remains a loud unsupported boundary, as do add-on-created options/tables/meta. Every credential and remote integration identifier named by the exact free artifacts is explicitly environment-owned so capture can proceed on a configured payment site without copying or logging those values; core email-template option patterns are bounded to the artifact's exact built-in template slugs so add-on templates still refuse."
+    "PMPro's pmpro_user_fields_settings option stores nested stdClass objects. WPrism's portable-state contract intentionally rejects PHP object payloads, and there is no plugin API that losslessly exports and imports that graph as plain data at these tags. That optional custom-checkout-field surface remains a loud unsupported boundary, as do add-on-created options/tables/meta. Every credential and remote integration identifier named by the exact free artifacts is explicitly environment-owned so capture can proceed on a configured payment site without copying or logging those values; core email-template option patterns are bounded to the artifact's exact built-in template slugs so add-on templates still refuse.",
+    "Agency clearance review 2026-08-30: four exact PMPro options carry allow_pii=true, never a namespace-wide exception. pmpro_business_address is the structured business-address array saved by the PMPro payment settings UI; pmpro_from_email and pmpro_from_name are the configured transactional sender identity; pmpro_tax_state is the merchant tax nexus selected in the tax settings UI. All four were populated and round-tripped by the certified 3.8.2/3.8.3 scenario. Their personal-data shape is intended site-builder configuration, so the reviewed exception admits those exact authored coordinates while sibling customer, member, gateway-recipient, add-on, and runtime payment data remain excluded."
   ],
   "options": {
     "pmpro_accepted_credit_cards": {"class": "authored"},
@@ -52,7 +53,7 @@
     "pmpro_braintree_merchantid": {"class": "env", "required": false},
     "pmpro_braintree_privatekey": {"class": "env", "required": false},
     "pmpro_braintree_publickey": {"class": "env", "required": false},
-    "pmpro_business_address": {"class": "authored", "plain_data": true},
+    "pmpro_business_address": {"class": "authored", "plain_data": true, "allow_pii": true},
     "pmpro_cancel_page_id": {"class": "authored", "ref": "post"},
     "pmpro_check_gateway_label": {"class": "authored"},
     "pmpro_checkout_page_id": {"class": "authored", "ref": "post"},
@@ -80,8 +81,8 @@
     "pmpro_email_member_notification": {"class": "authored", "lint_ok": true},
     "pmpro_filterqueries": {"class": "authored", "lint_ok": true},
     "pmpro_from": {"class": "authored"},
-    "pmpro_from_email": {"class": "authored"},
-    "pmpro_from_name": {"class": "authored"},
+    "pmpro_from_email": {"class": "authored", "allow_pii": true},
+    "pmpro_from_name": {"class": "authored", "allow_pii": true},
     "pmpro_gateway": {"class": "env", "required": false},
     "pmpro_gateway_email": {"class": "env", "required": false},
     "pmpro_gateway_environment": {"class": "env", "required": false},
@@ -156,7 +157,7 @@
     "pmpro_style_variation": {"class": "authored"},
     "pmpro_tax_rate": {"class": "authored"},
     "pmpro_tax_settings_beta": {"class": "authored", "lint_ok": true},
-    "pmpro_tax_state": {"class": "authored"},
+    "pmpro_tax_state": {"class": "authored", "allow_pii": true},
     "pmpro_tospage": {"class": "authored", "ref": "post"},
     "pmpro_transactionkey": {"class": "env", "required": false},
     "pmpro_twocheckout_accountnumber": {"class": "env", "required": false},

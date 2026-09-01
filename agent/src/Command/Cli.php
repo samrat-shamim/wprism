@@ -7,6 +7,7 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 // CommandRefusal.php above: the offline refusal suites load this file against
 // pre-declared \WPrism stubs and never run that bootstrap.
 require_once __DIR__ . '/../Kernel/SiteTopology.php';
+require_once __DIR__ . '/../Kernel/PersonalData.php';
 require_once __DIR__ . '/../Policy/AdapterLibrary.php';
 require_once __DIR__ . '/../Review/PlanExplanation.php';
 require_once __DIR__ . '/../Review/PlanCategorySummary.php';
@@ -1920,8 +1921,9 @@ final class Cli {
     }
 
     /**
-     * Provision one manifest-declared `class: "env"` option value directly
-     * into this environment — issue #3232. Deliberately outside the ordinary
+     * Provision one environment-bound value directly into this environment —
+     * either a manifest-declared `class: "env"` option or the exact
+     * `post_password:<uuid>` handle present in canonical state. Deliberately outside the ordinary
      * capture/apply pipeline: env values are never captured, so there is no
      * repo-side record for this command to reconcile against, only a
      * direct write, gated by Apply::set_env_option() to option names the
@@ -1931,10 +1933,12 @@ final class Cli {
      *
      * ## OPTIONS
      * --repo=<path>
-     * --name=<name>       : Must be declared class="env" in a loaded manifest or site.wprism.json.
+     * --name=<name>       : A declared class="env" option or canonical post_password:<uuid> binding.
      * [--stdin]           : Read the value interactively from STDIN with terminal echo disabled
      *   (`stty -echo`, restored afterward) — never printed back. Non-interactive callers pipe one
-     *   newline-terminated value; command-line values are refused because argv is observable.
+     *   newline-terminated value; only that terminal LF and its optional CR are framing. Every
+     *   other byte, including leading/trailing spaces and tabs, is the value. Command-line values
+     *   are refused because argv is observable.
      *   Deliberately NOT named --prompt: wp-cli itself reserves that flag globally (it triggers
      *   wp-cli's own generic per-parameter prompting and is consumed before any command ever sees
      *   it in $assoc — confirmed live, not assumed; an isset($assoc['prompt']) check is silently
@@ -2051,7 +2055,22 @@ final class Cli {
                 'stdin ended before a complete value was received'
             );
         }
-        return trim($line);
+        return self::masked_line_value($line);
+    }
+
+    /**
+     * Remove the one line terminator whose presence read_masked_value()
+     * already proved. `trim()` is forbidden here: spaces and tabs can be
+     * intentional credential bytes, and collapsing a whitespace-only value
+     * to empty changes Apply::set_env_option()'s exact `$value === ''`
+     * provisioning contract.
+     */
+    private static function masked_line_value(string $line): string {
+        $value = substr($line, 0, -1); // terminal LF
+        if (str_ends_with($value, "\r")) {
+            $value = substr($value, 0, -1); // optional CR in CRLF
+        }
+        return $value;
     }
 
     /**
@@ -2075,6 +2094,7 @@ final class Cli {
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
      * [--promotion-owner=<token>] : Internal orchestrator lease token shared with deploy.
      * [--scoped-promotion-receipt=<sha256>] : Internal external-checkpoint receipt payload hash supplied only by the SSH scoped-promotion orchestrator.
+     * [--verified-promotion-receipt=<sha256>] : Internal full-recovery receipt payload hash supplied only by automatic host promotion with deletions.
      * [--rebind-from-home=<url>] : Internal materializer flag (see `wprism plan`): the restored snapshot's home URL;
      *   foreign-bound entities are converged as updates marked `rebind` instead of being left as drift.
      * [--rebind-from-uploads=<url>] : The restored snapshot's uploads base URL; requires --rebind-from-home.
@@ -2097,6 +2117,7 @@ final class Cli {
                 'promotion_owner' => $assoc['promotion-owner'] ?? '',
                 'artifact_hash' => $assoc['artifact-hash'] ?? '',
                 'scoped_promotion_receipt' => $assoc['scoped-promotion-receipt'] ?? '',
+                'verified_promotion_receipt' => $assoc['verified-promotion-receipt'] ?? '',
             ] + self::rebind_from_options($assoc);
             // Same object-only seam as plan(); no registered WP-CLI flag can
             // turn an arbitrary path into mutation authority.
@@ -2906,7 +2927,7 @@ final class Cli {
      *
      * ## OPTIONS
      * --repo=<path>
-     * --set=<spec>         : "section:key=class[,ref=post][,cast=string][,autoload=preserve][,required=true]"
+     * --set=<spec>         : "section:key=class[,ref=post][,cast=string][,autoload=preserve][,required=true][,allow_secret=true][,allow_pii=true]"
      *   (section is options|post_meta|term_meta|user_meta|scope; scope keys are
      *   post_type:<name> or taxonomy:<name>, and accept only
      *   authored|runtime|derived|env. autoload= and required= are options-only
@@ -2927,10 +2948,12 @@ final class Cli {
      *        never an array, in this wp-cli version). So pass multiple
      *        rules as ONE --set value, semicolon-separated:
      *          --set='post_meta:foo=runtime;options:bar=authored,ref=post'
-     * [--allow-secret]     : permit class=authored when the key's current
-     *                         value hard-matches a secret pattern; sets
-     *                         allow_secret:true on the rule written (the
-     *                         same escape hatch Capture's guard honors).
+     * [--allow-secret]     : legacy single-row spelling of allow_secret=true.
+     *                         Refused when --set contains multiple rows because
+     *                         command-wide authority cannot identify which row
+     *                         was reviewed.
+     * [--allow-pii]        : legacy single-row spelling of allow_pii=true, with
+     *                         the same multi-row refusal.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */
@@ -2966,11 +2989,18 @@ final class Cli {
                 }
             }
             $allowSecret = isset($assoc['allow-secret']);
+            $allowPii = isset($assoc['allow-pii']);
+            if (count($specs) !== 1 && ($allowSecret || $allowPii)) {
+                throw new \RuntimeException(
+                    'wprism: --allow-secret/--allow-pii are valid only for a single --set row; '
+                    . 'put allow_secret=true or allow_pii=true on each reviewed row in a multi-row --set'
+                );
+            }
             // A refusal partway through a multi-spec --set leaves the earlier
             // specs already written to site.wprism.json, exactly as before: this
             // is one record about why the run stopped, not a rollback claim.
             foreach ($specs as $spec) {
-                $written[] = self::parse_and_write_classify_spec($repo, $spec, $allowSecret);
+                $written[] = self::parse_and_write_classify_spec($repo, $spec, $allowSecret, $allowPii);
             }
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'classify');
@@ -3000,17 +3030,26 @@ final class Cli {
             if (!empty($w['rule']['allow_secret'])) {
                 $extra[] = 'allow_secret=true';
             }
+            if (!empty($w['rule']['allow_pii'])) {
+                $extra[] = 'allow_pii=true';
+            }
             WP_CLI::line("set {$w['section']}:{$w['key']} = {$w['rule']['class']}" . ($extra ? ' (' . implode(', ', $extra) . ')' : ''));
         }
         WP_CLI::success(count($written) . " rule(s) written to site.wprism.json — run: wp wprism capture --repo=$repo");
     }
 
     /**
-     * Parses one "section:key=class[,ref=x][,cast=y]" spec — split on the
+     * Parses one "section:key=class[,ref=x][,cast=y][,allow_secret=true][,allow_pii=true]" spec — split on the
      * FIRST ':' and FIRST '=' — and writes it via Policy::set_rule,
-     * refusing class=authored over a hard-matched secret unless $allowSecret.
+     * refusing class=authored over secret/PII clearance unless explicitly
+     * reviewed through the matching flag.
      */
-    private static function parse_and_write_classify_spec(string $repo, string $spec, bool $allowSecret): array {
+    private static function parse_and_write_classify_spec(
+        string $repo,
+        string $spec,
+        bool $allowSecret,
+        bool $allowPii
+    ): array {
         $colon = strpos($spec, ':');
         $eq = strpos($spec, '=');
         if ($colon === false || $eq === false || $eq < $colon) {
@@ -3023,6 +3062,8 @@ final class Cli {
         $parts = explode(',', $tail);
         $class = array_shift($parts);
         $rule = ['class' => $class];
+        $reviewedAllowSecret = false;
+        $reviewedAllowPii = false;
         foreach ($parts as $p) {
             $kv = explode('=', $p, 2);
             $k = $kv[0] ?? '';
@@ -3046,25 +3087,53 @@ final class Cli {
                     );
                 }
                 $rule['required'] = $v === 'true';
+            } elseif ($k === 'allow_secret' || $k === 'allow_pii') {
+                if ($v !== 'true') {
+                    throw new \RuntimeException(
+                        "wprism: bad $k='$v' in --set spec '$spec' (expected $k=true)"
+                    );
+                }
+                if ($class !== 'authored') {
+                    throw new \RuntimeException(
+                        "wprism: $k=true is valid only for class=authored in --set spec '$spec'"
+                    );
+                }
+                if ($k === 'allow_secret') {
+                    $reviewedAllowSecret = true;
+                } else {
+                    $reviewedAllowPii = true;
+                }
             } else {
                 throw new \RuntimeException(
-                    "wprism: unknown option '$k' in --set spec '$spec' (expected ref=|cast=|autoload=|required=)"
+                    "wprism: unknown option '$k' in --set spec '$spec' "
+                    . '(expected ref=|cast=|autoload=|required=|allow_secret=|allow_pii=)'
                 );
             }
         }
 
         if ($class === 'authored') {
             $current = Pending::current_value($section, $key);
-            if (is_string($current)) {
-                $label = Secrets::hard_match($current);
-                if ($label !== null) {
-                    if (!$allowSecret) {
-                        throw new \RuntimeException(
-                            "wprism: refusing '$spec' — current value of $section:$key looks like a $label; pass --allow-secret to override"
-                        );
-                    }
-                    $rule['allow_secret'] = true;
+            $secret = Secrets::clearance_match_deep($key, $current);
+            if ($secret !== null) {
+                if (!$reviewedAllowSecret && !$allowSecret) {
+                    throw new \RuntimeException(
+                        "wprism: refusing '$spec' — current value of $section:$key looks like a $secret; pass --allow-secret to override"
+                    );
                 }
+            }
+            if ($reviewedAllowSecret || ($allowSecret && $secret !== null)) {
+                $rule['allow_secret'] = true;
+            }
+            $pii = PersonalData::match_deep($key, $current);
+            if ($pii !== null) {
+                if (!$reviewedAllowPii && !$allowPii) {
+                    throw new \RuntimeException(
+                        "wprism: refusing '$spec' — current value of $section:$key looks like $pii; pass --allow-pii to override"
+                    );
+                }
+            }
+            if ($reviewedAllowPii || ($allowPii && $pii !== null)) {
+                $rule['allow_pii'] = true;
             }
         }
 
@@ -3676,16 +3745,20 @@ final class Cli {
                 continue;
             }
             foreach ($guards as $guard) {
+                $lockAnswer = $guard['table_present'] === false
+                    && ($guard['absence_means_empty'] ?? false) === true
+                        ? 'table absent; declared absence means empty — no lock needed'
+                        : ($guard['index'] !== null
+                            ? 'index `' . $guard['index'] . '`'
+                                . ($guard['prefix'] !== null ? ' (prefix ' . $guard['prefix'] . ')' : '')
+                            : 'NO covering index: ' . $guard['reason']);
                 WP_CLI::line(sprintf(
                     '%s: %s.%s locks on %s — %s',
                     $selector,
                     $guard['table'],
                     $guard['column'],
                     $guard['lock_column'],
-                    $guard['index'] !== null
-                        ? 'index `' . $guard['index'] . '`'
-                            . ($guard['prefix'] !== null ? ' (prefix ' . $guard['prefix'] . ')' : '')
-                        : 'NO covering index: ' . $guard['reason']
+                    $lockAnswer
                 ));
             }
         }

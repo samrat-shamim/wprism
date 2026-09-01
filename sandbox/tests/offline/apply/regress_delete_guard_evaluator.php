@@ -15,11 +15,21 @@ if (!defined('ARRAY_A')) {
 }
 require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require_once __DIR__ . '/../../../../agent/src/Delete/DeleteGuardEvaluator.php';
+require_once __DIR__ . '/../../../../agent/src/Delete/DeleteGuardReferenceScanner.php';
+require_once __DIR__ . '/../../../../agent/src/Apply/ProtectedPostIdentity.php';
 
 use WPrism\DeleteGuardEvaluator;
+use WPrism\DeleteGuardReferenceScanner;
 use WPrism\Db;
+use WPrism\Policy;
+use WPrism\ProtectedPostIdentity;
 
 final class DeleteGuardEvaluatorFakeWpdb {
+    public string $prefix = 'wp_';
+    public string $posts = 'wp_posts';
+    public string $postmeta = 'wp_postmeta';
+    public string $terms = 'wp_terms';
+    public string $termmeta = 'wp_termmeta';
     public string $last_error = '';
     /** @var list<string> */
     public array $queries = [];
@@ -54,6 +64,22 @@ final class DeleteGuardEvaluatorFakeWpdb {
     public ?int $replaceConnectionAtStateProbeStep = null;
     public int $stateProbeStep = 0;
     public mixed $replacementActiveTransaction = '0';
+    public bool $protectedLockFixture = false;
+    /** @var ?list<array<string,mixed>> */
+    public ?array $topologyRowsOverride = null;
+    public bool $topologyProbeError = false;
+    /** @var array<string,int> exact table => MySQL error code */
+    public array $exactTableProbeErrorCodes = [];
+    private ?int $warningCode = null;
+    public bool $replaceConnectionOnProtectedOwnerLock = false;
+    public bool $replaceConnectionOnProtectedUpdate = false;
+    public bool $replaceConnectionOnProtectedReadback = false;
+    public bool $endTransactionBeforeProtectedUpdate = false;
+    public int $protectedPasswordMutations = 0;
+    public string $protectedPassword = 'old-password';
+    public string $protectedTransactionPassword = 'old-password';
+    public string $protectedConnectionId = '7001';
+    public string $protectedUuid = '019200cc-0000-7000-8000-0000000000c7';
 
     /** @param list<array<string,mixed>> $indexRows */
     public function __construct(
@@ -150,18 +176,70 @@ final class DeleteGuardEvaluatorFakeWpdb {
             $this->savepointExists = false;
             return 1;
         }
+        if (str_starts_with($sql, 'UPDATE wp_posts SET post_password = ')) {
+            if ($this->endTransactionBeforeProtectedUpdate) {
+                $this->activeTransaction = '0';
+                $this->savepointExists = false;
+            }
+            if ($this->replaceConnectionOnProtectedUpdate) {
+                $this->connectionId = (string) ((int) $this->connectionId + 1);
+                $this->activeTransaction = '0';
+                $this->savepointExists = false;
+                $this->protectedPassword = $this->protectedTransactionPassword;
+            }
+            if (preg_match("/SET post_password = '((?:''|[^'])*)'/D", $sql, $match) !== 1) {
+                throw new RuntimeException('protected password update carried no bounded value');
+            }
+            $intended = str_replace("''", "'", $match[1]);
+            $guarded = $this->activeTransaction === '1'
+                && hash_equals($this->protectedConnectionId, (string) $this->connectionId)
+                && str_contains($sql, "CONNECTION_ID() = '{$this->protectedConnectionId}'")
+                && str_contains($sql, '@@in_transaction = 1')
+                && str_contains($sql, "BINARY post_password = BINARY '"
+                    . str_replace("'", "''", $this->protectedPassword) . "'")
+                && str_contains($sql, "BINARY m.uuid = BINARY '{$this->protectedUuid}'")
+                && str_contains($sql, "BINARY pm.meta_value = BINARY '{$this->protectedUuid}'");
+            if (!$guarded || hash_equals($this->protectedPassword, $intended)) {
+                return 0;
+            }
+            $this->protectedPassword = $intended;
+            ++$this->protectedPasswordMutations;
+            return 1;
+        }
         throw new RuntimeException("unexpected mutation query: $sql");
     }
 
     public function prepare(string $sql, ...$args): string {
         foreach ($args as $arg) {
-            $sql = preg_replace('/%s/', "'" . str_replace("'", "''", (string) $arg) . "'", $sql, 1);
+            $sql = (string) preg_replace_callback(
+                '/%[sd]/',
+                static fn(array $match): string => $match[0] === '%d'
+                    ? (string) (int) $arg
+                    : "'" . str_replace("'", "''", (string) $arg) . "'",
+                $sql,
+                1
+            );
         }
         return $sql;
     }
 
     public function get_var(string $sql): int|string|null|false {
         $this->queries[] = $sql;
+        if (preg_match('/^SELECT 1 FROM `([A-Za-z0-9_]+)` LIMIT 0$/D', $sql, $match) === 1) {
+            $table = $match[1];
+            $code = $this->exactTableProbeErrorCodes[$table] ?? null;
+            if ($code === null && !array_key_exists($table, $this->tableEngines)) {
+                $code = 1146;
+            }
+            if ($code !== null) {
+                $this->warningCode = $code;
+                $this->last_error = "simulated exact table probe error $code";
+                return false;
+            }
+            $this->warningCode = null;
+            $this->last_error = '';
+            return null;
+        }
         if (in_array($sql, ['SELECT CONNECTION_ID()', 'SELECT @@in_transaction'], true)) {
             $this->stateProbeStep++;
             if ($this->replaceConnectionAtStateProbeStep === $this->stateProbeStep) {
@@ -178,6 +256,23 @@ final class DeleteGuardEvaluatorFakeWpdb {
             }
             return $this->activeTransaction;
         }
+        if (str_starts_with($sql, 'SELECT post_password FROM wp_posts WHERE ')) {
+            if ($this->replaceConnectionOnProtectedReadback) {
+                $this->connectionId = (string) ((int) $this->connectionId + 1);
+                $this->activeTransaction = '0';
+                $this->savepointExists = false;
+                $this->protectedPassword = $this->protectedTransactionPassword;
+            }
+            $guarded = $this->activeTransaction === '1'
+                && hash_equals($this->protectedConnectionId, (string) $this->connectionId)
+                && str_contains($sql, "CONNECTION_ID() = '{$this->protectedConnectionId}'")
+                && str_contains($sql, '@@in_transaction = 1')
+                && str_contains($sql, "BINARY post_password = BINARY '"
+                    . str_replace("'", "''", $this->protectedPassword) . "'")
+                && str_contains($sql, "BINARY m.uuid = BINARY '{$this->protectedUuid}'")
+                && str_contains($sql, "BINARY pm.meta_value = BINARY '{$this->protectedUuid}'");
+            return $guarded ? $this->protectedPassword : null;
+        }
         if ($this->metadataProbeFails) {
             $this->last_error = 'simulated metadata probe failure';
             return false;
@@ -187,7 +282,25 @@ final class DeleteGuardEvaluatorFakeWpdb {
 
     public function get_results(string $sql, $format = null): mixed {
         $this->queries[] = $sql;
+        if ($sql === 'SHOW WARNINGS') {
+            $code = $this->warningCode;
+            $this->last_error = '';
+            return $code === null ? [] : [[
+                'Level' => 'Error',
+                'Code' => $code,
+                'Message' => 'simulated exact table probe diagnostic',
+            ]];
+        }
         if (str_contains($sql, 'information_schema.TABLES')) {
+            if (str_contains($sql, 'SELECT TABLE_NAME FROM')) {
+                if ($this->topologyProbeError) {
+                    $this->last_error = 'simulated exact topology census failure';
+                    return [];
+                }
+                if ($this->topologyRowsOverride !== null) {
+                    return $this->topologyRowsOverride;
+                }
+            }
             if ($this->introspectionFails) {
                 $this->last_error = 'simulated information_schema failure';
                 return [];
@@ -199,6 +312,43 @@ final class DeleteGuardEvaluatorFakeWpdb {
                 }
             }
             return $rows;
+        }
+        if ($this->protectedLockFixture) {
+            if (str_contains($sql, 'FROM `wp_wprism_map` FORCE INDEX')) {
+                return [[
+                    'uuid' => $this->protectedUuid,
+                    'id_kind' => 'post',
+                    'local_id' => '41',
+                    'entity_type' => 'post',
+                ]];
+            }
+            if (str_contains($sql, 'SELECT ID, post_type, post_password FROM wp_posts')) {
+                return [[
+                    'ID' => '41',
+                    'post_type' => 'post',
+                    'post_password' => $this->protectedPassword,
+                ]];
+            }
+            if (str_contains($sql, 'SELECT meta_id, `post_id` AS owner_id')) {
+                return [[
+                    'meta_id' => '71',
+                    'owner_id' => '41',
+                    'meta_key' => '_wprism_uuid',
+                    'meta_value_prefix' => $this->protectedUuid,
+                    'meta_value_bytes' => '36',
+                ]];
+            }
+            if (str_contains($sql, 'SELECT meta_id, `term_id` AS owner_id')) {
+                return [];
+            }
+            if (str_contains($sql, 'SELECT `ID` AS owner_id FROM `wp_posts`')) {
+                if ($this->replaceConnectionOnProtectedOwnerLock) {
+                    $this->connectionId = (string) ((int) $this->connectionId + 1);
+                    $this->activeTransaction = '0';
+                    $this->savepointExists = false;
+                }
+                return [['owner_id' => '41']];
+            }
         }
         if ($this->indexResultMode === 'false') return false;
         if ($this->indexResultMode === 'null') return null;
@@ -234,6 +384,14 @@ $check(
     DeleteGuardEvaluator::lock_index(['meta_key' => str_repeat('x', 192)], 'wp_postmeta') === null,
     'metadata guard refuses a too-short prefix index that could miss a concurrent key'
 );
+$check(
+    DeleteGuardEvaluator::lock_index([
+        'column' => 'meta_value',
+        'lock_column' => 'meta_key',
+        'where' => ['meta_key' => '_product_id'],
+    ], 'wp_woocommerce_order_itemmeta') === 'meta_key_value',
+    'scalar reference guards may lock their complete indexed discriminator range'
+);
 
 $GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([
     ['Key_name' => 'option_name', 'Seq_in_index' => 1, 'Column_name' => 'option_name', 'Sub_part' => null],
@@ -241,6 +399,100 @@ $GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([
 $check(
     DeleteGuardEvaluator::lock_index(['option_name_ref' => true, 'column' => 'ignored'], 'wp_options') === 'option_name',
     'option-name guard locks the declared option-name range rather than its incidental column'
+);
+
+$absenceDb = new DeleteGuardEvaluatorFakeWpdb([]);
+$GLOBALS['wpdb'] = $absenceDb;
+$policyWithoutConstructor = (new ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
+$scanner = new DeleteGuardReferenceScanner($policyWithoutConstructor);
+$requiredAbsent = $scanner->count(
+    ['table' => 'version_optional_refs', 'column' => 'product_id', 'id_kind' => 'post'],
+    '00000000-0000-0000-0000-000000000001',
+    [],
+    []
+);
+$absenceEmpty = $scanner->count(
+    [
+        'table' => 'version_optional_refs', 'column' => 'product_id',
+        'id_kind' => 'post', 'table_absence' => 'empty',
+    ],
+    '00000000-0000-0000-0000-000000000001',
+    [],
+    []
+);
+$check(
+    $requiredAbsent === [
+        'count' => 0,
+        'error' => "required guard table 'version_optional_refs' is absent",
+        'rows' => [],
+    ] && $absenceEmpty['count'] === 0 && $absenceEmpty['error'] === null && $absenceEmpty['rows'] === []
+        && ($absenceEmpty['witness'] ?? null) === hash('sha256', \WPrism\Canon::encode([
+            'format' => 'wprism-delete-guard-witness/v2',
+            'rows' => [],
+            'state' => 'absent',
+            'table' => 'wp_version_optional_refs',
+        ]))
+        && ($absenceEmpty['witness'] ?? null) !== hash('sha256', \WPrism\Canon::encode([
+            'format' => 'wprism-delete-guard-witness/v2',
+            'rows' => [],
+            'state' => 'present',
+            'table' => 'wp_version_optional_refs',
+        ])),
+    'only table_absence=empty accepts exact absence, and its witness cannot equal present-empty topology'
+);
+$absenceDb->topologyProbeError = true;
+$probeFailure = $scanner->count(
+    [
+        'table' => 'version_optional_refs', 'column' => 'product_id',
+        'id_kind' => 'post', 'table_absence' => 'empty',
+    ],
+    '00000000-0000-0000-0000-000000000001',
+    [],
+    []
+);
+$check(
+    str_contains((string) $probeFailure['error'], 'exact guard-table topology census failed')
+        && $probeFailure['rows'] === [],
+    'an exact topology census error remains blocking rather than masquerading as absence'
+);
+$restrictedDb = new DeleteGuardEvaluatorFakeWpdb([], [
+    'wp_options' => 'InnoDB',
+    'wp_postmeta' => 'InnoDB',
+    'wp_version_optional_refs' => 'InnoDB',
+]);
+$restrictedDb->topologyRowsOverride = [];
+$restrictedDb->exactTableProbeErrorCodes['wp_version_optional_refs'] = 1142;
+$GLOBALS['wpdb'] = $restrictedDb;
+$restrictedFailure = $scanner->count(
+    [
+        'table' => 'version_optional_refs', 'column' => 'product_id',
+        'id_kind' => 'post', 'table_absence' => 'empty',
+    ],
+    '00000000-0000-0000-0000-000000000001',
+    [],
+    []
+);
+$check(
+    str_contains((string) $restrictedFailure['error'], 'exact absence confirmation failed')
+        && str_contains((string) $restrictedFailure['error'], 'server code 1142')
+        && $restrictedFailure['rows'] === [],
+    'an existing exact table hidden by restricted database privileges cannot masquerade as absence'
+);
+$nearMatchDb = new DeleteGuardEvaluatorFakeWpdb([]);
+$nearMatchDb->topologyRowsOverride = [['TABLE_NAME' => 'wpXversion_optional_refs']];
+$GLOBALS['wpdb'] = $nearMatchDb;
+$nearMatchFailure = $scanner->count(
+    [
+        'table' => 'version_optional_refs', 'column' => 'product_id',
+        'id_kind' => 'post', 'table_absence' => 'empty',
+    ],
+    '00000000-0000-0000-0000-000000000001',
+    [],
+    []
+);
+$check(
+    str_contains((string) $nearMatchFailure['error'], 'ambiguous table identity'),
+    'a case-fold or wildcard-like near match never proves exact guard-table absence'
 );
 
 $GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([
@@ -303,6 +555,52 @@ $check(
         === 'legacy_option_name',
     'older-server rows remain accepted when the family-specific visibility and ignored fields are absent'
 );
+
+$GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([
+    ['Key_name' => 'PRIMARY', 'Seq_in_index' => '1', 'Column_name' => 'uuid', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+    ['Key_name' => 'PRIMARY', 'Seq_in_index' => '2', 'Column_name' => 'id_kind', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+    ['Key_name' => 'uuid_lookup', 'Seq_in_index' => '1', 'Column_name' => 'uuid', 'Sub_part' => null, 'Non_unique' => '1', 'Index_type' => 'BTREE'],
+]);
+$check(
+    DeleteGuardEvaluator::full_width_composite_unique_lock_index(
+        'wp_wprism_map',
+        ['uuid', 'id_kind'],
+        'protected post identity locking'
+    ) === 'PRIMARY',
+    'compound lock proof accepts the stock full-width unique map identity and ignores a nonunique UUID lookup'
+);
+
+foreach ([
+    'nonunique pair' => [
+        ['Key_name' => 'map_pair', 'Seq_in_index' => '1', 'Column_name' => 'uuid', 'Sub_part' => null, 'Non_unique' => '1', 'Index_type' => 'BTREE'],
+        ['Key_name' => 'map_pair', 'Seq_in_index' => '2', 'Column_name' => 'id_kind', 'Sub_part' => null, 'Non_unique' => '1', 'Index_type' => 'BTREE'],
+    ],
+    'prefixed pair' => [
+        ['Key_name' => 'map_pair', 'Seq_in_index' => '1', 'Column_name' => 'uuid', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+        ['Key_name' => 'map_pair', 'Seq_in_index' => '2', 'Column_name' => 'id_kind', 'Sub_part' => '16', 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+    ],
+    'unique superset' => [
+        ['Key_name' => 'map_triple', 'Seq_in_index' => '1', 'Column_name' => 'uuid', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+        ['Key_name' => 'map_triple', 'Seq_in_index' => '2', 'Column_name' => 'id_kind', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+        ['Key_name' => 'map_triple', 'Seq_in_index' => '3', 'Column_name' => 'local_id', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+    ],
+] as $label => $rows) {
+    $GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb($rows);
+    try {
+        DeleteGuardEvaluator::full_width_composite_unique_lock_index(
+            'wp_wprism_map',
+            ['uuid', 'id_kind'],
+            'protected post identity locking'
+        );
+        $compoundRefused = false;
+    } catch (RuntimeException $failure) {
+        $compoundRefused = str_contains(
+            $failure->getMessage(),
+            'visible full-width unique ordered-columns index on (uuid, id_kind)'
+        );
+    }
+    $check($compoundRefused, "$label cannot prove the compound map singleton lock");
+}
 
 $GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([[
     'Key_name' => 'meta_key',
@@ -604,6 +902,154 @@ try {
 $check($restartedTransactionRefused, 'same-isolation transaction restart cannot reuse the authored lock boundary');
 DeleteGuardEvaluator::end_authored_transaction();
 Db::rollback('fixture transaction cleanup');
+
+$protectedIndexes = [
+    ['Key_name' => 'map_pair', 'Seq_in_index' => '1', 'Column_name' => 'uuid', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+    ['Key_name' => 'map_pair', 'Seq_in_index' => '2', 'Column_name' => 'id_kind', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+    ['Key_name' => 'post_id_unique', 'Seq_in_index' => '1', 'Column_name' => 'ID', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+    ['Key_name' => 'term_id_unique', 'Seq_in_index' => '1', 'Column_name' => 'term_id', 'Sub_part' => null, 'Non_unique' => '0', 'Index_type' => 'BTREE'],
+    ['Key_name' => 'meta_key', 'Seq_in_index' => '1', 'Column_name' => 'meta_key', 'Sub_part' => '191', 'Non_unique' => '1', 'Index_type' => 'BTREE'],
+];
+$protectedEngines = [
+    'wp_wprism_map' => 'InnoDB',
+    'wp_posts' => 'InnoDB',
+    'wp_postmeta' => 'InnoDB',
+    'wp_terms' => 'InnoDB',
+    'wp_termmeta' => 'InnoDB',
+];
+$reconnectedLock = new DeleteGuardEvaluatorFakeWpdb($protectedIndexes, $protectedEngines);
+$reconnectedLock->activeTransaction = '0';
+$reconnectedLock->protectedLockFixture = true;
+$reconnectedLock->replaceConnectionOnProtectedOwnerLock = true;
+$GLOBALS['wpdb'] = $reconnectedLock;
+Db::forget_transaction_tracking();
+Db::start_repeatable_read('protected reconnect-at-lock start');
+DeleteGuardEvaluator::begin_authored_transaction();
+try {
+    ProtectedPostIdentity::lock($reconnectedLock->protectedUuid, 'post');
+    $reconnectedLockRefused = false;
+} catch (Throwable $failure) {
+    $reconnectedLockRefused = $failure instanceof \WPrism\DatabaseTransactionOutcomeException;
+}
+$check(
+    $reconnectedLockRefused
+        && $reconnectedLock->protectedPassword === 'old-password'
+        && !array_filter(
+            $reconnectedLock->queries,
+            static fn(string $query): bool => str_starts_with($query, 'UPDATE wp_posts SET post_password')
+        ),
+    'reconnect while replaying the final owner lock fails post-lock continuity before any secret mutation'
+);
+DeleteGuardEvaluator::end_authored_transaction();
+Db::forget_transaction_tracking();
+
+/**
+ * @return array{result:?bool,failure:?Throwable,password:string,mutations:int,queries:list<string>}
+ */
+$exerciseProtectedPasswordUpdate = static function (
+    string $oldValue,
+    string $newValue,
+    ?callable $configure = null
+): array {
+    $fixture = new DeleteGuardEvaluatorFakeWpdb([]);
+    $fixture->activeTransaction = '0';
+    $fixture->protectedPassword = $oldValue;
+    $fixture->protectedTransactionPassword = $oldValue;
+    $GLOBALS['wpdb'] = $fixture;
+    Db::forget_transaction_tracking();
+    Db::start_repeatable_read('protected password fixture start');
+    DeleteGuardEvaluator::begin_authored_transaction();
+    $connectionId = Db::transaction_connection_id('protected password fixture token');
+    if ($configure !== null) {
+        $configure($fixture);
+    }
+    $result = null;
+    $failure = null;
+    try {
+        $result = ProtectedPostIdentity::update_password(
+            $fixture->protectedUuid,
+            41,
+            'post',
+            $oldValue,
+            $newValue,
+            $connectionId
+        );
+    } catch (Throwable $caught) {
+        $failure = $caught;
+    }
+    $outcome = [
+        'result' => $result,
+        'failure' => $failure,
+        'password' => $fixture->protectedPassword,
+        'mutations' => $fixture->protectedPasswordMutations,
+        'queries' => $fixture->queries,
+    ];
+    try {
+        if ((string) $fixture->connectionId === $connectionId && $fixture->activeTransaction === '1') {
+            Db::rollback('protected password fixture rollback');
+        } else {
+            Db::forget_transaction_tracking();
+        }
+    } finally {
+        DeleteGuardEvaluator::end_authored_transaction();
+    }
+    return $outcome;
+};
+
+$ordinaryProtectedUpdate = $exerciseProtectedPasswordUpdate('old-password', 'new-password');
+$check(
+    $ordinaryProtectedUpdate['result'] === true
+        && $ordinaryProtectedUpdate['failure'] === null
+        && $ordinaryProtectedUpdate['password'] === 'new-password'
+        && $ordinaryProtectedUpdate['mutations'] === 1,
+    'protected password CAS changes one row on the verified active session and confirms its guarded readback'
+);
+$idempotentProtectedUpdate = $exerciseProtectedPasswordUpdate('same-password', 'same-password');
+$check(
+    $idempotentProtectedUpdate['result'] === true
+        && $idempotentProtectedUpdate['failure'] === null
+        && $idempotentProtectedUpdate['password'] === 'same-password'
+        && $idempotentProtectedUpdate['mutations'] === 0,
+    'idempotent protected password CAS accepts zero affected rows only after guarded same-session readback'
+);
+$reconnectedProtectedUpdate = $exerciseProtectedPasswordUpdate(
+    'old-password',
+    'must-not-autocommit',
+    static function (DeleteGuardEvaluatorFakeWpdb $fixture): void {
+        $fixture->replaceConnectionOnProtectedUpdate = true;
+    }
+);
+$check(
+    $reconnectedProtectedUpdate['failure'] instanceof \WPrism\DatabaseTransactionOutcomeException
+        && $reconnectedProtectedUpdate['password'] === 'old-password'
+        && $reconnectedProtectedUpdate['mutations'] === 0,
+    'wpdb reconnect-and-replay at protected UPDATE matches zero on the replacement and cannot publish the secret'
+);
+$inactiveProtectedUpdate = $exerciseProtectedPasswordUpdate(
+    'old-password',
+    'must-not-autocommit',
+    static function (DeleteGuardEvaluatorFakeWpdb $fixture): void {
+        $fixture->endTransactionBeforeProtectedUpdate = true;
+    }
+);
+$check(
+    $inactiveProtectedUpdate['failure'] instanceof \WPrism\DatabaseTransactionOutcomeException
+        && $inactiveProtectedUpdate['password'] === 'old-password'
+        && $inactiveProtectedUpdate['mutations'] === 0,
+    'same-session transaction loss at protected UPDATE matches zero under @@in_transaction and publishes no secret'
+);
+$reconnectedProtectedReadback = $exerciseProtectedPasswordUpdate(
+    'old-password',
+    'must-roll-back',
+    static function (DeleteGuardEvaluatorFakeWpdb $fixture): void {
+        $fixture->replaceConnectionOnProtectedReadback = true;
+    }
+);
+$check(
+    $reconnectedProtectedReadback['failure'] instanceof \WPrism\DatabaseTransactionOutcomeException
+        && $reconnectedProtectedReadback['password'] === 'old-password',
+    'reconnect at guarded password readback rolls back the original transaction and refuses before commit'
+);
 
 $setFailureWpdb = new DeleteGuardEvaluatorFakeWpdb([]);
 $setFailureWpdb->activeTransaction = '0';
@@ -1109,7 +1555,8 @@ $check(
         && $findings['guard_witnesses'] === [
             '0' => 'postmeta-witness',
             '1' => 'options-witness',
-        ],
+        ]
+        && $findings['non_forceable_blocks'] === [],
     'reference evaluator collects deterministic blocks and repair witnesses through narrow callbacks'
 );
 
@@ -1125,10 +1572,30 @@ $errorFindings = DeleteGuardEvaluator::reference_findings(
 $check(
     $errorFindings === [
         'blocks' => ['simulated reference query failure'],
+        'non_forceable_blocks' => [],
         'guard_refs' => [],
         'guard_witnesses' => ['0' => ''],
     ],
     'reference evaluator preserves fail-closed query errors and empty witnesses without inventing warning rows'
+);
+
+$nonForceableErrorFindings = DeleteGuardEvaluator::reference_findings(
+    [[
+        'table' => 'wp_wc_reserved_stock',
+        'column' => 'product_id',
+        'forceable' => false,
+    ]],
+    static fn(array $guard, bool $forUpdate): array => [
+        'count' => 0,
+        'error' => 'simulated unreadable Woo runtime guard',
+        'rows' => [],
+    ],
+    static fn(string $table): bool => false
+);
+$check(
+    $nonForceableErrorFindings['blocks'] === ['simulated unreadable Woo runtime guard']
+        && $nonForceableErrorFindings['non_forceable_blocks'] === ['simulated unreadable Woo runtime guard'],
+    'a failed non-forceable guard remains non-forceable instead of becoming force-authorizable'
 );
 
 $planGuardCalls = [];
@@ -1289,6 +1756,31 @@ try {
 }
 $check($finalRecheckRefused, 'final recheck evaluator refuses an unforced changed guard before mutation');
 
+$forcedNonForceableErrorRefused = false;
+try {
+    DeleteGuardEvaluator::final_recheck_findings(
+        ['type' => 'post', 'uuid' => 'final-runtime-target'],
+        [[
+            'table' => 'wp_wc_reserved_stock',
+            'column' => 'product_id',
+            'forceable' => false,
+        ]],
+        static fn(array $guard, bool $forUpdate): array => [
+            'count' => 0,
+            'error' => 'simulated locked Woo runtime guard read failure',
+            'rows' => [],
+        ],
+        static fn(string $table): bool => false,
+        true,
+        true
+    );
+} catch (RuntimeException $e) {
+    $forcedNonForceableErrorRefused = str_contains($e->getMessage(), 'simulated locked Woo runtime guard read failure')
+        && str_contains($e->getMessage(), 'not forceable');
+}
+$check($forcedNonForceableErrorRefused,
+    'force cannot cross a failed non-forceable guard at the final locked recheck');
+
 $cleanFinalRecheck = DeleteGuardEvaluator::final_recheck_findings(
     ['type' => 'post', 'uuid' => 'clean-target'],
     [['table' => 'wp_postmeta', 'column' => 'post_id']],
@@ -1308,7 +1800,9 @@ $check(
 
 $evaluator = new ReflectionClass(DeleteGuardEvaluator::class);
 $check(
-    (new ReflectionMethod(DeleteGuardEvaluator::class, 'lock_index'))->isPublic()
+    (new ReflectionMethod(DeleteGuardEvaluator::class, 'guard_table_topology'))->isPublic()
+        && (new ReflectionMethod(DeleteGuardEvaluator::class, 'guard_table_topology'))->isStatic()
+        && (new ReflectionMethod(DeleteGuardEvaluator::class, 'lock_index'))->isPublic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'lock_index'))->isStatic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'full_width_lock_index'))->isPublic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'full_width_lock_index'))->isStatic()
@@ -1325,7 +1819,7 @@ $check(
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'final_recheck_findings'))->isPublic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'final_recheck_findings'))->isStatic()
         && $evaluator->getConstructor() === null,
-    'evaluator exposes dependency-free static index, storage-engine, isolation, reference, plan, witness, and recheck contracts'
+    'evaluator exposes dependency-free static topology, index, storage-engine, isolation, reference, plan, witness, and recheck contracts'
 );
 
 $applySource = file_get_contents(__DIR__ . '/../../../../agent/src/Delete/DeleteGuardLockCoordinator.php');
@@ -1342,9 +1836,23 @@ $check(
         && str_contains($applySource, "require_once __DIR__ . '/DeleteGuardReferenceScanner.php';")
         && str_contains($scannerSource, "require_once __DIR__ . '/DeleteGuardEvaluator.php';")
         && substr_count($scannerSource, 'DeleteGuardEvaluator::lock_index(') === 3
-        && str_contains($engineFacade, 'DeleteGuardEvaluator::assert_innodb_tables(array_keys($tables));')
+        && str_contains($engineFacade, 'DeleteGuardEvaluator::guard_table_topology(')
+        && str_contains($engineFacade, 'DeleteGuardEvaluator::assert_innodb_tables($presentTables);')
         && !str_contains($engineFacade, 'information_schema.TABLES'),
-    'the scanner and lock coordinator delegate deletion-guard index and storage-engine decisions to the evaluator'
+    'the scanner and lock coordinator delegate exact topology, index, and storage-engine decisions to the evaluator'
+);
+$commitBoundary = substr(
+    $applySource,
+    strpos($applySource, 'public function assert_writer_exclusion_commit_boundary('),
+    strpos($applySource, 'public function end_writer_exclusion_transaction(')
+        - strpos($applySource, 'public function assert_writer_exclusion_commit_boundary(')
+);
+$check(
+    str_contains($commitBoundary, 'DeleteGuardEvaluator::guard_table_topology(')
+        && str_contains($commitBoundary, "if (\$state !== 'absent')")
+        && strpos($commitBoundary, 'guard_table_topology(')
+            < strpos($commitBoundary, '$this->writerExclusion->assert_commit_boundary();'),
+    'the final pre-COMMIT boundary re-censuses every absence-means-empty table before accepting writer exclusion'
 );
 $check(
     !str_contains($applySource, 'private function guard_lock_index(')

@@ -86,7 +86,12 @@ final class VerifiedRollbackProfile {
                 'status' => $status ?? [],
             ];
         }
-        foreach (['uploads_inventory', 'effects_inventory'] as $inventory) {
+        foreach ([
+            'uploads_inventory',
+            'effects_inventory',
+            'lifecycle_effects_inventory',
+            'selected_actions',
+        ] as $inventory) {
             if (!is_array($plan[$inventory] ?? null) || !array_is_list($plan[$inventory])) {
                 return [
                     'automatic' => false,
@@ -128,7 +133,9 @@ final class VerifiedRollbackProfile {
         array $policy,
         string $owner,
         string $createdAt,
-        ?array $codeReleaseIdentity = null
+        ?array $codeReleaseIdentity = null,
+        bool $allowDeletes = false,
+        bool $codeChangeRequired = false
     ): array {
         $artifact = (string) ($plan['artifact_hash'] ?? '');
         if (preg_match('/^[a-f0-9]{64}$/', $artifact) !== 1) {
@@ -136,9 +143,28 @@ final class VerifiedRollbackProfile {
         }
         $uploads = $plan['uploads_inventory'] ?? null;
         $effects = $plan['effects_inventory'] ?? null;
+        $lifecycleEffects = $plan['lifecycle_effects_inventory'] ?? null;
+        $selectedActions = $plan['selected_actions'] ?? null;
         if (!is_array($uploads) || !array_is_list($uploads)
-            || !is_array($effects) || !array_is_list($effects)) {
+            || !is_array($effects) || !array_is_list($effects)
+            || !is_array($lifecycleEffects) || !array_is_list($lifecycleEffects)
+            || !is_array($selectedActions) || !array_is_list($selectedActions)) {
             throw new \RuntimeException('wprism rollback: automatic profile needs compiled plan inventories');
+        }
+        if ($codeChangeRequired) {
+            $effects = array_merge($effects, $lifecycleEffects);
+            usort($effects, static fn(array $a, array $b): int => strcmp(
+                implode("\0", [
+                    (string) ($a['phase'] ?? ''),
+                    (string) ($a['manifest'] ?? ''),
+                    (string) (($a['effect'] ?? [])['id'] ?? ''),
+                ]),
+                implode("\0", [
+                    (string) ($b['phase'] ?? ''),
+                    (string) ($b['manifest'] ?? ''),
+                    (string) (($b['effect'] ?? [])['id'] ?? ''),
+                ])
+            ));
         }
         $code = $plan['code'] ?? null;
         if (!is_array($code)) {
@@ -167,6 +193,7 @@ final class VerifiedRollbackProfile {
         $resources = [
             'code' => $code,
             'effects_inventory' => $effects,
+            'selected_actions' => $selectedActions,
             'uploads_inventory' => $uploads,
         ];
         $fields = [
@@ -184,6 +211,12 @@ final class VerifiedRollbackProfile {
             'retention_until' => gmdate('Y-m-d\TH:i:s\Z', $created + $retention),
             'upload_inventory' => $uploads,
         ];
+        // Preserve the v2 wire contract for ordinary promotions so a newer
+        // controller can update a target whose installed recovery runtime has
+        // not learned v3 yet. Only explicit delete intent needs the v3 field.
+        if ($allowDeletes) {
+            $fields['allow_deletes'] = true;
+        }
         if ($descriptorHash !== null) {
             $fields['desired_descriptor_sha256'] = $descriptorHash;
         } else {
@@ -193,7 +226,14 @@ final class VerifiedRollbackProfile {
     }
 
     /** @param array<string,mixed> $plan @return array{receipt:array<string,mixed>,status:array<string,mixed>} */
-    public function claim(array $plan, string $owner, string $claimant, ?string $timestamp = null): array {
+    public function claim(
+        array $plan,
+        string $owner,
+        string $claimant,
+        ?string $timestamp = null,
+        bool $allowDeletes = false,
+        bool $codeChangeRequired = false
+    ): array {
         $policy = $this->transport->verifiedRollbackConfig();
         if ($policy === null) {
             throw new \RuntimeException('wprism rollback: verified_rollback policy is not configured');
@@ -209,7 +249,15 @@ final class VerifiedRollbackProfile {
                     : self::timestamp();
         }
         return $this->authority->claim(
-            self::claimFields($plan, $policy, $owner, $timestamp),
+            self::claimFields(
+                $plan,
+                $policy,
+                $owner,
+                $timestamp,
+                null,
+                $allowDeletes,
+                $codeChangeRequired
+            ),
             $claimant,
             $timestamp
         );

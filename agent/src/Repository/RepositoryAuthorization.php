@@ -1,7 +1,13 @@
 <?php
 namespace WPrism;
 
+require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
+require_once __DIR__ . '/../Grammar/ColumnCodecGrammar.php';
 require_once __DIR__ . '/../Policy/ScopeAdoption.php';
+require_once __DIR__ . '/../Kernel/PlainData.php';
+require_once __DIR__ . '/../Kernel/PostPasswordBinding.php';
+require_once __DIR__ . '/../Kernel/PersonalData.php';
+require_once __DIR__ . '/../Kernel/Secrets.php';
 
 /**
  * A fail-closed repository preflight with stable, machine-readable findings.
@@ -54,7 +60,7 @@ final class RepositoryAuthorization {
     private const POST_FIELDS = [
         'uuid', 'type', 'slug', 'title', 'status', 'date', 'date_gmt',
         'modified', 'modified_gmt', 'author', 'parent', 'menu_order', 'comment_status',
-        'ping_status', 'excerpt', 'meta', 'terms', 'term_orders',
+        'ping_status', 'excerpt', 'meta', 'terms', 'term_orders', 'password_binding',
     ];
     private const ATTACHMENT_FIELDS = ['file', 'media', 'mime', 'alt'];
     private const TERM_FIELDS = [
@@ -68,6 +74,16 @@ final class RepositoryAuthorization {
     private const TABLE_FIELDS = ['columns', 'meta', 'table', 'uuid'];
     private const USER_META_FIELDS = ['login', 'meta'];
     private const MANAGED_OPTIONS = ['active_plugins', 'template', 'stylesheet'];
+    private const MAX_MENU_URI_TOTAL_BYTES = 131072;
+    private const MAX_MENU_URI_PATH_BYTES = 65536;
+    private const MAX_MENU_URI_FRAGMENT_BYTES = 65536;
+    private const MAX_MENU_QUERY_BYTES = 65536;
+    private const MAX_MENU_QUERY_COMPONENT_BYTES = 8192;
+    private const MAX_MENU_QUERY_NAME_SEGMENT_BYTES = 1024;
+    private const MAX_MENU_QUERY_NAME_SEGMENTS = 16;
+    private const MAX_MENU_QUERY_PAIRS = 512;
+    private const MENU_URI_DECODE_WORK_FACTOR = 32;
+    private const MAX_MENU_URI_DECODE_WORK_BYTES = 4194304;
 
     /**
      * One filesystem read produces the exact tree both authorization and the
@@ -233,13 +249,57 @@ final class RepositoryAuthorization {
                 self::finding($out, 'repository_field_not_authored', $path, $uuid, 'post_field', $field, $details['class'], $details['source']);
             }
         }
+        foreach (['title', 'excerpt', 'author', 'alt'] as $field) {
+            if (array_key_exists($field, $front)) {
+                self::authorize_sensitivity(
+                    $out, $path, $uuid, 'post_field', $field, $front[$field], [], 'platform'
+                );
+            }
+        }
+        self::authorize_sensitivity(
+            $out,
+            $path,
+            $uuid,
+            'post_field',
+            'body',
+            self::post_body_for_clearance($policy, $postType, (string) ($entity['body'] ?? ''), $path),
+            [],
+            'platform'
+        );
+        if (array_key_exists('password_binding', $front)) {
+            $expected = null;
+            try {
+                $expected = PostPasswordBinding::name($uuid);
+            } catch (\Throwable) {
+                // The repository UUID validator owns the identity finding.
+            }
+            if (!is_string($front['password_binding']) || $expected === null
+                || !hash_equals($expected, $front['password_binding'])) {
+                self::finding(
+                    $out,
+                    'repository_field_not_authored',
+                    $path,
+                    $uuid,
+                    'post_field',
+                    'password_binding',
+                    'invalid',
+                    'platform',
+                    'use the exact post_password:<uuid> binding emitted by capture; never put a password in state/'
+                );
+            }
+        }
 
         $meta = (array) ($front['meta'] ?? []);
-        foreach ($meta as $key => $_) {
+        foreach ($meta as $key => $value) {
             $details = $policy->meta_rule_details_for_post((string) $key, $meta);
-            $class = $details['rule']['class'] ?? 'unclassified';
+            $rule = $details['rule'] ?? [];
+            $class = $rule['class'] ?? 'unclassified';
             if ($class !== 'authored') {
                 self::finding($out, 'repository_field_not_authored', $path, $uuid, 'post_meta', (string) $key, $class, $details['source']);
+            } else {
+                self::authorize_sensitivity(
+                    $out, $path, $uuid, 'post_meta', (string) $key, $value, $rule, $details['source']
+                );
             }
         }
         foreach ((array) ($front['terms'] ?? []) as $taxonomy => $_) {
@@ -264,12 +324,24 @@ final class RepositoryAuthorization {
         }
         self::unexpected_fields($front, $allowedFields, $path, $uuid, 'term_field', $out);
         self::authorize_taxonomy($policy, (string) ($front['taxonomy'] ?? ''), $path, $uuid, 'taxonomy', $out);
+        foreach (['name', 'description'] as $field) {
+            if (array_key_exists($field, $front)) {
+                self::authorize_sensitivity(
+                    $out, $path, $uuid, 'term_field', $field, $front[$field], [], 'platform'
+                );
+            }
+        }
         $meta = (array) ($front['meta'] ?? []);
-        foreach ($meta as $key => $_) {
+        foreach ($meta as $key => $value) {
             $details = $policy->meta_rule_details_for_term((string) $key, $meta);
-            $class = $details['rule']['class'] ?? 'unclassified';
+            $rule = $details['rule'] ?? [];
+            $class = $rule['class'] ?? 'unclassified';
             if ($class !== 'authored') {
                 self::finding($out, 'repository_field_not_authored', $path, $uuid, 'term_meta', (string) $key, $class, $details['source']);
+            } else {
+                self::authorize_sensitivity(
+                    $out, $path, $uuid, 'term_meta', (string) $key, $value, $rule, $details['source']
+                );
             }
         }
         foreach ((array) ($front['relationships'] ?? []) as $taxonomy => $_) {
@@ -281,6 +353,9 @@ final class RepositoryAuthorization {
         $front = $entity['data'] ?? Canon::decode($entity['content']);
         $path = $entity['path'];
         self::unexpected_fields($front, self::MENU_FIELDS, $path, $uuid, 'menu_field', $out);
+        self::authorize_sensitivity(
+            $out, $path, $uuid, 'menu_field', 'name', $front['name'] ?? '', [], 'platform'
+        );
         $managed = [
             'type' => '_menu_item_type',
             'object' => '_menu_item_object',
@@ -292,11 +367,54 @@ final class RepositoryAuthorization {
         foreach ((array) ($front['items'] ?? []) as $index => $item) {
             $item = (array) $item;
             self::unexpected_fields($item, self::MENU_ITEM_FIELDS, $path, $uuid, "menu_item[$index]", $out);
+            foreach (['title', 'description', 'attr_title', 'target', 'classes', 'xfn'] as $field) {
+                if (array_key_exists($field, $item)) {
+                    self::authorize_sensitivity(
+                        $out, $path, $uuid, "menu_item[$index]", $field, $item[$field], [], 'platform'
+                    );
+                }
+            }
             foreach ($managed as $field => $metaKey) {
                 self::require_managed_meta($policy, $metaKey, "items[$index].$field", $path, $uuid, $out);
             }
             $refMeta = ($item['type'] ?? '') === 'custom' ? '_menu_item_url' : '_menu_item_object_id';
             self::require_managed_meta($policy, $refMeta, "items[$index].ref", $path, $uuid, $out);
+            if (array_key_exists('ref', $item)) {
+                // `ref` is materialized through managed post meta, but its
+                // repository bytes are still Git-editable. A custom URL can
+                // carry credentials/PII and a non-custom token must receive
+                // the same clearance before its separate reference grammar.
+                $clearanceValue = $item['ref'];
+                if (($item['type'] ?? '') === 'custom' && is_string($clearanceValue)) {
+                    $semantic = self::menu_uri_clearance_parts($clearanceValue);
+                    if ($semantic === null) {
+                        // The diagnostic carries coordinates only: malformed
+                        // URI bytes may themselves be credentials and must
+                        // never be reflected into a refusal message.
+                        self::finding(
+                            $out,
+                            'repository_menu_url_query_invalid',
+                            $path,
+                            $uuid,
+                            "menu_item[$index]",
+                            'ref',
+                            'invalid',
+                            'platform',
+                            'replace the custom menu URL with a bounded query whose percent escapes are well formed'
+                        );
+                        $clearanceValue = [$clearanceValue];
+                    } else {
+                        // Ordered scalar-name + one-entry-map pairs retain
+                        // every duplicate while path/fragment views expose
+                        // percent-encoded semantics. The raw URL remains first;
+                        // no decoded form is ever written back.
+                        $clearanceValue = self::menu_uri_clearance_value($clearanceValue, $semantic);
+                    }
+                }
+                self::authorize_sensitivity(
+                    $out, $path, $uuid, "menu_item[$index]", 'ref', $clearanceValue, [], 'platform'
+                );
+            }
 
             // issue #3266: re-derive classification from the COMPILED
             // repository's own policy, independent of what captured it —
@@ -304,17 +422,233 @@ final class RepositoryAuthorization {
             // its own 'meta' field (a merge/rebase can land a captured
             // 'authored' key next to a policy that no longer agrees).
             $itemMeta = (array) ($item['meta'] ?? []);
-            foreach ($itemMeta as $key => $_) {
+            foreach ($itemMeta as $key => $value) {
                 $details = $policy->meta_rule_details_for_post((string) $key, $itemMeta);
-                $class = $details['rule']['class'] ?? 'unclassified';
+                $rule = $details['rule'] ?? [];
+                $class = $rule['class'] ?? 'unclassified';
                 if ($class !== 'authored') {
                     self::finding(
                         $out, 'repository_field_not_authored', $path, $uuid,
                         "menu_item[$index]", (string) $key, $class, $details['source']
                     );
+                } else {
+                    self::authorize_sensitivity(
+                        $out, $path, $uuid, "menu_item[$index]", (string) $key,
+                        $value, $rule, $details['source']
+                    );
                 }
             }
         }
+    }
+
+    /**
+     * @return ?array{
+     *   path:string,
+     *   fragment:string,
+     *   pairs:list<array{name:string,value:string,path:list<string>}>
+     * } null means malformed or over budget
+     */
+    private static function menu_uri_clearance_parts(string $url): ?array {
+        $length = strlen($url);
+        // The total bound precedes even delimiter discovery: otherwise a
+        // fragment-only overlimit input is duplicated by substr() before its
+        // inevitable refusal, defeating the parser's memory ceiling.
+        if ($length > self::MAX_MENU_URI_TOTAL_BYTES) {
+            return null;
+        }
+        $fragmentAt = strpos($url, '#');
+        $queryAt = strpos($url, '?');
+        $hasQuery = $queryAt !== false && ($fragmentAt === false || $queryAt < $fragmentAt);
+        $pathEnd = $hasQuery ? $queryAt : ($fragmentAt === false ? $length : $fragmentAt);
+        $queryEnd = $fragmentAt === false ? $length : $fragmentAt;
+        $rawPath = substr($url, 0, $pathEnd);
+        $rawQuery = $hasQuery ? substr($url, $queryAt + 1, $queryEnd - $queryAt - 1) : '';
+        $rawFragment = $fragmentAt === false ? '' : substr($url, $fragmentAt + 1);
+        $semanticBytes = strlen($rawPath) + strlen($rawQuery) + strlen($rawFragment);
+        if (strlen($rawPath) > self::MAX_MENU_URI_PATH_BYTES
+            || strlen($rawQuery) > self::MAX_MENU_QUERY_BYTES
+            || strlen($rawFragment) > self::MAX_MENU_URI_FRAGMENT_BYTES) {
+            return null;
+        }
+        $workRemaining = min(
+            self::MAX_MENU_URI_DECODE_WORK_BYTES,
+            max(1, $semanticBytes) * self::MENU_URI_DECODE_WORK_FACTOR
+        );
+        $path = self::decode_menu_uri_component(
+            $rawPath,
+            self::MAX_MENU_URI_PATH_BYTES,
+            $workRemaining,
+            false
+        );
+        $pairs = self::menu_query_clearance_pairs($rawQuery, $workRemaining);
+        $fragment = self::decode_menu_uri_component(
+            $rawFragment,
+            self::MAX_MENU_URI_FRAGMENT_BYTES,
+            $workRemaining,
+            false
+        );
+        if ($path === null || $pairs === null || $fragment === null) {
+            return null;
+        }
+        return ['path' => $path, 'fragment' => $fragment, 'pairs' => $pairs];
+    }
+
+    /**
+     * @return ?list<array{name:string,value:string,path:list<string>}>
+     * null means malformed or over budget
+     */
+    private static function menu_query_clearance_pairs(string $query, int &$workRemaining): ?array {
+        if ($query === '') {
+            return [];
+        }
+        // A custom menu ref is stored and emitted as an opaque URI here. `&`
+        // is the URL query pair delimiter; `;` remains component data rather
+        // than inheriting a process-local PHP arg_separator.input setting.
+        $parts = explode('&', $query, self::MAX_MENU_QUERY_PAIRS + 1);
+        if (count($parts) > self::MAX_MENU_QUERY_PAIRS) {
+            return null;
+        }
+        $pairs = [];
+        foreach ($parts as $part) {
+            $separator = strpos($part, '=');
+            $rawName = $separator === false ? $part : substr($part, 0, $separator);
+            $rawValue = $separator === false ? '' : substr($part, $separator + 1);
+            $name = self::decode_menu_uri_component(
+                $rawName,
+                self::MAX_MENU_QUERY_COMPONENT_BYTES,
+                $workRemaining,
+                true
+            );
+            $value = self::decode_menu_uri_component(
+                $rawValue,
+                self::MAX_MENU_QUERY_COMPONENT_BYTES,
+                $workRemaining,
+                true
+            );
+            if ($name === null || $value === null) {
+                return null;
+            }
+            $path = self::menu_query_name_path($name);
+            if ($path === null) {
+                return null;
+            }
+            $pairs[] = ['name' => $name, 'value' => $value, 'path' => $path];
+        }
+        return $pairs;
+    }
+
+    /** @return ?list<string> null means malformed or over budget */
+    private static function menu_query_name_path(string $name): ?array {
+        $open = strpos($name, '[');
+        if ($open === false) {
+            if (str_contains($name, ']') || strlen($name) > self::MAX_MENU_QUERY_NAME_SEGMENT_BYTES) {
+                return null;
+            }
+            return [$name];
+        }
+        if ($open === 0 || str_contains(substr($name, 0, $open), ']')) {
+            return null;
+        }
+        $base = substr($name, 0, $open);
+        if (strlen($base) > self::MAX_MENU_QUERY_NAME_SEGMENT_BYTES) {
+            return null;
+        }
+        $path = [$base];
+        $offset = $open;
+        $length = strlen($name);
+        while ($offset < $length) {
+            if ($name[$offset] !== '[') {
+                return null;
+            }
+            $close = strpos($name, ']', $offset + 1);
+            if ($close === false) {
+                return null;
+            }
+            $segment = substr($name, $offset + 1, $close - $offset - 1);
+            if (str_contains($segment, '[')
+                || strlen($segment) > self::MAX_MENU_QUERY_NAME_SEGMENT_BYTES) {
+                return null;
+            }
+            $path[] = $segment;
+            if (count($path) > self::MAX_MENU_QUERY_NAME_SEGMENTS) {
+                return null;
+            }
+            $offset = $close + 1;
+        }
+        return $path;
+    }
+
+    private static function decode_menu_uri_component(
+        string $raw,
+        int $maxBytes,
+        int &$workRemaining,
+        bool $queryForm
+    ): ?string {
+        if (strlen($raw) > $maxBytes) {
+            return null;
+        }
+        $decoded = $queryForm ? str_replace('+', ' ', $raw) : $raw;
+        while (true) {
+            $bytes = strlen($decoded);
+            if ($bytes > $maxBytes
+                || $bytes > $workRemaining
+                || preg_match('/%(?![0-9A-Fa-f]{2})/', $decoded)
+                || preg_match('/[\x00-\x1F\x7F]/', $decoded)) {
+                return null;
+            }
+            $workRemaining -= $bytes;
+            $next = rawurldecode($decoded);
+            if ($next === $decoded) {
+                break;
+            }
+            $decoded = $next;
+        }
+        return $decoded;
+    }
+
+    /**
+     * @param array{
+     *   path:string,
+     *   fragment:string,
+     *   pairs:list<array{name:string,value:string,path:list<string>}>
+     * } $semantic
+     * @return list<mixed>
+     */
+    private static function menu_uri_clearance_value(string $url, array $semantic): array {
+        $clearance = [$url, $semantic['path']];
+        if ($semantic['fragment'] !== '') {
+            $clearance[] = $semantic['fragment'];
+        }
+        foreach ($semantic['pairs'] as $pair) {
+            $name = $pair['name'];
+            $value = $pair['value'];
+            // PHP coerces canonical decimal string keys to ints. Retain the
+            // decoded name separately as a string value so that coercion can
+            // never remove it from scalar PII/hard-secret scanning, then keep
+            // the one-entry map to apply its semantic role to its own value.
+            $clearance[] = $name;
+            $clearance[] = [$name => $value];
+            if (count($pair['path']) === 1) {
+                continue;
+            }
+            // Form-style bracket names are semantic paths. Preserve their
+            // nesting for address context, and apply every named segment to
+            // the value separately so a credential container such as
+            // smtp_pass[primary] cannot shed the smtp_pass role at its leaf.
+            $nested = $value;
+            foreach (array_reverse($pair['path']) as $segment) {
+                $nested = $segment === '' ? [$nested] : [$segment => $nested];
+            }
+            $clearance[] = $nested;
+            foreach ($pair['path'] as $segment) {
+                if ($segment === '') {
+                    continue;
+                }
+                $clearance[] = $segment;
+                $clearance[] = [$segment => $value];
+            }
+        }
+        return $clearance;
     }
 
     private static function authorize_sidebar(Policy $policy, string $stateKey, array $entity, array &$out): void {
@@ -338,10 +672,10 @@ final class RepositoryAuthorization {
                         $out, 'repository_field_not_authored', $path, $stateKey,
                         "widget[$i].settings", (string) $setting, $class, 'manifest widgets.' . $type
                     );
-                } elseif (empty($rule['allow_secret']) && Secrets::hard_match_deep($value) !== null) {
-                    self::finding(
-                        $out, 'repository_widget_secret_not_allowed', $path, $stateKey,
-                        "widget[$i].settings", (string) $setting, 'secret', 'manifest widgets.' . $type
+                } else {
+                    self::authorize_sensitivity(
+                        $out, $path, $stateKey, "widget[$i].settings", (string) $setting,
+                        $value, $rule, 'manifest widgets.' . $type
                     );
                 }
             }
@@ -432,6 +766,11 @@ final class RepositoryAuthorization {
             $managed = $class === 'managed' && in_array($name, self::MANAGED_OPTIONS, true);
             if ($class !== 'authored' && !$managed) {
                 self::finding($out, 'repository_field_not_authored', $entity['path'], $uuid, 'option', (string) $name, $class, $details['source']);
+            } elseif ($class === 'authored') {
+                self::authorize_sensitivity(
+                    $out, $entity['path'], $uuid, 'option', (string) $name,
+                    $value, $rule, $details['source']
+                );
             }
         }
     }
@@ -445,6 +784,9 @@ final class RepositoryAuthorization {
         $front = $entity['data'] ?? Canon::decode($entity['content']);
         $path = (string) $entity['path'];
         self::unexpected_fields($front, self::USER_META_FIELDS, $path, $stateKey, 'user_meta_field', $out);
+        self::authorize_sensitivity(
+            $out, $path, $stateKey, 'user_meta_field', 'login', $front['login'] ?? '', [], 'platform'
+        );
         $meta = (array) ($front['meta'] ?? []);
         foreach ($meta as $key => $value) {
             $details = $policy->meta_rule_details_for_user((string) $key, $meta);
@@ -457,7 +799,7 @@ final class RepositoryAuthorization {
                 );
                 continue;
             }
-            if (empty($rule['allow_secret']) && Secrets::hard_match_deep($value) !== null) {
+            if (empty($rule['allow_secret']) && Secrets::clearance_match_deep((string) $key, $value) !== null) {
                 self::finding(
                     $out, 'repository_user_meta_secret_not_allowed', $path, $stateKey,
                     'user_meta', (string) $key, 'secret', $details['source']
@@ -479,12 +821,18 @@ final class RepositoryAuthorization {
             self::finding($out, 'repository_field_not_authored', $path, $uuid, 'option', $name, 'malformed', $source);
             return;
         }
-        foreach ($value as $subKey => $_) {
-            $subClass = $subKeys[$subKey]['class'] ?? 'unclassified';
+        foreach ($value as $subKey => $subValue) {
+            $subRule = (array) ($subKeys[$subKey] ?? []);
+            $subClass = $subRule['class'] ?? 'unclassified';
             if ($subClass !== 'authored') {
                 self::finding(
                     $out, 'repository_field_not_authored', $path, $uuid, 'option_sub_key',
                     "$name.$subKey", $subClass, $source
+                );
+            } else {
+                self::authorize_sensitivity(
+                    $out, $path, $uuid, 'option_sub_key', "$name.$subKey",
+                    $subValue, $subRule, $source
                 );
             }
         }
@@ -501,6 +849,7 @@ final class RepositoryAuthorization {
             return;
         }
         $decl = $rows[$table];
+        $columnCodecs = $policy->column_codec_rules($table);
         $front = $entity['data'] ?? Canon::decode($entity['content']);
         self::unexpected_fields($front, self::TABLE_FIELDS, $path, $uuid, 'table_field', $out);
         if (($front['table'] ?? null) !== $table) {
@@ -511,13 +860,34 @@ final class RepositoryAuthorization {
         foreach ($decl['refs'] ?? [] as $ref) {
             $refs[(string) $ref['column']] = true;
         }
-        foreach ((array) ($front['columns'] ?? []) as $column => $_) {
+        foreach ((array) ($front['columns'] ?? []) as $column => $value) {
             if (isset($refs[$column])) {
                 continue;
             }
-            $class = $decl['columns'][$column]['class'] ?? 'unclassified';
+            $rule = (array) ($decl['columns'][$column] ?? []);
+            $class = $rule['class'] ?? 'unclassified';
             if ($class !== 'authored') {
                 self::finding($out, 'repository_field_not_authored', $path, $uuid, 'table_column', (string) $column, $class, $tableDetails['source']);
+            } else {
+                $clearanceValue = $value;
+                if (isset($columnCodecs[$column])) {
+                    try {
+                        $clearanceValue = ColumnCodecGrammar::decode_for_clearance(
+                            $value,
+                            $columnCodecs[$column],
+                            "repository table '$table' column '$column'",
+                            'authored'
+                        );
+                    } catch (\Throwable) {
+                        // RepositoryPortableShapeValidator owns malformed
+                        // codec framing. Raw scanning here retains defense in
+                        // depth without replacing its stable diagnostic.
+                    }
+                }
+                self::authorize_sensitivity(
+                    $out, $path, $uuid, 'table_column', (string) $column,
+                    $clearanceValue, $rule, $tableDetails['source']
+                );
             }
         }
 
@@ -527,18 +897,25 @@ final class RepositoryAuthorization {
                 $metaTables[$metaName] = $metaDecl;
             }
         }
-        foreach ((array) ($front['meta'] ?? []) as $key => $_) {
+        foreach ((array) ($front['meta'] ?? []) as $key => $value) {
             if (!$metaTables) {
                 self::finding($out, 'repository_field_not_authored', $path, $uuid, 'attached_meta', (string) $key, 'unclassified', null);
                 continue;
             }
             foreach ($metaTables as $metaName => $metaDecl) {
-                $class = Snapshot::meta_key_in_keyspace($metaDecl, (string) $key)
-                    ? (ReferenceRules::attached_meta_key($metaDecl, (string) $key)['class'] ?? 'unclassified')
-                    : 'unclassified';
+                $rule = Snapshot::meta_key_in_keyspace($metaDecl, (string) $key)
+                    ? ReferenceRules::attached_meta_key($metaDecl, (string) $key)
+                    : [];
+                $class = $rule['class'] ?? 'unclassified';
                 if ($class !== 'authored') {
                     $source = $policy->declared_table_details($metaName)['source'];
                     self::finding($out, 'repository_field_not_authored', $path, $uuid, "attached_meta:$metaName", (string) $key, $class, $source);
+                } else {
+                    $source = $policy->declared_table_details($metaName)['source'];
+                    self::authorize_sensitivity(
+                        $out, $path, $uuid, "attached_meta:$metaName", (string) $key,
+                        $value, $rule, $source
+                    );
                 }
             }
         }
@@ -548,6 +925,27 @@ final class RepositoryAuthorization {
         $details = $policy->taxonomy_scope_details($taxonomy);
         if (!$details['authorized']) {
             self::finding($out, 'repository_entity_out_of_scope', $path, $uuid, $surface, $taxonomy, 'unscoped', $details['source']);
+        }
+    }
+
+    /** Open structured body framing before the recursive secret/PII gate. */
+    private static function post_body_for_clearance(
+        Policy $policy,
+        string $postType,
+        string $body,
+        string $path
+    ): mixed {
+        try {
+            return match ($policy->body_mode($postType)) {
+                'serialized' => PlainData::decode_serialized($body, "$path body"),
+                BodyRefGrammar::BODY_MODE => BodyRefGrammar::decode($body, "$path body"),
+                default => $body,
+            };
+        } catch (\Throwable) {
+            // Structural validators own malformed framing. The raw fallback
+            // still catches literal signatures while preserving their stable
+            // schema/body diagnostic as the primary refusal.
+            return $body;
         }
     }
 
@@ -562,6 +960,31 @@ final class RepositoryAuthorization {
     private static function unexpected_fields(array $actual, array $allowed, string $path, string $uuid, string $surface, array &$out): void {
         foreach (array_diff(array_keys($actual), $allowed) as $field) {
             self::finding($out, 'repository_field_not_authored', $path, $uuid, $surface, (string) $field, 'unclassified', null);
+        }
+    }
+
+    /** Re-run capture's clearance on the immutable bytes plan/apply consume. */
+    private static function authorize_sensitivity(
+        array &$out,
+        string $path,
+        string $uuid,
+        string $surface,
+        string $field,
+        mixed $value,
+        array $rule,
+        ?string $source
+    ): void {
+        if (empty($rule['allow_secret']) && Secrets::clearance_match_deep($field, $value) !== null) {
+            self::finding(
+                $out, 'repository_secret_not_allowed', $path, $uuid,
+                $surface, $field, 'secret', $source
+            );
+        }
+        if (empty($rule['allow_pii']) && PersonalData::match_deep($field, $value) !== null) {
+            self::finding(
+                $out, 'repository_pii_not_allowed', $path, $uuid,
+                $surface, $field, 'pii', $source
+            );
         }
     }
 

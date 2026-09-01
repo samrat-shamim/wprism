@@ -927,6 +927,7 @@ if ($woo !== null) {
             'provider:woocommerce-scheduler-settings/reconcile_analytics_import_schedule',
             'provider:woocommerce-scheduler-settings/reconcile_stock_notification_retention',
             'provider:woocommerce-product-lookups/rebuild_product_lookups',
+            'provider:woocommerce-product-lookups/cleanup_product_deletions',
             'native:rewrite.flush',
             'provider:woocommerce-hierarchy-lookups/rebuild_product_permalink_routes',
             'provider:woocommerce-lifecycle-migrations/settle_lifecycle_migrations',
@@ -948,7 +949,10 @@ if ($woo !== null) {
         'woocommerce-hierarchy-lookups' => ['version' => '2.0.0', 'capabilities' => ['rebuild_hierarchy_lookups', 'rebuild_product_permalink_routes']],
         'woocommerce-fulfillment-prerequisites' => ['version' => '1.0.0', 'capabilities' => ['verify_fulfillment_prerequisites']],
         'woocommerce-scheduler-settings' => ['version' => '1.0.0', 'capabilities' => ['reconcile_analytics_import_schedule', 'reconcile_stock_notification_retention']],
-        'woocommerce-product-lookups' => ['version' => '3.0.0', 'capabilities' => ['rebuild_product_lookups']],
+        'woocommerce-product-lookups' => [
+            'version' => '3.1.0',
+            'capabilities' => ['cleanup_product_deletions', 'rebuild_product_lookups'],
+        ],
         'woocommerce-lifecycle-migrations' => ['version' => '1.0.0', 'capabilities' => ['settle_lifecycle_migrations']],
     ] as $wooProviderId => $wooContract) {
         $wooDeclaration = $woo->provider_declarations()[$wooProviderId] ?? [];

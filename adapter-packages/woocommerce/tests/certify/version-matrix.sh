@@ -1,3 +1,328 @@
+woocommerce_pii_redaction_witnesses() {
+  # One grep-safe value witness for every finite allow_pii grant. Country is
+  # physically VARCHAR(2), so QZ is the exact reserved two-byte sentinel; all
+  # other grants use a longer grant-specific marker.
+  cat <<'EOF'
+option:pickup_location_pickup_locations	WPRA19-PICKUP-01
+option:woocommerce_default_country	QZ:WPRA19-DEFAULT-02
+option:woocommerce_email_from_name	WPRA19-EMAIL-FROM-03
+option:woocommerce_email_reply_to_name	WPRA19-EMAIL-REPLY-04
+option:woocommerce_pos_store_address	WPRA19-POS-ADDRESS-05
+option:woocommerce_pos_store_email	wpra19-pos-email-06@agency.example
+option:woocommerce_pos_store_phone	+999-WPRA19-PHONE-07
+option:woocommerce_store_address	WPRA19-STORE-ADDRESS-08
+option:woocommerce_store_address_2	WPRA19-STORE-ADDRESS2-09
+option:woocommerce_store_city	WPRA19-STORE-CITY-10
+option:woocommerce_store_postcode	WPRA19-POSTCODE-11
+post_meta:customer_email	wpra19-coupon-email-12@agency.example
+table:woocommerce_tax_rates.tax_rate_country	QZ
+table:woocommerce_tax_rates.tax_rate_state	WPRA19TAXSTATE14
+EOF
+}
+
+woocommerce_assert_pii_log_redacted() { # <label> <log>
+  local label="$1" log="$2" grant witness observed=0
+  while IFS=$'\t' read -r grant witness; do
+    [ -n "$grant" ] && [ -n "$witness" ] \
+      || fail "$label has a malformed WPRA-019 redaction witness row"
+    observed=$((observed + 1))
+    ! grep -Fq -- "$witness" "$log" \
+      || fail "$label exposed the source value witness for $grant"
+  done < <(woocommerce_pii_redaction_witnesses)
+  [ "$observed" -eq 14 ] \
+    || fail "$label did not inspect the closed 14-grant WPRA-019 redaction roster"
+}
+
+woocommerce_native_pii_fingerprints() { # <wp1|wp2>
+  local side="$1"
+  "$side" eval '
+global $wpdb;
+$coupon = new WC_Coupon("CONF-WELCOME10");
+$taxId = (int) $wpdb->get_var(
+    "SELECT tax_rate_id FROM {$wpdb->prefix}woocommerce_tax_rates " .
+    "WHERE tax_rate_name=\"Conformance CA Sales Tax\""
+);
+$tax = $taxId > 0 && method_exists(WC_Tax::class, "_get_tax_rate")
+    ? WC_Tax::_get_tax_rate($taxId)
+    : null;
+if (!$coupon->get_id() || !is_array($tax)) {
+    throw new RuntimeException("WPRA-019 native observer premise is incomplete");
+}
+$readOption = static function (string $name): array {
+    $absent = new stdClass();
+    $value = get_option($name, $absent);
+    return $value === $absent
+        ? ["state" => "absent"]
+        : ["state" => "present", "value" => $value];
+};
+$values = [
+    "option:pickup_location_pickup_locations" => $readOption("pickup_location_pickup_locations"),
+    "option:woocommerce_default_country" => $readOption("woocommerce_default_country"),
+    "option:woocommerce_email_from_name" => $readOption("woocommerce_email_from_name"),
+    "option:woocommerce_email_reply_to_name" => $readOption("woocommerce_email_reply_to_name"),
+    "option:woocommerce_pos_store_address" => $readOption("woocommerce_pos_store_address"),
+    "option:woocommerce_pos_store_email" => $readOption("woocommerce_pos_store_email"),
+    "option:woocommerce_pos_store_phone" => $readOption("woocommerce_pos_store_phone"),
+    "option:woocommerce_store_address" => $readOption("woocommerce_store_address"),
+    "option:woocommerce_store_address_2" => $readOption("woocommerce_store_address_2"),
+    "option:woocommerce_store_city" => $readOption("woocommerce_store_city"),
+    "option:woocommerce_store_postcode" => $readOption("woocommerce_store_postcode"),
+    "post_meta:customer_email" => array_values($coupon->get_email_restrictions("edit")),
+    "table:woocommerce_tax_rates.tax_rate_country" => (string) ($tax["tax_rate_country"] ?? ""),
+    "table:woocommerce_tax_rates.tax_rate_state" => (string) ($tax["tax_rate_state"] ?? ""),
+];
+$canonicalize = static function (mixed $value) use (&$canonicalize): mixed {
+    if (!is_array($value)) { return $value; }
+    if (array_is_list($value)) { return array_map($canonicalize, $value); }
+    ksort($value, SORT_STRING);
+    foreach ($value as $key => $entry) { $value[$key] = $canonicalize($entry); }
+    return $value;
+};
+$out = [];
+foreach ($values as $grant => $value) {
+    if (str_starts_with($grant, "option:")) {
+        if (!is_array($value) || !in_array($value["state"] ?? null, ["absent", "present"], true)) {
+            throw new RuntimeException("WPRA-019 native option observer returned a malformed record");
+        }
+        if ($value["state"] === "absent") {
+            if (count($value) !== 1) {
+                throw new RuntimeException("WPRA-019 absent native option carried a value");
+            }
+            $out[$grant] = hash("sha256", "wprism-woo-option-record\0absent");
+            continue;
+        }
+        if (count($value) !== 2 || !array_key_exists("value", $value)) {
+            throw new RuntimeException("WPRA-019 present native option lacks a value");
+        }
+        $value = $value["value"];
+    }
+    $out[$grant] = hash("sha256", wp_json_encode(
+        $canonicalize($value),
+        JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+    ));
+}
+echo wp_json_encode($out, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+'
+}
+
+woocommerce_write_pii_profile() { # <wp1|wp2> <source|target>
+  local side="$1" profile="$2"
+  "$side" eval '
+global $wpdb;
+$profile = '"'"$profile"'"';
+$profiles = [
+    "baseline" => [
+        "emails" => ["buyer@example.test", "*@agency.example.test"],
+        "tax" => ["country" => "US", "state" => "CA"],
+        "options" => [
+            "pickup_location_pickup_locations" => [[
+                "name" => "<strong>مخزن</strong> 東京",
+                "address" => ["address_1" => "١٢ شارع الاختبار", "city" => "東京", "state" => "13", "postcode" => "100-0001", "country" => "JP"],
+                "details" => "<em>بوابة ٢</em><br>南口",
+                "enabled" => true,
+            ]],
+            "woocommerce_default_country" => "US:CA",
+            "woocommerce_email_from_name" => null,
+            "woocommerce_email_reply_to_name" => "",
+            "woocommerce_pos_store_address" => "",
+            "woocommerce_pos_store_email" => "admin@example.test",
+            "woocommerce_pos_store_phone" => "",
+            "woocommerce_store_address" => "",
+            "woocommerce_store_address_2" => "",
+            "woocommerce_store_city" => "",
+            "woocommerce_store_postcode" => "",
+        ],
+    ],
+    "source" => [
+        "emails" => ["wpra19-coupon-email-12@agency.example", "*@wpra19-coupon-domain-12.example"],
+        "tax" => ["country" => "QZ", "state" => "WPRA19TAXSTATE14"],
+        "options" => [
+            "pickup_location_pickup_locations" => [[
+                "name" => "WPRA19-PICKUP-01",
+                "address" => ["address_1" => "Pickup address", "city" => "Pickup city", "state" => "PS", "postcode" => "P01", "country" => "QZ"],
+                "details" => "Pickup details",
+                "enabled" => true,
+            ]],
+            "woocommerce_default_country" => "QZ:WPRA19-DEFAULT-02",
+            "woocommerce_email_from_name" => "WPRA19-EMAIL-FROM-03",
+            "woocommerce_email_reply_to_name" => "WPRA19-EMAIL-REPLY-04",
+            "woocommerce_pos_store_address" => "WPRA19-POS-ADDRESS-05",
+            "woocommerce_pos_store_email" => "wpra19-pos-email-06@agency.example",
+            "woocommerce_pos_store_phone" => "+999-WPRA19-PHONE-07",
+            "woocommerce_store_address" => "WPRA19-STORE-ADDRESS-08",
+            "woocommerce_store_address_2" => "WPRA19-STORE-ADDRESS2-09",
+            "woocommerce_store_city" => "WPRA19-STORE-CITY-10",
+            "woocommerce_store_postcode" => "WPRA19-POSTCODE-11",
+        ],
+    ],
+    "target" => [
+        "emails" => ["wpra19-target@agency.example", "*@wpra19-target.example"],
+        "tax" => ["country" => "CA", "state" => "ON"],
+        "options" => [
+            "pickup_location_pickup_locations" => [[
+                "name" => "WPRA19 Target Pickup",
+                "address" => ["address_1" => "29 Target Street", "city" => "Toronto Target", "state" => "ON", "postcode" => "M5V 2T6", "country" => "CA"],
+                "details" => "WPRA19 target loading door",
+                "enabled" => true,
+            ]],
+            "woocommerce_default_country" => "CA:ON",
+            "woocommerce_email_from_name" => "WPRA19 Target Commerce",
+            "woocommerce_email_reply_to_name" => "WPRA19 Target Support",
+            "woocommerce_pos_store_address" => "WPRA19 Target POS Address",
+            "woocommerce_pos_store_email" => "wpra19-target-pos@agency.example",
+            "woocommerce_pos_store_phone" => "+1-416-555-0190",
+            "woocommerce_store_address" => "29 Target Street",
+            "woocommerce_store_address_2" => "Target Suite 19",
+            "woocommerce_store_city" => "Toronto Target",
+            "woocommerce_store_postcode" => "M5V 2T6",
+        ],
+    ],
+];
+$selected = $profiles[$profile] ?? null;
+if (!is_array($selected)) { throw new RuntimeException("unknown WPRA-019 profile"); }
+foreach ($selected["options"] as $name => $value) {
+    if ($value === null) {
+        delete_option($name);
+        if (get_option($name, false) !== false) {
+            throw new RuntimeException("WPRA-019 native option delete readback disagrees for " . $name);
+        }
+        continue;
+    }
+    update_option($name, $value);
+    if (get_option($name) !== $value) {
+        throw new RuntimeException("WPRA-019 native option readback disagrees for " . $name);
+    }
+}
+$coupon = new WC_Coupon("CONF-WELCOME10");
+if (!$coupon->get_id()) { throw new RuntimeException("WPRA-019 coupon premise is absent"); }
+$coupon->set_email_restrictions($selected["emails"]);
+$coupon->save();
+if (array_values($coupon->get_email_restrictions("edit")) !== $selected["emails"]) {
+    throw new RuntimeException("WPRA-019 native coupon readback disagrees");
+}
+$taxId = (int) $wpdb->get_var(
+    "SELECT tax_rate_id FROM {$wpdb->prefix}woocommerce_tax_rates " .
+    "WHERE tax_rate_name=\"Conformance CA Sales Tax\""
+);
+if ($taxId < 1 || !method_exists(WC_Tax::class, "_get_tax_rate")
+    || !method_exists(WC_Tax::class, "_update_tax_rate")) {
+    throw new RuntimeException("WPRA-019 native tax API premise is absent");
+}
+$tax = WC_Tax::_get_tax_rate($taxId);
+if (!is_array($tax)) { throw new RuntimeException("WPRA-019 native tax read failed"); }
+$tax["tax_rate_country"] = $selected["tax"]["country"];
+$tax["tax_rate_state"] = $selected["tax"]["state"];
+WC_Tax::_update_tax_rate($taxId, $tax);
+$tax = WC_Tax::_get_tax_rate($taxId);
+if (!is_array($tax)
+    || ($tax["tax_rate_country"] ?? null) !== $selected["tax"]["country"]
+    || ($tax["tax_rate_state"] ?? null) !== $selected["tax"]["state"]) {
+    throw new RuntimeException("WPRA-019 native tax readback disagrees");
+}
+echo "ok";
+' | grep -qx ok || fail "WooCommerce WPRA-019 $profile native write/read failed"
+}
+
+woocommerce_assert_pii_fingerprint_map() { # <label> <json>
+  local label="$1" observed="$2" grants
+  grants=$(php "$package_tests/../fixtures/woocommerce-pii-fingerprints.php" --grants)
+  jq -en --argjson observed "$observed" --argjson grants "$grants" '
+    ($observed | keys | sort) == ($grants | sort)
+    and ($observed | all(.[]; type == "string" and test("^[a-f0-9]{64}$")))
+  ' >/dev/null || fail "$label did not independently fingerprint the closed 14-grant WPRA-019 roster"
+}
+
+check_woocommerce_allow_pii_roundtrip() { # <exact-version> <exact-target-artifact>
+  local version="$1" target_artifact="$2" source_repo="siterepo/${PAIR}1" target_repo="siterepo/${PAIR}2"
+  local source_before source_native_before source_native source_captured target_before target_divergent
+  local target_applied target_reinstalled target_recaptured source_restored target_restored
+  local pii_revision pii_commit pii_capture_log pii_apply_log pii_diff package_tests
+  package_tests="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+
+  source_before=$(php "$package_tests/../fixtures/woocommerce-pii-fingerprints.php" "$source_repo/state")
+  woocommerce_assert_pii_fingerprint_map "WooCommerce $version pre-mutation capture" "$source_before"
+  source_native_before=$(woocommerce_native_pii_fingerprints wp1)
+  [ "$source_native_before" = "$source_before" ] \
+    || fail "WooCommerce $version WPRA-019 source preimage disagreed with its canonical capture"
+  woocommerce_write_pii_profile wp1 source
+  source_native=$(woocommerce_native_pii_fingerprints wp1)
+  woocommerce_assert_pii_fingerprint_map "WooCommerce $version source native readback" "$source_native"
+  pii_capture_log="$source_repo/.tmp-woo-pii-capture.log"
+  wp1 wprism capture --repo=/siterepo >"$pii_capture_log" 2>&1
+  source_captured=$(php "$package_tests/../fixtures/woocommerce-pii-fingerprints.php" "$source_repo/state")
+  woocommerce_assert_pii_fingerprint_map "WooCommerce $version source captured values" "$source_captured"
+  [ "$source_captured" = "$source_native" ] \
+    || fail "WooCommerce $version captured WPRA-019 values did not equal exact native source readback"
+  jq -en --argjson before "$source_before" --argjson after "$source_captured" '
+    ($before | keys) == ($after | keys) and ($before | keys | all(.[]; . as $key | $before[$key] != $after[$key]))
+  ' >/dev/null || fail "WooCommerce $version capture did not change every WPRA-019 value fingerprint"
+
+  target_before=$(woocommerce_native_pii_fingerprints wp2)
+  [ "$target_before" = "$source_before" ] \
+    || fail "WooCommerce $version WPRA-019 target preimage disagreed with the canonical source"
+  woocommerce_write_pii_profile wp2 target
+  target_divergent=$(woocommerce_native_pii_fingerprints wp2)
+  woocommerce_assert_pii_fingerprint_map "WooCommerce $version divergent target native readback" "$target_divergent"
+  jq -en --argjson source "$source_native" --argjson target "$target_divergent" '
+    ($source | keys) == ($target | keys) and ($source | keys | all(.[]; . as $key | $source[$key] != $target[$key]))
+  ' >/dev/null || fail "WooCommerce $version WPRA-019 source/target profiles were not divergent for all grants"
+
+  woocommerce_assert_pii_log_redacted "WooCommerce $version WPRA-019 capture output" "$pii_capture_log"
+  rm "$pii_capture_log"
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "capture: woocommerce $version WPRA-019 finite PII matrix"
+  pii_commit=$(git -C "$source_repo" rev-parse HEAD)
+  "${GIT1[@]}" push -q origin main
+  git -C "$target_repo" pull -q origin main
+  pii_revision=$(git -C "$target_repo" rev-parse HEAD)
+  pii_apply_log="$target_repo/.tmp-woo-pii-apply.log"
+  wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$pii_revision" --force-theirs >"$pii_apply_log" 2>&1
+  grep -q 'canary clean' "$pii_apply_log" || fail "WooCommerce $version WPRA-019 apply was not canary-clean"
+  target_applied=$(woocommerce_native_pii_fingerprints wp2)
+  [ "$target_applied" = "$source_native" ] \
+    || fail "WooCommerce $version target native WPRA-019 readback did not equal the source fingerprint map"
+
+  woocommerce_assert_pii_log_redacted "WooCommerce $version WPRA-019 apply output" "$pii_apply_log"
+  rm "$pii_apply_log"
+
+  wp2 plugin deactivate woocommerce >/dev/null
+  wp2 plugin delete woocommerce >/dev/null
+  wp2 plugin install "$target_artifact" --activate >/dev/null
+  [ "$(wp2 plugin get woocommerce --field=version)" = "$version" ] \
+    || fail "WooCommerce $version WPRA-019 exact-artifact reinstall changed the plugin boundary"
+  target_reinstalled=$(woocommerce_native_pii_fingerprints wp2)
+  [ "$target_reinstalled" = "$source_native" ] \
+    || fail "WooCommerce $version WPRA-019 values changed across exact-artifact reinstall"
+
+  wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-woo-pii-final >/dev/null
+  target_recaptured=$(php "$package_tests/../fixtures/woocommerce-pii-fingerprints.php" "$target_repo/.tmp-woo-pii-final")
+  [ "$target_recaptured" = "$source_captured" ] \
+    || fail "WooCommerce $version WPRA-019 recapture fingerprints changed after exact-artifact reinstall"
+  pii_diff=$(diff -rq "$source_repo/state" "$target_repo/.tmp-woo-pii-final" || true)
+  rm -rf "$target_repo/.tmp-woo-pii-final"
+  [ -z "$pii_diff" ] || fail "WooCommerce $version WPRA-019 target recapture was not byte-identical"
+
+  # The next lifecycle and version-boundary legs must start from the exact
+  # portable fixture they certify. Revert the evidence commit, then restore
+  # the finite native fixture through its owning Woo APIs and prove the
+  # original closed 14-grant fingerprint map. Absence is not generic deletion
+  # authority, so the baseline profile explicitly removes its one absent
+  # authored option instead of asking Apply to infer that intent.
+  "${GIT1[@]}" revert --no-edit "$pii_commit" >/dev/null
+  "${GIT1[@]}" push -q origin main
+  woocommerce_write_pii_profile wp1 baseline
+  source_restored=$(woocommerce_native_pii_fingerprints wp1)
+  [ "$source_restored" = "$source_before" ] \
+    || fail "WooCommerce $version WPRA-019 source restore did not recover the exact preimage"
+  git -C "$target_repo" pull -q origin main
+  woocommerce_write_pii_profile wp2 baseline
+  target_restored=$(woocommerce_native_pii_fingerprints wp2)
+  [ "$target_restored" = "$source_before" ] \
+    || fail "WooCommerce $version WPRA-019 target restore did not recover the exact preimage"
+  pass "WooCommerce $version independently applies all 14 finite WPRA-019 grants, preserves them across exact-artifact reinstall, redacts output, and recaptures byte-identically"
+  pass "WooCommerce $version restores the exact pre-WPRA-019 fixture before deletion and lifecycle evidence"
+}
+
 seed_woocommerce_content() {
   # Reuse the standalone WooCommerce fixture: products, coupon, media,
   # global attributes, shipping methods, tax, and a source-only HPOS order.
@@ -251,7 +576,7 @@ foreach ($policy->manifests as $manifest) {
 $valid = array_column($loaded, "name") === ["core", "woocommerce"]
     && ($woocommerce["version_range"] ?? null) === ["min" => "11.0.0", "max" => "11.0.2"]
     && ($evidence["rules"]["option:pickup_location_pickup_locations"] ?? null) === [
-        "rule" => ["class" => "authored", "plain_data" => true, "autoload" => "preserve"],
+        "rule" => ["class" => "authored", "plain_data" => true, "allow_pii" => true, "autoload" => "preserve"],
         "source" => "woocommerce",
     ]
     && ($evidence["rules"]["option:woocommerce_bacs_settings"] ?? null) === [
@@ -307,7 +632,7 @@ echo $json;
     and .[0].format == "wprism-woocommerce-preapply-authority/v1"
     and (.[0].loaded_manifests | map(.name) == ["core", "woocommerce"])
     and (.[0].loaded_manifests | all(.source == "shipped" and (.file | type == "string" and length > 0) and (.path | type == "string" and length > 0) and (.sha256 | test("^[0-9a-f]{64}$"))))
-    and .[0].rules["option:pickup_location_pickup_locations"] == {rule:{class:"authored",plain_data:true,autoload:"preserve"},source:"woocommerce"}
+    and .[0].rules["option:pickup_location_pickup_locations"] == {rule:{class:"authored",plain_data:true,allow_pii:true,autoload:"preserve"},source:"woocommerce"}
     and .[0].rules["option:woocommerce_bacs_settings"].source == "woocommerce"
     and .[0].rules["option:woocommerce_bacs_settings"].rule.class == "env"
     and .[0].rules["option:woocommerce_bacs_settings"].rule.closed_sub_keys == true
@@ -503,11 +828,17 @@ check_woocommerce_boundary_lifecycle() { # <exact-version> <verified-artifact>
   pass "WooCommerce $version deactivate/reactivate, retained-data uninstall, absent-code refusal, digest-bound exact reinstall, native readback, recapture modulo declared derived product timestamps, and retry are clean"
 }
 
-check_woocommerce_product_delete_refusal() { # <exact-version>
-  local version="$1" repo="siterepo/${PAIR}2" product order lookup_before lookup_after
-  local product_file product_uuid expected_hash expected_revision source_path backup
-  local before_tree after_tree before_head after_head before_origin after_origin plan_rc apply_rc force_rc plan_out apply_out force_out retry
-  product=$(wp2 eval '$id=(int) wc_get_product_id_by_sku("CONF-WIDGET-1"); echo $id;')
+check_woocommerce_product_deletion() { # <exact-version>
+  local version="$1" repo="siterepo/${PAIR}2" source_repo="siterepo/${PAIR}1"
+  local product order lookup_before lookup_after product_file product_uuid expected_hash expected_revision source_path backup
+  local before_tree after_tree before_head after_head before_origin after_origin plan_rc apply_rc plan_out apply_out retry
+  local disposable_sku disposable_slug disposable_source disposable_target disposable_file disposable_uuid
+  local revision delete_file delete_plan delete_apply final_plan final_diff residue
+
+  # First prove the ordinary guard posture on a product referenced by a native
+  # HPOS order.  The plan must describe the blocked deletion, and apply must
+  # refuse without requiring an operator to risk the force override.
+  product=$(wp2 eval '$id=(int) wc_get_product_id_by_sku("CONF-EXTERNAL-1"); echo $id;')
   require_fixture_ids product
   order=$(wp2 eval "
 \$product = wc_get_product($product);
@@ -523,11 +854,17 @@ if (!\$product) { throw new RuntimeException('WooCommerce deletion fixture produ
     sleep 2
   done
   [ "$lookup_before" -ge 1 ] || fail "WooCommerce $version deletion fixture did not materialize its native order-product lookup"
-  product_file=$(find "$repo/state/posts/product" -type f -name '*--conformance-widget.md' -print -quit)
+  product_file=$(find "$repo/state/posts/product" -type f -name '*--conformance-external-partner.md' -print -quit)
   [ -n "$product_file" ] || fail "WooCommerce $version deletion fixture cannot locate the captured product state"
   product_uuid=$(basename "$product_file" | cut -d- -f1-5)
   [[ "$product_uuid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || fail "WooCommerce $version deletion fixture has a malformed product UUID"
-  expected_hash=$(shasum -a 256 "$product_file" | awk '{print $1}')
+  # External-product URLs are deliberately materialized for the target host,
+  # so its last-synced base is not the source file's canonical byte hash. Bind
+  # the target-side intent to the ledger base that plan compares with the live
+  # target; otherwise a legitimate guard probe is only a stale-base conflict.
+  expected_hash=$(wp2 db query "SELECT content_hash FROM wp_wprism_state WHERE uuid='$product_uuid'" --skip-column-names | tr -d '[:space:]')
+  require_observed_nonempty "WooCommerce $version deletion expected target base" "$expected_hash"
+  [[ "$expected_hash" =~ ^[0-9a-f]{64}$ ]] || fail "WooCommerce $version deletion expected target base is malformed"
   expected_revision=$(wp2 eval 'echo \WPrism\RepositoryCompiler::compile("/siterepo", \WPrism\Policy::load("/siterepo"))->revision_hash();')
   require_observed_nonempty "WooCommerce $version deletion expected revision" "$expected_revision"
   source_path="posts/product/$(basename "$product_file")"; backup="$repo/.tmp-woocommerce-product-delete.md"
@@ -537,15 +874,17 @@ if (!\$product) { throw new RuntimeException('WooCommerce deletion fixture produ
   before_tree=$(git -C "$repo" status --porcelain); before_head=$(git -C "$repo" rev-parse HEAD); before_origin=$(git -C "$repo" rev-parse refs/remotes/origin/main)
   set +e
   plan_rc=0; plan_out=$(wp2 wprism plan --repo=/siterepo --format=json 2>&1) || plan_rc=$?
-  require_wprism_answered "WooCommerce $version deletion refusal plan" json "$plan_out"
+  require_wprism_answered "WooCommerce $version referenced deletion plan" json "$plan_out"
   apply_rc=0; apply_out=$(wp2 wprism apply --repo=/siterepo --with-deletes --default-author=admin 2>&1) || apply_rc=$?
-  require_wprism_answered "WooCommerce $version deletion refusal apply" human "$apply_out"
-  force_rc=0; force_out=$(wp2 wprism apply --repo=/siterepo --with-deletes --force-delete-referenced --default-author=admin 2>&1) || force_rc=$?
-  require_wprism_answered "WooCommerce $version forced deletion refusal apply" human "$force_out"
+  require_wprism_answered "WooCommerce $version referenced deletion apply" human "$apply_out"
   set -e
-  [ "$plan_rc" -ne 0 ] && [ "$apply_rc" -ne 0 ] && [ "$force_rc" -ne 0 ] || fail "WooCommerce $version accepted unsupported product deletion"
-  for output in "$plan_out" "$apply_out" "$force_out"; do grep -Fq 'deletion intent for post:product is unsupported' <<<"$output" || fail "WooCommerce $version deletion refusal did not name the missing capability: $output"; done
-  [ "$(wp2 eval '$id=(int) wc_get_product_id_by_sku("CONF-WIDGET-1"); echo $id;')" = "$product" ] || fail "WooCommerce $version refusal changed the target product identity"
+  [ "$plan_rc" -eq 0 ] || fail "WooCommerce $version referenced product plan failed instead of reporting its guard: $plan_out"
+  echo "$plan_out" | tail -1 | jq -e --arg uuid "$product_uuid" \
+    '[.delete[]? | select(.uuid == $uuid and (.blocked // "") != "")] | length == 1' >/dev/null \
+    || fail "WooCommerce $version referenced product plan omitted its blocking guard: $plan_out"
+  [ "$apply_rc" -ne 0 ] && grep -Fq 'deletes blocked by referential guards' <<<"$apply_out" \
+    || fail "WooCommerce $version referenced product apply did not refuse at its guard: $apply_out"
+  [ "$(wp2 eval '$id=(int) wc_get_product_id_by_sku("CONF-EXTERNAL-1"); echo $id;')" = "$product" ] || fail "WooCommerce $version refusal changed the target product identity"
   lookup_after=$(wp2 db query "SELECT COUNT(*) FROM wp_wc_order_product_lookup WHERE order_id=$order AND product_id=$product" --skip-column-names)
   require_observed_nonempty "WooCommerce $version retained order lookup count" "$lookup_after"
   [ "$lookup_after" = "$lookup_before" ] || fail "WooCommerce $version refusal changed the native order-product lookup"
@@ -558,7 +897,301 @@ if (!\$product) { throw new RuntimeException('WooCommerce deletion fixture produ
   require_wprism_answered "WooCommerce $version deletion retry plan" json "$retry"
   echo "$retry" | jq -e '(.delete | length) == 0 and (.delete_conflict | length) == 0' >/dev/null || fail "WooCommerce $version deletion retry did not settle after intent removal: $retry"
   [ -z "$(git -C "$repo" status --porcelain)" ] || fail "WooCommerce $version deletion fixture did not restore its disposable repository state"
-  pass "WooCommerce $version product deletion refuses before product/order/repository mutation and retry settles"
+  pass "WooCommerce $version referenced product deletion is visibly guard-blocked before product/order/repository mutation"
+
+  # Then prove raw local Apply cannot turn an otherwise clean product or
+  # variation tombstone into a delete without the signed external exclusion.
+  # The capsule's SSH extension owns the successful public promotion path.
+  disposable_sku="WPRISM-DELETE-${version//./-}"
+  disposable_slug=$(printf '%s' "$disposable_sku" | tr '[:upper:]' '[:lower:]')
+  disposable_source=$(wp1 eval '
+$sku = '"'"$disposable_sku"'"';
+if (wc_get_product_id_by_sku($sku)) { throw new RuntimeException("disposable deletion SKU already exists"); }
+$product = new WC_Product_Simple();
+$product->set_name("WPrism disposable deletion proof");
+$product->set_slug(strtolower($sku));
+$product->set_sku($sku);
+$product->set_regular_price("7.00");
+$product->set_status("publish");
+$product->save();
+echo $product->get_id();')
+  require_fixture_ids disposable_source
+  wp1 wprism capture --repo=/siterepo >/dev/null
+  disposable_file=$(find "$source_repo/state/posts/product" -type f -name "*--$disposable_slug.md" -print -quit)
+  [ -n "$disposable_file" ] || fail "WooCommerce $version source capture omitted the disposable product"
+  disposable_uuid=$(basename "$disposable_file" | cut -d- -f1-5)
+  [[ "$disposable_uuid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
+    || fail "WooCommerce $version disposable product UUID is malformed"
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "capture: woocommerce $version disposable deletion product"
+  "${GIT1[@]}" push -q origin main
+  git -C "$repo" pull -q origin main
+  revision=$(git -C "$repo" rev-parse HEAD)
+  wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$revision" >/dev/null
+  disposable_target=$(wp2 eval '$id=(int) wc_get_product_id_by_sku('"'"$disposable_sku"'"'); echo $id;')
+  require_fixture_ids disposable_target
+
+  disposable_target_file="$repo/state/posts/product/$(basename "$disposable_file")"
+  delete_file="$repo/state/deletions/$disposable_uuid.json"
+  disposable_backup="$repo/.tmp-woocommerce-local-product-delete.md"
+  expected_hash=$(wp2 db query "SELECT content_hash FROM wp_wprism_state WHERE uuid='$disposable_uuid'" --skip-column-names | tr -d '[:space:]')
+  expected_revision=$(wp2 eval 'echo \WPrism\RepositoryCompiler::compile("/siterepo", \WPrism\Policy::load("/siterepo"))->revision_hash();')
+  [[ "$expected_hash" =~ ^[a-f0-9]{64}$ ]] && [[ "$expected_revision" =~ ^[a-f0-9]{64}$ ]] \
+    || fail "WooCommerce $version local product refusal premise lacks exact hashes"
+  mkdir -p "$repo/state/deletions"
+  mv "$disposable_target_file" "$disposable_backup"
+  jq -n --arg expected_hash "$expected_hash" --arg expected_revision "$expected_revision" \
+    --arg source_path "posts/product/$(basename "$disposable_file")" --arg uuid "$disposable_uuid" \
+    '{expected_hash:$expected_hash,expected_revision:$expected_revision,format:"wprism-deletion/v1",kind:"post",source_path:$source_path,type:"product",uuid:$uuid}' >"$delete_file"
+  jq -e --arg uuid "$disposable_uuid" --arg source_path "posts/product/$(basename "$disposable_file")" \
+    '.kind == "post" and .type == "product" and .uuid == $uuid and .source_path == $source_path' "$delete_file" >/dev/null \
+    || fail "WooCommerce $version local product tombstone was malformed"
+  delete_plan=$(wp2 wprism plan --repo=/siterepo --format=json | tail -1)
+  require_wprism_answered "WooCommerce $version unreferenced deletion plan" json "$delete_plan"
+  echo "$delete_plan" | jq -e '[.delete[]? | select(.type == "post" and .deletion_type == "product" and ((.blocked // "") == ""))] | length == 1' >/dev/null \
+    || fail "WooCommerce $version unreferenced product was not one clean planned delete: $delete_plan"
+  product_lookup_before=$(wp2 db query "
+SELECT
+  (SELECT COUNT(*) FROM wp_wc_product_meta_lookup WHERE product_id=$disposable_target) +
+  (SELECT COUNT(*) FROM wp_wc_product_attributes_lookup WHERE product_id=$disposable_target OR product_or_parent_id=$disposable_target)
+" --skip-column-names | tr -d '\r')
+  before_tree=$(git -C "$repo" status --porcelain)
+  set +e
+  delete_rc=0
+  delete_apply=$(wp2 wprism apply --repo=/siterepo --with-deletes --default-author=admin --format=json 2>&1) || delete_rc=$?
+  set -e
+  require_wprism_answered "WooCommerce $version unreferenced deletion apply" json "$delete_apply"
+  [ "$delete_rc" -ne 0 ] \
+    && echo "$delete_apply" | tail -1 | jq -e '.reason_code == "deletion_writer_exclusion_required"' >/dev/null \
+    || fail "WooCommerce $version local product delete did not refuse for absent external exclusion"
+  [ "$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"$disposable_sku"'"');')" = "$disposable_target" ] \
+    || fail "WooCommerce $version external-exclusion refusal changed the target product"
+  product_lookup_after=$(wp2 db query "
+SELECT
+  (SELECT COUNT(*) FROM wp_wc_product_meta_lookup WHERE product_id=$disposable_target) +
+  (SELECT COUNT(*) FROM wp_wc_product_attributes_lookup WHERE product_id=$disposable_target OR product_or_parent_id=$disposable_target)
+" --skip-column-names | tr -d '\r')
+  [ "$product_lookup_after" = "$product_lookup_before" ] \
+    || fail "WooCommerce $version external-exclusion refusal changed product lookup rows"
+  [ "$(git -C "$repo" status --porcelain)" = "$before_tree" ] \
+    || fail "WooCommerce $version external-exclusion refusal mutated repository intent"
+  rm "$delete_file"
+  rmdir "$repo/state/deletions"
+  mv "$disposable_backup" "$disposable_target_file"
+  final_plan=$(wp2 wprism plan --repo=/siterepo --format=json | tail -1)
+  require_wprism_answered "WooCommerce $version deletion settled plan" json "$final_plan"
+  echo "$final_plan" | jq -e '(.delete | length) == 0 and (.delete_conflict | length) == 0' >/dev/null \
+    || fail "WooCommerce $version product deletion did not settle: $final_plan"
+  [ -z "$(git -C "$repo" status --porcelain)" ] \
+    || fail "WooCommerce $version local product refusal fixture did not restore the target repository"
+  pass "WooCommerce $version local product deletion refuses before mutation without signed external writer exclusion"
+
+  # A variation is a distinct manifest selector and lookup identity, not
+  # incidental coverage from deleting a variable parent. Drive its complete
+  # lifecycle by SKU so both environments prove their independently mapped id.
+  variation_parent_sku="WPRISM-VARIATION-PARENT-${version//./-}"
+  variation_sku="WPRISM-DELETE-VARIATION-${version//./-}"
+  variation_ids=$(wp1 eval '
+$parentSku = '"'"$variation_parent_sku"'"';
+$variationSku = '"'"$variation_sku"'"';
+if (wc_get_product_id_by_sku($parentSku) || wc_get_product_id_by_sku($variationSku)) {
+    throw new RuntimeException("disposable variation deletion SKU already exists");
+}
+$parent = new WC_Product_Variable();
+$parent->set_name("WPrism disposable variation parent");
+$parent->set_slug(strtolower($parentSku));
+$parent->set_sku($parentSku);
+$parent->set_status("publish");
+$parentId = $parent->save();
+$variation = new WC_Product_Variation();
+$variation->set_parent_id($parentId);
+$variation->set_sku($variationSku);
+$variation->set_regular_price("8.25");
+$variation->set_manage_stock(true);
+$variation->set_stock_quantity(4);
+$variation->set_status("publish");
+$variationId = $variation->save();
+echo $parentId . "|" . $variationId;')
+  IFS='|' read -r variation_parent_source variation_source <<<"$variation_ids"
+  require_fixture_ids variation_parent_source variation_source
+  wp1 wprism capture --repo=/siterepo >/dev/null
+  variation_file=$(grep -rlF -- "$variation_sku" "$source_repo/state/posts/product_variation" | head -n 1)
+  [ -n "$variation_file" ] || fail "WooCommerce $version source capture omitted the named product_variation"
+  variation_uuid=$(basename "$variation_file" | cut -d- -f1-5)
+  [[ "$variation_uuid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
+    || fail "WooCommerce $version named product_variation UUID is malformed"
+  "${GIT1[@]}" add -A
+  "${GIT1[@]}" commit -qm "capture: woocommerce $version named deletion variation"
+  "${GIT1[@]}" push -q origin main
+  git -C "$repo" pull -q origin main
+  revision=$(git -C "$repo" rev-parse HEAD)
+  wp2 wprism apply --repo=/siterepo --default-author=admin --revision="$revision" >/dev/null
+  variation_parent_target=$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"$variation_parent_sku"'"');')
+  variation_target=$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"$variation_sku"'"');')
+  require_fixture_ids variation_parent_target variation_target
+  variation_lookup_before=$(wp2 db query "
+SELECT
+  (SELECT COUNT(*) FROM wp_wc_product_meta_lookup WHERE product_id=$variation_target) +
+  (SELECT COUNT(*) FROM wp_wc_product_attributes_lookup WHERE product_id=$variation_target)
+" --skip-column-names | tr -d '\r')
+  require_observed_nonempty "WooCommerce $version named product_variation lookup preimage" "$variation_lookup_before"
+  [ "$variation_lookup_before" -ge 1 ] \
+    || fail "WooCommerce $version named product_variation did not materialize a Woo lookup row"
+
+  variation_target_file="$repo/state/posts/product_variation/$(basename "$variation_file")"
+  variation_delete_file="$repo/state/deletions/$variation_uuid.json"
+  variation_backup="$repo/.tmp-woocommerce-local-variation-delete.md"
+  variation_expected_hash=$(wp2 db query "SELECT content_hash FROM wp_wprism_state WHERE uuid='$variation_uuid'" --skip-column-names | tr -d '[:space:]')
+  variation_expected_revision=$(wp2 eval 'echo \WPrism\RepositoryCompiler::compile("/siterepo", \WPrism\Policy::load("/siterepo"))->revision_hash();')
+  [[ "$variation_expected_hash" =~ ^[a-f0-9]{64}$ ]] && [[ "$variation_expected_revision" =~ ^[a-f0-9]{64}$ ]] \
+    || fail "WooCommerce $version local variation refusal premise lacks exact hashes"
+  mkdir -p "$repo/state/deletions"
+  mv "$variation_target_file" "$variation_backup"
+  jq -n --arg expected_hash "$variation_expected_hash" --arg expected_revision "$variation_expected_revision" \
+    --arg source_path "posts/product_variation/$(basename "$variation_file")" --arg uuid "$variation_uuid" \
+    '{expected_hash:$expected_hash,expected_revision:$expected_revision,format:"wprism-deletion/v1",kind:"post",source_path:$source_path,type:"product_variation",uuid:$uuid}' >"$variation_delete_file"
+  jq -e --arg uuid "$variation_uuid" --arg source_path "posts/product_variation/$(basename "$variation_file")" '
+    .format == "wprism-deletion/v1" and .kind == "post" and .type == "product_variation" and
+    .uuid == $uuid and .source_path == $source_path
+  ' "$variation_delete_file" >/dev/null \
+    || fail "WooCommerce $version local product_variation tombstone was malformed"
+  variation_plan=$(wp2 wprism plan --repo=/siterepo --format=json | tail -1)
+  require_wprism_answered "WooCommerce $version named product_variation deletion plan" json "$variation_plan"
+  echo "$variation_plan" | jq -e --arg uuid "$variation_uuid" '
+    [.delete[]? | select(.uuid == $uuid and .type == "post" and .deletion_type == "product_variation" and ((.blocked // "") == ""))] | length == 1
+  ' >/dev/null || fail "WooCommerce $version named product_variation was not one clean planned delete: $variation_plan"
+  variation_before_tree=$(git -C "$repo" status --porcelain)
+  set +e
+  variation_apply_rc=0
+  variation_apply=$(wp2 wprism apply --repo=/siterepo --with-deletes --default-author=admin --format=json 2>&1) || variation_apply_rc=$?
+  set -e
+  require_wprism_answered "WooCommerce $version named product_variation deletion apply" json "$variation_apply"
+  [ "$variation_apply_rc" -ne 0 ] \
+    && echo "$variation_apply" | tail -1 | jq -e '.reason_code == "deletion_writer_exclusion_required"' >/dev/null \
+    || fail "WooCommerce $version local product_variation delete did not refuse for absent external exclusion"
+  [ "$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"$variation_sku"'"');')" = "$variation_target" ] \
+    || fail "WooCommerce $version external-exclusion refusal changed the named variation"
+  [ "$(wp2 eval 'echo (int) wc_get_product_id_by_sku('"'"$variation_parent_sku"'"');')" = "$variation_parent_target" ] \
+    || fail "WooCommerce $version external-exclusion refusal changed the variation parent"
+  variation_lookup_after=$(wp2 db query "
+SELECT
+  (SELECT COUNT(*) FROM wp_wc_product_meta_lookup WHERE product_id=$variation_target) +
+  (SELECT COUNT(*) FROM wp_wc_product_attributes_lookup WHERE product_id=$variation_target)
+" --skip-column-names | tr -d '\r')
+  [ "$variation_lookup_after" = "$variation_lookup_before" ] \
+    || fail "WooCommerce $version external-exclusion refusal changed variation lookup rows"
+  [ "$(git -C "$repo" status --porcelain)" = "$variation_before_tree" ] \
+    || fail "WooCommerce $version variation exclusion refusal mutated repository intent"
+  rm "$variation_delete_file"
+  rmdir "$repo/state/deletions"
+  mv "$variation_backup" "$variation_target_file"
+  variation_final_plan=$(wp2 wprism plan --repo=/siterepo --format=json | tail -1)
+  require_wprism_answered "WooCommerce $version named product_variation settled plan" json "$variation_final_plan"
+  echo "$variation_final_plan" | jq -e '(.delete | length) == 0 and (.delete_conflict | length) == 0' >/dev/null \
+    || fail "WooCommerce $version product_variation deletion did not settle: $variation_final_plan"
+  [ -z "$(git -C "$repo" status --porcelain)" ] \
+    || fail "WooCommerce $version local variation refusal fixture did not restore the target repository"
+  pass "WooCommerce $version local product_variation deletion refuses before mutation without signed external writer exclusion"
+}
+
+woocommerce_deletion_owner_agreements() {
+  wp1 eval '
+$themes = array_values(array_unique([get_stylesheet(), get_template()]));
+sort($themes, SORT_STRING);
+$contentRoot = realpath(WP_CONTENT_DIR);
+if (!is_string($contentRoot) || $contentRoot === "") {
+    throw new RuntimeException("WPRA-019 theme identity cannot resolve WP_CONTENT_DIR");
+}
+$owners = [];
+foreach ($themes as $theme) {
+    if (!is_string($theme) || preg_match("/^[A-Za-z0-9._-]{1,128}$/D", $theme) !== 1) {
+        throw new RuntimeException("WPRA-019 theme owner is malformed");
+    }
+    $canonicalRoot = "themes/" . $theme;
+    $root = WP_CONTENT_DIR . "/" . $canonicalRoot;
+    $resolved = realpath($root);
+    if (!is_string($resolved) || $resolved !== $contentRoot . "/" . $canonicalRoot || is_link($root)) {
+        throw new RuntimeException("WPRA-019 theme owner escapes its canonical root");
+    }
+    $files = [];
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST
+    );
+    foreach ($iterator as $entry) {
+        if (!$entry instanceof SplFileInfo) {
+            throw new RuntimeException("WPRA-019 theme entry is uninspectable");
+        }
+        $path = $entry->getPathname();
+        $stat = lstat($path);
+        $kind = is_array($stat) ? (((int) $stat["mode"]) & 0170000) : 0;
+        if ($kind === 0040000) { continue; }
+        if ($kind !== 0100000 || $entry->isLink() || !is_readable($path)) {
+            throw new RuntimeException("WPRA-019 theme tree contains a nonregular entry");
+        }
+        $relative = str_replace("\\", "/", substr($path, strlen($root) + 1));
+        $files[] = ["path" => $relative, "sha256" => hash_file("sha256", $path)];
+    }
+    usort($files, static fn(array $left, array $right): int => strcmp($left["path"], $right["path"]));
+    $payload = [
+        "files" => $files,
+        "format" => "wprism-executable-tree/v1",
+        "root" => $canonicalRoot,
+    ];
+    $owners[] = [
+        "owner" => "theme:" . $theme,
+        "code_identity" => [
+            "format" => "wprism-executable-tree/v1",
+            "root" => $canonicalRoot,
+            "sha256" => hash("sha256", \WPrism\Canon::encode($payload)),
+        ],
+        "rationale" => "Exact active theme code reviewed: it persists no Woo product or variation reverse-reference identity.",
+    ];
+}
+$plugin = "woocommerce/woocommerce.php";
+$canonicalRoot = "plugins/woocommerce";
+$root = WP_PLUGIN_DIR . "/woocommerce";
+$resolved = realpath($root);
+if (!is_string($resolved) || $resolved !== $contentRoot . "/" . $canonicalRoot
+    || is_link($root) || !is_file(WP_PLUGIN_DIR . "/" . $plugin)) {
+    throw new RuntimeException("WPRA-019 WooCommerce owner escapes its canonical plugin root");
+}
+$files = [];
+$iterator = new RecursiveIteratorIterator(
+    new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+    RecursiveIteratorIterator::SELF_FIRST
+);
+foreach ($iterator as $entry) {
+    if (!$entry instanceof SplFileInfo) {
+        throw new RuntimeException("WPRA-019 WooCommerce entry is uninspectable");
+    }
+    $path = $entry->getPathname();
+    $stat = lstat($path);
+    $kind = is_array($stat) ? (((int) $stat["mode"]) & 0170000) : 0;
+    if ($kind === 0040000) { continue; }
+    if ($kind !== 0100000 || $entry->isLink() || !is_readable($path)) {
+        throw new RuntimeException("WPRA-019 WooCommerce tree contains a nonregular entry");
+    }
+    $relative = str_replace("\\", "/", substr($path, strlen($root) + 1));
+    $files[] = ["path" => $relative, "sha256" => hash_file("sha256", $path)];
+}
+usort($files, static fn(array $left, array $right): int => strcmp($left["path"], $right["path"]));
+$payload = [
+    "files" => $files,
+    "format" => "wprism-executable-tree/v1",
+    "root" => $canonicalRoot,
+];
+$owners[] = [
+    "owner" => "plugin:" . $plugin,
+    "code_identity" => [
+        "format" => "wprism-executable-tree/v1",
+        "root" => $canonicalRoot,
+        "sha256" => hash("sha256", \WPrism\Canon::encode($payload)),
+    ],
+    "rationale" => "Exact adapter-declared WooCommerce tree reviewed for this deletion boundary.",
+];
+echo wp_json_encode($owners, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+'
 }
 
 VMATRIX_PLUGIN_SLUG=woocommerce
@@ -638,10 +1271,32 @@ for WOO_VERSION in 11.0.0 11.0.1; do
     || fail "side 1 could not establish HPOS through WooCommerce's native new-shop lifecycle"
   pass "side 1: woocommerce $WOO_VERSION installed from verified artifact, active, HPOS enabled"
 
+  deletion_owner_agreements=$(woocommerce_deletion_owner_agreements)
+  require_observed_nonempty "WooCommerce $WOO_VERSION active executable-owner code identities" "$deletion_owner_agreements"
+  jq -e '
+    (map(select(.owner == "plugin:woocommerce/woocommerce.php")) | length) == 1
+    and (map(select(.owner | startswith("theme:"))) | length) >= 1
+    and all(.[];
+      (.owner | test("^(?:plugin:woocommerce/woocommerce\\.php|theme:[A-Za-z0-9._-]{1,128})$"))
+      and .code_identity.format == "wprism-executable-tree/v1"
+      and (.code_identity.root | test("^(?:plugins/woocommerce|themes/[A-Za-z0-9._-]{1,128})$"))
+      and (.code_identity.sha256 | test("^[a-f0-9]{64}$"))
+      and (.rationale | length >= 16)
+    )
+  ' <<<"$deletion_owner_agreements" >/dev/null \
+    || fail "WooCommerce $WOO_VERSION active owner agreements were not exact v2 executable identities"
+
   cat > "siterepo/${PAIR}1/site.wprism.json" <<EOF
 {
   "manifests": ["core", "woocommerce"],
   "policy": {
+    "deletion_owner_agreements": {
+      "format": "wprism-deletion-owner-agreements/v2",
+      "selectors": [
+        {"selector": "post:product", "owners": $deletion_owner_agreements},
+        {"selector": "post:product_variation", "owners": $deletion_owner_agreements}
+      ]
+    },
     "options": {},
     "post_meta": {},
     "post_types": ["post", "page", "attachment", "product", "product_variation", "shop_coupon"],
@@ -691,7 +1346,9 @@ EOF
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at woocommerce $WOO_VERSION: $DIFF_OUT"
   pass "byte-identical recapture at woocommerce $WOO_VERSION — the exact in-range release is proven through the full product path"
 
-  check_woocommerce_product_delete_refusal "$WOO_VERSION"
+  check_woocommerce_allow_pii_roundtrip "$WOO_VERSION" "$ARTIFACT_2"
+
+  check_woocommerce_product_deletion "$WOO_VERSION"
 
   check_woocommerce_boundary_lifecycle "$WOO_VERSION" "$ARTIFACT_2"
 
@@ -729,7 +1386,7 @@ EOF
       || fail 'apply canary not clean after woocommerce 11.0.0 to 11.0.1 in-place upgrade'
     UPGRADE_PROVIDER_COUNT=$(grep -Ec 'provider capability fired:' "$VMATRIX_APPLY_LOG" || true)
     [ "$UPGRADE_PROVIDER_COUNT" -eq 1 ] \
-      && grep -Eq 'provider capability fired: woocommerce-product-lookups@3\.0\.0 rebuild_product_lookups \([0-9]+(\.[0-9]+)?s, verified\)' "$VMATRIX_APPLY_LOG" \
+      && grep -Eq 'provider capability fired: woocommerce-product-lookups@3\.1\.0 rebuild_product_lookups \([0-9]+(\.[0-9]+)?s, verified\)' "$VMATRIX_APPLY_LOG" \
       || fail 'WooCommerce 11.0.0 -> 11.0.1 product-note upgrade did not invoke exactly one verified product-lookup provider'
     SAVED_WOO_VERSION="$WOO_VERSION"
     WOO_VERSION=11.0.1

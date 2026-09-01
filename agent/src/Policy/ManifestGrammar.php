@@ -871,6 +871,11 @@ final class ManifestGrammar {
                     . 'structured document the engine decodes or a single entity reference it resolves'
                 );
             }
+            foreach (['allow_pii', 'allow_secret'] as $exception) {
+                if (array_key_exists($exception, $rule) && !is_bool($rule[$exception])) {
+                    throw new \RuntimeException("wprism: $where.settings.$setting.$exception must be a boolean");
+                }
+            }
         }
     }
 }

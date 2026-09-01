@@ -121,13 +121,16 @@ echo wp_json_encode([
         'pages' => (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->pmpro_memberships_pages} WHERE page_id=%d", $page->ID)),
     ],
     'options' => [
-        'address' => get_option('pmpro_business_address'),
+        'business_address' => get_option('pmpro_business_address'),
         'colors' => get_option('pmpro_colors'),
         'currency' => get_option('pmpro_currency'),
         'email_body_bytes' => strlen((string) get_option('pmpro_email_checkout_paid_body')),
         'email_subject' => get_option('pmpro_email_checkout_paid_subject'),
+        'from_email' => get_option('pmpro_from_email'),
+        'from_name' => get_option('pmpro_from_name'),
         'hideadslevels' => get_option('pmpro_hideadslevels'),
         'level_order' => get_option('pmpro_level_order'),
+        'tax_state' => get_option('pmpro_tax_state'),
     ],
     'environment' => [
         'email_to' => get_option('pmpro_email_checkout_paid_to'),
@@ -173,7 +176,7 @@ pmpro_target_hash() {
       $tables[$suffix]=$wpdb->get_results("SELECT * FROM `$table` ORDER BY 1,2",ARRAY_A);
     }
     $options=[];
-    foreach (["pmpro_currency","pmpro_business_address","pmpro_colors","pmpro_level_order","pmpro_hideadslevels","pmpro_email_checkout_paid_subject","pmpro_email_checkout_paid_body"] as $name) $options[$name]=get_option($name,null);
+    foreach (["pmpro_currency","pmpro_business_address","pmpro_from_email","pmpro_from_name","pmpro_tax_state","pmpro_colors","pmpro_level_order","pmpro_hideadslevels","pmpro_email_checkout_paid_subject","pmpro_email_checkout_paid_body"] as $name) $options[$name]=get_option($name,null);
     echo hash("sha256",serialize([$tables,$options]));
   ' | tail -1
 }
@@ -236,7 +239,9 @@ jq -e --arg version "$PMPRO_EXPECTED_VERSION" '
   .discount.uses == 125 and .discount.one_use_per_user == 1 and (.discount.levels | length) == 2 and
   .edges.category == 1 and .edges.discount_levels == 2 and .edges.group_levels == 1 and .edges.pages == 2 and
   .access.page == false and .access.category == false and (.access.page_levels | length) == 2 and (.access.category_levels | length) == 1 and
-  .options.currency == "JPY" and .options.address.city == "東京" and .options.colors.accent == "#aabbcc" and
+  .options.currency == "JPY" and .options.business_address.city == "東京" and .options.colors.accent == "#aabbcc" and
+  .options.from_email == "memberships-source@example.test" and .options.from_name == "WPrism Memberships 東京" and
+  .options.tax_state == "CA" and
   .options.email_body_bytes > 10000 and .options.email_subject == "Portable checkout 東京 🚀" and
   .environment.gateway == "check" and .environment.gateway_environment == "sandbox" and
   .environment.secret == "sk_test_TARGET_SECRET_b84c" and .environment.turnstile == "turnstile_TARGET_SECRET" and
@@ -601,7 +606,9 @@ jq -e '.canary == "clean" and .verification.result == "pass" and .applied > 0' <
 RECOVERED=$(observe_pmpro conf2)
 jq -e '
   .version == "3.8.3" and .level.name == "Builder 東京 🚀" and .level.meta.membership_account_message == "Concurrent PMPro intent 東京 🚀" and
-  .options.currency == "EUR" and .environment.secret == "sk_test_TARGET_SECRET_b84c" and
+  .options.currency == "EUR" and .options.business_address.city == "東京" and
+  .options.from_email == "memberships-source@example.test" and .options.from_name == "WPrism Memberships 東京" and
+  .options.tax_state == "CA" and .environment.secret == "sk_test_TARGET_SECRET_b84c" and
   .runtime.source_members == 0 and .runtime.source_orders == 0 and .runtime.target_members == 0 and .runtime.target_orders == 0 and
   .runtime.neighbor == "target-neighbor-preserved"
 ' <<<"$RECOVERED" >/dev/null || fail "PMPro exact reinstall did not restore only authored state: $RECOVERED"

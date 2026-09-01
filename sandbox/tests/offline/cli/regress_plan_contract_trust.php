@@ -60,6 +60,23 @@ function pct_ok(bool $condition, string $message): void {
     echo "ok: $message\n";
 }
 
+// A verified receipt signs target-relative selected actions/effects, so the
+// automatic controller must select and claim from plan rather than compile's
+// target-agnostic summary. The helper is driven below through a real
+// SshTransport; these wiring pins keep the promotion entry point on that
+// validated result.
+pct_ok(str_contains(
+    $wprismSource,
+    '$verifiedPlan = verified_promotion_plan('
+) && str_contains(
+    $wprismSource,
+    '$selection = VerifiedRollbackProfile::select($t, $verifiedPlan);'
+) && str_contains(
+    $wprismSource,
+    '$t,' . "\n" . '                $verifiedPlan,' . "\n"
+    . '                $repo,' . "\n" . '                $artifact,'
+), 'automatic promotion selects and claims rollback authority from the exact target plan');
+
 /** Assert a refusal whose operator diagnostic names the violated contract. */
 function pct_refuses(callable $call, string $needle, string $message): void {
     try {
@@ -329,6 +346,7 @@ try {
     $sshRepo = $tmp . '/target-repo';
     $wpPath = $tmp . '/wordpress';
     $planFile = $tmp . '/plan.json';
+    $planArgsFile = $tmp . '/plan-args.json';
     $bin = $tmp . '/bin';
     if (!mkdir($wpPath, 0700, true) || !mkdir($bin, 0700, true)) pct_fail('could not create ssh fixture root');
     $sshArtifactPath = $sshRepo . '/.wprism/artifacts/materialize-' . $operation . '.json';
@@ -347,6 +365,9 @@ declare(strict_types=1);
 $args = $argv;
 array_shift($args);
 if (($args[0] ?? '') === 'wprism' && ($args[1] ?? '') === 'plan') {
+    $argsPath = (string) getenv('WPRISM_PLAN_CONTRACT_ARGS');
+    if ($argsPath !== '') file_put_contents($argsPath, json_encode($args, JSON_UNESCAPED_SLASHES));
+    if (getenv('WPRISM_PLAN_CONTRACT_FAIL') === '1') exit(19);
     echo file_get_contents((string) getenv('WPRISM_PLAN_CONTRACT_PLAN'));
     exit(0);
 }
@@ -354,6 +375,7 @@ exit(0);
 PHP);
     chmod($bin . '/wp', 0700);
     putenv('PATH=' . $bin . ':' . $oldPath);
+    putenv('WPRISM_PLAN_CONTRACT_ARGS=' . $planArgsFile);
 
     // A committed generation whose receipt binds this exact artifact, owner,
     // and checkpoint digest — the only preconditions the verified path checks
@@ -452,6 +474,59 @@ PHP);
         'transport' => 'ssh',
         'wp_path' => $wpPath,
     ]);
+
+    $selectedPlan = pct_plan([
+        'effects_inventory' => [['action' => 'cleanup_product_deletions']],
+    ]);
+    $selectedPlan['artifact_hash'] = $artifactHash;
+    $selectedPlan['lifecycle_effects_inventory'] = [['effect' => 'delete_post']];
+    $selectedPlan['selected_actions'] = [['action' => 'cleanup_product_deletions']];
+    pct_write($planFile, pct_json($selectedPlan) . "\n");
+    putenv('WPRISM_PLAN_CONTRACT_PLAN=' . $planFile);
+    $composedPlan = $selectedPlan;
+    $composedPlan['code'] = $summary['code'];
+    $composedPlan['resolved_adapters'] = [];
+    pct_ok(verified_promotion_plan(
+        $transport,
+        $sshRepo,
+        $sshArtifactPath,
+        $artifactHash,
+        $summary
+    ) === $composedPlan,
+        'verified promotion preflight composes immutable code with target-selected actions and effects');
+    $capturedPlanArgs = json_decode((string) file_get_contents($planArgsFile), true, 512, JSON_THROW_ON_ERROR);
+    pct_ok($capturedPlanArgs === [
+        'wprism', 'plan', '--repo=' . $sshRepo, '--compiled=' . $sshArtifactPath, '--format=json',
+    ], 'verified promotion preflight addresses the exact compiled artifact on the target');
+
+    $mismatchedPlan = $selectedPlan;
+    $mismatchedPlan['artifact_hash'] = hash('sha256', 'another artifact');
+    pct_write($planFile, pct_json($mismatchedPlan) . "\n");
+    pct_refuses(
+        static fn() => verified_promotion_plan($transport, $sshRepo, $sshArtifactPath, $artifactHash, $summary),
+        'target recovery plan does not match the compiled artifact',
+        'verified promotion preflight refuses a plan for another artifact'
+    );
+    pct_write($planFile, "not-json\n");
+    pct_refuses(
+        static fn() => verified_promotion_plan($transport, $sshRepo, $sshArtifactPath, $artifactHash, $summary),
+        'target returned a malformed compiled recovery plan',
+        'verified promotion preflight refuses malformed target output'
+    );
+    pct_write($planFile, "{}\n");
+    pct_refuses(
+        static fn() => verified_promotion_plan($transport, $sshRepo, $sshArtifactPath, $artifactHash, $summary),
+        'verified promotion recovery preflight: incomplete agent plan envelope',
+        'verified promotion preflight refuses an incomplete plan before rollback selection'
+    );
+    putenv('WPRISM_PLAN_CONTRACT_FAIL=1');
+    pct_refuses(
+        static fn() => verified_promotion_plan($transport, $sshRepo, $sshArtifactPath, $artifactHash, $summary),
+        'target refused the exact compiled recovery plan',
+        'verified promotion preflight refuses a failed target plan command'
+    );
+    putenv('WPRISM_PLAN_CONTRACT_FAIL');
+
     $authorityStatus = RollbackAuthority::status($transport);
     pct_ok(($authorityStatus['state'] ?? null) === 'committed'
         && ($authorityStatus['artifact_hash'] ?? null) === $artifactHash
@@ -498,6 +573,8 @@ PHP);
 } finally {
     putenv('PATH=' . $oldPath);
     putenv('WPRISM_PLAN_CONTRACT_PLAN');
+    putenv('WPRISM_PLAN_CONTRACT_ARGS');
+    putenv('WPRISM_PLAN_CONTRACT_FAIL');
     pct_remove($tmp);
 }
 
@@ -561,6 +638,8 @@ pct_refuses(
 );
 pct_ok($contract::requireComplete(pct_plan(), 'unit surface') === pct_plan(),
     'requireComplete returns the same plan once it is trustworthy');
+pct_ok(in_array('artifact_hash', $contract::optionalProjections(), true),
+    'a full plan may publish the compiled identity that verified promotion explicitly requires');
 
 // ------------------------------------------- emitter/validator drift (pin)
 //
@@ -615,11 +694,11 @@ pct_ok(
 $emitted = array_values(array_unique(array_merge($initializerKeys[1], $assignedKeys[1])));
 sort($emitted, SORT_STRING);
 pct_ok(count($initializerKeys[1]) > 0 && count($assignedKeys[1]) > 0, 'the drift pin actually read the emitter');
-$required = array_merge(
+$required = array_values(array_unique(array_merge(
     $contract::requiredBuckets(),
     $contract::optionalProjections(),
     $contract::scopedProjections()
-);
+)));
 sort($required, SORT_STRING);
 $drift = array_merge(
     array_map(static fn(string $b): string => "emitted but not required: $b", array_values(array_diff($emitted, $required))),

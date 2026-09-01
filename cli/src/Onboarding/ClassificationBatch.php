@@ -13,6 +13,11 @@ namespace WPrism\Orchestrator;
  */
 final class ClassificationBatch {
     /**
+     * v3 adds the reviewed `allow_pii` decision required by repository-wide
+     * personal-data clearance. A v2 artifact did not offer that field, so it
+     * cannot distinguish "reviewed false" from "this form predates the
+     * decision" and is re-exported rather than guessed.
+     *
      * v2 (issue #3496). A v1 row carried class/ref/cast/allow_secret and nothing
      * else, so it could not express a COMPLETE decision: the site grammar
      * demands `autoload` on an options rule classed authored or managed and a
@@ -32,7 +37,10 @@ final class ClassificationBatch {
      * `queue_sha256`, so the remedy is one re-export of a document nobody
      * keeps.
      */
-    public const FORMAT = 'wprism-classification-batch/v2';
+    public const FORMAT = 'wprism-classification-batch/v3';
+
+    /** The previous form has storage decisions but no personal-data review field. */
+    public const FORMAT_WITHOUT_PII_DECISIONS = 'wprism-classification-batch/v2';
 
     /** The shape retired above; recognized by name so a stale artifact gets its own remedy. */
     public const FORMAT_WITHOUT_STORAGE_DECISIONS = 'wprism-classification-batch/v1';
@@ -65,6 +73,7 @@ final class ClassificationBatch {
                 'ref' => null,
                 'cast' => null,
                 'allow_secret' => false,
+                'allow_pii' => false,
                 'proposal' => is_string($item['proposal'] ?? null) ? $item['proposal'] : null,
                 'evidence' => is_array($item['evidence'] ?? null) ? $item['evidence'] : (object) [],
             ];
@@ -88,6 +97,9 @@ final class ClassificationBatch {
             }
             if (is_string($item['secret'] ?? null) && $item['secret'] !== '') {
                 $row['secret'] = $item['secret'];
+            }
+            if (is_string($item['pii'] ?? null) && $item['pii'] !== '') {
+                $row['pii'] = $item['pii'];
             }
             $decisions[] = $row;
         }
@@ -133,7 +145,7 @@ final class ClassificationBatch {
 
     /**
      * @param list<array<string,mixed>> $items
-     * @return array{decisions:list<array<string,string|bool>>,needAllowSecret:bool}
+     * @return array{decisions:list<array<string,string|bool>>}
      */
     public static function validate(array $batch, string $environment, array $items): array {
         if (($batch['format'] ?? null) === self::FORMAT_WITHOUT_STORAGE_DECISIONS) {
@@ -145,6 +157,13 @@ final class ClassificationBatch {
                 'wprism: classification batch format ' . self::FORMAT_WITHOUT_STORAGE_DECISIONS
                 . ' predates the per-class decision fields an options row must carry'
                 . ' (autoload for authored/managed, required for env); re-export the batch'
+                . ' (wprism classify <env> --export-batch=<path>) and review the fresh artifact'
+            );
+        }
+        if (($batch['format'] ?? null) === self::FORMAT_WITHOUT_PII_DECISIONS) {
+            throw new \RuntimeException(
+                'wprism: classification batch format ' . self::FORMAT_WITHOUT_PII_DECISIONS
+                . ' predates the per-row allow_pii review decision; re-export the batch'
                 . ' (wprism classify <env> --export-batch=<path>) and review the fresh artifact'
             );
         }
@@ -182,7 +201,6 @@ final class ClassificationBatch {
         $seen = [];
         $incomplete = [];
         $undecided = [];
-        $needAllowSecret = false;
         foreach ($batch['decisions'] as $i => $row) {
             if (!is_array($row)) {
                 throw new \RuntimeException("wprism: classification batch decisions[$i] must be an object");
@@ -273,7 +291,32 @@ final class ClassificationBatch {
                 );
             }
             if ($allowSecret) {
-                $needAllowSecret = true;
+                // This is authority for one reviewed row, not a command-wide
+                // switch. It must remain attached to the decision until the
+                // target re-reads that row's live value; otherwise one
+                // approved row can clear a different row that becomes
+                // sensitive between the host queue read and target apply.
+                $decision['allow_secret'] = true;
+            }
+            $pii = is_string($pending[$identity]['pii'] ?? null)
+                ? (string) $pending[$identity]['pii']
+                : null;
+            $allowPii = $row['allow_pii'] ?? false;
+            if (!is_bool($allowPii)) {
+                throw new \RuntimeException("wprism: $section:$key allow_pii must be boolean");
+            }
+            if ($allowPii && ($class !== 'authored' || $pii === null)) {
+                throw new \RuntimeException(
+                    "wprism: $section:$key sets allow_pii without an authored, PII-flagged pending item"
+                );
+            }
+            if ($class === 'authored' && $pii !== null && !$allowPii) {
+                throw new \RuntimeException(
+                    "wprism: refusing authored decision for PII-flagged $section:$key ($pii); set allow_pii=true in the reviewed row"
+                );
+            }
+            if ($allowPii) {
+                $decision['allow_pii'] = true;
             }
             // Last, so an unacknowledged authored secret above still refuses
             // first: that one is about what leaves the site, this one about
@@ -303,7 +346,7 @@ final class ClassificationBatch {
                 . " site grammar demands before the rule can load:\n  - " . implode("\n  - ", $undecided)
             );
         }
-        return ['decisions' => $decisions, 'needAllowSecret' => $needAllowSecret];
+        return ['decisions' => $decisions];
     }
 
     /**

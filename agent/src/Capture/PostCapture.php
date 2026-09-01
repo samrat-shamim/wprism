@@ -5,11 +5,13 @@ require_once __DIR__ . '/../Grammar/Blocks.php';
 require_once __DIR__ . '/../Grammar/BodyRefGrammar.php';
 require_once __DIR__ . '/../Kernel/Canon.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
+require_once __DIR__ . '/../Kernel/PersonalData.php';
 require_once __DIR__ . '/EntityMetaCapture.php';
 require_once __DIR__ . '/../Repository/Ledger.php';
 require_once __DIR__ . '/MediaCapture.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Kernel/Secrets.php';
+require_once __DIR__ . '/../Kernel/PostPasswordBinding.php';
 require_once __DIR__ . '/../Grammar/Tokens.php';
 
 /** Builds canonical post entities after post, term, and table identities exist. */
@@ -38,13 +40,6 @@ final class PostCapture {
         global $wpdb;
         $id = (int) $post->ID;
         $isAttachment = $post->post_type === 'attachment';
-
-        if ((string) $post->post_password !== '') {
-            throw new \RuntimeException(
-                "wprism: protected {$post->post_type} '{$post->post_name}' (post $id) has post_password; "
-                . 'spec v2 has no portable secret representation for post passwords, so capture refuses it'
-            );
-        }
 
         $byKey = $this->entityMetaCapture->postMetaByKey($id);
         $meta = [];
@@ -126,6 +121,12 @@ final class PostCapture {
             'terms' => (object) $terms,
             'term_orders' => (object) array_map(static fn($orders) => (object) $orders, $termOrders),
         ];
+        if ((string) $post->post_password !== '') {
+            // The stable handle is portable; the password is not. Each
+            // environment provisions its value through the mode-0600 local
+            // EnvironmentValues file before apply can become ready.
+            $front['password_binding'] = PostPasswordBinding::name($uuid);
+        }
 
         $mediaRef = null;
         if ($isAttachment) {
@@ -144,10 +145,17 @@ final class PostCapture {
         if ($bodyMode === 'serialized') {
             $context = "{$post->post_type} '{$post->post_name}' body";
             $decoded = PlainData::decode_serialized((string) $post->post_content, $context);
-            $secretLabel = Secrets::hard_match_deep($decoded);
+            $secretLabel = Secrets::clearance_match_deep('body', $decoded);
             if ($secretLabel !== null) {
                 throw new \RuntimeException(
                     "wprism: $context contains a $secretLabel; refusing to capture serialized authored configuration"
+                );
+            }
+            $piiLabel = PersonalData::match_deep('body', $decoded);
+            if ($piiLabel !== null) {
+                throw new \RuntimeException(
+                    "wprism: $context contains $piiLabel; refusing to capture serialized authored configuration — "
+                    . 'remove or redact the personal data, or exclude its owning post type'
                 );
             }
             $body = serialize($this->tokens->plain_data_capture($decoded));

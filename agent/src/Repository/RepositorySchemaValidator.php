@@ -7,6 +7,9 @@ namespace WPrism;
 if (!class_exists(Policy::class, false)) {
     require_once __DIR__ . '/../Policy/Policy.php';
 }
+if (!class_exists(PostPasswordBinding::class, false)) {
+    require_once __DIR__ . '/../Kernel/PostPasswordBinding.php';
+}
 
 /**
  * Validates decoded canonical entity shapes before RepositoryCompiler adds
@@ -60,6 +63,24 @@ final class RepositorySchemaValidator {
         if ($kind === 'post' && (!isset($data['meta']) || !is_array($data['meta']) || !isset($data['terms']) || !is_array($data['terms']))) {
             $this->add('schema_content_mismatch', $path, 'meta/terms', 'post meta and terms must be object maps');
         } elseif ($kind === 'post') {
+            if (array_key_exists('password_binding', $data)) {
+                $uuid = is_string($data['uuid'] ?? null) ? $data['uuid'] : '';
+                $expected = null;
+                try {
+                    $expected = PostPasswordBinding::name($uuid);
+                } catch (\Throwable) {
+                    // The UUID validator reports the malformed identity too.
+                }
+                if (!is_string($data['password_binding']) || $expected === null
+                    || !hash_equals($expected, $data['password_binding'])) {
+                    $this->add(
+                        'schema_content_mismatch',
+                        $path,
+                        'password_binding',
+                        'protected posts must carry exactly post_password:<uuid>; plaintext is never valid canonical state'
+                    );
+                }
+            }
             foreach ($data['terms'] as $taxonomy => $uuids) {
                 if (!is_string($taxonomy) || !is_array($uuids) || !array_is_list($uuids)) {
                     $this->add('schema_content_mismatch', $path, 'terms', 'each taxonomy relationship must be a UUID list');

@@ -53,6 +53,7 @@ use WPrism\Policy;
 use WPrism\CommandRefusalException;
 use WPrism\RepositoryCompilationException;
 use WPrism\RepositoryCompiler;
+use WPrism\RepositoryAuthorization;
 use WPrism\RepositoryAuthorizationException;
 use WPrism\UserMetaState;
 
@@ -699,6 +700,278 @@ if (!is_array($frozenOptions) || (OptionState::values($frozenOptions)['blogname'
 }
 needs(failure($mutable), 'conflict_marker');
 ok('compiled input and policy are immutable: later repo edits never change apply/snapshot consumers');
+
+$menuRef = "$tmp/menu-ref-clearance"; build_valid($menuRef);
+$menuPath = "$menuRef/state/menus/main.json";
+$menuDocument = Canon::decode(file_get_contents($menuPath));
+$menuDocument['items'][0]['type'] = 'custom';
+$menuDocument['items'][0]['object'] = 'custom';
+$menuDocument['items'][0]['ref'] = 'https://partner.example.test/connect?authorization=GeneratedValue-2026-Blocked';
+put($menuPath, Canon::encode($menuDocument));
+$auth = authorization_failure($menuRef);
+$menuRefFindings = array_values(array_filter(
+    $auth['diagnostics'],
+    static fn(array $d): bool => ($d['code'] ?? null) === 'repository_secret_not_allowed'
+        && ($d['surface'] ?? null) === 'menu_item[0]'
+        && ($d['field'] ?? null) === 'ref'
+));
+if (count($menuRefFindings) !== 1) {
+    fail('a Git-edited credential-bearing custom menu ref bypassed repository authorization');
+}
+ok('repository authorization independently clears Git-edited menu refs before apply');
+
+$nestedMenuSecret = 'authorization=Bearer aB3dE6fG7hI8jK9lMnOp';
+for ($encodingLayer = 0; $encodingLayer < 9; $encodingLayer++) {
+    $nestedMenuSecret = rawurlencode($nestedMenuSecret);
+}
+$nestedMenuPathSecret = 's%6B_l%69ve_PATHCREDENTIAL1234567890';
+$nestedMenuFragmentPii = 'email%3Dalice%40example.test';
+for ($encodingLayer = 1; $encodingLayer < 9; $encodingLayer++) {
+    $nestedMenuPathSecret = rawurlencode($nestedMenuPathSecret);
+    $nestedMenuFragmentPii = rawurlencode($nestedMenuFragmentPii);
+}
+foreach ([
+    'encoded-menu-secret' => [
+        'ref' => 'https://partner.example.test/connect?authorization=Bearer%20aB3dE6fG7hI8jK9lMnOp',
+        'code' => 'repository_secret_not_allowed',
+    ],
+    'encoded-menu-pii' => [
+        'ref' => 'https://partner.example.test/connect?email=alice%40example.test',
+        'code' => 'repository_pii_not_allowed',
+    ],
+    'nested-encoded-menu-secret' => [
+        'ref' => 'https://partner.example.test/connect?payload=' . $nestedMenuSecret,
+        'code' => 'repository_secret_not_allowed',
+    ],
+    'query-plus-menu-secret' => [
+        'ref' => 'https://partner.example.test/connect?api+key=aB3dE6fG7hI8jK9lMnOp',
+        'code' => 'repository_secret_not_allowed',
+    ],
+    'duplicate-menu-secret' => [
+        'ref' => 'https://partner.example.test/connect?smtp_pass=GeneratedValue-2026-Blocked&smtp_pass=disabled',
+        'code' => 'repository_secret_not_allowed',
+    ],
+    'encoded-name-menu-secret' => [
+        'ref' => 'https://partner.example.test/connect?smtp%5Fpass=GeneratedValue-2026-Blocked',
+        'code' => 'repository_secret_not_allowed',
+    ],
+    'nested-name-menu-secret' => [
+        'ref' => 'https://partner.example.test/connect?smtp_pass%5Bprimary%5D=GeneratedValue-2026-Blocked',
+        'code' => 'repository_secret_not_allowed',
+    ],
+    'indexed-name-menu-secret' => [
+        'ref' => 'https://partner.example.test/connect?smtp_pass%5B0%5D=GeneratedValue-2026-Blocked',
+        'code' => 'repository_secret_not_allowed',
+    ],
+    'nested-password-menu-secret' => [
+        'ref' => 'https://partner.example.test/connect?password%5Bprimary%5D=GeneratedValue-2026-Blocked',
+        'code' => 'repository_secret_not_allowed',
+    ],
+    'hard-secret-menu-key' => [
+        'ref' => 'https://partner.example.test/connect?sk%5Flive%5FQUERYKEY1234567890=enabled',
+        'code' => 'repository_secret_not_allowed',
+    ],
+    'pii-menu-key' => [
+        'ref' => 'https://partner.example.test/connect?alice%40example.test=enabled',
+        'code' => 'repository_pii_not_allowed',
+    ],
+    'numeric-phone-menu-key' => [
+        'ref' => 'https://partner.example.test/connect?%2D14155552671=enabled',
+        'code' => 'repository_pii_not_allowed',
+    ],
+    'encoded-path-menu-secret' => [
+        'ref' => 'https://partner.example.test/s%6B_l%69ve_PATHCREDENTIAL1234567890',
+        'code' => 'repository_secret_not_allowed',
+    ],
+    'nested-encoded-path-menu-secret' => [
+        'ref' => 'https://partner.example.test/' . $nestedMenuPathSecret,
+        'code' => 'repository_secret_not_allowed',
+    ],
+    'encoded-fragment-menu-secret' => [
+        'ref' => 'https://partner.example.test/connect#smtp%5Fpass%3DGeneratedValue-2026-Blocked',
+        'code' => 'repository_secret_not_allowed',
+    ],
+    'encoded-fragment-menu-pii' => [
+        'ref' => 'https://partner.example.test/connect#email%3Dalice%40example.test',
+        'code' => 'repository_pii_not_allowed',
+    ],
+    'nested-encoded-fragment-menu-pii' => [
+        'ref' => 'https://partner.example.test/connect#' . $nestedMenuFragmentPii,
+        'code' => 'repository_pii_not_allowed',
+    ],
+] as $fixture => $probe) {
+    $encodedMenuRef = "$tmp/$fixture";
+    build_valid($encodedMenuRef);
+    $encodedMenuPath = "$encodedMenuRef/state/menus/main.json";
+    $encodedMenuDocument = Canon::decode(file_get_contents($encodedMenuPath));
+    $encodedMenuDocument['items'][0]['type'] = 'custom';
+    $encodedMenuDocument['items'][0]['object'] = 'custom';
+    $encodedMenuDocument['items'][0]['ref'] = $probe['ref'];
+    put($encodedMenuPath, Canon::encode($encodedMenuDocument));
+    $encodedAuth = authorization_failure($encodedMenuRef);
+    $encodedFindings = array_values(array_filter(
+        $encodedAuth['diagnostics'],
+        static fn(array $d): bool => ($d['code'] ?? null) === $probe['code']
+            && ($d['surface'] ?? null) === 'menu_item[0]'
+            && ($d['field'] ?? null) === 'ref'
+    ));
+    if (count($encodedFindings) !== 1) {
+        fail("$fixture bypassed semantic URL clearance: " . json_encode($encodedAuth));
+    }
+}
+ok('menu-ref clearance scans decoded path/fragment views plus ordered duplicate query semantics');
+
+$uriParser = new ReflectionMethod(RepositoryAuthorization::class, 'menu_uri_clearance_parts');
+$clearanceBuilder = new ReflectionMethod(RepositoryAuthorization::class, 'menu_uri_clearance_value');
+$numericNameParts = $uriParser->invoke(
+    null,
+    'https://partner.example.test/connect?%2D14155552671=enabled'
+);
+$numericNameClearance = $clearanceBuilder->invoke(
+    null,
+    'https://partner.example.test/connect?%2D14155552671=enabled',
+    $numericNameParts
+);
+if (!in_array('-14155552671', $numericNameClearance, true)) {
+    fail('decoded numeric query name was not retained as an exact string candidate value');
+}
+ok('decoded numeric query names remain exact string values even when PHP coerces their semantic map keys');
+
+$uriBoundChild = "$tmp/menu-uri-total-bound.php";
+put($uriBoundChild, <<<'CHILD'
+<?php
+$root = $argv[1];
+require_once $root . '/agent/src/Repository/RepositoryAuthorization.php';
+
+$parser = new ReflectionMethod(WPrism\RepositoryAuthorization::class, 'menu_uri_clearance_parts');
+$url = str_repeat('x', 34 * 1024 * 1024);
+$url[0] = '#';
+if ($parser->invoke(null, $url) !== null) {
+    fwrite(STDERR, "oversize URI was admitted\n");
+    exit(2);
+}
+fwrite(STDOUT, "EARLY_NULL\n");
+CHILD);
+$uriBoundProcess = proc_open(
+    [
+        PHP_BINARY,
+        '-d', 'memory_limit=64M',
+        '-d', 'display_errors=0',
+        '-d', 'log_errors=0',
+        $uriBoundChild,
+        $root,
+    ],
+    [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+    $uriBoundPipes
+);
+if (!is_resource($uriBoundProcess)) {
+    fail('could not start the constrained-memory menu URI bound probe');
+}
+$uriBoundStdout = (string) stream_get_contents($uriBoundPipes[1]);
+$uriBoundStderr = (string) stream_get_contents($uriBoundPipes[2]);
+fclose($uriBoundPipes[1]);
+fclose($uriBoundPipes[2]);
+$uriBoundExit = proc_close($uriBoundProcess);
+if ($uriBoundExit !== 0 || $uriBoundStdout !== "EARLY_NULL\n" || $uriBoundStderr !== '') {
+    fail('menu URI total bound ran after allocating its oversize fragment');
+}
+ok('menu URI total bound returns before a 34 MiB fragment allocation under a 64 MiB child limit');
+
+$overworkedMenuQuery = 'authorization=Bearer aB3dE6fG7hI8jK9lMnOp';
+for ($encodingLayer = 0; $encodingLayer < 80; $encodingLayer++) {
+    $overworkedMenuQuery = rawurlencode($overworkedMenuQuery);
+}
+$overworkedMenuPath = 'smtp_pass=GeneratedValue-2026-Blocked';
+for ($encodingLayer = 0; $encodingLayer < 80; $encodingLayer++) {
+    $overworkedMenuPath = rawurlencode($overworkedMenuPath);
+}
+$invalidMenuQueries = [
+    'malformed-menu-query' => 'https://partner.example.test/connect?value=%ZZ',
+    'nested-malformed-menu-query' => 'https://partner.example.test/connect?value=%25ZZ',
+    'malformed-menu-query-name-open' => 'https://partner.example.test/connect?smtp_pass%5Bprimary=value',
+    'malformed-menu-query-name-close' => 'https://partner.example.test/connect?smtp_pass%5D=value',
+    'deep-menu-query-name' => 'https://partner.example.test/connect?root'
+        . str_repeat('%5Blevel%5D', 16) . '=ordinary',
+    'oversize-menu-query-name-segment' => 'https://partner.example.test/connect?root%5B'
+        . str_repeat('x', 1025) . '%5D=ordinary',
+    'oversize-menu-query-component' => 'https://partner.example.test/connect?value=' . str_repeat('x', 8193),
+    'oversize-menu-query-total' => 'https://partner.example.test/connect?'
+        . implode('&', array_fill(0, 9, 'value=' . str_repeat('x', 8000))),
+    'too-many-menu-query-pairs' => 'https://partner.example.test/connect?'
+        . implode('&', array_fill(0, 513, 'value=ordinary')),
+    'overworked-menu-query' => 'https://partner.example.test/connect?payload=' . $overworkedMenuQuery,
+    'malformed-menu-path' => 'https://partner.example.test/%ZZ',
+    'nested-malformed-menu-path' => 'https://partner.example.test/%25ZZ',
+    'control-menu-path' => 'https://partner.example.test/%0Aprivate',
+    'oversize-menu-path' => 'https://partner.example.test/' . str_repeat('x', 65537),
+    'overworked-menu-path' => 'https://partner.example.test/' . $overworkedMenuPath,
+    'malformed-menu-fragment' => 'https://partner.example.test/connect#%ZZ',
+    'nested-malformed-menu-fragment' => 'https://partner.example.test/connect#%25ZZ',
+    'control-menu-fragment' => 'https://partner.example.test/connect#%0Aprivate',
+    'oversize-menu-fragment' => 'https://partner.example.test/connect#' . str_repeat('x', 65537),
+    'oversize-menu-uri-total' => 'https://partner.example.test/' . str_repeat('p', 45000) . '?'
+        . implode('&', array_fill(0, 6, 'value=' . str_repeat('q', 7000)))
+        . '#' . str_repeat('f', 45000),
+];
+foreach ($invalidMenuQueries as $fixture => $ref) {
+    $invalidMenuRef = "$tmp/$fixture";
+    build_valid($invalidMenuRef);
+    $invalidMenuPath = "$invalidMenuRef/state/menus/main.json";
+    $invalidMenuDocument = Canon::decode(file_get_contents($invalidMenuPath));
+    $invalidMenuDocument['items'][0]['type'] = 'custom';
+    $invalidMenuDocument['items'][0]['object'] = 'custom';
+    $invalidMenuDocument['items'][0]['ref'] = $ref;
+    put($invalidMenuPath, Canon::encode($invalidMenuDocument));
+    $invalidAuth = authorization_failure($invalidMenuRef);
+    $invalidFindings = array_values(array_filter(
+        $invalidAuth['diagnostics'],
+        static fn(array $d): bool => ($d['code'] ?? null) === 'repository_menu_url_query_invalid'
+            && ($d['surface'] ?? null) === 'menu_item[0]'
+            && ($d['field'] ?? null) === 'ref'
+    ));
+    if (count($invalidFindings) !== 1 || str_contains((string) json_encode($invalidAuth), $ref)) {
+        fail("$fixture did not refuse with one redacted bounded-query finding");
+    }
+}
+ok('malformed, oversized, over-count, and overworked URI components refuse without reflecting URL bytes');
+
+$safeMenuRef = "$tmp/safe-encoded-menu-query";
+$safeIds = build_valid($safeMenuRef);
+$safeMenuPath = "$safeMenuRef/state/menus/main.json";
+$safeMenuDocument = Canon::decode(file_get_contents($safeMenuPath));
+$safeMenuDocument['items'][0]['type'] = 'custom';
+$safeMenuDocument['items'][0]['object'] = 'custom';
+$safeEncodedRef = 'https://partner.example.test/%41gency/connect?filter%5Bcolor%5D=blue'
+    . '&filter%5Bcolor%5D=green&label=Agency%20Portal#view%3Dsummary';
+$safeMenuDocument['items'][0]['ref'] = $safeEncodedRef;
+put($safeMenuPath, Canon::encode($safeMenuDocument));
+$safeCompiled = compile_repo($safeMenuRef);
+if (($safeCompiled->tree()[$safeIds['menu']]['data']['items'][0]['ref'] ?? null) !== $safeEncodedRef) {
+    fail('menu query clearance rebuilt or canonicalized the stored URL bytes');
+}
+ok('safe path/query/fragment scanning leaves the compiled canonical menu URL byte-identical');
+
+$braceMenu = "$tmp/menu-brace-literal-clearance";
+build_valid($braceMenu);
+$braceSitePath = "$braceMenu/site.wprism.json";
+$braceSite = Canon::decode(file_get_contents($braceSitePath));
+$braceSite['policy']['post_meta']['customer_first_name'] = ['class' => 'authored'];
+put($braceSitePath, Canon::encode($braceSite));
+$braceMenuPath = "$braceMenu/state/menus/main.json";
+$braceMenuDocument = Canon::decode(file_get_contents($braceMenuPath));
+$braceMenuDocument['items'][0]['meta'] = ['customer_first_name' => '{Alice Smith}'];
+put($braceMenuPath, Canon::encode($braceMenuDocument));
+$braceMenuAuth = authorization_failure($braceMenu);
+$braceMenuFindings = array_values(array_filter(
+    $braceMenuAuth['diagnostics'],
+    static fn(array $d): bool => ($d['code'] ?? null) === 'repository_pii_not_allowed'
+        && ($d['surface'] ?? null) === 'menu_item[0]'
+        && ($d['field'] ?? null) === 'customer_first_name'
+));
+if (count($braceMenuFindings) !== 1) {
+    fail('literal personal data in braces bypassed repository authorization');
+}
+ok('brace-delimited literal personal data is not mistaken for a repository template token');
 
 $userMeta = "$tmp/user-meta"; build_valid($userMeta);
 $sitePath = "$userMeta/site.wprism.json";

@@ -349,6 +349,17 @@ declared key of M`. That null is the engine's own verdict, not a second
 opinion: the report publishes `DeleteGuardEvaluator::lock_index()`'s return
 value and refuses to print an explanation that disagrees with it.
 
+A table absent on some supported versions is not a generic optional guard.
+After reviewing that topology, declare `"table_absence": "empty"` only on a
+guard whose table is also owned by the same manifest. The feasibility report
+then returns `table_present: false`, `absence_means_empty: true`, and no index
+reason: there is no table to lock. At apply time exact absence has its own
+witness, distinct from a present empty table, and is re-censused immediately
+before commit under the signed writer exclusion. A present table still needs
+the ordinary InnoDB, covering-index, row-lock, and reference-clearance proof.
+Required absence, mixed modes for one table, malformed declarations, census
+errors, and near matches all refuse.
+
 The proposal is deliberately *not* a manifest fragment. It carries no
 `cascades` — the report refuses one by name — proposes nothing, and declares
 `authority: false`, because a covering index is a necessary condition for a
@@ -1088,6 +1099,9 @@ wp-cli parsing traps that were confirmed empirically rather than assumed:
 - **Repeating the flag does not accumulate.** `--set=a --set=b` keeps only
   `b`. Pass multiple rules as one semicolon-joined value:
   `--set='post_meta:foo=runtime;options:bar=authored,ref=post'`.
+- **Clearance is per row.** Put `allow_secret=true` or `allow_pii=true` inside
+  only the reviewed row of a joined value. The legacy `--allow-secret` and
+  `--allow-pii` flags remain single-row shorthand and refuse a multi-row set.
 
 Both apply whenever you drive `wp wprism classify` directly. `wprism classify` builds
 the joined value for you.

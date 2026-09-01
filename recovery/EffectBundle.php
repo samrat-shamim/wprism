@@ -520,7 +520,13 @@ final class EffectBundle {
             if (!is_array($row) || array_is_list($row)) throw new \RuntimeException('wprism effects: malformed inventory row');
             self::assertExactKeys($row, ['effect', 'manifest', 'phase', 'source'], 'inventory row');
             self::assertActor((string) $row['manifest'], 'manifest');
-            if (!in_array($row['phase'] ?? null, ['lifecycle', 'rebuild', 'regenerator'], true)
+            // Policy::effects_inventory() names lifecycle_settle actions with
+            // this hyphenated receipt phase. Rejecting the compiler's own
+            // phase here made automatic recovery fail before mutation on any
+            // adapter that declared settlement effects (WooCommerce is the
+            // live witness), even though target observation already compares
+            // the phase exactly rather than widening it.
+            if (!in_array($row['phase'] ?? null, ['lifecycle', 'lifecycle-settle', 'rebuild', 'regenerator'], true)
                 || !is_string($row['source']) || $row['source'] === '') {
                 throw new \RuntimeException('wprism effects: inventory phase/source is malformed');
             }
@@ -784,6 +790,6 @@ final class EffectBundle {
     private static function publishExact(string $p, string $b, int $m, string $l): void { AtomicStore::publishExact($p, $b, $m, $l, 'wprism effects', true); }
     private static function receiptDirectory(string $root, string $id): string { self::assertIdentifier($id, 'receipt id', 32, 64);
     return dirname($root).'/rollback/'.$id; }
-    /** @template T @param callable():T $callback @return T */ private static function withLock(string $root,callable $callback): mixed { $p = $root.'/effect-bundle.lock';
-    return ProtocolLock::withExclusive($p,$callback,'wprism effects: lock path is unsafe','wprism effects: could not acquire lock','wprism effects: could not acquire lock',0600); }
+    /** @template T @param callable():T $callback @return T */ private static function withLock(string $root, callable $callback): mixed { $p = $root.'/effect-bundle.lock';
+    return ProtocolLock::withExclusive($p, $callback, 'wprism effects: lock path is unsafe', 'wprism effects: could not acquire lock', 'wprism effects: could not acquire lock', 0600); }
 }

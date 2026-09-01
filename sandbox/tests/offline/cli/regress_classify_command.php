@@ -162,6 +162,8 @@ final class ClassifyCommandDriver implements EnvironmentDriver {
                 $assoc['set'] = substr($arg, strlen('--set='));
             } elseif ($arg === '--allow-secret') {
                 $assoc['allow-secret'] = true;
+            } elseif ($arg === '--allow-pii') {
+                $assoc['allow-pii'] = true;
             }
         }
         try {
@@ -181,12 +183,19 @@ final class ClassifyCommandDriver implements EnvironmentDriver {
 }
 
 /** @return array<string,mixed> */
-function classify_item(string $section, string $key, ?string $proposal = null, ?string $secret = null): array {
+function classify_item(
+    string $section,
+    string $key,
+    ?string $proposal = null,
+    ?string $secret = null,
+    ?string $pii = null
+): array {
     return [
         'section' => $section,
         'key' => $key,
         'proposal' => $proposal,
         'secret' => $secret,
+        'pii' => $pii,
         'evidence' => [],
         'ref_hint' => null,
     ];
@@ -394,8 +403,8 @@ assert_classify_command(
 
 unlink($exportPath);
 
-// A reviewed decision that authors a secret-flagged item with allow_secret
-// explicitly set true must append --allow-secret to the streamed --set call.
+// A reviewed decision that authors a secret-flagged item keeps allow_secret
+// on its own streamed row; it never widens into command-wide authority.
 $secretApplyItems = [classify_item('options', 'api_key', 'authored', 'looks like an API key')];
 $secretApplyPath = sys_get_temp_dir() . '/wprism_regress_classify_secret_' . bin2hex(random_bytes(6)) . '.json';
 $secretBatch = ClassificationBatch::template('classify-fixture', $secretApplyItems);
@@ -410,10 +419,136 @@ $applySecretExit = ClassifyCommand::run($applySecret, ["--apply-batch=$secretApp
 ob_get_clean();
 assert_classify_command($applySecretExit === 0, 'an allow_secret-confirmed authored decision applies successfully');
 assert_classify_command(
-    $applySecret->streamedArgs[0] === ['wprism', 'classify', '--repo=/fixture/repo', '--set=options:api_key=authored,autoload=preserve', '--allow-secret'],
-    '--allow-secret is appended exactly when the reviewed batch confirms it'
+    $applySecret->streamedArgs[0] === [
+        'wprism',
+        'classify',
+        '--repo=/fixture/repo',
+        '--set=options:api_key=authored,autoload=preserve,allow_secret=true',
+    ],
+    'allow_secret=true travels on exactly the reviewed row'
 );
 unlink($secretApplyPath);
+
+$piiApplyItems = [classify_item('post_meta', 'contact_email', 'authored', null, 'email address')];
+$piiApplyPath = sys_get_temp_dir() . '/wprism_regress_classify_pii_' . bin2hex(random_bytes(6)) . '.json';
+$piiBatch = ClassificationBatch::template('classify-fixture', $piiApplyItems);
+$piiBatch['decisions'][0]['class'] = 'authored';
+$piiBatch['decisions'][0]['allow_pii'] = true;
+file_put_contents($piiApplyPath, ClassificationBatch::encode($piiBatch));
+$applyPii = new ClassifyCommandDriver($piiApplyItems);
+$applyPii->itemsByCall = [2 => []];
+ob_start();
+$applyPiiExit = ClassifyCommand::run($applyPii, ["--apply-batch=$piiApplyPath"]);
+ob_get_clean();
+assert_classify_command($applyPiiExit === 0, 'an allow_pii-confirmed authored decision applies successfully');
+assert_classify_command(
+    $applyPii->streamedArgs[0] === [
+        'wprism',
+        'classify',
+        '--repo=/fixture/repo',
+        '--set=post_meta:contact_email=authored,allow_pii=true',
+    ],
+    'allow_pii=true travels on exactly the reviewed row'
+);
+unlink($piiApplyPath);
+
+// The batch binding closes the host-side queue read, but the target must read
+// live values again before writing. Reproduce that window with two rows: only
+// the first was sensitive during review and carries authority; the second has
+// become sensitive by the target read. The old command-wide flag cleared both.
+$secretRaceItems = [
+    classify_item('options', 'reviewed_gateway_api_key', null, 'hard:stripe key'),
+    classify_item('options', 'raced_gateway_api_key'),
+];
+$secretRaceBatch = ClassificationBatch::template('classify-fixture', $secretRaceItems);
+foreach ($secretRaceBatch['decisions'] as &$secretRaceDecision) {
+    $secretRaceDecision['class'] = 'authored';
+    $secretRaceDecision['autoload'] = 'preserve';
+}
+unset($secretRaceDecision);
+$secretRaceBatch['decisions'][0]['allow_secret'] = true;
+$secretRacePath = sys_get_temp_dir() . '/wprism_regress_classify_secret_race_' . bin2hex(random_bytes(6)) . '.json';
+file_put_contents($secretRacePath, ClassificationBatch::encode($secretRaceBatch));
+$secretRaceRepo = classify_fixture_repo();
+$wpdb->seedTable('wp_options', [
+    [
+        'option_id' => 1,
+        'option_name' => 'reviewed_gateway_api_key',
+        'option_value' => 'sk_live_Reviewed1234567890',
+        'autoload' => 'yes',
+    ],
+    [
+        'option_id' => 2,
+        'option_name' => 'raced_gateway_api_key',
+        'option_value' => 'sk_live_Raced1234567890123',
+        'autoload' => 'yes',
+    ],
+]);
+$secretRace = new ClassifyCommandDriver($secretRaceItems);
+$secretRace->agentRepo = $secretRaceRepo;
+ob_start();
+$secretRaceExit = ClassifyCommand::run($secretRace, ["--apply-batch=$secretRacePath"]);
+ob_get_clean();
+$secretRaceWritten = json_decode((string) file_get_contents($secretRaceRepo . '/site.wprism.json'), true);
+assert_classify_command($secretRaceExit === 1, 'a second row that becomes secret at target reread refuses');
+assert_classify_command(
+    $secretRace->streamedArgs[0] === [
+        'wprism',
+        'classify',
+        '--repo=' . $secretRaceRepo,
+        '--set=options:reviewed_gateway_api_key=authored,autoload=preserve,allow_secret=true;'
+            . 'options:raced_gateway_api_key=authored,autoload=preserve',
+    ],
+    'secret authority remains attached only to the reviewed row across the host-to-agent protocol'
+);
+assert_classify_command(
+    ($secretRaceWritten['policy']['options']['reviewed_gateway_api_key']['allow_secret'] ?? null) === true
+        && !isset($secretRaceWritten['policy']['options']['raced_gateway_api_key']),
+    'the reviewed secret row writes its exact exception while the raced sibling receives none'
+);
+unlink($secretRacePath);
+
+$piiRaceItems = [
+    classify_item('post_meta', 'reviewed_contact_email', null, null, 'email address'),
+    classify_item('post_meta', 'raced_profile_value'),
+];
+$piiRaceBatch = ClassificationBatch::template('classify-fixture', $piiRaceItems);
+foreach ($piiRaceBatch['decisions'] as &$piiRaceDecision) {
+    $piiRaceDecision['class'] = 'authored';
+}
+unset($piiRaceDecision);
+$piiRaceBatch['decisions'][0]['allow_pii'] = true;
+$piiRacePath = sys_get_temp_dir() . '/wprism_regress_classify_pii_race_' . bin2hex(random_bytes(6)) . '.json';
+file_put_contents($piiRacePath, ClassificationBatch::encode($piiRaceBatch));
+$piiRaceRepo = classify_fixture_repo();
+$wpdb->seedTable('wp_postmeta', [
+    ['meta_id' => 1, 'post_id' => 10, 'meta_key' => 'reviewed_contact_email', 'meta_value' => 'reviewed@example.test'],
+    ['meta_id' => 2, 'post_id' => 10, 'meta_key' => 'raced_profile_value', 'meta_value' => 'raced@example.test'],
+]);
+$piiRace = new ClassifyCommandDriver($piiRaceItems);
+$piiRace->agentRepo = $piiRaceRepo;
+ob_start();
+$piiRaceExit = ClassifyCommand::run($piiRace, ["--apply-batch=$piiRacePath"]);
+ob_get_clean();
+$piiRaceWritten = json_decode((string) file_get_contents($piiRaceRepo . '/site.wprism.json'), true);
+assert_classify_command($piiRaceExit === 1, 'a second row that becomes PII at target reread refuses');
+assert_classify_command(
+    $piiRace->streamedArgs[0] === [
+        'wprism',
+        'classify',
+        '--repo=' . $piiRaceRepo,
+        '--set=post_meta:reviewed_contact_email=authored,allow_pii=true;post_meta:raced_profile_value=authored',
+    ],
+    'PII authority remains attached only to the reviewed row across the host-to-agent protocol'
+);
+assert_classify_command(
+    ($piiRaceWritten['policy']['post_meta']['reviewed_contact_email']['allow_pii'] ?? null) === true
+        && !isset($piiRaceWritten['policy']['post_meta']['raced_profile_value']),
+    'the reviewed PII row writes its exact exception while the raced sibling receives none'
+);
+unlink($piiRacePath);
+$wpdb->seedTable('wp_options', []);
+$wpdb->seedTable('wp_postmeta', []);
 
 $staleBatchPath = sys_get_temp_dir() . '/wprism_regress_classify_stale_' . bin2hex(random_bytes(6)) . '.json';
 file_put_contents($staleBatchPath, ClassificationBatch::encode(ClassificationBatch::template('classify-fixture', [classify_item('options', 'gone', 'runtime')])));
@@ -447,6 +582,14 @@ $acceptSecretExit = ClassifyCommand::run($acceptSecret, ['--accept-proposals']);
 $acceptSecretOutput = (string) ob_get_clean();
 assert_classify_command($acceptSecretExit === 2, 'a secret-flagged authored proposal exits 2, never silently applied');
 assert_classify_command($acceptSecret->streamCalls === 0, 'a secret-only queue never streams a classify call');
+
+$piiItems = [classify_item('post_meta', 'contact_email', 'authored', null, 'email address')];
+$acceptPii = new ClassifyCommandDriver($piiItems);
+ob_start();
+$acceptPiiExit = ClassifyCommand::run($acceptPii, ['--accept-proposals']);
+ob_get_clean();
+assert_classify_command($acceptPiiExit === 2, 'a PII-flagged authored proposal exits 2, never silently applied');
+assert_classify_command($acceptPii->streamCalls === 0, 'a PII-only queue never streams a classify call');
 
 // A journal proposal reports which capability wrote the value on which
 // surface (Journal::propose) — it cannot know how the wp_options row must be
@@ -530,6 +673,20 @@ assert_classify_command(
     'a post_meta row is never asked: the site grammar reads neither field there'
 );
 
+[$triagePii, $triagePiiOut] = run_triage(
+    [classify_item('post_meta', 'contact_email', null, null, 'email address')],
+    "a\nallow\n"
+);
+assert_classify_command(
+    $triagePii['needAllowPii'] === true
+        && $triagePii['decisions'] === [['section' => 'post_meta', 'key' => 'contact_email', 'class' => 'authored']],
+    'interactive PII approval records one target-side allow-pii requirement'
+);
+assert_classify_command(
+    str_contains($triagePiiOut, 'PII: email address') && str_contains($triagePiiOut, 'Type "allow"'),
+    'interactive review names the redacted PII class and requires literal approval'
+);
+
 // ---------------------------------------------------------------------------
 // issue #3496 end to end, through the real agent: a batch that applies clean
 // scans clean, and one that is incomplete never reaches site.wprism.json.
@@ -580,8 +737,8 @@ assert_classify_command(
 );
 $e2eBatch = json_decode((string) file_get_contents($e2ePath), true);
 assert_classify_command(
-    ($e2eBatch['format'] ?? null) === 'wprism-classification-batch/v2',
-    'the exported artifact declares the v2 shape that can carry a complete decision'
+    ($e2eBatch['format'] ?? null) === 'wprism-classification-batch/v3',
+    'the exported artifact declares the v3 shape that carries storage and PII decisions'
 );
 
 // Class only: exactly what a reviewer could produce from a v1-shaped form.
@@ -680,9 +837,63 @@ assert_classify_command(
 );
 [$unknownField, ] = run_agent_classify('options:legacy_banner=authored,storage=yes');
 assert_classify_command(
-    is_string($unknownField) && str_contains($unknownField, '(expected ref=|cast=|autoload=|required=)'),
+    is_string($unknownField)
+        && str_contains($unknownField, '(expected ref=|cast=|autoload=|required=|allow_secret=|allow_pii=)'),
     'the unknown-option refusal names the whole accepted field set'
 );
+
+$legacyGlobalRepo = classify_fixture_repo();
+$legacyGlobalBefore = (string) file_get_contents($legacyGlobalRepo . '/site.wprism.json');
+try {
+    (new \WPrism\Cli())->classify([], [
+        'repo' => $legacyGlobalRepo,
+        'set' => 'post_meta:first=runtime;post_meta:second=runtime',
+        'allow-secret' => true,
+    ]);
+    $legacyGlobalMessage = null;
+} catch (Throwable $error) {
+    $legacyGlobalMessage = $error->getMessage();
+}
+assert_classify_command(
+    is_string($legacyGlobalMessage) && str_contains($legacyGlobalMessage, 'valid only for a single --set row'),
+    'a legacy command-wide clearance flag refuses on a multi-row set'
+);
+assert_classify_command(
+    (string) file_get_contents($legacyGlobalRepo . '/site.wprism.json') === $legacyGlobalBefore,
+    'the ambiguous legacy multi-row clearance refuses before writing any row'
+);
+
+$piiRepo = classify_fixture_repo();
+$wpdb->seedTable('wp_options', [[
+    'option_id' => 1,
+    'option_name' => 'contact_email',
+    'option_value' => 'person@example.test',
+    'autoload' => 'yes',
+]]);
+try {
+    (new \WPrism\Cli())->classify([], [
+        'repo' => $piiRepo,
+        'set' => 'options:contact_email=authored,autoload=preserve',
+    ]);
+    $piiRefusal = null;
+} catch (Throwable $error) {
+    $piiRefusal = $error->getMessage();
+}
+assert_classify_command(
+    is_string($piiRefusal) && str_contains($piiRefusal, 'pass --allow-pii to override'),
+    'the agent refuses an authored PII-shaped current value without exact review'
+);
+(new \WPrism\Cli())->classify([], [
+    'repo' => $piiRepo,
+    'set' => 'options:contact_email=authored,autoload=preserve',
+    'allow-pii' => true,
+]);
+$piiWritten = json_decode((string) file_get_contents($piiRepo . '/site.wprism.json'), true);
+assert_classify_command(
+    ($piiWritten['policy']['options']['contact_email']['allow_pii'] ?? null) === true,
+    '--allow-pii records a boolean exception on only the exact authored rule'
+);
+$wpdb->seedTable('wp_options', []);
 
 // The site-level default is the other legitimate way the autoload question is
 // already answered, and the write boundary honours it instead of demanding a

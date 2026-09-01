@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Repository/Ledger.php';
+require_once __DIR__ . '/../Repository/SidebarState.php';
 
 /**
  * issue #3290: names and counts what a site actually has versus what WPrism can
@@ -104,6 +105,17 @@ final class Coverage {
         $invisibleNames = [];
         foreach ($rows as $row) {
             $name = (string) $row['option_name'];
+            // SidebarState is an independent artifact writer, not a generic
+            // option declaration. It owns the exact sidebars row and every
+            // widget_<type> row end to end (SidebarState.php:51-53), so these
+            // names are captured even though no options.<name> rule exists.
+            // Keeping this ahead of policy lookup mirrors Pending's mechanism
+            // ownership boundary and prevents a second, duplicate declaration
+            // vocabulary from becoming the coverage answer.
+            if (SidebarState::owns_option($name)) {
+                $captured++;
+                continue;
+            }
             $owner = null;
             $fromDynamic = false;
             // Precedence is the engine's own, in the engine's own order,

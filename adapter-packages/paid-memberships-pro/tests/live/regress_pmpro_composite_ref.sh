@@ -41,7 +41,7 @@
 # for this dispatch; 8930/8931 were this session's own exploratory pair,
 # already destroyed before authoring this script).
 set -euo pipefail
-PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 cd "$(dirname "$0")/../../../../sandbox"
 

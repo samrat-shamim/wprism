@@ -122,11 +122,14 @@ deprecated `setted_transient` boundaries), as well as
 `woocommerce_product_read` and `woocommerce_updated_product_price`.
 `WC_Cache_Helper::invalidate_attribute_count(array_keys($product->get_attributes()))`
 queues the concrete `wc_layered_nav_counts_<attribute>` keys. Live product and
-variation objects supply their own keys; deletion-only batches conservatively
-invalidate the finite registered Woo taxonomy set because the deleted object
-cannot be loaded after raw SQL deletion. A variation also invalidates its
-parent's fixed/specific transients and product cache, matching Woo's public
-11.x clear-cache behavior.
+variation objects supply their own keys on ordinary authored writes. A
+standalone-product tombstone does not select this broad native rebuild: its
+separate deletion capability removes only the exact product's two lookup-table
+projections, cancels its exact pending sale actions, deletes the fixed and
+product-specific reviewed transient rows plus `product-transient-version`, and
+proves that database-contained postcondition inside its own transaction.
+Variation tombstones remain unsupported because their parent projection would
+require the broader hook/cache surface described above.
 
 The ordinary, manual `wprism promote` path remains supported. Operators may
 continue to use it with an explicit review/rollback plan; the effect bundle
@@ -135,15 +138,17 @@ of automatic reversibility.
 
 The exact inventory is pinned by
 `adapter-packages/woocommerce/tests/offline/regress_woocommerce_effect_contract.php`:
-both product types
-name `posts`, `postmeta`, both lookup tables, every fixed transient value and
+both product types' ordinary-write action
+names `posts`, `postmeta`, both lookup tables, every fixed transient value and
 timeout row, both product-version rows, and the attribute-taxonomy transient
 value/timeout rows as checkpoint-restorable. The
 offline product fake exercises fixed deletes, concrete id-suffixed product
 families, product-version get/set, concrete fixed-delete callbacks, and
 concrete layered-nav invalidation; it
 does not leave `wc_delete_product_transients()` or attribute invalidation as a
-false-green no-op. Runtime observations therefore carry concrete IDs and
+false-green no-op. The deletion action instead declares four checkpoint-
+restorable database effects and no hook, cache, mail, queue, or HTTP effect.
+Runtime observations therefore carry concrete IDs and
 attribute names and reconcile to the declared aggregate's finite family list.
 The attribute transient command declares the exact WordPress
 `delete_transient_wc_attribute_taxonomies` and `deleted_transient` callback

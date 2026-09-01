@@ -17,11 +17,10 @@ use WPrism\CommandRefusalException;
  * The human projection of `wprism-assess-report/v1` — the five sections MUP
  * §2.1 prints, bounded per MUP §4.6 (round-3 MUP §2.1, §4.1, §4.6).
  *
- * The human view is a *projection of the same document* `--format=json`
- * emits, never a second computation: every word printed here is read out of
- * the report, and the only thing this class decides is layout and how much
- * of a long list to show. That is what makes `regress_assess_bounds.sh` a
- * real check rather than a check of a second renderer.
+ * The human view is a *projection of the same complete document* a bare
+ * `--format=json` emits, never a second computation. An explicit JSON
+ * `--limit` selects `wprism-assess-view/v1`, which `AssessReport` derives
+ * from that complete document only after readiness and counts are known.
  *
  * ## The bound
  *

@@ -46,13 +46,14 @@ wprism code-classify <env> [--dry-run] [--first-party=<root>/<slug>[,…]] [--of
 wprism code-resolve  <env> [--dry-run] [--offline] [--cache-dir=<path>]
 wprism code-import <archive.zip> [--component=<slug>] [--root=plugins|themes] [--cache-dir=<path>] [--format=json]
 wprism status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--cursor=<token>] [--limit=<1..200>]
-wprism assess <env> [--operation=<ops>] [--limit=<1..200>] [--format=json]
+wprism assess <env> [--operation=<ops>] [--limit=<1..200>] [--cursor=<token>] [--format=json]
 wprism contract <env> show|propose|accept|attest [--format=json]
 wprism rehearse <env> --from <production-env> [--branch <ref>] [--create] [--ttl <seconds>] [--limit=<1..200>] [--format=json]
 wprism rehearse <env> --reap [--format=json]
 wprism preview create <env> --from <production-env> [rehearse flags...]
 wprism preview remove <env> [--format=json]
-wprism demo start [--scenario=woocommerce] [--name=<name>] [--source-port=<port>] [--target-port=<port>]
+wprism demo start [--scenario=core|woocommerce] [--name=<name>] [--source-port=<port>] [--target-port=<port>]
+wprism demo review [--name=<name>] --accept-page-only
 wprism demo status|capture|apply|refusal|stop [--name=<name>]
 wprism stage-source <env> --from=<branch-or-tag> --operation=<id> [--format=json]
 wprism authority-policy <env> status --format=json
@@ -92,11 +93,20 @@ are rejected when the registry is loaded.
 
 ### First contact
 
-`wprism demo start --scenario=woocommerce` owns a disposable source-checkout
-pair and prints the complete capture → Git diff → apply → refusal → teardown
-loop. It uses the same pair budget and digest-pinned artifact resolver as the
-live test estate; `demo stop` removes only the named demo's pair resources and
-repositories.
+`wprism demo start` owns a disposable source-checkout pair and prints the
+complete review → capture → Git diff → authorization preview → evaluation apply
+→ refusal → teardown loop. The default WordPress-core scenario installs no
+extension, verifies the exact digest-pinned WordPress 7.1 image, and stops only
+after the managed core capability set qualifies and a bounded machine
+assessment exits ready. `demo review --accept-page-only` narrows the generated
+contract to the page surface, removes the unused code-lifecycle placeholder,
+and commits only `contract.json` plus `projection.json`; without that exact
+confirmation it mutates nothing. The later apply runs the real plan-only release
+command before raw evaluation apply, proves exact page convergence, and preserves
+a target-only comment. A red assessment blocks this guided journey.
+`--scenario=woocommerce` is the advanced adapter journey. Both use the same
+pair budget and digest-pinned artifact resolver as the live test estate;
+`demo stop` removes only the named demo's pair resources and repositories.
 
 `wprism connect` issues no explicit mutation. It checks raw reachability,
 installed WordPress, and single-site topology before creating a dedicated local Git
@@ -491,7 +501,7 @@ semantics remain the rehearsal implementation's.
   regen_pending entries (a derived table with a hard per-entity
   availability dependency — issue #3234, e.g. TEC's tec_occurrences — whose
   post-apply verification failed and hasn't yet resolved), env_missing
-  entries (a manifest-declared `class: "env"` option unset on this
+  entries (a manifest-declared `class: "env"` option or canonical post-password binding unset on this
   environment — issue #3232, see "Env-bound value provisioning" below), and
   any plan-level warnings.
 
@@ -574,15 +584,18 @@ semantics remain the rehearsal implementation's.
   `--force-code-drift`; ordinary state drift instead refuses before mutation
   and requires capture/reconciliation (except for the separately checkpointed
   scoped-promotion authority). A regen_pending marker makes the *next* apply
-  retry rather than refusing at preparation. Env_missing is a third case:
-  apply never refuses on it at all (env values are never captured/applied —
-  there is nothing for apply's own preconditions to check), but status still
-  reports a required-and-missing entry as not clean because it answers
-  "safe to promote?", not just "will apply refuse?" — capture first for
-  ordinary drift, retry for regen_pending (automatic on the next `wprism
-  apply`), `wprism env-set` for env_missing. An *optional* (`required: false`)
-  env_missing entry is still listed for visibility but never flips this by
-  itself — it's plugin-internal bookkeeping the plugin populates on its own.
+  retry rather than refusing at preparation. Env_missing has two executable
+  cases. Ordinary environment options are never captured or applied, so their
+  rows do not make apply refuse. A required protected-post
+  `post_password:<uuid>` binding is different: apply materializes that
+  target-local value into `post_password` and refuses transactionally when it
+  is absent. Status reports either required case as not clean because it
+  answers "safe to promote?", not just "will apply refuse?" — capture first
+  for ordinary drift, retry for regen_pending (automatic on the next `wprism
+  apply`), and use `wprism env-set` for env_missing. An *optional*
+  (`required: false`) env_missing entry is still listed for visibility but
+  never flips this by itself — it's plugin-internal bookkeeping the plugin
+  populates on its own.
   Also non-zero if the underlying `wp wprism plan` call itself failed or
   returned unparseable JSON. Plain warnings are rendered but never flip this
   by themselves — see the decision-matrix comment in
@@ -598,7 +611,7 @@ semantics remain the rehearsal implementation's.
   `wprism status` parses and reformats; it does not print the raw JSON. Use
   `wprism plan <env> --format=json` for that.
 
-- **`wprism assess <env> [--operation=<ops>] [--limit=<1..200>] [--format=json]`**
+- **`wprism assess <env> [--operation=<ops>] [--limit=<1..200>] [--cursor=<token>] [--format=json]`**
   — the decision-first, READ-ONLY assessment. One run composes `Doctor`, the
   adoption and initialization probes, `wp wprism assess-inventory`, `wp wprism
   capabilities` once per distinct capability-report operation, and the host adapter
@@ -616,8 +629,11 @@ semantics remain the rehearsal implementation's.
   The proposal is per environment and the contract and projection are per site,
   so assessing one environment never overwrites another's review in flight. `--operation` narrows the
   projected product operations (`capture`, `merge`, `release`, `verify`,
-  `delete`, `recover`; default all six) and `--limit` bounds every human
-  listing. Exit 0 means every requested projection is Ready/Ready with
+  `delete`, `recover`; default all six). A bare `--format=json` emits the
+  complete contract-bound `wprism-assess-report/v1`; combining it with
+  `--limit` or an emitted `--cursor` pages the non-authoritative
+  `wprism-assess-view/v1` while retaining exact full-report counts/readiness.
+  `--limit` continues to bound every human listing. Exit 0 means every requested projection is Ready/Ready with
   conditions, 3 is a complete assessment with red readiness, and 1 means the
   assessment itself refused.
   See [docs/guides/assess.md](../docs/guides/assess.md).
@@ -1361,9 +1377,10 @@ in manifests, native actions, or plugin-owned providers—not this shell.
   signal was too weak to propose), `EVIDENCE` (compact — `"3 posts
   (post,page); journal n=14 rest/admin"`), and `REF-HINT` (`"-> post #12
   'About'"` when the engine's ref-linter recognizes the value as a
-  numeric id it can point at a specific entity). A secret-flagged item gets
+  numeric id it can point at a specific entity). Clearance-flagged items get
   a prominent trailing `[SECRET: hard:<label>]` / `[SECRET: suspicious]`
-  marker. Exit 0 always; prints "review queue is empty" when there's
+  or `[PII: <label>]` marker; these are redacted categories, never values.
+  Exit 0 always; prints "review queue is empty" when there's
   nothing to triage. Evidence includes owner candidates, representative
   value shapes, counts, and the reason capture is blocked where those are
   known; the journal enriches evidence but is not required for completeness
@@ -1375,7 +1392,7 @@ in manifests, native actions, or plugin-owned providers—not this shell.
   item at a time, reading decisions from **stdin** (not `/dev/tty` — so
   it's pipe-testable: `printf 'r\n' | wprism classify e1` drives it exactly
   like a keypress would). For each item it prints the same evidence/
-  proposal/ref-hint/secret block `wprism pending` shows, then prompts:
+  proposal/ref-hint/clearance block `wprism pending` shows, then prompts:
 
   | Key | Effect |
   |---|---|
@@ -1384,13 +1401,12 @@ in manifests, native actions, or plugin-owned providers—not this shell.
   | `s` | skip this item (leave it pending) |
   | `q` | quit — stop triaging and apply whatever was already decided |
 
-  **The secret rule**: choosing (or accepting a proposal of) `authored` on
-  a secret-flagged item never goes through on Enter alone — it prints a red
-  warning and requires typing the literal word `allow` before that
-  decision is added to the batch; anything else skips the item. This is
-  deliberate and absolute: Enter-accept can never silently author a secret
-  into git, matching the project's loud-and-blocking posture on everything
-  else (§3.1.5).
+  **The clearance rule**: choosing (or accepting a proposal of) `authored` on
+  a secret- or PII-flagged item never goes through on Enter alone — it prints
+  a red warning and requires typing the literal word `allow` for each
+  applicable clearance before that decision is added to the batch; anything
+  else skips the item. Enter-accept can never silently author a secret or
+  personal data into git.
 
   **The options completion**: an options row classified `authored` or
   `managed` gets one more closed prompt for `autoload`, and one classified
@@ -1407,21 +1423,24 @@ in manifests, native actions, or plugin-owned providers—not this shell.
   but untyped.
 
   All decisions are batched into a **single** `wp wprism classify --repo=<repo_path>
-  --set=<section>:<key>=<class>[,ref=<kind>][,autoload=<flag>][,required=<bool>] […]`
+  --set=<section>:<key>=<class>[,ref=<kind>][,autoload=<flag>][,required=<bool>][,allow_secret=true][,allow_pii=true] […]`
   call at the end (not one call per item) — its output streams live and its
-  exit code propagates.
+  exit code propagates. A reviewed clearance remains on its exact row through
+  that call. The target re-reads every live value, so one row's approval can
+  never authorize a sibling that became sensitive after the host read the
+  queue.
   A final `N classified, M skipped.` line summarizes the session. Exit 0
   immediately with "review queue is empty" if there was nothing to triage.
 
 - **`wprism classify <env> --accept-proposals`** — non-interactive, for CI/
   scripting: accepts every item that has a proposal, exactly as proposed,
-  in one batched call. The one exception is absolute: a secret-flagged item
-  proposed `authored` is **never** auto-accepted — it's skipped loudly (its
-  `section:key` and secret label printed to stderr) because that decision
+  in one batched call. The one exception is absolute: a secret- or PII-flagged
+  item proposed `authored` is **never** auto-accepted — it's skipped loudly
+  (its `section:key` and redacted category printed to stderr) because that decision
   needs a human. Ref-hints are never auto-attached in this mode either
   (attaching a ref is the judgment call the interactive y/N prompt exists
   for). Exit 0 if the queue was empty or every proposal-bearing item got
-  accepted; exit 2 if any secret-authored item had to be skipped, so a CI
+  accepted; exit 2 if any clearance-flagged authored item had to be skipped, so a CI
   pipeline can tell "nothing to do" apart from "a human needs to look at
   this."
 
@@ -1440,15 +1459,16 @@ in manifests, native actions, or plugin-owned providers—not this shell.
 - **`wprism classify <env> --export-batch=<path>` / `--apply-batch=<path>`** —
   reviewed bulk triage for an aged site's first queue, where historical writes
   cannot have journal proposals. Export writes a value-redacted
-  `wprism-classification-batch/v2` artifact: every row retains the pending
-  evidence and has editable `class`, `ref`, `cast`, and `allow_secret` fields,
+  `wprism-classification-batch/v3` artifact: every row retains the pending
+  evidence and has editable `class`, `ref`, `cast`, `allow_secret`, and
+  `allow_pii` fields,
   and an options row additionally has `autoload` and `required`. It refuses to
   overwrite an existing file. Fill every `decisions[].class`, review any
-  ref/cast and secret override, then apply the same path. Apply fetches the
+  ref/cast and clearance overrides, then apply the same path. Apply fetches the
   live queue again and verifies the artifact's environment and SHA-256 binding
   before opening the one batched remote policy write. A partial review,
   changed queue, unsupported manifest/schema surface, malformed rule, or
-  unacknowledged authored secret is a mutation-free refusal. If a valid
+  unacknowledged authored secret or PII value is a mutation-free refusal. If a valid
   decision exposes a new pending item, apply reports that next queue and exits
   2; export and review a new batch.
 
@@ -1462,9 +1482,10 @@ in manifests, native actions, or plugin-owned providers—not this shell.
   contract capture enforces. An unfilled one refuses on the host naming the row
   and the field; a field the class does not read (`autoload` on a `runtime`
   row, either one on `post_meta`) refuses rather than being recorded as a
-  decision nothing acts on. A `wprism-classification-batch/v1` artifact — the
-  shape that had no place to put these — refuses with re-export as its named
-  remedy. The interactive and `--accept-proposals` modes follow the same rule:
+  decision nothing acts on. A `wprism-classification-batch/v2` artifact has no
+  `allow_pii` review field, while v1 also lacks the storage decisions; both
+  refuse with re-export as their named remedy. The interactive and
+  `--accept-proposals` modes follow the same rule:
   triage asks for the field, and `--accept-proposals` skips an options row
   whose proposed class needs one (a journal proposal is a class signal and
   carries no storage decision), reporting it and exiting 2 the way it already
@@ -1487,7 +1508,11 @@ in manifests, native actions, or plugin-owned providers—not this shell.
   joined `--set` value (`--set 'post_meta:foo=runtime;options:bar=authored,ref=post'`),
   never as repeated `--set=<spec>` flags — wp-cli's assoc-arg parser keeps
   only the *last* occurrence of a repeated flag, confirmed against
-  `agent/src/Command/Cli.php`'s `classify()` docblock. `ClassifyCommand`'s
+  `agent/src/Command/Cli.php`'s `classify()` docblock. `allow_secret=true` and
+  `allow_pii=true` travel inside only the reviewed row; the legacy
+  command-wide `--allow-secret`/`--allow-pii` spellings are accepted only for
+  a single-row direct command and refuse a joined multi-row set.
+  `ClassifyCommand`'s
   `SET_MODE` constant (`cli/src/Command/ClassifyCommand.php`) is the one place that
   decision lives.</sub>
 
@@ -1870,7 +1895,9 @@ an arbitrary non-empty value:
   Polylang's `polylang` — that a bare string write would corrupt; every
   such option shipped today is `required: false` for exactly this
   reason), and refuses an empty value (which `env_missing` would
-  immediately re-flag as still-missing). It atomically publishes the intended
+  immediately re-flag as still-missing). The terminal LF and its optional CR
+  are stdin framing; every other leading/trailing space or tab remains a value
+  byte, so a whitespace-only line is non-empty. It atomically publishes the intended
   value with mode `0600` before writing WordPress; a stopped or failed write
   therefore leaves visible drift, never a false-green unbound value.
   Interactive host `--stdin` masks the

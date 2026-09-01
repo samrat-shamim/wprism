@@ -4,15 +4,15 @@
         "advanced-editor-tools": "cfc61d12273c7b72cd24c9a7cf2a4b2dd2b08a8a3b261f43c96893aa3ba4492d",
         "classic-editor": "908c6cd00f9cd389b40105bbb1f906ae5271ad13dfafcbc65d4face4ff2156ea",
         "code-snippets": "ca66c5959ea2fa0d0fc39b6d5d2f3da0a866c728bd8eb2b9c0d942455054fc04",
-        "contact-form-7": "d1a3ad05cdc7423417d986b97a286c7528e3efb03ee21c4e1703a50e666ac44b",
+        "contact-form-7": "fc544747e494f54e7fb574643c5a4b3c8c5f789aecf27f8a35a7af7d5b0c06b5",
         "core": "9f9a23cfb2be0b8dd693cecd1df6adb4e9082ca8d589675ce95bfae85c185b63",
         "elementor": "5383779c98b51bb94e2aab363d72729fd55003798656f7d025f8773ae5793d64",
         "ninja-forms": "35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011",
-        "paid-memberships-pro": "70b0a7cb07b54118dd4645be00bc60bbe1ab0a10972e7b6c3fbe26971c759bdd",
+        "paid-memberships-pro": "e518a516bb44d144cff92bdb423c04813847064fe7113ac4e1cfc386ba37f253",
         "polylang": "60edabfdaab55d4ea74d0c6ac71228bffc2b2911afe57a962ac898ee73064548",
         "redirection": "6ba607e26345be23b0a89eeee69dadc0ceff75ca40b8cdf9d0ab88d066303bc7",
-        "the-events-calendar": "9ce61ef048461919d3414629b099d8a26e9a4e5c25e90eb5fec634b48df6430e",
-        "woocommerce": "bc76c97206b5f8af22dbd1cfab5973b1c5415d4c45dfddcad02110f6f525323c",
+        "the-events-calendar": "cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee",
+        "woocommerce": "62331a62fe4a934d4ec6a82ac926650844f31f6aa98df7e501b49d2044eceb35",
         "wprism-agency-cpt": "174e37838bab6f855d1fb756c5d252d4106e7c246febc807e82bfe6384a3f4ab",
         "wps-hide-login": "4734afd32e2f9558f4fb13a1d56076e77a14c6e15f904bbee2c92b381d381050",
         "yoast": "565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea",
@@ -24,15 +24,15 @@
         "advanced-editor-tools": "047d6d21b86301a52c8681d9623a0588f1f6e458a58a01b0b8b1735e84942f03",
         "classic-editor": "ffad6256c34fd74538c4beba7f29299cd7fe3312d4b551795668bfeab8bb475b",
         "code-snippets": "31588659fccdb2c23d2fb44891dc8cdc4a6d86dab631e5fc7e1a50c02e33a8a3",
-        "contact-form-7": "7d327cc88b1e5bb50cc1aade0fd48029caa4389eaf7e81f97059ed9ebdc46ca9",
+        "contact-form-7": "bfdd6f48b2b9e8658fe5f0e355edb232648294fabe70dcca080283481537f7be",
         "core": "76dc95aa88bc7861301c28b5647607ea6c3722475f5ae76d3993b330b105baa4",
         "elementor": "e8968ca8c55f41cbabd6a5672ab6084d45631312bb8a44605cfe169b086c258c",
         "ninja-forms": "7127febed3e8b907cd05d30b62ba5788a5c9157c8163e766d4453557c7e3d017",
-        "paid-memberships-pro": "30056db13a7ed10e6a6a326c5dc74c78c7acb9f12ef47a4f19a58f732360767f",
+        "paid-memberships-pro": "b5674ba2258dfc6e764608d06305fdad785f8b3812bc6e5894ef5954cc84f717",
         "polylang": "ce528f0361b733048822c182039f572689c91a002de82c57f596d3dfef1c6e13",
         "redirection": "9d19654602f48d32610679cf701995bfb906d632da4990ffd0de1f813e7eeb8c",
-        "the-events-calendar": "acf24e467340adf413584c270bbab99e266aa4a9f22eb2becda02b592aa0c492",
-        "woocommerce": "831de4a2b82f0bf4078ff9f3ef1e904d206c3ab535765d292796880f168864be",
+        "the-events-calendar": "c76dcf086a1b7e7d4027435b267bb440103147f17ad2841ab1179c15057196d6",
+        "woocommerce": "70aa6e1799549274d1f54b0f5169adc5bc3fbcd7d1a64d36583e11a4a4fdcbe6",
         "wprism-agency-cpt": "015eca9b986cf7a15e87455ac0ed71a4dfe1d49a16bd68590a188191fee306cf",
         "wps-hide-login": "7c06d55543f0395408bd00a3ec89705e1d626fc21d211561be61426fa84004f5",
         "yoast": "e319300014e96b089e456ebf68d32098b4bde13691c712c206876d3ae9a0c852",
@@ -40,7 +40,7 @@
     },
     "pin_sets": {
         "all-17": {
-            "manifest_hash": "b10861937d3f7ad13263221da117c91866a2b1de116e42f0e3f31ed379f3c5ca",
+            "manifest_hash": "66e76a18e9731c2f2b85a9023f816b53d6c5ef4ddb5ed4e4ba826f3e4b3d7c08",
             "pins": [
                 "acf",
                 "advanced-editor-tools",
@@ -62,19 +62,19 @@
             ]
         },
         "core+elementor+yoast+contact-form-7": {
-            "manifest_hash": "deb16eda89bcfe1b135090655c45e9b43bede1a802a68b26b6d483e7999ac030",
+            "manifest_hash": "0447fed067e86aaa6bf8593a1a83cbea94e9b011d0f2a5820db723152cb72caa",
             "pins": ["contact-form-7", "core", "elementor", "yoast"]
         },
         "core+paid-memberships-pro+code-snippets": {
-            "manifest_hash": "bed5938f59564d9316685e4f1b20be0c2ea7afc765b58e77993f930ec864d72d",
+            "manifest_hash": "820c76d7af3dd245f72305cf508f50f75032224e2a2b96ec048e3aa86bdfd82f",
             "pins": ["code-snippets", "core", "paid-memberships-pro"]
         },
         "core+polylang+the-events-calendar": {
-            "manifest_hash": "a0b77844e146ae2cd5d04f25a1c904824c916dacaa7365a92a8b87b825e1d5b7",
+            "manifest_hash": "75ae5cec64a6a416b29ccf34f20d7d77bc9aaacdd25f41033427111bb5810fb3",
             "pins": ["core", "polylang", "the-events-calendar"]
         },
         "core+woocommerce+acf": {
-            "manifest_hash": "8b211b3f26bcf1cba47385e924778a8f77dee0f1989bbb8d36b0e82148fb1076",
+            "manifest_hash": "6223d5d94b8addcca5b17c199dfd59d87f5ac8507501e73b4d8dcff3e03d661a",
             "pins": ["acf", "core", "woocommerce"]
         },
         "core-only": {
@@ -86,6 +86,6 @@
             "pins": ["wprism-agency-cpt"]
         }
     },
-    "registry_sha256": "010967c0ff23cb8dcd875944bd8d113f294daaf9002d4b226c7fc32ba4f42c86",
-    "snapshot_sha256": "02455df4366952f9e58da1638277d54b7ae292e7be4b288231567355367e256b"
+    "registry_sha256": "99e02ee9b61b7b471b9e651e140efbe396dd437851c6ef7dac4a725d3ff18faa",
+    "snapshot_sha256": "0c861c30900f044571821184dd865d2666540634a8b885bd52fda71330a5ccc7"
 }

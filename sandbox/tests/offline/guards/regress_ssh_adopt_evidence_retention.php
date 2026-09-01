@@ -34,7 +34,7 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
 };
 
 $cleanupStart = strpos($harness, "cleanup() {\n");
-$cleanupEnd = strpos($harness, "for command in git docker lsof; do\n");
+$cleanupEnd = strpos($harness, "for command in git docker lsof php; do\n");
 $check(
     is_int($cleanupStart) && is_int($cleanupEnd) && $cleanupStart < $cleanupEnd,
     'the harness defines bounded EXIT cleanup before live preflight'
@@ -90,6 +90,29 @@ $check(
     !preg_match('/(scp|tar)[^\n]*capabilities/', $harness),
     'no capabilities/ directory is ever archived or copied onto the target — the library under the gate is the one '
     . 'adopt installed'
+);
+
+$dockerfilePath = $root . '/sandbox/tests/fixtures/ssh-adopt.Dockerfile';
+$dockerfile = file_get_contents($dockerfilePath);
+$check(
+    is_string($dockerfile) && str_contains($dockerfile, 'apk add --no-cache git mariadb-client openssh-server'),
+    'the SSH target image carries Git for the repository branch fence enforced by capture'
+);
+$targetRepositorySetup = <<<'SH'
+php -r 'require $argv[1]; echo \WPrism\Orchestrator\Adopt::repositoryGitignoreBytes();' \
+  "$ROOT/cli/src/Onboarding/Adopt.php" >"$TMP/repository.gitignore"
+SH;
+$failureCapture = 'capture target --target-branch="$TARGET_REPOSITORY_BRANCH" --format=json >"$TMP/scoped-apply-failure-capture.json"';
+$successCapture = 'capture target --target-branch="$TARGET_REPOSITORY_BRANCH" --format=json >"$TMP/scoped-apply-success-capture.json"';
+$check(
+    str_contains($harness, 'TARGET_REPOSITORY_BRANCH="wprism-live-evidence"')
+        && str_contains($harness, $targetRepositorySetup)
+        && str_contains($harness, 'git init -b \'$TARGET_REPOSITORY_BRANCH\'')
+        && str_contains($harness, "git add .gitignore site.wprism.json && git commit -m 'Initialize WPrism live repository'")
+        && str_contains($harness, 'git -C /home/wprism/site symbolic-ref --quiet --short HEAD\')" = "$TARGET_REPOSITORY_BRANCH"')
+        && substr_count($harness, $failureCapture) === 1
+        && substr_count($harness, $successCapture) === 1,
+    'the live journey commits the canonical repository seed on one named branch and binds both capture writes to it'
 );
 
 $diagnosticAssignments = [
@@ -299,7 +322,7 @@ $successGate = 'if [ "$BODY_COMPLETE" -eq 1 ] && [ "$incoming" -eq 0 ] && [ "$cl
 $diagRemoval = 'rm -rf -- "$DIAG_DIR" || cleanup_failed=1';
 $diagAbsence = '[ ! -e "$DIAG_DIR" ] && [ ! -L "$DIAG_DIR" ] || cleanup_failed=1';
 $retainedPath = 'FAIL: SSH-adoption diagnostic evidence retained privately at %s';
-$finalMarker = '✔ REGRESS_SSH_ADOPT PASSED';
+$finalMarker = 'printf \'\\n\\033[1;32m✔ %s PASSED\\033[0m\\n\' "$FINAL_LABEL"';
 $tmpRemovalAt = strpos($cleanup, $tmpRemoval);
 $tmpAbsenceAt = strpos($cleanup, $tmpAbsence);
 $successGateAt = strpos($cleanup, $successGate);

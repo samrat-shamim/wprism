@@ -14,8 +14,9 @@
  * extraction; regress_scoped_apply_recovery.php also exercises the menu
  * tombstone cascade specifically.
  *
- * The constructor takes (Policy, RelationshipMaterializer, MenuMaterializer)
- * -- narrower than a mechanical carry-over of delete_entity()'s original
+ * The constructor takes the materializers plus a transaction-scoped deletion
+ * writer exclusion -- narrower than a mechanical carry-over of
+ * delete_entity()'s original
  * body would suggest. $scopeContract was NOT carried over: the only place
  * delete_entity() read it was the trailing REGEN_PENDING_PREFIX marker
  * cleanup, which stayed on Apply's own facade rather than moving here (see
@@ -60,9 +61,15 @@ $tokens = (new ReflectionClass(Tokens::class))->newInstanceWithoutConstructor();
 $fieldMaterializer = new ApplyFieldMaterializer($policy, $tokens);
 $relationshipMaterializer = new RelationshipMaterializer($policy, $fieldMaterializer);
 $menuMaterializer = new MenuMaterializer($policy, $tokens, $fieldMaterializer);
-$deleteExecutor = new DeleteExecutor($policy, $relationshipMaterializer, $menuMaterializer, $fieldMaterializer);
+$deleteExecutor = new DeleteExecutor(
+    $policy,
+    $relationshipMaterializer,
+    $menuMaterializer,
+    $fieldMaterializer
+);
 
-$check($deleteExecutor instanceof DeleteExecutor, 'DeleteExecutor is directly constructible with (Policy, RelationshipMaterializer, MenuMaterializer)');
+$check($deleteExecutor instanceof DeleteExecutor,
+    'DeleteExecutor is directly constructible with a fail-closed deletion-authority callback');
 $check((new ReflectionMethod(DeleteExecutor::class, 'delete_entity'))->isPublic(), 'delete_entity() is public on DeleteExecutor');
 $check(
     (new ReflectionMethod(DeleteExecutor::class, 'locked_post_row'))->isPrivate()
@@ -76,10 +83,21 @@ $check(
 $constructorParams = (new ReflectionClass(DeleteExecutor::class))->getConstructor()->getParameters();
 $check(
     array_map(static fn(ReflectionParameter $p): string => (string) $p->getType(), $constructorParams) === [
-        'WPrism\\Policy', 'WPrism\\RelationshipMaterializer', 'WPrism\\MenuMaterializer', 'WPrism\\ApplyFieldMaterializer',
+        'WPrism\\Policy', 'WPrism\\RelationshipMaterializer', 'WPrism\\MenuMaterializer',
+        'WPrism\\ApplyFieldMaterializer', '?Closure',
     ],
-    'constructor adds the shared lock materializer without scopeContract or an Apply instance'
+    'constructor binds direct row mutation to an untyped coordinator callback without exposing Delete-private authority state'
 );
+
+$directWarnings = [];
+$directRefused = false;
+try {
+    $deleteExecutor->delete_entity('11111111-1111-4111-8111-111111111111', 'post', [], $directWarnings);
+} catch (\WPrism\CommandRefusalException $refusal) {
+    $directRefused = $refusal->reasonCode === 'deletion_writer_exclusion_not_authorized';
+}
+$check($directRefused && $directWarnings === [],
+    'direct DeleteExecutor entry refuses before target access without coordinator-bound external exclusion');
 
 // $rowTables (Apply::snapshotRowTables()'s roster) and $warnings travel as
 // explicit parameters, the latter by reference, matching every prior

@@ -257,7 +257,7 @@ wprism_check_throws(
     static function () use ($typoWithFeature): void { PostTypeGrammar::validate_post_type_contracts($typoWithFeature); },
     RuntimeException::class,
     'A7: and a manifest that DID declare the feature sees four — the vocabulary a refusal prints is the one that refused',
-    "the vocabulary is closed (blocks, verbatim, serialized, json)"
+    'the vocabulary is closed (blocks, verbatim, serialized, json)'
 );
 
 wprism_check_same(
@@ -408,7 +408,7 @@ foreach (['form-a', 'form-b', 'form-pathb', 'form-pathc'] as $name) {
     wprism_check_same(
         $raw,
         json_encode(json_decode($raw, true), 0),
-        "C1: and to identical BYTES — the precondition BodyRefGrammar::decode() asserts before substitution"
+        'C1: and to identical BYTES — the precondition BodyRefGrammar::decode() asserts before substitution'
     );
 }
 
@@ -434,6 +434,79 @@ wprism_check(
 wprism_check(
     str_contains($capturedB, '"page":"previous_page"'),
     'C2: the declared SENTINEL on the SAME key is passed through untouched'
+);
+
+$secretDocument = json_decode($formB, true, 512, JSON_THROW_ON_ERROR);
+$secretDocument['settings']['integration'] = ['Authorization' => 'GeneratedValue-2026-Blocked'];
+wprism_check_throws(
+    static fn(): string => BodyRefGrammar::capture(
+        json_encode($secretDocument, JSON_THROW_ON_ERROR),
+        $rule,
+        $idToToken($tokensFor()),
+        static function (): void {},
+        "wpforms 'secret-clearance'"
+    ),
+    RuntimeException::class,
+    'C2: decoded JSON key/value pairs receive full credential clearance rather than only hard-token scanning',
+    'credential-shaped value'
+);
+$secretContainerDocument = json_decode($formB, true, 512, JSON_THROW_ON_ERROR);
+$secretContainerDocument['settings']['integration'] = [
+    'password' => ['primary' => 'GeneratedValue-2026-Blocked'],
+];
+wprism_check_throws(
+    static fn(): string => BodyRefGrammar::capture(
+        json_encode($secretContainerDocument, JSON_THROW_ON_ERROR),
+        $rule,
+        $idToToken($tokensFor()),
+        static function (): void {},
+        "wpforms 'secret-container-clearance'"
+    ),
+    RuntimeException::class,
+    'C2: a credential-bearing JSON container retains its role through generic child keys',
+    'credential-shaped value'
+);
+$secretKeyDocument = json_decode($formB, true, 512, JSON_THROW_ON_ERROR);
+$secretKeyDocument['settings']['integration'] = ['sk_live_JSONKEY1234567890' => 'enabled'];
+wprism_check_throws(
+    static fn(): string => BodyRefGrammar::capture(
+        json_encode($secretKeyDocument, JSON_THROW_ON_ERROR),
+        $rule,
+        $idToToken($tokensFor()),
+        static function (): void {},
+        "wpforms 'secret-key-clearance'"
+    ),
+    RuntimeException::class,
+    'C2: a hard secret used as a decoded JSON map key cannot evade clearance',
+    'stripe key'
+);
+$piiDocument = json_decode($formB, true, 512, JSON_THROW_ON_ERROR);
+$piiDocument['settings']['customerProfile'] = ['firstName' => 'Private Customer'];
+wprism_check_throws(
+    static fn(): string => BodyRefGrammar::capture(
+        json_encode($piiDocument, JSON_THROW_ON_ERROR),
+        $rule,
+        $idToToken($tokensFor()),
+        static function (): void {},
+        "wpforms 'pii-clearance'"
+    ),
+    RuntimeException::class,
+    'C2: decoded JSON personal-data keys refuse before canonical publication',
+    'personal name'
+);
+$piiKeyDocument = json_decode($formB, true, 512, JSON_THROW_ON_ERROR);
+$piiKeyDocument['settings']['audience'] = ['alice@example.test' => 'enabled'];
+wprism_check_throws(
+    static fn(): string => BodyRefGrammar::capture(
+        json_encode($piiKeyDocument, JSON_THROW_ON_ERROR),
+        $rule,
+        $idToToken($tokensFor()),
+        static function (): void {},
+        "wpforms 'pii-key-clearance'"
+    ),
+    RuntimeException::class,
+    'C2: an email used as a decoded JSON map key cannot evade clearance',
+    'email address'
 );
 
 wprism_check_same(
@@ -572,7 +645,7 @@ $dangling = BodyRefGrammar::capture(
 wprism_check(str_contains($dangling, '"page":null'), 'C9: an unmapped id becomes null in canonical state, never a raw id');
 wprism_check_same(1, count($warnings), 'C9: and exactly one warning is emitted for it');
 wprism_check(
-    str_contains($warnings[0] ?? '', "unmapped post id 4 dropped (dangling reference)"),
+    str_contains($warnings[0] ?? '', 'unmapped post id 4 dropped (dangling reference)'),
     'C9: naming the path, the keyspace and the id'
 );
 wprism_check_same(
@@ -588,7 +661,7 @@ wprism_check_throws(
     static fn(): string => BodyRefGrammar::apply($formB, $rule, $tokenToId($tokensFor()), "wpforms 'x'"),
     RuntimeException::class,
     'C10: apply refuses a repository body whose declared path still carries a source-local id',
-    "where a {{...}} reference token was declared"
+    'where a {{...}} reference token was declared'
 );
 
 // ===========================================================================
@@ -644,6 +717,20 @@ wprism_check_same(
 wprism_check(
     !str_contains($productBody, '"page":"4"') && str_contains($productBody, '{{post:' . $pageUuid . '}}'),
     'D1: no environment-local page id reaches canonical state through the product path'
+);
+$protectedPost = $formPost($formB, 'protected-recon-form');
+$protectedPost->post_password = 'source-password-never-canonical';
+$protectedUuid = '019200cc-0000-7000-8000-0000000000c7';
+$protected = $postCapture->capture($protectedPost, $protectedUuid, []);
+[$protectedFront] = Canon::parse_post_file($protected['entity']['content']);
+wprism_check_same(
+    'post_password:' . $protectedUuid,
+    $protectedFront['password_binding'] ?? null,
+    'D1: a protected post captures a stable environment binding instead of refusing'
+);
+wprism_check(
+    !str_contains($protected['entity']['content'], 'source-password-never-canonical'),
+    'D1: the actual post password never enters canonical bytes'
 );
 
 // D2 — the three id-shaped values the manifest deliberately does NOT declare
@@ -733,6 +820,96 @@ wprism_check_throws(
     RuntimeException::class,
     'D6: a secret-shaped leaf in json authored configuration refuses capture rather than warning',
     'refusing to capture json authored configuration'
+);
+wprism_check_throws(
+    static fn(): array => $postCapture->capture(
+        $formPost('{"settings":{"sk_live_PRODUCTKEY1234567890":"enabled"}}', 'recon-secret-key'),
+        '019200cc-0000-7000-8000-0000000000d1',
+        []
+    ),
+    RuntimeException::class,
+    'D6: the PostCapture JSON product path refuses a hard secret in an associative key',
+    'refusing to capture json authored configuration'
+);
+wprism_check_throws(
+    static fn(): array => $postCapture->capture(
+        $formPost(
+            '{"settings":{"password":{"primary":"GeneratedValue-2026-Blocked"}}}',
+            'recon-secret-container'
+        ),
+        '019200cc-0000-7000-8000-0000000000d5',
+        []
+    ),
+    RuntimeException::class,
+    'D6: the PostCapture JSON product path retains a credential container role at its scalar leaf',
+    'refusing to capture json authored configuration'
+);
+wprism_check_throws(
+    static fn(): array => $postCapture->capture(
+        $formPost('{"settings":{"alice@example.test":"enabled"}}', 'recon-pii-key'),
+        '019200cc-0000-7000-8000-0000000000d2',
+        []
+    ),
+    RuntimeException::class,
+    'D6: the PostCapture JSON product path refuses PII in an associative key',
+    'refusing to capture json authored configuration'
+);
+
+$serializedPolicy = $load(['serialized-key-clearance' => [
+    'name' => 'serialized-key-clearance',
+    'spec_version' => WPRISM_SPEC_VERSION,
+    'post_types' => ['serialized_config' => ['class' => 'authored', 'body' => 'serialized']],
+]]);
+$serializedTokens = new Tokens('https://source.example', 'https://source.example/wp-content/uploads');
+$serializedCapture = new PostCapture(
+    $serializedPolicy,
+    $serializedTokens,
+    new EntityMetaCapture(
+        $serializedPolicy,
+        $serializedTokens,
+        static function (): void {},
+        static function (): void {},
+        static function (): void {}
+    ),
+    new MediaCapture()
+);
+$serializedPost = static function (string $body, string $slug) use ($formPost): object {
+    $post = $formPost($body, $slug);
+    $post->post_type = 'serialized_config';
+    return $post;
+};
+wprism_check_throws(
+    static fn(): array => $serializedCapture->capture(
+        $serializedPost(serialize(['sk_live_SERIALIZEDKEY1234567890' => 'enabled']), 'serialized-secret-key'),
+        '019200cc-0000-7000-8000-0000000000d3',
+        []
+    ),
+    RuntimeException::class,
+    'D6: the PostCapture serialized product path refuses a hard secret in an associative key',
+    'refusing to capture serialized authored configuration'
+);
+wprism_check_throws(
+    static fn(): array => $serializedCapture->capture(
+        $serializedPost(
+            serialize(['smtp_pass' => ['primary' => 'GeneratedValue-2026-Blocked']]),
+            'serialized-secret-container'
+        ),
+        '019200cc-0000-7000-8000-0000000000d6',
+        []
+    ),
+    RuntimeException::class,
+    'D6: the PostCapture serialized product path retains a credential container role at its scalar leaf',
+    'refusing to capture serialized authored configuration'
+);
+wprism_check_throws(
+    static fn(): array => $serializedCapture->capture(
+        $serializedPost(serialize(['alice@example.test' => 'enabled']), 'serialized-pii-key'),
+        '019200cc-0000-7000-8000-0000000000d4',
+        []
+    ),
+    RuntimeException::class,
+    'D6: the PostCapture serialized product path refuses PII in an associative key',
+    'refusing to capture serialized authored configuration'
 );
 
 // D7 — the coordinates that stay OPEN. This fixture claims neither the

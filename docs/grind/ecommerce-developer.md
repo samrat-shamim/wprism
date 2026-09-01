@@ -57,8 +57,9 @@ a public theme switch with an explicit `--force-theirs` acceptance of the
 reviewed theme-state intent, and exact rollback while preserving theme settings,
 navigation, and media. It also exercises one representative plugin identity
 replacement through the generic plan/promote path and one bounded named
-WordPress-cron event. Reproduced boundaries include unsupported Woo deletion
-(issue #3338) and dependency refusal (issue #3338). Compatibility refusal (issue #3326)
+WordPress-cron event. Its historical issue #3338 Woo deletion refusal predates
+the later all-executable-owner, writer-excluded standalone-product contract; variation deletion remains unsupported; dependency refusal
+remains current. Compatibility refusal (issue #3326)
 is exercised by the live proof. These
 statuses prevent the current clone-based setup from being mistaken for
 coverage of the missing public workflows.

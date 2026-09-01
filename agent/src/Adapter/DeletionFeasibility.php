@@ -8,7 +8,7 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 
 /**
- * Can each PROPOSED deletion guard lock? (`wprism-deletion-feasibility/v1`)
+ * Can each PROPOSED deletion guard lock? (`wprism-deletion-feasibility/v2`)
  *
  * A manifest's deletion contract is only as strong as its guards' lock
  * boundaries: `DeleteGuardReferenceScanner` runs each guard's final
@@ -70,7 +70,7 @@ require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
  * so it is checked on every guard rather than assumed.
  */
 final class DeletionFeasibility {
-    public const FORMAT = 'wprism-deletion-feasibility/v1';
+    public const FORMAT = 'wprism-deletion-feasibility/v2';
 
     /** Same word `AdapterProbe`/`AdapterObservation` publish: values never enter the document. */
     public const REDACTION = 'values_omitted';
@@ -109,29 +109,30 @@ final class DeletionFeasibility {
      * The guard fields this report models — `DeletionCapabilityResolver::
      * capability()`'s own guard grammar (`:47-162`: `table`/`column`/`id_kind`
      * required, `meta_key`+`ref` paired, `option_name_ref`, `identity_column`,
-     * `source_id_kind`+`source_pk` paired, `where`, `exclude_where`, `cast`),
-     * plus `reason`, the authored prose the evaluator prints when a guard
-     * blocks (`DeleteGuardEvaluator.php:263`).
+     * `source_id_kind`+`source_pk` paired, `where`, `exclude_where`, `cast`,
+     * `forceable`, `lock_column`, and `table_absence`), plus `reason`, the
+     * authored prose the evaluator prints when a guard blocks.
      *
      * A field outside this set is refused rather than ignored: which column a
-     * guard locks on is decided by exactly `meta_key`/`ref`/`option_name_ref`/
-     * `column` (`DeleteGuardEvaluator.php:427-429`), so an unrecognized field
-     * could be a future selector rule, and silently dropping it would produce
-     * a confident answer about the wrong column. The set is copied from that
+     * guard locks on is decided by exactly `lock_column`/`meta_key`/`ref`/
+     * `option_name_ref`/`column`, so an unrecognized field could be a future
+     * selector rule, and silently dropping it would produce a confident
+     * answer about the wrong column. The set is copied from that
      * resolver rather than narrowed to the fields this report READS, because
      * refusing `cast` — a shape the manifest grammar accepts
      * (`DeletionCapabilityResolver.php:123-127`) — would refuse a legitimate
      * proposal over a field that cannot change which index answers it.
      */
     private const GUARD_KEYS = [
-        'cast', 'column', 'exclude_where', 'id_kind', 'identity_column', 'meta_key',
-        'option_name_ref', 'reason', 'ref', 'source_id_kind', 'source_pk', 'table', 'where',
+        'cast', 'column', 'exclude_where', 'forceable', 'id_kind', 'identity_column', 'lock_column',
+        'meta_key', 'option_name_ref', 'reason', 'ref', 'source_id_kind', 'source_pk', 'table',
+        'table_absence', 'where',
     ];
 
     /**
      * @param array<string,mixed> $proposal `<selector> => {guards: [...]}` — the shape a
      *   manifest's `deletions` section has, minus `cascades`, which is refused
-     * @return array<string,mixed> a `wprism-deletion-feasibility/v1` document
+     * @return array<string,mixed> a `wprism-deletion-feasibility/v2` document
      */
     public static function report(array $proposal): array {
         global $wpdb;
@@ -277,7 +278,7 @@ final class DeletionFeasibility {
                     // the obvious thing an author annotating a guard writes,
                     // `wp help wprism adapter-deletion-feasibility` documents
                     // `--proposal` only as "`<selector>: {"guards": [...]}` —
-                    // minus `cascades`" and lists none of the 13 legal keys,
+                    // minus `cascades`" and lists none of the 14 legal keys,
                     // and the sentence that would have explained it was being
                     // swallowed (see refuse() below). So the refusal names the
                     // key, its position, and the closed set it is missing from.
@@ -317,8 +318,10 @@ final class DeletionFeasibility {
         self::assert_authored_identifier($column, 'column');
         $lockColumn = self::lock_column($guard);
         self::assert_authored_identifier($lockColumn, 'column');
+        $absenceMeansEmpty = ($guard['table_absence'] ?? null) === 'empty';
 
         $row = [
+            'absence_means_empty' => $absenceMeansEmpty,
             'column' => $column,
             'index' => null,
             'leading' => [],
@@ -340,7 +343,14 @@ final class DeletionFeasibility {
         // halves, and answering that question differently here would report a
         // lock boundary the deletion would never use.
         $prefixed = $wpdb->prefix . $table;
-        if (!self::table_exists($prefixed)) {
+        $topology = DeleteGuardEvaluator::guard_table_topology(
+            [$prefixed],
+            'deletion feasibility guard table topology'
+        );
+        if (($topology[$prefixed] ?? null) === 'absent') {
+            if ($absenceMeansEmpty) {
+                $row['reason'] = null;
+            }
             return $row;
         }
         $row['table_present'] = true;
@@ -409,6 +419,9 @@ final class DeletionFeasibility {
      * @param array<string,mixed> $guard
      */
     private static function lock_column(array $guard): string {
+        if (array_key_exists('lock_column', $guard)) {
+            return (string) $guard['lock_column'];
+        }
         return array_key_exists('meta_key', $guard) || array_key_exists('ref', $guard)
             ? 'meta_key'
             : (!empty($guard['option_name_ref']) ? 'option_name' : (string) ($guard['column'] ?? ''));
@@ -478,20 +491,6 @@ final class DeletionFeasibility {
             'wprism: deletion feasibility refuses to publish an explanation that disagrees with '
                 . "DeleteGuardEvaluator::lock_index()'s own verdict for a guard on '{$row['table']}'"
         );
-    }
-
-    /**
-     * `SHOW TABLES LIKE` is the existence probe both the scanner
-     * (`DeleteGuardReferenceScanner.php:41`) and the probe already use. The
-     * result is compared byte-exactly because `_` is a LIKE wildcard and every
-     * WordPress prefix contains one.
-     */
-    private static function table_exists(string $prefixed): bool {
-        global $wpdb;
-        $wpdb->last_error = '';
-        $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed));
-        self::assert_read_ok('guard table existence');
-        return is_string($found) && $found === $prefixed;
     }
 
     private static function assert_identifier(string $value, string $kind): void {
@@ -592,10 +591,10 @@ final class DeletionFeasibility {
                 . 'about whether removing this entity is right for a site, and nothing here decides that',
             'the verdict per guard is DeleteGuardEvaluator::lock_index()\'s own return value; the reason beside it '
                 . 'explains that verdict, and a disagreement between the two is refused rather than published',
-            'row values are never read: the only statements issued are SHOW TABLES LIKE and SHOW INDEX, the same '
-                . 'two the guard scanner runs before it locks',
-            'a guard table this target does not have is answered rather than inferred, so a missing table stays '
-                . 'distinguishable from an unindexed one',
+            'row values are never read: the only statements issued are the exact information_schema table census '
+                . 'and SHOW INDEX, the same topology and index evidence the guard scanner uses before it locks',
+            'a guard table this target does not have is answered rather than inferred: required absence remains '
+                . 'a blocker, while declared table_absence=empty is feasible without inventing an index',
             'a null is a live fact about THIS target\'s schema today: a plugin that ships an index tomorrow changes '
                 . 'the answer, and so does a site that added one by hand',
         ];

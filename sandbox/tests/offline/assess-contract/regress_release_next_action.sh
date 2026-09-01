@@ -223,6 +223,10 @@ grep -Fq 'cmd_promote_authorized($driver, $args, $binding)' "$ROOT/cli/wprism" \
   && grep -Fq 'cmd_promote_internal($driver, $args, $frozen)' "$ROOT/cli/wprism" \
   && pass 'release carries its authorized tuple into the existing promote state machine' \
   || fail 'cmd_release does not compose the existing promote state machine through its authorized boundary'
+grep -Fq "\$promoteArgs = \$flags['with_deletes'] ? ['--with-deletes'] : [];" "$ROOT/cli/src/Command/ReleaseCommand.php" \
+  && grep -Fq 'deletion requires automatic verified rollback' "$ROOT/cli/wprism" \
+  && pass "signed release preserves deletion intent into promote's pre-begin automatic-recovery gate" \
+  || fail "release can lose deletion intent before promote's automatic-recovery admission gate"
 for verb in verify recover rehearse; do
   grep -Fq "'$verb' => cmd_$verb(" "$ROOT/cli/wprism" \
     && pass "$verb is registered in the dispatch match" \

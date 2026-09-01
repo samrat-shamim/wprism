@@ -37,6 +37,10 @@ foreach ([
 }
 update_option('pmpro_updates', ['target-runtime' => 1999999001]);
 update_option('wprism_target_pmpro_neighbor', 'target-neighbor-preserved');
+update_option('pmpro_business_address', ['name' => 'Target Office', 'street' => '99 Target Road', 'city' => 'Target City', 'state' => 'NY', 'zip' => '10001', 'country' => 'US', 'phone' => '+1 212 555 0100']);
+update_option('pmpro_from_email', 'memberships-target@example.test');
+update_option('pmpro_from_name', 'Target Memberships');
+update_option('pmpro_tax_state', 'NY');
 
 $targetUser = wp_create_user('pmpro_target_member', 'target-member-password', 'target-member@example.test');
 if (is_wp_error($targetUser)) {

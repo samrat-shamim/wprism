@@ -28,13 +28,14 @@ WordPress state is classified along three axes — *who authors it*, *env-portab
 
 ## Getting started
 
-From a source checkout, the shortest honest evaluation is a disposable,
-digest-pinned WooCommerce pair. It requires PHP 8+, Docker with Compose, Git,
-and `jq`; no package installation is performed:
+From a source checkout, the shortest honest evaluation is a disposable
+WordPress-core pair. It requires PHP 8+, Docker with Compose, Git, and `jq`;
+no extension installation is performed:
 
 ```sh
-cli/wprism demo start --scenario=woocommerce
-# edit “WPrism Demo Mug” at the printed source wp-admin URL
+cli/wprism demo start
+cli/wprism demo review --accept-page-only
+# edit “WPrism Demo Page” at the printed source wp-admin URL
 cli/wprism demo capture
 git -C sandbox/siterepo/wprismdemo1 diff
 cli/wprism demo apply
@@ -42,9 +43,18 @@ cli/wprism demo refusal
 cli/wprism demo stop
 ```
 
-`apply` proves a target-only order and live stock value survived the managed
-catalog change; `refusal` proves a caller cannot replace the registry's trusted
-target binding. For a
+The command verifies the exact digest-pinned WordPress 7.1 image, publishes only
+after the managed core capability set qualifies and the bounded whole-site
+release assessment is ready, then stops for explicit page-only contract review.
+That review accepts and commits only the real contract/projection artifacts; a
+red assessment blocks the journey. Before its lower-level evaluation apply,
+`apply` runs the real read-only release authorization preview for the exact Git
+revision and accepted contract. It then proves both that the target page equals
+the captured artifact and that a target-only comment survived;
+`refusal` proves a caller cannot replace the registry's trusted target binding.
+Production execution still requires stage-source, release prepare, signed
+authorization, and release execute.
+Use `--scenario=woocommerce` for the advanced product/order adapter journey. For a
 real site, `wprism connect` creates the local repository/registry only after
 native reachability, WordPress and topology inspection probes, and `wprism
 onboard` composes adopt → assess → init without a handwritten seed:
@@ -134,7 +144,7 @@ make setup            # boot the legacy two-env stack (A: :8801, B: :8802) and i
 make spike-a          # round-trip: capture → apply → re-capture, byte-identical, runtime untouched, canary clean
 make spike-b          # merge: divergent edits, real git conflict, drift preserved, converged environments
 make spike-c          # provenance: admin vs anonymous writes vs manifest ground truth
-make spike-d          # WooCommerce catalog round-trip + fail-closed product deletion
+make spike-d          # WooCommerce catalog round-trip + guarded product deletion
 make spike-e          # ACF interpreter round-trip
 make conformance-<m>  # per-manifest clean-room gate (core, woocommerce, acf, yoast, …)
 make cli-smoke        # wprism CLI end-to-end over the docker transport

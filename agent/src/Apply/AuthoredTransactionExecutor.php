@@ -51,8 +51,12 @@ final class AuthoredTransactionExecutor {
     private readonly \Closure $renewLease;
     /** @var \Closure(array,array,array,array,array):void */
     private readonly \Closure $lockDeleteGuards;
-    /** @var \Closure(array,array,array,bool,array,array,bool):void */
+    /** @var \Closure(array,array,array,bool,array,array,bool):(\Closure():void) */
     private readonly \Closure $recheckDeleteGuard;
+    /** @var \Closure():void */
+    private readonly \Closure $verifyDeleteCommit;
+    /** @var \Closure():void */
+    private readonly \Closure $endDeleteTransaction;
 
     public function __construct(
         private readonly Policy $policy,
@@ -72,12 +76,16 @@ final class AuthoredTransactionExecutor {
         \Closure $taxonomyOwnership,
         \Closure $renewLease,
         \Closure $lockDeleteGuards,
-        \Closure $recheckDeleteGuard
+        \Closure $recheckDeleteGuard,
+        \Closure $verifyDeleteCommit,
+        \Closure $endDeleteTransaction
     ) {
         $this->taxonomyOwnership = $taxonomyOwnership;
         $this->renewLease = $renewLease;
         $this->lockDeleteGuards = $lockDeleteGuards;
         $this->recheckDeleteGuard = $recheckDeleteGuard;
+        $this->verifyDeleteCommit = $verifyDeleteCommit;
+        $this->endDeleteTransaction = $endDeleteTransaction;
     }
 
     /** @return array{attachment_ids:list<int|null>,regen_context:list<array<string,mixed>>} */
@@ -269,9 +277,10 @@ final class AuthoredTransactionExecutor {
             }
 
             if ($executeDeletes) {
-                foreach ($deleteWork as $row) {
+                $deleteBoundaryAssertions = [];
+                foreach ($deleteWork as $deleteIndex => $row) {
                     ($this->renewLease)('apply-delete');
-                    ($this->recheckDeleteGuard)(
+                    $assertDeleteBoundary = ($this->recheckDeleteGuard)(
                         $row,
                         $deleteUuids,
                         $compiledDeletions,
@@ -280,6 +289,12 @@ final class AuthoredTransactionExecutor {
                         $guardRepairUuids,
                         true
                     );
+                    if (!$assertDeleteBoundary instanceof \Closure) {
+                        throw new \RuntimeException(
+                            'wprism: delete guard recheck did not bind an executable-owner delete boundary'
+                        );
+                    }
+                    $deleteBoundaryAssertions[$deleteIndex] = $assertDeleteBoundary;
                 }
                 $regenContext = array_merge(
                     $regenContext,
@@ -288,8 +303,15 @@ final class AuthoredTransactionExecutor {
                         !$scoped
                     )
                 );
-                foreach ($deleteWork as $row) {
+                foreach ($deleteWork as $deleteIndex => $row) {
                     ($this->renewLease)('apply-delete');
+                    $assertDeleteBoundary = $deleteBoundaryAssertions[$deleteIndex] ?? null;
+                    if (!$assertDeleteBoundary instanceof \Closure) {
+                        throw new \RuntimeException(
+                            'wprism: executable-owner delete boundary is missing for an authorized row'
+                        );
+                    }
+                    $assertDeleteBoundary();
                     $this->deleteExecutor->delete_entity(
                         $row['uuid'],
                         $row['type'],
@@ -324,6 +346,13 @@ final class AuthoredTransactionExecutor {
                 // authored COMMIT later rolls back (issue #3618).
                 $scopedCommitParticipantStarted = true;
                 $commitScopedAuthoring();
+            }
+            if ($executeDeletes && $deleteWork !== []) {
+                // This is the last operation before COMMIT. The provider's
+                // admission gate spans every authored/scoped participant; a
+                // lost or mismatched exclusion is an ordinary transaction
+                // failure and runs the complete rollback path below.
+                ($this->verifyDeleteCommit)();
             }
             Db::commit('apply transaction commit');
             $transactionStarted = false;
@@ -490,6 +519,7 @@ final class AuthoredTransactionExecutor {
             $this->attachmentMaterializer->end_authored_transaction($retainNativeRebuildAuthority);
             SidebarState::end_authored_transaction();
             CacheInvalidationTransaction::end();
+            ($this->endDeleteTransaction)();
         }
         Canary::disarm();
         return ['attachment_ids' => $attachmentIds, 'regen_context' => $regenContext];

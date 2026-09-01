@@ -20,15 +20,14 @@ namespace WPrism\Orchestrator;
  * `provider_problems`, which only the plan() entry point attaches — so a document missing it did not come from `wp wprism
  * plan` at all. Cli.php::plan() json_encode()s that array verbatim, so the
  * detailed wire envelope and the emitter's array are the same thing. The
- * additive `category_summary` and explicitly requested `plan_view` are
- * optional for backwards compatibility. Their strict display validators are
- * intentionally separate from `violations()`: malformed optional display
- * data must never alter promotion/convergence readiness, and no-filter
- * renderers simply omit it. A scoped plan has a separate, closed set of
- * top-level projections; those
- * names are exposed through scopedProjections() for emitter-drift checks but
- * are deliberately not accepted as optional full-plan projections by this
- * trust boundary. The derivation
+ * additive identity/action/category projections and explicitly requested
+ * `plan_view` are optional for backwards compatibility. Their specialized
+ * validators are intentionally separate from `violations()`: a host talking
+ * to an older agent can still validate the detailed bucket envelope, while a
+ * boundary that consumes one projection validates it explicitly. A scoped
+ * plan has a separate, closed set of top-level projections; overlapping
+ * witnesses such as `artifact_hash` and `selected_actions` are listed in both
+ * sets because both plan shapes publish them. The derivation
  * is machine-checked against Apply.php by
  * sandbox/tests/offline/cli/regress_plan_contract_trust.php: an emitter that grows a
  * bucket without teaching this list about it fails that suite loudly rather
@@ -188,7 +187,13 @@ final class PlanContract {
 
     /** @return list<string> */
     public static function optionalProjections(): array {
-        return ['category_summary', 'plan_view'];
+        return [
+            'artifact_hash',
+            'category_summary',
+            'lifecycle_effects_inventory',
+            'plan_view',
+            'selected_actions',
+        ];
     }
 
     /**

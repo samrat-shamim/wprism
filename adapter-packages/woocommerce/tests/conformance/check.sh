@@ -234,6 +234,8 @@ echo wp_json_encode([
         'amount' => $coupon->get_amount('edit'),
         'brands' => array_map('intval', (array) get_post_meta($coupon->get_id(), 'product_brands', true)),
         'categories' => array_values($coupon->get_product_categories('edit')),
+        'emails' => array_values($coupon->get_email_restrictions('edit')),
+        'excluded_products' => array_values($coupon->get_excluded_product_ids('edit')),
         'excluded_brands' => array_map('intval', (array) get_post_meta($coupon->get_id(), 'exclude_product_brands', true)),
         'id' => $coupon->get_id(),
         'products' => array_values($coupon->get_product_ids('edit')),
@@ -1145,6 +1147,8 @@ jq -e --arg version "$WOOCOMMERCE_EXPECTED_VERSION" --arg target "http://localho
   .grouped.children == [.ids.product,.ids.precision] and
   .coupon.status == "publish" and .coupon.type == "percent" and .coupon.amount == "10" and
   .coupon.products == [.ids.product] and .coupon.categories == [.ids.category] and
+  .coupon.emails == ["buyer@example.test", "*@agency.example.test"] and
+  .coupon.excluded_products == [.ids.precision] and
   .coupon.brands == [.ids.brand_child] and .coupon.excluded_brands == [.ids.brand_excluded] and
   (.attributes | map(select(.attribute_name == "conf-color" and .attribute_label == "Conf Color" and .attribute_orderby == "menu_order" and .attribute_public == "0" and .attribute_type == "wc-visual")) | length) == 1 and
   (.attributes | map(select(.attribute_name == "conf-size" and .attribute_label == "Conf Size" and .attribute_orderby == "menu_order" and .attribute_public == "0" and .attribute_type == "select")) | length) == 1 and
@@ -1272,7 +1276,7 @@ if [ -z "$PROVIDER_RECEIPT" ] && [ -n "${VMATRIX_APPLY_LOG:-}" ] && [ -f "$VMATR
 fi
 grep -Eq 'woocommerce-cache@1\.0\.0 invalidate_cache_groups .*verified' <<<"$PROVIDER_RECEIPT" \
   || fail "initial apply receipt omitted the verified WooCommerce cache provider: ${PROVIDER_RECEIPT:-<missing>}"
-grep -Eq 'woocommerce-product-lookups@3\.0\.0 rebuild_product_lookups .*verified' <<<"$PROVIDER_RECEIPT" \
+grep -Eq 'woocommerce-product-lookups@3\.1\.0 rebuild_product_lookups .*verified' <<<"$PROVIDER_RECEIPT" \
   || fail "initial apply receipt omitted the verified WooCommerce lookup provider: ${PROVIDER_RECEIPT:-<missing>}"
 grep -Eq 'woocommerce-hierarchy-lookups@2\.0\.0 rebuild_hierarchy_lookups .*verified' <<<"$PROVIDER_RECEIPT" \
   || fail "initial apply receipt omitted the verified WooCommerce hierarchy provider: ${PROVIDER_RECEIPT:-<missing>}"
@@ -1534,10 +1538,11 @@ jq -e --argjson ids "$TARGET_ADOPT" '
   || fail 'WooCommerce coupon adoption fixture reused the source identity'
 pass 'hostile same-slug product and coupon rows retain target identities while repository-authored native values converge'
 
-# Corrupt structured product metadata, introduce a populated closed COD record
-# with one bounded unknown add-on sibling, and remove one repository product
-# row. Each independent capture must refuse before changing canonical state;
-# exact raw restoration must recapture byte-identically.
+# Corrupt structured product metadata and introduce a populated closed COD
+# record with one bounded unknown add-on sibling; those captures must refuse
+# before changing canonical state. Then remove one unreferenced repository
+# product row and prove capture emits its exact supported tombstone. Exact raw
+# restoration must still recapture byte-identically.
 CAPTURE_BASELINE=$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)
 ATTR_BACKUP=$(wp_conf1 eval '
   global $wpdb; $id=wc_get_product_id_by_sku("CONF-PRECISION-UTF8");
@@ -1593,7 +1598,12 @@ DELETE_ROW=$(wp_conf1 eval '
     "SELECT * FROM {$wpdb->posts} WHERE ID=%d",$id
   ),ARRAY_A),JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
 ')
-require_observed_nonempty 'WooCommerce unsupported product-delete backup' "$DELETE_ROW"
+require_observed_nonempty 'WooCommerce supported product-delete backup' "$DELETE_ROW"
+DELETE_FILE=$(find "$CONF_REPO1/state/posts/product" -type f -name '*--wprism-woo-adopt-product.md' -print -quit)
+[ -n "$DELETE_FILE" ] || fail 'WooCommerce supported product-delete source file is absent'
+DELETE_UUID=$(basename "$DELETE_FILE" | cut -d- -f1-5)
+[[ "$DELETE_UUID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
+  || fail 'WooCommerce supported product-delete UUID is malformed'
 wp_conf1 eval '
   global $wpdb; $id=wc_get_product_id_by_sku("CONF-ADOPT-PRODUCT");
   if (1 !== $wpdb->delete($wpdb->posts,["ID"=>$id],["%d"])) throw new RuntimeException($wpdb->last_error);
@@ -1601,21 +1611,68 @@ wp_conf1 eval '
 ' >/dev/null
 DELETE_RC=0
 DELETE_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || DELETE_RC=$?
-require_wprism_answered 'WooCommerce unsupported product deletion capture' human "$DELETE_OUT"
-[ "$DELETE_RC" -ne 0 ] && grep -Eqi 'delet|unsupported|policy scope' <<<"$DELETE_OUT" \
-  || fail "WooCommerce unsupported product deletion did not refuse: $DELETE_OUT"
-[ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$CAPTURE_BASELINE" ] \
-  || fail 'WooCommerce unsupported deletion refusal partially published canonical state'
+require_wprism_answered 'WooCommerce supported product deletion capture' human "$DELETE_OUT"
+[ "$DELETE_RC" -eq 0 ] || fail "WooCommerce supported product deletion did not capture: $DELETE_OUT"
+jq -e --arg uuid "$DELETE_UUID" --arg source_path "posts/product/$(basename "$DELETE_FILE")" '
+  .format == "wprism-deletion/v1" and .kind == "post" and .type == "product" and
+  .uuid == $uuid and .source_path == $source_path
+' "$CONF_REPO1/state/deletions/$DELETE_UUID.json" >/dev/null \
+  || fail 'WooCommerce supported product deletion did not emit its exact canonical tombstone'
+[ ! -e "$DELETE_FILE" ] || fail 'WooCommerce supported product deletion retained its canonical entity beside the tombstone'
 wp_conf1 eval "
   global \$wpdb; \$row=json_decode(base64_decode('$DELETE_ROW'),true,512,JSON_THROW_ON_ERROR);
   if (false === \$wpdb->insert(\$wpdb->posts,\$row)) throw new RuntimeException(\$wpdb->last_error);
   clean_post_cache((int)\$row['ID']);
 " >/dev/null
+wp_conf1 wprism capture --repo=/siterepo >/dev/null
+[ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$CAPTURE_BASELINE" ] \
+  || fail 'WooCommerce restored product did not replace its temporary tombstone byte-identically'
+
+# A variation has independent deletion authority and identity. Exercise its
+# real named conformance row rather than treating variable-parent evidence as
+# an implicit child proof.
+VARIATION_DELETE_ROW=$(wp_conf1 eval '
+  global $wpdb; $id=wc_get_product_id_by_sku("CONF-VAR-S-RED");
+  echo base64_encode(wp_json_encode($wpdb->get_row($wpdb->prepare(
+    "SELECT * FROM {$wpdb->posts} WHERE ID=%d",$id
+  ),ARRAY_A),JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+')
+require_observed_nonempty 'WooCommerce supported product_variation-delete backup' "$VARIATION_DELETE_ROW"
+VARIATION_DELETE_FILE=$(grep -rlF -- 'CONF-VAR-S-RED' "$CONF_REPO1/state/posts/product_variation" | head -n 1)
+[ -n "$VARIATION_DELETE_FILE" ] || fail 'WooCommerce supported product_variation-delete source file is absent'
+VARIATION_DELETE_UUID=$(basename "$VARIATION_DELETE_FILE" | cut -d- -f1-5)
+[[ "$VARIATION_DELETE_UUID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
+  || fail 'WooCommerce supported product_variation-delete UUID is malformed'
+wp_conf1 eval '
+  global $wpdb; $id=wc_get_product_id_by_sku("CONF-VAR-S-RED");
+  if (1 !== $wpdb->delete($wpdb->posts,["ID"=>$id],["%d"])) throw new RuntimeException($wpdb->last_error);
+  clean_post_cache($id);
+' >/dev/null
+VARIATION_DELETE_RC=0
+VARIATION_DELETE_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || VARIATION_DELETE_RC=$?
+require_wprism_answered 'WooCommerce supported product_variation deletion capture' human "$VARIATION_DELETE_OUT"
+[ "$VARIATION_DELETE_RC" -eq 0 ] \
+  || fail "WooCommerce supported product_variation deletion did not capture: $VARIATION_DELETE_OUT"
+jq -e --arg uuid "$VARIATION_DELETE_UUID" --arg source_path "posts/product_variation/$(basename "$VARIATION_DELETE_FILE")" '
+  .format == "wprism-deletion/v1" and .kind == "post" and .type == "product_variation" and
+  .uuid == $uuid and .source_path == $source_path
+' "$CONF_REPO1/state/deletions/$VARIATION_DELETE_UUID.json" >/dev/null \
+  || fail 'WooCommerce supported product_variation deletion did not emit its exact canonical tombstone'
+[ ! -e "$VARIATION_DELETE_FILE" ] \
+  || fail 'WooCommerce supported product_variation deletion retained its canonical entity beside the tombstone'
+wp_conf1 eval "
+  global \$wpdb; \$row=json_decode(base64_decode('$VARIATION_DELETE_ROW'),true,512,JSON_THROW_ON_ERROR);
+  if (false === \$wpdb->insert(\$wpdb->posts,\$row)) throw new RuntimeException(\$wpdb->last_error);
+  clean_post_cache((int)\$row['ID']);
+" >/dev/null
+wp_conf1 wprism capture --repo=/siterepo >/dev/null
+[ "$(git -C "$CONF_REPO1" status --porcelain --untracked-files=all -- state)" = "$CAPTURE_BASELINE" ] \
+  || fail 'WooCommerce restored product_variation did not replace its temporary tombstone byte-identically'
 wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-woocommerce-restored >/dev/null
 diff -r "$CONF_REPO1/state" "$CONF_REPO1/.tmp-woocommerce-restored" \
   || fail 'WooCommerce source did not restore byte-identically after malformed/undeclared-COD/deletion probes'
 rm -rf "$CONF_REPO1/.tmp-woocommerce-restored"
-pass 'malformed attributes, undeclared COD add-on sibling, and unsupported product deletion refuse atomically and redact values'
+pass 'malformed attributes and undeclared COD refuse atomically; supported product and named product_variation deletions capture exactly and restore byte-identically'
 
 # Both branches edit one managed native price. Unforced application must be
 # byte-still on the target; explicit repository authority must converge without

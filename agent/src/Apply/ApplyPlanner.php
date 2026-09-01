@@ -938,6 +938,7 @@ final class ApplyPlanner {
             'collision', 'delete', 'delete_conflict', 'deleted',
             'code_mismatch', 'code_drift', 'incomplete_apply', 'regen_pending', 'regen_context',
             'missing_user', 'skipped_user_meta', 'uploads_inventory', 'effects_inventory',
+            'lifecycle_effects_inventory', 'selected_actions',
         ];
         $basis = [];
         foreach ($keys as $key) {

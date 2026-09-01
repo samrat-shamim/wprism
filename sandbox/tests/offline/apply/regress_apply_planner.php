@@ -578,6 +578,14 @@ register_shutdown_function(static function () use ($envRepo): void {
     @rmdir($envRepo);
 });
 $check(EnvironmentValues::read($envRepo) === [], 'env intended values: an absent target-local file means no bindings');
+$postPasswordUuid = '019200cc-0000-7000-8000-0000000000c7';
+$postPasswordName = EnvironmentValues::postPasswordName($postPasswordUuid);
+$check(
+    $postPasswordName === 'post_password:' . $postPasswordUuid
+        && EnvironmentValues::postPasswordUuid($postPasswordName) === $postPasswordUuid
+        && EnvironmentValues::postPasswordUuid('post_password:not-a-uuid') === null,
+    'env intended values: post passwords use one closed UUID-addressed binding grammar'
+);
 EnvironmentValues::set($envRepo, 'zeta', 'second-secret');
 EnvironmentValues::set($envRepo, 'alpha', 'first-secret');
 $envPath = $envRepo . '/' . EnvironmentValues::FILE;
@@ -586,6 +594,31 @@ $check(
         && (fileperms($envPath) & 0777) === 0600
         && file_get_contents($envPath) === "{\n    \"alpha\": \"first-secret\",\n    \"zeta\": \"second-secret\"\n}\n",
     'env intended values: writes are canonical, cumulative, and owner-only'
+);
+$maximumPostPassword = str_repeat('🔒', 255);
+EnvironmentValues::set($envRepo, $postPasswordName, $maximumPostPassword);
+$passwordBoundaryBytes = (string) file_get_contents($envPath);
+$overlongPasswordRefusal = null;
+try {
+    EnvironmentValues::set($envRepo, $postPasswordName, str_repeat('🔒', 256));
+} catch (\RuntimeException $failure) {
+    $overlongPasswordRefusal = $failure->getMessage();
+}
+$invalidUtf8Refusal = null;
+try {
+    EnvironmentValues::set($envRepo, $postPasswordName, "\xFF");
+} catch (\RuntimeException $failure) {
+    $invalidUtf8Refusal = $failure->getMessage();
+}
+$check(
+    (EnvironmentValues::read($envRepo)[$postPasswordName] ?? null) === $maximumPostPassword
+        && strlen($maximumPostPassword) > 255
+        && $overlongPasswordRefusal
+            === 'wprism: protected post password must contain 1 to 255 valid UTF-8 characters'
+        && $invalidUtf8Refusal
+            === 'wprism: protected post password must contain 1 to 255 valid UTF-8 characters'
+        && file_get_contents($envPath) === $passwordBoundaryBytes,
+    'env intended values: 255 multibyte characters persist exactly while 256 characters and invalid UTF-8 refuse before changing intent'
 );
 chmod($envPath, 0644);
 $insecureRefusal = null;
@@ -1397,8 +1430,8 @@ $envBuildEnd = strpos($builderSource, '        // issue #3249:', $envBuildStart)
 $envBuildSection = substr($builderSource, $envBuildStart, $envBuildEnd - $envBuildStart);
 $check(
     preg_match('/public static function env_missing_projection\(/', $plannerSource) === 1
-        && str_contains($planEnvironmentSource, 'return ApplyPlanner::env_missing_projection(')
-        && str_contains($envBuildSection, '$this->env_missing_projection()')
+        && str_contains($planEnvironmentSource, '$projection = ApplyPlanner::env_missing_projection(')
+        && str_contains($envBuildSection, '$this->env_missing_projection($tree)')
         && !str_contains($envBuildSection, 'foreach ($this->policy->env_options()'),
     'env projection: planner owns missing rows while ApplyPlanEnvironment owns the Policy/wpdb boundary'
 );

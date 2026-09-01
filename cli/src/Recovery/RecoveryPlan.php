@@ -441,10 +441,10 @@ final class RecoveryPlan {
         ] as $key) {
             self::assertHash((string) ($scope[$key] ?? ''), "recovery scope $key");
         }
-        if ($scope['allow_deletes'] !== null || $scope['scope_hash'] !== null) {
+        if (!in_array($scope['allow_deletes'], [null, true], true) || $scope['scope_hash'] !== null) {
             throw self::refuse(
                 'recovery_plan_identity_incomplete',
-                'the recovery scope is not a full verified-promotion receipt'
+                'the recovery scope is not a legacy v2 or deletion-admitting v3 full-promotion receipt'
             );
         }
         $resources = $scope['resources'] ?? null;

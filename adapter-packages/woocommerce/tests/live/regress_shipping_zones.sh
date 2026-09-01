@@ -31,7 +31,7 @@
 # fixtures, cleaned up on exit, mirroring regress_option_ref_scope.sh's
 # established pattern. Self-contained, re-runnable.
 set -euo pipefail
-PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 cd "$(dirname "$0")/../../../../sandbox"
 export WPRISM_PAIR=r3e

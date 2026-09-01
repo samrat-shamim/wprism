@@ -4,10 +4,20 @@ declare(strict_types=1);
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
+require_once __DIR__ . '/../Kernel/PostPasswordBinding.php';
 
-/** Target-local intended values for manifest-declared environment options. */
+/** Target-local intended values for env options and canonical secret bindings. */
 final class EnvironmentValues {
     public const FILE = '.wprism-env-values.json';
+    public const POST_PASSWORD_PREFIX = PostPasswordBinding::PREFIX;
+
+    public static function postPasswordName(string $uuid): string {
+        return PostPasswordBinding::name($uuid);
+    }
+
+    public static function postPasswordUuid(string $name): ?string {
+        return PostPasswordBinding::uuid($name);
+    }
 
     /** @return array<string,string> */
     public static function read(string $repo): array {
@@ -33,13 +43,16 @@ final class EnvironmentValues {
             throw new \RuntimeException('wprism: ' . self::FILE . ' is not valid JSON: ' . $failure->getMessage());
         }
         if (!is_object($typed) || !is_array($values) || array_is_list($values)) {
-            throw new \RuntimeException('wprism: ' . self::FILE . ' must be a JSON object of option name to value');
+            throw new \RuntimeException('wprism: ' . self::FILE . ' must be a JSON object of binding name to value');
         }
         foreach ($values as $name => $value) {
             if (!is_string($name) || $name === '' || !is_string($value) || $value === '') {
                 throw new \RuntimeException(
-                    'wprism: ' . self::FILE . ' must contain only non-empty string option names and values'
+                    'wprism: ' . self::FILE . ' must contain only non-empty string binding names and values'
                 );
+            }
+            if (self::postPasswordUuid($name) !== null) {
+                PostPasswordBinding::assertValue($value);
             }
         }
         ksort($values, SORT_STRING);
@@ -47,6 +60,9 @@ final class EnvironmentValues {
     }
 
     public static function set(string $repo, string $name, string $value): void {
+        if (self::postPasswordUuid($name) !== null) {
+            PostPasswordBinding::assertValue($value);
+        }
         $values = self::read($repo);
         $values[$name] = $value;
         ksort($values, SORT_STRING);

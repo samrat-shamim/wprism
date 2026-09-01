@@ -3,7 +3,7 @@
 # used to gate CaptureSafetyGates::guardSecret() behind `is_string($v)` — an authored
 # value that decoded to an ARRAY (a plugin's serialized settings blob) got
 # ZERO secret scanning in any downstream branch. guard_secret() now deep-
-# scans via Secrets::hard_match_deep() (widened from hard_match()) and
+# scans via Secrets::clearance_match_deep() (widened from hard_match()) and
 # both call sites call it unconditionally, matching the pattern
 # Snapshot::guard_secret() and the option_name_refs inline scan already
 # proved in the wave-1 security subset.
@@ -99,38 +99,19 @@ $window"
 done
 pass "all three extracted-capturer bindings have no nearby is_string() gate"
 
-say "call-site wiring: OptionsCapture keeps both unconditional option guards and the sub-key split"
+say "call-site wiring: OptionsCapture guards every authored option shape through one callback"
 OPTIONS_SRC=../../../../agent/src/Capture/OptionsCapture.php
 mapfile -t OPTION_CALL_LINES < <(grep -n '(\$this->guardSecret)(' "$OPTIONS_SRC")
-OPTION_UNCONDITIONAL=()
-OPTION_EXCEPTION=()
+[ "${#OPTION_CALL_LINES[@]}" -eq 4 ] || fail "expected exact, pattern-name, and sub-key authored-option callbacks, got ${#OPTION_CALL_LINES[@]}"
 for entry in "${OPTION_CALL_LINES[@]}"; do
   lineno="${entry%%:*}"
-  content="${entry#*:}"
-  if grep -q '\$subVal' <<<"$content"; then
-    OPTION_EXCEPTION+=("$lineno")
-  else
-    OPTION_UNCONDITIONAL+=("$lineno")
-  fi
-done
-[ "${#OPTION_UNCONDITIONAL[@]}" -eq 2 ] || fail "expected exactly 2 unconditional authored-option secret callbacks, got ${#OPTION_UNCONDITIONAL[@]}: ${OPTION_UNCONDITIONAL[*]:-none}"
-[ "${#OPTION_EXCEPTION[@]}" -eq 1 ] || fail "expected exactly 1 deliberate sub_keys-shaped exception, got ${#OPTION_EXCEPTION[@]}: ${OPTION_EXCEPTION[*]:-none}"
-for lineno in "${OPTION_UNCONDITIONAL[@]}"; do
   start=$((lineno - 2))
   [ "$start" -lt 1 ] && start=1
   window=$(sed -n "${start},${lineno}p" "$OPTIONS_SRC")
   grep -q 'is_string(' <<<"$window" \
     && fail "option secret callback at OptionsCapture.php:$lineno appears gated by a nearby is_string() check:\n$window"
 done
-pass "both authored-option callbacks are unconditional"
-exc_line="${OPTION_EXCEPTION[0]}"
-prev_line=$(sed -n "$((exc_line - 1))p" "$OPTIONS_SRC")
-grep -q 'is_string(\$subVal)' <<<"$prev_line" \
-  || fail "expected the sub_keys exception at OptionsCapture.php:$exc_line to be immediately preceded by is_string(\$subVal) -- got: $prev_line"
-after_window=$(sed -n "${exc_line},$((exc_line + 15))p" "$OPTIONS_SRC")
-grep -q 'hard_match_deep(\$subVal)' <<<"$after_window" \
-  || fail "expected Secrets::hard_match_deep(\$subVal) within 15 lines after the sub_keys exception at OptionsCapture.php:$exc_line -- its own array-scan branch may have been silently deleted"
-pass "the one deliberate sub_keys exception (line $exc_line) still has both halves of its is_string()/hard_match_deep() split intact"
+pass "all authored-option callbacks are unconditional"
 
 USER_META_SRC=../../../../agent/src/Capture/UserMetaCapture.php
 USER_SECRET_LINE=$(grep -n "(\$this->guardSecret)('user_meta'" "$USER_META_SRC" | cut -d: -f1)

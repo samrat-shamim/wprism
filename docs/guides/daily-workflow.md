@@ -114,9 +114,12 @@ produced, which is why `wp wprism refresh-export` — the read-only production
 export used by `refresh` below — is deliberately *not* a capture substitute.
 
 Capture refuses rather than guesses. If it finds an unclassified surface, a
-whole entity type with live rows and no disposition, or a value that
-hard-matches a secret pattern under an `authored` rule, it aborts and tells you
-exactly which key. That is the loud-and-blocking posture the whole
+whole entity type with live rows and no disposition, or secret/credential/PII
+shapes anywhere in the canonical candidate, it aborts before publication and
+names the surface without echoing the value. Structured false positives need
+an exact reviewed `allow_secret`/`allow_pii` rule; prose must be redacted or its
+owning type excluded. Repository authorization repeats the clearance after Git
+review, so a hand edit cannot route around capture. That is the loud-and-blocking posture the whole
 classification pipeline is built on; the remedy is `wprism pending` and
 `wprism classify`, covered in
 [capabilities-and-limits.md](capabilities-and-limits.md). Expect that queue to
@@ -439,7 +442,11 @@ That deletion refusal now holds at every mutation entry point. `wprism release`,
 `wprism promote`, and direct `wp wprism apply` all require `--with-deletes` before a
 plan containing live tombstones can mutate anything. Release additionally
 freezes that authority in its reviewed plan; the lower-level verbs enforce the
-same no-partial-success invariant at apply preparation.
+same no-partial-success invariant at apply preparation. The flag alone is not
+writer-exclusion authority: an executable deletion runs through automatic
+verified promotion, whose signed v3 recovery receipt binds that delete intent.
+Direct apply remains a useful refusal/diagnostic surface but cannot mint the
+external recovery witness required to delete.
 
 Behind: `wprism verify`, which pairs a fresh read-only convergence re-read with
 the HTTP journey oracles your contract declares. Both must pass. If you

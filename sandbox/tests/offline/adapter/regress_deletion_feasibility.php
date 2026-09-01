@@ -29,8 +29,8 @@
  * `sandbox/tests/lib/README.md` is explicit that the shared fake declines
  * `SHOW INDEX`, because an answer synthesized from `setPrimaryKey()` would
  * assert the harness's bookkeeping rather than a server's schema — and an
- * index inventory is the entire subject here. So `SHOW TABLES LIKE` runs
- * against the real `FakeWpdb` and `SHOW INDEX` is served from recorded rows
+ * index inventory is the entire subject here. So the exact table census is
+ * answered by the delegating shim and `SHOW INDEX` is served from recorded rows
  * through the same thin delegating shim WP-2.1's probe suite uses
  * (`regress_adapter_probe.php`'s `RecordedSchemaWpdb`). Test 1 proves the
  * fake really does decline it, so the fixtures are the sanctioned fill.
@@ -116,9 +116,15 @@ use WPrismTest\WpStore;
 final class RecordedIndexWpdb {
     /** @var list<string> every recorded statement served, in order */
     public array $served = [];
+    private ?int $warningCode = null;
 
     /** @param array<string,array{rows?:list<array<string,mixed>>,error?:string,then?:array<string,mixed>}> $recorded collapsed SQL => answer */
-    public function __construct(private FakeWpdb $inner, private array $recorded) {
+    /** @param list<string> $tables */
+    public function __construct(
+        private FakeWpdb $inner,
+        private array $recorded,
+        private array $tables
+    ) {
     }
 
     public function __get(string $name): mixed {
@@ -138,10 +144,38 @@ final class RecordedIndexWpdb {
     }
 
     public function get_var($sql = null, $x = 0, $y = 0): mixed {
+        if (preg_match('/^SELECT 1 FROM `([A-Za-z0-9_]+)` LIMIT 0$/D', (string) $sql, $match) === 1) {
+            if (in_array($match[1], $this->tables, true)) {
+                $this->inner->last_error = '';
+                $this->warningCode = null;
+                return null;
+            }
+            $this->inner->last_error = 'simulated absent table';
+            $this->warningCode = 1146;
+            return false;
+        }
         return $this->inner->get_var($sql, $x, $y);
     }
 
     public function get_results($sql = null, $format = null): mixed {
+        if ((string) $sql === 'SHOW WARNINGS') {
+            $this->inner->last_error = '';
+            return $this->warningCode === null ? [] : [[
+                'Level' => 'Error',
+                'Code' => $this->warningCode,
+                'Message' => 'simulated absent table',
+            ]];
+        }
+        if (str_contains((string) $sql, 'information_schema.TABLES')) {
+            $this->inner->last_error = '';
+            return array_values(array_map(
+                static fn(string $table): array => ['TABLE_NAME' => $table],
+                array_filter(
+                    $this->tables,
+                    static fn(string $table): bool => str_contains((string) $sql, "'$table'")
+                )
+            ));
+        }
         $key = self::collapse((string) $sql);
         if (!array_key_exists($key, $this->recorded)) {
             return $this->inner->get_results($sql, $format);
@@ -176,7 +210,7 @@ $idx = static function (string $name, string $column, int $seq = 1, ?int $sub = 
 /**
  * Installs a fresh fake with the named tables seeded and the given SHOW INDEX
  * answers. Fresh per case on purpose: a guard table is either seeded (so
- * `SHOW TABLES LIKE` finds it) or it is not, and that difference is one of the
+ * the exact information_schema census finds it) or it is not, and that difference is one of the
  * answers under test.
  */
 $target = static function (array $tables, array $recorded): RecordedIndexWpdb {
@@ -184,7 +218,7 @@ $target = static function (array $tables, array $recorded): RecordedIndexWpdb {
     foreach ($tables as $table) {
         $fake->seedTable($table, []);
     }
-    $GLOBALS['wpdb'] = new RecordedIndexWpdb($fake, $recorded);
+    $GLOBALS['wpdb'] = new RecordedIndexWpdb($fake, $recorded, $tables);
     return $GLOBALS['wpdb'];
 };
 
@@ -259,7 +293,7 @@ $target(['wp_nf3_actions', 'wp_nf3_fields'], [
 $report = DeletionFeasibility::report(['table:nf3_forms' => ['guards' => $proposedGuards]]);
 $ninjaRows = $report['selectors']['table:nf3_forms']['guards'];
 
-wprism_check_same('wprism-deletion-feasibility/v1', $report['format'], 'the envelope names the versioned feasibility format');
+wprism_check_same('wprism-deletion-feasibility/v2', $report['format'], 'the envelope names the versioned feasibility format');
 wprism_check_same(false, $report['authority'], 'the document declares authority:false in its own bytes');
 wprism_check_same('values_omitted', $report['redaction'], 'the document declares the value redaction');
 wprism_check_same(
@@ -275,6 +309,7 @@ wprism_check_same(
 
 wprism_check_same(
     [
+        'absence_means_empty' => false,
         'column' => 'parent_id',
         'index' => null,
         'leading' => [],
@@ -289,6 +324,7 @@ wprism_check_same(
 );
 wprism_check_same(
     [
+        'absence_means_empty' => false,
         'column' => 'parent_id',
         'index' => null,
         'leading' => [],
@@ -350,6 +386,74 @@ wprism_check_same(
     [['index' => 'post_parent', 'prefix' => null]],
     $coreRows[1]['leading'],
     'a column that is only a LATER part of a composite index is not reported as leading it'
+);
+
+// The certified WooCommerce deletion guards are the product path that first
+// exercises `forceable`, `table_absence`, and an explicit `lock_column` in one
+// shipped selector. Feed those exact objects through the authoring report so
+// its grammar and lock-column projection cannot drift from the evaluator.
+$woo = json_decode(
+    (string) file_get_contents($repoRoot . '/adapter-packages/woocommerce/package/manifest.json'),
+    true
+);
+$wooProductGuards = (array) ($woo['deletions']['post:product']['guards'] ?? []);
+$guardByTable = static function (string $table) use ($wooProductGuards): array {
+    foreach ($wooProductGuards as $guard) {
+        if (is_array($guard) && ($guard['table'] ?? null) === $table) {
+            return $guard;
+        }
+    }
+    throw new RuntimeException("shipped WooCommerce guard not found: $table");
+};
+$stockNotificationGuard = $guardByTable('wc_stock_notifications');
+$legacyOrderGuard = $guardByTable('woocommerce_order_itemmeta');
+
+$target([], []);
+$stockAbsent = DeletionFeasibility::report([
+    'post:product' => ['guards' => [$stockNotificationGuard]],
+])['selectors']['post:product']['guards'][0];
+wprism_check_same(
+    [true, false, null],
+    [$stockAbsent['absence_means_empty'], $stockAbsent['table_present'], $stockAbsent['reason']],
+    'the exact Woo stock-notification guard accepts proven 11.0.0 table absence as empty'
+);
+
+$target(['wp_wc_stock_notifications'], [
+    'SHOW INDEX FROM `wp_wc_stock_notifications`' => ['rows' => [
+        $idx('product_id', 'product_id'),
+    ]],
+]);
+$stockPresent = DeletionFeasibility::report([
+    'post:product' => ['guards' => [$stockNotificationGuard]],
+])['selectors']['post:product']['guards'][0];
+wprism_check_same(
+    [true, true, 'product_id', 'product_id'],
+    [
+        $stockPresent['absence_means_empty'],
+        $stockPresent['table_present'],
+        $stockPresent['lock_column'],
+        $stockPresent['index'],
+    ],
+    'the exact Woo stock-notification guard accepts forceable=false and proves the present-table lock index'
+);
+
+$target(['wp_woocommerce_order_itemmeta'], [
+    'SHOW INDEX FROM `wp_woocommerce_order_itemmeta`' => ['rows' => [
+        $idx('meta_key', 'meta_key', 1, 32),
+    ]],
+]);
+$legacyOrder = DeletionFeasibility::report([
+    'post:product' => ['guards' => [$legacyOrderGuard]],
+])['selectors']['post:product']['guards'][0];
+wprism_check_same(
+    ['meta_value', 'meta_key', 'meta_key', 32],
+    [
+        $legacyOrder['column'],
+        $legacyOrder['lock_column'],
+        $legacyOrder['index'],
+        $legacyOrder['prefix'],
+    ],
+    'the exact Woo legacy-order guard honors its explicit lock_column instead of misreporting meta_value'
 );
 
 // --------------------------------------------------------------------------
@@ -445,11 +549,13 @@ $absentRow = DeletionFeasibility::report([
 ])['selectors']['table:nf3_forms']['guards'][0];
 wprism_check_same(
     [
+        'absence_means_empty' => false,
         'index' => null,
         'reason' => 'guard table is absent on this target',
         'table_present' => false,
     ],
     [
+        'absence_means_empty' => $absentRow['absence_means_empty'],
         'index' => $absentRow['index'],
         'reason' => $absentRow['reason'],
         'table_present' => $absentRow['table_present'],
@@ -459,6 +565,25 @@ wprism_check_same(
 wprism_check(
     $absentRow['reason'] !== 'no index leads with this column',
     'the scanner reports absence before any index question, and so does this — blaming the index would be wrong'
+);
+
+$absenceEmptyRow = DeletionFeasibility::report([
+    'table:nf3_forms' => ['guards' => [$proposedGuards[0] + ['table_absence' => 'empty']]],
+])['selectors']['table:nf3_forms']['guards'][0];
+wprism_check_same(
+    [
+        'absence_means_empty' => true,
+        'index' => null,
+        'reason' => null,
+        'table_present' => false,
+    ],
+    [
+        'absence_means_empty' => $absenceEmptyRow['absence_means_empty'],
+        'index' => $absenceEmptyRow['index'],
+        'reason' => $absenceEmptyRow['reason'],
+        'table_present' => $absenceEmptyRow['table_present'],
+    ],
+    'an absent table with table_absence=empty is feasible without inventing an index or lock'
 );
 
 // A selector with no guards at all is a real proposal (core's `menu:nav_menu`
@@ -564,7 +689,7 @@ wprism_check_same(
     'the emitter can report and hash, and nothing else — there is no method that proposes a selector'
 );
 
-$closed = ['column', 'index', 'leading', 'lock_column', 'prefix', 'reason', 'table', 'table_present'];
+$closed = ['absence_means_empty', 'column', 'index', 'leading', 'lock_column', 'prefix', 'reason', 'table', 'table_present'];
 foreach ($report['selectors'] as $selector => $facts) {
     wprism_check_same(
         ['guards'],
@@ -649,7 +774,7 @@ wprism_check_throws(
 // …and the refusal NAMES it. The author who hits this is annotating a guard
 // by hand, and `wp help wprism adapter-deletion-feasibility` documents
 // `--proposal` only as "`<selector>: {"guards": [...]}` — minus `cascades`",
-// listing none of the 13 keys in GUARD_KEYS. Measured on a live WPForms Lite
+// listing none of the 16 keys in GUARD_KEYS. Measured on a live WPForms Lite
 // pair: the field that hit it was `note`, and neither the key nor the legal
 // set reached the terminal.
 $unmodelled = null;
@@ -667,9 +792,10 @@ wprism_check(
     'the refusal names the offending guard field and where it sits, not merely that one exists'
 );
 wprism_check(
-    $unmodelled instanceof \WPrism\CommandRefusalException
-        && str_contains($unmodelled->remediation, 'cast, column, exclude_where, id_kind, identity_column, meta_key')
-        && str_contains($unmodelled->remediation, 'source_id_kind, source_pk, table, where'),
+$unmodelled instanceof \WPrism\CommandRefusalException
+        && str_contains($unmodelled->remediation, 'cast, column, exclude_where, forceable, id_kind, identity_column, lock_column')
+        && str_contains($unmodelled->remediation, 'meta_key, option_name_ref, reason, ref, source_id_kind, source_pk, table')
+        && str_contains($unmodelled->remediation, 'table_absence, where'),
     'and its remediation lists the whole closed guard grammar, which is the fact `wp help` never gives'
 );
 wprism_check(
@@ -835,7 +961,28 @@ wprism_check(
     'the terminal never suggests what to declare — the summary reports and stops'
 );
 
+$absenceProposalPath = $scratch . '/absence-empty-proposal.json';
+file_put_contents($absenceProposalPath, Canon::encode([
+    'table:nf3_forms' => ['guards' => [$proposedGuards[0] + ['table_absence' => 'empty']]],
+]));
+$target([], []);
+WP_CLI::reset();
+$verb->adapter_deletion_feasibility([], ['proposal' => $absenceProposalPath]);
+$absenceHuman = implode("\n", WP_CLI::$lines);
+wprism_check(
+    str_contains($absenceHuman, 'table absent; declared absence means empty — no lock needed')
+        && !str_contains($absenceHuman, 'NO covering index'),
+    'the human summary reports an absence-means-empty topology as no-lock-needed, never as a missing index'
+);
+
 // JSON is the transport form: the emitted bytes ARE the document.
+$target(['wp_nf3_actions', 'wp_nf3_fields'], [
+    'SHOW INDEX FROM `wp_nf3_actions`' => ['rows' => [$idx('PRIMARY', 'id', 1, null, 0)]],
+    'SHOW INDEX FROM `wp_nf3_fields`' => ['rows' => [
+        $idx('PRIMARY', 'id', 1, null, 0),
+        $idx('key_idx', 'key', 1, 191),
+    ]],
+]);
 WP_CLI::reset();
 $verb->adapter_deletion_feasibility([], ['proposal' => $proposalPath, 'format' => 'json']);
 $emitted = json_decode(implode("\n", WP_CLI::$lines), true);
@@ -915,7 +1062,8 @@ wprism_check(
 );
 wprism_check(
     is_string($noteEnvelope['remediation'] ?? null)
-        && str_contains($noteEnvelope['remediation'], 'option_name_ref, reason, ref'),
+        && str_contains($noteEnvelope['remediation'], 'option_name_ref, reason, ref')
+        && str_contains($noteEnvelope['remediation'], 'table, table_absence, where'),
     'and the remediation hands the author the closed guard grammar instead of "inspect the proposed guards"'
 );
 wprism_check(
@@ -956,5 +1104,5 @@ wprism_check_same(
 );
 
 wprism_check_summary(
-    'deletion feasibility (wprism-deletion-feasibility/v1): lock_index() answered at authoring time, deciding nothing'
+    'deletion feasibility (wprism-deletion-feasibility/v2): lock_index() answered at authoring time, deciding nothing'
 );

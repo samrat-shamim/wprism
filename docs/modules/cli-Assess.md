@@ -19,7 +19,7 @@
 | `StackInventory.php` | the target stack block, proved and passed through verbatim, plus the `authority` block: transport, doctor verdict, the read-only adoption/init probes, installed code identity and the adapter sources this run could reach |
 | `SurfaceCatalog.php` | one row per WordPress-language surface, each carrying the six §1 dimensions per operation, derived from `policy.surface_groups`, `Coverage`'s undeclared tables, the registry claim's `surfaces[]` and the contract's `surface_labels` |
 | `GapActions.php` | the closed gap-action set: the per-surface reduction across operations, the unknown-section mapping, and the summary counts |
-| `AssessReport.php` | the `wprism-assess-report/v1` document, its `assess_digest`, the `unknown` and `evidence` blocks, and the contract-proposal seed |
+| `AssessReport.php` | the complete `wprism-assess-report/v1`, its `assess_digest`, the `unknown` and `evidence` blocks, the contract-proposal seed, and its bounded paginated `wprism-assess-view/v1` machine projection |
 | `AssessRenderer.php` | the human projection of that one document, bounded per §4.6 (50 rows, `--limit=1..200`, `N more (use --format=json)`) |
 
 **Known debts.**

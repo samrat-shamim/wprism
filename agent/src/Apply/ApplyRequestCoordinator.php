@@ -2,6 +2,12 @@
 namespace WPrism;
 
 require_once __DIR__ . '/EnvironmentValues.php';
+require_once __DIR__ . '/ProtectedPostIdentity.php';
+require_once __DIR__ . '/../Kernel/PostPasswordBinding.php';
+if (!class_exists(Db::class, false)) {
+    require_once __DIR__ . '/../Kernel/Db.php';
+}
+require_once __DIR__ . '/../Delete/DeleteGuardEvaluator.php';
 
 require_once __DIR__ . '/../Kernel/PlainData.php';
 require_once __DIR__ . '/../Adapter/Providers.php';
@@ -53,6 +59,8 @@ require_once __DIR__ . '/../Delete/DeleteGuardLockCoordinator.php';
 require_once __DIR__ . '/ApplyPreparationRequest.php';
 require_once __DIR__ . '/ApplyWorkset.php';
 require_once __DIR__ . '/../Delete/DeletionAuthority.php';
+require_once __DIR__ . '/../Promotion/ScopedPromotionAuthority.php';
+require_once __DIR__ . '/../Promotion/VerifiedPromotionAuthority.php';
 require_once __DIR__ . '/../Rebuild/RebuildRequest.php';
 
 /**
@@ -124,7 +132,7 @@ final class ApplyRequestCoordinator {
                 $tree,
                 $guardRepairUuids
             ),
-            recheckDeleteGuard: fn(
+            recheckDeleteGuard: function (
                 array $row,
                 array $deleteUuids,
                 array $deletions,
@@ -132,16 +140,21 @@ final class ApplyRequestCoordinator {
                 array $tree,
                 array $guardRepairUuids,
                 bool $forUpdate
-            ): mixed => $this->deleteGuardCoordinator->recheck(
-                $row,
-                $deleteUuids,
-                $deletions,
-                $forced,
-                $tree,
-                $guardRepairUuids,
-                $forUpdate,
-                $this->warnings
-            ),
+            ): \Closure {
+                $this->deleteGuardCoordinator->recheck(
+                    $row,
+                    $deleteUuids,
+                    $deletions,
+                    $forced,
+                    $tree,
+                    $guardRepairUuids,
+                    $forUpdate,
+                    $this->warnings
+                );
+                return function (): void {
+                    $this->deleteGuardCoordinator->authorize_destructive_unit();
+                };
+            },
             selectionDeclaresChannelFor: fn(string $channel, string $surface): bool =>
                 $this->rebuildSelection->declares_channel_for($channel, $surface),
             selectionDeclaresEntityBatchFor: fn(string $surface): bool =>
@@ -160,13 +173,44 @@ final class ApplyRequestCoordinator {
                 string $idCol
             ): mixed => $this->services->field_materializer()->upsert_meta(
                 $table, $fkCol, $objectId, $key, $value, $context, $idCol
-            )
+            ),
+            consumeDeleteAuthority: fn(): mixed =>
+                $this->deleteGuardCoordinator->consume_destructive_unit(),
+            verifyDeleteCommit: fn(): mixed =>
+                $this->deleteGuardCoordinator->assert_writer_exclusion_commit_boundary(),
+            endDeleteTransaction: fn(): mixed =>
+                $this->deleteGuardCoordinator->end_writer_exclusion_transaction()
         );
-        $this->services = new ApplyServices($policy, $compiled, $callbacks, $this->repo);
+        $this->services = new ApplyServices(
+            $policy,
+            $compiled,
+            $callbacks,
+            $this->repo
+        );
         $this->deleteGuardCoordinator = new DeleteGuardLockCoordinator(
             $policy,
             $this->services->delete_guard_reference_scanner(),
-            $this->services->snapshot_row_tables()
+            $this->services->snapshot_row_tables(),
+            static function (array $binding): array {
+                if (($binding['profile'] ?? null) === 'scoped') {
+                    return ScopedPromotionAuthority::require_installed(
+                        (string) $binding['owner'],
+                        (string) $binding['artifact_hash'],
+                        (string) $binding['receipt_payload_sha256'],
+                        (string) $binding['scope_hash'],
+                        ['promoting'],
+                        true
+                    );
+                }
+                if (($binding['profile'] ?? null) === 'verified') {
+                    return VerifiedPromotionAuthority::require_installed(
+                        (string) $binding['owner'],
+                        (string) $binding['artifact_hash'],
+                        (string) $binding['receipt_payload_sha256']
+                    );
+                }
+                throw new \RuntimeException('wprism: deletion writer-exclusion profile is unsupported');
+            }
         );
         $this->taxonomyContext = new TaxonomyApplyContext($policy, $compiled);
         $this->rebuildSelection = new RebuildSelection($policy);
@@ -274,7 +318,13 @@ final class ApplyRequestCoordinator {
                 $work['rebuild_delete_work'],
                 $policy
             );
-            $selectedActions = $policy->actions_for($surfaces);
+            $selectedActions = $policy->actions_for(
+                $surfaces,
+                CanonicalSurfaces::mutation_channels_for_apply(
+                    $work['work'],
+                    $work['rebuild_delete_work']
+                )
+            );
             foreach ($selectedActions as $action) {
                 if (!array_key_exists('triggers', $action)) {
                     throw new \RuntimeException(
@@ -334,6 +384,11 @@ final class ApplyRequestCoordinator {
         }
         Snapshot::repair_truncated_entity_types($policy); // issue #3246
         $plan = $a->build_plan($opts, $compiled);
+        // A full plan can authorize target-relative rollback resources only
+        // when its selected actions/effects are bound to the exact compiled
+        // bytes it observed. Older hosts may ignore this additive witness;
+        // verified promotion requires and rechecks it before any mutation.
+        $plan['artifact_hash'] = $compiled->artifact_hash();
         if (Ledger::kv_get('apply_in_progress') !== null) {
             $a->warnings[] = 'previous apply did not complete required rebuilds; canonical entities require retry';
         }
@@ -432,7 +487,7 @@ final class ApplyRequestCoordinator {
             $this->services->snapshot_row_tables(),
             $this->scopedWorkflow->scopeContract,
             fn(): array => $this->planEnvironment->regeneration_debt_projection(),
-            fn(): array => $this->planEnvironment->env_missing_projection(),
+            fn(array $tree = []): array => $this->planEnvironment->env_missing_projection($tree),
             $this->warnings
         );
         $result = $builder->build($opts, $compiled, $strictObservation, $diagnoseAdapters);
@@ -485,7 +540,10 @@ final class ApplyRequestCoordinator {
         }
         $surfaces = array_values(array_unique(array_map('strval', $surfaces)));
         sort($surfaces, SORT_STRING);
-        $actions = $policy->actions_for($surfaces);
+        $actions = $policy->actions_for(
+            $surfaces,
+            $bucket === 'delete' ? ['deletions'] : ($surfaces === [] ? [] : ['always_on_write'])
+        );
         $adoptBySlug = array_values(array_filter(array_map(
             'strval',
             explode(',', (string) ($opts['adopt_by_slug'] ?? ''))
@@ -562,6 +620,94 @@ final class ApplyRequestCoordinator {
      */
     public static function set_env_option(string $repo, string $name, string $value): array {
         $policy = Policy::load($repo);
+        if ($value === '') {
+            throw new \RuntimeException(
+                "wprism: env-set: refusing to set '$name' to an empty string — that would still read as "
+                . "env_missing on the next 'wprism plan' (missing means absent OR empty), so it can never "
+                . 'satisfy provisioning'
+            );
+        }
+        $passwordUuid = EnvironmentValues::postPasswordUuid($name);
+        if ($passwordUuid !== null) {
+            PostPasswordBinding::assertValue($value);
+            $tree = self::compiled($repo, $policy, [])->tree();
+            $entity = $tree[$passwordUuid] ?? null;
+            $front = is_array($entity) && is_array($entity['data'] ?? null) ? $entity['data'] : [];
+            if (($entity['type'] ?? null) !== 'post'
+                || !is_string($front['password_binding'] ?? null)
+                || !hash_equals($name, $front['password_binding'])) {
+                throw new \RuntimeException(
+                    "wprism: env-set: '$name' does not name a protected post binding in the compiled repository"
+                );
+            }
+            $postType = $front['type'] ?? null;
+            if (!is_string($postType) || $postType === '') {
+                throw new \RuntimeException("wprism: env-set: '$name' has no canonical post type");
+            }
+            $previouslySet = isset(EnvironmentValues::read($repo)[$name]);
+            $transactionStarted = false;
+            $continuityStarted = false;
+            $postId = null;
+            try {
+                Db::start_repeatable_read('env-set protected post transaction start');
+                $transactionStarted = true;
+                DeleteGuardEvaluator::begin_authored_transaction();
+                $continuityStarted = true;
+                $postWitness = ProtectedPostIdentity::lock($passwordUuid, $postType);
+                $postId = $postWitness['post_id'] ?? null;
+                $oldPassword = $postWitness['post_password'] ?? null;
+                $connectionId = Db::transaction_connection_id(
+                    'env-set protected post publication session proof'
+                );
+                DeleteGuardEvaluator::assert_transaction_isolation(
+                    'env-set protected post publication continuity'
+                );
+
+                // Publish intended state only after exact live identity is
+                // proven under lock. A later DB failure leaves loud drift,
+                // while a stale/reused map row changes neither side.
+                EnvironmentValues::set($repo, $name, $value);
+                if ($postId !== null) {
+                    if (!is_string($oldPassword)
+                        || !ProtectedPostIdentity::update_password(
+                            $passwordUuid,
+                            $postId,
+                            $postType,
+                            $oldPassword,
+                            $value,
+                            $connectionId
+                        )) {
+                        throw new \RuntimeException(
+                            "wprism: env-set: wrote '$name' but the live post password does not match afterward"
+                        );
+                    }
+                }
+                Db::transaction_connection_id('env-set protected post precommit session proof');
+                DeleteGuardEvaluator::assert_transaction_isolation(
+                    'env-set protected post precommit continuity'
+                );
+                Db::commit('env-set protected post transaction commit');
+                $transactionStarted = false;
+                DeleteGuardEvaluator::end_authored_transaction();
+                $continuityStarted = false;
+            } catch (\Throwable $failure) {
+                try {
+                    if ($transactionStarted) {
+                        Db::rollback_after_failure($failure, 'env-set protected post transaction rollback');
+                    }
+                } finally {
+                    if ($continuityStarted) {
+                        DeleteGuardEvaluator::end_authored_transaction();
+                    }
+                }
+                throw $failure;
+            }
+            if ($postId !== null) {
+                clean_post_cache($postId);
+            }
+
+            return ['name' => $name, 'previously_set' => $previouslySet];
+        }
         $envOptions = $policy->env_options();
         if (!isset($envOptions[$name])) {
             throw new \RuntimeException(
@@ -578,14 +724,6 @@ final class ApplyRequestCoordinator {
                 . "itself; see this manifest's own notes for '$name')"
             );
         }
-        if ($value === '') {
-            throw new \RuntimeException(
-                "wprism: env-set: refusing to set '$name' to an empty string — that would still read as "
-                . "env_missing on the next 'wprism plan' (missing means absent OR empty), so it can never "
-                . 'satisfy provisioning'
-            );
-        }
-
         // The target-local file is the intended-value authority. Publish it
         // before touching WordPress so a crash can leave only a loud drift
         // (`env_missing`), never a green value with no recorded intent.
@@ -622,6 +760,7 @@ final class ApplyRequestCoordinator {
         $scopeRequest = $opts['scope_request'] ?? null;
         $scoped = is_array($scopeRequest);
         $scopedPromotionWitness = self::assert_scoped_promotion_request($opts, $scoped);
+        $verifiedPromotionWitness = self::assert_verified_promotion_request($opts, $scoped);
         $allowDeletes = !empty($opts['with_deletes']);
         if ($scoped) {
             Ledger::assert_read_only_schema();
@@ -885,7 +1024,7 @@ final class ApplyRequestCoordinator {
                 $a->services->attachment_materializer()->recover_pending_filesystem();
             }
             $a->scopedWorkflow->session = $recoveringScopedSession ? $existingScopedSession : null;
-            $a->scopedWorkflow->promotionWitness = $scopedPromotionWitness;
+            $a->scopedWorkflow->promotionWitness = $scopedPromotionWitness ?? $verifiedPromotionWitness;
             $a->scopedWorkflow->terminalSessionToArchive = $terminalScopedSessionToArchive;
             if ($scoped) {
                 $a->scopedWorkflow->scopeContract = ScopedApply::resolve_contract(
@@ -920,6 +1059,14 @@ final class ApplyRequestCoordinator {
                     $scopeHash,
                     $scopedPromotionWitness
                 );
+            }
+            if ($verifiedPromotionWitness !== null) {
+                $verifiedPromotionWitness = VerifiedPromotionAuthority::require_installed(
+                    $promotionOwner,
+                    $promotionArtifact,
+                    (string) $opts['verified_promotion_receipt']
+                );
+                $a->scopedWorkflow->promotionWitness = $verifiedPromotionWitness;
             }
             $summary = $a->run($opts, $lockedCompiled);
             PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'complete');
@@ -1076,6 +1223,7 @@ final class ApplyRequestCoordinator {
         $this->services->shortcode_alternate_registrar()->register($tree);
         $scoped = $this->scopedWorkflow->scopeContract !== null;
         $scopedPromotion = (string) ($opts['scoped_promotion_receipt'] ?? '') !== '';
+        $verifiedPromotion = (string) ($opts['verified_promotion_receipt'] ?? '') !== '';
         $recoveringScoped = $scoped && $this->scopedWorkflow->session !== null;
         $retryingIncompleteApply = Ledger::kv_get('apply_in_progress') !== null;
         if ($scoped && $retryingIncompleteApply) {
@@ -1150,6 +1298,33 @@ final class ApplyRequestCoordinator {
         $executeDeletes = $prepared->executeDeletes;
         $this->defaultAuthor = $prepared->defaultAuthor;
         $freshActual = $prepared->freshActual;
+
+        if ($verifiedPromotion) {
+            $verifiedPromotionWitness = $this->scopedWorkflow->promotionWitness;
+            if (!is_array($verifiedPromotionWitness)) {
+                throw new \RuntimeException(
+                    'wprism: verified promotion witness is absent before fresh plan authorization'
+                );
+            }
+            VerifiedPromotionAuthority::assert_plan_resources(
+                array_replace($freshPlan, ['code' => $compiled->code_descriptor()]),
+                $verifiedPromotionWitness
+            );
+        }
+
+        // A repository tombstone is destructive intent even before the row
+        // loop begins. Bind the exact signed external exclusion now, before a
+        // scoped-session CAS, apply_in_progress marker, or authored row can be
+        // written. Ordinary/scoped-direct --with-deletes therefore cannot use
+        // ProcessFence as a substitute for target-wide writer exclusion.
+        if ($deleteWork !== []) {
+            $witness = $this->scopedWorkflow->promotionWitness;
+            if (!is_array($witness)) {
+                $this->deleteGuardCoordinator->assert_writer_exclusion_plan_authority();
+            }
+            $this->deleteGuardCoordinator->bind_writer_exclusion((array) $witness);
+            $this->deleteGuardCoordinator->assert_writer_exclusion_plan_authority();
+        }
 
         $performAuthoredTransaction = true;
         $authorIntent = null;
@@ -1703,6 +1878,33 @@ final class ApplyRequestCoordinator {
             $authorityWitness
         );
         return $authorityWitness;
+    }
+
+    /**
+     * Admit destructive full apply only as the exact continuation of the
+     * signed automatic rollback generation whose v3 receipt records the same
+     * --with-deletes intent. Direct apply and legacy v2 receipts stay closed.
+     */
+    private static function assert_verified_promotion_request(array $opts, bool $scoped): ?array {
+        $receipt = (string) ($opts['verified_promotion_receipt'] ?? '');
+        if ($receipt === '') {
+            return null;
+        }
+        if ($scoped
+            || empty($opts['with_deletes'])
+            || (string) ($opts['promotion_owner'] ?? '') === ''
+            || preg_match('/^[a-f0-9]{64}$/D', $receipt) !== 1) {
+            throw CommandRefusalException::applyRefused(
+                'verified deletion continuation requires full apply, --with-deletes, exact host owner, and signed receipt hash',
+                'retry through automatic host `wprism promote <env> --with-deletes`',
+                'wprism: invalid verified deletion continuation'
+            );
+        }
+        return VerifiedPromotionAuthority::require_installed(
+            (string) $opts['promotion_owner'],
+            (string) ($opts['artifact_hash'] ?? ''),
+            $receipt
+        );
     }
 
 

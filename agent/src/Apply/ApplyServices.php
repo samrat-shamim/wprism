@@ -12,6 +12,7 @@ require_once __DIR__ . '/RelationshipMaterializer.php';
 require_once __DIR__ . '/AttachmentMaterializer.php';
 require_once __DIR__ . '/PostMaterializer.php';
 require_once __DIR__ . '/../Delete/DeleteExecutor.php';
+require_once __DIR__ . '/EnvironmentValues.php';
 require_once __DIR__ . '/../Delete/DeleteGuardReferenceScanner.php';
 require_once __DIR__ . '/../Adapter/ProviderActionBatchBuilder.php';
 require_once __DIR__ . '/../Rebuild/RegenerationContextStore.php';
@@ -59,7 +60,6 @@ final class ApplyServices {
     private ?ApplyPlanner $applyPlanner = null;
     /** @var array<string,array>|null */
     private ?array $snapshotRowTables = null;
-
     public function __construct(
         private readonly Policy $policy,
         private readonly CompiledRepository $compiled,
@@ -138,7 +138,8 @@ final class ApplyServices {
             $this->tokens,
             $this->field_materializer(),
             $this->relationship_materializer(),
-            $this->attachment_materializer()
+            $this->attachment_materializer(),
+            is_dir($this->repositoryRoot) ? EnvironmentValues::read($this->repositoryRoot) : []
         );
     }
 
@@ -147,7 +148,8 @@ final class ApplyServices {
             $this->policy,
             $this->relationship_materializer(),
             $this->menu_materializer(),
-            $this->field_materializer()
+            $this->field_materializer(),
+            $this->callbacks->consumeDeleteAuthority
         );
     }
 
@@ -230,7 +232,9 @@ final class ApplyServices {
             $this->callbacks->taxonomyOwnership,
             $this->callbacks->renewPromotionLock,
             $this->callbacks->lockDeleteGuards,
-            $this->callbacks->recheckDeleteGuard
+            $this->callbacks->recheckDeleteGuard,
+            $this->callbacks->verifyDeleteCommit,
+            $this->callbacks->endDeleteTransaction
         );
     }
 

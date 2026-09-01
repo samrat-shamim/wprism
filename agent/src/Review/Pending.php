@@ -5,6 +5,7 @@ namespace WPrism;
 // directly, and the drop-in has no autoloader — every engine file names the
 // classes it loads (sandbox/tests/offline/guards/regress_agent_src_requires.php).
 require_once __DIR__ . '/../Repository/SidebarState.php';
+require_once __DIR__ . '/../Kernel/PersonalData.php';
 
 /**
  * The core loop's review queue (DESIGN.md 3.1.5): `wp wprism pending` is the
@@ -47,7 +48,8 @@ final class Pending {
      *     journal?: array{n:int, surfaces: array<string,int>, caps: array<string,int>, proposal: ?string}
      *   },
      *   ref_hint?: array{kind:string, id:int, title:string, post_type:string, at:string},
-     *   secret?: string
+     *   secret?: string,
+     *   pii?: string
      * }>
      */
     public static function scan(string $repo, ?Policy $policy = null): array {
@@ -186,7 +188,7 @@ final class Pending {
 
     /** Live current value for one section/key — first row found (a
      *  representative sample, not per-entity). Used for the ref-hint linter,
-     *  the secret flag, and `classify`'s pre-write secret check. */
+     *  clearance flags, and `classify`'s pre-write clearance check. */
     public static function current_value(
         string $section,
         string $key,
@@ -272,13 +274,18 @@ final class Pending {
             if ($hint !== null) {
                 $item['ref_hint'] = $hint;
             }
-            if (is_string($value)) {
-                $label = Secrets::hard_match($value);
-                if ($label !== null) {
-                    $item['secret'] = "hard:$label";
-                } elseif (Secrets::suspicious($key, $value)) {
-                    $item['secret'] = 'suspicious';
+            $hard = Secrets::hard_match_deep($value);
+            if ($hard !== null) {
+                $item['secret'] = "hard:$hard";
+            } else {
+                $secret = Secrets::clearance_match_deep($key, $value);
+                if ($secret !== null) {
+                    $item['secret'] = $secret;
                 }
+            }
+            $pii = PersonalData::match_deep($key, $value);
+            if ($pii !== null) {
+                $item['pii'] = $pii;
             }
         }
         return $item;

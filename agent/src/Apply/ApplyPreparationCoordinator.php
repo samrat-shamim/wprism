@@ -214,6 +214,7 @@ final class ApplyPreparationCoordinator {
 
         if ($executeDeletes) {
             $blocked = array_filter($deleteWork, fn($row) => isset($row['blocked']));
+            DeleteGuardLockCoordinator::assert_no_non_forceable_delete_guards($blocked);
             if ($blocked && empty($opts['force_delete_referenced'])) {
                 $list = implode("\n  - ", array_map(
                     fn($row) => "{$row['type']} {$row['uuid']}: {$row['blocked']}",
@@ -314,6 +315,9 @@ final class ApplyPreparationCoordinator {
                 $tree,
                 $freshRebuildWork['rebuild_delete_work'],
                 $this->policy
+            ), CanonicalSurfaces::mutation_channels_for_apply(
+                $freshRebuildWork['work'],
+                $freshRebuildWork['rebuild_delete_work']
             ));
             if (Canon::encode($freshSelectedActions) !== Canon::encode($negotiatedSelectedActions)) {
                 throw new \RuntimeException(

@@ -6,6 +6,7 @@ namespace WPrism;
 // without Policy present. Close its own two dependencies explicitly, exactly
 // as its 243 siblings do (AGENTS.md rule 1).
 require_once __DIR__ . '/../Kernel/PlainData.php';
+require_once __DIR__ . '/../Kernel/PersonalData.php';
 require_once __DIR__ . '/../Kernel/Secrets.php';
 
 /**
@@ -331,36 +332,33 @@ final class ColumnCodecGrammar {
      *
      * @param array{container:string,leaves:string} $codec
      */
-    public static function capture_value(mixed $raw, array $codec, object $tokens, string $where): mixed {
+    public static function capture_value(
+        mixed $raw,
+        array $codec,
+        object $tokens,
+        string $where,
+        string $key = '',
+        array $rule = []
+    ): mixed {
         $decoded = self::decode($raw, $codec, $where, 'captured');
         if ($decoded['kind'] === 'null') {
             return null;
         }
+        self::assert_clearance($key, $decoded['value'], $rule, $where);
         if ($decoded['kind'] === 'text') {
-            $label = Secrets::hard_match_deep($decoded['value']);
-            if ($label !== null) {
-                throw new \RuntimeException(
-                    "wprism: secret guard tripped — $where contains a $label but is classified authored; refusing "
-                    . "to capture it into state/.\nIf this is really a secret, reclassify the column "
-                    . 'runtime/derived/env instead of authored.'
-                );
-            }
             return $tokens->tokenize_text($decoded['value']);
         }
-        // The secret gate runs on the DECODED value, matching the attached-meta
-        // plain_data path (TypedTableCapture.php:282): a credential nested three
-        // levels inside a serialized container is the case Secrets::
-        // hard_match_deep() exists for, and screening the raw framing bytes
-        // instead would only ever see the outer string.
-        $label = Secrets::hard_match_deep($decoded['value']);
-        if ($label !== null) {
-            throw new \RuntimeException(
-                "wprism: secret guard tripped — $where decodes to a value containing a $label but is classified "
-                . "authored; refusing to capture it into state/.\n"
-                . 'If this is really a secret, reclassify the column runtime/derived/env instead of authored.'
-            );
-        }
         return serialize($tokens->plain_data_capture($decoded['value']));
+    }
+
+    /** Decode canonical or captured bytes for the shared recursive clearance gate. */
+    public static function decode_for_clearance(
+        mixed $bytes,
+        array $codec,
+        string $where,
+        string $side = 'authored'
+    ): mixed {
+        return self::decode($bytes, $codec, $where, $side)['value'];
     }
 
     /**
@@ -435,5 +433,28 @@ final class ColumnCodecGrammar {
             );
         }
         return ['kind' => 'container', 'value' => $decoded];
+    }
+
+    /** The codec owns framing, so clearance must inspect the decoded value. */
+    private static function assert_clearance(string $key, mixed $value, array $rule, string $where): void {
+        if (empty($rule['allow_secret'])) {
+            $label = Secrets::clearance_match_deep($key, $value);
+            if ($label !== null) {
+                throw new \RuntimeException(
+                    "wprism: secret guard tripped — $where decodes to a value containing a $label but is classified "
+                    . "authored; refusing to capture it into state/.\n"
+                    . 'If this is really a secret, reclassify the column runtime/derived/env instead of authored.'
+                );
+            }
+        }
+        if (empty($rule['allow_pii'])) {
+            $label = PersonalData::match_deep($key, $value);
+            if ($label !== null) {
+                throw new \RuntimeException(
+                    "wprism: PII guard tripped — $where decodes to a value containing $label but is classified "
+                    . 'authored; refusing capture without an exact reviewed allow_pii=true rule'
+                );
+            }
+        }
     }
 }

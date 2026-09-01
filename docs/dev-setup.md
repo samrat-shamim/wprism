@@ -272,7 +272,7 @@ the six product words they report are defined in
 neither writes to a target.
 
 ```bash
-wprism assess <env> [--operation=<csv>] [--limit=<1..200>] [--format=json]
+wprism assess <env> [--operation=<csv>] [--limit=<1..200>] [--cursor=<token>] [--format=json]
 wprism contract <env> show|propose|accept|attest [--format=json]
 ```
 
@@ -315,6 +315,9 @@ Three things about it are easy to get wrong when reading the output:
   `N more (use --format=json)`), and a malformed `--limit` refuses rather than
   falling back to the default. The counts printed beside a truncated list are
   always the true totals.
+- **The machine view is bounded when requested.** Bare `--format=json` remains
+  the complete contract-bound report. Add `--limit=1..200` to receive
+  `wprism-assess-view/v1`; follow `page.next_cursor` to enumerate all rows.
 
 `wprism contract` is the reviewed half. `propose` regenerates the proposal from a
 fresh assessment; `show` reads the two committed documents from disk and

@@ -2,7 +2,7 @@
 
 **Purpose.** Plans, executes and verifies writes of repository state into a live site: apply planning, services, the authored transaction, convergence verification and the per-entity materializers.
 
-**Directory** `agent/src/Apply/` &middot; **layer** `engine` &middot; **files** 32 &middot; **status** populated
+**Directory** `agent/src/Apply/` &middot; **layer** `engine` &middot; **files** 34 &middot; **status** populated
 
 **Entry points** (classes other modules already reference; a new cross-module reference to anything else is a design change): `ApplyPlanner`, `Apply`, `MenuMaterializer`, `RelationshipMaterializer`, `TypedTableMaterializer`, `ConvergenceVerifier`.
 
@@ -14,7 +14,7 @@
   `ApplyPlanEnvironment.php -> ProviderActionBatchBuilder.php`; `ApplyRequestCoordinator.php -> Providers.php`; `ApplyServices.php -> ProviderActionBatchBuilder.php`; `AuthoredTransactionExecutor.php -> ProviderActionBatchBuilder.php`
 - `Capture` (intra-layer, 4 edges)
   `ApplyPlanBuilder.php -> Capture.php`; `ApplyPreparationCoordinator.php -> Capture.php`; `ApplyRequestCoordinator.php -> Capture.php`; `ConvergenceVerifier.php -> Capture.php`
-- `Delete` (intra-layer, 10 edges)
+- `Delete` (intra-layer, 12 edges)
   `ApplyPlanBuilder.php -> DeleteGuardEvaluator.php`; `ApplyPlanBuilder.php -> DeleteGuardReferenceScanner.php`; `ApplyPlanBuilder.php -> Deletion.php`; `ApplyPreparationCoordinator.php -> DeleteGuardLockCoordinator.php`; `ApplyRequestCoordinator.php -> DeleteGuardLockCoordinator.php`; `ApplyRequestCoordinator.php -> DeletionAuthority.php`; …
 - `Promotion` (intra-layer, 6 edges)
   `ApplyPlanBuilder.php -> Deploy.php`; `ApplyPlanBuilder.php -> PromotionLock.php`; `ApplyPreparationCoordinator.php -> PromotionLock.php`; `ApplyPreparationCoordinator.php -> ScopedPromotionAuthority.php`; `ApplyRequestCoordinator.php -> PromotionLock.php`; `ApplyRequestCoordinator.php -> ScopedPromotionAuthority.php`
@@ -29,7 +29,7 @@
 
 **Known debts.**
 
-- Largest engine module (33 files; only `Kernel`'s 34 is bigger) and the largest fan-out in the repo: `ApplyRequestCoordinator` carries 50 `require_once` lines, `ApplyServices` 27.
+- Largest engine module (34 files; only `Kernel`'s 35 is bigger) and the largest fan-out in the repo: `ApplyRequestCoordinator` carries 50 `require_once` lines, `ApplyServices` 27.
 - 14 edges into Scope and 13 into Rebuild: the apply/scope/rebuild triangle is the densest part of the engine SCC.
 
 **Sub-namespace plan.** Target `WPrism\Apply\`. Not in this round: the move keeps `namespace WPrism;` flat so that manifest interpreters/providers can keep naming `\WPrism\Policy`, `\WPrism\ProviderSdk`, `\WPrism\Providers` and `\WPrism\Canon` by FQCN — those hook files are `hash_file`'d into every adapter's identity row (`ArtifactPolicyIdentity::manifest_rows()`), so renaming the namespace moves each `adapter_digest` and forces a recompile plus a reviewed re-pin on every deployed site. Kernel migrates first (no inbound FQCN from manifests); Policy, Adapter and Canon migrate last, behind a hook-file change.

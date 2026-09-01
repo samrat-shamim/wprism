@@ -4,7 +4,7 @@
 # populated site to a network, then prove every public repository command
 # refuses before it can publish or mutate the graph.
 set -euo pipefail
-PACKAGE_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+PACKAGE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export WPRISM_ARTIFACT_PACKAGE="${PACKAGE_ROOT##*/}"
 cd "$PACKAGE_ROOT/../../sandbox"
 

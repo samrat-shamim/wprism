@@ -7,7 +7,12 @@
 # boot travels through cli/wprism's SSH path.
 #
 # Run only from a clean standalone candidate clone, with explicitly allocated
-# resources:
+# resources. Adapter capsules may reuse this exact host/provider setup by
+# setting WPRISM_SSH_ADOPT_EXTENSION to one tracked
+# adapter-packages/<slug>/tests/live/*.sh file that defines
+# wprism_ssh_adopt_extension(). The extension runs after the shared scoped
+# rollback proof and before label-verified cleanup; it is not a product hook.
+#
 #   make regress-ssh-adopt ADOPT_FIXTURE=<unique-name> ADOPT_SSH_PORT=<free-port> \
 #     WPRISM_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)
 set -euo pipefail
@@ -19,6 +24,7 @@ PREFIX="${ADOPT_FIXTURE:-}"
 PORT_RAW="${ADOPT_SSH_PORT:-}"
 EXPECTED_SHA="${WPRISM_EXPECTED_SOURCE_SHA:-}"
 SOURCE_SHA=""
+AGENT_VERSION=""
 NET="${PREFIX}-net"
 DB="${PREFIX}-db"
 TARGET="${PREFIX}-target"
@@ -28,7 +34,10 @@ PORT=""
 TMP=""
 DIAG_DIR=""
 WPRISM="$ROOT/cli/wprism"
-SUITE_LABEL="regress-ssh-adopt"
+SUITE_LABEL="${WPRISM_SSH_SUITE_LABEL:-regress-ssh-adopt}"
+FINAL_LABEL="${WPRISM_SSH_FINAL_LABEL:-REGRESS_SSH_ADOPT}"
+EXTENSION="${WPRISM_SSH_ADOPT_EXTENSION:-}"
+TARGET_REPOSITORY_BRANCH="wprism-live-evidence"
 RUN_ID=""
 BODY_COMPLETE=0
 IMAGE_OWNED=0
@@ -135,7 +144,7 @@ cleanup() {
       [ ! -e "$DIAG_DIR" ] && [ ! -L "$DIAG_DIR" ] || cleanup_failed=1
     fi
     if [ "$cleanup_failed" -eq 0 ]; then
-      printf '\n\033[1;32m✔ REGRESS_SSH_ADOPT PASSED\033[0m\n'
+      printf '\n\033[1;32m✔ %s PASSED\033[0m\n' "$FINAL_LABEL"
       exit 0
     fi
   fi
@@ -149,9 +158,13 @@ cleanup() {
   exit 1
 }
 
-for command in git docker lsof; do
+for command in git docker lsof php; do
   command -v "$command" >/dev/null 2>&1 || fail "$command is required for SSH-adoption live evidence"
 done
+[[ "$SUITE_LABEL" =~ ^[a-z][a-z0-9-]{2,63}$ ]] \
+  || fail "WPRISM_SSH_SUITE_LABEL must be a lowercase 3..64 character resource label"
+[[ "$FINAL_LABEL" =~ ^[A-Z][A-Z0-9_]{2,63}$ ]] \
+  || fail "WPRISM_SSH_FINAL_LABEL must be an uppercase 3..64 character result label"
 [[ "$PREFIX" =~ ^[a-z][a-z0-9]{2,31}$ ]] \
   || fail "ADOPT_FIXTURE is required and must be a unique lowercase 3..32 character name"
 [[ "$PORT_RAW" =~ ^[0-9]+$ ]] \
@@ -179,6 +192,17 @@ SOURCE_STATUS="$(git -C "$ROOT" --no-optional-locks status --porcelain=v1 --untr
   || fail "could not inspect SSH-adoption live evidence source cleanliness"
 [ -z "$SOURCE_STATUS" ] \
   || fail "SSH-adoption live evidence requires a clean standalone clone at $SOURCE_SHA"
+AGENT_VERSION="$(php -r '
+  $source = file_get_contents($argv[1]);
+  if (!is_string($source)
+      || preg_match("/define\\(\\x27WPRISM_AGENT_VERSION\\x27,\\s*\\x27([^\\x27]+)\\x27\\)/", $source, $match) !== 1) {
+    exit(1);
+  }
+  echo $match[1];
+' "$ROOT/agent/wprism.php")" \
+  || fail "agent/wprism.php does not declare one readable WPRISM_AGENT_VERSION"
+[[ "$AGENT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+  || fail "agent/wprism.php declares a non-semantic WPRISM_AGENT_VERSION"
 docker info >/dev/null 2>&1 || fail "Docker daemon is unavailable"
 for container in "$TARGET" "$DB"; do
   docker container inspect "$container" >/dev/null 2>&1 \
@@ -408,23 +432,23 @@ ssh_fixture 'test ! -e /var/www/html/wp-content/mu-plugins/wprism && test ! -e /
   || fail "driver negotiation contacted or mutated the SSH target"
 pass "SSH driver reports adopt ready, create unsupported, and performs zero target mutation during negotiation"
 
-say "refuse legacy revocation retirement without a byte-identical durable copy"
-ssh_fixture 'mkdir -p /var/www/html/wp-content/mu-plugins/manifests/capabilities /var/www/html/wp-content/mu-plugins/wprism-control; printf "%s\n" legacy-revocation > /var/www/html/wp-content/mu-plugins/manifests/capabilities/adapter-revocations.json; printf "%s\n" durable-mismatch > /var/www/html/wp-content/mu-plugins/wprism-control/adapter-revocations.json'
+say "refuse an unsafe durable-control destination before first adoption"
+ssh_fixture 'mkdir -p /var/www/html/wp-content/mu-plugins && cd /var/www/html/wp-content/mu-plugins && mkdir wprism-control-real && printf "%s\n" preserve > wprism-control-real/sentinel && ln -s wprism-control-real wprism-control'
 if OUT="$("$WPRISM" --envs-file="$TMP/envs.json" adopt target 2>&1)"; then CODE=0; else CODE=$?; fi
 echo "$OUT"
-[ "$CODE" -ne 0 ] || fail "adopt retired a legacy revocation with no byte-identical durable copy"
-grep -q 'legacy adapter revocations require a byte-identical durable wprism-control copy' <<<"$OUT" \
-  || fail "revocation migration refusal omitted its durable-copy requirement"
-ssh_fixture 'test "$(cat /var/www/html/wp-content/mu-plugins/manifests/capabilities/adapter-revocations.json)" = legacy-revocation; test "$(cat /var/www/html/wp-content/mu-plugins/wprism-control/adapter-revocations.json)" = durable-mismatch; test ! -e /var/www/html/wp-content/mu-plugins/wprism; test ! -e /home/wprism/site; test ! -e /var/www/html/wp-content/mu-plugins/.wprism-adopt-lock' \
-  || fail "revocation migration refusal changed the target or its two control documents"
-ssh_fixture 'rm -rf /var/www/html/wp-content/mu-plugins/manifests /var/www/html/wp-content/mu-plugins/wprism-control'
-pass "legacy revocations cannot be silently discarded during cutover"
+[ "$CODE" -ne 0 ] || fail "adopt followed a symlink durable-control destination"
+grep -q 'refusing symlink destination: /var/www/html/wp-content/mu-plugins/wprism-control' <<<"$OUT" \
+  || fail "durable-control symlink refusal omitted the unsafe destination"
+ssh_fixture 'test "$(cat /var/www/html/wp-content/mu-plugins/wprism-control/sentinel)" = preserve; test ! -e /var/www/html/wp-content/mu-plugins/wprism; test ! -e /home/wprism/site; test ! -e /var/www/html/wp-content/mu-plugins/.wprism-adopt-lock' \
+  || fail "durable-control symlink refusal changed the target before first adoption"
+ssh_fixture 'cd /var/www/html/wp-content/mu-plugins && rm wprism-control && rm -rf wprism-control-real'
+pass "unsafe durable-control topology refuses before target mutation"
 
 say "adopt the pre-existing target through the product command"
 if OUT="$("$WPRISM" --envs-file="$TMP/envs.json" adopt target 2>&1)"; then CODE=0; else CODE=$?; fi
 echo "$OUT"
 [ "$CODE" -eq 0 ] || fail "first wprism adopt failed with exit $CODE"
-grep -q 'adopt: installed agent 0.5.0 + embedded adapter library + rollback authority; created seed site.wprism.json' <<<"$OUT" \
+grep -Fq "adopt: installed agent $AGENT_VERSION + embedded adapter library + rollback authority; created seed site.wprism.json" <<<"$OUT" \
   || fail "first adopt did not report the installed version and seed creation"
 grep -q '\[PASS\] wprism agent present' <<<"$OUT" || fail "doctor did not pass agent presence"
 grep -q '\[PASS\] repo path has site.wprism.json (/home/wprism/site)' <<<"$OUT" \
@@ -443,6 +467,18 @@ TARGET_ID="$(ssh_fixture "php -r 'echo json_decode(file_get_contents(\"/home/wpr
 ssh_fixture 'test ! -e /home/wprism/site/.wprism/control/rollback-signing.key && test ! -e /home/wprism/site/.wprism/control/private-keys' \
   || fail "adoption copied private signing material to the target"
 pass "agent with embedded adapters, seed repo, public-key-only rollback authority, and doctor verify through SSH"
+
+say "establish the named target repository boundary required by capture"
+php -r 'require $argv[1]; echo \WPrism\Orchestrator\Adopt::repositoryGitignoreBytes();' \
+  "$ROOT/cli/src/Onboarding/Adopt.php" >"$TMP/repository.gitignore"
+scp -F "$TMP/ssh_config" "$TMP/repository.gitignore" \
+  wprism-adopt-fixture:/home/wprism/site/.gitignore >/dev/null
+ssh_fixture "cd /home/wprism/site && git init -b '$TARGET_REPOSITORY_BRANCH' >/dev/null && git config user.name 'WPrism live fixture' && git config user.email 'wprism-live@example.invalid' && git add .gitignore site.wprism.json && git commit -m 'Initialize WPrism live repository' >/dev/null"
+[ "$(ssh_fixture 'git -C /home/wprism/site symbolic-ref --quiet --short HEAD')" = "$TARGET_REPOSITORY_BRANCH" ] \
+  || fail "target repository was not initialized on the capture branch"
+ssh_fixture 'git -C /home/wprism/site diff --quiet HEAD -- .gitignore site.wprism.json && git -C /home/wprism/site diff --cached --quiet' \
+  || fail "target repository seed was not committed cleanly"
+pass "target repository has the canonical ignore boundary and a committed named capture branch"
 
 ssh_fixture 'mv /var/www/html/wp-config.php /var/www/html/wp-config.broken; printf "%s\n" "<?php throw new RuntimeException(\"broken bootstrap\");" > /var/www/html/wp-config.php'
 ssh_fixture 'php /home/wprism/site/.wprism/control/recovery-runtime/rollback-control.php recovery-probe --root=/home/wprism/site/.wprism/control' \
@@ -473,14 +509,14 @@ pass "status detects tampering and promotion refuses before its first target mut
 
 say "prove update/idempotence without overwriting site policy"
 ssh_fixture "php -r '\$p=\"/home/wprism/site/site.wprism.json\"; \$d=json_decode(file_get_contents(\$p),true); \$d[\"adoption_probe\"]=\"retain\"; file_put_contents(\$p,json_encode(\$d));'"
-ssh_fixture "sed -i \"s/WPRISM_AGENT_VERSION', '0.5.0/WPRISM_AGENT_VERSION', '0.0.0/\" /var/www/html/wp-content/mu-plugins/wprism/wprism.php"
+ssh_fixture "sed -i \"s/WPRISM_AGENT_VERSION', '$AGENT_VERSION/WPRISM_AGENT_VERSION', '0.0.0/\" /var/www/html/wp-content/mu-plugins/wprism/wprism.php"
 [ "$(ssh_fixture "cd /var/www/html && wp eval 'echo WPRISM_AGENT_VERSION;'")" = "0.0.0" ] \
   || fail "could not create the stale-agent precondition"
 if OUT="$("$WPRISM" --envs-file="$TMP/envs.json" adopt target 2>&1)"; then CODE=0; else CODE=$?; fi
 echo "$OUT"
 [ "$CODE" -eq 0 ] || fail "second wprism adopt failed with exit $CODE"
 grep -q 'retained existing site.wprism.json' <<<"$OUT" || fail "rerun did not report non-destructive repo retention"
-[ "$(ssh_fixture "cd /var/www/html && wp eval 'echo WPRISM_AGENT_VERSION;'")" = "0.5.0" ] \
+[ "$(ssh_fixture "cd /var/www/html && wp eval 'echo WPRISM_AGENT_VERSION;'")" = "$AGENT_VERSION" ] \
   || fail "rerun did not update the stale agent to the orchestrator's exact version"
 [ "$(ssh_fixture "php -r 'echo json_decode(file_get_contents(\"/home/wprism/site/site.wprism.json\"),true)[\"adoption_probe\"] ?? \"missing\";'")" = "retain" ] \
   || fail "rerun overwrote existing site.wprism.json"
@@ -490,7 +526,7 @@ pass "rerun updates stale code and embedded adapters while retaining site policy
 
 say "roll back the installed release when fresh policy verification fails"
 ssh_fixture 'cp /home/wprism/site/site.wprism.json /home/wprism/site/site.wprism.valid.json'
-ssh_fixture "sed -i \"s/WPRISM_AGENT_VERSION', '0.5.0/WPRISM_AGENT_VERSION', '0.0.0/\" /var/www/html/wp-content/mu-plugins/wprism/wprism.php"
+ssh_fixture "sed -i \"s/WPRISM_AGENT_VERSION', '$AGENT_VERSION/WPRISM_AGENT_VERSION', '0.0.0/\" /var/www/html/wp-content/mu-plugins/wprism/wprism.php"
 ssh_fixture "printf '%s\n' '{invalid-json' > /home/wprism/site/site.wprism.json"
 BEFORE_AGENT="$(ssh_fixture 'cksum /var/www/html/wp-content/mu-plugins/wprism/wprism.php')"
 BEFORE_LIBRARY="$(ssh_fixture 'cksum /var/www/html/wp-content/mu-plugins/wprism/adapter-library/platform/core/manifest.json')"
@@ -514,22 +550,6 @@ ssh_fixture 'mv /home/wprism/site/site.wprism.valid.json /home/wprism/site/site.
   || fail "adopt did not recover after the valid policy was restored"
 pass "post-swap verification failure restores the agent with its embedded adapters and leaves site policy unchanged"
 
-say "refuse a symlink destination without mutating the installed release"
-BEFORE_AGENT="$(ssh_fixture 'cksum /var/www/html/wp-content/mu-plugins/wprism/wprism.php')"
-BEFORE_SITE="$(ssh_fixture 'cksum /home/wprism/site/site.wprism.json')"
-ssh_fixture 'cd /var/www/html/wp-content/mu-plugins && mkdir manifests-real && printf "%s\n" legacy > manifests-real/sentinel && ln -s manifests-real manifests'
-if OUT="$("$WPRISM" --envs-file="$TMP/envs.json" adopt target 2>&1)"; then CODE=0; else CODE=$?; fi
-echo "$OUT"
-[ "$CODE" -ne 0 ] || fail "adopt followed a symlink destination"
-grep -q 'refusing symlink destination: /var/www/html/wp-content/mu-plugins/manifests' <<<"$OUT" \
-  || fail "symlink refusal did not identify the unsafe destination"
-[ "$(ssh_fixture 'cksum /var/www/html/wp-content/mu-plugins/wprism/wprism.php')" = "$BEFORE_AGENT" ] \
-  || fail "symlink refusal changed the installed agent"
-[ "$(ssh_fixture 'cksum /home/wprism/site/site.wprism.json')" = "$BEFORE_SITE" ] \
-  || fail "symlink refusal changed site.wprism.json"
-ssh_fixture 'cd /var/www/html/wp-content/mu-plugins && rm manifests && rm -rf manifests-real'
-pass "unsafe destination is a loud failure with agent and site policy unchanged"
-
 say "the adopted target carries the reviewed embedded adapter library it will be gated on"
 # A premise check, not a fixture: `wprism adopt` above installed this checkout's
 # assembled adapter library whole, so the reviewed dispositions and platform boundary are
@@ -544,7 +564,7 @@ pass "target carries the shipped platform boundary and a cited disposition for e
 say "exercise a real checkpointed SSH scoped promotion and its recovery boundary"
 ssh_fixture 'php -r '\''$p="/home/wprism/site/site.wprism.json"; $d=json_decode(file_get_contents($p),true,512,JSON_THROW_ON_ERROR); $d["policy"]["options"]["scoped-apply_scoped_option"]=["autoload"=>"preserve","class"=>"authored"]; file_put_contents($p,json_encode($d,JSON_UNESCAPED_SLASHES)."\n");'\'''
 ssh_fixture 'cd /var/www/html && wp option update scoped-apply_scoped_option desired-failure --autoload=no >/dev/null'
-"$WPRISM" --envs-file="$TMP/envs.json" capture target --format=json >"$TMP/scoped-apply-failure-capture.json" \
+"$WPRISM" --envs-file="$TMP/envs.json" capture target --target-branch="$TARGET_REPOSITORY_BRANCH" --format=json >"$TMP/scoped-apply-failure-capture.json" \
   || fail "could not capture the desired scoped-promotion source state"
 "$WPRISM" --envs-file="$TMP/envs.json" scope target --roots=options --contract >"$TMP/scoped-apply-failure-scope.json" \
   || fail "could not mint the desired scoped-promotion contract"
@@ -700,7 +720,7 @@ jq -e '.state == "released"' <<<"$(ssh_fixture 'cat /home/wprism/recovery-fixtur
   || fail "v2 exclusion provider did not release after scoped rollback"
 
 ssh_fixture 'cd /var/www/html && wp option update scoped-apply_scoped_option desired-success --autoload=no >/dev/null'
-"$WPRISM" --envs-file="$TMP/envs.json" capture target --format=json >"$TMP/scoped-apply-success-capture.json" \
+"$WPRISM" --envs-file="$TMP/envs.json" capture target --target-branch="$TARGET_REPOSITORY_BRANCH" --format=json >"$TMP/scoped-apply-success-capture.json" \
   || fail "could not capture the successful scoped-promotion source state"
 "$WPRISM" --envs-file="$TMP/envs.json" scope target --roots=options --contract >"$TMP/scoped-apply-success-scope.json" \
   || fail "could not mint the successful scoped-promotion contract"
@@ -759,5 +779,25 @@ jq -e '
 jq -e '.state == "released"' <<<"$(ssh_fixture 'cat /home/wprism/recovery-fixture/provider-state.json')" >/dev/null \
   || fail "v2 exclusion provider did not release after scoped commit"
 pass "public scoped promotion restores a real encrypted DB checkpoint on failure, then commits a receipt-bound target Apply and retires its scoped session"
+
+if [ -n "$EXTENSION" ]; then
+  EXTENSION_REAL="$(php -r '$p=realpath($argv[1]); if(!is_string($p)||$p==="")exit(1); echo $p;' "$EXTENSION")" \
+    || fail "WPRISM_SSH_ADOPT_EXTENSION does not resolve to a tracked capsule live script"
+  case "$EXTENSION_REAL" in
+    "$ROOT"/adapter-packages/*/tests/live/*.sh) ;;
+    *) fail "WPRISM_SSH_ADOPT_EXTENSION must stay under adapter-packages/<slug>/tests/live" ;;
+  esac
+  [ -f "$EXTENSION_REAL" ] && [ ! -L "$EXTENSION_REAL" ] && [ -r "$EXTENSION_REAL" ] \
+    || fail "WPRISM_SSH_ADOPT_EXTENSION must be a readable, non-symlink regular file"
+  EXTENSION_RELATIVE="${EXTENSION_REAL#"$ROOT"/}"
+  git -C "$ROOT" --no-optional-locks ls-files --error-unmatch -- "$EXTENSION_RELATIVE" >/dev/null 2>&1 \
+    || fail "WPRISM_SSH_ADOPT_EXTENSION must be tracked by the exact candidate commit"
+  # shellcheck source=/dev/null
+  . "$EXTENSION_REAL"
+  declare -F wprism_ssh_adopt_extension >/dev/null \
+    || fail "WPRISM_SSH_ADOPT_EXTENSION must define wprism_ssh_adopt_extension()"
+  wprism_ssh_adopt_extension
+  pass "candidate-bound capsule SSH extension completed under the shared recovery fixture"
+fi
 
 BODY_COMPLETE=1
