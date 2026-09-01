@@ -605,7 +605,12 @@ final class ReleaseCommand {
             // These are local evidence writes only and occur after signature
             // verification. The canonical target remains untouched until its
             // authorization consumption is durable.
-            (new ContractStore($siteRepo))->writeProjection($current['projection']);
+            // `projection` is deliberately only the release-scoped row list
+            // consumed by AuthorizationPlan. Persisting it here replaced the
+            // committed wprism-site-capability-projection/v1 document with a
+            // bare JSON array after every signed execute. The site-repository
+            // evidence write must retain the complete current assessment.
+            (new ContractStore($siteRepo))->writeProjection($current['projection_document']);
             AuthorizationPlan::freeze($document['authorization_plan'], $siteRepo);
             StageSourceCommand::verify($driver, $receipt);
 
@@ -1360,6 +1365,7 @@ PHP;
             'plan' => $plan,
             'plan_document' => $document,
             'projection' => $inScope,
+            'projection_document' => $projection,
             'recovery' => $recovery,
             'scope' => $scope,
             'site_repo' => $siteRepo,

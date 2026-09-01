@@ -1019,6 +1019,16 @@ if (\WPrism\Orchestrator\ReleaseOutcome::encode($outcome) !== $bytes
   && pass 'release execute records a non-pass verification as one canonical failed outcome' \
   || { fail "release execute misrepresented verification (exit $EXECUTE_STATUS)"; cat "$TMP/execute.json" >&2; cat "$TMP/execute.json.err" >&2; }
 
+php -r '
+$projection = json_decode((string) file_get_contents($argv[1]), true);
+if (($projection["format"] ?? null) !== "wprism-site-capability-projection/v1"
+    || !is_string($projection["contract_digest"] ?? null)
+    || !is_array($projection["surfaces"] ?? null)
+    || array_is_list($projection)) exit(1);
+' "$SITE/.wprism/contract/projection.json" \
+  && pass 'signed execute persists the complete site capability projection document' \
+  || fail 'signed execute replaced projection.json with release-scoped authorization rows'
+
 [ "$(git -C "$TMP/target" rev-parse HEAD)" = "$SOURCE_COMMIT" ] \
   && [ "$(git -C "$TMP/target" rev-parse HEAD^{tree})" = "$SOURCE_TREE" ] \
   && [ "$(authorization_count)" = 5 ] \
