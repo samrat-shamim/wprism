@@ -244,6 +244,28 @@ assert_capture_command(
     'capture receipt digest binds every canonical public field'
 );
 
+$missingRevision = new CaptureCommandDriver();
+$missingRevision->captureResult = $jsonSuccess->captureResult;
+$missingRevisionSummary = json_decode($missingRevision->captureResult['stdout'], true, 512, JSON_THROW_ON_ERROR);
+$missingRevisionSummary['revision_hash'] = null;
+$missingRevision->captureResult['stdout'] = json_encode(
+    $missingRevisionSummary,
+    JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+);
+ob_start();
+$missingRevisionExit = CaptureCommand::run(
+    $missingRevision,
+    ['--target-branch=feature/capture-command', '--format=json'],
+    null,
+    static fn(): never => throw new RuntimeException('explicit branch must suppress branch discovery')
+);
+$missingRevisionReceipt = json_decode((string) ob_get_clean(), true, 512, JSON_THROW_ON_ERROR);
+assert_capture_command(
+    $missingRevisionExit === 1
+        && ($missingRevisionReceipt['reason_code'] ?? null) === 'capture_result_invalid',
+    'repository capture cannot report success without the agent-compiled state revision'
+);
+
 $targetRefusal = new CaptureCommandDriver();
 $targetRefusal->captureResult = [
     'exit' => 1,
