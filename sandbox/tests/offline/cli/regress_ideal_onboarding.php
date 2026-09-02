@@ -2068,6 +2068,7 @@ $wooSession = [
 ];
 $installWoo = new ReflectionMethod(DemoCommand::class, 'installWooCommerce');
 $establishHpos = new ReflectionMethod(DemoCommand::class, 'establishHpos');
+$configureWooQualification = new ReflectionMethod(DemoCommand::class, 'configureWooQualification');
 $wooPriorPath = getenv('PATH');
 putenv('PATH=' . $wooFixtureBin . ':' . (is_string($wooPriorPath) ? $wooPriorPath : ''));
 putenv('WPRISM_DEMO_DOCKER_LOG=' . $wooLog);
@@ -2076,6 +2077,7 @@ $wooSetupError = null;
 try {
     $installWoo->invoke(null, $wooSession, $wooFixtureRoot);
     $establishHpos->invoke(null, $wooSession, 2);
+    $configureWooQualification->invoke(null, $wooSession, 2);
 } catch (Throwable $error) {
     $wooSetupError = $error;
 } finally {
@@ -2086,10 +2088,23 @@ try {
 $wooCalls = is_file($wooLog) ? (string) file_get_contents($wooLog) : '';
 $targetActivation = strpos($wooCalls, ' cli2 wp plugin activate woocommerce ');
 $targetHpos = strpos($wooCalls, ' cli2 wp eval WC_Install::maybe_enable_hpos(); ');
+$sourceStockConstant = strpos($wooCalls, ' cli1 wp config set WOOCOMMERCE_BIS_ALPHA_ENABLED true ');
+$sourceStockTables = strpos($wooCalls, ' cli1 wp eval WC_Install::create_tables(); ');
+$targetStockConstant = strpos($wooCalls, ' cli2 wp config set WOOCOMMERCE_BIS_ALPHA_ENABLED true ');
+$targetStockTables = strpos($wooCalls, ' cli2 wp eval WC_Install::create_tables(); ');
 wprism_check_same(null, $wooSetupError, 'demo activates target WooCommerce before target HPOS setup');
 wprism_check(
     $targetActivation !== false && $targetHpos !== false && $targetActivation < $targetHpos,
     'the real demo installer orders cli2 activation before its WC_Install HPOS call'
+);
+wprism_check(
+    $sourceStockConstant !== false
+        && $sourceStockTables !== false
+        && $sourceStockConstant < $sourceStockTables
+        && $targetStockConstant !== false
+        && $targetStockTables !== false
+        && $targetStockConstant < $targetStockTables,
+    'the demo creates Woo stock-notification tables only after the feature constant is active on both sides'
 );
 
 $largeProcess = HostProcess::run([
@@ -3104,6 +3119,9 @@ wprism_check(
 );
 wprism_check(
     str_contains($demoSource, "'config', 'set', 'WOOCOMMERCE_BIS_ALPHA_ENABLED'")
+        && str_contains($demoSource, "'WC_Install::create_tables(); '")
+        && str_contains($demoSource, 'wc_stock_notifications')
+        && str_contains($demoSource, 'wc_stock_notificationmeta')
         && str_contains($demoSource, 'change_feature_enable("fulfillments", true)')
         && str_contains($demoSource, "['action-scheduler', 'migrate']")
         && str_contains($demoSource, 'ActionScheduler_DBStore')

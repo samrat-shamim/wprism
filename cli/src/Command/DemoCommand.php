@@ -1526,7 +1526,12 @@ SH;
         if ($constant['exit'] !== 0) {
             throw new \RuntimeException("WooCommerce qualification constant setup failed on side $side");
         }
-        $enable = '$features = wc_get_container()->get(\\Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::class); '
+        // Stock-notification schema is conditional on the constant above. The
+        // activation-time WC_Install call ran before that constant existed, so
+        // create the native tables in this fresh process before products can
+        // fire Woo 11.0.1's StockSyncController callbacks.
+        $enable = 'WC_Install::create_tables(); '
+            . '$features = wc_get_container()->get(\\Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::class); '
             . 'if (!$features->feature_is_enabled("fulfillments") '
             . '&& !$features->change_feature_enable("fulfillments", true)) '
             . '{ throw new RuntimeException("could not enable native fulfillments"); }';
@@ -1542,10 +1547,17 @@ SH;
         // WordPress request must run Woo's own init lifecycle so its taxonomy,
         // tables, marker, Action Scheduler, and stock-retention hooks are the
         // native 11.0.1 projection the shipped providers verify.
-        $verify = '$features = wc_get_container()->get(\\Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::class); '
+        $verify = 'global $wpdb; '
+            . '$stock_table = $wpdb->prefix . "wc_stock_notifications"; '
+            . '$stock_meta_table = $wpdb->prefix . "wc_stock_notificationmeta"; '
+            . '$table_exists = static fn (string $table): bool => $wpdb->get_var($wpdb->prepare('
+            . '"SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() '
+            . 'AND BINARY TABLE_NAME = BINARY %s", $table)) === $table; '
+            . '$features = wc_get_container()->get(\\Automattic\\WooCommerce\\Internal\\Features\\FeaturesController::class); '
             . 'if (!$features->feature_is_enabled("fulfillments") '
             . '|| !taxonomy_exists("wc_fulfillment_shipping_provider") '
             . '|| get_option("woocommerce_fulfillments_db_tables_created") !== "1" '
+            . '|| !$table_exists($stock_table) || !$table_exists($stock_meta_table) '
             . '|| !\\Automattic\\WooCommerce\\Admin\\Features\\Features::is_enabled("analytics-scheduled-import") '
             . '|| get_class(\\ActionScheduler::store()) !== "ActionScheduler_DBStore" '
             . '|| !defined("WOOCOMMERCE_BIS_ALPHA_ENABLED") || WOOCOMMERCE_BIS_ALPHA_ENABLED !== true) '
