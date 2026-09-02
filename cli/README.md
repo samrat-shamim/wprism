@@ -537,6 +537,15 @@ semantics remain the rehearsal implementation's.
   completeness, promotion, or convergence; the detailed buckets remain the
   sole authority.
 
+  Current agents additionally emit `affected_surfaces`, a sorted, unique,
+  value-free list in the assess/contract surface vocabulary. It comes from
+  the same exact changed/delete/retry selection that chooses Apply's provider
+  actions. Release and rehearsal use it to keep a product edit scoped to
+  `post_type:product` rather than every declared post type. If an older agent,
+  or an entity kind with no exact projection yet, omits the field, the host
+  retains the documented entity-kind superset. A present malformed, unknown,
+  duplicate or unsorted id refuses; it never earns a narrower fallback.
+
   An explicit `--category=<csv>`, `--action=<csv>`, `--entity=<csv>`, emitted
   `--cursor=<token>`, or
   canonical `--limit=<1..200>` on `wprism status` (or forwarded through
@@ -1763,7 +1772,10 @@ override for the machine-local half of the registry.
 
 ```
 /.wprism-envs.json
-/.wprism/
+/.wprism/*
+!/.wprism/authority/
+/.wprism/authority/*
+!/.wprism/authority/authorities.json
 /.wprism-env-values.json
 ```
 

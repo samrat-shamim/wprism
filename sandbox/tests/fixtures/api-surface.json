@@ -8381,6 +8381,31 @@
                     "return_type": "array",
                     "static": true,
                     "visibility": "public"
+                },
+                "projection_ids": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "surfaces",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "WPrism\\Policy",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": true,
+                    "visibility": "public"
                 }
             },
             "parent": null,

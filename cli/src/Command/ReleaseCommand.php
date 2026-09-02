@@ -605,7 +605,12 @@ final class ReleaseCommand {
             // These are local evidence writes only and occur after signature
             // verification. The canonical target remains untouched until its
             // authorization consumption is durable.
-            (new ContractStore($siteRepo))->writeProjection($current['projection']);
+            // `projection` is deliberately only the release-scoped row list
+            // consumed by AuthorizationPlan. Persisting it here replaced the
+            // committed wprism-site-capability-projection/v1 document with a
+            // bare JSON array after every signed execute. The site-repository
+            // evidence write must retain the complete current assessment.
+            (new ContractStore($siteRepo))->writeProjection($current['projection_document']);
             AuthorizationPlan::freeze($document['authorization_plan'], $siteRepo);
             StageSourceCommand::verify($driver, $receipt);
 
@@ -1360,6 +1365,7 @@ PHP;
             'plan' => $plan,
             'plan_document' => $document,
             'projection' => $inScope,
+            'projection_document' => $projection,
             'recovery' => $recovery,
             'scope' => $scope,
             'site_repo' => $siteRepo,
@@ -1939,19 +1945,29 @@ PHP;
      * @return array<string,mixed>
      */
     private static function scope(array $plan, array $rows): array {
-        $kinds = self::touchedEntityKinds($plan);
+        $affected = self::affectedSurfaces($plan, $rows);
+        $kinds = $affected === null ? self::touchedEntityKinds($plan) : [];
         $surfaces = [];
         foreach ($rows as $row) {
             $id = (string) ($row['id'] ?? '');
             if ($id === '') {
                 continue;
             }
-            if ($kinds === [] || self::rowTouched($id, $kinds)) {
+            if (($affected !== null && isset($affected[$id]))
+                || ($affected === null && ($kinds === [] || self::rowTouched($id, $kinds)))) {
                 $surfaces[$id] = true;
             }
         }
         $code = self::codeCounts($plan);
         $withCode = $code['plugins_changed'] + $code['themes_changed'] + $code['other'] > 0;
+        if ($affected !== null && $withCode) {
+            foreach ($rows as $row) {
+                $id = (string) ($row['id'] ?? '');
+                if (str_starts_with($id, 'plugin:') || str_starts_with($id, 'theme:')) {
+                    $surfaces[$id] = true;
+                }
+            }
+        }
         // Printed in promote's own execution order — code-stage, retire,
         // activate, code-finalize, apply's verification — because the reader
         // is being asked to authorize a sequence, not a set.
@@ -1972,6 +1988,51 @@ PHP;
             ],
             'surfaces' => array_keys($surfaces),
         ];
+    }
+
+    /**
+     * Prefer the agent's exact value-free mutation projection. Absence means
+     * an older agent, so the documented entity-kind superset remains the
+     * compatibility path; malformed or unknown ids are a refusal, never a
+     * silent fallback that could narrow verification.
+     *
+     * @param list<array<string,mixed>> $rows
+     * @return ?array<string,true>
+     */
+    private static function affectedSurfaces(array $plan, array $rows): ?array {
+        if (!array_key_exists('affected_surfaces', $plan)) {
+            return null;
+        }
+        $value = $plan['affected_surfaces'];
+        if (!is_array($value) || !array_is_list($value)) {
+            throw new CommandRefusalException(
+                'release_plan_scope_invalid',
+                'the target plan returned a malformed exact affected-surface projection',
+                'upgrade or repair the target agent before preparing this release'
+            );
+        }
+        $available = [];
+        foreach ($rows as $row) {
+            if (is_array($row) && is_string($row['id'] ?? null) && $row['id'] !== '') {
+                $available[$row['id']] = true;
+            }
+        }
+        $out = [];
+        $previous = null;
+        foreach ($value as $surface) {
+            if (!is_string($surface) || $surface === '' || !isset($available[$surface])
+                || isset($out[$surface]) || ($previous !== null && strcmp($previous, $surface) >= 0)) {
+                throw new CommandRefusalException(
+                    'release_plan_scope_invalid',
+                    'the target plan returned an invalid exact affected-surface identity',
+                    'upgrade or repair the target agent before preparing this release'
+                );
+            }
+            $out[$surface] = true;
+            $previous = $surface;
+        }
+
+        return $out;
     }
 
     /**

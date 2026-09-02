@@ -200,6 +200,39 @@ wprism_check_same(
 );
 wprism_check_same('kind', $preview['scope']['restriction'], 'the document states that its restriction is at the kind level');
 
+$exactPlan = $plan;
+$exactPlan['affected_surfaces'] = ['post_type:product', 'taxonomy:product_cat'];
+$exactPreview = RehearsalPlanPreview::build($exactPlan, $surfaces, $context);
+$exactIds = array_column($exactPreview['surfaces'], 'id');
+sort($exactIds, SORT_STRING);
+wprism_check_same(
+    [
+        'option_group:core:managed',
+        'option_group:woocommerce:env',
+        'post_type:product',
+        'taxonomy:product_cat',
+    ],
+    $exactIds,
+    'the agent projection narrows authored surfaces while retaining explicit code and environment windows'
+);
+wprism_check_same('exact', $exactPreview['scope']['restriction'], 'the preview names exact agent-side restriction');
+$exactRows = [];
+foreach ($exactPreview['surfaces'] as $row) {
+    $exactRows[$row['id']] = $row;
+}
+wprism_check_same(
+    ["the agent's exact affected-surface projection names this surface"],
+    $exactRows['post_type:product']['in_scope_because'],
+    'an exact authored surface cites the agent projection rather than a host-inferred entity kind'
+);
+$badExactPlan = $exactPlan;
+$badExactPlan['affected_surfaces'] = ['post_type:shop_order', 'post_type:product'];
+wprism_check_refuses(
+    static fn () => RehearsalPlanPreview::build($badExactPlan, $surfaces, $context),
+    'rehearsal_plan_incomplete',
+    'a malformed exact projection refuses instead of silently falling back to a narrower scope'
+);
+
 $rows = [];
 foreach ($preview['surfaces'] as $row) {
     $rows[$row['id']] = $row;

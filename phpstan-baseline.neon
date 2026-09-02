@@ -511,12 +511,6 @@ parameters:
 			path: agent/src/Repository/Snapshot.php
 
 		-
-			message: '#^Variable \$argv might not be defined\.$#'
-			identifier: variable.undefined
-			count: 1
-			path: cli/wprism
-
-		-
 			message: '#^PHPDoc tag @param for parameter \$promote with type \(callable\)\|int is not subtype of native type callable\.$#'
 			identifier: parameter.phpDocType
 			count: 1
@@ -565,18 +559,6 @@ parameters:
 			path: cli/src/Refresh/RefreshFieldDiff.php
 
 		-
-			message: '#^Variable \$argc might not be defined\.$#'
-			identifier: variable.undefined
-			count: 1
-			path: cli/src/Refresh/RefreshPlanCompile.php
-
-		-
-			message: '#^Variable \$argv might not be defined\.$#'
-			identifier: variable.undefined
-			count: 3
-			path: cli/src/Refresh/RefreshPlanCompile.php
-
-		-
 			message: '#^Template type T of method WPrism\\Recovery\\CheckpointBundle\:\:withLock\(\) is not referenced in a parameter\.$#'
 			identifier: method.templateTypeNotInParameter
 			count: 1
@@ -611,15 +593,3 @@ parameters:
 			identifier: method.templateTypeNotInParameter
 			count: 1
 			path: recovery/UploadBundle.php
-
-		-
-			message: '#^Variable \$argv might not be defined\.$#'
-			identifier: variable.undefined
-			count: 1
-			path: recovery/rollback-control.php
-
-		-
-			message: '#^Variable \$argv might not be defined\.$#'
-			identifier: variable.undefined
-			count: 1
-			path: scripts/adapter-certification.php

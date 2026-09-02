@@ -84,7 +84,11 @@ $policy = \WPrismTest\FrozenPolicy::policy([$manifest], [
     'manifests' => ['trigger-probe'],
     'spec_version' => WPRISM_SPEC_VERSION,
     'policy' => [
-        'options' => ['active_plugins' => ['class' => 'managed', 'autoload' => 'preserve']],
+        'options' => [
+            'active_plugins' => ['class' => 'managed', 'autoload' => 'preserve'],
+            'woocommerce_calc_taxes' => ['class' => 'authored', 'autoload' => 'preserve'],
+            'woocommerce_currency' => ['class' => 'authored', 'autoload' => 'preserve'],
+        ],
         'post_meta' => [],
         'term_meta' => [],
         'user_meta' => [],
@@ -248,6 +252,29 @@ $expectedSurfaces = [
     'term:product_cat',
 ];
 $check($surfaces === $expectedSurfaces, 'Apply derives deterministic exact surfaces for changed, deleted, and retryable entities');
+$check(
+    \WPrism\CanonicalSurfaces::projection_ids(array_values(array_filter(
+        $surfaces,
+        static fn(string $surface): bool => $surface !== 'entity:user-meta'
+    )), $policy) === [
+        'option_group:core:authored',
+        'post_type:product',
+        'post_type:product_variation',
+        'table:woocommerce_shipping_zones',
+        'table:woocommerce_tax_rates',
+        'taxonomy:product_cat',
+    ],
+    'exact mutation triggers project into the assess/contract surface vocabulary without widening post types'
+);
+$check(
+    \WPrism\CanonicalSurfaces::projection_ids(['post:attachment'], $policy)
+        === ['media:attachment', 'post_type:attachment'],
+    'an attachment mutation names both declared attachment projections'
+);
+$check(
+    \WPrism\CanonicalSurfaces::projection_ids(['entity:user-meta'], $policy) === null,
+    'an entity kind with no exact projection requests the conservative compatibility fallback'
+);
 
 $unrelatedOptions = $surfaceMethod->invoke(
     $apply,

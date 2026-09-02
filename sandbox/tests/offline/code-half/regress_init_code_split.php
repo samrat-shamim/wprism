@@ -597,7 +597,16 @@ wprism_check(
     str_contains($written, "# WPrism code lock: these components are declared in code/wprism-code.lock.json, not carried in Git\n/code/wp-content/plugins/woocommerce/\n"),
     'the locked components get their own labelled block, separate from WPrism local artifacts'
 );
-wprism_check(str_contains($written, "/.wprism/\n"), 'and WPrism\'s own local artifacts are still published in the same transaction');
+wprism_check(
+    str_contains(
+        $written,
+        "# WPrism local publication and environment artifacts\n"
+        . "/.tmp*\n/.wprism/*\n!/.wprism/authority/\n/.wprism/authority/*\n"
+        . "!/.wprism/authority/authorities.json\n"
+    )
+        && str_contains($written, "/.wprism-env-values.json\n"),
+    'and WPrism local artifacts stay ignored while its release-authority policy remains trackable in the same transaction'
+);
 wprism_check(
     !is_file($repo . '/code/wp-content/.gitignore') && !is_file($repo . '/code/wp-content/plugins/.gitignore'),
     'no ignore file is ever written inside code/wp-content: one placement refuses compile, the other ships to the target'

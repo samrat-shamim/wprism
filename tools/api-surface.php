@@ -334,7 +334,7 @@ function as_reflect_properties(ReflectionClass $r): array
             'visibility' => $property->isProtected() ? 'protected' : 'public',
             'static' => $property->isStatic(),
             'readonly' => $property->isReadOnly(),
-            'type' => $type !== null ? (string) $type : null,
+            'type' => as_type_repr($type, $r),
         ];
     }
     return $out;
@@ -354,7 +354,7 @@ function as_reflect_methods(ReflectionClass $r): array
             'static' => $method->isStatic(),
             'abstract' => $method->isAbstract(),
             'final' => $method->isFinal(),
-            'return_type' => $returnType !== null ? (string) $returnType : null,
+            'return_type' => as_type_repr($returnType, $r),
             'parameters' => as_reflect_parameters($method),
         ];
     }
@@ -381,7 +381,7 @@ function as_reflect_parameters(ReflectionMethod $method): array
         }
         $out[] = [
             'name' => $param->getName(),
-            'type' => $type !== null ? (string) $type : null,
+            'type' => as_type_repr($type, $method->getDeclaringClass()),
             'by_ref' => $param->isPassedByReference(),
             'variadic' => $param->isVariadic(),
             'has_default' => $hasDefault,
@@ -389,6 +389,31 @@ function as_reflect_parameters(ReflectionMethod $method): array
         ];
     }
     return $out;
+}
+
+/**
+ * PHP 8.5 resolves self/parent to concrete class names in reflected type
+ * strings while the certified 8.3 runtime preserves the source keywords.
+ * The API fixture records meaning, not the developer's PHP minor, so use the
+ * 8.5 concrete-name representation on every supported engine.
+ */
+function as_type_repr(?ReflectionType $type, ReflectionClass $context): ?string
+{
+    if ($type === null) {
+        return null;
+    }
+
+    return preg_replace_callback(
+        '/(?<![A-Za-z0-9_\\\\])(self|parent)(?![A-Za-z0-9_\\\\])/u',
+        static function (array $match) use ($context): string {
+            if ($match[1] === 'self') {
+                return $context->getName();
+            }
+            $parent = $context->getParentClass();
+            return $parent === false ? 'parent' : $parent->getName();
+        },
+        (string) $type
+    );
 }
 
 /** @return array<string,mixed> case name => backing value repr (unbacked: null) */

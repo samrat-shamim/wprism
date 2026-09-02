@@ -134,6 +134,18 @@ final class ApiSurfaceTest extends TestCase
         );
     }
 
+    public function testSelfTypesHaveOneRepresentationAcrossSupportedPhpMinors(): void
+    {
+        self::requireTool();
+        $class = new \ReflectionClass(ApiSurfaceSelfTypeFixture::class);
+        $method = $class->getMethod('copy');
+        $surface = as_reflect_methods($class);
+
+        self::assertSame(ApiSurfaceSelfTypeFixture::class, $surface['copy']['return_type']);
+        self::assertSame('?' . ApiSurfaceSelfTypeFixture::class, $surface['copy']['parameters'][0]['type']);
+        self::assertSame(ApiSurfaceSelfTypeFixture::class, as_type_repr($method->getReturnType(), $class));
+    }
+
     public function testCompareReportsNothingWhenSurfacesAreIdentical(): void
     {
         self::requireTool();
@@ -196,5 +208,13 @@ final class ApiSurfaceTest extends TestCase
         $diff = as_diff($committed, $mutated);
 
         self::assertContains('+ WPrism\\__SyntheticTestClass__ (added)', $diff);
+    }
+}
+
+final class ApiSurfaceSelfTypeFixture
+{
+    public function copy(?self $other = null): self
+    {
+        return $other ?? $this;
     }
 }

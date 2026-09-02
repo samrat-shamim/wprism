@@ -188,6 +188,7 @@ final class PlanContract {
     /** @return list<string> */
     public static function optionalProjections(): array {
         return [
+            'affected_surfaces',
             'artifact_hash',
             'category_summary',
             'lifecycle_effects_inventory',

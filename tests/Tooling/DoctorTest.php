@@ -187,17 +187,22 @@ final class DoctorTest extends TestCase
     public function testEveryFailAndWarnCarriesARemedy(): void
     {
         $lines = explode("\n", self::doctor()['stdout']);
+        $missing = [];
         foreach ($lines as $index => $line) {
             if (!str_starts_with($line, 'WARN') && !str_starts_with($line, 'FAIL')) {
                 continue;
             }
             $tail = implode("\n", array_slice($lines, $index + 1, 12));
-            self::assertStringContainsString(
-                'remedy:',
-                $tail,
-                "no remedy printed under: $line"
-            );
+            if (!str_contains($tail, 'remedy:')) {
+                $missing[] = $line;
+            }
         }
+
+        self::assertSame(
+            [],
+            $missing,
+            "doctor.sh printed WARN/FAIL lines without a remedy:\n" . implode("\n", $missing)
+        );
     }
 
     public function testTheCheatSheetNamesTheCanonicalGate(): void

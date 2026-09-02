@@ -94,6 +94,8 @@ final class ApplyRequestCoordinator {
     private string $promotionArtifact = '';
     /** @var array<string,int>|null exact count-only context for the optional plan category projection */
     private ?array $categorySummaryContext = null;
+    /** @var ?list<string> exact value-free assess/contract surface projection for plan-only output */
+    private ?array $affectedSurfaces = null;
     /** @var list<array<string,mixed>> structured rebuild-action receipts for this run's summary */
     private array $actionReceipts = [];
     /**
@@ -384,6 +386,9 @@ final class ApplyRequestCoordinator {
         }
         Snapshot::repair_truncated_entity_types($policy); // issue #3246
         $plan = $a->build_plan($opts, $compiled);
+        if ($a->affectedSurfaces !== null) {
+            $plan['affected_surfaces'] = $a->affectedSurfaces;
+        }
         // A full plan can authorize target-relative rollback resources only
         // when its selected actions/effects are bound to the exact compiled
         // bytes it observed. Older hosts may ignore this additive witness;
@@ -493,6 +498,9 @@ final class ApplyRequestCoordinator {
         $result = $builder->build($opts, $compiled, $strictObservation, $diagnoseAdapters);
         $this->warnings = $result['warnings'];
         $this->rebuildSelection->set_selected_actions($result['selected_actions']);
+        $this->affectedSurfaces = is_array($result['affected_surfaces'] ?? null)
+            ? array_values(array_map('strval', $result['affected_surfaces']))
+            : null;
         $this->categorySummaryContext = $result['category_summary_context'];
         return $result['plan'];
     }

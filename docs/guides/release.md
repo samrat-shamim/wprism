@@ -362,7 +362,11 @@ worktree under the target's private Git directory, establishes the stable
 target operation identity, and fsyncs one canonical
 `wprism-source-stage-receipt/v1`. An exact retry with the same operation id and
 inputs returns the same receipt bytes; reusing the id for another source
-ref/commit refuses.
+ref/commit refuses. Staging also mirrors the target's ignored, mode-0600
+`.wprism-env-values.json` into that detached worktree without exposing its
+bytes in the receipt or output. If `env-set` runs later, repeat the exact
+`stage-source` command: the receipt remains byte-identical while the inert
+binding mirror is refreshed.
 
 Prepare from the saved receipt and save this output too:
 
@@ -374,13 +378,14 @@ Prepare from the saved receipt and save this output too:
 ```
 
 Preparation validates the target identity, base, retained receipt, stage ref,
-staged commit/tree/worktree and the local source checkout before and after its
-planning reads. Plan, compile, inventory and capability questions all name the
-detached staged repository. Neither the canonical target nor the local site
-repository is written: no target fast-forward, projection write or plan freeze
-occurs. It reads the already-enrolled target policy without creating a lock or
-file, requires the local reviewed policy to match it exactly, and uses the
-**target policy digest** as the authority identity in the prepared subject.
+staged commit/tree/worktree, exact environment-binding mirror and the local
+source checkout before and after its planning reads. Plan, compile, inventory
+and capability questions all name the detached staged repository. Neither the
+canonical target nor the local site repository is written: no target
+fast-forward, projection write or plan freeze occurs. It reads the
+already-enrolled target policy without creating a lock or file, requires the
+local reviewed policy to match it exactly, and uses the **target policy
+digest** as the authority identity in the prepared subject.
 
 The output is one canonical `wprism-release-prepare/v1`. It contains the
 unchanged `wprism-authorization-plan/v1`, its semantic `plan_digest`, the hash

@@ -66,6 +66,80 @@ final class CanonicalSurfaces {
     }
 
     /**
+     * Translate exact, value-free mutation triggers into the surface ids the
+     * assess/contract/release layer already uses. `null` means an entity kind
+     * has no exact projection yet; callers must retain their conservative
+     * kind-level fallback instead of silently narrowing around it.
+     *
+     * @param list<string> $surfaces from for_apply()
+     * @return ?list<string>
+     */
+    public static function projection_ids(array $surfaces, Policy $policy): ?array {
+        $projected = [];
+        foreach ($surfaces as $surface) {
+            if (!is_string($surface) || !str_contains($surface, ':')) {
+                return null;
+            }
+            [$kind, $name] = explode(':', $surface, 2);
+            if ($name === '') {
+                return null;
+            }
+            if ($kind === 'post') {
+                $projected['post_type:' . $name] = true;
+                if ($name === 'attachment') {
+                    $projected['media:attachment'] = true;
+                }
+                continue;
+            }
+            if ($kind === 'term') {
+                $projected['taxonomy:' . $name] = true;
+                continue;
+            }
+            if ($kind === 'table') {
+                $projected['table:' . $name] = true;
+                continue;
+            }
+            if ($kind === 'option') {
+                $details = $policy->option_rule_details($name);
+                $rule = is_array($details['rule'] ?? null) ? $details['rule'] : null;
+                if ($rule === null) {
+                    return null;
+                }
+                $class = (string) ($rule['class'] ?? 'authored');
+                if (!in_array($class, Policy::CLASSES, true)) {
+                    $class = 'authored';
+                }
+                $projected['option_group:' . self::declarant(
+                    $policy,
+                    'options',
+                    $name,
+                    $details['source'] ?? null
+                ) . ':' . $class] = true;
+                continue;
+            }
+
+            return null;
+        }
+        $out = array_keys($projected);
+        sort($out, SORT_STRING);
+
+        return $out;
+    }
+
+    /** The same effective declarant identity AssessInventory groups by. */
+    private static function declarant(Policy $policy, string $section, string $name, mixed $source): string {
+        if (is_string($source) && $source !== '') {
+            foreach ($policy->manifests as $manifest) {
+                if ((string) ($manifest['name'] ?? '') === $source) {
+                    return $source;
+                }
+            }
+        }
+
+        return $policy->declaring_manifest($section, $name) ?? 'core';
+    }
+
+    /**
      * Static projection over a contract's whole resolved closure. Unlike an
      * Apply plan, the contract has no target comparison from which to learn a
      * changed option subset, so every non-absent, non-managed option record

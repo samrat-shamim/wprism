@@ -64,7 +64,10 @@ final class Adopt {
         return <<<'IGNORE'
 # WPrism local publication and environment artifacts
 /.tmp*
-/.wprism/
+/.wprism/*
+!/.wprism/authority/
+/.wprism/authority/*
+!/.wprism/authority/authorities.json
 /.wprism-envs.json
 /.wprism-init-code-*
 /.wprism-init-attempt

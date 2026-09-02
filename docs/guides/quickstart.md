@@ -508,7 +508,9 @@ one state in which `wprism init` still owns the file and will recompute and
 republish it rather than refuse. The `.gitignore` goes on before anything else
 touches the directory because `assess` itself — not only `init` — starts
 writing scratch here: its `.wprism/contract/<env>/proposed.json` write (step 3 above)
-needs `/.wprism/` ignored from its very first run. `git -C <repo> init` makes
+needs `/.wprism/*` ignored from its very first run. The generated exception for
+`.wprism/authority/authorities.json` is narrow: it admits the reviewed release
+trust policy, not signing keys or runtime control state. `git -C <repo> init` makes
 `<repo>` its own Git worktree root; skip that and, if `<repo>` was created
 inside some other project's checkout — the easy mistake on a first
 experiment — its `site.wprism.json` is refused as a nested registry rather than
@@ -639,7 +641,8 @@ repository, recreate the configured path as a new ordinary empty directory
 delete only the journal and leave its partial payload behind.
 
 The generated template already keeps the root-local machine registry
-(`/.wprism-envs.json`), operational artifact/checkpoint directory (`/.wprism/`), and
+(`/.wprism-envs.json`), operational artifact/checkpoint directory (`/.wprism/*`, with
+only the reviewed `.wprism/authority/authorities.json` policy admitted), and
 environment intended-value file (`/.wprism-env-values.json`) out of Git. The root
 anchors preserve legitimate same-named files inside vendored code. When the
 split locked components, a second labelled block holds their root-anchored

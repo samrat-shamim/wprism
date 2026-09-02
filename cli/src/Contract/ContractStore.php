@@ -30,8 +30,8 @@ use WPrism\CommandRefusalException;
  * binds itself with covers `env` plus `target.home`/`target.siteurl`
  * (AssessReport.php:103, ContractProposal.php:113). One slot for N
  * environments meant `wprism assess <other-env>` silently overwrote a
- * reviewed-but-unaccepted proposal — unrecoverably, since `/.wprism/` is
- * inside the site repo's own ignore (InitRepositoryBoundary.php:247) — and
+ * reviewed-but-unaccepted proposal — unrecoverably, since `/.wprism/*` is
+ * inside the site repo's own ignore (apart from the release trust policy) — and
  * the next accept blamed the site with `contract_proposal_stale` (issue #3503).
  * That is why the three proposal methods take the environment as a REQUIRED
  * argument: a default would let the shared slot back in by omission.

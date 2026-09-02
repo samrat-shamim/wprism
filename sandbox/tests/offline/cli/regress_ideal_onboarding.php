@@ -294,6 +294,26 @@ $connectOutput = (string) ob_get_clean();
 wprism_check_same(0, $connectExit, 'connect succeeds after three native inspection probes');
 wprism_check_same(Adopt::repositorySeedBytes(), (string) file_get_contents($workspace . '/site.wprism.json'), 'connect and target adoption share one seed byte source');
 wprism_check_same(Adopt::repositoryGitignoreBytes(), (string) file_get_contents($workspace . '/.gitignore'), 'connect publishes the target-compatible local-artifact ignore boundary');
+$authorityIgnoreRepo = $tmp . '/authority-ignore-repository';
+mkdir($authorityIgnoreRepo . '/.wprism/authority', 0700, true);
+mkdir($authorityIgnoreRepo . '/.wprism/control', 0700, true);
+file_put_contents($authorityIgnoreRepo . '/.gitignore', Adopt::repositoryGitignoreBytes());
+file_put_contents($authorityIgnoreRepo . '/.wprism/authority/authorities.json', "{}\n");
+file_put_contents($authorityIgnoreRepo . '/.wprism/authority/release.secret', "test-only-secret\n");
+file_put_contents($authorityIgnoreRepo . '/.wprism/control/runtime.json', "{}\n");
+IdealOnboardingTransport::process(['git', 'init', '--initial-branch=main', $authorityIgnoreRepo]);
+$reviewedPolicyIgnore = IdealOnboardingTransport::process([
+    'git', '-C', $authorityIgnoreRepo, 'check-ignore', '--quiet', '.wprism/authority/authorities.json',
+]);
+$secretIgnore = IdealOnboardingTransport::process([
+    'git', '-C', $authorityIgnoreRepo, 'check-ignore', '--quiet', '.wprism/authority/release.secret',
+]);
+$runtimeIgnore = IdealOnboardingTransport::process([
+    'git', '-C', $authorityIgnoreRepo, 'check-ignore', '--quiet', '.wprism/control/runtime.json',
+]);
+wprism_check_same(1, $reviewedPolicyIgnore['exit'], 'a generated site repository lets the documented release authority policy be tracked normally');
+wprism_check_same(0, $secretIgnore['exit'], 'the authority exception does not expose a colocated signing secret');
+wprism_check_same(0, $runtimeIgnore['exit'], 'the authority exception leaves WPrism runtime control state ignored');
 wprism_check((fileperms($workspace . '/.wprism-envs.json') & 0777) === 0600, 'the privileged machine-local registry is owner-only');
 wprism_check(str_contains($connectOutput, 'no explicit mutation') && str_contains($connectOutput, 'site startup code may have run') && str_contains($connectOutput, 'onboard'), 'connect reports the honest WordPress-bootstrap boundary and one next command');
 wprism_check_same(['echo wprism-connect-ready'], $probeTransport->rawCalls, 'connect makes only its declared transport reachability probe');
@@ -1645,6 +1665,50 @@ putenv('WPRISM_DEMO_INVENTORY_COMMAND');
 putenv('WPRISM_DEMO_COVERAGE_FIXTURE');
 is_string($priorInventoryPath) ? putenv('PATH=' . $priorInventoryPath) : putenv('PATH');
 
+$capabilityRoot = $tmp . '/demo-capability-qualification';
+$capabilityRepo = $capabilityRoot . '/source';
+mkdir($capabilityRoot . '/cli', 0700, true);
+mkdir($capabilityRepo, 0700);
+$blockedCapabilities = json_encode([
+    'ready' => false,
+    'blockers' => [[
+        'capability' => 'environment.containment.verify',
+        'message' => 'fixture containment proof is unavailable',
+    ]],
+], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+file_put_contents(
+    $capabilityRoot . '/cli/wprism',
+    "#!/bin/sh\nprintf '%s\\n' " . escapeshellarg($blockedCapabilities) . "\nexit 1\n"
+);
+chmod($capabilityRoot . '/cli/wprism', 0700);
+$assertCapabilityQualification = new ReflectionMethod(DemoCommand::class, 'assertCapabilityQualification');
+try {
+    $assertCapabilityQualification->invoke(
+        null,
+        [],
+        $capabilityRoot,
+        'demo-source',
+        $capabilityRepo
+    );
+    wprism_check(false, 'demo capability qualification refuses a complete non-ready report');
+} catch (RuntimeException $error) {
+    wprism_check(
+        str_contains($error->getMessage(), 'environment.containment.verify')
+            && str_contains($error->getMessage(), 'fixture containment proof is unavailable'),
+        'nonzero capability output retains its exact blocker instead of collapsing to a generic command failure'
+    );
+}
+$readyCapabilities = json_encode([
+    'ready' => true,
+    'blockers' => [],
+], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+file_put_contents(
+    $capabilityRoot . '/cli/wprism',
+    "#!/bin/sh\nprintf '%s\\n' " . escapeshellarg($readyCapabilities) . "\nexit 0\n"
+);
+$assertCapabilityQualification->invoke(null, [], $capabilityRoot, 'demo-source', $capabilityRepo);
+wprism_check(true, 'demo capability qualification accepts only a ready report');
+
 $assessmentRoot = $tmp . '/demo-assessment';
 $assessmentRepo = $assessmentRoot . '/source';
 mkdir($assessmentRoot . '/cli', 0700, true);
@@ -2004,6 +2068,7 @@ $wooSession = [
 ];
 $installWoo = new ReflectionMethod(DemoCommand::class, 'installWooCommerce');
 $establishHpos = new ReflectionMethod(DemoCommand::class, 'establishHpos');
+$configureWooQualification = new ReflectionMethod(DemoCommand::class, 'configureWooQualification');
 $wooPriorPath = getenv('PATH');
 putenv('PATH=' . $wooFixtureBin . ':' . (is_string($wooPriorPath) ? $wooPriorPath : ''));
 putenv('WPRISM_DEMO_DOCKER_LOG=' . $wooLog);
@@ -2012,6 +2077,7 @@ $wooSetupError = null;
 try {
     $installWoo->invoke(null, $wooSession, $wooFixtureRoot);
     $establishHpos->invoke(null, $wooSession, 2);
+    $configureWooQualification->invoke(null, $wooSession, 2);
 } catch (Throwable $error) {
     $wooSetupError = $error;
 } finally {
@@ -2022,10 +2088,23 @@ try {
 $wooCalls = is_file($wooLog) ? (string) file_get_contents($wooLog) : '';
 $targetActivation = strpos($wooCalls, ' cli2 wp plugin activate woocommerce ');
 $targetHpos = strpos($wooCalls, ' cli2 wp eval WC_Install::maybe_enable_hpos(); ');
+$sourceStockConstant = strpos($wooCalls, ' cli1 wp config set WOOCOMMERCE_BIS_ALPHA_ENABLED true ');
+$sourceStockTables = strpos($wooCalls, ' cli1 wp eval WC_Install::create_tables(); ');
+$targetStockConstant = strpos($wooCalls, ' cli2 wp config set WOOCOMMERCE_BIS_ALPHA_ENABLED true ');
+$targetStockTables = strpos($wooCalls, ' cli2 wp eval WC_Install::create_tables(); ');
 wprism_check_same(null, $wooSetupError, 'demo activates target WooCommerce before target HPOS setup');
 wprism_check(
     $targetActivation !== false && $targetHpos !== false && $targetActivation < $targetHpos,
     'the real demo installer orders cli2 activation before its WC_Install HPOS call'
+);
+wprism_check(
+    $sourceStockConstant !== false
+        && $sourceStockTables !== false
+        && $sourceStockConstant < $sourceStockTables
+        && $targetStockConstant !== false
+        && $targetStockTables !== false
+        && $targetStockConstant < $targetStockTables,
+    'the demo creates Woo stock-notification tables only after the feature constant is active on both sides'
 );
 
 $largeProcess = HostProcess::run([
@@ -3033,13 +3112,26 @@ wprism_check(
         && str_contains($httpOverlay, '127.0.0.1:${WPRISM_PORT2}:80'),
     'the demo HTTP overlay publishes both weak-credential sites on loopback only'
 );
+$pairTemplate = (string) file_get_contents(dirname(__DIR__, 4) . '/sandbox/pair.yml');
+wprism_check(
+    substr_count($pairTemplate, './siterepo/origin-${WPRISM_PAIR}.git:/origin-${WPRISM_PAIR}.git') === 2,
+    'both demo control planes mount the one pair-owned bare origin at its transport-neutral path'
+);
 $demoSource = (string) file_get_contents(dirname(__DIR__, 4) . '/cli/src/Command/DemoCommand.php');
 wprism_check(
     str_contains($demoSource, "'--http', '--artifacts', '--git-cli'"),
     'demo start selects the loopback-pinned HTTP overlay and its Git-capable CLI image'
 );
 wprism_check(
+    str_contains($demoSource, "return '../origin-' . \$name . '.git';")
+        && substr_count($demoSource, "['remote', 'set-url', 'origin', self::portableOriginUrl(\$session)]") === 2,
+    'demo source and target replace the host-only bootstrap remote with one host/container-relative URL'
+);
+wprism_check(
     str_contains($demoSource, "'config', 'set', 'WOOCOMMERCE_BIS_ALPHA_ENABLED'")
+        && str_contains($demoSource, "'WC_Install::create_tables(); '")
+        && str_contains($demoSource, 'wc_stock_notifications')
+        && str_contains($demoSource, 'wc_stock_notificationmeta')
         && str_contains($demoSource, 'change_feature_enable("fulfillments", true)')
         && str_contains($demoSource, "['action-scheduler', 'migrate']")
         && str_contains($demoSource, 'ActionScheduler_DBStore')
