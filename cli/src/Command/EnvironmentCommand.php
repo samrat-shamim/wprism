@@ -6,6 +6,7 @@ namespace WPrism\Orchestrator;
 require_once __DIR__ . '/../Environment/Registry.php';
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../Environment/EnvironmentLifecycle.php';
+require_once __DIR__ . '/../Onboarding/Adopt.php';
 require_once __DIR__ . '/CommandOutput.php';
 require_once __DIR__ . '/EnvironmentCommandOptions.php';
 require_once __DIR__ . '/EnvironmentProviderCheckCommand.php';
@@ -19,21 +20,24 @@ require_once __DIR__ . '/../Transport/SshTransport.php';
  *
  * Option grammar, provider evidence, journal recovery, and semantic
  * materialization remain separate contracts. This handler binds those public
- * command inputs in their existing order and accepts the promotion handoff as
- * an explicit callback, so environment provisioning does not learn the
- * monolithic promote command family.
+ * command inputs in their existing order and accepts adoption/promotion
+ * handoffs as explicit callbacks, so environment provisioning learns neither
+ * how the WPrism distribution is installed nor the monolithic promote command
+ * family.
  */
 final class EnvironmentCommand {
     /**
      * @param list<string> $args
      * @param callable(EnvironmentDriver,array<string,mixed>):array<string,mixed>|int $promote
      * @param ?callable(array<string,mixed>):void $receiptObserver
+     * @param ?callable(EnvironmentDriver,array{operation_id:string,target_environment:string}):array{agent_version:string} $targetBootstrap
      */
     public static function run(
         array $args,
         ?string $envsFileOverride,
         callable $promote,
-        ?callable $receiptObserver = null
+        ?callable $receiptObserver = null,
+        ?callable $targetBootstrap = null
     ): int {
         if (count($args) < 2) {
             fwrite(STDERR, "wprism: env requires materialize|reap|provider-check and a target <env>\n");
@@ -107,7 +111,8 @@ final class EnvironmentCommand {
                     'create' => $options['create'],
                     'ttl_seconds' => $options['ttl_seconds'],
                 ],
-                $promote
+                $promote,
+                $targetDriver instanceof AdoptionTransport ? $targetBootstrap : null
             );
             if ($receiptObserver !== null) {
                 $receiptObserver($receipt);
@@ -173,6 +178,38 @@ final class EnvironmentCommand {
             throw new \RuntimeException('env materialize/reap must run inside a Git worktree');
         }
         return new EnvironmentLifecycleJournal(rtrim(trim($stdout), '/') . '/wprism-environments');
+    }
+
+    /**
+     * Compose Onboarding's atomic install at the command surface. Providers
+     * never receive WPrism source paths or agent bytes, and Environment's
+     * engine receives only the version receipt returned by this closure.
+     *
+     * @return callable(EnvironmentDriver,array{operation_id:string,target_environment:string}):array{agent_version:string}
+     */
+    public static function targetBootstrap(string $sourceRoot): callable {
+        return static function (EnvironmentDriver $driver, array $context) use ($sourceRoot): array {
+            if (!$driver instanceof AdoptionTransport) {
+                throw new \RuntimeException('target agent bootstrap requires an authorized adoption transport');
+            }
+            if (($context['target_environment'] ?? null) !== $driver->name()
+                || !is_string($context['operation_id'] ?? null)
+                || $context['operation_id'] === '') {
+                throw new \RuntimeException('target agent bootstrap context is malformed');
+            }
+            $result = Adopt::install($driver, $sourceRoot);
+            if (($result['exit'] ?? 1) !== 0) {
+                $phase = is_string($result['phase'] ?? null) && $result['phase'] !== ''
+                    ? $result['phase']
+                    : 'unknown phase';
+                throw new \RuntimeException("target agent bootstrap failed during $phase");
+            }
+            $version = $result['version'] ?? null;
+            if (!is_string($version) || $version === '') {
+                throw new \RuntimeException('target agent bootstrap completed without an agent version');
+            }
+            return ['agent_version' => $version];
+        };
     }
 
     /** @param array<string,mixed> $receipt */

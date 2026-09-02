@@ -332,7 +332,13 @@ semantics remain the rehearsal implementation's.
   binds the physical hashes to that exact semantic snapshot. The provider then
   attaches to the target (the default) or explicitly creates it (`--create`),
   restores the physical baseline, materializes the candidate repository
-  commit, and restores the provider-owned target URL. Finally the ordinary
+  commit, and restores the provider-owned target URL. When the target transport
+  explicitly supports adoption (SSH, or an opted-in local transport), the
+  command surface then installs this controller's exact WPrism distribution
+  through the existing atomic adoption transaction. The provider receives no
+  WPrism source path or agent bytes, while the environment engine journals only
+  the target-bound installed-version receipt. A transport without adoption
+  authority must already carry a compatible agent. Finally the ordinary
   promotion state machine consumes the exact already-compiled outer artifact
   under a deterministic operation owner; it never compiles a second release.
   A clean plan verifies convergence, and the receipt retains the apply receipt
@@ -353,7 +359,9 @@ semantics remain the rehearsal implementation's.
   identity- and lease-fenced `wprism env reap`. Retries reuse the immutable
   operation id, skip every journaled phase, and reconcile an uncertain phase
   with the same inputs and ownership tuple, so provider actions must be
-  idempotent for that id. Convergence — and any promotion receipt reconciled
+  idempotent for that id. A crash after target adoption but before its journal
+  receipt safely re-enters the same atomic adoption transaction; a journaled
+  bootstrap is never replayed. Convergence — and any promotion receipt reconciled
   from a lost controller response — is judged only from a *complete* `wp wprism
   plan --format=json` envelope: a valid JSON document with a missing or
   non-list required bucket is refused by name, never counted as clean.
@@ -705,7 +713,10 @@ semantics remain the rehearsal implementation's.
   capability negotiation, the same journal, the same exact
   resource/lease/ownership compare. A missing provider capability is a refusal
   naming that capability id; nothing is emulated. `--branch` defaults to the
-  branch this working tree is on. After convergence it prints what a release
+  branch this working tree is on. Fresh SSH previews receive the exact pinned
+  WPrism agent through the command-layer adoption seam after provider-owned
+  repository placement and before compile; that delivery is not a provider
+  action. After convergence it prints what a release
   would touch — the plan's own value-free category numbers and the assessed
   surface rows restricted to that scope. EVERY run states the containment
   requirement first, before provider contact, and materialization refuses to

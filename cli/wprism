@@ -29,7 +29,6 @@ require __DIR__ . '/src/Transport/RecoveryConfig.php';
 require __DIR__ . '/src/Transport/LocalTransport.php';
 require __DIR__ . '/src/Transport/DockerTransport.php';
 require __DIR__ . '/src/Transport/SshTransport.php';
-require __DIR__ . '/src/Command/EnvironmentCommand.php';
 require __DIR__ . '/src/Command/EnvironmentListCommand.php';
 require dirname(__DIR__) . '/recovery/rollback-control.php';
 require __DIR__ . '/src/Recovery/RollbackAuthority.php';
@@ -37,6 +36,7 @@ require __DIR__ . '/src/Recovery/VerifiedRollbackProfile.php';
 require __DIR__ . '/src/Recovery/ScopedRollbackProfile.php';
 require __DIR__ . '/src/Onboarding/BootstrapEligibility.php';
 require __DIR__ . '/src/Onboarding/Adopt.php';
+require __DIR__ . '/src/Command/EnvironmentCommand.php';
 require __DIR__ . '/src/Onboarding/Unadopt.php';
 require __DIR__ . '/src/Onboarding/Init.php';
 require __DIR__ . '/src/Command/InitCommand.php';
@@ -1951,7 +1951,9 @@ function cmd_environment(array $args, ?string $envsFileOverride): int {
     return EnvironmentCommand::run(
         $args,
         $envsFileOverride,
-        static fn(EnvironmentDriver $driver, array $context): array|int => cmd_promote_frozen($driver, $context)
+        static fn(EnvironmentDriver $driver, array $context): array|int => cmd_promote_frozen($driver, $context),
+        null,
+        EnvironmentCommand::targetBootstrap(dirname(__DIR__))
     );
 }
 

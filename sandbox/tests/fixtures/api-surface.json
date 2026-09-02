@@ -31732,9 +31732,34 @@
                             "name": "receiptObserver",
                             "type": "?callable",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "targetBootstrap",
+                            "type": "?callable",
+                            "variadic": false
                         }
                     ],
                     "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "targetBootstrap": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sourceRoot",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "callable",
                     "static": true,
                     "visibility": "public"
                 }
@@ -32348,6 +32373,14 @@
                             "has_default": false,
                             "name": "promote",
                             "type": "callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "targetBootstrap",
+                            "type": "?callable",
                             "variadic": false
                         }
                     ],

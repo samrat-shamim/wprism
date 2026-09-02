@@ -178,16 +178,28 @@ $facadeBody = $facadeStart === false || $facadeEnd === false ? '' : substr($faca
 $check(
     str_contains($facadeBody, 'return EnvironmentCommand::run(')
         && str_contains($facadeBody, 'cmd_promote_frozen')
+        && str_contains($facadeBody, 'EnvironmentCommand::targetBootstrap(dirname(__DIR__))')
         && !str_contains($facadeBody, 'Registry::load')
         && !str_contains($facadeBody, 'EnvironmentMaterializer::'),
-    'cli/wprism is a thin environment facade with only the explicit frozen-promotion handoff'
+    'cli/wprism is a thin environment facade with explicit adoption and frozen-promotion handoffs'
 );
 $check(
     str_contains($command, 'EnvironmentCommandOptions::materialize($args)')
         && strpos($command, 'EnvironmentCommandOptions::materialize($args)') < strpos($command, 'Registry::load(')
         && str_contains($command, 'EnvironmentMaterializer::materialize(')
-        && str_contains($command, 'EnvironmentMaterializer::reap('),
-    'command parses public intent before privileged setup and delegates both lifecycle operations to the existing state machine'
+        && str_contains($command, 'EnvironmentMaterializer::reap(')
+        && str_contains($command, '$targetDriver instanceof AdoptionTransport ? $targetBootstrap : null')
+        && str_contains($command, 'Adopt::install($driver, $sourceRoot)'),
+    'command parses public intent before privileged setup and composes adoption only for an authorized target transport'
+);
+
+$environment = (string) file_get_contents(__DIR__ . '/../../../../cli/src/Environment/EnvironmentLifecycle.php');
+$check(
+    !str_contains($environment, '/../Onboarding/')
+        && !str_contains($environment, 'Adopt::')
+        && str_contains($environment, "recordIntent(\$journal, \$operationId, 'target-agent-bootstrap'")
+        && str_contains($environment, "phaseData(\$journal, \$operationId, 'target-agent-bootstrapped')"),
+    'environment engine journals the bootstrap receipt without depending on onboarding implementation'
 );
 
 if ($failures !== []) {

@@ -966,15 +966,19 @@ final class EnvironmentLifecycleJournal {
  * Product orchestration for "fresh production snapshot + branch delta".
  *
  * Providers own physical host resources and opaque snapshot sets. Refresh
- * owns semantic B/P/W materialization. The supplied promotion callback owns
- * the existing code-stage/lifecycle/finalize/apply transaction. Keeping those
- * three boundaries explicit prevents infrastructure code from learning
- * WordPress or plugin semantics.
+ * owns semantic B/P/W materialization. The optional target-bootstrap callback
+ * lets the command surface compose the existing adoption transaction after a
+ * provider has materialized a fresh repository; this engine journals only its
+ * bounded receipt and never imports onboarding. The supplied promotion
+ * callback owns the existing code-stage/lifecycle/finalize/apply transaction.
+ * Keeping those boundaries explicit prevents infrastructure code from
+ * learning WordPress or plugin semantics.
  */
 final class EnvironmentMaterializer {
     /**
      * @param array{branch:string,containment_required:bool,create:bool,ttl_seconds:int} $options
      * @param callable(EnvironmentDriver,array{artifact_path:string,checkpoint_path:string,compiled_summary:array<string,mixed>,operation_id:string,promotion_owner:string}):array<string,mixed> $promote
+     * @param ?callable(EnvironmentDriver,array{operation_id:string,target_environment:string}):array{agent_version:string} $targetBootstrap
      * @return array<string,mixed>
      */
     public static function materialize(
@@ -984,12 +988,20 @@ final class EnvironmentMaterializer {
         CommandEnvironmentProvider $targetProvider,
         EnvironmentLifecycleJournal $journal,
         array $options,
-        callable $promote
+        callable $promote,
+        ?callable $targetBootstrap = null
     ): array {
         return $journal->synchronizedTarget(
             $targetDriver->name(),
             static fn(): array => self::materializeLocked(
-                $sourceDriver, $targetDriver, $sourceProvider, $targetProvider, $journal, $options, $promote
+                $sourceDriver,
+                $targetDriver,
+                $sourceProvider,
+                $targetProvider,
+                $journal,
+                $options,
+                $promote,
+                $targetBootstrap
             )
         );
     }
@@ -1002,7 +1014,8 @@ final class EnvironmentMaterializer {
         CommandEnvironmentProvider $targetProvider,
         EnvironmentLifecycleJournal $journal,
         array $options,
-        callable $promote
+        callable $promote,
+        ?callable $targetBootstrap
     ): array {
         // Direct compositions predating the rehearsal containment profile are
         // ordinary materializations. The public option parser always writes
@@ -1117,6 +1130,13 @@ final class EnvironmentMaterializer {
             $targetCapabilities->require($targetRequired, "materialize a $mode branch environment");
             self::requireDriver($sourceDriver, 'refresh');
             self::requireDriver($targetDriver, 'promote');
+            if ($targetBootstrap !== null) {
+                // Bootstrap is an explicit transport capability, separate
+                // from attaching/provisioning the provider-owned resource.
+                // Refuse before the source freeze when this target cannot
+                // receive the exact controller distribution.
+                self::requireDriver($targetDriver, 'adopt');
+            }
             $preflight = [
                 'source_driver' => self::driverPin($sourceDriver),
                 'source_provider' => $sourceCapabilities->pin(),
@@ -1385,6 +1405,30 @@ final class EnvironmentMaterializer {
                 self::assertSameIdentity($targetIdentity, $url);
                 if (($url['url'] ?? null) !== $targetIdentity['url']) throw new \RuntimeException('target URL readback does not match its provider-owned URL');
                 self::recordPhase($journal, $operationId, 'url-set', self::publicEvidence($url));
+            }
+
+            if ($targetBootstrap !== null) {
+                // A provider owns the target resource, physical snapshot and
+                // repository placement. It must not know how to construct or
+                // install WPrism. Conversely, the portable adoption mechanism
+                // must not allocate or restore the resource. This callback is
+                // the command-layer composition seam between those contracts.
+                $bootstrapInput = [
+                    'operation_id' => $operationId,
+                    'target_driver' => self::driverPin($targetDriver),
+                ];
+                self::recordIntent($journal, $operationId, 'target-agent-bootstrap', $bootstrapInput);
+                $bootstrap = self::phaseData($journal, $operationId, 'target-agent-bootstrapped');
+                if ($bootstrap === null) {
+                    $result = $targetBootstrap($targetDriver, [
+                        'operation_id' => $operationId,
+                        'target_environment' => $targetDriver->name(),
+                    ]);
+                    $bootstrap = self::targetBootstrapReceipt($result, $targetDriver, $operationId);
+                    self::recordPhase($journal, $operationId, 'target-agent-bootstrapped', $bootstrap);
+                } else {
+                    self::assertTargetBootstrapReceipt($bootstrap, $targetDriver, $operationId);
+                }
             }
 
             $artifactPath = rtrim($targetDriver->repoPath(), '/') . '/.wprism/artifacts/materialize-' . $operationId . '.json';
@@ -2083,6 +2127,59 @@ final class EnvironmentMaterializer {
             'input' => $input,
             'input_sha256' => hash('sha256', EnvironmentLifecycleCanon::encode($input)),
         ]);
+    }
+
+    /**
+     * Reduce command-layer adoption output to the one non-secret fact the
+     * lifecycle needs: which agent version was transactionally installed on
+     * this exact target driver for this operation.
+     *
+     * @param array{agent_version:string} $result
+     * @return array<string,mixed>
+     */
+    private static function targetBootstrapReceipt(
+        array $result,
+        EnvironmentDriver $driver,
+        string $operationId
+    ): array {
+        $keys = array_keys($result);
+        sort($keys, SORT_STRING);
+        $version = $result['agent_version'] ?? null;
+        if ($keys !== ['agent_version'] || !is_string($version)
+            || preg_match('/^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/D', $version) !== 1) {
+            throw new \RuntimeException('target agent bootstrap returned malformed completion evidence');
+        }
+        $receipt = [
+            'agent_version' => $version,
+            'format' => 'wprism-branch-environment-target-bootstrap/v1',
+            'operation_id' => $operationId,
+            'target_driver' => self::driverPin($driver),
+        ];
+        $receipt['receipt_sha256'] = hash('sha256', EnvironmentLifecycleCanon::encode($receipt));
+        return $receipt;
+    }
+
+    /** @param array<string,mixed> $receipt */
+    private static function assertTargetBootstrapReceipt(
+        array $receipt,
+        EnvironmentDriver $driver,
+        string $operationId
+    ): void {
+        $digest = $receipt['receipt_sha256'] ?? null;
+        $body = $receipt;
+        unset($body['receipt_sha256']);
+        if (!is_string($digest) || strlen($digest) !== 64
+            || !hash_equals($digest, hash('sha256', EnvironmentLifecycleCanon::encode($body)))) {
+            throw new \RuntimeException('journaled target agent bootstrap receipt has an invalid digest');
+        }
+        $expected = self::targetBootstrapReceipt(
+            ['agent_version' => is_string($receipt['agent_version'] ?? null) ? $receipt['agent_version'] : ''],
+            $driver,
+            $operationId
+        );
+        if (EnvironmentLifecycleCanon::encode($receipt) !== EnvironmentLifecycleCanon::encode($expected)) {
+            throw new \RuntimeException('journaled target agent bootstrap receipt does not bind this operation and driver');
+        }
     }
 
     /** @param array<string,mixed> $result @param array<string,mixed> $pin */

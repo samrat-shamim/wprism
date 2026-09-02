@@ -164,7 +164,7 @@ try {
     ssh_proof_run(['git', 'clone', '--quiet', '--branch', 'production', $repo, $production]);
     ssh_proof_run(['git', 'clone', '--quiet', '--branch', 'production', $repo, $target]);
     mkdir($production . '/wp', 0700, true);
-    mkdir($target . '/wp', 0700, true);
+    mkdir($target . '/wp/wp-content', 0700, true);
     mkdir($target . '/.wprism/artifacts', 0700, true);
     mkdir($target . '/.wprism/checkpoints', 0700, true);
     $productionCommit = ssh_proof_git($production, ['rev-parse', 'HEAD']);
@@ -239,6 +239,18 @@ if ($sub === 'checkpoint-seal') {
 }
 if ($wprism === false && in_array('eval', $args, true)) {
     foreach ($args as $arg) {
+        if (str_contains((string) $arg, 'WPMU_PLUGIN_DIR')) {
+            echo (string) getenv('WPRISM_SSH_PROOF_MU_DIR'); exit(0);
+        }
+        if (str_contains((string) $arg, 'wprism-single-site')) {
+            echo "wprism-single-site"; exit(0);
+        }
+        if (str_contains((string) $arg, 'WPRISM_AGENT_VERSION')) {
+            echo "0.7.0"; exit(0);
+        }
+        if (str_contains((string) $arg, 'wprism-policy-ok')) {
+            echo "wprism-policy-ok"; exit(0);
+        }
         if (str_contains((string) $arg, 'get_option')) {
             // Source URL binding read: home then uploads, one per line (the
             // materializer rebinds a rehearsal target off its restored snapshot).
@@ -269,6 +281,16 @@ remote="${!#}"
 exec /bin/sh -c "$remote"
 SH);
     chmod($ssh, 0700);
+    $scp = $bin . '/scp';
+    ssh_proof_write($scp, <<<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+source_path="$1"
+destination="${!#}"
+target_path="${destination#*:}"
+cp "$source_path" "$target_path"
+SH);
+    chmod($scp, 0700);
     $wpLog = $tmp . '/wp.log';
     ssh_proof_write($wpLog, '');
     $provider = $tmp . '/provider.php';
@@ -389,6 +411,7 @@ PHP);
     putenv('WPRISM_SSH_PROOF_SUMMARY=' . $summaryPath);
     putenv('WPRISM_SSH_PROOF_PLAN=' . $planPath);
     putenv('WPRISM_SSH_PROOF_WP_LOG=' . $wpLog);
+    putenv('WPRISM_SSH_PROOF_MU_DIR=' . $target . '/wp/wp-content/mu-plugins');
     $wprism = $root . '/cli/wprism';
     $materialize = ssh_proof_run([
         PHP_BINARY, $wprism, '--envs-file=' . $overlay, 'env', 'materialize', 'branch',
@@ -404,6 +427,11 @@ PHP);
     }
     ssh_proof_ok($materializeJson !== null, "public env materialize succeeded:\n$materialize");
     ssh_proof_ok(($materializeJson['mode'] ?? null) === 'attach', 'materialization receipt records attach mode');
+    ssh_proof_ok(
+        is_file($target . '/wp/wp-content/mu-plugins/wprism-loader.php')
+            && is_file($target . '/wp/wp-content/mu-plugins/wprism/wprism.php'),
+        'public SSH materialization adopts the exact WPrism control agent before target compile'
+    );
     ssh_proof_ok(($materializeJson['outer_artifact_hash'] ?? null) === $artifact['artifact_hash'], 'materialization receipt retains frozen artifact identity');
     ssh_proof_ok(($materializeJson['state_revision'] ?? null) === $artifact['revision_hash']
         && array_key_exists('code_revision', $materializeJson)

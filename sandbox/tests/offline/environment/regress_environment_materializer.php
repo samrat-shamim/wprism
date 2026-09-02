@@ -131,7 +131,9 @@ final class MaterializerDriver implements EnvironmentDriver {
     public function capabilityReport(string $operation): DriverCapabilityReport {
         return DriverCapabilityReport::forDriver($this->name, $this->driverId(), $operation, [
             DriverCapability::ATTACH => true,
+            DriverCapability::BOOTSTRAP => true,
             DriverCapability::CODE_MATERIALIZE => true,
+            DriverCapability::CODE_TRANSFER => true,
             DriverCapability::DB_SNAPSHOT_CREATE => true,
             DriverCapability::DB_SNAPSHOT_RESTORE => true,
             DriverCapability::RAW_CONTROL => true,
@@ -239,6 +241,13 @@ PHP);
     $journal = new EnvironmentLifecycleJournal($repo . '/.git/wprism-environments');
     $promotions = 0;
     $promotionCalls = [];
+    $bootstraps = 0;
+    $bootstrapCalls = [];
+    $bootstrap = static function (EnvironmentDriver $driver, array $context) use (&$bootstraps, &$bootstrapCalls): array {
+        $bootstraps++;
+        $bootstrapCalls[] = ['driver' => $driver->name(), 'context' => $context];
+        return ['agent_version' => '0.7.0'];
+    };
     $promote = static function (EnvironmentDriver $driver, array $frozenContext) use (&$promotions, &$promotionCalls): array {
         $promotions++;
         $summary = $frozenContext['compiled_summary'];
@@ -277,12 +286,25 @@ PHP);
     $goodSource = CommandEnvironmentProvider::fromEnvironment('production', $cfg('ok', $sourceLog));
     $receipt = EnvironmentMaterializer::materialize($source, $target, $goodSource, $targetProvider, $journal, [
         'branch' => 'feature', 'create' => false, 'ttl_seconds' => 3600,
-    ], $promote);
+    ], $promote, $bootstrap);
     em_ok(($receipt['mode'] ?? null) === 'attach' && ($receipt['expires_at'] ?? null) === '2030-01-02T04:04:05Z', 'attach materialization publishes observable provider TTL');
     em_ok(($receipt['code_revision'] ?? null) === hash('sha256', 'code-release')
         && ($receipt['state_revision'] ?? null) === hash('sha256', 'state-release')
         && $receipt['code_revision'] !== $receipt['state_revision'], 'release receipt preserves separate code and state identities');
     em_ok($promotions === 1, 'materialization uses the supplied existing promotion path exactly once');
+    $materializationEvents = array_column($journal->latestForTarget('branch')['events'] ?? [], 'event');
+    $bootstrapPosition = array_search('target-agent-bootstrapped', $materializationEvents, true);
+    $repositoryPosition = array_search('repository-materialized', $materializationEvents, true);
+    $compiledPosition = array_search('release-compiled', $materializationEvents, true);
+    em_ok(
+        $bootstraps === 1
+            && ($bootstrapCalls[0]['driver'] ?? null) === 'branch'
+            && ($bootstrapCalls[0]['context']['operation_id'] ?? null) === ($receipt['operation_id'] ?? null)
+            && ($bootstrapCalls[0]['context']['target_environment'] ?? null) === 'branch'
+            && is_int($repositoryPosition) && is_int($bootstrapPosition) && is_int($compiledPosition)
+            && $repositoryPosition < $bootstrapPosition && $bootstrapPosition < $compiledPosition,
+        'target agent bootstrap is command-composed after provider repository materialization and before semantic compile'
+    );
     em_ok(($promotionCalls[0]['receipt']['artifact_hash'] ?? null) === ($receipt['outer_artifact_hash'] ?? null)
         && ($promotionCalls[0]['receipt']['owner'] ?? null) === 'wprism-env-promotion-' . $receipt['operation_id']
         && ($promotionCalls[0]['context']['artifact_path'] ?? null) !== '',
@@ -294,9 +316,11 @@ PHP);
     $beforeResume = [count(em_actions($sourceLog)), count(em_actions($targetLog)), $promotions];
     $same = EnvironmentMaterializer::materialize($source, $target, $goodSource, $targetProvider, $journal, [
         'branch' => 'feature', 'create' => false, 'ttl_seconds' => 3600,
-    ], $promote);
+    ], $promote, $bootstrap);
     em_ok(($same['resumed'] ?? false) === true
-        && $beforeResume === [count(em_actions($sourceLog)), count(em_actions($targetLog)), $promotions], 'completed retry is idempotent with zero provider or promotion calls');
+        && $beforeResume === [count(em_actions($sourceLog)), count(em_actions($targetLog)), $promotions]
+        && $bootstraps === 1,
+        'completed retry is idempotent with zero provider, bootstrap, or promotion calls');
 
     // A create request may have reached the source provider while its response
     // was lost. Automatic catch cleanup must preserve the deterministic session

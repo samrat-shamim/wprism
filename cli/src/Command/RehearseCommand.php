@@ -137,7 +137,8 @@ final class RehearseCommand {
                 $promote,
                 static function (array $receipt) use (&$materializationReceipt): void {
                     $materializationReceipt = $receipt;
-                }
+                },
+                EnvironmentCommand::targetBootstrap($sourceRoot)
             );
         } finally {
             if ($json) {
