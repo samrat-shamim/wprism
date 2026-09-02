@@ -578,13 +578,14 @@ IGNORE
             . "unreadable=\$(find \"\$stage\" -type f ! -exec test -r '{}' \; -print -quit 2>/dev/null) || { echo 'wprism adopt: staged artifact could not be inspected' >&2; exit 1; }; [ -z \"\$unreadable\" ] || { echo 'wprism adopt: staged artifact contains an unreadable file' >&2; exit 1; }\n"
             . "[ -f \"\$stage/agent/wprism.php\" ] && [ -f \"\$stage/agent/wprism-loader.php\" ] && [ -f \"\$stage/agent/adapter-library/platform/core/manifest.json\" ] || { echo 'wprism adopt: uploaded artifact is incomplete' >&2; exit 1; }\n"
             . "[ -f \"\$stage/recovery/CanonicalJson.php\" ] && [ -f \"\$stage/recovery/AtomicStore.php\" ] && [ -f \"\$stage/recovery/ProtocolLock.php\" ] && [ -f \"\$stage/recovery/ProviderClient.php\" ] && [ -f \"\$stage/recovery/rollback-control.php\" ] && [ -f \"\$stage/recovery/RecoveryExecutor.php\" ] && [ -f \"\$stage/recovery/CheckpointBundle.php\" ] && [ -f \"\$stage/recovery/CodeRelease.php\" ] && [ -f \"\$stage/recovery/UploadBundle.php\" ] && [ -f \"\$stage/recovery/EffectBundle.php\" ] || { echo 'wprism adopt: recovery runtime is missing' >&2; exit 1; }\n"
-            . "mkdir \"\$agent_new\"; agent_new_created=1; record_identity \"\$agent_new\" \"\$txn/agent_new_construction.id\" 'agent construction root'; cp -R \"\$stage/agent/.\" \"\$agent_new/\"\n"
+            . "mkdir \"\$agent_new\"; agent_new_created=1; chmod 0755 \"\$agent_new\"; record_identity \"\$agent_new\" \"\$txn/agent_new_construction.id\" 'agent construction root'; cp -R \"\$stage/agent/.\" \"\$agent_new/\"\n"
+            . "find \"\$agent_new\" -type d -exec chmod 0755 '{}' +; find \"\$agent_new\" -type f -exec chmod 0644 '{}' +\n"
             . "[ ! -e \"\$agent_new/scoped-promotion-control.json\" ] && [ ! -L \"\$agent_new/scoped-promotion-control.json\" ] || { echo 'wprism adopt: source artifact contains target-local scoped promotion configuration' >&2; exit 1; }\n"
             . ($scopedPromotionControl !== null
                 ? "printf '%s' " . $q($scopedPromotionControl) . " > \"\$agent_new/scoped-promotion-control.json\"; chmod 600 \"\$agent_new/scoped-promotion-control.json\"\n"
                 : '')
             . "record_identity \"\$agent_new\" \"\$txn/agent_new.id\" 'agent publish source'; agent_new_materialized=1\n"
-            . "if (set -C; umask 077; : > \"\$loader_new\"); then loader_new_created=1; else echo 'wprism adopt: loader staging collision' >&2; exit 1; fi; record_identity \"\$loader_new\" \"\$txn/loader_new_construction.id\" 'loader construction root'; cp \"\$stage/agent/wprism-loader.php\" \"\$loader_new\"\n"
+            . "if (set -C; umask 077; : > \"\$loader_new\"); then loader_new_created=1; else echo 'wprism adopt: loader staging collision' >&2; exit 1; fi; record_identity \"\$loader_new\" \"\$txn/loader_new_construction.id\" 'loader construction root'; cp \"\$stage/agent/wprism-loader.php\" \"\$loader_new\"; chmod 0644 \"\$loader_new\"\n"
             . "record_identity \"\$loader_new\" \"\$txn/loader_new.id\" 'loader publish source'; loader_new_materialized=1\n"
             . "mkdir \"\$wprism_new\"; wprism_new_created=1; record_identity \"\$wprism_new\" \"\$txn/wprism_new_construction.id\" 'WPrism authority construction root'; if [ -e \"\$wprism_state\" ]; then special=\$(find \"\$wprism_state\" ! -type d ! -type f -print -quit 2>/dev/null) || { echo 'wprism adopt: prior authority became unreadable' >&2; exit 1; }; [ -z \"\$special\" ] || { echo 'wprism adopt: prior authority contains a link or special node' >&2; exit 1; }; unreadable=\$(find \"\$wprism_state\" -type f ! -exec test -r '{}' \; -print -quit 2>/dev/null) || { echo 'wprism adopt: prior authority became unreadable' >&2; exit 1; }; [ -z \"\$unreadable\" ] || { echo 'wprism adopt: prior authority became unreadable' >&2; exit 1; }; cp -Rp \"\$wprism_state/.\" \"\$wprism_new/\"; fi\n"
             . "mkdir -p \"\$control_new\"; chmod 700 \"\$control_new\"; rm -rf \"\$runtime_new\"; cp -R \"\$stage/recovery\" \"\$runtime_new\"\n"
@@ -791,7 +792,8 @@ IGNORE
         if (!is_array($stat) || ($stat['mode'] & 0170000) !== 0040000 || is_link($path)) {
             throw new \RuntimeException('staging contains an unexpected directory boundary');
         }
-        if (!chmod($path, 0700)) {
+        $mode = ((int) $stat['mode']) & 0777;
+        if (!chmod($path, $mode | 0700)) {
             throw new \RuntimeException('could not normalize a staging directory');
         }
         $children = @scandir($path);

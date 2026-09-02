@@ -482,7 +482,11 @@ $ordinaryInstall = (string) $installScript->invoke(
 );
 adopt_check(
     !str_contains($ordinaryInstall, 'wprism-scoped-promotion-control/v1')
-        && !str_contains($ordinaryInstall, 'chmod 600 "$agent_new/scoped-promotion-control.json"'),
+        && !str_contains($ordinaryInstall, 'chmod 600 "$agent_new/scoped-promotion-control.json"')
+        && str_contains($ordinaryInstall, 'chmod 0755 "$agent_new"')
+        && str_contains($ordinaryInstall, 'find "$agent_new" -type d -exec chmod 0755')
+        && str_contains($ordinaryInstall, 'find "$agent_new" -type f -exec chmod 0644')
+        && str_contains($ordinaryInstall, 'chmod 0644 "$loader_new"'),
     'adoption without a verified recovery configuration exposes no scoped-promotion trust root'
 );
 adopt_assert_ordered(
@@ -500,6 +504,7 @@ adopt_assert_ordered(
     [
         'record_identity "$agent_new" "$txn/agent_new_construction.id"',
         'cp -R "$stage/agent/." "$agent_new/"',
+        'find "$agent_new" -type d -exec chmod 0755',
         'chmod 600 "$agent_new/scoped-promotion-control.json"',
         'record_identity "$agent_new" "$txn/agent_new.id"',
     ],
@@ -510,6 +515,7 @@ adopt_assert_ordered(
     [
         'record_identity "$loader_new" "$txn/loader_new_construction.id"',
         'cp "$stage/agent/wprism-loader.php" "$loader_new"',
+        'chmod 0644 "$loader_new"',
         'record_identity "$loader_new" "$txn/loader_new.id"',
     ],
     'the loader publish proof follows its content population'
