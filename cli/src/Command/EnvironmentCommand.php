@@ -99,21 +99,40 @@ final class EnvironmentCommand {
             $sourceConfig = Registry::get($envs, $sourceName);
             $sourceDriver = Transport::make($sourceName, $sourceConfig);
             $sourceProvider = CommandEnvironmentProvider::fromEnvironment($sourceName, $sourceConfig);
-            $receipt = EnvironmentMaterializer::materialize(
-                $sourceDriver,
-                $targetDriver,
-                $sourceProvider,
-                $targetProvider,
-                $journal,
-                [
-                    'branch' => $options['branch'],
-                    'containment_required' => $options['containment_required'],
-                    'create' => $options['create'],
-                    'ttl_seconds' => $options['ttl_seconds'],
-                ],
-                $promote,
-                $targetDriver instanceof AdoptionTransport ? $targetBootstrap : null
-            );
+            // The frozen promotion callback is an existing human-oriented
+            // command surface and may print phase lines before returning or
+            // refusing. `env materialize --format=json` owns a single-document
+            // public contract, so contain that nested stdout at this boundary;
+            // stderr remains untouched as private operator diagnostics. The
+            // receipt or stable refusal is rendered only after the buffer is
+            // gone, and therefore cannot be mixed with progress prose.
+            $outputLevel = ob_get_level();
+            if ($options['json']) {
+                ob_start(static fn(string $_output): string => '');
+            }
+            try {
+                $receipt = EnvironmentMaterializer::materialize(
+                    $sourceDriver,
+                    $targetDriver,
+                    $sourceProvider,
+                    $targetProvider,
+                    $journal,
+                    [
+                        'branch' => $options['branch'],
+                        'containment_required' => $options['containment_required'],
+                        'create' => $options['create'],
+                        'ttl_seconds' => $options['ttl_seconds'],
+                    ],
+                    $promote,
+                    $targetDriver instanceof AdoptionTransport ? $targetBootstrap : null
+                );
+            } finally {
+                if ($options['json']) {
+                    while (ob_get_level() > $outputLevel) {
+                        ob_end_clean();
+                    }
+                }
+            }
             if ($receiptObserver !== null) {
                 $receiptObserver($receipt);
             }

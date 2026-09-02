@@ -266,6 +266,9 @@ $writeEnvs = static function (string $suffix, string $sourceMode, string $target
 $promotions = 0;
 $promote = static function (\WPrism\Orchestrator\EnvironmentDriver $driver, array $frozenContext) use (&$promotions): array {
     $promotions++;
+    // The real frozen promotion prints human phase progress. A machine
+    // materialization must contain it and publish only its final document.
+    echo "nested promotion progress that must not enter machine stdout\n";
     $summary = $frozenContext['compiled_summary'];
     $body = [
         'artifact_hash' => (string) $summary['artifact_hash'],
@@ -338,6 +341,10 @@ $materializeOut = (string) ob_get_clean();
 wprism_check_same(0, $status, 'a fully-capable provider pair materializes the rehearsal environment');
 $receipt = json_decode($materializeOut, true);
 wprism_check_same('attach', $receipt['mode'] ?? null, 'the rehearsal attaches its target by default');
+wprism_check(
+    !str_contains($materializeOut, 'nested promotion progress') && substr_count($materializeOut, '"format"') === 1,
+    'machine materialization contains nested human promotion progress and emits exactly one JSON document'
+);
 wprism_check_same(1, $promotions, 'materialization uses the supplied promotion path exactly once');
 
 // A reap whose provider identity has changed must refuse, not reap a reused
