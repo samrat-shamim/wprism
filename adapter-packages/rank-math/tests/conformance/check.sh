@@ -118,6 +118,7 @@ echo wp_json_encode([
     'schema' => $schema,
     'target_owned' => [
         'instant_key' => $instant['indexnow_api_key'] ?? null,
+        'indexnow_log' => get_option('rank_math_indexnow_log', null),
         'sitemap_posts' => $sitemap['exclude_posts'] ?? null,
         'notifications' => get_option('rank_math_notifications', null),
         'neighbor' => get_option('wprism_rank_math_target_neighbor', null),
@@ -183,6 +184,10 @@ jq -e --arg port "$CONF2_PORT" --arg version "$RANK_MATH_EXPECTED_VERSION" '
   (.hub_counts.incoming_link_count | tonumber) == 1 and
   ([.schema[].present] | all) and
   .target_owned.instant_key == "target-indexnow-credential-must-survive" and
+  .target_owned.indexnow_log == [{
+    url:("http://localhost:" + $port + "/target-indexnow-history-must-survive/"),
+    status:202,manual_submission:true,message:"target runtime submission history",time:1800000002
+  }] and
   .target_owned.notifications == ["target-runtime-notification-must-survive"] and
   .target_owned.neighbor == "target-neighbor-must-survive"
 ' <<<"$TARGET" >/dev/null || fail "Rank Math portable/native/derived/runtime state did not converge: $TARGET"
@@ -445,6 +450,7 @@ TARGET_FINAL=$(observe_rank_math conf2)
 jq -e '
   .post.title == "Concurrent Rank Math intent 東京 🚀" and .post.processed == true and
   (.links | length) == 2 and .target_owned.instant_key == "target-indexnow-credential-must-survive" and
+  .target_owned.indexnow_log[0].message == "target runtime submission history" and
   .target_owned.neighbor == "target-neighbor-must-survive"
 ' <<<"$TARGET_FINAL" >/dev/null || fail "Rank Math concurrent apply did not converge exact native state: $TARGET_FINAL"
 

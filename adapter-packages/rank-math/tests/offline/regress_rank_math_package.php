@@ -117,6 +117,8 @@ wprism_check_same('authored', $policy->option_rule('rank_math_modules')['class']
     'B3: the exercised module selection is portable rather than silently target-owned');
 wprism_check_same('runtime', $policy->option_rule('rank_math_flush_rewrite')['class'] ?? null,
     'B3: the plugin one-shot rewrite marker never enters canonical state');
+wprism_check_same('runtime', $policy->option_rule('rank_math_indexnow_log')['class'] ?? null,
+    'B3: IndexNow response URLs, status codes and timestamps remain target runtime history');
 wprism_check_same('env', $policy->option_rule('rank-math-options-sitemap')['class'] ?? null,
     'B4: sitemap local-id lists keep the whole unsupported option target-owned');
 wprism_check_same('env', $policy->option_rule('rank-math-options-instant-indexing')['class'] ?? null,

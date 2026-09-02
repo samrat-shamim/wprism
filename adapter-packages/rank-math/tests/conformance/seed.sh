@@ -161,6 +161,13 @@ update_option('rank-math-options-sitemap', [
     'exclude_terms' => (string) $category,
 ]);
 update_option('rank_math_notifications', ['source-runtime-notification']);
+update_option('rank_math_indexnow_log', [[
+    'url' => home_url('/source-indexnow-history-must-not-transfer/'),
+    'status' => 429,
+    'manual_submission' => false,
+    'message' => 'source runtime submission history',
+    'time' => 1700000001,
+]]);
 
 $redirection = RankMath\Redirections\Redirection::from([
     'sources' => [[

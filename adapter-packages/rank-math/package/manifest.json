@@ -300,6 +300,9 @@
         "rank_math_flush_rewrite": {
             "class": "runtime"
         },
+        "rank_math_indexnow_log": {
+            "class": "runtime"
+        },
         "rank_math_install_date": {
             "class": "runtime"
         },

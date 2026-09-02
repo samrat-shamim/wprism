@@ -79,6 +79,13 @@ update_option('rank-math-options-sitemap', [
     'exclude_terms' => (string) $secondary,
 ]);
 update_option('rank_math_notifications', ['target-runtime-notification-must-survive']);
+update_option('rank_math_indexnow_log', [[
+    'url' => home_url('/target-indexnow-history-must-survive/'),
+    'status' => 202,
+    'manual_submission' => true,
+    'message' => 'target runtime submission history',
+    'time' => 1800000002,
+]]);
 update_option('wprism_rank_math_target_neighbor', 'target-neighbor-must-survive', false);
 
 $redirections = $wpdb->prefix . 'rank_math_redirections';
