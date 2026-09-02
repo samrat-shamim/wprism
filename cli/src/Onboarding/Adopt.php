@@ -762,16 +762,20 @@ IGNORE
         }
 
         // A reviewed distribution is expected to be mounted or copied
-        // read-only by its controller. `cp -R` correctly preserves that mode,
-        // but this directory is a newly allocated, process-owned staging
-        // copy: AdapterLibraryAssembler must be able to publish its generated
-        // adapter-library and deployment marker inside the copied agent root.
-        // Widen only that exact disposable directory. The reviewed source
-        // tree remains immutable, and the assembler still inventories every
-        // copied member before it replaces its owned output path.
-        if (!chmod($stage . '/agent', 0700)) {
+        // read-only by its controller. `cp -R` correctly preserves those
+        // directory modes, but this entire tree is a newly allocated,
+        // process-owned staging copy. Normalize only its directories so the
+        // assembler can replace generated descendants and both local and
+        // remote transaction cleanup can remove the copied tree. Files retain
+        // their reviewed modes and bytes; the source distribution remains
+        // immutable.
+        try {
+            self::makeLocalStageDirectoriesWritable($stage);
+        } catch (\Throwable $error) {
             self::removeLocalStage($stage);
-            throw new \RuntimeException('could not make the staged agent root writable for assembly');
+            throw new \RuntimeException(
+                'could not make the local adoption staging directories writable: ' . $error->getMessage()
+            );
         }
 
         $resolved = realpath($stage);
@@ -780,6 +784,30 @@ IGNORE
             throw new \RuntimeException('local adoption staging changed identity after copy');
         }
         return $resolved;
+    }
+
+    private static function makeLocalStageDirectoriesWritable(string $path): void {
+        $stat = @lstat($path);
+        if (!is_array($stat) || ($stat['mode'] & 0170000) !== 0040000 || is_link($path)) {
+            throw new \RuntimeException('staging contains an unexpected directory boundary');
+        }
+        if (!chmod($path, 0700)) {
+            throw new \RuntimeException('could not normalize a staging directory');
+        }
+        $children = @scandir($path);
+        if (!is_array($children)) {
+            throw new \RuntimeException('could not inspect a staging directory');
+        }
+        foreach ($children as $child) {
+            if ($child === '.' || $child === '..') {
+                continue;
+            }
+            $childPath = $path . '/' . $child;
+            $childStat = @lstat($childPath);
+            if (is_array($childStat) && ($childStat['mode'] & 0170000) === 0040000 && !is_link($childPath)) {
+                self::makeLocalStageDirectoriesWritable($childPath);
+            }
+        }
     }
 
     private static function removeLocalStage(string $stage): void {

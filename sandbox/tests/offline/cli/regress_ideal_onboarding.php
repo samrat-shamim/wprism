@@ -277,8 +277,12 @@ register_shutdown_function(static function () use ($tmp): void {
 $immutableSource = $tmp . '/immutable-distribution';
 mkdir($immutableSource . '/agent', 0700, true);
 mkdir($immutableSource . '/recovery', 0700, true);
+mkdir($immutableSource . '/agent/src/nested', 0700, true);
 file_put_contents($immutableSource . '/agent/runtime.php', "<?php\n");
+file_put_contents($immutableSource . '/agent/src/nested/runtime.php', "<?php\n");
 file_put_contents($immutableSource . '/recovery/runtime.php', "<?php\n");
+chmod($immutableSource . '/agent/src/nested', 0500);
+chmod($immutableSource . '/agent/src', 0500);
 chmod($immutableSource . '/agent', 0500);
 $stageMethod = new ReflectionMethod(Adopt::class, 'stageLocalArtifact');
 $removeStageMethod = new ReflectionMethod(Adopt::class, 'removeLocalStage');
@@ -291,10 +295,23 @@ wprism_check_same(
 wprism_check_same(
     0700,
     fileperms($immutableStage . '/agent') & 0777,
-    'adoption makes only its disposable staged agent root writable for adapter assembly'
+    'adoption makes its disposable staged agent root writable for adapter assembly'
+);
+wprism_check_same(
+    0500,
+    fileperms($immutableSource . '/agent/src/nested') & 0777,
+    'adoption leaves reviewed immutable descendant modes unchanged'
+);
+wprism_check_same(
+    0700,
+    fileperms($immutableStage . '/agent/src/nested') & 0777,
+    'adoption makes nested disposable staging directories removable'
 );
 $removeStageMethod->invoke(null, $immutableStage);
+wprism_check(!file_exists($immutableStage), 'adoption completely removes a disposable stage copied from an immutable distribution');
 chmod($immutableSource . '/agent', 0700);
+chmod($immutableSource . '/agent/src', 0700);
+chmod($immutableSource . '/agent/src/nested', 0700);
 
 $workspace = $tmp . '/workspace';
 $resolvedWorkspace = (realpath($tmp) ?: $tmp) . '/workspace';
