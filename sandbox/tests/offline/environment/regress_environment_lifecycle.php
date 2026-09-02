@@ -405,8 +405,13 @@ PHP;
         '--branch', 'feature-secret-url', '--format=json',
     ], $publicRoot);
     $publicOutput = $publicRefusal['stdout'] . $publicRefusal['stderr'];
+    $publicDocument = json_decode(trim($publicRefusal['stdout']), true);
     el_ok($publicRefusal['exit'] !== 0
-        && str_contains($publicRefusal['stderr'], 'credential-free HTTP(S) base URL')
+        && $publicRefusal['stderr'] === ''
+        && is_array($publicDocument)
+        && ($publicDocument['format'] ?? null) === 'wprism-command-refusal/v1'
+        && ($publicDocument['command'] ?? null) === 'env materialize'
+        && ($publicDocument['reason_code'] ?? null) === 'branch_environment_operation_failed'
         && !str_contains($publicOutput, 'provider-token')
         && !str_contains($publicOutput, 'X-Amz-Signature')
         && !el_tree_contains($publicRoot . '/.git/wprism-environments', 'provider-token')
