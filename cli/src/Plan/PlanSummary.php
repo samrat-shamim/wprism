@@ -218,7 +218,6 @@ final class PlanSummary {
                 . ($effect['mode'] ?? '?') . ' ' . ($effect['id'] ?? '?') . ' '
                 . ($selector['type'] ?? '?') . ':' . ($selector['value'] ?? '?');
         }
-
         $seenAnnotations = [];
         foreach (self::BUCKETS as $bucket) {
             foreach ($plan[$bucket] ?? [] as $row) {

@@ -267,6 +267,17 @@ const SPLIT_LIFECYCLE_SETTLEMENT_MOVED_DIGESTS = [
 const SPLIT_LIFECYCLE_SETTLEMENT_MANIFEST_HASH = 'ebf0a904a8fa73b72c0b9a0dad58016a7ad640d18177ab2829c74f0ddcd38502';
 const SPLIT_LIFECYCLE_SETTLEMENT_SNAPSHOT_SHA = '938b9214d772604a1aab3574e4b447d362d5a7c4aac6938035c3c52aab9adaeb';
 
+/** The prior Rank Math identity, retained because moving schema establishment before observation is fleet-visible. */
+const WPRISM_PRE_SCHEMA_SETTLEMENT_RANK_MATH_DIGEST = 'd1824bb11311adcae5e780ae5d67f8279ea1c3f2dd2d9885797f2d2cad5a726e';
+const WPRISM_PRE_SCHEMA_SETTLEMENT_MANIFEST_HASH = '56d2f33bf18edabfb3e83699406bb289eab27f321ab55544eca4ea80da676eea';
+const WPRISM_PRE_SCHEMA_SETTLEMENT_REGISTRY_SHA = '6fea0ec625cfde7b271fcc55e1610008784994c08a81df0f3ef4cb3172bcd147';
+const WPRISM_PRE_SCHEMA_SETTLEMENT_SNAPSHOT_SHA = '378c41299b4a3a7dab67ff7f0c5007ae907d8dbd6051edc2de1705c8d795a937';
+
+/** The prior Rank Math baseline, retained because closing native callback/readback authority moves shipped bytes. */
+const WPRISM_PRE_RANK_MATH_HARDENING_DIGEST = '16b935f76aee22e2a709c138ef90a8c942e5a89842c9fe392d9025824dba6bff';
+const WPRISM_PRE_RANK_MATH_HARDENING_MANIFEST_HASH = 'c90f7a6ccf5722acf10cbb6ea2fc7592488bfd15ec70c6bafa07f18ce77c162d';
+const WPRISM_PRE_RANK_MATH_HARDENING_SNAPSHOT_SHA = '6214faf30fc56e65a5108256d89db3713227f21b38bf5241be54ca86049e3010';
+
 /**
  * The duplicate durable-context declaration correction changes only the
  * WooCommerce manifest row. Preserve the immediately preceding fleet-visible
@@ -277,6 +288,9 @@ const PRE_CONTEXT_CHANNEL_WOOCOMMERCE_DIGEST = '62331a62fe4a934d4ec6a82ac9266508
 const PRE_CONTEXT_CHANNEL_MANIFEST_HASH = '66e76a18e9731c2f2b85a9023f816b53d6c5ef4ddb5ed4e4ba826f3e4b3d7c08';
 const PRE_CONTEXT_CHANNEL_REGISTRY_SHA = '99e02ee9b61b7b471b9e651e140efbe396dd437851c6ef7dac4a725d3ff18faa';
 const PRE_CONTEXT_CHANNEL_SNAPSHOT_SHA = '0c861c30900f044571821184dd865d2666540634a8b885bd52fda71330a5ccc7';
+const POST_CONTEXT_CHANNEL_MANIFEST_HASH = '713b9224ff4de40e4ff309636875343a3b799f0e91356fff844c1c7c5488edc5';
+const POST_CONTEXT_CHANNEL_REGISTRY_SHA = '99e02ee9b61b7b471b9e651e140efbe396dd437851c6ef7dac4a725d3ff18faa';
+const POST_CONTEXT_CHANNEL_SNAPSHOT_SHA = 'db1408562dd3afa8c9fbfe3cdef208fe4ebea4df3261dd7677407b9961ee10ae';
 
 /**
  * The current WPrism greenfield baseline. Unlike the historical split
@@ -296,7 +310,7 @@ const WPRISM_CURRENT_DIGESTS = [
     'ninja-forms' => '35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011',
     'paid-memberships-pro' => 'e518a516bb44d144cff92bdb423c04813847064fe7113ac4e1cfc386ba37f253',
     'polylang' => '60edabfdaab55d4ea74d0c6ac71228bffc2b2911afe57a962ac898ee73064548',
-    'rank-math' => '3d707f9ee6159ad5e9267f135d604a7232abe1bb9523506f79b8395382d6c4da',
+    'rank-math' => 'f6a31cbaffc44ffaa08d88f16572d18d7867c76b69726931b46e983ef5855382',
     'redirection' => '6ba607e26345be23b0a89eeee69dadc0ceff75ca40b8cdf9d0ab88d066303bc7',
     'the-events-calendar' => 'cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee',
     'woocommerce' => 'c66724d62f9410b43208b172ebdf95f6a5003b81a00dd6137401da4ae5cc94e3',
@@ -305,9 +319,9 @@ const WPRISM_CURRENT_DIGESTS = [
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456',
 ];
-const WPRISM_CURRENT_MANIFEST_HASH = '1e9e7c07edfb5092859311944b408fde144cd1ac2621e4eaebde3dac7c360b66';
-const WPRISM_CURRENT_REGISTRY_SHA = '6fea0ec625cfde7b271fcc55e1610008784994c08a81df0f3ef4cb3172bcd147';
-const WPRISM_CURRENT_SNAPSHOT_SHA = 'ff55a793842475a95da87231a80c63cf32ac7a201f5e2c2b9fe6db1c245a5eba';
+const WPRISM_CURRENT_MANIFEST_HASH = 'e577b26c2e1fb653ff52e8915891fc46c6ed5a03ddf14d90d78240758483e854';
+const WPRISM_CURRENT_REGISTRY_SHA = 'b7d74294106c0c9f4dc95953ef237c0d26d34665a87038db69bf52e02385983f';
+const WPRISM_CURRENT_SNAPSHOT_SHA = '1f7560cfd6f8a3c87f956bb9c37807784592fded87c8c16bc30116d7a7b21eb9';
 
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(
@@ -495,10 +509,12 @@ wprism_check_same(
     'the bounded lifecycle-migration settlement provider changes only WooCommerce and preserves the ninth '
     . 'transition as a separate reviewed identity'
 );
-$preContextChannelDigests = WPRISM_CURRENT_DIGESTS;
+$postContextChannelDigests = WPRISM_CURRENT_DIGESTS;
+unset($postContextChannelDigests['rank-math']);
+$preContextChannelDigests = $postContextChannelDigests;
 $preContextChannelDigests['woocommerce'] = PRE_CONTEXT_CHANNEL_WOOCOMMERCE_DIGEST;
 $contextChannelMovedNames = [];
-foreach (WPRISM_CURRENT_DIGESTS as $name => $digest) {
+foreach ($postContextChannelDigests as $name => $digest) {
     if ($preContextChannelDigests[$name] !== $digest) {
         $contextChannelMovedNames[] = $name;
     }
@@ -511,8 +527,26 @@ wprism_check_same(
 );
 wprism_check_same(
     PRE_CONTEXT_CHANNEL_REGISTRY_SHA,
-    WPRISM_CURRENT_REGISTRY_SHA,
+    POST_CONTEXT_CHANNEL_REGISTRY_SHA,
     'the manifest-only durable-context correction leaves the reviewed disposition registry byte-identical'
+);
+wprism_check(
+    PRE_CONTEXT_CHANNEL_MANIFEST_HASH !== POST_CONTEXT_CHANNEL_MANIFEST_HASH
+        && PRE_CONTEXT_CHANNEL_SNAPSHOT_SHA !== POST_CONTEXT_CHANNEL_SNAPSHOT_SHA,
+    'the historical all-17 durable-context correction re-pins its manifest and snapshot while preserving its registry'
+);
+wprism_check(
+    WPRISM_PRE_SCHEMA_SETTLEMENT_RANK_MATH_DIGEST !== WPRISM_CURRENT_DIGESTS['rank-math']
+        && WPRISM_PRE_SCHEMA_SETTLEMENT_MANIFEST_HASH !== WPRISM_CURRENT_MANIFEST_HASH
+        && WPRISM_PRE_SCHEMA_SETTLEMENT_REGISTRY_SHA !== WPRISM_CURRENT_REGISTRY_SHA
+        && WPRISM_PRE_SCHEMA_SETTLEMENT_SNAPSHOT_SHA !== WPRISM_CURRENT_SNAPSHOT_SHA,
+    'the pre-observation schema-settlement correction deliberately re-pins Rank Math and every aggregate identity it reaches'
+);
+wprism_check(
+    WPRISM_PRE_RANK_MATH_HARDENING_DIGEST !== WPRISM_CURRENT_DIGESTS['rank-math']
+        && WPRISM_PRE_RANK_MATH_HARDENING_MANIFEST_HASH !== WPRISM_CURRENT_MANIFEST_HASH
+        && WPRISM_PRE_RANK_MATH_HARDENING_SNAPSHOT_SHA !== WPRISM_CURRENT_SNAPSHOT_SHA,
+    'the native read/callback and scoped-receipt closure deliberately re-pins Rank Math and its aggregate identities'
 );
 wprism_check_same(
     WPRISM_CURRENT_DIGESTS,
@@ -555,7 +589,10 @@ wprism_check(
         && SPLIT_REVIEWED_SNAPSHOT_SHA !== SPLIT_FROZEN_SNAPSHOT_SHA
         && SPLIT_LIFECYCLE_SETTLEMENT_SNAPSHOT_SHA !== SPLIT_REVIEWED_SNAPSHOT_SHA
         && PRE_CONTEXT_CHANNEL_SNAPSHOT_SHA !== SPLIT_LIFECYCLE_SETTLEMENT_SNAPSHOT_SHA
-        && WPRISM_CURRENT_SNAPSHOT_SHA !== PRE_CONTEXT_CHANNEL_SNAPSHOT_SHA
+        && POST_CONTEXT_CHANNEL_MANIFEST_HASH !== PRE_CONTEXT_CHANNEL_MANIFEST_HASH
+        && POST_CONTEXT_CHANNEL_SNAPSHOT_SHA !== PRE_CONTEXT_CHANNEL_SNAPSHOT_SHA
+        && WPRISM_PRE_RANK_MATH_HARDENING_MANIFEST_HASH !== WPRISM_CURRENT_MANIFEST_HASH
+        && WPRISM_PRE_RANK_MATH_HARDENING_SNAPSHOT_SHA !== WPRISM_CURRENT_SNAPSHOT_SHA
         && WPRISM_CURRENT_REGISTRY_SHA !== SPLIT_REVIEWED_REGISTRY_SHA
         && WPRISM_CURRENT_SNAPSHOT_SHA !== SPLIT_LIFECYCLE_SETTLEMENT_SNAPSHOT_SHA,
     '...and all re-pinned numbers really differ from their frozen originals, so the assertions '

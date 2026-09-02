@@ -103,6 +103,11 @@ final class Deploy {
             throw new \InvalidArgumentException('adapter_library must be a WPrism\\AdapterLibrary');
         }
         $policy = Policy::load($repo, adapterLibrary: $adapterLibrary);
+        $continuation = (string) ($opts['promotion_owner'] ?? '') !== '';
+        self::assert_materializing_continuation($opts, $continuation);
+        self::assert_state_handoff_continuation($opts, $continuation);
+        $lifecyclePhase = self::lifecycle_phase($opts, $continuation);
+        self::assert_direct_provider_boundary($policy, $lifecyclePhase);
         $compiledPath = (string) ($opts['compiled'] ?? '');
         $compiled = $compiledPath !== ''
             ? RepositoryCompiler::read_artifact($compiledPath, $policy)
@@ -115,11 +120,7 @@ final class Deploy {
         Ledger::ensure();
         $promotionOwner = PromotionLock::owner($opts);
         $promotionArtifact = $compiled->artifact_hash();
-        $continuation = (string) ($opts['promotion_owner'] ?? '') !== '';
         $expectedArtifact = (string) ($opts['artifact_hash'] ?? '');
-        self::assert_materializing_continuation($opts, $continuation);
-        self::assert_state_handoff_continuation($opts, $continuation);
-        $lifecyclePhase = self::lifecycle_phase($opts, $continuation);
         if (($continuation && $expectedArtifact === '')
             || ($expectedArtifact !== ''
                 && (!preg_match('/^[0-9a-f]{64}$/', $expectedArtifact)
@@ -198,18 +199,9 @@ final class Deploy {
         // and is reported below on every run.
         $blockingMismatch = array_values(array_filter(
             $mismatch,
-            fn($r) => !in_array(
-                $r['issue'],
-                [
-                    'inactive_in_environment',
-                    'unexpected_active_plugin',
-                    'active_plugin_order_mismatch',
-                    'template_mismatch',
-                    'code_revision_stale',
-                    VersionEvidenceGrammar::VERDICT,
-                ],
-                true
-            )
+            fn($r) => !LifecyclePlanner::is_lifecycle_issue((string) $r['issue'])
+                && $r['issue'] !== 'code_revision_stale'
+                && $r['issue'] !== VersionEvidenceGrammar::VERDICT
         ));
         if ($blockingMismatch && empty($opts['force_code_mismatch'])) {
             $list = implode("\n\n", array_map(fn($r) => '  - ' . $r['message'], $blockingMismatch));
@@ -536,16 +528,7 @@ final class Deploy {
             'code_mismatch' => $remainingMismatch,
             'reconciled_code_mismatch' => array_values(array_filter(
                 $mismatch,
-                fn($r) => in_array(
-                    $r['issue'],
-                    [
-                        'inactive_in_environment',
-                        'unexpected_active_plugin',
-                        'active_plugin_order_mismatch',
-                        'template_mismatch',
-                    ],
-                    true
-                )
+                fn($r) => LifecyclePlanner::is_lifecycle_issue((string) $r['issue'])
                     && !in_array($r, $remainingMismatch, true)
             )),
             'code_drift' => $drift,
@@ -662,6 +645,19 @@ final class Deploy {
             );
         }
         return $phase;
+    }
+
+    /** Host-owned provider phases require the retained checkpoint and process ordering the direct target verb lacks. */
+    private static function assert_direct_provider_boundary(Policy $policy, string $lifecyclePhase): void {
+        if ($lifecyclePhase !== 'all'
+            || ($policy->schema_settle_actions() === []
+                && $policy->lifecycle_settle_actions() === [])) {
+            return;
+        }
+        throw new \RuntimeException(
+            'wprism: direct target deploy cannot run host-owned provider settlement; '
+            . "invoke host 'wprism deploy <env>' so its checkpoint and fresh-process ordering are enforced"
+        );
     }
 
     /**

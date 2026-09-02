@@ -67,6 +67,7 @@ require $root . '/agent/src/Repository/RepositoryCompiler.php';
 require_once $root . '/agent/src/Repository/SidebarState.php';
 require $root . '/agent/src/Repository/RepositoryAuthorization.php';
 require $root . '/agent/src/Promotion/Deploy.php';
+require $root . '/agent/src/Adapter/SchemaSettlement.php';
 // ManifestDispositions.php is deliberately NOT required here, for the same
 // reason as NativeActions.php above: Policy.php require_once's
 // AdapterRegistry.php, which now names Canon, ManifestDispositions,
@@ -75,6 +76,7 @@ require $root . '/agent/src/Promotion/Deploy.php';
 
 use WPrism\Canon;
 use WPrism\AdapterLibrary;
+use WPrism\Deploy;
 use WPrism\NativeActions;
 use WPrism\Policy;
 use WPrism\Providers;
@@ -99,6 +101,54 @@ function expect_throw(callable $fn, string $needle, string $msg): void {
         check(str_contains($e->getMessage(), $needle), "$msg (message: {$e->getMessage()})");
     }
 }
+
+echo "\n== schema settlement: retained recovery identity is one canonical release pair ==\n";
+$releaseRepo = sys_get_temp_dir() . '/wprism_schema_release_pair_' . bin2hex(random_bytes(6));
+mkdir($releaseRepo . '/.wprism/artifacts', 0700, true);
+mkdir($releaseRepo . '/.wprism/checkpoints', 0700, true);
+$releaseRepo = (string) realpath($releaseRepo);
+$artifact = $releaseRepo . '/.wprism/artifacts/deploy-release-owner.json';
+$checkpoint = $releaseRepo . '/.wprism/checkpoints/deploy-release-owner.sql.enc';
+$otherCheckpoint = $releaseRepo . '/.wprism/checkpoints/deploy-stale-owner.sql.enc';
+$materializeArtifact = $releaseRepo . '/.wprism/artifacts/materialize-operation-7.json';
+$materializeCheckpoint = $releaseRepo . '/.wprism/checkpoints/materialize-operation-7.sql.enc';
+foreach ([$artifact, $checkpoint, $otherCheckpoint, $materializeArtifact, $materializeCheckpoint] as $path) {
+    file_put_contents($path, 'fixture');
+}
+$releasePair = new ReflectionMethod(\WPrism\SchemaSettlement::class, 'assert_release_pair');
+try {
+    $releasePair->invoke(null, $releaseRepo, $artifact, $checkpoint, 'release-owner');
+    $releasePair->invoke(
+        null,
+        $releaseRepo,
+        $materializeArtifact,
+        $materializeCheckpoint,
+        'wprism-env-promotion-operation-7'
+    );
+    check(true, 'deploy and frozen-materialization releases bind their canonical artifact/checkpoint owner');
+} catch (Throwable $failure) {
+    check(false, 'canonical schema release pairs were refused: ' . $failure->getMessage());
+}
+expect_throw(
+    static fn() => $releasePair->invoke(null, $releaseRepo, $artifact, $otherCheckpoint, 'release-owner'),
+    'do not name the same release',
+    'a valid same-site checkpoint from another release refuses before it can become schema recovery debt'
+);
+expect_throw(
+    static fn() => $releasePair->invoke(null, $releaseRepo, $artifact, $checkpoint, 'stale-owner'),
+    'does not match the promotion owner',
+    'a sibling checkpoint cannot be rebound to another promotion owner'
+);
+$schemaSource = (string) file_get_contents($root . '/agent/src/Adapter/SchemaSettlement.php');
+$pairGateAt = strpos($schemaSource, 'self::assert_release_pair($repo, $artifactPath, $checkpointPath, $promotionOwner);');
+$authenticationAt = strpos($schemaSource, 'RetainedCheckpointCipher::verify($repo, $checkpointPath)');
+check(
+    is_int($pairGateAt) && is_int($authenticationAt) && $pairGateAt < $authenticationAt,
+    'the release-pair gate runs before checkpoint authentication, lease continuation or schema intent publication'
+);
+register_shutdown_function(static function () use ($releaseRepo): void {
+    manifest_fixture_remove_tree($releaseRepo);
+});
 
 /**
  * Fresh scratch manifests dir for one group, optionally with real
@@ -222,6 +272,34 @@ function probe_manifest(array $overrides = []): array {
     ];
 }
 
+/** One provider-only schema phase with exact table/effect authority. */
+function schema_probe_manifest(): array {
+    $manifest = probe_manifest();
+    $manifest['engine_features'] = ['schema-settlement/v1', 'spec-window/v1'];
+    $manifest['providers'][0]['capabilities'] = ['inspect_schema', 'prepare_schema'];
+    $manifest['tables'] = ['probe_projection' => ['class' => 'derived']];
+    $manifest['actions'] = [[
+        'args' => [],
+        'capability' => 'prepare_schema',
+        'effects' => [[
+            'id' => 'probe-schema',
+            'kind' => 'database',
+            'mode' => 'restorable',
+            'selector' => [
+                'scope' => 'database_checkpoint',
+                'type' => 'table',
+                'value' => 'probe_projection',
+            ],
+        ]],
+        'kind' => 'provider',
+        'phase' => 'schema_settle',
+        'prepares' => ['probe_projection'],
+        'provider' => 'probe-cache-offline',
+        'readiness' => 'inspect_schema',
+    ]];
+    return $manifest;
+}
+
 /** Load one probe fixture with the given mutation applied to the whole manifest. */
 function load_probe(array $manifest): Policy {
     fresh_manifests_dir(['probe' => $manifest]);
@@ -316,6 +394,95 @@ unset($noRange['plugin'], $noRange['version_range']);
 check(
     load_probe($noRange)->provider_declarations()['probe-cache-offline']['version_range'] === null,
     'a manifest with no plugin/version_range yields a null provider range (negotiation then skips the range check by design)'
+);
+
+$schemaPolicy = load_probe(schema_probe_manifest());
+check(
+    count($schemaPolicy->schema_settle_actions()) === 1
+        && $schemaPolicy->schema_settle_tables() === [
+            'probe_projection' => [
+                'manifest' => 'probe',
+                'index' => 0,
+                'provider' => 'probe-cache-offline',
+                'capability' => 'prepare_schema',
+            ],
+        ],
+    'schema settlement projects one exact action/table authority from the loaded policy'
+);
+check(
+    $schemaPolicy->actions_for(['table:probe_projection']) === [],
+    'schema settlement never leaks into ordinary state-triggered rebuild selection'
+);
+$schemaEffects = array_values(array_filter(
+    $schemaPolicy->effects_inventory(),
+    static fn(array $row): bool => ($row['phase'] ?? null) === 'schema-settle'
+));
+check(
+    count($schemaEffects) === 1
+        && ($schemaEffects[0]['effect']['selector']['value'] ?? null) === 'probe_projection',
+    'the compiled effect inventory always signs schema DDL even before the table exists'
+);
+$directDeployBoundary = new ReflectionMethod(Deploy::class, 'assert_direct_provider_boundary');
+expect_throw(
+    static fn() => $directDeployBoundary->invoke(null, $schemaPolicy, 'all'),
+    'host-owned provider settlement',
+    'direct all-phase deploy refuses schema settlement at Deploy ownership, before compilation or lifecycle mutation'
+);
+try {
+    $directDeployBoundary->invoke(null, $schemaPolicy, 'activate');
+    check(true, 'a host-ordered lifecycle phase may enter the same Deploy path with schema settlement declared');
+} catch (Throwable $failure) {
+    check(false, 'host-ordered deploy phase was mistaken for direct deploy: ' . $failure->getMessage());
+}
+$schemaReceiptGate = new ReflectionMethod(\WPrism\SchemaSettlement::class, 'assert_receipts');
+$schemaAction = ['prepares' => ['probe_projection']];
+$existingSchemaRow = [
+    'present' => true,
+    'row_count' => 1,
+    'rows_sha256' => str_repeat('1', 64),
+    'schema_hash' => str_repeat('2', 64),
+];
+$schemaReceiptGate->invoke(null, [$schemaAction], [[
+    'receipt' => [
+        'before' => ['probe_projection' => $existingSchemaRow],
+        'after' => ['probe_projection' => $existingSchemaRow],
+        'verified' => true,
+    ],
+]], [['table' => 'probe_projection', 'present' => true]]);
+check(true, 'schema settlement accepts a complete unchanged structure-and-row witness');
+$changedRows = $existingSchemaRow;
+$changedRows['rows_sha256'] = str_repeat('3', 64);
+expect_throw(
+    static fn() => $schemaReceiptGate->invoke(null, [$schemaAction], [[
+        'receipt' => [
+            'before' => ['probe_projection' => $existingSchemaRow],
+            'after' => ['probe_projection' => $changedRows],
+            'verified' => true,
+        ],
+    ]], [['table' => 'probe_projection', 'present' => true]]),
+    'changed existing table',
+    'an unchanged schema hash cannot hide row mutation in an existing prepared table'
+);
+$structureOnly = $existingSchemaRow;
+unset($structureOnly['row_count'], $structureOnly['rows_sha256']);
+expect_throw(
+    static fn() => $schemaReceiptGate->invoke(null, [$schemaAction], [[
+        'receipt' => [
+            'before' => ['probe_projection' => $structureOnly],
+            'after' => ['probe_projection' => $structureOnly],
+            'verified' => true,
+        ],
+    ]], [['table' => 'probe_projection', 'present' => true]]),
+    'malformed table evidence',
+    'schema settlement refuses create-only success without a complete row witness'
+);
+$duplicateSchema = schema_probe_manifest();
+$duplicateSchema['actions'][] = $duplicateSchema['actions'][0];
+$duplicateSchema['actions'][1]['effects'][0]['id'] = 'probe-schema-second';
+expect_throw(
+    fn() => load_probe($duplicateSchema),
+    "both settle schema for table 'probe_projection'",
+    'one table cannot acquire two schema-settlement authorities even inside one manifest'
 );
 
 // ======================================================================

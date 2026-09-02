@@ -693,6 +693,15 @@ Classes: `authored` (captured), `runtime` / `derived` / `env` (excluded; `derive
 
 Extended manifest capabilities (spec v0.5):
 
+- **Host-checkpointed schema settlement** (§ v3.23): a provider action may
+  declare `phase: "schema_settle"` when the manifest declares
+  `schema-settlement/v1`. Its sorted, non-empty `prepares` list names tables
+  owned by that manifest; `readiness` names a distinct read-only site
+  capability; and its restorable database-checkpoint effects exactly cover
+  those tables. The strict observer still refuses absent schema. Only host
+  `wprism deploy` may run the phase, after an authenticated checkpoint and
+  under a durable ordered provider intent that ordinary policy load fences
+  until completion or exact recovery.
 - `"interpreter": "<name>"` — schema-driven classification: the named interpreter is consulted per (meta key, the entity's full meta map) *before* static rules — for plugins whose meta semantics live in data (field-group definitions), not in a static key list. **Interpreter code is part of the adapter artifact, never the engine**: the name resolves within the same capsule to `package/runtime/interpreters/<name>.php`, which must define `\WPrism\Interpreters\<Name>` with `post_meta_rule(string $key, array $allMeta): ?array`; it may additionally define `term_meta_rule(...)` and `user_meta_rule(...)` with the same signature and nullable-defer semantics. The optional hooks do not widen older post-only interpreters: when absent, the corresponding static `term_meta`/`user_meta` rules retain control. Interpreter code ships, versions, and pins together with its manifest JSON. (Trust boundary: the installed `agent/adapter-library/` deploys with the agent itself, so loading its code is the same trust decision as running the agent.)
 - `"user_meta": {"<key>": {"class": "runtime|env|derived|authored", "missing_user": "block|warn", "allow_pii": false}}` mirrors the static post/term-meta classification vocabulary without making users repository entities. `runtime`/`env`/`derived` are target-local dispositions. `authored` uses the exact-login sidecar above; `missing_user` is user-meta-only and defaults to fail-closed `block`, while `allow_pii` is an explicit reviewed exception to the recursive PII gate. Interpreters follow the same contract through `user_meta_rule()`.
 - `"post_types": {"acf-field": {"class": "authored", "body": "serialized", "phase": "early"}}` — body mode `serialized` requires canonical, bounded, class-free PHP plain data; capture tokenizes every string leaf and re-serializes it, so home/uploads rebinding cannot corrupt serialized byte lengths. Malformed, trailing, object/reference-shaped, over-depth, and secret-shaped bodies refuse at capture and compilation. `verbatim` remains the opaque byte-preserving mode and never re-binds URLs. `"phase": "early"` makes the type finalize before all others in apply phase 2 — for definition CPTs whose content interpreters read to type other entities' meta (declared ordering, never glob luck).
@@ -862,7 +871,7 @@ evidence before this line changes.
 | § | rule | rider | enforced today |
 |---|---|---|---|
 | v3.1 | N/N-1 acceptance window, per-section refusal by name | WP-4.2 / WP-4.12 | YES — {2, 3}, for a manifest AND for `site.wprism.json`; floor gated at release |
-| v3.2 | `engine_features` declaration channel | WP-4.2 / WP-6.1 | YES, DECLARABLE, and USED — nine implemented features; eleven shipped declarers opt in per adapter with no engine version bump |
+| v3.2 | `engine_features` declaration channel | WP-4.2 / WP-6.1 | YES, DECLARABLE, and USED — ten implemented features; eleven shipped declarers opt in per adapter with no engine version bump |
 | v3.3 | closed top-level key set and its growth rule | WP-4.3 | YES from `spec_version: 2`; one set, gated at release; `_draft` is the recognised v2 authoring-only exception |
 | v3.4 | per-adapter disposition addressing; per-subject registry pins | WP-4.4 / WP-4.5 | LAYOUT yes — one document per subject; ADDRESSING no — still one whole-document hash |
 | v3.5 | per-adapter environment narrowing | WP-4.6 | YES at `spec_version: 3`; inert at v2 |
@@ -877,6 +886,7 @@ evidence before this line changes.
 | v3.18 | the evidence grade: computed beside the reviewed word | WP-5.4 | YES — three axes derived on every call into a byte-compared document; no wire member, no stored verdict, no shipped byte |
 | v3.19 | `wprism-adapter-index/v1` — discovery and distribution over an unsigned pointer document | WP-5.6 | YES — three host verbs, digest-pinned resolution that never falls through, one transport (`file://`); nothing under `agent/` reads the format |
 | v3.22 | manifest-owned provider protocol in engine core | adapter absorption | YES — nine provider files declare contracts as data and retain only plugin semantics plus value-level verification |
+| v3.23 | host-checkpointed schema settlement | Rank Math | YES — absent declared schema is created only after a bound checkpoint, with create-only row witnesses and durable provider-phase recovery |
 
 The flip itself — the two defines, the migration verbs, the cohorted rollout and the rollback rehearsal —
 is WP-4.12, is DONE, and § v3.12 is the record of what it deliberately left alone. The runbook that
@@ -958,7 +968,7 @@ its name, the first `spec_version` its sections exist at, and the top-level keys
 constant in the engine, because a feature that is implemented while its section is unknown (or the
 reverse) is precisely the silent mis-read the channel exists to remove.
 
-This engine implements nine features, and the first one is what the other eight ride:
+This engine implements ten features, and the first one is what the other nine ride:
 
 - **`spec-window/v1`** — the acceptance window of § v3.1 and this channel itself, claiming the
   `engine_features` key from `spec_version` 3. It is a real entry, not a placeholder — the channel's own
@@ -1006,6 +1016,10 @@ each one closed and the coordinates that stayed open beside it.
   That selector matches concrete post-kind surfaces only and never enters a provider
   batch as a wildcard. All other wildcard-shaped triggers remain malformed, and a
   provider declaring durable engine context channels must use exact post kinds.
+- **`schema-settlement/v1`** (§ v3.23) — claims NO top-level key: it widens a
+  provider action with the `schema_settle` phase, its exact `prepares` table set,
+  and a distinct read-only readiness capability. The phase is host-only,
+  checkpoint-bound, create-only, and durably recoverable.
 - **`structured-body-refs/v1`** (WP-6.5, § v3.20) — claims `body_refs` and admits the `json` post-body
   mode under one feature, so a document cannot declare either inert half without the other.
 
@@ -1138,7 +1152,7 @@ platform/adapter-library/core/disposition.json    # the platform-owned core adap
 platform/adapter-library/profiles.json            # profiles, keyed independently of package discovery
 ```
 
-19 documents, 1,349 lines, 60,508 bytes — the same entries, the same profile, addressed as 19 roots
+19 documents, 1,349 lines, 60,521 bytes — the same entries, the same profile, addressed as 19 roots
 instead of one. (The split itself moved no byte of content; the size has since grown with #561's
 promotion of `the-events-calendar` to `certified`, Polylang's reviewed production-readiness port,
 the later reviewed Polylang empty-catalog lifecycle correction, and WooCommerce's final production-readiness
@@ -2628,6 +2642,85 @@ The current residual inventory and ownership are derived from capsule manifests 
 `sandbox/tests/offline/adapter/regress_actions_providers.php` and each provider retains its product
 regression.
 
+### v3.23 `schema-settlement/v1` — strict observation gets a recoverable prerequisite
+
+**Enforced today: yes, for host `wprism deploy`.** `WPRISM_SPEC_VERSION`
+remains 3. This feature claims no top-level key; it widens an existing provider
+action with a closed phase-specific grammar. Direct `wp wprism deploy` refuses
+any adapter that needs it because the agent cannot authenticate or restore the
+host-retained checkpoint by itself.
+
+The action is exactly a provider action with `phase: "schema_settle"`,
+`args: []`, a distinct `readiness` capability on the same provider, and a
+non-empty lexical, duplicate-free `prepares` list. Every prepared name is a
+table declared by that manifest. `triggers` is forbidden. Its effects set must
+equal `prepares` exactly, one row per table, with `kind: "database"`,
+`mode: "restorable"`, and selector
+`{scope: "database_checkpoint", type: "table", value: <name>}`. Across all
+pinned manifests, one table has one schema-settlement authority. When
+manifest-owned provider contracts are present, readiness is an argument-free,
+idempotent, site-scoped capability that reads exactly the prepared table
+surfaces and writes nothing. The preparation capability is likewise
+argument-free, idempotent, and site-scoped, and both reads and writes exactly
+those surfaces. These two manifest-owned contracts are load-time grammar, not
+claims deferred to the target. Plugin-sourced contracts remain live-negotiated.
+
+Schema status is deliberately separate from strict plan observation. It first
+checks table presence, then invokes readiness without mutation. A missing table
+whose durable table identity or canonical state proves prior authored use is
+loss, not an installation opportunity, and refuses before acquiring a lease or
+checkpoint. A legitimately absent table remains absent to compile and plan;
+the host must settle it before the strict observer runs again.
+
+The host phase order is fixed: read-only lifecycle and schema status; exact
+artifact/checkpoint creation and authentication; code staging and fresh
+lifecycle reconciliation under the durable promotion session; publication of
+an external provider-settlement intent; schema settlement; then lifecycle
+settlement. The intent contains the artifact hash, checkpoint, release owner,
+and ordered remaining provider phases. Each successful provider phase advances
+it atomically. Ordinary policy load refuses while it exists, so a crash cannot
+turn an unrecorded partial provider transaction into normal operation. Recovery
+binds the same intent into its signed checkpoint instruction, restores the
+exact checkpoint, and clears the database and external intents only after
+verified recovery. The database-external intent also fences host mutation:
+adopt, unadopt, and retained-checkpoint prune cannot cross it, while read-only
+inventory and recovery remain admitted. Recovery selects the one exact retained
+checkpoint row named by provider debt before profile selection or lease writes.
+
+Checkpoint target identity is
+`sha256("wprism-database-target/v1\0" || canonical_json({host: DB_HOST,
+name: DB_NAME, prefix: $table_prefix}))`. It contains no database credentials.
+The host obtains this digest before export, the isolated exporter rechecks it,
+and the sealer authenticates it in the first secretstream record. Verification
+returns `wprism-retained-checkpoint-verification/v2` with the complete
+ciphertext digest and database-target digest. Recovery compares current
+wp-config before its first lease mutation; begin, reset/import, and both
+provider settlement phases independently repeat the comparison. External
+recovery records persist only the digest. A retained checkpoint without this
+authenticated metadata is not silently upgraded and cannot authorize restore.
+
+Immediately before provider DDL, the agent also publishes a database-local
+schema intent bound to the same release pair. The readiness receipt is a map
+keyed exactly by `prepares`, each value `{present, schema_hash}`, with identical
+`before` and `after`. The preparation receipt uses
+`{present, schema_hash, row_count, rows_sha256}`. An already-present table must
+retain the exact evidence row. A previously absent table must become present
+with `row_count: 0`; the phase may create schema but cannot seed authored data.
+The row hash is complete, coherent, and resource-bounded: a multi-query witness
+uses one repeatable-read snapshot and refuses a storage engine that cannot
+provide it. Providers impose database-side row and byte bounds, reapply the
+per-row bound inside every value-bearing query, and use deterministic fixed-size
+primary-key keyset chunks whose maximum transferred page is intentional. A
+prefix sample, raceable census, or whole-table PHP materialization is not
+evidence.
+
+This closes the Rank Math case without weakening the observer. Activation does
+not create redirection tables when that module starts disabled, while a strict
+plan correctly refuses to fabricate them. The adapter's provider owns the
+plugin-specific installer call and audited schema knowledge; the engine owns
+phase ordering, checkpoint identity, create-only verification, durable debt,
+and recovery. No Rank Math branch enters `agent/src`.
+
 ## Ledger tables (per environment, never in the repo)
 
 | Table | Purpose |
@@ -2863,9 +2956,14 @@ selected map refuses through the identity-recovery route while unselected stale
 rows remain untouched. Recovery, verification, and terminal replay repeat that
 check, so a dead or reused local id can never become selected write authority.
 A stale or tampered contract, changed source, replaced lease, changed
-selected/protected target, changed guard, missing capability, triggerless
-global action, legacy unreconciled regenerator, or attachment metadata rebuild
-refuses before the first authored write.
+selected/protected target, changed guard, missing capability, untriggered native
+action, untriggered provider without a successfully negotiated operation-bound
+reconciliation contract, legacy unreconciled regenerator, or attachment
+metadata rebuild refuses before the first authored write. An untriggered
+provider is the one narrow global-action exception: the immutable scope
+contract and mutation authority already hash its full declaration and effects,
+and the target must negotiate that exact capability's scoped operation and
+readback before plan, apply, or recovery may admit it.
 
 An externally checkpointed scoped promotion uses the closed
 `wprism-scoped-mutation-authority/v2` extension. In addition to the v1 evidence,
@@ -2952,8 +3050,10 @@ scope/artifact cannot discover or replay an older terminal. Exact committed
 response-loss recovery may recreate the short target `ps-*` handoff, but only
 the same signed external tuple and delete capability can reopen the archived
 terminal. Ordinary promotion, code materialization, lifecycle, user-invoked
-rollback, attachment derivative generation, legacy `regen_dependency`, and
-triggerless actions remain explicitly outside this version. The externally
+rollback, attachment derivative generation, and legacy `regen_dependency`
+remain explicitly outside this version. Triggerless native actions and
+providers without negotiated scoped reconciliation remain outside; the
+operation-bound provider exception above is ordinary scoped apply only. The externally
 checkpointed SSH profile below is the scoped-promotion exception; it consumes
 this same apply protocol without widening its selected record set.
 

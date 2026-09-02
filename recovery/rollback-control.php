@@ -401,6 +401,10 @@ final class RollbackControl {
             'CodeRelease.php',
             'UploadBundle.php',
             'EffectBundle.php',
+            'ProviderSettlementIntent.php',
+            'CheckpointRecoveryIntent.php',
+            'DatabaseTargetIdentity.php',
+            'RetainedCheckpointCipher.php',
             'CanonicalJson.php',
             'AtomicStore.php',
             'ProtocolLock.php',
@@ -1528,6 +1532,35 @@ function rollback_control_main(array $argv): int {
             'code-release-request' => CodeRelease::handleRequest($root, (string) ($args['request'] ?? '')),
             'upload-bundle-request' => UploadBundle::handleRequest($root, (string) ($args['request'] ?? '')),
             'effect-bundle-request' => EffectBundle::handleRequest($root, (string) ($args['request'] ?? '')),
+            'provider-settlement-status' => ProviderSettlementIntent::status($root),
+            'provider-settlement-recovery-status' => ProviderSettlementIntent::recoveryStatus($root),
+            'provider-settlement-advance' => ProviderSettlementIntent::advance(
+                $root,
+                (string) ($args['repo'] ?? ''),
+                (string) ($args['artifact'] ?? ''),
+                (string) ($args['checkpoint'] ?? ''),
+                (string) ($args['owner'] ?? ''),
+                (string) ($args['artifact-hash'] ?? ''),
+                array_values(array_filter(explode(',', (string) ($args['phases'] ?? '')))),
+                (string) ($args['phase'] ?? '')
+            ),
+            'provider-settlement-complete' => ProviderSettlementIntent::complete(
+                $root,
+                (string) ($args['repo'] ?? ''),
+                (string) ($args['artifact'] ?? ''),
+                (string) ($args['checkpoint'] ?? ''),
+                (string) ($args['owner'] ?? ''),
+                (string) ($args['artifact-hash'] ?? ''),
+                array_values(array_filter(explode(',', (string) ($args['phases'] ?? ''))))
+            ),
+            'checkpoint-recovery-status' => CheckpointRecoveryIntent::status($root),
+            'checkpoint-recovery-complete' => CheckpointRecoveryIntent::complete(
+                $root,
+                (string) ($args['repo'] ?? ''),
+                (string) ($args['checkpoint'] ?? ''),
+                (string) ($args['owner'] ?? ''),
+                (string) ($args['artifact-hash'] ?? '')
+            ),
             'execute' => RecoveryExecutor::execute(
                 $root,
                 (string) ($args['adapter'] ?? ''),
@@ -1562,6 +1595,8 @@ require_once __DIR__ . '/CheckpointBundle.php';
 require_once __DIR__ . '/CodeRelease.php';
 require_once __DIR__ . '/UploadBundle.php';
 require_once __DIR__ . '/EffectBundle.php';
+require_once __DIR__ . '/ProviderSettlementIntent.php';
+require_once __DIR__ . '/CheckpointRecoveryIntent.php';
 
 if (isset($_SERVER['SCRIPT_FILENAME']) && realpath((string) $_SERVER['SCRIPT_FILENAME']) === __FILE__) {
     exit(rollback_control_main($argv));

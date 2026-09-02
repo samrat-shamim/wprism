@@ -400,6 +400,8 @@ PHP;
         $files = [
             '/agent/wprism.php',
             '/agent/wprism-loader.php',
+            '/agent/src/Recovery/DatabaseTargetIdentity.php',
+            '/agent/src/Recovery/RetainedCheckpointCipher.php',
             '/platform/adapter-library/core/manifest.json',
             '/platform/adapter-library/capabilities/platform.json',
             '/tools/src/AdapterPackageProjection.php',
@@ -414,6 +416,8 @@ PHP;
             '/recovery/CodeRelease.php',
             '/recovery/UploadBundle.php',
             '/recovery/EffectBundle.php',
+            '/recovery/ProviderSettlementIntent.php',
+            '/recovery/CheckpointRecoveryIntent.php',
         ];
         if (!self::safeAbsolutePath($root)) {
             return false;

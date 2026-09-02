@@ -41,7 +41,7 @@ foreach ([
     'RepositoryAuthorization', 'Tokens', 'ScopeContract',
     'ScopedStateOverlay', 'ScopedApplySession', 'CommandRefusal', 'ScopedApply', 'ScopedApplyCoordinator',
     'ScopedApplyWorkProjector',
-    'Providers', 'ProviderActionBatchBuilder', 'RebuildActionDispatcher',
+    'Providers', 'ProviderActionBatchBuilder', 'RebuildActionDispatcher', 'RebuildActionNegotiator',
     'Canary', 'Ledger', 'PromotionLock', 'Apply',
 ] as $file) {
     $wprismAgentFile = $wprismAgentFiles[$file] ?? null;
@@ -58,6 +58,7 @@ use WPrism\NativeActions;
 use WPrism\Policy;
 use WPrism\PromotionLock;
 use WPrism\Providers;
+use WPrism\RebuildActionNegotiator;
 use WPrism\ScopeContract;
 use WPrism\ScopedApply;
 use WPrism\ScopedApplySession;
@@ -408,6 +409,61 @@ $expectThrow = static function (callable $fn, string $needle, string $message) u
 };
 $hash = static fn(string $label): string => hash('sha256', $label);
 $uuid = static fn(int $n): string => sprintf('00000000-0000-4000-8000-%012d', $n);
+
+$globalProviderAction = [
+    'kind' => 'provider',
+    'provider' => 'global-provider',
+    'capability' => 'rebuild_global_state',
+    'effects' => [[
+        'id' => 'global-state',
+        'kind' => 'database',
+        'mode' => 'restorable',
+        'selector' => ['scope' => 'database_checkpoint', 'type' => 'table', 'value' => 'global_state'],
+    ]],
+];
+$scopedNegotiation = [
+    'scoped_capabilities' => [
+        'global-provider' => [
+            'rebuild_global_state' => ['operation_envelope' => 'wprism-scoped-effect-operation/v1'],
+        ],
+    ],
+];
+foreach (['plan', 'apply'] as $operation) {
+    RebuildActionNegotiator::assert_scoped_action_authority(
+        [$globalProviderAction],
+        $scopedNegotiation,
+        $operation
+    );
+    $check(true, "scoped $operation admits an untriggered provider only with its exact negotiated operation contract");
+    $expectThrow(
+        static fn() => RebuildActionNegotiator::assert_scoped_action_authority(
+            [['kind' => 'native', 'action' => 'rewrite.flush']],
+            $scopedNegotiation,
+            $operation
+        ),
+        "scoped $operation refused before target mutation — an untriggered global action requires",
+        "scoped $operation refuses an untriggered native action"
+    );
+    $expectThrow(
+        static fn() => RebuildActionNegotiator::assert_scoped_action_authority(
+            [$globalProviderAction],
+            ['scoped_capabilities' => []],
+            $operation
+        ),
+        'successfully negotiated operation-bound provider reconciliation contract',
+        "scoped $operation refuses an untriggered legacy provider without negotiated reconcile"
+    );
+    RebuildActionNegotiator::assert_scoped_action_authority(
+        [[
+            'kind' => 'native',
+            'action' => 'rewrite.flush',
+            'triggers' => ['post:*'],
+        ]],
+        ['scoped_capabilities' => []],
+        $operation
+    );
+    $check(true, "scoped $operation preserves trigger-bound native authority");
+}
 
 // A pre-session-id promotion remains readable for ordinary full-promotion
 // recovery, but it cannot seed scoped authority whose recovery protocol
@@ -2921,6 +2977,19 @@ $check(
         && str_contains($actionNegotiatorSource, "provider channel '\$channel'")
         && str_contains($actionNegotiatorSource, 'durable environment-local recovery input'),
     'scoped preflight refuses provider context channels whose local-id payload cannot be reconstructed after a crash'
+);
+$recoveryNegotiationAt = strpos(
+    $preparationSource,
+    '$this->services->rebuild_action_negotiator()->negotiate('
+);
+$recoverySelectionAt = strpos($preparationSource, '->assert_recovery_selection(');
+$check(
+    substr_count($applySource, 'RebuildActionNegotiator::assert_scoped_action_authority(') === 1
+        && substr_count($actionNegotiatorSource, 'self::assert_scoped_action_authority(') === 1
+        && $recoveryNegotiationAt !== false
+        && $recoverySelectionAt !== false
+        && $recoveryNegotiationAt < $recoverySelectionAt,
+    'plan, apply and recovery all re-enter the same untriggered scoped-provider authority gate before mutation or resume'
 );
 $codeWitnessCheckAt = strpos($applySource, "'wprism:scoped-code-witness-changed'");
 $sessionBeginAt = strpos($applySource, 'ScopedApplySession::begin(');

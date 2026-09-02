@@ -32,6 +32,8 @@ use WPrism\CommandRefusalException;
  *
  * | failure class | next action | why |
  * |---|---|---|
+ * | `incomplete_checkpoint_recovery` | `recover` | checkpoint restoration has durable database-external intent; only the exact retained-checkpoint recovery may continue. |
+ * | `incomplete_provider_settlement` | `recover` | adapter provider effects have durable database-external intent; only the exact retained-checkpoint recovery may settle them. |
  * | `incomplete_lifecycle` | `recover` | an interrupted code lifecycle window left the target between two worlds; only the recovery profile can converge it. MUP §2.3 states this one literally. |
  * | `incomplete_apply` | `recover` | same shape one layer down: the authored-state transaction did not reach its terminal receipt. |
  * | `ambiguous_commitment` | `reconcile` | the controller lost the response and cannot prove whether the target committed. **Never `retry`**: replaying an unprovable commitment is how a release is applied twice. |
@@ -80,7 +82,9 @@ final class NextAction {
         'evidence_not_current' => self::REQUALIFY,
         'frozen_promotion' => self::RESUME,
         'incomplete_apply' => self::RECOVER,
+        'incomplete_checkpoint_recovery' => self::RECOVER,
         'incomplete_lifecycle' => self::RECOVER,
+        'incomplete_provider_settlement' => self::RECOVER,
         'lease_held' => self::RESUME,
         'nothing_safe' => self::ESCALATE,
         'plan_changed' => self::RETRY,
@@ -111,7 +115,9 @@ final class NextAction {
         'evidence_not_current' => 'the reviewed dispositions moved since this contract was accepted',
         'frozen_promotion' => 'a durable frozen promotion for this artifact already exists',
         'incomplete_apply' => 'the authored-state transaction did not reach its terminal receipt',
+        'incomplete_checkpoint_recovery' => 'checkpoint restoration has durable database-external recovery debt',
         'incomplete_lifecycle' => 'the code lifecycle window was interrupted between phases',
+        'incomplete_provider_settlement' => 'adapter provider effects have durable database-external settlement debt',
         'lease_held' => 'another promotion generation holds the target lease',
         'nothing_safe' => 'no automated action is safe for this failure',
         'plan_changed' => 'the target moved between freezing the plan and confirming it; nothing was written',

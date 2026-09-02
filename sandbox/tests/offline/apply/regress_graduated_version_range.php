@@ -497,9 +497,11 @@ wprism_check(
     'the deploy code_drift refusal envelope is byte-identical'
 );
 wprism_check(
-    str_contains($deploySource, "                    'code_revision_stale',\n"
-        . "                    VersionEvidenceGrammar::VERDICT,\n"),
-    'deploy names the graduated verdict by constant in its non-blocking list, never by a second copy of the string'
+    str_contains(
+        $deploySource,
+        "&& \$r['issue'] !== VersionEvidenceGrammar::VERDICT"
+    ),
+    'deploy names the graduated verdict by constant in its non-blocking predicate, never by a second copy of the string'
 );
 wprism_check(
     !str_contains($deploySource, "'outside_version_range',\n                ]"),

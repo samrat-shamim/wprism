@@ -107,8 +107,42 @@ recover_configured() {
 wp_steps() {
   sed -e 's/.*wprism promotion-abort.*/abort/' \
       -e 's/.*wprism promotion-begin.*/begin/' \
+      -e 's/.*CheckpointRecoveryIntent::resume.*/verify/' \
+      -e 's/.*db reset --yes.*/reset/' \
+      -e 's/.*RetainedCheckpointCipher::open.*/open/' \
       -e 's/.*db import.*/import/' "$WPRISM_WP_CALLS" \
-    | grep -E '^(abort|begin|import)$' || true
+    | grep -E '^(abort|begin|verify|reset|open|import)$' \
+    | awk '
+        function flush_stream() {
+          if (opened && imported) print "stream";
+          else {
+            if (opened) print "open";
+            if (imported) print "import";
+          }
+          opened = imported = 0;
+        }
+        $0 == "open" { opened = 1; next }
+        $0 == "import" { imported = 1; next }
+        { flush_stream(); print }
+        END { flush_stream() }
+      ' || true
+}
+
+# checkpoint_payload_names <basename> -> success when a recovery bootstrap
+# carries that exact retained path inside its authenticated identity payload.
+checkpoint_payload_names() {
+  php -r '
+$raw = (string) file_get_contents($argv[1]);
+preg_match_all("/base64_decode\\(\x27([^\x27]+)\x27/", $raw, $matches);
+foreach ($matches[1] ?? [] as $encoded) {
+    $decoded = base64_decode($encoded, true);
+    $payload = is_string($decoded) ? json_decode($decoded, true) : null;
+    if (is_array($payload) && basename((string) ($payload["checkpoint"] ?? "")) === $argv[2]) {
+        exit(0);
+    }
+}
+exit(1);
+' "$WPRISM_WP_CALLS" "$1"
 }
 
 # ------------------------------------------------------------------- the list
@@ -134,6 +168,80 @@ grep -Fq 'promote-recover-fixture-owner  retained  retained-release-checkpoint' 
 grep -Fq 'receipt-recover-fixture' "$TMP/listnone.txt" \
   && fail 'an inactive authority still printed a receipt row' \
   || pass 'an inactive authority contributes no receipt row'
+
+# ----------------------------------------- database-external provider fence
+say 'provider settlement debt fences host mutation and selects one recovery row'
+PROVIDER_INTENT="$TMP/f/target/.wprism/control/provider-settlement-intent.json"
+export WPRISM_PROVIDER_RECOVERY_STATUS="$TMP/provider-recovery-status.json"
+TARGET_ROOT="$(realpath "$TMP/f/target")"
+php -r '
+$document = [
+    "active" => true,
+    "artifact_hash" => str_repeat("a1", 32),
+    "checkpoint" => [
+        "cipher_sha256" => str_repeat("ef", 32),
+        "path" => $argv[1] . "/.wprism/checkpoints/promote-recover-fixture-owner.sql.enc",
+    ],
+    "format" => "wprism-provider-settlement-recovery/v1",
+    "owner" => "recover-fixture-owner",
+];
+file_put_contents($argv[2], json_encode($document, JSON_UNESCAPED_SLASHES) . "\n");
+' "$TARGET_ROOT" "$WPRISM_PROVIDER_RECOVERY_STATUS"
+printf '%s\n' '{"fixture":"active-provider-debt"}' > "$PROVIDER_INTENT"
+
+( cd "$SITE" && php "$ROOT/cli/wprism" --envs-file="$TMP/f/envs.json" \
+    unadopt fixture --archive-to="$TMP/blocked-unadopt.tar" --yes ) \
+  > "$TMP/provider-unadopt.txt" 2>&1
+STATUS=$?
+[ "$STATUS" = 1 ] && pass 'active provider debt blocks unadopt before control-plane replacement' \
+  || fail "provider-fenced unadopt exited $STATUS"
+grep -Fq 'incomplete adapter provider settlement' "$TMP/provider-unadopt.txt" \
+  && pass 'unadopt names provider settlement recovery debt' \
+  || fail 'provider-fenced unadopt did not name its blocker'
+[ -d "$TMP/f/target/.wprism/control" ] && [ ! -e "$TMP/blocked-unadopt.tar" ] \
+  && pass 'blocked unadopt leaves the durable control root and archive destination untouched' \
+  || fail 'blocked unadopt mutated its protected target or archive destination'
+
+BEFORE_PRUNE="$(find "$TMP/f/target/.wprism/checkpoints" -type f -print | sort)"
+recover "providerprune" --prune-retained=0 --confirm-prune
+STATUS=$?
+[ "$STATUS" = 1 ] && pass 'active provider debt blocks confirmed retained-checkpoint prune' \
+  || fail "provider-fenced confirmed prune exited $STATUS"
+AFTER_PRUNE="$(find "$TMP/f/target/.wprism/checkpoints" -type f -print | sort)"
+[ "$AFTER_PRUNE" = "$BEFORE_PRUNE" ] \
+  && pass 'blocked confirmed prune removes no checkpoint' \
+  || fail 'provider-fenced confirmed prune removed checkpoint authority'
+
+WPRISM_RECOVER_STATUS="$TMP/f/status/database-only.json" \
+  recover "providerwrongverified" --restore=receipt-recover-fixture --writers-excluded
+STATUS=$?
+[ "$STATUS" = 1 ] && grep -Fq 'provider_settlement_checkpoint_mismatch' "$TMP/providerwrongverified.txt" \
+  && pass 'provider debt rejects a different signed recovery row before profile selection' \
+  || fail 'provider debt admitted or misclassified a signed recovery row'
+[ -z "$(wp_steps | tr -d '\n ')" ] \
+  && pass 'wrong signed provider recovery row runs no lease or import step' \
+  || fail 'wrong signed provider recovery row crossed the mutation boundary'
+
+WPRISM_RECOVER_STATUS="$TMP/f/status/none.json" \
+  recover "providerwrongretained" --restore=deploy-recover-fixture-owner --writers-excluded
+STATUS=$?
+[ "$STATUS" = 1 ] && grep -Fq 'provider_settlement_checkpoint_mismatch' "$TMP/providerwrongretained.txt" \
+  && pass 'provider debt rejects a different retained release before lease mutation' \
+  || fail 'provider debt admitted or misclassified a different retained release'
+[ -z "$(wp_steps | tr -d '\n ')" ] \
+  && pass 'wrong retained provider recovery row runs no lease or import step' \
+  || fail 'wrong retained provider recovery row crossed the mutation boundary'
+
+WPRISM_RECOVER_STATUS="$TMP/f/status/none.json" \
+  recover "providerexact" --restore=promote-recover-fixture-owner --writers-excluded
+STATUS=$?
+[ "$STATUS" = 0 ] && pass 'provider debt admits its one exact retained checkpoint' \
+  || { fail "exact provider checkpoint exited $STATUS"; sed -n '1,30p' "$TMP/providerexact.txt" >&2; }
+[ "$(wp_steps | tr '\n' ' ')" = "abort begin verify reset stream abort " ] \
+  && pass 'exact provider recovery uses the operator-directed checkpoint path' \
+  || fail 'exact provider recovery selected a different profile or phase order'
+rm -f "$PROVIDER_INTENT"
+unset WPRISM_PROVIDER_RECOVERY_STATUS
 
 # ------------------------------------------------- writer exclusion is required
 say '--writers-excluded is required'
@@ -250,6 +358,21 @@ if ($missing !== []) {
 echo "ok: every does-not-restore line of the frozen plan claim is printed verbatim\n";
 ' "$TMP/codefirst.txt" "$TMP/f/claim.json" || fail 'the printed claim is not the frozen plan claim'
 
+# ------------------------------------- pre-mutation DB target before step 1
+say 'the checkpoint target is authenticated before recovery lease writes'
+WPRISM_RECOVER_STATUS="$TMP/f/status/database-only.json" WPRISM_TARGET_PREFLIGHT_EXIT=74 \
+  recover "wrongtarget" --restore=receipt-recover-fixture --writers-excluded
+STATUS=$?
+[ "$STATUS" = 1 ] && pass 'a database target changed before first recovery refuses (exit 1)' \
+  || fail "a pre-recovery database target change exited $STATUS"
+grep -Fq 'checkpoint_database_target_unverified' "$TMP/wrongtarget.txt" \
+  && pass 'the refusal names the authenticated checkpoint target boundary' \
+  || fail 'the pre-recovery target refusal did not name itself'
+STEPS="$(wp_steps | tr '\n' ' ')"
+[ -z "${STEPS// /}" ] \
+  && pass 'pre-recovery target substitution runs no abort, begin, reset, or import' \
+  || fail "pre-recovery target substitution still ran steps: $STEPS"
+
 # ------------------------------------------------- the ordered path, and step 4
 say 'the four ordered steps, and the mandatory final abort'
 WPRISM_RECOVER_STATUS="$TMP/f/status/database-only.json" \
@@ -258,8 +381,8 @@ STATUS=$?
 [ "$STATUS" = 0 ] && pass 'a database-only checkpoint recovers (exit 0)' \
   || { fail "the ordered recovery exited $STATUS"; sed -n '1,25p' "$TMP/ordered.txt" >&2; }
 ORDER="$(wp_steps | tr '\n' ' ')"
-[ "$ORDER" = "abort begin import abort " ] \
-  && pass 'the target received exactly abort -> begin -> import -> final abort' \
+[ "$ORDER" = "abort begin verify reset stream abort " ] \
+  && pass 'the target received exactly abort -> begin -> authenticate -> reset -> authenticated stream import -> final abort' \
   || fail "the ordered path ran: $ORDER"
 
 # The one that matters: the final abort runs even when the import failed.
@@ -269,7 +392,7 @@ STATUS=$?
 [ "$STATUS" = 1 ] && pass 'a failed import is reported as not recovered (exit 1)' \
   || fail "a failed import exited $STATUS"
 ORDER="$(wp_steps | tr '\n' ' ')"
-[ "$ORDER" = "abort begin import abort " ] \
+[ "$ORDER" = "abort begin verify reset stream abort " ] \
   && pass 'the final abort ran even though the import failed' \
   || fail "a failed import ran: $ORDER"
 grep -Fq 'final-abort: ok' "$TMP/importfail.txt" \
@@ -278,6 +401,56 @@ grep -Fq 'final-abort: ok' "$TMP/importfail.txt" \
 grep -Fq 'the claim this recovery was performed under, unchanged' "$TMP/importfail.txt" \
   && pass 'the claim is printed again in the outcome, unchanged' \
   || fail 'the outcome did not reprint the claim'
+
+# The durable intent is what makes a crash after reset recoverable. In this
+# fixture lease commands deliberately stop bootstrapping while the database is
+# empty: only the version-independent intent resume can get the exact checkpoint
+# back into MySQL, after which the restored final abort becomes reachable.
+say 'a reset/import crash resumes before database-backed lease commands'
+export WPRISM_TEST_DURABLE_INTENT=1
+export WPRISM_RECOVERY_INTENT_PATH="$TMP/f/target/.wprism/control/checkpoint-recovery-intent.json"
+export WPRISM_RECOVERY_DATABASE_READY="$TMP/recovery-database-ready"
+rm -f "$WPRISM_RECOVERY_INTENT_PATH" "$WPRISM_RECOVERY_DATABASE_READY"
+
+WPRISM_RECOVER_STATUS="$TMP/f/status/database-only.json" WPRISM_IMPORT_EXIT=3 \
+  recover "durablefail" --restore=receipt-recover-fixture --writers-excluded
+STATUS=$?
+[ "$STATUS" = 1 ] && pass 'the injected post-reset import crash is reported (exit 1)' \
+  || fail "the injected post-reset import crash exited $STATUS"
+[ -f "$WPRISM_RECOVERY_INTENT_PATH" ] \
+  && pass 'the failed reset/import window retains database-external recovery debt' \
+  || fail 'the failed reset/import window lost its durable identity'
+ORDER="$(wp_steps | tr '\n' ' ')"
+[ "$ORDER" = "abort begin verify reset stream abort " ] \
+  && pass 'the initial attempt reaches final abort even though the empty database cannot execute it' \
+  || fail "the initial durable failure ran: $ORDER"
+
+WPRISM_RECOVER_STATUS="$TMP/f/status/database-only.json" \
+  recover "durablesubstitute" --restore=deploy-recover-fixture-owner --writers-excluded
+STATUS=$?
+[ "$STATUS" = 1 ] && pass 'a substitute checkpoint is refused while exact recovery debt is active' \
+  || fail "a substitute checkpoint exited $STATUS"
+ORDER="$(wp_steps | tr '\n' ' ')"
+[ "$ORDER" = "verify abort " ] \
+  && pass 'the substitute is refused before reset and only the mandatory cleanup is attempted' \
+  || fail "the substitute checkpoint ran: $ORDER"
+[ "$(cat "$WPRISM_RECOVERY_INTENT_PATH")" = "$(realpath "$TMP/f/target")/.wprism/checkpoints/promote-recover-fixture-owner.sql.enc" ] \
+  && pass 'the substitute cannot replace the retained checkpoint identity' \
+  || fail 'the substitute changed durable recovery identity'
+
+WPRISM_RECOVER_STATUS="$TMP/f/status/database-only.json" \
+  recover_configured "durableretry" --restore=receipt-recover-fixture --writers-excluded
+STATUS=$?
+[ "$STATUS" = 0 ] && pass 'the exact checkpoint retry completes from a newly signing-capable controller' \
+  || { fail "the exact durable retry exited $STATUS"; sed -n '1,25p' "$TMP/durableretry.txt" >&2; }
+ORDER="$(wp_steps | tr '\n' ' ')"
+[ "$ORDER" = "verify reset stream abort " ] \
+  && pass 'external debt outranks signed-profile selection and resumes before lease commands' \
+  || fail "the exact durable retry ran: $ORDER"
+[ ! -e "$WPRISM_RECOVERY_INTENT_PATH" ] \
+  && pass 'successful import plus final abort durably clears recovery debt' \
+  || fail 'successful exact recovery left the durable fence active'
+unset WPRISM_TEST_DURABLE_INTENT WPRISM_RECOVERY_INTENT_PATH WPRISM_RECOVERY_DATABASE_READY
 
 # A failed step 1 stops before step 2: expiry lets a DIFFERENT promotion owner
 # recover the target; it does not authorize this restore.
@@ -310,10 +483,14 @@ require_once $argv[1] . "/cli/src/Transport/CodeDeploy.php";
 $cd = "WPrism\\Orchestrator\\CodeDeploy";
 $owner = "promote-recover-fixture-owner";
 $hash = str_repeat("ab", 32);
+$target = str_repeat("cd", 32);
 $fail = [];
 foreach (["recoveryAbortArgs", "recoveryBeginArgs"] as $recovery) {
-    if (!in_array("--format=json", $cd::$recovery($owner, $hash), true)) {
+    if (!in_array("--format=json", $cd::$recovery($owner, $hash, $target), true)) {
         $fail[] = "$recovery() does not ask for JSON";
+    }
+    if (!in_array("--expected-database-target-sha256=$target", $cd::$recovery($owner, $hash, $target), true)) {
+        $fail[] = "$recovery() does not fence the pre-mutation database target";
     }
 }
 foreach (["abortArgs", "beginArgs"] as $shared) {
@@ -322,9 +499,11 @@ foreach (["abortArgs", "beginArgs"] as $shared) {
     }
 }
 // Same command, same identity, same order -- only the reply format differs.
-if ($cd::recoveryAbortArgs($owner, $hash)
-    !== array_merge($cd::abortArgs($owner, $hash), ["--format=json"])) {
-    $fail[] = "recoveryAbortArgs() is not abortArgs() plus the format flag";
+if ($cd::recoveryAbortArgs($owner, $hash, $target)
+    !== array_merge($cd::abortArgs($owner, $hash), [
+        "--expected-database-target-sha256=$target", "--format=json",
+    ])) {
+    $fail[] = "recoveryAbortArgs() is not abortArgs() plus the target and format fences";
 }
 if ($fail !== []) {
     fwrite(STDERR, "FAIL: " . implode(" | ", $fail) . "\n");
@@ -485,7 +664,7 @@ STATUS=$?
 [ "$STATUS" = 0 ] && pass 'a retained checkpoint restores on a local transport (exit 0)' \
   || { fail "the retained restore exited $STATUS"; sed -n '1,25p' "$TMP/plainrestore.txt" >&2; }
 ORDER="$(wp_steps | tr '\n' ' ')"
-[ "$ORDER" = "abort begin import abort " ] \
+[ "$ORDER" = "abort begin verify reset stream abort " ] \
   && pass 'a retained checkpoint is restored through exactly abort -> begin -> import -> final abort' \
   || fail "the retained restore ran: $ORDER"
 grep -Fq -- '--promotion-owner=recover-fixture-owner' "$WPRISM_WP_CALLS" \
@@ -494,7 +673,7 @@ grep -Fq -- '--promotion-owner=recover-fixture-owner' "$WPRISM_WP_CALLS" \
 grep -Fq -- '--artifact-hash=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1' "$WPRISM_WP_CALLS" \
   && pass 'the recovery lease names the artifact hash promote used (from the retained compiled artifact)' \
   || fail 'the recovery lease did not carry the retained artifact hash'
-grep -Fq 'promote-recover-fixture-owner.sql.enc' "$WPRISM_WP_CALLS" \
+checkpoint_payload_names 'promote-recover-fixture-owner.sql.enc' \
   && pass 'the import reads exactly the retained checkpoint file' \
   || fail 'the import did not name the retained checkpoint file'
 grep -Fq 'recovery profile: operator-directed' "$TMP/plainrestore.txt" \
@@ -535,10 +714,10 @@ STATUS=$?
 [ "$STATUS" = 0 ] && pass 'a retained deploy checkpoint restores on a local transport (exit 0)' \
   || { fail "the deploy checkpoint restore exited $STATUS"; sed -n '1,25p' "$TMP/plaindeploy.txt" >&2; }
 ORDER="$(wp_steps | tr '\n' ' ')"
-[ "$ORDER" = "abort begin import abort " ] \
+[ "$ORDER" = "abort begin verify reset stream abort " ] \
   && pass 'a deploy checkpoint is restored through exactly abort -> begin -> import -> final abort' \
   || fail "the deploy checkpoint restore ran: $ORDER"
-grep -Fq 'deploy-recover-fixture-owner.sql.enc' "$WPRISM_WP_CALLS" \
+checkpoint_payload_names 'deploy-recover-fixture-owner.sql.enc' \
   && pass 'the import reads exactly the file wprism deploy wrote' \
   || fail 'the import did not name the deploy checkpoint file'
 grep -Fq -- '--artifact-hash=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1' "$WPRISM_WP_CALLS" \
@@ -554,7 +733,7 @@ STATUS=$?
 [ "$STATUS" = 1 ] && pass 'a failed deploy-checkpoint import is reported as not recovered (exit 1)' \
   || fail "a failed deploy-checkpoint import exited $STATUS"
 ORDER="$(wp_steps | tr '\n' ' ')"
-[ "$ORDER" = "abort begin import abort " ] \
+[ "$ORDER" = "abort begin verify reset stream abort " ] \
   && pass 'the final abort ran for the deploy checkpoint even though the import failed' \
   || fail "a failed deploy-checkpoint import ran: $ORDER"
 
@@ -602,7 +781,7 @@ STATUS=$?
 [ "$STATUS" = 1 ] && pass 'a failed retained import is reported as not recovered (exit 1)' \
   || fail "a failed retained import exited $STATUS"
 ORDER="$(wp_steps | tr '\n' ' ')"
-[ "$ORDER" = "abort begin import abort " ] \
+[ "$ORDER" = "abort begin verify reset stream abort " ] \
   && pass 'the final abort ran for the retained checkpoint even though the import failed' \
   || fail "a failed retained import ran: $ORDER"
 

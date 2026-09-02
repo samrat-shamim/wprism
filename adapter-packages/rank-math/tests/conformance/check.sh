@@ -212,11 +212,10 @@ jq -e '
     .source == "provider:rank-math-state/rebuild_all_link_state" and .verified == true and
     .after.enabled == true and .after.link_count >= 2 and
     (.after.link_hash | test("^[a-f0-9]{64}$"))) and
-  any(.actions[]?;
-    .source == "provider:rank-math-state/rebuild_link_state" and .verified == true and
-    .after.post_count >= 1 and (.after.meta_hash | test("^[a-f0-9]{64}$")))
+  ([.actions[]?.source | select(startswith("provider:rank-math-state/"))] | sort | unique) ==
+    ["provider:rank-math-state/rebuild_all_link_state"]
 ' <<<"$PROVIDER_RECEIPT" >/dev/null \
-  || fail "Rank Math initial apply omitted full/entity provider proof: ${PROVIDER_RECEIPT:-<missing>}"
+  || fail "Rank Math initial apply omitted its one site-complete provider proof: ${PROVIDER_RECEIPT:-<missing>}"
 grep -Fq 'rank-math-hub' <<<"$(jq -c '.actions' <<<"$PROVIDER_RECEIPT")" \
   && fail 'Rank Math provider receipt leaked an authored URL'
 pass 'divergent posts, terms, attachment and redirection identities converge through exact value-free provider receipts while target credentials/runtime state survive'
@@ -253,7 +252,76 @@ ZERO_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --for
 require_wprism_answered 'Rank Math zero-change apply' json "$ZERO_APPLY"
 jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$ZERO_APPLY" >/dev/null \
   || fail "Rank Math zero-change apply reran effects: $ZERO_APPLY"
-pass 'zero-change plan/apply is mutation-free and does not rerun either provider action'
+pass 'zero-change plan/apply is mutation-free and does not rerun the site-complete provider action'
+
+# A post:* trigger participates in scoped apply only when its provider carries
+# the operation-bound invoke/reconcile contract. Exercise the real public path:
+# one selected post-meta change, hash-only provider evidence, exact target
+# convergence, and terminal replay without repeating the native repair.
+RANK_SCOPED_SOURCE_POST=$(jq -r '.ids.post' <<<"$SOURCE")
+RANK_SCOPED_UUID=$(wp_conf1 db query \
+  "SELECT uuid FROM wp_wprism_map WHERE id_kind='post' AND local_id=$RANK_SCOPED_SOURCE_POST" \
+  --skip-column-names | tr -d '[:space:]')
+[[ "$RANK_SCOPED_UUID" =~ ^[a-f0-9-]{36}$ ]] \
+  || fail "Rank Math scoped premise lacks one post UUID: $RANK_SCOPED_UUID"
+wp_conf1 post meta update "$RANK_SCOPED_SOURCE_POST" rank_math_description \
+  'Scoped Rank Math description 東京 🚀 with exact recovery.' >/dev/null
+commit_rank_math_source 'conformance: scoped Rank Math post metadata intent'
+RANK_SCOPE_PATH="${CONF_REPO2:-siterepo/conf2}/.tmp-rank-math.scope.json"
+RANK_SCOPE_JSON=$(host_wprism conf2 scope --roots="post:$RANK_SCOPED_UUID" \
+  --contract --format=json | jq -ce .)
+printf '%s\n' "$RANK_SCOPE_JSON" >"$RANK_SCOPE_PATH"
+RANK_SCOPED_PLAN=$(wp_conf2 wprism plan --repo=/siterepo \
+  --scope-contract=/siterepo/.tmp-rank-math.scope.json --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Rank Math scoped provider plan' json "$RANK_SCOPED_PLAN"
+jq -e '
+  .format == "wprism-scoped-plan/v1" and
+  any(.selected_actions[]?;
+    .kind == "provider" and .provider == "rank-math-state" and
+    .capability == "rebuild_all_link_state")
+' <<<"$RANK_SCOPED_PLAN" >/dev/null \
+  || fail "Rank Math scoped plan did not bind its site-complete provider: $RANK_SCOPED_PLAN"
+RANK_SCOPED_APPLY=$(wp_conf2 wprism apply --repo=/siterepo \
+  --scope-contract=/siterepo/.tmp-rank-math.scope.json \
+  --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Rank Math scoped provider apply' json "$RANK_SCOPED_APPLY"
+jq -e '
+  .format == "wprism-scoped-apply-result/v1" and .canary == "clean" and
+  .verification.result == "pass" and .scoped_receipt.phase == "complete" and
+  (.actions | length) == 1 and all(.actions[];
+    (keys | sort) == ["capability_digest","format","kind","operation_hash","receipt_hash","source_hash","status","verified"] and
+    .format == "wprism-scoped-effect-receipt/v1" and .kind == "provider" and
+    .status == "verified" and .verified == true and
+    ([.capability_digest,.operation_hash,.receipt_hash,.source_hash] |
+      all(.[]; test("^[a-f0-9]{64}$"))))
+' <<<"$RANK_SCOPED_APPLY" >/dev/null \
+  || fail "Rank Math scoped provider did not return one hash-only verified receipt: $RANK_SCOPED_APPLY"
+RANK_SCOPED_TARGET_POST=$(wp_conf2 db query \
+  "SELECT local_id FROM wp_wprism_map WHERE uuid='$RANK_SCOPED_UUID' AND id_kind='post'" \
+  --skip-column-names | tr -d '[:space:]')
+require_fixture_ids RANK_SCOPED_TARGET_POST
+[ "$(wp_conf2 post meta get "$RANK_SCOPED_TARGET_POST" rank_math_description)" = \
+  'Scoped Rank Math description 東京 🚀 with exact recovery.' ] \
+  || fail 'Rank Math scoped apply did not converge its one selected authored field'
+RANK_SCOPED_OBSERVED=$(observe_rank_math conf2)
+jq -e '
+  (.links | length) == 2 and
+  (.post_counts.internal_link_count | tonumber) == 1 and
+  (.post_counts.external_link_count | tonumber) == 1 and
+  (.hub_counts.incoming_link_count | tonumber) == 1
+' <<<"$RANK_SCOPED_OBSERVED" >/dev/null \
+  || fail "Rank Math scoped apply did not retain the exact native link projection: $RANK_SCOPED_OBSERVED"
+RANK_SCOPED_REPLAY=$(wp_conf2 wprism apply --repo=/siterepo \
+  --scope-contract=/siterepo/.tmp-rank-math.scope.json \
+  --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Rank Math scoped terminal replay' json "$RANK_SCOPED_REPLAY"
+jq -e '
+  .format == "wprism-scoped-apply-result/v1" and .replayed == true and
+  .applied == 0 and (.actions | length) == 0 and .verification == null
+' <<<"$RANK_SCOPED_REPLAY" >/dev/null \
+  || fail "Rank Math scoped terminal replay repeated work: $RANK_SCOPED_REPLAY"
+rm -f "$RANK_SCOPE_PATH"
+pass 'scoped post apply negotiates, executes, verifies and terminally replays the site-complete Rank Math provider'
 
 if [ "${RANK_MATH_BOUNDARY_ONLY:-0}" = 1 ]; then
   pass "Rank Math $RANK_MATH_EXPECTED_VERSION exact boundary passed native, provider, HTTP, runtime-isolation and no-op checks"
@@ -344,7 +412,7 @@ require_observed_nonempty 'Rank Math applied revision before provider fault' "$F
 FAILURE_RC=0
 FAILURE_OUT=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || FAILURE_RC=$?
 require_wprism_answered 'Rank Math injected provider callback refusal' human "$FAILURE_OUT"
-[ "$FAILURE_RC" -ne 0 ] && grep -Fq "provider 'rank-math-state' capability 'rebuild_link_state' failed" <<<"$FAILURE_OUT" \
+[ "$FAILURE_RC" -ne 0 ] && grep -Fq "provider 'rank-math-state' capability 'rebuild_all_link_state' failed" <<<"$FAILURE_OUT" \
   || fail "Rank Math unreviewed callback did not refuse in its provider: $FAILURE_OUT"
 TARGET_POST=$(jq -r '.ids.post' <<<"$(observe_rank_math conf2)")
 grep -Fq 'provider recovery proof' <<<"$(wp_conf2 post get "$TARGET_POST" --field=post_content)" \
@@ -360,7 +428,7 @@ RETRY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=j
 require_wprism_answered 'Rank Math retry after callback repair' json "$RETRY"
 jq -e '
   .canary == "clean" and .verification.result == "pass" and .applied >= 1 and
-  any(.actions[]?; .source == "provider:rank-math-state/rebuild_link_state" and
+  any(.actions[]?; .source == "provider:rank-math-state/rebuild_all_link_state" and
     .verified == true and .after.link_count >= 2)
 ' <<<"$RETRY" >/dev/null || fail "Rank Math provider retry did not consume retained intent: $RETRY"
 pass 'unreviewed callback failure retains post-commit intent/retry authority and converges after repairing only the callback'
@@ -387,21 +455,94 @@ FORCED=$(wp_conf2 wprism apply --repo=/siterepo --force-theirs --default-author=
 require_wprism_answered 'Rank Math forced metadata conflict' json "$FORCED"
 jq -e '
   .canary == "clean" and .verification.result == "pass" and .plan.conflict > 0 and
-  any(.actions[]?; .source == "provider:rank-math-state/rebuild_link_state" and .verified == true)
+  any(.actions[]?; .source == "provider:rank-math-state/rebuild_all_link_state" and .verified == true)
 ' <<<"$FORCED" >/dev/null || fail "Rank Math forced repository intent did not verify: $FORCED"
 [ "$(wp_conf2 post meta get "$TARGET_POST" rank_math_title)" = 'Repository competing Rank Math title 東京 🚀' ] \
   || fail 'Rank Math forced conflict did not converge the native meta value'
 pass 'competing SEO metadata refuses atomically and explicit repository authority preserves target boundaries'
 
-# Deactivation plus lost module tables is the lifecycle recovery case that
-# requires both ordered settle actions: schema first, then full native rebuild.
-wp_conf2 plugin deactivate seo-by-rank-math >/dev/null
-wp_conf2 db query '
-  DROP TABLE wp_rank_math_internal_links,wp_rank_math_internal_meta,
-             wp_rank_math_redirections,wp_rank_math_redirections_cache
+# An absent authored table with durable identity/state is data loss, never a
+# virgin schema opportunity. Keep a database-matched copy, remove the live
+# table, and prove host preflight refuses before lease/checkpoint/provider work.
+AUTHORED_ROWS_BEFORE=$(wp_conf2 db query \
+  'SELECT COUNT(*) FROM wp_rank_math_redirections' --skip-column-names | tr -d '[:space:]')
+require_observed_nonempty 'Rank Math authored table baseline' "$AUTHORED_ROWS_BEFORE"
+wp_conf2 db query 'DROP TABLE IF EXISTS wp_rank_math_redirections_wprism_loss_backup' >/dev/null
+wp_conf2 db query \
+  'CREATE TABLE wp_rank_math_redirections_wprism_loss_backup LIKE wp_rank_math_redirections' >/dev/null
+wp_conf2 db query \
+  'INSERT INTO wp_rank_math_redirections_wprism_loss_backup SELECT * FROM wp_rank_math_redirections' >/dev/null
+wp_conf2 db query 'DROP TABLE wp_rank_math_redirections' >/dev/null
+AUTHORED_LOSS_RC=0
+AUTHORED_LOSS_OUT=$(host_wprism conf2 deploy 2>&1) || AUTHORED_LOSS_RC=$?
+require_wprism_answered 'Rank Math authored schema loss refusal' human "$AUTHORED_LOSS_OUT"
+[ "$AUTHORED_LOSS_RC" -ne 0 ] \
+  && grep -Eq 'durable (identity|canonical) history remains' <<<"$AUTHORED_LOSS_OUT" \
+  || fail "Rank Math authored table loss was treated as empty schema: $AUTHORED_LOSS_OUT"
+AUTHORED_LOSS_PHASES=$(sed -n 's/^deploy phase: //p' <<<"$AUTHORED_LOSS_OUT" | paste -sd ' ' -)
+[ "$AUTHORED_LOSS_PHASES" = 'compile lifecycle-status schema-status' ] \
+  || fail "Rank Math authored loss crossed the read-only host preflight: $AUTHORED_LOSS_OUT"
+[ ! -e "${CONF_REPO2:-siterepo/conf2}/.wprism/control/provider-settlement-intent.json" ] \
+  || fail 'Rank Math authored loss published provider authority before its preflight refusal'
+[ "$(wp_conf2 eval 'echo null === \WPrism\Ledger::kv_get("schema_settlement_in_progress") ? "clear" : "retained";')" = clear ] \
+  || fail 'Rank Math authored loss published schema mutation authority before its preflight refusal'
+wp_conf2 db query \
+  'RENAME TABLE wp_rank_math_redirections_wprism_loss_backup TO wp_rank_math_redirections' >/dev/null
+[ "$(wp_conf2 db query 'SELECT COUNT(*) FROM wp_rank_math_redirections' --skip-column-names | tr -d '[:space:]')" = "$AUTHORED_ROWS_BEFORE" ] \
+  || fail 'Rank Math database-matched authored table restore lost rows'
+pass 'authored table loss refuses before checkpoint/provider work and accepts only the database-matched table restore'
+
+# A missing derived cache with no canonical history is a legitimate schema
+# preparation. Keep the authored redirection table intact, disable the module
+# so activation cannot pre-create its cache, and inject a provider-only refusal
+# after the checkpoint. Recovery must clear both database and external debt.
+wp_conf2 eval '
+$modules=array_values(array_filter((array)get_option("rank_math_modules",[]),static fn($m)=>$m!=="redirections"));
+update_option("rank_math_modules",$modules);
 ' >/dev/null
-REDEPLOY=$(wp_conf2 wprism deploy --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
-require_wprism_answered 'Rank Math deploy after deactivation/schema loss' json "$REDEPLOY"
+wp_conf2 plugin deactivate seo-by-rank-math >/dev/null
+wp_conf2 db query 'DROP TABLE wp_rank_math_redirections_cache' >/dev/null
+$COMPOSE exec -T --user root wp2 sh -c \
+  'printf "%s\n" "<?php" "add_filter(\"rank_math/admin/create_tables\", static fn(\$modules) => \$modules);" > /var/www/html/wp-content/mu-plugins/wprism-rank-math-schema-fault.php'
+SCHEMA_FAILURE_RC=0
+SCHEMA_FAILURE_OUT=$(host_wprism conf2 deploy 2>&1) || SCHEMA_FAILURE_RC=$?
+require_wprism_answered 'Rank Math injected host schema provider refusal' human "$SCHEMA_FAILURE_OUT"
+[ "$SCHEMA_FAILURE_RC" -ne 0 ] \
+  && grep -Fq "provider 'rank-math-state' capability 'prepare_schema' failed" <<<"$SCHEMA_FAILURE_OUT" \
+  || fail "Rank Math unreviewed schema callback did not refuse in its provider: $SCHEMA_FAILURE_OUT"
+[ "$(wp_conf2 eval 'echo null === \WPrism\Ledger::kv_get("schema_settlement_in_progress") ? "clear" : "retained";')" = retained ] \
+  || fail 'Rank Math schema provider refusal did not retain exact recovery intent'
+[ -f "${CONF_REPO2:-siterepo/conf2}/.wprism/control/provider-settlement-intent.json" ] \
+  || fail 'Rank Math schema provider refusal did not retain database-external provider debt'
+[ "$(wp_conf2 db query "SHOW TABLES LIKE 'wp_rank_math_redirections_cache'" --skip-column-names | tr -d '[:space:]')" = '' ] \
+  || fail 'Rank Math schema provider refusal crossed its pre-DDL boundary'
+[ "$(wp_conf2 db query 'SELECT COUNT(*) FROM wp_rank_math_redirections' --skip-column-names | tr -d '[:space:]')" = "$AUTHORED_ROWS_BEFORE" ] \
+  || fail 'Rank Math schema provider refusal changed authored redirection rows'
+SCHEMA_RECOVERY_ID=$(sed -n \
+  's/.*wprism recover [^ ]* --restore=\([^ ]*\) --writers-excluded.*/\1/p' \
+  <<<"$SCHEMA_FAILURE_OUT" | tail -1)
+[[ "$SCHEMA_RECOVERY_ID" =~ ^deploy-[A-Za-z0-9._-]+$ ]] \
+  || fail "Rank Math failed deploy did not publish one retained recovery id: $SCHEMA_FAILURE_OUT"
+SCHEMA_RECOVERY_RC=0
+SCHEMA_RECOVERY_OUT=$(host_wprism conf2 recover --restore="$SCHEMA_RECOVERY_ID" \
+  --writers-excluded --operator-directed 2>&1) || SCHEMA_RECOVERY_RC=$?
+[ "$SCHEMA_RECOVERY_RC" -eq 0 ] \
+  && grep -q "^recover ${CONF_PAIR:-conf}2: recovered$" <<<"$SCHEMA_RECOVERY_OUT" \
+  || fail "Rank Math failed schema phase did not restore through the recovery product: $SCHEMA_RECOVERY_OUT"
+[ "$(wp_conf2 eval 'echo null === \WPrism\Ledger::kv_get("schema_settlement_in_progress") ? "clear" : "retained";')" = clear ] \
+  || fail 'Rank Math checkpoint recovery did not clear the imported schema intent'
+[ ! -e "${CONF_REPO2:-siterepo/conf2}/.wprism/control/provider-settlement-intent.json" ] \
+  || fail 'Rank Math checkpoint recovery did not clear exact external provider debt'
+$COMPOSE exec -T --user root wp2 rm -f /var/www/html/wp-content/mu-plugins/wprism-rank-math-schema-fault.php
+REDEPLOY_RC=0
+REDEPLOY=$(host_wprism conf2 deploy 2>&1) || REDEPLOY_RC=$?
+[ "$REDEPLOY_RC" -eq 0 ] && grep -q '^deploy complete:' <<<"$REDEPLOY" \
+  || fail "Rank Math repaired host deploy failed: $REDEPLOY"
+REDEPLOY_PHASES=$(sed -n 's/^deploy phase: //p' <<<"$REDEPLOY" | paste -sd ' ' -)
+[ "$REDEPLOY_PHASES" = 'compile lifecycle-status schema-status promotion-begin checkpoint lifecycle-retire lifecycle-activate provider-settlement-begin schema-settle lifecycle-settle provider-settlement-complete' ] \
+  || fail "Rank Math repaired deploy violated its checkpointed lifecycle/provider phase order: $REDEPLOY"
+[ "$(wp_conf2 eval 'echo null === \WPrism\Ledger::kv_get("schema_settlement_in_progress") ? "clear" : "retained";')" = clear ] \
+  || fail 'Rank Math repaired schema retry did not clear exact recovery intent'
 wp_conf2 plugin is-active seo-by-rank-math >/dev/null \
   || fail 'Rank Math deploy did not reactivate exact plugin code'
 LIFECYCLE=$(observe_rank_math conf2)
@@ -409,16 +550,16 @@ jq -e '
   ([.schema[].present] | all) and (.links | length) == 2 and
   (.post_counts.internal_link_count | tonumber) == 1 and
   (.post_counts.external_link_count | tonumber) == 1 and
-  (.hub_counts.incoming_link_count | tonumber) == 1 and .redirection_count == 0
+  (.hub_counts.incoming_link_count | tonumber) == 1 and .redirection_count == 1
 ' <<<"$LIFECYCLE" >/dev/null \
-  || fail "Rank Math ordered lifecycle settlement did not rebuild link projections after schema loss: $LIFECYCLE"
+  || fail "Rank Math ordered lifecycle settlement changed authored rows or missed derived repair: $LIFECYCLE"
 RESTORE=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_wprism_answered 'Rank Math authored redirection restore after lifecycle recovery' json "$RESTORE"
-jq -e '.canary == "clean" and .verification.result == "pass" and .plan.create >= 1' <<<"$RESTORE" >/dev/null \
-  || fail "Rank Math post-lifecycle authored state did not restore: $RESTORE"
+require_wprism_answered 'Rank Math canonical verification after lifecycle recovery' json "$RESTORE"
+jq -e '.canary == "clean" and .verification.result == "pass" and .plan.update >= 1' <<<"$RESTORE" >/dev/null \
+  || fail "Rank Math canonical module state did not restore after lifecycle recovery: $RESTORE"
 [ "$(wp_conf2 option get wprism_rank_math_target_neighbor)" = target-neighbor-must-survive ] \
   || fail 'Rank Math lifecycle recovery crossed the target option boundary'
-pass 'deactivation and total module-schema loss recover in order: activate, create schema, rebuild links, then restore authored rules'
+pass 'derived-schema provider failure retains ordered external/database debt; product recovery precedes repaired activation/schema/link settlement'
 
 # Two real apply processes contend for one final title. At least one succeeds;
 # the other may only succeed after observing no work or refuse at the named lock.

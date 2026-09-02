@@ -83,7 +83,18 @@ fi
 export WPRISM_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
 PAIR_COMPOSE_STRING="${PAIR_COMPOSE[*]}"
 VMATRIX_APPLY_LOG=$(mktemp "${TMPDIR:-/tmp}/wprism-vmatrix-apply.${PAIR}.XXXXXX")
-trap 'rm -f -- "$VMATRIX_APPLY_LOG"' EXIT
+. lib/host_orchestrator.sh
+VMATRIX_HOST_REGISTRY=$(mktemp "${TMPDIR:-/tmp}/wprism-vmatrix-host.${PAIR}.XXXXXX")
+trap 'rm -f -- "$VMATRIX_APPLY_LOG" "$VMATRIX_HOST_REGISTRY"' EXIT
+wprism_host_registry_create "$VMATRIX_HOST_REGISTRY" "$(pwd)/pair.yml" "$PAIR"
+VMATRIX_HOST_CLI="$(cd .. && pwd)/cli/wprism"
+host_wprism_vmatrix() { # <wp1|wp2> <verb> [args...]
+  local side="$1"
+  shift
+  wprism_host_call \
+    "$VMATRIX_HOST_CLI" "$VMATRIX_HOST_REGISTRY" "wprism-$PAIR" \
+    "${PAIR}${side#wp}" "$@"
+}
 wp1() { "${PAIR_COMPOSE[@]}" run --rm -T cli1 sh -c 'umask 000; exec wp "$@"' sh "$@"; }
 wp2() { "${PAIR_COMPOSE[@]}" run --rm -T cli2 sh -c 'umask 000; exec wp "$@"' sh "$@"; }
 GIT1=(git -C "siterepo/${PAIR}1" -c user.name=wprism-vmatrix1 -c user.email=vmatrix1@example.test)

@@ -37,6 +37,8 @@ require_once __DIR__ . '/../Kernel/SiteTopology.php';
 // (sandbox/tests/offline/guards/regress_agent_src_requires.php) is that every
 // engine class a file NAMES is loaded by that file, not by a neighbour.
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../Kernel/CheckpointRecoveryIntent.php';
+require_once __DIR__ . '/../Kernel/ProviderSettlementIntent.php';
 // issue #3348 slice 5: manifest-pin normalization/validation, required here for
 // the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/PinResolver.php';
@@ -582,6 +584,13 @@ final class Policy {
             if (!is_file($siteFile)) {
                 throw self::repository_missing($siteFile);
             }
+            // Repository identity is locally decidable and has a typed public
+            // refusal. Establish it before reading external recovery debt;
+            // otherwise a mistyped --repo is misreported as an unsafe recovery
+            // boundary. Both debt fences still run before the first policy byte
+            // is read, which is the safety boundary they protect.
+            CheckpointRecoveryIntent::assert_clear($repo);
+            ProviderSettlementIntent::assert_clear($repo);
             $p->site = Canon::decode(Canon::read_file($siteFile));
             SitePolicyValidator::validate(
                 $p->site,
@@ -3387,6 +3396,60 @@ final class Policy {
     }
 
     /**
+     * Idempotent provider actions which establish exact declared table schema
+     * before a full target plan may observe canonical rows.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function schema_settle_actions(): array {
+        return array_values(array_filter(
+            $this->actions(),
+            static fn(array $action): bool => ($action['phase'] ?? null) === 'schema_settle'
+        ));
+    }
+
+    /**
+     * Read-only capability projections paired one-to-one with schema actions.
+     * The internal table list lets live negotiation enforce the same exact
+     * surface set the manifest grammar checked without turning readiness into
+     * a second mutating action or an effect-inventory entry.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function schema_readiness_actions(): array {
+        $out = [];
+        foreach ($this->schema_settle_actions() as $action) {
+            $out[] = [
+                '_schema_readiness_tables' => array_values((array) ($action['prepares'] ?? [])),
+                'args' => [],
+                'capability' => (string) ($action['readiness'] ?? ''),
+                'index' => (int) ($action['index'] ?? 0),
+                'kind' => 'provider',
+                'manifest' => (string) ($action['manifest'] ?? '?'),
+                'provider' => (string) ($action['provider'] ?? ''),
+            ];
+        }
+        return $out;
+    }
+
+    /** @return array<string,array{manifest:string,index:int,provider:string,capability:string}> */
+    public function schema_settle_tables(): array {
+        $out = [];
+        foreach ($this->schema_settle_actions() as $action) {
+            foreach ((array) ($action['prepares'] ?? []) as $table) {
+                $out[(string) $table] = [
+                    'manifest' => (string) ($action['manifest'] ?? '?'),
+                    'index' => (int) ($action['index'] ?? 0),
+                    'provider' => (string) ($action['provider'] ?? ''),
+                    'capability' => (string) ($action['capability'] ?? ''),
+                ];
+            }
+        }
+        ksort($out, SORT_STRING);
+        return $out;
+    }
+
+    /**
      * Manifest actions with an exact canonical surface intersection.
      *
      * A declaration without `triggers` is deliberately unscoped: it remains
@@ -3414,7 +3477,10 @@ final class Policy {
         $out = [];
         $declarations = $mutationChannels === null ? [] : $this->provider_declarations();
         foreach ($this->actions() as $action) {
-            if (($action['phase'] ?? null) === 'lifecycle_settle') {
+            // Phased actions have their own host/apply scheduling boundary;
+            // they are never selected again as post-commit rebuilds merely
+            // because an authored surface happened to change.
+            if (array_key_exists('phase', $action)) {
                 continue;
             }
             if (($action['kind'] ?? null) === 'provider'
@@ -3594,9 +3660,11 @@ final class Policy {
                 foreach ($effects as $effect) {
                     $out[] = [
                         'manifest' => $name,
-                        'phase' => ($action['phase'] ?? null) === 'lifecycle_settle'
-                            ? 'lifecycle-settle'
-                            : 'rebuild',
+                        'phase' => match ($action['phase'] ?? null) {
+                            'lifecycle_settle' => 'lifecycle-settle',
+                            'schema_settle' => 'schema-settle',
+                            default => 'rebuild',
+                        },
                         'source' => $source,
                         'effect' => $effect,
                     ];
@@ -3654,10 +3722,10 @@ final class Policy {
         $out = array_values(array_filter(
             $this->effects_inventory(),
             static fn(array $row): bool => isset($wanted[
-                (string) ($row['manifest'] ?? '') . "\0"
-                . (string) ($row['phase'] ?? '') . "\0"
-                . (string) ($row['source'] ?? '')
-            ])
+                    (string) ($row['manifest'] ?? '') . "\0"
+                    . (string) ($row['phase'] ?? '') . "\0"
+                    . (string) ($row['source'] ?? '')
+                ])
         ));
         // A source spelling is not an action identity: multiple native
         // declarations may share `native:transient.delete` while naming
@@ -3668,9 +3736,11 @@ final class Policy {
             foreach (self::action_effects($action, $index) as $effect) {
                 $out[] = [
                     'manifest' => (string) ($action['manifest'] ?? '?'),
-                    'phase' => ($action['phase'] ?? null) === 'lifecycle_settle'
-                        ? 'lifecycle-settle'
-                        : 'rebuild',
+                    'phase' => match ($action['phase'] ?? null) {
+                        'lifecycle_settle' => 'lifecycle-settle',
+                        'schema_settle' => 'schema-settle',
+                        default => 'rebuild',
+                    },
                     'source' => self::action_source($action, $index),
                     'effect' => $effect,
                 ];
@@ -4123,6 +4193,7 @@ final class Policy {
             'widget_setting_codecs' => ManifestGrammar::widgetSettingCodecs(),
             'widget_setting_refs' => ManifestGrammar::widgetSettingRefs(),
             'action_kinds' => ActionProviderGrammar::actionKinds(),
+            'action_phases' => ActionProviderGrammar::actionPhases(),
             'provider_sources' => ActionProviderGrammar::providerSources(),
             'effect_kinds' => ActionProviderGrammar::effectKinds(),
             'effect_modes' => ActionProviderGrammar::effectModes(),

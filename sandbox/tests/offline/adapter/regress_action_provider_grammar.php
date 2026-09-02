@@ -99,6 +99,124 @@ $assertThrows(
     'repeats exact surface',
     'actions: repeated trigger surface'
 );
+$schemaEffect = [
+    'id' => 'schema-a', 'kind' => 'database', 'mode' => 'restorable',
+    'selector' => ['scope' => 'database_checkpoint', 'type' => 'table', 'value' => 'adapter_a'],
+];
+$schemaManifest = [
+    'engine_features' => ['schema-settlement/v1'],
+    'name' => 'm',
+    'providers' => [[
+        'id' => 'schema',
+        'capabilities' => ['inspect_schema', 'prepare_schema'],
+    ]],
+    'tables' => ['adapter_a' => ['class' => 'derived']],
+    'actions' => [[
+        'args' => [], 'capability' => 'prepare_schema', 'effects' => [$schemaEffect],
+        'kind' => 'provider', 'phase' => 'schema_settle', 'prepares' => ['adapter_a'],
+        'provider' => 'schema', 'readiness' => 'inspect_schema',
+    ]],
+];
+$check(
+    (static function () use ($schemaManifest): bool {
+        ActionProviderGrammar::validate_actions($schemaManifest);
+        return true;
+    })(),
+    'actions: plugin-sourced schema settlement defers its executable contract to live negotiation'
+);
+$manifestOwnedSchema = $schemaManifest;
+$manifestOwnedSchema['providers'][0]['contracts'] = [
+    'inspect_schema' => [
+        'args' => [], 'idempotent' => true, 'reads' => ['table:adapter_a'],
+        'scope' => 'site', 'timeout_seconds' => 30, 'writes' => [],
+    ],
+    'prepare_schema' => [
+        'args' => [], 'idempotent' => true, 'reads' => ['table:adapter_a'],
+        'scope' => 'site', 'timeout_seconds' => 60, 'writes' => ['table:adapter_a'],
+    ],
+];
+$check(
+    (static function () use ($manifestOwnedSchema): bool {
+        ActionProviderGrammar::validate_actions($manifestOwnedSchema);
+        return true;
+    })(),
+    'actions: manifest-owned schema preparation binds its exact table contract offline'
+);
+$prepareContractMutations = [
+    'argument schema' => static function (array $manifest): array {
+        $manifest['providers'][0]['contracts']['prepare_schema']['args'] = ['mode' => 'string'];
+        return $manifest;
+    },
+    'idempotence' => static function (array $manifest): array {
+        $manifest['providers'][0]['contracts']['prepare_schema']['idempotent'] = false;
+        return $manifest;
+    },
+    'scope' => static function (array $manifest): array {
+        $manifest['providers'][0]['contracts']['prepare_schema']['scope'] = 'entity';
+        return $manifest;
+    },
+    'read surface' => static function (array $manifest): array {
+        $manifest['providers'][0]['contracts']['prepare_schema']['reads'] = [];
+        return $manifest;
+    },
+    'write surface' => static function (array $manifest): array {
+        $manifest['providers'][0]['contracts']['prepare_schema']['writes'] = [];
+        return $manifest;
+    },
+];
+foreach ($prepareContractMutations as $field => $mutate) {
+    $assertThrows(
+        static fn() => ActionProviderGrammar::validate_actions($mutate($manifestOwnedSchema)),
+        'capability must be an idempotent argument-free site capability which reads and writes exactly prepares',
+        "actions: manifest-owned schema preparation refuses a mutated $field offline"
+    );
+}
+$assertThrows(
+    static function () use ($schemaManifest): void {
+        $invalid = $schemaManifest;
+        unset($invalid['actions'][0]['prepares']);
+        ActionProviderGrammar::validate_actions($invalid);
+    },
+    'prepares must be a non-empty sorted list',
+    'actions: schema settlement cannot omit its exact table boundary'
+);
+$assertThrows(
+    static function () use ($schemaManifest): void {
+        $invalid = $schemaManifest;
+        $invalid['actions'][0]['prepares'] = ['undeclared'];
+        ActionProviderGrammar::validate_actions($invalid);
+    },
+    "names undeclared table 'undeclared'",
+    'actions: schema settlement cannot prepare an undeclared table'
+);
+$assertThrows(
+    static function () use ($schemaManifest): void {
+        $invalid = $schemaManifest;
+        $invalid['tables']['adapter_b'] = ['class' => 'derived'];
+        $invalid['actions'][0]['prepares'] = ['adapter_b', 'adapter_a'];
+        ActionProviderGrammar::validate_actions($invalid);
+    },
+    'must be sorted lexically',
+    'actions: schema settlement table authority is canonical-order stable'
+);
+$assertThrows(
+    static function () use ($schemaManifest): void {
+        $invalid = $schemaManifest;
+        $invalid['actions'][0]['effects'] = [];
+        ActionProviderGrammar::validate_actions($invalid);
+    },
+    'schema_settle effects must exactly cover prepares tables',
+    'actions: schema settlement cannot exceed its rollback effect witness'
+);
+$assertThrows(
+    static function () use ($schemaManifest): void {
+        $invalid = $schemaManifest;
+        $invalid['actions'][0]['triggers'] = ['option:probe'];
+        ActionProviderGrammar::validate_actions($invalid);
+    },
+    'selected by an exact compiled policy, not state triggers',
+    'actions: schema settlement is a policy phase rather than a state trigger'
+);
 
 // ---------------------------------------------------------- validate_providers
 
@@ -298,6 +416,10 @@ $assertThrows(
 
 $vocab = Policy::closed_vocabularies();
 $check($vocab['action_kinds'] === ['native', 'provider'], 'closed_vocabularies(): action_kinds unchanged');
+$check(
+    $vocab['action_phases'] === ['lifecycle_settle', 'schema_settle'],
+    'closed_vocabularies(): action_phases publishes the two provider-only phases'
+);
 $check($vocab['provider_sources'] === ['manifest', 'plugin'], 'closed_vocabularies(): provider_sources unchanged');
 $check(
     $vocab['effect_kinds'] === ['database', 'filesystem', 'schedule', 'cache', 'queue', 'mail', 'http', 'external'],

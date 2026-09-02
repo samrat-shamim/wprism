@@ -1,7 +1,9 @@
 <?php
 namespace WPrism;
 
-require_once __DIR__ . '/Deploy.php';
+if (!class_exists(Deploy::class, false)) {
+    require_once __DIR__ . '/Deploy.php';
+}
 // WP-2.8: the site-declared per-release probe evidence the graduated
 // outside_version_range verdict reads. A leaf grammar file that requires
 // nothing of its own, so unlike the Code.php require this class deliberately
@@ -88,6 +90,66 @@ require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
 final class LifecyclePlanner {
     /** wprism_kv key for code_drift()'s baseline — see record_code_versions(). */
     private const CODE_VERSIONS_KEY = 'code_versions';
+
+    /** @var list<string> Findings the host lifecycle phases can reconcile. */
+    private const LIFECYCLE_ISSUES = [
+        'active_plugin_order_mismatch',
+        'inactive_in_environment',
+        'template_mismatch',
+        'unexpected_active_plugin',
+    ];
+
+    public static function is_lifecycle_issue(string $issue): bool {
+        return in_array($issue, self::LIFECYCLE_ISSUES, true);
+    }
+
+    /**
+     * Read-only host preflight for state-only as well as code-bearing repos.
+     * It shares code_mismatch() with deploy/apply so the host never guesses
+     * whether activation, deactivation, ordering, or a theme switch is due.
+     *
+     * @return array{format:string,required:bool,reasons:list<string>}
+     */
+    public static function deployment_status(
+        Policy $policy,
+        CompiledRepository $compiled,
+        bool $forceCodeMismatch = false
+    ): array {
+        $tree = $compiled->tree();
+        $desired = isset($tree['options/core'])
+            ? Deploy::extract_desired((array) ($tree['options/core']['data'] ?? []))
+            : [];
+        $mismatch = self::code_mismatch($policy, $desired);
+        $blockers = array_values(array_filter(
+            $mismatch,
+            static fn(array $row): bool => !self::is_lifecycle_issue((string) ($row['issue'] ?? ''))
+                && ($row['issue'] ?? null) !== VersionEvidenceGrammar::VERDICT
+        ));
+        if ($blockers !== [] && !$forceCodeMismatch) {
+            $list = implode("\n\n", array_map(
+                static fn(array $row): string => '  - ' . (string) ($row['message'] ?? 'unknown code mismatch'),
+                $blockers
+            ));
+            throw new \RuntimeException(
+                "wprism: deploy refused — code_mismatch:\n\n$list\n\n"
+                . 'Install/vendor whatever is missing (or update code/) in this environment first, '
+                . 'or pass --force-code-mismatch to proceed anyway.'
+            );
+        }
+        $reasons = [];
+        foreach ($mismatch as $row) {
+            $issue = (string) ($row['issue'] ?? '');
+            if (self::is_lifecycle_issue($issue) && !in_array($issue, $reasons, true)) {
+                $reasons[] = $issue;
+            }
+        }
+        sort($reasons, SORT_STRING);
+        return [
+            'format' => 'wprism-lifecycle-status/v1',
+            'required' => $reasons !== [],
+            'reasons' => $reasons,
+        ];
+    }
 
     /**
      * §3.2's plan-time checks, pure detection (no writes, no hook fires):

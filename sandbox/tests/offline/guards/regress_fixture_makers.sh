@@ -114,7 +114,7 @@ reproduces() {
   local label="$1" maker="$2" expected="$3" out="$4"
   mkdir -p "$out"
   if ! php "$maker" "$out" >/dev/null; then
-    printf '\033[1;31mFAIL: %s: the maker did not run to completion (php %s <out-dir>)\033[0m\n' \
+    printf '\033[1;31mFAIL: %s: the maker did not run to completion (php sandbox/%s <out-dir>)\033[0m\n' \
       "$label" "$maker" >&2
     return 1
   fi
@@ -140,7 +140,7 @@ reproduces() {
     printf '\033[1;31mFAIL: %s: the maker no longer reproduces %s committed fixture(s):\033[0m\n' \
       "$label" "$count" >&2
     printf '%s' "$drifted" | sed 's/^/    /' >&2
-    printf '  Regenerate them with: php %s\n' "$maker" >&2
+    printf '  Regenerate them from the repository root with: php sandbox/%s\n' "$maker" >&2
     printf '  then re-run the grind'"'"'s --self-check before committing the new bytes.\n' >&2
     return 1
   fi

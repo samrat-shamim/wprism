@@ -196,12 +196,13 @@ foreach ($members as $member) {
         "kit member $path is the live {$member['source']}, not a parallel copy"
     );
 }
-// Seven from WP-2.6, plus WP-2.7's lib/ConformanceVector.php — a third party who
-// can prove a round trip on a pair but cannot replay it offline is back to
-// spending a pair per iteration, which is the cost this kit exists to remove.
-wprism_check_same(8, $copiedCount, 'the kit packages the eight live harness files WP-2.6 and WP-2.7 name');
+// Seven from WP-2.6, WP-2.7's lib/ConformanceVector.php, and the host-side
+// orchestrator that proves schema/lifecycle phases without teaching an adapter
+// how to impersonate the deploy CLI. Omitting that ninth file makes the kit's
+// documented end-to-end path impossible outside this checkout.
+wprism_check_same(9, $copiedCount, 'the kit packages all nine live authoring and host-orchestration harness files');
 
-// The six lib files and the two conformance files, by name: a silent drop
+// The seven lib files and the two conformance files, by name: a silent drop
 // (say frozen_policy.php) would still leave clauses A and B green.
 $paths = array_map(static fn(array $m): string => (string) $m['path'], $members);
 foreach (
@@ -212,6 +213,7 @@ foreach (
         'lib/frozen_policy.php',
         'lib/ConformanceVector.php',
         'lib/pair_identity.sh',
+        'lib/host_orchestrator.sh',
         'conformance/run.sh',
         'conformance/asserts.sh',
     ] as $required

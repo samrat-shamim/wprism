@@ -230,9 +230,19 @@ if ($sub === 'compile') {
     echo file_get_contents((string) getenv('WPRISM_SSH_PROOF_SUMMARY')); exit(0);
 }
 if ($sub === 'plan') { echo file_get_contents((string) getenv('WPRISM_SSH_PROOF_PLAN')); exit(0); }
+if ($sub === 'lifecycle-status') {
+    echo "{\"format\":\"wprism-lifecycle-status/v1\",\"reasons\":[],\"required\":false}\n";
+    exit(0);
+}
+if ($sub === 'checkpoint-target') {
+    echo "{\"database_target_sha256\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"format\":\"wprism-database-target/v1\"}\n";
+    exit(0);
+}
 if ($sub === 'checkpoint-seal') {
     $output = $find('--output=');
-    if (!is_string($output) || $output === '') exit(2);
+    $databaseTarget = $find('--database-target-sha256=');
+    if (!is_string($output) || $output === ''
+        || $databaseTarget !== str_repeat('d', 64)) exit(2);
     $input = stream_get_contents(STDIN);
     if (!is_string($input) || $input === '' || file_put_contents($output, $input, LOCK_EX) === false) exit(1);
     exit(0);
@@ -258,9 +268,9 @@ if ($wprism === false && in_array('eval', $args, true)) {
         }
     }
 }
-if (($sub === 'db' && $wprism !== false && (($args[$wprism + 2] ?? '') === 'export'))
-    || ($wprism === false && (($args[0] ?? '') === 'db') && (($args[1] ?? '') === 'export'))) {
-    $path = (string) ($wprism === false ? ($args[2] ?? '') : ($args[$wprism + 3] ?? ''));
+$db = array_search('db', $args, true);
+if ($db !== false && (($args[$db + 1] ?? '') === 'export')) {
+    $path = (string) ($args[$db + 2] ?? '');
     if ($path === '-') { echo "wprism frozen checkpoint\n"; exit(0); }
     if ($path === '' || file_put_contents($path, "wprism frozen checkpoint\n", LOCK_EX) === false) exit(1);
     echo "Exported to '$path'\n"; exit(0);
@@ -507,7 +517,10 @@ PHP);
     ssh_proof_ok(str_contains($compileLines[0] ?? '', 'materialize-' . $operation . '.json'), 'initial compile path is operation-canonical');
     ssh_proof_ok(str_contains($compileLines[1] ?? '', 'materialize-verify-' . $operation . '.json'), 'verification compile path is operation-canonical');
     foreach ($wpLines as $line) {
-        if (str_contains($line, 'promotion-begin') || str_contains($line, 'wprism apply ') || str_contains($line, ' lifecycle-')) {
+        if (str_contains($line, 'promotion-begin')
+            || str_contains($line, 'wprism apply ')
+            || str_contains($line, '--lifecycle-phase=')
+            || str_contains($line, 'wprism lifecycle-settle')) {
             ssh_proof_ok(str_contains($line, 'wprism-env-promotion-' . $operation), 'promotion phase carries deterministic operation owner');
         }
     }

@@ -122,6 +122,7 @@ require_once $root . '/cli/src/Contract/ApplicationContract.php';
 require_once $root . '/cli/src/Contract/ContractProposal.php';
 require_once $root . '/cli/src/Onboarding/ClassificationBatch.php';
 require_once $root . '/cli/src/Onboarding/Init.php';
+require_once $root . '/cli/src/Plan/PlanContract.php';
 require_once $root . '/cli/src/Recovery/CheckpointCatalog.php';
 require_once $root . '/cli/src/Recovery/RecoveryClaim.php';
 require_once $root . '/cli/src/Recovery/RecoveryProfileSelection.php';
@@ -138,6 +139,7 @@ use WPrism\Orchestrator\ClassificationBatch;
 use WPrism\Orchestrator\ContractProposal;
 use WPrism\Orchestrator\Init;
 use WPrism\Orchestrator\JourneyOracle;
+use WPrism\Orchestrator\PlanContract;
 use WPrism\Orchestrator\RecoveryClaim;
 use WPrism\Orchestrator\RecoveryProfileSelection;
 
@@ -958,6 +960,15 @@ if (($selection['refusal'] ?? null) !== null) {
     fwrite(STDERR, "make-fixtures: the operator-directed selection refused unexpectedly\n");
     exit(2);
 }
+$sourcePlan = PlanContract::requireComplete(walk_read("$release/plan-clean.json"), 'adapter-walk fixture');
+$categoryViolations = PlanContract::categorySummaryViolations($sourcePlan['category_summary'] ?? null);
+if ($categoryViolations !== []) {
+    fwrite(
+        STDERR,
+        'make-fixtures: release plan category summary is invalid (' . implode(', ', $categoryViolations) . ")\n"
+    );
+    exit(2);
+}
 $plan = AuthorizationPlan::build([
     'authority' => [['kind' => 'business_owner', 'reason' => 'forms visible to customers change']],
     'capabilities' => [[
@@ -978,7 +989,7 @@ $plan = AuthorizationPlan::build([
     'environment' => 'awalk2',
     'flags' => ['plan_only' => true, 'with_deletes' => false],
     'frozen_at' => $now,
-    'plan' => walk_read("$release/plan-clean.json"),
+    'plan' => $sourcePlan,
     'projection' => walk_read("$release/projection-ready.json"),
     'recovery' => $selection,
     'scope' => [

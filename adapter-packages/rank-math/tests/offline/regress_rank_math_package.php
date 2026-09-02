@@ -40,7 +40,12 @@ wprism_check_same(
     'A2: the compatibility window admits only the exact reviewed patch family'
 );
 wprism_check_same(
-    ['manifest-provider-runtime/v1', 'post-kind-action-trigger/v1', 'spec-window/v1', 'structured-evidence/v1'],
+    [
+        'manifest-provider-runtime/v1',
+        'schema-settlement/v1',
+        'spec-window/v1',
+        'structured-evidence/v1',
+    ],
     $adapter['engine_features'] ?? null,
     'A2: every v3 section is admitted through an explicit engine feature'
 );
@@ -49,24 +54,64 @@ wprism_check(isset($adapter['declaration_evidence']['tables.rank_math_redirectio
 wprism_check(count((array) ($adapter['notes'] ?? [])) >= 10,
     'A3: the package retains the live boundary, refusals and authoring friction in its own bytes');
 wprism_check_same(
-    ['prepare_schema', 'rebuild_all_link_state', 'rebuild_link_state'],
+    ['inspect_schema', 'prepare_schema', 'rebuild_all_link_state'],
     $adapter['providers'][0]['capabilities'] ?? null,
     'A4: one digest-bound provider owns schema settlement and native link-state convergence'
 );
 wprism_check_same(
-    ['lifecycle_settle', 'lifecycle_settle', null, null],
+    ['schema_settle', 'lifecycle_settle', null],
     array_map(static fn(array $action): ?string => $action['phase'] ?? null, $adapter['actions'] ?? []),
-    'A4: schema preparation is lifecycle work while value-triggered repairs remain post-apply actions'
+    'A4: schema preparation has a pre-observation phase while value-triggered repairs remain post-apply actions'
 );
 wprism_check_same(
-    ['option:rank_math_modules'],
-    $adapter['actions'][2]['triggers'] ?? null,
-    'A4: module enablement selects a whole-site native link rebuild'
+    ['rank_math_internal_links', 'rank_math_internal_meta', 'rank_math_redirections', 'rank_math_redirections_cache'],
+    $adapter['actions'][0]['prepares'] ?? null,
+    'A4: schema settlement names every exact table it may establish before capture'
+);
+wprism_check(!array_key_exists('triggers', $adapter['actions'][2] ?? []),
+    'A4: every nonempty authored apply selects native repair because route filters span arbitrary state kinds');
+wprism_check_same(
+    [
+        'operation_envelope' => 'wprism-scoped-effect-operation/v1',
+        'receipt_projection' => 'handler',
+        'reconcile' => true,
+    ],
+    $adapter['providers'][0]['contracts']['rebuild_all_link_state']['scoped'] ?? null,
+    'A4: the globally selected provider is operation-bound and readback-reconcilable during scoped apply'
+);
+$rebuildContract = $adapter['providers'][0]['contracts']['rebuild_all_link_state'] ?? [];
+wprism_check_same(
+    [
+        'option:category_base', 'option:close_comments_days_old', 'option:close_comments_for_old_posts',
+        'option:comments_per_page', 'option:default_category', 'option:home',
+        'option:page_for_posts', 'option:page_on_front', 'option:permalink_structure', 'option:polylang',
+        'option:posts_per_page', 'option:posts_per_rss', 'option:rank-math-options-general',
+        'option:rank_math_modules', 'option:rewrite_rules', 'option:show_on_front', 'option:siteurl',
+        'option:sticky_posts', 'option:tag_base', 'option:woocommerce_permalinks',
+        'option:wp_page_for_privacy_policy', 'table:comments', 'table:postmeta', 'table:posts',
+        'table:rank_math_internal_links', 'table:rank_math_internal_meta', 'table:term_relationships',
+        'table:term_taxonomy', 'table:terms', 'table:users', 'table:usermeta',
+    ],
+    $rebuildContract['reads'] ?? null,
+    'A4: native permalink and URL resolution declares its complete direct read boundary'
 );
 wprism_check_same(
-    ['post:*'],
-    $adapter['actions'][3]['triggers'] ?? null,
-    'A4: entity repair uses the bounded feature-gated post-kind trigger rather than guessing registered CPTs'
+    [
+        'RankMath\\Defaults', 'RankMath\\Helper', 'RankMath\\Installer',
+        'RankMath\\Links\\ContentProcessor', 'RankMath\\Links\\Links',
+        'WP_CLI', 'WP_Hook', 'WP_Post',
+    ],
+    $adapter['providers'][0]['requires']['classes'] ?? null,
+    'A4: the provider declares every runtime class it invokes or type-checks'
+);
+wprism_check_same(
+    [
+        'clean_post_cache', 'esc_sql', 'get_option', 'get_permalink', 'get_post', 'get_post_types',
+        'has_filter', 'home_url', 'is_multisite', 'is_post_type_viewable', 'url_to_postid',
+        'wp_json_encode',
+    ],
+    $adapter['providers'][0]['requires']['functions'] ?? null,
+    'A4: the provider declares every runtime function used by parent and fresh child'
 );
 
 $site = sys_get_temp_dir() . '/wprism_rank_math_site_' . bin2hex(random_bytes(8));
@@ -196,13 +241,24 @@ wprism_check(!isset($adapter['column_codecs']['rank_math_redirections']['sources
     'D4: the natural identity column carries no codec that could change its lookup bytes');
 $customPostActions = $policy->actions_for(['post:book']);
 wprism_check_same(
-    ['rebuild_link_state'],
+    ['rebuild_all_link_state'],
     array_values(array_map(
         static fn(array $action): string => (string) ($action['capability'] ?? ''),
         array_filter($customPostActions, static fn(array $action): bool => ($action['kind'] ?? null) === 'provider')
     )),
-    'D5: a scoped custom public CPT selects the same Rank Math entity repair through the engine product path'
+    'D5: a scoped custom public CPT selects the site repair needed to converge deleted-source state'
 );
+foreach (['option:unrelated_plugin_state', 'table:unrelated_runtime', 'term:category'] as $trigger) {
+    $actions = $policy->actions_for([$trigger]);
+    wprism_check_same(
+        ['rebuild_all_link_state'],
+        array_values(array_map(
+            static fn(array $action): string => (string) ($action['capability'] ?? ''),
+            array_filter($actions, static fn(array $action): bool => ($action['kind'] ?? null) === 'provider')
+        )),
+        "D5: $trigger selects the one globally dependent native repair"
+    );
+}
 
 $releases = AdapterBoundary::readReleaseList($releasePath);
 $outcomes = AdapterBoundary::readOutcomeTable($outcomePath, 'seo-by-rank-math');

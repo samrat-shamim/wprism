@@ -238,6 +238,18 @@ wp_env() { # wp_env <conf1|conf2> <wp args...>
 }
 wp_conf1() { wp_env conf1 "$@"; }
 wp_conf2() { wp_env conf2 "$@"; }
+. lib/host_orchestrator.sh
+WPRISM_HOST_CLI="$(cd .. && pwd)/cli/wprism"
+WPRISM_HOST_REGISTRY=$(mktemp "${TMPDIR:-/tmp}/wprism-conformance-host.${CONF_PAIR}.XXXXXX")
+trap 'rm -f -- "$WPRISM_HOST_REGISTRY"' EXIT
+wprism_host_registry_create "$WPRISM_HOST_REGISTRY" "$(pwd)/pair.yml" "$CONF_PAIR"
+host_wprism() { # host_wprism <conf1|conf2> <verb> [args...]
+  local side="$1"
+  shift
+  wprism_host_call \
+    "$WPRISM_HOST_CLI" "$WPRISM_HOST_REGISTRY" "wprism-$CONF_PAIR" \
+    "${CONF_PAIR}${side#conf}" "$@"
+}
 # pair.sh set these for ITS OWN compose invocations while bringing the pair
 # up, but that was a separate process — its exports die with it. Every one
 # of run.sh's own $COMPOSE calls below creates a fresh --rm container
@@ -250,7 +262,8 @@ wp_conf2() { wp_env conf2 "$@"; }
 # warning that would have pointed straight at the cause.
 export WPRISM_PAIR="$CONF_PAIR" WPRISM_PORT1="$CONF1_PORT" WPRISM_PORT2="$CONF2_PORT"
 export COMPOSE CONF1_PORT CONF2_PORT
-export -f wp_env wp_conf1 wp_conf2 say pass fail \
+export WPRISM_HOST_CLI WPRISM_HOST_REGISTRY
+export -f wp_env wp_conf1 wp_conf2 host_wprism wprism_host_call say pass fail \
   require_fixture_ids require_fixture_values require_fixture_state \
   require_wprism_answered capture_wprism_json_success require_observed_nonempty \
   establish_woocommerce_hpos normalize_woocommerce_harness_placeholder_mode \
@@ -493,14 +506,16 @@ REV=$(git -C "$R2" rev-parse HEAD)
 # /siterepo, pair.yml mounts "$R2" there — not conf1's) and
 # before `wprism apply` (spec ordering: deploy code -> reconcile activation ->
 # migrations fire as an activation side effect -> THEN apply state).
-say "deploy conf2 from canonical (wp wprism deploy) — the real promotion path"
+say "deploy conf2 from canonical (host wprism deploy) — the real promotion path"
 DEPLOY_RC=0
-DEPLOY_OUT=$(wp_conf2 wprism deploy --repo=/siterepo --format=json) || DEPLOY_RC=$?
+DEPLOY_OUT=$(host_wprism conf2 deploy 2>&1) || DEPLOY_RC=$?
 if [ "$DEPLOY_RC" != "0" ]; then
   echo "$DEPLOY_OUT"
-  fail "wp wprism deploy failed on conf2 (exit $DEPLOY_RC, manifest: $MANIFEST) — conf2's plugin-files-only install was likely insufficient (missing plugin/theme code), or deploy hit a genuine code_mismatch; see output above"
+  fail "host wprism deploy failed on conf2 (exit $DEPLOY_RC, manifest: $MANIFEST) — conf2's plugin-files-only install was likely insufficient (missing plugin/theme code), or deploy hit a genuine code_mismatch; see output above"
 fi
-echo "$DEPLOY_OUT" | jq .
+grep -q '^deploy complete:' <<<"$DEPLOY_OUT" \
+  || fail "host wprism deploy returned success without its terminal product result: $DEPLOY_OUT"
+printf '%s\n' "$DEPLOY_OUT"
 pass "deploy succeeded on conf2"
 if [ "$MANIFEST" = woocommerce ]; then
   normalize_woocommerce_harness_placeholder_mode wp_conf2

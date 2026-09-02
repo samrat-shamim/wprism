@@ -186,7 +186,7 @@ and its cost are written down.
 
 ### R-19 — Engine feature names are engine-owned, and permanent once declared
 
-**Shipped now.** This engine implements `attr-id-codecs/v1`, `invalidate-vocabulary/v1`, `manifest-provider-runtime/v1`, `mixed-column-codecs/v1`, `post-kind-action-trigger/v1`, `spec-window/v1`, `structured-body-refs/v1`, `structured-evidence/v1`, `typed-column-codecs/v1`. A manifest declares names through the top-level `engine_features` list; an engine lacking a listed name refuses THAT ADAPTER, naming the feature. An adapter declares a name and never mints one: a name nothing implements is refused as unimplemented rather than admitted as forward-looking.
+**Shipped now.** This engine implements `attr-id-codecs/v1`, `invalidate-vocabulary/v1`, `manifest-provider-runtime/v1`, `mixed-column-codecs/v1`, `post-kind-action-trigger/v1`, `schema-settlement/v1`, `spec-window/v1`, `structured-body-refs/v1`, `structured-evidence/v1`, `typed-column-codecs/v1`. A manifest declares names through the top-level `engine_features` list; an engine lacking a listed name refuses THAT ADAPTER, naming the feature. An adapter declares a name and never mints one: a name nothing implements is refused as unimplemented rather than admitted as forward-looking.
 
 **Why it cannot change.** A declared feature name is inside the manifest bytes `ArtifactPolicyIdentity::manifest_rows()` folds into that adapter's `digest`, which every `site.wprism.json` content pin and every certificate's `adapter.canonical_sha256` binds. Renaming or re-spelling a feature therefore moves the digest of every manifest that declares it and invalidates their pins and certificates at once — the same irreversibility R-17 records for `id_kind`, reached through a different door.
 

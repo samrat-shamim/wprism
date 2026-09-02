@@ -440,6 +440,18 @@ surface set, while a read-only apply fires nothing.
 `effects` feeds the bounded-reversibility inventory; omitting it records an
 explicit irreversible fallback row rather than silently claiming reversibility.
 
+Treat a trigger list as a dependency-closure claim, not a performance hint.
+List triggers only when every input capable of changing the derived output is
+inside that closed surface set. Native permalink or routing work commonly
+depends on options, terms, authors, every registered post type, and plugin
+callbacks; a partial `post:*` list is then false. Omit `triggers` so every
+non-empty authored apply repairs the projection, and make the provider's
+bounded readback witness those effective inputs. Scoped apply admits that
+global action only when it is `kind:provider`, its declaration and effects are
+already hashed by the scope contract, and the exact capability successfully
+negotiates an operation-bound invoke/reconcile contract. Untriggered native
+actions and legacy providers still refuse before mutation.
+
 ### Providers
 
 A provider declares `{"id", "version", "source", "plugin", "capabilities"}`.
@@ -630,6 +642,103 @@ convergence. Like `Db`, the `$context` is operation-level, never value-level:
 `last_error` and the rendered SQL can echo option/meta payloads, so the SDK
 keeps the SQL and the driver text out of its failure and names only your
 context. Keep values out of your own messages the same way.
+
+### Schema settlement is a host deploy phase
+
+Strict target observation never invents a table that the target does not
+already have. If a supported plugin creates an authored table only after a
+module is enabled, declare that prerequisite with `schema-settlement/v1`; do
+not make observation fabricate an empty table, hide the absence in an apply
+provider, or overload lifecycle settlement with DDL.
+
+A schema action is a provider action with the exact phase-specific members
+below. Rank Math's declaration is the worked example (abridged to one table):
+
+```json
+{
+  "args": [],
+  "capability": "prepare_schema",
+  "effects": [
+    {
+      "id": "rank-math-schema-redirections",
+      "kind": "database",
+      "mode": "restorable",
+      "selector": {
+        "scope": "database_checkpoint",
+        "type": "table",
+        "value": "rank_math_redirections"
+      }
+    }
+  ],
+  "kind": "provider",
+  "phase": "schema_settle",
+  "prepares": ["rank_math_redirections"],
+  "provider": "rank-math-state",
+  "readiness": "inspect_schema"
+}
+```
+
+The manifest must declare `schema-settlement/v1`. `args` is exactly `[]`;
+`triggers` is forbidden; `prepares` is a non-empty, sorted, duplicate-free list
+of tables declared by that manifest; and `readiness` names a second capability
+on the same provider. When the provider declares manifest-owned contracts, the
+readiness contract has `args: []`, `idempotent: true`, `scope: "site"`, reads
+exactly `table:<name>` for every prepared table, and writes nothing. The
+preparation contract is also argument-free, idempotent, and site-scoped; both
+its `reads` and `writes` lists equal those same prepared table surfaces. These
+manifest-owned facts are rejected offline rather than deferred to a live
+provider. Plugin-sourced providers advertise independently, so the identical
+contract is enforced during live negotiation. Every prepared table has exactly
+one matching effect: `kind: "database"`,
+`mode: "restorable"`, and a `database_checkpoint` table selector. Two pinned
+manifests cannot both acquire schema-settlement authority over the same table.
+
+This phase runs only through host `wprism deploy`; direct `wp wprism deploy`
+refuses it. The host checks plugin lifecycle and schema readiness without
+mutating, then takes and authenticates the exact database checkpoint. Code and
+fresh lifecycle reconciliation run under the existing durable promotion
+session. Immediately afterward, before provider DDL, the host publishes an
+external ordered provider intent covering `schema_settle` and then
+`lifecycle_settle`. Each successful provider phase advances the intent on disk. An
+interrupted or failed phase leaves visible recovery debt that fences ordinary
+policy loads and host mutation (including adopt, unadopt, and checkpoint prune)
+until recovery restores the bound checkpoint. Recovery admits only the exact
+retained checkpoint named by that debt; a retry cannot silently continue from
+an unrecorded phase or select a different signed/retained row.
+
+The checkpoint is bound to the database selected before mutation. The host
+asks the isolated control plane for a credential-free digest of `DB_HOST`,
+`DB_NAME`, and `$table_prefix`, makes the isolated `db export -` process recheck
+that digest, and authenticates it as the first encrypted checkpoint record.
+Recovery authenticates the complete ciphertext and compares the current
+wp-config target before aborting or acquiring any lease; recovery begin,
+reset/import, schema settlement, and lifecycle settlement recheck the same
+digest in their own processes. External intents retain only the digest, never
+database coordinates or credentials. A checkpoint created before this target
+binding existed refuses honestly instead of restoring through a compatibility
+fallback.
+
+The readiness and prepare capabilities return `before` and `after` maps keyed
+exactly by `prepares`. A readiness row is `{present, schema_hash}` and must be
+unchanged across the read-only call. A prepare row is
+`{present, schema_hash, row_count, rows_sha256}`. An existing table must remain
+byte/content/structure identical. A previously absent table must become present
+with `row_count: 0`: schema settlement is create-only and may not seed authored
+rows. If durable plugin identity or state proves that a missing table once
+existed, readiness refuses before the lease and checkpoint instead of treating
+loss as an installation opportunity.
+
+`rows_sha256` is a complete witness, not a sample. A multi-query witness must be
+one coherent repeatable-read snapshot and must refuse a storage engine that
+cannot provide it. Providers for tables with unbounded payload columns must
+first enforce database-side row, per-row-byte, and total-byte limits, reapply
+the per-row bound inside every value-bearing query, then hash deterministic
+fixed-size primary-key keyset chunks whose worst-case page size is intentional.
+Do not materialize the whole table to count or hash it, and do not cap a query
+in a way that makes rows beyond the cap invisible. The
+[`rank-math-state.php`](../../adapter-packages/rank-math/package/runtime/providers/rank-math-state.php)
+provider demonstrates the bounded implementation and its package-local suite
+proves mutation beyond the first chunk changes the witness.
 
 An adapter needing no executable semantics declares neither key and stays purely
 declarative. Most should. For worked examples,

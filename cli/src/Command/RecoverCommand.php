@@ -1094,30 +1094,49 @@ PHP;
             );
         }
 
-        // Proved BEFORE step 1, where this file's own doctrine puts every
-        // pre-condition (see operatorDirected()'s comment on the checkpoint
-        // read): refusing here drives zero steps and touches no lease. Step 3
-        // is the authenticated checkpoint-open -> isolated db-import pipeline, which
-        // on a network replaces every blog plus wp_users/wp_blogs/wp_sitemeta
-        // — this is the most destructive verb in the product and it was the
-        // only one with no topology gate at any layer. `--list` above stays
-        // un-gated: it is read-only.
-        $topology = $transport->captureWp(CodeDeploy::controlArgs(
-            ['eval', 'echo is_multisite() ? "multisite" : "single-site";']
-        ));
-        $observed = ($topology['exit'] ?? 1) === 0 ? trim((string) ($topology['stdout'] ?? '')) : '';
-        if ($observed !== 'single-site') {
-            // Fail closed on an unreadable answer, deliberately and with no
-            // override flag: a target too broken to say whether it is a network
-            // is too broken to import a whole database into.
+        // Database-external debt outranks controller capability. A recovery
+        // can start operator-directed on one controller and retry from another
+        // that has a signing key; profile selection must not route around the
+        // exact checkpoint identity already published before reset.
+        $resuming = self::checkpointRecoveryFenceActive($transport);
+        $providerStatus = CodeDeploy::providerSettlementRecoveryStatus(
+            $transport,
+            $transport->repoPath()
+        );
+        if (($providerStatus['exit'] ?? 1) !== 0 || !is_array($providerStatus['summary'] ?? null)) {
             throw new CommandRefusalException(
-                $observed === '' ? 'recover_topology_unknown' : 'recover_topology_unsupported',
-                $observed === ''
-                    ? 'the target could not answer whether it is a single-site installation, and recovery imports a whole database'
-                    : 'this recovery path restores single-site installations only',
-                'recover a single-site installation; a whole-database import on a network restores every blog and '
-                    . 'the network tables, which is outside the certified v1 contract'
+                'provider_settlement_recovery_identity_unreadable',
+                'the database-external provider settlement identity could not be read safely',
+                'repair the adopted recovery runtime and durable control directory, then retry the same recovery'
             );
+        }
+        $providerDebt = $providerStatus['summary']['active'] === true;
+        if ($providerDebt) {
+            $providerIdentity = $providerStatus['summary'];
+            $selectedCheckpoint = self::checkpointPath($transport, $row);
+            if (!RetainedCheckpoints::isRetained($row)
+                || !hash_equals((string) $providerIdentity['owner'], (string) $row['owner'])
+                || !hash_equals((string) $providerIdentity['artifact_hash'], (string) $row['artifact_hash'])
+                || !hash_equals(
+                    (string) $providerIdentity['checkpoint']['path'],
+                    $selectedCheckpoint
+                )) {
+                throw new CommandRefusalException(
+                    'provider_settlement_checkpoint_mismatch',
+                    'the selected checkpoint does not own the incomplete adapter provider settlement',
+                    'restore the exact retained checkpoint named by the active provider settlement; '
+                        . 'a signed receipt or a different retained release cannot clear this debt'
+                );
+            }
+        }
+        $signed = !$resuming
+            && !$providerDebt
+            && $row['kind'] === CheckpointCatalog::KIND_VERIFIED
+            && $flags['operator_directed'] !== true
+            && $transport instanceof RecoveryTransport
+            && $transport->rollbackConfigured();
+        if (!$resuming) {
+            self::assertSingleSiteTopology($transport);
         }
 
         $resolved = self::claim($row);
@@ -1135,23 +1154,17 @@ PHP;
             echo '  ' . self::checkpointLine($resolved) . "\n";
         }
 
-        // Which path is available is a fact about this controller, not a
-        // preference. The signed profile needs the Ed25519 secret that stays
+        // The signed profile needs the Ed25519 secret that stays
         // on the controller (`RollbackAuthority::__construct()` refuses
         // without it), so a receipt this machine cannot sign against is
         // recovered the operator-directed way — the same conclusion
         // `cli/wprism`'s promotion path reaches when `rollbackConfigured()` is
         // false. `--operator-directed` forces that path explicitly.
-        $signed = $row['kind'] === CheckpointCatalog::KIND_VERIFIED
-            && $flags['operator_directed'] !== true
-            && $transport instanceof RecoveryTransport
-            && $transport->rollbackConfigured();
-
         self::assertCodeFirst($transport, $row, $signed);
 
         $steps = $signed
             ? self::signedRollback(self::authorityTransport($transport))
-            : self::operatorDirected($transport, $row);
+            : self::operatorDirected($transport, $row, $resuming);
 
         return [
             'checkpoint' => $row,
@@ -1199,6 +1212,44 @@ PHP;
         ]]];
     }
 
+    /** Read database-external debt before choosing any recovery profile. */
+    private static function checkpointRecoveryFenceActive(EnvironmentDriver $transport): bool {
+        $recoveryFence = CodeDeploy::checkpointRecoveryFence(
+            $transport,
+            $transport->repoPath()
+        );
+        if ((int) ($recoveryFence['exit'] ?? 1) === 75) {
+            return true;
+        }
+        if ((int) ($recoveryFence['exit'] ?? 1) !== 0
+            || trim((string) ($recoveryFence['stdout'] ?? '')) !== 'clear') {
+            throw new CommandRefusalException(
+                'checkpoint_recovery_state_unknown',
+                'the durable checkpoint recovery state could not be read safely',
+                'repair the target .wprism/control boundary, then retry this exact retained-checkpoint restore'
+            );
+        }
+        return false;
+    }
+
+    private static function assertSingleSiteTopology(EnvironmentDriver $transport): void {
+        $topology = $transport->captureWp(CodeDeploy::controlArgs(
+            ['eval', 'echo is_multisite() ? "multisite" : "single-site";']
+        ));
+        $observed = ($topology['exit'] ?? 1) === 0 ? trim((string) ($topology['stdout'] ?? '')) : '';
+        if ($observed === 'single-site') {
+            return;
+        }
+        throw new CommandRefusalException(
+            $observed === '' ? 'recover_topology_unknown' : 'recover_topology_unsupported',
+            $observed === ''
+                ? 'the target could not answer whether it is a single-site installation, and recovery imports a whole database'
+                : 'this recovery path restores single-site installations only',
+            'recover a single-site installation; a whole-database import on a network restores every blog and '
+                . 'the network tables, which is outside the certified v1 contract'
+        );
+    }
+
     /**
      * The operator-directed path: abort → begin → isolated import → final
      * abort, driven rather than printed.
@@ -1206,7 +1257,11 @@ PHP;
      * @param array<string,mixed> $row a catalog row
      * @return array{recovered:bool,steps:list<array<string,mixed>>}
      */
-    private static function operatorDirected(EnvironmentDriver $transport, array $row): array {
+    private static function operatorDirected(
+        EnvironmentDriver $transport,
+        array $row,
+        bool $resuming
+    ): array {
         $owner = (string) $row['owner'];
         $artifactHash = (string) $row['artifact_hash'];
         if (preg_match('/^[a-f0-9]{64}$/D', $artifactHash) !== 1) {
@@ -1225,6 +1280,20 @@ PHP;
         // aborted and re-begun would leave the target opened up for a
         // recovery that was never possible.
         $checkpoint = self::checkpointPath($transport, $row);
+        $preflight = CodeDeploy::checkpointRecoveryPreflight(
+            $transport,
+            $transport->repoPath(),
+            $checkpoint
+        );
+        if (($preflight['exit'] ?? 1) !== 0 || !is_array($preflight['summary'] ?? null)) {
+            throw new CommandRefusalException(
+                'checkpoint_database_target_unverified',
+                'this retained checkpoint does not authenticate the currently configured database target',
+                'restore DB_HOST, DB_NAME and the WordPress table prefix to the checkpointed target, '
+                    . 'then retry the exact retained checkpoint; no recovery lease command was run'
+            );
+        }
+        $databaseTargetSha256 = (string) $preflight['summary']['database_target_sha256'];
         $steps = [];
         $recovered = false;
 
@@ -1234,20 +1303,38 @@ PHP;
         // DIFFERENT promotion owner recover the target, it does not authorize
         // this restore. Nothing has been reinstated yet either, so there is no
         // lease row for a fourth step to release.
-        $steps[] = self::step($transport, 'abort', CodeDeploy::recoveryAbortArgs($owner, $artifactHash));
-        if (!$steps[0]['ok']) {
-            return ['recovered' => false, 'steps' => $steps];
+        if (!$resuming) {
+            $steps[] = self::step(
+                $transport,
+                'abort',
+                CodeDeploy::recoveryAbortArgs($owner, $artifactHash, $databaseTargetSha256)
+            );
+            if (!$steps[0]['ok']) {
+                return ['recovered' => false, 'steps' => $steps];
+            }
         }
 
         try {
-            $begin = self::step($transport, 'begin', CodeDeploy::recoveryBeginArgs($owner, $artifactHash));
-            $steps[] = $begin;
-            if (!$begin['ok']) {
-                return ['recovered' => false, 'steps' => $steps];
+            if (!$resuming) {
+                $begin = self::step(
+                    $transport,
+                    'begin',
+                    CodeDeploy::recoveryBeginArgs($owner, $artifactHash, $databaseTargetSha256)
+                );
+                $steps[] = $begin;
+                if (!$begin['ok']) {
+                    return ['recovered' => false, 'steps' => $steps];
+                }
             }
             $import = self::resultStep(
                 'import',
-                CodeDeploy::encryptedCheckpointImport($transport, $transport->repoPath(), $checkpoint)
+                CodeDeploy::encryptedCheckpointImport(
+                    $transport,
+                    $transport->repoPath(),
+                    $checkpoint,
+                    $owner,
+                    $artifactHash
+                )
             );
             $steps[] = $import;
             $recovered = $import['ok'];
@@ -1256,11 +1343,35 @@ PHP;
             // failed after opening the window. That is the whole point of the
             // rule, so it lives in a `finally` where no future early return
             // can route around it.
-            $steps[] = self::step(
+            $finalAbort = self::step(
                 $transport,
                 'final-abort',
-                CodeDeploy::recoveryAbortArgs($owner, $artifactHash)
+                CodeDeploy::recoveryAbortArgs($owner, $artifactHash, $databaseTargetSha256)
             );
+            // Recovery debt is cleared only after BOTH the import and the
+            // restored lease cleanup succeeded. A failed reset/open/import
+            // retains the external checkpoint identity, so an exact retry is
+            // admitted and a substitute checkpoint is refused before reset.
+            if ($recovered && $finalAbort['ok']) {
+                $completed = CodeDeploy::completeCheckpointRecovery(
+                    $transport,
+                    $transport->repoPath(),
+                    $checkpoint,
+                    $owner,
+                    $artifactHash
+                );
+                if (($completed['exit'] ?? 1) !== 0) {
+                    $finalAbort = [
+                        'detail' => 'the restored lease was aborted, but durable checkpoint recovery debt '
+                            . 'could not be cleared; retry this exact checkpoint recovery',
+                        'ok' => false,
+                        'step' => 'final-abort',
+                    ];
+                } else {
+                    $finalAbort['detail'] = 'completed; durable checkpoint recovery debt cleared';
+                }
+            }
+            $steps[] = $finalAbort;
         }
         $final = $steps[count($steps) - 1];
 

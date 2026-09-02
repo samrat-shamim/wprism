@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Hostile Rank Math target after real deploy/lifecycle settlement and before
+# Hostile Rank Math target after real deploy/schema settlement and before
 # apply: divergent slugs/ids, same-natural-key redirection, stale projections,
 # target credentials, runtime counters, and independently created schema.
 set -euo pipefail
@@ -22,12 +22,12 @@ $schema = [];
 foreach ($required as $suffix => $columns) {
     $table = $wpdb->prefix . $suffix;
     if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) !== $table) {
-        throw new RuntimeException("Rank Math lifecycle settlement omitted $suffix");
+        throw new RuntimeException("Rank Math schema settlement omitted $suffix");
     }
     $found = array_map('strval', (array) $wpdb->get_col("SHOW COLUMNS FROM `$table`"));
     $missing = array_values(array_diff($columns, $found));
     if ($missing) {
-        throw new RuntimeException("Rank Math lifecycle settlement left $suffix incomplete: " . implode(',', $missing));
+        throw new RuntimeException("Rank Math schema settlement left $suffix incomplete: " . implode(',', $missing));
     }
     $schema[$suffix] = hash('sha256', implode("\0", $found));
 }
@@ -164,4 +164,4 @@ for key in category hub post secondary tag; do
   [ "$SOURCE_ID" != "$TARGET_ID" ] || fail "Rank Math divergent identity premise failed for $key ($SOURCE_ID)"
 done
 
-pass 'Rank Math deploy prepared all schemas; target begins with divergent identities, same-key authored drift, stale derived state, and target-owned credentials/runtime data'
+pass 'Rank Math deploy settled all declared schemas; target begins with divergent identities, same-key authored drift, stale derived state, and target-owned credentials/runtime data'

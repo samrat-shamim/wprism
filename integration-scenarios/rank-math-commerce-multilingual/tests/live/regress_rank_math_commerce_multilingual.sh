@@ -32,6 +32,15 @@ pair_identity_export_source_mounts \
   || fail 'Rank Math combination could not pin candidate mounts in the caller environment'
 COMPOSE=(docker compose -p "wprism-$PAIR" -f pair.yml -f pair.artifacts.yml)
 PAIR_COMPOSE=("${COMPOSE[@]}")
+. lib/host_orchestrator.sh
+WPRISM_HOST_REGISTRY=$(mktemp "${TMPDIR:-/tmp}/wprism-rmcombo-host.${PAIR}.XXXXXX")
+wprism_host_registry_create "$WPRISM_HOST_REGISTRY" "$(pwd)/pair.yml" "$PAIR"
+host_wprism_combo() { # <wp1|wp2> <verb> [args...]
+  local side="$1"
+  shift
+  wprism_host_call "$ROOT/cli/wprism" "$WPRISM_HOST_REGISTRY" "wprism-$PAIR" \
+    "${PAIR}${side#wp}" "$@"
+}
 WP_CLI_MEMORY_LIMIT=512M
 wp_side() { # <side> <wp args...>
   local side="$1"; shift
@@ -52,6 +61,7 @@ validate_artifact_library || fail 'Rank Math combination artifact library valida
 
 GREEN=0
 cleanup() {
+  rm -f -- "$WPRISM_HOST_REGISTRY"
   if [ "$GREEN" = 1 ]; then
     bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 || true
   else
@@ -134,7 +144,7 @@ $neighbor = get_page_by_path("rmcombo-target-neighbor", OBJECT, "product");
 $book = get_page_by_path("rmcombo-book", OBJECT, "rmcombo_book");
 $catEn = get_term_by("slug", "rmcombo-catalog-en", "product_cat");
 $catDe = get_term_by("slug", "rmcombo-catalog-de", "product_cat");
-if (!$en instanceof WP_Post || !$de instanceof WP_Post || !$book instanceof WP_Post
+if (!$en instanceof WP_Post || !$de instanceof WP_Post
     || !$catEn instanceof WP_Term || !$catDe instanceof WP_Term) {
     throw new RuntimeException("combined native product graph is incomplete");
 }
@@ -184,16 +194,20 @@ foreach ((array) $wpdb->get_results("SELECT * FROM {$wpdb->prefix}rank_math_redi
         ];
     }
 }
-$bookLinks = $wpdb->get_results($wpdb->prepare(
-    "SELECT url,target_post_id,type FROM {$wpdb->prefix}rank_math_internal_links " .
-    "WHERE post_id=%d ORDER BY type,url,target_post_id",
-    $book->ID
-), ARRAY_A);
-$bookCounts = $wpdb->get_row($wpdb->prepare(
-    "SELECT internal_link_count,external_link_count,incoming_link_count " .
-    "FROM {$wpdb->prefix}rank_math_internal_meta WHERE object_id=%d",
-    $book->ID
-), ARRAY_A);
+$bookLinks = [];
+$bookCounts = null;
+if ($book instanceof WP_Post) {
+    $bookLinks = $wpdb->get_results($wpdb->prepare(
+        "SELECT url,target_post_id,type FROM {$wpdb->prefix}rank_math_internal_links " .
+        "WHERE post_id=%d ORDER BY type,url,target_post_id",
+        $book->ID
+    ), ARRAY_A);
+    $bookCounts = $wpdb->get_row($wpdb->prepare(
+        "SELECT internal_link_count,external_link_count,incoming_link_count " .
+        "FROM {$wpdb->prefix}rank_math_internal_meta WHERE object_id=%d",
+        $book->ID
+    ), ARRAY_A);
+}
 if (!function_exists("as_get_scheduled_actions")) {
     throw new RuntimeException("Action Scheduler API is unavailable");
 }
@@ -215,11 +229,11 @@ if ($neighbor instanceof WP_Post) {
     ];
 }
 echo wp_json_encode([
-    "book" => [
+    "book" => $book instanceof WP_Post ? [
         "content"=>$book->post_content,"id"=>(int)$book->ID,"links"=>$bookLinks,
         "processed"=>(bool)get_post_meta($book->ID,"rank_math_internal_links_processed",true),
         "rank_counts"=>$bookCounts,"title"=>get_post_meta($book->ID,"rank_math_title",true),
-    ],
+    ] : null,
     "categories" => ["en"=>(int)$catEn->term_id,"de"=>(int)$catDe->term_id],
     "category_languages" => [
         "en"=>pll_get_term_language($catEn->term_id, "slug"),
@@ -619,16 +633,19 @@ chmod 0777 "$R2"
 say 'deploy/apply combined product path against reverse-order hostile target'
 wp2 db query 'ALTER TABLE wp_rank_math_internal_links ADD wprism_hostile_schema varchar(12) NULL' >/dev/null
 DIRTY_DEPLOY_RC=0
-DIRTY_DEPLOY=$(wp2 wprism deploy --repo=/siterepo --format=json 2>&1) || DIRTY_DEPLOY_RC=$?
+DIRTY_DEPLOY=$(host_wprism_combo wp2 deploy 2>&1) || DIRTY_DEPLOY_RC=$?
 [ "$DIRTY_DEPLOY_RC" -ne 0 ] \
   && grep -Fq 'Rank Math schema disagrees with the audited column/index contract' <<<"$DIRTY_DEPLOY" \
-  || fail "independently extended Rank Math schema did not refuse lifecycle settlement: $DIRTY_DEPLOY"
+  || fail "independently extended Rank Math schema did not refuse host readiness: $DIRTY_DEPLOY"
 DIRTY_NATIVE=$(native_state wp2)
 jq -en --argjson before "$HOSTILE_NATIVE" --argjson after "$DIRTY_NATIVE" '$before == $after' >/dev/null \
   || fail "schema refusal crossed the target content/runtime boundary: $DIRTY_NATIVE"
 wp2 db query 'ALTER TABLE wp_rank_math_internal_links DROP COLUMN wprism_hostile_schema' >/dev/null
-wp2 wprism deploy --repo=/siterepo --format=json >/dev/null
-pass 'independently extended plugin schema refused before content mutation, then clean lifecycle retry settled'
+CLEAN_DEPLOY=$(host_wprism_combo wp2 deploy 2>&1) \
+  || fail "clean Rank Math combination host deploy failed: $CLEAN_DEPLOY"
+grep -q '^deploy complete: no code descriptor; lifecycle hooks not run$' <<<"$CLEAN_DEPLOY" \
+  || fail "clean existing Rank Math schema did not terminate as a read-only host preflight: $CLEAN_DEPLOY"
+pass 'independently extended plugin schema refused before content mutation; exact existing schema then passed read-only host preflight'
 REVISION=$(git -C "$R2" rev-parse HEAD)
 INITIAL=$(wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts \
   --default-author=admin --revision="$REVISION" --format=json | awk 'NF { line=$0 } END { print line }') \
@@ -637,13 +654,12 @@ require_wprism_answered 'Rank Math commerce/multilingual initial apply' json "$I
 jq -e '
   .canary == "clean" and .verification.result == "pass" and
   any(.actions[]?; .source == "provider:rank-math-state/rebuild_all_link_state" and .verified == true) and
-  any(.actions[]?; .source == "provider:rank-math-state/rebuild_link_state" and .verified == true) and
   any(.actions[]?; .source == "provider:woocommerce-product-lookups/rebuild_product_lookups" and .verified == true) and
   any(.actions[]?; .source == "provider:polylang-nav-menus/synchronize_runtime" and .verified == true)
 ' <<<"$INITIAL" >/dev/null || fail "combined provider receipt is incomplete: $INITIAL"
 jq -e '
   ([.actions[]?.source | select(startswith("provider:rank-math-state/"))] | sort | unique) ==
-  ["provider:rank-math-state/rebuild_all_link_state","provider:rank-math-state/rebuild_link_state"]
+  ["provider:rank-math-state/rebuild_all_link_state"]
 ' <<<"$INITIAL" >/dev/null || fail "initial apply selected an unexpected Rank Math action set: $INITIAL"
 
 TARGET=$(native_state wp2)
@@ -798,7 +814,7 @@ install_hostile_provider
 FAILURE_RC=0
 FAILURE_OUT=$(wp2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || FAILURE_RC=$?
 [ "$FAILURE_RC" -ne 0 ] \
-  && grep -Fq "provider 'rank-math-state' capability 'rebuild_link_state' failed" <<<"$FAILURE_OUT" \
+  && grep -Fq "provider 'rank-math-state' capability 'rebuild_all_link_state' failed" <<<"$FAILURE_OUT" \
   || fail "combined Rank Math provider fault did not refuse: $FAILURE_OUT"
 [ "$(wp2 db query "SELECT v FROM wp_wprism_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')" = "$FAIL_REV_BEFORE" ] \
   || fail 'combined provider failure advanced applied_revision'
@@ -816,12 +832,12 @@ RETRY=$(wp2 wprism apply --repo=/siterepo --default-author=admin --format=json |
 require_wprism_answered 'Rank Math combination provider retry' json "$RETRY"
 jq -e '
   .canary == "clean" and .verification.result == "pass" and
-  any(.actions[]?; .source == "provider:rank-math-state/rebuild_link_state" and .verified == true) and
+  any(.actions[]?; .source == "provider:rank-math-state/rebuild_all_link_state" and .verified == true) and
   any(.actions[]?; .source == "provider:woocommerce-product-lookups/rebuild_product_lookups" and .verified == true)
 ' <<<"$RETRY" >/dev/null || fail "combined retry receipt is incomplete: $RETRY"
 jq -e '
   ([.actions[]?.source | select(startswith("provider:rank-math-state/"))] | sort | unique) ==
-  ["provider:rank-math-state/rebuild_link_state"]
+  ["provider:rank-math-state/rebuild_all_link_state"]
 ' <<<"$RETRY" >/dev/null || fail "retry selected an unexpected Rank Math action set: $RETRY"
 RETRY_NATIVE=$(native_state wp2)
 jq -en --argjson baseline "$TARGET_RUNTIME" --argjson retried "$RETRY_NATIVE" '
@@ -851,6 +867,77 @@ jq -en --argjson retried "$RETRY_NATIVE" --argjson final "$TARGET_FINAL" '
 product_response rmcombo-product-en >/dev/null
 product_response rmcombo-product-de >/dev/null
 pass "full source=$source_order target=$target_order path recaptures byte-identically and repeats with zero actions"
+
+say 'post deletion selects the site-complete Rank Math repair and removes every derived witness'
+SOURCE_BOOK=$(jq -r '.book' <<<"$SOURCE_SEED")
+TARGET_BOOK=$(jq -r '.book.id' <<<"$TARGET_FINAL")
+require_fixture_ids SOURCE_BOOK TARGET_BOOK
+wp1 post delete "$SOURCE_BOOK" --force >/dev/null
+wp1 wprism capture --repo=/siterepo >/dev/null
+git -C "$R1" add -A
+git -C "$R1" -c user.name=wprism-rmcombo -c user.email=rmcombo@example.test \
+  commit -qm 'capture: delete custom CPT with derived Rank Math links'
+git -C "$R1" push -q origin main
+git -C "$R2" pull -q origin main
+DELETE_WITHHELD_RC=0
+DELETE_WITHHELD=$(wp2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || DELETE_WITHHELD_RC=$?
+[ "$DELETE_WITHHELD_RC" -ne 0 ] && grep -q -- '--with-deletes' <<<"$DELETE_WITHHELD" \
+  || fail "combined custom-CPT deletion did not require explicit delete authority: $DELETE_WITHHELD"
+wp2 post get "$TARGET_BOOK" --field=ID >/dev/null \
+  || fail 'withheld Rank Math deletion removed the target post'
+DELETE_REVISION=$(git -C "$R2" rev-parse HEAD)
+DELETED=$(wp2 wprism apply --repo=/siterepo --with-deletes --default-author=admin \
+  --revision="$DELETE_REVISION" --format=json | awk 'NF { line=$0 } END { print line }') \
+  || fail 'combined custom-CPT deletion apply failed'
+require_wprism_answered 'Rank Math combination custom-CPT deletion' json "$DELETED"
+jq -e '
+  .canary == "clean" and .verification.result == "pass" and
+  (.plan.delete + .plan.deleted) > 0 and
+  any(.actions[]?; .source == "provider:rank-math-state/rebuild_all_link_state" and .verified == true) and
+  ([.actions[]?.source | select(startswith("provider:rank-math-state/"))] | sort | unique) ==
+    ["provider:rank-math-state/rebuild_all_link_state"]
+' <<<"$DELETED" >/dev/null || fail "post deletion omitted the site-complete Rank Math repair: $DELETED"
+DELETED_DERIVED=$(wp2 eval '
+global $wpdb;
+$id=(int)getenv("WPRISM_RMCOMBO_TARGET_BOOK");
+echo wp_json_encode([
+  "links"=>(int)$wpdb->get_var($wpdb->prepare(
+    "SELECT COUNT(*) FROM {$wpdb->prefix}rank_math_internal_links WHERE post_id=%d OR target_post_id=%d",$id,$id
+  )),
+  "markers"=>(int)$wpdb->get_var($wpdb->prepare(
+    "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE post_id=%d AND meta_key=%s",$id,"rank_math_internal_links_processed"
+  )),
+  "meta"=>(int)$wpdb->get_var($wpdb->prepare(
+    "SELECT COUNT(*) FROM {$wpdb->prefix}rank_math_internal_meta WHERE object_id=%d",$id
+  )),
+  "post"=>(int)$wpdb->get_var($wpdb->prepare(
+    "SELECT COUNT(*) FROM {$wpdb->posts} WHERE ID=%d",$id
+  )),
+]);
+' --exec="putenv('WPRISM_RMCOMBO_TARGET_BOOK=$TARGET_BOOK');" | awk 'NF { line=$0 } END { print line }')
+jq -e '. == {links:0,markers:0,meta:0,post:0}' <<<"$DELETED_DERIVED" >/dev/null \
+  || fail "deleted custom CPT retained a physical or Rank Math-derived witness: $DELETED_DERIVED"
+DELETED_NATIVE=$(native_state wp2)
+jq -en --argjson before "$TARGET_FINAL" --argjson after "$DELETED_NATIVE" '
+  $after.book == null and
+  $after.products == $before.products and $after.categories == $before.categories and
+  $after.category_languages == $before.category_languages and
+  $after.term_translations == $before.term_translations and $after.translations == $before.translations and
+  $after.neighbor == $before.neighbor and $after.scheduler == $before.scheduler and
+  $after.redirection == $before.redirection and $after.redirection_cache == $before.redirection_cache
+' >/dev/null || fail "post deletion crossed a portable or target-runtime boundary: $DELETED_NATIVE"
+wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rmcombo-deleted >/dev/null
+DELETED_DIFF=$(diff -rq "$R1/state" "$R2/.tmp-rmcombo-deleted" || true)
+rm -rf "$R2/.tmp-rmcombo-deleted"
+[ -z "$DELETED_DIFF" ] || fail "post-deletion target recapture differs: $DELETED_DIFF"
+DELETE_NOOP=$(wp2 wprism apply --repo=/siterepo --with-deletes --default-author=admin \
+  --revision="$DELETE_REVISION" --format=json | awk 'NF { line=$0 } END { print line }')
+jq -e '.canary == "clean" and (.actions | length) == 0' <<<"$DELETE_NOOP" >/dev/null \
+  || fail "post-deletion no-op reran provider effects: $DELETE_NOOP"
+DELETE_FINAL=$(native_state wp2)
+jq -en --argjson deleted "$DELETED_NATIVE" --argjson final "$DELETE_FINAL" '$final == $deleted' >/dev/null \
+  || fail "post-deletion no-op changed native or target-runtime state: $DELETE_FINAL"
+pass 'deleted source posts leave no Rank Math rows/counts/markers, preserve unrelated plugin/runtime state, and recapture exactly'
 }
 
 run_leg forward reverse

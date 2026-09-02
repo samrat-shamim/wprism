@@ -121,11 +121,17 @@ IGNORE
         $codeRelease = rtrim($sourceRoot, '/') . '/recovery/CodeRelease.php';
         $uploadBundle = rtrim($sourceRoot, '/') . '/recovery/UploadBundle.php';
         $effectBundle = rtrim($sourceRoot, '/') . '/recovery/EffectBundle.php';
+        $providerSettlementIntent = rtrim($sourceRoot, '/') . '/recovery/ProviderSettlementIntent.php';
+        $checkpointRecoveryIntent = rtrim($sourceRoot, '/') . '/recovery/CheckpointRecoveryIntent.php';
+        $databaseTargetIdentity = $agentDir . '/src/Recovery/DatabaseTargetIdentity.php';
+        $retainedCheckpointCipher = $agentDir . '/src/Recovery/RetainedCheckpointCipher.php';
         if ($version === null || !is_file($agentDir . '/wprism-loader.php')
             || !is_dir($adapterPackagesDir) || !is_dir($platformLibraryDir) || !is_file($assembler)
             || !is_file($canonical) || !is_file($atomic) || !is_file($protocolLock) || !is_file($providerClient)
             || !is_file($runtime) || !is_file($executor) || !is_file($checkpoint) || !is_file($codeRelease)
-            || !is_file($uploadBundle) || !is_file($effectBundle)) {
+            || !is_file($uploadBundle) || !is_file($effectBundle) || !is_file($providerSettlementIntent)
+            || !is_file($checkpointRecoveryIntent) || !is_file($databaseTargetIdentity)
+            || !is_file($retainedCheckpointCipher)) {
             return self::failure(
                 'local artifact',
                 'WPrism source tree is incomplete: expected agent/, adapter-packages/, platform/adapter-library/, and the complete recovery runtime',
@@ -614,7 +620,7 @@ IGNORE
             . "special=\$(find \"\$stage\" ! -type d ! -type f -print -quit 2>/dev/null) || { echo 'wprism adopt: staged artifact could not be inspected' >&2; exit 1; }; [ -z \"\$special\" ] || { echo 'wprism adopt: staged artifact contains a link or special node' >&2; exit 1; }\n"
             . "unreadable=\$(find \"\$stage\" -type f ! -exec test -r '{}' \; -print -quit 2>/dev/null) || { echo 'wprism adopt: staged artifact could not be inspected' >&2; exit 1; }; [ -z \"\$unreadable\" ] || { echo 'wprism adopt: staged artifact contains an unreadable file' >&2; exit 1; }\n"
             . "[ -f \"\$stage/agent/wprism.php\" ] && [ -f \"\$stage/agent/wprism-loader.php\" ] && [ -f \"\$stage/agent/adapter-library/platform/core/manifest.json\" ] || { echo 'wprism adopt: uploaded artifact is incomplete' >&2; exit 1; }\n"
-            . "[ -f \"\$stage/recovery/CanonicalJson.php\" ] && [ -f \"\$stage/recovery/AtomicStore.php\" ] && [ -f \"\$stage/recovery/ProtocolLock.php\" ] && [ -f \"\$stage/recovery/ProviderClient.php\" ] && [ -f \"\$stage/recovery/rollback-control.php\" ] && [ -f \"\$stage/recovery/RecoveryExecutor.php\" ] && [ -f \"\$stage/recovery/CheckpointBundle.php\" ] && [ -f \"\$stage/recovery/CodeRelease.php\" ] && [ -f \"\$stage/recovery/UploadBundle.php\" ] && [ -f \"\$stage/recovery/EffectBundle.php\" ] || { echo 'wprism adopt: recovery runtime is missing' >&2; exit 1; }\n"
+            . "[ -f \"\$stage/recovery/CanonicalJson.php\" ] && [ -f \"\$stage/recovery/AtomicStore.php\" ] && [ -f \"\$stage/recovery/ProtocolLock.php\" ] && [ -f \"\$stage/recovery/ProviderClient.php\" ] && [ -f \"\$stage/recovery/rollback-control.php\" ] && [ -f \"\$stage/recovery/RecoveryExecutor.php\" ] && [ -f \"\$stage/recovery/CheckpointBundle.php\" ] && [ -f \"\$stage/recovery/CodeRelease.php\" ] && [ -f \"\$stage/recovery/UploadBundle.php\" ] && [ -f \"\$stage/recovery/EffectBundle.php\" ] && [ -f \"\$stage/recovery/ProviderSettlementIntent.php\" ] && [ -f \"\$stage/recovery/CheckpointRecoveryIntent.php\" ] && [ -f \"\$stage/recovery/DatabaseTargetIdentity.php\" ] && [ -f \"\$stage/recovery/RetainedCheckpointCipher.php\" ] || { echo 'wprism adopt: recovery runtime is missing' >&2; exit 1; }\n"
             . "mkdir \"\$agent_new\"; agent_new_created=1; chmod 0755 \"\$agent_new\"; record_identity \"\$agent_new\" \"\$txn/agent_new_construction.id\" 'agent construction root'; cp -R \"\$stage/agent/.\" \"\$agent_new/\"\n"
             . "find \"\$agent_new\" -type d -exec chmod 0755 '{}' +; find \"\$agent_new\" -type f -exec chmod 0644 '{}' +\n"
             . "[ ! -e \"\$agent_new/scoped-promotion-control.json\" ] && [ ! -L \"\$agent_new/scoped-promotion-control.json\" ] || { echo 'wprism adopt: source artifact contains target-local scoped promotion configuration' >&2; exit 1; }\n"
@@ -923,6 +929,10 @@ PHP;
         $copy = self::runLocal(
             'cp -R ' . escapeshellarg(rtrim($sourceRoot, '/') . '/agent') . ' ' . escapeshellarg($stage . '/agent')
             . ' && cp -R ' . escapeshellarg(rtrim($sourceRoot, '/') . '/recovery') . ' ' . escapeshellarg($stage . '/recovery')
+            . ' && cp ' . escapeshellarg(rtrim($sourceRoot, '/') . '/agent/src/Recovery/DatabaseTargetIdentity.php')
+            . ' ' . escapeshellarg($stage . '/recovery/DatabaseTargetIdentity.php')
+            . ' && cp ' . escapeshellarg(rtrim($sourceRoot, '/') . '/agent/src/Recovery/RetainedCheckpointCipher.php')
+            . ' ' . escapeshellarg($stage . '/recovery/RetainedCheckpointCipher.php')
         );
         if ($copy['exit'] !== 0) {
             self::removeLocalStage($stage);

@@ -39,12 +39,23 @@ final class ActionProviderGrammar {
     /** Feature gate for the one bounded post-kind action trigger. */
     public const POST_KIND_TRIGGER_FEATURE = 'post-kind-action-trigger/v1';
 
+    /** Feature gate for host-checkpointed, pre-observation table establishment. */
+    public const SCHEMA_SETTLEMENT_FEATURE = 'schema-settlement/v1';
+
     /** The closed `actions[].kind` vocabulary — the two trust tiers, nothing else. */
     private const ACTION_KINDS = ['native', 'provider'];
+
+    /** Provider-only execution phases which are not ordinary state-triggered rebuilds. */
+    private const ACTION_PHASES = ['lifecycle_settle', 'schema_settle'];
 
     /** @return list<string> Policy::closed_vocabularies()'s read of ACTION_KINDS. */
     public static function actionKinds(): array {
         return self::ACTION_KINDS;
+    }
+
+    /** @return list<string> Policy::closed_vocabularies()'s read of ACTION_PHASES. */
+    public static function actionPhases(): array {
+        return self::ACTION_PHASES;
     }
 
     /**
@@ -203,7 +214,10 @@ final class ActionProviderGrammar {
             // when omitted, exactly as the retired channel did.
             $allowed = $kind === 'native'
                 ? ['action', 'args', 'effects', 'kind', 'triggers']
-                : ['args', 'capability', 'effects', 'kind', 'phase', 'provider', 'triggers'];
+                : [
+                    'args', 'capability', 'effects', 'kind', 'phase', 'prepares',
+                    'provider', 'readiness', 'triggers',
+                ];
             $keys = array_keys($action);
             sort($keys, SORT_STRING);
             $unknown = array_diff($keys, $allowed);
@@ -227,16 +241,43 @@ final class ActionProviderGrammar {
                 self::validate_provider_action($action, $providers, $where, $name);
             }
             if (array_key_exists('phase', $action)) {
-                if ($kind !== 'provider' || ($action['phase'] ?? null) !== 'lifecycle_settle') {
+                $phase = $action['phase'] ?? null;
+                if ($kind !== 'provider' || !in_array($phase, self::ACTION_PHASES, true)) {
                     throw new \RuntimeException(
-                        "wprism: $where.phase must be lifecycle_settle on a provider action"
+                        "wprism: $where.phase must be lifecycle_settle or schema_settle on a provider action"
                     );
                 }
                 if (array_key_exists('triggers', $action)) {
                     throw new \RuntimeException(
-                        "wprism: $where lifecycle settlement is selected by a verified code transition, not state triggers"
+                        $phase === 'lifecycle_settle'
+                            ? "wprism: $where lifecycle settlement is selected by a verified code transition, not state triggers"
+                            : "wprism: $where schema preparation is selected by an exact compiled policy, not state triggers"
                     );
                 }
+                if ($phase === 'schema_settle') {
+                    if (!in_array(
+                        self::SCHEMA_SETTLEMENT_FEATURE,
+                        (array) ($manifest['engine_features'] ?? []),
+                        true
+                    )) {
+                        throw new \RuntimeException(
+                            "wprism: $where uses schema_settle without engine feature '"
+                            . self::SCHEMA_SETTLEMENT_FEATURE
+                            . "' — declare it in this manifest's sorted engine_features list"
+                        );
+                    }
+                    self::validate_schema_preparation($action, $manifest, $where);
+                } elseif (array_key_exists('prepares', $action)
+                    || array_key_exists('readiness', $action)) {
+                    throw new \RuntimeException(
+                        "wprism: $where.prepares/readiness are valid only on a schema_settle provider action"
+                    );
+                }
+            } elseif (array_key_exists('prepares', $action)
+                || array_key_exists('readiness', $action)) {
+                throw new \RuntimeException(
+                    "wprism: $where.prepares/readiness are valid only on a schema_settle provider action"
+                );
             }
             if (!array_key_exists('triggers', $action)) {
                 continue;
@@ -332,6 +373,146 @@ final class ActionProviderGrammar {
                     . 'contexts or triggers, or fold the repairs into one capability'
                 );
             }
+        }
+    }
+
+    /**
+     * Bound the host-only phase which establishes tables before strict target
+     * observation. `prepares`, provider writes, and recovery effects are one
+     * exact set: a schema capability cannot smuggle an unrelated mutation into
+     * the checkpoint window, and planning never fabricates any of these tables.
+     */
+    private static function validate_schema_preparation(array $action, array $manifest, string $where): void {
+        $prepares = $action['prepares'] ?? null;
+        if (!is_array($prepares) || !array_is_list($prepares) || $prepares === []) {
+            throw new \RuntimeException(
+                "wprism: $where.prepares must be a non-empty sorted list of declared table names"
+            );
+        }
+        $normalized = [];
+        foreach ($prepares as $index => $table) {
+            if (!is_string($table)
+                || preg_match('/^[a-z0-9][a-z0-9_]{0,63}$/D', $table) !== 1) {
+                throw new \RuntimeException(
+                    "wprism: $where.prepares[$index] must be a lowercase declared table name"
+                );
+            }
+            if (!is_array($manifest['tables'][$table] ?? null)) {
+                throw new \RuntimeException(
+                    "wprism: $where.prepares names undeclared table '$table'"
+                );
+            }
+            if (isset($normalized[$table])) {
+                throw new \RuntimeException("wprism: $where.prepares repeats table '$table'");
+            }
+            $normalized[$table] = true;
+        }
+        $sorted = array_keys($normalized);
+        sort($sorted, SORT_STRING);
+        if ($sorted !== $prepares) {
+            throw new \RuntimeException("wprism: $where.prepares must be sorted lexically");
+        }
+        if (($action['args'] ?? null) !== []) {
+            throw new \RuntimeException("wprism: $where schema_settle args must be an empty object");
+        }
+
+        $readiness = $action['readiness'] ?? null;
+        $providerId = $action['provider'] ?? null;
+        $provider = null;
+        foreach ((array) ($manifest['providers'] ?? []) as $candidate) {
+            if (is_array($candidate) && ($candidate['id'] ?? null) === $providerId) {
+                $provider = $candidate;
+                break;
+            }
+        }
+        if (!is_string($readiness)
+            || preg_match(self::CAPABILITY_NAME_PATTERN, $readiness) !== 1
+            || $readiness === ($action['capability'] ?? null)
+            || !is_array($provider)
+            || !in_array($readiness, (array) ($provider['capabilities'] ?? []), true)) {
+            throw new \RuntimeException(
+                "wprism: $where.readiness must name a distinct capability on the same provider"
+            );
+        }
+        $requiredSurfaces = array_map(static fn(string $table): string => 'table:' . $table, $prepares);
+        sort($requiredSurfaces, SORT_STRING);
+        $contractSurfaces = static function (mixed $contract, string $key): ?array {
+            if (!is_array($contract)) {
+                return null;
+            }
+            $surfaces = $contract[$key] ?? null;
+            if (!is_array($surfaces) || !array_is_list($surfaces)) {
+                return null;
+            }
+            foreach ($surfaces as $surface) {
+                if (!is_string($surface)) {
+                    return null;
+                }
+            }
+            sort($surfaces, SORT_STRING);
+            return $surfaces;
+        };
+
+        $readinessContract = $provider['contracts'][$readiness] ?? null;
+        if (array_key_exists('contracts', $provider)) {
+            if (!is_array($readinessContract)
+                || ($readinessContract['args'] ?? null) !== []
+                || ($readinessContract['idempotent'] ?? null) !== true
+                || ($readinessContract['scope'] ?? null) !== 'site'
+                || $contractSurfaces($readinessContract, 'reads') !== $requiredSurfaces
+                || ($readinessContract['writes'] ?? null) !== []) {
+                throw new \RuntimeException(
+                    "wprism: $where.readiness must be an idempotent argument-free site capability "
+                    . 'which reads exactly prepares and writes nothing'
+                );
+            }
+
+            $prepareContract = $provider['contracts'][$action['capability']] ?? null;
+            if (!is_array($prepareContract)
+                || ($prepareContract['args'] ?? null) !== []
+                || ($prepareContract['idempotent'] ?? null) !== true
+                || ($prepareContract['scope'] ?? null) !== 'site'
+                || $contractSurfaces($prepareContract, 'reads') !== $requiredSurfaces
+                || $contractSurfaces($prepareContract, 'writes') !== $requiredSurfaces) {
+                throw new \RuntimeException(
+                    "wprism: $where.capability must be an idempotent argument-free site capability "
+                    . 'which reads and writes exactly prepares'
+                );
+            }
+        }
+
+        $effectTables = [];
+        $effects = $action['effects'] ?? null;
+        if (!is_array($effects) || !array_is_list($effects)) {
+            throw new \RuntimeException(
+                "wprism: $where schema_settle effects must exactly cover prepares tables"
+            );
+        }
+        foreach ($effects as $effect) {
+            if (!is_array($effect)
+                || ($effect['kind'] ?? null) !== 'database'
+                || ($effect['mode'] ?? null) !== 'restorable'
+                || ($effect['selector']['scope'] ?? null) !== 'database_checkpoint'
+                || ($effect['selector']['type'] ?? null) !== 'table'
+                || !is_string($effect['selector']['value'] ?? null)) {
+                throw new \RuntimeException(
+                    "wprism: $where schema_settle effects must be restorable database_checkpoint table selectors"
+                );
+            }
+            $effectTable = $effect['selector']['value'];
+            if (isset($effectTables[$effectTable])) {
+                throw new \RuntimeException(
+                    "wprism: $where schema_settle effects repeat table '$effectTable'"
+                );
+            }
+            $effectTables[$effectTable] = true;
+        }
+        $effectTableNames = array_keys($effectTables);
+        sort($effectTableNames, SORT_STRING);
+        if ($effectTableNames !== $prepares) {
+            throw new \RuntimeException(
+                "wprism: $where schema_settle effects must exactly cover prepares tables"
+            );
         }
     }
 
@@ -658,6 +839,37 @@ final class ActionProviderGrammar {
                     );
                 }
                 $seen[$id] = $name;
+            }
+        }
+    }
+
+    /**
+     * One physical table has one schema authority. Two pinned providers may
+     * both write a table after apply, but they may not both claim authority to
+     * make its schema exist before the first target observation.
+     *
+     * @param list<array<string,mixed>> $manifests
+     */
+    public static function validate_no_conflicting_schema_settlements(array $manifests): void {
+        $seen = [];
+        foreach ($manifests as $manifest) {
+            $name = (string) ($manifest['name'] ?? '?');
+            foreach ((array) ($manifest['actions'] ?? []) as $index => $action) {
+                if (!is_array($action) || ($action['phase'] ?? null) !== 'schema_settle') {
+                    continue;
+                }
+                foreach ((array) ($action['prepares'] ?? []) as $table) {
+                    if (!is_string($table) || $table === '') {
+                        continue;
+                    }
+                    if (isset($seen[$table])) {
+                        throw new \RuntimeException(
+                            "wprism: manifests '{$seen[$table]['manifest']}' and '$name' both settle schema for "
+                            . "table '$table' — pre-observation schema authority may not depend on pin order"
+                        );
+                    }
+                    $seen[$table] = ['manifest' => $name, 'index' => (int) $index];
+                }
             }
         }
     }

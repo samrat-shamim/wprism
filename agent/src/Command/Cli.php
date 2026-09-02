@@ -18,13 +18,17 @@ require_once __DIR__ . '/../Review/PlanView.php';
 // a leaf grammar file that requires nothing of its own.
 require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
 require_once __DIR__ . '/../Adapter/LifecycleSettlement.php';
+require_once __DIR__ . '/../Adapter/SchemaSettlement.php';
 require_once __DIR__ . '/../Recovery/RetainedCheckpointCipher.php';
+require_once __DIR__ . '/../Recovery/DatabaseTargetIdentity.php';
+require_once __DIR__ . '/../Repository/SchemaSettlementIntent.php';
 require_once __DIR__ . '/../Promotion/AuthorizedReleaseRepository.php';
+require_once __DIR__ . '/../Promotion/LifecyclePlanner.php';
 
 use WP_CLI;
 
 /**
- * wp wprism <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-probe|adapter-deletion-feasibility|adapter-survey|orphans|deploy|code-preflight|code-stage|lifecycle-settle|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|effect-coverage|journal-reset|code-inventory>
+ * wp wprism <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-probe|adapter-deletion-feasibility|adapter-survey|orphans|deploy|code-preflight|lifecycle-status|code-stage|schema-status|schema-settle|lifecycle-settle|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|effect-coverage|journal-reset|code-inventory>
  */
 final class Cli {
     private const REFUSAL_FORMAT = 'wprism-command-refusal/v1';
@@ -624,6 +628,45 @@ final class Cli {
     }
 
     /**
+     * Read-only lifecycle preflight for the host deployment orchestrator.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Site repo root.
+     * --compiled=<path> : Frozen compiler artifact selected by the host.
+     * --artifact-hash=<sha256> : Required host-observed artifact hash.
+     * [--force-code-mismatch] : Report lifecycle work despite code blockers.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand lifecycle-status
+     */
+    public function lifecycle_status($args, $assoc) {
+        $summary = null;
+        try {
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('lifecycle-status', '--repo');
+            $compiledPath = $assoc['compiled'] ?? throw CommandRefusalException::invalidArgument('lifecycle-status', '--compiled');
+            $artifactHash = $assoc['artifact-hash'] ?? throw CommandRefusalException::invalidArgument('lifecycle-status', '--artifact-hash');
+            $policy = Policy::load((string) $repo);
+            $compiled = RepositoryCompiler::read_artifact((string) $compiledPath, $policy);
+            if (!is_string($artifactHash)
+                || preg_match('/^[a-f0-9]{64}$/D', $artifactHash) !== 1
+                || !hash_equals($artifactHash, $compiled->artifact_hash())) {
+                throw new \RuntimeException('wprism: lifecycle-status artifact does not match the host-compiled artifact hash');
+            }
+            $summary = LifecyclePlanner::deployment_status(
+                $policy,
+                $compiled,
+                isset($assoc['force-code-mismatch'])
+            );
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'lifecycle-status');
+            WP_CLI::error($t->getMessage());
+        }
+        if (is_array($summary)) {
+            WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
+        }
+    }
+
+    /**
      * Run every adapter-declared asynchronous lifecycle completion gate for
      * one immutable artifact. The host invokes this only after fresh-process
      * activation and before code-finalize/state apply.
@@ -632,6 +675,8 @@ final class Cli {
      * --repo=<path> : Site repo root.
      * --compiled=<path> : Frozen compiler artifact selected by the host.
      * --artifact-hash=<sha256> : Required host-observed outer artifact hash.
+     * [--checkpoint=<path>] : Exact authenticated checkpoint for declared provider work.
+     * [--release-on-success] : Release the lease when no later phase follows.
      * [--format=<format>] : Output format. Accepts json.
      *
      * @subcommand lifecycle-settle
@@ -643,11 +688,14 @@ final class Cli {
             $compiled = $assoc['compiled'] ?? throw CommandRefusalException::invalidArgument('lifecycle-settle', '--compiled');
             $artifactHash = $assoc['artifact-hash'] ?? throw CommandRefusalException::invalidArgument('lifecycle-settle', '--artifact-hash');
             $owner = $assoc['promotion-owner'] ?? throw CommandRefusalException::invalidArgument('lifecycle-settle', '--promotion-owner');
+            $checkpoint = (string) ($assoc['checkpoint'] ?? '');
             $summary = LifecycleSettlement::run(
                 (string) $repo,
                 (string) $compiled,
                 (string) $artifactHash,
-                (string) $owner
+                (string) $owner,
+                $checkpoint,
+                !empty($assoc['release-on-success'])
             );
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'lifecycle-settle');
@@ -667,12 +715,118 @@ final class Cli {
     }
 
     /**
+     * Report whether an exact compiled policy needs its separately
+     * checkpointed schema phase before strict planning.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Site repo root.
+     * --compiled=<path> : Frozen compiler artifact selected by the host.
+     * --artifact-hash=<sha256> : Required host-observed outer artifact hash.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand schema-status
+     */
+    public function schema_status($args, $assoc) {
+        $summary = null;
+        try {
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('schema-status', '--repo');
+            $compiled = $assoc['compiled'] ?? throw CommandRefusalException::invalidArgument('schema-status', '--compiled');
+            $artifactHash = $assoc['artifact-hash'] ?? throw CommandRefusalException::invalidArgument('schema-status', '--artifact-hash');
+            $summary = SchemaSettlement::status(
+                (string) $repo,
+                (string) $compiled,
+                (string) $artifactHash,
+                !empty($assoc['presence-only'])
+            );
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'schema-status');
+            WP_CLI::error($t->getMessage());
+        }
+        if (!is_array($summary)) {
+            return;
+        }
+        WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * Establish adapter-declared table schema under the exact promotion
+     * checkpoint. The host runs this in a fresh ordinary WordPress process so
+     * newly activated plugin code and provider hooks are the executing bytes.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Site repo root.
+     * --compiled=<path> : Frozen compiler artifact selected by the host.
+     * --artifact-hash=<sha256> : Required host-observed outer artifact hash.
+     * --promotion-owner=<token> : Required host promotion lease owner.
+     * --checkpoint=<path> : Authenticated pre-phase host checkpoint.
+     * [--after-code-transition] : Require completed retire/activate phases.
+     * [--release-on-success] : Release the lease when no later phase follows.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand schema-settle
+     */
+    public function schema_settle($args, $assoc) {
+        $summary = null;
+        try {
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('schema-settle', '--repo');
+            $compiled = $assoc['compiled'] ?? throw CommandRefusalException::invalidArgument('schema-settle', '--compiled');
+            $artifactHash = $assoc['artifact-hash'] ?? throw CommandRefusalException::invalidArgument('schema-settle', '--artifact-hash');
+            $owner = $assoc['promotion-owner'] ?? throw CommandRefusalException::invalidArgument('schema-settle', '--promotion-owner');
+            $checkpoint = $assoc['checkpoint'] ?? throw CommandRefusalException::invalidArgument('schema-settle', '--checkpoint');
+            $summary = SchemaSettlement::run(
+                (string) $repo,
+                (string) $compiled,
+                (string) $artifactHash,
+                (string) $owner,
+                (string) $checkpoint,
+                !empty($assoc['after-code-transition']),
+                !empty($assoc['release-on-success'])
+            );
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'schema-settle');
+            WP_CLI::error($t->getMessage());
+        }
+        if (!is_array($summary)) {
+            return;
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        WP_CLI::success(sprintf(
+            '%d schema settlement gate(s) verified across %d table(s)',
+            $summary['actions'],
+            count($summary['tables'])
+        ));
+    }
+
+    /**
+     * Emit the credential-free database coordinate identity which the host
+     * binds into both sides of its checkpoint export pipeline.
+     *
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand checkpoint-target
+     */
+    public function checkpoint_target($args, $assoc) {
+        try {
+            $summary = DatabaseTargetIdentity::summary();
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'checkpoint-target');
+            WP_CLI::error($t->getMessage());
+            return;
+        }
+        WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
      * Seal a database export arriving on stdin without writing durable
      * plaintext. This is an orchestrator-only pipeline boundary.
      *
      * ## OPTIONS
      * --repo=<path> : Site repo root.
      * --output=<path> : Canonical .wprism/checkpoints/*.sql.enc output.
+     * --database-target-sha256=<sha256> : Preflight identity shared with the export process.
      *
      * @subcommand checkpoint-seal
      */
@@ -680,10 +834,56 @@ final class Cli {
         try {
             $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('checkpoint-seal', '--repo');
             $output = $assoc['output'] ?? throw CommandRefusalException::invalidArgument('checkpoint-seal', '--output');
-            RetainedCheckpointCipher::seal((string) $repo, (string) $output);
+            $databaseTargetSha256 = $assoc['database-target-sha256']
+                ?? throw CommandRefusalException::invalidArgument(
+                    'checkpoint-seal',
+                    '--database-target-sha256'
+                );
+            DatabaseTargetIdentity::assertWordPressConfig((string) $databaseTargetSha256);
+            RetainedCheckpointCipher::seal(
+                (string) $repo,
+                (string) $output,
+                STDIN,
+                (string) $databaseTargetSha256
+            );
         } catch (\Throwable $t) {
             WP_CLI::error($t->getMessage());
         }
+    }
+
+    /**
+     * Authenticate a retained checkpoint without emitting SQL. Recovery runs
+     * this before its exact database-topology reset and binds the later open
+     * to the returned ciphertext digest.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Site repo root.
+     * --input=<path> : Canonical .wprism/checkpoints/*.sql.enc input.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand checkpoint-verify
+     */
+    public function checkpoint_verify($args, $assoc) {
+        $summary = null;
+        try {
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('checkpoint-verify', '--repo');
+            $input = $assoc['input'] ?? throw CommandRefusalException::invalidArgument('checkpoint-verify', '--input');
+            $summary = RetainedCheckpointCipher::verify((string) $repo, (string) $input);
+            DatabaseTargetIdentity::assertWordPressConfig(
+                (string) $summary['database_target_sha256']
+            );
+            $summary['schema_intent'] = SchemaSettlementIntent::assert_recovery_checkpoint(
+                (string) $input,
+                (string) $summary['cipher_sha256']
+            );
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'checkpoint-verify');
+            WP_CLI::error($t->getMessage());
+        }
+        if (!is_array($summary)) {
+            return;
+        }
+        WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
     }
 
     /**
@@ -693,6 +893,7 @@ final class Cli {
      * ## OPTIONS
      * --repo=<path> : Site repo root.
      * --input=<path> : Canonical .wprism/checkpoints/*.sql.enc input.
+     * [--expected-cipher-sha256=<sha256>] : Exact digest returned by checkpoint-verify.
      *
      * @subcommand checkpoint-open
      */
@@ -700,7 +901,10 @@ final class Cli {
         try {
             $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('checkpoint-open', '--repo');
             $input = $assoc['input'] ?? throw CommandRefusalException::invalidArgument('checkpoint-open', '--input');
-            RetainedCheckpointCipher::open((string) $repo, (string) $input);
+            $expected = isset($assoc['expected-cipher-sha256'])
+                ? (string) $assoc['expected-cipher-sha256']
+                : null;
+            RetainedCheckpointCipher::open((string) $repo, (string) $input, null, $expected);
         } catch (\Throwable $t) {
             WP_CLI::error($t->getMessage());
         }
@@ -715,6 +919,7 @@ final class Cli {
      * ## OPTIONS
      * --promotion-owner=<token> : Required internal orchestrator owner token.
      * --artifact-hash=<sha256> : Required immutable artifact hash binding code and state.
+     * [--expected-database-target-sha256=<sha256>] : Recovery-only pre-mutation target fence.
      * [--repo=<path>] : Internal authorized-release repository path; all four repository options are required together.
      * [--release-operation-id=<id>] : Internal immutable release operation identity.
      * [--expected-source-commit=<oid>] : Internal exact materialized commit.
@@ -726,6 +931,11 @@ final class Cli {
      */
     public function promotion_begin($args, $assoc) {
         try {
+            if (isset($assoc['expected-database-target-sha256'])) {
+                DatabaseTargetIdentity::assertWordPressConfig(
+                    (string) $assoc['expected-database-target-sha256']
+                );
+            }
             // FIRST, before the argument gates and before Ledger::ensure():
             // the lease row is written to `{$wpdb->prefix}wprism_kv`
             // (agent/src/Promotion/PromotionLease.php:372) and Ledger::ensure() CREATEs four tables on
@@ -917,6 +1127,7 @@ final class Cli {
      * ## OPTIONS
      * --promotion-owner=<token> : Required internal orchestrator owner token.
      * --artifact-hash=<sha256> : Required immutable artifact hash binding code and state.
+     * [--expected-database-target-sha256=<sha256>] : Recovery-only pre-mutation target fence.
      * [--json] : JSON summary.
      * [--format=<format>] : Output format. Accepts json.
      *
@@ -924,6 +1135,11 @@ final class Cli {
      */
     public function promotion_abort($args, $assoc) {
         try {
+            if (isset($assoc['expected-database-target-sha256'])) {
+                DatabaseTargetIdentity::assertWordPressConfig(
+                    (string) $assoc['expected-database-target-sha256']
+                );
+            }
             // Gated like the other three, deliberately, even though this is the
             // compensating verb: writing `{$wpdb->prefix}wprism_kv` on a network
             // writes it on whichever blog wp-cli bootstrapped, which may be the
@@ -2337,7 +2553,9 @@ final class Cli {
     public function deploy($args, $assoc) {
         $summary = null;
         try {
-            $summary = Deploy::run($assoc['repo'] ?? throw CommandRefusalException::invalidArgument('deploy', '--repo'), [
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('deploy', '--repo');
+            $adapterLibrary = self::internal_adapter_library($assoc);
+            $summary = Deploy::run((string) $repo, [
                 'force_code_mismatch' => isset($assoc['force-code-mismatch']),
                 'force_code_drift' => isset($assoc['force-code-drift']),
                 'compiled' => $assoc['compiled'] ?? '',
@@ -2348,7 +2566,7 @@ final class Cli {
                 'state_handoff' => isset($assoc['state-handoff']),
                 'lifecycle_phase' => $assoc['lifecycle-phase'] ?? 'all',
                 'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
-                'adapter_library' => self::internal_adapter_library($assoc),
+                'adapter_library' => $adapterLibrary,
             ]);
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'deploy');

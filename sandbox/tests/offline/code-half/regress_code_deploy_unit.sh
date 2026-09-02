@@ -18,7 +18,18 @@ mkdir -p "$BIN" "$SITE"
 cat > "$BIN/wp" <<'FAKE'
 #!/usr/bin/env bash
 set -e
+# db:export and checkpoint-seal are opposite ends of one pipeline and start
+# concurrently. Their --exec arguments exceed an atomic append on macOS, so a
+# 12-run stress probe reproduced interleaved records. Serialize the complete
+# records; assertions still inspect the real control-plane command bytes.
+log_lock="${FAKE_WP_LOG}.lock"
+while ! mkdir "$log_lock" 2>/dev/null; do
+  sleep 0.01
+done
+trap 'rmdir "$log_lock" 2>/dev/null || true' EXIT HUP INT TERM
 printf '%s\n' "$*" >> "$FAKE_WP_LOG"
+rmdir "$log_lock"
+trap - EXIT HUP INT TERM
 while true; do
   case "${1:-}" in
     --path=*|--exec=*|--skip-plugins|--skip-themes) shift ;;
@@ -51,6 +62,14 @@ if [ "$first:$second" = wprism:code-preflight ]; then
   printf '%s\n' '{"format":"wprism-code-runtime/v1","enabled":true,"change_required":true,"compatible":true,"code_revision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","target":{"php":"8.3.0","wordpress":"6.8.2","source":"target-control-plane"},"requirements":[],"diagnostics":[]}'
   exit 0
 fi
+if [ "$first:$second" = wprism:lifecycle-status ]; then
+  printf '%s\n' '{"format":"wprism-lifecycle-status/v1","reasons":[],"required":false}'
+  exit 0
+fi
+if [ "$first:$second" = wprism:checkpoint-target ]; then
+  printf '%s\n' '{"database_target_sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","format":"wprism-database-target/v1"}'
+  exit 0
+fi
 if [ "$first:$second" = db:export ]; then
   # `wp db export <path> --porcelain`, the one primitive both promote
   # (cli/wprism:2387) and deploy use. Write the file as well as report the call, so
@@ -67,10 +86,15 @@ if [ "$first:$second" = db:export ]; then
 fi
 if [ "$first:$second" = wprism:checkpoint-seal ]; then
   out=""
+  database_target=""
   for arg in "$@"; do
-    case "$arg" in --output=*) out="${arg#--output=}" ;; esac
+    case "$arg" in
+      --output=*) out="${arg#--output=}" ;;
+      --database-target-sha256=*) database_target="${arg#--database-target-sha256=}" ;;
+    esac
   done
   [ -n "$out" ] || exit 2
+  [ "$database_target" = dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd ] || exit 3
   cat > "$out"
   exit 0
 fi
@@ -225,13 +249,16 @@ pass "control bootstrap disables the target's cron spawn for the whole control-p
 
 # No descriptor means a code-only deploy has no mutation to perform. It must
 # not manufacture activation/deactivation side effects (agency audit #77), so
-# it exits after compile without a lease, checkpoint, or lifecycle flags.
+# it exits after the read-only lifecycle status without a lease, checkpoint,
+# or lifecycle mutation flags.
 invoke 0 env
 [ "$CODE" -eq 0 ] || fail "legacy deploy failed: $OUT"
-[ "$(calls)" = 1 ] || fail "descriptor-free path expected only the compile call"
+[ "$(calls)" = 2 ] || fail "descriptor-free path expected compile plus lifecycle status"
 ONE="$(line 1)"
 [[ "$ONE" == *"wprism compile"* ]] || fail "descriptor-free call was not compile"
+[[ "$(line 2)" == *"wprism lifecycle-status"* ]] || fail "descriptor-free path omitted lifecycle status"
 assert_control_call "$ONE" "legacy compile"
+assert_control_call "$(line 2)" "legacy lifecycle status"
 grep -q 'deploy complete: no code descriptor; lifecycle hooks not run' <<<"$OUT" || fail "descriptor-free completion missing"
 grep -q 'database checkpoint retained: ' <<<"$OUT" && fail "descriptor-free no-op retained an invented checkpoint"
 pass "descriptor-free deploy is a disclosed lifecycle-hook-free no-op"
@@ -243,12 +270,13 @@ pass "descriptor-free deploy is a disclosed lifecycle-hook-free no-op"
 # (cli/wprism:3289-3297), after it the dump would already describe mutated code.
 invoke 1 env
 [ "$CODE" -eq 0 ] || fail "code deploy failed: $OUT"
-[ "$(calls)" = 10 ] || fail "code path expected ten wp calls"
+[ "$(calls)" = 11 ] || fail "code path expected eleven wp calls"
 ONE="$(line 1)"
 TWO="$(line 2)"
 THREE="$(line 3)"
-PIPE_A="$(line 4)"
-PIPE_B="$(line 5)"
+TARGET="$(line 4)"
+PIPE_A="$(line 5)"
+PIPE_B="$(line 6)"
 if [[ "$PIPE_A" == *"db export -"* && "$PIPE_B" == *"wprism checkpoint-seal"* ]]; then
   EXPORT="$PIPE_A"
   CKPT="$PIPE_B"
@@ -258,13 +286,14 @@ elif [[ "$PIPE_B" == *"db export -"* && "$PIPE_A" == *"wprism checkpoint-seal"* 
 else
   fail "checkpoint pipeline calls were missing or escaped the pre-stage boundary"
 fi
-FOUR="$(line 6)"
-FIVE="$(line 7)"
-SIX="$(line 8)"
-SEVEN="$(line 9)"
-EIGHT="$(line 10)"
+FOUR="$(line 7)"
+FIVE="$(line 8)"
+SIX="$(line 9)"
+SEVEN="$(line 10)"
+EIGHT="$(line 11)"
 [[ "$ONE" == *"wprism compile"* && "$TWO" == *"wprism code-preflight"* \
-  && "$THREE" == *"wprism promotion-begin"* && "$EXPORT" == *"db export -"* \
+  && "$THREE" == *"wprism promotion-begin"* && "$TARGET" == *"wprism checkpoint-target"* \
+  && "$EXPORT" == *"db export -"* \
   && "$CKPT" == *"wprism checkpoint-seal"* \
   && "$FOUR" == *"wprism code-stage"* \
   && "$FIVE" == *"wprism deploy"*"--lifecycle-phase=retire"* \
@@ -274,7 +303,12 @@ EIGHT="$(line 10)"
 assert_control_call "$ONE" "code compile"
 assert_control_call "$TWO" "code target-runtime preflight"
 assert_control_call "$THREE" "code promotion-begin"
+assert_control_call "$TARGET" "code database-target preflight"
 assert_control_call "$CKPT" "code checkpoint seal"
+[[ "$EXPORT" == *"DatabaseTargetIdentity::fromWordPressConfig"* \
+  && "$EXPORT" == *"require_recovery_intent"* \
+  && "$EXPORT" == *"--skip-plugins"* && "$EXPORT" == *"--skip-themes"* ]] \
+  || fail "code checkpoint export did not recheck its preflight database target in isolation"
 assert_control_call "$FOUR" "code stage"
 assert_runtime_call "$FIVE" "code retirement"
 assert_runtime_call "$SIX" "code activation"
@@ -342,22 +376,24 @@ deploy complete: code-stage -> lifecycle-retire -> lifecycle-activate -> lifecyc
 $OUT"
 DEPLOY_EXTRA="--no-checkpoint"
 invoke 0 env
-[ "$(calls)" = 1 ] || fail "--no-checkpoint descriptor-free path expected only compile"
+[ "$(calls)" = 2 ] || fail "--no-checkpoint descriptor-free path expected compile plus lifecycle status"
 grep -q 'db export' "$LOG" && fail "--no-checkpoint legacy path still exported the database"
 pass "--no-checkpoint reproduces the pre-change call sequence and output"
 
 # A failed export aborts its lease and starts no code or lifecycle phase.
 invoke 1 env FAKE_EXPORT_FAIL=1
 [ "$CODE" -eq 23 ] || fail "checkpoint export exit not propagated"
-[ "$(calls)" = 6 ] || fail "code/lifecycle ran after a failed checkpoint"
-FAIL_PIPE_A="$(line 4)"
-FAIL_PIPE_B="$(line 5)"
+[ "$(calls)" = 7 ] || fail "code/lifecycle ran after a failed checkpoint"
+[[ "$(line 4)" == *"wprism checkpoint-target"* ]] \
+  || fail "failed checkpoint skipped its database-target preflight"
+FAIL_PIPE_A="$(line 5)"
+FAIL_PIPE_B="$(line 6)"
 if ! { [[ "$FAIL_PIPE_A" == *"db export"* && "$FAIL_PIPE_B" == *"wprism checkpoint-seal"* ]] \
   || [[ "$FAIL_PIPE_B" == *"db export"* && "$FAIL_PIPE_A" == *"wprism checkpoint-seal"* ]]; } \
-  || [[ "$(line 6)" != *"wprism promotion-abort"* ]]; then
+  || [[ "$(line 7)" != *"wprism promotion-abort"* ]]; then
   fail "a failed checkpoint did not clean the begun session"
 fi
-assert_control_call "$(line 6)" "checkpoint-failure promotion-abort"
+assert_control_call "$(line 7)" "checkpoint-failure promotion-abort"
 grep -q 'database checkpoint failed; code and lifecycle phases were not started' <<<"$OUT" \
   || fail "the checkpoint failure did not name its boundary"
 grep -q 'no usable checkpoint was produced' <<<"$OUT" \
@@ -367,9 +403,9 @@ pass "a failed checkpoint aborts the lease before any code or lifecycle mutation
 # Stop-on-first-failure boundaries.
 invoke 1 env FAKE_STAGE_FAIL=1
 [ "$CODE" -eq 8 ] || fail "stage exit not propagated"
-[ "$(calls)" = 7 ] || fail "later phases or cleanup were wrong after stage failure"
-[[ "$(line 7)" == *"wprism promotion-abort"* ]] || fail "stage failure did not clean begun session"
-assert_control_call "$(line 7)" "stage-failure promotion-abort"
+[ "$(calls)" = 8 ] || fail "later phases or cleanup were wrong after stage failure"
+[[ "$(line 8)" == *"wprism promotion-abort"* ]] || fail "stage failure did not clean begun session"
+assert_control_call "$(line 8)" "stage-failure promotion-abort"
 grep -q 'code-stage failed.*were not run' <<<"$OUT" || fail "stage stop wording missing"
 # A checkpoint an operator is never told how to use is not a recovery story.
 # Since issue #3525 that story is ONE verb, not four numbered `wp` instructions:
@@ -396,31 +432,31 @@ pass "stage failure stops lifecycle/finalize and guides recovery of its own chec
 
 invoke 1 env FAKE_RETIRE_FAIL=1
 [ "$CODE" -eq 7 ] || fail "lifecycle exit not propagated"
-[ "$(calls)" = 8 ] || fail "finalize/cleanup calls wrong after lifecycle failure"
-[[ "$(line 8)" == *"wprism promotion-abort"* ]] || fail "lifecycle failure did not clean begun session"
-assert_control_call "$(line 8)" "retirement-failure promotion-abort"
+[ "$(calls)" = 9 ] || fail "finalize/cleanup calls wrong after lifecycle failure"
+[[ "$(line 9)" == *"wprism promotion-abort"* ]] || fail "lifecycle failure did not clean begun session"
+assert_control_call "$(line 9)" "retirement-failure promotion-abort"
 pass "retirement failure stops activation/finalize"
 
 invoke 1 env FAKE_ACTIVATE_FAIL=1
 [ "$CODE" -eq 13 ] || fail "activation exit not propagated"
-[ "$(calls)" = 9 ] || fail "finalize/cleanup calls wrong after activation failure"
-[[ "$(line 9)" == *"wprism promotion-abort"* ]] || fail "activation failure did not clean begun session"
-assert_control_call "$(line 9)" "activation-failure promotion-abort"
+[ "$(calls)" = 10 ] || fail "finalize/cleanup calls wrong after activation failure"
+[[ "$(line 10)" == *"wprism promotion-abort"* ]] || fail "activation failure did not clean begun session"
+assert_control_call "$(line 10)" "activation-failure promotion-abort"
 pass "activation failure stops finalize"
 
 invoke 1 env FAKE_SETTLE_FAIL=1
 [ "$CODE" -eq 15 ] || fail "settlement exit not propagated"
-[ "$(calls)" = 10 ] || fail "finalize/cleanup calls wrong after settlement failure"
-[[ "$(line 9)" == *"wprism lifecycle-settle"* && "$(line 10)" == *"wprism promotion-abort"* ]] \
+[ "$(calls)" = 11 ] || fail "finalize/cleanup calls wrong after settlement failure"
+[[ "$(line 10)" == *"wprism lifecycle-settle"* && "$(line 11)" == *"wprism promotion-abort"* ]] \
   || fail "settlement failure did not stop finalize and clean begun session"
-assert_control_call "$(line 10)" "settlement-failure promotion-abort"
+assert_control_call "$(line 11)" "settlement-failure promotion-abort"
 pass "lifecycle settlement failure stops finalize"
 
 invoke 1 env FAKE_FINALIZE_FAIL=1
 [ "$CODE" -eq 9 ] || fail "finalize exit not propagated"
-[ "$(calls)" = 11 ] || fail "wrong calls after finalize failure"
-[[ "$(line 11)" == *"wprism promotion-abort"* ]] || fail "finalize failure did not clean begun session"
-assert_control_call "$(line 11)" "finalize-failure promotion-abort"
+[ "$(calls)" = 12 ] || fail "wrong calls after finalize failure"
+[[ "$(line 12)" == *"wprism promotion-abort"* ]] || fail "finalize failure did not clean begun session"
+assert_control_call "$(line 12)" "finalize-failure promotion-abort"
 pass "finalize failure is non-successful"
 
 invoke 1 env FAKE_COMPILE_FAIL=1

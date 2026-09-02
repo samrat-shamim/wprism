@@ -15,16 +15,141 @@ namespace {
     $GLOBALS['rank_math_test_installer_calls'] = [];
     $GLOBALS['rank_math_test_installer_omit'] = null;
     $GLOBALS['rank_math_test_installer_extra_column'] = false;
-    $GLOBALS['rank_math_test_child_ids'] = [10];
-    $GLOBALS['rank_math_test_old_targets'] = [999];
+    $GLOBALS['rank_math_test_installer_mutate_table'] = null;
     $GLOBALS['rank_math_test_hooks'] = [];
+    $GLOBALS['rank_math_test_types'] = ['page' => 'page', 'post' => 'post'];
+    $GLOBALS['rank_math_test_helper_types'] = ['page' => 'page', 'post' => 'post'];
+    $GLOBALS['rank_math_test_options'] = [];
+    $GLOBALS['rank_math_test_clean_post_cache_calls'] = 0;
+    $GLOBALS['rank_math_test_permalink_calls'] = 0;
+    $GLOBALS['rank_math_test_url_to_postid_calls'] = 0;
+    $GLOBALS['rank_math_test_url_to_postid_override'] = null;
+    $GLOBALS['rank_math_test_in_native_process'] = false;
+    $GLOBALS['rank_math_test_rebuild_links_override'] = null;
+    $GLOBALS['rank_math_test_process_calls'] = 0;
+
+    final class WP_Hook {
+        /** @var array<int,array<string,array{accepted_args:int,function:array{object,string}}>> */
+        public array $callbacks;
+
+        /** @param array<int,array<string,array{accepted_args:int,function:array{object,string}}>> $callbacks */
+        public function __construct(array $callbacks) { $this->callbacks = $callbacks; }
+    }
+
+    #[\AllowDynamicProperties]
+    class WP_Post {
+        public function __construct(object $row) {
+            foreach (get_object_vars($row) as $name => $value) {
+                $this->$name = $value;
+            }
+        }
+    }
 
     function get_option(string $name, mixed $default = false): mixed {
-        return $name === 'rank_math_modules' ? $GLOBALS['rank_math_test_modules'] : $default;
+        if ($name === 'rank_math_modules') {
+            return $GLOBALS['rank_math_test_modules'];
+        }
+        return $GLOBALS['rank_math_test_options'][$name] ?? $default;
+    }
+
+    function get_permalink(int|object $post): string|false {
+        $GLOBALS['rank_math_test_permalink_calls']++;
+        $post = is_object($post) ? $post : get_post($post);
+        if (!is_object($post)) {
+            return false;
+        }
+        $slug = (string) ($post->post_name ?? '');
+        $structure = (string) get_option('permalink_structure', '');
+        if (str_contains($structure, '%author%')) {
+            $author = 'unknown';
+            foreach ($GLOBALS['wpdb']->rows('users') as $row) {
+                if ((int) ($row['ID'] ?? 0) === (int) ($post->post_author ?? 0)) {
+                    $author = (string) ($row['user_nicename'] ?? 'unknown');
+                }
+            }
+            $slug = $author . '/' . $slug;
+        }
+        if (str_contains($structure, '%category%')) {
+            $slug = 'category-' . (string) get_option('default_category', 1) . '/' . $slug;
+        }
+        return home_url('/' . $slug . '/');
+    }
+
+    function url_to_postid(string $url): int {
+        $GLOBALS['rank_math_test_url_to_postid_calls']++;
+        $override = $GLOBALS['rank_math_test_url_to_postid_override'] ?? null;
+        if (is_callable($override)) {
+            $resolved = $override($url, (bool) ($GLOBALS['rank_math_test_in_native_process'] ?? false));
+            if (is_int($resolved)) {
+                return $resolved;
+            }
+        }
+        if (str_contains($url, '/wp-core-page/')) {
+            foreach ([
+                'close_comments_days_old', 'close_comments_for_old_posts', 'comments_per_page',
+                'page_for_posts', 'posts_per_page', 'posts_per_rss', 'sticky_posts',
+                'wp_page_for_privacy_policy',
+            ] as $option) {
+                get_option($option);
+            }
+            return (int) get_option('posts_per_page', 10) === 10
+                && (int) get_option('close_comments_days_old', 14) === 14 ? 20 : 10;
+        }
+        if (str_contains($url, '/comments/feed/')) {
+            $comments = $GLOBALS['wpdb']->rows('comments');
+            return ($comments[0]['comment_approved'] ?? null) === '1' ? 20 : 10;
+        }
+        if (str_contains($url, 'target-20') || str_contains($url, '/twenty')) {
+            return 20;
+        }
+        return str_contains($url, '/ten') ? 10 : 0;
+    }
+
+    function home_url(string $path = ''): string {
+        return 'https://source.example.test' . $path;
+    }
+
+    function get_post_type_object(string $name): ?object {
+        if (!isset($GLOBALS['rank_math_test_types'][$name])) {
+            return null;
+        }
+        return (object) [
+            'has_archive' => false,
+            'hierarchical' => $name === 'page',
+            'publicly_queryable' => true,
+            'query_var' => $name,
+            'rewrite' => ['slug' => $name],
+        ];
     }
 
     function has_filter(string $hook): int|false {
         return isset($GLOBALS['rank_math_test_hooks'][$hook]) ? 10 : false;
+    }
+
+    /** @return array<string,string> */
+    function get_post_types(array $args = []): array {
+        return $GLOBALS['rank_math_test_types'];
+    }
+
+    function is_post_type_viewable(string $type): bool { return isset($GLOBALS['rank_math_test_types'][$type]); }
+
+    function esc_sql(string $value): string { return str_replace("'", "''", $value); }
+
+    function is_multisite(): bool { return false; }
+
+    function clean_post_cache(int $id): void { $GLOBALS['rank_math_test_clean_post_cache_calls']++; }
+
+    function get_post(int $id): ?object {
+        foreach ($GLOBALS['wpdb']->rows('posts') as $row) {
+            if ((int) ($row['ID'] ?? 0) === $id) {
+                return (object) $row;
+            }
+        }
+        return null;
+    }
+
+    function wp_json_encode(mixed $value, int $flags = 0): string|false {
+        return json_encode($value, $flags);
     }
 
     final class WP_CLI {
@@ -32,11 +157,6 @@ namespace {
 
         public static function runcommand(string $command, array $options): mixed {
             $GLOBALS['rank_math_test_command_calls'][] = [$command, $options];
-            if (preg_match('/\$oldTargetIds = \[([0-9,]*)\];/', $command, $match) === 1) {
-                $GLOBALS['rank_math_test_old_targets'] = $match[1] === ''
-                    ? []
-                    : array_values(array_map('intval', explode(',', $match[1])));
-            }
             if ($GLOBALS['rank_math_test_command_throw'] instanceof \Throwable) {
                 throw $GLOBALS['rank_math_test_command_throw'];
             }
@@ -49,7 +169,92 @@ namespace {
     }
 }
 
+namespace RankMath\Links {
+    final class ContentProcessor {
+        private static ?self $instance = null;
+
+        public static function get(): self {
+            self::$instance ??= new self();
+            return self::$instance;
+        }
+
+        /** @return list<string> */
+        public function extract(string $content): array {
+            $matches = [];
+            $matched = preg_match_all(
+                '/<a\s[^>]*href=("??)([^" >]*?)\\1[^>]*>/iU',
+                $content,
+                $matches,
+                PREG_SET_ORDER
+            );
+            if ($matched === false) {
+                throw new \RuntimeException('fixture link extraction failed');
+            }
+            return array_map(
+                static fn(array $match): string => trim((string) ($match[2] ?? ''), "'"),
+                $matches
+            );
+        }
+
+        public function normalize_link(string $link): string {
+            return rtrim(str_replace(\home_url(), '', explode('#', $link)[0]), "/\\");
+        }
+
+        public function is_valid_link_type(string $link): string|false {
+            if ($link === '' || $link[0] === '#') {
+                return false;
+            }
+            $parts = parse_url($link);
+            $scheme = is_array($parts) ? ($parts['scheme'] ?? null) : null;
+            $host = is_array($parts) ? ($parts['host'] ?? null) : null;
+            $type = ($scheme !== null
+                && (!in_array($scheme, ['http', 'https'], true) || $host !== 'source.example.test'))
+                ? 'external'
+                : 'internal';
+            if ($type === 'internal' && preg_match('/\.(jpg|jpeg|png|gif|bmp|pdf|mp3|zip)$/i', $link) === 1) {
+                return false;
+            }
+            return $type;
+        }
+
+        public function maybe_product_id(string $link): int { return 0; }
+    }
+
+    final class Links {
+        public static function is_post_processable(object $post): bool {
+            return !in_array((string) ($post->post_status ?? ''), ['auto-draft', 'trash'], true);
+        }
+
+        public static function process_post_links(int $id, object $post): void {
+            $GLOBALS['rank_math_test_process_calls']++;
+            $GLOBALS['rank_math_test_in_native_process'] = true;
+            try {
+                \rank_math_test_rebuild();
+            } finally {
+                $GLOBALS['rank_math_test_in_native_process'] = false;
+            }
+        }
+    }
+}
+
 namespace RankMath {
+    final class Defaults {
+        /** @param array<string,string> $types @return array<string,string> */
+        public function excluded_post_types(array $types): array {
+            unset($types['elementor_library']);
+            return $types;
+        }
+    }
+
+    final class Helper {
+        /** @return array<string,string> */
+        public static function get_accessible_post_types(): array {
+            return $GLOBALS['rank_math_test_helper_types'];
+        }
+
+        public static function get_settings(string $name): bool { return false; }
+    }
+
     final class Installer {
         /** @param list<string> $modules */
         public static function create_tables(array $modules): void {
@@ -84,6 +289,18 @@ namespace RankMath {
                 }
                 $GLOBALS['wpdb']->setColumnDefinitions($table, $tableSchema['columns']);
                 $GLOBALS['wpdb']->setIndexes($table, $tableSchema['indexes']);
+                $GLOBALS['wpdb']->setTableEngine($table, 'InnoDB');
+            }
+            $mutate = $GLOBALS['rank_math_test_installer_mutate_table'] ?? null;
+            if (is_string($mutate)) {
+                $rows = $GLOBALS['wpdb']->rows($mutate);
+                if (isset($rows[0]) && is_array($rows[0])) {
+                    $first = array_key_first($rows[0]);
+                    if (is_string($first)) {
+                        $rows[0][$first] = (string) $rows[0][$first] . '-installer-mutation';
+                    }
+                }
+                $GLOBALS['wpdb']->seedTable($mutate, $rows);
             }
         }
     }
@@ -113,6 +330,28 @@ namespace {
                 'id', 'from_url', 'redirection_id', 'object_id', 'object_type', 'is_redirected',
             ],
             'postmeta' => ['meta_id', 'post_id', 'meta_key', 'meta_value'],
+            'posts' => [
+                'ID', 'post_author', 'post_date', 'post_date_gmt', 'post_content', 'post_title',
+                'post_excerpt', 'post_status', 'post_password', 'post_name', 'post_modified',
+                'post_modified_gmt', 'post_parent', 'guid', 'menu_order', 'post_type', 'post_mime_type',
+            ],
+            'options' => ['option_id', 'option_name', 'option_value', 'autoload'],
+            'comments' => [
+                'comment_ID', 'comment_post_ID', 'comment_author', 'comment_author_email',
+                'comment_author_url', 'comment_author_IP', 'comment_date', 'comment_date_gmt',
+                'comment_content', 'comment_karma', 'comment_approved', 'comment_agent',
+                'comment_type', 'comment_parent', 'user_id',
+            ],
+            'term_relationships' => ['object_id', 'term_taxonomy_id', 'term_order'],
+            'term_taxonomy' => [
+                'term_taxonomy_id', 'term_id', 'taxonomy', 'description', 'parent', 'count',
+            ],
+            'terms' => ['term_id', 'name', 'slug', 'term_group'],
+            'users' => [
+                'ID', 'user_login', 'user_pass', 'user_nicename', 'user_email', 'user_url',
+                'user_registered', 'user_activation_key', 'user_status', 'display_name',
+            ],
+            'usermeta' => ['umeta_id', 'user_id', 'meta_key', 'meta_value'],
         ];
         $columns = [];
         foreach ($names as $table => $tableNames) {
@@ -223,6 +462,7 @@ namespace {
         foreach ($tables as $table) {
             $GLOBALS['wpdb']->setColumnDefinitions($table, $schema[$table]['columns']);
             $GLOBALS['wpdb']->setIndexes($table, $schema[$table]['indexes']);
+            $GLOBALS['wpdb']->setTableEngine($table, 'InnoDB');
         }
     }
 
@@ -231,146 +471,136 @@ namespace {
         return [
             ['id' => 101, 'url' => '/target-20', 'post_id' => 10, 'target_post_id' => 20, 'type' => 'internal'],
             ['id' => 102, 'url' => 'https://external.example.test/مرحباً', 'post_id' => 10, 'target_post_id' => 0, 'type' => 'external'],
-            ['id' => 103, 'url' => '/target-10', 'post_id' => 20, 'target_post_id' => 10, 'type' => 'internal'],
+            ['id' => 104, 'url' => '/archive/', 'post_id' => 10, 'target_post_id' => 0, 'type' => 'internal'],
+            ['id' => 103, 'url' => '/ten', 'post_id' => 20, 'target_post_id' => 10, 'type' => 'internal'],
         ];
     }
 
     /** @return list<array<string,mixed>> */
     function rank_math_test_desired_meta(): array {
+        return rank_math_test_meta_for_links(rank_math_test_desired_links());
+    }
+
+    /** @param list<array<string,mixed>> $links @return list<array<string,int>> */
+    function rank_math_test_meta_for_links(array $links): array {
+        $identities = [10 => true, 20 => true];
+        $outgoing = [];
+        $incoming = [];
+        foreach ($links as $link) {
+            $source = (int) ($link['post_id'] ?? 0);
+            $target = (int) ($link['target_post_id'] ?? 0);
+            $type = (string) ($link['type'] ?? '');
+            $identities[$source] = true;
+            $outgoing[$source][$type] = ($outgoing[$source][$type] ?? 0) + 1;
+            if ($target > 0) {
+                $identities[$target] = true;
+                $incoming[$target] = ($incoming[$target] ?? 0) + 1;
+            }
+        }
+        ksort($identities, SORT_NUMERIC);
+        $rows = [];
+        foreach (array_keys($identities) as $id) {
+            $rows[] = [
+                'object_id' => $id,
+                'internal_link_count' => (int) ($outgoing[$id]['internal'] ?? 0),
+                'external_link_count' => (int) ($outgoing[$id]['external'] ?? 0),
+                'incoming_link_count' => (int) ($incoming[$id] ?? 0),
+            ];
+        }
+        return $rows;
+    }
+
+    /** @return list<array<string,mixed>> */
+    function rank_math_test_native_links(): array {
+        $override = $GLOBALS['rank_math_test_rebuild_links_override'] ?? null;
+        if (is_array($override)) {
+            return $override;
+        }
+        $links = rank_math_test_desired_links();
+        foreach ($links as &$link) {
+            if (($link['type'] ?? null) === 'internal') {
+                $link['target_post_id'] = url_to_postid((string) $link['url']);
+            }
+        }
+        unset($link);
+        return $links;
+    }
+
+    /** @return list<array<string,mixed>> */
+    function rank_math_test_posts(): array {
+        $base = [
+            'post_author' => 1,
+            'post_date' => '2026-08-27 00:00:00',
+            'post_date_gmt' => '2026-08-26 18:00:00',
+            'post_excerpt' => '',
+            'post_status' => 'publish',
+            'post_password' => '',
+            'post_modified' => '2026-08-27 00:00:00',
+            'post_modified_gmt' => '2026-08-26 18:00:00',
+            'post_parent' => 0,
+            'menu_order' => 0,
+            'post_mime_type' => '',
+        ];
         return [
-            ['object_id' => 10, 'internal_link_count' => 1, 'external_link_count' => 1, 'incoming_link_count' => 1],
-            ['object_id' => 20, 'internal_link_count' => 1, 'external_link_count' => 0, 'incoming_link_count' => 1],
-            ['object_id' => 999, 'internal_link_count' => 0, 'external_link_count' => 0, 'incoming_link_count' => 0],
+            [
+                'ID' => 10,
+                'post_content' => '<a href="/target-20">Twenty</a>'
+                    . '<a href="https://external.example.test/مرحباً">External</a>'
+                    . '<a href="/archive/">Archive without a post identity</a>',
+                'post_title' => 'Ten',
+                'post_name' => 'ten', 'guid' => 'https://source.example.test/?p=10', 'post_type' => 'post'] + $base,
+            ['ID' => 20, 'post_content' => '<a href="/ten">Ten</a>', 'post_title' => 'Twenty',
+                'post_name' => 'twenty', 'guid' => 'https://source.example.test/?p=20', 'post_type' => 'page'] + $base,
         ];
     }
 
-    /** @param ?list<int> $ids */
-    function rank_math_test_rebuild(?array $ids): void {
+    function rank_math_test_rebuild(): void {
         /** @var FakeWpdb $db */
         $db = $GLOBALS['wpdb'];
-        if (!in_array('link-counter', $GLOBALS['rank_math_test_modules'], true)) {
-            return;
-        }
-        $desiredLinks = rank_math_test_desired_links();
-        $desiredMeta = rank_math_test_desired_meta();
-        if ($ids === null) {
-            $db->seedTable('rank_math_internal_links', $desiredLinks);
-            $db->seedTable('rank_math_internal_meta', $desiredMeta);
-            return;
-        }
-
-        $idSet = array_fill_keys($ids, true);
-        $existingLinks = $db->rows('rank_math_internal_links');
-        $oldTargets = [];
-        foreach ($existingLinks as $row) {
-            if (isset($idSet[(int) $row['post_id']]) && (int) $row['target_post_id'] > 0) {
-                $oldTargets[(int) $row['target_post_id']] = true;
-            }
-        }
-        $links = array_values(array_filter(
-            $existingLinks,
-            static fn(array $row): bool => !isset($idSet[(int) $row['post_id']])
-        ));
-        foreach ($desiredLinks as $row) {
-            if (isset($idSet[(int) $row['post_id']])) {
-                $links[] = $row;
-            }
-        }
-        $affected = $idSet + $oldTargets;
-        foreach ($links as $row) {
-            if (isset($idSet[(int) $row['post_id']]) && (int) $row['target_post_id'] > 0) {
-                $affected[(int) $row['target_post_id']] = true;
-            }
-        }
-        $meta = array_values(array_filter(
-            $db->rows('rank_math_internal_meta'),
-            static fn(array $row): bool => !isset($affected[(int) $row['object_id']])
-        ));
-        foreach ($desiredMeta as $row) {
-            if (isset($affected[(int) $row['object_id']])) {
-                $meta[] = $row;
-            }
-        }
         $markers = array_values(array_filter(
             $db->rows('postmeta'),
             static fn(array $row): bool => (string) $row['meta_key'] !== 'rank_math_internal_links_processed'
-                || !isset($idSet[(int) $row['post_id']])
         ));
-        $nextMetaId = 900;
-        foreach ($ids as $id) {
-            $markers[] = [
-                'meta_id' => $nextMetaId++,
-                'post_id' => $id,
-                'meta_key' => 'rank_math_internal_links_processed',
-                'meta_value' => '1',
-            ];
+        if (in_array('link-counter', $GLOBALS['rank_math_test_modules'], true)) {
+            foreach ([10, 20] as $index => $id) {
+                $markers[] = [
+                    'meta_id' => 900 + $index,
+                    'post_id' => $id,
+                    'meta_key' => 'rank_math_internal_links_processed',
+                    'meta_value' => '1',
+                ];
+            }
+            $links = rank_math_test_native_links();
+            $db->seedTable('rank_math_internal_links', $links);
+            $db->seedTable('rank_math_internal_meta', rank_math_test_meta_for_links($links));
+        } else {
+            $db->seedTable('rank_math_internal_links', []);
+            $db->seedTable('rank_math_internal_meta', []);
         }
-        $db->seedTable('rank_math_internal_links', $links);
-        $db->seedTable('rank_math_internal_meta', $meta);
         $db->seedTable('postmeta', $markers);
     }
 
-    /** @param ?list<int> $ids @param list<int> $additionalTargets @return array<string,mixed> */
-    function rank_math_test_projection(?array $ids, array $additionalTargets = []): array {
-        /** @var FakeWpdb $db */
-        $db = $GLOBALS['wpdb'];
-        $links = $db->prefix . 'rank_math_internal_links';
-        $meta = $db->prefix . 'rank_math_internal_meta';
-        $where = $ids === null ? '' : ' WHERE post_id IN (' . implode(',', $ids) . ')';
-        $linkRows = $db->get_results(
-            "SELECT url, post_id, target_post_id, type FROM `$links`$where ORDER BY post_id, url, target_post_id, type",
-            ARRAY_A
-        );
-        if (!is_array($linkRows)) {
-            throw new RuntimeException('fixture link projection failed');
+    /** @return array<string,mixed> */
+    function rank_math_test_projection(): array {
+        $provider = $GLOBALS['rank_math_test_provider'] ?? null;
+        if (!$provider instanceof RankMathState) {
+            throw new RuntimeException('fixture provider projection is unavailable');
         }
-        $affected = $ids === null ? null : array_fill_keys(array_merge($ids, $additionalTargets), true);
-        if (is_array($affected)) {
-            foreach ($linkRows as $row) {
-                $target = (int) ($row['target_post_id'] ?? 0);
-                if ($target > 0) {
-                    $affected[$target] = true;
-                }
-            }
+        $method = new ReflectionMethod(RankMathState::class, 'link_projection');
+        $projection = $method->invoke($provider);
+        if (!is_array($projection)) {
+            throw new RuntimeException('fixture provider projection failed');
         }
-        $metaWhere = $affected === null ? '' : ' WHERE object_id IN (' . implode(',', array_keys($affected)) . ')';
-        $metaRows = $db->get_results(
-            "SELECT object_id, internal_link_count, external_link_count, incoming_link_count FROM `$meta`$metaWhere ORDER BY object_id",
-            ARRAY_A
-        );
-        $markerRows = [];
-        if ($ids !== null) {
-            $markerRows = $db->get_results(
-                "SELECT post_id, meta_value FROM `{$db->postmeta}` WHERE meta_key = 'rank_math_internal_links_processed' "
-                    . 'AND post_id IN (' . implode(',', $ids) . ') ORDER BY post_id, meta_id',
-                ARRAY_A
-            );
-        }
-        if (!is_array($metaRows) || !is_array($markerRows)) {
-            throw new RuntimeException('fixture count projection failed');
-        }
-        return [
-            'enabled' => in_array('link-counter', $GLOBALS['rank_math_test_modules'], true),
-            'post_count' => $ids === null ? null : count($ids),
-            'link_count' => count($linkRows),
-            'link_hash' => hash('sha256', serialize($linkRows)),
-            'meta_count' => count($metaRows),
-            'meta_hash' => hash('sha256', serialize($metaRows)),
-            'marker_count' => count($markerRows),
-            'marker_hash' => hash('sha256', serialize($markerRows)),
-        ];
+        return $projection;
     }
 
-    /** @param ?list<int> $ids */
-    function rank_math_test_result(?array $ids, ?array $projection = null): object {
+    /** @param ?array<string,mixed> $projection */
+    function rank_math_test_result(?array $projection = null): object {
         return (object) [
             'return_code' => 0,
             'stdout' => json_encode([
                 'format' => 'wprism-rank-math-link-rebuild/v1',
-                'projection' => $projection ?? rank_math_test_projection(
-                    $ids,
-                    $ids === null ? [] : $GLOBALS['rank_math_test_old_targets']
-                ),
+                'projection' => $projection ?? rank_math_test_projection(),
                 'verified' => true,
             ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
             'stderr' => '',
@@ -384,17 +614,180 @@ namespace {
         $GLOBALS['rank_math_test_installer_calls'] = [];
         $GLOBALS['rank_math_test_installer_omit'] = null;
         $GLOBALS['rank_math_test_installer_extra_column'] = false;
-        $GLOBALS['rank_math_test_child_ids'] = [10];
-        $GLOBALS['rank_math_test_old_targets'] = [999];
+        $GLOBALS['rank_math_test_installer_mutate_table'] = null;
         $GLOBALS['rank_math_test_hooks'] = [];
+        $GLOBALS['rank_math_test_types'] = ['page' => 'page', 'post' => 'post'];
+        $GLOBALS['rank_math_test_helper_types'] = ['page' => 'page', 'post' => 'post'];
+        $GLOBALS['rank_math_test_options'] = [
+            'close_comments_days_old' => 14,
+            'close_comments_for_old_posts' => 1,
+            'comments_per_page' => 50,
+            'default_category' => 1,
+            'page_for_posts' => 0,
+            'page_on_front' => 0,
+            'permalink_structure' => '',
+            'posts_per_page' => 10,
+            'posts_per_rss' => 10,
+            'rewrite_rules' => [],
+            'sticky_posts' => [],
+            'wp_page_for_privacy_policy' => 0,
+        ];
+        $GLOBALS['rank_math_test_clean_post_cache_calls'] = 0;
+        $GLOBALS['rank_math_test_permalink_calls'] = 0;
+        $GLOBALS['rank_math_test_url_to_postid_calls'] = 0;
+        $GLOBALS['rank_math_test_url_to_postid_override'] = null;
+        $GLOBALS['rank_math_test_in_native_process'] = false;
+        $GLOBALS['rank_math_test_rebuild_links_override'] = null;
+        $GLOBALS['rank_math_test_process_calls'] = 0;
         $GLOBALS['wprism_wp_cli_child_fake_stderr_first'] = false;
+        $GLOBALS['wp_filter'] = [
+            'rank_math/excluded_post_types' => new WP_Hook([
+                10 => [
+                    'rank-math-native' => [
+                        'accepted_args' => 1,
+                        'function' => [new \RankMath\Defaults(), 'excluded_post_types'],
+                    ],
+                ],
+            ]),
+        ];
+        $GLOBALS['wp_rewrite'] = (object) ['rules' => []];
+        $GLOBALS['wp'] = (object) ['public_query_vars' => ['p', 'page_id', 'name', 'post_type']];
+        $GLOBALS['wp_post_types'] = [
+            'post' => get_post_type_object('post'),
+            'page' => get_post_type_object('page'),
+        ];
 
         $db = FakeWpdb::install();
-        $db->setColumns('postmeta', rank_math_test_columns()['postmeta']);
+        foreach ([
+            'postmeta', 'posts', 'options', 'comments', 'term_relationships', 'term_taxonomy', 'terms',
+            'users', 'usermeta',
+        ] as $table) {
+            $db->setColumns($table, rank_math_test_columns()[$table]);
+            $db->setTableEngine($table, 'InnoDB');
+        }
         $db->seedTable('postmeta', [
             ['meta_id' => 1, 'post_id' => 10, 'meta_key' => 'rank_math_internal_links_processed', 'meta_value' => 'stale'],
             ['meta_id' => 2, 'post_id' => 77, 'meta_key' => 'target_only_runtime', 'meta_value' => 'preserve'],
         ]);
+        $db->seedTable('posts', rank_math_test_posts());
+        $db->seedTable('options', [
+            [
+                'option_id' => 1,
+                'option_name' => 'default_category',
+                'option_value' => '1',
+                'autoload' => 'yes',
+            ],
+            [
+                'option_id' => 2,
+                'option_name' => 'permalink_structure',
+                'option_value' => '',
+                'autoload' => 'yes',
+            ],
+            [
+                'option_id' => 3,
+                'option_name' => 'rank_math_modules',
+                'option_value' => serialize(['link-counter', 'redirections']),
+                'autoload' => 'yes',
+            ],
+            [
+                'option_id' => 4,
+                'option_name' => 'close_comments_days_old',
+                'option_value' => '14',
+                'autoload' => 'yes',
+            ],
+            [
+                'option_id' => 5,
+                'option_name' => 'close_comments_for_old_posts',
+                'option_value' => '1',
+                'autoload' => 'yes',
+            ],
+            [
+                'option_id' => 6,
+                'option_name' => 'comments_per_page',
+                'option_value' => '50',
+                'autoload' => 'yes',
+            ],
+            [
+                'option_id' => 7,
+                'option_name' => 'page_for_posts',
+                'option_value' => '0',
+                'autoload' => 'yes',
+            ],
+            [
+                'option_id' => 8,
+                'option_name' => 'page_on_front',
+                'option_value' => '0',
+                'autoload' => 'yes',
+            ],
+            [
+                'option_id' => 9,
+                'option_name' => 'posts_per_page',
+                'option_value' => '10',
+                'autoload' => 'yes',
+            ],
+            [
+                'option_id' => 10,
+                'option_name' => 'posts_per_rss',
+                'option_value' => '10',
+                'autoload' => 'yes',
+            ],
+            [
+                'option_id' => 11,
+                'option_name' => 'rewrite_rules',
+                'option_value' => 'a:0:{}',
+                'autoload' => 'yes',
+            ],
+            [
+                'option_id' => 12,
+                'option_name' => 'sticky_posts',
+                'option_value' => 'a:0:{}',
+                'autoload' => 'yes',
+            ],
+            [
+                'option_id' => 13,
+                'option_name' => 'wp_page_for_privacy_policy',
+                'option_value' => '0',
+                'autoload' => 'yes',
+            ],
+        ]);
+        $db->seedTable('comments', [[
+            'comment_ID' => 1,
+            'comment_post_ID' => 20,
+            'comment_author' => 'Fixture Reader',
+            'comment_author_email' => 'reader@example.test',
+            'comment_author_url' => '',
+            'comment_author_IP' => '192.0.2.10',
+            'comment_date' => '2026-08-27 01:00:00',
+            'comment_date_gmt' => '2026-08-26 19:00:00',
+            'comment_content' => 'fixture comment',
+            'comment_karma' => 0,
+            'comment_approved' => '1',
+            'comment_agent' => 'wprism-test',
+            'comment_type' => 'comment',
+            'comment_parent' => 0,
+            'user_id' => 0,
+        ]]);
+        $db->seedTable('term_relationships', []);
+        $db->seedTable('term_taxonomy', []);
+        $db->seedTable('terms', []);
+        $db->seedTable('users', [[
+            'ID' => 1,
+            'user_login' => 'admin',
+            'user_pass' => 'hash',
+            'user_nicename' => 'admin',
+            'user_email' => 'admin@example.test',
+            'user_url' => '',
+            'user_registered' => '2026-01-01 00:00:00',
+            'user_activation_key' => '',
+            'user_status' => 0,
+            'display_name' => 'Admin',
+        ]]);
+        $db->seedTable('usermeta', [[
+            'umeta_id' => 1,
+            'user_id' => 1,
+            'meta_key' => 'wp_capabilities',
+            'meta_value' => 'a:1:{s:13:"administrator";b:1;}',
+        ]]);
         if ($schema === 'full') {
             rank_math_test_install_tables([
                 'rank_math_internal_links', 'rank_math_internal_meta',
@@ -416,11 +809,9 @@ namespace {
             ]);
         }
         $GLOBALS['rank_math_test_after_command'] = static function (): void {
-            rank_math_test_rebuild($GLOBALS['rank_math_test_child_ids']);
+            rank_math_test_rebuild();
         };
-        $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result(
-            $GLOBALS['rank_math_test_child_ids']
-        );
+        $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result();
 
         $manifest = json_decode(
             (string) file_get_contents(dirname(__DIR__, 4) . '/adapter-packages/rank-math/package/manifest.json'),
@@ -428,7 +819,32 @@ namespace {
             512,
             JSON_THROW_ON_ERROR
         );
-        return new RankMathState($manifest['providers'][0]);
+        $provider = new RankMathState($manifest['providers'][0]);
+        $GLOBALS['rank_math_test_provider'] = $provider;
+        return $provider;
+    }
+
+    function rank_math_test_set_option(string $name, mixed $value): void {
+        $GLOBALS['rank_math_test_options'][$name] = $value;
+        $rows = $GLOBALS['wpdb']->rows('options');
+        $found = false;
+        foreach ($rows as &$row) {
+            if (($row['option_name'] ?? null) !== $name) {
+                continue;
+            }
+            $row['option_value'] = is_array($value) ? serialize($value) : (string) $value;
+            $found = true;
+        }
+        unset($row);
+        if (!$found) {
+            $rows[] = [
+                'option_id' => count($rows) + 1,
+                'option_name' => $name,
+                'option_value' => is_array($value) ? serialize($value) : (string) $value,
+                'autoload' => 'yes',
+            ];
+        }
+        $GLOBALS['wpdb']->seedTable('options', $rows);
     }
 
     /** @return string */
@@ -441,31 +857,371 @@ namespace {
         throw new RuntimeException('expected Rank Math provider refusal');
     }
 
+    /** @return array{exit:int,stdout:string,stderr:string} */
+    function rank_math_test_child_topology(string $mode): array {
+        $method = new ReflectionMethod(RankMathState::class, 'child_payload');
+        $payload = $method->invoke(null);
+        if (!is_string($payload)) {
+            throw new RuntimeException('could not read Rank Math child payload');
+        }
+        $probe = <<<'PHP'
+namespace RankMath {
+    class Defaults {
+        public function excluded_post_types(array $types): array { return $types; }
+    }
+    class SubstituteDefaults extends Defaults {
+        public function excluded_post_types(array $types): array { return []; }
+    }
+}
+namespace {
+    define('ARRAY_A', 'ARRAY_A');
+    final class WP_Hook {
+        /** @var array<int,array<string,array{accepted_args:int,function:array{object,string}}>> */
+        public array $callbacks;
+        public function __construct(array $callbacks) { $this->callbacks = $callbacks; }
+    }
+    final class RankMathTopologyWpdb {
+        public string $prefix = 'wp_';
+        public string $postmeta = 'wp_postmeta';
+        public string $posts = 'wp_posts';
+        public string $options = 'wp_options';
+        public string $term_relationships = 'wp_term_relationships';
+        public string $term_taxonomy = 'wp_term_taxonomy';
+        public string $terms = 'wp_terms';
+        public string $last_error = '';
+        public function query(string $sql): int { return 1; }
+        public function prepare(string $sql, mixed ...$args): string {
+            foreach ($args as $arg) {
+                $sql = preg_replace('/%s/', "'" . str_replace("'", "''", (string) $arg) . "'", $sql, 1);
+            }
+            return $sql;
+        }
+        public function get_results(string $sql, string $format): array {
+            if (str_starts_with($sql, 'SHOW TABLE STATUS LIKE ')) {
+                return [['Engine' => 'InnoDB']];
+            }
+            if (str_starts_with($sql, 'SELECT COUNT(*) AS row_count')) {
+                return [['row_count' => '0', 'total_bytes' => '0', 'max_row_bytes' => '0']];
+            }
+            return [];
+        }
+    }
+    function is_multisite(): bool { return false; }
+    function get_option(string $name, mixed $default = false): mixed {
+        return $name === 'rank_math_modules' ? [] : $default;
+    }
+    function has_filter(string $name): int|false { return false; }
+    function home_url(string $path = ''): string { return 'https://fixture.example.test' . $path; }
+    function wp_json_encode(mixed $value, int $flags = 0): string|false { return json_encode($value, $flags); }
+
+    $mode = $argv[1] ?? '';
+    $native = $mode === 'subclass'
+        ? new \RankMath\SubstituteDefaults()
+        : new \RankMath\Defaults();
+    $entries = [
+        'native' => ['accepted_args' => 1, 'function' => [$native, 'excluded_post_types']],
+    ];
+    if ($mode === 'extension') {
+        $entries['extension'] = ['accepted_args' => 1, 'function' => [new \RankMath\Defaults(), 'excluded_post_types']];
+    } elseif ($mode === 'method') {
+        $entries['native']['function'][1] = 'other_method';
+    }
+    $GLOBALS['wp_filter'] = [
+        'rank_math/excluded_post_types' => new WP_Hook([10 => $entries]),
+    ];
+    $GLOBALS['wpdb'] = new RankMathTopologyWpdb();
+    try {
+        eval((string) base64_decode($argv[2] ?? '', true));
+    } catch (\Throwable $failure) {
+        fwrite(STDERR, $failure->getMessage());
+        exit(23);
+    }
+}
+PHP;
+        $pipes = [];
+        $process = proc_open(
+            [PHP_BINARY, '-r', $probe, $mode, base64_encode($payload)],
+            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes
+        );
+        if (!is_resource($process)) {
+            throw new RuntimeException('could not launch Rank Math topology probe');
+        }
+        fclose($pipes[0]);
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $exit = proc_close($process);
+        return [
+            'exit' => $exit,
+            'stdout' => is_string($stdout) ? $stdout : '',
+            'stderr' => is_string($stderr) ? $stderr : '',
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    function rank_math_test_execute_child(): array {
+        $method = new ReflectionMethod(RankMathState::class, 'child_payload');
+        $payload = $method->invoke(null);
+        if (!is_string($payload)) {
+            throw new RuntimeException('could not read Rank Math child payload');
+        }
+        ob_start();
+        try {
+            eval($payload);
+            $stdout = ob_get_contents();
+        } finally {
+            ob_end_clean();
+        }
+        $decoded = json_decode((string) $stdout, true, 16, JSON_THROW_ON_ERROR);
+        if (!is_array($decoded)) {
+            throw new RuntimeException('Rank Math child payload returned no receipt');
+        }
+        return $decoded;
+    }
+
     $provider = rank_math_test_reset('none');
     wprism_check_same(
         ['id' => 'rank-math-state', 'plugin' => 'seo-by-rank-math/rank-math.php', 'version' => '1.0.0'],
         $provider->identity(),
         'provider identity makes schema and link-repair behavior digest-visible'
     );
+    $readiness = $provider->invoke('inspect_schema', []);
+    wprism_check_same($readiness['before'], $readiness['after'],
+        'read-only readiness returns one stable exact schema projection');
+    wprism_check_same([false, false, false, false], array_column($readiness['after'], 'present'),
+        'read-only readiness distinguishes a virgin target without creating tables');
+    wprism_check_same([], $GLOBALS['rank_math_test_installer_calls'],
+        'read-only readiness never enters the native installer');
     $schemaReceipt = $provider->invoke('prepare_schema', []);
     wprism_check_same(
         [['link-counter', 'redirections']],
         $GLOBALS['rank_math_test_installer_calls'],
-        'lifecycle settlement asks the native installer for both reviewed module schemas'
+        'schema settlement asks the native installer for both reviewed module schemas'
     );
-    foreach (array_keys(rank_math_test_columns()) as $table) {
-        if ($table === 'postmeta') {
-            continue;
-        }
+    foreach (array_keys(rank_math_test_schema()) as $table) {
         wprism_check_same(false, $schemaReceipt['before'][$table]['present'] ?? null, "$table starts absent on a clean target");
-        wprism_check_same(true, $schemaReceipt['after'][$table]['present'] ?? null, "$table is present after native lifecycle settlement");
+        wprism_check_same(true, $schemaReceipt['after'][$table]['present'] ?? null, "$table is present after native schema settlement");
     }
     $schemaRetry = $provider->invoke('prepare_schema', []);
     wprism_check_same(
         $schemaRetry['before'],
         $schemaRetry['after'],
-        'repeated lifecycle settlement is an exact no-op at the checked schema projection'
+        'repeated schema settlement is an exact no-op at the checked schema projection'
     );
+    $ready = $provider->invoke('inspect_schema', []);
+    wprism_check_same([true, true, true, true], array_column($ready['after'], 'present'),
+        'readiness certifies every audited schema after native preparation');
+
+    $provider = rank_math_test_reset('link');
+    $existingLinkRows = $GLOBALS['wpdb']->rows('rank_math_internal_links');
+    $mixedSchemaReceipt = $provider->invoke('prepare_schema', []);
+    wprism_check_same(
+        $mixedSchemaReceipt['before']['rank_math_internal_links'],
+        $mixedSchemaReceipt['after']['rank_math_internal_links'],
+        'mixed schema preparation carries a complete unchanged witness for an existing table'
+    );
+    wprism_check_same(
+        $existingLinkRows,
+        $GLOBALS['wpdb']->rows('rank_math_internal_links'),
+        'native schema preparation preserves every existing link row byte'
+    );
+    wprism_check_same(
+        0,
+        $mixedSchemaReceipt['after']['rank_math_redirections']['row_count'] ?? null,
+        'a newly created schema table is proved virgin rather than silently seeded'
+    );
+
+    $provider = rank_math_test_reset('link');
+    $chunkedRows = [];
+    for ($id = 1; $id <= 1100; $id++) {
+        $chunkedRows[] = [
+            'id' => $id,
+            'url' => '/chunk-' . $id,
+            'post_id' => $id,
+            'target_post_id' => $id + 1,
+            'type' => 'internal',
+        ];
+    }
+    $GLOBALS['wpdb']->seedTable('rank_math_internal_links', $chunkedRows);
+    $GLOBALS['wpdb']->resetLog();
+    $chunkedReceipt = $provider->invoke('prepare_schema', []);
+    wprism_check_same(
+        $chunkedReceipt['before']['rank_math_internal_links'],
+        $chunkedReceipt['after']['rank_math_internal_links'],
+        'a multi-chunk existing table has one invariant incremental witness'
+    );
+    $projectionQueries = $GLOBALS['wpdb']->queries();
+    $chunkQueries = array_values(array_filter(
+        $projectionQueries,
+        static fn(string $sql): bool => str_contains($sql, 'FROM `wp_rank_math_internal_links`')
+            && str_contains($sql, 'ORDER BY `id` LIMIT 1024')
+    ));
+    wprism_check(
+        count($chunkQueries) >= 2,
+        'the row witness transfers a bounded 1,024-row page and primary-key continuation page'
+    );
+    $snapshotStarts = array_keys(array_filter(
+        $projectionQueries,
+        static fn(string $sql): bool => $sql === 'START TRANSACTION WITH CONSISTENT SNAPSHOT'
+    ));
+    $snapshotCommits = array_keys(array_filter(
+        $projectionQueries,
+        static fn(string $sql): bool => $sql === 'COMMIT'
+    ));
+    $firstBounds = null;
+    foreach ($projectionQueries as $queryIndex => $sql) {
+        if (str_contains($sql, 'COUNT(*) AS row_count')
+            && str_contains($sql, 'FROM `wp_rank_math_internal_links`')) {
+            $firstBounds = $queryIndex;
+            break;
+        }
+    }
+    wprism_check(
+        count($snapshotStarts) === 2
+            && count($snapshotCommits) === 2
+            && is_int($firstBounds)
+            && $snapshotStarts[0] < $firstBounds
+            && $firstBounds < $snapshotCommits[0],
+        'each before/after row witness is one explicit repeatable-read consistent snapshot'
+    );
+    $firstChunkHash = $chunkedReceipt['after']['rank_math_internal_links']['rows_sha256'] ?? null;
+    $chunkedRows[1080]['url'] = '/chunk-1081-mutated';
+    $GLOBALS['wpdb']->seedTable('rank_math_internal_links', $chunkedRows);
+    $changedChunkReceipt = $provider->invoke('prepare_schema', []);
+    wprism_check(
+        is_string($firstChunkHash)
+            && $firstChunkHash !== ($changedChunkReceipt['after']['rank_math_internal_links']['rows_sha256'] ?? null),
+        'a value change beyond the first chunk changes the complete table witness'
+    );
+    wprism_check_same(
+        $changedChunkReceipt['before']['rank_math_internal_links'],
+        $changedChunkReceipt['after']['rank_math_internal_links'],
+        'the changed multi-chunk witness remains invariant when the installer preserves it'
+    );
+
+    $provider = rank_math_test_reset('full');
+    $GLOBALS['wpdb']->seedTable('rank_math_redirections', [[
+        'id' => 1,
+        'sources' => str_repeat('x', 1048577),
+        'url_to' => '/bounded',
+        'header_code' => 302,
+        'hits' => 0,
+        'status' => 'active',
+        'created' => '2026-09-02 00:00:00',
+        'updated' => '2026-09-02 00:00:00',
+        'last_accessed' => '2026-09-02 00:00:00',
+    ]]);
+    $GLOBALS['wpdb']->resetLog();
+    wprism_check_throws(
+        static fn(): array => $provider->invoke('prepare_schema', []),
+        RuntimeException::class,
+        'one oversized LONGTEXT row refuses before PHP row materialization',
+        'exceeds the bounded byte projection'
+    );
+    wprism_check_same([], $GLOBALS['rank_math_test_installer_calls'],
+        'oversized content refuses before the native installer can mutate schema');
+    wprism_check_same(
+        [],
+        array_values(array_filter(
+            $GLOBALS['wpdb']->queries(),
+            static fn(string $sql): bool => str_starts_with($sql, 'SELECT `id`, `sources`')
+        )),
+        'the database-side byte bound refuses the oversized row before a value-bearing SELECT'
+    );
+
+    $provider = rank_math_test_reset('link');
+    $raceInjected = false;
+    $GLOBALS['wpdb']->onQuery(static function (string $sql, string $method, FakeWpdb $db) use (&$raceInjected): null {
+        if (!$raceInjected
+            && $method === 'get_results'
+            && str_starts_with($sql, 'SELECT `id`, `url`')
+            && str_contains($sql, 'ORDER BY `id` LIMIT 1024')) {
+            $rows = $db->rows('rank_math_internal_links');
+            $rows[0]['url'] = str_repeat('x', 1048577);
+            $db->seedTable('rank_math_internal_links', $rows);
+            $raceInjected = true;
+        }
+        return null;
+    });
+    $GLOBALS['wpdb']->resetLog();
+    wprism_check_throws(
+        static fn(): array => $provider->invoke('prepare_schema', []),
+        RuntimeException::class,
+        'a row that grows after the aggregate census refuses without entering the provider heap',
+        'changed during the bounded witness'
+    );
+    wprism_check_same(true, $raceInjected,
+        'the concurrency regression mutates the LONGTEXT row between bounds and value read');
+    $racedValueQueries = array_values(array_filter(
+        $GLOBALS['wpdb']->queries(),
+        static fn(string $sql): bool => str_starts_with($sql, 'SELECT `id`, `url`')
+    ));
+    $allRacedValueQueriesBounded = $racedValueQueries !== [];
+    foreach ($racedValueQueries as $sql) {
+        if (!str_contains($sql, 'COALESCE(OCTET_LENGTH(`url`), 0)')
+            || !str_contains($sql, '<= 1048576')) {
+            $allRacedValueQueriesBounded = false;
+            break;
+        }
+    }
+    wprism_check(
+        $allRacedValueQueriesBounded,
+        'every value-bearing keyset page enforces the raw-row cap in its SQL predicate'
+    );
+    wprism_check_same([], $GLOBALS['rank_math_test_installer_calls'],
+        'the raced oversized row refuses before the native installer can mutate schema');
+
+    $provider = rank_math_test_reset('link');
+    $appendInjected = false;
+    $GLOBALS['wpdb']->onQuery(static function (string $sql, string $method, FakeWpdb $db) use (&$appendInjected): null {
+        if (!$appendInjected
+            && $method === 'get_results'
+            && str_starts_with($sql, 'SELECT `id`, `url`')
+            && str_contains($sql, 'ORDER BY `id` LIMIT 1024')) {
+            $rows = $db->rows('rank_math_internal_links');
+            $rows[] = [
+                'id' => 3,
+                'url' => '/concurrent-append',
+                'post_id' => 3,
+                'target_post_id' => 4,
+                'type' => 'internal',
+            ];
+            $db->seedTable('rank_math_internal_links', $rows);
+            $appendInjected = true;
+        }
+        return null;
+    });
+    wprism_check_throws(
+        static fn(): array => $provider->invoke('prepare_schema', []),
+        RuntimeException::class,
+        'a row appended after the aggregate census cannot be silently omitted from a success-shaped witness',
+        'changed during the bounded witness'
+    );
+    wprism_check_same(true, $appendInjected,
+        'the append regression enters exactly between the bounded census and keyset transfer');
+
+    $provider = rank_math_test_reset('link');
+    $GLOBALS['wpdb']->setTableEngine('rank_math_internal_links', 'MyISAM');
+    wprism_check_throws(
+        static fn(): array => $provider->invoke('prepare_schema', []),
+        RuntimeException::class,
+        'a non-MVCC table cannot claim a coherent complete row witness',
+        "requires InnoDB for 'rank_math_internal_links'"
+    );
+    wprism_check_same([], $GLOBALS['rank_math_test_installer_calls'],
+        'storage-engine refusal precedes the native schema installer');
+
+    $provider = rank_math_test_reset('link');
+    $GLOBALS['rank_math_test_installer_mutate_table'] = 'rank_math_internal_links';
+    wprism_check_throws(
+        static fn(): array => $provider->invoke('prepare_schema', []),
+        RuntimeException::class,
+        'schema preparation cannot hide row mutation behind an unchanged column/index hash',
+        'changed rows or structure in existing table'
+    );
+
     wprism_check_throws(
         static fn(): array => $provider->invoke('prepare_schema', ['unexpected' => true]),
         RuntimeException::class,
@@ -489,7 +1245,33 @@ namespace {
         'an undeclared required column cannot enter the provider rollback boundary under a success-shaped installer call',
         'disagrees with the audited column/index contract'
     );
-    foreach (['rank_math/admin/create_tables', 'rank_math/admin/after_create_tables'] as $hook) {
+    $provider = rank_math_test_reset('full');
+    $malformed = rank_math_test_schema()['rank_math_internal_links']['columns'];
+    $malformed[] = [
+        'Field' => 'legacy_column',
+        'Type' => 'varchar(32)',
+        'Collation' => 'utf8mb4_unicode_ci',
+        'Null' => 'NO',
+        'Key' => '',
+        'Default' => null,
+        'Extra' => '',
+    ];
+    $GLOBALS['wpdb']->setColumnDefinitions('rank_math_internal_links', $malformed);
+    wprism_check_throws(
+        static fn(): array => $provider->invoke('inspect_schema', []),
+        RuntimeException::class,
+        'presence cannot certify a malformed pre-existing schema',
+        'disagrees with the audited column/index contract'
+    );
+    wprism_check_same([], $GLOBALS['rank_math_test_installer_calls'],
+        'malformed readiness refuses without attempting dbDelta repair');
+    foreach ([
+        'dbdelta_create_queries',
+        'dbdelta_insert_queries',
+        'dbdelta_queries',
+        'rank_math/admin/after_create_tables',
+        'rank_math/admin/create_tables',
+    ] as $hook) {
         $provider = rank_math_test_reset('none');
         $GLOBALS['rank_math_test_hooks'][$hook] = true;
         wprism_check_throws(
@@ -509,51 +1291,119 @@ namespace {
     );
 
     $provider = rank_math_test_reset('link');
-    $receipt = $provider->invoke('rebuild_link_state', [
-        'entities' => [
-            ['kind' => 'post:post', 'id' => 10],
-            ['kind' => 'post:post', 'id' => 10],
-        ],
-    ]);
-    wprism_check_same(true, $receipt['verified'] ?? null, 'entity link repair returns a verified value-level receipt');
-    wprism_check_same(1, $receipt['after']['post_count'] ?? null, 'duplicate trigger identities collapse before native repair');
-    wprism_check_same(2, $receipt['after']['link_count'] ?? null, 'entity repair restores the exact internal and external source edges');
-    wprism_check_same(3, $receipt['after']['meta_count'] ?? null,
-        'entity repair covers source plus both previous and newly referenced target counts');
-    $oldTargetRows = array_values(array_filter(
-        $GLOBALS['wpdb']->rows('rank_math_internal_meta'),
-        static fn(array $row): bool => (int) $row['object_id'] === 999
-    ));
-    wprism_check_same(0, $oldTargetRows[0]['incoming_link_count'] ?? null,
-        'retargeting explicitly converges the previous target incoming count to zero');
-    wprism_check_same(1, $receipt['after']['marker_count'] ?? null, 'entity repair proves the native processed marker');
+    $receipt = $provider->invoke('rebuild_all_link_state', []);
+    wprism_check_same(true, $receipt['verified'] ?? null, 'site link repair returns a verified value-level receipt');
+    wprism_check_same(2, $receipt['after']['post_count'] ?? null,
+        'site repair binds every accessible source post in the complete projection');
+    wprism_check(
+        preg_match('/^[a-f0-9]{64}$/D', (string) ($receipt['after']['post_hash'] ?? '')) === 1
+            && preg_match('/^[a-f0-9]{64}$/D', (string) ($receipt['after']['dependency_hash'] ?? '')) === 1,
+        'site repair receipt binds source content and exact route dependencies without exposing values'
+    );
+    wprism_check_same(4, $receipt['after']['link_count'] ?? null,
+        'site repair replaces internal, external and unresolved-internal edge projections');
+    wprism_check_same(2, $receipt['after']['meta_count'] ?? null,
+        'site repair removes counts owned by deleted or inaccessible posts');
+    wprism_check_same(2, $receipt['after']['marker_count'] ?? null,
+        'site repair proves the exact processed-marker identity set');
+    foreach ([77, 88, 999] as $staleId) {
+        wprism_check_same(
+            [],
+            array_values(array_filter(
+                $GLOBALS['wpdb']->rows('rank_math_internal_meta'),
+                static fn(array $row): bool => (int) $row['object_id'] === $staleId
+            )),
+            "site repair removes stale Rank Math count identity $staleId"
+        );
+    }
     wprism_check_same(
-        [['id' => 2, 'url' => '/target-only', 'post_id' => 77, 'target_post_id' => 88, 'type' => 'internal']],
-        array_values(array_filter(
-            $GLOBALS['wpdb']->rows('rank_math_internal_links'),
-            static fn(array $row): bool => (int) $row['post_id'] === 77
+        [10, 20],
+        array_values(array_map(
+            static fn(array $row): int => (int) $row['post_id'],
+            array_filter(
+                $GLOBALS['wpdb']->rows('postmeta'),
+                static fn(array $row): bool => $row['meta_key'] === 'rank_math_internal_links_processed'
+            )
         )),
-        'entity repair preserves unrelated target-only derived rows'
+        'site repair removes deleted-source markers and leaves one marker per accessible post'
     );
     wprism_check_same('preserve', $GLOBALS['wpdb']->rows('postmeta')[0]['meta_value'] ?? null,
-        'entity repair preserves unrelated target-only post metadata');
-    wprism_check_same(1, count($GLOBALS['rank_math_test_command_calls']), 'entity repair launches exactly one fresh process');
+        'site repair preserves unrelated post metadata');
+    wprism_check_same(1, count($GLOBALS['rank_math_test_command_calls']), 'site repair launches exactly one fresh process');
     [$command, $options] = $GLOBALS['rank_math_test_command_calls'][0];
-    wprism_check(
-        str_contains($command, '$ids = [10]')
-            && str_contains($command, '$oldTargetIds = [999]')
-            && str_contains($command, 'RankMath\\Links\\Links::process_post_links')
-            && substr_count($command, 'process_post_links($id, $post)') === 2
-            && str_contains($command, 'is_multisite()')
-            && str_contains($command, 'RankMath\\Helper::get_accessible_post_types'),
-        'fresh child carries the deduplicated batch, native API, idempotence pass and scope guard'
-    );
+    wprism_check(str_contains($command, 'Rank Math derived link-state reset failed'),
+        'fresh child carries the complete derived-state reset');
+    wprism_check(str_contains($command, 'rank_math_internal_links_processed'),
+        'fresh child binds the exact Rank Math processed-marker key');
+    wprism_check(substr_count($command, '$processPass();') === 2
+        && str_contains($command, 'process_post_links($id, $post)'),
+        'fresh child carries the native idempotence pass');
+    wprism_check(str_contains($command, 'is_multisite()'),
+        'fresh child carries the single-site scope guard');
+    wprism_check(str_contains($command, 'get_accessible_post_types'),
+        'fresh child inventories every Rank Math-accessible post type');
     foreach ([
         'rank_math/excluded_post_types',
-        'rank_math/links/content', 'rank_math/links/extract', 'rank_math/links/link_type',
-        'rank_math/links/process_post', 'rank_math/links/save_links',
+        'rank_math/links/content', 'rank_math/links/extract', 'rank_math/links/is_external',
+        'rank_math/links/link_type', 'rank_math/links/process_post', 'rank_math/links/save_links',
     ] as $filter) {
         wprism_check(str_contains($command, $filter), "fresh child refuses unreviewed callback authority at $filter");
+    }
+    foreach ([
+        'rank_math/links/content', 'rank_math/links/extract', 'rank_math/links/is_external',
+        'rank_math/links/link_type', 'rank_math/links/process_post', 'rank_math/links/save_links',
+    ] as $filter) {
+        $filteredProvider = rank_math_test_reset('link');
+        $GLOBALS['rank_math_test_hooks'][$filter] = true;
+        wprism_check_throws(
+            static fn(): array => $filteredProvider->invoke('rebuild_all_link_state', []),
+            RuntimeException::class,
+            "a callback on $filter refuses before native link mutation",
+            'refuses an unreviewed link-processing callback'
+        );
+        wprism_check_same([], $GLOBALS['rank_math_test_command_calls'],
+            "$filter refusal launches no child process");
+    }
+
+    $provider = rank_math_test_reset('link');
+    rank_math_test_set_option('permalink_structure', '/%postname%/');
+    wprism_check_throws(
+        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
+        RuntimeException::class,
+        'pretty-permalink repair refuses empty stored and loaded rewrite rules before native resolution can regenerate them',
+        'requires exact non-empty stored and loaded rewrite rules'
+    );
+    wprism_check_same([], $GLOBALS['rank_math_test_command_calls'],
+        'empty pretty-permalink rules refuse before the native child can mutate link state');
+
+    $provider = rank_math_test_reset('link');
+    rank_math_test_set_option('permalink_structure', '/%postname%/');
+    rank_math_test_set_option('rewrite_rules', ['stored/?$' => 'index.php?pagename=stored']);
+    $GLOBALS['wp_rewrite']->rules = ['loaded/?$' => 'index.php?pagename=loaded'];
+    wprism_check_throws(
+        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
+        RuntimeException::class,
+        'pretty-permalink repair refuses stored/loaded rewrite-rule drift before URL resolution',
+        'requires exact non-empty stored and loaded rewrite rules'
+    );
+    wprism_check_same([], $GLOBALS['rank_math_test_command_calls'],
+        'rewrite-rule drift refuses before the native child can mutate link state');
+
+    $provider = rank_math_test_reset('link');
+    $receipt = $provider->invoke('rebuild_all_link_state', []);
+    $nativeTopology = rank_math_test_child_topology('native');
+    wprism_check(
+        $nativeTopology['exit'] === 0
+            && str_contains($nativeTopology['stdout'], 'wprism-rank-math-link-rebuild/v1'),
+        'the exact Rank Math native exclusion callback is the sole admitted topology'
+    );
+    foreach (['subclass', 'extension', 'method'] as $mode) {
+        $topology = rank_math_test_child_topology($mode);
+        wprism_check(
+            $topology['exit'] === 23
+                && $topology['stderr'] === 'Rank Math link repair requires exactly its audited native exclusion callback',
+            "fresh child refuses $mode substitution at the native exclusion hook"
+        );
     }
     wprism_check_same(
         ['launch' => true, 'return' => 'all', 'exit_error' => false],
@@ -568,69 +1418,111 @@ namespace {
             && !str_contains($published, 'مرحباً'),
         'provider receipt exposes only counts and hashes, never authored link values'
     );
-    $retry = $provider->invoke('rebuild_link_state', [
-        'entities' => [['kind' => 'post:book', 'id' => 10]],
-    ]);
-    wprism_check_same(2, $retry['before']['meta_count'] ?? null,
-        'the next invocation narrows its witness to the current source/target union after the retired target was proved once');
-    wprism_check_same($retry['before'], $retry['after'], 'native retry is idempotent at its exact current projection');
-    wprism_check_same(0, $oldTargetRows[0]['incoming_link_count'] ?? null,
-        'narrowing a later retry never reintroduces the already-settled previous-target count');
+    $retry = $provider->invoke('rebuild_all_link_state', []);
+    wprism_check_same($retry['before'], $retry['after'],
+        'a complete native retry is idempotent at its exact current projection');
 
-    $provider = rank_math_test_reset('full');
-    $GLOBALS['rank_math_test_child_ids'] = null;
-    $full = $provider->invoke('rebuild_all_link_state', []);
-    wprism_check(array_key_exists('post_count', $full['after']) && $full['after']['post_count'] === null,
-        'module transition rebuild binds the full site projection');
-    wprism_check_same(3, $full['after']['link_count'] ?? null, 'full rebuild replaces the complete link projection');
-    wprism_check(str_contains($GLOBALS['rank_math_test_command_calls'][0][0], '$ids = null'),
-        'site-scope module transition inventories posts in the fresh process');
-
-    $provider = rank_math_test_reset('link');
-    $GLOBALS['rank_math_test_modules'] = [];
-    $GLOBALS['rank_math_test_child_ids'] = null;
-    $disabledBefore = rank_math_test_projection(null);
-    $disabled = $provider->invoke('rebuild_all_link_state', []);
-    wprism_check_same($disabledBefore, $disabled['after'], 'disabled link module is a verified non-mutating native no-op');
-    wprism_check_same(false, $disabled['after']['enabled'] ?? null, 'receipt binds the disabled module decision');
-
-    $invalidBatches = [
-        'empty batch' => [],
-        'wildcard identity' => [['kind' => 'post:*', 'id' => 10]],
-        'term identity' => [['kind' => 'term:category', 'id' => 10]],
-        'zero identity' => [['kind' => 'post:post', 'id' => 0]],
-        'string identity' => [['kind' => 'post:post', 'id' => '10']],
-        'extra entity member' => [['kind' => 'post:post', 'id' => 10, 'extra' => true]],
-        'wrong entity member order' => [['id' => 10, 'kind' => 'post:post']],
+    $operation = ['format' => 'wprism-scoped-effect-operation/v1', 'id' => 'rank-math-fixture'];
+    $scoped = $provider->invoke_scoped('rebuild_all_link_state', [], $operation);
+    wprism_check_same(true, $scoped['verified'] ?? null,
+        'scoped post application executes the same complete native repair under an operation envelope');
+    $callsAfterScopedInvoke = count($GLOBALS['rank_math_test_command_calls']);
+    $callbackCallsAfterScopedInvoke = [
+        $GLOBALS['rank_math_test_permalink_calls'],
+        $GLOBALS['rank_math_test_url_to_postid_calls'],
     ];
-    foreach ($invalidBatches as $label => $entities) {
-        $provider = rank_math_test_reset('link');
-        wprism_check_throws(
-            static fn(): array => $provider->invoke('rebuild_link_state', ['entities' => $entities]),
-            RuntimeException::class,
-            "$label refuses before mutation",
-            $entities === [] ? 'batch is empty' : 'invalid post identity'
-        );
-        wprism_check_same([], $GLOBALS['rank_math_test_command_calls'], "$label launches no child process");
+    $GLOBALS['rank_math_test_hooks']['rank_math/links/is_external'] = true;
+    $reconciled = $provider->reconcile_scoped('rebuild_all_link_state', [], $operation);
+    wprism_check_same($scoped['after'] ?? null, $reconciled['after'] ?? null,
+        'scoped recovery re-reads the exact durable link projection');
+    wprism_check_same($callsAfterScopedInvoke, count($GLOBALS['rank_math_test_command_calls']),
+        'scoped recovery readback never repeats the native mutation');
+    wprism_check_same(
+        $callbackCallsAfterScopedInvoke,
+        [$GLOBALS['rank_math_test_permalink_calls'], $GLOBALS['rank_math_test_url_to_postid_calls']],
+        'scoped recovery reads only derived database state and never re-enters permalink or query callbacks'
+    );
+    $rows = $GLOBALS['wpdb']->rows('postmeta');
+    foreach ($rows as &$row) {
+        if ((int) ($row['post_id'] ?? 0) === 20
+            && ($row['meta_key'] ?? null) === 'rank_math_internal_links_processed') {
+            $row['meta_value'] = 'scoped-recovery-race';
+        }
     }
-    $provider = rank_math_test_reset('link');
-    $tooMany = [];
-    for ($id = 1; $id <= 10001; $id++) {
-        $tooMany[] = ['kind' => 'post:post', 'id' => $id];
-    }
-    wprism_check_throws(
-        static fn(): array => $provider->invoke('rebuild_link_state', ['entities' => $tooMany]),
-        RuntimeException::class,
-        'entity batch above the reviewed bound refuses before mutation',
-        'exceeds its reviewed bound'
+    unset($row);
+    $GLOBALS['wpdb']->seedTable('postmeta', $rows);
+    $divergentReconcile = $provider->reconcile_scoped('rebuild_all_link_state', [], $operation);
+    wprism_check(
+        ($divergentReconcile['after'] ?? null) !== ($scoped['after'] ?? null),
+        'scoped recovery exposes a same-count competing projection for the engine receipt-hash fence'
     );
 
     $provider = rank_math_test_reset('link');
-    $GLOBALS['wpdb']->failNextQuery('projection secret sk_rank_math_projection', 'SELECT url');
-    $readFailure = rank_math_test_throw_message(static fn(): array => $provider->invoke(
-        'rebuild_link_state',
-        ['entities' => [['kind' => 'post:post', 'id' => 10]]]
-    ));
+    $commitCount = 0;
+    $scopedRaceInjected = false;
+    $GLOBALS['wpdb']->onQuery(static function (
+        string $sql,
+        string $method,
+        FakeWpdb $db
+    ) use (&$commitCount, &$scopedRaceInjected): null {
+        if ($method !== 'query' || strtoupper(trim($sql)) !== 'COMMIT') {
+            return null;
+        }
+        $commitCount++;
+        if ($commitCount !== 3) {
+            return null;
+        }
+        $rows = $db->rows('postmeta');
+        foreach ($rows as &$row) {
+            if ((int) ($row['post_id'] ?? 0) === 20
+                && ($row['meta_key'] ?? null) === 'rank_math_internal_links_processed') {
+                $row['meta_value'] = 'after-semantic-proof';
+            }
+        }
+        unset($row);
+        $db->seedTable('postmeta', $rows);
+        $scopedRaceInjected = true;
+        return null;
+    });
+    $racedScoped = $provider->invoke_scoped('rebuild_all_link_state', [], $operation);
+    $GLOBALS['wpdb']->onQuery(null);
+    $racedCurrent = $provider->reconcile_scoped('rebuild_all_link_state', [], $operation);
+    wprism_check_same(true, $scopedRaceInjected,
+        'scoped receipt regression injects a competing write after semantic verification');
+    wprism_check(
+        ($racedScoped['after'] ?? null) !== ($racedCurrent['after'] ?? null),
+        'scoped invocation publishes the semantically verified handler projection rather than raced post-verification bytes'
+    );
+    wprism_check_same(
+        ['link_count', 'link_hash', 'meta_count', 'meta_hash', 'marker_count', 'marker_hash'],
+        array_keys($racedScoped['after'] ?? []),
+        'scoped receipt projection closes over only the three verified derived-state surfaces'
+    );
+
+    $provider = rank_math_test_reset('link');
+    $GLOBALS['rank_math_test_modules'] = [];
+    $disabled = $provider->invoke('rebuild_all_link_state', []);
+    wprism_check_same(false, $disabled['after']['enabled'] ?? null, 'receipt binds the disabled module decision');
+    wprism_check_same([0, 0, 0], [
+        $disabled['after']['link_count'] ?? null,
+        $disabled['after']['meta_count'] ?? null,
+        $disabled['after']['marker_count'] ?? null,
+    ], 'disabling link-counter removes every plugin-owned derived row and marker');
+    wprism_check_same('preserve', $GLOBALS['wpdb']->rows('postmeta')[0]['meta_value'] ?? null,
+        'disabled-module cleanup preserves unrelated post metadata');
+
+    wprism_check_throws(
+        static fn(): array => $provider->invoke('rebuild_link_state', ['entities' => []]),
+        RuntimeException::class,
+        'the retired entity capability cannot bypass site-wide deletion convergence',
+        "does not implement capability 'rebuild_link_state'"
+    );
+
+    $provider = rank_math_test_reset('link');
+    $GLOBALS['wpdb']->failNextQuery('projection secret sk_rank_math_projection', 'SELECT `url`');
+    $readFailure = rank_math_test_throw_message(
+        static fn(): array => $provider->invoke('rebuild_all_link_state', [])
+    );
     wprism_check(
         str_contains($readFailure, 'checked read failed') && !str_contains($readFailure, 'sk_rank_math_projection'),
         'pre-mutation projection failure is loud, redacted and launches no child'
@@ -656,10 +1548,9 @@ namespace {
     foreach ($cases as $label => $result) {
         $provider = rank_math_test_reset('link');
         $GLOBALS['rank_math_test_command_result'] = $result;
-        $message = rank_math_test_throw_message(static fn(): array => $provider->invoke(
-            'rebuild_link_state',
-            ['entities' => [['kind' => 'post:post', 'id' => 10]]]
-        ));
+        $message = rank_math_test_throw_message(
+            static fn(): array => $provider->invoke('rebuild_all_link_state', [])
+        );
         wprism_check(
             str_contains($message, 'recovery_required') && !str_contains($message, 'sk_rank_math_child'),
             "$label refuses with recovery debt and no child-output leak"
@@ -668,10 +1559,9 @@ namespace {
 
     $provider = rank_math_test_reset('link');
     $GLOBALS['rank_math_test_command_throw'] = new RuntimeException($hostile);
-    $launchFailure = rank_math_test_throw_message(static fn(): array => $provider->invoke(
-        'rebuild_link_state',
-        ['entities' => [['kind' => 'post:post', 'id' => 10]]]
-    ));
+    $launchFailure = rank_math_test_throw_message(
+        static fn(): array => $provider->invoke('rebuild_all_link_state', [])
+    );
     wprism_check(
         str_contains($launchFailure, 'bounded fresh process') && !str_contains($launchFailure, 'sk_rank_math_child'),
         'child launch exception is wrapped without exposing its value'
@@ -679,15 +1569,12 @@ namespace {
 
     $provider = rank_math_test_reset('link');
     $GLOBALS['rank_math_test_command_result'] = static function (): object {
-        $projection = rank_math_test_projection([10]);
+        $projection = rank_math_test_projection();
         $projection['link_hash'] = str_repeat('d', 64);
-        return rank_math_test_result([10], $projection);
+        return rank_math_test_result($projection);
     };
     wprism_check_throws(
-        static fn(): array => $provider->invoke(
-            'rebuild_link_state',
-            ['entities' => [['kind' => 'post:post', 'id' => 10]]]
-        ),
+        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
         'success-shaped child receipt with a divergent exact projection refuses',
         'disagrees with checked parent readback'
@@ -695,57 +1582,343 @@ namespace {
 
     $provider = rank_math_test_reset('link');
     $GLOBALS['rank_math_test_after_command'] = static function (): void {
-        rank_math_test_rebuild([10]);
-        $GLOBALS['rank_math_test_proved_projection'] = rank_math_test_projection([10], [999]);
+        rank_math_test_rebuild();
+        $GLOBALS['rank_math_test_proved_projection'] = rank_math_test_projection();
         $rows = $GLOBALS['wpdb']->rows('rank_math_internal_meta');
         foreach ($rows as &$row) {
-            if ((int) $row['object_id'] === 999) {
-                $row['incoming_link_count'] = 1;
+            if ((int) $row['object_id'] === 20) {
+                $row['incoming_link_count'] = 31337;
             }
         }
         unset($row);
         $GLOBALS['wpdb']->seedTable('rank_math_internal_meta', $rows);
     };
     $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result(
-        [10],
         $GLOBALS['rank_math_test_proved_projection']
     );
     wprism_check_throws(
-        static fn(): array => $provider->invoke(
-            'rebuild_link_state',
-            ['entities' => [['kind' => 'post:book', 'id' => 10]]]
-        ),
+        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
-        'a removed link whose previous target retains a stale incoming count refuses verified success',
+        'a competing count write after child proof refuses verified success',
         'disagrees with checked parent readback'
     );
 
     $provider = rank_math_test_reset('link');
     $GLOBALS['rank_math_test_after_command'] = static function (): void {
-        rank_math_test_rebuild([10]);
-        $GLOBALS['rank_math_test_proved_projection'] = rank_math_test_projection([10], [999]);
-        $rows = $GLOBALS['wpdb']->rows('rank_math_internal_meta');
+        rank_math_test_rebuild();
+        $GLOBALS['rank_math_test_proved_projection'] = rank_math_test_projection();
+        $rows = $GLOBALS['wpdb']->rows('postmeta');
         foreach ($rows as &$row) {
-            if ((int) $row['object_id'] === 10) {
-                $row['internal_link_count'] = 31337;
+            if ((int) $row['post_id'] === 20
+                && $row['meta_key'] === 'rank_math_internal_links_processed') {
+                $row['meta_value'] = 'competing-write';
             }
         }
         unset($row);
-        $GLOBALS['wpdb']->seedTable('rank_math_internal_meta', $rows);
+        $GLOBALS['wpdb']->seedTable('postmeta', $rows);
     };
     $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result(
-        [10],
         $GLOBALS['rank_math_test_proved_projection']
     );
     wprism_check_throws(
-        static fn(): array => $provider->invoke(
-            'rebuild_link_state',
-            ['entities' => [['kind' => 'post:post', 'id' => 10]]]
-        ),
+        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
-        'same-count competing derived-state write after child proof refuses recovery debt',
+        'same-count competing marker write after child proof refuses recovery debt',
         'disagrees with checked parent readback'
     );
+
+    $provider = rank_math_test_reset('link');
+    $GLOBALS['rank_math_test_after_command'] = static function (): void {
+        rank_math_test_rebuild();
+        $GLOBALS['rank_math_test_proved_projection'] = rank_math_test_projection();
+        $rows = $GLOBALS['wpdb']->rows('posts');
+        $rows[0]['post_content'] = '<a href="/twenty">same identities, different authored route</a>';
+        $GLOBALS['wpdb']->seedTable('posts', $rows);
+    };
+    $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result(
+        $GLOBALS['rank_math_test_proved_projection']
+    );
+    wprism_check_throws(
+        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
+        RuntimeException::class,
+        'same-count authored post change after child proof refuses recovery debt',
+        'disagrees with checked parent readback'
+    );
+
+    $provider = rank_math_test_reset('link');
+    $rules = ['(.+?)/?$' => 'index.php?name=$matches[1]'];
+    rank_math_test_set_option('permalink_structure', '/%author%/%category%/%postname%/');
+    rank_math_test_set_option('rewrite_rules', $rules);
+    $GLOBALS['wp_rewrite']->rules = $rules;
+    $GLOBALS['rank_math_test_after_command'] = static function (): void {
+        rank_math_test_rebuild();
+        $GLOBALS['rank_math_test_proved_projection'] = rank_math_test_projection();
+        $rows = $GLOBALS['wpdb']->rows('users');
+        $rows[0]['user_nicename'] = 'changed-author-route';
+        $GLOBALS['wpdb']->seedTable('users', $rows);
+    };
+    $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result(
+        $GLOBALS['rank_math_test_proved_projection']
+    );
+    wprism_check_throws(
+        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
+        RuntimeException::class,
+        'author nicename change after a %author% proof invalidates native resolution',
+        'disagrees with checked parent readback'
+    );
+
+    $provider = rank_math_test_reset('link');
+    $rules = ['(.+?)/?$' => 'index.php?name=$matches[1]'];
+    rank_math_test_set_option('permalink_structure', '/%category%/%postname%/');
+    rank_math_test_set_option('rewrite_rules', $rules);
+    $GLOBALS['wp_rewrite']->rules = $rules;
+    $GLOBALS['rank_math_test_after_command'] = static function (): void {
+        rank_math_test_rebuild();
+        $GLOBALS['rank_math_test_proved_projection'] = rank_math_test_projection();
+        $GLOBALS['rank_math_test_options']['default_category'] = 2;
+        $rows = $GLOBALS['wpdb']->rows('options');
+        foreach ($rows as &$row) {
+            if (($row['option_name'] ?? null) === 'default_category') {
+                $row['option_value'] = '2';
+            }
+        }
+        unset($row);
+        $GLOBALS['wpdb']->seedTable('options', $rows);
+    };
+    $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result(
+        $GLOBALS['rank_math_test_proved_projection']
+    );
+    wprism_check_throws(
+        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
+        RuntimeException::class,
+        'default-category change after a no-term %category% proof invalidates native resolution',
+        'disagrees with checked parent readback'
+    );
+
+    $provider = rank_math_test_reset('link');
+    $rules = ['(.+?)/?$' => 'index.php?name=$matches[1]'];
+    rank_math_test_set_option('permalink_structure', '/%postname%/');
+    rank_math_test_set_option('rewrite_rules', $rules);
+    $GLOBALS['wp_rewrite']->rules = $rules;
+    $rows = $GLOBALS['wpdb']->rows('posts');
+    $rows[0]['post_content'] .= '<a href="/wp-core-page/">Pretty page</a>';
+    $GLOBALS['wpdb']->seedTable('posts', $rows);
+    $GLOBALS['rank_math_test_after_command'] = static function (): void {
+        rank_math_test_rebuild();
+        $GLOBALS['rank_math_test_proved_projection'] = rank_math_test_projection();
+        $GLOBALS['rank_math_test_options']['posts_per_page'] = 11;
+        $optionRows = $GLOBALS['wpdb']->rows('options');
+        foreach ($optionRows as &$optionRow) {
+            if (($optionRow['option_name'] ?? null) === 'posts_per_page') {
+                $optionRow['option_value'] = '11';
+            }
+        }
+        unset($optionRow);
+        $GLOBALS['wpdb']->seedTable('options', $optionRows);
+    };
+    $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result(
+        $GLOBALS['rank_math_test_proved_projection']
+    );
+    wprism_check_throws(
+        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
+        RuntimeException::class,
+        'pretty-page query-option change after child proof invalidates native resolution',
+        'disagrees with checked parent readback'
+    );
+
+    $provider = rank_math_test_reset('link');
+    $rules = ['(.+?)/?$' => 'index.php?name=$matches[1]'];
+    rank_math_test_set_option('permalink_structure', '/%postname%/');
+    rank_math_test_set_option('rewrite_rules', $rules);
+    $GLOBALS['wp_rewrite']->rules = $rules;
+    $rows = $GLOBALS['wpdb']->rows('posts');
+    $rows[0]['post_content'] .= '<a href="/wp-core-page/">Old-comment closure</a>';
+    $GLOBALS['wpdb']->seedTable('posts', $rows);
+    $GLOBALS['rank_math_test_after_command'] = static function (): void {
+        rank_math_test_rebuild();
+        $GLOBALS['rank_math_test_proved_projection'] = rank_math_test_projection();
+        rank_math_test_set_option('close_comments_days_old', 21);
+    };
+    $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result(
+        $GLOBALS['rank_math_test_proved_projection']
+    );
+    wprism_check_throws(
+        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
+        RuntimeException::class,
+        'old-comment closure option change after child proof invalidates singular native resolution',
+        'disagrees with checked parent readback'
+    );
+
+    $provider = rank_math_test_reset('link');
+    $rules = ['comments/feed/?$' => 'index.php?feed=comments-rss2'];
+    rank_math_test_set_option('permalink_structure', '/%postname%/');
+    rank_math_test_set_option('rewrite_rules', $rules);
+    $GLOBALS['wp_rewrite']->rules = $rules;
+    $rows = $GLOBALS['wpdb']->rows('posts');
+    $rows[0]['post_content'] .= '<a href="/comments/feed/">Comment feed</a>';
+    $GLOBALS['wpdb']->seedTable('posts', $rows);
+    $GLOBALS['rank_math_test_after_command'] = static function (): void {
+        rank_math_test_rebuild();
+        $GLOBALS['rank_math_test_proved_projection'] = rank_math_test_projection();
+        $commentRows = $GLOBALS['wpdb']->rows('comments');
+        $commentRows[0]['comment_approved'] = '0';
+        $GLOBALS['wpdb']->seedTable('comments', $commentRows);
+    };
+    $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result(
+        $GLOBALS['rank_math_test_proved_projection']
+    );
+    wprism_check_throws(
+        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
+        RuntimeException::class,
+        'comment-feed row change after child proof invalidates native resolution',
+        'disagrees with checked parent readback'
+    );
+
+    $provider = rank_math_test_reset('link');
+    $GLOBALS['rank_math_test_after_command'] = static function (): void {
+        rank_math_test_rebuild();
+        $GLOBALS['rank_math_test_proved_projection'] = rank_math_test_projection();
+        $GLOBALS['wpdb']->seedTable('terms', [[
+            'term_id' => 7, 'name' => 'Changed Route', 'slug' => 'changed-route', 'term_group' => 0,
+        ]]);
+        $GLOBALS['wpdb']->seedTable('term_taxonomy', [[
+            'term_taxonomy_id' => 7, 'term_id' => 7, 'taxonomy' => 'category',
+            'description' => '', 'parent' => 0, 'count' => 1,
+        ]]);
+        $GLOBALS['wpdb']->seedTable('term_relationships', [[
+            'object_id' => 10, 'term_taxonomy_id' => 7, 'term_order' => 0,
+        ]]);
+    };
+    $GLOBALS['rank_math_test_command_result'] = static fn(): object => rank_math_test_result(
+        $GLOBALS['rank_math_test_proved_projection']
+    );
+    wprism_check_throws(
+        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
+        RuntimeException::class,
+        'term route change after child proof refuses recovery debt',
+        'disagrees with checked parent readback'
+    );
+
+    $provider = rank_math_test_reset('link');
+    $GLOBALS['rank_math_test_helper_types'] = ['post' => 'post'];
+    wprism_check_throws(
+        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
+        RuntimeException::class,
+        'stale Rank Math accessible-type cache refuses before native repair',
+        'disagree with the current audited topology'
+    );
+    wprism_check_same([], $GLOBALS['rank_math_test_command_calls'],
+        'stale accessible-type cache launches no child process');
+
+    $provider = rank_math_test_reset('link');
+    $GLOBALS['wpdb']->setTableEngine('terms', 'MyISAM');
+    wprism_check_throws(
+        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
+        RuntimeException::class,
+        'non-transactional route dependency refuses before native repair',
+        "requires InnoDB for 'wp_terms'"
+    );
+    wprism_check_same([], $GLOBALS['rank_math_test_command_calls'],
+        'route storage-engine refusal launches no child process');
+
+    $provider = rank_math_test_reset('link');
+    $GLOBALS['rank_math_test_url_to_postid_override'] = static function (
+        string $url,
+        bool $insideNativeProcess
+    ): ?int {
+        return $insideNativeProcess && str_contains($url, '/target-20') ? 10 : null;
+    };
+    wprism_check_throws(
+        static fn(): array => rank_math_test_execute_child(),
+        RuntimeException::class,
+        'a resolver that returns B only during native mutation cannot hide behind A-before/A-after witnesses',
+        'stored links did not converge with current native resolution'
+    );
+    wprism_check(
+        $GLOBALS['rank_math_test_process_calls'] > 0,
+        'the stateful resolver regression reaches native mutation before exact post-proof refusal'
+    );
+
+    $baseLinks = rank_math_test_desired_links();
+    $wrongUrl = $baseLinks;
+    $wrongUrl[0]['url'] = '/twenty';
+    $wrongTarget = $baseLinks;
+    $wrongTarget[0]['target_post_id'] = 10;
+    $wrongType = $baseLinks;
+    $wrongType[1]['type'] = 'internal';
+    $wrongType[1]['target_post_id'] = 20;
+    $duplicate = $baseLinks;
+    $duplicate[] = ['id' => 105] + $baseLinks[0];
+    foreach ([
+        'missing edge' => array_values(array_slice($baseLinks, 1)),
+        'wrong URL' => $wrongUrl,
+        'wrong existing target' => $wrongTarget,
+        'wrong type' => $wrongType,
+        'extra duplicate' => $duplicate,
+    ] as $label => $storedLinks) {
+        $provider = rank_math_test_reset('link');
+        $GLOBALS['rank_math_test_rebuild_links_override'] = $storedLinks;
+        wprism_check_throws(
+            static fn(): array => rank_math_test_execute_child(),
+            RuntimeException::class,
+            "$label cannot satisfy exact native edge convergence with matching aggregate counts",
+            'stored links did not converge with current native resolution'
+        );
+    }
+
+    $provider = rank_math_test_reset('link');
+    $registeredOrder = array_keys($GLOBALS['wp_post_types']);
+    $GLOBALS['wpdb']->resetLog();
+    $actualChild = rank_math_test_execute_child();
+    wprism_check_same(true, $actualChild['verified'] ?? null,
+        'the emitted fresh-child program executes its complete enabled-module path offline');
+    $cleanCallsAfterChild = $GLOBALS['rank_math_test_clean_post_cache_calls'];
+    $parentProjection = rank_math_test_projection();
+    wprism_check_same($parentProjection, $actualChild['projection'] ?? null,
+        'the streaming child receipt is byte-equivalent to independent parent readback');
+    wprism_check_same(1, count(array_filter(
+        $GLOBALS['wpdb']->rows('rank_math_internal_links'),
+        static fn(array $row): bool => ($row['type'] ?? null) === 'internal'
+            && (int) ($row['target_post_id'] ?? -1) === 0
+    )), 'exact edge verification admits a native unresolved same-site link with target zero');
+    wprism_check_same($cleanCallsAfterChild, $GLOBALS['rank_math_test_clean_post_cache_calls'],
+        'parent readback never evicts post caches or fires clean-post-cache hooks');
+    wprism_check_same($registeredOrder, array_keys($GLOBALS['wp_post_types']),
+        'route observation preserves the registered post-type global order');
+    $valueQueries = array_values(array_filter(
+        $GLOBALS['wpdb']->queries(),
+        static fn(string $sql): bool => str_starts_with($sql, 'SELECT `')
+            && str_contains($sql, ' FROM `')
+    ));
+    $allValueQueriesBounded = $valueQueries !== [];
+    foreach ($valueQueries as $sql) {
+        if (!str_contains($sql, 'OCTET_LENGTH(')
+            || !str_contains($sql, ' LIMIT ')
+            || !str_contains($sql, ' OFFSET ')
+            || preg_match('/ LIMIT ([0-9]+)/D', $sql, $limit) !== 1
+            || (int) $limit[1] > 1024) {
+            $allValueQueriesBounded = false;
+            break;
+        }
+    }
+    wprism_check($allValueQueriesBounded,
+        'every complete value projection is raw-byte-filtered and transferred one bounded page at a time');
+
+    $provider = rank_math_test_reset('link');
+    $GLOBALS['wpdb']->setTableEngine('rank_math_internal_links', 'MyISAM');
+    $GLOBALS['wpdb']->resetLog();
+    wprism_check_throws(
+        static fn(): array => rank_math_test_execute_child(),
+        RuntimeException::class,
+        'fresh child refuses a non-transactional written table before its first reset',
+        "requires InnoDB for 'wp_rank_math_internal_links'"
+    );
+    wprism_check_same(0, $GLOBALS['rank_math_test_process_calls'],
+        'written-table storage refusal precedes every native process callback');
+    wprism_check_same([], array_values(array_filter(
+        $GLOBALS['wpdb']->queries(),
+        static fn(string $sql): bool => str_starts_with($sql, 'DELETE FROM')
+    )), 'written-table storage refusal precedes every destructive child query');
 
     wprism_check_summary('regress_rank_math_provider');
 }

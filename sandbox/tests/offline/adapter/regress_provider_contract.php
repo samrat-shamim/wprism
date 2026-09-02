@@ -798,6 +798,84 @@ $check($negotiation['providers']['probe-cache'] instanceof \WPrism\Providers\Pro
 $check(($negotiation['capabilities']['probe-cache']['flush']['scope'] ?? null) === 'site',
     'the negotiated capability declaration is bound for the rebuild pass');
 
+// Schema settlement is the only provider phase allowed to create a table
+// before capture can observe it. The manifest therefore binds both the exact
+// site scope and every prepared table to the live provider declaration; a
+// generic provider that merely happens to expose the same capability name is
+// not enough authority to perform pre-observation DDL.
+$schemaManifest = $manifest;
+$schemaManifest['engine_features'] = ['schema-settlement/v1', 'spec-window/v1'];
+$schemaManifest['spec_version'] = 3;
+$schemaManifest['providers'][0]['capabilities'] = ['flush', 'inspect_schema'];
+$schemaManifest['tables'] = ['probe_projection' => ['class' => 'derived']];
+$schemaManifest['actions'][0] = [
+    'args' => [],
+    'capability' => 'flush',
+    'effects' => [[
+        'id' => 'probe-schema',
+        'kind' => 'database',
+        'mode' => 'restorable',
+        'selector' => [
+            'scope' => 'database_checkpoint',
+            'type' => 'table',
+            'value' => 'probe_projection',
+        ],
+    ]],
+    'kind' => 'provider',
+    'phase' => 'schema_settle',
+    'prepares' => ['probe_projection'],
+    'provider' => 'probe-cache',
+    'readiness' => 'inspect_schema',
+];
+$schemaReadiness = [
+    'args' => [],
+    'idempotent' => true,
+    'reads' => ['table:probe_projection'],
+    'scope' => 'site',
+    'timeout_seconds' => 30,
+    'writes' => [],
+];
+$reset();
+
+\WPrism\Providers\ProbeCache::$extraCapabilities = ['inspect_schema' => $schemaReadiness];
+\WPrism\Providers\ProbeCache::$capabilityOverrides = [
+    'args' => [],
+    'reads' => ['table:probe_projection'],
+];
+$schemaPolicy = $policyFor($schemaManifest);
+$schemaNegotiation = \WPrism\Providers::negotiate($schemaPolicy, $schemaPolicy->schema_settle_actions());
+$check(count($schemaNegotiation['problems']) === 1
+    && ($schemaNegotiation['problems'][0]['code'] ?? null) === 'schema_settlement_contract'
+    && str_contains((string) ($schemaNegotiation['problems'][0]['found'] ?? ''), 'non-exact schema surfaces'),
+    'schema settlement refuses a provider that does not advertise every exact prepared table write');
+
+$reset();
+\WPrism\Providers\ProbeCache::$extraCapabilities = ['inspect_schema' => $schemaReadiness];
+\WPrism\Providers\ProbeCache::$capabilityOverrides = [
+    'args' => [],
+    'reads' => ['table:probe_projection'],
+    'scope' => 'entity',
+    'writes' => ['table:probe_projection'],
+];
+$schemaNegotiation = \WPrism\Providers::negotiate($schemaPolicy, $schemaPolicy->schema_settle_actions());
+$check(count($schemaNegotiation['problems']) === 1
+    && ($schemaNegotiation['problems'][0]['code'] ?? null) === 'schema_settlement_contract'
+    && str_contains((string) ($schemaNegotiation['problems'][0]['found'] ?? ''), 'entity scope'),
+    'schema settlement refuses a table-writing capability whose live scope is narrower than the whole site');
+
+$reset();
+\WPrism\Providers\ProbeCache::$extraCapabilities = ['inspect_schema' => $schemaReadiness];
+\WPrism\Providers\ProbeCache::$capabilityOverrides = [
+    'args' => [],
+    'reads' => ['table:probe_projection'],
+    'writes' => ['table:probe_projection'],
+];
+$schemaNegotiation = \WPrism\Providers::negotiate($schemaPolicy, $schemaPolicy->schema_settle_actions());
+$check($schemaNegotiation['problems'] === []
+    && isset($schemaNegotiation['capabilities']['probe-cache']['flush']),
+    'schema settlement binds only when the live capability is idempotent, site-scoped, and names every prepared table');
+$reset();
+
 // `effects: []` is deliberately a two-sided contract: the manifest opts out
 // of recovery inventory, and the selected live provider must independently
 // prove that it writes no canonical state. Omission remains the legacy

@@ -147,6 +147,16 @@ RECOVER_LIST="$($WPRISM --envs-file="$ENVS" recover target --list 2>&1)" \
   || fail "wprism recover --list failed after deploy: $RECOVER_LIST"
 grep -Fq "$DEPLOY_CKPT_ID  retained  retained-release-checkpoint" <<<"$RECOVER_LIST" \
   || fail "wprism recover --list did not list the deploy checkpoint: $RECOVER_LIST"
+wp2 db query '
+  CREATE TABLE wp_wprism_post_checkpoint_probe (
+    id bigint unsigned NOT NULL PRIMARY KEY,
+    witness varchar(64) NOT NULL
+  );
+  INSERT INTO wp_wprism_post_checkpoint_probe (id,witness)
+  VALUES (1,"must-disappear-on-exact-restore");
+' >/dev/null
+[ "$(wp2 db query "SHOW TABLES LIKE 'wp_wprism_post_checkpoint_probe'" --skip-column-names | tr -d '[:space:]')" = wp_wprism_post_checkpoint_probe ] \
+  || fail 'post-checkpoint topology witness was not created'
 RECOVER_OUT="$($WPRISM --envs-file="$ENVS" recover target "--restore=$DEPLOY_CKPT_ID" --writers-excluded 2>&1)" \
   || fail "restoring the deploy checkpoint failed: $RECOVER_OUT"
 grep -Fq 'recovery profile: operator-directed' <<<"$RECOVER_OUT" \
@@ -154,7 +164,9 @@ grep -Fq 'recovery profile: operator-directed' <<<"$RECOVER_OUT" \
 for step in 'abort: ok' 'begin: ok' 'import: ok' 'final-abort: ok'; do
   grep -Fq "$step" <<<"$RECOVER_OUT" || fail "the deploy checkpoint restore did not report '$step': $RECOVER_OUT"
 done
-pass "deploy retains a recoverable database checkpoint under its own lease"
+[ "$(wp2 db query "SHOW TABLES LIKE 'wp_wprism_post_checkpoint_probe'" --skip-column-names | tr -d '[:space:]')" = '' ] \
+  || fail 'checkpoint recovery imported rows without restoring exact database topology'
+pass "deploy retains a recoverable checkpoint whose restore removes post-checkpoint tables"
 
 # --no-checkpoint is the opt-out: no new file under .wprism/checkpoints, and no
 # retained line. Re-run against the now-converged target, which is a no-op

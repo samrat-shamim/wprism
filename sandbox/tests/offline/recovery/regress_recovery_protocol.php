@@ -177,6 +177,8 @@ $wiring = [
     'recovery/CodeRelease.php' => ['AtomicStore::', 'ProtocolLock::', 'ProviderClient::'],
     'recovery/UploadBundle.php' => ['AtomicStore::', 'ProtocolLock::', 'ProviderClient::'],
     'recovery/EffectBundle.php' => ['AtomicStore::', 'ProtocolLock::', 'ProviderClient::'],
+    'recovery/ProviderSettlementIntent.php' => ['AtomicStore::', 'ProtocolLock::'],
+    'recovery/CheckpointRecoveryIntent.php' => ['AtomicStore::', 'ProtocolLock::', 'ProviderSettlementIntent::'],
 ];
 foreach ($wiring as $relative => $needles) {
     $source = (string) file_get_contents($repoRoot . '/' . $relative);
@@ -187,7 +189,7 @@ foreach ($wiring as $relative => $needles) {
 }
 $bootstrap = (string) file_get_contents($repoRoot . '/cli/src/Onboarding/BootstrapEligibility.php');
 $adopt = (string) file_get_contents($repoRoot . '/cli/src/Onboarding/Adopt.php');
-foreach (['CanonicalJson.php', 'AtomicStore.php', 'ProtocolLock.php', 'ProviderClient.php'] as $file) {
+foreach (['CanonicalJson.php', 'AtomicStore.php', 'ProtocolLock.php', 'ProviderClient.php', 'ProviderSettlementIntent.php', 'CheckpointRecoveryIntent.php', 'DatabaseTargetIdentity.php', 'RetainedCheckpointCipher.php'] as $file) {
     ok(str_contains($bootstrap, $file) && str_contains($adopt, $file), "$file is part of local and adopted runtime completeness");
 }
 $authority = "$root/authority";
@@ -197,11 +199,20 @@ mkdir($authorityRuntime, 0700, true);
 $runtimeFiles = [
     'rollback-control.php', 'RecoveryExecutor.php', 'CheckpointBundle.php',
     'CodeRelease.php', 'UploadBundle.php', 'EffectBundle.php',
-    'CanonicalJson.php', 'AtomicStore.php', 'ProtocolLock.php', 'ProviderClient.php',
+    'ProviderSettlementIntent.php', 'CheckpointRecoveryIntent.php', 'CanonicalJson.php',
+    'AtomicStore.php', 'ProtocolLock.php', 'ProviderClient.php',
 ];
 foreach ($runtimeFiles as $file) {
     copy($repoRoot . '/recovery/' . $file, $authorityRuntime . '/' . $file);
 }
+copy(
+    $repoRoot . '/agent/src/Recovery/DatabaseTargetIdentity.php',
+    $authorityRuntime . '/DatabaseTargetIdentity.php'
+);
+copy(
+    $repoRoot . '/agent/src/Recovery/RetainedCheckpointCipher.php',
+    $authorityRuntime . '/RetainedCheckpointCipher.php'
+);
 ok(
     \WPrism\Recovery\RollbackControl::inspectReadOnly($authority)['quiescent'] === true,
     'read-only rollback inspection accepts a complete shared runtime'

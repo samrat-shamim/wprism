@@ -822,11 +822,11 @@ wprism_check_same(
 // author declares from, and register row R-19 projects. WP-6.5 made it six;
 // manifest-provider-runtime/v1 made it seven, Redirection's measured mixed
 // column demand made it eight, and the bounded post-kind selector makes it
-// nine; none claims an additional top-level section,
+// nine, and schema-settlement/v1 makes it ten; neither claims an additional top-level section,
 // and the count is now evidence for a different claim than the one it started
 // as: § v3.12 asks for "at least one grammar section shipped post-v3 through
 // engine_features with no version bump" before the window may ever close, and
-// eight of these nine shipped after the flip with WPRISM_SPEC_VERSION left at 3.
+// nine of these ten shipped after the flip with WPRISM_SPEC_VERSION left at 3.
 wprism_check_same(
     [
         'attr-id-codecs/v1',
@@ -834,13 +834,14 @@ wprism_check_same(
         'manifest-provider-runtime/v1',
         'mixed-column-codecs/v1',
         'post-kind-action-trigger/v1',
+        'schema-settlement/v1',
         'spec-window/v1',
         'structured-body-refs/v1',
         'structured-evidence/v1',
         'typed-column-codecs/v1',
     ],
     \WPrism\AdapterContractGrammar::implemented_features(),
-    'V3-FEAT: the vocabulary carries nine names, so an engine that lacks a declared name has something to '
+    'V3-FEAT: the vocabulary carries ten names, so an engine that lacks a declared name has something to '
         . 'compare against and the comparison is against a SET rather than a single special case'
 );
 // THE FLIP (WP-4.12), the other direction. `engine_features` is implemented

@@ -240,6 +240,7 @@ final class Providers {
     private const MAX_SCOPED_EVIDENCE_NODES = 2048;
     private const SCOPED_SECRET_KEY_PATTERN = '/(?:api[_-]?key|authorization|credential|password|passphrase|private[_-]?key|secret|token)/i';
     private const ARG_TYPES = ['bool', 'int', 'list<object>', 'list<string>', 'string'];
+
     /**
      * Types a `list<object>` row FIELD may declare. Deliberately the scalars
      * only: the object grammar is exactly one level deep, so neither a nested
@@ -631,6 +632,62 @@ final class Providers {
                     $problems[] = $problem;
                     $failed = true;
                     continue;
+                }
+                if (array_key_exists('_schema_readiness_tables', $action)) {
+                    $readinessContract = (array) $advertised[$capability];
+                    $requiredSurfaces = array_map(
+                        static fn(string $table): string => 'table:' . $table,
+                        array_values(array_map('strval', (array) $action['_schema_readiness_tables']))
+                    );
+                    $reads = array_values(array_map('strval', (array) ($readinessContract['reads'] ?? [])));
+                    $writes = array_values(array_map('strval', (array) ($readinessContract['writes'] ?? [])));
+                    sort($requiredSurfaces, SORT_STRING);
+                    sort($reads, SORT_STRING);
+                    sort($writes, SORT_STRING);
+                    if (($readinessContract['scope'] ?? null) !== 'site'
+                        || ($readinessContract['args'] ?? null) !== []
+                        || ($readinessContract['idempotent'] ?? null) !== true
+                        || $reads !== $requiredSurfaces
+                        || $writes !== []) {
+                        $problems[] = self::problem(
+                            $id,
+                            $manifest,
+                            $plugin,
+                            'schema_readiness_contract',
+                            'an idempotent argument-free site capability which reads exactly prepares and writes nothing',
+                            ($readinessContract['scope'] ?? '(missing)') . ' scope with non-exact readiness surfaces',
+                            "update provider '$id' capability '$capability' so schema readiness is exact and read-only"
+                        );
+                        $failed = true;
+                        continue;
+                    }
+                }
+                if (($action['phase'] ?? null) === 'schema_settle') {
+                    $schemaContract = (array) $advertised[$capability];
+                    $requiredSurfaces = array_map(
+                        static fn(string $table): string => 'table:' . $table,
+                        array_values(array_map('strval', (array) ($action['prepares'] ?? [])))
+                    );
+                    $reads = array_values(array_map('strval', (array) ($schemaContract['reads'] ?? [])));
+                    $writes = array_values(array_map('strval', (array) ($schemaContract['writes'] ?? [])));
+                    sort($requiredSurfaces, SORT_STRING);
+                    sort($reads, SORT_STRING);
+                    sort($writes, SORT_STRING);
+                    if (($schemaContract['scope'] ?? null) !== 'site'
+                        || $reads !== $requiredSurfaces
+                        || $writes !== $requiredSurfaces) {
+                        $problems[] = self::problem(
+                            $id,
+                            $manifest,
+                            $plugin,
+                            'schema_settlement_contract',
+                            'an idempotent site-scoped capability whose reads and writes exactly equal prepares tables',
+                            ($schemaContract['scope'] ?? '(missing)') . ' scope with non-exact schema surfaces',
+                            "update provider '$id' capability '$capability' so schema settlement has exact site scope, reads, and writes"
+                        );
+                        $failed = true;
+                        continue;
+                    }
                 }
                 $problem = self::dual_claimant_problem(
                     $policy,
@@ -2414,7 +2471,8 @@ final class Providers {
                     . 'make it idempotent or stop declaring it from an action'
             );
         }
-        if (($decl['scope'] ?? null) === 'entity') {
+        if (($decl['scope'] ?? null) === 'entity'
+            && ($action['phase'] ?? null) !== 'schema_settle') {
             // Entity scope is only meaningful when the engine can actually
             // assemble a batch: the batch rows come from applied work whose
             // canonical surface matches the action's own triggers, and only

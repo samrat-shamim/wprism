@@ -327,18 +327,16 @@ final class ApplyRequestCoordinator {
                     $work['rebuild_delete_work']
                 )
             );
-            foreach ($selectedActions as $action) {
-                if (!array_key_exists('triggers', $action)) {
-                    throw new \RuntimeException(
-                        'wprism: scoped plan refused an untriggered global action; bounded execution requires explicit canonical triggers'
-                    );
-                }
-            }
             // Report the exact scoped contract apply will gate on. This is
             // still read-only negotiation: provider identity/capabilities may
             // be inspected, but neither invoke_scoped() nor reconcile_scoped()
             // is called from plan.
             $diagnosis = Providers::negotiate_scoped($policy, $selectedActions);
+            RebuildActionNegotiator::assert_scoped_action_authority(
+                $selectedActions,
+                $diagnosis,
+                'plan'
+            );
             $plan['format'] = ScopedApply::PLAN_FORMAT;
             // ScopedRollbackProfile binds its checkpoint/recovery authority to
             // the exact compiled artifact and adapter-resolution set. Keep

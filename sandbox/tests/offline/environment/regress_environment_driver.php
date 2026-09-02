@@ -51,6 +51,8 @@ function required_capabilities(DriverCapabilityReport $report): array {
 
 final class RecordingDriver implements EnvironmentDriver {
     public int $targetCalls = 0;
+    /** @var ?array{exit:int,stdout:string,stderr:string} */
+    public ?array $rawResult = null;
 
     public function name(): string { return 'recording'; }
     public function driverId(): string { return 'recording'; }
@@ -58,7 +60,8 @@ final class RecordingDriver implements EnvironmentDriver {
     public function describe(): string { return 'recording driver'; }
     public function captureRaw(string $script): array {
         $this->targetCalls++;
-        return ['exit' => 97, 'stdout' => '', 'stderr' => 'unexpected target call'];
+        return $this->rawResult
+            ?? ['exit' => 97, 'stdout' => '', 'stderr' => 'unexpected target call'];
     }
     public function captureWp(array $wpArgs): array {
         $this->targetCalls++;
@@ -202,6 +205,44 @@ foreach ($boundaries as [$method, $index]) {
 }
 pass('core doctor, compile, refresh, and rebase workflows depend on the narrow driver interface');
 
+foreach ([
+    'clear' => [['exit' => 0, 'stdout' => 'clear', 'stderr' => ''], 'clear'],
+    'checkpoint' => [[
+        'exit' => 75,
+        'stdout' => '',
+        'stderr' => 'incomplete checkpoint recovery is active',
+    ], 'checkpoint_recovery'],
+    'provider' => [[
+        'exit' => 75,
+        'stdout' => '',
+        'stderr' => 'incomplete provider settlement is active',
+    ], 'provider_settlement'],
+    'extra stdout' => [[
+        'exit' => 75,
+        'stdout' => "unexpected\n",
+        'stderr' => 'incomplete provider settlement is active',
+    ], 'unsafe'],
+    'trailing newline' => [[
+        'exit' => 0,
+        'stdout' => "clear\n",
+        'stderr' => '',
+    ], 'unsafe'],
+    'unknown exit' => [[
+        'exit' => 76,
+        'stdout' => '',
+        'stderr' => 'incomplete checkpoint recovery is active',
+    ], 'unsafe'],
+] as $label => [$raw, $expectedState]) {
+    $fenceDriver = new RecordingDriver();
+    $fenceDriver->rawResult = $raw;
+    $fence = CodeDeploy::externalRecoveryFence($fenceDriver, '/fixture/repo');
+    assert_true(
+        ($fence['state'] ?? null) === $expectedState && $fenceDriver->targetCalls === 1,
+        "$label external-recovery tuple did not map through the closed fence vocabulary"
+    );
+}
+pass('external recovery classification admits only exact clear/checkpoint/provider tuples');
+
 /** @return array{exit:int,stdout:string,stderr:string} */
 function invoke_cli(array $args): array {
     $command = array_merge([PHP_BINARY, __DIR__ . '/../../../../cli/wprism'], $args);
@@ -281,6 +322,11 @@ assert_true(
     'public refusal did not name the exact missing bootstrap capability'
 );
 assert_true(!file_exists($tmp . '/repo'), 'denied public workflow mutated its target path');
+
+// The recovery fence owns a real adopted-target filesystem boundary even in
+// this transport-only fixture. Create it only after the denied-adopt proof so
+// the later successful forwarding cases exercise a truthful clear fence.
+mkdir($tmp . '/repo', 0700, true);
 
 // issue #3344 contract evidence is only truthful when the host path cannot boot
 // arbitrary plugins/themes/ordinary MU code before the agent compiles its
@@ -395,6 +441,7 @@ unlink($scopeArgs);
 unlink($fakeWp);
 rmdir($fakeBin);
 unlink($envsFile);
+rmdir($tmp . '/repo');
 rmdir($tmp);
 pass('public JSON/human paths share the report and refuse before target mutation');
 

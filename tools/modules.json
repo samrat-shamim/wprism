@@ -92,7 +92,9 @@
           "MetaRows",
           "MediaPayloadAuthority",
           "WpCliChildProcess",
-          "Canary"
+          "Canary",
+          "CheckpointRecoveryIntent",
+          "ProviderSettlementIntent"
         ],
         "depends_on": [
           "Kernel"
@@ -116,11 +118,12 @@
             ]
           }
         ],
-        "file_count": 36,
+        "file_count": 38,
         "files": [
           "ActionTriggerMatcher.php",
           "Canary.php",
           "Canon.php",
+          "CheckpointRecoveryIntent.php",
           "CommandRefusal.php",
           "Db.php",
           "DurableFilesystem.php",
@@ -135,6 +138,7 @@
           "PlainData.php",
           "PostPasswordBinding.php",
           "ProcessFence.php",
+          "ProviderSettlementIntent.php",
           "ReferenceKeyspaceGrammar.php",
           "ReferenceKindGrammar.php",
           "ReferencePath.php",
@@ -400,7 +404,8 @@
           "IdentityBackup",
           "IdentityNotes",
           "RepositoryAuthorization",
-          "Journal"
+          "Journal",
+          "SchemaSettlementIntent"
         ],
         "depends_on": [
           "Grammar",
@@ -447,7 +452,7 @@
             ]
           }
         ],
-        "file_count": 27,
+        "file_count": 28,
         "files": [
           "CanonicalLedgerMapGuard.php",
           "CanonicalMapWitness.php",
@@ -471,6 +476,7 @@
           "RepositoryReferenceGraphValidator.php",
           "RepositorySchemaValidator.php",
           "RepositoryStateFileCatalog.php",
+          "SchemaSettlementIntent.php",
           "SidebarState.php",
           "Snapshot.php",
           "SnapshotIdentity.php",
@@ -593,7 +599,7 @@
           {
             "module": "Scope",
             "kind": "intra-layer",
-            "count": 5,
+            "count": 4,
             "edges": [
               "Capture.php -> ScopedCaptureProjector.php",
               "CapturePublicationWorkflow.php -> ScopedApply.php",
@@ -661,9 +667,10 @@
           {
             "module": "Capture",
             "kind": "intra-layer",
-            "count": 4,
+            "count": 5,
             "edges": [
               "ApplyPlanBuilder.php -> Capture.php",
+              "ApplyPlanBuilder.php -> CaptureSnapshotService.php",
               "ApplyPreparationCoordinator.php -> Capture.php",
               "ApplyRequestCoordinator.php -> Capture.php",
               "ConvergenceVerifier.php -> Capture.php"
@@ -982,14 +989,16 @@
         "purpose": "Target-local retained-checkpoint protection: streaming authenticated encryption and authenticated-before-output restore over operator-directed database evidence.",
         "status": "populated",
         "entry_points": [
+          "DatabaseTargetIdentity",
           "RetainedCheckpointCipher"
         ],
         "depends_on": [
           "Recovery"
         ],
         "exceptions": [],
-        "file_count": 1,
+        "file_count": 2,
         "files": [
+          "DatabaseTargetIdentity.php",
           "RetainedCheckpointCipher.php"
         ]
       },
@@ -1179,20 +1188,22 @@
           "AdapterRegistry",
           "ManifestProviderRuntime",
           "DeletionFeasibility",
-          "LifecycleSettlement"
+          "LifecycleSettlement",
+          "SchemaSettlement"
         ],
         "depends_on": [
           "Adapter",
           "Delete",
-          "Kernel",
-          "Policy",
-          "Promotion",
-          "Rebuild",
+        "Kernel",
+        "Policy",
+        "Promotion",
+        "Recovery",
+        "Rebuild",
           "Repository",
           "Review"
         ],
         "exceptions": [],
-        "file_count": 19,
+        "file_count": 21,
         "files": [
           "ActionProviderGrammar.php",
           "AdapterCertification.php",
@@ -1206,10 +1217,12 @@
           "IdentityNamespaces.php",
           "LifecycleSettlement.php",
           "ManifestProviderRuntime.php",
+          "ProviderPhaseExecutor.php",
           "ProviderActionBatchBuilder.php",
           "ProviderSdk.php",
           "ProviderSurfaces.php",
           "Providers.php",
+          "SchemaSettlement.php",
           "ShippedIdentityInventory.php",
           "StructuredEvidence.php",
           "TargetProbe.php"

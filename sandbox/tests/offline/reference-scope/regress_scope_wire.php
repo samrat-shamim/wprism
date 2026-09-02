@@ -138,12 +138,14 @@ put_wire(
     $fakeWp
 );
 chmod("$fakeBin/wp", 0700);
+$targetRepo = "$tmp/target-repo";
+mkdir($targetRepo, 0700, true);
 $envsPath = "$tmp/envs.json";
 put_wire($envsPath, json_encode([
     'envs' => ['fixture' => [
         'transport' => 'local',
         'wp_path' => "$tmp/wordpress",
-        'repo_path' => '/target/repo',
+        'repo_path' => $targetRepo,
     ]],
 ], JSON_UNESCAPED_SLASHES));
 
@@ -250,7 +252,7 @@ $unscopedArgs = array_values(array_filter(
 ));
 check_wire(
     $unscoped['exit'] === 0
-        && $unscopedArgs === ['wprism', 'plan', '--repo=/target/repo', '--format=json'],
+        && $unscopedArgs === ['wprism', 'plan', '--repo=' . $targetRepo, '--format=json'],
     'unscoped plan forwarding remains byte-for-byte unchanged'
 );
 
@@ -329,7 +331,7 @@ put_wire($configuredEnvsPath, json_encode([
     'envs' => ['fixture' => [
         'transport' => 'local',
         'wp_path' => "$tmp/wordpress",
-        'repo_path' => '/target/repo',
+        'repo_path' => $targetRepo,
         'rollback_key_id' => 'scope-wire-fixture',
         'rollback_signing_key' => "$tmp/scope-wire-signing.key",
         'rollback_recovery' => [

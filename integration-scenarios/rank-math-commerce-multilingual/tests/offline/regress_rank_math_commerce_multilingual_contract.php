@@ -133,15 +133,23 @@ $rankMath = Canon::decode(Canon::read_file(
     $root . '/adapter-packages/rank-math/package/manifest.json'
 ));
 $actions = $rankMath['actions'] ?? [];
+wprism_check(!array_key_exists('triggers', $actions[2] ?? []),
+    'Rank Math declares its native repair as site-complete rather than a partial product/CPT trigger list');
+foreach (['post:product', 'option:polylang', 'table:wc_product_meta_lookup', 'term:product_cat'] as $surface) {
+    $selected = array_values(array_filter(
+        $policy->actions_for([$surface]),
+        static fn(array $action): bool => ($action['provider'] ?? null) === 'rank-math-state'
+    ));
+    wprism_check_same(
+        ['rebuild_all_link_state'],
+        array_column($selected, 'capability'),
+        "$surface selects Rank Math's one site-complete repair inside the combined policy"
+    );
+}
 wprism_check_same(
-    ['post:*'],
-    $actions[3]['triggers'] ?? null,
-    'the bounded post-kind trigger covers Woo products and future scoped CPTs without a plugin-specific roster'
-);
-wprism_check_same(
-    ['prepare_schema', 'rebuild_all_link_state', 'rebuild_link_state'],
+    ['inspect_schema', 'prepare_schema', 'rebuild_all_link_state'],
     $rankMath['providers'][0]['capabilities'] ?? null,
-    'the combined scenario consumes the same schema/full/entity provider contract as standalone Rank Math'
+    'the combined scenario consumes the same readiness/schema/site-repair provider contract as standalone Rank Math'
 );
 
 $livePath = $root . '/integration-scenarios/rank-math-commerce-multilingual/tests/live/'
@@ -160,6 +168,8 @@ foreach ([
     'exact reciprocal hreflang, canonical and Open Graph state renders on both products',
     'native 302 routing consumes the target-bound URL',
     'provider failure retained combined retry authority',
+    'post deletion selects the site-complete Rank Math repair',
+    'deleted source posts leave no Rank Math rows/counts/markers',
     'combined target recapture differs',
 ] as $witness) {
     wprism_check(str_contains($live, $witness), "the candidate-bound live scenario pins: $witness");
@@ -183,8 +193,15 @@ wprism_check(
     str_contains($live, '$failed.scheduler == $baseline.scheduler')
         && str_contains($live, '$retried.scheduler == $baseline.scheduler')
         && str_contains($live, '$final == $retried')
-        && str_contains($live, 'provider:rank-math-state/rebuild_link_state'),
+        && str_contains($live, 'provider:rank-math-state/rebuild_all_link_state'),
     'failure, retry and no-op phases retain exact target-only witnesses and bind the selected Rank Math action source'
+);
+wprism_check(
+    str_contains($live, '(.plan.delete + .plan.deleted) > 0')
+        && str_contains($live, '. == {links:0,markers:0,meta:0,post:0}')
+        && str_contains($live, '$after.neighbor == $before.neighbor')
+        && str_contains($live, '$after.scheduler == $before.scheduler'),
+    'the live deletion oracle proves exact physical/derived cleanup while unrelated target state survives'
 );
 
 wprism_check_summary('regress_rank_math_commerce_multilingual_contract');

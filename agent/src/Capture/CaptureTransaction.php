@@ -7,6 +7,7 @@ require_once __DIR__ . '/../Kernel/Db.php';
 require_once __DIR__ . '/../Kernel/TableSchema.php';
 require_once __DIR__ . '/../Publication/Publish.php';
 require_once __DIR__ . '/../Policy/Policy.php';
+require_once __DIR__ . '/../Repository/SchemaSettlementIntent.php';
 
 /**
  * Owns capture's consistent-read transaction and replay-safety boundary.
@@ -34,6 +35,7 @@ final class CaptureTransaction {
      * and that path reads only options, reference-triage rows, and the ledger.
      */
     public static function assert_engine_support(Policy $policy, bool $optionsOnly = false): void {
+        SchemaSettlementIntent::assert_no_incomplete();
         if ($optionsOnly) {
             self::assert_options_engine_support($policy);
             return;

@@ -123,6 +123,7 @@ $plan['effects_inventory'] = [
     ['phase' => 'lifecycle', 'effect' => ['id' => 'SECRET_EFFECT_LIFECYCLE']],
     ['phase' => 'rebuild', 'effect' => ['id' => 'SECRET_EFFECT_REBUILD']],
     ['phase' => 'regenerator', 'effect' => ['id' => 'SECRET_EFFECT_REGENERATOR']],
+    ['phase' => 'schema-settle', 'effect' => ['id' => 'SECRET_EFFECT_SCHEMA']],
     ['phase' => 'future_phase', 'effect' => ['id' => 'SECRET_EFFECT_FUTURE']],
 ];
 $plan['adapter_dispositions'] = [
@@ -204,8 +205,8 @@ $check($byId['authored_state']['contained_entities'] === [
     'sidebar' => 1, 'options' => 1, 'user_meta' => 1, 'typed_table' => 1,
 ], 'compiled identity context covers every engine and adapter entity family');
 $check($byId['generated_effects']['metrics'] === [
-    'count' => 9,
-    'declared_effects' => 4,
+    'count' => 10,
+    'declared_effects' => 5,
     'declared_lifecycle_effects' => 1,
     'declared_rebuild_effects' => 1,
     'declared_regenerator_effects' => 1,

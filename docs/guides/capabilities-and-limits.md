@@ -943,9 +943,12 @@ rather than working around it.
   provider/native response loss by exact operation id, verifies selected
   intent plus protected out-of-scope roots in a fresh process, and advances
   selected ledger rows without claiming a global applied revision. A
-  nonterminal scoped session interlocks full plan/apply. Triggerless actions,
-  legacy regenerators, and attachment metadata generation refuse rather than
-  widen authority. A narrow SSH-only scoped promotion profile is also shipped:
+  nonterminal scoped session interlocks full plan/apply. An untriggered native
+  action, or an untriggered provider without a successfully negotiated
+  operation-bound scoped reconciliation contract, refuses rather than widening
+  authority; the admitted provider exception is already declaration/effect-
+  hashed by the immutable scope contract. Legacy regenerators and attachment
+  metadata generation still refuse. A narrow SSH-only scoped promotion profile is also shipped:
   `wprism promote <ssh-env> --scope-contract=<path>` accepts only selected
   options, declared snapshot tables, sidebars, user meta, and option/table
   tombstones. It first holds a v2 exclusion covering every database writer,

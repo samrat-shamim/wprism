@@ -2420,6 +2420,53 @@ refuses(
     'an action kind outside the published set is refused with the published set spelled back'
 );
 
+// --- action_phases. Both values are provider-only; schema settlement carries
+// the extra exact table/effect authority its grammar requires.
+$covered['action_phases'] = true;
+foreach ($vocabularies['action_phases'] as $phase) {
+    $action = [
+        'kind' => 'provider',
+        'provider' => 'acme-b-cache',
+        'capability' => 'flush',
+        'args' => [],
+        'phase' => $phase,
+    ];
+    if ($phase === 'schema_settle') {
+        $action['prepares'] = ['acme_b_slots'];
+        $action['readiness'] = 'inspect_schema';
+        $action['effects'] = [[
+            'id' => 'acme-b-schema',
+            'kind' => 'database',
+            'mode' => 'restorable',
+            'selector' => [
+                'scope' => 'database_checkpoint',
+                'type' => 'table',
+                'value' => 'acme_b_slots',
+            ],
+        ]];
+    }
+    $overrides = ['actions' => [$action]];
+    if ($phase === 'schema_settle') {
+        $overrides['engine_features'] = ['schema-settlement/v1', 'spec-window/v1'];
+        $overrides['providers'] = [[
+            'id' => 'acme-b-cache',
+            'version' => '1.0.0',
+            'source' => 'manifest',
+            'plugin' => 'acme-b/acme-b.php',
+            'capabilities' => ['flush', 'inspect_schema'],
+        ]];
+    }
+    accepts(solo_b($overrides), "action phase '$phase' is published as legal and loads");
+}
+refuses(
+    solo_b(['actions' => [[
+        'kind' => 'provider', 'provider' => 'acme-b-cache', 'capability' => 'flush',
+        'args' => [], 'phase' => 'post_deploy',
+    ]]]),
+    'phase must be ' . implode(' or ', $vocabularies['action_phases']) . ' on a provider action',
+    'an action phase outside the published set is refused with the published set spelled back'
+);
+
 // --- classification_sections: a section is a manifest KEY, not a value, so the
 // positive half is "every published section is a section the loader reads" and
 // the negative half comes from the engine's own refusal for an unknown one

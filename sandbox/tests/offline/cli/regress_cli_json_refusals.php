@@ -143,7 +143,10 @@ namespace WPrism {
     }
 
     final class Deploy {
+        public static int $calls = 0;
+
         public static function run($repo, array $options): array {
+            self::$calls++;
             return [];
         }
     }
@@ -166,6 +169,10 @@ namespace WPrism {
 
     final class Policy {
         public static ?\Throwable $failure = null;
+        /** @var list<array<string,mixed>> */
+        public static array $schemaActions = [];
+        /** @var list<array<string,mixed>> */
+        public static array $lifecycleActions = [];
 
         // Keep the test double's call boundary aligned with Policy::load().
         // lint() passes the object-only adapter library by name, so omitting
@@ -177,12 +184,18 @@ namespace WPrism {
             bool $allowUnsupportedSiteForReadOnlyCapabilities = false,
             ?string $adapterRepo = null,
             ?AdapterLibrary $adapterLibrary = null
-        ): array {
+        ): self {
             if (self::$failure !== null) {
                 throw self::$failure;
             }
-            return [];
+            return new self();
         }
+
+        /** @return list<array<string,mixed>> */
+        public function schema_settle_actions(): array { return self::$schemaActions; }
+
+        /** @return list<array<string,mixed>> */
+        public function lifecycle_settle_actions(): array { return self::$lifecycleActions; }
     }
 
     /**
@@ -1176,10 +1189,13 @@ namespace {
     // 32 with WP-2.5's `adapter-deletion-feasibility`, which answers
     // DeleteGuardEvaluator::lock_index() for a PROPOSED deletion selector's
     // guards at authoring time; 33 with the asynchronous `lifecycle-settle`
-    // completion gate.
+    // completion gate; 34 with the pre-observation `schema-settle` gate; and
+    // 35 with ciphertext-only `checkpoint-verify` authentication; 38 after
+    // lifecycle/schema status and the value-free `checkpoint-target` identity
+    // preflight closed the host-owned provider-settlement sequence.
     // Every advertised handler is covered by the common envelope contract, so
     // this count moves with the set rather than around it.
-    check(count($advertised) === 33, 'every one of the 33 --format=json commands was scanned (' . count($advertised) . ')');
+    check(count($advertised) === 38, 'every one of the 38 --format=json commands was scanned (' . count($advertised) . ')');
 
     // Each newly enveloped command got a reviewed remediation arm, because the
     // default arm promises to "correct the named blocker" on exactly the path

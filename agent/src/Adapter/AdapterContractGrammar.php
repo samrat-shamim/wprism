@@ -106,7 +106,7 @@ final class AdapterContractGrammar {
      * post_v1` demonstrates, which is declared by nothing across all 18 shipped
      * manifests.
      *
-     * After `spec-window/v1`, EIGHT post-v3 features shipped through this
+     * After `spec-window/v1`, NINE post-v3 features shipped through this
      * channel in one wave, and together they are the proof § v3.2's claim
      * holds — each staged a grammar change with `WPRISM_SPEC_VERSION` left at 3,
      * asserted by each one's own suite:
@@ -138,6 +138,9 @@ final class AdapterContractGrammar {
      *     value-level postconditions in the digest-bound behavior file.
      *   - `post-kind-action-trigger/v1`: the bounded post:* action selector,
      *     which matches only concrete scoped post kinds and no other surface.
+     *   - `schema-settlement/v1`: a host-checkpointed, fresh-process provider
+     *     phase which establishes an exact declared table set before strict
+     *     target observation; it never makes an absent table plannable.
      *
      * All are keyed at `since` 3. PMPro was the first migrated consumer; ten
      * later provider-bearing manifests deliberately paid their own identity
@@ -268,6 +271,14 @@ final class AdapterContractGrammar {
         // feature gate, so an older engine refuses instead of interpreting a
         // wildcard as an exact surface that can never match.
         ActionProviderGrammar::POST_KIND_TRIGGER_FEATURE => [
+            'since' => 3,
+            'keys' => [],
+        ],
+        // A value-vocabulary extension inside actions[]: `phase` gains
+        // schema_settle and that phase alone gains `prepares`. No top-level
+        // key is claimed. ActionProviderGrammar owns the feature spelling and
+        // validates the exact prepares/effects relationship.
+        ActionProviderGrammar::SCHEMA_SETTLEMENT_FEATURE => [
             'since' => 3,
             'keys' => [],
         ],
