@@ -543,7 +543,13 @@ final class CodeResolveCommand {
         $lock = CodeSourceLock::parse(trim($lockRead['stdout']));
         $components = array_values((array) $lock['components']);
         $pushing = $transport instanceof CodePushTransport;
-        $inventory = self::targetInventory($transport, $repo, $pushing);
+        // A split repository deliberately does not track component bytes, and
+        // Git cannot preserve its empty `code/wp-content` directory. On the
+        // first deploy the agent therefore has no source root from which it
+        // can produce an inventory. Only the push-capable arm may classify
+        // that exact, safely-probed absence as an empty pre-push inventory;
+        // every staged and post-push proof still comes from the agent itself.
+        $inventory = self::targetInventory($transport, $repo, $pushing, $pushing);
 
         $pending = [];
         $absent = [];
@@ -844,7 +850,49 @@ final class CodeResolveCommand {
      *
      * @return array<string,string>
      */
-    private static function targetInventory(EnvironmentDriver $transport, string $repo, bool $pushing = false): array {
+    private static function targetInventory(
+        EnvironmentDriver $transport,
+        string $repo,
+        bool $pushing = false,
+        bool $allowAbsentSource = false
+    ): array {
+        if ($allowAbsentSource) {
+            $source = rtrim($repo, '/') . '/' . CodeSourceLock::SOURCE;
+            $parent = dirname($source);
+            $probe = $transport->captureRaw(
+                'p=' . escapeshellarg($source) . '; parent=' . escapeshellarg($parent) . '; '
+                . '[ -d "$parent" ] && [ -x "$parent" ] || { echo '
+                . escapeshellarg('wprism: code source parent is not an accessible directory')
+                . ' >&2; exit 72; }; '
+                . '[ ! -L "$p" ] || { echo '
+                . escapeshellarg('wprism: code source is a symbolic link')
+                . ' >&2; exit 73; }; '
+                . 'if [ ! -e "$p" ]; then printf %s '
+                . escapeshellarg('wprism-code-source-absent')
+                . '; elif [ -d "$p" ]; then printf %s '
+                . escapeshellarg('wprism-code-source-present')
+                . '; else echo '
+                . escapeshellarg('wprism: code source exists but is not a directory')
+                . ' >&2; exit 74; fi'
+            );
+            if ($probe['exit'] !== 0) {
+                throw self::pushFailed(
+                    'wprism: the target code source could not be safely inspected before the push',
+                    $probe
+                );
+            }
+            $state = trim($probe['stdout']);
+            if ($state === 'wprism-code-source-absent') {
+                return [];
+            }
+            if ($state !== 'wprism-code-source-present') {
+                throw self::pushFailed(
+                    'wprism: the target code-source probe returned an unrecognized result before the push',
+                    $probe
+                );
+            }
+        }
+
         $result = $transport->captureWp(['wprism', 'code-inventory', '--repo=' . $repo, '--format=json']);
         if ($result['exit'] !== 0) {
             throw $pushing
