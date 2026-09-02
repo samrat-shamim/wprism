@@ -22,6 +22,7 @@ require_once __DIR__ . '/../Review/LintTrustGate.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Policy/AdapterLibrary.php';
 require_once __DIR__ . '/../Publication/Publish.php';
+require_once __DIR__ . '/../Repository/CompiledArtifact.php';
 require_once __DIR__ . '/../Repository/RepositoryCompiler.php';
 require_once __DIR__ . '/../Scope/ScopedApply.php';
 require_once __DIR__ . '/../Scope/ScopedCaptureProjector.php';
