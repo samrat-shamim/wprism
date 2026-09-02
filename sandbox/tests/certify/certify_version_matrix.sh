@@ -47,6 +47,13 @@ declare -F version_matrix_workflow >/dev/null \
   || fail "manifest '$VMATRIX_MANIFEST' certification capsule does not define version_matrix_workflow"
 [[ "${VMATRIX_PLUGIN_SLUG:-}" =~ ^[a-z][a-z0-9-]*$ ]] \
   || fail "manifest '$VMATRIX_MANIFEST' certification capsule does not define one canonical VMATRIX_PLUGIN_SLUG"
+# Normalize the public matrix variable before the capsule preflight. Candidate-
+# bound capsules validate and export their source root there; invoking them
+# first would make the documented VMATRIX_EXPECTED_SOURCE_SHA interface fail
+# before the shared driver had translated it.
+if [ -n "${VMATRIX_EXPECTED_SOURCE_SHA:-}" ]; then
+  export WPRISM_EXPECTED_SOURCE_SHA="$VMATRIX_EXPECTED_SOURCE_SHA"
+fi
 if declare -F version_matrix_preflight >/dev/null; then
   version_matrix_preflight
 fi
@@ -61,9 +68,6 @@ export WPRISM_PAIR="$PAIR"
 # pair mounts. Export before the first pair.sh call: `up` can allocate the
 # databases and start containers, so setting it later would certify a stale
 # canonical checkout rather than this candidate.
-if [ -n "${VMATRIX_EXPECTED_SOURCE_SHA:-}" ]; then
-  export WPRISM_EXPECTED_SOURCE_SHA="$VMATRIX_EXPECTED_SOURCE_SHA"
-fi
 # Boundary observations use fresh direct Compose processes. Keep the selected
 # mounts in this shell; shared .env can legitimately move when another pair is
 # cleaned up and therefore cannot carry this matrix's candidate identity.

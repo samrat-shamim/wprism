@@ -59,6 +59,7 @@
         "purpose": "Dependency-free primitives — canonical JSON, database access, reference codecs, durable filesystem, side-effect guards, identifiers, secrets and PII redaction — that everything else is built on.",
         "status": "populated",
         "entry_points": [
+          "ActionTriggerMatcher",
           "Canon",
           "Db",
           "OptionState",
@@ -115,8 +116,9 @@
             ]
           }
         ],
-        "file_count": 35,
+        "file_count": 36,
         "files": [
+          "ActionTriggerMatcher.php",
           "Canary.php",
           "Canon.php",
           "CommandRefusal.php",
@@ -1190,7 +1192,7 @@
           "Review"
         ],
         "exceptions": [],
-        "file_count": 18,
+        "file_count": 19,
         "files": [
           "ActionProviderGrammar.php",
           "AdapterCertification.php",
@@ -1208,6 +1210,7 @@
           "ProviderSdk.php",
           "ProviderSurfaces.php",
           "Providers.php",
+          "ShippedIdentityInventory.php",
           "StructuredEvidence.php",
           "TargetProbe.php"
         ]

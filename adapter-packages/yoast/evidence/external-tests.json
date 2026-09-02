@@ -1,0 +1,6 @@
+{
+    "format": "wprism-adapter-external-evidence/v1",
+    "tests": {
+        "regress-woocommerce-rewrite-coinstall": "integration-scenarios/woocommerce-rewrite-coinstall/tests/live/regress_woocommerce_rewrite_coinstall.sh"
+    }
+}

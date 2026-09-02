@@ -82,6 +82,32 @@ final class AdapterPackageTestsTest extends TestCase
         self::assertContains('evidence-wiring:2', $result['checks']);
     }
 
+    public function testEvidenceCatalogDiscoversLocalAndParticipantOwnedGates(): void
+    {
+        $tests = AdapterPackageValidator::discoverableEvidence(dirname(__DIR__, 2), 'rank-math');
+
+        self::assertSame($tests, array_values(array_unique($tests)));
+        self::assertContains('conformance-rank-math', $tests);
+        self::assertContains('exact-artifact-version-matrix', $tests);
+        self::assertContains('regress-rank-math-provider', $tests);
+        self::assertContains('regress-rank-math-commerce-multilingual', $tests);
+    }
+
+    public function testEvidenceCatalogCannotCertifyANonExecutableFixture(): void
+    {
+        $root = $this->validatorFixture();
+        self::write(
+            $root . '/adapter-packages/acf/tests/offline/fixtures/regress_claim.json',
+            "{}\n"
+        );
+
+        self::assertNotContains(
+            'regress-claim',
+            AdapterPackageValidator::discoverableEvidence($root, 'acf'),
+            'Evidence ids come only from executable class-named PHP/shell suites, not filename-shaped fixtures.'
+        );
+    }
+
     public function testRuntimeSdkIsVersionedAndInventoriesEveryCurrentLegitimateDependency(): void
     {
         self::assertSame([
@@ -392,6 +418,44 @@ final class AdapterPackageTestsTest extends TestCase
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage("must own exactly its manifest plugin 'advanced-custom-fields'");
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testCertifiedPackageCannotOmitItsVersionMatrix(): void
+    {
+        $root = $this->validatorFixture();
+        self::assertTrue(unlink($root . '/adapter-packages/acf/tests/certify/version-matrix.sh'));
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('must own tests/certify/version-matrix.sh');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testArtifactRolesMustAgreeWithTheDeclaredVersionRange(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/evidence/artifacts.lock.json';
+        $artifacts = json_decode((string) file_get_contents($path), true, flags: JSON_THROW_ON_ERROR);
+        self::assertIsArray($artifacts);
+        $artifacts['plugins']['advanced-custom-fields']['5.12.6']['role'] = 'certified-boundary';
+        self::write(
+            $path,
+            json_encode($artifacts, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('pins certified boundary 5.12.6 outside its declared version_range');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
+    public function testEveryArtifactPinMustAppearInActiveMatrixSource(): void
+    {
+        $root = $this->validatorFixture();
+        $path = $root . '/adapter-packages/acf/tests/certify/version-matrix.sh';
+        self::write($path, str_replace('5.12.6', '5.12.5', (string) file_get_contents($path)));
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('artifact pin 5.12.6 is absent from active certified workflow source');
         AdapterPackageValidator::validate($root, 'acf');
     }
 

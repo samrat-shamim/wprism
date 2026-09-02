@@ -1,15 +1,13 @@
 <?php
 /**
- * The Rank Math 1.0.277 site-adapter exercise as a committed, executable
- * fixture. Live evidence is carried in rank-math.outcomes.json; this suite
- * proves the exact adapter bytes retain the narrow boundary that exercise
- * measured and load through the same out-of-tree Policy path a customer uses.
+ * Rank Math's shipped policy contract, retained from the original site-level
+ * exercise and promoted only after its lifecycle and derived-state gaps closed.
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../lib/check.php';
-require_once __DIR__ . '/../../lib/wp_stubs.php';
-require_once __DIR__ . '/../../lib/agent_version.php';
+require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/check.php';
+require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/wp_stubs.php';
+require_once dirname(__DIR__, 4) . '/sandbox/tests/lib/agent_version.php';
 
 $root = dirname(__DIR__, 4);
 wprism_test_define_agent_versions();
@@ -22,64 +20,81 @@ use WPrism\Canon;
 use WPrism\Orchestrator\AdapterBoundary;
 use WPrism\Policy;
 
-$fixtureDir = $root . '/sandbox/fixtures/rank-math';
-$adapterPath = $fixtureDir . '/adapters/rank-math.json';
-$releasePath = $fixtureDir . '/rank-math.releases.json';
-$outcomePath = $fixtureDir . '/rank-math.outcomes.json';
-$combinationPath = $fixtureDir . '/rank-math.combinations.json';
+$fixtureDir = $root . '/adapter-packages/rank-math/fixtures';
+$adapterPath = $root . '/adapter-packages/rank-math/package/manifest.json';
+$releasePath = $fixtureDir . '/historical-release-boundary.json';
+$outcomePath = $fixtureDir . '/historical-site-outcome.json';
 $adapterBytes = (string) file_get_contents($adapterPath);
 $adapter = Canon::decode($adapterBytes);
 
 wprism_check_same($adapterBytes, Canon::encode($adapter),
-    'A1: the committed Rank Math adapter is canonical before certification signs its exact bytes');
+    'A1: the shipped Rank Math manifest is canonical before its digest binds the exact bytes');
 wprism_check_same(
     ['rank-math', 3, 'seo-by-rank-math/rank-math.php'],
     [$adapter['name'] ?? null, $adapter['spec_version'] ?? null, $adapter['plugin'] ?? null],
-    'A1: the site fixture names Rank Math, spec v3 and the exact WordPress plugin basename'
+    'A1: the package names Rank Math, spec v3 and the exact WordPress plugin basename'
 );
 wprism_check_same(
-    ['max' => '1.0.278', 'min' => '1.0.277'],
+    ['max' => '1.0.277.3', 'min' => '1.0.277'],
     $adapter['version_range'] ?? null,
-    'A2: the compatibility window admits only the one release exercised end to end'
+    'A2: the compatibility window admits only the exact reviewed patch family'
 );
 wprism_check_same(
-    ['spec-window/v1', 'structured-evidence/v1'],
+    ['manifest-provider-runtime/v1', 'post-kind-action-trigger/v1', 'spec-window/v1', 'structured-evidence/v1'],
     $adapter['engine_features'] ?? null,
     'A2: every v3 section is admitted through an explicit engine feature'
 );
 wprism_check(isset($adapter['declaration_evidence']['tables.rank_math_redirections']),
     'A3: the natural-key table decision carries machine-shaped declaration evidence');
 wprism_check(count((array) ($adapter['notes'] ?? [])) >= 10,
-    'A3: the fixture retains the live boundary, refusals and authoring friction in its own bytes');
+    'A3: the package retains the live boundary, refusals and authoring friction in its own bytes');
+wprism_check_same(
+    ['prepare_schema', 'rebuild_all_link_state', 'rebuild_link_state'],
+    $adapter['providers'][0]['capabilities'] ?? null,
+    'A4: one digest-bound provider owns schema settlement and native link-state convergence'
+);
+wprism_check_same(
+    ['lifecycle_settle', 'lifecycle_settle', null, null],
+    array_map(static fn(array $action): ?string => $action['phase'] ?? null, $adapter['actions'] ?? []),
+    'A4: schema preparation is lifecycle work while value-triggered repairs remain post-apply actions'
+);
+wprism_check_same(
+    ['option:rank_math_modules'],
+    $adapter['actions'][2]['triggers'] ?? null,
+    'A4: module enablement selects a whole-site native link rebuild'
+);
+wprism_check_same(
+    ['post:*'],
+    $adapter['actions'][3]['triggers'] ?? null,
+    'A4: entity repair uses the bounded feature-gated post-kind trigger rather than guessing registered CPTs'
+);
 
 $site = sys_get_temp_dir() . '/wprism_rank_math_site_' . bin2hex(random_bytes(8));
-if (!mkdir($site . '/adapters', 0700, true) && !is_dir($site . '/adapters')) {
+if (!mkdir($site, 0700, true) && !is_dir($site)) {
     throw new RuntimeException("could not create scratch site repository $site");
 }
 register_shutdown_function(static function () use ($site): void {
-    @unlink($site . '/adapters/rank-math.json');
     @unlink($site . '/site.wprism.json');
-    @rmdir($site . '/adapters');
     @rmdir($site);
 });
-Canon::write_file($site . '/adapters/rank-math.json', $adapterBytes);
 Canon::write_file($site . '/site.wprism.json', Canon::encode([
-    'manifests' => [['name' => 'rank-math', 'source' => 'site']],
+    'manifests' => [['name' => 'rank-math', 'source' => 'shipped']],
     'policy' => new stdClass(),
     'spec_version' => WPRISM_SPEC_VERSION,
 ]));
+$library = \WPrism\AdapterLibrary::fromSourceTree($root);
 $policy = Policy::load(
     $site,
     ['rank-math'],
-    adapterLibrary: \WPrism\AdapterLibrary::fromSourceTree($root)
+    adapterLibrary: $library
 );
 
 $range = $policy->version_ranges()['seo-by-rank-math/rank-math.php'] ?? null;
 wprism_check(is_array($range)
     && ($range['min'] ?? null) === '1.0.277'
-    && ($range['max'] ?? null) === '1.0.278'
+    && ($range['max'] ?? null) === '1.0.277.3'
     && ($range['manifest'] ?? null) === 'rank-math',
-    'B1: the customer site-adapter load path publishes the exact plugin version boundary');
+    'B1: the shipped package load path publishes the exact plugin version boundary');
 wprism_check_same(
     ['class' => 'authored', 'plain_data' => true, 'autoload' => 'preserve'],
     $policy->option_rule('rank-math-options-general'),
@@ -88,8 +103,14 @@ wprism_check_same(
 $titles = $policy->option_rule('rank-math-options-titles');
 wprism_check(($titles['class'] ?? null) === 'authored'
     && array_column((array) ($titles['json_refs'] ?? []), 'path')
-        === ['$.homepage_facebook_image_id', '$.knowledgegraph_logo_id'],
-    'B2: the titles object remaps both measured attachment-id positions');
+        === [
+            '$.homepage_facebook_image_id',
+            '$.knowledgegraph_logo_id',
+            '$.local_seo_about_page',
+            '$.local_seo_contact_page',
+            '$.open_graph_image_id',
+        ],
+    'B2: the titles object remaps all three measured attachment ids and both local-SEO page ids');
 wprism_check_same('authored', $policy->option_rule('rank_math_registration_skip')['class'] ?? null,
     'B3: disconnected registration skip is authored executable setup state');
 wprism_check_same('authored', $policy->option_rule('rank_math_modules')['class'] ?? null,
@@ -171,52 +192,15 @@ wprism_check_same('runtime', $policy->table_rule('actionscheduler_actions')['cla
     'D3: Rank Math bundled Action Scheduler jobs remain local execution state');
 wprism_check(!isset($adapter['column_codecs']['rank_math_redirections']['sources']),
     'D4: the natural identity column carries no codec that could change its lookup bytes');
-
-$combinedPins = ['core', 'woocommerce', 'acf', 'polylang', 'redirection', 'rank-math'];
-$combined = Policy::load($site, $combinedPins);
-foreach (['actionscheduler_actions', 'actionscheduler_claims', 'actionscheduler_groups', 'actionscheduler_logs'] as $table) {
-    wprism_check_same('runtime', $combined->table_rule($table)['class'] ?? null,
-        "D5: Rank Math and WooCommerce compose only through one byte-identical runtime $table declaration");
-}
-wprism_check_same('rank-math', $combined->option_namespace('rank_math_modules')['owner'] ?? null,
-    'D5: the combined policy retains Rank Math option ownership');
-wprism_check_same('woocommerce', $combined->option_namespace('woocommerce_shop_page_id')['owner'] ?? null,
-    'D5: the combined policy retains WooCommerce option ownership');
-wprism_check_same('polylang', $combined->option_namespace('polylang')['owner'] ?? null,
-    'D5: the combined policy retains Polylang option ownership');
-wprism_check_same('redirection', $combined->option_namespace('redirection_options')['owner'] ?? null,
-    'D5: the combined policy retains Redirection option ownership');
-wprism_check_same('authored_snapshot', $combined->table_rule('redirection_items')['class'] ?? null,
-    'D5: Redirection rules coexist with WooCommerce and Rank Math redirection tables without ownership overlap');
-wprism_check_same('runtime', $combined->table_rule('redirection_logs')['class'] ?? null,
-    'D5: Redirection request history stays runtime inside the full common-plugin policy');
-wprism_check_same('authored', $combined->meta_rule_for_post('rank_math_title', [])['class'] ?? null,
-    'D5: an ordinary Rank Math product title remains statically authored when no ACF shadow claims it');
-
-$hostileAcfField = [
-    'type' => 'post',
-    'path' => 'state/posts/acf-field/field_rmcombo_rank_title.json',
-    'data' => ['type' => 'acf-field', 'slug' => 'field_rmcombo_rank_title'],
-    'body' => serialize([
-        'key' => 'field_rmcombo_rank_title',
-        'name' => 'rank_math_title',
-        'type' => 'post_object',
-    ]),
-];
-foreach ([$combinedPins, ['core', 'woocommerce', 'rank-math', 'redirection', 'acf', 'polylang']] as $pins) {
-    $collisionPolicy = Policy::load($site, $pins);
-    $collisionPolicy->prime_interpreters_from_repository([$hostileAcfField]);
-    wprism_check_throws(
-        fn() => $collisionPolicy->meta_rule_for_post('rank_math_title', [
-            '_rank_math_title' => 'field_rmcombo_rank_title',
-            'rank_math_title' => '17',
-        ]),
-        RuntimeException::class,
-        'D6: an ACF field cannot reinterpret a Rank Math physical meta key under pin order '
-        . implode(',', $pins),
-        "post_meta 'rank_math_title' has multiple classification owners"
-    );
-}
+$customPostActions = $policy->actions_for(['post:book']);
+wprism_check_same(
+    ['rebuild_link_state'],
+    array_values(array_map(
+        static fn(array $action): string => (string) ($action['capability'] ?? ''),
+        array_filter($customPostActions, static fn(array $action): bool => ($action['kind'] ?? null) === 'provider')
+    )),
+    'D5: a scoped custom public CPT selects the same Rank Math entity repair through the engine product path'
+);
 
 $releases = AdapterBoundary::readReleaseList($releasePath);
 $outcomes = AdapterBoundary::readOutcomeTable($outcomePath, 'seo-by-rank-math');
@@ -239,34 +223,8 @@ wprism_check(str_contains($signature, 'adopt 4')
     && str_contains($signature, 'unchanged 11'),
     'E2: the outcome signature retains hostile-target adoption, reference rebinding, recapture and idempotence evidence');
 
-$combinationBytes = (string) file_get_contents($combinationPath);
-$combination = Canon::decode($combinationBytes);
-wprism_check_same($combinationBytes, Canon::encode($combination),
-    'E3: the multi-plugin exercise record is canonical and value-redacted');
-wprism_check_same(
-    ['advanced-custom-fields:6.8.7', 'polylang:3.8.6', 'seo-by-rank-math:1.0.277', 'woocommerce:11.0.1'],
-    array_map(
-        static fn(array $plugin): string => $plugin['name'] . ':' . $plugin['version'],
-        $combination['combinations'][0]['plugins'] ?? []
-    ),
-    'E3: the combination record pins all four exact plugin releases that actually ran'
-);
-$combinationSignature = (string) ($combination['combinations'][0]['signature'] ?? '');
-wprism_check(($combination['combinations'][0]['outcome'] ?? null) === 'green'
-    && str_contains($combinationSignature, 'unchanged 43')
-    && str_contains($combinationSignature, 'target-only scheduler action remained')
-    && str_contains($combinationSignature, 'hreflang'),
-    'E3: the green record retains convergence, runtime isolation and rendered multilingual SEO evidence');
-wprism_check_same('refused', $combination['refusals'][0]['outcome'] ?? null,
-    'E4: the hostile ACF overlap is recorded as a refusal, not compatibility');
-wprism_check(str_contains(
-    (string) ($combination['refusals'][0]['signature'] ?? ''),
-    "post_meta 'rank_math_title' has multiple classification owners"
-), 'E4: the combination record retains the exact ownership refusal exposed by the real stack');
-wprism_check(count((array) ($combination['limitations'] ?? [])) >= 4,
-    'E4: the evidence names setup, recovery and unsupported boundaries instead of widening the product claim');
+wprism_check(is_file($root . '/adapter-packages/rank-math/package/disposition.json')
+    && is_file($root . '/adapter-packages/rank-math/package/runtime/providers/rank-math-state.php'),
+    'F1: the promoted contract is owned by one self-contained shipped capsule');
 
-wprism_check(!is_dir($root . '/adapter-packages/rank-math'),
-    'F1: the exercise remains a site fixture and makes no shipped Rank Math capability claim');
-
-wprism_check_summary('regress_rank_math_adapter');
+wprism_check_summary('regress_rank_math_package');

@@ -18,7 +18,7 @@
  * The four properties, each asserted below rather than argued:
  *
  *   1. an adapter declaring nothing binds the whole current boundary BYTE FOR
- *      BYTE. All 17 current shipped claims are re-projected here and compared against
+ *      BYTE. Every current shipped claim is re-projected here and compared against
  *      the pre-WP-4.6 formula, recomputed independently from platform.json — so
  *      this suite fails if the shipped claims move by one byte;
  *   2. a NARROWER declaration is honoured and reported, through the same funnel
@@ -70,6 +70,7 @@ require_once $root . '/agent/src/Policy/ManifestDispositions.php';
 require_once $root . '/agent/src/Policy/PlatformCompatibility.php';
 require_once $root . '/agent/src/Adapter/AdapterRegistry.php';
 require_once $root . '/agent/src/Adapter/AdapterCertification.php';
+require_once $root . '/agent/src/Adapter/ShippedIdentityInventory.php';
 
 use WPrism\AdapterCertification;
 use WPrism\AdapterLibrary;
@@ -78,6 +79,7 @@ use WPrism\Canon;
 use WPrism\CommandRefusalException;
 use WPrism\ManifestDispositions;
 use WPrism\PlatformCompatibility;
+use WPrism\ShippedIdentityInventory;
 
 /**
  * The declared top-level manifest key, spelled out here rather than read back
@@ -161,12 +163,16 @@ foreach ($shipped as $name => $manifest) {
         $movedClaims[] = $name;
     }
 }
-wprism_check_same(17, count($shipped), 'the shipped library is the 17 adapters this claim is measured over');
+wprism_check_same(
+    ShippedIdentityInventory::ADAPTER_NAMES,
+    array_keys($shipped),
+    'the shipped library exactly matches the generated runtime inventory this claim is measured over'
+);
 wprism_check_same([], $declaringShipped, 'no shipped adapter declares the narrowing channel, so WP-4.6 moves no shipped manifest byte and no adapter digest');
 wprism_check_same(
     [],
     $movedClaims,
-    'all 17 current shipped claims still carry the WHOLE boundary in `environment_assumptions`, byte-identical to the pre-WP-4.6 projection'
+    'every current shipped claim still carries the WHOLE boundary in `environment_assumptions`, byte-identical to the pre-WP-4.6 projection'
 );
 $report('shipped claims re-projected: ' . count($shipped) . '; environment_assumptions bytes: ' . strlen($wholeBoundary));
 

@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Repository/CanonicalSurfaces.php';
+require_once __DIR__ . '/../Kernel/ActionTriggerMatcher.php';
 require_once __DIR__ . '/../Rebuild/RegenerationContext.php';
 if (!class_exists(Ledger::class, false)) {
     require_once __DIR__ . '/../Repository/Ledger.php';
@@ -34,7 +35,7 @@ final class ProviderActionBatchBuilder {
         bool $includeGenericPending = true
     ): array {
         $warnings = [];
-        $triggers = array_fill_keys((array) ($action['triggers'] ?? []), true);
+        $triggers = array_values(array_map('strval', (array) ($action['triggers'] ?? [])));
         $deletedIds = [];
         foreach ($deletionRows as $row) {
             $deletedId = (int) ($row['id'] ?? 0);
@@ -57,7 +58,7 @@ final class ProviderActionBatchBuilder {
                 continue;
             }
             foreach ($this->entity_rebuild_surfaces($entity, $entry) as $surface) {
-                if (!isset($triggers[$surface])) {
+                if (!ActionTriggerMatcher::any_matches($triggers, $surface)) {
                     continue;
                 }
                 $id = $this->entity_local_id($entity, $uuid);
@@ -80,7 +81,7 @@ final class ProviderActionBatchBuilder {
         foreach ($includeGenericPending ? Ledger::kv_prefix(self::REGEN_PENDING_PREFIX) : [] as $key => $postType) {
             $postType = (string) $postType;
             $surface = 'post:' . $postType;
-            if ($postType === '' || !isset($triggers[$surface])
+            if ($postType === '' || !ActionTriggerMatcher::any_matches($triggers, $surface)
                 || $this->policy->regen_batch($postType) !== null) {
                 continue;
             }
@@ -109,12 +110,13 @@ final class ProviderActionBatchBuilder {
     }
 
     public function action_marker_keys(array $action, array $durableContexts): array {
-        $triggers = array_fill_keys((array) ($action['triggers'] ?? []), true);
+        $triggers = array_values(array_map('strval', (array) ($action['triggers'] ?? [])));
         $keys = [];
         foreach ($durableContexts as $context) {
             $markerKey = (string) ($context['_marker_key'] ?? '');
             $postType = (string) ($context['post_type'] ?? '');
-            if ($markerKey === '' || $postType === '' || !isset($triggers['post:' . $postType])) {
+            if ($markerKey === '' || $postType === ''
+                || !ActionTriggerMatcher::any_matches($triggers, 'post:' . $postType)) {
                 continue;
             }
             $keys[$markerKey] = $markerKey;
@@ -190,7 +192,7 @@ final class ProviderActionBatchBuilder {
         array $appliedDeletions,
         array $durableDeletions = []
     ): array {
-        $triggers = array_fill_keys((array) ($action['triggers'] ?? []), true);
+        $triggers = array_values(array_map('strval', (array) ($action['triggers'] ?? [])));
         $rows = [];
         foreach ($appliedDeletions as $entry) {
             $uuid = (string) ($entry['uuid'] ?? '');
@@ -198,7 +200,7 @@ final class ProviderActionBatchBuilder {
                 continue;
             }
             foreach ($this->deletion_rebuild_surfaces($entry) as $surface) {
-                if (!isset($triggers[$surface])) {
+                if (!ActionTriggerMatcher::any_matches($triggers, $surface)) {
                     continue;
                 }
                 $rows[$surface . "\0" . $uuid] = [
@@ -219,7 +221,7 @@ final class ProviderActionBatchBuilder {
             }
             $postType = (string) ($context['post_type'] ?? '');
             $surface = $postType !== '' ? 'post:' . $postType : 'entity:post';
-            if (!isset($triggers[$surface])) {
+            if (!ActionTriggerMatcher::any_matches($triggers, $surface)) {
                 continue;
             }
             $uuid = (string) ($context['uuid'] ?? '');
@@ -255,7 +257,7 @@ final class ProviderActionBatchBuilder {
         array $regenContext,
         array $durableReparents = []
     ): array {
-        $triggers = array_fill_keys((array) ($action['triggers'] ?? []), true);
+        $triggers = array_values(array_map('strval', (array) ($action['triggers'] ?? [])));
         $rows = [];
         foreach (array_merge($durableReparents, $regenContext) as $entry) {
             if (!is_array($entry) || ($entry['kind'] ?? 'delete') !== 'reparent') {
@@ -263,7 +265,7 @@ final class ProviderActionBatchBuilder {
             }
             $postType = (string) ($entry['post_type'] ?? '');
             $surface = $postType !== '' ? 'post:' . $postType : 'entity:post';
-            if (!isset($triggers[$surface])) {
+            if (!ActionTriggerMatcher::any_matches($triggers, $surface)) {
                 continue;
             }
             $uuid = (string) ($entry['uuid'] ?? '');

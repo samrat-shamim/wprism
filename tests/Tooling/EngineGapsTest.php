@@ -135,10 +135,10 @@ final class EngineGapsTest extends TestCase
     }
 
     /**
-     * The property the whole ledger exists for: duplicate demand across
-     * candidates is ONE primitive with N candidates, and the ranking is sorted
-     * by that N. Asserted against the real data rather than a fixture so the
-     * ledger cannot quietly become a list of ones.
+     * Duplicate demand across candidates is one primitive with N candidates,
+     * and the ranking is sorted by that N. The current open set may legitimately
+     * become singleton-only after closures; uniqueness still proves a candidate
+     * cannot inflate a primitive's demand count by repeating itself.
      */
     public function testDemandRankingCollapsesDuplicateDemandAndLeadsWithIt(): void
     {
@@ -148,16 +148,24 @@ final class EngineGapsTest extends TestCase
         $sorted = $counts;
         rsort($sorted);
         self::assertSame($sorted, $counts, 'the open-demand table is not ordered most-blocking first');
-        self::assertGreaterThan(
-            1,
-            $counts[0],
-            'no primitive is demanded by more than one candidate; the vocabulary is not collapsing duplicate demand'
-        );
-        self::assertSame(
-            count($demand[0]['candidates']),
-            count(array_unique($demand[0]['candidates'])),
-            'the leading primitive counts the same candidate twice'
-        );
+        foreach ($demand as $row) {
+            self::assertSame(
+                count($row['candidates']),
+                count(array_unique($row['candidates'])),
+                "primitive '{$row['primitive']}' counts the same candidate twice"
+            );
+        }
+    }
+
+    public function testCurrentDispositionRefusesAStalePromotionBlocker(): void
+    {
+        $ledger = self::ledger();
+        $ledger['candidates'][0]['disposition'] = 'promotion_blocked';
+        $ledger['candidates'][0]['blocked_adapters'] = ['code-snippets'];
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("'code-snippets' is promotion_blocked");
+        gap_assert_current_dispositions($ledger, gap_library(self::repoRoot()));
     }
 
     public function testRefusesAnOutOfVocabularyPrimitive(): void
@@ -190,6 +198,36 @@ final class EngineGapsTest extends TestCase
             }
         }
         $this->assertRefuses($ledger, 'a closed coordinate demands a shipped primitive');
+    }
+
+    public function testOpenCoordinateOnShippedFacilityMustBeClassifiedAsAdapterWork(): void
+    {
+        $ledger = self::ledger();
+        foreach ($ledger['candidates'] as $i => $row) {
+            foreach ($row['coordinates'] as $j => $coordinate) {
+                if (($coordinate['blocker_layer'] ?? null) === 'adapter') {
+                    unset($ledger['candidates'][$i]['coordinates'][$j]['blocker_layer']);
+                    $this->assertRefuses($ledger, 'mark blocker_layer adapter');
+                    return;
+                }
+            }
+        }
+        self::fail('fixture has no adapter-layer blocker');
+    }
+
+    public function testClosedCoordinateCannotRetainAStaleBlockerLayer(): void
+    {
+        $ledger = self::ledger();
+        foreach ($ledger['candidates'] as $i => $row) {
+            foreach ($row['coordinates'] as $j => $coordinate) {
+                if (isset($coordinate['closed_by'])) {
+                    $ledger['candidates'][$i]['coordinates'][$j]['blocker_layer'] = 'adapter';
+                    $this->assertRefuses($ledger, 'is closed and must not retain blocker_layer');
+                    return;
+                }
+            }
+        }
+        self::fail('fixture has no closed coordinate');
     }
 
     public function testRefusesClosureEvidenceThatLeftTheTree(): void

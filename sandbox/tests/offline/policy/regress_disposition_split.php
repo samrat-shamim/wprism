@@ -8,7 +8,7 @@
  * ---------------------
  * `manifests/dispositions.json` was 302 lines, 37,707 bytes and 16 entries in
  * one file; the current library has one package-local disposition per adapter
- * plus `platform/adapter-library/core/disposition.json` — 17 subjects in all.
+ * plus `platform/adapter-library/core/disposition.json` — 18 subjects in all.
  * That is a
  * relocation of bytes AGENTS.md rule 2 calls adapter identity:
  * `ArtifactPolicyIdentity::manifest_rows()` folds each manifest's own
@@ -296,6 +296,7 @@ const WPRISM_CURRENT_DIGESTS = [
     'ninja-forms' => '35d804bf74779db8ac50ea9e15ef28a26b5917e1417f701a108519244e4b1011',
     'paid-memberships-pro' => 'e518a516bb44d144cff92bdb423c04813847064fe7113ac4e1cfc386ba37f253',
     'polylang' => '60edabfdaab55d4ea74d0c6ac71228bffc2b2911afe57a962ac898ee73064548',
+    'rank-math' => 'd1824bb11311adcae5e780ae5d67f8279ea1c3f2dd2d9885797f2d2cad5a726e',
     'redirection' => '6ba607e26345be23b0a89eeee69dadc0ceff75ca40b8cdf9d0ab88d066303bc7',
     'the-events-calendar' => 'cad93805c2c5689002346f24fc766c58bfda075b669d9c7c1f16542d8b9ac9ee',
     'woocommerce' => 'c66724d62f9410b43208b172ebdf95f6a5003b81a00dd6137401da4ae5cc94e3',
@@ -304,9 +305,9 @@ const WPRISM_CURRENT_DIGESTS = [
     'yoast' => '565673dd40899c736e615add51d6e39f51aaa7e8b42b986c183ea279c54c5eea',
     'yoast-duplicate-post' => '1c1982d1def124a61abe5a9ee2f6859d6a65711f11b38a5c6e3f6c40b4f71456',
 ];
-const WPRISM_CURRENT_MANIFEST_HASH = '713b9224ff4de40e4ff309636875343a3b799f0e91356fff844c1c7c5488edc5';
-const WPRISM_CURRENT_REGISTRY_SHA = '99e02ee9b61b7b471b9e651e140efbe396dd437851c6ef7dac4a725d3ff18faa';
-const WPRISM_CURRENT_SNAPSHOT_SHA = 'db1408562dd3afa8c9fbfe3cdef208fe4ebea4df3261dd7677407b9961ee10ae';
+const WPRISM_CURRENT_MANIFEST_HASH = '80d17221443a4a186a54f125ec26275e968273c5634716723c48042b9bd57d31';
+const WPRISM_CURRENT_REGISTRY_SHA = '6fea0ec625cfde7b271fcc55e1610008784994c08a81df0f3ef4cb3172bcd147';
+const WPRISM_CURRENT_SNAPSHOT_SHA = 'b9cb6a289cb2e1671a514421745e5f0ea93d5b14ee9e6b7cc6e831f0e80a54a1';
 
 $shippedRegistry = ManifestDispositions::load_library($adapterLibrary);
 wprism_check(
@@ -533,7 +534,7 @@ wprism_check_same(
 wprism_check_same(
     WPRISM_CURRENT_MANIFEST_HASH,
     ArtifactPolicyIdentity::manifest_hash($shippedPolicy),
-    'and manifest_hash over the current 17 pins — the number a compiled artifact binds — is pinned to the WPrism '
+    'and manifest_hash over the current 18 pins — the number a compiled artifact binds — is pinned to the WPrism '
     . 'greenfield source rather than derived from a stale split-era count'
 );
 wprism_check(
@@ -618,7 +619,7 @@ foreach ($reviewedDocuments as $document) {
     $documentCount++;
     $walk(Canon::decode(Canon::read_file($document)), basename($document, '.json'));
 }
-wprism_check_same(18, $documentCount, 'the reviewed source is 18 documents: 17 subjects and the profiles map');
+wprism_check_same(19, $documentCount, 'the reviewed source is 19 documents: 18 subjects and the profiles map');
 wprism_check_same(
     [],
     $numberMembers,

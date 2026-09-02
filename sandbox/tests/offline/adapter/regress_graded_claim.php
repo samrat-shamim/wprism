@@ -341,13 +341,13 @@ ksort($statuses, SORT_STRING);
 // projector can say (ManifestDispositions.php:959 still accepts exactly
 // certified/experimental/excluded, and the next line measures that).
 wprism_check_same(
-    ['certified' => 16, 'excluded' => 1],
+    ['certified' => 17, 'excluded' => 1],
     (static function (array $words): array {
         $counts = array_count_values($words);
         ksort($counts, SORT_STRING);
         return $counts;
     })(array_values($statuses)),
-    'ManifestDispositions::report() still projects the reviewed word verbatim over 17 subjects — the binary read this rider deliberately did NOT change'
+    'ManifestDispositions::report() still projects the reviewed word verbatim over 18 subjects — the binary read this rider deliberately did NOT change'
 );
 wprism_check(
     str_contains(

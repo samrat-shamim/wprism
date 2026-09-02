@@ -27,7 +27,7 @@ declare(strict_types=1);
  */
 
 $root = dirname(__DIR__, 4);
-define('WPRISM_SPEC_VERSION', 2);
+define('WPRISM_SPEC_VERSION', 3);
 require __DIR__ . '/../../lib/agent_version.php';
 wprism_test_define_agent_versions();
 // wpdb::get_results()'s output mode, which Ledger's own checked reads pass.
@@ -2799,6 +2799,18 @@ $wpdb->postsRows = [204 => ['post_type' => 'probe', 'post_parent' => 202]];
 
 $batchBuilder = new \WPrism\ProviderActionBatchBuilder($policyFor($manifest), []);
 
+$customPost = '88888888-8888-4888-8888-888888888888';
+$wpdb->map[$customPost . "\0post"] = 808;
+$customBatch = $batchBuilder->action_entities(
+    ['provider' => 'probe-cache', 'capability' => 'flush', 'triggers' => ['post:*']],
+    [['uuid' => $customPost]],
+    [$customPost => ['type' => 'post', 'data' => ['type' => 'book']]],
+    includeGenericPending: false
+);
+$check($customBatch['entities'] === [['kind' => 'post:book', 'id' => 808]]
+    && $customBatch['markers'] === [$customPost => 'book'],
+    'the bounded post:* primitive carries a scoped custom CPT through concrete-surface batch assembly; the provider never receives a wildcard row');
+
 $batchAction = [
     'provider' => 'probe-cache',
     'capability' => 'flush',
@@ -3657,6 +3669,20 @@ $check($claimantNegotiation(['reparents'])['problems'] !== []
 $check($claimantNegotiation(null)['problems'] === [],
     'a capability declaring NO channel negotiates clean on the same post type: it consumes none of that '
     . 'bookkeeping, so the batch channel keeps undisputed ownership');
+$postKindManifest = $manifest;
+$postKindManifest['spec_version'] = 3;
+$postKindManifest['engine_features'] = ['post-kind-action-trigger/v1', 'spec-window/v1'];
+$postKindManifest['actions'][0]['triggers'] = ['post:*'];
+$reset();
+\WPrism\Providers\ProbeCache::$capabilityOverrides = ['scope' => 'entity', 'context' => ['deletions']];
+$postKindPolicy = $policyFor($postKindManifest);
+$postKindProblem = $one(\WPrism\Providers::negotiate(
+    $postKindPolicy,
+    $postKindPolicy->actions_for(['post:book'])
+)['problems']);
+$check(($postKindProblem['code'] ?? null) === 'post_kind_trigger_context_unsupported'
+    && str_contains((string) ($postKindProblem['remediation'] ?? ''), 'use exact post-type triggers'),
+    'a context-bearing provider cannot claim the generic post-kind trigger because durable marker ownership is per concrete post type');
 $reset();
 
 echo "\n== outstanding receipts are legible in plan and status (independent review F3) ==\n";

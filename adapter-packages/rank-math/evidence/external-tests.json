@@ -1,0 +1,6 @@
+{
+    "format": "wprism-adapter-external-evidence/v1",
+    "tests": {
+        "regress-rank-math-commerce-multilingual": "integration-scenarios/rank-math-commerce-multilingual/tests/live/regress_rank_math_commerce_multilingual.sh"
+    }
+}

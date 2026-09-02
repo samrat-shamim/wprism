@@ -2,7 +2,7 @@
 # Conformance gate (DESIGN.md §6 / adversarial-review finding #20 — the
 # manifest-treadmill answer): a generalized capture -> apply -> re-capture
 # round-trip harness, run per manifest against a FRESH, disposable env pair.
-# This is what CI runs; it knows nothing manifest-specific beyond what's
+# This canonical local gate knows nothing manifest-specific beyond what's
 # declared by each package's tests/conformance/entry.json and optional
 # hook files, each invoked at a fixed point in the flow below IF PRESENT —
 # this file never inspects what any of them actually do. Adapter packages own

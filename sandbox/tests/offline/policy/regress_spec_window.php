@@ -363,6 +363,7 @@ wprism_check_same(
         'ninja-forms',
         'paid-memberships-pro',
         'polylang',
+        'rank-math',
         'redirection',
         'the-events-calendar',
         'woocommerce',

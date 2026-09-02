@@ -35,10 +35,10 @@ use WPrism\Canon;
 use WPrism\ManifestDispositions;
 use WPrism\Policy;
 
-const BASELINE_FIXTURE_SHA256 = '8faff36093691b5d0193020c9ace02b7f459d5032cc95ccecca067dd2f628fe7';
-const ALL_MANIFEST_HASH = '713b9224ff4de40e4ff309636875343a3b799f0e91356fff844c1c7c5488edc5';
-const REGISTRY_SHA256 = '99e02ee9b61b7b471b9e651e140efbe396dd437851c6ef7dac4a725d3ff18faa';
-const SNAPSHOT_SHA256 = 'db1408562dd3afa8c9fbfe3cdef208fe4ebea4df3261dd7677407b9961ee10ae';
+const BASELINE_FIXTURE_SHA256 = 'db1daac8e96baf75a0b945c4e32e7c9ab01a7dfaccc81d17ff2e215e164ec021';
+const ALL_MANIFEST_HASH = '80d17221443a4a186a54f125ec26275e968273c5634716723c48042b9bd57d31';
+const REGISTRY_SHA256 = '6fea0ec625cfde7b271fcc55e1610008784994c08a81df0f3ef4cb3172bcd147';
+const SNAPSHOT_SHA256 = 'b9cb6a289cb2e1671a514421745e5f0ea93d5b14ee9e6b7cc6e831f0e80a54a1';
 
 $repo = dirname(__DIR__, 4);
 $fixturePath = $repo . '/sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json';
@@ -52,17 +52,17 @@ wprism_check_same(
 );
 $baseline = Canon::decode(Canon::read_file($fixturePath));
 wprism_check_same('wprism-greenfield-identity/v1', $baseline['format'] ?? null, 'the baseline declares its WPrism-only format');
-wprism_check_same(ALL_MANIFEST_HASH, $baseline['pin_sets']['all-17']['manifest_hash'] ?? null, 'the all-manifest baseline is the explicit current address');
+wprism_check_same(ALL_MANIFEST_HASH, $baseline['pin_sets']['all-18']['manifest_hash'] ?? null, 'the all-manifest baseline is the explicit current address');
 wprism_check_same(REGISTRY_SHA256, $baseline['registry_sha256'] ?? null, 'the registry baseline is the explicit current address');
 wprism_check_same(SNAPSHOT_SHA256, $baseline['snapshot_sha256'] ?? null, 'the frozen-policy snapshot baseline is the explicit current address');
 
 // The order of this set is part of the exported policy snapshot and therefore
 // its hash. Do not sort it: a pin-order change is an identity change that this
 // suite must expose rather than normalize away.
-$allPins = $baseline['pin_sets']['all-17']['pins'] ?? null;
+$allPins = $baseline['pin_sets']['all-18']['pins'] ?? null;
 wprism_check(is_array($allPins) && array_is_list($allPins), 'the all-manifest baseline carries one ordered pin list');
 if (!is_array($allPins)) {
-    throw new RuntimeException('baseline all-17 pins are unavailable');
+    throw new RuntimeException('baseline all-18 pins are unavailable');
 }
 
 echo "\nPART 1 — exact adapter identity map\n";
@@ -75,7 +75,7 @@ ksort($observedDigests, SORT_STRING);
 wprism_check_same(
     $baseline['adapter_digests'] ?? null,
     $observedDigests,
-    'all 17 shipped WPrism adapter digests exactly match the greenfield baseline'
+    'all 18 shipped WPrism adapter digests exactly match the greenfield baseline'
 );
 wprism_check_same(
     array_keys($baseline['adapter_digests'] ?? []),
@@ -122,7 +122,7 @@ wprism_check_same(
 wprism_check_same(
     ALL_MANIFEST_HASH,
     ArtifactPolicyIdentity::manifest_hash($allPolicy),
-    'the ordered all-17 pin map binds the supplied current all-manifest hash'
+    'the ordered all-18 pin map binds the supplied current all-manifest hash'
 );
 
 echo "\nPART 3 — exact reviewed-registry and snapshot maps\n";
@@ -134,7 +134,7 @@ wprism_check_same(
 wprism_check_same(
     SNAPSHOT_SHA256,
     hash('sha256', Canon::encode($allPolicy->export_snapshot())),
-    'the ordered all-17 frozen policy snapshot exactly matches the current WPrism address'
+    'the ordered all-18 frozen policy snapshot exactly matches the current WPrism address'
 );
 
 echo "\nPART 4 — mutated platform boundaries refuse\n";

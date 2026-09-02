@@ -453,19 +453,35 @@ expect_throw(
     "an action may not reach into ANOTHER pinned manifest's provider declaration"
 );
 
-echo "\n== actions: the trigger grammar is unchanged from the retired channel ==\n";
+echo "\n== actions: exact triggers plus the one feature-gated post-kind primitive ==\n";
 
 foreach ([
-    [['post:*'], 'a wildcard trigger'],
     [['post:product:42'], 'an id-bearing trigger'],
     [['Post:product'], 'an uppercase trigger'],
     [['widget:sidebar'], 'an unknown surface prefix'],
+    [['term:*'], 'an unbounded term wildcard trigger'],
     [['probe_rows'], 'a bare name with no surface prefix'],
 ] as [$triggers, $label]) {
     $m = probe_manifest();
     $m['actions'][0]['triggers'] = $triggers;
     refuse_probe($m, 'must be one exact canonical surface', "$label is refused");
 }
+$m = probe_manifest();
+$m['actions'][0]['triggers'] = ['post:*'];
+refuse_probe(
+    $m,
+    'post-kind-action-trigger/v1',
+    'post:* without its engine feature refuses by the feature name instead of becoming an inert literal'
+);
+$m['engine_features'] = ['post-kind-action-trigger/v1', 'spec-window/v1'];
+$postKindPolicy = load_probe($m);
+check(
+    count($postKindPolicy->actions_for(['post:book'])) === 2
+    && count($postKindPolicy->actions_for(['post:product'])) === 2
+    && count($postKindPolicy->actions_for(['term:book'])) === 1
+    && count($postKindPolicy->actions_for(['entity:post'])) === 1,
+    'the declared post:* trigger selects every concrete post kind and no term or entity fallback; the unscoped action remains selected'
+);
 $m = probe_manifest();
 $m['actions'][0]['triggers'] = ['table:probe_rows', 'table:probe_rows'];
 refuse_probe($m, "repeats exact surface 'table:probe_rows'", 'a duplicated trigger is refused');
@@ -1087,7 +1103,7 @@ foreach ($shippedPolicies as $name => $shippedPolicy) {
         }
     }
 }
-check($providerCount === 14, "all fourteen shipped manifest-sourced providers were exercised (found $providerCount)");
+check($providerCount === 15, "all fifteen shipped manifest-sourced providers were exercised (found $providerCount)");
 
 // ======================================================================
 echo "\n== the two identity implementations agree over the REAL shipped library ==\n";

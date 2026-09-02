@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 return [
     'WPrism\\ActionProviderGrammar' => 'src/Adapter/ActionProviderGrammar.php',
+    'WPrism\\ActionTriggerMatcher' => 'src/Kernel/ActionTriggerMatcher.php',
     'WPrism\\AdapterCertification' => 'src/Adapter/AdapterCertification.php',
     'WPrism\\AdapterClaimResolutions' => 'src/Policy/AdapterClaimResolutions.php',
     'WPrism\\AdapterContractGrammar' => 'src/Adapter/AdapterContractGrammar.php',
@@ -247,6 +248,7 @@ return [
     'WPrism\\ScopedStateOverlay' => 'src/Scope/ScopedStateOverlay.php',
     'WPrism\\Secrets' => 'src/Kernel/Secrets.php',
     'WPrism\\SerializedTermDescriptionScanner' => 'src/Review/SerializedTermDescriptionScanner.php',
+    'WPrism\\ShippedIdentityInventory' => 'src/Adapter/ShippedIdentityInventory.php',
     'WPrism\\ShortcodeAlternateRegistrar' => 'src/Grammar/ShortcodeAlternateRegistrar.php',
     'WPrism\\ShortcodeReferenceScanner' => 'src/Review/ShortcodeReferenceScanner.php',
     'WPrism\\Shortcodes' => 'src/Grammar/Shortcodes.php',

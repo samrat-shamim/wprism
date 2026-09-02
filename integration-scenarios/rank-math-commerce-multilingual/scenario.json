@@ -1,0 +1,9 @@
+{
+    "format": "wprism-adapter-integration-scenario/v1",
+    "participants": [
+        "acf",
+        "polylang",
+        "rank-math",
+        "woocommerce"
+    ]
+}

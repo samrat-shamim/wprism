@@ -2,6 +2,10 @@
 namespace WPrism;
 
 require_once __DIR__ . '/AdapterSources.php';
+// The feature roster names the action grammar's bounded post-kind selector.
+// Load that owner explicitly: agent/ has no production autoloader, and the
+// source-require guard treats an undeclared edge as a real partial-load defect.
+require_once __DIR__ . '/ActionProviderGrammar.php';
 // WP-4.12: the {N-1, N} window itself, shared with RepositoryCompiler, which
 // judges site.wprism.json's own spec_version and cannot reference this layer.
 require_once __DIR__ . '/../Kernel/SpecVersionWindow.php';
@@ -99,10 +103,10 @@ final class AdapterContractGrammar {
      * N/N-1 acceptance window plus the declaration channel itself. That is what
      * makes the channel a live product path on the day it ships rather than an
      * admissibility argument — the failure mode `authored_typed_snapshot_
-     * post_v1` demonstrates, which is declared by nothing across all 17 shipped
+     * post_v1` demonstrates, which is declared by nothing across all 18 shipped
      * manifests.
      *
-     * After `spec-window/v1`, SEVEN post-v3 features shipped through this
+     * After `spec-window/v1`, EIGHT post-v3 features shipped through this
      * channel in one wave, and together they are the proof § v3.2's claim
      * holds — each staged a grammar change with `WPRISM_SPEC_VERSION` left at 3,
      * asserted by each one's own suite:
@@ -132,8 +136,10 @@ final class AdapterContractGrammar {
      *   - `manifest-provider-runtime/v1` (§ v3.22): moves the manifest-owned
      *     provider protocol shell into core while leaving plugin calls and
      *     value-level postconditions in the digest-bound behavior file.
+     *   - `post-kind-action-trigger/v1`: the bounded post:* action selector,
+     *     which matches only concrete scoped post kinds and no other surface.
      *
-     * All are keyed at `since` 3. PMPro was the first migrated consumer; eight
+     * All are keyed at `since` 3. PMPro was the first migrated consumer; ten
      * later provider-bearing manifests deliberately paid their own identity
      * change for `manifest-provider-runtime/v1`. Redirection was authored with
      * the runtime, mixed codec, and evidence declarations in its first digest,
@@ -253,6 +259,15 @@ final class AdapterContractGrammar {
         // ManifestProviderRuntime while the provider file retains the native
         // mutation and value-level postcondition.
         ManifestProviderRuntime::FEATURE => [
+            'since' => 3,
+            'keys' => [],
+        ],
+        // A value-vocabulary extension inside actions[].triggers, not a new
+        // top-level section. CanonicalSurfaces constrains it to concrete post
+        // kinds; ActionProviderGrammar owns both this name and its load-time
+        // feature gate, so an older engine refuses instead of interpreting a
+        // wildcard as an exact surface that can never match.
+        ActionProviderGrammar::POST_KIND_TRIGGER_FEATURE => [
             'since' => 3,
             'keys' => [],
         ],

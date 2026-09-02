@@ -98,7 +98,7 @@ $adapterLibrary = \WPrism\AdapterLibrary::fromSourceTree($repo);
 // way — the flip landed, so this suite asserts the NEW number with the same
 // force, and the invariant that used to be "nothing moved the define" is now
 // "the define moved and the library did not" (asserted below against the
-// current 17-subject library).
+// current 18-subject library).
 wprism_check_same(3, $specVersion, 'WPRISM_SPEC_VERSION is 3 — WP-4.12 flipped it, and this is the one package authorized to');
 wprism_check_same('0.7.0', $agentVersion, 'and WPRISM_AGENT_VERSION moved with it, in the same commit (AGENTS.md rule 8)');
 
@@ -240,9 +240,10 @@ wprism_check_same(
 // admissibility. `structured-evidence/v1` claims `declaration_evidence`, a
 // section that did not exist when v3 was cut and that shipped with
 // WPRISM_SPEC_VERSION unmoved (§ v3.14) — so the channel is a walked path.
-// WP-6.5 made it six; manifest-provider-runtime/v1 made it seven, and the
-// Redirection demand makes it eight with another value-only feature. Neither
-// new feature claims a top-level section; the fifth section-claiming name
+// WP-6.5 made it six; manifest-provider-runtime/v1 made it seven, Redirection's
+// measured mixed container made it eight, and the bounded post-kind selector
+// makes it nine. None of those last three claims a top-level section; the
+// fifth section-claiming name
 // remains `body_refs`
 // (§ v3.20) — another section that did not exist when v3 was cut, shipped with
 // WPRISM_SPEC_VERSION unmoved.
@@ -252,13 +253,14 @@ wprism_check_same(
         'invalidate-vocabulary/v1',
         'manifest-provider-runtime/v1',
         'mixed-column-codecs/v1',
+        'post-kind-action-trigger/v1',
         'spec-window/v1',
         'structured-body-refs/v1',
         'structured-evidence/v1',
         'typed-column-codecs/v1',
     ],
     AdapterContractGrammar::implemented_features(),
-    'v3.2: the vocabulary carries seven IMPLEMENTED features, and four claim sections v3 did not have — '
+    'v3.2: the vocabulary carries nine IMPLEMENTED features, and four claim sections v3 did not have — '
         . '"declared and implemented admits" is a path walked four times, not an admissibility argument'
 );
 // WP-4.12: the channel OPENED. At WPRISM_SPEC_VERSION 2 this probe refused by
@@ -406,7 +408,7 @@ wprism_check_same(
 // subsection whose "Enforced today:" line says "yes" about one half must not be
 // readable as a claim about the other.
 wprism_check(
-    count($adapterLibrary->packages()) === 17
+    count($adapterLibrary->packages()) === 18
         && !file_exists($repo . '/manifests')
         && array_reduce(
             $adapterLibrary->packages(),
@@ -845,7 +847,7 @@ wprism_check(
     . number_format($lineCount) . ' lines, ' . number_format($byteCount) . ' bytes'
 );
 wprism_check_same(
-    17,
+    18,
     $entryCount,
     'and the entry count the subsection states for the monolith it replaced is the number of subject documents now'
 );

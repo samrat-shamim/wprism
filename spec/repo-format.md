@@ -701,7 +701,7 @@ Extended manifest capabilities (spec v0.5):
 - Meta ref rules may declare `"cast"`: `"string"` (ids stored as strings inside serialized arrays — the ACF shape) or `"csv"` (a `"1,2,3"` id list canonicalized to a token array, re-joined on apply). Ref kind `"user"` serializes as `user:<login>` tokens — users stay env-local; apply resolves by login and falls back to the default author with a warning. The same login codec is legal for `block_attrs`; table refs, structured refs, and shortcode attrs still require a ledger-backed token kind.
 - A meta/option/user-meta rule may declare `"plain_data": true` when its value is native PHP scalar/array data with no id-bearing positions but with portable strings nested below the root. Capture recursively tokenizes those strings and apply recursively re-binds them before WordPress serialization. It is mutually exclusive with `ref`, `json_refs`, `key_refs`, `cast`, and `json_encoded`; `order_preserving` and the ordinary secret gate still compose. This is not an opaque escape hatch: `PlainData` has already rejected objects, references, recursion, excessive depth, and malformed serialization before the codec runs.
 - **Order-preserving values** (spec v0.15, task #123): a meta rule may declare `"order_preserving": true` for a value whose PHP array key order is semantically load-bearing — canonical JSON's own `ksort()`-at-every-level rule (the "Entity-per-file, deterministic serialization" line above) is only safe when no plugin reads a value's raw iteration order, and WooCommerce's variation-title generator (`WC_Product_Variation_Data_Store_CPT::read()`) reads the parent's `_product_attributes` array order directly — canonicalization was permanently reordering it on every applied target, a real (not timing-based) divergence. A declared value's key order — at every nesting level inside it, recursively — is captured and round-tripped exactly as WordPress held it, instead of being alphabetized; declaring it changes nothing else about the rule (it composes with `ref`/`json_refs`/`key_refs`/`cast` normally, applied to the fully-processed value). Scoped strictly to the declared value: every *other* key in the same document, including sibling meta keys, still sorts alphabetically as normal — this is not a document-wide behavior change. No apply-side changes were needed: `json_decode()` and `maybe_serialize()` never reorder keys on their own, so the ordinary decode → detokenize → re-serialize path was already order-preserving by construction — the capture-time `ksort()` was the only place order was ever lost. `adapter-packages/woocommerce/package/manifest.json`'s `_product_attributes` is the first declared user.
-- **Structured rebuild actions and providers** (issue #3338; supersedes the retired free-form `rebuilders` channel, whose command-string entries — including `wp eval` payloads — the engine now refuses at manifest load): the hooks apply deliberately skips are also what maintain plugin derived state (indexables, lookup tables, blanket caches), so a manifest declares the repair as data in a top-level `"actions"` list. Each entry is `{"kind": "native"|"provider", ..., "triggers"?: [...], "effects"?: [...]}` — `triggers` is the same exact canonical-surface grammar apply projects from authored work (`(post|term|table|option|entity):<name>`; absent = unscoped, selected for any non-empty surface set; an empty surface set — a read-only apply — fires nothing), and `effects` feeds the same bounded-reversibility inventory `rebuilders` entries fed (omitted = explicit irreversible fallback row). A `native` entry names an action from the engine's **closed vocabulary** (v1: `transient.delete`, args `{"name": <bounded string>}`, and argument-free `rewrite.flush`; both are WordPress-core semantics, identical for every adapter, executed by reviewed engine code with a checked-readback receipt). `rewrite.flush` reinitializes the loaded core rewrite runtime from the applied `permalink_structure` row and performs a soft database-only flush after `wp_loaded`; it never writes `.htaccess`/web.config and verifies the stored ordered rules against WordPress's own fresh read. Unknown action names, unknown arg keys, and mistyped args are refused at load, so a manifest can neither mint operations nor smuggle executable text through arguments. A `provider` entry names a capability of a provider declared in the SAME manifest's top-level `"providers"` list: `{"id", "version" (exact x.y.z), "source": "manifest"|"plugin", "plugin": <basename>, "capabilities": [...]}`. Provider ids are globally unique across pinned manifests (conflict = refusal; pin order never picks which code runs), and a provider's `plugin` must equal the manifest's own `plugin` claim when one exists, so the executable half stays inside the version window the declarative half was certified for. `source: "manifest"` resolves within the declaring capsule to `package/runtime/providers/<id>.php` defining `\WPrism\Providers\<CamelCase(id)>` — the interpreter/regenerator trust boundary: provider code ships, versions, digest-binds, and pins with its manifest, never with the engine: its bytes join the per-adapter digest beside the interpreter's (`RepositoryCompiler::manifest_rows()` and the `CapabilityRegistry::adapter_digest()` mirror of it), so a changed provider file is a changed adapter rather than invisible drift behind a stable manifest digest. A manifest-shipped regenerator (`post_types.<type>.regen_dependency.regenerator` → `package/runtime/regenerators/<name>.php`) is bound into the same row on the same terms since issue #3360 — one entry per distinct declared name, **sorted by name**: regenerator names are discovered by walking `post_types{}`, a JSON object whose key order canonical encoding normalizes away, so discovery order would let a semantically-void key reshuffle move a certified digest (unlike `providers[]`, a JSON array whose order is canonical content). Two regenerator implementations can no longer hide under one manifest revision. `source: "plugin"` is discovered from the installed plugin itself through the `wprism_providers` registry filter and is trusted as part of that plugin; its file is deliberately not digest-bound (the installed plugin is its identity anchor, checked against `version_range`). Before the first target mutation, apply **negotiates** every provider its selected actions reach — contract shape (`identity()`, `capabilities()`, `invoke()`), exact identity match against the declaration, owning plugin installed+active+in range, capability advertised with a well-formed declaration (`args` schema, `reads`/`writes` surface summary, `scope: "site"|"entity"`, `idempotent` — required `true`, since apply's retry machinery re-fires the rebuild pass — and a `timeout_seconds` budget), and manifest args valid against the capability schema — and refuses with per-problem remediation on any miss, so a missing or incompatible capability fails before destructive writes, never after commit. Invocation returns a receipt whose `verified` must be exactly `true` on the strength of a value-level readback (command-success-only verification is refused); `scope: "entity"` capabilities receive an engine-assembled batch of `{kind, id}` rows for the triggering surfaces. An adapter that needs no executable semantics simply declares neither key and remains purely declarative.
+- **Structured rebuild actions and providers** (issue #3338; supersedes the retired free-form `rebuilders` channel, whose command-string entries — including `wp eval` payloads — the engine now refuses at manifest load): the hooks apply deliberately skips are also what maintain plugin derived state (indexables, lookup tables, blanket caches), so a manifest declares the repair as data in a top-level `"actions"` list. Each entry is `{"kind": "native"|"provider", ..., "triggers"?: [...], "effects"?: [...]}` — `triggers` normally uses the same exact canonical-surface grammar apply projects from authored work (`(post|term|table|option|entity):<name>`; absent = unscoped, selected for any non-empty surface set; an empty surface set — a read-only apply — fires nothing). A manifest declaring `post-kind-action-trigger/v1` may also use the bounded `post:*` selector: it matches concrete `post:<type>` surfaces only, passes concrete kinds and ids rather than a wildcard to entity-scoped providers, and grants no term/table/option/`entity:` authority. It exists for plugin behavior that genuinely applies to every registered CPT, including site-defined types an adapter cannot enumerate. A context-bearing provider must still use exact post-type triggers because durable marker ownership is per concrete type. `effects` feeds the same bounded-reversibility inventory `rebuilders` entries fed (omitted = explicit irreversible fallback row). A `native` entry names an action from the engine's **closed vocabulary** (v1: `transient.delete`, args `{"name": <bounded string>}`, and argument-free `rewrite.flush`; both are WordPress-core semantics, identical for every adapter, executed by reviewed engine code with a checked-readback receipt). `rewrite.flush` reinitializes the loaded core rewrite runtime from the applied `permalink_structure` row and performs a soft database-only flush after `wp_loaded`; it never writes `.htaccess`/web.config and verifies the stored ordered rules against WordPress's own fresh read. Unknown action names, unknown arg keys, and mistyped args are refused at load, so a manifest can neither mint operations nor smuggle executable text through arguments. A `provider` entry names a capability of a provider declared in the SAME manifest's top-level `"providers"` list: `{"id", "version" (exact x.y.z), "source": "manifest"|"plugin", "plugin": <basename>, "capabilities": [...]}`. Provider ids are globally unique across pinned manifests (conflict = refusal; pin order never picks which code runs), and a provider's `plugin` must equal the manifest's own `plugin` claim when one exists, so the executable half stays inside the version window the declarative half was certified for. `source: "manifest"` resolves within the declaring capsule to `package/runtime/providers/<id>.php` defining `\WPrism\Providers\<CamelCase(id)>` — the interpreter/regenerator trust boundary: provider code ships, versions, digest-binds, and pins with its manifest, never with the engine: its bytes join the per-adapter digest beside the interpreter's (`RepositoryCompiler::manifest_rows()` and the `CapabilityRegistry::adapter_digest()` mirror of it), so a changed provider file is a changed adapter rather than invisible drift behind a stable manifest digest. A manifest-shipped regenerator (`post_types.<type>.regen_dependency.regenerator` → `package/runtime/regenerators/<name>.php`) is bound into the same row on the same terms since issue #3360 — one entry per distinct declared name, **sorted by name**: regenerator names are discovered by walking `post_types{}`, a JSON object whose key order canonical encoding normalizes away, so discovery order would let a semantically-void key reshuffle move a certified digest (unlike `providers[]`, a JSON array whose order is canonical content). Two regenerator implementations can no longer hide under one manifest revision. `source: "plugin"` is discovered from the installed plugin itself through the `wprism_providers` registry filter and is trusted as part of that plugin; its file is deliberately not digest-bound (the installed plugin is its identity anchor, checked against `version_range`). Before the first target mutation, apply **negotiates** every provider its selected actions reach — contract shape (`identity()`, `capabilities()`, `invoke()`), exact identity match against the declaration, owning plugin installed+active+in range, capability advertised with a well-formed declaration (`args` schema, `reads`/`writes` surface summary, `scope: "site"|"entity"`, `idempotent` — required `true`, since apply's retry machinery re-fires the rebuild pass — and a `timeout_seconds` budget), and manifest args valid against the capability schema — and refuses with per-problem remediation on any miss, so a missing or incompatible capability fails before destructive writes, never after commit. Invocation returns a receipt whose `verified` must be exactly `true` on the strength of a value-level readback (command-success-only verification is refused); `scope: "entity"` capabilities receive an engine-assembled batch of `{kind, id}` rows for the triggering surfaces. An adapter that needs no executable semantics simply declares neither key and remains purely declarative.
 - **Manifest-owned provider runtime** (§ v3.22): a `source: "manifest"` provider may add `"contracts": {"<capability>": <capability declaration>}` when the manifest declares `manifest-provider-runtime/v1`. The map must be non-empty and its keys must exactly follow `capabilities[]`; plugin-sourced providers may not use it because independently shipped plugin code must still advertise its own executable contract. The provider class extends `WPrism\ManifestProviderRuntime` and implements only protected `invoke_<capability>(array): array`, `reconcile_<capability>(array): array` when scoped reconciliation is declared, and `project_<capability>(array): array` when handler projection is declared. Core owns identity, advertising, public dispatch, scoped receipt construction, recovery routing, and the `before`/`after`/`verified: true` receipt floor. The manifest-owned file still owns plugin calls and value-level verification, and its bytes remain in adapter identity.
 - **Structured capability arguments and engine batch context** (issue #3369, extending the two grammars above): a capability `args` entry declares `{"type": "bool"|"int"|"string"|"list<string>"|"list<object>", "required": <bool>}`, and `list<object>` additionally declares `"fields": {"<name>": {"type": "bool"|"int"|"string", "required": <bool>}}` — a closed, per-capability row vocabulary with **exactly one level of nesting**: a field may not itself be a list or an object, so there is no depth a reviewer cannot state and no free-form payload channel. Field names use the argument-name charset; unknown keys in a `fields` declaration, an empty `fields` map, and a `fields` map on a scalar-typed argument are refused at negotiation, and unknown fields, missing required fields, mistyped fields, and non-object rows are refused in VALUES. The one-level bound is enforced twice, deliberately: `Policy` refuses a nested manifest argument at LOAD (where no provider code exists yet — a manifest argument is a scalar, a list of scalars, or a list of flat objects whose own values are scalars), and negotiation refuses anything the capability's own field vocabulary does not admit. Separately, a `scope: "entity"` capability may declare the optional key `"context": [...]` over the closed channel vocabulary `deletions`, `reparents`, `retry`, `always_on_write` (duplicates refused, empty list refused, unknown names refused, and the key itself refused on `scope: "site"`, naming the declared channels). Declaring channels changes what rides under the reserved `entities` argument: the value becomes `{"entities": [...], "always_on_write"?: <bool>, "deletions"?: [...], "reparents"?: [...], "retry"?: <bool>}` carrying only the declared channels in that fixed order, so an undeclared channel is ABSENT rather than empty and "nothing happened" stays distinguishable from "never asked for". `deletions` rows are `{kind, uuid, id, post_type, parent_id, child_ids}` (see the parity paragraph below) for the tombstones this run APPLIED (`--with-deletes`), that a previous incomplete apply had already made absent, or that an earlier incomplete apply left a durable receipt for — never one this run merely PLANNED: the pre-mutation selection deliberately projects surfaces from planned tombstones (a capability has to negotiate before the mutation), but an apply without `--with-deletes` gates every delete off and its entities are all still present, so handing them over as tombstones would be indistinguishable from real ones. `id` is the target-local id the ledger still holds, `0` once the mapping is gone (the expected shape when a previous run applied the delete) or when the entity kind has no single row id at all. `reparents` rows are `{kind, uuid, id, root_id, old_parent_id, new_parent_id}`, one row per derived root, which is how a chained move's accumulated roots survive a scalar-only field grammar; the engine captures a reparent receipt for post types with a batch `regen_dependency` OR whose canonical surface a `reparents`-declaring capability in this run's selection triggers on, and the channel unions this run's captures with the durable `regen_reparent_context:<uuid>` markers an earlier incomplete apply left outstanding (the retry case has no fresh capture at all). `retry` is the apply's own incomplete-retry marker; `always_on_write` is a boolean flag stating the capability fired on an always-on basis, mirroring `regen_dependency`'s flag of the same name exactly — there the flag suppresses a per-candidate existence check on a write candidate the engine already had, and never creates candidates, so here too it never manufactures work (see bound (2)). **PARITY WITH THE REGENERATOR CHANNEL, closed by issue #3342**: a `deletions` row now carries `{kind, uuid, id, post_type, parent_id, child_ids}` — the pre-delete inventory `capture_regen_delete_context()` takes, which the batch channel's own consumers use to keep deleted children out of the live batch. Three changes made it deliverable, and each is worth stating because each was a real bound: the capture's consumer gate now recognizes a `deletions`-declaring negotiated capability as a consumer in its own right (so the inventory is TAKEN for a provider-only manifest at all, exactly as issue #3369's review widened the reparent capture); the durable `regen_delete_context:<uuid>` markers are unioned into the channel the way `reparents` unions its own, so an apply that committed the delete and failed before the repair re-delivers on the retry, with the durable row winning the collision because it carries the inventory a tombstone projection never had; and `child_ids` being a list was never the obstacle it read like — `Providers::FIELD_TYPES` bounds what a MANIFEST may declare as a capability argument, while a batch channel is engine-assembled and validated only as a list of rows. Every row carries all six keys, so `post_type: ""` / `parent_id: 0` / `child_ids: []` means "the engine took no inventory here" (a tombstone on a non-post surface, or one no consumer declared) and is distinguishable from an absent key. **Marker lifetime is owned by the dispatcher that declares the channel**: a durable delete/reparent marker is deleted only after the declaring capability returns `verified: true`, addressed by its own key and narrowed to that action's own triggers — so a failed or unverified invocation retains it, one adapter's receipt never retires another's evidence, and the next apply re-delivers. Ownership is decided RUN-INDEPENDENTLY, which matters because a sweep is destructive: the marker survives when a PINNED provider action triggers on its surface and this run's selection reached that surface not at all, and is swept (with a warning naming the marker and the unconsumed channel) when the selection did reach it and no negotiated capability wanted the channel, or when nothing pins a claimant. A pinned claimant whose capability this run negotiated as `scope: site` owns nothing — it can never receive a channel — while a scope this run could not observe keeps the marker rather than guessing. Consequences worth stating: markers of a pinned-but-deactivated plugin persist rather than decaying, and both keyspaces are therefore surfaced in `plan.regen_context` / `wprism status` (which reports not-ok while one stands) so a held receipt is legible instead of silent. Exactly ONE capability may consume a given channel on a given `post:` surface — the clear is per-marker, not per-consumer, so a second consumer would lose the evidence its own retry depends on; negotiation refuses it, naming both claimants. The entity batch shares the batch channel's `regen_pending:<uuid>` retry vocabulary on the same terms: armed for each delivered post-kind entity before the call, cleared on a verified receipt, unioned back into the batch on a later run, and never handed an id the deletions projection says is gone. One post type may be claimed by only ONE dispatcher — a channel-declaring capability triggering on a post type that also declares an enabled batch `regen_dependency` is refused at negotiation, before any mutation, naming both claimants. **Byte-compatibility is a contract, not a courtesy**: a capability that declares no `context` and no `list<object>` argument negotiates to byte-identical declaration bytes and receives a byte-identical injected batch (the bare row list), frozen as literal bytes in `sandbox/tests/offline/adapter/regress_provider_contract.php` rather than asserted in prose.
 
@@ -800,10 +800,10 @@ alternates never remain in canonical state.
 | `spec_version` | engine (`WPRISM_SPEC_VERSION`) | the engine's own bump; a manifest states which grammar it was authored against and may never widen it | load-time; the accepted window is {N-1, N} (§ v3.1), an integer outside it refuses wholesale naming the window, and absent/non-integer keeps its own older refusal |
 | `providers[].source` (`manifest`/`plugin`) | engine | engine change + spec bump — the two values name the two code-loading paths the engine implements, not a location an adapter may invent | load-time |
 | manifest disposition `status` (`certified`/`experimental`/`excluded`) and profile statuses | engine, in each capsule's sibling `package/disposition.json`, which its manifest cannot author | the external review process, never a manifest field — declaration must not be able to imply certification | load-time for the disposition registry; `wp wprism capabilities` for the claim |
-| `actions[].triggers` values (`(post\|term\|table\|option\|entity):<name>`) | engine owns the SHAPE (`Policy::SURFACE_PATTERN`); the `<name>` half is deliberately **open** | ordinary manifest declaration — any adapter may name any surface, including another adapter's | load-time for the shape only |
+| `actions[].triggers` values (`(post\|term\|table\|option\|entity):<name>`, plus feature-gated `post:*`) | engine owns the SHAPE (`ActionTriggerMatcher`); the exact `<name>` half is deliberately **open** | ordinary manifest declaration for exact surfaces; `post-kind-action-trigger/v1` for the bounded all-post-kind selector | load-time for shape and feature; runtime matching only against concrete surfaces |
 | option/post-type/table NAMES, patterns, keyspaces | **adapter** | ordinary manifest declaration | n/a — this is the data surface, deliberately open |
 
-`actions[].triggers` is the one row above that names another adapter's surfaces on purpose, so it is worth saying why that is not a hole in the rule. A trigger is a literal, pattern-bounded string matched against the surfaces apply *derived from authored work it already decided to write* (`Apply::rebuild_surfaces()`). Matching one grants exactly one thing: the declaring manifest's own action runs afterwards, inside its own declared effect budget. It grants no read of the other adapter's data, no say in whether that work happens, and no ability to change any rule the other adapter declared — which is the whole content of "authority" everywhere else on this page. That is what makes it safe to leave open, and it is also the honest shape of the problem: a caching adapter must be able to say "flush when products change" without WooCommerce having to know the cache exists. Observation is open; authority is one-owner.
+`actions[].triggers` is the one row above that names another adapter's surfaces on purpose, so it is worth saying why that is not a hole in the rule. An exact trigger is a literal, pattern-bounded string; `post:*` is the only non-literal selector and expands only against concrete `post:<type>` surfaces. Both match surfaces apply *derived from authored work it already decided to write* (`Apply::rebuild_surfaces()`). Matching one grants exactly one thing: the declaring manifest's own action runs afterwards, inside its own declared effect budget. It grants no read of the other adapter's data, no say in whether that work happens, and no ability to change any rule the other adapter declared — which is the whole content of "authority" everywhere else on this page. That is what makes observation safe to leave open. The bounded selector is intentionally narrower than the general wildcard it resembles: term/table/option/entity wildcards remain malformed, and context-bearing providers must enumerate exact post kinds because their durable marker ownership cannot be wildcard-owned. Observation is open; authority is one-owner.
 
 Three precedence families exist, and they are not interchangeable. A new vocabulary must pick one **and say which**:
 
@@ -826,9 +826,9 @@ all 16 shipped manifests then remained at `spec_version: 2`, every deployed repo
 its adopting agent wrote, and not one adapter digest, `manifest_hash`, content pin or compiled artifact
 moved because the defines changed. Per-adapter migration is the intended later path: Paid Memberships Pro
 was the first shipped manifest deliberately stamped to 3, paying its own identity change to consume
-`invalidate-vocabulary/v1`; eight provider-bearing manifests later opt into
+`invalidate-vocabulary/v1`; ten provider-bearing manifests later opt into
 `manifest-provider-runtime/v1`. Redirection was authored after the flip with v3 feature declarations in
-its first digest, leaving seven pre-flag manifests at 2. A v3-gated rule therefore reaches only a document
+its first digest, and six pre-flag manifests remain at 2. A v3-gated rule therefore reaches only a document
 that deliberately opts into it, never the retained library or repository population as a side effect.
 
 Four rules were already in force before the bump — the acceptance window and the `engine_features`
@@ -862,7 +862,7 @@ evidence before this line changes.
 | § | rule | rider | enforced today |
 |---|---|---|---|
 | v3.1 | N/N-1 acceptance window, per-section refusal by name | WP-4.2 / WP-4.12 | YES — {2, 3}, for a manifest AND for `site.wprism.json`; floor gated at release |
-| v3.2 | `engine_features` declaration channel | WP-4.2 / WP-6.1 | YES, DECLARABLE, and USED — seven implemented features; nine shipped declarers opt in per adapter with no engine version bump |
+| v3.2 | `engine_features` declaration channel | WP-4.2 / WP-6.1 | YES, DECLARABLE, and USED — nine implemented features; eleven shipped declarers opt in per adapter with no engine version bump |
 | v3.3 | closed top-level key set and its growth rule | WP-4.3 | YES from `spec_version: 2`; one set, gated at release; `_draft` is the recognised v2 authoring-only exception |
 | v3.4 | per-adapter disposition addressing; per-subject registry pins | WP-4.4 / WP-4.5 | LAYOUT yes — one document per subject; ADDRESSING no — still one whole-document hash |
 | v3.5 | per-adapter environment narrowing | WP-4.6 | YES at `spec_version: 3`; inert at v2 |
@@ -958,7 +958,7 @@ its name, the first `spec_version` its sections exist at, and the top-level keys
 constant in the engine, because a feature that is implemented while its section is unknown (or the
 reverse) is precisely the silent mis-read the channel exists to remove.
 
-This engine implements eight features, and the first one is what the other seven ride:
+This engine implements nine features, and the first one is what the other eight ride:
 
 - **`spec-window/v1`** — the acceptance window of § v3.1 and this channel itself, claiming the
   `engine_features` key from `spec_version` 3. It is a real entry, not a placeholder — the channel's own
@@ -1001,6 +1001,11 @@ each one closed and the coordinates that stayed open beside it.
 - **`manifest-provider-runtime/v1`** (§ v3.22) — claims NO top-level key: it widens a manifest-sourced
   `providers[]` row with a closed `contracts` map and moves identity, capability advertising, dispatch,
   scoped receipt construction, recovery routing, and receipt-shape enforcement into engine core.
+- **`post-kind-action-trigger/v1`** — claims NO top-level key: it widens the
+  `actions[].triggers` value vocabulary with the single bounded selector `post:*`.
+  That selector matches concrete post-kind surfaces only and never enters a provider
+  batch as a wildcard. All other wildcard-shaped triggers remain malformed, and a
+  provider declaring durable engine context channels must use exact post kinds.
 - **`structured-body-refs/v1`** (WP-6.5, § v3.20) — claims `body_refs` and admits the `json` post-body
   mode under one feature, so a document cannot declare either inert half without the other.
 
@@ -1013,7 +1018,7 @@ is what let a grammar change ship after the flip with nothing re-stamped (§ v3.
 
 PMPro was the first shipped adapter to walk that path: it declares both `spec-window/v1` and
 `invalidate-vocabulary/v1`, because the first claims the channel key and the second widens the value
-vocabulary. Eight provider-bearing manifests now declare `spec-window/v1` and
+vocabulary. Ten provider-bearing manifests now declare `spec-window/v1` and
 `manifest-provider-runtime/v1` for the same reason. Those paired declarations are the growth rule
 working, not redundant metadata. Redirection was authored with those runtime declarations plus
 `typed-column-codecs/v1` and `mixed-column-codecs/v1`, whose pairing similarly admits a measured mixed
@@ -1133,18 +1138,18 @@ platform/adapter-library/core/disposition.json    # the platform-owned core adap
 platform/adapter-library/profiles.json            # profiles, keyed independently of package discovery
 ```
 
-18 documents, 1,266 lines, 56,409 bytes — the same entries, the same profile, addressed as 18 roots
+19 documents, 1,349 lines, 60,508 bytes — the same entries, the same profile, addressed as 19 roots
 instead of one. (The split itself moved no byte of content; the size has since grown with #561's
 promotion of `the-events-calendar` to `certified`, Polylang's reviewed production-readiness port,
 the later reviewed Polylang empty-catalog lifecycle correction, and WooCommerce's final production-readiness
-review, followed by the newly authored Redirection subject, all without changing the split topology.)
+review, followed by the newly authored Redirection and Rank Math subjects, all without changing the split topology.)
 
 Each document carries the entry's DECODED array unchanged, so `Canon::encode` of the disposition member
 is byte-identical before and after and no adapter digest moves. That is the invariant the whole flag day
 rests on: `ArtifactPolicyIdentity::manifest_rows()` folds each manifest's own disposition into that
 adapter's row (`:82`) and the row hashed is its `digest` (`:162`), so a canonical-encoding difference of
 one byte in one document would move that adapter's digest and every `site.wprism.json` pin naming it. It is
-proved rather than argued: `regress_disposition_split.php` pins all 17 shipped digests, `manifest_hash`
+proved rather than argued: `regress_disposition_split.php` pins all 18 shipped digests, `manifest_hash`
 and `registry_sha256` as literals captured BEFORE the move, and carries one case per enumerated
 Canon-encoding hazard, in three verdicts rather than one. A nested LIST re-ordered and a UTF-8 prose
 `reason` re-composed each MOVE a digest, so the equality above is a measurement and not a tautology. Map
@@ -1600,16 +1605,16 @@ entry means carrying a certificate into a loader that runs with no certificate i
 is a new permanent decision rather than a correction. Register row R-27 records the same limit.
 
 **The grandfather exemption is the NAME's alone (G2-FIXES M2).** A grandfathered name that HAS a vendor
-half — `ninja-forms`, `yoast-duplicate-post`, `code-snippets`, 10 of the 16 — is still held to the
+half — `ninja-forms`, `yoast-duplicate-post`, `code-snippets`, 11 of the 18 — is still held to the
 provider-id rule; only the name is exempt, because only the name was argued for (the reviewed override).
 A grandfathered name with NO vendor half — `core`, `acf`, `woocommerce`, `elementor`, `polylang`, `yoast` —
 has no `<vendor>-` for a provider id to be bound to, so the rule has nothing to say about its providers.
 Every shipped provider id already satisfies this, measured on every run by
-`regress_identity_namespaces.php` rather than assumed, so the reviewed override of any of the 16 still
+`regress_identity_namespaces.php` rather than assumed, so the reviewed override of any of the 18 still
 loads at `spec_version: 3`.
 
 **A namespace grant may not reach a reserved name (G2-FIXES M4, register row R-22).** A non-platform
-authority record's `adapter_names` entry may not be a `<vendor>-*` pattern COVERING one of the 16 — refused
+authority record's `adapter_names` entry may not be a `<vendor>-*` pattern COVERING one of the 18 — refused
 at authority-record validation time, so it fires on the site trust root, on a delegated grant, and on the
 record a certificate embeds. Without it, enrolling a vendor with its own products' namespace handed that
 vendor the SHIPPED adapter of the same name, whose out-of-tree override inherits that adapter's
@@ -1627,27 +1632,28 @@ agent's own manifest library" is exactly the wrong instruction for an adapter wh
 it answers to.
 
 **Unprefixed names stay legal, and the reserved set is a CLOSED ENUMERATED LIST living in `agent/src`**
-(`agent/src/Adapter/IdentityNamespaces.php`) — never under an adapter package, where it would become a rule-2
-identity input folded into every adapter row, so that admitting the seventeenth adapter would invalidate
-the other sixteen's pins and certificates. `php tools/wire-surface.php --check`, a `make release-gate`
+(`agent/src/Adapter/ShippedIdentityInventory.php`) — never under an adapter package, where it would become a rule-2
+identity input folded into every adapter row, so that admitting a nineteenth adapter would invalidate
+the other eighteen's pins and certificates. `php tools/shipped-identity-inventory.php --check` and
+`php tools/wire-surface.php --check`, both `make release-gate`
 step, pins the list's LOCATION (by reflection over the class, not by a path literal) and its MEMBERSHIP
 (equality with the shipped library, in both directions), and records the decision as register row R-27; a
-seventeenth unprefixed adapter name cannot be added without editing the list in review. Out of tree, a
+nineteenth unprefixed adapter name cannot be added without regenerating the reviewed inventory. Out of tree, a
 grandfathered name is reachable only as the reviewed `{name, source: "site"}` override of a shipped
 adapter, which is the case the list exists to keep loading.
 
 The list ENUMERATES rather than tests shape, and the measurement is why (`regress_spec_v3_dry_run.php`,
 rule V3-NS, against the shipped library):
 
-- 17 adapter names, 20 `id_kind`s, 15 provider ids = 52 identities, all of which already pass the one
+- 18 adapter names, 21 `id_kind`s, 16 provider ids = 55 identities, all of which already pass the one
   shared grammar;
-- a bare `<vendor>-<name>` refusal would break **27** of them — the 7 adapter names carrying no hyphen at
-  all (`acf`, `core`, `elementor`, `polylang`, `redirection`, `woocommerce`, `yoast`) and all 20 `id_kind`s, every one of
+- a bare `<vendor>-<name>` refusal would break **28** of them — the 7 adapter names carrying no hyphen at
+  all (`acf`, `core`, `elementor`, `polylang`, `redirection`, `woocommerce`, `yoast`) and all 21 `id_kind`s, every one of
   which is underscore-separated;
-- the other 10 adapter names ARE hyphen-shaped without being vendor-prefixed (`the-events-calendar` is not
-  vendor `the`), so a shape test admits the wrong ones. The grandfather list therefore carries all 17
-  names; all 20 `id_kind`s remain governed by R-17 rather than that name list;
-- all 15 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the
+- the other 11 adapter names ARE hyphen-shaped without being vendor-prefixed (`the-events-calendar` is not
+  vendor `the`), so a shape test admits the wrong ones. The grandfather list therefore carries all 18
+  names; all 21 `id_kind`s remain governed by R-17 rather than that name list;
+- all 16 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the
   convention is de facto in force. (#561 added `the-events-calendar-category-colors`; WP-6.2 later retired
   `paid-memberships-pro-cache` when generic invalidation absorbed it; Redirection adds one manifest provider.)
 
@@ -1655,7 +1661,7 @@ rule V3-NS, against the shipped library):
 rules on this at R-17: captured state and `wprism_map` rows embed the BARE kind, so a prefix rule introduced
 later would have to rewrite every token in every branch of every site — the one migration this product
 cannot perform, because the branches are the customer's data. The register reserves the CONVENTION and
-refuses the RULE. So the 18 shipped kinds are a permanent floor, not a break list, and v3's contribution
+refuses the RULE. So the 21 shipped kinds are a permanent floor, not a break list, and v3's contribution
 in that space is a reserved form bound to an authority scope plus the unchanged uniqueness refusal.
 Nothing in the shipped engine refuses an unprefixed `id_kind`, at any `spec_version`, and a later rider
 adding one would be overruling the register rather than implementing this section.
@@ -1827,7 +1833,7 @@ commit (AGENTS.md rule 8), and the acceptance window is `{2, 3}`. The migration 
 
 The bump was engineered to move no adapter digest, and the exclusions below are the reason that was
 achievable. The invariant is not argued, it is computed:
-`sandbox/tests/offline/policy/regress_spec_v3_digest_neutrality.php` recomputes all 17 adapter digests
+`sandbox/tests/offline/policy/regress_spec_v3_digest_neutrality.php` recomputes all 18 adapter digests
 and `manifest_hash` for seven representative pin sets and compares them against the explicit current
 WPrism greenfield baseline in `sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json`. The
 fixture pins the manifest, registry and snapshot maps as independent literals; the suite also mutates
@@ -1838,9 +1844,9 @@ each input so a self-derived equality cannot pass vacuously.
   `manifest_hash`, every deployed site's compiled artifact, and every `site.wprism.json` content pin
   simultaneously for zero capability gained on that day. The promised later path is now exercised per
   adapter: Paid Memberships Pro moved to `spec_version: 3` to consume `invalidate-vocabulary/v1`, retiring
-  its 233-line provider; eight provider-bearing manifests later moved to consume
+  its 233-line provider; ten provider-bearing manifests later moved to consume
   `manifest-provider-runtime/v1`. Redirection was authored after the flip at v3 rather than migrated.
-  Each migration moves only its own digest and the sites that pin it; the other seven pre-flag manifests remain
+  Each migration moves only its own digest and the sites that pin it; the other six pre-flag manifests remain
   at 2 inside the window (§ v3.1). Operators recompile and re-pin
   affected adapters; there is no fallback to old manifest/provider bytes.
 - **No DEPLOYED REPOSITORY is re-stamped either, and it does not need to be.** `site.wprism.json`'s own
@@ -2073,8 +2079,9 @@ is a non-empty string. Two rules carry the weight:
 The 16 pre-existing adapters were not retrofitted: a manifest byte is adapter identity (AGENTS.md rule 2),
 so mass-adopting the section would move every affected digest and invalidate every pin and certificate
 naming one for a documentation change. Redirection was authored after the feature existed and is the first
-shipped manifest to declare structured evidence; its first digest already includes those bytes. So the
-declaration-to-rationale link is gated two ways at once, and honestly:
+shipped manifest to declare structured evidence; its first digest already includes those bytes. Rank Math,
+authored later, likewise includes the section in its first identity. No pre-existing adapter was restamped.
+So the declaration-to-rationale link is gated two ways at once, and honestly:
 `regress_shipped_option_declarations.php` keeps its `str_contains($text, 'issue #3509')` grep over `notes`
 prose for the shipped library, and the schema check applies to fixtures and out-of-tree adapters that
 carry the section. The grep is retired per adapter, when that adapter is next touched for a product
@@ -2120,12 +2127,12 @@ the shipped provider corpus, and on nothing less:
   transcription of the first plugin's spelling, which is the difference between a generalisation and a
   branch.
 
-**Single-demand shapes stay refused AND stay recorded.** A cache entry shared by every row of a table —
-neither member carrying `{id}` — is demanded by Code Snippets alone, so it does not enter; it is
-`table_scoped_cache_entry_invalidation` in `tools/engine-gaps.json`, an OPEN primitive with one demanding
-candidate, and the refusal names the `actions` channel where a blanket cache does belong. Recording the
-refusal is what keeps the boundary honest: a ledger that forgot the shapes it turned away would make the
-boundary look free, and the open-demand ranking is the instrument that decides which verb is next.
+**Single-demand shapes stay refused without becoming phantom platform gaps.** A cache entry shared by every
+row of a table — neither member carrying `{id}` — is demanded by Code Snippets alone, so it does not enter
+the engine grammar. The certified Code Snippets provider owns that literal table-wide cache boundary and
+verifies its native postcondition. `tools/engine-gaps.json` therefore records the demand on the closed
+`verified_code_snippets_state_provider` primitive, not as an open generic invalidation primitive; the
+grammar refusal still names the `actions` channel where a blanket cache belongs.
 
 **The staging, and why the gate is where it is.** The verb is admitted only for a manifest declaring
 `invalidate-vocabulary/v1` in `engine_features` — which, by § v3.3's growth rule, also means declaring

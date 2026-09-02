@@ -708,12 +708,18 @@ final class OfflineRunnerTest extends TestCase
         $targets = preg_split('/\R/', trim($result['stdout']), -1, PREG_SPLIT_NO_EMPTY) ?: [];
         self::assertSame([
             'adapter-package:polylang',
+            'integration-scenario:rank-math-commerce-multilingual:offline:regress_rank_math_commerce_multilingual_contract.php',
             'integration-scenario:woocommerce-rewrite-coinstall:offline:regress_woocommerce_hierarchy_lookups.php',
         ], $targets);
         self::assertNotContains('regress-adapter-packages', $targets);
         self::assertStringContainsString(
             'advisory task (not executed by changed mode): '
                 . 'integration-scenario:polylang-tec-rewrite-coinstall:live:',
+            $result['stderr']
+        );
+        self::assertStringContainsString(
+            'advisory task (not executed by changed mode): '
+                . 'integration-scenario:rank-math-commerce-multilingual:live:',
             $result['stderr']
         );
         self::assertStringContainsString(
@@ -822,7 +828,7 @@ final class OfflineRunnerTest extends TestCase
             'integration-scenarios/woocommerce-rewrite-coinstall/tests/live/regress_woocommerce_rewrite_coinstall.sh',
             $result['stderr']
         );
-        self::assertStringContainsString('2 selected task(s) from ', $result['stderr']);
+        self::assertStringContainsString('3 selected task(s) from ', $result['stderr']);
     }
 
     public function testChangedAdapterFilterThatMatchesNoScopedTaskIsAnError(): void

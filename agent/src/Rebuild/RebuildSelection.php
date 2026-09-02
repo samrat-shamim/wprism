@@ -2,6 +2,8 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Policy/Policy.php';
+require_once __DIR__ . '/../Kernel/ActionTriggerMatcher.php';
+require_once __DIR__ . '/../Repository/CanonicalSurfaces.php';
 
 require_once __DIR__ . '/../Adapter/Providers.php';
 
@@ -37,7 +39,7 @@ final class RebuildSelection {
     public function declares_channel_for(string $channel, string $surface): bool {
         foreach ($this->selectedActions as $action) {
             if (($action['kind'] ?? '') !== 'provider'
-                || !in_array($surface, (array) ($action['triggers'] ?? []), true)) {
+                || !ActionTriggerMatcher::any_matches((array) ($action['triggers'] ?? []), $surface)) {
                 continue;
             }
             $declaration = $this->negotiatedProviders['capabilities']
@@ -53,7 +55,7 @@ final class RebuildSelection {
     public function declares_entity_batch_for(string $surface): bool {
         foreach ($this->selectedActions as $action) {
             if (($action['kind'] ?? '') !== 'provider'
-                || !in_array($surface, (array) ($action['triggers'] ?? []), true)) {
+                || !ActionTriggerMatcher::any_matches((array) ($action['triggers'] ?? []), $surface)) {
                 continue;
             }
             $declaration = $this->negotiatedProviders['capabilities']
@@ -69,7 +71,7 @@ final class RebuildSelection {
     public function pinned_action_triggers(string $surface): bool {
         foreach ($this->policy->actions() as $action) {
             if (($action['kind'] ?? '') === 'provider'
-                && in_array($surface, (array) ($action['triggers'] ?? []), true)) {
+                && ActionTriggerMatcher::any_matches((array) ($action['triggers'] ?? []), $surface)) {
                 return true;
             }
         }
@@ -79,7 +81,7 @@ final class RebuildSelection {
     public function pinned_action_owns(string $surface): bool {
         foreach ($this->policy->actions() as $action) {
             if (($action['kind'] ?? '') !== 'provider'
-                || !in_array($surface, (array) ($action['triggers'] ?? []), true)) {
+                || !ActionTriggerMatcher::any_matches((array) ($action['triggers'] ?? []), $surface)) {
                 continue;
             }
             $declaration = $this->negotiatedProviders['capabilities']
@@ -95,7 +97,7 @@ final class RebuildSelection {
     public function triggers_provider_action_for(string $surface): bool {
         foreach ($this->selectedActions as $action) {
             if (($action['kind'] ?? '') === 'provider'
-                && in_array($surface, (array) ($action['triggers'] ?? []), true)) {
+                && ActionTriggerMatcher::any_matches((array) ($action['triggers'] ?? []), $surface)) {
                 return true;
             }
         }

@@ -38,7 +38,7 @@
  *     `tools/wire-surface.php` under `make release-gate`) instead of argued
  *     here. R-17 is the case that matters: `id_kind` prefixing can never become
  *     a rule, because captured state and `wprism_map` rows embed the bare kind, so
- *     V3-NS's 20 shipped id_kinds are a permanent floor and not a break list.
+ *     V3-NS's shipped id_kinds are a permanent floor and not a break list.
  *
  * So the durable asset is the FIXTURE ESTATE plus the measurements, not the
  * prediction. WP-4.3 has since made the contract grammar consult the same
@@ -55,9 +55,10 @@
  *
  * THE ESTATE
  * ----------
- * 17 shipped manifests + 7 constructed fixtures + the 5 on-disk synthetic
+ * Every shipped manifest + 7 constructed fixtures + the 5 on-disk synthetic
  * manifests, the last DISCOVERED by shape (string `name`, int `spec_version`,
- * a `plugin` or `theme` subject) under `sandbox/`, minus gitignored scratch.
+ * a `plugin` or `theme` subject) under shared and capsule-owned fixture roots,
+ * minus gitignored scratch.
  * Discovery rather than a hand-maintained input because out-of-tree adapters
  * are the population the flag day actually hits: the estate assertion names
  * every discovered path and fails when a new fixture is not reviewed here.
@@ -70,14 +71,14 @@
  * the difference ENUMERATED, never assumed. It is measured below and the
  * difference is asserted rather than reconciled:
  *
- *   F1  All 33 signer-partition keys are in use across the 17 shipped
+ *   F1  All 33 signer-partition keys are in use across the shipped
  *       manifests. Redirection also declares the three keys carried by the
  *       feature roster rather than that partition; its signer verdict is still
  *       clean because § v3.21 classifies those keys with their features. Two of
  *       the three previously unused partition keys were channels admitted in
  *       the change that reads them:
  *       WP-4.6's `environment` (§ v3.5) and WP-4.3's `theme_version_range`
- *       (§ v3.3 resolution 1), declared by none of the 17.
+ *       (§ v3.3 resolution 1), declared by none of them.
  *   F2  RESOLVED by WP-4.3. The finding was that the third unused partition key
  *       is `theme`, and that it was UNUSABLE as shipped:
  *       `AdapterContractGrammar::validate_adapter_contract()` (:45) demands a
@@ -123,6 +124,7 @@ require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require_once __DIR__ . '/../../../../agent/src/Adapter/AdapterSources.php';
+require_once __DIR__ . '/../../../../agent/src/Adapter/ShippedIdentityInventory.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/AdapterLibrary.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/ManifestDispositions.php';
 require_once __DIR__ . '/../../../../agent/src/Policy/Policy.php';
@@ -139,6 +141,7 @@ use WPrism\Canon;
 use WPrism\ManifestDispositions;
 use WPrism\ManifestValidator;
 use WPrism\Policy;
+use WPrism\ShippedIdentityInventory;
 
 $repo = dirname(__DIR__, 4);
 $adapterLibrary = AdapterLibrary::fromSourceTree($repo);
@@ -292,7 +295,7 @@ $validatorVerdict = static function (array $manifest) use ($vocabulary): ?string
 };
 
 // ---------------------------------------------------------------------------
-// The estate: 17 shipped manifests + the representative fixtures.
+// The estate: every shipped manifest + the representative fixtures.
 // ---------------------------------------------------------------------------
 
 $shipped = [];
@@ -301,7 +304,11 @@ foreach ($adapterLibrary->packages() as $package) {
 }
 ksort($shipped, SORT_STRING);
 
-wprism_check_same(17, count($shipped), 'the shipped library under test is all 17 adapter manifests');
+wprism_check_same(
+    ShippedIdentityInventory::ADAPTER_NAMES,
+    array_keys($shipped),
+    'the shipped library under test exactly matches the generated runtime inventory'
+);
 
 // Every fixture is a shape a candidate rule has an opinion about. manifest_a()
 // and manifest_b() are the corpus-wide pair (rule 5): a rule that refuses THEM
@@ -344,7 +351,8 @@ $fixtures = [
 // long time the only one in the tree. It is no longer alone:
 // `sandbox/fixtures/wpforms-lite/adapters/wpforms-lite.json` is the tree's
 // first out-of-tree adapter authored AT `spec_version` 3 and through § v3.2's
-// feature channel; `sandbox/fixtures/rank-math/adapters/rank-math.json` is the
+// feature channel; Rank Math's capsule-owned
+// `adapter-packages/rank-math/fixtures/site-adapter-prepromotion.json` is the
 // second, authored by a separate real user/agent exercise. Together with the
 // v2 acme fixture they straddle the flag day, all discovered by the same walk.
 // DISCOVERED, not selected, by the
@@ -358,36 +366,44 @@ $fixtures = [
 // that has run `pair.sh` than on one that has not.
 $scratchRoots = ['sandbox/siterepo/', 'sandbox/tmp/'];
 $discovered = [];
-$walk = new RecursiveIteratorIterator(
-    new RecursiveDirectoryIterator($repo . '/sandbox', FilesystemIterator::SKIP_DOTS),
-    RecursiveIteratorIterator::LEAVES_ONLY,
-    RecursiveIteratorIterator::CATCH_GET_CHILD
-);
-foreach ($walk as $file) {
-    if (!$file->isFile() || $file->getExtension() !== 'json') {
-        continue;
+$fixtureRoots = [$repo . '/sandbox'];
+foreach ([$repo . '/adapter-packages/*/fixtures', $repo . '/integration-scenarios/*/fixtures'] as $pattern) {
+    foreach (glob($pattern, GLOB_ONLYDIR) ?: [] as $fixtureRoot) {
+        $fixtureRoots[] = $fixtureRoot;
     }
-    $relative = substr($file->getPathname(), strlen($repo) + 1);
-    foreach ($scratchRoots as $scratchRoot) {
-        if (str_starts_with($relative, $scratchRoot)) {
-            continue 2;
+}
+foreach ($fixtureRoots as $fixtureRoot) {
+    $walk = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($fixtureRoot, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::LEAVES_ONLY,
+        RecursiveIteratorIterator::CATCH_GET_CHILD
+    );
+    foreach ($walk as $file) {
+        if (!$file->isFile() || $file->getExtension() !== 'json') {
+            continue;
         }
+        $relative = substr($file->getPathname(), strlen($repo) + 1);
+        foreach ($scratchRoots as $scratchRoot) {
+            if (str_starts_with($relative, $scratchRoot)) {
+                continue 2;
+            }
+        }
+        $decoded = json_decode((string) file_get_contents($file->getPathname()), true);
+        if (!is_array($decoded)
+            || !is_string($decoded['name'] ?? null)
+            || !is_int($decoded['spec_version'] ?? null)
+            || (!array_key_exists('plugin', $decoded) && !array_key_exists('theme', $decoded))) {
+            continue;
+        }
+        $discovered[$relative] = $decoded;
     }
-    $decoded = json_decode((string) file_get_contents($file->getPathname()), true);
-    if (!is_array($decoded)
-        || !is_string($decoded['name'] ?? null)
-        || !is_int($decoded['spec_version'] ?? null)
-        || (!array_key_exists('plugin', $decoded) && !array_key_exists('theme', $decoded))) {
-        continue;
-    }
-    $discovered[$relative] = $decoded;
 }
 ksort($discovered, SORT_STRING);
 
 wprism_check_same(
     [
+        'adapter-packages/rank-math/fixtures/site-adapter-prepromotion.json',
         'sandbox/fixtures/acme-catalog/wprism-adapter.json',
-        'sandbox/fixtures/rank-math/adapters/rank-math.json',
         'sandbox/fixtures/wpforms-lite/adapters/wpforms-lite.json',
         'sandbox/tests/fixtures/wprism-sidecar-refs/manifest.json',
         'sandbox/tests/fixtures/wprism-taxonomy-keyspace/manifest.json',
@@ -733,6 +749,7 @@ wprism_check_same(
         'ninja-forms',
         'paid-memberships-pro',
         'polylang',
+        'rank-math',
         'redirection',
         'the-events-calendar',
         'woocommerce',
@@ -803,25 +820,27 @@ wprism_check_same(
 // a vocabulary of one is a special case that happens to satisfy the channel's
 // requirement, and a vocabulary of two is a set the refusal enumerates, the
 // author declares from, and register row R-19 projects. WP-6.5 made it six;
-// manifest-provider-runtime/v1 made it seven, and Redirection's measured mixed
-// column demand makes it eight; neither claims an additional top-level section,
+// manifest-provider-runtime/v1 made it seven, Redirection's measured mixed
+// column demand made it eight, and the bounded post-kind selector makes it
+// nine; none claims an additional top-level section,
 // and the count is now evidence for a different claim than the one it started
 // as: § v3.12 asks for "at least one grammar section shipped post-v3 through
 // engine_features with no version bump" before the window may ever close, and
-// six of these seven shipped after the flip with WPRISM_SPEC_VERSION left at 3.
+// eight of these nine shipped after the flip with WPRISM_SPEC_VERSION left at 3.
 wprism_check_same(
     [
         'attr-id-codecs/v1',
         'invalidate-vocabulary/v1',
         'manifest-provider-runtime/v1',
         'mixed-column-codecs/v1',
+        'post-kind-action-trigger/v1',
         'spec-window/v1',
         'structured-body-refs/v1',
         'structured-evidence/v1',
         'typed-column-codecs/v1',
     ],
     \WPrism\AdapterContractGrammar::implemented_features(),
-    'V3-FEAT: the vocabulary carries seven names, so an engine that lacks a declared name has something to '
+    'V3-FEAT: the vocabulary carries nine names, so an engine that lacks a declared name has something to '
         . 'compare against and the comparison is against a SET rather than a single special case'
 );
 // THE FLIP (WP-4.12), the other direction. `engine_features` is implemented
@@ -1011,7 +1030,7 @@ foreach ($entryNames as $entryName) {
         $canonUnstable[] = (string) $entryName;
     }
 }
-wprism_check_same([], $canonUnstable, 'V3-DISP: all 17 entries survive a Canon encode/decode round trip unchanged — the split moves no adapter digest');
+wprism_check_same([], $canonUnstable, 'V3-DISP: every entry survives a Canon encode/decode round trip unchanged — the split moves no adapter digest');
 
 // The would-refuse case: a pinned adapter whose document is missing. The
 // monolith refuses this by coverage mismatch; the split must keep refusing.
@@ -1067,7 +1086,7 @@ $report('compatibility axes a v3 certificate would bind: ' . implode(', ', $axes
 wprism_check_same(['database', 'filesystem', 'php', 'process', 'wordpress'], $axes, 'V3-AXIS: the boundary declares five compatibility axes today');
 
 // The measurement WP-4.6 inherited and must not disturb: every SHIPPED claim
-// still carries the same environment, because none of the 17 declares the
+// still carries the same environment, because none of the shipped adapters declares the
 // narrowing channel WP-4.6 added. Before that rider this was a property of the
 // engine (one global copy, no way to narrow); it is now a property of the
 // LIBRARY, and that is the whole flag-day claim for § v3.5 — the rule landed
@@ -1095,7 +1114,7 @@ wprism_check_same([], array_keys($claimRefusals), 'V3-AXIS: every shipped dispos
 wprism_check_same(
     1,
     count($distinctEnvironments),
-    'V3-AXIS: all 17 claims carry byte-identical `environment_assumptions` — none of the shipped 17 narrows, so WP-4.6 moved no shipped claim'
+    'V3-AXIS: every claim carries byte-identical `environment_assumptions` — no shipped adapter narrows, so WP-4.6 moved no shipped claim'
 );
 
 // The narrowing declaration is a top-level manifest key, so it could not land
@@ -1112,7 +1131,7 @@ wprism_check_same(
     $environmentish,
     'V3-AXIS x V3-KEYS: the partition names exactly one environment key — WP-4.6\'s narrowing channel — and no compatibility axis'
 );
-$report('shipped adapters that declare a narrower environment today: 0 of 17 (the channel exists and none uses it)');
+$report('shipped adapters that declare a narrower environment today: 0 of ' . count($shipped) . ' (the channel exists and none uses it)');
 
 // What today's certificate binds. This measurement is the one V3-AXIS row
 // WP-4.7 LANDED: verification used to be a byte-exact comparison of the WHOLE
@@ -1203,31 +1222,31 @@ foreach ($spaces as $space => $values) {
 wprism_check_same(
     ['acf', 'core', 'elementor', 'polylang', 'redirection', 'woocommerce', 'yoast'],
     $unprefixed['adapter name'],
-    'V3-NS: 7 of the 17 shipped adapter names carry no hyphen at all and can be read as <vendor>-<name> under no reading'
+    'V3-NS: the seven unhyphenated shipped adapter names can be read as <vendor>-<name> under no reading'
 );
 wprism_check_same(
-    20,
+    count($idKinds),
     count($unprefixed['tables.*.id_kind']),
-    'V3-NS: ALL 20 shipped id_kinds are underscore-separated, so the hyphen form would refuse the entire shipped vocabulary'
+    'V3-NS: every shipped id_kind is underscore-separated, so the hyphen form would refuse the entire shipped vocabulary'
 );
 wprism_check_same(
     [],
     $unprefixed['providers[].id'],
-    'V3-NS: all 14 provider ids are already hyphen-shaped with a plugin-slug first segment — the one space where the convention is de facto in force'
+    'V3-NS: every provider id is already hyphen-shaped with a plugin-slug first segment — the one space where the convention is de facto in force'
 );
 
 // The consequence for WP-4.10's design, measured rather than argued: a shape
-// test cannot be the admission rule, because 10 of the 17 shipped names ARE
+// test cannot be the admission rule, because shipped names can be
 // hyphen-shaped without being vendor-prefixed (`the-events-calendar` is not
-// vendor `the`). The reserved list must therefore enumerate all 17.
+// vendor `the`). The reserved list must therefore enumerate all of them.
 $hyphenButNotVendor = array_values(array_filter(
     array_keys($shipped),
     static fn(string $n): bool => $hyphenShaped($n)
 ));
 wprism_check_same(
-    10,
+    count($shipped) - count($unprefixed['adapter name']),
     count($hyphenButNotVendor),
-    'V3-NS: the other 10 names are hyphen-shaped but their first segment is not a vendor, so the closed reserved list WP-4.10 ships must enumerate all 17 names — a shape test admits the wrong ones'
+    'V3-NS: every remaining name is hyphen-shaped but shape cannot prove its first segment is a vendor, so the closed reserved list must enumerate the whole shipped inventory'
 );
 $report('names the flag day must grandfather: all ' . count($shipped) . ' (shape alone cannot separate them)');
 
@@ -1294,9 +1313,9 @@ wprism_check_same(
     'four of the five candidate rules refuse nothing in the shipped library; only V3-NS breaks it, which is why WP-4.10 grandfathers rather than refuses'
 );
 wprism_check_same(
-    27,
+    count($unprefixed['adapter name']) + count($idKinds),
     $breakList['V3-NS    namespace prefixing (as a REFUSAL)'],
-    'V3-NS as a bare refusal would break 27 shipped identities (7 names + 20 id_kinds) — the measurement that forces the reserved closed list'
+    'V3-NS as a bare refusal would break every unhyphenated name and every id_kind — the measurement that forces the reserved closed list'
 );
 
 wprism_check_summary('spec v3 static dry run');

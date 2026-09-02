@@ -40,8 +40,13 @@
     },
     "verified_provider_postcondition": {
       "title": "a provider whose success is a bounded, verified postcondition rather than an exit-code-only callback",
-      "status": "open",
-      "definition": "Direct writes bypass the side effects a plugin's own save path performs (cache drops, rewrite flushes, execution-file rebuilds). Apply cannot be claimed on a plugin with such a side effect until a provider both performs it and PROVES it, because an exit code proves only that something ran."
+      "status": "shipped",
+      "definition": "The engine negotiates a digest-bound capability before mutation, supplies only its declared bounded batch/context, and accepts success only after the provider returns a value-level verified receipt whose declared readable surfaces agree with engine readback. A plugin still needs its own native implementation and adversarial evidence; availability of this facility is not evidence for that plugin.",
+      "evidence": [
+        "agent/src/Adapter/Providers.php",
+        "agent/src/Adapter/ManifestProviderRuntime.php",
+        "sandbox/tests/offline/adapter/regress_provider_contract.php"
+      ]
     },
     "verified_module_flush_provider": {
       "title": "a verified plugin-module flush and native readback provider",
@@ -67,11 +72,6 @@
       "title": "a generic dynamic derived option-name reference rule",
       "status": "open",
       "definition": "Widens the shipped `option_name_refs` rule, which captures a numeric ROW id out of the option name, to a name whose dynamic segment is a slug and whose VALUE is the local reference."
-    },
-    "table_scoped_cache_entry_invalidation": {
-      "title": "a cache entry shared by every row of a table, dropped once per apply rather than per row",
-      "status": "open",
-      "definition": "An object-cache entry whose key and group are both literal -- no `{id}` anywhere -- so it is ONE entry the whole table shares rather than one per row. The per-row `{cache_group, cache_key}` verb requires `{id}` in one member and therefore refuses it: with no substitution point every row of the table would name the same entry. This stays recorded rather than admitted because it has exactly ONE demand, which is the same admission rule that let `row_cache_entry_invalidation` in on two. The blanket case was already reviewed into the top-level `actions` channel (adapter-packages/woocommerce/package/manifest.json:307), but that channel has an engine-owned native action for a transient and none for the object cache, so a plugin-owned cache group is still reachable only through a provider."
     },
     "composite_ref_identity": {
       "title": "join-table identity with no scalar primary key (`identity.mode: composite_ref`)",
@@ -147,8 +147,9 @@
         },
         {
           "coordinate": "post_meta.wpforms_form_locations",
-          "cannot_represent": "Every `wpforms` post carries a `wpforms_form_locations` postmeta row: a PHP-serialized list of the posts that EMBED the form, each entry holding the embedding post's id, permalink path, and denormalized copies of its title and status. Read at the source it is unambiguously DERIVED rather than authored — `WPForms\\Forms\\Locator::hooks()` maintains it on `save_post`, `post_updated`, `wp_trash_post`, `untrash_post`, `delete_post`, `permalink_structure_changed` and three widget-option writes (src/Forms/Locator.php:203-216), and `FormsLocatorScanTask` rebuilds it in FULL from a REGEXP over `post_content` on a recurring `DAY_IN_SECONDS` schedule (src/Tasks/Actions/FormsLocatorScanTask.php:153, :184-186, :387). So `class: \"derived\"` represents it and it needs no new declarative primitive to capture. What is not representable is the apply-side postcondition: WPrism writes `wp_posts` with a direct `Db::update()` (agent/src/Apply/PostMaterializer.php:229), so none of those eight hooks fires and a target's locations meta stays stale until the plugin's own scheduled scan next runs. A derivation that is scheduled rather than synchronous is exactly the bounded postcondition this primitive is about, and an exit code from a rebuild command would not prove it either. The 2026-08-22 pass could not have seen this coordinate: the row only exists once a form is actually embedded in a page and the locator scan has run, which a hand-written fixture never triggers.",
-          "primitive_required": "verified_provider_postcondition",
+      "cannot_represent": "Every `wpforms` post carries a `wpforms_form_locations` postmeta row: a PHP-serialized list of the posts that EMBED the form, each entry holding the embedding post's id, permalink path, and denormalized copies of its title and status. Read at the source it is unambiguously DERIVED rather than authored — `WPForms\\Forms\\Locator::hooks()` maintains it on `save_post`, `post_updated`, `wp_trash_post`, `untrash_post`, `delete_post`, `permalink_structure_changed` and three widget-option writes (src/Forms/Locator.php:203-216), and `FormsLocatorScanTask` rebuilds it in FULL from a REGEXP over `post_content` on a recurring `DAY_IN_SECONDS` schedule (src/Tasks/Actions/FormsLocatorScanTask.php:153, :184-186, :387). So `class: \"derived\"` represents it and it needs no new declarative primitive to capture. What is not representable is the apply-side postcondition: WPrism writes `wp_posts` with a direct `Db::update()` (agent/src/Apply/PostMaterializer.php:229), so none of those eight hooks fires and a target's locations meta stays stale until the plugin's own scheduled scan next runs. A derivation that is scheduled rather than synchronous is exactly the bounded postcondition this primitive is about, and an exit code from a rebuild command would not prove it either. The 2026-08-22 pass could not have seen this coordinate: the row only exists once a form is actually embedded in a page and the locator scan has run, which a hand-written fixture never triggers.",
+      "blocker_layer": "adapter",
+      "primitive_required": "verified_provider_postcondition",
           "remedy_phrase": "a bounded postcondition over the plugin's scheduled form-locations derivation"
         },
         {
@@ -249,43 +250,33 @@
       "versions_probed": [
         "3.9.6"
       ],
-      "disposition": "promotion_blocked",
+      "disposition": "closed",
       "blocked_adapters": [
         "code-snippets"
       ],
       "coordinates": [
         {
           "coordinate": "tables.snippets",
-          "cannot_represent": "typed rows and shortcode refs are representable, but direct table writes bypass the plugin's object-cache cleanup and optional flat-file execution rebuild. `adapter-packages/code-snippets/package/manifest.json` therefore does not claim apply.",
+          "cannot_represent": "Typed rows and shortcode refs were representable, but direct table writes bypassed the plugin's object-cache cleanup and optional flat-file execution rebuild, so the adapter could not claim apply without a bounded native postcondition.",
           "primitive_required": "verified_provider_postcondition",
-          "remedy_phrase": "a bounded postcondition over the plugin's object-cache cleanup and flat-file execution rebuild"
+          "closed_by": [
+            "adapter-packages/code-snippets/package/runtime/providers/code-snippets-state.php",
+            "adapter-packages/code-snippets/tests/offline/regress_code_snippets_state_provider.php",
+            "adapter-packages/code-snippets/tests/conformance/check.sh"
+          ]
         },
         {
           "coordinate": "tables.snippets.invalidate",
           "cannot_represent": "Code Snippets' own cleanup drops `wp_cache_delete(Settings\\CACHE_KEY, CACHE_GROUP)` (adapter-packages/code-snippets/package/runtime/providers/code-snippets-state.php:94) -- one settings entry the whole `snippets` table shares, keyed by neither the row nor anything derived from it. WP-6.2's `{cache_group, cache_key}` verb requires `{id}` in one member, so a table-scoped entry still has no declarative spelling and this plugin's object cache stays reachable only through a provider.",
-          "primitive_required": "table_scoped_cache_entry_invalidation",
-          "remedy_phrase": "a table-scoped object-cache invalidation with somewhere engine-owned to live"
-        }
-      ]
-    },
-    {
-      "id": "wps-hide-login-apply",
-      "candidate": "WPS Hide Login",
-      "versions_probed": [
-        "1.9.19"
-      ],
-      "disposition": "promotion_blocked",
-      "blocked_adapters": [
-        "wps-hide-login"
-      ],
-      "coordinates": [
-        {
-          "coordinate": "options.whl_page",
-          "cannot_represent": "both route slugs are representable, but the plugin's own settings path flushes rewrite rules. A clean-target request matrix must establish the required postcondition before apply is claimed.",
           "primitive_required": "verified_provider_postcondition",
-          "remedy_phrase": "a clean-target request matrix establishing the rewrite-flush postcondition"
+          "closed_by": [
+            "adapter-packages/code-snippets/package/runtime/providers/code-snippets-state.php",
+            "adapter-packages/code-snippets/tests/offline/regress_code_snippets_state_provider.php",
+            "adapter-packages/code-snippets/tests/conformance/check.sh"
+          ]
         }
-      ]
+      ],
+      "closing": "Closed by the certified Code Snippets 3.9.5/3.9.6 provider path. It invokes the plugin's native cache and flat-file boundaries, verifies native readback plus hash-only receipts, and is exercised under enabled/disabled flat-file modes, injected faults, retry and recapture. The literal table-wide cache entry remains provider-owned because one plugin demand is not enough reason to widen the engine-native invalidation grammar."
     },
     {
       "id": "paid-memberships-pro-join-tables",

@@ -1,0 +1,83 @@
+{
+    "capabilities": {
+        "deletion_semantics": {
+            "supported": [],
+            "unsupported": [
+                "table:rank_math_redirections"
+            ]
+        },
+        "entity_sections": [
+            "tables"
+        ],
+        "field_sections": [
+            "options",
+            "post_meta",
+            "term_meta"
+        ],
+        "lifecycle_phases": [
+            "retire",
+            "activate",
+            "verify"
+        ],
+        "operations": [
+            "capture",
+            "compile",
+            "plan",
+            "deploy",
+            "apply",
+            "recapture",
+            "render-api"
+        ]
+    },
+    "default_authored_keyspaces": [],
+    "evidence": {
+        "bundle_schema": "wprism-subject-certification-bundle/v1",
+        "tests": [
+            "conformance-rank-math",
+            "exact-artifact-version-matrix",
+            "regress-rank-math-provider",
+            "regress-rank-math-commerce-multilingual"
+        ]
+    },
+    "reason": "Certified Rank Math SEO 1.0.277/.1/.2 free-plugin state on single-site WordPress: real setup and REST writers, divergent post/attachment/term/redirection identities, hostile target adoption and collision refusal, nested settings and complete titles-option reference rebinding, native redirects and rendered SEO, exact lifecycle schema settlement, fresh-process all-CPT internal-link convergence with failure/retry, hash-pinned official artifact evidence, and a participant-declared ACF/Polylang/WooCommerce interaction scenario. Connected accounts, credentials, custom schema shortcuts, Pro/add-ons, analytics history, sitemap exclusion id lists, redirection deletion and versions outside the declared interval remain explicit refusals or target-owned state.",
+    "status": "certified",
+    "supported_versions": {
+        "plugin": "seo-by-rank-math/rank-math.php",
+        "range": {
+            "max": "1.0.277.3",
+            "min": "1.0.277"
+        }
+    },
+    "unsupported": [
+        {
+            "operation": "capture",
+            "reason": "Instant Indexing combines generated credentials with settings, and sitemap exclusions encode local post and term ids as comma-separated strings without a reviewed id-list codec; both option objects remain target-owned.",
+            "surface": "options.rank-math-options-instant-indexing,options.rank-math-options-sitemap"
+        },
+        {
+            "operation": "capture",
+            "reason": "Custom-schema shortcut metadata stores a physical wp_postmeta.meta_id. WPrism has no portable identity for a postmeta row, so both the schema row and its shortcut refuse instead of carrying a source-local id.",
+            "surface": "post_meta.rank_math_schema_*,post_meta.rank_math_shortcode_schema_*"
+        },
+        {
+            "operation": "delete",
+            "reason": "A redirection rule's natural identity can be referenced by plugin-owned cache state, while the package declares no complete reverse-reference deletion guard; deletion remains loud and leaves the authored rule untouched.",
+            "surface": "tables.rank_math_redirections"
+        },
+        {
+            "operation": "all",
+            "reason": "Rank Math Pro, Content AI/connected-account credentials, external analytics history and third-party callbacks on the internal-link processing filters are outside the exact free-plugin contract and refuse rather than widening provider behavior at runtime.",
+            "surface": "plugin:add-ons,credentials,providers.rank-math-state.filters"
+        },
+        {
+            "operation": "all",
+            "reason": "Rank Math releases before 1.0.277 and 1.0.277.3 or later are outside the hash-pinned and source-audited version interval.",
+            "surface": "version:<1.0.277|>=1.0.277.3"
+        },
+        {
+            "operation": "all",
+            "reason": "WPrism v1 refuses multisite, and the provider independently refuses network execution rather than treating per-blog tables and options as one identity domain.",
+            "surface": "multisite"
+        }
+    ]
+}

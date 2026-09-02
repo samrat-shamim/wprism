@@ -405,7 +405,7 @@ regress-disposition-split:
 
 # WP-4.6 (spec § v3.5): a spec_version 3 adapter narrows its capability claim to
 # the boundary cells it was exercised on; a WIDER cell refuses by name; the key
-# is inert at v2, so all 17 currently shipped claims stay byte-identical; and every
+# is inert at v2, so all currently shipped claims stay byte-identical; and every
 # load-time refusal in PlatformCompatibility::assert_supported() -- all five
 # axes, #560's process axis included -- still fires with a narrowing adapter
 # projected, because narrowing scopes the CLAIM and not the runtime.
@@ -432,7 +432,7 @@ regress-topology-gate:
 	php sandbox/tests/offline/policy/regress_topology_gate.php
 
 # The v3 static dry run: what each candidate spec-v3 rule would refuse today,
-# measured against all 17 shipped manifests plus the synthetic estate, with
+# measured against every shipped manifest plus the synthetic estate, with
 # every rule input read from the shipped constants the v3 code will consult.
 regress-spec-v3-dry-run:
 	php sandbox/tests/offline/policy/regress_spec_v3_dry_run.php
@@ -651,6 +651,7 @@ release-gate:
 	php tools/engine-gap-doc.php --check
 	php tools/wire-surface.php --check
 	php tools/api-surface.php --check
+	php tools/shipped-identity-inventory.php --check
 	php tools/classmap-generate.php --check
 	php tools/offline-corpus.php --check
 	php tools/adapter-kit.php --check
@@ -2155,12 +2156,6 @@ regress-body-ref-grammar:
 regress-wpforms-lite-adapter:
 	php sandbox/tests/offline/adapter/regress_wpforms_lite_adapter.php
 
-# Rank Math SEO 1.0.277 authored through the decentralized site-adapter path:
-# the exact fixture boundary, redirection natural identity, unsupported custom
-# schema, and recorded single-adapter plus multi-plugin outcome evidence.
-regress-rank-math-adapter:
-	php sandbox/tests/offline/adapter/regress_rank_math_adapter.php
-
 # The `taxonomy_delete_scope_exercise` primitive, run rather than asserted: the
 # adversarial matrix tools/engine-gaps.json demands before a post-type adapter
 # carrying an authored taxonomy may claim a deletion selector. Four cases over
@@ -2852,15 +2847,15 @@ regress-adapter-package-current-paths:
 # flat identity spaces, and the CLOSED grandfather list under it. At
 # spec_version 3 an out-of-tree adapter name is <vendor>-<name> and its provider
 # ids sit in that same namespace, which is what gives an authority's
-# `adapter_names: ["<vendor>-*"]` scope (WP-4.8) something to bind; the 17
-# shipped names and 20 id_kinds are enumerated in agent/src, never under an
+# `adapter_names: ["<vendor>-*"]` scope (WP-4.8) something to bind; the shipped
+# names and permanent id_kind floor are enumerated in agent/src, never under an
 # adapter package or platform-library package where rule 2 would make them an
 # adapter-digest input. The suite
 # proves the rule is inert below v3 while the current spec-3 engine enforces it, that
-# `acme-cache` and `zeta-cache` coexist in one pin set while all 17 shipped
+# `acme-cache` and `zeta-cache` coexist in one pin set while all shipped
 # names load unchanged, that the uniqueness and case-folding refusals did not
 # move, and -- by driving `tools/wire-surface.php --check` against a fixture
-# library carrying an eighteenth unprefixed name -- that the release gate
+# library carrying an additional unprefixed name -- that the release gate
 # refuses one. `id_kind` gets no rule at all: R-17 forbids it.
 regress-identity-namespaces:
 	php sandbox/tests/offline/guards/regress_identity_namespaces.php

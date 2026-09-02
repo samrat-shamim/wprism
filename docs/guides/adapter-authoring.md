@@ -3,8 +3,12 @@
 A manifest is how WPrism learns what one plugin's state *means*: which keys are
 portable authored intent, which are environment-local noise, which hold entity
 references that must be rewritten across environments, and which tables it may
-touch at all. The engine holds no plugin names and no plugin logic — every
-plugin-specific fact lives in a manifest.
+touch at all. The engine holds no plugin-specific storage or repair branch —
+every behavioral fact lives in a capsule. It does carry one generated list of
+the names shipped in the trusted library, used only to reserve those identities
+from out-of-tree namespace squatting. That list is derived from the package
+tree by `tools/shipped-identity-inventory.php`; it is not plugin logic or a
+second catalog an author maintains.
 
 This guide is the authoring loop. The normative format is
 [spec/repo-format.md § Adapter manifests (package format)](../../spec/repo-format.md#adapter-manifests-package-format),
@@ -37,8 +41,15 @@ adapter-packages/<name>/
       regenerators/<name>.php        # \WPrism\Regenerators\<Name>
       providers/<id>.php             # \WPrism\Providers\<Id>
   tests/                             # offline/live/certify/conformance evidence
-  fixtures/
+    offline/regress_<name>_*.php
+    conformance/{entry.json,seed.sh,check.sh}
+    certify/version-matrix.sh
+  fixtures/                          # capsule-owned historical/probe inputs
   evidence/
+    artifacts.lock.json              # exact official artifact URLs + sha256
+    production-readiness.json        # all 12 hostile scenario families
+    target-observation-premises.tsv  # ratchet for live observations/fixtures
+    external-tests.json              # optional integration-scenario citations
 
 platform/adapter-library/
   core/{manifest,disposition}.json
@@ -137,19 +148,21 @@ implementations can no longer share one manifest revision's identity.
 
 ## The minimal worked example
 
-[`adapter-packages/contact-form-7/package/manifest.json`](../../adapter-packages/contact-form-7/package/manifest.json) is about
-as small as a real adapter gets. Stripped of its notes, it is six keys:
+[`adapter-packages/classic-editor/package/manifest.json`](../../adapter-packages/classic-editor/package/manifest.json)
+is the current honest minimal product adapter. Stripped of its evidence notes,
+it is a plugin boundary plus two authored options:
 
 ```json
 {
   "spec_version": 2,
-  "name": "contact-form-7",
-  "plugin": "contact-form-7/wp-contact-form-7.php",
-  "version_range": {"min": "6.0.0", "max": "7.0.0"},
+  "name": "classic-editor",
+  "option_autoload": "preserve",
+  "plugin": "classic-editor/classic-editor.php",
+  "version_range": {"min": "1.7.0", "max": "1.7.1"},
   "notes": ["…"],
-  "post_meta": {
-    "_form": {"class": "authored"},
-    "_hash": {"class": "authored"}
+  "options": {
+    "classic-editor-allow-users": {"class": "authored"},
+    "classic-editor-replace": {"class": "authored"}
   }
 }
 ```
@@ -162,13 +175,11 @@ as small as a real adapter gets. Stripped of its notes, it is six keys:
   are deliberately staging an older manifest across an engine move. Ask the
   engine rather than guessing: `wprism manifest-validate --emit-schema` prints the
   accepted set in `spec_window`, measured from the shipped refusal.
-- **Two defaults apply, and they are not the same number.** Every shipped
-  manifest today declares `2` (`N-1`) — inspect
-  `adapter-packages/*/package/manifest.json` and see zero
-  exceptions — because AGENTS.md rule 2 makes editing a working manifest's
-  bytes an adapter-identity move: nobody bumps the integer just to bump it, so
-  the library sits one behind `WPRISM_SPEC_VERSION` until an adapter has an actual
-  reason to move. A **new out-of-tree manifest** should declare `3` if and only
+- **Two defaults apply, and they are not the same number.** Existing shipped
+  manifests legitimately span `2` (`N-1`) and `3` (`N`) because AGENTS.md rule
+  2 makes changing a working manifest's version an adapter-identity move:
+  nobody bumps the integer without using a new primitive. A **new out-of-tree
+  manifest** should declare `3` if and only
   if it wants a post-v3 primitive (`engine_features` and the sections it
   claims — [see below](#the-grammar-document)). Every feature is load-bearing:
   removing it must make the section it admits refuse. Site certification uses
@@ -185,10 +196,12 @@ as small as a real adapter gets. Stripped of its notes, it is six keys:
   unbounded form, because an unbounded claim is not certifiable. Two pinned
   manifests naming the same plugin with different ranges is also refused
   outright: manifest precedence must never depend on pin order.
-- `notes` is where the *evidence* for every rule lives. Read CF7's: each entry
+- `notes` is where the *reasoning* for every rule lives. Read Classic Editor's:
+  each entry
   names what was verified live, against which version, through which code
-  path. That is the standard. A rule without an evidence note is a guess with
-  better formatting.
+  path. Executable evidence lives in the capsule's tests and evidence records;
+  the note connects those observations to the declaration. A rule without that
+  connection is a guess with better formatting.
 
 ### Finding the two versions the range names
 
@@ -412,10 +425,18 @@ is gone**: a manifest declaring it, even as an empty list and even inside a
 frozen policy snapshot, is refused at load — porting an older manifest starts
 there.
 
-Both kinds may declare `triggers` and `effects`. `triggers` uses the same
-canonical-surface grammar apply projects from authored work
-(`(post|term|table|option|entity):<name>`); omit it and the action is unscoped,
-firing for any non-empty surface set, while a read-only apply fires nothing.
+Both kinds may declare `triggers` and `effects`. `triggers` normally uses the
+same exact canonical-surface grammar apply projects from authored work
+(`(post|term|table|option|entity):<name>`). A manifest declaring
+`post-kind-action-trigger/v1` may additionally use `post:*`, which matches only
+concrete `post:<type>` surfaces and gives an entity-scoped provider the concrete
+kind/id rows, never the wildcard. Use that bounded trigger when the plugin owns
+the same derived behavior for every registered CPT and an enumerated list would
+silently miss future or site-defined types. It grants no term, table, option or
+`entity:` authority; a provider declaring durable batch-context channels must
+still use exact post-type triggers because marker ownership is per concrete
+type. Omit `triggers` and the action is unscoped, firing for any non-empty
+surface set, while a read-only apply fires nothing.
 `effects` feeds the bounded-reversibility inventory; omitting it records an
 explicit irreversible fallback row rather than silently claiming reversibility.
 
@@ -789,7 +810,7 @@ implements is refused as unimplemented rather than admitted as forward-looking.
 The document's own `engine_features` block is the authoritative, live list —
 read `engine_features.implemented` rather than trusting a count written on this
 page, because a feature ships by adding an `IMPLEMENTED_FEATURES` row, not by
-editing this paragraph. Seven are implemented as of this engine: `spec-window/v1`
+editing this paragraph. The current entries include `spec-window/v1`, which
 claims `engine_features` itself, so declaring it is what lets you declare the
 list at all; `attr-id-codecs/v1` claims `attr_id_codecs`, the byte-exact
 block-attribute codec; `typed-column-codecs/v1` claims `column_codecs`;
@@ -811,7 +832,7 @@ widens a value vocabulary inside a section that already exists, legitimate
 under § v3.3's growth rule. A record whose addressed `declaration_evidence` is
 later deleted refuses at load, which is the point.
 
-**Before declaring any of the eight**, verify that the adapter actually uses
+**Before declaring any feature**, verify that the adapter actually uses
 the primitive and know that the declaration moves this adapter's manifest bytes,
 digest, and pins. Declare `spec-window/v1` with it because that feature admits
 the `engine_features` channel itself. The signer classifies feature-claimed keys
@@ -1430,14 +1451,20 @@ generated page can print it.
 
 ### Adding a shipped adapter
 
-Nothing here is an allowlist edit; every step is data or a convention-named
-file.
+There is no hand-maintained adapter-name allowlist. The runtime reservation
+list is generated from the same package tree and byte-checked at release, so a
+new capsule does require regenerating that projection but never copying its
+slug into engine policy by hand. The permanent `id_kind` floor is different:
+if the manifest introduces a new `tables.*.id_kind`, add it to
+`IdentityNamespaces::GRANDFATHERED_ID_KINDS` in review because old customer
+branches can retain that bare value even after a future adapter leaves the
+library.
 
 1. **Create the capsule and write its manifest** at
-   `adapter-packages/<name>/package/manifest.json`. `php
-   tools/adapter-package-validate.php --adapter=<name>` closes the package
-   convention and `php cli/wprism manifest-validate . --manifest=<name>` runs the
-   engine's real validators offline, with no WordPress or environment.
+   `adapter-packages/<name>/package/manifest.json`. While the capsule is
+   incomplete, iterate with `php cli/wprism manifest-validate .
+   --manifest=<name>`; the complete package validator intentionally refuses a
+   half-authored disposition/evidence boundary.
 2. **Add the reviewed entry** at
    `adapter-packages/<name>/package/disposition.json`, with a
    `reason` a human wrote. Coverage is exact, so this is not optional
@@ -1445,14 +1472,44 @@ file.
 3. **Add deterministic offline coverage** under `tests/offline/`, then run
    `php tools/adapter-package-tests.php --adapter=<name>`. Package discovery is
    the wiring; do not add a Makefile leaf or edit the generated corpus.
-4. **Add the conformance checks inside the capsule.** Add
-   `tests/conformance/entry.json` (the entry declares the pin set, artifacts,
-   and state the round trip must preserve), plus convention-named `seed.sh`,
-   `postdeploy.sh`, `postapply.sh`, or `check.sh` hooks as needed. Pin every
-   plugin artifact version and SHA-256 in `evidence/artifacts.lock.json`. Run
-   it with:
+4. **Add the mandatory exact-artifact evidence boundary.** Pin every exercised
+   admitted and refusal artifact URL/version/SHA-256 in
+   `evidence/artifacts.lock.json`, and
+   own the fresh-install, adjacent-version, in-range upgrade, and out-of-range
+   refusal workflow at `tests/certify/version-matrix.sh`. The normal driver is:
 
    ```sh
+   candidate_sha=$(git rev-parse HEAD)
+   WPRISM_SOURCE_ROOT=$(pwd) \
+   VMATRIX_EXPECTED_SOURCE_SHA=$candidate_sha VMATRIX_MANIFEST=<name> \
+   VMATRIX_PAIR=<private-pair> VMATRIX_PORT1=<even-port> VMATRIX_PORT2=<next-port> \
+   bash sandbox/tests/certify/certify_version_matrix.sh
+   ```
+
+   The source-SHA binding is part of the evidence. A green run against another
+   checkout is not evidence for the candidate. The package validator requires
+   this matrix for every certified plugin adapter, requires every active pin to
+   appear in its executable source, and checks that `certified-boundary` pins
+   are inside `version_range` while `refusal-fixture` pins are outside it.
+
+   This is test provenance, not a runtime zip allowlist. Runtime compatibility
+   is the manifest's half-open version interval; WordPress exposes a plugin
+   version, not the original archive bytes. Keep the interval no wider than the
+   behavior the pinned artifacts justify, and never claim that a live plugin
+   directory is byte-identical to a WordPress.org zip. If byte identity ever
+   becomes a product requirement, it needs a separately designed shipped code
+   identity contract rather than reading authoring evidence at runtime.
+5. **Add the conformance checks inside the capsule.** Add
+   `tests/conformance/entry.json` (the entry declares the pin set, artifacts,
+   and state the round trip must preserve), and the mandatory `seed.sh` and
+   `check.sh`. Add `postdeploy.sh`/`postapply.sh` only at the lifecycle seam
+   their names describe. Run the candidate-bound gate from its exact commit:
+
+   ```sh
+   candidate_sha=$(git rev-parse HEAD)
+   WPRISM_SOURCE_ROOT=$(pwd) \
+   CONF_EXPECTED_SOURCE_SHA=$candidate_sha CONF_PAIR=<private-pair> \
+   CONF1_PORT=<even-port> CONF2_PORT=<next-port> \
    bash sandbox/conformance/run.sh <name>
    ```
 
@@ -1461,10 +1518,47 @@ file.
    discoverable if
    `adapter-packages/<name>/tests/conformance/entry.json` exists —
    `sandbox/tests/offline/policy/regress_manifest_dispositions.php` proves both offline.
-5. **Render and validate the aggregate** without checking it in:
+6. **Ratchet live premises and production readiness.** Every non-empty target
+   observation or fixture-id assertion in conformance/version-matrix sources
+   belongs in `evidence/target-observation-premises.tsv`; package validation
+   checks both directions and its exact count header. Account for all twelve
+   scenario families in `evidence/production-readiness.json`, citing the exact
+   package, shared-engine, or participant-owned scenario gates. A missing
+   primitive is `blocked`; missing coverage is `gaps`; neither may be hidden as
+   `not_applicable`. See
+   [the production-readiness contract](../agents/adapter-production-readiness.md).
+7. **Own combinations at the participant boundary.** When two or more adapters
+   interact, create `integration-scenarios/<scenario>/scenario.json` with a
+   sorted `participants` list and convention-named gates under
+   `tests/{offline,live,certify,spike}/`. Cite those gates from the adapter's
+   `evidence/external-tests.json`; the key must equal the gate basename with
+   underscores changed to hyphens. This keeps a cross-adapter assertion out of
+   every participant capsule while making changes to any named participant
+   select the scenario automatically. Exercise both pin/plugin load orders,
+   target-only neighbor state, ownership collisions, native frontend/API
+   behavior, provider failure/retry, recapture, and the final no-op where they
+   are structurally relevant.
+8. **Close and generate the package boundary.** Run the full validator only
+   after the files above exist, then refresh the runtime name projection:
+
+   ```sh
+   php tools/adapter-package-validate.php --adapter=<name>
+   php tools/adapter-package-tests.php --adapter=<name>
+   php tools/shipped-identity-inventory.php
+   php tools/classmap-generate.php
+   php tools/offline-corpus.php
+   ```
+
+   A new `id_kind` also moves the hand-reviewed permanent floor described at
+   the start of this section. Re-measure explicit aggregate baselines such as
+   effect-declaration coverage; do not replace behavioral numbers with a
+   directory count merely to make the gate green.
+9. **Render and validate the aggregate** without checking it in:
 
    ```sh
    php tools/capability-doc.php render > sandbox/tmp/capabilities.md
+   composer check
+   make regress-offline-all
    make release-gate
    ```
 

@@ -31,7 +31,11 @@ final class AdapterIntegrationScenariosTest extends TestCase
         $catalog = AdapterIntegrationScenarios::discover(dirname(__DIR__, 2));
 
         self::assertSame(
-            ['polylang-tec-rewrite-coinstall', 'woocommerce-rewrite-coinstall'],
+            [
+                'polylang-tec-rewrite-coinstall',
+                'rank-math-commerce-multilingual',
+                'woocommerce-rewrite-coinstall',
+            ],
             AdapterIntegrationScenarios::forParticipant($catalog, 'polylang')
         );
         self::assertSame(

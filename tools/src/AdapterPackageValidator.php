@@ -94,6 +94,81 @@ final class AdapterPackageValidator
     }
 
     /**
+     * Every convention- or scenario-discovered evidence id one capsule owns.
+     *
+     * This is public because package validation and the whole-library
+     * disposition regression answer the same wiring question. Keeping the
+     * discovery here prevents the aggregate gate from growing a second roster
+     * whenever a capsule adds an ordinary test or participant-owned scenario.
+     *
+     * @return list<string>
+     */
+    public static function discoverableEvidence(string $repoRoot, string $slug): array
+    {
+        $root = self::repositoryRoot($repoRoot);
+        if (preg_match('/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/D', $slug) !== 1) {
+            throw new RuntimeException("Adapter package slug is not canonical: $slug");
+        }
+        $capsule = $root . '/adapter-packages/' . $slug;
+        if (realpath($capsule) !== $capsule || !is_dir($capsule) || is_link($capsule)) {
+            throw new RuntimeException("Adapter package '$slug' is not an ordinary capsule: $capsule");
+        }
+
+        $available = [];
+        $testsRoot = $capsule . '/tests';
+        if (is_dir($testsRoot)) {
+            $iterator = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($testsRoot, \FilesystemIterator::SKIP_DOTS)
+            );
+            foreach ($iterator as $entry) {
+                if (!$entry->isFile() || $entry->isLink()) {
+                    continue;
+                }
+                $relative = substr($entry->getPathname(), strlen($testsRoot) + 1);
+                $parts = explode('/', $relative);
+                $class = $parts[0] ?? '';
+                $basename = $entry->getBasename('.' . $entry->getExtension());
+                $prefix = match ($class) {
+                    'certify' => '(?:certify|regress)',
+                    'spike' => 'spike',
+                    'offline', 'live', 'conformance' => 'regress',
+                    default => null,
+                };
+                if ($prefix !== null
+                    && in_array($entry->getExtension(), ['php', 'sh'], true)
+                    && preg_match('/^' . $prefix . '_[a-z0-9][a-z0-9._-]*$/D', $basename) === 1) {
+                    $available[str_replace('_', '-', $basename)] = true;
+                }
+            }
+        }
+        $conformance = $testsRoot . '/conformance';
+        if (is_file($conformance . '/entry.json')) {
+            $entry = Canon::decode(Canon::read_file($conformance . '/entry.json'));
+            if (!is_array($entry)
+                || ($entry['manifest'] ?? null) !== $slug
+                || !is_array($entry['entry'] ?? null)
+                || !is_file($conformance . '/seed.sh')
+                || !is_file($conformance . '/check.sh')) {
+                throw new RuntimeException("Adapter package '$slug' conformance fixture is incomplete or misnamed");
+            }
+            $available['conformance-' . $slug] = true;
+        }
+        if (is_file($testsRoot . '/certify/version-matrix.sh')) {
+            $available['exact-artifact-version-matrix'] = true;
+        }
+        foreach (self::externalEvidence($root, $capsule, $slug) as $test => $_path) {
+            if (isset($available[$test])) {
+                throw new RuntimeException("Adapter package '$slug' external evidence collides with local test '$test'");
+            }
+            $available[$test] = true;
+        }
+
+        $tests = array_keys($available);
+        sort($tests, SORT_STRING);
+        return $tests;
+    }
+
+    /**
      * @return array{
      *     format:string,
      *     adapter:string,
@@ -2298,43 +2373,7 @@ final class AdapterPackageValidator
             throw new RuntimeException("Adapter package '$slug' disposition evidence tests are malformed");
         }
 
-        $available = [];
-        $testsRoot = $capsule . '/tests';
-        if (is_dir($testsRoot)) {
-            $iterator = new \RecursiveIteratorIterator(
-                new \RecursiveDirectoryIterator($testsRoot, \FilesystemIterator::SKIP_DOTS)
-            );
-            foreach ($iterator as $entry) {
-                if (!$entry->isFile()) {
-                    continue;
-                }
-                $basename = $entry->getBasename('.' . $entry->getExtension());
-                if (preg_match('/^(?:regress|certify|spike)_[a-z0-9][a-z0-9._-]*$/D', $basename) === 1) {
-                    $available[str_replace('_', '-', $basename)] = true;
-                }
-            }
-        }
-        $conformance = $testsRoot . '/conformance';
-        if (is_file($conformance . '/entry.json')) {
-            $entry = Canon::decode(Canon::read_file($conformance . '/entry.json'));
-            if (!is_array($entry)
-                || ($entry['manifest'] ?? null) !== $slug
-                || !is_array($entry['entry'] ?? null)
-                || !is_file($conformance . '/seed.sh')
-                || !is_file($conformance . '/check.sh')) {
-                throw new RuntimeException("Adapter package '$slug' conformance fixture is incomplete or misnamed");
-            }
-            $available['conformance-' . $slug] = true;
-        }
-        if (is_file($testsRoot . '/certify/version-matrix.sh')) {
-            $available['exact-artifact-version-matrix'] = true;
-        }
-        foreach (self::externalEvidence($root, $capsule, $slug) as $test => $_path) {
-            if (isset($available[$test])) {
-                throw new RuntimeException("Adapter package '$slug' external evidence collides with local test '$test'");
-            }
-            $available[$test] = true;
-        }
+        $available = array_fill_keys(self::discoverableEvidence($root, $slug), true);
 
         $normalized = [];
         foreach ($tests as $test) {
@@ -2379,6 +2418,9 @@ final class AdapterPackageValidator
                     "Adapter package '$slug' artifact evidence must own exactly its manifest plugin '$subject'"
                 );
             }
+            if (($disposition['status'] ?? null) === 'certified') {
+                self::certifiedArtifactBoundary($root, $slug, $manifest, $artifacts['plugins'][$subject]);
+            }
         }
         AdapterProductionReadiness::record(
             $root,
@@ -2389,6 +2431,112 @@ final class AdapterPackageValidator
         );
         $checks[] = 'artifact-evidence';
         $checks[] = 'production-readiness';
+    }
+
+    /**
+     * @param array<string,mixed> $manifest
+     * @param array<string,array<string,string>> $versions
+     */
+    private static function certifiedArtifactBoundary(
+        string $root,
+        string $slug,
+        array $manifest,
+        array $versions
+    ): void {
+        $matrix = $root . '/adapter-packages/' . $slug . '/tests/certify/version-matrix.sh';
+        if (!is_file($matrix) || is_link($matrix) || realpath($matrix) !== $matrix) {
+            throw new RuntimeException(
+                "Certified adapter package '$slug' must own tests/certify/version-matrix.sh"
+            );
+        }
+        $range = $manifest['version_range'] ?? null;
+        if (!is_array($range)
+            || !is_string($range['min'] ?? null)
+            || !is_string($range['max'] ?? null)) {
+            throw new RuntimeException(
+                "Certified adapter package '$slug' must declare one plugin version_range"
+            );
+        }
+        $source = file_get_contents($matrix);
+        if ($source === false) {
+            throw new RuntimeException("Certified adapter package '$slug' cannot read its version matrix");
+        }
+        $active = self::certifiedArtifactEvidenceSource($root, $slug, $matrix, $source);
+        $certified = 0;
+        $refusals = 0;
+        foreach ($versions as $version => $entry) {
+            $inside = version_compare($version, $range['min'], '>=')
+                && version_compare($version, $range['max'], '<');
+            $role = $entry['role'] ?? null;
+            if ($role === 'certified-boundary') {
+                $certified++;
+                if (!$inside) {
+                    throw new RuntimeException(
+                        "Adapter package '$slug' pins certified boundary $version outside its declared version_range"
+                    );
+                }
+            } elseif ($role === 'refusal-fixture') {
+                $refusals++;
+                if ($inside) {
+                    throw new RuntimeException(
+                        "Adapter package '$slug' pins refusal fixture $version inside its declared version_range"
+                    );
+                }
+            }
+            $quoted = preg_quote($version, '/');
+            if (preg_match('/(?<![A-Za-z0-9._-])' . $quoted . '(?![A-Za-z0-9._-])/', $active) !== 1) {
+                throw new RuntimeException(
+                    "Adapter package '$slug' artifact pin $version is absent from active certified workflow source"
+                );
+            }
+        }
+        if ($certified === 0 || $refusals === 0) {
+            throw new RuntimeException(
+                "Certified adapter package '$slug' needs at least one in-range certified boundary and one out-of-range refusal fixture"
+            );
+        }
+    }
+
+    private static function certifiedArtifactEvidenceSource(
+        string $root,
+        string $slug,
+        string $matrix,
+        string $matrixSource
+    ): string {
+        $sources = [ActiveShellSource::source($matrixSource)];
+        $tests = $root . '/adapter-packages/' . $slug . '/tests';
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($tests, \FilesystemIterator::SKIP_DOTS)
+        );
+        foreach ($iterator as $entry) {
+            if (!$entry->isFile() || $entry->isLink() || $entry->getPathname() === $matrix) {
+                continue;
+            }
+            $extension = strtolower($entry->getExtension());
+            if (!in_array($extension, ['php', 'sh'], true)) {
+                continue;
+            }
+            $source = file_get_contents($entry->getPathname());
+            if ($source === false) {
+                throw new RuntimeException(
+                    "Certified adapter package '$slug' cannot read artifact evidence source " . $entry->getPathname()
+                );
+            }
+            $sources[] = $extension === 'sh' ? ActiveShellSource::source($source) : $source;
+        }
+        $capsule = $root . '/adapter-packages/' . $slug;
+        foreach (self::externalEvidence($root, $capsule, $slug) as $relative) {
+            $path = $root . '/' . $relative;
+            $source = file_get_contents($path);
+            if ($source === false) {
+                throw new RuntimeException(
+                    "Certified adapter package '$slug' cannot read external artifact evidence source $path"
+                );
+            }
+            $sources[] = str_ends_with($path, '.sh') ? ActiveShellSource::source($source) : $source;
+        }
+
+        return implode("\n", $sources);
     }
 
     private static function assertReadinessEvidenceOwnership(

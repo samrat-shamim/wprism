@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Rebuild/NativeActions.php';
+require_once __DIR__ . '/../Kernel/ActionTriggerMatcher.php';
 require_once __DIR__ . '/AdapterSources.php';
 // Circular with Policy.php's own require_once of this file: safe because
 // require_once tracks Policy.php's path as included the moment Policy.php's
@@ -35,6 +36,9 @@ require_once __DIR__ . '/ManifestProviderRuntime.php';
  * referenced from here as `Policy::SURFACE_PATTERN` rather than moved.
  */
 final class ActionProviderGrammar {
+    /** Feature gate for the one bounded post-kind action trigger. */
+    public const POST_KIND_TRIGGER_FEATURE = 'post-kind-action-trigger/v1';
+
     /** The closed `actions[].kind` vocabulary — the two trust tiers, nothing else. */
     private const ACTION_KINDS = ['native', 'provider'];
 
@@ -243,11 +247,24 @@ final class ActionProviderGrammar {
             }
             $seen = [];
             foreach ($triggers as $triggerIndex => $trigger) {
-                if (!is_string($trigger) || preg_match(Policy::SURFACE_PATTERN, $trigger) !== 1) {
+                if ($trigger === ActionTriggerMatcher::POST_KIND_TRIGGER
+                    && !in_array(self::POST_KIND_TRIGGER_FEATURE, (array) ($manifest['engine_features'] ?? []), true)) {
                     throw new \RuntimeException(
-                        "wprism: $where.triggers[$triggerIndex] must be one exact canonical surface "
-                        . '(post|term|table|option|entity):<lowercase-name>'
+                        "wprism: $where.triggers[$triggerIndex] uses bounded trigger 'post:*' without engine feature '"
+                        . self::POST_KIND_TRIGGER_FEATURE
+                        . "' — declare it in this manifest's sorted engine_features list"
                     );
+                }
+                if (!is_string($trigger) || preg_match(Policy::SURFACE_PATTERN, $trigger) !== 1) {
+                    if ($trigger === ActionTriggerMatcher::POST_KIND_TRIGGER) {
+                        // The feature-gated value is the only intentional
+                        // exception to the exact canonical-surface grammar.
+                    } else {
+                        throw new \RuntimeException(
+                            "wprism: $where.triggers[$triggerIndex] must be one exact canonical surface "
+                            . '(post|term|table|option|entity):<lowercase-name>, or the feature-gated bounded post:* trigger'
+                        );
+                    }
                 }
                 if (isset($seen[$trigger])) {
                     throw new \RuntimeException("wprism: $where.triggers repeats exact surface '$trigger'");

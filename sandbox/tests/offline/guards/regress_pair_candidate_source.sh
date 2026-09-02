@@ -659,8 +659,11 @@ run_version_matrix_passthrough_case() {
     "$label: certify_version_matrix.sh does not plumb VMATRIX_EXPECTED_SOURCE_SHA through to pair.sh"
   assert_before "$matrix" \
     'export WPRISM_EXPECTED_SOURCE_SHA="$VMATRIX_EXPECTED_SOURCE_SHA"' \
+    'if declare -F version_matrix_preflight >/dev/null'
+  assert_before "$matrix" \
+    'export WPRISM_EXPECTED_SOURCE_SHA="$VMATRIX_EXPECTED_SOURCE_SHA"' \
     'bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" "${PAIR_UP_FLAGS[@]}"'
-  pass "$label: exact-artifact matrix binds its candidate before pair startup"
+  pass "$label: exact-artifact matrix binds its candidate before capsule preflight and pair startup"
 }
 
 run_parallel_compose_source_pin_case() {

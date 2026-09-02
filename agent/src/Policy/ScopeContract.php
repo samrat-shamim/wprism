@@ -3,6 +3,7 @@ namespace WPrism;
 
 require_once __DIR__ . '/../Repository/CanonicalSurfaces.php';
 require_once __DIR__ . '/../Kernel/OptionState.php';
+require_once __DIR__ . '/../Kernel/ActionTriggerMatcher.php';
 require_once __DIR__ . '/ScopeClosure.php';
 
 /**
@@ -764,8 +765,7 @@ final class ScopeContract {
         $out = [];
         foreach ($policy->actions_for($surfaces) as $action) {
             $triggers = array_key_exists('triggers', $action) ? (array) $action['triggers'] : [];
-            $matching = $triggers === [] ? $surfaces : array_values(array_intersect($triggers, $surfaces));
-            sort($matching, SORT_STRING);
+            $matching = $triggers === [] ? $surfaces : ActionTriggerMatcher::matching_surfaces($triggers, $surfaces);
             $out[] = [
                 'manifest' => (string) ($action['manifest'] ?? ''),
                 'index' => (int) ($action['index'] ?? 0),

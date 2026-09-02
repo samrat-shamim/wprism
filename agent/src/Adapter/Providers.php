@@ -2,6 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/Canon.php';
+require_once __DIR__ . '/../Kernel/ActionTriggerMatcher.php';
 // issue #3383: receipt bounding screens provider strings through the same
 // public-output authority the JSON refusal envelope uses, so there is one
 // secret grammar in this engine rather than a second one written here. Pulled
@@ -2444,6 +2445,16 @@ final class Providers {
                     );
                 }
             }
+        }
+        if ((array) ($decl['context'] ?? []) !== []
+            && in_array(ActionTriggerMatcher::POST_KIND_TRIGGER, (array) ($action['triggers'] ?? []), true)) {
+            return self::problem(
+                $id, $manifest, $plugin, 'post_kind_trigger_context_unsupported',
+                "exact post:<type> triggers on capability '$capability' when it declares mutation context",
+                'bounded post:* trigger combined with durable mutation context',
+                'use exact post-type triggers for a context-bearing capability so one dispatcher owns each '
+                    . 'regen_pending / deletion / reparent marker keyspace, or drop the context channels'
+            );
         }
         try {
             self::validate_args((array) ($action['args'] ?? []), $decl['args'], "manifest '$manifest' action args");

@@ -18,6 +18,7 @@ require_once __DIR__ . '/AdapterLibrary.php';
 require_once __DIR__ . '/AdapterPackage.php';
 require_once __DIR__ . '/../Kernel/ReferenceRules.php';
 require_once __DIR__ . '/../Kernel/PlainData.php';
+require_once __DIR__ . '/../Kernel/ActionTriggerMatcher.php';
 // issue #3348 first extraction slice: the pure table/widget declaration grammar,
 // required here for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/ManifestGrammar.php';
@@ -3429,8 +3430,8 @@ final class Policy {
                 $out[] = $action;
                 continue;
             }
-            foreach ((array) $action['triggers'] as $trigger) {
-                if (isset($wanted[$trigger])) {
+            foreach (array_keys($wanted) as $surface) {
+                if (ActionTriggerMatcher::any_matches((array) $action['triggers'], $surface)) {
                     $out[] = $action;
                     break;
                 }

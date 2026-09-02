@@ -232,10 +232,13 @@ branch or edit files before this passes.
     3) of the ONE relevant manifest — not the matrix.
   - **A live-pair `regress-*` suite** runs only when the diff touches the
     mechanism its own header names — not by habit.
-  - **A new WP extension joins by adding one capsule** — its manifest,
+  - **A new WP extension joins through one capsule** — its manifest,
     disposition, runtime hooks, fixtures, and tests live under
-    `adapter-packages/<slug>/`; no central allowlist, Makefile leaf, corpus
-    count, or dispatch switch is edited. Its own sweep is the evidence.
+    `adapter-packages/<slug>/`. Regenerate the derived runtime identity-name
+    inventory; add a hand-reviewed permanent identity floor only when the
+    capsule introduces a new `id_kind`. There is no hand-maintained adapter
+    name allowlist, Makefile leaf, corpus row, or plugin dispatch switch. Its
+    own sweep is the evidence.
   - **Safety floor:** an engine change you genuinely cannot bound to specific
     surfaces gets a small representative SUBSET — `core` plus the richest
     affected adapter surface(s) — never a silent skip, and never an unrelated

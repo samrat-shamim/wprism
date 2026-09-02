@@ -82,6 +82,9 @@ declare(strict_types=1);
  *   - rejected rows that disagree on `probed_on`: the preamble states ONE
  *     probe date for the whole document, so two dates would make that sentence
  *     false.
+ *   - a `promotion_blocked` row whose shipped adapter is now certified for
+ *     apply: package disposition is the current product claim, so a historical
+ *     gap may not keep overruling it in the roadmap projection.
  *
  * The document is emitted with UNWRAPPED paragraph lines, matching
  * docs/capabilities.md's own output. Hard wrapping a projected string would
@@ -153,6 +156,39 @@ function gap_manifest_sections(AdapterLibrary $library): array {
     $names = array_keys($sections);
     sort($names, SORT_STRING);
     return $names;
+}
+
+/**
+ * Refuse historical promotion blockers that disagree with current package
+ * claims. Closed/rejected rows remain historical probes and need not name a
+ * package that ships; only `promotion_blocked` claims to describe work that is
+ * blocking the product now.
+ */
+function gap_assert_current_dispositions(array $ledger, AdapterLibrary $library): void {
+    $dispositions = [];
+    foreach ($library->packages() as $package) {
+        $decoded = json_decode((string) file_get_contents($package->dispositionPath()), true);
+        if (is_array($decoded)) {
+            $dispositions[$package->name()] = $decoded;
+        }
+    }
+    foreach ($ledger['candidates'] ?? [] as $row) {
+        if (!is_array($row) || ($row['disposition'] ?? null) !== 'promotion_blocked') {
+            continue;
+        }
+        foreach ((array) ($row['blocked_adapters'] ?? []) as $adapter) {
+            $current = is_string($adapter) ? ($dispositions[$adapter] ?? null) : null;
+            if (!is_array($current)
+                || ($current['status'] ?? null) !== 'certified'
+                || !in_array('apply', (array) ($current['capabilities']['operations'] ?? []), true)) {
+                continue;
+            }
+            throw new RuntimeException(
+                "candidate '{$row['id']}' says '$adapter' is promotion_blocked, but its current disposition "
+                . 'is certified for apply; close the historical coordinate or correct the product claim'
+            );
+        }
+    }
 }
 
 /** A coordinate is CLOSED exactly when it names the implementation that closed it. */
@@ -289,7 +325,19 @@ function gap_validate(array $ledger, array $sections, callable $exists): void {
             }
             $closedBy = $coordinate['closed_by'] ?? null;
             $coordinateClosed = $closedBy !== null;
+            $blockerLayer = $coordinate['blocker_layer'] ?? 'platform';
+            if (!in_array($blockerLayer, ['adapter', 'platform'], true)) {
+                throw new RuntimeException(
+                    "candidate '$id' coordinate '{$coordinate['coordinate']}' has unknown blocker_layer "
+                    . var_export($blockerLayer, true) . '; expected adapter|platform'
+                );
+            }
             if ($coordinateClosed) {
+                if (array_key_exists('blocker_layer', $coordinate)) {
+                    throw new RuntimeException(
+                        "candidate '$id' coordinate '{$coordinate['coordinate']}' is closed and must not retain blocker_layer"
+                    );
+                }
                 if (!is_array($closedBy) || $closedBy === []) {
                     throw new RuntimeException(
                         "candidate '$id' coordinate '{$coordinate['coordinate']}' is closed but names no closed_by "
@@ -305,12 +353,22 @@ function gap_validate(array $ledger, array $sections, callable $exists): void {
                 $openCoordinates++;
             }
             $shipped = $primitives[$required]['status'] === 'shipped';
-            if ($shipped !== $coordinateClosed) {
+            if ($coordinateClosed && !$shipped) {
                 throw new RuntimeException(
-                    "candidate '$id' coordinate '{$coordinate['coordinate']}' is "
-                    . ($coordinateClosed ? 'closed' : 'open') . " but primitive '$required' is "
-                    . $primitives[$required]['status'] . '; a closed coordinate demands a shipped primitive and an '
-                    . 'open coordinate demands an open one'
+                    "candidate '$id' coordinate '{$coordinate['coordinate']}' is closed but primitive '$required' is "
+                    . $primitives[$required]['status'] . '; a closed coordinate demands a shipped primitive'
+                );
+            }
+            if (!$coordinateClosed && $shipped && $blockerLayer !== 'adapter') {
+                throw new RuntimeException(
+                    "candidate '$id' coordinate '{$coordinate['coordinate']}' is open on shipped primitive '$required'; "
+                    . 'mark blocker_layer adapter because the platform facility exists and plugin implementation/evidence remains'
+                );
+            }
+            if (!$coordinateClosed && !$shipped && $blockerLayer !== 'platform') {
+                throw new RuntimeException(
+                    "candidate '$id' coordinate '{$coordinate['coordinate']}' is adapter-blocked on open primitive '$required'; "
+                    . 'the platform facility does not exist yet, so blocker_layer must be platform'
                 );
             }
             // Recorded whether the coordinate is open or closed: this map
@@ -409,7 +467,7 @@ function gap_rows(array $ledger, string $disposition): array {
  *
  * @return list<array{primitive:string,title:string,candidates:list<string>,adapters:list<string>}>
  */
-function gap_open_demand(array $ledger): array {
+function gap_open_demand(array $ledger, ?string $layer = null): array {
     $rows = [];
     foreach ($ledger['candidates'] as $row) {
         foreach ($row['coordinates'] as $coordinate) {
@@ -417,6 +475,10 @@ function gap_open_demand(array $ledger): array {
             // shipped still appears here for the ones that did not, and stops
             // inflating the count for the one that did.
             if (gap_coordinate_closed($coordinate)) {
+                continue;
+            }
+            $coordinateLayer = (string) ($coordinate['blocker_layer'] ?? 'platform');
+            if ($layer !== null && $coordinateLayer !== $layer) {
                 continue;
             }
             $id = (string) $coordinate['primitive_required'];
@@ -461,21 +523,30 @@ function gap_preamble(array $ledger): string {
     return "# Adapter-authoring limitation ledger\n\n"
         . '<!-- Generated by tools/engine-gap-doc.php from tools/engine-gaps.json; do not hand-edit. Run '
         . "`php tools/engine-gap-doc.php generate` after editing the ledger. -->\n\n"
-        . 'This ledger records plugin state shapes that the current generic grammar cannot represent faithfully. '
-        . 'An entry is a platform boundary, not a plugin-specific branch request: the remedy must be a reusable '
-        . "primitive with adversarial coverage before any affected adapter is promoted.\n\n"
+        . 'This ledger records plugin state shapes discovered during adapter authoring. `blocker_layer: platform` '
+        . 'means the generic engine still lacks a reusable facility; `blocker_layer: adapter` means that facility '
+        . "already ships and the named plugin still needs its own bounded implementation and evidence.\n\n"
         . 'The source probes below used official WordPress.org artifacts on ' . array_key_first($dates) . '. '
         . 'They are deliberately separate from adapter package dispositions: a rejected candidate is not shipped '
         . "adapter identity and makes no capability claim.\n\n"
-        . 'Every coordinate names its `primitive_required` from a closed vocabulary in the ledger, so two '
+        . 'Every coordinate names its `primitive_required` from a closed generic vocabulary in the ledger, so two '
         . 'candidates blocked on the same missing thing are ONE countable primitive rather than two lookalike '
         . "sentences. That is what makes the next table a ranking instead of a wishlist.\n\n";
 }
 
 function gap_demand_section(array $ledger): string {
-    $out = "## Open primitive demand\n\n"
+    $out = "## Open platform primitive demand\n\n"
         . "| Primitive | Candidates | Blocked adapters |\n|---|---|---|\n";
-    foreach (gap_open_demand($ledger) as $entry) {
+    foreach (gap_open_demand($ledger, 'platform') as $entry) {
+        $out .= '| ' . gap_cell($entry['title'])
+            . ' | ' . count($entry['candidates']) . ' (' . gap_cell(implode(', ', $entry['candidates'])) . ')'
+            . ' | ' . gap_cell(implode(', ', $entry['adapters'])) . " |\n";
+    }
+    $out .= "\n## Open adapter implementation demand\n\n"
+        . 'These rows use a shipped generic platform facility, but the named plugin still lacks its own bounded '
+        . "implementation and evidence. They are adapter work, not a request to mint another engine primitive.\n\n"
+        . "| Facility already shipped | Candidates | Blocked adapters |\n|---|---|---|\n";
+    foreach (gap_open_demand($ledger, 'adapter') as $entry) {
         $out .= '| ' . gap_cell($entry['title'])
             . ' | ' . count($entry['candidates']) . ' (' . gap_cell(implode(', ', $entry['candidates'])) . ')'
             . ' | ' . gap_cell(implode(', ', $entry['adapters'])) . " |\n";
@@ -501,16 +572,21 @@ function gap_candidate_section(array $row): string {
     foreach ($open as $coordinate) {
         $out .= '- ' . $coordinate['cannot_represent'] . "\n";
     }
-    $phrases = [];
+    $phrases = ['platform' => [], 'adapter' => []];
     foreach ($open as $coordinate) {
         $phrase = (string) ($coordinate['remedy_phrase'] ?? '');
-        $phrases[] = $phrase === '' ? '' : $phrase;
+        if ($phrase !== '') {
+            $phrases[(string) ($coordinate['blocker_layer'] ?? 'platform')][] = $phrase;
+        }
     }
-    $phrases = array_values(array_filter($phrases, static fn(string $p): bool => $p !== ''));
-    $tail = '';
-    if ($phrases !== []) {
-        $tail = 'Required platform work: ' . gap_join($phrases) . '.';
+    $tails = [];
+    if ($phrases['platform'] !== []) {
+        $tails[] = 'Required platform work: ' . gap_join($phrases['platform']) . '.';
     }
+    if ($phrases['adapter'] !== []) {
+        $tails[] = 'Required adapter work: ' . gap_join($phrases['adapter']) . '.';
+    }
+    $tail = implode(' ', $tails);
     $closing = (string) ($row['closing'] ?? '');
     if ($closing !== '') {
         $tail = $tail === '' ? $closing : $tail . ' ' . $closing;
@@ -561,9 +637,9 @@ function gap_closed_section(array $ledger): string {
     if ($closed === []) {
         return '';
     }
-    $out = "## Closed engine gaps\n\n"
-        . 'These shipped. They stay in the ledger because the primitive that closed each one is the unit the open '
-        . "table above counts in, and a vocabulary with no closed entries cannot be checked against reality.\n\n"
+    $out = "## Closed authoring gaps\n\n"
+        . 'These shipped. A generic primitive and one plugin implementation are separate facts: the primitive column '
+        . "names the reusable facility, while Closed by names the coordinate-specific implementation/evidence.\n\n"
         . 'Closure is per COORDINATE, so a candidate appears here for the blockers that shipped and above for the '
         . "ones that have not. A row leaves the blocked sections entirely only when every coordinate is closed.\n\n"
         . "| Candidate | Grammar coordinate | Primitive shipped | Closed by |\n|---|---|---|---|\n";
@@ -614,6 +690,7 @@ function gap_build(string $repo): array {
         gap_manifest_sections($library),
         static fn(string $path): bool => file_exists($repo . '/' . ltrim($path, '/'))
     );
+    gap_assert_current_dispositions($ledger, $library);
     return [$repo . GAP_DOC_FILE => gap_render($ledger)];
 }
 
