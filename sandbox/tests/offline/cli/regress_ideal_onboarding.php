@@ -15,6 +15,7 @@ require_once __DIR__ . '/../../../../cli/src/Command/DemoCommand.php';
 use WPrism\Orchestrator\Adopt;
 use WPrism\Orchestrator\ApplicationContract;
 use WPrism\Orchestrator\ConnectCommand;
+use WPrism\Orchestrator\ConnectionReceipt;
 use WPrism\Orchestrator\ContractProposal;
 use WPrism\Orchestrator\ContractStore;
 use WPrism\Orchestrator\DemoCommand;
@@ -25,6 +26,7 @@ use WPrism\Orchestrator\EnvironmentDriver;
 use WPrism\Orchestrator\HostProcess;
 use WPrism\Orchestrator\LocalTransport;
 use WPrism\Orchestrator\OnboardCommand;
+use WPrism\Orchestrator\OnboardingHandoffReceipt;
 use WPrism\Orchestrator\Transport;
 
 final class IdealOnboardingTransport extends Transport {
@@ -344,6 +346,23 @@ wprism_check_same(
     'choosing a local target explicitly authorizes the machine-local adoption bootstrap'
 );
 wprism_check(!isset($overlay['envs']['production']['_dir']), 'loader provenance never leaks into the serialized registry');
+
+$machineWorkspace = $tmp . '/machine-workspace';
+$machineTransport = new IdealOnboardingTransport();
+ob_start();
+$machineConnectExit = ConnectCommand::run([
+    'production', '--workspace=' . $machineWorkspace, '--transport=local',
+    '--wp-path=/var/www/html', '--repo-path=/srv/wprism', '--format=json',
+], dirname(__DIR__, 4), static fn(string $name, array $config): EnvironmentDriver => $machineTransport, null,
+    static fn(): string => '2026-09-02T12:34:56Z');
+$machineConnectOutput = (string) ob_get_clean();
+$machineConnect = json_decode($machineConnectOutput, true, 512, JSON_THROW_ON_ERROR);
+ConnectionReceipt::validate($machineConnect);
+wprism_check_same(0, $machineConnectExit, 'machine connect emits one validated connection receipt');
+wprism_check_same('wprism-connection-receipt/v1', $machineConnect['format'] ?? null, 'machine connect negotiates the public connection receipt format');
+wprism_check_same(realpath($machineWorkspace), $machineConnect['workspace']['path'] ?? null, 'the connection receipt binds the exact controller workspace');
+wprism_check_same('onboard', $machineConnect['next_action'] ?? null, 'the inspected connection receipt names onboarding as its next action');
+wprism_check_same(false, $machineConnect['mutation']['explicit'] ?? null, 'the connection receipt never upgrades inspection into explicit target mutation');
 
 $sentinelRepo = $tmp . '/existing-repository';
 mkdir($sentinelRepo . '/.git', 0700, true);
@@ -762,6 +781,43 @@ wprism_check_same(
     trim(IdealOnboardingTransport::process(['git', '-C', $defaultAssessTarget, 'rev-parse', 'HEAD'])['stdout']),
     trim(IdealOnboardingTransport::process(['git', '-C', $defaultAssessWorkspace, 'rev-parse', 'HEAD'])['stdout']),
     'the default-assess target and controller finish on the same published revision'
+);
+$handoffStatusCwd = getcwd();
+chdir($defaultAssessWorkspace);
+ob_start();
+$handoffStatusExit = OnboardCommand::run(
+    $defaultAssessDriver,
+    ['status', '--git-url=' . $defaultAssessRemote, '--format=json'],
+    dirname(__DIR__, 4)
+);
+$handoffStatusOutput = (string) ob_get_clean();
+ob_start();
+$handoffReplayExit = OnboardCommand::run(
+    $defaultAssessDriver,
+    ['status', '--git-url=' . $defaultAssessRemote, '--format=json'],
+    dirname(__DIR__, 4)
+);
+$handoffReplayOutput = (string) ob_get_clean();
+if (is_string($handoffStatusCwd)) {
+    chdir($handoffStatusCwd);
+}
+$handoffStatus = json_decode($handoffStatusOutput, true, 512, JSON_THROW_ON_ERROR);
+OnboardingHandoffReceipt::validate($handoffStatus);
+wprism_check_same(0, $handoffStatusExit, 'onboard status reconciles one complete machine-readable handoff');
+wprism_check_same(0, $handoffReplayExit, 'onboard status can reconcile the same handoff again without mutation');
+wprism_check_same($handoffStatusOutput, $handoffReplayOutput, 'handoff reconciliation returns byte-identical canonical evidence while its inputs are unchanged');
+wprism_check_same('wprism-onboarding-handoff/v1', $handoffStatus['format'] ?? null, 'handoff status negotiates the public adoption receipt format');
+wprism_check_same(
+    trim(IdealOnboardingTransport::process(['git', '-C', $defaultAssessTarget, 'rev-parse', 'HEAD'])['stdout']),
+    $handoffStatus['repository']['commit'] ?? null,
+    'the handoff receipt binds the exact target/controller/remote commit'
+);
+wprism_check_same('proposed', $handoffStatus['application_contract']['status'] ?? null, 'the handoff truthfully reports a proposal as non-authoritative');
+wprism_check_same('review_application_contract', $handoffStatus['next_action'] ?? null, 'the handoff stops at the human application-contract boundary');
+wprism_check(
+    is_string($handoffStatus['target']['id'] ?? null)
+        && str_starts_with($handoffStatus['target']['id'], 'wprism-target:'),
+    'the handoff receipt binds WPrism\'s stable target operation identity'
 );
 
 $tagFixture = ideal_handoff_fixture($tmp, 'tag-only');

@@ -96,8 +96,10 @@ final class RehearseCommand {
         // before provider negotiation, and materialization will refuse before
         // restoring production-derived bytes unless the provider returns the
         // exact target-bound containment receipt.
-        foreach (RehearsalDisclosure::preflightLines() as $line) {
-            echo $line . "\n";
+        if (!$json) {
+            foreach (RehearsalDisclosure::preflightLines() as $line) {
+                echo $line . "\n";
+            }
         }
 
         try {
@@ -115,14 +117,29 @@ final class RehearseCommand {
         }
 
         $materializationReceipt = null;
-        $materialized = EnvironmentCommand::run(
-            $arguments,
-            $envsFileOverride,
-            $promote,
-            static function (array $receipt) use (&$materializationReceipt): void {
-                $materializationReceipt = $receipt;
+        if ($json) {
+            // EnvironmentCommand has its own operator receipt renderer. A
+            // rehearsal's public machine result is instead the one
+            // wprism-rehearsal-preview/v1 document below, which already binds
+            // the materialization and containment receipts. Buffering this
+            // nested renderer keeps stdout single-document without changing
+            // the provider/materializer boundary or hiding stderr progress.
+            ob_start();
+        }
+        try {
+            $materialized = EnvironmentCommand::run(
+                $arguments,
+                $envsFileOverride,
+                $promote,
+                static function (array $receipt) use (&$materializationReceipt): void {
+                    $materializationReceipt = $receipt;
+                }
+            );
+        } finally {
+            if ($json) {
+                ob_end_clean();
             }
-        );
+        }
         if ($materialized !== 0) {
             // `EnvironmentCommand` has already printed the provider's own
             // refusal, including a missing capability by its id. Re-wording
@@ -135,8 +152,10 @@ final class RehearseCommand {
         } catch (CommandRefusalException $refusal) {
             return AssessCommand::renderRefusal($refusal, $json, 'rehearse');
         }
-        foreach (RehearsalDisclosure::verifiedLines($containment) as $line) {
-            echo $line . "\n";
+        if (!$json) {
+            foreach (RehearsalDisclosure::verifiedLines($containment) as $line) {
+                echo $line . "\n";
+            }
         }
 
         try {

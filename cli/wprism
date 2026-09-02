@@ -360,9 +360,10 @@ Usage:
   wprism doctor <env>
   wprism driver-capabilities <env> [--operation=<workflow>] [--format=json]
   wprism connect <env> --workspace=<path> --transport=ssh --host=<ssh-host>
-              --wp-path=<path> --repo-path=<path> [--ssh-config=<path>]
-  wprism onboard <env> [--git-url=<empty-url>] [init flags...]
-  wprism onboard <env> --handoff-only --git-url=<url>
+              --wp-path=<path> --repo-path=<path> [--ssh-config=<path>] [--format=json]
+  wprism onboard <env> [--git-url=<empty-url>] [init flags...] [--format=json]
+  wprism onboard <env> --handoff-only --git-url=<url> [--format=json]
+  wprism onboard <env> status --git-url=<same-url> --format=json
   wprism adopt  <env>
   wprism unadopt <env> --archive-to=<absolute-path> [--yes]
   wprism init   <env> [--yes] [--allow-unmanaged-plugins] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]

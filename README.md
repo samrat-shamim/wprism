@@ -63,14 +63,20 @@ onboard` composes adopt → assess → init without a handwritten seed:
 WPRISM_CLI="$PWD/cli/wprism"
 "$WPRISM_CLI" connect production --workspace=../my-site \
   --transport=ssh --host=deploy@wp.example.com \
-  --wp-path=/var/www/html --repo-path=/home/deploy/site-repo
+  --wp-path=/var/www/html --repo-path=/home/deploy/site-repo \
+  --format=json > ../connection-receipt.json
 cd ../my-site
-"$WPRISM_CLI" onboard production --git-url=git@github.com:you/my-site.git
+"$WPRISM_CLI" onboard production --yes \
+  --git-url=git@github.com:you/my-site.git \
+  --format=json > ../onboarding-handoff.json
 ```
 
 The Git remote must be empty and reachable with configured credentials from
 both this controller and the WordPress target. WPrism verifies that before
-adoption or initialization changes the site.
+adoption or initialization changes the site. If the onboarding response is
+lost, `wprism onboard production status --git-url=<same-url> --format=json`
+reconciles the canonical target/repository/environment handoff without
+repeating mutation.
 
 The [quickstart](docs/guides/quickstart.md) explains both paths. Continue with
 [assess](docs/guides/assess.md) → [daily-workflow](docs/guides/daily-workflow.md)

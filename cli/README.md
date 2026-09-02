@@ -36,9 +36,10 @@ wprism adapter doctor [--repo=<site-repo>] [--format=json]
 wprism adapter-observe <env> [--out=<local-file>|--format=json]
 wprism doctor <env>
 wprism driver-capabilities <env> [--operation=<workflow>] [--format=json]
-wprism connect <env> --workspace=<path> --transport=ssh --host=<host> --wp-path=<path> --repo-path=<path>
-wprism onboard <env> [--git-url=<empty-url>] [init flags...]
-wprism onboard <env> --handoff-only --git-url=<url>
+wprism connect <env> --workspace=<path> --transport=ssh --host=<host> --wp-path=<path> --repo-path=<path> [--format=json]
+wprism onboard <env> [--git-url=<empty-url>] [init flags...] [--format=json]
+wprism onboard <env> --handoff-only --git-url=<url> [--format=json]
+wprism onboard <env> status --git-url=<same-url> --format=json
 wprism adopt  <env>
 wprism unadopt <env> --archive-to=<absolute-path> [--yes]
 wprism init   <env> [--yes] [--allow-unmanaged-plugins] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
@@ -118,6 +119,26 @@ Git credentials from both controller and target; WPrism preflights both before
 target mutation, publishes the target's current branch, and replaces only
 connect's byte-verified local seed with that exact checkout. If init completed
 without a URL, `--handoff-only --git-url=<url>` resumes just that handoff.
+
+Automation uses the same public verbs without scraping their human output.
+`connect ... --format=json` emits one canonical
+`wprism-connection-receipt/v1` document that binds the inspected workspace and
+machine-local environment configuration while retaining the honest startup-code
+boundary. `onboard ... --git-url=<url> --format=json` emits one canonical
+`wprism-onboarding-handoff/v1` document. It binds the stable target operation
+identity; the target, controller, and remote Git branch/commit/tree; the
+machine-local environment generation; assessment and application-contract
+evidence; authority-policy enrollment; and one closed next action. Progress
+stays off stdout in machine mode. After a lost response, reconcile without
+repeating adoption or publication:
+
+```sh
+wprism onboard production status --git-url=<same-url> --format=json
+```
+
+Status returns byte-identical evidence while those bound inputs are unchanged.
+It never creates target identity, changes Git refs, or substitutes an
+application-contract proposal for reviewed authority.
 
 `wprism preview create|remove` is the first-contact spelling of the established
 `wprism rehearse <env> ...|--reap` contract. It is a strict argument translation,
@@ -694,7 +715,10 @@ semantics remain the rehearsal implementation's.
   withholds that capability; the opt-in standalone `contained_preview` mode is
   the bundled development example. A containment receipt permits evidence
   gathering but does not itself authorize an `Experimental` or `Uncertified`
-  capability.
+  capability. With `--format=json`, stdout is exactly one canonical
+  `wprism-rehearsal-preview/v1` document; the nested materialization receipt is
+  bound into its containment evidence instead of being emitted as a second
+  document.
   `wprism rehearse <env> --reap` is `env reap` with the same compare-and-reap.
 
 - **`wprism release <env> --plan-only [--from=<ref>] [--profile=<p>]

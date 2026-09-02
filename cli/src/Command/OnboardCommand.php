@@ -4,11 +4,20 @@ declare(strict_types=1);
 namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Onboarding/Adopt.php';
+require_once __DIR__ . '/../Onboarding/OnboardingHandoffReceipt.php';
+require_once __DIR__ . '/../Authority/OperationAuthorization.php';
+require_once __DIR__ . '/../Authority/TargetOperationStore.php';
+require_once __DIR__ . '/../Contract/ContractProposal.php';
+require_once __DIR__ . '/../Contract/ContractStore.php';
+require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once __DIR__ . '/AdoptCommand.php';
 require_once __DIR__ . '/AssessCommand.php';
 require_once __DIR__ . '/HostProcess.php';
 require_once __DIR__ . '/InitCommand.php';
 require_once __DIR__ . '/StatusCommand.php';
+
+use WPrism\Canon;
+use WPrism\CommandRefusalException;
 
 /** Guided composition of the existing adoption, assessment, and init gates. */
 final class OnboardCommand {
@@ -35,8 +44,9 @@ final class OnboardCommand {
         string $sourceRoot,
         ?array $steps = null
     ): int {
+        $json = in_array('--format=json', $extra, true);
         try {
-            [$initArgs, $gitUrl, $handoffOnly] = self::options($extra);
+            [$initArgs, $gitUrl, $handoffOnly, $json, $statusOnly] = self::options($extra);
             $workspace = AssessCommand::siteRepo(getcwd() ?: '.');
             if (!$driver instanceof BoundedControlDriver) {
                 throw new \RuntimeException('selected driver does not implement bounded target control');
@@ -44,9 +54,25 @@ final class OnboardCommand {
             if ($handoffOnly && $gitUrl === null) {
                 throw new \RuntimeException('--handoff-only requires --git-url=<url>');
             }
+            if (($json || $statusOnly) && $gitUrl === null) {
+                throw new \RuntimeException('machine-readable onboarding requires --git-url=<url>');
+            }
         } catch (\Throwable $error) {
-            fwrite(STDERR, 'wprism: onboard: ' . $error->getMessage() . "\n");
-            return 1;
+            return self::failure($error, $json, 'onboarding_invalid', 'the onboarding request is invalid');
+        }
+
+        if ($statusOnly) {
+            try {
+                echo Canon::encode(self::handoffDocument($driver, $workspace, (string) $gitUrl));
+                return 0;
+            } catch (\Throwable $error) {
+                return self::failure(
+                    $error,
+                    $json,
+                    'onboarding_handoff_unavailable',
+                    'the current target, repository, and local evidence do not form a complete onboarding handoff'
+                );
+            }
         }
 
         $adopt = $steps['adopt'] ?? static fn(EnvironmentDriver $target, array $args, string $root): int =>
@@ -85,14 +111,24 @@ final class OnboardCommand {
         if ($handoffOnly) {
             try {
                 $controllerPreflight($workspace, (string) $gitUrl);
+                if (!isset($steps['handoff'])) {
+                    TargetOperationStore::ensureIdentity($driver);
+                }
                 $branch = isset($steps['handoff'])
                     ? $handoff($driver, $workspace, (string) $gitUrl)
                     : self::publishAndCheckout($driver, $workspace, (string) $gitUrl);
             } catch (\Throwable $error) {
-                fwrite(STDERR, 'wprism: onboard handoff: ' . $error->getMessage() . "\n");
-                return 1;
+                return self::failure($error, $json, 'onboarding_handoff_failed', 'the initialized target could not be published safely');
             }
-            self::renderHandoffSuccess($sourceRoot, $driver, $branch);
+            if ($json) {
+                try {
+                    echo Canon::encode(self::handoffDocument($driver, $workspace, (string) $gitUrl));
+                } catch (\Throwable $error) {
+                    return self::failure($error, true, 'onboarding_handoff_unavailable', 'the published handoff could not be reconciled');
+                }
+            } else {
+                self::renderHandoffSuccess($sourceRoot, $driver, $branch);
+            }
             return 0;
         }
 
@@ -104,42 +140,52 @@ final class OnboardCommand {
                 $preflightReceipt = self::assertPristineLocalCheckout($workspace);
                 $handoffPreflight($driver, $workspace, $gitUrl);
             } catch (\Throwable $error) {
-                fwrite(STDERR, 'wprism: onboard handoff preflight: ' . $error->getMessage() . "\n");
-                return 1;
+                return self::failure($error, $json, 'onboarding_handoff_preflight_failed', 'the onboarding Git handoff preflight failed');
             }
         }
 
-        echo "Onboarding 1/3: install WPrism transactionally.\n";
-        $exit = $adopt($driver, [], $sourceRoot);
+        if (!$json) echo "Onboarding 1/3: install WPrism transactionally.\n";
+        $exit = self::step($json, static fn(): int => $adopt($driver, [], $sourceRoot));
         if ($exit !== 0) {
-            return $exit;
+            return $json
+                ? self::failure(new \RuntimeException('adopt exited nonzero'), true, 'onboarding_adopt_failed', 'WPrism adoption did not complete')
+                : $exit;
         }
-        echo "Onboarding 2/3: assess the installed site without changing managed state.\n";
-        $exit = $assess($driver, [], $sourceRoot);
+        if (!$json) echo "Onboarding 2/3: assess the installed site without changing managed state.\n";
+        $exit = self::step($json, static fn(): int => $assess($driver, [], $sourceRoot));
         if ($exit !== 0 && $exit !== AssessCommand::COMPLETE_WITH_GAPS_EXIT) {
-            return $exit;
+            return $json
+                ? self::failure(new \RuntimeException('assess exited nonzero'), true, 'onboarding_assess_failed', 'the onboarding assessment did not complete')
+                : $exit;
         }
         $handoffReceipt = null;
         if ($preflightReceipt !== null) {
             try {
                 $handoffReceipt = self::assessmentReceipt($workspace, $preflightReceipt);
             } catch (\Throwable $error) {
-                fwrite(STDERR, 'wprism: onboard handoff: ' . $error->getMessage() . "\n");
-                return 1;
+                return self::failure($error, $json, 'onboarding_handoff_failed', 'the local onboarding evidence changed unexpectedly');
             }
         }
-        echo "Onboarding 3/3: review and initialize the managed baseline.\n";
-        $exit = $init($driver, $initArgs);
+        if (!$json) echo "Onboarding 3/3: review and initialize the managed baseline.\n";
+        $exit = self::step($json, static fn(): int => $init($driver, $initArgs));
         if ($exit !== 0) {
-            return $exit;
+            return $json
+                ? self::failure(new \RuntimeException('init exited nonzero'), true, 'onboarding_init_failed', 'the reviewed managed baseline was not initialized')
+                : $exit;
+        }
+        try {
+            if ($gitUrl !== null && !isset($steps['handoff'])) {
+                TargetOperationStore::ensureIdentity($driver);
+            }
+        } catch (\Throwable $error) {
+            return self::failure($error, $json, 'onboarding_target_identity_failed', 'the adopted target has no stable WPrism operation identity');
         }
         if ($handoffReceipt !== null) {
             try {
                 self::assertPristineLocalCheckout($workspace, $handoffReceipt);
             } catch (\Throwable $error) {
-                fwrite(STDERR, 'wprism: onboard handoff: ' . $error->getMessage() . "\n");
-                $handoffResume($sourceRoot, $driver);
-                return 1;
+                if (!$json) $handoffResume($sourceRoot, $driver);
+                return self::failure($error, $json, 'onboarding_handoff_failed', 'the local onboarding boundary changed before publication');
             }
         }
 
@@ -149,11 +195,18 @@ final class OnboardCommand {
                     ? $handoff($driver, $workspace, $gitUrl)
                     : self::publishAndCheckout($driver, $workspace, $gitUrl, $handoffReceipt);
             } catch (\Throwable $error) {
-                fwrite(STDERR, 'wprism: onboard handoff: ' . $error->getMessage() . "\n");
-                $handoffResume($sourceRoot, $driver);
-                return 1;
+                if (!$json) $handoffResume($sourceRoot, $driver);
+                return self::failure($error, $json, 'onboarding_handoff_failed', 'the initialized target could not be published safely');
             }
-            self::renderHandoffSuccess($sourceRoot, $driver, $branch);
+            if ($json) {
+                try {
+                    echo Canon::encode(self::handoffDocument($driver, $workspace, $gitUrl));
+                } catch (\Throwable $error) {
+                    return self::failure($error, true, 'onboarding_handoff_unavailable', 'the published handoff could not be reconciled');
+                }
+            } else {
+                self::renderHandoffSuccess($sourceRoot, $driver, $branch);
+            }
         } else {
             $cli = realpath($sourceRoot . '/cli/wprism') ?: $sourceRoot . '/cli/wprism';
             echo "Initialized successfully. Publish it later without repeating adopt/assess/init:\n";
@@ -164,12 +217,31 @@ final class OnboardCommand {
         return 0;
     }
 
-    /** @return array{0:list<string>,1:?string,2:bool} */
+    /** @return array{0:list<string>,1:?string,2:bool,3:bool,4:bool} */
     public static function options(array $extra): array {
         $init = [];
         $gitUrl = null;
         $handoffOnly = false;
+        $json = false;
+        $statusOnly = false;
         foreach ($extra as $arg) {
+            if ($arg === 'status') {
+                if ($statusOnly) {
+                    throw new \RuntimeException('status was supplied more than once');
+                }
+                $statusOnly = true;
+                continue;
+            }
+            if ($arg === '--format=json') {
+                if ($json) {
+                    throw new \RuntimeException('--format=json was supplied more than once');
+                }
+                $json = true;
+                continue;
+            }
+            if (is_string($arg) && str_starts_with($arg, '--format')) {
+                throw new \RuntimeException('onboard accepts only the exact machine selector --format=json');
+            }
             if ($arg === '--handoff-only') {
                 if ($handoffOnly) {
                     throw new \RuntimeException('--handoff-only was supplied more than once');
@@ -192,7 +264,13 @@ final class OnboardCommand {
         if ($handoffOnly && $init !== []) {
             throw new \RuntimeException('--handoff-only accepts no init flags');
         }
-        return [$init, $gitUrl, $handoffOnly];
+        if ($statusOnly && ($handoffOnly || $init !== [])) {
+            throw new \RuntimeException('onboard status accepts only --git-url and --format=json');
+        }
+        if ($statusOnly && !$json) {
+            throw new \RuntimeException('onboard status requires --format=json');
+        }
+        return [$init, $gitUrl, $handoffOnly, $json, $statusOnly];
     }
 
     private static function preflightHandoff(
@@ -576,6 +654,209 @@ final class OnboardCommand {
         echo "Capture always writes to the target repo_path ({$driver->repoPath()}), not this local checkout.\n";
         echo "Before feature-branch capture, point or materialize the target to that branch; see docs/guides/daily-workflow.md.\n";
         echo "Disposable preview creation additionally requires two configured environments and providers; see docs/guides/release.md.\n";
+    }
+
+    /**
+     * Re-observe the durable handoff without publishing or changing target,
+     * local, or remote Git state. This is also the reconciliation path after
+     * a controller loses the success response from the mutating composition.
+     *
+     * @return array<string,mixed>
+     */
+    private static function handoffDocument(
+        BoundedControlDriver $driver,
+        string $workspace,
+        string $gitUrl
+    ): array {
+        $repository = self::handoffRepositoryFacts($driver, $workspace, $gitUrl);
+        $targetId = TargetOperationStore::readIdentity($driver);
+        [$assessment, $contract] = self::contractEvidence($workspace, $driver->name());
+        $authority = self::authorityPolicyEvidence($driver);
+        $nextAction = $contract['status'] === 'proposed'
+            ? 'review_application_contract'
+            : ($authority['status'] === 'absent' ? 'enroll_operation_authority' : 'prepare_release');
+
+        return OnboardingHandoffReceipt::build([
+            'application_contract' => $contract,
+            'assessment' => $assessment,
+            'authority_policy' => $authority,
+            'branch' => $repository['branch'],
+            'commit' => $repository['commit'],
+            'created_at' => $repository['created_at'],
+            'driver' => $driver->driverId(),
+            'environment' => $driver->name(),
+            'environment_config_sha256' => self::environmentConfigDigest($workspace),
+            'git_url' => $gitUrl,
+            'next_action' => $nextAction,
+            'repo_path' => $driver->repoPath(),
+            'target_id' => $targetId,
+            'tree' => $repository['tree'],
+        ]);
+    }
+
+    /** @return array{branch:string,commit:string,tree:string,created_at:string} */
+    private static function handoffRepositoryFacts(
+        BoundedControlDriver $driver,
+        string $workspace,
+        string $gitUrl
+    ): array {
+        self::assertLocalOrigin($workspace, $gitUrl);
+        $local = [];
+        foreach ([
+            'branch' => ['git', '-C', $workspace, 'symbolic-ref', '--quiet', '--short', 'HEAD'],
+            'commit' => ['git', '-C', $workspace, 'rev-parse', '--verify', 'HEAD'],
+            'tree' => ['git', '-C', $workspace, 'rev-parse', '--verify', 'HEAD^{tree}'],
+            'created' => ['git', '-C', $workspace, 'show', '-s', '--format=%ct', 'HEAD'],
+            'status' => ['git', '-C', $workspace, 'status', '--porcelain', '--', '.gitignore', 'site.wprism.json', 'code', 'state', 'media'],
+        ] as $name => $argv) {
+            $result = HostProcess::run($argv);
+            if ($result['exit'] !== 0 || ($name !== 'status' && trim($result['stdout']) === '')) {
+                throw new \RuntimeException("local handoff $name is unavailable");
+            }
+            $local[$name] = trim($result['stdout']);
+        }
+        if ($local['status'] !== ''
+            || preg_match('/^[^\s]+$/D', $local['branch']) !== 1
+            || preg_match('/^[a-f0-9]{40}$/D', $local['commit']) !== 1
+            || preg_match('/^[a-f0-9]{40}$/D', $local['tree']) !== 1
+            || preg_match('/^[0-9]{1,12}$/D', $local['created']) !== 1) {
+            throw new \RuntimeException('local handoff repository state is not an exact clean publication');
+        }
+        $remote = self::runGitTransfer([
+            'git', 'ls-remote', '--refs', $gitUrl, 'refs/heads/' . $local['branch'],
+        ]);
+        $expectedRemote = $local['commit'] . "\trefs/heads/" . $local['branch'];
+        if ($remote['exit'] !== 0 || trim($remote['stdout']) !== $expectedRemote) {
+            throw new \RuntimeException('the handoff remote no longer binds the local branch revision');
+        }
+
+        $repo = $driver->repoPath();
+        $q = static fn(string $value): string => escapeshellarg($value);
+        $script = 'set -eu; repo=' . $q($repo) . '; url=' . $q($gitUrl) . '; '
+            . 'branch=$(git -C "$repo" symbolic-ref --quiet --short HEAD); '
+            . 'git check-ref-format --branch "$branch" >/dev/null; '
+            . 'head=$(git -C "$repo" rev-parse --verify HEAD); '
+            . 'tree=$(git -C "$repo" rev-parse --verify "HEAD^{tree}"); '
+            . 'created=$(git -C "$repo" show -s --format=%ct HEAD); '
+            . 'receipt=$(git -C "$repo" rev-parse --verify "refs/wprism/handoff/$branch"); '
+            . 'test "$head" = "$receipt"; '
+            . 'test -z "$(git -C "$repo" status --porcelain -- .gitignore site.wprism.json code state media)"; '
+            . 'test "$(git -C "$repo" remote get-url --all origin)" = "$url"; '
+            . 'test "$(git -C "$repo" remote get-url --push --all origin)" = "$url"; '
+            . 'remote=$(git -C "$repo" ls-remote --refs "$url" "refs/heads/$branch"); '
+            . 'test "$remote" = "$(printf "%s\\trefs/heads/%s" "$head" "$branch")"; '
+            . 'printf "WPRISM_HANDOFF_STATUS %s %s %s %s\\n" "$branch" "$head" "$tree" "$created"';
+        $target = self::captureTargetRaw(
+            $driver,
+            $script,
+            self::TARGET_PROBE_TIMEOUT_MILLISECONDS,
+            self::TARGET_PROBE_OUTPUT_LIMIT_BYTES
+        );
+        if ($target['exit'] !== 0
+            || preg_match(
+                '/^WPRISM_HANDOFF_STATUS ([^\s]+) ([a-f0-9]{40}) ([a-f0-9]{40}) ([0-9]{1,12})$/D',
+                trim($target['stdout']),
+                $match
+            ) !== 1) {
+            throw new \RuntimeException('the target handoff repository no longer matches its durable publication receipt');
+        }
+        if ([$match[1], $match[2], $match[3], $match[4]]
+            !== [$local['branch'], $local['commit'], $local['tree'], $local['created']]) {
+            throw new \RuntimeException('local, remote, and target handoff identities disagree');
+        }
+
+        return [
+            'branch' => $local['branch'],
+            'commit' => $local['commit'],
+            'tree' => $local['tree'],
+            'created_at' => gmdate('Y-m-d\TH:i:s\Z', (int) $local['created']),
+        ];
+    }
+
+    private static function environmentConfigDigest(string $workspace): string {
+        $path = $workspace . '/.wprism-envs.json';
+        $stat = lstat($path);
+        $bytes = is_array($stat) && !is_link($path) && is_file($path)
+            ? file_get_contents($path)
+            : false;
+        if (!is_string($bytes) || $bytes === '') {
+            throw new \RuntimeException('the machine-local environment registry is unavailable');
+        }
+        return 'sha256:' . hash('sha256', $bytes);
+    }
+
+    /**
+     * @return array{0:array{assess_digest:string,format:string,generated_at:string,review_required_count:int},1:array{contract_digest:string,status:string}}
+     */
+    private static function contractEvidence(string $workspace, string $environment): array {
+        $store = new ContractStore($workspace);
+        $proposal = $store->readProposal($environment);
+        if ($proposal === null) {
+            throw new \RuntimeException('the onboarding assessment proposal is unavailable');
+        }
+        ContractProposal::validateProposal($proposal);
+        $proposedContract = is_array($proposal['contract'] ?? null) ? $proposal['contract'] : [];
+        $proposedDigest = $proposedContract['contract_digest'] ?? null;
+        if (!is_string($proposedDigest)) {
+            throw new \RuntimeException('the onboarding contract proposal has no digest');
+        }
+        $accepted = $store->readContract();
+        $contract = $accepted === null
+            ? ['contract_digest' => $proposedDigest, 'status' => 'proposed']
+            : [
+                'contract_digest' => (string) $accepted['contract_digest'],
+                'status' => ($accepted['attestation']['state'] ?? null) === 'signed' ? 'attested' : 'accepted',
+            ];
+        return [[
+            'assess_digest' => (string) $proposal['assess_digest'],
+            'format' => ContractProposal::ASSESS_REPORT_FORMAT,
+            'generated_at' => (string) $proposal['generated_at'],
+            'review_required_count' => (int) $proposal['review_required_count'],
+        ], $contract];
+    }
+
+    /** @return array{policy_digest:?string,status:string} */
+    private static function authorityPolicyEvidence(EnvironmentDriver $driver): array {
+        try {
+            $policy = TargetOperationStore::readAuthorityPolicy($driver);
+            return [
+                'policy_digest' => OperationAuthorization::trustDigest($policy),
+                'status' => 'enrolled',
+            ];
+        } catch (CommandRefusalException $refusal) {
+            if ($refusal->reasonCode !== 'target_authority_policy_unavailable') {
+                throw $refusal;
+            }
+            return ['policy_digest' => null, 'status' => 'absent'];
+        }
+    }
+
+    private static function step(bool $quiet, callable $run): int {
+        if (!$quiet) {
+            return $run();
+        }
+        ob_start();
+        try {
+            return $run();
+        } finally {
+            ob_end_clean();
+        }
+    }
+
+    private static function failure(\Throwable $error, bool $json, string $reasonCode, string $message): int {
+        if ($json) {
+            fwrite(STDERR, 'wprism: onboard: ' . $error->getMessage() . "\n");
+            return AssessCommand::renderRefusal(new CommandRefusalException(
+                $reasonCode,
+                $message,
+                'inspect private operator diagnostics, repair the named boundary, then reconcile with onboard <env> status --git-url=<same-url> --format=json',
+                [],
+                $error->getMessage(),
+                $error
+            ), true, 'onboard');
+        }
+        fwrite(STDERR, 'wprism: onboard: ' . $error->getMessage() . "\n");
+        return 1;
     }
 
     private static function renderHandoffResume(string $sourceRoot, EnvironmentDriver $driver): void {
