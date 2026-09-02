@@ -3112,10 +3112,20 @@ wprism_check(
         && str_contains($httpOverlay, '127.0.0.1:${WPRISM_PORT2}:80'),
     'the demo HTTP overlay publishes both weak-credential sites on loopback only'
 );
+$pairTemplate = (string) file_get_contents(dirname(__DIR__, 4) . '/sandbox/pair.yml');
+wprism_check(
+    substr_count($pairTemplate, './siterepo/origin-${WPRISM_PAIR}.git:/origin-${WPRISM_PAIR}.git') === 2,
+    'both demo control planes mount the one pair-owned bare origin at its transport-neutral path'
+);
 $demoSource = (string) file_get_contents(dirname(__DIR__, 4) . '/cli/src/Command/DemoCommand.php');
 wprism_check(
     str_contains($demoSource, "'--http', '--artifacts', '--git-cli'"),
     'demo start selects the loopback-pinned HTTP overlay and its Git-capable CLI image'
+);
+wprism_check(
+    str_contains($demoSource, "return '../origin-' . \$name . '.git';")
+        && substr_count($demoSource, "['remote', 'set-url', 'origin', self::portableOriginUrl(\$session)]") === 2,
+    'demo source and target replace the host-only bootstrap remote with one host/container-relative URL'
 );
 wprism_check(
     str_contains($demoSource, "'config', 'set', 'WOOCOMMERCE_BIS_ALPHA_ENABLED'")

@@ -124,6 +124,10 @@ services:
       - ${WPRISM_ADAPTER_PACKAGES_SRC}:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
       - ${WPRISM_PLATFORM_SRC}:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/${WPRISM_PAIR}1:/siterepo
+      # Demo Git uses ../origin-${WPRISM_PAIR}.git as one transport-neutral
+      # remote URL: it resolves beside this worktree on the host and to this
+      # exact mount from /siterepo inside either control-plane container.
+      - ./siterepo/origin-${WPRISM_PAIR}.git:/origin-${WPRISM_PAIR}.git
       # The engine-keyed db-client shim (see bin/db-client-shim.sh's header for
       # the measured TLS default-mismatch it exists for). /usr/local/bin
       # precedes /usr/bin in the image PATH, so `wp db *` and direct shell
@@ -167,6 +171,7 @@ services:
       - ${WPRISM_ADAPTER_PACKAGES_SRC}:/var/www/html/wp-content/mu-plugins/adapter-packages:ro
       - ${WPRISM_PLATFORM_SRC}:/var/www/html/wp-content/mu-plugins/platform:ro
       - ./siterepo/${WPRISM_PAIR}2:/siterepo
+      - ./siterepo/origin-${WPRISM_PAIR}.git:/origin-${WPRISM_PAIR}.git
       # The engine-keyed db-client shim (see bin/db-client-shim.sh's header for
       # the measured TLS default-mismatch it exists for). /usr/local/bin
       # precedes /usr/bin in the image PATH, so `wp db *` and direct shell

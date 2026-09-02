@@ -1198,6 +1198,17 @@ final class DemoCommand {
             'commit', '-m', 'demo: declare ' . ($woocommerce ? 'WooCommerce' : 'core') . ' managed scope',
         ]);
         self::git($session['source_repo'], ['push', '-u', 'origin', 'main']);
+        self::git($session['source_repo'], ['remote', 'set-url', 'origin', self::portableOriginUrl($session)]);
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function portableOriginUrl(array $session): string {
+        $name = $session['name'] ?? null;
+        if (!is_string($name) || preg_match('/^[a-z0-9][a-z0-9-]{0,31}$/D', $name) !== 1) {
+            throw new \RuntimeException('demo session name cannot form its portable origin URL');
+        }
+
+        return '../origin-' . $name . '.git';
     }
 
     /** @param array<string,mixed> $session */
@@ -1250,6 +1261,7 @@ final class DemoCommand {
             throw new \RuntimeException('target demo repository was not empty before clone');
         }
         self::mustRun(['git', 'clone', '--branch', 'main', $session['origin'], $session['target_repo']], null);
+        self::git($session['target_repo'], ['remote', 'set-url', 'origin', self::portableOriginUrl($session)]);
         self::writeOverlay($session, $session['target_repo']);
     }
 
