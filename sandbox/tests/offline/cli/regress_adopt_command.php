@@ -49,13 +49,16 @@ final class AdoptCommandFakeTransport implements AdoptionTransport, EnvironmentD
     /** @var list<array> */
     public array $wpArgs = [];
     public int $uploadCalls = 0;
+    private string $distributionSha256;
 
     public function __construct(
         private string $sourceRoot,
         private bool $failUpload = false,
         public string $topology = 'wprism-single-site',
         public int $topologyExit = 0
-    ) {}
+    ) {
+        $this->distributionSha256 = Adopt::distributionDigest($sourceRoot);
+    }
 
     public function bootstrapCapability(): array {
         return ['supported' => true, 'reason' => 'fixture bootstrap authority', 'remediation' => ''];
@@ -80,6 +83,10 @@ final class AdoptCommandFakeTransport implements AdoptionTransport, EnvironmentD
         }
         if (str_contains($script, 'archive=') && str_contains($script, 'agent_new=')) {
             return ['exit' => 0, 'stdout' => "wprism-repo-created\n", 'stderr' => ''];
+        }
+        if (str_contains($script, 'agent/scoped-promotion-control.json')
+            && str_contains($script, 'hash_final($ctx)')) {
+            return ['exit' => 0, 'stdout' => $this->distributionSha256, 'stderr' => ''];
         }
         return ['exit' => 0, 'stdout' => '', 'stderr' => ''];
     }
@@ -214,10 +221,9 @@ assert_adopt_command(str_contains($healthyOutput, 'adopt: installed agent '), 's
 assert_adopt_command(str_contains($healthyOutput, '[PASS] transport reachable'), 'success renders the doctor result');
 assert_adopt_command(str_contains($healthyOutput, '[WARN] DISALLOW_FILE_MODS set') === false, 'healthy fixture does not invent an advisory warning');
 assert_adopt_command($healthy->uploadCalls === 1, 'successful adoption uploads one archive');
-// issue #3511: 9 -> 8 raw and 8 -> 6 wp, and every one of the three fewer calls
-// is doctor's. Adopt's own probe set did not move: the transactional doctor
-// run inside the install transaction now costs 2 raw + 2 wp instead of 3 + 4.
-assert_adopt_command(count($healthy->rawScripts) === 8, 'adoption plus doctor performs the bounded raw probe set (' . count($healthy->rawScripts) . ')');
+// The post-swap distribution readback adds one raw proof before the commit
+// barrier. Doctor's composed probes remain 2 raw + 2 wp.
+assert_adopt_command(count($healthy->rawScripts) === 9, 'adoption plus doctor performs the bounded raw probe set (' . count($healthy->rawScripts) . ')');
 assert_adopt_command(count($healthy->wpArgs) === 7, 'adoption plus doctor performs the bounded WordPress probe set (' . count($healthy->wpArgs) . ')');
 
 // The topology question is asked BEFORE the swap, and a network is refused

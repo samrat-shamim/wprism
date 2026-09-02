@@ -36,9 +36,10 @@ wprism adapter doctor [--repo=<site-repo>] [--format=json]
 wprism adapter-observe <env> [--out=<local-file>|--format=json]
 wprism doctor <env>
 wprism driver-capabilities <env> [--operation=<workflow>] [--format=json]
-wprism connect <env> --workspace=<path> --transport=ssh --host=<host> --wp-path=<path> --repo-path=<path>
-wprism onboard <env> [--git-url=<empty-url>] [init flags...]
-wprism onboard <env> --handoff-only --git-url=<url>
+wprism connect <env> --workspace=<path> --transport=ssh --host=<host> --wp-path=<path> --repo-path=<path> [--format=json]
+wprism onboard <env> [--git-url=<empty-url>] [init flags...] [--format=json]
+wprism onboard <env> --handoff-only --git-url=<url> [--format=json]
+wprism onboard <env> status --git-url=<same-url> --format=json
 wprism adopt  <env>
 wprism unadopt <env> --archive-to=<absolute-path> [--yes]
 wprism init   <env> [--yes] [--allow-unmanaged-plugins] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
@@ -118,6 +119,26 @@ Git credentials from both controller and target; WPrism preflights both before
 target mutation, publishes the target's current branch, and replaces only
 connect's byte-verified local seed with that exact checkout. If init completed
 without a URL, `--handoff-only --git-url=<url>` resumes just that handoff.
+
+Automation uses the same public verbs without scraping their human output.
+`connect ... --format=json` emits one canonical
+`wprism-connection-receipt/v1` document that binds the inspected workspace and
+machine-local environment configuration while retaining the honest startup-code
+boundary. `onboard ... --git-url=<url> --format=json` emits one canonical
+`wprism-onboarding-handoff/v1` document. It binds the stable target operation
+identity; the target, controller, and remote Git branch/commit/tree; the
+machine-local environment generation; assessment and application-contract
+evidence; authority-policy enrollment; and one closed next action. Progress
+stays off stdout in machine mode. After a lost response, reconcile without
+repeating adoption or publication:
+
+```sh
+wprism onboard production status --git-url=<same-url> --format=json
+```
+
+Status returns byte-identical evidence while those bound inputs are unchanged.
+It never creates target identity, changes Git refs, or substitutes an
+application-contract proposal for reviewed authority.
 
 `wprism preview create|remove` is the first-contact spelling of the established
 `wprism rehearse <env> ...|--reap` contract. It is a strict argument translation,
@@ -311,7 +332,19 @@ semantics remain the rehearsal implementation's.
   binds the physical hashes to that exact semantic snapshot. The provider then
   attaches to the target (the default) or explicitly creates it (`--create`),
   restores the physical baseline, materializes the candidate repository
-  commit, and restores the provider-owned target URL. Finally the ordinary
+  commit, and restores the provider-owned target URL. When the target transport
+  explicitly supports adoption (SSH, or an opted-in local transport), the
+  command surface then installs this controller's exact WPrism distribution
+  through the existing atomic adoption transaction. The provider receives no
+  WPrism source path or agent bytes, while the environment engine journals only
+  the target-bound installed-version and immutable-distribution receipt. The
+  distribution pin covers every assembled `agent/` and `recovery/` source byte,
+  is read back from the installed target before the adoption commit barrier,
+  and separately proves the production-loaded top-level MU loader equals the
+  canonical `agent/wprism-loader.php` byte mapping. The pin is part of
+  materialization intent, so changed controller bytes cannot
+  resume an earlier bootstrap. A transport without adoption
+  authority must already carry a compatible agent. Finally the ordinary
   promotion state machine consumes the exact already-compiled outer artifact
   under a deterministic operation owner; it never compiles a second release.
   A clean plan verifies convergence, and the receipt retains the apply receipt
@@ -332,7 +365,9 @@ semantics remain the rehearsal implementation's.
   identity- and lease-fenced `wprism env reap`. Retries reuse the immutable
   operation id, skip every journaled phase, and reconcile an uncertain phase
   with the same inputs and ownership tuple, so provider actions must be
-  idempotent for that id. Convergence — and any promotion receipt reconciled
+  idempotent for that id. A crash after target adoption but before its journal
+  receipt safely re-enters the same atomic adoption transaction; a journaled
+  bootstrap is never replayed. Convergence — and any promotion receipt reconciled
   from a lost controller response — is judged only from a *complete* `wp wprism
   plan --format=json` envelope: a valid JSON document with a missing or
   non-list required bucket is refused by name, never counted as clean.
@@ -353,7 +388,7 @@ semantics remain the rehearsal implementation's.
   target, or performs the initial install on an explicitly opted-in
   machine-local target, creating a minimal core-only `site.wprism.json` only when
   that file is absent, verifies
-  the exact installed agent version, policy load, rollback authority, and
+  the exact installed agent/recovery byte distribution and live MU loader, agent version, policy load, rollback authority, and
   blocking `wprism doctor` rows before committing the filesystem transaction.
   Existing site policy is retained. The target needs
   no Git for adoption itself. Adoption embeds the selected source packages and
@@ -684,7 +719,10 @@ semantics remain the rehearsal implementation's.
   capability negotiation, the same journal, the same exact
   resource/lease/ownership compare. A missing provider capability is a refusal
   naming that capability id; nothing is emulated. `--branch` defaults to the
-  branch this working tree is on. After convergence it prints what a release
+  branch this working tree is on. Fresh SSH previews receive the exact pinned
+  WPrism agent through the command-layer adoption seam after provider-owned
+  repository placement and before compile; that delivery is not a provider
+  action. After convergence it prints what a release
   would touch — the plan's own value-free category numbers and the assessed
   surface rows restricted to that scope. EVERY run states the containment
   requirement first, before provider contact, and materialization refuses to
@@ -694,7 +732,10 @@ semantics remain the rehearsal implementation's.
   withholds that capability; the opt-in standalone `contained_preview` mode is
   the bundled development example. A containment receipt permits evidence
   gathering but does not itself authorize an `Experimental` or `Uncertified`
-  capability.
+  capability. With `--format=json`, stdout is exactly one canonical
+  `wprism-rehearsal-preview/v1` document; the nested materialization receipt is
+  bound into its containment evidence instead of being emitted as a second
+  document.
   `wprism rehearse <env> --reap` is `env reap` with the same compare-and-reap.
 
 - **`wprism release <env> --plan-only [--from=<ref>] [--profile=<p>]
@@ -709,7 +750,11 @@ semantics remain the rehearsal implementation's.
 - **`wprism stage-source` / `wprism release <env> prepare|execute|status`** — the
   externally authorized control-plane form of the same release. `stage-source`
   retains the exact advertised commit under target-private Git state without
-  moving canonical `HEAD`, index or worktree and returns one durable receipt.
+  moving canonical `HEAD`, index or worktree, resolves any locked third-party
+  code into that inert checkout from the controller side, and returns one
+  durable receipt. Every retry and prepare re-proves that the staged code still
+  matches the committed lock; the production target never gains registry
+  access.
   `prepare` reads that inert checkout, current target facts and the already
   enrolled target-authoritative policy into one canonical subject without writing target or local
   repository bytes. An external Ed25519 actor signs its exact presentation and
@@ -1605,9 +1650,14 @@ provenance):
 ```
 
 The command receives one canonical
-`wprism-branch-environment-provider-request/v1` object on stdin and must return
-one canonical `wprism-branch-environment-provider-response/v1` object on stdout.
-Protocol 1 has a closed capability vocabulary:
+`wprism-branch-environment-provider-request/v2` object on stdin and must return
+one canonical `wprism-branch-environment-provider-response/v2` object on stdout.
+Protocol 2 has a closed capability vocabulary. It deliberately replaces v1:
+`repository-materialize` now requires the provider to echo the distinct named
+`target_branch` it checked out. Because `capabilities` is always the first,
+non-mutating action, a v1 provider is rejected before snapshot, resource, or
+repository mutation. Upgrade both wire format strings and `provider.protocol`
+before running materialization.
 
 ```
 snapshot.set.prepare      snapshot.set.create      snapshot.set.read

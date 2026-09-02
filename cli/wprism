@@ -29,7 +29,6 @@ require __DIR__ . '/src/Transport/RecoveryConfig.php';
 require __DIR__ . '/src/Transport/LocalTransport.php';
 require __DIR__ . '/src/Transport/DockerTransport.php';
 require __DIR__ . '/src/Transport/SshTransport.php';
-require __DIR__ . '/src/Command/EnvironmentCommand.php';
 require __DIR__ . '/src/Command/EnvironmentListCommand.php';
 require dirname(__DIR__) . '/recovery/rollback-control.php';
 require __DIR__ . '/src/Recovery/RollbackAuthority.php';
@@ -37,6 +36,7 @@ require __DIR__ . '/src/Recovery/VerifiedRollbackProfile.php';
 require __DIR__ . '/src/Recovery/ScopedRollbackProfile.php';
 require __DIR__ . '/src/Onboarding/BootstrapEligibility.php';
 require __DIR__ . '/src/Onboarding/Adopt.php';
+require __DIR__ . '/src/Command/EnvironmentCommand.php';
 require __DIR__ . '/src/Onboarding/Unadopt.php';
 require __DIR__ . '/src/Onboarding/Init.php';
 require __DIR__ . '/src/Command/InitCommand.php';
@@ -360,9 +360,10 @@ Usage:
   wprism doctor <env>
   wprism driver-capabilities <env> [--operation=<workflow>] [--format=json]
   wprism connect <env> --workspace=<path> --transport=ssh --host=<ssh-host>
-              --wp-path=<path> --repo-path=<path> [--ssh-config=<path>]
-  wprism onboard <env> [--git-url=<empty-url>] [init flags...]
-  wprism onboard <env> --handoff-only --git-url=<url>
+              --wp-path=<path> --repo-path=<path> [--ssh-config=<path>] [--format=json]
+  wprism onboard <env> [--git-url=<empty-url>] [init flags...] [--format=json]
+  wprism onboard <env> --handoff-only --git-url=<url> [--format=json]
+  wprism onboard <env> status --git-url=<same-url> --format=json
   wprism adopt  <env>
   wprism unadopt <env> --archive-to=<absolute-path> [--yes]
   wprism init   <env> [--yes] [--allow-unmanaged-plugins] [--first-party=<root>/<slug>[,…]] [--offline] [--cache-dir=<path>]
@@ -415,7 +416,7 @@ Usage:
   wprism recover <env> --prune-retained=<keep-n> [--confirm-prune]
                     [--limit=<1..200>] [--format=json]
   wprism capabilities <env> [--operation=<op>] [--surface=<surface>] [--format=json]
-  wprism capture <env> [--target-branch=<name>] [--scope-contract=<local-path>] [extra wp-cli flags...]
+  wprism capture <env> [--target-branch=<name>] [--scope-contract=<local-path>] [--format=json] [extra wp-cli flags...]
   wprism lint    <env> [extra wp-cli flags...]
   wprism plan    <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
   wprism explain <env> <bucket>:<entity-key> [--format=json] [plan flags...]
@@ -1098,6 +1099,10 @@ Verbs:
                           otherwise derive the current controller branch.
                           Mismatch/detached target refuses; capture never
                           switches branches. Not used with output-only capture.
+    --format=json         Repository-writing capture returns one canonical
+                          wprism-capture-result/v1 receipt binding the target
+                          environment, branch, state revision, and agent-owned
+                          counts. It leaves review and commit to the caller.
     --scope-contract=<p>  canonical wprism-scope-contract/v1 file is validated
                           by the real engine parser, then transported as its
                           normalized selectors + scope_hash; the target
@@ -1943,10 +1948,15 @@ function render_driver_blockers(DriverCapabilityReport $report): void {
 
 /** Public nested environment lifecycle namespace. */
 function cmd_environment(array $args, ?string $envsFileOverride): int {
+    $bootstrap = ($args[0] ?? null) === 'materialize'
+        ? EnvironmentCommand::targetBootstrap(dirname(__DIR__))
+        : null;
     return EnvironmentCommand::run(
         $args,
         $envsFileOverride,
-        static fn(EnvironmentDriver $driver, array $context): array|int => cmd_promote_frozen($driver, $context)
+        static fn(EnvironmentDriver $driver, array $context): array|int => cmd_promote_frozen($driver, $context),
+        null,
+        $bootstrap
     );
 }
 

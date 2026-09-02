@@ -18,8 +18,9 @@
  * except the network hop itself, so the tar members, the staging layout, the
  * `mv` guards and the digests are the real ones.
  *
- *   A. the full push: the exact ordered call sequence, and afterwards the
- *      target holds every locked component at the locked digest with no
+ *   A. the full push from a fresh Git checkout whose untracked code/wp-content
+ *      root does not exist: the exact ordered call sequence, and afterwards
+ *      the target holds every locked component at the locked digest with no
  *      archive and no staging directory left behind;
  *   B. THE gate: a tree corrupted in flight is caught TARGET-SIDE, in the
  *      staging directory, before a single byte reaches code/wp-content —
@@ -121,10 +122,19 @@ function push_tree_digest(string $scratch, array $files): string {
  * @param list<array<string,mixed>> $lockRows
  * @param array<string,array<string,string>> $present `{root}/{component}` => file map
  */
-function push_make_target(string $scratch, int &$seq, array $lockRows, array $present = []): string {
+function push_make_target(
+    string $scratch,
+    int &$seq,
+    array $lockRows,
+    array $present = [],
+    bool $createSource = true
+): string {
     $repo = $scratch . '/target' . (++$seq);
-    mkdir($repo . '/code/wp-content/plugins', 0775, true);
-    mkdir($repo . '/code/wp-content/themes', 0775, true);
+    mkdir($repo . '/code', 0775, true);
+    if ($createSource) {
+        mkdir($repo . '/code/wp-content/plugins', 0775, true);
+        mkdir($repo . '/code/wp-content/themes', 0775, true);
+    }
     file_put_contents(
         $repo . '/site.wprism.json',
         \WPrism\Canon::encode(['code' => PUSH_FORMAT_2, 'format' => 1, 'site' => 'fixture'])
@@ -325,6 +335,9 @@ class PushFixtureTransport extends \WPrism\Orchestrator\Transport {
         if (str_contains($script, $this->lockPath)) {
             return 'raw:lock';
         }
+        if (str_contains($script, 'wprism-code-source-absent')) {
+            return 'raw:source-probe';
+        }
         if (str_contains($script, 'tar --no-same-owner -xf')) {
             return 'raw:extract';
         }
@@ -443,7 +456,7 @@ function push_stray_staging(string $repo): array {
 // A. The full push: the ordered sequence, then the target actually holds it.
 // ---------------------------------------------------------------------------
 
-$target = push_make_target($scratch, $targetSeq, $lockRows);
+$target = push_make_target($scratch, $targetSeq, $lockRows, [], false);
 $result = push_run($runnerFile, $scratch, [
     'mode' => 'phase',
     'verb' => 'deploy',
@@ -452,7 +465,7 @@ $result = push_run($runnerFile, $scratch, [
 wprism_check_same('continue', $result['phase'], 'the deploy phase resolves and pushes on ssh instead of refusing');
 wprism_check_same(
     [
-        'raw:site', 'raw:lock', 'wp:inventory',
+        'raw:site', 'raw:lock', 'raw:source-probe',
         'allocate', 'put', 'raw:extract', 'wp:inventory-staged',
         'raw:publish', 'wp:inventory',
         'remove', 'raw:rm-staging',
@@ -460,6 +473,10 @@ wprism_check_same(
     $result['events'],
     'THE ordering contract: read the target, allocate, place, extract into staging, VERIFY the staged trees, '
     . 'publish, re-verify the repository, then clean up — the staged verification sits before the publish'
+);
+wprism_check(
+    !in_array('wp:inventory', array_slice($result['events'], 0, 3), true),
+    'a fresh split checkout skips only the impossible pre-push agent inventory after proving the source root absent'
 );
 wprism_check_same(
     $wooTreeDigest,
@@ -571,7 +588,7 @@ wprism_check(
     'and the same remedy sentence, because it is the same rule'
 );
 wprism_check_same(
-    ['raw:site', 'raw:lock', 'wp:inventory'],
+    ['raw:site', 'raw:lock', 'raw:source-probe', 'wp:inventory'],
     $result['events'],
     'refusing after the READ and before the first allocation: nothing is fetched, nothing is transferred'
 );
@@ -596,7 +613,7 @@ $result = push_run($runnerFile, $scratch, [
 ]);
 wprism_check_same('continue', $result['phase'], 'a target that already holds every locked component proceeds');
 wprism_check_same(
-    ['raw:site', 'raw:lock', 'wp:inventory'],
+    ['raw:site', 'raw:lock', 'raw:source-probe', 'wp:inventory'],
     $result['events'],
     'and transfers nothing at all: no allocation, no archive, no extract'
 );
@@ -618,7 +635,7 @@ $result = push_run($runnerFile, $scratch, [
 ]);
 wprism_check_same(0, $result['exit'], 'a dry run over ssh exits 0');
 wprism_check_same(
-    ['raw:site', 'raw:lock', 'wp:inventory'],
+    ['raw:site', 'raw:lock', 'raw:source-probe', 'wp:inventory'],
     $result['events'],
     'and contacts the target only to READ: no allocation and no archive'
 );

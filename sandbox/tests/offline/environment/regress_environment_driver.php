@@ -292,13 +292,23 @@ $fakeBin = $tmp . '/scope-bin';
 mkdir($fakeBin, 0700, true);
 $scopeArgs = $tmp . '/scope-args.txt';
 $fakeWp = $fakeBin . '/wp';
+$captureSummary = json_encode([
+    'counts' => ['post' => 0],
+    'media' => 0,
+    'notes' => [],
+    'warnings' => [],
+    'revision_hash' => str_repeat('a', 64),
+], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 file_put_contents(
     $fakeWp,
     '#!/usr/bin/env bash' . "\n"
         . 'printf \'%s\\n\' "$@" > "$WPRISM_SCOPE_ARGS"' . "\n"
+        . 'capture=0' . "\n"
         . 'for arg in "$@"; do' . "\n"
         . '  if [ "$arg" = lint ]; then echo LINT_STREAM_MARKER; exit 23; fi' . "\n"
+        . '  if [ "$arg" = capture ]; then capture=1; fi' . "\n"
         . 'done' . "\n"
+        . 'if [ "$capture" = 1 ]; then printf \'%s\\n\' ' . escapeshellarg($captureSummary) . '; fi' . "\n"
 );
 chmod($fakeWp, 0700);
 $oldPath = getenv('PATH') ?: '';
@@ -325,7 +335,12 @@ assert_true(
 $captureForward = invoke_cli([
     '--envs-file=' . $envsFile, 'capture', 'local-proof', '--format=json',
 ]);
-assert_true($captureForward['exit'] === 0, 'public capture forwarding returned non-zero: ' . $captureForward['stderr']);
+assert_true(
+    $captureForward['exit'] === 0,
+    'public capture forwarding returned ' . $captureForward['exit']
+        . '; stdout=' . trim($captureForward['stdout'])
+        . '; stderr=' . trim($captureForward['stderr'])
+);
 $captureArgs = is_file($scopeArgs) ? file($scopeArgs, FILE_IGNORE_NEW_LINES) : false;
 assert_true(
     is_array($captureArgs)

@@ -215,7 +215,7 @@ $result = match ($a) {
  'snapshot-read' => ['database_sha256'=>$h('db'),'immutable'=>true,'lease_generation'=>1,'lease_id'=>'snapshot-lease-0001','lease_receipt_sha256'=>$h('snapshot-lease'),'media_sha256'=>$h('media'),'retention_receipt_sha256'=>$h('retention'),'semantic_snapshot_sha256'=>$h('semantic-production'),'snapshot_session_id'=>(string)$i['expected_snapshot_session_id'],'snapshot_set_id'=>(string)$i['expected_snapshot_set_id'],'snapshot_set_receipt_sha256'=>(string)$i['expected_snapshot_set_receipt_sha256'],'source_identity'=>'environment-identity-0001'],
  'snapshot-abort' => ['disposition'=>'aborted','lease_generation'=>(int)$i['expected_source_lease_generation'],'lease_id'=>(string)$i['expected_source_lease_id'],'lease_receipt_sha256'=>(string)$i['expected_source_lease_receipt_sha256'],'snapshot_session_id'=>(string)$i['expected_snapshot_session_id'],'source_identity'=>(string)$i['expected_source_identity']],
  'snapshot-restore' => $identity + ['snapshot_set_id'=>(string)$i['snapshot_set_id']],
- 'repository-materialize' => $identity + ['branch_commit'=>(string)$i['branch_commit'],'repository_receipt_sha256'=>$h('repo')],
+ 'repository-materialize' => $identity + ['branch_commit'=>(string)$i['branch_commit'],'repository_receipt_sha256'=>$h('repo'),'target_branch'=>(string)$i['target_branch']],
  'url-set' => $identity,
  'mutation-acquire' => $mutation('held', $heldReceipt),
  'mutation-read' => $mutation($materialFence && $releaseSeen ? 'released' : 'held', $materialFence && $releaseSeen ? $releasedReceipt : $heldReceipt),
@@ -224,7 +224,7 @@ $result = match ($a) {
  'destroy','detach' => ['absence_proof_sha256'=>$h('absence'),'disposition'=>$a === 'destroy' ? 'destroyed' : 'detached','environment_identity'=>'environment-identity-0001','lease_generation'=>3,'lease_id'=>'lease-identity-0001','ownership_receipt_sha256'=>$h('owner'),'resource_id'=>'resource-identity-0001'],
  default => [],
 };
-$response = ['action'=>$a,'environment'=>$request['environment'],'format'=>'wprism-branch-environment-provider-response/v1','operation_id'=>$request['operation_id'],'provider'=>['id'=>'rehearse-fixture-provider','protocol'=>1],'result'=>$result,'status'=>'ok'];
+$response = ['action'=>$a,'environment'=>$request['environment'],'format'=>'wprism-branch-environment-provider-response/v2','operation_id'=>$request['operation_id'],'provider'=>['id'=>'rehearse-fixture-provider','protocol'=>2],'result'=>$result,'status'=>'ok'];
 echo c($response) . "\n";
 PHP);
 
@@ -266,6 +266,9 @@ $writeEnvs = static function (string $suffix, string $sourceMode, string $target
 $promotions = 0;
 $promote = static function (\WPrism\Orchestrator\EnvironmentDriver $driver, array $frozenContext) use (&$promotions): array {
     $promotions++;
+    // The real frozen promotion prints human phase progress. A machine
+    // materialization must contain it and publish only its final document.
+    echo "nested promotion progress that must not enter machine stdout\n";
     $summary = $frozenContext['compiled_summary'];
     $body = [
         'artifact_hash' => (string) $summary['artifact_hash'],
@@ -338,6 +341,10 @@ $materializeOut = (string) ob_get_clean();
 wprism_check_same(0, $status, 'a fully-capable provider pair materializes the rehearsal environment');
 $receipt = json_decode($materializeOut, true);
 wprism_check_same('attach', $receipt['mode'] ?? null, 'the rehearsal attaches its target by default');
+wprism_check(
+    !str_contains($materializeOut, 'nested promotion progress') && substr_count($materializeOut, '"format"') === 1,
+    'machine materialization contains nested human promotion progress and emits exactly one JSON document'
+);
 wprism_check_same(1, $promotions, 'materialization uses the supplied promotion path exactly once');
 
 // A reap whose provider identity has changed must refuse, not reap a reused

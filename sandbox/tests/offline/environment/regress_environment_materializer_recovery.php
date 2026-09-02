@@ -256,7 +256,9 @@ namespace {
         public function capabilityReport(string $operation): DriverCapabilityReport {
             return DriverCapabilityReport::forDriver($this->name, $this->driverId(), $operation, [
                 DriverCapability::ATTACH => true,
+                DriverCapability::BOOTSTRAP => true,
                 DriverCapability::CODE_MATERIALIZE => true,
+                DriverCapability::CODE_TRANSFER => true,
                 DriverCapability::DB_SNAPSHOT_CREATE => true,
                 DriverCapability::DB_SNAPSHOT_RESTORE => true,
                 DriverCapability::RAW_CONTROL => true,
@@ -356,13 +358,13 @@ namespace {
     }
 
     /** @param array<string,mixed> $fixture */
-    function rr_materialize(array $fixture, callable $promote, int $ttl = 60): array {
+    function rr_materialize(array $fixture, callable $promote, int $ttl = 60, ?array $targetBootstrap = null): array {
         $old = getcwd();
         chdir((string) $fixture['repo']);
         try {
             return EnvironmentMaterializer::materialize(
                 $fixture['source'], $fixture['target'], $fixture['source_provider'], $fixture['target_provider'],
-                $fixture['journal'], rr_options($fixture, $ttl), $promote
+                $fixture['journal'], rr_options($fixture, $ttl), $promote, $targetBootstrap
             );
         } finally {
             if ($old !== false) chdir($old);
@@ -508,7 +510,11 @@ if (isset($state['records'][$key])) {
             return $identity + ['mutation_generation' => 1, 'mutation_id' => $id, 'mutation_owner' => (string) ($input['expected_mutation_owner'] ?? ''), 'mutation_receipt_sha256' => h('released:' . $id), 'state' => 'released'];
         })(),
         'snapshot-restore' => $identity + ['snapshot_set_id' => (string) ($input['snapshot_set_id'] ?? '')],
-        'repository-materialize' => $identity + ['branch_commit' => (string) ($input['branch_commit'] ?? ''), 'repository_receipt_sha256' => h('repository')],
+        'repository-materialize' => $identity + [
+            'branch_commit' => (string) ($input['branch_commit'] ?? ''),
+            'repository_receipt_sha256' => h('repository'),
+            'target_branch' => (string) ($input['target_branch'] ?? ''),
+        ],
         'url-set' => $identity,
         'ttl-set', 'ttl-read' => $identity + [
             'expires_at' => '2030-01-02T03:04:05Z', 'ttl_generation' => 1,
@@ -536,14 +542,14 @@ if ($mutating && $fault === $faultKey && !($state['faulted'][$faultKey] ?? false
 }
 $response = [
     'action' => $action, 'environment' => (string) ($request['environment'] ?? ''),
-    'format' => 'wprism-branch-environment-provider-response/v1', 'operation_id' => $operation,
-    'provider' => ['id' => 'recovery-provider-' . $role, 'protocol' => 1], 'result' => $result, 'status' => 'ok',
+    'format' => 'wprism-branch-environment-provider-response/v2', 'operation_id' => $operation,
+    'provider' => ['id' => 'recovery-provider-' . $role, 'protocol' => 2], 'result' => $result, 'status' => 'ok',
 ];
 echo c($response) . "\n";
 PHP);
 
         $materializeMethod = new ReflectionMethod(EnvironmentMaterializer::class, 'materialize');
-        if ($materializeMethod->getNumberOfParameters() !== 7) {
+        if ($materializeMethod->getNumberOfParameters() !== 8) {
             rr_fail('phase-exact recovery fixture requires the frozen-context materialize callback API; integrate the issue #3324 protocol lane first');
         }
 
@@ -582,6 +588,57 @@ PHP);
                 );
             }
         }
+
+        // Adoption is a portable WPrism transaction composed above the
+        // provider. If it commits but its controller response is lost, the
+        // journal retains intent and retries adoption without replaying any
+        // completed provider mutation. Adopt's own transaction is responsible
+        // for recognizing/replacing the already-installed exact distribution.
+        $bootstrapLoss = rr_fixture($tmp, 'target-bootstrap-response-loss');
+        $promotion = rr_promoter();
+        $bootstrapCalls = 0;
+        $bootstrapMutations = 0;
+        $bootstrapDistribution = hash('sha256', 'recovery-bootstrap-distribution');
+        $bootstrap = [
+            'distribution_sha256' => $bootstrapDistribution,
+            'install' => static function (EnvironmentDriver $driver, array $context) use (
+                &$bootstrapCalls,
+                &$bootstrapMutations,
+                $bootstrapDistribution
+            ): array {
+                $bootstrapCalls++;
+                if ($bootstrapMutations === 0) {
+                    $bootstrapMutations++;
+                    throw new RuntimeException('target bootstrap response was lost after commit');
+                }
+                return [
+                    'agent_version' => '0.7.0',
+                    'distribution_sha256' => $bootstrapDistribution,
+                ];
+            },
+        ];
+        rr_throws(
+            static fn() => rr_materialize($bootstrapLoss, $promotion['callback'], 60, $bootstrap),
+            'bootstrap response was lost',
+            'lost target-bootstrap response stops before compile or promotion'
+        );
+        $bootstrapReceipt = rr_materialize($bootstrapLoss, $promotion['callback'], 60, $bootstrap);
+        $bootstrapEvents = $bootstrapLoss['journal']->latestForTarget($bootstrapLoss['target']->name())['events'] ?? [];
+        $bootstrapComplete = rr_event_data($bootstrapEvents, 'target-agent-bootstrapped');
+        rr_ok(
+            ($bootstrapReceipt['format'] ?? null) === 'wprism-branch-environment-receipt/v1'
+                && $bootstrapCalls === 2 && $bootstrapMutations === 1
+                && rr_event_data($bootstrapEvents, 'target-agent-bootstrap-intent') !== null
+                && ($bootstrapComplete['agent_version'] ?? null) === '0.7.0'
+                && ($bootstrapComplete['distribution_sha256'] ?? null) === $bootstrapDistribution,
+            'target-bootstrap retry reconciles one committed install into one immutable distribution receipt'
+        );
+        rr_assert_no_completed_replay(
+            array_merge(rr_calls($bootstrapLoss['source_log']), rr_calls($bootstrapLoss['target_log'])),
+            'none',
+            'none',
+            'target-bootstrap recovery never replays a completed provider phase'
+        );
 
         // Production changed after the provider-held prepare/freeze. The
         // physical snapshot must be refused before attach/create/fence/restore

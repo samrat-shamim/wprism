@@ -128,6 +128,31 @@ final class LocalBootstrapUploadCollisionTransport implements AdoptionTransport 
     }
 }
 
+final class LocalBootstrapTamperingTransport implements AdoptionTransport {
+    public bool $tampered = false;
+
+    public function __construct(
+        private LocalTransport $inner,
+        private string $installedFile
+    ) {}
+
+    public function bootstrapCapability(): array { return $this->inner->bootstrapCapability(); }
+    public function repoPath(): string { return $this->inner->repoPath(); }
+    public function wpPath(): string { return $this->inner->wpPath(); }
+    public function captureWp(array $wpArgs): array { return $this->inner->captureWp($wpArgs); }
+    public function uploadFile(string $localPath, string $remotePath): array {
+        return $this->inner->uploadFile($localPath, $remotePath);
+    }
+    public function captureRaw(string $script): array {
+        $result = $this->inner->captureRaw($script);
+        if (!$this->tampered && $result['exit'] === 0 && str_contains($script, 'wprism-install-complete')) {
+            file_put_contents($this->installedFile, "\n// transport-substituted non-version byte\n", FILE_APPEND);
+            $this->tampered = true;
+        }
+        return $result;
+    }
+}
+
 $physicalTemp = realpath(sys_get_temp_dir());
 if (!is_string($physicalTemp) || $physicalTemp === '' || $physicalTemp === DIRECTORY_SEPARATOR) {
     throw new RuntimeException('could not resolve the regression temporary directory');
@@ -290,6 +315,11 @@ SH;
     local_bootstrap_ok(!file_exists($mu) && !file_exists($repo), 'eligibility creates neither the control-plane nor repository leaf');
 
     $verifiedInsideTransaction = false;
+    $distributionSha256 = Adopt::distributionDigest($source);
+    local_bootstrap_ok(
+        preg_match('/^[a-f0-9]{64}$/D', $distributionSha256) === 1,
+        'adoption publishes a deterministic digest for the exact assembled agent and recovery bytes'
+    );
     $result = Adopt::install(
         $transport,
         $source,
@@ -307,12 +337,17 @@ SH;
                 && is_file($repo . '/.wprism/control/target.json')
                 && is_dir($repo . '/.wprism/rollback');
             return $verifiedInsideTransaction;
-        }
+        },
+        $distributionSha256
     );
     if ($result['exit'] !== 0 || !$verifiedInsideTransaction) {
         fwrite(STDERR, json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
     }
     local_bootstrap_ok($result['exit'] === 0 && $verifiedInsideTransaction, 'local adoption stages, swaps, and verifies before commit');
+    local_bootstrap_ok(
+        ($result['distribution_sha256'] ?? null) === $distributionSha256,
+        'the successful install receipt binds the pre-mutation assembled distribution pin'
+    );
     local_bootstrap_ok(($result['repo_created'] ?? false) === true, 'fresh local adoption creates the minimal seed repository');
     $wpLog = (string) file_get_contents($root . '/wp.log');
     local_bootstrap_ok(
@@ -376,6 +411,69 @@ SH;
     local_bootstrap_ok(glob($root . '/.wprism-old-*') === [], 'doctor rollback leaves no staged repository authority');
     putenv('WPRISM_LOCAL_BOOTSTRAP_MU=' . $mu);
 
+    foreach ([
+        [
+            'label' => 'agent-byte',
+            'installed_file' => static fn(string $targetMu): string => $targetMu . '/wprism/src/Kernel/Canon.php',
+            'surface' => 'non-version agent byte',
+        ],
+        [
+            'label' => 'loader-byte',
+            'installed_file' => static fn(string $targetMu): string => $targetMu . '/wprism-loader.php',
+            'surface' => 'production-loaded top-level loader byte',
+        ],
+    ] as $tamperCase) {
+        $tamperContent = $root . '/tamper-' . $tamperCase['label'] . '-content';
+        $tamperMu = $tamperContent . '/mu-plugins';
+        $tamperRepo = $root . '/tamper-' . $tamperCase['label'] . '-repo';
+        mkdir($tamperContent, 0700, true);
+        putenv('WPRISM_LOCAL_BOOTSTRAP_MU=' . $tamperMu);
+        $tamperInner = new LocalTransport('tamper-' . $tamperCase['label'], [
+            'transport' => 'local',
+            'wp_path' => $wpRoot,
+            'repo_path' => $tamperRepo,
+            'bootstrap' => ['format' => LocalTransport::BOOTSTRAP_FORMAT],
+            '_machine_local' => true,
+        ]);
+        $tamperTransport = new LocalBootstrapTamperingTransport(
+            $tamperInner,
+            $tamperCase['installed_file']($tamperMu)
+        );
+        $tamperEligibility = BootstrapEligibilityReport::inspect(
+            $tamperTransport,
+            'tamper-' . $tamperCase['label'],
+            'local',
+            $source
+        );
+        local_bootstrap_ok($tamperEligibility->ready(), 'a fresh target is eligible for installed-distribution readback');
+        $tamperBefore = [local_bootstrap_tree_hash($tamperMu), local_bootstrap_tree_hash($tamperRepo)];
+        $tampered = Adopt::install(
+            $tamperTransport,
+            $source,
+            null,
+            null,
+            null,
+            $tamperEligibility,
+            null,
+            $distributionSha256
+        );
+        local_bootstrap_ok(
+            $tamperTransport->tampered
+                && $tampered['exit'] !== 0
+                && $tampered['phase'] === 'distribution verification',
+            'post-swap readback refuses a substituted ' . $tamperCase['surface'] . ' before the commit barrier'
+        );
+        local_bootstrap_ok(
+            [local_bootstrap_tree_hash($tamperMu), local_bootstrap_tree_hash($tamperRepo)] === $tamperBefore,
+            'installed-distribution mismatch rolls the agent and recovery authority back exactly'
+        );
+        local_bootstrap_ok(
+            glob($tamperContent . '/.wprism-adopt-*') === [],
+            'distribution-readback rollback leaves no adoption lock or transaction residue'
+        );
+    }
+    putenv('WPRISM_LOCAL_BOOTSTRAP_MU=' . $mu);
+
     $badRepo = $root . '/bad-repo';
     $badMu = $root . '/bad-mu';
     mkdir($badRepo . '/.wprism/rollback', 0700, true);
@@ -437,6 +535,22 @@ SH;
 
     putenv('WPRISM_LOCAL_BOOTSTRAP_MU=' . $mu);
     $collisionTransport = new LocalBootstrapUploadCollisionTransport();
+    $distributionMismatch = Adopt::install(
+        $collisionTransport,
+        $source,
+        null,
+        null,
+        null,
+        null,
+        null,
+        hash('sha256', 'different-distribution')
+    );
+    local_bootstrap_ok(
+        $distributionMismatch['exit'] !== 0
+            && $distributionMismatch['phase'] === 'local artifact'
+            && $collisionTransport->foreign === null,
+        'a changed assembled distribution refuses before upload or target mutation'
+    );
     $collisionResult = Adopt::install($collisionTransport, $source);
     local_bootstrap_ok($collisionResult['exit'] !== 0 && $collisionResult['phase'] === 'archive upload', 'an upload collision refuses before remote install');
     local_bootstrap_ok(

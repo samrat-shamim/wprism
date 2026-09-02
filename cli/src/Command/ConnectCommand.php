@@ -4,11 +4,15 @@ declare(strict_types=1);
 namespace WPrism\Orchestrator;
 
 require_once __DIR__ . '/../Onboarding/Adopt.php';
+require_once __DIR__ . '/../Onboarding/ConnectionReceipt.php';
 require_once __DIR__ . '/../Transport/Transport.php';
 require_once __DIR__ . '/../Transport/LocalTransport.php';
 require_once __DIR__ . '/../Transport/DockerTransport.php';
 require_once __DIR__ . '/../Transport/SshTransport.php';
 require_once __DIR__ . '/HostProcess.php';
+require_once __DIR__ . '/CommandOutput.php';
+
+use WPrism\Canon;
 
 /** Create the local half of a WPrism relationship after native inspection probes. */
 final class ConnectCommand {
@@ -18,15 +22,19 @@ final class ConnectCommand {
      * @param list<string> $args everything after `connect`
      * @param ?callable(string,array<string,mixed>):EnvironmentDriver $transportFactory
      * @param ?callable(list<string>,?string):array{exit:int,stdout:string,stderr:string} $processRunner
+     * @param ?callable():string $clock
      */
     public static function run(
         array $args,
         string $sourceRoot,
         ?callable $transportFactory = null,
-        ?callable $processRunner = null
+        ?callable $processRunner = null,
+        ?callable $clock = null
     ): int {
+        $json = in_array('--format=json', $args, true);
         try {
-            $request = self::parse($args, getcwd() ?: '.');
+            [$json, $arguments] = self::machineArguments($args);
+            $request = self::parse($arguments, getcwd() ?: '.');
             $factory = $transportFactory ?? static fn(string $name, array $config): EnvironmentDriver =>
                 Transport::make($name, $config);
             $driver = $factory($request['environment'], $request['config']);
@@ -37,10 +45,35 @@ final class ConnectCommand {
                 self::assertDisjointHostBoundaries($request['workspace'], $hostRepo);
             }
             self::probe($driver);
-            self::createWorkspace($request['workspace'], $request['environment'], $request['config'], $processRunner);
+            $environmentConfig = self::createWorkspace(
+                $request['workspace'],
+                $request['environment'],
+                $request['config'],
+                $processRunner
+            );
         } catch (\Throwable $error) {
+            if ($json) {
+                return CommandOutput::renderRefusalJson(
+                    'connect',
+                    'connection_failed',
+                    'WPrism could not establish the inspected local connection boundary',
+                    'repair the named transport, WordPress topology, or workspace boundary, then retry connect',
+                    []
+                );
+            }
             fwrite(STDERR, 'wprism: connect: ' . $error->getMessage() . "\n");
             return 1;
+        }
+
+        if ($json) {
+            echo Canon::encode(ConnectionReceipt::build(
+                $request['environment'],
+                $request['workspace'],
+                (string) $request['config']['transport'],
+                $environmentConfig,
+                ($clock ?? static fn(): string => gmdate('Y-m-d\TH:i:s\Z'))()
+            ));
+            return 0;
         }
 
         $cli = realpath($sourceRoot . '/cli/wprism') ?: $sourceRoot . '/cli/wprism';
@@ -62,6 +95,29 @@ final class ConnectCommand {
             echo "Add --git-url=<empty-remote-url> to preflight and automate the initialized repository handoff.\n";
         }
         return 0;
+    }
+
+    /** @param list<mixed> $args @return array{0:bool,1:list<string>} */
+    private static function machineArguments(array $args): array {
+        $json = false;
+        $out = [];
+        foreach ($args as $arg) {
+            if (!is_string($arg)) {
+                throw new \RuntimeException('connect received a non-string argument');
+            }
+            if ($arg === '--format=json') {
+                if ($json) {
+                    throw new \RuntimeException('--format=json was supplied more than once');
+                }
+                $json = true;
+                continue;
+            }
+            if (str_starts_with($arg, '--format')) {
+                throw new \RuntimeException('connect accepts only the exact machine selector --format=json');
+            }
+            $out[] = $arg;
+        }
+        return [$json, $out];
     }
 
     /**
@@ -172,7 +228,7 @@ final class ConnectCommand {
         string $environment,
         array $config,
         ?callable $processRunner
-    ): void {
+    ): string {
         if (file_exists($workspace) || is_link($workspace)) {
             throw new \RuntimeException("workspace must not already exist: $workspace");
         }
@@ -221,6 +277,7 @@ final class ConnectCommand {
                 }
                 throw new \RuntimeException('workspace staging identity changed during publication');
             }
+            return $overlay . "\n";
         } catch (\Throwable $error) {
             $retained = false;
             foreach ([$claim, $stage] as $candidate) {

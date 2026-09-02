@@ -134,6 +134,17 @@ wprism_check_same(
     $verifiedPreview['disclosure'],
     'a command-supplied containment proof is embedded without re-derivation'
 );
+$encodedVerifiedPreview = RehearsalPlanPreview::encode($verifiedPreview);
+wprism_check_same(
+    $verifiedPreview,
+    json_decode($encodedVerifiedPreview, true, 512, JSON_THROW_ON_ERROR),
+    '--format=json has one complete rehearsal-preview document rather than a materialization prelude'
+);
+wprism_check_same(
+    1,
+    substr_count($encodedVerifiedPreview, '"format": "wprism-rehearsal-preview/v1"'),
+    'the rehearsal machine document carries one terminal preview envelope'
+);
 wprism_check_same(
     $preview['preview_digest'],
     RehearsalPlanPreview::digest($preview),

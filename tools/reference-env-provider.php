@@ -27,11 +27,11 @@
 //     "noncanonical evidence" and the operation refuses).
 //   * the request's closed key set is {action, environment, format, input,
 //     operation_id}; `format` must be
-//     `wprism-branch-environment-provider-request/v1`; `input` is an object, and
+//     `wprism-branch-environment-provider-request/v2`; `input` is an object, and
 //     the empty LIST `[]` is accepted for the capabilities probe only —
 //     mirroring CommandEnvironmentProvider's own boundary exactly.
 //   * the response is {action, environment, format, operation_id, provider,
-//     result, status} with `provider.protocol` 1 and `status` "ok"; every
+//     result, status} with `provider.protocol` 2 and `status` "ok"; every
 //     per-action result key set is the one
 //     CommandEnvironmentProvider::validateActionResult() closes over.
 //   * capability negotiation happens through the `capabilities` action, and
@@ -2257,7 +2257,7 @@ function ref_containment_preimage(array $identity, array $fence, array $input, a
         'operation_id' => $input['_operation_id'],
         'ownership_receipt_sha256' => $identity['ownership_receipt_sha256'],
         'profile' => $input['profile'],
-        'provider' => ['id' => 'wprism-reference-env-provider', 'protocol' => 1],
+        'provider' => ['id' => 'wprism-reference-env-provider', 'protocol' => 2],
         'resource_id' => $identity['resource_id'],
         'snapshot_sanitization' => $sanitization,
         'topology' => $topology,
@@ -3816,16 +3816,26 @@ function ref_dispatch(array $request, array $config, array &$state): array {
         ref_require_fence($state, $input, $identity, $resourceConfig);
         ref_revalidate_containment($state, $config, $environment, $resource, $identity);
         $commit = $input['branch_commit'] ?? null;
+        $sourceRef = $input['branch_ref'] ?? null;
+        $targetBranch = $input['target_branch'] ?? null;
         ref_require(is_string($commit) && preg_match('/^[a-f0-9]{40}$/D', $commit) === 1, 'repository materialization commit is invalid');
+        ref_require(is_string($sourceRef) && $sourceRef !== '', 'repository materialization source ref is invalid');
+        ref_require(is_string($targetBranch) && $targetBranch !== '', 'repository materialization target branch is invalid');
+        ref_checked(['git', 'check-ref-format', '--branch', $sourceRef]);
+        ref_checked(['git', 'check-ref-format', '--branch', $targetBranch]);
         $repo = (string) $environment['repo'];
         $tmp = $repo . '.incoming-' . substr(hash('sha256', $operation), 0, 12);
         ref_remove_tree($tmp);
         ref_remove_tree($repo);
         ref_checked(['git', 'clone', '--no-hardlinks', '--no-local', (string) $config['controller_repo'], $tmp]);
-        ref_checked(['git', '-C', $tmp, 'checkout', '--detach', $commit]);
+        ref_checked(['git', '-C', $tmp, 'checkout', '-B', $targetBranch, $commit]);
         if (!rename($tmp, $repo)) throw new RuntimeException('could not publish the independent target repository');
         ref_chmod_tree($repo);
-        return $identity + ['branch_commit' => $commit, 'repository_receipt_sha256' => ref_hash(['commit' => $commit, 'repo' => $repo])];
+        return $identity + [
+            'branch_commit' => $commit,
+            'repository_receipt_sha256' => ref_hash(['commit' => $commit, 'repo' => $repo, 'source_ref' => $sourceRef, 'target_branch' => $targetBranch]),
+            'target_branch' => $targetBranch,
+        ];
     }
 
     if ($action === 'url-set') {
@@ -4077,7 +4087,11 @@ function ref_plan(array $request, array $config, ?array $state = null): array {
 
     if ($action === 'repository-materialize') {
         $commit = $input['branch_commit'] ?? null;
+        $sourceRef = $input['branch_ref'] ?? null;
+        $targetBranch = $input['target_branch'] ?? null;
         ref_require(is_string($commit) && preg_match('/^[a-f0-9]{40}$/D', $commit) === 1, 'repository materialization commit is invalid');
+        ref_require(is_string($sourceRef) && $sourceRef !== '', 'repository materialization source ref is invalid');
+        ref_require(is_string($targetBranch) && $targetBranch !== '', 'repository materialization target branch is invalid');
     }
     if ($action === 'ttl-set') {
         ref_require(is_int($input['ttl_seconds'] ?? null) && $input['ttl_seconds'] >= 60, 'TTL set is invalid');
@@ -4213,9 +4227,15 @@ function ref_plan(array $request, array $config, ?array $state = null): array {
             break;
         case 'repository-materialize':
             $commit = $input['branch_commit'] ?? null;
+            $sourceRef = $input['branch_ref'] ?? null;
+            $targetBranch = $input['target_branch'] ?? null;
             ref_require(is_string($commit) && preg_match('/^[a-f0-9]{40}$/D', $commit) === 1, 'repository materialization commit is invalid');
+            ref_require(is_string($sourceRef) && $sourceRef !== '', 'repository materialization source ref is invalid');
+            ref_require(is_string($targetBranch) && $targetBranch !== '', 'repository materialization target branch is invalid');
+            $commands[] = ['argv' => ['git', 'check-ref-format', '--branch', $sourceRef]];
+            $commands[] = ['argv' => ['git', 'check-ref-format', '--branch', $targetBranch]];
             $commands[] = ['argv' => ['git', 'clone', '--no-hardlinks', '--no-local', (string) $config['controller_repo'], (string) $environment['repo'] . '.incoming']];
-            $commands[] = ['argv' => ['git', '-C', (string) $environment['repo'] . '.incoming', 'checkout', '--detach', $commit]];
+            $commands[] = ['argv' => ['git', '-C', (string) $environment['repo'] . '.incoming', 'checkout', '-B', $targetBranch, $commit]];
             break;
         case 'url-set':
             ref_require(($input['url'] ?? null) === $identity['url'], 'provider URL differs from target identity');
@@ -4264,7 +4284,7 @@ function ref_plan(array $request, array $config, ?array $state = null): array {
         'identity_authoritative' => $identityAuthoritative,
         'identity_input_checked' => $identityChecked,
         'operation_id' => (string) $request['operation_id'],
-        'provider' => ['id' => 'wprism-reference-env-provider', 'protocol' => 1],
+        'provider' => ['id' => 'wprism-reference-env-provider', 'protocol' => 2],
         'state_dependent' => $stateDependent,
         'url_source' => $urlSource,
     ];
@@ -4298,7 +4318,7 @@ function ref_assert_request(array $request): void {
     // capabilities probe) while rejecting non-empty JSON lists. Mirror that
     // boundary exactly.
     ref_require(
-        $request['format'] === 'wprism-branch-environment-provider-request/v1'
+        $request['format'] === 'wprism-branch-environment-provider-request/v2'
             && is_array($request['input'])
             && (!array_is_list($request['input']) || $request['input'] === []),
         'provider request has an invalid protocol shape'
@@ -4367,8 +4387,8 @@ try {
     }
     $response = [
         'action' => $request['action'], 'environment' => $request['environment'],
-        'format' => 'wprism-branch-environment-provider-response/v1', 'operation_id' => $request['operation_id'],
-        'provider' => ['id' => 'wprism-reference-env-provider', 'protocol' => 1], 'result' => $result, 'status' => 'ok',
+        'format' => 'wprism-branch-environment-provider-response/v2', 'operation_id' => $request['operation_id'],
+        'provider' => ['id' => 'wprism-reference-env-provider', 'protocol' => 2], 'result' => $result, 'status' => 'ok',
     ];
     echo ref_json($response) . "\n";
 } catch (Throwable $error) {

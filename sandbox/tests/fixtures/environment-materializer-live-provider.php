@@ -620,16 +620,26 @@ function live_dispatch(array $request, array $config, array &$state): array {
     if ($action === 'repository-materialize') {
         live_require_fence($state, $input, $identity);
         $commit = $input['branch_commit'] ?? null;
+        $sourceRef = $input['branch_ref'] ?? null;
+        $targetBranch = $input['target_branch'] ?? null;
         live_require(is_string($commit) && preg_match('/^[a-f0-9]{40}$/D', $commit) === 1, 'repository materialization commit is invalid');
+        live_require(is_string($sourceRef) && $sourceRef !== '', 'repository materialization source ref is invalid');
+        live_require(is_string($targetBranch) && $targetBranch !== '', 'repository materialization target branch is invalid');
+        live_checked(['git', 'check-ref-format', '--branch', $sourceRef]);
+        live_checked(['git', 'check-ref-format', '--branch', $targetBranch]);
         $repo = $environment['repo'];
         $tmp = $repo . '.incoming-' . substr(hash('sha256', $operation), 0, 12);
         live_remove_tree($tmp);
         live_remove_tree($repo);
         live_checked(['git', 'clone', '--no-hardlinks', '--no-local', $config['controller_repo'], $tmp]);
-        live_checked(['git', '-C', $tmp, 'checkout', '--detach', $commit]);
+        live_checked(['git', '-C', $tmp, 'checkout', '-B', $targetBranch, $commit]);
         if (!rename($tmp, $repo)) throw new RuntimeException('could not publish independent target repository');
         live_chmod_tree($repo);
-        return $identity + ['branch_commit' => $commit, 'repository_receipt_sha256' => live_hash(['commit' => $commit, 'repo' => $repo])];
+        return $identity + [
+            'branch_commit' => $commit,
+            'repository_receipt_sha256' => live_hash(['commit' => $commit, 'repo' => $repo, 'source_ref' => $sourceRef, 'target_branch' => $targetBranch]),
+            'target_branch' => $targetBranch,
+        ];
     }
 
     if ($action === 'url-set') {
@@ -743,9 +753,9 @@ try {
     foreach (['action', 'environment', 'format', 'input', 'operation_id'] as $key) live_require(array_key_exists($key, $request), "provider request lacks '$key'");
     // CommandEnvironmentProvider uses [] for an empty object input (the
     // capabilities probe), while rejecting non-empty JSON lists.  Mirror
-    // that boundary exactly so the fixture accepts the canonical v1 probe
+    // that boundary exactly so the fixture accepts the canonical v2 probe
     // without accepting a list-shaped operation payload.
-    live_require($request['format'] === 'wprism-branch-environment-provider-request/v1'
+    live_require($request['format'] === 'wprism-branch-environment-provider-request/v2'
         && is_array($request['input'])
         && (!array_is_list($request['input']) || $request['input'] === []), 'provider request has an invalid protocol shape');
     $lock = fopen($root . '/state.lock', 'c');
@@ -760,8 +770,8 @@ try {
     }
     $response = [
         'action' => $request['action'], 'environment' => $request['environment'],
-        'format' => 'wprism-branch-environment-provider-response/v1', 'operation_id' => $request['operation_id'],
-        'provider' => ['id' => 'environment-materializer-live-fixture', 'protocol' => 1], 'result' => $result, 'status' => 'ok',
+        'format' => 'wprism-branch-environment-provider-response/v2', 'operation_id' => $request['operation_id'],
+        'provider' => ['id' => 'environment-materializer-live-fixture', 'protocol' => 2], 'result' => $result, 'status' => 'ok',
     ];
     echo live_json($response) . "\n";
 } catch (Throwable $error) {

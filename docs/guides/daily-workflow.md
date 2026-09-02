@@ -608,8 +608,9 @@ always leave an exit path through `wprism` — never through operator SQL.
 - **During the week** — branch; `wprism rehearse preview --from production
   --branch=<branch> --ttl=86400` (or `wprism env materialize` when you want the
   environment without the preview); author on the rehearsal environment;
-  `wprism capture preview`; review the state diff in the pull request like any
-  other diff.
+  `wprism capture preview --target-branch=<branch> --format=json`; retain the
+  digest-bound capture receipt, then review and commit the state diff in the
+  pull request like any other diff.
 - **Before merging** — `wprism refresh production --production-ref=<ref>`; rebase
   if production moved; `wprism status stage` after applying to staging.
 - **Release** — stage the exact advertised ref with a new operation id, save

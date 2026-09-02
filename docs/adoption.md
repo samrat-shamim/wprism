@@ -162,13 +162,22 @@ Adoption performs these operations:
    code-release, upload, and effect providers plus all four isolated adapters;
 6. creates `repo_path/site.wprism.json` only when it is absent, initially pinning
    `core` with post/page/attachment and category/post_tag scope;
-7. starts fresh wp-cli processes to prove the remote `WPRISM_AGENT_VERSION`
+7. reads every installed regular file under the target mappings of the staged
+   `agent/` and `recovery/` trees, rejects links/special files or a changed path
+   set, and compares the path-and-byte digest to the controller's assembled
+   distribution. The only excluded file is target-generated
+   `agent/scoped-promotion-control.json` when verified recovery configuration
+   caused adoption to create it. The separately published, production-loaded
+   `WPMU_PLUGIN_DIR/wprism-loader.php` must also be an ordinary file whose bytes
+   equal the canonical staged `agent/wprism-loader.php` mapping. A mismatch
+   rolls the swap back before commit;
+8. starts fresh wp-cli processes to prove the remote `WPRISM_AGENT_VERSION`
    exactly matches this checkout and that `Policy::load()` can read the seed
    plus installed embedded adapter library;
-8. verifies the recovery runtime can read and validate the external target;
-9. runs the normal public doctor checks while the swap is still rollbackable
+9. verifies the recovery runtime can read and validate the external target;
+10. runs the normal public doctor checks while the swap is still rollbackable
    (the local path uses the isolated control plane);
-10. publishes a mutation-free commit marker only after every blocking
+11. publishes a mutation-free commit marker only after every blocking
     verification passes, leaves the rollbackable phase, and only then discards
     prior SSH rollback copies. Cleanup trouble retains transaction evidence and
     never triggers restoration from a partially deleted backup.

@@ -8,6 +8,7 @@ require_once __DIR__ . '/../Authority/TargetOperationStore.php';
 require_once __DIR__ . '/../Release/SourceStageReceipt.php';
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/AssessCommand.php';
+require_once __DIR__ . '/CodeResolveCommand.php';
 
 use WPrism\CommandRefusalException;
 
@@ -159,6 +160,10 @@ final class StageSourceCommand {
             'target_id' => $targetId,
             'target_repo_path' => $repo,
         ]);
+        // Split repositories keep locked third-party bytes out of Git. Finish
+        // that code half inside the source-stage mutation so the later
+        // authorization preparation can remain completely read-only.
+        CodeResolveCommand::materializeSourceStage($driver, $facts['stage_repository_path']);
         self::syncEnvironmentValues($driver, $receipt);
 
         $stored = self::persist($driver, $receipt);
@@ -262,6 +267,19 @@ final class StageSourceCommand {
                 $remediation,
                 [['code' => $code, 'phase' => 'stage_revalidation']],
                 self::privateDetail($result)
+            );
+        }
+
+        try {
+            CodeResolveCommand::assertSourceStage($driver, $stagePath);
+        } catch (CommandRefusalException $error) {
+            throw new CommandRefusalException(
+                'release_stage_code_changed',
+                'the inert source stage no longer matches its committed code lock',
+                'discard this source stage and retry the exact stage operation before preparing another release',
+                [['code' => 'release_stage_code_changed', 'phase' => 'code_binding']],
+                $error->getMessage(),
+                $error
             );
         }
 

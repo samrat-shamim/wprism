@@ -271,7 +271,7 @@ assert_preparing_snapshot_abort() {
       "expected_source_lease_generation"=>1,"expected_source_lease_id"=>$argv[4],
       "expected_source_lease_receipt_sha256"=>$argv[5]
     ];
-    echo json_encode(["action"=>"snapshot-abort","environment"=>"production","format"=>"wprism-branch-environment-provider-request/v1","input"=>$input,"operation_id"=>$argv[1]],JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR),"\n";
+    echo json_encode(["action"=>"snapshot-abort","environment"=>"production","format"=>"wprism-branch-environment-provider-request/v2","input"=>$input,"operation_id"=>$argv[1]],JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR),"\n";
   ' "$operation" "$session" "source-environment-${PAIR}" "$lease_id" "$lease_receipt" >"$request"
   "$PHP_BIN" "$PROVIDER" "$PROVIDER_CONFIG" <"$request" >"$response" \
     || fail "provider did not abort the exact preparing source session"

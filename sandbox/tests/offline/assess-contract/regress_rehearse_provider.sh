@@ -66,7 +66,7 @@ OP='20260817-090000-0000000000000000abcdefab'
 
 # request <action> <environment> <input-json> -> one canonical provider request
 request() {
-  printf '{"action":"%s","environment":"%s","format":"wprism-branch-environment-provider-request/v1","input":%s,"operation_id":"%s"}\n' \
+  printf '{"action":"%s","environment":"%s","format":"wprism-branch-environment-provider-request/v2","input":%s,"operation_id":"%s"}\n' \
     "$1" "$2" "$3" "$OP"
 }
 
@@ -155,7 +155,7 @@ $fail = static function (string $m): void { fwrite(STDERR, "FAIL: $m\n"); exit(1
 if (($d["format"] ?? null) !== "wprism-reference-env-provider-plan/v1") $fail("the dry run is not a plan document");
 if (($d["executed"] ?? null) !== false) $fail("a dry run must state that it executed nothing");
 if (($d["url_source"] ?? null) !== "config") $fail("a dry run must say its URL came from the config, not the port map");
-if (($d["provider"]["protocol"] ?? null) !== 1) $fail("the plan does not pin protocol 1");
+if (($d["provider"]["protocol"] ?? null) !== 2) $fail("the plan does not pin protocol 2");
 $argv0 = $d["commands"][0]["argv"] ?? [];
 if ($argv0 !== ["docker", "port", "wprism-mup-wp2-1", "80/tcp"] || count($d["commands"] ?? []) !== 1) {
     $fail("attach does not limit itself to a physical-presence proof: " . json_encode($d["commands"] ?? []));
@@ -228,7 +228,7 @@ else
   fail "a foreign protocol version was accepted (exit $STATUS)"
 fi
 
-printf '{"action":"attach","environment":"mup2","format":"wprism-branch-environment-provider-request/v1","input":["mode"],"operation_id":"%s"}\n' "$OP" \
+printf '{"action":"attach","environment":"mup2","format":"wprism-branch-environment-provider-request/v2","input":["mode"],"operation_id":"%s"}\n' "$OP" \
   | php "$PROVIDER" --print-plan "$TMP/config.json" > /dev/null 2> "$TMP/plan.err"
 STATUS=$?
 if [ "$STATUS" = 1 ] && grep -Fq 'invalid protocol shape' "$TMP/plan.err"; then

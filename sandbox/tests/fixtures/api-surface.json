@@ -1,5 +1,5 @@
 {
-    "class_count": 427,
+    "class_count": 429,
     "classes": {
         "WPrism\\ActionProviderGrammar": {
             "abstract": false,
@@ -25890,6 +25890,23 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "distributionDigest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sourceRoot",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "install": {
                     "abstract": false,
                     "final": false,
@@ -25948,6 +25965,14 @@
                             "has_default": true,
                             "name": "postSwapVerifier",
                             "type": "?callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "expectedDistributionSha256",
+                            "type": "?string",
                             "variadic": false
                         }
                     ],
@@ -29406,6 +29431,31 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "assertSourceStage": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "transport",
+                            "type": "WPrism\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetRepo",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "deployPhase": {
                     "abstract": false,
                     "final": false,
@@ -29428,6 +29478,31 @@
                         }
                     ],
                     "return_type": "?int",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "materializeSourceStage": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "transport",
+                            "type": "WPrism\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetRepo",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
                     "static": true,
                     "visibility": "public"
                 },
@@ -29730,11 +29805,14 @@
                 "MAX_TIMEOUT_SECONDS": {
                     "value_repr": 3600
                 },
+                "PROTOCOL": {
+                    "value_repr": 2
+                },
                 "REQUEST_FORMAT": {
-                    "value_repr": "wprism-branch-environment-provider-request/v1"
+                    "value_repr": "wprism-branch-environment-provider-request/v2"
                 },
                 "RESPONSE_FORMAT": {
-                    "value_repr": "wprism-branch-environment-provider-response/v1"
+                    "value_repr": "wprism-branch-environment-provider-response/v2"
                 }
             },
             "final": true,
@@ -30049,9 +30127,99 @@
                             "name": "processRunner",
                             "type": "?callable",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "clock",
+                            "type": "?callable",
+                            "variadic": false
                         }
                     ],
                     "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\Orchestrator\\ConnectionReceipt": {
+            "abstract": false,
+            "constants": {
+                "FORMAT": {
+                    "value_repr": "wprism-connection-receipt/v1"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "build": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "environment",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "workspace",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "transport",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "environmentConfigBytes",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "createdAt",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
                     "static": true,
                     "visibility": "public"
                 }
@@ -31642,9 +31810,34 @@
                             "name": "receiptObserver",
                             "type": "?callable",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "targetBootstrap",
+                            "type": "?array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "targetBootstrap": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sourceRoot",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 }
@@ -32258,6 +32451,14 @@
                             "has_default": false,
                             "name": "promote",
                             "type": "callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "targetBootstrap",
+                            "type": "?array",
                             "variadic": false
                         }
                     ],
@@ -34977,6 +35178,63 @@
                         }
                     ],
                     "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "WPrism\\Orchestrator\\OnboardingHandoffReceipt": {
+            "abstract": false,
+            "constants": {
+                "FORMAT": {
+                    "value_repr": "wprism-onboarding-handoff/v1"
+                },
+                "NEXT_ACTIONS": {
+                    "value_repr": [
+                        "review_application_contract",
+                        "enroll_operation_authority",
+                        "prepare_release"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "build": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "facts",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
                     "static": true,
                     "visibility": "public"
                 }

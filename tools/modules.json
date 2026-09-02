@@ -1441,7 +1441,7 @@
       },
       "Onboarding": {
         "layer": "engine",
-        "purpose": "Adopting, initializing, diagnosing and triaging a site — the first-run and health mechanics behind adopt/init/doctor/classify/pending.",
+        "purpose": "Adopting, initializing, diagnosing and triaging a site — including canonical connection and Git-handoff receipts at the first-run boundary.",
         "status": "populated",
         "entry_points": [
           "Doctor",
@@ -1449,22 +1449,27 @@
           "Unadopt",
           "BootstrapEligibility",
           "ClassificationBatch",
+          "ConnectionReceipt",
           "Init",
+          "OnboardingHandoffReceipt",
           "Pending",
           "Triage"
         ],
         "depends_on": [
           "Onboarding",
-          "Transport"
+          "Transport",
+          "agent:Kernel"
         ],
         "exceptions": [],
-        "file_count": 8,
+        "file_count": 10,
         "files": [
           "Adopt.php",
           "BootstrapEligibility.php",
           "ClassificationBatch.php",
+          "ConnectionReceipt.php",
           "Doctor.php",
           "Init.php",
+          "OnboardingHandoffReceipt.php",
           "Pending.php",
           "Triage.php",
           "Unadopt.php"

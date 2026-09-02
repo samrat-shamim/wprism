@@ -32,6 +32,8 @@ final class AdoptDoubleFailureTransport implements AdoptionTransport {
     public int $wpCalls = 0;
     public int $uploads = 0;
 
+    public function __construct(private string $distributionSha256) {}
+
     public function bootstrapCapability(): array {
         return ['supported' => true, 'reason' => 'fixture adoption transport', 'remediation' => ''];
     }
@@ -51,6 +53,10 @@ final class AdoptDoubleFailureTransport implements AdoptionTransport {
         }
         if (str_contains($script, 'wprism-install-complete')) {
             return ['exit' => 0, 'stdout' => "wprism-repo-retained\nwprism-install-complete\n", 'stderr' => ''];
+        }
+        if (str_contains($script, 'agent/scoped-promotion-control.json')
+            && str_contains($script, 'hash_final($ctx)')) {
+            return ['exit' => 0, 'stdout' => $this->distributionSha256, 'stderr' => ''];
         }
         if (str_contains($script, 'txn=') && str_contains($script, '.wprism-adopt-txn-')) {
             return ['exit' => 23, 'stdout' => '', 'stderr' => 'restore mv failed'];
@@ -94,6 +100,8 @@ final class AdoptCommittedCleanupFailureTransport implements AdoptionTransport {
     public array $rawScripts = [];
     public int $wpCalls = 0;
 
+    public function __construct(private string $distributionSha256) {}
+
     public function bootstrapCapability(): array {
         return ['supported' => true, 'reason' => 'fixture adoption transport', 'remediation' => ''];
     }
@@ -124,6 +132,10 @@ final class AdoptCommittedCleanupFailureTransport implements AdoptionTransport {
         }
         if (str_contains($script, 'wprism-install-complete')) {
             return ['exit' => 0, 'stdout' => "wprism-repo-retained\nwprism-install-complete\n", 'stderr' => ''];
+        }
+        if (str_contains($script, 'agent/scoped-promotion-control.json')
+            && str_contains($script, 'hash_final($ctx)')) {
+            return ['exit' => 0, 'stdout' => $this->distributionSha256, 'stderr' => ''];
         }
         if (str_contains($script, 'rollback-control.php') && str_contains($script, ' status --root=')) {
             return ['exit' => 0, 'stdout' => "{}\n", 'stderr' => ''];
@@ -482,7 +494,11 @@ $ordinaryInstall = (string) $installScript->invoke(
 );
 adopt_check(
     !str_contains($ordinaryInstall, 'wprism-scoped-promotion-control/v1')
-        && !str_contains($ordinaryInstall, 'chmod 600 "$agent_new/scoped-promotion-control.json"'),
+        && !str_contains($ordinaryInstall, 'chmod 600 "$agent_new/scoped-promotion-control.json"')
+        && str_contains($ordinaryInstall, 'chmod 0755 "$agent_new"')
+        && str_contains($ordinaryInstall, 'find "$agent_new" -type d -exec chmod 0755')
+        && str_contains($ordinaryInstall, 'find "$agent_new" -type f -exec chmod 0644')
+        && str_contains($ordinaryInstall, 'chmod 0644 "$loader_new"'),
     'adoption without a verified recovery configuration exposes no scoped-promotion trust root'
 );
 adopt_assert_ordered(
@@ -500,6 +516,7 @@ adopt_assert_ordered(
     [
         'record_identity "$agent_new" "$txn/agent_new_construction.id"',
         'cp -R "$stage/agent/." "$agent_new/"',
+        'find "$agent_new" -type d -exec chmod 0755',
         'chmod 600 "$agent_new/scoped-promotion-control.json"',
         'record_identity "$agent_new" "$txn/agent_new.id"',
     ],
@@ -510,6 +527,7 @@ adopt_assert_ordered(
     [
         'record_identity "$loader_new" "$txn/loader_new_construction.id"',
         'cp "$stage/agent/wprism-loader.php" "$loader_new"',
+        'chmod 0644 "$loader_new"',
         'record_identity "$loader_new" "$txn/loader_new.id"',
     ],
     'the loader publish proof follows its content population'
@@ -539,7 +557,8 @@ adopt_assert_ordered(
     'the seed publish proof follows seed-byte population'
 );
 
-$transport = new AdoptDoubleFailureTransport();
+$fixtureDistribution = Adopt::distributionDigest(dirname(__DIR__, 4));
+$transport = new AdoptDoubleFailureTransport($fixtureDistribution);
 $caught = null;
 try {
     Adopt::install($transport, dirname(__DIR__, 4));
@@ -575,7 +594,7 @@ adopt_check(
     'remote archive cleanup still runs before the combined failure surfaces'
 );
 
-$cleanupTransport = new AdoptCommittedCleanupFailureTransport();
+$cleanupTransport = new AdoptCommittedCleanupFailureTransport($fixtureDistribution);
 $cleanupResult = Adopt::install($cleanupTransport, dirname(__DIR__, 4));
 adopt_check($cleanupResult['exit'] === 0 && $cleanupResult['phase'] === 'complete', 'backup cleanup failure cannot reverse a committed green install');
 adopt_check(

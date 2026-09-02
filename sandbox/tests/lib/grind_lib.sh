@@ -792,7 +792,7 @@ write_registry() {
                      database: ("wp_" + $pair + "2"), repo: $repo2}
       }
     }' > "$PROVIDER_CONFIG"
-  printf '{"action":"capabilities","environment":"%s","format":"wprism-branch-environment-provider-request/v1","input":[],"operation_id":"20260817-090000-0000000000000000abcdefab"}\n' "${PAIR}2" \
+  printf '{"action":"capabilities","environment":"%s","format":"wprism-branch-environment-provider-request/v2","input":[],"operation_id":"20260817-090000-0000000000000000abcdefab"}\n' "${PAIR}2" \
     | php "$PROVIDER" --print-plan "$PROVIDER_CONFIG" > "$EVIDENCE/provider-plan.json" \
     || fail "the reference provider refused the config this walk wrote; see $EVIDENCE/provider-plan.json"
   jq -e '

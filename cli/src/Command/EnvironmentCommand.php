@@ -6,6 +6,8 @@ namespace WPrism\Orchestrator;
 require_once __DIR__ . '/../Environment/Registry.php';
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../Environment/EnvironmentLifecycle.php';
+require_once __DIR__ . '/../Onboarding/Adopt.php';
+require_once __DIR__ . '/CommandOutput.php';
 require_once __DIR__ . '/EnvironmentCommandOptions.php';
 require_once __DIR__ . '/EnvironmentProviderCheckCommand.php';
 require_once __DIR__ . '/../Transport/Transport.php';
@@ -18,21 +20,24 @@ require_once __DIR__ . '/../Transport/SshTransport.php';
  *
  * Option grammar, provider evidence, journal recovery, and semantic
  * materialization remain separate contracts. This handler binds those public
- * command inputs in their existing order and accepts the promotion handoff as
- * an explicit callback, so environment provisioning does not learn the
- * monolithic promote command family.
+ * command inputs in their existing order and accepts adoption/promotion
+ * handoffs as explicit callbacks, so environment provisioning learns neither
+ * how the WPrism distribution is installed nor the monolithic promote command
+ * family.
  */
 final class EnvironmentCommand {
     /**
      * @param list<string> $args
      * @param callable(EnvironmentDriver,array<string,mixed>):array<string,mixed>|int $promote
      * @param ?callable(array<string,mixed>):void $receiptObserver
+     * @param ?array{distribution_sha256:string|callable():string,install:callable(EnvironmentDriver,array{operation_id:string,target_environment:string}):array{agent_version:string,distribution_sha256:string}} $targetBootstrap
      */
     public static function run(
         array $args,
         ?string $envsFileOverride,
         callable $promote,
-        ?callable $receiptObserver = null
+        ?callable $receiptObserver = null,
+        ?array $targetBootstrap = null
     ): int {
         if (count($args) < 2) {
             fwrite(STDERR, "wprism: env requires materialize|reap|provider-check and a target <env>\n");
@@ -44,6 +49,7 @@ final class EnvironmentCommand {
             fwrite(STDERR, "wprism: env: unknown action '$action' (expected materialize, reap or provider-check)\n");
             return 1;
         }
+        $machineJson = in_array('--format=json', $args, true);
         // provider-check owns no journal, no promotion handoff and (in its
         // default tier) no mutation. It is deliberately dispatched before the
         // registry/provider/journal construction below, so an operator whose
@@ -93,26 +99,54 @@ final class EnvironmentCommand {
             $sourceConfig = Registry::get($envs, $sourceName);
             $sourceDriver = Transport::make($sourceName, $sourceConfig);
             $sourceProvider = CommandEnvironmentProvider::fromEnvironment($sourceName, $sourceConfig);
-            $receipt = EnvironmentMaterializer::materialize(
-                $sourceDriver,
-                $targetDriver,
-                $sourceProvider,
-                $targetProvider,
-                $journal,
-                [
-                    'branch' => $options['branch'],
-                    'containment_required' => $options['containment_required'],
-                    'create' => $options['create'],
-                    'ttl_seconds' => $options['ttl_seconds'],
-                ],
-                $promote
-            );
+            // The frozen promotion callback is an existing human-oriented
+            // command surface and may print phase lines before returning or
+            // refusing. `env materialize --format=json` owns a single-document
+            // public contract, so contain that nested stdout at this boundary;
+            // stderr remains untouched as private operator diagnostics. The
+            // receipt or stable refusal is rendered only after the buffer is
+            // gone, and therefore cannot be mixed with progress prose.
+            $outputLevel = ob_get_level();
+            if ($options['json']) {
+                ob_start(static fn(string $_output): string => '');
+            }
+            try {
+                $receipt = EnvironmentMaterializer::materialize(
+                    $sourceDriver,
+                    $targetDriver,
+                    $sourceProvider,
+                    $targetProvider,
+                    $journal,
+                    [
+                        'branch' => $options['branch'],
+                        'containment_required' => $options['containment_required'],
+                        'create' => $options['create'],
+                        'ttl_seconds' => $options['ttl_seconds'],
+                    ],
+                    $promote,
+                    $targetDriver instanceof AdoptionTransport ? $targetBootstrap : null
+                );
+            } finally {
+                if ($options['json']) {
+                    while (ob_get_level() > $outputLevel) {
+                        ob_end_clean();
+                    }
+                }
+            }
             if ($receiptObserver !== null) {
                 $receiptObserver($receipt);
             }
             self::renderReceipt($receipt, $options['json'], 'materialize');
             return 0;
         } catch (\Throwable $e) {
+            if ($machineJson) {
+                return CommandOutput::renderRefusalJson(
+                    'env ' . $action,
+                    'branch_environment_operation_failed',
+                    'the branch environment operation refused at a safety or recovery gate',
+                    'inspect private operator diagnostics, repair the condition, then retry the same operation for journal reconciliation'
+                );
+            }
             fwrite(STDERR, "wprism: env $action: {$e->getMessage()}\n");
             return 1;
         }
@@ -163,6 +197,55 @@ final class EnvironmentCommand {
             throw new \RuntimeException('env materialize/reap must run inside a Git worktree');
         }
         return new EnvironmentLifecycleJournal(rtrim(trim($stdout), '/') . '/wprism-environments');
+    }
+
+    /**
+     * Compose Onboarding's atomic install at the command surface. Providers
+     * never receive WPrism source paths or agent bytes, and Environment's
+     * engine receives only an immutable distribution pin and install receipt.
+     *
+     * @return array{distribution_sha256:callable():string,install:callable(EnvironmentDriver,array{operation_id:string,target_environment:string}):array{agent_version:string,distribution_sha256:string}}
+     */
+    public static function targetBootstrap(string $sourceRoot): array {
+        $distributionSha256 = null;
+        $pin = static function () use ($sourceRoot, &$distributionSha256): string {
+            if (!is_string($distributionSha256)) {
+                $distributionSha256 = Adopt::distributionDigest($sourceRoot);
+            }
+            return $distributionSha256;
+        };
+        $install = static function (EnvironmentDriver $driver, array $context) use ($sourceRoot, $pin): array {
+            if (!$driver instanceof AdoptionTransport) {
+                throw new \RuntimeException('target agent bootstrap requires an authorized adoption transport');
+            }
+            if (($context['target_environment'] ?? null) !== $driver->name()
+                || !is_string($context['operation_id'] ?? null)
+                || $context['operation_id'] === '') {
+                throw new \RuntimeException('target agent bootstrap context is malformed');
+            }
+            $expectedDistribution = $pin();
+            $result = Adopt::install($driver, $sourceRoot, null, null, null, null, null, $expectedDistribution);
+            if (($result['exit'] ?? 1) !== 0) {
+                $phase = is_string($result['phase'] ?? null) && $result['phase'] !== ''
+                    ? $result['phase']
+                    : 'unknown phase';
+                throw new \RuntimeException("target agent bootstrap failed during $phase");
+            }
+            $version = $result['version'] ?? null;
+            if (!is_string($version) || $version === '') {
+                throw new \RuntimeException('target agent bootstrap completed without an agent version');
+            }
+            $installedDistribution = $result['distribution_sha256'] ?? null;
+            if (!is_string($installedDistribution)
+                || !hash_equals($expectedDistribution, $installedDistribution)) {
+                throw new \RuntimeException('target agent bootstrap installed another distribution');
+            }
+            return [
+                'agent_version' => $version,
+                'distribution_sha256' => $installedDistribution,
+            ];
+        };
+        return ['distribution_sha256' => $pin, 'install' => $install];
     }
 
     /** @param array<string,mixed> $receipt */

@@ -3,6 +3,10 @@ declare(strict_types=1);
 
 namespace WPrism\Orchestrator;
 
+require_once dirname(__DIR__, 3) . '/agent/src/Kernel/DurableFilesystem.php';
+
+use WPrism\DurableFilesystem;
+
 /**
  * Bootstrap WPrism onto a pre-existing WordPress target through an explicitly
  * authorized adoption transport.
@@ -90,7 +94,7 @@ IGNORE
     }
 
     /**
-     * @return array{exit:int, phase:string, stdout:string, stderr:string, version:string, repo_created:bool}
+     * @return array{exit:int, phase:string, stdout:string, stderr:string, version:string, repo_created:bool, distribution_sha256?:string}
      */
     public static function install(
         AdoptionTransport $transport,
@@ -99,7 +103,8 @@ IGNORE
         ?string $rollbackPublicKey = null,
         ?array $recoveryConfig = null,
         ?BootstrapEligibilityReport $eligibility = null,
-        ?callable $postSwapVerifier = null
+        ?callable $postSwapVerifier = null,
+        ?string $expectedDistributionSha256 = null
     ): array {
         $agentDir = rtrim($sourceRoot, '/') . '/agent';
         $adapterPackagesDir = rtrim($sourceRoot, '/') . '/adapter-packages';
@@ -132,6 +137,10 @@ IGNORE
         }
         if ($recoveryConfig !== null && $rollbackKeyId === null) {
             return self::failure('local artifact', 'recovery configuration requires a rollback verification key', $version);
+        }
+        if ($expectedDistributionSha256 !== null
+            && preg_match('/^[a-f0-9]{64}$/D', $expectedDistributionSha256) !== 1) {
+            return self::failure('local artifact', 'expected distribution digest is malformed', $version);
         }
 
         if ($eligibility !== null) {
@@ -213,13 +222,21 @@ IGNORE
             }
 
             try {
-                $localStage = self::stageLocalArtifact($sourceRoot, $token);
-                require_once $assembler;
-                \WPrism\Tooling\AdapterLibraryAssembler::assemble($sourceRoot, $localStage . '/agent');
+                $distribution = self::stageDistribution($sourceRoot, $token, $assembler);
+                $localStage = $distribution['path'];
+                $distributionSha256 = $distribution['sha256'];
             } catch (\Throwable $error) {
                 return self::failure(
                     'local artifact',
                     'could not assemble the embedded adapter library: ' . $error->getMessage(),
+                    $version
+                );
+            }
+            if ($expectedDistributionSha256 !== null
+                && !hash_equals($expectedDistributionSha256, $distributionSha256)) {
+                return self::failure(
+                    'local artifact',
+                    'assembled distribution bytes changed after the operation was pinned',
                     $version
                 );
             }
@@ -254,6 +271,25 @@ IGNORE
                 return self::fromTransport('remote install', $install, $version);
             }
             $swapped = true;
+
+            $installedDistribution = $transport->captureRaw(self::installedDistributionDigestScript(
+                $muDir,
+                $transport->repoPath(),
+                $rollbackKeyId !== null && $recoveryConfig !== null
+            ));
+            $installedDistributionSha256 = trim($installedDistribution['stdout']);
+            if ($installedDistribution['exit'] !== 0
+                || preg_match('/^[a-f0-9]{64}$/D', $installedDistributionSha256) !== 1
+                || !hash_equals($distributionSha256, $installedDistributionSha256)) {
+                $installedDistribution['exit'] = $installedDistribution['exit'] !== 0
+                    ? $installedDistribution['exit']
+                    : 1;
+                $installedDistribution['stdout'] = '';
+                $installedDistribution['stderr'] = 'installed agent and recovery bytes do not match the pinned distribution';
+                self::rollback($transport, $muDir, $transport->repoPath(), $token, $installedDistribution);
+                $swapped = false;
+                return self::fromTransport('distribution verification', $installedDistribution, $version);
+            }
 
             $versionArgs = ['eval', 'echo defined("WPRISM_AGENT_VERSION") ? WPRISM_AGENT_VERSION : "wprism-missing";'];
             $remoteVersion = $transport->captureWp(
@@ -348,6 +384,7 @@ IGNORE
                         : ''),
                 'version' => $version,
                 'repo_created' => str_contains($install['stdout'], 'wprism-repo-created'),
+                'distribution_sha256' => $distributionSha256,
             ];
         } catch (\Throwable $error) {
             $interrupted = $error;
@@ -578,13 +615,14 @@ IGNORE
             . "unreadable=\$(find \"\$stage\" -type f ! -exec test -r '{}' \; -print -quit 2>/dev/null) || { echo 'wprism adopt: staged artifact could not be inspected' >&2; exit 1; }; [ -z \"\$unreadable\" ] || { echo 'wprism adopt: staged artifact contains an unreadable file' >&2; exit 1; }\n"
             . "[ -f \"\$stage/agent/wprism.php\" ] && [ -f \"\$stage/agent/wprism-loader.php\" ] && [ -f \"\$stage/agent/adapter-library/platform/core/manifest.json\" ] || { echo 'wprism adopt: uploaded artifact is incomplete' >&2; exit 1; }\n"
             . "[ -f \"\$stage/recovery/CanonicalJson.php\" ] && [ -f \"\$stage/recovery/AtomicStore.php\" ] && [ -f \"\$stage/recovery/ProtocolLock.php\" ] && [ -f \"\$stage/recovery/ProviderClient.php\" ] && [ -f \"\$stage/recovery/rollback-control.php\" ] && [ -f \"\$stage/recovery/RecoveryExecutor.php\" ] && [ -f \"\$stage/recovery/CheckpointBundle.php\" ] && [ -f \"\$stage/recovery/CodeRelease.php\" ] && [ -f \"\$stage/recovery/UploadBundle.php\" ] && [ -f \"\$stage/recovery/EffectBundle.php\" ] || { echo 'wprism adopt: recovery runtime is missing' >&2; exit 1; }\n"
-            . "mkdir \"\$agent_new\"; agent_new_created=1; record_identity \"\$agent_new\" \"\$txn/agent_new_construction.id\" 'agent construction root'; cp -R \"\$stage/agent/.\" \"\$agent_new/\"\n"
+            . "mkdir \"\$agent_new\"; agent_new_created=1; chmod 0755 \"\$agent_new\"; record_identity \"\$agent_new\" \"\$txn/agent_new_construction.id\" 'agent construction root'; cp -R \"\$stage/agent/.\" \"\$agent_new/\"\n"
+            . "find \"\$agent_new\" -type d -exec chmod 0755 '{}' +; find \"\$agent_new\" -type f -exec chmod 0644 '{}' +\n"
             . "[ ! -e \"\$agent_new/scoped-promotion-control.json\" ] && [ ! -L \"\$agent_new/scoped-promotion-control.json\" ] || { echo 'wprism adopt: source artifact contains target-local scoped promotion configuration' >&2; exit 1; }\n"
             . ($scopedPromotionControl !== null
                 ? "printf '%s' " . $q($scopedPromotionControl) . " > \"\$agent_new/scoped-promotion-control.json\"; chmod 600 \"\$agent_new/scoped-promotion-control.json\"\n"
                 : '')
             . "record_identity \"\$agent_new\" \"\$txn/agent_new.id\" 'agent publish source'; agent_new_materialized=1\n"
-            . "if (set -C; umask 077; : > \"\$loader_new\"); then loader_new_created=1; else echo 'wprism adopt: loader staging collision' >&2; exit 1; fi; record_identity \"\$loader_new\" \"\$txn/loader_new_construction.id\" 'loader construction root'; cp \"\$stage/agent/wprism-loader.php\" \"\$loader_new\"\n"
+            . "if (set -C; umask 077; : > \"\$loader_new\"); then loader_new_created=1; else echo 'wprism adopt: loader staging collision' >&2; exit 1; fi; record_identity \"\$loader_new\" \"\$txn/loader_new_construction.id\" 'loader construction root'; cp \"\$stage/agent/wprism-loader.php\" \"\$loader_new\"; chmod 0644 \"\$loader_new\"\n"
             . "record_identity \"\$loader_new\" \"\$txn/loader_new.id\" 'loader publish source'; loader_new_materialized=1\n"
             . "mkdir \"\$wprism_new\"; wprism_new_created=1; record_identity \"\$wprism_new\" \"\$txn/wprism_new_construction.id\" 'WPrism authority construction root'; if [ -e \"\$wprism_state\" ]; then special=\$(find \"\$wprism_state\" ! -type d ! -type f -print -quit 2>/dev/null) || { echo 'wprism adopt: prior authority became unreadable' >&2; exit 1; }; [ -z \"\$special\" ] || { echo 'wprism adopt: prior authority contains a link or special node' >&2; exit 1; }; unreadable=\$(find \"\$wprism_state\" -type f ! -exec test -r '{}' \; -print -quit 2>/dev/null) || { echo 'wprism adopt: prior authority became unreadable' >&2; exit 1; }; [ -z \"\$unreadable\" ] || { echo 'wprism adopt: prior authority became unreadable' >&2; exit 1; }; cp -Rp \"\$wprism_state/.\" \"\$wprism_new/\"; fi\n"
             . "mkdir -p \"\$control_new\"; chmod 700 \"\$control_new\"; rm -rf \"\$runtime_new\"; cp -R \"\$stage/recovery\" \"\$runtime_new\"\n"
@@ -739,6 +777,139 @@ IGNORE
         return $m[1];
     }
 
+    /** Hash the exact assembled agent+recovery file set installed by adoption. */
+    public static function distributionDigest(string $sourceRoot): string {
+        $token = bin2hex(random_bytes(12));
+        $assembler = rtrim($sourceRoot, '/') . '/tools/src/AdapterLibraryAssembler.php';
+        $stage = null;
+        try {
+            $distribution = self::stageDistribution($sourceRoot, $token, $assembler);
+            $stage = $distribution['path'];
+            return $distribution['sha256'];
+        } finally {
+            if (is_string($stage)) {
+                self::removeLocalStage($stage);
+            }
+        }
+    }
+
+    /** @return array{path:string,sha256:string} */
+    private static function stageDistribution(string $sourceRoot, string $token, string $assembler): array {
+        if (!is_file($assembler)) {
+            throw new \RuntimeException('adapter library assembler is missing');
+        }
+        $stage = self::stageLocalArtifact($sourceRoot, $token);
+        try {
+            require_once $assembler;
+            \WPrism\Tooling\AdapterLibraryAssembler::assemble($sourceRoot, $stage . '/agent');
+            return ['path' => $stage, 'sha256' => DurableFilesystem::treeDigest($stage)];
+        } catch (\Throwable $error) {
+            self::removeLocalStage($stage);
+            throw $error;
+        }
+    }
+
+    /** Hash installed agent/ and recovery/ under their target mappings. */
+    private static function installedDistributionDigestScript(
+        string $muDir,
+        string $repo,
+        bool $excludeScopedPromotionControl
+    ): string {
+        $agent = rtrim($muDir, '/') . '/wprism';
+        $loader = rtrim($muDir, '/') . '/wprism-loader.php';
+        $runtime = rtrim($repo, '/') . '/.wprism/control/recovery-runtime';
+        $digestPhp = <<<'PHP'
+$roots = ['agent' => $argv[1], 'recovery' => $argv[2]];
+$excluded = $argv[3] === '1' ? ['agent/scoped-promotion-control.json' => true] : [];
+$files = [];
+foreach ($roots as $prefix => $root) {
+    $root = rtrim($root, '/');
+    $rootStat = @lstat($root);
+    if (!is_array($rootStat) || (((int) $rootStat['mode']) & 0170000) !== 0040000) exit(20);
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($iterator as $entry) {
+        if ($entry->isLink()) exit(21);
+        if ($entry->isDir()) continue;
+        if (!$entry->isFile()) exit(22);
+        $path = $entry->getPathname();
+        $relative = $prefix . '/' . substr($path, strlen($root) + 1);
+        if (isset($excluded[$relative])) continue;
+        if (isset($files[$relative])) exit(23);
+        $files[$relative] = $path;
+    }
+}
+ksort($files, SORT_STRING);
+$identity = static fn(array $stat): string => (string) $stat['dev'] . ':' . (string) $stat['ino']
+    . ':' . (string) (((int) $stat['mode']) & 0170000) . ':' . (string) $stat['size'];
+$ctx = hash_init('sha256');
+$canonicalLoaderSha256 = null;
+foreach ($files as $relative => $path) {
+    $before = @lstat($path);
+    $handle = @fopen($path, 'rb');
+    $opened = is_resource($handle) ? fstat($handle) : false;
+    if (!is_array($before) || !is_array($opened)
+        || (((int) $before['mode']) & 0170000) !== 0100000
+        || $identity($before) !== $identity($opened)) {
+        if (is_resource($handle)) fclose($handle);
+        exit(24);
+    }
+    hash_update($ctx, $relative . "\0");
+    $fileCtx = $relative === 'agent/wprism-loader.php' ? hash_init('sha256') : null;
+    while (!feof($handle)) {
+        $chunk = fread($handle, 1048576);
+        if (!is_string($chunk)) {
+            fclose($handle);
+            exit(25);
+        }
+        hash_update($ctx, $chunk);
+        if ($fileCtx !== null) hash_update($fileCtx, $chunk);
+    }
+    $closedIdentity = fstat($handle);
+    fclose($handle);
+    $after = @lstat($path);
+    if (!is_array($closedIdentity) || !is_array($after)
+        || $identity($opened) !== $identity($closedIdentity)
+        || $identity($opened) !== $identity($after)) exit(26);
+    if ($fileCtx !== null) $canonicalLoaderSha256 = hash_final($fileCtx);
+    hash_update($ctx, "\0");
+}
+$liveLoader = $argv[4];
+$before = @lstat($liveLoader);
+$handle = @fopen($liveLoader, 'rb');
+$opened = is_resource($handle) ? fstat($handle) : false;
+if (!is_string($canonicalLoaderSha256) || !is_array($before) || !is_array($opened)
+    || (((int) $before['mode']) & 0170000) !== 0100000
+    || $identity($before) !== $identity($opened)) {
+    if (is_resource($handle)) fclose($handle);
+    exit(27);
+}
+$loaderCtx = hash_init('sha256');
+while (!feof($handle)) {
+    $chunk = fread($handle, 1048576);
+    if (!is_string($chunk)) {
+        fclose($handle);
+        exit(28);
+    }
+    hash_update($loaderCtx, $chunk);
+}
+$closedIdentity = fstat($handle);
+fclose($handle);
+$after = @lstat($liveLoader);
+if (!is_array($closedIdentity) || !is_array($after)
+    || $identity($opened) !== $identity($closedIdentity)
+    || $identity($opened) !== $identity($after)
+    || !hash_equals($canonicalLoaderSha256, hash_final($loaderCtx))) exit(29);
+echo hash_final($ctx);
+PHP;
+        return 'php -r ' . escapeshellarg($digestPhp)
+            . ' ' . escapeshellarg($agent)
+            . ' ' . escapeshellarg($runtime)
+            . ' ' . escapeshellarg($excludeScopedPromotionControl ? '1' : '0')
+            . ' ' . escapeshellarg($loader);
+    }
+
     private static function stageLocalArtifact(string $sourceRoot, string $token): string {
         $temporaryRoot = realpath(sys_get_temp_dir());
         if (!is_string($temporaryRoot) || $temporaryRoot === '' || $temporaryRoot === DIRECTORY_SEPARATOR) {
@@ -761,12 +932,54 @@ IGNORE
             );
         }
 
+        // A reviewed distribution is expected to be mounted or copied
+        // read-only by its controller. `cp -R` correctly preserves those
+        // directory modes, but this entire tree is a newly allocated,
+        // process-owned staging copy. Normalize only its directories so the
+        // assembler can replace generated descendants and both local and
+        // remote transaction cleanup can remove the copied tree. Files retain
+        // their reviewed modes and bytes; the source distribution remains
+        // immutable.
+        try {
+            self::makeLocalStageDirectoriesWritable($stage);
+        } catch (\Throwable $error) {
+            self::removeLocalStage($stage);
+            throw new \RuntimeException(
+                'could not make the local adoption staging directories writable: ' . $error->getMessage()
+            );
+        }
+
         $resolved = realpath($stage);
         if (!is_string($resolved) || $resolved !== $stage) {
             self::removeLocalStage($stage);
             throw new \RuntimeException('local adoption staging changed identity after copy');
         }
         return $resolved;
+    }
+
+    private static function makeLocalStageDirectoriesWritable(string $path): void {
+        $stat = @lstat($path);
+        if (!is_array($stat) || ($stat['mode'] & 0170000) !== 0040000 || is_link($path)) {
+            throw new \RuntimeException('staging contains an unexpected directory boundary');
+        }
+        $mode = ((int) $stat['mode']) & 0777;
+        if (!chmod($path, $mode | 0700)) {
+            throw new \RuntimeException('could not normalize a staging directory');
+        }
+        $children = @scandir($path);
+        if (!is_array($children)) {
+            throw new \RuntimeException('could not inspect a staging directory');
+        }
+        foreach ($children as $child) {
+            if ($child === '.' || $child === '..') {
+                continue;
+            }
+            $childPath = $path . '/' . $child;
+            $childStat = @lstat($childPath);
+            if (is_array($childStat) && ($childStat['mode'] & 0170000) === 0040000 && !is_link($childPath)) {
+                self::makeLocalStageDirectoriesWritable($childPath);
+            }
+        }
     }
 
     private static function removeLocalStage(string $stage): void {

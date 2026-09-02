@@ -22,6 +22,7 @@ require_once __DIR__ . '/../Review/LintTrustGate.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Policy/AdapterLibrary.php';
 require_once __DIR__ . '/../Publication/Publish.php';
+require_once __DIR__ . '/../Repository/CompiledArtifact.php';
 require_once __DIR__ . '/../Repository/RepositoryCompiler.php';
 require_once __DIR__ . '/../Scope/ScopedApply.php';
 require_once __DIR__ . '/../Scope/ScopedCaptureProjector.php';
@@ -615,12 +616,23 @@ final class CapturePublicationWorkflow {
                     // its content-addressed blobs.
                     $compiledCandidate = RepositoryCompiler::compile_staged($staging, $c->repo(), $c->policy());
                 }
+                if ($intoRepo) {
+                    // CaptureCommand's machine receipt is intentionally bound
+                    // to the compiled state revision. Returning null here made
+                    // a successful ordinary (non-init) capture look like an
+                    // agent/CLI version mismatch after the state had already
+                    // been published. Every repository publication has passed
+                    // the staged compiler above, so retain that exact fact.
+                    if (!$compiledCandidate instanceof CompiledRepository) {
+                        throw new \RuntimeException('wprism: capture repository candidate was not compiled');
+                    }
+                    $candidate['_revision_hash'] = $compiledCandidate->revision_hash();
+                }
                 if ($initialBaseline) {
                     $candidate['_initial_code_baseline'] = Code::complete_initial_baseline_in_active_transaction(
                         $repo,
                         $compiledCandidate
                     );
-                    $candidate['_revision_hash'] = $compiledCandidate->revision_hash();
                 }
                 if ($scopeContract !== null) {
                     if (!is_string($scopeSourceTreeSha256)
