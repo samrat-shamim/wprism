@@ -213,6 +213,7 @@ function ideal_handoff_fixture(string $tmp, string $label, ?Closure $afterRaw = 
         mkdir($directory, 0700);
     }
     file_put_contents($target . '/site.wprism.json', Adopt::repositorySeedBytes());
+    file_put_contents($target . '/.gitattributes', "media/** filter=lfs diff=lfs merge=lfs -text\n");
     file_put_contents($target . '/.gitignore', Adopt::repositoryGitignoreBytes());
     file_put_contents($target . '/code/plugin.php', "<?php\n");
     file_put_contents($target . '/state/baseline.json', "{}\n");
@@ -670,6 +671,7 @@ foreach ([$targetRepo, $targetRepo . '/code', $targetRepo . '/state', $targetRep
     mkdir($directory, 0700);
 }
 file_put_contents($targetRepo . '/site.wprism.json', Adopt::repositorySeedBytes());
+file_put_contents($targetRepo . '/.gitattributes', "media/** filter=lfs diff=lfs merge=lfs -text\n");
 file_put_contents($targetRepo . '/.gitignore', Adopt::repositoryGitignoreBytes());
 file_put_contents($targetRepo . '/code/plugin.php', "<?php\n");
 file_put_contents($targetRepo . '/state/baseline.json', "{}\n");
@@ -719,6 +721,11 @@ wprism_check_same(0, $handoffExit, 'onboard publishes and checks out the initial
 wprism_check_same(trim($targetHead['stdout']), trim($workspaceHead['stdout']), 'developer and target worktrees resolve the same initialized revision');
 wprism_check_same('develop', trim($workspaceBranch['stdout']), 'the connected workspace preserves and tracks the target branch');
 wprism_check(is_file($handoffWorkspace . '/code/plugin.php'), 'checkout materializes the initialized target payload locally');
+wprism_check(
+    trim(IdealOnboardingTransport::process(['git', '-C', $handoffWorkspace, 'ls-files', '.gitattributes'])['stdout']) === '.gitattributes'
+        && IdealOnboardingTransport::process(['git', '-C', $targetRepo, 'status', '--porcelain', '--', '.gitattributes'])['stdout'] === '',
+    'handoff tracks init-owned Git attributes and leaves no source-side canonical drift'
+);
 wprism_check(is_file($handoffWorkspace . '/.wprism-envs.json'), 'checkout preserves the ignored machine-local environment registry');
 wprism_check_same(
     "{\"format\":\"assessment-artifact-fixture\"}\n",
