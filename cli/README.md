@@ -744,7 +744,11 @@ semantics remain the rehearsal implementation's.
 - **`wprism stage-source` / `wprism release <env> prepare|execute|status`** — the
   externally authorized control-plane form of the same release. `stage-source`
   retains the exact advertised commit under target-private Git state without
-  moving canonical `HEAD`, index or worktree and returns one durable receipt.
+  moving canonical `HEAD`, index or worktree, resolves any locked third-party
+  code into that inert checkout from the controller side, and returns one
+  durable receipt. Every retry and prepare re-proves that the staged code still
+  matches the committed lock; the production target never gains registry
+  access.
   `prepare` reads that inert checkout, current target facts and the already
   enrolled target-authoritative policy into one canonical subject without writing target or local
   repository bytes. An external Ed25519 actor signs its exact presentation and

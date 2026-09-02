@@ -196,6 +196,13 @@ final class CodeResolver {
      */
     public function resolve(string $repo, array $components, bool $dryRun): array {
         $repo = rtrim($repo, '/');
+        // A format-2 lock can legitimately contain no third-party component
+        // rows. Git cannot carry its empty source directory, but the compiler
+        // still requires the declared source root. Create only that exact root
+        // on a mutating resolve; a dry run remains byte-read-only.
+        if ($components === [] && !$dryRun) {
+            self::ensureEmptySourceRoot($repo);
+        }
         $rows = [];
         foreach ($components as $entry) {
             $root = (string) $entry['root'];
@@ -244,6 +251,30 @@ final class CodeResolver {
             $rows[] = self::row($root, $component, $version, 'resolved', 'verified and materialized from ' . $archive['source']);
         }
         return $rows;
+    }
+
+    private static function ensureEmptySourceRoot(string $repo): void {
+        $parent = $repo . '/code';
+        $source = $repo . '/' . CodeSourceLock::SOURCE;
+        if (is_link($parent) || !is_dir($parent)
+            || is_link($source) || (file_exists($source) && !is_dir($source))) {
+            throw new CommandRefusalException(
+                self::REASON_COMPONENT_UNSAFE,
+                'the declared code source cannot be created as an ordinary directory',
+                'restore the repository code directory and remove any link or file at code/wp-content, then rerun',
+                [],
+                "wprism: the empty format-2 source root is unsafe at $source"
+            );
+        }
+        if (!is_dir($source) && !@mkdir($source, 0755)) {
+            throw new CommandRefusalException(
+                self::REASON_WRITE_FAILED,
+                'the declared code source directory could not be created',
+                'repair repository permissions for code/wp-content, then rerun',
+                [],
+                "wprism: could not create the empty format-2 source root at $source"
+            );
+        }
     }
 
     /**

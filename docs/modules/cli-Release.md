@@ -20,7 +20,7 @@
 - `ReleaseOperationStatus` — `wprism-release-operation-status/v1`, a read-only four-step projection over the target's durable election, consumption and completion evidence. Its `sequence` is bounded to 0–3 rather than pretending WPrism has a general event stream.
 - `NextAction` — the closed, total set `resume/reconcile/retry/recover/requalify/escalate` and the deterministic failure-class mapping into it (`cli/src/Release/NextAction.php:11-20`).
 - `JourneyOracle` — `wprism-verify-report/v1`: convergence proves the bytes landed and is explicitly *not sufficient*, so a declared affected-journey oracle is required beside it (`cli/src/Release/JourneyOracle.php:13-22`).
-- `SourceStageReceipt` — `wprism-source-stage-receipt/v1`, binding the stable target, base commit/tree, advertised source commit/tree and persistent inert Git ref/worktree to one operation lineage. Target-side publication is atomic and fsync/readback proven; exact retry preserves its bytes.
+- `SourceStageReceipt` — `wprism-source-stage-receipt/v1`, binding the stable target, base commit/tree, advertised source commit/tree and persistent inert Git ref/worktree to one operation lineage. The command boundary resolves split locked code into that stage and re-proves its digests without adding ignored bytes to the receipt. Target-side publication is atomic and fsync/readback proven; exact retry preserves its bytes.
 - `ReleasePrepare` — `wprism-release-prepare/v1`, binding the unchanged authorization-plan/v1 semantic digest, the exact standalone plan bytes, authority-policy and capability-library digests, required grants, the stage receipt and every explicit request fact into one `subject_sha256`.
 
 **Known debts.**

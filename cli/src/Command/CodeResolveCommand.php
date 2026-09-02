@@ -82,6 +82,75 @@ final class CodeResolveCommand {
     private const PROOF_DOCKER = 'docker-bind';
     private const PROOF_STAGED = 'staged';
     private const PROOF_POST_PUSH = 'post-push';
+    private const PROOF_SOURCE_STAGE = 'source-stage';
+
+    /**
+     * Populate locked bytes in a target-visible inert source stage.
+     *
+     * `stage-source` is already the mutating transaction that creates this
+     * checkout. Resolving here keeps `release prepare` read-only while making
+     * every planning read operate on a complete candidate rather than on the
+     * deliberately split Git tree alone.
+     */
+    public static function materializeSourceStage(EnvironmentDriver $transport, string $targetRepo): void {
+        $targetRepo = rtrim($targetRepo, '/');
+        $hostRoot = self::hostRepo($transport);
+        if ($hostRoot === null) {
+            if (!$transport instanceof CodePushTransport) {
+                if (self::targetDeclaresLock($transport, $targetRepo)) {
+                    throw self::unresolvableTransport($transport);
+                }
+                return;
+            }
+            self::targetResolve($transport, '', false, false, null, $targetRepo, false);
+            self::assertSourceStage($transport, $targetRepo);
+            return;
+        }
+
+        $targetRoot = rtrim($transport->repoPath(), '/');
+        if ($transport->driverId() === 'local') {
+            $hostStage = $targetRepo;
+        } elseif ($targetRepo === $targetRoot || str_starts_with($targetRepo, $targetRoot . '/')) {
+            $hostStage = rtrim($hostRoot, '/') . substr($targetRepo, strlen($targetRoot));
+        } else {
+            throw self::unresolvableTransport($transport);
+        }
+        $lock = CodeResolver::declaredLock($hostStage);
+        if ($lock === null) {
+            return;
+        }
+        self::resolver(false, null)->resolve($hostStage, $lock['components'], false);
+        self::assertSourceStage($transport, $targetRepo);
+    }
+
+    /** Prove that a previously materialized stage still matches its lock. */
+    public static function assertSourceStage(EnvironmentDriver $transport, string $targetRepo): void {
+        $repo = rtrim($targetRepo, '/');
+        $site = $transport->captureRaw('cat ' . escapeshellarg($repo . '/site.wprism.json'));
+        if ($site['exit'] !== 0) {
+            return;
+        }
+        $document = json_decode(trim($site['stdout']), true);
+        $code = is_array($document) ? ($document['code'] ?? null) : null;
+        if (!is_array($code) || ($code['format'] ?? null) !== 2) {
+            return;
+        }
+        $relative = is_string($code['lock'] ?? null) ? (string) $code['lock'] : CodeSourceLock::PATH;
+        $lockRead = $transport->captureRaw('cat ' . escapeshellarg($repo . '/' . $relative));
+        if ($lockRead['exit'] !== 0) {
+            throw new CommandRefusalException(
+                CodeResolver::REASON_LOCK_UNREADABLE,
+                'the target source stage declares code format 2 but its lock could not be read',
+                'discard the source stage and retry the exact stage operation after restoring the reviewed lock'
+            );
+        }
+        $lock = CodeSourceLock::parse(trim($lockRead['stdout']));
+        self::assertTargetSourceRoot($transport, $repo, true);
+        $components = array_values((array) $lock['components']);
+        if ($components !== []) {
+            self::assertInventory($transport, $repo, $components, self::PROOF_SOURCE_STAGE);
+        }
+    }
 
     /** @param list<string> $extra */
     public static function run(EnvironmentDriver $transport, array $extra): int {
@@ -435,6 +504,10 @@ final class CodeResolveCommand {
         array $components,
         string $proof
     ): void {
+        if ($components === []) {
+            self::assertTargetSourceRoot($transport, $repo);
+            return;
+        }
         $inventory = self::targetInventory($transport, rtrim($repo, '/'), $proof !== self::PROOF_DOCKER);
         $missing = [];
         foreach ($components as $entry) {
@@ -456,6 +529,15 @@ final class CodeResolveCommand {
                 . 'nothing was published into the target\'s code/wp-content and its staging directory was removed',
                 [],
                 'wprism: the target does not report the locked digest for staged: ' . implode(', ', $missing)
+            );
+        }
+        if ($proof === self::PROOF_SOURCE_STAGE) {
+            throw new CommandRefusalException(
+                CodeResolver::REASON_DRIFTED,
+                'the inert source stage no longer contains every component at the digest its lock declares',
+                'discard the source stage and retry the exact stage operation before preparing a release',
+                [],
+                'wprism: the source stage does not report the locked digest for: ' . implode(', ', $missing)
             );
         }
         if ($proof === self::PROOF_POST_PUSH) {
@@ -519,12 +601,12 @@ final class CodeResolveCommand {
             // Not a silent skip: compile reads the same file one phase later
             // and refuses by name if it is missing, so nothing unresolved can
             // slip past this return.
-            return self::targetUnlocked($verb);
+            return self::targetUnlocked($verb, $render);
         }
         $document = json_decode(trim($site['stdout']), true);
         $code = is_array($document) ? ($document['code'] ?? null) : null;
         if (!is_array($code) || ($code['format'] ?? null) !== 2) {
-            return self::targetUnlocked($verb);
+            return self::targetUnlocked($verb, $render);
         }
         if ($verb !== '') {
             echo "$verb phase: code-resolve\n";
@@ -542,6 +624,9 @@ final class CodeResolveCommand {
         }
         $lock = CodeSourceLock::parse(trim($lockRead['stdout']));
         $components = array_values((array) $lock['components']);
+        if ($components === [] && !$dryRun) {
+            self::ensureTargetSourceRoot($transport, $repo);
+        }
         $pushing = $transport instanceof CodePushTransport;
         // A split repository deliberately does not track component bytes, and
         // Git cannot preserve its empty `code/wp-content` directory. On the
@@ -635,7 +720,10 @@ final class CodeResolveCommand {
      * host-side arm prints for a repository that declares no lock, because it
      * is the same conclusion about the same question.
      */
-    private static function targetUnlocked(string $verb): ?int {
+    private static function targetUnlocked(string $verb, bool $render = true): ?int {
+        if (!$render) {
+            return $verb === '' ? 0 : null;
+        }
         if ($verb !== '') {
             return null;
         }
@@ -928,6 +1016,51 @@ final class CodeResolveCommand {
             }
         }
         return $inventory;
+    }
+
+    private static function ensureTargetSourceRoot(EnvironmentDriver $transport, string $repo): void {
+        $source = rtrim($repo, '/') . '/' . CodeSourceLock::SOURCE;
+        $parent = dirname($source);
+        $result = $transport->captureRaw(
+            'p=' . escapeshellarg($source) . '; parent=' . escapeshellarg($parent) . '; '
+            . '[ -d "$parent" ] && [ ! -L "$parent" ] || exit 72; '
+            . '[ ! -L "$p" ] && { [ ! -e "$p" ] || [ -d "$p" ]; } || exit 73; '
+            . 'mkdir -p "$p" && printf __CREATED__'
+        );
+        if ($result['exit'] !== 0 || trim($result['stdout']) !== '__CREATED__') {
+            throw new CommandRefusalException(
+                CodeResolver::REASON_WRITE_FAILED,
+                'the declared code source directory could not be created on the target',
+                'repair the target repository permissions and remove any link or file at code/wp-content, then retry',
+                [],
+                'wprism: target code source creation failed for ' . $source
+            );
+        }
+    }
+
+    private static function assertTargetSourceRoot(
+        EnvironmentDriver $transport,
+        string $repo,
+        bool $sourceStage = false
+    ): void {
+        $source = rtrim($repo, '/') . '/' . CodeSourceLock::SOURCE;
+        $result = $transport->captureRaw(
+            'p=' . escapeshellarg($source) . '; [ -d "$p" ] && [ ! -L "$p" ] && printf __PRESENT__'
+        );
+        if ($result['exit'] !== 0 || trim($result['stdout']) !== '__PRESENT__') {
+            throw new CommandRefusalException(
+                CodeResolver::REASON_DRIFTED,
+                $sourceStage
+                    ? 'the inert source stage is missing its declared code source directory'
+                    : 'the resolved repository is missing its declared code source directory',
+                $sourceStage
+                    ? 'discard the source stage and retry the exact stage operation before preparing a release'
+                    : 'repair the repository code source and rerun the exact resolve operation before compilation',
+                [],
+                'wprism: ' . ($sourceStage ? 'source stage' : 'resolved repository')
+                    . ' code root is absent or unsafe at ' . $source
+            );
+        }
     }
 
     /**

@@ -75,6 +75,74 @@ try {
   && pass 'release scope consumes the exact agent projection and refuses malformed narrowing' \
   || fail 'release scope widened exact product/option changes or accepted malformed narrowing'
 
+# Product-path regression for a split repository whose empty code source root
+# cannot exist in Git. Keep it isolated from the larger format-1 release
+# fixture below so its race assertions retain their original compile topology.
+SPLIT="$TMP/split-code-stage"
+mkdir -p "$SPLIT/source" "$SPLIT/wordpress"
+php -r '
+require $argv[1] . "/agent/src/Kernel/Canon.php";
+$site = [
+    "code" => ["format" => 1, "layout" => "wp-content", "source" => "code/wp-content"],
+    "manifests" => ["core"],
+    "policy" => new stdClass(),
+    "spec_version" => 2,
+];
+file_put_contents($argv[2], \WPrism\Canon::encode($site));
+' "$ROOT" "$SPLIT/source/site.wprism.json"
+git -C "$SPLIT/source" init -q --initial-branch=main
+git -C "$SPLIT/source" add site.wprism.json
+git -C "$SPLIT/source" -c user.email=fixture@example.invalid -c user.name=fixture commit -q -m base
+git init --bare --initial-branch=main "$SPLIT/origin.git" >/dev/null 2>&1
+git -C "$SPLIT/source" remote add origin "$SPLIT/origin.git"
+git -C "$SPLIT/source" push -q origin main
+git clone -q "$SPLIT/origin.git" "$SPLIT/target"
+git -C "$SPLIT/source" switch -q -c release-candidate
+mkdir -p "$SPLIT/source/code"
+php -r '
+require $argv[1] . "/agent/src/Kernel/Canon.php";
+require $argv[1] . "/agent/src/Code/CodeSourceLock.php";
+$site = json_decode((string) file_get_contents($argv[2]), true);
+$site["code"] = [
+    "format" => 2,
+    "layout" => "wp-content",
+    "lock" => "code/wprism-code.lock.json",
+    "source" => "code/wp-content",
+];
+file_put_contents($argv[2], \WPrism\Canon::encode($site));
+file_put_contents($argv[3], \WPrism\CodeSourceLock::encode([], []));
+' "$ROOT" "$SPLIT/source/site.wprism.json" "$SPLIT/source/code/wprism-code.lock.json"
+git -C "$SPLIT/source" add site.wprism.json code/wprism-code.lock.json
+git -C "$SPLIT/source" -c user.email=fixture@example.invalid -c user.name=fixture \
+  commit -q -m 'split code candidate'
+git -C "$SPLIT/source" push -q origin release-candidate
+php -r '
+$registry = ["envs" => ["split" => [
+    "transport" => "local",
+    "wp_path" => $argv[2],
+    "repo_path" => $argv[3],
+]]];
+file_put_contents($argv[1], json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+' "$SPLIT/envs.json" "$SPLIT/wordpress" "$SPLIT/target"
+SPLIT_TARGET_HEAD="$(git -C "$SPLIT/target" rev-parse HEAD)"
+( cd "$SPLIT/source" && php "$ROOT/cli/wprism" --envs-file="$SPLIT/envs.json" \
+    stage-source split --from=release-candidate --operation=split-code-stage-fixture --format=json ) \
+  > "$SPLIT/receipt.json" 2> "$SPLIT/receipt.json.err"
+SPLIT_STAGE_STATUS=$?
+SPLIT_STAGE_REPO="$(php -r '$d=json_decode(file_get_contents($argv[1]),true);echo $d["stage"]["repository_path"]??"";' "$SPLIT/receipt.json")"
+[ "$SPLIT_STAGE_STATUS" = 0 ] && [ -d "$SPLIT_STAGE_REPO/code/wp-content" ] \
+  && [ ! -L "$SPLIT_STAGE_REPO/code/wp-content" ] && [ ! -s "$SPLIT/receipt.json.err" ] \
+  && pass 'stage-source materializes the split code root that Git cannot preserve' \
+  || fail 'stage-source left the inert split repository unable to compile from its declared code root'
+rmdir "$SPLIT_STAGE_REPO/code/wp-content"
+( cd "$SPLIT/source" && php "$ROOT/cli/wprism" --envs-file="$SPLIT/envs.json" \
+    stage-source split --from=release-candidate --operation=split-code-stage-fixture --format=json ) \
+  > "$SPLIT/retry.json" 2> "$SPLIT/retry.json.err"
+[ "$?" = 1 ] && grep -Fq 'release_stage_code_changed' "$SPLIT/retry.json" \
+  && [ "$(git -C "$SPLIT/target" rev-parse HEAD)" = "$SPLIT_TARGET_HEAD" ] \
+  && pass 'stage retry refuses a split-code stage whose resolved root disappeared' \
+  || fail 'stage retry accepted or repaired an incomplete immutable source stage'
+
 php "$ROOT/sandbox/tests/fixtures/release/make-release-site.php" "$TMP/site" >/dev/null \
   || { echo 'FAIL: could not build release fixture' >&2; exit 1; }
 
