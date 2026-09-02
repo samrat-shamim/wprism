@@ -25890,6 +25890,23 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "distributionDigest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sourceRoot",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "install": {
                     "abstract": false,
                     "final": false,
@@ -25948,6 +25965,14 @@
                             "has_default": true,
                             "name": "postSwapVerifier",
                             "type": "?callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "expectedDistributionSha256",
+                            "type": "?string",
                             "variadic": false
                         }
                     ],
@@ -29780,11 +29805,14 @@
                 "MAX_TIMEOUT_SECONDS": {
                     "value_repr": 3600
                 },
+                "PROTOCOL": {
+                    "value_repr": 2
+                },
                 "REQUEST_FORMAT": {
-                    "value_repr": "wprism-branch-environment-provider-request/v1"
+                    "value_repr": "wprism-branch-environment-provider-request/v2"
                 },
                 "RESPONSE_FORMAT": {
-                    "value_repr": "wprism-branch-environment-provider-response/v1"
+                    "value_repr": "wprism-branch-environment-provider-response/v2"
                 }
             },
             "final": true,
@@ -31788,7 +31816,7 @@
                             "default": null,
                             "has_default": true,
                             "name": "targetBootstrap",
-                            "type": "?callable",
+                            "type": "?array",
                             "variadic": false
                         }
                     ],
@@ -31809,7 +31837,7 @@
                             "variadic": false
                         }
                     ],
-                    "return_type": "callable",
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 }
@@ -32430,7 +32458,7 @@
                             "default": null,
                             "has_default": true,
                             "name": "targetBootstrap",
-                            "type": "?callable",
+                            "type": "?array",
                             "variadic": false
                         }
                     ],

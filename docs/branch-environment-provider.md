@@ -65,25 +65,30 @@ noncanonical evidence. stdout plus stderr may not exceed 1,048,576 bytes, and
 raw provider output is redacted on every failure — it may carry host or production-data
 diagnostics. A non-zero provider may return the canonical error response below to surface bounded, operator-safe diagnostics without exposing stderr.
 
-**Request** — `wprism-branch-environment-provider-request/v1`, key set exactly:
+Protocol 2 deliberately replaces v1: `repository-materialize` now requires the provider to echo
+the distinct named `target_branch` it checked out. The first action is always non-mutating
+`capabilities`, so a v1 response is rejected before snapshot, resource, or repository mutation.
+Upgrade request/response formats and `provider.protocol` together before materialization.
+
+**Request** — `wprism-branch-environment-provider-request/v2`, key set exactly:
 
 | field | value |
 |---|---|
 | `action` | one of the 19 names in §5 |
 | `environment` | the registry name of the environment being acted on |
-| `format` | `wprism-branch-environment-provider-request/v1` |
+| `format` | `wprism-branch-environment-provider-request/v2` |
 | `input` | the per-action object in §5 — the empty JSON list `[]` for `capabilities` |
 | `operation_id` | one opaque `[A-Za-z0-9._:@+-]{8,256}` id, stable for a whole operation |
 
-**Response** — `wprism-branch-environment-provider-response/v1`, key set exactly:
+**Response** — `wprism-branch-environment-provider-response/v2`, key set exactly:
 
 | field | value |
 |---|---|
 | `action` | echoed verbatim |
 | `environment` | echoed verbatim |
-| `format` | `wprism-branch-environment-provider-response/v1` |
+| `format` | `wprism-branch-environment-provider-response/v2` |
 | `operation_id` | echoed verbatim |
-| `provider` | exactly `{id, protocol}`; `id` matches `[A-Za-z0-9._:@+-]{1,128}`, `protocol` is the integer `1` |
+| `provider` | exactly `{id, protocol}`; `id` matches `[A-Za-z0-9._:@+-]{1,128}`, `protocol` is the integer `2` |
 | `result` | the per-action **closed** object in §5 |
 | `status` | `ok` on exit 0; `error` on a non-zero structured failure |
 
@@ -794,7 +799,7 @@ provider stdout/stderr is never among them.
 | `environment provider identity is malformed` | `provider` is not a JSON object |
 | `environment provider identity has missing or unknown fields` | `provider` is not exactly `{id, protocol}` |
 | `environment provider id is invalid` | `provider.id` is not `[A-Za-z0-9._:@+-]{1,128}` |
-| `environment provider protocol must be 1` | `provider.protocol` is not the integer 1 |
+| `environment provider protocol must be 2` | `provider.protocol` is not the integer 2 |
 | `environment provider result must be an object` | `result` is a non-empty JSON list or a scalar |
 | `environment provider capabilities must be a list` | the `capabilities` result field is not a JSON list |
 | `environment provider capability IDs must be strings` | a capability id is not a string |

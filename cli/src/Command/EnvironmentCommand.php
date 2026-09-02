@@ -30,14 +30,14 @@ final class EnvironmentCommand {
      * @param list<string> $args
      * @param callable(EnvironmentDriver,array<string,mixed>):array<string,mixed>|int $promote
      * @param ?callable(array<string,mixed>):void $receiptObserver
-     * @param ?callable(EnvironmentDriver,array{operation_id:string,target_environment:string}):array{agent_version:string} $targetBootstrap
+     * @param ?array{distribution_sha256:string|callable():string,install:callable(EnvironmentDriver,array{operation_id:string,target_environment:string}):array{agent_version:string,distribution_sha256:string}} $targetBootstrap
      */
     public static function run(
         array $args,
         ?string $envsFileOverride,
         callable $promote,
         ?callable $receiptObserver = null,
-        ?callable $targetBootstrap = null
+        ?array $targetBootstrap = null
     ): int {
         if (count($args) < 2) {
             fwrite(STDERR, "wprism: env requires materialize|reap|provider-check and a target <env>\n");
@@ -202,12 +202,19 @@ final class EnvironmentCommand {
     /**
      * Compose Onboarding's atomic install at the command surface. Providers
      * never receive WPrism source paths or agent bytes, and Environment's
-     * engine receives only the version receipt returned by this closure.
+     * engine receives only an immutable distribution pin and install receipt.
      *
-     * @return callable(EnvironmentDriver,array{operation_id:string,target_environment:string}):array{agent_version:string}
+     * @return array{distribution_sha256:callable():string,install:callable(EnvironmentDriver,array{operation_id:string,target_environment:string}):array{agent_version:string,distribution_sha256:string}}
      */
-    public static function targetBootstrap(string $sourceRoot): callable {
-        return static function (EnvironmentDriver $driver, array $context) use ($sourceRoot): array {
+    public static function targetBootstrap(string $sourceRoot): array {
+        $distributionSha256 = null;
+        $pin = static function () use ($sourceRoot, &$distributionSha256): string {
+            if (!is_string($distributionSha256)) {
+                $distributionSha256 = Adopt::distributionDigest($sourceRoot);
+            }
+            return $distributionSha256;
+        };
+        $install = static function (EnvironmentDriver $driver, array $context) use ($sourceRoot, $pin): array {
             if (!$driver instanceof AdoptionTransport) {
                 throw new \RuntimeException('target agent bootstrap requires an authorized adoption transport');
             }
@@ -216,7 +223,8 @@ final class EnvironmentCommand {
                 || $context['operation_id'] === '') {
                 throw new \RuntimeException('target agent bootstrap context is malformed');
             }
-            $result = Adopt::install($driver, $sourceRoot);
+            $expectedDistribution = $pin();
+            $result = Adopt::install($driver, $sourceRoot, null, null, null, null, null, $expectedDistribution);
             if (($result['exit'] ?? 1) !== 0) {
                 $phase = is_string($result['phase'] ?? null) && $result['phase'] !== ''
                     ? $result['phase']
@@ -227,8 +235,17 @@ final class EnvironmentCommand {
             if (!is_string($version) || $version === '') {
                 throw new \RuntimeException('target agent bootstrap completed without an agent version');
             }
-            return ['agent_version' => $version];
+            $installedDistribution = $result['distribution_sha256'] ?? null;
+            if (!is_string($installedDistribution)
+                || !hash_equals($expectedDistribution, $installedDistribution)) {
+                throw new \RuntimeException('target agent bootstrap installed another distribution');
+            }
+            return [
+                'agent_version' => $version,
+                'distribution_sha256' => $installedDistribution,
+            ];
         };
+        return ['distribution_sha256' => $pin, 'install' => $install];
     }
 
     /** @param array<string,mixed> $receipt */

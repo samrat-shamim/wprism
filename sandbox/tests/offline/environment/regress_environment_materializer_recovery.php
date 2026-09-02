@@ -358,7 +358,7 @@ namespace {
     }
 
     /** @param array<string,mixed> $fixture */
-    function rr_materialize(array $fixture, callable $promote, int $ttl = 60, ?callable $targetBootstrap = null): array {
+    function rr_materialize(array $fixture, callable $promote, int $ttl = 60, ?array $targetBootstrap = null): array {
         $old = getcwd();
         chdir((string) $fixture['repo']);
         try {
@@ -542,8 +542,8 @@ if ($mutating && $fault === $faultKey && !($state['faulted'][$faultKey] ?? false
 }
 $response = [
     'action' => $action, 'environment' => (string) ($request['environment'] ?? ''),
-    'format' => 'wprism-branch-environment-provider-response/v1', 'operation_id' => $operation,
-    'provider' => ['id' => 'recovery-provider-' . $role, 'protocol' => 1], 'result' => $result, 'status' => 'ok',
+    'format' => 'wprism-branch-environment-provider-response/v2', 'operation_id' => $operation,
+    'provider' => ['id' => 'recovery-provider-' . $role, 'protocol' => 2], 'result' => $result, 'status' => 'ok',
 ];
 echo c($response) . "\n";
 PHP);
@@ -598,14 +598,25 @@ PHP);
         $promotion = rr_promoter();
         $bootstrapCalls = 0;
         $bootstrapMutations = 0;
-        $bootstrap = static function (EnvironmentDriver $driver, array $context) use (&$bootstrapCalls, &$bootstrapMutations): array {
-            $bootstrapCalls++;
-            if ($bootstrapMutations === 0) {
-                $bootstrapMutations++;
-                throw new RuntimeException('target bootstrap response was lost after commit');
-            }
-            return ['agent_version' => '0.7.0'];
-        };
+        $bootstrapDistribution = hash('sha256', 'recovery-bootstrap-distribution');
+        $bootstrap = [
+            'distribution_sha256' => $bootstrapDistribution,
+            'install' => static function (EnvironmentDriver $driver, array $context) use (
+                &$bootstrapCalls,
+                &$bootstrapMutations,
+                $bootstrapDistribution
+            ): array {
+                $bootstrapCalls++;
+                if ($bootstrapMutations === 0) {
+                    $bootstrapMutations++;
+                    throw new RuntimeException('target bootstrap response was lost after commit');
+                }
+                return [
+                    'agent_version' => '0.7.0',
+                    'distribution_sha256' => $bootstrapDistribution,
+                ];
+            },
+        ];
         rr_throws(
             static fn() => rr_materialize($bootstrapLoss, $promotion['callback'], 60, $bootstrap),
             'bootstrap response was lost',
@@ -618,8 +629,9 @@ PHP);
             ($bootstrapReceipt['format'] ?? null) === 'wprism-branch-environment-receipt/v1'
                 && $bootstrapCalls === 2 && $bootstrapMutations === 1
                 && rr_event_data($bootstrapEvents, 'target-agent-bootstrap-intent') !== null
-                && ($bootstrapComplete['agent_version'] ?? null) === '0.7.0',
-            'target-bootstrap retry reconciles one committed install into one journaled version receipt'
+                && ($bootstrapComplete['agent_version'] ?? null) === '0.7.0'
+                && ($bootstrapComplete['distribution_sha256'] ?? null) === $bootstrapDistribution,
+            'target-bootstrap retry reconciles one committed install into one immutable distribution receipt'
         );
         rr_assert_no_completed_replay(
             array_merge(rr_calls($bootstrapLoss['source_log']), rr_calls($bootstrapLoss['target_log'])),

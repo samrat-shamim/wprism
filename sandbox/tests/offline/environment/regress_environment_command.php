@@ -189,7 +189,8 @@ $check(
         && str_contains($command, 'EnvironmentMaterializer::materialize(')
         && str_contains($command, 'EnvironmentMaterializer::reap(')
         && str_contains($command, '$targetDriver instanceof AdoptionTransport ? $targetBootstrap : null')
-        && str_contains($command, 'Adopt::install($driver, $sourceRoot)'),
+        && str_contains($command, 'Adopt::distributionDigest($sourceRoot)')
+        && str_contains($command, 'Adopt::install($driver, $sourceRoot,'),
     'command parses public intent before privileged setup and composes adoption only for an authorized target transport'
 );
 

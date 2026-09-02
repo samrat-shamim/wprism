@@ -166,9 +166,9 @@ $result = $spec['results'][$action] ?? ['capabilities' => []];
 echo pc_canon([
     'action' => $action,
     'environment' => $request['environment'],
-    'format' => 'wprism-branch-environment-provider-response/v1',
+    'format' => 'wprism-branch-environment-provider-response/v2',
     'operation_id' => $request['operation_id'],
-    'provider' => ['id' => $spec['provider_id'], 'protocol' => 1],
+    'provider' => ['id' => $spec['provider_id'], 'protocol' => 2],
     'result' => $result,
     'status' => 'ok',
 ]) . "\n";
@@ -488,6 +488,7 @@ function pc_canon(mixed $value): string {
     }
     return json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 }
+file_put_contents(__DIR__ . '/cycle-provider-requests.jsonl', pc_canon($request) . "\n", FILE_APPEND);
 $h = static fn(string $v): string => hash('sha256', $v);
 $action = (string) $request['action'];
 $input = $request['input'] ?? [];
@@ -582,14 +583,18 @@ if ($wrong !== '' && str_starts_with($wrong, $action . '.')) {
 }
 echo pc_canon([
     'action' => $action, 'environment' => $request['environment'],
-    'format' => 'wprism-branch-environment-provider-response/v1', 'operation_id' => $request['operation_id'],
-    'provider' => ['id' => 'cycle-provider', 'protocol' => 1], 'result' => $result, 'status' => 'ok',
+    'format' => 'wprism-branch-environment-provider-response/v2', 'operation_id' => $request['operation_id'],
+    'provider' => ['id' => 'cycle-provider', 'protocol' => 2], 'result' => $result, 'status' => 'ok',
 ]) . "\n";
 PHP);
 
+    $cycleRequestLog = $work . '/cycle-provider-requests.jsonl';
+    @unlink($cycleRequestLog);
     foreach ([['attach', false], ['create', true]] as [$mode, $create]) {
         $writeEnvs([PHP_BINARY, $cycleScript, '-']);
-        $cycle = $runHarness('branch', ['cycle' => true, 'confirm' => true, 'from' => 'prod', 'create' => $create]);
+        $cycle = $runHarness('branch', [
+            'cycle' => true, 'confirm' => true, 'from' => 'prod', 'create' => $create, 'branch' => 'HEAD',
+        ]);
         $names = $cycle['body']['actions'] ?? [];
         wprism_check(
             $cycle['exit'] === 0 && ($cycle['body']['verdict'] ?? '') === 'READY',
@@ -606,6 +611,25 @@ PHP);
             "the $mode cycle reaps its own target with `$reap`, leaving nothing behind"
         );
     }
+    $cycleRequests = array_map(
+        static fn(string $line): array => json_decode($line, true, 512, JSON_THROW_ON_ERROR),
+        file($cycleRequestLog, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: []
+    );
+    $repositoryRequests = array_values(array_filter(
+        $cycleRequests,
+        static fn(array $request): bool => ($request['action'] ?? null) === 'repository-materialize'
+    ));
+    wprism_check(
+        $repositoryRequests !== []
+            && array_reduce(
+                $repositoryRequests,
+                static fn(bool $valid, array $request): bool => $valid
+                    && ($request['input']['branch_ref'] ?? null) === 'HEAD'
+                    && ($request['input']['target_branch'] ?? null) === 'feature',
+                true
+            ),
+        'provider-check resolves a commit-like source ref to the attached named target branch before mutation'
+    );
 
     // Provider-check deliberately cannot claim the host-specific containment
     // profile; the real rehearsal materializer exercises that final action.

@@ -419,7 +419,7 @@ foreach ([
 
 $request = [
     'action' => 'containment-verify', 'environment' => 'mup2',
-    'format' => 'wprism-branch-environment-provider-request/v1',
+    'format' => 'wprism-branch-environment-provider-request/v2',
     'input' => $containmentInput, 'operation_id' => $operation,
 ];
 $beforeState = hash_file('sha256', $stateRoot . '/state.json');

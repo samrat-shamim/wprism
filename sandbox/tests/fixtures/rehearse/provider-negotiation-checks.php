@@ -107,9 +107,9 @@ wprism_check_same(
     'the negotiated pin is the orchestrator\'s own closed shape'
 );
 wprism_check_same(
-    1,
+    2,
     $report->pin()['provider']['protocol'],
-    'the provider speaks protocol 1, the version CommandEnvironmentProvider accepts'
+    'the provider speaks protocol 2, the version CommandEnvironmentProvider accepts'
 );
 wprism_check_same(
     'wprism-branch-environment-capabilities/v1',
@@ -122,7 +122,7 @@ wprism_check_same(
 // state it rather than leaving it implicit.
 wprism_check(
     true,
-    'the provider response is canonical, request-bound, protocol-1 evidence: the orchestrator '
+    'the provider response is canonical, request-bound, protocol-2 evidence: the orchestrator '
         . 're-encodes and byte-compares every response before accepting it'
 );
 

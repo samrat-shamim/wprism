@@ -27,11 +27,11 @@
 //     "noncanonical evidence" and the operation refuses).
 //   * the request's closed key set is {action, environment, format, input,
 //     operation_id}; `format` must be
-//     `wprism-branch-environment-provider-request/v1`; `input` is an object, and
+//     `wprism-branch-environment-provider-request/v2`; `input` is an object, and
 //     the empty LIST `[]` is accepted for the capabilities probe only —
 //     mirroring CommandEnvironmentProvider's own boundary exactly.
 //   * the response is {action, environment, format, operation_id, provider,
-//     result, status} with `provider.protocol` 1 and `status` "ok"; every
+//     result, status} with `provider.protocol` 2 and `status` "ok"; every
 //     per-action result key set is the one
 //     CommandEnvironmentProvider::validateActionResult() closes over.
 //   * capability negotiation happens through the `capabilities` action, and
@@ -2257,7 +2257,7 @@ function ref_containment_preimage(array $identity, array $fence, array $input, a
         'operation_id' => $input['_operation_id'],
         'ownership_receipt_sha256' => $identity['ownership_receipt_sha256'],
         'profile' => $input['profile'],
-        'provider' => ['id' => 'wprism-reference-env-provider', 'protocol' => 1],
+        'provider' => ['id' => 'wprism-reference-env-provider', 'protocol' => 2],
         'resource_id' => $identity['resource_id'],
         'snapshot_sanitization' => $sanitization,
         'topology' => $topology,
@@ -4284,7 +4284,7 @@ function ref_plan(array $request, array $config, ?array $state = null): array {
         'identity_authoritative' => $identityAuthoritative,
         'identity_input_checked' => $identityChecked,
         'operation_id' => (string) $request['operation_id'],
-        'provider' => ['id' => 'wprism-reference-env-provider', 'protocol' => 1],
+        'provider' => ['id' => 'wprism-reference-env-provider', 'protocol' => 2],
         'state_dependent' => $stateDependent,
         'url_source' => $urlSource,
     ];
@@ -4318,7 +4318,7 @@ function ref_assert_request(array $request): void {
     // capabilities probe) while rejecting non-empty JSON lists. Mirror that
     // boundary exactly.
     ref_require(
-        $request['format'] === 'wprism-branch-environment-provider-request/v1'
+        $request['format'] === 'wprism-branch-environment-provider-request/v2'
             && is_array($request['input'])
             && (!array_is_list($request['input']) || $request['input'] === []),
         'provider request has an invalid protocol shape'
@@ -4387,8 +4387,8 @@ try {
     }
     $response = [
         'action' => $request['action'], 'environment' => $request['environment'],
-        'format' => 'wprism-branch-environment-provider-response/v1', 'operation_id' => $request['operation_id'],
-        'provider' => ['id' => 'wprism-reference-env-provider', 'protocol' => 1], 'result' => $result, 'status' => 'ok',
+        'format' => 'wprism-branch-environment-provider-response/v2', 'operation_id' => $request['operation_id'],
+        'provider' => ['id' => 'wprism-reference-env-provider', 'protocol' => 2], 'result' => $result, 'status' => 'ok',
     ];
     echo ref_json($response) . "\n";
 } catch (Throwable $error) {

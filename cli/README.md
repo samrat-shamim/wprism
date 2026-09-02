@@ -337,7 +337,13 @@ semantics remain the rehearsal implementation's.
   command surface then installs this controller's exact WPrism distribution
   through the existing atomic adoption transaction. The provider receives no
   WPrism source path or agent bytes, while the environment engine journals only
-  the target-bound installed-version receipt. A transport without adoption
+  the target-bound installed-version and immutable-distribution receipt. The
+  distribution pin covers every assembled `agent/` and `recovery/` source byte,
+  is read back from the installed target before the adoption commit barrier,
+  and separately proves the production-loaded top-level MU loader equals the
+  canonical `agent/wprism-loader.php` byte mapping. The pin is part of
+  materialization intent, so changed controller bytes cannot
+  resume an earlier bootstrap. A transport without adoption
   authority must already carry a compatible agent. Finally the ordinary
   promotion state machine consumes the exact already-compiled outer artifact
   under a deterministic operation owner; it never compiles a second release.
@@ -382,7 +388,7 @@ semantics remain the rehearsal implementation's.
   target, or performs the initial install on an explicitly opted-in
   machine-local target, creating a minimal core-only `site.wprism.json` only when
   that file is absent, verifies
-  the exact installed agent version, policy load, rollback authority, and
+  the exact installed agent/recovery byte distribution and live MU loader, agent version, policy load, rollback authority, and
   blocking `wprism doctor` rows before committing the filesystem transaction.
   Existing site policy is retained. The target needs
   no Git for adoption itself. Adoption embeds the selected source packages and
@@ -1644,9 +1650,14 @@ provenance):
 ```
 
 The command receives one canonical
-`wprism-branch-environment-provider-request/v1` object on stdin and must return
-one canonical `wprism-branch-environment-provider-response/v1` object on stdout.
-Protocol 1 has a closed capability vocabulary:
+`wprism-branch-environment-provider-request/v2` object on stdin and must return
+one canonical `wprism-branch-environment-provider-response/v2` object on stdout.
+Protocol 2 has a closed capability vocabulary. It deliberately replaces v1:
+`repository-materialize` now requires the provider to echo the distinct named
+`target_branch` it checked out. Because `capabilities` is always the first,
+non-mutating action, a v1 provider is rejected before snapshot, resource, or
+repository mutation. Upgrade both wire format strings and `provider.protocol`
+before running materialization.
 
 ```
 snapshot.set.prepare      snapshot.set.create      snapshot.set.read

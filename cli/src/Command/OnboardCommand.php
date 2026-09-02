@@ -459,6 +459,9 @@ final class OnboardCommand {
     private static function assertLocalBoundary(string $workspace): void {
         self::assertGeneratedFile($workspace . '/site.wprism.json', Adopt::repositorySeedBytes());
         self::assertGeneratedFile($workspace . '/.gitignore', Adopt::repositoryGitignoreBytes());
+        if (file_exists($workspace . '/.gitattributes') || is_link($workspace . '/.gitattributes')) {
+            throw new \RuntimeException('local .gitattributes appeared before the target baseline checkout');
+        }
     }
 
     /**
@@ -501,6 +504,11 @@ final class OnboardCommand {
         foreach (['.wprism-envs.json', '.git', '.gitignore', 'site.wprism.json'] as $relative) {
             $paths[$relative] = self::localPathIdentity($workspace . '/' . $relative);
         }
+        // Init owns this file on the target. Before checkout, its exact local
+        // identity is absence; allowing controller bytes here would let them
+        // shadow the target-owned publication during the handoff round trip.
+        $paths['.gitattributes'] = ['type' => 'absent'];
+        ksort($paths, SORT_STRING);
         $receipt = [
             'branch' => trim($branch['stdout']),
             'paths' => $paths,
@@ -711,7 +719,7 @@ final class OnboardCommand {
             'commit' => ['git', '-C', $workspace, 'rev-parse', '--verify', 'HEAD'],
             'tree' => ['git', '-C', $workspace, 'rev-parse', '--verify', 'HEAD^{tree}'],
             'created' => ['git', '-C', $workspace, 'show', '-s', '--format=%ct', 'HEAD'],
-            'status' => ['git', '-C', $workspace, 'status', '--porcelain', '--', '.gitignore', 'site.wprism.json', 'code', 'state', 'media'],
+            'status' => ['git', '-C', $workspace, 'status', '--porcelain', '--', '.gitattributes', '.gitignore', 'site.wprism.json', 'code', 'state', 'media'],
         ] as $name => $argv) {
             $result = HostProcess::run($argv);
             if ($result['exit'] !== 0 || ($name !== 'status' && trim($result['stdout']) === '')) {

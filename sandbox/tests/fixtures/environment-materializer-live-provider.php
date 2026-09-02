@@ -753,9 +753,9 @@ try {
     foreach (['action', 'environment', 'format', 'input', 'operation_id'] as $key) live_require(array_key_exists($key, $request), "provider request lacks '$key'");
     // CommandEnvironmentProvider uses [] for an empty object input (the
     // capabilities probe), while rejecting non-empty JSON lists.  Mirror
-    // that boundary exactly so the fixture accepts the canonical v1 probe
+    // that boundary exactly so the fixture accepts the canonical v2 probe
     // without accepting a list-shaped operation payload.
-    live_require($request['format'] === 'wprism-branch-environment-provider-request/v1'
+    live_require($request['format'] === 'wprism-branch-environment-provider-request/v2'
         && is_array($request['input'])
         && (!array_is_list($request['input']) || $request['input'] === []), 'provider request has an invalid protocol shape');
     $lock = fopen($root . '/state.lock', 'c');
@@ -770,8 +770,8 @@ try {
     }
     $response = [
         'action' => $request['action'], 'environment' => $request['environment'],
-        'format' => 'wprism-branch-environment-provider-response/v1', 'operation_id' => $request['operation_id'],
-        'provider' => ['id' => 'environment-materializer-live-fixture', 'protocol' => 1], 'result' => $result, 'status' => 'ok',
+        'format' => 'wprism-branch-environment-provider-response/v2', 'operation_id' => $request['operation_id'],
+        'provider' => ['id' => 'environment-materializer-live-fixture', 'protocol' => 2], 'result' => $result, 'status' => 'ok',
     ];
     echo live_json($response) . "\n";
 } catch (Throwable $error) {

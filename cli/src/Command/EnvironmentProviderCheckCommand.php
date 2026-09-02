@@ -224,9 +224,9 @@ final class EnvironmentProviderCheckCommand {
                 ]],
                 ['repository-materialize', $fenced + [
                     'branch_commit' => $branch['commit'],
-                    'branch_ref' => $branch['ref'],
+                    'branch_ref' => $branch['source_ref'],
                     'repo_path' => $branch['repo_path'],
-                    'target_branch' => $branch['ref'],
+                    'target_branch' => $branch['target_branch'],
                 ]],
                 ['url-set', $fenced + ['url' => $identity['url']]],
                 ['ttl-set', $fenced + ['ttl_seconds' => self::CYCLE_TTL_SECONDS]],
@@ -482,13 +482,17 @@ final class EnvironmentProviderCheckCommand {
      * The commit/source-ref/target-branch/repo tuple `repository-materialize` is given.
      *
      * @param array{from:?string,cycle:bool,confirm:bool,create:bool,role:string,branch:?string,json:bool} $options
-     * @return array{commit:string,ref:string,repo_path:string}
+     * @return array{commit:string,source_ref:string,target_branch:string,repo_path:string}
      */
     private function branchPin(string $targetName, array $options, ?string $envsFileOverride): array {
-        $ref = $options['branch'] ?? trim(self::git(['symbolic-ref', '--quiet', '--short', 'HEAD']));
-        if ($ref === '') {
-            throw new \RuntimeException('provider-check --cycle needs --branch <ref> when HEAD is detached');
+        $targetBranch = trim(self::git(['symbolic-ref', '--quiet', '--short', 'HEAD']));
+        if ($targetBranch === '') {
+            throw new \RuntimeException('provider-check --cycle requires an attached named target branch');
         }
+        if (trim(self::git(['check-ref-format', '--branch', $targetBranch])) !== $targetBranch) {
+            throw new \RuntimeException('provider-check --cycle resolved an invalid named target branch');
+        }
+        $ref = $options['branch'] ?? $targetBranch;
         $commit = trim(self::git(['rev-parse', '--verify', $ref . '^{commit}']));
         if (preg_match('/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/D', $commit) !== 1) {
             throw new \RuntimeException("provider-check could not resolve '$ref' to a commit");
@@ -496,7 +500,8 @@ final class EnvironmentProviderCheckCommand {
         $envs = Registry::load($envsFileOverride, getcwd() ?: '.');
         return [
             'commit' => $commit,
-            'ref' => $ref,
+            'source_ref' => $ref,
+            'target_branch' => $targetBranch,
             'repo_path' => Transport::make($targetName, Registry::get($envs, $targetName))->repoPath(),
         ];
     }

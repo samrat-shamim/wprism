@@ -13,6 +13,10 @@ use WPrism\Canon;
 
 /** Host command handler for capture's local --scope-contract flag handling. */
 final class CaptureCommand {
+    private const MACHINE_TIMEOUT_MILLISECONDS = 900000;
+    private const MACHINE_STDOUT_LIMIT_BYTES = 16777216;
+    private const MACHINE_STDERR_LIMIT_BYTES = 1048576;
+
     public static function run(
         EnvironmentDriver $driver,
         array $extra,
@@ -153,15 +157,29 @@ final class CaptureCommand {
             $forward[] = '--expected-repository-branch=' . $targetBranch;
         }
         $wpArgs = array_merge(['wprism', 'capture', '--repo=' . $driver->repoPath()], $forward);
-        // Export-only capture has its own destination and retains the agent's
-        // established output. A repository-writing JSON capture crosses a
-        // host/orchestrator boundary, so publish one closed, digest-bound
-        // receipt rather than asking that caller to interpret an agent
-        // implementation summary.
-        if (!$json || !$writesRepository) {
+        // Human output retains the live target stream. Every JSON invocation
+        // crosses a machine boundary and must therefore finish inside one
+        // reviewed deadline/output envelope, including the legacy --out path.
+        // Repository writes publish a closed host receipt below; --out keeps
+        // the agent's established JSON success document byte-for-byte after
+        // validating that it is one object.
+        if (!$json) {
             return $driver->streamWp($wpArgs);
         }
-        $result = $driver->captureWp($wpArgs);
+        if (!$driver instanceof BoundedControlDriver) {
+            return CommandOutput::renderRefusalJson(
+                'capture',
+                'capture_transport_unbounded',
+                'the selected environment cannot bound machine capture execution and output',
+                'select a driver with control.bounded capability and retry capture'
+            );
+        }
+        $result = $driver->captureWpBounded(
+            $wpArgs,
+            self::MACHINE_TIMEOUT_MILLISECONDS,
+            self::MACHINE_STDOUT_LIMIT_BYTES,
+            self::MACHINE_STDERR_LIMIT_BYTES
+        );
         $decoded = json_decode(trim((string) ($result['stdout'] ?? '')), true);
         if (($result['exit'] ?? 1) !== 0) {
             if (is_array($decoded) && !array_is_list($decoded)
@@ -175,6 +193,18 @@ final class CaptureCommand {
                 'the target refused capture without a supported machine refusal',
                 'inspect the target private refusal evidence, repair the condition, and retry capture'
             );
+        }
+        if (!$writesRepository) {
+            if (!is_array($decoded) || array_is_list($decoded)) {
+                return CommandOutput::renderRefusalJson(
+                    'capture',
+                    'capture_result_invalid',
+                    'the target returned a successful capture result outside the reviewed machine contract',
+                    'upgrade the target agent to the pinned WPrism distribution and retry capture'
+                );
+            }
+            echo (string) $result['stdout'];
+            return 0;
         }
         try {
             if (!is_array($decoded) || array_is_list($decoded)) {

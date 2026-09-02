@@ -931,12 +931,12 @@ fi
 # malformed provider config discovered at materialization time has already
 # cost a snapshot.
 if ! dry; then
-  printf '{"action":"capabilities","environment":"%s","format":"wprism-branch-environment-provider-request/v1","input":[],"operation_id":"20260817-090000-0000000000000000abcdefab"}\n' "${PAIR}2" \
+  printf '{"action":"capabilities","environment":"%s","format":"wprism-branch-environment-provider-request/v2","input":[],"operation_id":"20260817-090000-0000000000000000abcdefab"}\n' "${PAIR}2" \
     | php "$PROVIDER" --print-plan "$PROVIDER_CONFIG" > "$EVIDENCE/provider-plan.json" \
     || fail "the reference provider refused the config this grind wrote; see $EVIDENCE/provider-plan.json"
   jq -e '
     .format == "wprism-reference-env-provider-plan/v1" and .executed == false
-    and .provider.protocol == 1
+    and .provider.protocol == 2
     and ([.capabilities_advertised[]] | index("repository.materialize"))
     and ([.capabilities_advertised[]] | index("environment.attach"))
     and ([.capabilities_advertised[]] | index("environment.url.discover"))

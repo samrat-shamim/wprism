@@ -400,8 +400,8 @@ $result = match ($action) {
     default => [],
 };
 $response = [
-    'action' => $action, 'environment' => $environment, 'format' => 'wprism-branch-environment-provider-response/v1',
-    'operation_id' => (string) ($request['operation_id'] ?? ''), 'provider' => ['id' => 'ssh-proof-provider', 'protocol' => 1],
+    'action' => $action, 'environment' => $environment, 'format' => 'wprism-branch-environment-provider-response/v2',
+    'operation_id' => (string) ($request['operation_id'] ?? ''), 'provider' => ['id' => 'ssh-proof-provider', 'protocol' => 2],
     'result' => $result, 'status' => 'ok',
 ];
 $normalize = static function (mixed $v) use (&$normalize): mixed {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../../cli/src/Command/CaptureCommand.php';
 
 use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\BoundedControlDriver;
 use WPrism\Orchestrator\EnvironmentDriver;
 use WPrism\Orchestrator\CaptureCommand;
 
@@ -15,12 +16,15 @@ function assert_capture_command(bool $condition, string $message): void {
     if (!$condition) fail_capture_command($message);
 }
 
-final class CaptureCommandDriver implements EnvironmentDriver {
+final class CaptureCommandDriver implements BoundedControlDriver {
     public int $captureCalls = 0;
+    public int $boundedCaptureCalls = 0;
     /** @var array{exit:int,stdout:string,stderr:string} */
     public array $captureResult = ['exit' => 0, 'stdout' => '', 'stderr' => ''];
     /** @var list<list<string>> */
     public array $capturedArgs = [];
+    /** @var list<array{args:list<string>,timeout:int,stdout:int,stderr:int}> */
+    public array $boundedCaptures = [];
     public int $streamCalls = 0;
     /** @var list<list<string>> */
     public array $streamedArgs = [];
@@ -31,9 +35,32 @@ final class CaptureCommandDriver implements EnvironmentDriver {
     public function repoPath(): string { return '/fixture/repo'; }
     public function describe(): string { return 'capture fixture'; }
     public function captureRaw(string $script): array { return ['exit' => 0, 'stdout' => '', 'stderr' => '']; }
+    public function captureRawBounded(
+        string $script,
+        int $timeoutMilliseconds,
+        int $maxStdoutBytes,
+        int $maxStderrBytes
+    ): array {
+        return $this->captureRaw($script);
+    }
     public function captureWp(array $wpArgs): array {
         $this->captureCalls++;
         $this->capturedArgs[] = $wpArgs;
+        return $this->captureResult;
+    }
+    public function captureWpBounded(
+        array $wpArgs,
+        int $timeoutMilliseconds,
+        int $maxStdoutBytes,
+        int $maxStderrBytes
+    ): array {
+        $this->boundedCaptureCalls++;
+        $this->boundedCaptures[] = [
+            'args' => $wpArgs,
+            'timeout' => $timeoutMilliseconds,
+            'stdout' => $maxStdoutBytes,
+            'stderr' => $maxStderrBytes,
+        ];
         return $this->captureResult;
     }
     public function streamWp(array $wpArgs): int {
@@ -44,6 +71,25 @@ final class CaptureCommandDriver implements EnvironmentDriver {
     public function wpInstruction(array $wpArgs): string { return implode(' ', $wpArgs); }
     public function capabilityReport(string $operation): DriverCapabilityReport {
         return DriverCapabilityReport::forDriver('capture-fixture', 'capture-fixture', $operation, []);
+    }
+}
+
+final class UnboundedCaptureCommandDriver implements EnvironmentDriver {
+    public int $captureCalls = 0;
+    public int $streamCalls = 0;
+    public function name(): string { return 'unbounded-capture-fixture'; }
+    public function driverId(): string { return 'unbounded-capture-fixture'; }
+    public function repoPath(): string { return '/fixture/repo'; }
+    public function describe(): string { return 'unbounded capture fixture'; }
+    public function captureRaw(string $script): array { return ['exit' => 0, 'stdout' => '', 'stderr' => '']; }
+    public function captureWp(array $wpArgs): array {
+        $this->captureCalls++;
+        return ['exit' => 0, 'stdout' => '{}', 'stderr' => ''];
+    }
+    public function streamWp(array $wpArgs): int { $this->streamCalls++; return 0; }
+    public function wpInstruction(array $wpArgs): string { return implode(' ', $wpArgs); }
+    public function capabilityReport(string $operation): DriverCapabilityReport {
+        return DriverCapabilityReport::forDriver($this->name(), $this->driverId(), $operation, []);
     }
 }
 
@@ -220,13 +266,19 @@ $jsonSuccessBody = $jsonSuccessReceipt;
 unset($jsonSuccessBody['receipt_sha256']);
 assert_capture_command($jsonSuccessExit === 0, 'repository-writing JSON capture succeeds through the captured target boundary');
 assert_capture_command(
-    $jsonSuccess->streamCalls === 0 && $jsonSuccess->captureCalls === 1
-        && $jsonSuccess->capturedArgs[0] === [
+    $jsonSuccess->streamCalls === 0 && $jsonSuccess->captureCalls === 0
+        && $jsonSuccess->boundedCaptureCalls === 1
+        && $jsonSuccess->boundedCaptures[0] === [
+            'args' => [
             'wprism', 'capture', '--repo=/fixture/repo', '--format=json',
             '--orchestrator-environment=capture-fixture',
             '--expected-repository-branch=feature/capture-command',
         ],
-    'machine capture is bounded and never streams an unvalidated implementation summary'
+            'timeout' => 900000,
+            'stdout' => 16777216,
+            'stderr' => 1048576,
+        ],
+    'machine capture uses the reviewed deadline/output envelope and never invokes unbounded capture'
 );
 assert_capture_command(
     ($jsonSuccessReceipt['format'] ?? null) === 'wprism-capture-result/v1'
@@ -243,6 +295,74 @@ assert_capture_command(
         === 'sha256:' . hash('sha256', WPrism\Canon::encode($jsonSuccessBody)),
     'capture receipt digest binds every canonical public field'
 );
+
+$exportBytes = json_encode(
+    ['counts' => ['post' => 1], 'state_dir' => '/tmp/exported-state'],
+    JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+) . "\n";
+$jsonExport = new CaptureCommandDriver();
+$jsonExport->captureResult = ['exit' => 0, 'stdout' => $exportBytes, 'stderr' => ''];
+ob_start();
+$jsonExportExit = CaptureCommand::run($jsonExport, ['--out=/tmp/candidate', '--format=json']);
+$jsonExportOutput = (string) ob_get_clean();
+assert_capture_command(
+    $jsonExportExit === 0
+        && $jsonExportOutput === $exportBytes
+        && $jsonExport->streamCalls === 0
+        && $jsonExport->captureCalls === 0
+        && $jsonExport->boundedCaptureCalls === 1
+        && $jsonExport->boundedCaptures[0] === [
+            'args' => [
+                'wprism', 'capture', '--repo=/fixture/repo', '--out=/tmp/candidate', '--format=json',
+                '--orchestrator-environment=capture-fixture',
+            ],
+            'timeout' => 900000,
+            'stdout' => 16777216,
+            'stderr' => 1048576,
+        ],
+    'JSON --out capture preserves the agent document but executes only through the bounded machine boundary'
+);
+
+foreach ([
+    ['args' => ['--target-branch=feature/capture-command', '--format=json'], 'label' => 'repository JSON'],
+    ['args' => ['--out=/tmp/candidate', '--format=json'], 'label' => 'export JSON'],
+] as $machineMode) {
+    $unbounded = new UnboundedCaptureCommandDriver();
+    ob_start();
+    $unboundedExit = CaptureCommand::run($unbounded, $machineMode['args']);
+    $unboundedOutput = json_decode((string) ob_get_clean(), true, 512, JSON_THROW_ON_ERROR);
+    assert_capture_command(
+        $unboundedExit === 1
+            && $unbounded->captureCalls === 0
+            && $unbounded->streamCalls === 0
+            && ($unboundedOutput['reason_code'] ?? null) === 'capture_transport_unbounded',
+        $machineMode['label'] . ' refuses an unbounded driver before target contact'
+    );
+
+    foreach ([
+        ['exit' => 124, 'stderr' => 'transport command timed out', 'label' => 'timeout'],
+        ['exit' => 125, 'stderr' => 'transport command output exceeded capture limit', 'label' => 'output limit'],
+    ] as $boundedFailure) {
+        $failureDriver = new CaptureCommandDriver();
+        $failureDriver->captureResult = [
+            'exit' => $boundedFailure['exit'],
+            'stdout' => '',
+            'stderr' => $boundedFailure['stderr'],
+        ];
+        ob_start();
+        $failureExit = CaptureCommand::run($failureDriver, $machineMode['args']);
+        $failureOutput = json_decode((string) ob_get_clean(), true, 512, JSON_THROW_ON_ERROR);
+        assert_capture_command(
+            $failureExit === 1
+                && $failureDriver->boundedCaptureCalls === 1
+                && $failureDriver->captureCalls === 0
+                && $failureDriver->streamCalls === 0
+                && ($failureOutput['reason_code'] ?? null) === 'capture_failed',
+            $machineMode['label'] . ' publishes one stable refusal when its bounded '
+                . $boundedFailure['label'] . ' fires'
+        );
+    }
+}
 
 $missingRevision = new CaptureCommandDriver();
 $missingRevision->captureResult = $jsonSuccess->captureResult;

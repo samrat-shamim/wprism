@@ -79,6 +79,16 @@ function em_actions(string $log): array {
     if (!is_file($log)) return [];
     return array_map(static fn(string $line): string => (string) (json_decode($line, true)['action'] ?? ''), file($log, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: []);
 }
+/** @return list<array<string,mixed>> */
+function em_requests(string $log): array {
+    if (!is_file($log)) return [];
+    $requests = [];
+    foreach (file($log, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+        $decoded = json_decode($line, true);
+        if (is_array($decoded) && !array_is_list($decoded)) $requests[] = $decoded;
+    }
+    return $requests;
+}
 
 /**
  * One complete `wp wprism plan --format=json` envelope, spelled out the way
@@ -224,7 +234,7 @@ $result = match ($a) {
  'destroy','detach' => ['absence_proof_sha256'=>$h('absence'),'disposition'=>$a === 'destroy' ? 'destroyed' : 'detached','environment_identity'=>'environment-identity-0001','lease_generation'=>3,'lease_id'=>'lease-identity-0001','ownership_receipt_sha256'=>$h('owner'),'resource_id'=>'resource-identity-0001'],
  default => [],
 };
-$response=['action'=>$a,'environment'=>$request['environment'],'format'=>'wprism-branch-environment-provider-response/v1','operation_id'=>$request['operation_id'],'provider'=>['id'=>'fixture-provider','protocol'=>1],'result'=>$result,'status'=>'ok'];
+$response=['action'=>$a,'environment'=>$request['environment'],'format'=>'wprism-branch-environment-provider-response/v2','operation_id'=>$request['operation_id'],'provider'=>['id'=>'fixture-provider','protocol'=>2],'result'=>$result,'status'=>'ok'];
 echo c($response)."\n";
 PHP);
     $state = $tmp . '/provider-state';
@@ -243,11 +253,19 @@ PHP);
     $promotionCalls = [];
     $bootstraps = 0;
     $bootstrapCalls = [];
-    $bootstrap = static function (EnvironmentDriver $driver, array $context) use (&$bootstraps, &$bootstrapCalls): array {
-        $bootstraps++;
-        $bootstrapCalls[] = ['driver' => $driver->name(), 'context' => $context];
-        return ['agent_version' => '0.7.0'];
-    };
+    $distribution = hash('sha256', 'fixture-distribution-v1');
+    $bootstrap = [
+        'distribution_sha256' => $distribution,
+        'install' => static function (EnvironmentDriver $driver, array $context) use (
+            &$bootstraps,
+            &$bootstrapCalls,
+            $distribution
+        ): array {
+            $bootstraps++;
+            $bootstrapCalls[] = ['driver' => $driver->name(), 'context' => $context];
+            return ['agent_version' => '0.7.0', 'distribution_sha256' => $distribution];
+        },
+    ];
     $promote = static function (EnvironmentDriver $driver, array $frozenContext) use (&$promotions, &$promotionCalls): array {
         $promotions++;
         $summary = $frozenContext['compiled_summary'];
@@ -267,6 +285,27 @@ PHP);
     };
 
     $old = getcwd(); chdir($repo);
+    em_run(['git', 'checkout', '--detach', 'HEAD'], $repo);
+    $detachedLog = $tmp . '/detached-target.log';
+    $detachedProvider = CommandEnvironmentProvider::fromEnvironment('branch-detached', $cfg('ok', $detachedLog));
+    try {
+        EnvironmentMaterializer::materialize(
+            $source,
+            new MaterializerDriver('branch-detached', '/detached/repo'),
+            CommandEnvironmentProvider::fromEnvironment('production', $cfg('ok', $tmp . '/detached-source.log')),
+            $detachedProvider,
+            $journal,
+            ['branch' => 'HEAD', 'create' => false, 'ttl_seconds' => 0],
+            $promote
+        );
+        em_fail('detached source checkout reached branch environment mutation');
+    } catch (Throwable $e) {
+        em_ok(str_contains($e->getMessage(), 'attached source branch'),
+            'detached HEAD refuses before branch environment mutation');
+    }
+    em_ok(em_actions($detachedLog) === [], 'detached HEAD refusal makes no provider call');
+    em_run(['git', 'checkout', 'feature'], $repo);
+
     $badSource = CommandEnvironmentProvider::fromEnvironment('production', $cfg('mismatch', $sourceLog));
     $targetProvider = CommandEnvironmentProvider::fromEnvironment('branch', $cfg('ok', $targetLog));
     try {
@@ -285,7 +324,7 @@ PHP);
 
     $goodSource = CommandEnvironmentProvider::fromEnvironment('production', $cfg('ok', $sourceLog));
     $receipt = EnvironmentMaterializer::materialize($source, $target, $goodSource, $targetProvider, $journal, [
-        'branch' => 'feature', 'create' => false, 'ttl_seconds' => 3600,
+        'branch' => 'HEAD', 'create' => false, 'ttl_seconds' => 3600,
     ], $promote, $bootstrap);
     em_ok(($receipt['mode'] ?? null) === 'attach' && ($receipt['expires_at'] ?? null) === '2030-01-02T04:04:05Z', 'attach materialization publishes observable provider TTL');
     em_ok(($receipt['code_revision'] ?? null) === hash('sha256', 'code-release')
@@ -312,15 +351,46 @@ PHP);
     $targetActions = em_actions($targetLog);
     $expectedTail = ['capabilities','attach','mutation-acquire','mutation-read','snapshot-restore','repository-materialize','url-set','inspect','ttl-set','ttl-read','mutation-release'];
     em_ok(array_slice($targetActions, -count($expectedTail)) === $expectedTail, 'target phases retain a held fence through restore/repository/URL/TTL, then release it');
+    $repositoryRequests = array_values(array_filter(
+        em_requests($targetLog),
+        static fn(array $request): bool => ($request['action'] ?? null) === 'repository-materialize'
+    ));
+    em_ok(
+        ($repositoryRequests[array_key_last($repositoryRequests)]['input']['target_branch'] ?? null) === 'feature',
+        'a commit-like source ref resolves to the checked-out named target branch before provider mutation'
+    );
 
     $beforeResume = [count(em_actions($sourceLog)), count(em_actions($targetLog)), $promotions];
     $same = EnvironmentMaterializer::materialize($source, $target, $goodSource, $targetProvider, $journal, [
-        'branch' => 'feature', 'create' => false, 'ttl_seconds' => 3600,
+        'branch' => 'HEAD', 'create' => false, 'ttl_seconds' => 3600,
     ], $promote, $bootstrap);
     em_ok(($same['resumed'] ?? false) === true
         && $beforeResume === [count(em_actions($sourceLog)), count(em_actions($targetLog)), $promotions]
         && $bootstraps === 1,
         'completed retry is idempotent with zero provider, bootstrap, or promotion calls');
+
+    $changedDistribution = hash('sha256', 'fixture-distribution-v2');
+    $changedBootstrap = [
+        'distribution_sha256' => $changedDistribution,
+        'install' => static fn(EnvironmentDriver $_driver, array $_context): array => [
+            'agent_version' => '0.7.0',
+            'distribution_sha256' => $changedDistribution,
+        ],
+    ];
+    try {
+        EnvironmentMaterializer::materialize($source, $target, $goodSource, $targetProvider, $journal, [
+            'branch' => 'HEAD', 'create' => false, 'ttl_seconds' => 3600,
+        ], $promote, $changedBootstrap);
+        em_fail('completed bootstrap recovery accepted different distribution bytes');
+    } catch (Throwable $e) {
+        em_ok(str_contains($e->getMessage(), 'changing intent'),
+            'bootstrap recovery refuses when the immutable distribution pin changes');
+    }
+    em_ok(
+        $beforeResume === [count(em_actions($sourceLog)), count(em_actions($targetLog)), $promotions]
+            && $bootstraps === 1,
+        'changed bootstrap distribution refuses before provider, install, or promotion replay'
+    );
 
     // A create request may have reached the source provider while its response
     // was lost. Automatic catch cleanup must preserve the deterministic session

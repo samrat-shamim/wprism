@@ -85,7 +85,7 @@ function provider_doc_refusals(): array {
         ['environment provider identity is malformed', '`provider` is not a JSON object'],
         ['environment provider identity has missing or unknown fields', '`provider` is not exactly `{id, protocol}`'],
         ['environment provider id is invalid', '`provider.id` is not `[A-Za-z0-9._:@+-]{1,128}`'],
-        ['environment provider protocol must be 1', '`provider.protocol` is not the integer 1'],
+        ['environment provider protocol must be 2', '`provider.protocol` is not the integer 2'],
         ['environment provider result must be an object', '`result` is a non-empty JSON list or a scalar'],
         ['environment provider capabilities must be a list', 'the `capabilities` result field is not a JSON list'],
         ['environment provider capability IDs must be strings', 'a capability id is not a string'],
@@ -231,6 +231,10 @@ function provider_doc_build(string $repo): string {
     $out .= "raw provider output is redacted on every failure — it may carry host or production-data\n";
     $out .= 'diagnostics. A non-zero provider may return the canonical error response below to surface bounded, '
         . "operator-safe diagnostics without exposing stderr.\n\n";
+    $out .= "Protocol 2 deliberately replaces v1: `repository-materialize` now requires the provider to echo\n";
+    $out .= "the distinct named `target_branch` it checked out. The first action is always non-mutating\n";
+    $out .= "`capabilities`, so a v1 response is rejected before snapshot, resource, or repository mutation.\n";
+    $out .= "Upgrade request/response formats and `provider.protocol` together before materialization.\n\n";
     $out .= '**Request** — `' . CommandEnvironmentProvider::REQUEST_FORMAT . "`, key set exactly:\n\n";
     $out .= "| field | value |\n|---|---|\n";
     $out .= '| `action` | one of the ' . count(EnvironmentProviderProtocol::actions()) . " names in §5 |\n";
@@ -244,7 +248,8 @@ function provider_doc_build(string $repo): string {
     $out .= "| `environment` | echoed verbatim |\n";
     $out .= '| `format` | `' . CommandEnvironmentProvider::RESPONSE_FORMAT . "` |\n";
     $out .= "| `operation_id` | echoed verbatim |\n";
-    $out .= "| `provider` | exactly `{id, protocol}`; `id` matches `[A-Za-z0-9._:@+-]{1,128}`, `protocol` is the integer `1` |\n";
+    $out .= '| `provider` | exactly `{id, protocol}`; `id` matches `[A-Za-z0-9._:@+-]{1,128}`, `protocol` is the integer `'
+        . CommandEnvironmentProvider::PROTOCOL . "` |\n";
     $out .= "| `result` | the per-action **closed** object in §5 |\n";
     $out .= "| `status` | `ok` on exit 0; `error` on a non-zero structured failure |\n\n";
     $out .= 'On a non-zero exit, stdout may carry the same request-bound envelope with `status: "error"` and '

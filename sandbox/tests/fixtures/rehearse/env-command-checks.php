@@ -224,7 +224,7 @@ $result = match ($a) {
  'destroy','detach' => ['absence_proof_sha256'=>$h('absence'),'disposition'=>$a === 'destroy' ? 'destroyed' : 'detached','environment_identity'=>'environment-identity-0001','lease_generation'=>3,'lease_id'=>'lease-identity-0001','ownership_receipt_sha256'=>$h('owner'),'resource_id'=>'resource-identity-0001'],
  default => [],
 };
-$response = ['action'=>$a,'environment'=>$request['environment'],'format'=>'wprism-branch-environment-provider-response/v1','operation_id'=>$request['operation_id'],'provider'=>['id'=>'rehearse-fixture-provider','protocol'=>1],'result'=>$result,'status'=>'ok'];
+$response = ['action'=>$a,'environment'=>$request['environment'],'format'=>'wprism-branch-environment-provider-response/v2','operation_id'=>$request['operation_id'],'provider'=>['id'=>'rehearse-fixture-provider','protocol'=>2],'result'=>$result,'status'=>'ok'];
 echo c($response) . "\n";
 PHP);
 

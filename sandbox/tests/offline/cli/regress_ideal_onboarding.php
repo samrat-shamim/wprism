@@ -866,6 +866,35 @@ wprism_check(
     'the handoff receipt binds WPrism\'s stable target operation identity'
 );
 
+$localAttributes = $defaultAssessWorkspace . '/.gitattributes';
+$attributesExisted = is_file($localAttributes) && !is_link($localAttributes);
+$attributesBytes = $attributesExisted ? file_get_contents($localAttributes) : null;
+file_put_contents($localAttributes, (is_string($attributesBytes) ? $attributesBytes : '') . "# local drift\n");
+$attributesStatusCwd = getcwd();
+chdir($defaultAssessWorkspace);
+ob_start();
+$attributesStatusExit = OnboardCommand::run(
+    $defaultAssessDriver,
+    ['status', '--git-url=' . $defaultAssessRemote, '--format=json'],
+    dirname(__DIR__, 4)
+);
+$attributesStatusOutput = (string) ob_get_clean();
+if (is_string($attributesStatusCwd)) {
+    chdir($attributesStatusCwd);
+}
+if ($attributesExisted && is_string($attributesBytes)) {
+    file_put_contents($localAttributes, $attributesBytes);
+} else {
+    unlink($localAttributes);
+}
+$attributesRefusal = json_decode($attributesStatusOutput, true, 512, JSON_THROW_ON_ERROR);
+wprism_check_same(1, $attributesStatusExit, 'handoff status refuses local .gitattributes drift');
+wprism_check_same(
+    'onboarding_handoff_unavailable',
+    $attributesRefusal['reason_code'] ?? null,
+    'local .gitattributes drift crosses the same closed handoff reconciliation boundary'
+);
+
 $tagFixture = ideal_handoff_fixture($tmp, 'tag-only');
 $tagSource = $tmp . '/tag-source';
 IdealOnboardingTransport::process(['git', 'init', '--initial-branch=main', $tagSource]);

@@ -225,11 +225,11 @@ if ($mode === 'bad-capability' && $action === 'capabilities') $result['capabilit
 $response = [
     'action' => $mode === 'mismatch' ? 'destroy' : $action,
     'environment' => $mode === 'wrong-environment' ? 'foreign-environment' : (string) ($request['environment'] ?? ''),
-    'format' => 'wprism-branch-environment-provider-response/v1',
+    'format' => 'wprism-branch-environment-provider-response/v2',
     'operation_id' => (string) ($request['operation_id'] ?? ''),
     'provider' => [
         'id' => $mode === 'switch-provider' && $action !== 'capabilities' ? 'foreign-provider' : 'fixture-provider',
-        'protocol' => 1,
+        'protocol' => 2,
     ],
     'result' => $result,
     'status' => 'ok',
@@ -244,6 +244,10 @@ if ($mode === 'failure-response') {
     fwrite(STDERR, "SUPER-SECRET-provider-diagnostic\n");
     echo canon($response) . "\n";
     exit(7);
+}
+if ($mode === 'legacy-v1') {
+    $response['format'] = 'wprism-branch-environment-provider-response/v1';
+    $response['provider']['protocol'] = 1;
 }
 $bytes = canon($response);
 echo $mode === 'noncanonical' ? json_encode(json_decode($bytes, true), JSON_PRETTY_PRINT) . "\n" : $bytes . "\n";
@@ -309,6 +313,26 @@ PHP;
         el_ok(is_array($decoded) && EnvironmentLifecycleCanon::encode($decoded) === $line
             && ($decoded['environment'] ?? null) === 'branch', 'provider request is canonical and environment-bound');
     }
+
+    $legacyLog = $tmp . '/legacy-v1.log';
+    el_throws(
+        static fn() => CommandEnvironmentProvider::fromEnvironment(
+            'legacy',
+            $config('legacy-v1', $legacyLog)
+        )->capabilities($operation),
+        'not bound to the request',
+        'provider v1 is rejected during capability negotiation before an operation can mutate'
+    );
+    $legacyRequests = file($legacyLog, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    $legacyRequest = is_array($legacyRequests) && count($legacyRequests) === 1
+        ? json_decode($legacyRequests[0], true)
+        : null;
+    el_ok(
+        is_array($legacyRequest)
+            && ($legacyRequest['action'] ?? null) === 'capabilities'
+            && ($legacyRequest['format'] ?? null) === 'wprism-branch-environment-provider-request/v2',
+        'the v2 client sends only the non-mutating capability preflight to a legacy provider'
+    );
 
     el_throws(
         static fn() => CommandEnvironmentProvider::fromEnvironment('bad-cap', $config('bad-capability'))->capabilities($operation),

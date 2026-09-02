@@ -4,8 +4,8 @@ declare(strict_types=1);
 namespace WPrism\Orchestrator;
 
 /**
- * The published `wprism-branch-environment-provider-request/v1` and
- * `wprism-branch-environment-provider-response/v1` protocol, as data.
+ * The published `wprism-branch-environment-provider-request/v2` and
+ * `wprism-branch-environment-provider-response/v2` protocol, as data.
  *
  * WHY THIS FILE EXISTS
  * --------------------

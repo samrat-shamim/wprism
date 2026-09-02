@@ -3,6 +3,10 @@ declare(strict_types=1);
 
 namespace WPrism\Orchestrator;
 
+require_once dirname(__DIR__, 3) . '/agent/src/Kernel/DurableFilesystem.php';
+
+use WPrism\DurableFilesystem;
+
 /**
  * Bootstrap WPrism onto a pre-existing WordPress target through an explicitly
  * authorized adoption transport.
@@ -90,7 +94,7 @@ IGNORE
     }
 
     /**
-     * @return array{exit:int, phase:string, stdout:string, stderr:string, version:string, repo_created:bool}
+     * @return array{exit:int, phase:string, stdout:string, stderr:string, version:string, repo_created:bool, distribution_sha256?:string}
      */
     public static function install(
         AdoptionTransport $transport,
@@ -99,7 +103,8 @@ IGNORE
         ?string $rollbackPublicKey = null,
         ?array $recoveryConfig = null,
         ?BootstrapEligibilityReport $eligibility = null,
-        ?callable $postSwapVerifier = null
+        ?callable $postSwapVerifier = null,
+        ?string $expectedDistributionSha256 = null
     ): array {
         $agentDir = rtrim($sourceRoot, '/') . '/agent';
         $adapterPackagesDir = rtrim($sourceRoot, '/') . '/adapter-packages';
@@ -132,6 +137,10 @@ IGNORE
         }
         if ($recoveryConfig !== null && $rollbackKeyId === null) {
             return self::failure('local artifact', 'recovery configuration requires a rollback verification key', $version);
+        }
+        if ($expectedDistributionSha256 !== null
+            && preg_match('/^[a-f0-9]{64}$/D', $expectedDistributionSha256) !== 1) {
+            return self::failure('local artifact', 'expected distribution digest is malformed', $version);
         }
 
         if ($eligibility !== null) {
@@ -213,13 +222,21 @@ IGNORE
             }
 
             try {
-                $localStage = self::stageLocalArtifact($sourceRoot, $token);
-                require_once $assembler;
-                \WPrism\Tooling\AdapterLibraryAssembler::assemble($sourceRoot, $localStage . '/agent');
+                $distribution = self::stageDistribution($sourceRoot, $token, $assembler);
+                $localStage = $distribution['path'];
+                $distributionSha256 = $distribution['sha256'];
             } catch (\Throwable $error) {
                 return self::failure(
                     'local artifact',
                     'could not assemble the embedded adapter library: ' . $error->getMessage(),
+                    $version
+                );
+            }
+            if ($expectedDistributionSha256 !== null
+                && !hash_equals($expectedDistributionSha256, $distributionSha256)) {
+                return self::failure(
+                    'local artifact',
+                    'assembled distribution bytes changed after the operation was pinned',
                     $version
                 );
             }
@@ -254,6 +271,25 @@ IGNORE
                 return self::fromTransport('remote install', $install, $version);
             }
             $swapped = true;
+
+            $installedDistribution = $transport->captureRaw(self::installedDistributionDigestScript(
+                $muDir,
+                $transport->repoPath(),
+                $rollbackKeyId !== null && $recoveryConfig !== null
+            ));
+            $installedDistributionSha256 = trim($installedDistribution['stdout']);
+            if ($installedDistribution['exit'] !== 0
+                || preg_match('/^[a-f0-9]{64}$/D', $installedDistributionSha256) !== 1
+                || !hash_equals($distributionSha256, $installedDistributionSha256)) {
+                $installedDistribution['exit'] = $installedDistribution['exit'] !== 0
+                    ? $installedDistribution['exit']
+                    : 1;
+                $installedDistribution['stdout'] = '';
+                $installedDistribution['stderr'] = 'installed agent and recovery bytes do not match the pinned distribution';
+                self::rollback($transport, $muDir, $transport->repoPath(), $token, $installedDistribution);
+                $swapped = false;
+                return self::fromTransport('distribution verification', $installedDistribution, $version);
+            }
 
             $versionArgs = ['eval', 'echo defined("WPRISM_AGENT_VERSION") ? WPRISM_AGENT_VERSION : "wprism-missing";'];
             $remoteVersion = $transport->captureWp(
@@ -348,6 +384,7 @@ IGNORE
                         : ''),
                 'version' => $version,
                 'repo_created' => str_contains($install['stdout'], 'wprism-repo-created'),
+                'distribution_sha256' => $distributionSha256,
             ];
         } catch (\Throwable $error) {
             $interrupted = $error;
@@ -738,6 +775,139 @@ IGNORE
             return null;
         }
         return $m[1];
+    }
+
+    /** Hash the exact assembled agent+recovery file set installed by adoption. */
+    public static function distributionDigest(string $sourceRoot): string {
+        $token = bin2hex(random_bytes(12));
+        $assembler = rtrim($sourceRoot, '/') . '/tools/src/AdapterLibraryAssembler.php';
+        $stage = null;
+        try {
+            $distribution = self::stageDistribution($sourceRoot, $token, $assembler);
+            $stage = $distribution['path'];
+            return $distribution['sha256'];
+        } finally {
+            if (is_string($stage)) {
+                self::removeLocalStage($stage);
+            }
+        }
+    }
+
+    /** @return array{path:string,sha256:string} */
+    private static function stageDistribution(string $sourceRoot, string $token, string $assembler): array {
+        if (!is_file($assembler)) {
+            throw new \RuntimeException('adapter library assembler is missing');
+        }
+        $stage = self::stageLocalArtifact($sourceRoot, $token);
+        try {
+            require_once $assembler;
+            \WPrism\Tooling\AdapterLibraryAssembler::assemble($sourceRoot, $stage . '/agent');
+            return ['path' => $stage, 'sha256' => DurableFilesystem::treeDigest($stage)];
+        } catch (\Throwable $error) {
+            self::removeLocalStage($stage);
+            throw $error;
+        }
+    }
+
+    /** Hash installed agent/ and recovery/ under their target mappings. */
+    private static function installedDistributionDigestScript(
+        string $muDir,
+        string $repo,
+        bool $excludeScopedPromotionControl
+    ): string {
+        $agent = rtrim($muDir, '/') . '/wprism';
+        $loader = rtrim($muDir, '/') . '/wprism-loader.php';
+        $runtime = rtrim($repo, '/') . '/.wprism/control/recovery-runtime';
+        $digestPhp = <<<'PHP'
+$roots = ['agent' => $argv[1], 'recovery' => $argv[2]];
+$excluded = $argv[3] === '1' ? ['agent/scoped-promotion-control.json' => true] : [];
+$files = [];
+foreach ($roots as $prefix => $root) {
+    $root = rtrim($root, '/');
+    $rootStat = @lstat($root);
+    if (!is_array($rootStat) || (((int) $rootStat['mode']) & 0170000) !== 0040000) exit(20);
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($iterator as $entry) {
+        if ($entry->isLink()) exit(21);
+        if ($entry->isDir()) continue;
+        if (!$entry->isFile()) exit(22);
+        $path = $entry->getPathname();
+        $relative = $prefix . '/' . substr($path, strlen($root) + 1);
+        if (isset($excluded[$relative])) continue;
+        if (isset($files[$relative])) exit(23);
+        $files[$relative] = $path;
+    }
+}
+ksort($files, SORT_STRING);
+$identity = static fn(array $stat): string => (string) $stat['dev'] . ':' . (string) $stat['ino']
+    . ':' . (string) (((int) $stat['mode']) & 0170000) . ':' . (string) $stat['size'];
+$ctx = hash_init('sha256');
+$canonicalLoaderSha256 = null;
+foreach ($files as $relative => $path) {
+    $before = @lstat($path);
+    $handle = @fopen($path, 'rb');
+    $opened = is_resource($handle) ? fstat($handle) : false;
+    if (!is_array($before) || !is_array($opened)
+        || (((int) $before['mode']) & 0170000) !== 0100000
+        || $identity($before) !== $identity($opened)) {
+        if (is_resource($handle)) fclose($handle);
+        exit(24);
+    }
+    hash_update($ctx, $relative . "\0");
+    $fileCtx = $relative === 'agent/wprism-loader.php' ? hash_init('sha256') : null;
+    while (!feof($handle)) {
+        $chunk = fread($handle, 1048576);
+        if (!is_string($chunk)) {
+            fclose($handle);
+            exit(25);
+        }
+        hash_update($ctx, $chunk);
+        if ($fileCtx !== null) hash_update($fileCtx, $chunk);
+    }
+    $closedIdentity = fstat($handle);
+    fclose($handle);
+    $after = @lstat($path);
+    if (!is_array($closedIdentity) || !is_array($after)
+        || $identity($opened) !== $identity($closedIdentity)
+        || $identity($opened) !== $identity($after)) exit(26);
+    if ($fileCtx !== null) $canonicalLoaderSha256 = hash_final($fileCtx);
+    hash_update($ctx, "\0");
+}
+$liveLoader = $argv[4];
+$before = @lstat($liveLoader);
+$handle = @fopen($liveLoader, 'rb');
+$opened = is_resource($handle) ? fstat($handle) : false;
+if (!is_string($canonicalLoaderSha256) || !is_array($before) || !is_array($opened)
+    || (((int) $before['mode']) & 0170000) !== 0100000
+    || $identity($before) !== $identity($opened)) {
+    if (is_resource($handle)) fclose($handle);
+    exit(27);
+}
+$loaderCtx = hash_init('sha256');
+while (!feof($handle)) {
+    $chunk = fread($handle, 1048576);
+    if (!is_string($chunk)) {
+        fclose($handle);
+        exit(28);
+    }
+    hash_update($loaderCtx, $chunk);
+}
+$closedIdentity = fstat($handle);
+fclose($handle);
+$after = @lstat($liveLoader);
+if (!is_array($closedIdentity) || !is_array($after)
+    || $identity($opened) !== $identity($closedIdentity)
+    || $identity($opened) !== $identity($after)
+    || !hash_equals($canonicalLoaderSha256, hash_final($loaderCtx))) exit(29);
+echo hash_final($ctx);
+PHP;
+        return 'php -r ' . escapeshellarg($digestPhp)
+            . ' ' . escapeshellarg($agent)
+            . ' ' . escapeshellarg($runtime)
+            . ' ' . escapeshellarg($excludeScopedPromotionControl ? '1' : '0')
+            . ' ' . escapeshellarg($loader);
     }
 
     private static function stageLocalArtifact(string $sourceRoot, string $token): string {

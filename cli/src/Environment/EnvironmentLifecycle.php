@@ -163,8 +163,9 @@ final class EnvironmentProviderCapabilityReport {
  * failures because it may contain host or production-data diagnostics.
  */
 final class CommandEnvironmentProvider {
-    public const REQUEST_FORMAT = 'wprism-branch-environment-provider-request/v1';
-    public const RESPONSE_FORMAT = 'wprism-branch-environment-provider-response/v1';
+    public const REQUEST_FORMAT = 'wprism-branch-environment-provider-request/v2';
+    public const RESPONSE_FORMAT = 'wprism-branch-environment-provider-response/v2';
+    public const PROTOCOL = 2;
     public const MAX_TIMEOUT_SECONDS = 3600;
     private const OUTPUT_LIMIT = 1048576;
     /** @var ?array{id:string,protocol:int} */
@@ -392,8 +393,8 @@ final class CommandEnvironmentProvider {
         }
         self::assertExactKeys($response['provider'], ['id', 'protocol'], 'environment provider identity');
         self::assertProviderId($response['provider']['id'] ?? null);
-        if (($response['provider']['protocol'] ?? null) !== 1) {
-            throw new \RuntimeException('environment provider protocol must be 1');
+        if (($response['provider']['protocol'] ?? null) !== self::PROTOCOL) {
+            throw new \RuntimeException('environment provider protocol must be 2');
         }
         if (!is_array($response['result']) || (array_is_list($response['result']) && $response['result'] !== [])) {
             throw new \RuntimeException('environment provider result must be an object');
@@ -438,7 +439,7 @@ final class CommandEnvironmentProvider {
             }
             self::assertExactKeys($response['provider'], ['id', 'protocol'], 'environment provider failure identity');
             self::assertProviderId($response['provider']['id'] ?? null);
-            if (($response['provider']['protocol'] ?? null) !== 1
+            if (($response['provider']['protocol'] ?? null) !== self::PROTOCOL
                 || ($negotiatedProvider !== null && $response['provider'] !== $negotiatedProvider)) {
                 return null;
             }
@@ -972,7 +973,7 @@ final class EnvironmentLifecycleJournal {
  * Product orchestration for "fresh production snapshot + branch delta".
  *
  * Providers own physical host resources and opaque snapshot sets. Refresh
- * owns semantic B/P/W materialization. The optional target-bootstrap callback
+ * owns semantic B/P/W materialization. The optional target-bootstrap bundle
  * lets the command surface compose the existing adoption transaction after a
  * provider has materialized a fresh repository; this engine journals only its
  * bounded receipt and never imports onboarding. The supplied promotion
@@ -984,7 +985,7 @@ final class EnvironmentMaterializer {
     /**
      * @param array{branch:string,containment_required:bool,create:bool,ttl_seconds:int} $options
      * @param callable(EnvironmentDriver,array{artifact_path:string,checkpoint_path:string,compiled_summary:array<string,mixed>,operation_id:string,promotion_owner:string}):array<string,mixed> $promote
-     * @param ?callable(EnvironmentDriver,array{operation_id:string,target_environment:string}):array{agent_version:string} $targetBootstrap
+     * @param ?array{distribution_sha256:string|callable():string,install:callable(EnvironmentDriver,array{operation_id:string,target_environment:string}):array{agent_version:string,distribution_sha256:string}} $targetBootstrap
      * @return array<string,mixed>
      */
     public static function materialize(
@@ -995,7 +996,7 @@ final class EnvironmentMaterializer {
         EnvironmentLifecycleJournal $journal,
         array $options,
         callable $promote,
-        ?callable $targetBootstrap = null
+        ?array $targetBootstrap = null
     ): array {
         return $journal->synchronizedTarget(
             $targetDriver->name(),
@@ -1021,7 +1022,7 @@ final class EnvironmentMaterializer {
         EnvironmentLifecycleJournal $journal,
         array $options,
         callable $promote,
-        ?callable $targetBootstrap
+        ?array $targetBootstrap
     ): array {
         // Direct compositions predating the rehearsal containment profile are
         // ordinary materializations. The public option parser always writes
@@ -1040,7 +1041,7 @@ final class EnvironmentMaterializer {
             throw new \RuntimeException('branch materialization options are malformed');
         }
         $root = self::repositoryRoot();
-        self::assertCleanBranch($root);
+        $targetBranch = self::assertCleanBranch($root);
         $requestedCommit = self::gitStdout($root, ['rev-parse', '--verify', $options['branch'] . '^{commit}']);
         $head = self::gitStdout($root, ['rev-parse', '--verify', 'HEAD^{commit}']);
         if (!hash_equals($requestedCommit, $head)) {
@@ -1051,15 +1052,36 @@ final class EnvironmentMaterializer {
         if ($sourceDriver->name() === $targetDriver->name()) {
             throw new \RuntimeException('source and target environments must be distinct');
         }
+        $bootstrapInstall = null;
+        $bootstrapDistribution = null;
+        if ($targetBootstrap !== null) {
+            $bootstrapKeys = array_keys($targetBootstrap);
+            sort($bootstrapKeys, SORT_STRING);
+            $bootstrapPin = $targetBootstrap['distribution_sha256'] ?? null;
+            $bootstrapInstall = $targetBootstrap['install'] ?? null;
+            if ($bootstrapKeys !== ['distribution_sha256', 'install']
+                || (!is_string($bootstrapPin) && !is_callable($bootstrapPin))
+                || !is_callable($bootstrapInstall)) {
+                throw new \RuntimeException('target agent bootstrap bundle is malformed');
+            }
+            $bootstrapDistribution = is_string($bootstrapPin) ? $bootstrapPin : $bootstrapPin();
+            if (preg_match('/^[a-f0-9]{64}$/D', $bootstrapDistribution) !== 1) {
+                throw new \RuntimeException('target agent bootstrap distribution pin is malformed');
+            }
+        }
         $mode = $options['create'] ? 'create' : 'attach';
         $intent = [
             'branch_commit' => $requestedCommit,
             'branch_ref' => $options['branch'],
             'mode' => $mode,
             'source_environment' => $sourceDriver->name(),
+            'target_branch' => $targetBranch,
             'target_environment' => $targetDriver->name(),
             'ttl_seconds' => $options['ttl_seconds'],
         ];
+        if ($bootstrapDistribution !== null) {
+            $intent['target_bootstrap_distribution_sha256'] = $bootstrapDistribution;
+        }
         if ($options['containment_required']) {
             $intent['containment_required'] = true;
         }
@@ -1394,7 +1416,7 @@ final class EnvironmentMaterializer {
             }
             $repositoryInput = self::identityInput($targetIdentity) + self::mutationInput($heldFence) + [
                 'branch_commit' => $semantic['branch_commit'], 'branch_ref' => $semantic['candidate_ref'],
-                'repo_path' => $targetDriver->repoPath(), 'target_branch' => $options['branch'],
+                'repo_path' => $targetDriver->repoPath(), 'target_branch' => $targetBranch,
             ];
             self::recordIntent($journal, $operationId, 'repository-materialize', $repositoryInput);
             $repository = self::phaseData($journal, $operationId, 'repository-materialized');
@@ -1402,10 +1424,10 @@ final class EnvironmentMaterializer {
                 $repository = $targetProvider->perform('repository-materialize', $operationId, $repositoryInput);
                 self::assertSameIdentity($targetIdentity, $repository);
                 if (($repository['branch_commit'] ?? null) !== $semantic['branch_commit']) throw new \RuntimeException('provider materialized another branch commit');
-                if (($repository['target_branch'] ?? null) !== $options['branch']) throw new \RuntimeException('provider materialized another target branch');
+                if (($repository['target_branch'] ?? null) !== $targetBranch) throw new \RuntimeException('provider materialized another target branch');
                 self::recordPhase($journal, $operationId, 'repository-materialized', self::publicEvidence($repository));
             } elseif (($repository['branch_commit'] ?? null) !== $semantic['branch_commit']
-                || ($repository['target_branch'] ?? null) !== $options['branch']) {
+                || ($repository['target_branch'] ?? null) !== $targetBranch) {
                 throw new \RuntimeException('journaled repository materialization does not match the requested branch binding');
             }
             $urlInput = self::identityInput($targetIdentity) + self::mutationInput($heldFence) + ['url' => $targetIdentity['url']];
@@ -1425,20 +1447,31 @@ final class EnvironmentMaterializer {
                 // must not allocate or restore the resource. This callback is
                 // the command-layer composition seam between those contracts.
                 $bootstrapInput = [
+                    'distribution_sha256' => $bootstrapDistribution,
                     'operation_id' => $operationId,
                     'target_driver' => self::driverPin($targetDriver),
                 ];
                 self::recordIntent($journal, $operationId, 'target-agent-bootstrap', $bootstrapInput);
                 $bootstrap = self::phaseData($journal, $operationId, 'target-agent-bootstrapped');
                 if ($bootstrap === null) {
-                    $result = $targetBootstrap($targetDriver, [
+                    $result = $bootstrapInstall($targetDriver, [
                         'operation_id' => $operationId,
                         'target_environment' => $targetDriver->name(),
                     ]);
-                    $bootstrap = self::targetBootstrapReceipt($result, $targetDriver, $operationId);
+                    $bootstrap = self::targetBootstrapReceipt(
+                        $result,
+                        $targetDriver,
+                        $operationId,
+                        (string) $bootstrapDistribution
+                    );
                     self::recordPhase($journal, $operationId, 'target-agent-bootstrapped', $bootstrap);
                 } else {
-                    self::assertTargetBootstrapReceipt($bootstrap, $targetDriver, $operationId);
+                    self::assertTargetBootstrapReceipt(
+                        $bootstrap,
+                        $targetDriver,
+                        $operationId,
+                        (string) $bootstrapDistribution
+                    );
                 }
             }
 
@@ -2141,28 +2174,31 @@ final class EnvironmentMaterializer {
     }
 
     /**
-     * Reduce command-layer adoption output to the one non-secret fact the
-     * lifecycle needs: which agent version was transactionally installed on
-     * this exact target driver for this operation.
+     * Reduce command-layer adoption output to the immutable distribution and
+     * version transactionally installed on this exact target and operation.
      *
-     * @param array{agent_version:string} $result
+     * @param array{agent_version:string,distribution_sha256:string} $result
      * @return array<string,mixed>
      */
     private static function targetBootstrapReceipt(
         array $result,
         EnvironmentDriver $driver,
-        string $operationId
+        string $operationId,
+        string $expectedDistribution
     ): array {
         $keys = array_keys($result);
         sort($keys, SORT_STRING);
         $version = $result['agent_version'] ?? null;
-        if ($keys !== ['agent_version'] || !is_string($version)
+        $distribution = $result['distribution_sha256'] ?? null;
+        if ($keys !== ['agent_version', 'distribution_sha256'] || !is_string($version)
+            || !is_string($distribution) || !hash_equals($expectedDistribution, $distribution)
             || preg_match('/^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/D', $version) !== 1) {
             throw new \RuntimeException('target agent bootstrap returned malformed completion evidence');
         }
         $receipt = [
             'agent_version' => $version,
-            'format' => 'wprism-branch-environment-target-bootstrap/v1',
+            'distribution_sha256' => $distribution,
+            'format' => 'wprism-branch-environment-target-bootstrap/v2',
             'operation_id' => $operationId,
             'target_driver' => self::driverPin($driver),
         ];
@@ -2174,7 +2210,8 @@ final class EnvironmentMaterializer {
     private static function assertTargetBootstrapReceipt(
         array $receipt,
         EnvironmentDriver $driver,
-        string $operationId
+        string $operationId,
+        string $expectedDistribution
     ): void {
         $digest = $receipt['receipt_sha256'] ?? null;
         $body = $receipt;
@@ -2184,9 +2221,15 @@ final class EnvironmentMaterializer {
             throw new \RuntimeException('journaled target agent bootstrap receipt has an invalid digest');
         }
         $expected = self::targetBootstrapReceipt(
-            ['agent_version' => is_string($receipt['agent_version'] ?? null) ? $receipt['agent_version'] : ''],
+            [
+                'agent_version' => is_string($receipt['agent_version'] ?? null) ? $receipt['agent_version'] : '',
+                'distribution_sha256' => is_string($receipt['distribution_sha256'] ?? null)
+                    ? $receipt['distribution_sha256']
+                    : '',
+            ],
             $driver,
-            $operationId
+            $operationId,
+            $expectedDistribution
         );
         if (EnvironmentLifecycleCanon::encode($receipt) !== EnvironmentLifecycleCanon::encode($expected)) {
             throw new \RuntimeException('journaled target agent bootstrap receipt does not bind this operation and driver');
@@ -2459,13 +2502,19 @@ final class EnvironmentMaterializer {
         return self::gitStdout(getcwd() ?: '.', ['rev-parse', '--show-toplevel']);
     }
 
-    private static function assertCleanBranch(string $root): void {
-        if (self::gitStdout($root, ['symbolic-ref', '--short', 'HEAD']) === '') {
+    private static function assertCleanBranch(string $root): string {
+        $symbolic = self::run(['git', '-C', $root, 'symbolic-ref', '--quiet', '--short', 'HEAD']);
+        $branch = trim($symbolic['stdout']);
+        if ($symbolic['exit'] !== 0 || $branch === '') {
             throw new \RuntimeException('branch materialization requires an attached source branch');
+        }
+        if (self::gitStdout($root, ['check-ref-format', '--branch', $branch]) !== $branch) {
+            throw new \RuntimeException('branch materialization requires a valid named source branch');
         }
         if (trim(self::gitStdout($root, ['status', '--porcelain=v1', '--untracked-files=all'])) !== '') {
             throw new \RuntimeException('branch materialization requires a clean source checkout');
         }
+        return $branch;
     }
 
     private static function refExists(string $root, string $branch): bool {

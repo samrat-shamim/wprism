@@ -200,7 +200,7 @@ function slot_request(string $environment, string $action, string $operation, ar
     return [
         'action' => $action,
         'environment' => $environment,
-        'format' => 'wprism-branch-environment-provider-request/v1',
+        'format' => 'wprism-branch-environment-provider-request/v2',
         'input' => $input,
         'operation_id' => $operation,
     ];

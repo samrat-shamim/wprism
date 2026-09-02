@@ -1948,12 +1948,15 @@ function render_driver_blockers(DriverCapabilityReport $report): void {
 
 /** Public nested environment lifecycle namespace. */
 function cmd_environment(array $args, ?string $envsFileOverride): int {
+    $bootstrap = ($args[0] ?? null) === 'materialize'
+        ? EnvironmentCommand::targetBootstrap(dirname(__DIR__))
+        : null;
     return EnvironmentCommand::run(
         $args,
         $envsFileOverride,
         static fn(EnvironmentDriver $driver, array $context): array|int => cmd_promote_frozen($driver, $context),
         null,
-        EnvironmentCommand::targetBootstrap(dirname(__DIR__))
+        $bootstrap
     );
 }
 
