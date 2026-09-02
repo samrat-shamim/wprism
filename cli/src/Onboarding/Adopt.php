@@ -761,6 +761,19 @@ IGNORE
             );
         }
 
+        // A reviewed distribution is expected to be mounted or copied
+        // read-only by its controller. `cp -R` correctly preserves that mode,
+        // but this directory is a newly allocated, process-owned staging
+        // copy: AdapterLibraryAssembler must be able to publish its generated
+        // adapter-library and deployment marker inside the copied agent root.
+        // Widen only that exact disposable directory. The reviewed source
+        // tree remains immutable, and the assembler still inventories every
+        // copied member before it replaces its owned output path.
+        if (!chmod($stage . '/agent', 0700)) {
+            self::removeLocalStage($stage);
+            throw new \RuntimeException('could not make the staged agent root writable for assembly');
+        }
+
         $resolved = realpath($stage);
         if (!is_string($resolved) || $resolved !== $stage) {
             self::removeLocalStage($stage);

@@ -274,6 +274,28 @@ register_shutdown_function(static function () use ($tmp): void {
     exec('rm -rf ' . escapeshellarg($tmp));
 });
 
+$immutableSource = $tmp . '/immutable-distribution';
+mkdir($immutableSource . '/agent', 0700, true);
+mkdir($immutableSource . '/recovery', 0700, true);
+file_put_contents($immutableSource . '/agent/runtime.php', "<?php\n");
+file_put_contents($immutableSource . '/recovery/runtime.php', "<?php\n");
+chmod($immutableSource . '/agent', 0500);
+$stageMethod = new ReflectionMethod(Adopt::class, 'stageLocalArtifact');
+$removeStageMethod = new ReflectionMethod(Adopt::class, 'removeLocalStage');
+$immutableStage = $stageMethod->invoke(null, $immutableSource, bin2hex(random_bytes(12)));
+wprism_check_same(
+    0500,
+    fileperms($immutableSource . '/agent') & 0777,
+    'adoption leaves the reviewed immutable source agent mode unchanged'
+);
+wprism_check_same(
+    0700,
+    fileperms($immutableStage . '/agent') & 0777,
+    'adoption makes only its disposable staged agent root writable for adapter assembly'
+);
+$removeStageMethod->invoke(null, $immutableStage);
+chmod($immutableSource . '/agent', 0700);
+
 $workspace = $tmp . '/workspace';
 $resolvedWorkspace = (realpath($tmp) ?: $tmp) . '/workspace';
 $gitRunner = static function (array $argv, ?string $cwd) use ($tmp): array {
