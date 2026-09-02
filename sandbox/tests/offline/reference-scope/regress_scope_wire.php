@@ -118,9 +118,24 @@ put_wire($evasiveOptionContractPath, Canon::encode($evasiveOptionContract));
 $argsPath = "$tmp/target-args.json";
 $fakeBin = "$tmp/bin";
 mkdir($fakeBin, 0700, true);
+$fakeWp = <<<'PHP'
+#!/usr/bin/env php
+<?php
+$args = array_slice($argv, 1);
+file_put_contents(getenv('WPRISM_SCOPE_WIRE_ARGS'), json_encode($args, JSON_UNESCAPED_SLASHES));
+if (in_array('capture', $args, true)) {
+    echo json_encode([
+        'counts' => ['post' => 0],
+        'media' => 0,
+        'notes' => [],
+        'warnings' => [],
+        'revision_hash' => str_repeat('a', 64),
+    ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+}
+PHP;
 put_wire(
     "$fakeBin/wp",
-    "#!/usr/bin/env php\n<?php\nfile_put_contents(getenv('WPRISM_SCOPE_WIRE_ARGS'), json_encode(array_slice(\$argv, 1), JSON_UNESCAPED_SLASHES));\n"
+    $fakeWp
 );
 chmod("$fakeBin/wp", 0700);
 $envsPath = "$tmp/envs.json";
