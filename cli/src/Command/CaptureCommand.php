@@ -3,10 +3,13 @@ declare(strict_types=1);
 
 namespace WPrism\Orchestrator;
 
+require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/CommandOutput.php';
 require_once __DIR__ . '/HostProcess.php';
 require_once __DIR__ . '/PassthroughCommand.php';
+
+use WPrism\Canon;
 
 /** Host command handler for capture's local --scope-contract flag handling. */
 final class CaptureCommand {
@@ -20,6 +23,7 @@ final class CaptureCommand {
         $contractPath = null;
         $targetBranch = null;
         $writesRepository = true;
+        $json = CommandOutput::wantsAgentRefusalJson('capture', $extra);
         foreach ($extra as $arg) {
             if (!is_string($arg) || PassthroughCommand::isHostOwnedTargetFlag($arg)) {
                 return self::scopeRefusal(
@@ -148,9 +152,89 @@ final class CaptureCommand {
             }
             $forward[] = '--expected-repository-branch=' . $targetBranch;
         }
-        return $driver->streamWp(
-            array_merge(['wprism', 'capture', '--repo=' . $driver->repoPath()], $forward)
-        );
+        $wpArgs = array_merge(['wprism', 'capture', '--repo=' . $driver->repoPath()], $forward);
+        // Export-only capture has its own destination and retains the agent's
+        // established output. A repository-writing JSON capture crosses a
+        // host/orchestrator boundary, so publish one closed, digest-bound
+        // receipt rather than asking that caller to interpret an agent
+        // implementation summary.
+        if (!$json || !$writesRepository) {
+            return $driver->streamWp($wpArgs);
+        }
+        $result = $driver->captureWp($wpArgs);
+        $decoded = json_decode(trim((string) ($result['stdout'] ?? '')), true);
+        if (($result['exit'] ?? 1) !== 0) {
+            if (is_array($decoded) && !array_is_list($decoded)
+                && ($decoded['format'] ?? null) === 'wprism-command-refusal/v1') {
+                echo Canon::encode($decoded);
+                return 1;
+            }
+            return CommandOutput::renderRefusalJson(
+                'capture',
+                'capture_failed',
+                'the target refused capture without a supported machine refusal',
+                'inspect the target private refusal evidence, repair the condition, and retry capture'
+            );
+        }
+        try {
+            if (!is_array($decoded) || array_is_list($decoded)) {
+                throw new \InvalidArgumentException('capture summary is not an object');
+            }
+            echo Canon::encode(self::receipt($driver->name(), (string) $targetBranch, $decoded));
+            return 0;
+        } catch (\Throwable) {
+            return CommandOutput::renderRefusalJson(
+                'capture',
+                'capture_result_invalid',
+                'the target returned a successful capture result outside the reviewed machine contract',
+                'upgrade the target agent to the pinned WPrism distribution and retry capture'
+            );
+        }
+    }
+
+    /**
+     * Reduce the agent's implementation summary to the public host receipt.
+     * Counts are copied as facts; this boundary never reclassifies entities.
+     *
+     * @param array<string,mixed> $summary
+     * @return array<string,mixed>
+     */
+    private static function receipt(string $environment, string $branch, array $summary): array {
+        $counts = $summary['counts'] ?? null;
+        $notes = $summary['notes'] ?? null;
+        $warnings = $summary['warnings'] ?? null;
+        $media = $summary['media'] ?? null;
+        $revision = $summary['revision_hash'] ?? null;
+        if (!is_array($counts) || array_is_list($counts) || count($counts) > 128
+            || !is_array($notes) || !array_is_list($notes)
+            || !is_array($warnings) || !array_is_list($warnings)
+            || count($notes) > 10_000 || count($warnings) > 10_000
+            || !is_int($media) || $media < 0
+            || !is_string($revision) || preg_match('/^[a-f0-9]{64}$/D', $revision) !== 1) {
+            throw new \InvalidArgumentException('capture summary has an invalid shape');
+        }
+        foreach ($counts as $kind => $count) {
+            if (!is_string($kind) || preg_match('/^[a-z][a-z0-9_.-]{0,63}$/D', $kind) !== 1
+                || !is_int($count) || $count < 0) {
+                throw new \InvalidArgumentException('capture summary counts are invalid');
+            }
+        }
+        $receipt = [
+            'branch' => $branch,
+            'capture' => [
+                'counts' => $counts,
+                'media_count' => $media,
+                'notes_count' => count($notes),
+                'state_revision' => $revision,
+                'warnings_count' => count($warnings),
+            ],
+            'environment' => $environment,
+            'format' => 'wprism-capture-result/v1',
+            'next_action' => 'review_and_commit',
+        ];
+        $receipt['receipt_sha256'] = 'sha256:' . hash('sha256', Canon::encode($receipt));
+
+        return Canon::normalize($receipt);
     }
 
     private static function validBranch(string $branch): bool {

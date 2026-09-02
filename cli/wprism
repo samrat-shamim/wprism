@@ -416,7 +416,7 @@ Usage:
   wprism recover <env> --prune-retained=<keep-n> [--confirm-prune]
                     [--limit=<1..200>] [--format=json]
   wprism capabilities <env> [--operation=<op>] [--surface=<surface>] [--format=json]
-  wprism capture <env> [--target-branch=<name>] [--scope-contract=<local-path>] [extra wp-cli flags...]
+  wprism capture <env> [--target-branch=<name>] [--scope-contract=<local-path>] [--format=json] [extra wp-cli flags...]
   wprism lint    <env> [extra wp-cli flags...]
   wprism plan    <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
   wprism explain <env> <bucket>:<entity-key> [--format=json] [plan flags...]
@@ -1099,6 +1099,10 @@ Verbs:
                           otherwise derive the current controller branch.
                           Mismatch/detached target refuses; capture never
                           switches branches. Not used with output-only capture.
+    --format=json         Repository-writing capture returns one canonical
+                          wprism-capture-result/v1 receipt binding the target
+                          environment, branch, state revision, and agent-owned
+                          counts. It leaves review and commit to the caller.
     --scope-contract=<p>  canonical wprism-scope-contract/v1 file is validated
                           by the real engine parser, then transported as its
                           normalized selectors + scope_hash; the target

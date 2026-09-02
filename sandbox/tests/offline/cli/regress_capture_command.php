@@ -16,6 +16,11 @@ function assert_capture_command(bool $condition, string $message): void {
 }
 
 final class CaptureCommandDriver implements EnvironmentDriver {
+    public int $captureCalls = 0;
+    /** @var array{exit:int,stdout:string,stderr:string} */
+    public array $captureResult = ['exit' => 0, 'stdout' => '', 'stderr' => ''];
+    /** @var list<list<string>> */
+    public array $capturedArgs = [];
     public int $streamCalls = 0;
     /** @var list<list<string>> */
     public array $streamedArgs = [];
@@ -26,7 +31,11 @@ final class CaptureCommandDriver implements EnvironmentDriver {
     public function repoPath(): string { return '/fixture/repo'; }
     public function describe(): string { return 'capture fixture'; }
     public function captureRaw(string $script): array { return ['exit' => 0, 'stdout' => '', 'stderr' => '']; }
-    public function captureWp(array $wpArgs): array { return ['exit' => 0, 'stdout' => '', 'stderr' => '']; }
+    public function captureWp(array $wpArgs): array {
+        $this->captureCalls++;
+        $this->capturedArgs[] = $wpArgs;
+        return $this->captureResult;
+    }
     public function streamWp(array $wpArgs): int {
         $this->streamCalls++;
         $this->streamedArgs[] = $wpArgs;
@@ -179,6 +188,84 @@ $decoded = json_decode($jsonOutput, true);
 assert_capture_command(
     is_array($decoded) && ($decoded['format'] ?? null) === 'wprism-command-refusal/v1' && ($decoded['reason_code'] ?? null) === 'invalid_arguments',
     'a refusal under --format=json emits the real wprism-command-refusal/v1 envelope, not the plain stderr line'
+);
+
+// -- repository-writing JSON success receipt ----------------------------------
+
+$jsonSuccess = new CaptureCommandDriver();
+$jsonSuccess->captureResult = [
+    'exit' => 0,
+    'stdout' => json_encode([
+        'counts' => ['post' => 3, 'term' => 2, 'menu' => 1, 'sidebar' => 0, 'options' => 4, 'deletion' => 0],
+        'media' => 2,
+        'notes' => ['informational observation'],
+        'warnings' => [],
+        'state_dir' => '/fixture/repo/state',
+        'revision_hash' => str_repeat('a', 64),
+        'initial_code_baseline' => null,
+        'initial_publication_cleanup' => null,
+    ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+    'stderr' => '',
+];
+ob_start();
+$jsonSuccessExit = CaptureCommand::run(
+    $jsonSuccess,
+    ['--target-branch=feature/capture-command', '--format=json'],
+    null,
+    static fn(): never => throw new RuntimeException('explicit branch must suppress branch discovery')
+);
+$jsonSuccessOutput = (string) ob_get_clean();
+$jsonSuccessReceipt = json_decode($jsonSuccessOutput, true, 512, JSON_THROW_ON_ERROR);
+$jsonSuccessBody = $jsonSuccessReceipt;
+unset($jsonSuccessBody['receipt_sha256']);
+assert_capture_command($jsonSuccessExit === 0, 'repository-writing JSON capture succeeds through the captured target boundary');
+assert_capture_command(
+    $jsonSuccess->streamCalls === 0 && $jsonSuccess->captureCalls === 1
+        && $jsonSuccess->capturedArgs[0] === [
+            'wprism', 'capture', '--repo=/fixture/repo', '--format=json',
+            '--orchestrator-environment=capture-fixture',
+            '--expected-repository-branch=feature/capture-command',
+        ],
+    'machine capture is bounded and never streams an unvalidated implementation summary'
+);
+assert_capture_command(
+    ($jsonSuccessReceipt['format'] ?? null) === 'wprism-capture-result/v1'
+        && ($jsonSuccessReceipt['environment'] ?? null) === 'capture-fixture'
+        && ($jsonSuccessReceipt['branch'] ?? null) === 'feature/capture-command'
+        && ($jsonSuccessReceipt['capture']['state_revision'] ?? null) === str_repeat('a', 64)
+        && ($jsonSuccessReceipt['capture']['counts']['post'] ?? null) === 3
+        && ($jsonSuccessReceipt['capture']['media_count'] ?? null) === 2
+        && ($jsonSuccessReceipt['next_action'] ?? null) === 'review_and_commit',
+    'machine capture publishes only the closed host receipt derived from agent facts'
+);
+assert_capture_command(
+    ($jsonSuccessReceipt['receipt_sha256'] ?? null)
+        === 'sha256:' . hash('sha256', WPrism\Canon::encode($jsonSuccessBody)),
+    'capture receipt digest binds every canonical public field'
+);
+
+$targetRefusal = new CaptureCommandDriver();
+$targetRefusal->captureResult = [
+    'exit' => 1,
+    'stdout' => json_encode([
+        'format' => 'wprism-command-refusal/v1',
+        'ok' => false,
+        'command' => 'capture',
+        'error' => 'capture_branch_mismatch',
+        'reason_code' => 'capture_branch_mismatch',
+        'message' => 'capture branch binding changed',
+        'remediation' => 'restore the intended named branch and retry capture',
+    ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+    'stderr' => '',
+];
+ob_start();
+$targetRefusalExit = CaptureCommand::run($targetRefusal, ['--format=json'], null, $fixtureBranchResolver);
+$targetRefusalOutput = json_decode((string) ob_get_clean(), true, 512, JSON_THROW_ON_ERROR);
+assert_capture_command(
+    $targetRefusalExit === 1
+        && ($targetRefusalOutput['format'] ?? null) === 'wprism-command-refusal/v1'
+        && ($targetRefusalOutput['reason_code'] ?? null) === 'capture_branch_mismatch',
+    'machine capture preserves a target agent refusal as its single public document'
 );
 
 echo "PASS: capture command\n";

@@ -12,8 +12,12 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../../../cli/src/Command/EnvironmentCommand.php';
+require_once __DIR__ . '/../../../../cli/src/Command/RehearseCommand.php';
 
+use WPrism\Orchestrator\DriverCapabilityReport;
+use WPrism\Orchestrator\EnvironmentDriver;
 use WPrism\Orchestrator\EnvironmentCommand;
+use WPrism\Orchestrator\RehearseCommand;
 
 $failures = [];
 $check = static function (bool $condition, string $message) use (&$failures): void {
@@ -23,6 +27,20 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
     }
     echo "ok: $message\n";
 };
+
+final class EnvironmentCommandRehearseDriver implements EnvironmentDriver {
+    public function name(): string { return 'preview'; }
+    public function driverId(): string { return 'preview-fixture'; }
+    public function repoPath(): string { return '/fixture/repo'; }
+    public function describe(): string { return 'preview fixture'; }
+    public function captureRaw(string $script): array { return ['exit' => 1, 'stdout' => '', 'stderr' => 'must not run']; }
+    public function captureWp(array $wpArgs): array { return ['exit' => 1, 'stdout' => '', 'stderr' => 'must not run']; }
+    public function streamWp(array $wpArgs): int { return 1; }
+    public function wpInstruction(array $wpArgs): string { return implode(' ', $wpArgs); }
+    public function capabilityReport(string $operation): DriverCapabilityReport {
+        return DriverCapabilityReport::forDriver('preview-fixture', 'preview-fixture', $operation, []);
+    }
+}
 
 $prepared = [
     'run' => ['source_environment' => 'production'],
@@ -116,6 +134,41 @@ $exit = EnvironmentCommand::run(
     static fn(mixed $_driver, array $_context): int => throw new RuntimeException('promotion callback must not run for malformed intent')
 );
 $check($exit === 1, 'direct command invocation refuses incomplete intent before registry/provider/journal or promotion work');
+
+ob_start();
+$jsonExit = EnvironmentCommand::run(
+    ['materialize', 'branch', '--from', 'production', '--format=json'],
+    null,
+    static fn(mixed $_driver, array $_context): int => throw new RuntimeException('promotion callback must not run for malformed intent')
+);
+$jsonRefusal = json_decode((string) ob_get_clean(), true);
+$check(
+    $jsonExit === 1
+        && is_array($jsonRefusal)
+        && ($jsonRefusal['format'] ?? null) === 'wprism-command-refusal/v1'
+        && ($jsonRefusal['command'] ?? null) === 'env materialize'
+        && ($jsonRefusal['reason_code'] ?? null) === 'branch_environment_operation_failed',
+    'machine materialization failure emits one stable refusal instead of a prose-only stderr gap'
+);
+
+ob_start();
+$rehearseExit = RehearseCommand::run(
+    new EnvironmentCommandRehearseDriver(),
+    ['--from=production', '--branch=feature/refusal', '--format=json'],
+    '/definitely-absent-wprism-environment-registry.json',
+    dirname(__DIR__, 4),
+    static fn(mixed $_driver, array $_context): int => throw new RuntimeException('promotion must not run'),
+);
+$rehearseOutput = (string) ob_get_clean();
+$rehearseRefusal = json_decode($rehearseOutput, true);
+$check(
+    $rehearseExit === 1
+        && is_array($rehearseRefusal)
+        && ($rehearseRefusal['format'] ?? null) === 'wprism-command-refusal/v1'
+        && ($rehearseRefusal['reason_code'] ?? null) === 'branch_environment_operation_failed'
+        && substr_count($rehearseOutput, '"format"') === 1,
+    'JSON rehearsal forwards its nested materialization refusal as exactly one machine document'
+);
 
 $facade = (string) file_get_contents(__DIR__ . '/../../../../cli/wprism');
 $command = (string) file_get_contents(__DIR__ . '/../../../../cli/src/Command/EnvironmentCommand.php');

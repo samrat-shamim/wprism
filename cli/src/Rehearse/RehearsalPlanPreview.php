@@ -255,7 +255,7 @@ final class RehearsalPlanPreview {
         ];
         $preview['preview_digest'] = self::digest($preview);
 
-        return $preview;
+        return Canon::normalize($preview);
     }
 
     /**

@@ -112,11 +112,15 @@ final class RehearseCommand {
             if ($flags['create']) {
                 $arguments[] = '--create';
             }
+            if ($json) {
+                $arguments[] = '--format=json';
+            }
         } catch (CommandRefusalException $refusal) {
             return AssessCommand::renderRefusal($refusal, $json, 'rehearse');
         }
 
         $materializationReceipt = null;
+        $nestedOutput = '';
         if ($json) {
             // EnvironmentCommand has its own operator receipt renderer. A
             // rehearsal's public machine result is instead the one
@@ -137,13 +141,16 @@ final class RehearseCommand {
             );
         } finally {
             if ($json) {
-                ob_end_clean();
+                $nestedOutput = (string) ob_get_clean();
             }
         }
         if ($materialized !== 0) {
             // `EnvironmentCommand` has already printed the provider's own
             // refusal, including a missing capability by its id. Re-wording
             // it here would replace a negotiated fact with a summary.
+            if ($json && trim($nestedOutput) !== '') {
+                echo $nestedOutput;
+            }
             return $materialized;
         }
 

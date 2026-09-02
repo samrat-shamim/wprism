@@ -6,6 +6,7 @@ namespace WPrism\Orchestrator;
 require_once __DIR__ . '/../Environment/Registry.php';
 require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../Environment/EnvironmentLifecycle.php';
+require_once __DIR__ . '/CommandOutput.php';
 require_once __DIR__ . '/EnvironmentCommandOptions.php';
 require_once __DIR__ . '/EnvironmentProviderCheckCommand.php';
 require_once __DIR__ . '/../Transport/Transport.php';
@@ -44,6 +45,7 @@ final class EnvironmentCommand {
             fwrite(STDERR, "wprism: env: unknown action '$action' (expected materialize, reap or provider-check)\n");
             return 1;
         }
+        $machineJson = in_array('--format=json', $args, true);
         // provider-check owns no journal, no promotion handoff and (in its
         // default tier) no mutation. It is deliberately dispatched before the
         // registry/provider/journal construction below, so an operator whose
@@ -113,6 +115,14 @@ final class EnvironmentCommand {
             self::renderReceipt($receipt, $options['json'], 'materialize');
             return 0;
         } catch (\Throwable $e) {
+            if ($machineJson) {
+                return CommandOutput::renderRefusalJson(
+                    'env ' . $action,
+                    'branch_environment_operation_failed',
+                    'the branch environment operation refused at a safety or recovery gate',
+                    'inspect private operator diagnostics, repair the condition, then retry the same operation for journal reconciliation'
+                );
+            }
             fwrite(STDERR, "wprism: env $action: {$e->getMessage()}\n");
             return 1;
         }

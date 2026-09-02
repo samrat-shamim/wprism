@@ -142,7 +142,7 @@ wprism_check_same(
 );
 wprism_check_same(
     1,
-    substr_count($encodedVerifiedPreview, '"format":"wprism-rehearsal-preview/v1"'),
+    substr_count($encodedVerifiedPreview, '"format": "wprism-rehearsal-preview/v1"'),
     'the rehearsal machine document carries one terminal preview envelope'
 );
 wprism_check_same(
