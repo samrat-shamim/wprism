@@ -2,6 +2,6 @@
 # Enforced by tests/Tooling/PhpstanBaselineRatchetTest.php. This number may go
 # DOWN freely; raising it must be a deliberate, reviewed line in the same commit
 # that introduces the new errors. The 2026-08-19 baseline began at 108 entries
-# suppressing 257 errors; this ceiling now records 104 entries / 245 errors
-# after the resolved plan-view and command-local definition debts were removed.
-104
+# suppressing 257 errors; this ceiling now records 99 entries / 238 errors
+# after removing environment-dependent CLI argv suppressions.
+99

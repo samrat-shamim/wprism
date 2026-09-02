@@ -42,6 +42,7 @@ final class PhpstanBaselineRatchetTest extends TestCase
 {
     private const BASELINE = WPRISM_REPO_ROOT . '/phpstan-baseline.neon';
     private const CEILING = WPRISM_REPO_ROOT . '/tests/Tooling/fixtures/phpstan-baseline-ceiling.txt';
+    private const COMPOSER = WPRISM_REPO_ROOT . '/composer.json';
 
     /**
      * Concrete needles only. The word "composer" on its own appears in
@@ -91,6 +92,24 @@ final class PhpstanBaselineRatchetTest extends TestCase
                 $ceiling,
                 'tests/Tooling/fixtures/phpstan-baseline-ceiling.txt'
             )
+        );
+    }
+
+    public function testPhpstanAlwaysAnalysesCliArgvAsRegistered(): void
+    {
+        $composer = json_decode(
+            (string) file_get_contents(self::COMPOSER),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+
+        $this->assertSame(
+            '@php -d register_argc_argv=1 vendor/bin/phpstan analyse --memory-limit=1G',
+            $composer['scripts']['stan'] ?? null,
+            'PHPStan must not inherit register_argc_argv from the developer php.ini: Homebrew PHP 8.3 defaults '
+            . 'to on while PHP 8.5 defaults to off, which otherwise makes five baseline entries alternate '
+            . 'between required and stale.'
         );
     }
 
