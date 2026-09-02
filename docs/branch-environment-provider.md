@@ -410,7 +410,7 @@ EnvironmentLifecycle.php:1210-1214. Restoring another set than `snapshot_set_id`
 
 Gated by `repository.materialize`.
 
-EnvironmentLifecycle.php:1223-1228. The result `branch_commit` must equal the requested one (:1232).
+EnvironmentLifecycle.php:1390-1404. `branch_ref` names the orchestrator-owned source ref; the provider must check out its exact `branch_commit` under the distinct `target_branch` and echo both commit and target branch.
 
 **Request `input`:**
 
@@ -428,6 +428,7 @@ EnvironmentLifecycle.php:1223-1228. The result `branch_commit` must equal the re
 | `expected_ownership_receipt_sha256` | a lowercase 64-character hex SHA-256 |
 | `expected_resource_id` | an opaque identifier matching [A-Za-z0-9._:@+-]{8,256} |
 | `repo_path` | an absolute filesystem path on the orchestrating host |
+| `target_branch` | a Git ref name |
 
 **Response `result`** (closed set):
 
@@ -440,6 +441,7 @@ EnvironmentLifecycle.php:1223-1228. The result `branch_commit` must equal the re
 | `ownership_receipt_sha256` | a lowercase 64-character hex SHA-256 |
 | `repository_receipt_sha256` | a lowercase 64-character hex SHA-256 |
 | `resource_id` | an opaque identifier matching [A-Za-z0-9._:@+-]{8,256} |
+| `target_branch` | a Git ref name |
 | `url` | a credential-free http(s) base URL under 2048 bytes with no query or fragment |
 
 ### `url-set`

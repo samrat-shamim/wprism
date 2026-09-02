@@ -3816,16 +3816,26 @@ function ref_dispatch(array $request, array $config, array &$state): array {
         ref_require_fence($state, $input, $identity, $resourceConfig);
         ref_revalidate_containment($state, $config, $environment, $resource, $identity);
         $commit = $input['branch_commit'] ?? null;
+        $sourceRef = $input['branch_ref'] ?? null;
+        $targetBranch = $input['target_branch'] ?? null;
         ref_require(is_string($commit) && preg_match('/^[a-f0-9]{40}$/D', $commit) === 1, 'repository materialization commit is invalid');
+        ref_require(is_string($sourceRef) && $sourceRef !== '', 'repository materialization source ref is invalid');
+        ref_require(is_string($targetBranch) && $targetBranch !== '', 'repository materialization target branch is invalid');
+        ref_checked(['git', 'check-ref-format', '--branch', $sourceRef]);
+        ref_checked(['git', 'check-ref-format', '--branch', $targetBranch]);
         $repo = (string) $environment['repo'];
         $tmp = $repo . '.incoming-' . substr(hash('sha256', $operation), 0, 12);
         ref_remove_tree($tmp);
         ref_remove_tree($repo);
         ref_checked(['git', 'clone', '--no-hardlinks', '--no-local', (string) $config['controller_repo'], $tmp]);
-        ref_checked(['git', '-C', $tmp, 'checkout', '--detach', $commit]);
+        ref_checked(['git', '-C', $tmp, 'checkout', '-B', $targetBranch, $commit]);
         if (!rename($tmp, $repo)) throw new RuntimeException('could not publish the independent target repository');
         ref_chmod_tree($repo);
-        return $identity + ['branch_commit' => $commit, 'repository_receipt_sha256' => ref_hash(['commit' => $commit, 'repo' => $repo])];
+        return $identity + [
+            'branch_commit' => $commit,
+            'repository_receipt_sha256' => ref_hash(['commit' => $commit, 'repo' => $repo, 'source_ref' => $sourceRef, 'target_branch' => $targetBranch]),
+            'target_branch' => $targetBranch,
+        ];
     }
 
     if ($action === 'url-set') {
@@ -4077,7 +4087,11 @@ function ref_plan(array $request, array $config, ?array $state = null): array {
 
     if ($action === 'repository-materialize') {
         $commit = $input['branch_commit'] ?? null;
+        $sourceRef = $input['branch_ref'] ?? null;
+        $targetBranch = $input['target_branch'] ?? null;
         ref_require(is_string($commit) && preg_match('/^[a-f0-9]{40}$/D', $commit) === 1, 'repository materialization commit is invalid');
+        ref_require(is_string($sourceRef) && $sourceRef !== '', 'repository materialization source ref is invalid');
+        ref_require(is_string($targetBranch) && $targetBranch !== '', 'repository materialization target branch is invalid');
     }
     if ($action === 'ttl-set') {
         ref_require(is_int($input['ttl_seconds'] ?? null) && $input['ttl_seconds'] >= 60, 'TTL set is invalid');
@@ -4213,9 +4227,15 @@ function ref_plan(array $request, array $config, ?array $state = null): array {
             break;
         case 'repository-materialize':
             $commit = $input['branch_commit'] ?? null;
+            $sourceRef = $input['branch_ref'] ?? null;
+            $targetBranch = $input['target_branch'] ?? null;
             ref_require(is_string($commit) && preg_match('/^[a-f0-9]{40}$/D', $commit) === 1, 'repository materialization commit is invalid');
+            ref_require(is_string($sourceRef) && $sourceRef !== '', 'repository materialization source ref is invalid');
+            ref_require(is_string($targetBranch) && $targetBranch !== '', 'repository materialization target branch is invalid');
+            $commands[] = ['argv' => ['git', 'check-ref-format', '--branch', $sourceRef]];
+            $commands[] = ['argv' => ['git', 'check-ref-format', '--branch', $targetBranch]];
             $commands[] = ['argv' => ['git', 'clone', '--no-hardlinks', '--no-local', (string) $config['controller_repo'], (string) $environment['repo'] . '.incoming']];
-            $commands[] = ['argv' => ['git', '-C', (string) $environment['repo'] . '.incoming', 'checkout', '--detach', $commit]];
+            $commands[] = ['argv' => ['git', '-C', (string) $environment['repo'] . '.incoming', 'checkout', '-B', $targetBranch, $commit]];
             break;
         case 'url-set':
             ref_require(($input['url'] ?? null) === $identity['url'], 'provider URL differs from target identity');

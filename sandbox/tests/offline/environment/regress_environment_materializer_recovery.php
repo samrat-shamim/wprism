@@ -510,7 +510,11 @@ if (isset($state['records'][$key])) {
             return $identity + ['mutation_generation' => 1, 'mutation_id' => $id, 'mutation_owner' => (string) ($input['expected_mutation_owner'] ?? ''), 'mutation_receipt_sha256' => h('released:' . $id), 'state' => 'released'];
         })(),
         'snapshot-restore' => $identity + ['snapshot_set_id' => (string) ($input['snapshot_set_id'] ?? '')],
-        'repository-materialize' => $identity + ['branch_commit' => (string) ($input['branch_commit'] ?? ''), 'repository_receipt_sha256' => h('repository')],
+        'repository-materialize' => $identity + [
+            'branch_commit' => (string) ($input['branch_commit'] ?? ''),
+            'repository_receipt_sha256' => h('repository'),
+            'target_branch' => (string) ($input['target_branch'] ?? ''),
+        ],
         'url-set' => $identity,
         'ttl-set', 'ttl-read' => $identity + [
             'expires_at' => '2030-01-02T03:04:05Z', 'ttl_generation' => 1,

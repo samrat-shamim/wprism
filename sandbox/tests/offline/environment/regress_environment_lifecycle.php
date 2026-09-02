@@ -184,6 +184,7 @@ $result = match ($action) {
     'repository-materialize' => $identity + [
         'branch_commit' => str_repeat('a', 40),
         'repository_receipt_sha256' => $h('repository'),
+        'target_branch' => 'feature',
     ],
     'url-set' => $identity,
     'ttl-set' => $identity + [

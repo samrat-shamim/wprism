@@ -56,10 +56,11 @@ final class EnvironmentProviderProtocol {
     public const TYPE_TRUE = 'true';
     /** A list of capability ids drawn from EnvironmentProviderCapability::all(). */
     public const TYPE_CAPABILITY_LIST = 'capability-list';
-    /* The three tokens below appear only on REQUEST fields. The orchestrator
-     * closes and types the RESPONSE and leaves the request open (call(),
-     * EnvironmentLifecycle.php:254-263), so these describe what a provider
-     * will actually receive rather than something it can be refused over. */
+    /* The path/environment tokens below appear only on REQUEST fields. The
+     * orchestrator closes and types the RESPONSE and leaves the request open
+     * (call(), EnvironmentLifecycle.php:254-263), so these describe what a
+     * provider will actually receive rather than something it can be refused
+     * over. Git refs cross both directions for repository materialization. */
     /** A registry environment name as written in site.wprism.json / .wprism-envs.json. */
     public const TYPE_ENV_NAME = 'environment-name';
     /** An absolute filesystem path on the host that runs `wprism`. */
@@ -568,14 +569,16 @@ final class EnvironmentProviderProtocol {
                 'result' => $identityResult + [
                     'branch_commit' => self::TYPE_GIT_OID,
                     'repository_receipt_sha256' => self::TYPE_SHA256,
+                    'target_branch' => self::TYPE_GIT_REF,
                 ],
                 'input' => $fenced + [
                     'branch_commit' => self::TYPE_GIT_OID,
                     'branch_ref' => self::TYPE_GIT_REF,
                     'repo_path' => self::TYPE_PATH,
+                    'target_branch' => self::TYPE_GIT_REF,
                 ],
                 'input_conditional' => [],
-                'input_notes' => 'EnvironmentLifecycle.php:1223-1228. The result `branch_commit` must equal the requested one (:1232).',
+                'input_notes' => 'EnvironmentLifecycle.php:1390-1404. `branch_ref` names the orchestrator-owned source ref; the provider must check out its exact `branch_commit` under the distinct `target_branch` and echo both commit and target branch.',
             ],
             'url-set' => [
                 'capability' => 'environment.url.set',

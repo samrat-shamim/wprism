@@ -71,6 +71,7 @@ function pc_good(string $type): mixed {
         EnvironmentProviderProtocol::TYPE_POSITIVE_INT => 3,
         EnvironmentProviderProtocol::TYPE_UTC_SECOND => '2030-01-02T03:04:05Z',
         EnvironmentProviderProtocol::TYPE_GIT_OID => str_repeat('a', 40),
+        EnvironmentProviderProtocol::TYPE_GIT_REF => 'feature/provider-contract',
         EnvironmentProviderProtocol::TYPE_BASE_URL => 'https://branch.example.test',
         EnvironmentProviderProtocol::TYPE_TRUE => true,
         EnvironmentProviderProtocol::TYPE_CAPABILITY_LIST => EnvironmentProviderCapability::all(),
@@ -90,6 +91,7 @@ function pc_bad(string $type): mixed {
         EnvironmentProviderProtocol::TYPE_POSITIVE_INT => 0,
         EnvironmentProviderProtocol::TYPE_UTC_SECOND => '2030-01-02 03:04:05',
         EnvironmentProviderProtocol::TYPE_GIT_OID => 'zzzz',
+        EnvironmentProviderProtocol::TYPE_GIT_REF => '',
         // userinfo AND a query: two independent reasons the URL rule refuses.
         EnvironmentProviderProtocol::TYPE_BASE_URL => 'https://user:secret@branch.example.test/?token=1',
         EnvironmentProviderProtocol::TYPE_TRUE => false,
@@ -560,6 +562,7 @@ $result = match ($action) {
     'snapshot-restore' => $identity + ['snapshot_set_id' => (string) $input['snapshot_set_id']],
     'repository-materialize' => $identity + [
         'branch_commit' => (string) $input['branch_commit'], 'repository_receipt_sha256' => $h('repo'),
+        'target_branch' => (string) $input['target_branch'],
     ],
     'url-set' => $identity,
     'mutation-acquire', 'mutation-read', 'mutation-release' => $fence,
@@ -574,7 +577,8 @@ $result = match ($action) {
     default => [],
 };
 if ($wrong !== '' && str_starts_with($wrong, $action . '.')) {
-    $result[substr($wrong, strlen($action) + 1)] = 'x';
+    $field = substr($wrong, strlen($action) + 1);
+    $result[$field] = $field === 'target_branch' ? '' : 'x';
 }
 echo pc_canon([
     'action' => $action, 'environment' => $request['environment'],
@@ -623,6 +627,7 @@ PHP);
     // harness names the field the orchestrator's own message may not.
     foreach ([
         ['repository-materialize', 'branch_commit'],
+        ['repository-materialize', 'target_branch'],
         ['ttl-set', 'expires_at'],
         ['snapshot-create', 'database_sha256'],
         ['mutation-acquire', 'mutation_generation'],

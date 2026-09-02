@@ -525,6 +525,12 @@ final class CommandEnvironmentProvider {
             self::assertExactKeys($result, EnvironmentProviderProtocol::resultKeys($action), 'repository-materialize result');
             self::validateIdentity($result);
             self::assertGitOid($result['branch_commit'] ?? null);
+            if (!EnvironmentProviderProtocol::matchesType(
+                EnvironmentProviderProtocol::TYPE_GIT_REF,
+                $result['target_branch'] ?? null
+            )) {
+                throw new \RuntimeException('environment provider target branch is invalid');
+            }
             self::assertHash($result['repository_receipt_sha256'] ?? null, 'repository receipt');
             return;
         }
@@ -1387,7 +1393,8 @@ final class EnvironmentMaterializer {
                 self::recordPhase($journal, $operationId, 'snapshot-restored', self::publicEvidence($restore));
             }
             $repositoryInput = self::identityInput($targetIdentity) + self::mutationInput($heldFence) + [
-                'branch_commit' => $semantic['branch_commit'], 'branch_ref' => $semantic['candidate_ref'], 'repo_path' => $targetDriver->repoPath(),
+                'branch_commit' => $semantic['branch_commit'], 'branch_ref' => $semantic['candidate_ref'],
+                'repo_path' => $targetDriver->repoPath(), 'target_branch' => $options['branch'],
             ];
             self::recordIntent($journal, $operationId, 'repository-materialize', $repositoryInput);
             $repository = self::phaseData($journal, $operationId, 'repository-materialized');
@@ -1395,7 +1402,11 @@ final class EnvironmentMaterializer {
                 $repository = $targetProvider->perform('repository-materialize', $operationId, $repositoryInput);
                 self::assertSameIdentity($targetIdentity, $repository);
                 if (($repository['branch_commit'] ?? null) !== $semantic['branch_commit']) throw new \RuntimeException('provider materialized another branch commit');
+                if (($repository['target_branch'] ?? null) !== $options['branch']) throw new \RuntimeException('provider materialized another target branch');
                 self::recordPhase($journal, $operationId, 'repository-materialized', self::publicEvidence($repository));
+            } elseif (($repository['branch_commit'] ?? null) !== $semantic['branch_commit']
+                || ($repository['target_branch'] ?? null) !== $options['branch']) {
+                throw new \RuntimeException('journaled repository materialization does not match the requested branch binding');
             }
             $urlInput = self::identityInput($targetIdentity) + self::mutationInput($heldFence) + ['url' => $targetIdentity['url']];
             self::recordIntent($journal, $operationId, 'url-set', $urlInput);

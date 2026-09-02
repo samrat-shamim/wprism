@@ -310,6 +310,15 @@ $statePath = (string) ($argv[4] ?? '');
 $providerState = is_file($statePath) ? json_decode((string) file_get_contents($statePath), true, 512, JSON_THROW_ON_ERROR) : [];
 $request = json_decode((string) stream_get_contents(STDIN), true, 512, JSON_THROW_ON_ERROR);
 file_put_contents($log, json_encode($request, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n", FILE_APPEND | LOCK_EX);
+function provider_git(array $arguments): void {
+    $process = proc_open(array_merge(['git'], $arguments), [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, null, ['bypass_shell' => true]);
+    if (!is_resource($process)) throw new RuntimeException('could not start provider Git command');
+    fclose($pipes[0]);
+    $stdout = (string) stream_get_contents($pipes[1]);
+    $stderr = (string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]); fclose($pipes[2]);
+    if (proc_close($process) !== 0) throw new RuntimeException('provider Git command failed: ' . $stderr . $stdout);
+}
 $hash = static fn(string $v): string => hash('sha256', $v);
 $target = $environment === 'branch';
 $identity = [
@@ -338,6 +347,19 @@ if ($action === 'mutation-acquire') {
     $providerState['mutation_state'] = 'released';
     file_put_contents($statePath, json_encode($providerState, JSON_THROW_ON_ERROR), LOCK_EX);
 }
+if ($action === 'repository-materialize') {
+    $repoPath = (string) ($input['repo_path'] ?? '');
+    $sourceRef = (string) ($input['branch_ref'] ?? '');
+    $targetBranch = (string) ($input['target_branch'] ?? '');
+    $commit = (string) ($input['branch_commit'] ?? '');
+    // The provider owns repository placement: it fetches WPrism's private
+    // semantic ref, but publishes that exact commit under the operator's
+    // candidate branch so capture can enforce the branch binding later.
+    provider_git(['check-ref-format', '--branch', $sourceRef]);
+    provider_git(['check-ref-format', '--branch', $targetBranch]);
+    provider_git(['-C', $repoPath, 'fetch', '--no-tags', 'origin', $sourceRef]);
+    provider_git(['-C', $repoPath, 'checkout', '-B', $targetBranch, $commit]);
+}
 $fence = $identity + [
     'mutation_generation' => 1, 'mutation_id' => 'target-mutation-0001', 'mutation_owner' => $fenceOwner,
     'mutation_receipt_sha256' => $hash('mutation-' . $fenceOwner), 'state' => $fenceState,
@@ -365,6 +387,7 @@ $result = match ($action) {
     'snapshot-restore' => $identity + ['snapshot_set_id' => (string) ($input['snapshot_set_id'] ?? '')],
     'repository-materialize' => $identity + [
         'branch_commit' => (string) ($input['branch_commit'] ?? ''), 'repository_receipt_sha256' => $hash('repository'),
+        'target_branch' => (string) ($input['target_branch'] ?? ''),
     ],
     'url-set' => $identity,
     'mutation-acquire', 'mutation-read', 'mutation-release' => $fence,
@@ -428,6 +451,11 @@ PHP);
     ssh_proof_ok($materializeJson !== null, "public env materialize succeeded:\n$materialize");
     ssh_proof_ok(($materializeJson['mode'] ?? null) === 'attach', 'materialization receipt records attach mode');
     ssh_proof_ok(
+        ssh_proof_git($target, ['branch', '--show-current']) === 'feature'
+            && ssh_proof_git($target, ['rev-parse', 'HEAD']) === (string) ($materializeJson['branch_commit'] ?? ''),
+        'provider materializes the semantic commit under the operator-named target branch'
+    );
+    ssh_proof_ok(
         is_file($target . '/wp/wp-content/mu-plugins/wprism-loader.php')
             && is_file($target . '/wp/wp-content/mu-plugins/wprism/wprism.php'),
         'public SSH materialization adopts the exact WPrism control agent before target compile'
@@ -449,6 +477,13 @@ PHP);
     $sourceActions = array_column($sourceRequests, 'action');
     $targetActions = array_column($targetRequests, 'action');
     ssh_proof_ok(in_array('attach', $targetActions, true) && !in_array('create', $targetActions, true), 'attach mode never claims provider provisioning');
+    $repositoryRequests = array_values(array_filter($targetRequests, static fn(array $request): bool => ($request['action'] ?? null) === 'repository-materialize'));
+    $repositoryInput = $repositoryRequests[0]['input'] ?? [];
+    ssh_proof_ok(
+        ($repositoryInput['target_branch'] ?? null) === 'feature'
+            && str_starts_with((string) ($repositoryInput['branch_ref'] ?? ''), 'wprism/materialize/'),
+        'repository provider receives distinct target branch and WPrism-private source ref bindings'
+    );
     ssh_proof_ok(in_array('snapshot-create', $sourceActions, true) && in_array('snapshot-read', $sourceActions, true), 'generic provider owns coherent snapshot creation/readback');
 
     $wpRequests = $providerRequests($wpLog);

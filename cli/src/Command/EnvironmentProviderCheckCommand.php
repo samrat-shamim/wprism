@@ -226,6 +226,7 @@ final class EnvironmentProviderCheckCommand {
                     'branch_commit' => $branch['commit'],
                     'branch_ref' => $branch['ref'],
                     'repo_path' => $branch['repo_path'],
+                    'target_branch' => $branch['ref'],
                 ]],
                 ['url-set', $fenced + ['url' => $identity['url']]],
                 ['ttl-set', $fenced + ['ttl_seconds' => self::CYCLE_TTL_SECONDS]],
@@ -478,7 +479,7 @@ final class EnvironmentProviderCheckCommand {
     }
 
     /**
-     * The commit/ref/repo triple `repository-materialize` is given.
+     * The commit/source-ref/target-branch/repo tuple `repository-materialize` is given.
      *
      * @param array{from:?string,cycle:bool,confirm:bool,create:bool,role:string,branch:?string,json:bool} $options
      * @return array{commit:string,ref:string,repo_path:string}
