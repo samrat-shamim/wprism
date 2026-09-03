@@ -51,7 +51,7 @@ final class Cli {
         if (!isset($assoc['json']) && ($assoc['format'] ?? '') !== 'json') {
             if (self::private_refusal_evidence_required($t, $privateEvidence, false)) {
                 self::record_private_refusal_evidence(
-                    $privateEvidence,
+                    $t,
                     $assoc,
                     $command,
                     self::private_refusal_reason_code($t, $command)
@@ -182,7 +182,7 @@ final class Cli {
             ($payload['details_redacted'] ?? false) === true || $serializationRedacted
         )) {
             self::record_private_refusal_evidence(
-                $privateEvidence,
+                $t,
                 $assoc,
                 $command,
                 (string) $payload['error']
@@ -222,15 +222,32 @@ final class Cli {
      */
     private static bool $initRepositoryWasWPrismAtEntry = false;
 
+    /** Run one metadata read without handing a diagnostic warning to the host. */
+    private static function refusal_lstat(string $path): array|false {
+        set_error_handler(static fn(): bool => true);
+        try {
+            return lstat($path);
+        } finally {
+            restore_error_handler();
+        }
+    }
+
     /** dev:ino of an ordinary, non-symlinked directory, or null. */
     private static function directory_identity(string $path): ?string {
         $path = rtrim($path, '/');
-        if ($path === '' || is_link($path) || !is_dir($path)) {
+        if ($path === '') {
             return null;
         }
-        clearstatcache(true, $path);
-        $stat = @lstat($path);
-        return $stat === false ? null : $stat['dev'] . ':' . $stat['ino'];
+        try {
+            clearstatcache(true, $path);
+            $stat = self::refusal_lstat($path);
+        } catch (\Throwable) {
+            return null;
+        }
+        if (!is_array($stat) || (((int) ($stat['mode'] ?? 0)) & 0170000) !== 0040000) {
+            return null;
+        }
+        return (string) $stat['dev'] . ':' . (string) $stat['ino'];
     }
 
     /**
@@ -244,7 +261,7 @@ final class Cli {
      * swapped-in symlink it planted it OUTSIDE the repository altogether
      * (regress_wprism_init's post-proposal swap cases, live 2026-08-21).
      *
-     * Three conditions, each closing one of those doors:
+     * Four conditions, each closing one of those doors:
      *
      * 1. The path is an ordinary directory WPrism is not following a link to.
      *    Nothing else in the code half follows a symlinked repository root
@@ -259,18 +276,21 @@ final class Cli {
      *    WPrism repository yet, and its evidence is the sealed attempt journal);
      *    an init recovering an interrupted attempt in a real repository still
      *    records, which is the init refusal actually worth reading.
+     * 4. The exact root and repository-qualifier inodes remain bound through
+     *    the kernel writer. Eligibility is one witness, never a boolean that a
+     *    later snapshot could accidentally apply to a replacement path.
      *
      * Skipping is silent and carries no second failure, exactly as every other
      * best-effort path here does: the public envelope and human sentence stay
      * unchanged while the kernel recorder either writes privately or skips.
+     *
+     * @return ?array{root_identity:string,qualifier_path:string,qualifier_identity:string,qualifier_type:string}
      */
-    private static function refusal_evidence_repository(string $repo, string $command): bool {
-        $identity = self::directory_identity($repo);
-        if ($identity === null) {
-            return false;
-        }
-        if (!self::is_wprism_repository($repo)) {
-            return false;
+    private static function refusal_evidence_repository(string $repo, string $command): ?array {
+        $rootIdentity = self::directory_identity($repo);
+        $qualifier = self::wprism_repository_qualifier($repo);
+        if ($rootIdentity === null || $qualifier === null) {
+            return null;
         }
         if ($command === 'init') {
             // Both entry-time facts, not one of each: the directory must still
@@ -278,11 +298,25 @@ final class Cli {
             // repository before init touched it (issue #3522). A fresh init
             // satisfies neither half of that by publishing its own marker
             // mid-command.
-            return self::$initRepositoryIdentityAtEntry !== null
-                && self::$initRepositoryIdentityAtEntry === $identity
-                && self::$initRepositoryWasWPrismAtEntry;
+            if (self::$initRepositoryIdentityAtEntry === null
+                || self::$initRepositoryIdentityAtEntry !== $rootIdentity
+                || !self::$initRepositoryWasWPrismAtEntry) {
+                return null;
+            }
         }
-        return true;
+        // The witness is one operation, not a boolean followed by a fresh root
+        // snapshot. Re-read both nodes before returning so a replacement can
+        // never inherit the earlier eligibility decision.
+        if (self::directory_identity($repo) !== $rootIdentity
+            || self::qualifier_identity($qualifier['path'], $qualifier['type']) !== $qualifier['identity']) {
+            return null;
+        }
+        return [
+            'root_identity' => $rootIdentity,
+            'qualifier_path' => $qualifier['path'],
+            'qualifier_identity' => $qualifier['identity'],
+            'qualifier_type' => $qualifier['type'],
+        ];
     }
 
     /**
@@ -292,16 +326,60 @@ final class Cli {
      * symlink.
      */
     private static function is_wprism_repository(string $repo): bool {
+        return self::wprism_repository_qualifier($repo) !== null;
+    }
+
+    /** @return ?array{path:string,identity:string,type:string} */
+    private static function wprism_repository_qualifier(string $repo): ?array {
         $root = rtrim($repo, '/');
+        if ($root === '') {
+            return null;
+        }
         $site = $root . '/site.wprism.json';
         $wprism = $root . '/.wprism';
-        // A regular site marker cannot make an unsafe control path safe. The
-        // recorder creates `.wprism/` only when it is absent; a link or any
-        // other pre-existing type is a hard no-write boundary.
-        if (is_link($wprism) || (file_exists($wprism) && !is_dir($wprism))) {
-            return false;
+        try {
+            clearstatcache(true, $wprism);
+            $controlStat = self::refusal_lstat($wprism);
+            if (is_array($controlStat)) {
+                if ((((int) ($controlStat['mode'] ?? 0)) & 0170000) !== 0040000) {
+                    // A regular site marker cannot bless a link or another
+                    // pre-existing control-path shape.
+                    return null;
+                }
+                return [
+                    'path' => $wprism,
+                    'identity' => (string) $controlStat['dev'] . ':' . (string) $controlStat['ino'],
+                    'type' => 'control',
+                ];
+            }
+            clearstatcache(true, $site);
+            $siteStat = self::refusal_lstat($site);
+        } catch (\Throwable) {
+            return null;
         }
-        return (!is_link($site) && is_file($site)) || is_dir($wprism);
+        if (!is_array($siteStat) || (((int) ($siteStat['mode'] ?? 0)) & 0170000) !== 0100000) {
+            return null;
+        }
+        return [
+            'path' => $site,
+            'identity' => (string) $siteStat['dev'] . ':' . (string) $siteStat['ino'],
+            'type' => 'site',
+        ];
+    }
+
+    private static function qualifier_identity(string $path, string $type): ?string {
+        try {
+            clearstatcache(true, $path);
+            $stat = self::refusal_lstat($path);
+        } catch (\Throwable) {
+            return null;
+        }
+        $expectedType = $type === 'site' ? 0100000 : ($type === 'control' ? 0040000 : 0);
+        if (!is_array($stat) || $expectedType === 0
+            || (((int) ($stat['mode'] ?? 0)) & 0170000) !== $expectedType) {
+            return null;
+        }
+        return (string) $stat['dev'] . ':' . (string) $stat['ino'];
     }
 
     /** @param array{traversal:array<string,mixed>} $evidence */
@@ -328,27 +406,26 @@ final class Cli {
      * Cross the public/private diagnostic edge only after command-level
      * repository eligibility has passed. The kernel service binds the exact
      * root inode again and owns the bounded graph's 0600, no-follow store.
-     *
-     * @param array{throwable:list<array<string,mixed>>,traversal:array<string,mixed>} $evidence
      */
     private static function record_private_refusal_evidence(
-        array $evidence,
+        \Throwable $t,
         array $assoc,
         string $command,
         string $reasonCode
     ): void {
-        $repo = $assoc['repo'] ?? null;
-        if (!is_string($repo)) {
-            return;
+        try {
+            $repo = $assoc['repo'] ?? null;
+            if (!is_string($repo)) {
+                return;
+            }
+            $repositoryWitness = self::refusal_evidence_repository($repo, $command);
+            if ($repositoryWitness === null) {
+                return;
+            }
+            PrivateRefusalEvidence::record($repo, $repositoryWitness, $t, $command, $reasonCode);
+        } catch (\Throwable) {
+            // Private diagnostics are never allowed to replace public output.
         }
-        if (!self::refusal_evidence_repository($repo, $command)) {
-            return;
-        }
-        $identity = self::directory_identity($repo);
-        if ($identity === null) {
-            return;
-        }
-        PrivateRefusalEvidence::record($repo, $identity, $evidence, $command, $reasonCode);
     }
 
     /**

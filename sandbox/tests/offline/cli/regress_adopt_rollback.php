@@ -540,12 +540,15 @@ adopt_check(
 adopt_assert_ordered(
     $authorityInstall,
     [
+        '(umask 077; mkdir "$wprism_new")',
         'record_identity "$wprism_new" "$txn/wprism_new_construction.id"',
+        'cp -Rp "$wprism_state/." "$wprism_new/"',
+        'chmod 700 "$wprism_new"',
         'cp -R "$stage/recovery" "$runtime_new"',
         'recovery-probe --root="$control_new"',
         'record_identity "$wprism_new" "$txn/wprism_new.id"',
     ],
-    'the authority publish proof follows state copy, runtime initialization, and recovery configuration'
+    'the authority root is private before and after preserved state copy, and its publish proof follows runtime initialization and recovery configuration'
 );
 adopt_assert_ordered(
     $ordinaryInstall,
@@ -694,6 +697,149 @@ adopt_check(
 $secondInstall = Adopt::install($filesystemTransport, $sourceRoot);
 adopt_check($secondInstall['exit'] === 0, 'the real generated filesystem transaction supports an idempotent update');
 adopt_check(!file_exists($filesystemTransport->muDir() . '/manifests'), 'an embedded-library update does not recreate flat manifests');
+
+// Exercise the installed bytes, not the source checkout: a provider throwable
+// becomes a private carrier in Providers, then the installed CLI records it
+// below the authority root published by the real adoption transaction.
+$installedAgent = $filesystemTransport->muDir() . '/wprism';
+$adoptedRepo = $filesystemTransport->repoPath();
+$adoptProbe = $filesystemFixture . '/provider-refusal-probe.php';
+$adoptProbeSource = <<<'PHP'
+<?php
+declare(strict_types=1);
+
+final class AdoptEvidenceCliHalt extends RuntimeException {
+    public function __construct(public int $status) {
+        parent::__construct("halt:$status");
+    }
+}
+
+final class WP_CLI {
+    /** @var list<string> */
+    public static array $lines = [];
+
+    public static function add_command(mixed $name, mixed $class): void {}
+
+    public static function line(mixed $line): void {
+        self::$lines[] = (string) $line;
+    }
+
+    public static function halt(mixed $status): void {
+        throw new AdoptEvidenceCliHalt((int) $status);
+    }
+
+    public static function error(mixed $message, mixed $exit = true): void {
+        throw new RuntimeException((string) $message);
+    }
+}
+
+$agent = $argv[1];
+$repo = $argv[2];
+require_once $agent . '/src/Adapter/Providers.php';
+require_once $agent . '/src/Command/Cli.php';
+
+$providerCause = new RuntimeException(
+    'provider failed with X-Amz-Signature=PRIVATE_ADOPTED_PROVIDER'
+);
+$provider = new class($providerCause) {
+    public function __construct(private Throwable $failure) {}
+
+    public function invoke(string $capability, array $args): array {
+        throw $this->failure;
+    }
+};
+$providerFailure = null;
+try {
+    \WPrism\Providers::invoke(
+        $provider,
+        ['provider' => 'adopt-evidence', 'capability' => 'repair', 'args' => []],
+        ['scope' => 'site', 'reads' => [], 'writes' => [], 'timeout_seconds' => 5],
+        []
+    );
+} catch (Throwable $failure) {
+    $providerFailure = $failure;
+}
+if (!$providerFailure instanceof \WPrism\PrivateEvidenceException) {
+    throw new RuntimeException('installed provider boundary did not retain a private cause');
+}
+
+$refusalDirectory = $repo . '/.wprism/refusals';
+$directoryExisted = is_dir($refusalDirectory);
+$before = glob($refusalDirectory . '/*.json') ?: [];
+$boundary = new ReflectionMethod(\WPrism\Cli::class, 'halt_json_failure');
+$haltStatus = null;
+try {
+    $boundary->invoke(
+        null,
+        $providerFailure,
+        ['repo' => $repo, 'format' => 'json'],
+        'apply'
+    );
+} catch (AdoptEvidenceCliHalt $halt) {
+    $haltStatus = $halt->status;
+}
+$publicBytes = implode("\n", WP_CLI::$lines);
+$after = glob($refusalDirectory . '/*.json') ?: [];
+$files = array_values(array_diff($after, $before));
+$privateBytes = count($files) === 1 ? (string) file_get_contents($files[0]) : '';
+$public = json_decode($publicBytes, true);
+$result = [
+    'provider_private_cause' => $providerFailure->private_evidence_causes() === [$providerCause],
+    'halt_status' => $haltStatus,
+    'details_redacted' => $public['details_redacted'] ?? null,
+    'public_leaked' => str_contains($publicBytes, 'PRIVATE_ADOPTED_PROVIDER'),
+    'private_retained' => str_contains($privateBytes, 'PRIVATE_ADOPTED_PROVIDER'),
+    'record_count' => count($files),
+    'authority_mode' => fileperms($repo . '/.wprism') & 0777,
+    'directory_mode' => fileperms($refusalDirectory) & 0777,
+    'record_mode' => count($files) === 1 ? fileperms($files[0]) & 0777 : null,
+];
+foreach ($files as $file) {
+    unlink($file);
+}
+if (!$directoryExisted) {
+    rmdir($refusalDirectory);
+}
+echo json_encode($result, JSON_UNESCAPED_SLASHES) . "\n";
+PHP;
+if (file_put_contents($adoptProbe, $adoptProbeSource) === false || !chmod($adoptProbe, 0600)) {
+    throw new RuntimeException('could not write installed-agent refusal probe');
+}
+$probeDescriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+$probeProcess = proc_open(
+    [PHP_BINARY, $adoptProbe, $installedAgent, $adoptedRepo],
+    $probeDescriptors,
+    $probePipes,
+    $filesystemFixture
+);
+if (!is_resource($probeProcess)) {
+    throw new RuntimeException('could not start installed-agent refusal probe');
+}
+fclose($probePipes[0]);
+$adoptProbeStdout = stream_get_contents($probePipes[1]) ?: '';
+$adoptProbeStderr = stream_get_contents($probePipes[2]) ?: '';
+fclose($probePipes[1]);
+fclose($probePipes[2]);
+$adoptProbeStatus = proc_close($probeProcess);
+unlink($adoptProbe);
+if ($adoptProbeStatus !== 0 && $adoptProbeStderr !== '') {
+    fwrite(STDERR, $adoptProbeStderr);
+}
+$adoptProbeResult = json_decode($adoptProbeStdout, true);
+adopt_check(
+    $adoptProbeStatus === 0
+        && is_array($adoptProbeResult)
+        && ($adoptProbeResult['provider_private_cause'] ?? null) === true
+        && ($adoptProbeResult['halt_status'] ?? null) === 1
+        && ($adoptProbeResult['details_redacted'] ?? null) === true
+        && ($adoptProbeResult['public_leaked'] ?? null) === false
+        && ($adoptProbeResult['private_retained'] ?? null) === true
+        && ($adoptProbeResult['record_count'] ?? null) === 1
+        && ($adoptProbeResult['authority_mode'] ?? null) === 0700
+        && ($adoptProbeResult['directory_mode'] ?? null) === 0700
+        && ($adoptProbeResult['record_mode'] ?? null) === 0600,
+    'the adopted agent carries a real provider refusal through redacted CLI output into private 0700/0600 evidence'
+);
 
 $mu = $filesystemTransport->muDir();
 $repo = $filesystemTransport->repoPath();

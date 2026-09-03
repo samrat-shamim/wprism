@@ -450,14 +450,12 @@ final class RebuildActionDispatcher {
                 if (str_starts_with($t->getMessage(), 'wprism: required manifest action')) {
                     throw $t;
                 }
-                // The inner message rides in the wrapper because nothing in
-                // the product path renders getPrevious() — Cli's handlers all
-                // print getMessage() alone. Providers assemble exit codes and
-                // stdout/stderr tails precisely so an operator sees the real
-                // error (issue #3282); swallowing them here would recreate the
-                // "exited 255, go reproduce it by hand" experience that issue
-                // closed (independent review of this change caught exactly
-                // that regression before it shipped).
+                // The reviewed inner sentence rides in the outer wrapper
+                // because Cli prints getMessage() alone. Raw provider output
+                // is deliberately absent from Throwable::$previous and crosses
+                // only into the private bounded evidence record; dropping this
+                // safe carrier here would recreate the opaque "exited 255"
+                // diagnosis issue #3282 closed.
                 throw new \RuntimeException(
                     "wprism: required manifest action '$source' failed — " . $t->getMessage(),
                     0,

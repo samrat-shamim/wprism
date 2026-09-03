@@ -22,6 +22,35 @@ if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }
 
+final class ScopedRecoveryCliHalt extends RuntimeException {
+    public function __construct(public int $status) {
+        parent::__construct("halt:$status");
+    }
+}
+
+final class WP_CLI {
+    /** @var list<string> */
+    public static array $lines = [];
+
+    public static function add_command(mixed $name, mixed $class): void {}
+
+    public static function line(mixed $line): void {
+        self::$lines[] = (string) $line;
+    }
+
+    public static function halt(mixed $status): void {
+        throw new ScopedRecoveryCliHalt((int) $status);
+    }
+
+    public static function error(mixed $message, mixed $exit = true): void {
+        throw new RuntimeException((string) $message);
+    }
+
+    public static function reset(): void {
+        self::$lines = [];
+    }
+}
+
 $wprismAgentClassmap = require $root . '/agent/wprism-classmap.php';
 if (!is_array($wprismAgentClassmap)) {
     throw new \RuntimeException('regress_scoped_apply_recovery: agent/wprism-classmap.php did not return a map');
@@ -50,6 +79,7 @@ foreach ([
     }
     require_once $root . '/agent/' . $wprismAgentFile;
 }
+require_once $root . '/agent/src/Command/Cli.php';
 
 use WPrism\Canon;
 use WPrism\CanonicalLedgerMapGuard;
@@ -2652,6 +2682,50 @@ $check(
         && !$maskedSession->is_recovery_required(),
     'a failed recovery write retains both private causes and cannot falsely claim the session persisted recovery_required'
 );
+
+// Carry that exact dispatcher composite through the product CLI boundary. The
+// public refusal stays constant while the bound private store retains both the
+// provider fact and the recovery-store failure needed to diagnose precedence.
+$dispatchEvidenceRepo = rtrim(sys_get_temp_dir(), '/')
+    . '/wprism-scoped-dispatch-evidence-' . bin2hex(random_bytes(8));
+mkdir($dispatchEvidenceRepo, 0700, true);
+file_put_contents($dispatchEvidenceRepo . '/site.wprism.json', "{}\n");
+WP_CLI::reset();
+$cliFailureBoundary = new ReflectionMethod(\WPrism\Cli::class, 'halt_json_failure');
+$cliHalt = null;
+try {
+    $cliFailureBoundary->invoke(
+        null,
+        $maskedFailure,
+        ['repo' => $dispatchEvidenceRepo, 'format' => 'json'],
+        'apply'
+    );
+} catch (ScopedRecoveryCliHalt $halt) {
+    $cliHalt = $halt;
+}
+$dispatchPublicBytes = implode("\n", WP_CLI::$lines);
+$dispatchEvidenceFiles = glob($dispatchEvidenceRepo . '/.wprism/refusals/*.json') ?: [];
+$dispatchPrivateBytes = count($dispatchEvidenceFiles) === 1
+    ? (string) file_get_contents($dispatchEvidenceFiles[0])
+    : '';
+$dispatchPublic = json_decode($dispatchPublicBytes, true);
+$check(
+    $cliHalt?->status === 1
+        && ($dispatchPublic['details_redacted'] ?? null) === true
+        && !str_contains($dispatchPublicBytes, 'PRIVATE_MASKED_PROVIDER')
+        && !str_contains($dispatchPublicBytes, 'PRIVATE_MASKED_RECOVERY')
+        && str_contains($dispatchPrivateBytes, 'PRIVATE_MASKED_PROVIDER')
+        && str_contains($dispatchPrivateBytes, 'PRIVATE_MASKED_RECOVERY')
+        && (fileperms($dispatchEvidenceFiles[0] ?? '') & 0777) === 0600,
+    'the real dispatcher composite crosses the CLI as a redacted envelope and one private 0600 evidence graph'
+);
+foreach ($dispatchEvidenceFiles as $dispatchEvidenceFile) {
+    unlink($dispatchEvidenceFile);
+}
+rmdir($dispatchEvidenceRepo . '/.wprism/refusals');
+rmdir($dispatchEvidenceRepo . '/.wprism');
+unlink($dispatchEvidenceRepo . '/site.wprism.json');
+rmdir($dispatchEvidenceRepo);
 
 [, , $changedSelectionSession] = $makeDispatchRecovery('changed-selection');
 $changedAction = $dispatchAction;

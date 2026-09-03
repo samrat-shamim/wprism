@@ -56,9 +56,10 @@ wprism_host_install_recovery_runtime() { # <source-root> <site-repository>
   mkdir -p "$control" \
     || { printf 'wprism test runtime: could not create the control root\n' >&2; return 1; }
   # Pair repositories are deliberately shared by the host runner and uid 33
-  # (docs/sandbox.md:371-379). Keep that test-only ownership exception at the
-  # control root while runtime code itself remains ordinary read-only PHP.
-  chmod 0777 "$state" "$control" \
+  # (docs/sandbox.md:371-379). Sticky shared parents preserve that test-only
+  # write access without granting either participant authority to replace the
+  # other's private child; production adoption publishes `.wprism` as 0700.
+  chmod 1777 "$state" "$control" \
     || { printf 'wprism test runtime: could not share the control root\n' >&2; return 1; }
   stage="$(mktemp -d "$control/.recovery-runtime-stage.XXXXXX")" \
     || { printf 'wprism test runtime: could not allocate runtime staging\n' >&2; return 1; }

@@ -3506,12 +3506,29 @@ typed, reviewed refusal or an established typed compiler diagnostic may
 contribute public machine evidence. The human-facing `wprism: ` prefix is never
 authority to publish an arbitrary caught Throwable: every unclassified
 Throwable contributes none of its message, cause, path, or trace and sets
-`details_redacted:true` (issue #3404). Human output keeps the original operator
-message, and the redacted sentence is recorded privately: the agent writes a
-`wprism-private-refusal-evidence/v1` JSON record (reason code, throwable class,
-message, cause chain, origin file:line; no trace) under the site repository's
-gitignored `.wprism/refusals/`, mode 0600, whenever a `--repo` is known — the
-envelope itself never names or carries it. Known scope
+`details_redacted:true` (issue #3404). Human output keeps the original reviewed
+operator message. Private detail is recorded when public details were redacted,
+when a provider/recovery boundary carries hidden causes, when a typed refusal
+retains operator-only detail, or when traversal itself is incomplete. The agent
+writes a `wprism-private-refusal-evidence/v2` JSON record under the site
+repository's gitignored `.wprism/refusals/`; the envelope itself never names or
+carries it. V2 is a bounded Throwable graph, not a promise of a complete linear
+chain: it scans at most 256 nodes and 512 edges, records at most 64 nodes, caps
+each class/message/file value at 4,096 bytes, caps graph node JSON at 131,072
+bytes and the complete record at 262,144 bytes. Every bounded field carries its
+original byte length, SHA-256 and `*_truncated` witness, while `traversal`
+reports node/edge/byte omissions, cycles, invalid hidden edges, and whether scan
+and record are complete. Records contain class, message, origin file:line and
+relationships but no trace; exact small fields remain verbatim.
+
+The store is best-effort and writes only after binding the exact ordinary
+repository root and the same qualifying regular `site.wprism.json` or
+`.wprism` directory that Command reviewed. It rechecks those identities and the
+private directory chain around exclusive 0600 creation. `.wprism/refusals` is
+0700; its existing parent must be non-group/world-writable (historical 0755 is
+valid) or sticky-bit bounded for the cross-uid test harness. Missing, stale,
+linked, unsafe, or unwritable evidence storage never replaces the primary
+refusal. Known scope
 and recovery gates use finite source-owned codes and remedies; an uncertain
 commit or ambiguous publication boundary explicitly instructs callers not to
 retry or discard retained evidence.

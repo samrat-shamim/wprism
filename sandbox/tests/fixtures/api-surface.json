@@ -51434,16 +51434,16 @@
                             "by_ref": false,
                             "default": null,
                             "has_default": false,
-                            "name": "expectedRootIdentity",
-                            "type": "string",
+                            "name": "repositoryWitness",
+                            "type": "array",
                             "variadic": false
                         },
                         {
                             "by_ref": false,
                             "default": null,
                             "has_default": false,
-                            "name": "evidence",
-                            "type": "array",
+                            "name": "root",
+                            "type": "Throwable",
                             "variadic": false
                         },
                         {

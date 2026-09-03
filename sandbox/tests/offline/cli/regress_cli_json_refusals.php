@@ -859,9 +859,27 @@ namespace {
     check(count($evidenceFiles) === 1, 'exactly one private evidence record is written under <repo>/.wprism/refusals/');
     $evidenceRecord = json_decode((string) file_get_contents($evidenceFiles[0] ?? ''), true);
     check(($evidenceRecord['format'] ?? null) === 'wprism-private-refusal-evidence/v2', 'the record names its bounded private graph format');
+    $repoRoot = dirname(__DIR__, 4);
+    $privateEvidenceDocs = (string) file_get_contents($repoRoot . '/spec/repo-format.md')
+        . (string) file_get_contents($repoRoot . '/cli/README.md');
+    check(
+        substr_count($privateEvidenceDocs, 'wprism-private-refusal-evidence/v2') === 2
+            && !str_contains($privateEvidenceDocs, 'wprism-private-refusal-evidence/v1')
+            && str_contains($privateEvidenceDocs, 'maximum 256 scanned nodes')
+            && str_contains($privateEvidenceDocs, 'caps graph node JSON at 131,072'),
+        'the operator and wire contracts both name v2 graph, edge, field, and aggregate bounds'
+    );
     check(($evidenceRecord['command'] ?? null) === 'capture' && ($evidenceRecord['reason_code'] ?? null) === 'capture_failed', 'the record binds command and reason code');
     check(($evidenceRecord['throwable'][0]['message'] ?? null) === 'wprism: required manifest action failed with sk_live_EVIDENCESENTENCE', 'the record carries the primary sentence verbatim');
     check(($evidenceRecord['throwable'][1]['message'] ?? null) === 'provider capability failed: X-Amz-Signature=EVIDENCECAUSE', 'the record carries the cause chain');
+    check(
+        ($evidenceRecord['throwable'][1]['message_truncated'] ?? null) === false
+            && ($evidenceRecord['throwable'][1]['message_original_bytes'] ?? null)
+                === strlen($evidenceCause->getMessage())
+            && ($evidenceRecord['throwable'][1]['message_sha256'] ?? null)
+                === hash('sha256', $evidenceCause->getMessage()),
+        'a small cause stays exact while carrying its byte length and digest witness'
+    );
     check(
         ($evidenceRecord['traversal']['scan_complete'] ?? null) === true
             && ($evidenceRecord['traversal']['record_complete'] ?? null) === true
@@ -1054,6 +1072,81 @@ namespace {
             && ($truncatedGraph['traversal']['truncated_pending_edges'] ?? 0) > 0,
         'a cause graph beyond the scan bound reports truncation instead of claiming completeness'
     );
+
+    // Node counts alone are not a resource bound: one plugin exception can
+    // carry megabytes, and one corrupted carrier can fan out across an
+    // arbitrary array. Fields retain an exact length/hash witness while the
+    // graph independently bounds nodes, edges, and encoded bytes.
+    $oversizedMessage = 'PRIVATE_OVERSIZE_PREFIX:'
+        . str_repeat('x', 2 * 1024 * 1024)
+        . ':PRIVATE_OVERSIZE_TAIL';
+    $oversizedCause = new RuntimeException($oversizedMessage);
+    $oversizedFailure = new \WPrism\PrivateEvidenceException(
+        'safe oversized provider boundary',
+        $oversizedCause
+    );
+    $oversizedBefore = glob($providerEvidenceRepo . '/.wprism/refusals/*.json') ?: [];
+    \WPrism\Capture::$failure = $oversizedFailure;
+    invoke_json(static fn() => $cli->capture([], ['repo' => $providerEvidenceRepo, 'format' => 'json']));
+    $oversizedAfter = glob($providerEvidenceRepo . '/.wprism/refusals/*.json') ?: [];
+    $oversizedFiles = array_values(array_diff($oversizedAfter, $oversizedBefore));
+    $oversizedBytes = (string) file_get_contents($oversizedFiles[0] ?? '');
+    $oversizedRecord = json_decode($oversizedBytes, true);
+    $oversizedNode = $oversizedRecord['throwable'][1] ?? [];
+    check(
+        count($oversizedFiles) === 1
+            && strlen($oversizedBytes) <= 262144
+            && ($oversizedNode['message_truncated'] ?? null) === true
+            && ($oversizedNode['message_original_bytes'] ?? null) === strlen($oversizedMessage)
+            && ($oversizedNode['message_sha256'] ?? null) === hash('sha256', $oversizedMessage)
+            && str_starts_with((string) ($oversizedNode['message'] ?? ''), 'PRIVATE_OVERSIZE_PREFIX:')
+            && !str_contains($oversizedBytes, 'PRIVATE_OVERSIZE_TAIL'),
+        'a multi-megabyte provider message yields one bounded record with explicit original length, digest, and truncation'
+    );
+    unset($oversizedMessage, $oversizedCause, $oversizedFailure, $oversizedBytes, $oversizedRecord);
+
+    $fanoutFirst = new RuntimeException('bounded fanout cause 0');
+    $fanoutCauses = [];
+    for ($edge = 1; $edge < 1024; $edge++) {
+        $fanoutCauses[] = new RuntimeException('bounded fanout cause ' . $edge);
+    }
+    $fanoutGraph = $graph->invoke(
+        null,
+        new \WPrism\PrivateEvidenceException(
+            'safe PRIVATE_FANOUT_CARRIER',
+            $fanoutFirst,
+            ...$fanoutCauses
+        )
+    );
+    check(
+        ($fanoutGraph['traversal']['private_edges'] ?? null) === 1024
+            && ($fanoutGraph['traversal']['scan_edge_limit'] ?? null) === 512
+            && ($fanoutGraph['traversal']['examined_edges'] ?? 513) <= 512
+            && ($fanoutGraph['traversal']['truncated_edges'] ?? 0) > 0
+            && ($fanoutGraph['traversal']['scan_complete'] ?? null) === false
+            && ($fanoutGraph['traversal']['recorded_nodes'] ?? 65) <= 64
+            && strlen((string) json_encode($fanoutGraph)) <= 262144,
+        'a high-fanout private carrier is edge-, node-, and byte-bounded with explicit truncation'
+    );
+    unset($fanoutCauses, $fanoutFirst, $fanoutGraph);
+
+    $invalidCarrier = new \WPrism\PrivateEvidenceException(
+        'safe PRIVATE_INVALID_EDGE_CARRIER',
+        new RuntimeException('seed')
+    );
+    $cycleCauses->setValue($invalidCarrier, [null]);
+    \WPrism\Capture::$failure = $invalidCarrier;
+    $invalidEnvelope = invoke_json(
+        static fn() => $cli->capture([], ['repo' => $providerEvidenceRepo, 'format' => 'json'])
+    );
+    $invalidRecord = $findPrivateRecord($providerEvidenceRepo, 'PRIVATE_INVALID_EDGE_CARRIER');
+    check(
+        ($invalidEnvelope['details_redacted'] ?? null) === true
+            && is_array($invalidRecord)
+            && ($invalidRecord['traversal']['invalid_private_edges'] ?? null) === 1
+            && ($invalidRecord['traversal']['scan_complete'] ?? null) === false,
+        'a malformed hidden edge cannot replace refusal output and is explicit in the private traversal witness'
+    );
     // The typed-diagnostic redaction and the final defense pass are the same
     // contract: any details_redacted envelope leaves a record.
     \WPrism\Apply::$planFailure = new \WPrism\RepositoryCompilationException([[
@@ -1079,6 +1172,31 @@ namespace {
     check(scandir($strangerDir) === ['.', '..'], 'the stranger directory is left exactly as it was found');
     @rmdir($strangerDir);
 
+    // Eligibility is an inode witness, not a boolean followed by a new root
+    // snapshot. If the sole site marker disappears after review, Kernel must
+    // reject the stale witness before creating `.wprism`.
+    $markerRaceRepo = sys_get_temp_dir() . '/wprism-cli-json-refusal-marker-race-' . bin2hex(random_bytes(6));
+    mkdir($markerRaceRepo, 0700, true);
+    file_put_contents($markerRaceRepo . '/site.wprism.json', "{}\n");
+    $eligibilityProbe = new ReflectionMethod(\WPrism\Cli::class, 'refusal_evidence_repository');
+    $markerWitness = $eligibilityProbe->invoke(null, $markerRaceRepo, 'capture');
+    unlink($markerRaceRepo . '/site.wprism.json');
+    check(is_array($markerWitness), 'site-only repository eligibility returns an inode-bound qualifier witness');
+    if (is_array($markerWitness)) {
+        \WPrism\PrivateRefusalEvidence::record(
+            $markerRaceRepo,
+            $markerWitness,
+            new RuntimeException('PRIVATE_STALE_MARKER_WITNESS'),
+            'capture',
+            'capture_failed'
+        );
+    }
+    check(
+        !is_dir($markerRaceRepo . '/.wprism'),
+        'a vanished repository qualifier cannot plant evidence through a previously reviewed witness'
+    );
+    rmdir($markerRaceRepo);
+
     // A real `.wprism/` alone qualifies it, beside the promotion checkpoints the
     // record was always meant to sit next to — no site.wprism.json required.
     $checkpointRepo = sys_get_temp_dir() . '/wprism-cli-json-refusal-checkpoints-' . bin2hex(random_bytes(6));
@@ -1088,6 +1206,40 @@ namespace {
     check(
         count(glob($checkpointRepo . '/.wprism/refusals/*-capture-*.json') ?: []) === 1,
         'an existing .wprism/ qualifies a repository even with no site.wprism.json'
+    );
+
+    // Adoption historically published the authority root as 0755, and the
+    // cross-uid pair harness uses a sticky shared parent. Both safely contain
+    // an exact 0700 refusal child; a plain writable parent does not.
+    $adoptedModeRepo = sys_get_temp_dir() . '/wprism-cli-json-refusal-adopted-mode-' . bin2hex(random_bytes(6));
+    mkdir($adoptedModeRepo . '/.wprism/control', 0755, true);
+    chmod($adoptedModeRepo . '/.wprism', 0755);
+    \WPrism\Capture::$failure = new RuntimeException('wprism: refused with PRIVATE_ADOPTED_MODE');
+    invoke_json(static fn() => $cli->capture([], ['repo' => $adoptedModeRepo, 'format' => 'json']));
+    check(
+        count(glob($adoptedModeRepo . '/.wprism/refusals/*.json') ?: []) === 1
+            && (fileperms($adoptedModeRepo . '/.wprism/refusals') & 0777) === 0700,
+        'an adoption-shaped 0755 authority root records into its own private 0700 child'
+    );
+
+    $stickyModeRepo = sys_get_temp_dir() . '/wprism-cli-json-refusal-sticky-mode-' . bin2hex(random_bytes(6));
+    mkdir($stickyModeRepo . '/.wprism/control', 0700, true);
+    chmod($stickyModeRepo . '/.wprism', 01777);
+    \WPrism\Capture::$failure = new RuntimeException('wprism: refused with PRIVATE_STICKY_MODE');
+    invoke_json(static fn() => $cli->capture([], ['repo' => $stickyModeRepo, 'format' => 'json']));
+    check(
+        count(glob($stickyModeRepo . '/.wprism/refusals/*.json') ?: []) === 1,
+        'the pair harness sticky shared authority root preserves private refusal recording'
+    );
+
+    $writableModeRepo = sys_get_temp_dir() . '/wprism-cli-json-refusal-writable-mode-' . bin2hex(random_bytes(6));
+    mkdir($writableModeRepo . '/.wprism/control', 0700, true);
+    chmod($writableModeRepo . '/.wprism', 0777);
+    \WPrism\Capture::$failure = new RuntimeException('wprism: refused with PRIVATE_WRITABLE_MODE');
+    invoke_json(static fn() => $cli->capture([], ['repo' => $writableModeRepo, 'format' => 'json']));
+    check(
+        !is_dir($writableModeRepo . '/.wprism/refusals'),
+        'a non-sticky group/world-writable authority root receives no private evidence'
     );
 
     // A symlinked repository root is never followed, whatever sits behind it —
@@ -1133,11 +1285,11 @@ namespace {
     // preplanted symlink keeps its outside sentinel byte-identical.
     $targetMethod = new ReflectionMethod(\WPrism\PrivateRefusalEvidence::class, 'private_refusal_target');
     $writerMethod = new ReflectionMethod(\WPrism\PrivateRefusalEvidence::class, 'write_private_refusal_record');
-    $privateIdentityMethod = new ReflectionMethod(\WPrism\PrivateRefusalEvidence::class, 'directory_identity');
+    $eligibilityMethod = new ReflectionMethod(\WPrism\Cli::class, 'refusal_evidence_repository');
     $secureTarget = $targetMethod->invoke(
         null,
         $evidenceRepo,
-        $privateIdentityMethod->invoke(null, $evidenceRepo)
+        $eligibilityMethod->invoke(null, $evidenceRepo, 'capture')
     );
     $leafOutside = sys_get_temp_dir() . '/wprism-cli-json-refusal-leaf-' . bin2hex(random_bytes(6));
     file_put_contents($leafOutside, 'outside sentinel');
@@ -1149,6 +1301,39 @@ namespace {
         'exclusive private-evidence creation neither follows nor overwrites a preplanted leaf symlink'
     );
     unlink($leafLink);
+
+    // Move the bound parent after the descriptor's first write and replace its
+    // old pathname. The post-write witness must fail, and cleanup must erase
+    // through the still-open descriptor because pathname unlink can no longer
+    // reach the moved inode.
+    $movedRefusalDirectory = $evidenceRepo . '/.wprism/refusals-moved';
+    $racedLeaf = $evidenceRepo . '/.wprism/refusals/raced.json';
+    $writerMethod->invoke(
+        null,
+        $secureTarget,
+        $racedLeaf,
+        "PRIVATE_RACE_SECRET\n",
+        static function () use ($evidenceRepo, $movedRefusalDirectory): void {
+            rename($evidenceRepo . '/.wprism/refusals', $movedRefusalDirectory);
+            mkdir($evidenceRepo . '/.wprism/refusals', 0700);
+        }
+    );
+    $movedLeaf = $movedRefusalDirectory . '/raced.json';
+    check(
+        is_file($movedLeaf)
+            && filesize($movedLeaf) === 0
+            && !is_file($racedLeaf)
+            && !str_contains((string) file_get_contents($movedLeaf), 'PRIVATE_RACE_SECRET'),
+        'a parent swap observed after first write descriptor-erases the moved inode before close'
+    );
+    unlink($movedLeaf);
+    foreach (glob($movedRefusalDirectory . '/*.json') ?: [] as $priorEvidenceFile) {
+        rename(
+            $priorEvidenceFile,
+            $evidenceRepo . '/.wprism/refusals/' . basename($priorEvidenceFile)
+        );
+    }
+    rmdir($movedRefusalDirectory);
 
     // A permissive process umask cannot create a readable window: the writer
     // narrows exclusive creation itself and verifies mode before content.
@@ -1174,24 +1359,24 @@ namespace {
     // it started against. That is the live failure's exact shape -- the root is
     // replaced between the lease and the refusal -- so it is asserted against
     // the predicate directly rather than through a stubbed init transaction.
-    $gate = new ReflectionMethod(\WPrism\Cli::class, 'refusal_evidence_repository');
+    $gate = $eligibilityMethod;
     $snapshot = new ReflectionProperty(\WPrism\Cli::class, 'initRepositoryIdentityAtEntry');
     $identityOf = new ReflectionMethod(\WPrism\Cli::class, 'directory_identity');
 
     $snapshot->setValue(null, null);
     check(
-        $gate->invoke(null, $evidenceRepo, 'init') === false,
+        $gate->invoke(null, $evidenceRepo, 'init') === null,
         'init records nothing when it never snapshotted a repository identity'
     );
     check(
-        $gate->invoke(null, $evidenceRepo, 'capture') === true,
+        is_array($gate->invoke(null, $evidenceRepo, 'capture')),
         'while every other command still records into the same WPrism repository'
     );
 
     $snapshot->setValue(null, $identityOf->invoke(null, $evidenceRepo));
     (new ReflectionProperty(\WPrism\Cli::class, 'initRepositoryWasWPrismAtEntry'))->setValue(null, true);
     check(
-        $gate->invoke(null, $evidenceRepo, 'init') === true,
+        is_array($gate->invoke(null, $evidenceRepo, 'init')),
         'init records while the directory it started against is still the one at that path'
     );
 
@@ -1247,7 +1432,7 @@ namespace {
     mkdir($swapped, 0700, true);
     file_put_contents($swapped . '/site.wprism.json', "{}\n");
     check(
-        $gate->invoke(null, $swapped, 'init') === false,
+        $gate->invoke(null, $swapped, 'init') === null,
         'and refuses once that path names a different directory, even one that is itself a WPrism repository'
     );
     $snapshot->setValue(null, null);
@@ -1267,6 +1452,12 @@ namespace {
     foreach (glob($checkpointRepo . '/.wprism/refusals/*') ?: [] as $f) unlink($f);
     @rmdir($checkpointRepo . '/.wprism/refusals'); @rmdir($checkpointRepo . '/.wprism/checkpoints');
     @rmdir($checkpointRepo . '/.wprism'); @rmdir($checkpointRepo);
+    foreach ([$adoptedModeRepo, $stickyModeRepo, $writableModeRepo] as $modeRepo) {
+        foreach (glob($modeRepo . '/.wprism/refusals/*') ?: [] as $f) unlink($f);
+        if (is_dir($modeRepo . '/.wprism/refusals')) rmdir($modeRepo . '/.wprism/refusals');
+        @rmdir($modeRepo . '/.wprism/control');
+        @rmdir($modeRepo . '/.wprism'); @rmdir($modeRepo);
+    }
     @unlink($linkPath); @unlink($linkTarget . '/site.wprism.json'); @rmdir($linkTarget);
     @unlink($controlLinkRepo . '/.wprism'); @unlink($controlLinkRepo . '/site.wprism.json');
     @rmdir($controlLinkRepo); @rmdir($controlLinkOutside);
