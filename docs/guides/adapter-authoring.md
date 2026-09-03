@@ -1063,6 +1063,21 @@ plugin faithfully.
    declaration; capture must refuse multiple owners independent of pin order.
    Preserve target-only queue jobs and plugin state through apply, then prove a
    repeat plan is unchanged and inspect real front-end output.
+
+   Prove the hostile-state premise after the seeding request has shut down and
+   before attributing a later delta to WPrism. A plugin may cache an option
+   during bootstrap and rewrite it at `shutdown`, so an in-request `get_option`
+   is not a durability witness. WP-CLI 2.12.0 also matches `--skip-plugins`
+   against directory slugs: Rank Math's slug is `seo-by-rank-math`, not its
+   `seo-by-rank-math/rank-math.php` basename. That wrong argument left the
+   plugin active in the original fixture; the already-instantiated notification
+   center then rewrote the option after the apparently successful echo. Seed
+   through the plugin's native API where one exists, read the premise back in
+   an independent process with an exact, proved skip selector, and run an
+   ordinary control boot. Rank Math 1.0.277.2's valid persistent notification
+   survives that control; if another plugin legitimately advances its state,
+   record the native lifecycle outcome rather than weakening a real
+   stable-runtime preservation assertion.
 9. When a hostile target needs local mapped identities before first apply,
    never mint them by capturing against the source repository: its canonical
    UUIDs have no target ledger yet. Use a disposable policy root narrowed to

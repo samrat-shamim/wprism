@@ -160,7 +160,6 @@ update_option('rank-math-options-sitemap', [
     'exclude_posts' => (string) $hub,
     'exclude_terms' => (string) $category,
 ]);
-update_option('rank_math_notifications', ['source-runtime-notification']);
 update_option('rank_math_indexnow_log', [[
     'url' => home_url('/source-indexnow-history-must-not-transfer/'),
     'status' => 429,
@@ -222,5 +221,40 @@ require_observed_nonempty 'Rank Math source frontend' "$SOURCE_FRONT"
 grep -Fq 'Portable Rank Math Title' <<<"$SOURCE_FRONT" \
   && grep -Fq 'Portable Rank Math description' <<<"$SOURCE_FRONT" \
   || fail 'Rank Math source frontend did not consume its authored SEO metadata'
+
+# WP-CLI 2.12.0 matches --skip-plugins against the directory slug, not the
+# plugin basename. Clear only the fixture queue with that exact slug, seed one
+# persistent entry through Rank Math's native API, then observe it after the
+# seeding request has shut down in an independent plugin-skipped process.
+SOURCE_NOTIFICATION_CLEAR=$(wp_conf1 --skip-plugins=seo-by-rank-math eval '
+delete_option("rank_math_notifications");
+echo "rank-math-source-notification-cleared";
+')
+require_observed_nonempty 'Rank Math source notification reset' "$SOURCE_NOTIFICATION_CLEAR"
+[ "$(printf '%s\n' "$SOURCE_NOTIFICATION_CLEAR" | awk 'NF { line=$0 } END { print line }')" = \
+    'rank-math-source-notification-cleared' ] \
+  || fail "Rank Math source notification reset did not complete: $SOURCE_NOTIFICATION_CLEAR"
+SOURCE_NOTIFICATION_SEED=$(wp_conf1 eval '
+\RankMath\Helper::add_notification(
+    "Source runtime notification must not transfer",
+    ["id" => "wprism-source-runtime", "type" => "success", "screen" => "any", "capability" => ""]
+);
+echo "rank-math-source-notification-seeded";
+')
+require_observed_nonempty 'Rank Math source notification seed' "$SOURCE_NOTIFICATION_SEED"
+[ "$(printf '%s\n' "$SOURCE_NOTIFICATION_SEED" | awk 'NF { line=$0 } END { print line }')" = \
+    'rank-math-source-notification-seeded' ] \
+  || fail "Rank Math native source notification seed did not complete: $SOURCE_NOTIFICATION_SEED"
+SOURCE_NOTIFICATION=$(wp_conf1 --skip-plugins=seo-by-rank-math eval '
+echo wp_json_encode(get_option("rank_math_notifications", null));
+')
+require_observed_nonempty 'Rank Math source notification premise' "$SOURCE_NOTIFICATION"
+jq -e '
+  . == [{
+    message:"Source runtime notification must not transfer",
+    options:{id:"wprism-source-runtime",classes:"rank-math-notice",type:"success",screen:"any",capability:""}
+  }]
+' <<<"$SOURCE_NOTIFICATION" >/dev/null \
+  || fail "Rank Math source notification premise was not durable before capture: $SOURCE_NOTIFICATION"
 
 pass 'Rank Math source covers disconnected setup, native modules/redirection/link APIs, reference families, large UTF-8, env/runtime boundaries, and frontend SEO'

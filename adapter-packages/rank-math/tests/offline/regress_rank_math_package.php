@@ -24,6 +24,9 @@ $fixtureDir = $root . '/adapter-packages/rank-math/fixtures';
 $adapterPath = $root . '/adapter-packages/rank-math/package/manifest.json';
 $releasePath = $fixtureDir . '/historical-release-boundary.json';
 $outcomePath = $fixtureDir . '/historical-site-outcome.json';
+$seedPath = $root . '/adapter-packages/rank-math/tests/conformance/seed.sh';
+$postdeployPath = $root . '/adapter-packages/rank-math/tests/conformance/postdeploy.sh';
+$checkPath = $root . '/adapter-packages/rank-math/tests/conformance/check.sh';
 $adapterBytes = (string) file_get_contents($adapterPath);
 $adapter = Canon::decode($adapterBytes);
 
@@ -165,6 +168,8 @@ wprism_check_same('runtime', $policy->option_rule('rank_math_flush_rewrite')['cl
     'B3: the plugin one-shot rewrite marker never enters canonical state');
 wprism_check_same('runtime', $policy->option_rule('rank_math_indexnow_log')['class'] ?? null,
     'B3: IndexNow response URLs, status codes and timestamps remain target runtime history');
+wprism_check_same('runtime', $policy->option_rule('rank_math_notifications')['class'] ?? null,
+    'B3: the native notification queue remains target-local runtime rather than portable state');
 wprism_check_same('env', $policy->option_rule('rank-math-options-sitemap')['class'] ?? null,
     'B4: sitemap local-id lists keep the whole unsupported option target-owned');
 wprism_check_same('env', $policy->option_rule('rank-math-options-instant-indexing')['class'] ?? null,
@@ -176,6 +181,35 @@ wprism_check_same(
 );
 wprism_check_same(null, $policy->owned_option_rule('rank_math_connect_data'),
     'B4: namespace ownership is not a blanket authored/runtime classification');
+$seedHarness = (string) file_get_contents($seedPath);
+$postdeployHarness = (string) file_get_contents($postdeployPath);
+$checkHarness = (string) file_get_contents($checkPath);
+$skipSlug = '--skip-plugins=seo-by-rank-math';
+$badSkipBasename = '--skip-plugins=seo-by-rank-math/rank-math.php';
+$seedNotification = strrpos($seedHarness, $skipSlug);
+$seedNativeWrite = strpos($seedHarness, '\\RankMath\\Helper::add_notification');
+$seedFrontend = strpos($seedHarness, 'SOURCE_FRONT=');
+$targetNotification = strrpos($postdeployHarness, $skipSlug);
+$targetNativeWrite = strpos($postdeployHarness, '\\RankMath\\Helper::add_notification');
+$targetSetup = strpos($postdeployHarness, 'TARGET_OUT=');
+wprism_check(
+    !str_contains($seedHarness . $postdeployHarness, $badSkipBasename)
+        && is_int($seedNotification) && is_int($seedNativeWrite) && is_int($seedFrontend)
+        && $seedNotification > $seedNativeWrite && $seedNativeWrite > $seedFrontend
+        && is_int($targetNotification) && is_int($targetNativeWrite) && is_int($targetSetup)
+        && $targetNotification > $targetNativeWrite && $targetNativeWrite > $targetSetup,
+    'B4: native notification seeds are proved after shutdown by independent processes using the exact WP-CLI slug'
+);
+wprism_check(
+    str_contains($postdeployHarness, 'reader_priority')
+        && str_contains($postdeployHarness, 'writer_priority')
+        && str_contains($postdeployHarness, 'center_count')
+        && str_contains($checkHarness, 'Target runtime notification must survive')
+        && str_contains($checkHarness, 'Source runtime notification must not transfer')
+        && str_contains($checkHarness, '.before.dependency_hash != .after.dependency_hash')
+        && str_contains($checkHarness, '.before.dependency_state_hash == .after.dependency_state_hash'),
+    'B4: hook-instrumented control and final checks prove persistent queue isolation beside stable-state acceptance'
+);
 
 wprism_check_same(
     ['cast' => 'string', 'class' => 'authored', 'ref' => 'post'],

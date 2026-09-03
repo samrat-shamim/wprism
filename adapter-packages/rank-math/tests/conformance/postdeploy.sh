@@ -78,7 +78,6 @@ update_option('rank-math-options-sitemap', [
     'exclude_posts' => (string) $post,
     'exclude_terms' => (string) $secondary,
 ]);
-update_option('rank_math_notifications', ['target-runtime-notification-must-survive']);
 update_option('rank_math_indexnow_log', [[
     'url' => home_url('/target-indexnow-history-must-survive/'),
     'status' => 202,
@@ -155,6 +154,78 @@ jq -e '
   (.schema | length) == 4 and (.schema[] | test("^[0-9a-f]{64}$"))
 ' <<<"$TARGET_JSON" >/dev/null || fail "Rank Math target identity/schema premise failed: $TARGET_JSON"
 printf '%s\n' "$TARGET_JSON" > "$TARGET_REPO/.tmp-rank-math-target.json"
+
+# WP-CLI 2.12.0's skip list contains directory slugs. Reset with the exact Rank
+# Math slug, seed through its native API, and prove the stored grammar from a
+# separate process after the native shutdown writer has completed.
+TARGET_NOTIFICATION_CLEAR=$(wp_conf2 --skip-plugins=seo-by-rank-math eval '
+delete_option("rank_math_notifications");
+echo "rank-math-target-notification-cleared";
+')
+require_observed_nonempty 'Rank Math target notification reset' "$TARGET_NOTIFICATION_CLEAR"
+[ "$(printf '%s\n' "$TARGET_NOTIFICATION_CLEAR" | awk 'NF { line=$0 } END { print line }')" = \
+    'rank-math-target-notification-cleared' ] \
+  || fail "Rank Math target notification reset did not complete: $TARGET_NOTIFICATION_CLEAR"
+TARGET_NOTIFICATION_SEED=$(wp_conf2 eval '
+\RankMath\Helper::add_notification(
+    "Target runtime notification must survive",
+    ["id" => "wprism-target-runtime", "type" => "success", "screen" => "any", "capability" => ""]
+);
+echo "rank-math-target-notification-seeded";
+')
+require_observed_nonempty 'Rank Math target notification seed' "$TARGET_NOTIFICATION_SEED"
+[ "$(printf '%s\n' "$TARGET_NOTIFICATION_SEED" | awk 'NF { line=$0 } END { print line }')" = \
+    'rank-math-target-notification-seeded' ] \
+  || fail "Rank Math native target notification seed did not complete: $TARGET_NOTIFICATION_SEED"
+TARGET_NOTIFICATION=$(wp_conf2 --skip-plugins=seo-by-rank-math eval '
+echo wp_json_encode(get_option("rank_math_notifications", null));
+')
+require_observed_nonempty 'Rank Math target notification premise' "$TARGET_NOTIFICATION"
+jq -e '
+  . == [{
+    message:"Target runtime notification must survive",
+    options:{id:"wprism-target-runtime",classes:"rank-math-notice",type:"success",screen:"any",capability:""}
+  }]
+' <<<"$TARGET_NOTIFICATION" >/dev/null \
+  || fail "Rank Math target notification premise was not durable before apply: $TARGET_NOTIFICATION"
+
+# Instrument one ordinary boot without exposing queue values. Exact priorities
+# prove that the storage reader ran at plugins_loaded:5 and the shutdown writer
+# remains registered; the following skipped process proves the persistent row
+# survived that full native lifecycle before WPrism apply starts.
+CONTROL_BOOT=$(wp_conf2 eval '
+$center = rank_math()->notification;
+$stored = get_option("rank_math_notifications", []);
+echo wp_json_encode([
+    "did_plugins_loaded" => did_action("plugins_loaded"),
+    "plugin_loaded" => defined("RANK_MATH_FILE"),
+    "reader_priority" => has_action("plugins_loaded", [$center, "get_from_storage"]),
+    "writer_priority" => has_action("shutdown", [$center, "update_storage"]),
+    "center_count" => count($center->get_notifications()),
+    "stored_count" => is_array($stored) ? count($stored) : -1,
+    "stored_sha256" => hash("sha256", maybe_serialize($stored)),
+]);
+')
+require_observed_nonempty 'Rank Math notification control boot' "$CONTROL_BOOT"
+CONTROL_JSON=$(printf '%s\n' "$CONTROL_BOOT" | awk 'NF { line=$0 } END { print line }')
+jq -e '
+  .did_plugins_loaded >= 1 and .plugin_loaded == true and
+  .reader_priority == 5 and .writer_priority == 10 and
+  .center_count == 1 and .stored_count == 1 and
+  (.stored_sha256 | test("^[a-f0-9]{64}$"))
+' <<<"$CONTROL_JSON" >/dev/null \
+  || fail "Rank Math ordinary notification control did not load the persistent queue: $CONTROL_JSON"
+CONTROL_NOTIFICATION=$(wp_conf2 --skip-plugins=seo-by-rank-math eval '
+echo wp_json_encode(get_option("rank_math_notifications", null));
+')
+require_observed_nonempty 'Rank Math notification control readback' "$CONTROL_NOTIFICATION"
+jq -e '
+  . == [{
+    message:"Target runtime notification must survive",
+    options:{id:"wprism-target-runtime",classes:"rank-math-notice",type:"success",screen:"any",capability:""}
+  }]
+' <<<"$CONTROL_NOTIFICATION" >/dev/null \
+  || fail "Rank Math ordinary control boot changed its valid persistent notification: $CONTROL_NOTIFICATION"
 
 SOURCE_JSON=$(cat "${CONF_REPO1:-siterepo/conf1}/.tmp-rank-math-source.json")
 for key in category hub post secondary tag; do

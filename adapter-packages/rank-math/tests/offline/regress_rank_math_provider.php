@@ -1760,28 +1760,6 @@ PHP;
     );
 
     $provider = rank_math_test_reset('link');
-    $notification = ['target-runtime-notification-must-survive'];
-    rank_math_test_set_option('rank_math_notifications', $notification);
-    $GLOBALS['rank_math_test_after_command'] = static function (): void {
-        rank_math_test_rebuild();
-        if (count($GLOBALS['rank_math_test_command_calls']) < 2) {
-            return;
-        }
-        unset($GLOBALS['rank_math_test_options']['rank_math_notifications']);
-        $GLOBALS['wpdb']->seedTable('options', array_values(array_filter(
-            $GLOBALS['wpdb']->rows('options'),
-            static fn(array $row): bool => ($row['option_name'] ?? null) !== 'rank_math_notifications'
-        )));
-    };
-    $notificationReceipt = $provider->invoke('rebuild_all_link_state', []);
-    wprism_check_same(true, $notificationReceipt['verified'] ?? null,
-        'one-child repair remains verified without a second target bootstrap');
-    wprism_check_same(1, count($GLOBALS['rank_math_test_command_calls']),
-        'provider launches no observational WordPress boot after native repair');
-    wprism_check_same($notification, get_option('rank_math_notifications'),
-        'repair preserves target-owned notification state that a repeated Rank Math bootstrap can consume');
-
-    $provider = rank_math_test_reset('link');
     $GLOBALS['rank_math_test_command_result'] = static function (): object {
         $projection = rank_math_test_projection();
         if (count($GLOBALS['rank_math_test_command_calls']) === 1) {

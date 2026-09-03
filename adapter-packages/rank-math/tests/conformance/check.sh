@@ -276,9 +276,23 @@ jq -e --arg port "$CONF2_PORT" --arg version "$RANK_MATH_EXPECTED_VERSION" '
     url:("http://localhost:" + $port + "/target-indexnow-history-must-survive/"),
     status:202,manual_submission:true,message:"target runtime submission history",time:1800000002
   }] and
-  .target_owned.notifications == ["target-runtime-notification-must-survive"] and
+  .target_owned.notifications == [{
+    message:"Target runtime notification must survive",
+    options:{id:"wprism-target-runtime",classes:"rank-math-notice",type:"success",screen:"any",capability:""}
+  }] and
   .target_owned.neighbor == "target-neighbor-must-survive"
 ' <<<"$TARGET" >/dev/null || fail "Rank Math portable/native/derived/runtime state did not converge: $TARGET"
+jq -e '
+  .target_owned.notifications == [{
+    message:"Source runtime notification must not transfer",
+    options:{id:"wprism-source-runtime",classes:"rank-math-notice",type:"success",screen:"any",capability:""}
+  }]
+' <<<"$SOURCE" >/dev/null \
+  || fail "Rank Math source persistent notification changed or transferred: $SOURCE"
+if git -C "${CONF_REPO1:-siterepo/conf1}" grep -Fq \
+  'Source runtime notification must not transfer' -- state; then
+  fail 'Rank Math source runtime notification entered canonical state'
+fi
 
 for key in attachment category hub post secondary tag; do
   SOURCE_ID=$(jq -r --arg key "$key" '.ids[$key]' <<<"$SOURCE")
@@ -299,14 +313,18 @@ jq -e '
   any(.actions[]?;
     .source == "provider:rank-math-state/rebuild_all_link_state" and .verified == true and
     .after.enabled == true and .after.link_count >= 2 and
-    (.after.link_hash | test("^[a-f0-9]{64}$"))) and
+    (.after.link_hash | test("^[a-f0-9]{64}$")) and
+    (.after.dependency_hash | test("^[a-f0-9]{64}$")) and
+    (.after.dependency_state_hash | test("^[a-f0-9]{64}$")) and
+    .before.dependency_hash != .after.dependency_hash and
+    .before.dependency_state_hash == .after.dependency_state_hash) and
   ([.actions[]?.source | select(startswith("provider:rank-math-state/"))] | sort | unique) ==
     ["provider:rank-math-state/rebuild_all_link_state"]
 ' <<<"$PROVIDER_RECEIPT" >/dev/null \
   || fail "Rank Math initial apply omitted its one site-complete provider proof: ${PROVIDER_RECEIPT:-<missing>}"
 grep -Fq 'rank-math-hub' <<<"$(jq -c '.actions' <<<"$PROVIDER_RECEIPT")" \
   && fail 'Rank Math provider receipt leaked an authored URL'
-pass 'divergent posts, terms, attachment and redirection identities converge through exact value-free provider receipts while target credentials/runtime state survive'
+pass 'divergent identities converge through exact value-free provider receipts while source and target persistent notifications remain isolated'
 
 # The real settings object contains a password field. Exercise the complete
 # capture publication path with that field populated: the outer authored option
@@ -771,6 +789,10 @@ jq -e '
   .post.title == "Concurrent Rank Math intent 東京 🚀" and .post.processed == true and
   (.links | length) == 2 and .target_owned.instant_key == "target-indexnow-credential-must-survive" and
   .target_owned.indexnow_log[0].message == "target runtime submission history" and
+  .target_owned.notifications == [{
+    message:"Target runtime notification must survive",
+    options:{id:"wprism-target-runtime",classes:"rank-math-notice",type:"success",screen:"any",capability:""}
+  }] and
   .target_owned.neighbor == "target-neighbor-must-survive"
 ' <<<"$TARGET_FINAL" >/dev/null || fail "Rank Math concurrent apply did not converge exact native state: $TARGET_FINAL"
 
