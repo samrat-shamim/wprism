@@ -538,7 +538,9 @@ require_fixture_ids DUPLICATE_ID
 DUPLICATE_RC=0
 DUPLICATE_OUT=$(wp_conf2 wprism plan --repo=/siterepo 2>&1) || DUPLICATE_RC=$?
 require_wprism_answered 'Rank Math duplicate natural identity plan' human "$DUPLICATE_OUT"
-[ "$DUPLICATE_RC" -ne 0 ] && grep -Eqi 'duplicate|natural identity|rank_math_redirections' <<<"$DUPLICATE_OUT" \
+[ "$DUPLICATE_RC" -ne 0 ] \
+  && grep -Fq 'identity contradiction:' <<<"$DUPLICATE_OUT" \
+  && grep -Fq "(rank_math_redirection) is already bound to local id $TARGET_REDIR; refusing to rebind it to $DUPLICATE_ID" <<<"$DUPLICATE_OUT" \
   || fail "Rank Math duplicate natural identity was guessed by row order: $DUPLICATE_OUT"
 wp_conf2 db query "DELETE FROM wp_rank_math_redirections WHERE id=$DUPLICATE_ID" >/dev/null
 pass 'duplicate redirection identity refuses without choosing a mutable-row winner'

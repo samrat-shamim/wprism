@@ -223,6 +223,11 @@ wprism_check(
         && str_contains($checkHarness, '.selected_actions == [{declaration_hash:$hash,index:$index,manifest:"rank-math"}]'),
     'B4: scoped evidence binds the full provider in its contract and the plan through its exact hash-only identity from the runner-exported source root'
 );
+wprism_check(
+    str_contains($checkHarness, "grep -Fq 'identity contradiction:'")
+        && str_contains($checkHarness, 'is already bound to local id $TARGET_REDIR; refusing to rebind it to $DUPLICATE_ID'),
+    'B4: duplicate natural identity evidence pins the generic typed-ledger contradiction and both competing local ids'
+);
 
 wprism_check_same(
     ['cast' => 'string', 'class' => 'authored', 'ref' => 'post'],
