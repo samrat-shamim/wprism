@@ -100,7 +100,7 @@ wprism_check_same(
     [
         'RankMath\\Defaults', 'RankMath\\Helper', 'RankMath\\Installer',
         'RankMath\\Links\\ContentProcessor', 'RankMath\\Links\\Links',
-        'WP_CLI', 'WP_Hook', 'WP_Post',
+        'WP_CLI', 'WP_Hook', 'WP_Post', 'WP_Rewrite',
     ],
     $adapter['providers'][0]['requires']['classes'] ?? null,
     'A4: the provider declares every runtime class it invokes or type-checks'

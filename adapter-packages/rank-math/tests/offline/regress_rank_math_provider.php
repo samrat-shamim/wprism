@@ -36,6 +36,14 @@ namespace {
         public function __construct(array $callbacks) { $this->callbacks = $callbacks; }
     }
 
+    class WP_Rewrite {
+        public mixed $rules;
+
+        public function __construct(mixed $rules) { $this->rules = $rules; }
+    }
+
+    final class RankMathExtendedRewrite extends WP_Rewrite {}
+
     #[\AllowDynamicProperties]
     class WP_Post {
         public function __construct(object $row) {
@@ -666,7 +674,7 @@ namespace {
                 ],
             ]),
         ];
-        $GLOBALS['wp_rewrite'] = (object) ['rules' => []];
+        $GLOBALS['wp_rewrite'] = new WP_Rewrite([]);
         $GLOBALS['wp'] = (object) ['public_query_vars' => ['p', 'page_id', 'name', 'post_type']];
         $GLOBALS['wp_post_types'] = [
             'post' => get_post_type_object('post'),
@@ -1399,6 +1407,9 @@ PHP;
 
     $provider = rank_math_test_reset('link');
     rank_math_test_set_option('permalink_structure', '/%postname%/');
+    $GLOBALS['wp_rewrite']->rules = null;
+    $emptyStoredRules = $GLOBALS['rank_math_test_options']['rewrite_rules'];
+    $emptyStoredRows = $GLOBALS['wpdb']->rows('options');
     wprism_check_throws(
         static fn(): array => $provider->invoke('rebuild_all_link_state', []),
         RuntimeException::class,
@@ -1407,6 +1418,80 @@ PHP;
     );
     wprism_check_same([], $GLOBALS['rank_math_test_command_calls'],
         'empty pretty-permalink rules refuse before the native child can mutate link state');
+    wprism_check_same(null, $GLOBALS['wp_rewrite']->rules,
+        'an empty durable rule set is never promoted into the request-local runtime');
+    wprism_check_same($emptyStoredRules, $GLOBALS['rank_math_test_options']['rewrite_rules'],
+        'the empty-rule refusal cannot regenerate or persist rewrite state');
+    wprism_check_same($emptyStoredRows, $GLOBALS['wpdb']->rows('options'),
+        'the empty-rule refusal leaves the durable options table byte-for-byte unchanged');
+
+    $provider = rank_math_test_reset('link');
+    $lazyRules = ['([^/]+)/?$' => 'index.php?name=$matches[1]'];
+    rank_math_test_set_option('permalink_structure', '/%postname%/');
+    rank_math_test_set_option('rewrite_rules', $lazyRules);
+    $GLOBALS['wp_rewrite']->rules = false;
+    $malformedRuntimeRows = $GLOBALS['wpdb']->rows('options');
+    wprism_check_throws(
+        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
+        RuntimeException::class,
+        'a present malformed rewrite cache is never replaced by otherwise-valid stored rules',
+        'requires exact non-empty stored and loaded rewrite rules'
+    );
+    wprism_check_same(false, $GLOBALS['wp_rewrite']->rules,
+        'present malformed runtime rules remain untouched at refusal');
+    wprism_check_same($malformedRuntimeRows, $GLOBALS['wpdb']->rows('options'),
+        'present malformed runtime refusal leaves the durable options table byte-for-byte unchanged');
+    wprism_check_same([], $GLOBALS['rank_math_test_command_calls'],
+        'present malformed runtime refusal launches no child process');
+
+    $provider = rank_math_test_reset('link');
+    rank_math_test_set_option('permalink_structure', '/%postname%/');
+    rank_math_test_set_option('rewrite_rules', 'malformed-stored-rules');
+    $GLOBALS['wp_rewrite']->rules = null;
+    $malformedStoredRows = $GLOBALS['wpdb']->rows('options');
+    wprism_check_throws(
+        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
+        RuntimeException::class,
+        'malformed stored rewrite rules are never promoted into an empty request-local cache',
+        'requires exact non-empty stored and loaded rewrite rules'
+    );
+    wprism_check_same(null, $GLOBALS['wp_rewrite']->rules,
+        'malformed stored rules leave the null request-local cache untouched');
+    wprism_check_same($malformedStoredRows, $GLOBALS['wpdb']->rows('options'),
+        'malformed stored-rule refusal leaves the durable options table byte-for-byte unchanged');
+    wprism_check_same([], $GLOBALS['rank_math_test_command_calls'],
+        'malformed stored-rule refusal launches no child process');
+
+    $provider = rank_math_test_reset('link');
+    rank_math_test_set_option('permalink_structure', '/%postname%/');
+    rank_math_test_set_option('rewrite_rules', $lazyRules);
+    $GLOBALS['wp_rewrite']->rules = null;
+    $lazyStoredRules = $GLOBALS['rank_math_test_options']['rewrite_rules'];
+    $lazyStoredRows = $GLOBALS['wpdb']->rows('options');
+    $lazyReceipt = $provider->invoke('rebuild_all_link_state', []);
+    wprism_check_same(true, $lazyReceipt['verified'] ?? null,
+        'a virgin parent request hydrates its null WordPress rewrite cache from exact non-empty stored rules');
+    wprism_check_same($lazyRules, $GLOBALS['wp_rewrite']->rules,
+        'parent hydration publishes exactly the effective stored array into the request-local cache');
+    wprism_check_same($lazyStoredRules, $GLOBALS['rank_math_test_options']['rewrite_rules'],
+        'parent rewrite-cache hydration never regenerates or persists durable rules');
+    wprism_check_same($lazyStoredRows, $GLOBALS['wpdb']->rows('options'),
+        'parent rewrite-cache hydration leaves the durable options table byte-for-byte unchanged');
+    wprism_check_same(1, count($GLOBALS['rank_math_test_command_calls']),
+        'the hydrated parent still launches exactly one bounded fresh repair process');
+
+    $provider = rank_math_test_reset('link');
+    rank_math_test_set_option('permalink_structure', '/%postname%/');
+    rank_math_test_set_option('rewrite_rules', $lazyRules);
+    $GLOBALS['wp_rewrite'] = new RankMathExtendedRewrite(null);
+    wprism_check_throws(
+        static fn(): array => $provider->invoke('rebuild_all_link_state', []),
+        RuntimeException::class,
+        'a null rewrite cache on an extended runtime refuses before request-local initialization',
+        'requires the exact core rewrite runtime'
+    );
+    wprism_check_same([], $GLOBALS['rank_math_test_command_calls'],
+        'extended rewrite-runtime refusal launches no child process');
 
     $provider = rank_math_test_reset('link');
     rank_math_test_set_option('permalink_structure', '/%postname%/');
@@ -1926,11 +2011,83 @@ PHP;
     }
 
     $provider = rank_math_test_reset('link');
+    rank_math_test_set_option('permalink_structure', '/%postname%/');
+    rank_math_test_set_option('rewrite_rules', $lazyRules);
+    $GLOBALS['wp_rewrite'] = new RankMathExtendedRewrite(null);
+    wprism_check_throws(
+        static fn(): array => rank_math_test_execute_child(),
+        RuntimeException::class,
+        'the fresh child refuses an extended rewrite runtime before its first derived-state reset',
+        'requires the exact core rewrite runtime'
+    );
+    wprism_check_same(0, $GLOBALS['rank_math_test_process_calls'],
+        'fresh-child rewrite-runtime refusal precedes every native post callback');
+    wprism_check_same(2, count($GLOBALS['wpdb']->rows('rank_math_internal_links')),
+        'fresh-child rewrite-runtime refusal precedes every destructive link query');
+
+    $provider = rank_math_test_reset('link');
+    rank_math_test_set_option('permalink_structure', '/%postname%/');
+    rank_math_test_set_option('rewrite_rules', $lazyRules);
+    $GLOBALS['wp_rewrite']->rules = false;
+    $malformedChildRuntimeRows = $GLOBALS['wpdb']->rows('options');
+    wprism_check_throws(
+        static fn(): array => rank_math_test_execute_child(),
+        RuntimeException::class,
+        'the fresh child refuses a present malformed rewrite cache before derived-state mutation',
+        'requires exact non-empty stored and loaded rewrite rules'
+    );
+    wprism_check_same(false, $GLOBALS['wp_rewrite']->rules,
+        'fresh-child malformed runtime refusal leaves the request-local value untouched');
+    wprism_check_same($malformedChildRuntimeRows, $GLOBALS['wpdb']->rows('options'),
+        'fresh-child malformed runtime refusal leaves the durable options table byte-for-byte unchanged');
+    wprism_check_same(0, $GLOBALS['rank_math_test_process_calls'],
+        'fresh-child malformed runtime refusal precedes every native post callback');
+    wprism_check_same(2, count($GLOBALS['wpdb']->rows('rank_math_internal_links')),
+        'fresh-child malformed runtime refusal precedes every destructive link query');
+
+    $provider = rank_math_test_reset('link');
+    rank_math_test_set_option('permalink_structure', '/%postname%/');
+    rank_math_test_set_option('rewrite_rules', 'malformed-stored-rules');
+    $GLOBALS['wp_rewrite']->rules = null;
+    $malformedChildStoredRows = $GLOBALS['wpdb']->rows('options');
+    wprism_check_throws(
+        static fn(): array => rank_math_test_execute_child(),
+        RuntimeException::class,
+        'the fresh child refuses malformed stored rules before request-local initialization or mutation',
+        'requires exact non-empty stored and loaded rewrite rules'
+    );
+    wprism_check_same(null, $GLOBALS['wp_rewrite']->rules,
+        'fresh-child malformed stored rules leave the null request-local cache untouched');
+    wprism_check_same($malformedChildStoredRows, $GLOBALS['wpdb']->rows('options'),
+        'fresh-child malformed stored-rule refusal leaves the durable options table byte-for-byte unchanged');
+    wprism_check_same(0, $GLOBALS['rank_math_test_process_calls'],
+        'fresh-child malformed stored-rule refusal precedes every native post callback');
+    wprism_check_same(2, count($GLOBALS['wpdb']->rows('rank_math_internal_links')),
+        'fresh-child malformed stored-rule refusal precedes every destructive link query');
+
+    $provider = rank_math_test_reset('link');
+    $childLazyRules = ['([^/]+)/?$' => 'index.php?name=$matches[1]'];
+    rank_math_test_set_option('permalink_structure', '/%postname%/');
+    rank_math_test_set_option('rewrite_rules', $childLazyRules);
+    $GLOBALS['wp_rewrite']->rules = null;
+    unset($GLOBALS['wp_filter']['rank_math/excluded_post_types']);
+    $childStoredRules = $GLOBALS['rank_math_test_options']['rewrite_rules'];
+    $childStoredRows = $GLOBALS['wpdb']->rows('options');
     $registeredOrder = array_keys($GLOBALS['wp_post_types']);
     $GLOBALS['wpdb']->resetLog();
     $actualChild = rank_math_test_execute_child();
     wprism_check_same(true, $actualChild['verified'] ?? null,
         'the emitted fresh-child program executes its complete enabled-module path offline');
+    wprism_check_same($childLazyRules, $GLOBALS['wp_rewrite']->rules,
+        'the fresh child hydrates its independent null rewrite cache from exact non-empty stored rules');
+    wprism_check_same($childStoredRules, $GLOBALS['rank_math_test_options']['rewrite_rules'],
+        'fresh-child rewrite-cache hydration never regenerates or persists durable rules');
+    wprism_check_same($childStoredRows, $GLOBALS['wpdb']->rows('options'),
+        'fresh-child rewrite-cache hydration leaves the durable options table byte-for-byte unchanged');
+    wprism_check(
+        ($GLOBALS['wp_filter']['rank_math/excluded_post_types'] ?? null) instanceof WP_Hook,
+        'one virgin emitted-child execution establishes both audited request-local native premises'
+    );
     $cleanCallsAfterChild = $GLOBALS['rank_math_test_clean_post_cache_calls'];
     $parentProjection = rank_math_test_projection();
     wprism_check_same($parentProjection, $actualChild['projection'] ?? null,

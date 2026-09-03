@@ -1027,6 +1027,24 @@ final class RankMathState extends ManifestProviderRuntime {
             throw new \RuntimeException('wprism: Rank Math permalink structure is malformed');
         }
         if ($permalinkStructure !== ''
+            && is_array($storedRules)
+            && $storedRules !== []
+            && $runtimeRules === null) {
+            // A virgin WP-CLI request can hold WordPress's exact non-empty
+            // effective option while its public lazy cache is still null.
+            // Copy only those same bytes into the exact core object: this is
+            // request-local and hook-free, so it cannot regenerate or persist
+            // rules; empty, malformed, extended and divergent states retain
+            // the strict refusal below.
+            if (!is_object($wp_rewrite) || get_class($wp_rewrite) !== \WP_Rewrite::class) {
+                throw new \RuntimeException(
+                    'wprism: Rank Math pretty-permalink repair requires the exact core rewrite runtime'
+                );
+            }
+            $wp_rewrite->rules = $storedRules;
+            $runtimeRules = $wp_rewrite->rules;
+        }
+        if ($permalinkStructure !== ''
             && (!is_array($runtimeRules)
                 || $runtimeRules === []
                 || !is_array($storedRules)
@@ -1776,6 +1794,21 @@ $routeRuntimeProjection = static function (array $types): array {
     $runtimeRules = is_object($wp_rewrite) ? ($wp_rewrite->rules ?? null) : null;
     if (!is_string($permalinkStructure)) {
         throw new RuntimeException('Rank Math permalink structure is malformed');
+    }
+    if ($permalinkStructure !== ''
+        && is_array($storedRules)
+        && $storedRules !== []
+        && $runtimeRules === null) {
+        // The bounded child is an independent virgin WP-CLI request. Hydrate
+        // only the exact core object's request-local lazy cache from the exact
+        // non-empty effective option; never enter native rule regeneration.
+        if (!is_object($wp_rewrite) || get_class($wp_rewrite) !== WP_Rewrite::class) {
+            throw new RuntimeException(
+                'Rank Math pretty-permalink repair requires the exact core rewrite runtime'
+            );
+        }
+        $wp_rewrite->rules = $storedRules;
+        $runtimeRules = $wp_rewrite->rules;
     }
     if ($permalinkStructure !== ''
         && (!is_array($runtimeRules)
