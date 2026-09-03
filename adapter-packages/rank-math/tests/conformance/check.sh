@@ -308,15 +308,27 @@ require_fixture_ids SOURCE_REDIR TARGET_REDIR
   || fail 'Rank Math authored redirection convergence overwrote the target runtime hit counter'
 
 PROVIDER_RECEIPT="${APPLY_JSON:-}"
+# The full dependency hash includes request-local WordPress topology and may
+# legitimately match or differ across the applying parent and repair child.
+# The deterministic provider suite forces the differing case; this live path
+# proves the durable dependency projection is stable while every seeded stale
+# derived surface is replaced by the native repair.
 jq -e '
   .canary == "clean" and .verification.result == "pass" and
   any(.actions[]?;
     .source == "provider:rank-math-state/rebuild_all_link_state" and .verified == true and
-    .after.enabled == true and .after.link_count >= 2 and
-    (.after.link_hash | test("^[a-f0-9]{64}$")) and
+    .before.enabled == true and .after.enabled == true and
+    .before.link_count == 1 and .after.link_count == 2 and
+    .before.meta_count == 1 and .after.meta_count == 2 and
+    .before.marker_count == 1 and .after.marker_count == 2 and
+    .before.link_hash != .after.link_hash and
+    .before.meta_hash != .after.meta_hash and
+    .before.marker_hash != .after.marker_hash and
+    ([.before.link_hash,.after.link_hash,.before.meta_hash,.after.meta_hash,
+      .before.marker_hash,.after.marker_hash] | all(test("^[a-f0-9]{64}$"))) and
+    (.before.dependency_hash | test("^[a-f0-9]{64}$")) and
     (.after.dependency_hash | test("^[a-f0-9]{64}$")) and
     (.after.dependency_state_hash | test("^[a-f0-9]{64}$")) and
-    .before.dependency_hash != .after.dependency_hash and
     .before.dependency_state_hash == .after.dependency_state_hash) and
   ([.actions[]?.source | select(startswith("provider:rank-math-state/"))] | sort | unique) ==
     ["provider:rank-math-state/rebuild_all_link_state"]

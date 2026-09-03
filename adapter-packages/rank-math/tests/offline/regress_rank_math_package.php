@@ -335,9 +335,15 @@ wprism_check(
         && str_contains($postdeployHarness, 'center_count')
         && str_contains($checkHarness, 'Target runtime notification must survive')
         && str_contains($checkHarness, 'Source runtime notification must not transfer')
-        && str_contains($checkHarness, '.before.dependency_hash != .after.dependency_hash')
-        && str_contains($checkHarness, '.before.dependency_state_hash == .after.dependency_state_hash'),
-    'B4: hook-instrumented control and final checks prove persistent queue isolation beside stable-state acceptance'
+        && str_contains($checkHarness, '.before.link_count == 1 and .after.link_count == 2')
+        && str_contains($checkHarness, '.before.meta_count == 1 and .after.meta_count == 2')
+        && str_contains($checkHarness, '.before.marker_count == 1 and .after.marker_count == 2')
+        && str_contains($checkHarness, '.before.link_hash != .after.link_hash')
+        && str_contains($checkHarness, '.before.meta_hash != .after.meta_hash')
+        && str_contains($checkHarness, '.before.marker_hash != .after.marker_hash')
+        && str_contains($checkHarness, '.before.dependency_state_hash == .after.dependency_state_hash')
+        && !str_contains($checkHarness, '.before.dependency_hash != .after.dependency_hash'),
+    'B4: live repair proves exact derived replacement and stable dependencies without requiring incidental request topology drift'
 );
 wprism_check(
     str_contains($postdeployHarness, 'AUTO_INCREMENT = 9400001')
