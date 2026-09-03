@@ -239,6 +239,22 @@ namespace RankMath\Links {
 
 namespace RankMath {
     final class Defaults {
+        public function __construct() {
+            $registry = $GLOBALS['wp_filter'] ?? null;
+            if (!is_array($registry)
+                || array_key_exists('rank_math/excluded_post_types', $registry)) {
+                return;
+            }
+            $GLOBALS['wp_filter']['rank_math/excluded_post_types'] = new \WP_Hook([
+                10 => [
+                    'rank-math-native' => [
+                        'accepted_args' => 1,
+                        'function' => [$this, 'excluded_post_types'],
+                    ],
+                ],
+            ]);
+        }
+
         /** @param array<string,string> $types @return array<string,string> */
         public function excluded_post_types(array $types): array {
             unset($types['elementor_library']);
@@ -867,6 +883,22 @@ namespace {
         $probe = <<<'PHP'
 namespace RankMath {
     class Defaults {
+        public function __construct() {
+            $registry = $GLOBALS['wp_filter'] ?? null;
+            if (!is_array($registry)
+                || array_key_exists('rank_math/excluded_post_types', $registry)) {
+                return;
+            }
+            $GLOBALS['wp_filter']['rank_math/excluded_post_types'] = new \WP_Hook([
+                10 => [
+                    'native' => [
+                        'accepted_args' => 1,
+                        'function' => [$this, 'excluded_post_types'],
+                    ],
+                ],
+            ]);
+        }
+
         public function excluded_post_types(array $types): array { return $types; }
     }
     class SubstituteDefaults extends Defaults {
@@ -926,9 +958,9 @@ namespace {
     } elseif ($mode === 'method') {
         $entries['native']['function'][1] = 'other_method';
     }
-    $GLOBALS['wp_filter'] = [
-        'rank_math/excluded_post_types' => new WP_Hook([10 => $entries]),
-    ];
+    $GLOBALS['wp_filter'] = $mode === 'missing'
+        ? []
+        : ['rank_math/excluded_post_types' => new WP_Hook([10 => $entries])];
     $GLOBALS['wpdb'] = new RankMathTopologyWpdb();
     try {
         eval((string) base64_decode($argv[2] ?? '', true));
@@ -1390,7 +1422,34 @@ PHP;
         'rewrite-rule drift refuses before the native child can mutate link state');
 
     $provider = rank_math_test_reset('link');
+    unset($GLOBALS['wp_filter']['rank_math/excluded_post_types']);
+    $firstDeployReceipt = $provider->invoke('rebuild_all_link_state', []);
+    $firstDeployHook = $GLOBALS['wp_filter']['rank_math/excluded_post_types'] ?? null;
+    $firstDeployEntries = $firstDeployHook instanceof WP_Hook
+        ? ($firstDeployHook->callbacks[10] ?? [])
+        : [];
+    $firstDeployEntry = count($firstDeployEntries) === 1 ? reset($firstDeployEntries) : null;
+    $firstDeployCallback = is_array($firstDeployEntry) ? ($firstDeployEntry['function'] ?? null) : null;
+    wprism_check_same(true, $firstDeployReceipt['verified'] ?? null,
+        'virgin pre-apply settlement hydrates the native Rank Math default instead of requiring authored registration state');
+    wprism_check(
+        is_array($firstDeployCallback)
+            && is_object($firstDeployCallback[0] ?? null)
+            && get_class($firstDeployCallback[0]) === \RankMath\Defaults::class
+            && ($firstDeployCallback[1] ?? null) === 'excluded_post_types',
+        'the missing-hook bootstrap produces exactly the audited native callback'
+    );
+    wprism_check_same(1, count($GLOBALS['rank_math_test_command_calls']),
+        'the virgin pre-apply path still launches exactly one bounded fresh repair process');
+
+    $provider = rank_math_test_reset('link');
     $receipt = $provider->invoke('rebuild_all_link_state', []);
+    $missingTopology = rank_math_test_child_topology('missing');
+    wprism_check(
+        $missingTopology['exit'] === 0
+            && str_contains($missingTopology['stdout'], 'wprism-rank-math-link-rebuild/v1'),
+        'the fresh child hydrates the audited native callback when registration short-circuited before authored apply'
+    );
     $nativeTopology = rank_math_test_child_topology('native');
     wprism_check(
         $nativeTopology['exit'] === 0

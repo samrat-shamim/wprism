@@ -179,6 +179,11 @@
                     "locator": "Rank Math registration skip UI, rank-math.php:291-299, and includes/admin/class-registration.php:25-45",
                     "observation": "The target exercise proved this is executable setup state, not an optional environment hint: without the source site's skip choice, Registration::$invalid makes Rank Math return before constructing its module manager, so redirections and every other selected module remain inert even though rank_math_modules was applied exactly.",
                     "source": "dogfood pair rmauthor, 2026-08-27, Rank Math SEO 1.0.277"
+                },
+                {
+                    "locator": "Fresh host deploy lifecycle-settle before authored apply, rank-math.php:291-301, and includes/class-common.php:53",
+                    "observation": "A virgin target has not received the canonical registration-skip option when pre-apply lifecycle settlement runs, so Rank Math returns before Common constructs Defaults and the native excluded_post_types hook is absent. The provider initializes exactly RankMath\\Defaults only for that absent-hook state, then applies the same exact-one class/method/priority/arity audit that refuses every extension or substitution.",
+                    "source": "candidate-bound conformance pair rmconf, 2026-09-03, Rank Math SEO 1.0.277.2"
                 }
             ]
         },

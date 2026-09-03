@@ -624,6 +624,21 @@ final class RankMathState extends ManifestProviderRuntime {
                 }
                 continue;
             }
+            $registry = $GLOBALS['wp_filter'] ?? null;
+            if (!is_array($registry)) {
+                throw new \RuntimeException(
+                    'wprism: Rank Math link repair requires exactly its audited native exclusion callback'
+                );
+            }
+            if (!array_key_exists($filter, $registry)) {
+                // rank-math.php:291-299 returns before Common constructs
+                // Defaults on a virgin pre-apply target. Host lifecycle
+                // settlement necessarily precedes authored option apply, so
+                // initialize only this exact native class when the hook is
+                // wholly absent; the strict shape audit below still refuses
+                // every existing or constructor-produced substitution.
+                new \RankMath\Defaults();
+            }
             $hook = $GLOBALS['wp_filter'][$filter] ?? null;
             $callbacks = $hook instanceof \WP_Hook ? $hook->callbacks : null;
             $priority = is_array($callbacks) && array_keys($callbacks) === [10]
@@ -1367,6 +1382,17 @@ $filters = __FILTERS__;
 $nativeExclusion = null;
 foreach ($filters as $filter) {
     if ($filter === 'rank_math/excluded_post_types') {
+        $registry = $GLOBALS['wp_filter'] ?? null;
+        if (!is_array($registry)) {
+            throw new RuntimeException('Rank Math link repair requires exactly its audited native exclusion callback');
+        }
+        if (!array_key_exists($filter, $registry)) {
+            // The host invokes this fresh process before canonical authored
+            // options are applied. Rank Math's registration gate can therefore
+            // return before Common constructs Defaults; initialize only that
+            // audited native class, then prove the exact hook shape below.
+            new RankMath\Defaults();
+        }
         $hook = $GLOBALS['wp_filter'][$filter] ?? null;
         $callbacks = $hook instanceof WP_Hook ? $hook->callbacks : null;
         $priority = is_array($callbacks) && array_keys($callbacks) === [10]
