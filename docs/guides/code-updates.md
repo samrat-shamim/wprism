@@ -254,10 +254,13 @@ The `code_versions` baseline is **overwritten, never merged** — never a
 partial write that keeps the drifted entries and moves the rest. Which verb
 writes it, and when, is the part that matters:
 
-- **`wprism deploy` writes it unconditionally**, at the end of a successful run.
-  By then deploy has already refused on `code_drift` or been explicitly forced
-  past it with `--force-code-drift`, warning once per overridden finding — the
-  decision was taken, so the write is that decision's consequence.
+- **`wprism deploy` writes it unconditionally after terminal lifecycle
+  reconciliation.** By then deploy has already refused on `code_drift` or been
+  explicitly forced past it with `--force-code-drift`, warning once per
+  overridden finding — the decision was taken, so the write is that decision's
+  consequence. A split `retire` process preserves the prior bytes; its
+  temporarily inactive plugin set is not accepted as the completed deployment.
+  The following `activate` process records the reconciled set.
 - **`wprism capture` writes it only when there is nothing to accept**: no
   baseline recorded yet, or zero drift. Across an unaccepted drift it leaves
   the recorded bytes exactly as they were and emits one warning per finding
@@ -276,9 +279,11 @@ activated today already has a baseline the next time it matters.
 Four consequences follow, and the third is the one teams get wrong:
 
 1. With no `code_versions` record at all, capture establishes the initial
-   baseline. Once a baseline exists, an active managed plugin missing from it
-   is blocking `code_baseline_missing`, not an invisible comparison: capture
-   leaves the old record unchanged and deploy is the explicit acceptance path.
+   baseline. Once a baseline exists, a currently active managed plugin missing
+   from it is blocking `code_baseline_missing`, not an invisible comparison:
+   capture leaves the old record unchanged and deploy is the explicit
+   acceptance path. An installed but inactive desired plugin is instead the
+   pending lifecycle work deploy is authorized to perform.
 2. A theme slot whose *slug* changed is not drift either; that is a
    `code_mismatch`/plan concern, not a version comparison on one theme.
 3. **A downgrade is the same `code_drift` as an upgrade.** There is no separate

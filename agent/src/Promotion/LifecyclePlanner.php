@@ -45,12 +45,10 @@ require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
  * code_mismatch()/code_revision_mismatch()/code_drift() directly for
  * `wprism plan`/`wprism status`'s own code_mismatch/code_drift plan buckets
  * (verified by reading Apply.php's own call sites, not assumed), and
- * Capture::run() calls record_code_versions() directly to record a
- * "last known good" baseline after every successful capture, not only after
- * deploy. Deploy keeps thin compatibility facades over all four public
- * entry points, matching every prior slice in this issue, so none of those
- * three external call sites (or Deploy::run()'s own five internal ones)
- * need any change.
+ * CapturePublicationWorkflow calls observe_code_versions() to record a
+ * "last known good" baseline only when capture sees no drift; it never accepts
+ * an unreviewed code change. Deploy keeps thin compatibility facades over the
+ * original four public entry points, matching every prior slice in this issue.
  *
  * require_plugin_admin_functions()/current_active_plugins()/in_range() stay
  * on Deploy (the first two widened private -> public) rather than moving
@@ -427,13 +425,14 @@ final class LifecyclePlanner {
      * ">=7.0 <9.0" range and stay invisible to code_mismatch entirely,
      * while still being exactly the out-of-band mutation risk #1 names.
      * The baseline this compares against is written by
-     * record_code_versions() below, called at the end of a successful
-     * `wprism deploy` AND `wprism capture` (Capture::run()) — either is a moment
-     * WPrism legitimately observed the environment's code, so either is a
-     * valid "last known good" checkpoint. No baseline anywhere is the one
-     * bootstrap case with nothing to compare. Once a baseline exists, an
-     * active plugin absent from it is itself drift evidence: silently minting
-     * it would make the first out-of-band activation or update invisible.
+     * record_code_versions() below, reached after terminal lifecycle
+     * reconciliation by `wprism deploy` and through observe_code_versions()
+     * by a drift-free `wprism capture`. No baseline anywhere is the one
+     * bootstrap case with nothing to compare. Once a baseline exists, a
+     * currently active plugin absent from it is itself drift evidence:
+     * silently minting it would make the first out-of-band activation or
+     * update invisible. An inactive desired plugin is instead pending work
+     * for deploy's lifecycle executor.
      *
      * Scoped to exactly the entities $desired already names (the same
      * active_plugins/template/stylesheet the target state declares,
@@ -455,10 +454,18 @@ final class LifecyclePlanner {
         if ($desiredActive !== null) {
             Deploy::require_plugin_admin_functions();
             $allPlugins = get_plugins();
+            $currentActive = Deploy::current_active_plugins();
             $recordedPlugins = (array) ($recorded['plugins'] ?? []);
             foreach ($desiredActive as $plugin) {
                 $plugin = (string) $plugin;
                 if (!array_key_exists($plugin, $recordedPlugins)) {
+                    // Deploy::run() checks drift before LifecycleExecutor activates
+                    // desired code. Only current activation can be out-of-band
+                    // evidence; an inactive desired plugin is the lifecycle work
+                    // this same locked deploy is authorized to perform.
+                    if (!in_array($plugin, $currentActive, true)) {
+                        continue;
+                    }
                     $installed = (string) ($allPlugins[$plugin]['Version'] ?? '');
                     $rows[] = [
                         'issue' => 'code_baseline_missing',
@@ -535,14 +542,13 @@ final class LifecyclePlanner {
      * sites to one line each.
      *
      * issue #3507: this is the UNCONDITIONAL writer, and Deploy::run() is the
-     * only caller entitled to use it that way. By the time deploy
-     * re-baselines (Deploy.php:464-472) it has already refused on drift
-     * (Deploy.php:203-210, "wprism: deploy refused — code_drift") or been
-     * explicitly forced past it with --force-code-drift while warning once
-     * per overridden row (Deploy.php:221-224) — the consent gate already
-     * happened, so this write is that decision's consequence rather than
-     * the decision itself. Capture has no such gate and never asks, so it
-     * goes through observe_code_versions() below instead of calling this.
+     * only caller entitled to use it that way. By the time terminal deploy
+     * re-baselines it has already refused on drift ("wprism: deploy refused —
+     * code_drift") or been explicitly forced past it while reporting every
+     * overridden row — the consent gate already happened, so this write is
+     * that decision's consequence rather than the decision itself. A split
+     * retire pass is not terminal and does not call this writer. Capture has
+     * no such gate and goes through observe_code_versions() below instead.
      *
      * Records EVERY currently-active plugin's version, not just ones a
      * $desired list happens to name — code_drift() only ever CONSULTS the

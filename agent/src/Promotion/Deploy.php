@@ -68,18 +68,33 @@ final class Deploy {
 
     /**
      * Thin compatibility facade over LifecyclePlanner::record_code_versions()
-     * (issue #3350 slice 6) — kept so this method's existing internal call site
-     * (run(), unchanged) needs no edit while this decomposition proceeds.
+     * (issue #3350 slice 6) — kept for run()'s phase-aware terminal publisher.
      *
      * issue #3507 removed the one external caller: capture now goes through
      * LifecyclePlanner::observe_code_versions(), which writes the baseline
-     * only when there is nothing to accept. run()'s own call at :472 is
-     * therefore the only unconditional re-baseline left in the product, and
-     * it is entitled to be one — it runs after this verb's refuse-or-force
-     * gate (:203-210, :221-224), which is the consent capture never had.
+     * only when there is nothing to accept. run() is therefore the only
+     * unconditional re-baseline path in the product, and it reaches this
+     * facade only after its refuse-or-force gate and terminal lifecycle
+     * reconciliation. A split retirement preserves the prior baseline.
      */
     public static function record_code_versions(Policy $policy): void {
         LifecyclePlanner::record_code_versions($policy);
+    }
+
+    /**
+     * A host deployment runs retirement and activation in fresh processes.
+     * Retirement is an intermediate recovery boundary, not acceptance of the
+     * temporarily inactive code set; only activate (or a monolithic all pass)
+     * may publish the terminal baseline consumed by the next drift check.
+     */
+    private static function record_code_versions_after_lifecycle_phase(
+        Policy $policy,
+        string $lifecyclePhase
+    ): void {
+        if ($lifecyclePhase === 'retire') {
+            return;
+        }
+        self::record_code_versions($policy);
     }
 
     /**
@@ -540,15 +555,13 @@ final class Deploy {
             }
         }
 
-        // Re-baseline unconditionally: whatever's active NOW (post-
-        // reconciliation, whether clean or forced-through) becomes the new
-        // "last known good" — the same versions a --force-code-drift run
-        // just accepted are exactly what should stop being flagged on the
-        // NEXT run. Runs regardless of whether $drift/$mismatch fired, same
-        // as code_mismatch's own findings don't gate whether reconciliation
-        // proceeds once past the refuse-gate above.
+        // Re-baseline after terminal reconciliation: whatever's active NOW
+        // (whether clean or forced-through) becomes the new "last known
+        // good". A split retire pass is not terminal and must preserve the
+        // pre-deploy bytes; otherwise activate mistakes the intermediate
+        // inactive set for a trusted observation and refuses its own work.
         PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deploy-verify');
-        self::record_code_versions($policy);
+        self::record_code_versions_after_lifecycle_phase($policy, $lifecyclePhase);
 
         $remainingMismatch = array_merge(
             self::code_mismatch($policy, $desired),

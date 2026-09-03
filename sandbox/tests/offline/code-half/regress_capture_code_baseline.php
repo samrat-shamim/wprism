@@ -15,14 +15,20 @@
  * (Deploy.php:221-224), and the drift row's own remedy text names 'wprism
  * deploy' as the accept path and never names capture.
  *
- * So this file asserts both halves and their asymmetry:
+ * A later split-lifecycle defect exposed the same boundary from the other
+ * side: the host runs retire and activate in fresh target processes, but
+ * Deploy::run() recorded the temporary post-retire plugin set. Activate then
+ * treated its own pending plugin as absent from an existing trusted baseline
+ * and refused with code_baseline_missing. So this file asserts both baseline
+ * ownership boundaries:
  *   1. LifecyclePlanner::observe_code_versions() writes when there is
  *      nothing to accept (no baseline yet, or zero drift) and leaves the
  *      recorded blob BYTE-identical when there is, handing the rows back.
- *   2. record_code_versions() still clobbers across drift — deploy's
- *      unconditional re-baseline must stay unconditional, so a shared skip
- *      would have been the wrong fix.
- *   3. The capture call site takes (1), not (2), and reports every row.
+ *   2. record_code_versions() still clobbers across drift — deploy's terminal
+ *      re-baseline must stay unconditional, so a shared skip is incorrect.
+ *   3. Split retire preserves absent and existing baseline bytes; activate/all
+ *      publishes only the terminal reconciled set.
+ *   4. The capture call site takes (1), not (2), and reports every row.
  *
  * Real Ledger over the shared FakeWpdb, so "byte-identical" is asserted
  * against the value that actually round-trips through wprism_kv rather than
@@ -72,6 +78,9 @@ namespace WPrism {
     $workflowSource = file_get_contents(__DIR__ . '/../../../../agent/src/Capture/CapturePublicationWorkflow.php');
     wprism_check(is_string($workflowSource), 'CapturePublicationWorkflow.php is readable');
     $workflowSource = (string) $workflowSource;
+    $deploySource = file_get_contents(__DIR__ . '/../../../../agent/src/Promotion/Deploy.php');
+    wprism_check(is_string($deploySource), 'Deploy.php is readable');
+    $deploySource = (string) $deploySource;
 
     // Neither code_drift() nor record_code_versions() reads $policy — both
     // take it only to keep every planner entry point one shape (verified by
@@ -184,14 +193,29 @@ namespace WPrism {
     wprism_check_same([], LifecyclePlanner::observe_code_versions($policy), 'restoring the recorded version clears the finding');
     wprism_check_same($themeBaseline, (string) $recorded(), 'and the next capture records the restored state');
 
-    // === 7. A plugin missing from an existing baseline blocks capture's
-    // observer from silently minting the first out-of-band activation. ===
+    // === 7. A desired installed plugin that is not active yet is deploy's
+    // own pending lifecycle work, not evidence of an out-of-band activation.
+    // The host runs retire then activate in separate target processes; the
+    // former used to record the still-inactive baseline, so treating desired
+    // state as current state made the latter refuse the activation it owns. ===
+    $GLOBALS['wprism_capture_baseline_plugins']['newly/activated.php'] = ['Version' => '9.9'];
+    $pendingActivation = LifecyclePlanner::code_drift($policy, [
+        'active_plugins' => ['hello/hello.php', 'newly/activated.php'],
+    ]);
+    wprism_check_same([], $pendingActivation, 'a desired but currently inactive plugin is not mislabeled as out-of-band code drift');
+    wprism_check_same(
+        null,
+        json_decode((string) $recorded(), true)['plugins']['newly/activated.php'] ?? null,
+        'the pending activation is admitted without prematurely adding it to the trusted baseline'
+    );
+
+    // Once the same plugin is genuinely active, absence from the existing
+    // baseline blocks capture's observer from silently accepting it.
     WpStore::reset()->seedOptions([
         'active_plugins' => ['hello/hello.php', 'newly/activated.php'],
         'stylesheet' => 'child',
         'template' => 'parent',
     ]);
-    $GLOBALS['wprism_capture_baseline_plugins']['newly/activated.php'] = ['Version' => '9.9'];
     $missingBaseline = LifecyclePlanner::observe_code_versions($policy);
     wprism_check_same(1, count($missingBaseline), 'a plugin activated since the last baseline is one visible finding');
     wprism_check_same('code_baseline_missing', $missingBaseline[0]['issue'] ?? null, 'the finding distinguishes absence from a version mismatch');
@@ -204,7 +228,71 @@ namespace WPrism {
     LifecyclePlanner::record_code_versions($policy);
     wprism_check_same('9.9', json_decode((string) $recorded(), true)['plugins']['newly/activated.php'] ?? null, 'deploy\'s explicit writer can accept the activation');
 
-    // === 8. The capture call site takes the observing writer, not the
+    // === 8. Split deploy retires and activates in fresh processes. Exercise
+    // Deploy's exact phase decision over the real Ledger: retire must preserve
+    // both an absent and an existing baseline; only terminal activation may
+    // publish the reconciled code set. ===
+    $publishAfterPhase = new \ReflectionMethod(Deploy::class, 'record_code_versions_after_lifecycle_phase');
+    wprism_check($publishAfterPhase->isPrivate(), 'the split-phase publication decision remains internal to Deploy orchestration');
+    $phasePublicationCall = 'self::record_code_versions_after_lifecycle_phase($policy, $lifecyclePhase);';
+    $publicationOffset = strpos($deploySource, $phasePublicationCall);
+    $verificationOffset = strpos($deploySource, "PromotionLock::heartbeat(\$promotionOwner, \$promotionArtifact, 'deploy-verify');");
+    $remainingMismatchOffset = strpos($deploySource, '$remainingMismatch = array_merge(');
+    wprism_check(
+        $publicationOffset !== false
+            && $verificationOffset !== false
+            && $remainingMismatchOffset !== false
+            && $verificationOffset < $publicationOffset
+            && $publicationOffset < $remainingMismatchOffset,
+        'Deploy::run wires the phase decision after lifecycle reconciliation and before final verification'
+    );
+
+    $environment(
+        [],
+        ['newly/activated.php' => '9.9'],
+        ['stylesheet' => 'child', 'template' => 'parent'],
+        ['child' => '1.0', 'parent' => '1.0']
+    );
+    wprism_check_same(null, $recorded(), 'the split-deploy fixture starts without any code baseline');
+    $publishAfterPhase->invoke(null, $policy, 'retire');
+    wprism_check_same(null, $recorded(), 'a successful retire phase preserves an absent pre-deploy baseline');
+
+    WpStore::reset()->seedOptions([
+        'active_plugins' => ['newly/activated.php'],
+        'stylesheet' => 'child',
+        'template' => 'parent',
+    ]);
+    wprism_check_same(
+        [],
+        LifecyclePlanner::code_drift($policy, ['active_plugins' => ['newly/activated.php']]),
+        'the fresh activate process still sees the bootstrap state instead of retire-manufactured drift'
+    );
+    $publishAfterPhase->invoke(null, $policy, 'activate');
+    $activatedBaseline = (string) $recorded();
+    wprism_check_same(
+        '9.9',
+        json_decode($activatedBaseline, true)['plugins']['newly/activated.php'] ?? null,
+        'terminal activation records the exact reconciled plugin version'
+    );
+
+    $GLOBALS['wprism_capture_baseline_plugins']['newly/activated.php'] = ['Version' => '10.0'];
+    $publishAfterPhase->invoke(null, $policy, 'all');
+    $monolithicBaseline = (string) $recorded();
+    wprism_check_same(
+        '10.0',
+        json_decode($monolithicBaseline, true)['plugins']['newly/activated.php'] ?? null,
+        'a monolithic lifecycle pass also records its terminal reconciled version'
+    );
+
+    WpStore::reset()->seedOptions([
+        'active_plugins' => [],
+        'stylesheet' => 'child',
+        'template' => 'parent',
+    ]);
+    $publishAfterPhase->invoke(null, $policy, 'retire');
+    wprism_check_same($monolithicBaseline, $recorded(), 'retire preserves a pre-existing baseline byte for byte');
+
+    // === 9. The capture call site takes the observing writer, not the
     // unconditional one, and reports every row it gets back. ===
     wprism_check(
         str_contains($workflowSource, "require_once __DIR__ . '/../Promotion/LifecyclePlanner.php';"),
