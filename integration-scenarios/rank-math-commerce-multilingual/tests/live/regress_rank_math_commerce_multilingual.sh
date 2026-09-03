@@ -85,13 +85,53 @@ configure_rank_math() { # <wp1|wp2> <source|target>
   "$side" option update rank_math_is_configured 1 >/dev/null
   "$side" eval '
 $role = (string) getenv("WPRISM_RMCOMBO_ROLE");
-$modules = $role === "source"
-    ? ["link-counter", "redirections", "schema"]
-    : ["redirections", "schema"];
-RankMath\Helper::update_modules($modules);
-sort($modules, SORT_STRING);
-update_option("rank_math_modules", $modules);
+$desired = $role === "source"
+    ? ["link-counter", "redirections", "rich-snippet"]
+    : ["redirections", "rich-snippet"];
+$stored = array_values(array_unique(array_map("strval", (array) get_option("rank_math_modules", []))));
+if ($stored !== []) {
+    RankMath\Helper::update_modules(array_fill_keys($stored, "off"));
+}
+RankMath\Helper::update_modules(array_fill_keys($desired, "on"));
+$actual = array_values(array_unique(array_map("strval", (array) get_option("rank_math_modules", []))));
+if ($actual !== $desired) {
+    throw new RuntimeException("Rank Math native module lifecycle did not persist the exact requested set");
+}
 ' --exec="putenv('WPRISM_RMCOMBO_ROLE=$role');" >/dev/null
+}
+
+rank_math_readiness() { # <wp1|wp2> <source|target>
+  local side="$1" role="$2"
+  "$side" eval '
+global $wpdb;
+$role = (string) getenv("WPRISM_RMCOMBO_ROLE");
+$expectedModules = $role === "source"
+    ? ["link-counter", "redirections", "rich-snippet"]
+    : ["redirections", "rich-snippet"];
+$requiredTables = $role === "source"
+    ? ["rank_math_internal_links", "rank_math_internal_meta", "rank_math_redirections", "rank_math_redirections_cache"]
+    : ["rank_math_redirections", "rank_math_redirections_cache"];
+$modules = array_values(array_unique(array_map("strval", (array) get_option("rank_math_modules", []))));
+$activeModules = array_values(RankMath\Helper::get_active_modules());
+if ($modules !== $expectedModules) {
+    throw new RuntimeException("Rank Math module state changed before the independent readiness readback");
+}
+if ($activeModules !== $expectedModules) {
+    throw new RuntimeException("Rank Math manager did not accept the exact requested active module set");
+}
+$tables = [];
+foreach ($requiredTables as $suffix) {
+    $table = $wpdb->prefix . $suffix;
+    $tables[$suffix] = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table)) === $table;
+}
+echo wp_json_encode([
+    "active_modules" => $activeModules,
+    "modules" => $modules,
+    "role" => $role,
+    "tables" => $tables,
+    "version" => defined("RANK_MATH_VERSION") ? RANK_MATH_VERSION : null,
+], JSON_UNESCAPED_SLASHES);
+' --exec="putenv('WPRISM_RMCOMBO_ROLE=$role');" | awk 'NF { line=$0 } END { print line }'
 }
 
 create_languages() { # <wp1|wp2>
@@ -456,6 +496,26 @@ for side in wp1 wp2; do
 done
 configure_rank_math wp1 source
 configure_rank_math wp2 target
+SOURCE_RANK_MATH_READY=$(rank_math_readiness wp1 source)
+TARGET_RANK_MATH_READY=$(rank_math_readiness wp2 target)
+require_observed_nonempty 'source Rank Math native module readiness' "$SOURCE_RANK_MATH_READY"
+require_observed_nonempty 'target Rank Math native module readiness' "$TARGET_RANK_MATH_READY"
+jq -en --argjson source "$SOURCE_RANK_MATH_READY" --argjson target "$TARGET_RANK_MATH_READY" '
+  $source == {
+    active_modules:["link-counter","redirections","rich-snippet"],
+    modules:["link-counter","redirections","rich-snippet"],role:"source",
+    tables:{rank_math_internal_links:true,rank_math_internal_meta:true,
+      rank_math_redirections:true,rank_math_redirections_cache:true},
+    version:"1.0.277.2"
+  } and
+  $target == {
+    active_modules:["redirections","rich-snippet"],
+    modules:["redirections","rich-snippet"],role:"target",
+    tables:{rank_math_redirections:true,rank_math_redirections_cache:true},
+    version:"1.0.277.2"
+  }
+' >/dev/null || fail "Rank Math native module readiness is incomplete: $SOURCE_RANK_MATH_READY / $TARGET_RANK_MATH_READY"
+pass 'Rank Math native module lifecycle persisted exact roles and installed every required table'
 
 say 'author native multilingual products, ACF values, Rank Math SEO/link state and Woo lookup state'
 SOURCE_SEED=$(wp1 eval '

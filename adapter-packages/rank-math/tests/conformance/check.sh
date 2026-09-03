@@ -968,12 +968,16 @@ MISSING_CODE_AFTER=$(rank_math_recovery_state conf2)
 jq -en --argjson before "$UNINSTALL_DATA_BEFORE" --argjson after "$MISSING_CODE_AFTER" \
   '$after == $before' >/dev/null \
   || fail 'Rank Math missing-code refusal mutated retained plugin data'
-RANK_MATH_REINSTALL=$(fetch_artifact seo-by-rank-math 1.0.277.2 cli2 plugin)
+RANK_MATH_REINSTALL_SHA=$(artifact_library_jq -er --arg version "$RANK_MATH_EXPECTED_VERSION" '
+  .plugins["seo-by-rank-math"][$version].sha256
+  | select(type == "string" and test("^[0-9a-f]{64}$"))
+') || fail "artifact library lacks an exact Rank Math $RANK_MATH_EXPECTED_VERSION reinstall digest"
+RANK_MATH_REINSTALL="/artifacts-cache/plugin-seo-by-rank-math-${RANK_MATH_EXPECTED_VERSION}-${RANK_MATH_REINSTALL_SHA}.zip"
 [ "$(wp_conf2 eval "echo hash_file('sha256', '$RANK_MATH_REINSTALL');")" = \
-  1c6cae3fda401798dfdc5d1d5814de17c040ffcb457c40e2f0256db84a680b1b ] \
+  "$RANK_MATH_REINSTALL_SHA" ] \
   || fail 'cached Rank Math reinstall artifact digest moved'
 wp_conf2 plugin install "$RANK_MATH_REINSTALL" --force >/dev/null
-[ "$(wp_conf2 plugin get seo-by-rank-math --field=version)" = 1.0.277.2 ] \
+[ "$(wp_conf2 plugin get seo-by-rank-math --field=version)" = "$RANK_MATH_EXPECTED_VERSION" ] \
   || fail 'Rank Math exact reinstall reported the wrong version'
 REINSTALL_PENDING_NOTIFICATION=$(wp_conf2 --skip-plugins=seo-by-rank-math eval '
 echo wp_json_encode(get_option("rank_math_notifications", null));

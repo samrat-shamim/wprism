@@ -1084,7 +1084,10 @@ plugin faithfully.
 8. Co-load the adapter with common adjacent manifests and exercise the plugins
    together, not merely as isolated installs. Enable optional modules through
    the plugin's native lifecycle before probing their tables: writing an option
-   can select a module without running its installer. Include a hostile
+   can select a module without running its installer. Then read both the raw
+   persisted selection and the plugin's registered/active-module API in a fresh
+   process. A lifecycle helper may accept an unknown identifier and persist a
+   convincing option value even though no module exists. Include a hostile
    schema-driven field whose physical key matches another adapter's static
    declaration; capture must refuse multiple owners independent of pin order.
    Preserve target-only queue jobs and plugin state through apply, then prove a
@@ -1737,6 +1740,17 @@ library.
    CONF1_PORT=<even-port> CONF2_PORT=<next-port> \
    bash sandbox/conformance/run.sh <name>
    ```
+
+   Conformance hooks run in child Bash processes after the runner has fetched,
+   digest-verified, and installed every `entry.json` artifact. That child ABI
+   intentionally exposes the scoped, read-only `artifact_library_jq` helpers,
+   not `fetch_artifact`: fetching owns the runner's array-safe Compose topology,
+   which cannot cross the child boundary. A lifecycle reinstall resolves its
+   exact SHA-256 from `artifact_library_jq`, constructs the corresponding
+   `/artifacts-cache/<kind>-<slug>-<version>-<sha256>.zip` path, verifies that
+   cached file through the target process, and only then installs it. Never
+   fetch again from a hook; doing so can both fail with `command not found` and
+   hide loss of the cache premise established during setup.
 
    A `certified` entry whose manifest declares a `plugin` must cite
    `conformance-<name>` in its `evidence.tests`, and that citation is only

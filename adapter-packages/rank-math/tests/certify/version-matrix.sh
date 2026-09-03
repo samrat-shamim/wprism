@@ -2,6 +2,7 @@ seed_rank_math_content() {
   wp_conf1() { wp1 "$@"; }
   local CONF_REPO1="siterepo/${PAIR}1"
   local CONF1_PORT="$PORT1"
+  local RANK_MATH_EXPECTED_VERSION="$RANK_MATH_VERSION"
   . "$(dirname "${BASH_SOURCE[0]}")/../conformance/seed.sh"
   unset -f wp_conf1
 }
@@ -76,6 +77,17 @@ $payload = [
 ];
 echo hash("sha256", wp_json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 '
+}
+
+rank_math_module_state() { # <wp1|wp2>
+  local side="$1"
+  "$side" eval '
+echo wp_json_encode([
+    "active_modules" => array_values(RankMath\Helper::get_active_modules()),
+    "modules" => array_values(array_unique(array_map("strval", (array) get_option("rank_math_modules", [])))),
+    "version" => defined("RANK_MATH_VERSION") ? RANK_MATH_VERSION : null,
+], JSON_UNESCAPED_SLASHES);
+' | awk 'NF { line=$0 } END { print line }'
 }
 
 VMATRIX_PLUGIN_SLUG=seo-by-rank-math
@@ -199,11 +211,18 @@ for RANK_MATH_VERSION in 1.0.277 1.0.277.1 1.0.277.2; do
     require_fixture_ids UPGRADE_POST
     wp1 post update "$UPGRADE_POST" --post_title='Rank Math 1.0.277 to 1.0.277.2 東京 🚀' >/dev/null
     wp1 eval '
-$modules = array_values(array_unique(array_merge((array) get_option("rank_math_modules", []), ["image-seo"])));
-sort($modules, SORT_STRING);
-RankMath\Helper::update_modules($modules);
-update_option("rank_math_modules", $modules);
+RankMath\Helper::update_modules(["image-seo" => "on"]);
 ' >/dev/null
+    UPGRADE_SOURCE_MODULES=$(rank_math_module_state wp1)
+    require_observed_nonempty 'Rank Math upgrade source native module readiness' "$UPGRADE_SOURCE_MODULES"
+    jq -e '
+      . == {
+        active_modules:["link-counter","redirections","rich-snippet","image-seo"],
+        modules:["link-counter","redirections","rich-snippet","image-seo"],
+        version:"1.0.277.2"
+      }
+    ' <<<"$UPGRADE_SOURCE_MODULES" >/dev/null \
+      || fail "Rank Math upgrade source modules are not registered and active: $UPGRADE_SOURCE_MODULES"
     wp1 wprism capture --repo=/siterepo
     wp1 wprism lint --repo=/siterepo
     "${GIT1[@]}" add -A
@@ -222,6 +241,16 @@ update_option("rank_math_modules", $modules);
     capture_wprism_json_success RANK_MATH_BOUNDARY_APPLY_JSON 'Rank Math version-matrix upgrade apply' \
       wp2 wprism apply --repo=/siterepo --default-author=admin \
         --revision="$UPGRADE_REV" --json
+    UPGRADE_TARGET_MODULES=$(rank_math_module_state wp2)
+    require_observed_nonempty 'Rank Math upgrade target native module readiness' "$UPGRADE_TARGET_MODULES"
+    jq -e '
+      . == {
+        active_modules:["link-counter","redirections","rich-snippet","image-seo"],
+        modules:["link-counter","redirections","rich-snippet","image-seo"],
+        version:"1.0.277.2"
+      }
+    ' <<<"$UPGRADE_TARGET_MODULES" >/dev/null \
+      || fail "Rank Math upgrade target modules are not registered and active: $UPGRADE_TARGET_MODULES"
     RANK_MATH_VERSION=1.0.277.2
     check_rank_math_boundary_content
     RANK_MATH_VERSION=1.0.277

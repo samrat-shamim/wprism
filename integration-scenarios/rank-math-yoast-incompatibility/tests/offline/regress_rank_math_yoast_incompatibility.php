@@ -37,6 +37,77 @@ foreach (['rank-math', 'yoast'] as $participant) {
     );
 }
 
+$privateEvidencePath = $root . '/integration-scenarios/rank-math-yoast-incompatibility/'
+    . 'fixtures/private-refusal-evidence.php';
+require_once $privateEvidencePath;
+wprism_check_same(
+    'e0e3db584904aa388ce5547e87b149223ed113f23751f0bc94b5f98e8acbb421',
+    hash('sha256', WPRISM_RANK_YOAST_PRIVATE_REFUSAL_MESSAGE),
+    'the scenario verifier pins the exact private incompatibility sentence by hash'
+);
+$privateScratch = sys_get_temp_dir() . '/wprism_rank_yoast_private_' . bin2hex(random_bytes(8));
+$privateDirectory = $privateScratch . '/refusals';
+$privateName = '20260903-193751-compile-' . str_repeat('a', 24) . '.json';
+$privatePath = $privateDirectory . '/' . $privateName;
+register_shutdown_function(static function () use ($privatePath, $privateDirectory, $privateScratch): void {
+    @unlink($privatePath);
+    @rmdir($privateDirectory);
+    @rmdir($privateScratch);
+});
+mkdir($privateDirectory, 0700, true);
+chmod($privateDirectory, 0700);
+wprism_check_same([], rank_yoast_private_refusal_inventory($privateDirectory),
+    'the scenario verifier starts from one command-scoped empty baseline');
+$privateRecord = [
+    'format' => 'wprism-private-refusal-evidence/v2',
+    'command' => 'compile',
+    'reason_code' => 'compile_failed',
+    'throwable' => [[
+        'index' => 0,
+        'parent_index' => null,
+        'relation' => 'root',
+        'message' => WPRISM_RANK_YOAST_PRIVATE_REFUSAL_MESSAGE,
+        'message_encoding' => 'utf-8',
+        'message_original_bytes' => strlen(WPRISM_RANK_YOAST_PRIVATE_REFUSAL_MESSAGE),
+        'message_sha256' => hash('sha256', WPRISM_RANK_YOAST_PRIVATE_REFUSAL_MESSAGE),
+        'message_truncated' => false,
+    ]],
+    'traversal' => ['scan_complete' => true, 'record_complete' => true],
+];
+$writePrivateRecord = static function (array $record) use ($privatePath): void {
+    file_put_contents(
+        $privatePath,
+        json_encode($record, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"
+    );
+    chmod($privatePath, 0600);
+};
+$writePrivateRecord($privateRecord);
+$privateReceipt = rank_yoast_private_refusal_verify($privateDirectory, '[]');
+wprism_check_same(rank_yoast_private_refusal_receipt(), $privateReceipt,
+    'one exact appended private graph yields the fixed value-free scenario receipt');
+wprism_check(!str_contains($privateReceipt, WPRISM_RANK_YOAST_PRIVATE_REFUSAL_MESSAGE),
+    'the scenario receipt never republishes its private root sentence');
+$wrongPrivateRecord = $privateRecord;
+$wrongPrivateRecord['throwable'][0]['message'] = 'wrong private incompatibility canary';
+$wrongPrivateRecord['throwable'][0]['message_original_bytes'] = strlen('wrong private incompatibility canary');
+$wrongPrivateRecord['throwable'][0]['message_sha256'] = hash('sha256', 'wrong private incompatibility canary');
+$writePrivateRecord($wrongPrivateRecord);
+wprism_check_throws(
+    static fn() => rank_yoast_private_refusal_verify($privateDirectory, '[]'),
+    RuntimeException::class,
+    'a wrong private incompatibility cause cannot satisfy the scenario verifier',
+    'does not retain the exact complete root cause'
+);
+wprism_check_throws(
+    static fn() => rank_yoast_private_refusal_verify(
+        $privateDirectory,
+        json_encode([$privateName], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
+    ),
+    RuntimeException::class,
+    'a stale current record cannot masquerade as evidence appended by a new invocation',
+    'did not append exactly one compile refusal record'
+);
+
 $site = sys_get_temp_dir() . '/wprism_rank_yoast_' . bin2hex(random_bytes(8));
 if (!mkdir($site, 0700, true) && !is_dir($site)) {
     throw new RuntimeException("could not create scratch site repository '$site'");
@@ -84,6 +155,69 @@ foreach ([
 ] as $witness) {
     wprism_check(str_contains($live, $witness), "the candidate-bound live refusal pins: $witness");
 }
+
+$privateSnapshot = strpos($live,
+    'private_baseline=$(private_evidence "$side" snapshot /siterepo/.wprism/refusals)');
+$privateDeploy = strpos($live, 'output=$(host_deploy "$side" 2>&1)');
+$privateVerify = strpos($live,
+    'private_receipt=$(private_evidence "$side" verify');
+$answered = strpos($live, 'require_wprism_answered "Rank Math/Yoast $operation refusal" human "$output"');
+$captureBranch = $answered === false ? false : strpos($live, 'if [ "$operation" = capture ]; then', $answered);
+$captureCause = $captureBranch === false ? false
+    : strpos($live, 'grep -Fq "$EXPECTED_REFUSAL" <<<"$output"', $captureBranch);
+$captureNotRedacted = $captureCause === false ? false
+    : strpos($live, '! grep -Fq \'"details_redacted":true\' <<<"$output"', $captureCause);
+wprism_check(
+    $answered !== false
+        && $captureBranch !== false
+        && $captureCause !== false
+        && $captureNotRedacted !== false
+        && $answered < $captureBranch
+        && $captureBranch < $captureCause
+        && $captureCause < $captureNotRedacted
+        && $captureNotRedacted < $privateVerify,
+    'capture proves the exact incompatibility cause publicly and rejects a redacted local envelope before deploy proof'
+);
+$deployFormat = $privateDeploy === false ? false
+    : strpos($live, 'grep -Fq \'"format":"wprism-command-refusal/v1"\' <<<"$output"', $privateDeploy);
+$deployCommand = $deployFormat === false ? false
+    : strpos($live, 'grep -Fq \'"command":"compile"\' <<<"$output"', $deployFormat);
+$deployReason = $deployCommand === false ? false
+    : strpos($live, 'grep -Fq \'"reason_code":"compile_failed"\' <<<"$output"', $deployCommand);
+$deployRedacted = $deployReason === false ? false
+    : strpos($live, 'grep -Fq \'"details_redacted":true\' <<<"$output"', $deployReason);
+$deployHint = $deployRedacted === false ? false
+    : strpos($live, 'grep -Fq "the target\'s compile refusal was redacted" <<<"$output"', $deployRedacted);
+$deployPointer = $deployHint === false ? false
+    : strpos($live, 'grep -Fq \'.wprism/refusals/\' <<<"$output"', $deployHint);
+$deployPrivateAbsent = $deployPointer === false ? false
+    : strpos($live, '! grep -Fq "$EXPECTED_REFUSAL" <<<"$output"', $deployPointer);
+wprism_check(
+    $privateSnapshot !== false
+        && $privateDeploy !== false
+        && $privateVerify !== false
+        && $privateSnapshot < $privateDeploy
+        && $privateDeploy < $privateVerify
+        && str_contains($live, '/.tmp-rank-math-yoast-private-refusal.php')
+        && str_contains($live, '! -path "$repo/.wprism/refusals/*"')
+        && $deployFormat !== false
+        && $deployCommand !== false
+        && $deployReason !== false
+        && $deployRedacted !== false
+        && $deployHint !== false
+        && $deployPointer !== false
+        && $deployPrivateAbsent !== false
+        && $privateDeploy < $deployFormat
+        && $deployFormat < $deployCommand
+        && $deployCommand < $deployReason
+        && $deployReason < $deployRedacted
+        && $deployRedacted < $deployHint
+        && $deployHint < $deployPointer
+        && $deployPointer < $deployPrivateAbsent
+        && $deployPrivateAbsent < $privateVerify
+        && str_contains($live, "'" . rank_yoast_private_refusal_receipt() . "'"),
+    'deploy proves one new private cause around its redacted public compile refusal without calling it repository publication'
+);
 
 $order1Readback = strpos($live, 'ORDER1=$(wp1 option get active_plugins');
 $order2Readback = strpos($live, 'ORDER2=$(wp2 option get active_plugins');

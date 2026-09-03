@@ -4,6 +4,7 @@
 set -euo pipefail
 
 SOURCE_REPO="${CONF_REPO1:-siterepo/conf1}"
+RANK_MATH_EXPECTED_VERSION="${RANK_MATH_EXPECTED_VERSION:-1.0.277.2}"
 
 # Registration is checked before Rank Math constructs its module manager. The
 # wizard's skip choice therefore lands in one request and every module API is
@@ -14,15 +15,53 @@ wp_conf1 eval '
 if (!class_exists("RankMath\\Helper")) {
     throw new RuntimeException("Rank Math helper did not boot after the disconnected setup choice");
 }
-RankMath\Helper::update_modules([
-    "link-counter" => "on",
-    "redirections" => "on",
-    "schema" => "on",
-]);
-$modules = array_values(array_unique(array_map("strval", (array) get_option("rank_math_modules", []))));
-sort($modules, SORT_STRING);
-update_option("rank_math_modules", $modules);
+$desired = ["link-counter", "redirections", "rich-snippet"];
+$stored = array_values(array_unique(array_map("strval", (array) get_option("rank_math_modules", []))));
+if ($stored !== []) {
+    RankMath\Helper::update_modules(array_fill_keys($stored, "off"));
+}
+RankMath\Helper::update_modules(array_fill_keys($desired, "on"));
 ' >/dev/null
+
+# Helper::update_modules() accepts arbitrary keys, so its return path alone is
+# not evidence that a requested module is registered or active. A fresh process
+# proves the native manager accepts the exact set and its installers established
+# every schema used by the fixture before any authored state is created.
+RANK_MATH_MODULE_READY=$(wp_conf1 eval '
+global $wpdb;
+$expected = ["link-counter", "redirections", "rich-snippet"];
+$stored = array_values(array_unique(array_map("strval", (array) get_option("rank_math_modules", []))));
+$active = array_values(RankMath\Helper::get_active_modules());
+$requiredTables = [
+    "rank_math_internal_links",
+    "rank_math_internal_meta",
+    "rank_math_redirections",
+    "rank_math_redirections_cache",
+];
+$tables = [];
+foreach ($requiredTables as $suffix) {
+    $table = $wpdb->prefix . $suffix;
+    $tables[$suffix] = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table)) === $table;
+}
+echo wp_json_encode([
+    "active_modules" => $active,
+    "modules" => $stored,
+    "tables" => $tables,
+    "version" => defined("RANK_MATH_VERSION") ? RANK_MATH_VERSION : null,
+], JSON_UNESCAPED_SLASHES);
+' | awk 'NF { line=$0 } END { print line }')
+require_observed_nonempty 'Rank Math native module readiness' "$RANK_MATH_MODULE_READY"
+jq -e --arg version "$RANK_MATH_EXPECTED_VERSION" '
+  . == {
+    active_modules:["link-counter","redirections","rich-snippet"],
+    modules:["link-counter","redirections","rich-snippet"],
+    tables:{rank_math_internal_links:true,rank_math_internal_meta:true,
+      rank_math_redirections:true,rank_math_redirections_cache:true},
+    version:$version
+  }
+' <<<"$RANK_MATH_MODULE_READY" >/dev/null \
+  || fail "Rank Math native module readiness is incomplete: $RANK_MATH_MODULE_READY"
+pass 'Rank Math native module lifecycle established the exact registered active set and required schemas'
 
 cat > "$SOURCE_REPO/.tmp-rank-math-seed.php" <<'PHPEOF'
 <?php

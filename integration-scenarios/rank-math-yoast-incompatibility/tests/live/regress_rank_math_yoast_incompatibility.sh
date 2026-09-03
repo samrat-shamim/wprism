@@ -49,6 +49,12 @@ wp_side() { # <side> <wp args...>
 }
 wp1() { wp_side 1 "$@"; }
 wp2() { wp_side 2 "$@"; }
+private_evidence() { # <side> <snapshot|verify> <args...>
+  local side="$1"
+  shift
+  "${COMPOSE[@]}" run --rm -T --entrypoint php "cli$side" \
+    /siterepo/.tmp-rank-math-yoast-private-refusal.php "$@"
+}
 R1="siterepo/${PAIR}1"
 R2="siterepo/${PAIR}2"
 SCENARIO="$ROOT/integration-scenarios/rank-math-yoast-incompatibility/scenario.json"
@@ -84,7 +90,8 @@ repo_witness() { # <repo>
   local repo="$1" file
   while IFS= read -r file; do
     printf '%s  %s\n' "$(shasum -a 256 "$file" | awk '{print $1}')" "${file#"$repo"/}"
-  done < <(find "$repo" -type f ! -path "$repo/.git/*" -print | LC_ALL=C sort)
+  done < <(find "$repo" -type f ! -path "$repo/.git/*" \
+    ! -path "$repo/.wprism/refusals/*" -print | LC_ALL=C sort)
 }
 
 target_witness() { # <side>
@@ -111,6 +118,8 @@ write_repo() { # <repo> <manifest-order-json> <sentinel>
     '{manifests:$manifests,policy:{options:{},post_meta:{},post_types:["post","page","attachment"],taxonomies:["category","post_tag"]},spec_version:3}' \
     > "$repo/site.wprism.json"
   cp site-repo.gitignore.template "$repo/.gitignore"
+  cp "$ROOT/integration-scenarios/rank-math-yoast-incompatibility/fixtures/private-refusal-evidence.php" \
+    "$repo/.tmp-rank-math-yoast-private-refusal.php"
   printf '%s\n' "$sentinel" > "$repo/refusal-sentinel.txt"
   git init -q -b main "$repo"
   git -C "$repo" -c user.name=wprism-rmyoast -c user.email=rmyoast@example.test add -A
@@ -120,21 +129,43 @@ write_repo() { # <repo> <manifest-order-json> <sentinel>
 
 assert_refusal() { # <side> <repo> <capture|deploy> <expected-runtime-json>
   local side="$1" repo="$2" operation="$3" expected_runtime="$4"
-  local before_repo before_head output rc after_runtime
+  local before_repo before_head output rc after_runtime private_baseline='' private_receipt=''
   before_repo=$(repo_witness "$repo")
   before_head=$(git -C "$repo" rev-parse HEAD)
   rc=0
   if [ "$operation" = capture ]; then
     output=$("wp$side" wprism capture --repo=/siterepo 2>&1) || rc=$?
   elif [ "$operation" = deploy ]; then
+    private_baseline=$(private_evidence "$side" snapshot /siterepo/.wprism/refusals) \
+      || fail 'deploy could not snapshot private compile evidence as the target CLI identity'
+    require_observed_nonempty 'Rank Math/Yoast private compile refusal baseline' "$private_baseline"
     output=$(host_deploy "$side" 2>&1) || rc=$?
   else
     fail "unsupported refusal operation '$operation'"
   fi
   [ "$rc" -ne 0 ] || fail "$operation unexpectedly admitted incompatible SEO adapters: $output"
-  grep -Fq "$EXPECTED_REFUSAL" <<<"$output" \
-    || fail "$operation lost the canonical incompatibility refusal: $output"
   require_wprism_answered "Rank Math/Yoast $operation refusal" human "$output"
+  if [ "$operation" = capture ]; then
+    grep -Fq "$EXPECTED_REFUSAL" <<<"$output" \
+      && ! grep -Fq '"details_redacted":true' <<<"$output" \
+      || fail "capture lost the public incompatibility refusal: $output"
+  else
+    grep -Fq '"format":"wprism-command-refusal/v1"' <<<"$output" \
+      && grep -Fq '"command":"compile"' <<<"$output" \
+      && grep -Fq '"reason_code":"compile_failed"' <<<"$output" \
+      && grep -Fq '"details_redacted":true' <<<"$output" \
+      && grep -Fq "the target's compile refusal was redacted" <<<"$output" \
+      && grep -Fq '.wprism/refusals/' <<<"$output" \
+      && ! grep -Fq "$EXPECTED_REFUSAL" <<<"$output" \
+      || fail "deploy lost the public/private incompatibility boundary: $output"
+    private_receipt=$(private_evidence "$side" verify \
+      /siterepo/.wprism/refusals "$private_baseline") \
+      || fail 'deploy could not verify private compile evidence as the target CLI identity'
+    require_observed_nonempty 'Rank Math/Yoast private compile refusal receipt' "$private_receipt"
+    [ "$private_receipt" = \
+      '{"command":"compile","format":"wprism-rank-math-yoast-private-refusal-check/v1","new_records":1,"root_message_sha256":"e0e3db584904aa388ce5547e87b149223ed113f23751f0bc94b5f98e8acbb421","verified":true}' ] \
+      || fail "deploy returned a malformed private incompatibility receipt: $private_receipt"
+  fi
   [ "$(git -C "$repo" rev-parse HEAD)" = "$before_head" ] \
     || fail "$operation moved the repository HEAD before refusing"
   [ "$(repo_witness "$repo")" = "$before_repo" ] \

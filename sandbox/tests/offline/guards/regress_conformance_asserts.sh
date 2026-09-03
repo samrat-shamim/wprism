@@ -438,6 +438,25 @@ grep -Eq 'artifact_library_repo_root artifact_library_package_context artifact_l
   && grep -Eq 'artifact_library_emit' conformance/run.sh \
   && grep -Eq 'validate_artifact_library artifact_library_jq' conformance/run.sh \
   || fail "package check subprocesses cannot call the convention-discovered artifact-library helpers"
+# Check hooks are child Bash processes. The runner owns its non-exportable
+# Compose argv and has already populated the verified cache during setup; a
+# hook may resolve the scoped digest through artifact_library_jq, but must not
+# attempt a second fetch through runner-private topology.
+ACTIVE_SHELL_HELPER=../tools/active-shell-source.php
+[ -f "$ACTIVE_SHELL_HELPER" ] && [ ! -L "$ACTIVE_SHELL_HELPER" ] \
+  || fail "active-shell source helper is missing or unsafe: $ACTIVE_SHELL_HELPER"
+CHILD_FETCH_CALLS=''
+while IFS= read -r hook; do
+  ACTIVE_HOOK=$(php "$ACTIVE_SHELL_HELPER" "$hook") \
+    || fail "could not classify active conformance hook source: $hook"
+  if grep -Eq '(^|[;&|()[:space:]])fetch_artifact([[:space:]]|$)' <<<"$ACTIVE_HOOK"; then
+    CHILD_FETCH_CALLS="${CHILD_FETCH_CALLS}${CHILD_FETCH_CALLS:+ }$hook"
+  fi
+done < <(find conformance/seeds conformance/postdeploy conformance/checks conformance/capture-checks \
+  ../adapter-packages/*/tests/conformance -type f -name '*.sh' -print | LC_ALL=C sort)
+[ -z "$CHILD_FETCH_CALLS" ] \
+  || fail "child conformance hook calls runner-private fetch_artifact; resolve its scoped digest with artifact_library_jq and consume the setup-established cache path:$CHILD_FETCH_CALLS"
+pass 'child conformance hooks use only the exported read-only artifact ABI after runner-owned cache population'
 grep -Fq 'archive_root=$(artifact_library_platform_jq -r --arg slug "$slug" --arg version "$version"' \
   conformance/run.sh \
   || fail "conformance theme archive roots are not resolved from the explicit platform library"

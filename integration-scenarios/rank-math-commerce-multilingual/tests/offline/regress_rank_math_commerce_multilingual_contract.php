@@ -175,6 +175,77 @@ foreach ([
     wprism_check(str_contains($live, $witness), "the candidate-bound live scenario pins: $witness");
 }
 
+$configureDefinition = strpos($live, 'configure_rank_math() {');
+$nativeModuleDisable = strpos($live, 'RankMath\\Helper::update_modules(array_fill_keys($stored, "off"));');
+$nativeModuleEnable = strpos($live, 'RankMath\\Helper::update_modules(array_fill_keys($desired, "on"));');
+$readinessDefinition = strpos($live, 'rank_math_readiness() {');
+$activeModuleReadback = strpos($live, '$activeModules = array_values(RankMath\\Helper::get_active_modules());');
+$sourceConfigure = strpos($live, "\nconfigure_rank_math wp1 source\n");
+$targetConfigure = strpos($live, "\nconfigure_rank_math wp2 target\n");
+$sourceReadiness = strpos($live, 'SOURCE_RANK_MATH_READY=$(rank_math_readiness wp1 source)');
+$targetReadiness = strpos($live, 'TARGET_RANK_MATH_READY=$(rank_math_readiness wp2 target)');
+$sourceReadinessObserved = strpos(
+    $live,
+    "require_observed_nonempty 'source Rank Math native module readiness' \"\$SOURCE_RANK_MATH_READY\""
+);
+$targetReadinessObserved = strpos(
+    $live,
+    "require_observed_nonempty 'target Rank Math native module readiness' \"\$TARGET_RANK_MATH_READY\""
+);
+$readinessOracle = strpos($live, <<<'SH'
+jq -en --argjson source "$SOURCE_RANK_MATH_READY" --argjson target "$TARGET_RANK_MATH_READY" '
+  $source == {
+    active_modules:["link-counter","redirections","rich-snippet"],
+    modules:["link-counter","redirections","rich-snippet"],role:"source",
+    tables:{rank_math_internal_links:true,rank_math_internal_meta:true,
+      rank_math_redirections:true,rank_math_redirections_cache:true},
+    version:"1.0.277.2"
+  } and
+  $target == {
+    active_modules:["redirections","rich-snippet"],
+    modules:["redirections","rich-snippet"],role:"target",
+    tables:{rank_math_redirections:true,rank_math_redirections_cache:true},
+    version:"1.0.277.2"
+  }
+' >/dev/null || fail "Rank Math native module readiness is incomplete: $SOURCE_RANK_MATH_READY / $TARGET_RANK_MATH_READY"
+SH);
+$nativeAuthoring = strpos($live,
+    "say 'author native multilingual products, ACF values, Rank Math SEO/link state and Woo lookup state'");
+wprism_check(
+    $configureDefinition !== false
+        && $nativeModuleDisable !== false
+        && $nativeModuleEnable !== false
+        && $readinessDefinition !== false
+        && $activeModuleReadback !== false
+        && $sourceConfigure !== false
+        && $targetConfigure !== false
+        && str_contains($live, '["link-counter", "redirections", "rich-snippet"]')
+        && str_contains($live, '["redirections", "rich-snippet"]')
+        && !str_contains($live, 'update_option("rank_math_modules"')
+        && str_contains($live,
+            '["rank_math_internal_links", "rank_math_internal_meta", "rank_math_redirections", "rank_math_redirections_cache"]')
+        && str_contains($live, '["rank_math_redirections", "rank_math_redirections_cache"]')
+        && $sourceReadiness !== false
+        && $targetReadiness !== false
+        && $sourceReadinessObserved !== false
+        && $targetReadinessObserved !== false
+        && $readinessOracle !== false
+        && $nativeAuthoring !== false
+        && $configureDefinition < $nativeModuleDisable
+        && $nativeModuleDisable < $nativeModuleEnable
+        && $nativeModuleEnable < $readinessDefinition
+        && $readinessDefinition < $activeModuleReadback
+        && $activeModuleReadback < $sourceConfigure
+        && $sourceConfigure < $targetConfigure
+        && $targetConfigure < $sourceReadiness
+        && $sourceReadiness < $targetReadiness
+        && $targetReadiness < $sourceReadinessObserved
+        && $sourceReadinessObserved < $targetReadinessObserved
+        && $targetReadinessObserved < $readinessOracle
+        && $readinessOracle < $nativeAuthoring,
+    'runtime module setup and fresh registered-active readbacks prove every exact Rank Math role and table before authoring'
+);
+
 preg_match_all('/^run_leg (forward reverse|reverse forward)$/m', $live, $legs);
 wprism_check_same(
     ['forward reverse', 'reverse forward'],

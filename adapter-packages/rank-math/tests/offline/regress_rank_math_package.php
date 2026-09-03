@@ -27,6 +27,7 @@ $outcomePath = $fixtureDir . '/historical-site-outcome.json';
 $seedPath = $root . '/adapter-packages/rank-math/tests/conformance/seed.sh';
 $postdeployPath = $root . '/adapter-packages/rank-math/tests/conformance/postdeploy.sh';
 $checkPath = $root . '/adapter-packages/rank-math/tests/conformance/check.sh';
+$versionMatrixPath = $root . '/adapter-packages/rank-math/tests/certify/version-matrix.sh';
 $privateRefusalHelperPath = $fixtureDir . '/private-refusal-evidence.php';
 $adapterBytes = (string) file_get_contents($adapterPath);
 $adapter = Canon::decode($adapterBytes);
@@ -187,6 +188,131 @@ wprism_check_same(null, $policy->owned_option_rule('rank_math_connect_data'),
 $seedHarness = (string) file_get_contents($seedPath);
 $postdeployHarness = (string) file_get_contents($postdeployPath);
 $checkHarness = (string) file_get_contents($checkPath);
+$versionMatrixHarness = (string) file_get_contents($versionMatrixPath);
+$moduleDesired = strpos($seedHarness, '$desired = ["link-counter", "redirections", "rich-snippet"];');
+$moduleDisable = strpos($seedHarness, 'RankMath\\Helper::update_modules(array_fill_keys($stored, "off"));');
+$moduleEnable = strpos($seedHarness, 'RankMath\\Helper::update_modules(array_fill_keys($desired, "on"));');
+$moduleReadback = strpos($seedHarness, 'RANK_MATH_MODULE_READY=$(wp_conf1 eval');
+$activeModuleReadback = strpos(
+    $seedHarness,
+    '$active = array_values(RankMath\\Helper::get_active_modules());'
+);
+$moduleObserved = strpos(
+    $seedHarness,
+    "require_observed_nonempty 'Rank Math native module readiness' \"\$RANK_MATH_MODULE_READY\""
+);
+$moduleOracle = strpos($seedHarness, <<<'SH'
+jq -e --arg version "$RANK_MATH_EXPECTED_VERSION" '
+  . == {
+    active_modules:["link-counter","redirections","rich-snippet"],
+    modules:["link-counter","redirections","rich-snippet"],
+    tables:{rank_math_internal_links:true,rank_math_internal_meta:true,
+      rank_math_redirections:true,rank_math_redirections_cache:true},
+    version:$version
+  }
+' <<<"$RANK_MATH_MODULE_READY" >/dev/null \
+  || fail "Rank Math native module readiness is incomplete: $RANK_MATH_MODULE_READY"
+SH);
+$seedAuthoring = strpos($seedHarness, 'cat > "$SOURCE_REPO/.tmp-rank-math-seed.php"');
+wprism_check(
+    $moduleDesired !== false
+        && $moduleDisable !== false
+        && $moduleEnable !== false
+        && $moduleReadback !== false
+        && $activeModuleReadback !== false
+        && $moduleObserved !== false
+        && $moduleOracle !== false
+        && $seedAuthoring !== false
+        && $moduleDesired < $moduleDisable
+        && $moduleDisable < $moduleEnable
+        && $moduleEnable < $moduleReadback
+        && $moduleReadback < $activeModuleReadback
+        && $activeModuleReadback < $moduleObserved
+        && $moduleObserved < $moduleOracle
+        && $moduleOracle < $seedAuthoring
+        && !str_contains($seedHarness, 'update_option("rank_math_modules"')
+        && !str_contains($seedHarness, '"schema" => "on"'),
+    'B4: source setup uses native module lifecycle and a fresh exact registered-active/schema oracle before authoring'
+);
+$matrixModuleState = strpos($versionMatrixHarness, 'rank_math_module_state() {');
+$matrixSeedVersion = strpos(
+    $versionMatrixHarness,
+    'local RANK_MATH_EXPECTED_VERSION="$RANK_MATH_VERSION"'
+);
+$matrixSeedSource = strpos(
+    $versionMatrixHarness,
+    '. "$(dirname "${BASH_SOURCE[0]}")/../conformance/seed.sh"'
+);
+$matrixActiveReadback = strpos(
+    $versionMatrixHarness,
+    '"active_modules" => array_values(RankMath\\Helper::get_active_modules())'
+);
+$matrixNativeEnable = strpos(
+    $versionMatrixHarness,
+    'RankMath\\Helper::update_modules(["image-seo" => "on"]);'
+);
+$matrixSourceReadback = strpos($versionMatrixHarness, 'UPGRADE_SOURCE_MODULES=$(rank_math_module_state wp1)');
+$matrixSourceObserved = strpos(
+    $versionMatrixHarness,
+    "require_observed_nonempty 'Rank Math upgrade source native module readiness' \"\$UPGRADE_SOURCE_MODULES\""
+);
+$matrixSourceOracle = strpos(
+    $versionMatrixHarness,
+    'fail "Rank Math upgrade source modules are not registered and active: $UPGRADE_SOURCE_MODULES"'
+);
+$matrixSourceCapture = strpos($versionMatrixHarness, 'wp1 wprism capture --repo=/siterepo', $matrixSourceOracle ?: 0);
+$matrixTargetApply = strpos(
+    $versionMatrixHarness,
+    "capture_wprism_json_success RANK_MATH_BOUNDARY_APPLY_JSON 'Rank Math version-matrix upgrade apply'"
+);
+$matrixTargetReadback = strpos($versionMatrixHarness, 'UPGRADE_TARGET_MODULES=$(rank_math_module_state wp2)');
+$matrixTargetObserved = strpos(
+    $versionMatrixHarness,
+    "require_observed_nonempty 'Rank Math upgrade target native module readiness' \"\$UPGRADE_TARGET_MODULES\""
+);
+$matrixTargetOracle = strpos(
+    $versionMatrixHarness,
+    'fail "Rank Math upgrade target modules are not registered and active: $UPGRADE_TARGET_MODULES"'
+);
+$matrixBoundaryCheck = strpos($versionMatrixHarness, 'RANK_MATH_VERSION=1.0.277.2', $matrixTargetOracle ?: 0);
+$matrixExactSet = <<<'SH'
+active_modules:["link-counter","redirections","rich-snippet","image-seo"],
+        modules:["link-counter","redirections","rich-snippet","image-seo"],
+        version:"1.0.277.2"
+SH;
+wprism_check(
+    $matrixModuleState !== false
+        && $matrixSeedVersion !== false
+        && $matrixSeedSource !== false
+        && $matrixActiveReadback !== false
+        && $matrixNativeEnable !== false
+        && $matrixSourceReadback !== false
+        && $matrixSourceObserved !== false
+        && $matrixSourceOracle !== false
+        && $matrixSourceCapture !== false
+        && $matrixTargetApply !== false
+        && $matrixTargetReadback !== false
+        && $matrixTargetObserved !== false
+        && $matrixTargetOracle !== false
+        && $matrixBoundaryCheck !== false
+        && $matrixSeedVersion < $matrixSeedSource
+        && $matrixSeedSource < $matrixModuleState
+        && $matrixModuleState < $matrixActiveReadback
+        && $matrixActiveReadback < $matrixNativeEnable
+        && $matrixNativeEnable < $matrixSourceReadback
+        && $matrixSourceReadback < $matrixSourceObserved
+        && $matrixSourceObserved < $matrixSourceOracle
+        && $matrixSourceOracle < $matrixSourceCapture
+        && $matrixSourceCapture < $matrixTargetApply
+        && $matrixTargetApply < $matrixTargetReadback
+        && $matrixTargetReadback < $matrixTargetObserved
+        && $matrixTargetObserved < $matrixTargetOracle
+        && $matrixTargetOracle < $matrixBoundaryCheck
+        && substr_count($versionMatrixHarness, $matrixExactSet) === 2
+        && !str_contains($versionMatrixHarness, 'RankMath\\Helper::update_modules($modules);')
+        && !str_contains($versionMatrixHarness, 'update_option("rank_math_modules"'),
+    'B4: the upgrade boundary enables a real native module and proves its exact active set on source and target'
+);
 $skipSlug = '--skip-plugins=seo-by-rank-math';
 $badSkipBasename = '--skip-plugins=seo-by-rank-math/rank-math.php';
 $seedNotification = strrpos($seedHarness, $skipSlug);
@@ -412,6 +538,26 @@ wprism_check(
         && hash('sha256', rank_math_private_refusal_profile('missing-code')['message'])
             === '9145307bebd452be68d85b17d6bcd43b48921710b4a3f4fd9ffd0010d7690d93',
     'B4: missing code stays public-value-free while command-scoped evidence proves its exact private cause'
+);
+$reinstallDigestLookup = strpos($checkHarness,
+    'RANK_MATH_REINSTALL_SHA=$(artifact_library_jq -er --arg version "$RANK_MATH_EXPECTED_VERSION"');
+$reinstallCachePath = strpos($checkHarness,
+    'RANK_MATH_REINSTALL="/artifacts-cache/plugin-seo-by-rank-math-${RANK_MATH_EXPECTED_VERSION}-${RANK_MATH_REINSTALL_SHA}.zip"');
+$reinstallDigestCheck = strpos($checkHarness,
+    '"$(wp_conf2 eval "echo hash_file(\'sha256\', \'$RANK_MATH_REINSTALL\');")"');
+$reinstallInstall = strpos($checkHarness, 'wp_conf2 plugin install "$RANK_MATH_REINSTALL" --force');
+wprism_check(
+    $reinstallDigestLookup !== false
+        && $reinstallCachePath !== false
+        && $reinstallDigestCheck !== false
+        && $reinstallInstall !== false
+        && $reinstallDigestLookup < $reinstallCachePath
+        && $reinstallCachePath < $reinstallDigestCheck
+        && $reinstallDigestCheck < $reinstallInstall
+        && str_contains($checkHarness, '.plugins["seo-by-rank-math"][$version].sha256')
+        && str_contains($checkHarness, '"$RANK_MATH_REINSTALL_SHA" ]')
+        && !str_contains($checkHarness, 'fetch_artifact'),
+    'B4: reinstall consumes the setup-established content-addressed artifact through the child-safe read-only library ABI'
 );
 
 wprism_check_same(
