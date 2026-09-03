@@ -28,10 +28,14 @@ declare(strict_types=1);
 
 // From offline/recovery/: two hops to the corpus root, four to the repo root.
 require_once __DIR__ . '/../../lib/check.php';
+require_once __DIR__ . '/../../lib/FakeWpdb.php';
 
 require_once __DIR__ . '/../../../../agent/src/Recovery/RetainedCheckpointCipher.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../../../agent/src/Kernel/Db.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/CheckpointRecoveryIntent.php';
 require_once __DIR__ . '/../../../../agent/src/Kernel/ProviderSettlementIntent.php';
+require_once __DIR__ . '/../../../../agent/src/Repository/SchemaSettlementIntent.php';
 require_once __DIR__ . '/../../../../recovery/CanonicalJson.php';
 require_once __DIR__ . '/../../../../recovery/AtomicStore.php';
 require_once __DIR__ . '/../../../../recovery/ProtocolLock.php';
@@ -44,15 +48,26 @@ use WPrism\Orchestrator\CodeDeploy;
 use WPrism\Orchestrator\DriverCapabilityReport;
 use WPrism\Orchestrator\EnvironmentDriver;
 use WPrism\Orchestrator\RetainedCheckpoints;
+use WPrism\Canon as AgentCanon;
+use WPrism\Ledger as AgentLedger;
+use WPrism\Policy as AgentPolicy;
 use WPrism\RetainedCheckpointCipher;
+use WPrism\SchemaSettlementIntent as AgentSchemaSettlementIntent;
 use WPrism\Recovery\CanonicalJson;
 use WPrism\Recovery\CheckpointRecoveryIntent as DurableCheckpointRecoveryIntent;
 use WPrism\ProviderSettlementIntent as AgentProviderSettlementIntent;
 use WPrism\Recovery\ProviderSettlementIntent as DurableProviderSettlementIntent;
+use WPrismTest\FakeWpdb;
 
 const DEPLOY_CHECKPOINT_REPO = '/fixture/repo';
 const DEPLOY_CHECKPOINT_RUN_ID = 'checkpoint-test-owner';
 const DEPLOY_CHECKPOINT_HASH = '4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b';
+
+if (!function_exists('is_multisite')) {
+    function is_multisite(): bool {
+        return false;
+    }
+}
 
 /** Non-cooperating writer that replaces the named ciphertext on first plaintext output. */
 final class SameInodeCheckpointSwapOutput {
@@ -294,7 +309,7 @@ fclose($changedOutput);
 // The destructive import identity lives outside both managed code and the DB.
 // Exact A may resume after reset; B cannot reinterpret the partial database as
 // a new attempt, and only exact terminal cleanup removes the fence.
-$intentRepo = sys_get_temp_dir() . '/wprism-checkpoint-intent-' . bin2hex(random_bytes(6));
+$intentRepo = sys_get_temp_dir() . '/wprism-checkpoint-intent-東京-' . bin2hex(random_bytes(6));
 mkdir($intentRepo . '/.wprism/control', 0700, true);
 mkdir($intentRepo . '/.wprism/checkpoints', 0700, true);
 $intentRepo = (string) realpath($intentRepo);
@@ -315,16 +330,54 @@ $differentDatabaseTargetSha256 = DurableCheckpointRecoveryIntent::databaseTarget
     'wordpress_replacement',
     'wp_'
 );
-$schemaIntentDocument = [
-    'actions_sha256' => str_repeat('1', 64),
-    'artifact_hash' => DEPLOY_CHECKPOINT_HASH,
-    'checkpoint' => ['cipher_sha256' => $digestA, 'path' => $checkpointA],
-    'effects_sha256' => str_repeat('2', 64),
-    'format' => 'wprism-schema-settlement-intent/v1',
-    'presence' => [['present' => false, 'table' => 'rank_math_internal_links']],
-    'tables' => ['rank_math_internal_links'],
-];
-$schemaIntent = CanonicalJson::encode($schemaIntentDocument);
+$priorWpdbExists = array_key_exists('wpdb', $GLOBALS);
+$priorWpdb = $GLOBALS['wpdb'] ?? null;
+$producerDb = FakeWpdb::install();
+$producerDb
+    ->seedTable('wp_wprism_kv', [])
+    ->setColumns('wp_wprism_kv', ['k' => 'varchar(191)', 'v' => 'longtext'])
+    ->setUniqueKey('wp_wprism_kv', ['k'])
+    ->enableInformationSchema();
+$producerPolicy = new AgentPolicy();
+$producerPolicy->manifests = [[
+    'name' => 'schema-wire-fixture',
+    'actions' => [[
+        'kind' => 'provider',
+        'phase' => 'schema_settle',
+        'provider' => 'fixture-schema',
+        'capability' => 'prepare_schema',
+        'prepares' => ['rank_math_internal_links'],
+        'effects' => [[
+            'id' => 'fixture-schema-table',
+            'kind' => 'database',
+            'mode' => 'restorable',
+            'selector' => [
+                'scope' => 'database_checkpoint',
+                'type' => 'table',
+                'value' => 'rank_math_internal_links',
+            ],
+        ]],
+    ]],
+]];
+$schemaIntentDocument = AgentSchemaSettlementIntent::begin(
+    $producerPolicy,
+    DEPLOY_CHECKPOINT_HASH,
+    ['path' => $checkpointA, 'cipher_sha256' => $digestA],
+    [['table' => 'rank_math_internal_links', 'present' => false]]
+);
+$schemaIntentRaw = AgentLedger::kv_get('schema_settlement_in_progress');
+wprism_check(is_string($schemaIntentRaw), 'the real schema producer persists its recovery witness in the ledger');
+$schemaIntent = (string) $schemaIntentRaw;
+// This value crosses from the loaded agent into the standalone recovery
+// runtime. Retain parity with the producer while exercising the actual
+// SchemaSettlementIntent -> Ledger call path that the live failure crossed.
+wprism_check(
+    hash_equals(AgentCanon::encode($schemaIntentDocument), $schemaIntent)
+        && $schemaIntent !== CanonicalJson::encode($schemaIntentDocument)
+        && str_ends_with($schemaIntent, "\n")
+        && str_contains($schemaIntent, '東京'),
+    'schema recovery fixture carries the exact sorted, pretty, Unicode agent bytes with one trailing LF'
+);
 $beginIntent = static fn(string $topology, string $intent): array => DurableCheckpointRecoveryIntent::begin(
     $intentRoot,
     $intentRepo,
@@ -345,7 +398,7 @@ wprism_check_throws(
 $wrongArtifactIntent = $schemaIntentDocument;
 $wrongArtifactIntent['artifact_hash'] = str_repeat('f', 64);
 wprism_check_throws(
-    static fn() => $beginIntent('single-site', CanonicalJson::encode($wrongArtifactIntent)),
+    static fn() => $beginIntent('single-site', AgentCanon::encode($wrongArtifactIntent)),
     \RuntimeException::class,
     'schema debt from another artifact cannot bind this checkpoint recovery',
     'does not match the incomplete schema settlement'
@@ -353,7 +406,7 @@ wprism_check_throws(
 $badDigestIntent = $schemaIntentDocument;
 $badDigestIntent['actions_sha256'] = 'not-a-digest';
 wprism_check_throws(
-    static fn() => $beginIntent('single-site', CanonicalJson::encode($badDigestIntent)),
+    static fn() => $beginIntent('single-site', AgentCanon::encode($badDigestIntent)),
     \RuntimeException::class,
     'malformed schema action identity cannot cross the durable recovery boundary',
     'schema settlement intent is malformed'
@@ -361,21 +414,140 @@ wprism_check_throws(
 $allPresentIntent = $schemaIntentDocument;
 $allPresentIntent['presence'][0]['present'] = true;
 wprism_check_throws(
-    static fn() => $beginIntent('single-site', CanonicalJson::encode($allPresentIntent)),
+    static fn() => $beginIntent('single-site', AgentCanon::encode($allPresentIntent)),
     \RuntimeException::class,
     'schema recovery debt must retain the absent-table cause that made settlement destructive',
     'schema settlement intent is malformed'
 );
-$begunIntent = DurableCheckpointRecoveryIntent::begin(
+$assertNonProducerIntent = static function (string $wire, string $label) use (
+    $beginIntent,
     $intentRoot,
     $intentRepo,
+    $checkpointA
+): void {
+    $accepted = false;
+    $message = '';
+    try {
+        $beginIntent('single-site', $wire);
+        $accepted = true;
+    } catch (\RuntimeException $error) {
+        $message = $error->getMessage();
+    }
+    if ($accepted) {
+        DurableCheckpointRecoveryIntent::complete(
+            $intentRoot,
+            $intentRepo,
+            $checkpointA,
+            DEPLOY_CHECKPOINT_RUN_ID,
+            DEPLOY_CHECKPOINT_HASH
+        );
+    }
+    wprism_check(
+        !$accepted && str_contains($message, 'schema settlement intent is malformed'),
+        $label
+    );
+};
+$assertNonProducerIntent(
+    CanonicalJson::encode($schemaIntentDocument),
+    'recovery refuses consumer-canonical bytes that the agent producer can never publish'
+);
+$reorderedIntentDocument = [
+    'tables' => $schemaIntentDocument['tables'],
+    'presence' => [[
+        'table' => $schemaIntentDocument['presence'][0]['table'],
+        'present' => $schemaIntentDocument['presence'][0]['present'],
+    ]],
+    'format' => $schemaIntentDocument['format'],
+    'effects_sha256' => $schemaIntentDocument['effects_sha256'],
+    'checkpoint' => [
+        'cipher_sha256' => $schemaIntentDocument['checkpoint']['cipher_sha256'],
+        'path' => $schemaIntentDocument['checkpoint']['path'],
+    ],
+    'artifact_hash' => $schemaIntentDocument['artifact_hash'],
+    'actions_sha256' => $schemaIntentDocument['actions_sha256'],
+];
+$reorderedIntent = (string) json_encode(
+    $reorderedIntentDocument,
+    JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+) . "\n";
+wprism_check(
+    AgentCanon::encode(json_decode($reorderedIntent, true, 16, JSON_THROW_ON_ERROR)) === $schemaIntent
+        && $reorderedIntent !== $schemaIntent,
+    'key-order mutation is semantically identical but cannot be emitted by the recursive producer codec'
+);
+$assertNonProducerIntent(
+    $reorderedIntent,
+    'recovery refuses a pretty semantic twin with reordered top-level and nested keys'
+);
+$nestedReorderedDocument = $schemaIntentDocument;
+$nestedReorderedDocument['presence'] = [[
+    'table' => $schemaIntentDocument['presence'][0]['table'],
+    'present' => $schemaIntentDocument['presence'][0]['present'],
+]];
+$nestedReorderedIntent = (string) json_encode(
+    $nestedReorderedDocument,
+    JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+) . "\n";
+wprism_check(
+    AgentCanon::encode(json_decode($nestedReorderedIntent, true, 16, JSON_THROW_ON_ERROR)) === $schemaIntent
+        && $nestedReorderedIntent !== $schemaIntent,
+    'nested-order mutation retains producer top-level order and semantic identity'
+);
+$assertNonProducerIntent(
+    $nestedReorderedIntent,
+    'recovery refuses a semantic twin whose nested keys alone evade recursive producer order'
+);
+$assertNonProducerIntent(
+    substr($schemaIntent, 0, -1),
+    'recovery refuses otherwise-valid agent bytes without their terminal LF'
+);
+$assertNonProducerIntent(
+    $schemaIntent . "\n",
+    'recovery refuses otherwise-valid agent bytes with an extra terminal LF'
+);
+
+// Execute the generated post-config child program: it must read the producer's
+// raw ledger value and hand those bytes unchanged to standalone recovery.
+$GLOBALS['wprism_checkpoint_recovery_payload'] = [
+    'artifact_hash' => DEPLOY_CHECKPOINT_HASH,
+    'checkpoint' => $checkpointA,
+    'owner' => DEPLOY_CHECKPOINT_RUN_ID,
+    'repo' => $intentRepo,
+];
+$GLOBALS['wprism_checkpoint_recovery_verification'] = ['cipher_sha256' => $digestA];
+$GLOBALS['wprism_checkpoint_recovery_database_target_sha256'] = $databaseTargetSha256;
+$GLOBALS['wprism_checkpoint_recovery_summary'] = null;
+$beginArgs = CodeDeploy::checkpointRecoveryBeginArgs(
+    $intentRepo,
     $checkpointA,
-    $digestA,
     DEPLOY_CHECKPOINT_RUN_ID,
-    DEPLOY_CHECKPOINT_HASH,
-    $databaseTargetSha256,
-    'single-site',
-    $schemaIntent
+    DEPLOY_CHECKPOINT_HASH
+);
+$generatedBegin = (string) ($beginArgs[4] ?? '');
+ob_start();
+try {
+    eval($generatedBegin);
+    $generatedSummary = (string) ob_get_clean();
+} catch (\Throwable $failure) {
+    ob_end_clean();
+    throw $failure;
+} finally {
+    unset(
+        $GLOBALS['wprism_checkpoint_recovery_payload'],
+        $GLOBALS['wprism_checkpoint_recovery_verification'],
+        $GLOBALS['wprism_checkpoint_recovery_database_target_sha256'],
+        $GLOBALS['wprism_checkpoint_recovery_summary']
+    );
+    if ($priorWpdbExists) {
+        $GLOBALS['wpdb'] = $priorWpdb;
+    } else {
+        unset($GLOBALS['wpdb']);
+    }
+}
+$begunIntent = json_decode($generatedSummary, true, 16, JSON_THROW_ON_ERROR);
+wprism_check(
+    is_array($begunIntent) && ($begunIntent['schema_intent'] ?? null) === true,
+    'the generated CodeDeploy child forwards the real ledger bytes into standalone recovery'
 );
 wprism_check_same(false, $begunIntent['resumed'], 'first destructive attempt durably publishes recovery identity');
 wprism_check_same(true, $begunIntent['schema_intent'], 'external recovery identity retains the pre-reset schema debt');
@@ -392,6 +564,11 @@ wprism_check_same(
     $databaseTargetSha256,
     $persistedIntent['database_target_sha256'] ?? null,
     'durable recovery identity binds the effective wp-config database target'
+);
+wprism_check_same(
+    hash('sha256', $schemaIntent),
+    $persistedIntent['schema_intent_sha256'] ?? null,
+    'durable recovery identity hashes the exact agent-produced schema intent bytes'
 );
 wprism_check(
     !str_contains((string) file_get_contents($intentPath), 'database.internal')

@@ -720,6 +720,17 @@ until recovery restores the bound checkpoint. Recovery admits only the exact
 retained checkpoint named by that debt; a retry cannot silently continue from
 an unrecorded phase or select a different signed/retained row.
 
+Exercise that recovery path, not only the failing provider call. Inject one
+preparation failure after the checkpoint and durable schema intent exist, run
+host `wprism recover` for the exact retained id, and prove the pre-checkpoint
+plugin state plus both database-local and external debt are restored exactly.
+An offline boundary fixture must feed recovery the bytes the agent actually
+writes: `SchemaSettlementIntent` persists `Canon::encode()` output (sorted,
+pretty JSON with one trailing LF), while recovery's own control records use a
+different compact canonical codec. Constructing the fixture with the consumer
+codec can make an impossible byte shape pass offline while every real recovery
+refuses before database reset.
+
 The checkpoint is bound to the database selected before mutation. The host
 asks the isolated control plane for a credential-free digest of `DB_HOST`,
 `DB_NAME`, and `$table_prefix`, makes the isolated `db export -` process recheck

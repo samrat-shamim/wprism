@@ -323,7 +323,6 @@ final class CheckpointRecoveryIntent {
         }
         if (!is_array($intent)
             || array_is_list($intent)
-            || CanonicalJson::encode($intent) !== $raw
             || ($intent['format'] ?? null) !== self::SCHEMA_FORMAT
             || ($intent['checkpoint'] ?? null) !== $checkpoint
             || ($intent['artifact_hash'] ?? null) !== $artifactHash) {
@@ -388,7 +387,42 @@ final class CheckpointRecoveryIntent {
                 'wprism checkpoint recovery: schema settlement intent is malformed'
             );
         }
+        if (!hash_equals(self::schemaIntentBytes($intent), $raw)) {
+            throw new \RuntimeException(
+                'wprism checkpoint recovery: schema settlement intent is malformed'
+            );
+        }
         return hash('sha256', $raw);
+    }
+
+    /**
+     * Reproduce the immutable agent-side document boundary without loading the
+     * replaceable agent during recovery. SchemaSettlementIntent.php:64 writes
+     * Canon::encode() bytes (sorted, pretty, one LF); accepting this runtime's
+     * compact CanonicalJson bytes instead made every real schema recovery hit
+     * "selected checkpoint does not match" before database reset.
+     *
+     * @param array<string,mixed> $intent
+     */
+    private static function schemaIntentBytes(array $intent): string {
+        return (string) json_encode(
+            self::normalizeAgentDocument($intent),
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+        ) . "\n";
+    }
+
+    private static function normalizeAgentDocument(mixed $value): mixed {
+        if (!is_array($value)) {
+            return $value;
+        }
+        if (array_is_list($value)) {
+            return array_map(self::normalizeAgentDocument(...), $value);
+        }
+        ksort($value, SORT_STRING);
+        foreach ($value as $key => $item) {
+            $value[$key] = self::normalizeAgentDocument($item);
+        }
+        return $value;
     }
 
     /** @param array<string,mixed> $intent @return array<string,mixed> */
