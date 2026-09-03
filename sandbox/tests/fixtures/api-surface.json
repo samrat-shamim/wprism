@@ -492,6 +492,12 @@
         "WPrism\\AdapterContractGrammar": {
             "abstract": false,
             "constants": {
+                "PLUGIN_INCOMPATIBILITY_FEATURE": {
+                    "value_repr": "plugin-incompatibility/v1"
+                },
+                "PLUGIN_INCOMPATIBILITY_SECTION": {
+                    "value_repr": "incompatible_plugins"
+                },
                 "RESERVED_PACKAGE_KEY": {
                     "value_repr": "package"
                 }
@@ -633,6 +639,23 @@
                             "default": null,
                             "has_default": false,
                             "name": "resolutions",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate_no_incompatible_plugins": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "manifests",
                             "type": "array",
                             "variadic": false
                         }
@@ -10304,6 +10327,55 @@
                     "return_type": "void",
                     "static": true,
                     "visibility": "public"
+                },
+                "assert_initial_recovery": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "checkpoint",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "cipherSha256",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "owner",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "artifactHash",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
                 }
             },
             "parent": null,
@@ -10517,31 +10589,6 @@
                     "static": false,
                     "visibility": "public"
                 },
-                "checkpoint_open": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "args",
-                            "type": null,
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "assoc",
-                            "type": null,
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": null,
-                    "static": false,
-                    "visibility": "public"
-                },
                 "checkpoint_seal": {
                     "abstract": false,
                     "final": false,
@@ -10568,31 +10615,6 @@
                     "visibility": "public"
                 },
                 "checkpoint_target": {
-                    "abstract": false,
-                    "final": false,
-                    "parameters": [
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "args",
-                            "type": null,
-                            "variadic": false
-                        },
-                        {
-                            "by_ref": false,
-                            "default": null,
-                            "has_default": false,
-                            "name": "assoc",
-                            "type": null,
-                            "variadic": false
-                        }
-                    ],
-                    "return_type": null,
-                    "static": false,
-                    "visibility": "public"
-                },
-                "checkpoint_verify": {
                     "abstract": false,
                     "final": false,
                     "parameters": [
@@ -29244,6 +29266,14 @@
                             "by_ref": false,
                             "default": null,
                             "has_default": false,
+                            "name": "repo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
                             "name": "owner",
                             "type": "string",
                             "variadic": false
@@ -30010,6 +30040,14 @@
                             "name": "extra",
                             "type": "array",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "",
+                            "has_default": true,
+                            "name": "checkpoint",
+                            "type": "string",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -30353,6 +30391,22 @@
                             "by_ref": false,
                             "default": null,
                             "has_default": false,
+                            "name": "repo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "checkpoint",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
                             "name": "owner",
                             "type": "string",
                             "variadic": false
@@ -30362,6 +30416,14 @@
                             "default": null,
                             "has_default": false,
                             "name": "artifactHash",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "cipherSha256",
                             "type": "string",
                             "variadic": false
                         },
@@ -51641,6 +51703,47 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "begin_recovery_with_external_fence": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "owner",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "artifactHash",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "assertRecoveryAuthority",
+                            "type": "callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "ttl",
+                            "type": "?int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "begin_scoped": {
                     "abstract": false,
                     "final": false,
@@ -51744,6 +51847,47 @@
                         }
                     ],
                     "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "begin_with_external_fence": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "owner",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "artifactHash",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "assertExternalAuthority",
+                            "type": "callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "ttl",
+                            "type": "?int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 },
@@ -52262,6 +52406,47 @@
                         }
                     ],
                     "return_type": "?array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "with_existing_lease_fence": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "owner",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "artifactHash",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "phase",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "callback",
+                            "type": "callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "mixed",
                     "static": true,
                     "visibility": "public"
                 }
@@ -53390,6 +53575,55 @@
                             "default": null,
                             "has_default": false,
                             "name": "repo",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "assert_recovery_or_clear": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "checkpoint",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "cipherSha256",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "owner",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "artifactHash",
                             "type": "string",
                             "variadic": false
                         }

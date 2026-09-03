@@ -29,7 +29,8 @@ final class DeployCommand {
      * @param callable(EnvironmentDriver):bool $rollbackFence
      * @param callable():string $runIdFactory
      * @param callable(EnvironmentDriver,array<string,mixed>,string,string):void $compensateUncertainBegin
-     * @param callable(EnvironmentDriver,string,string):bool $abort
+     * @param callable(EnvironmentDriver,string,string):bool $abort exact lease
+     *        cleanup after either failure or a host-recorded provider terminal
      * @param callable(EnvironmentDriver,string,bool):void $printRecovery
      *        a verb-aware `print_promotion_recovery` (cli/wprism:3311-3384). It
      *        arrives as a collaborator for the same reason the other five do:
@@ -210,6 +211,13 @@ final class DeployCommand {
         if ($lifecycleSettlementDeclared && $lifecycleSettlementRequired) {
             $providerSettlementPhases[] = 'lifecycle-settle';
         }
+        $providerTransactionPhases = $providerSettlementPhases;
+        if ($providerTransactionPhases !== [] && $lifecyclePhasesRequired) {
+            $providerTransactionPhases = array_merge(
+                ['lifecycle-retire', 'lifecycle-activate'],
+                $providerTransactionPhases
+            );
+        }
         if (!$codeChangeRequired && !$lifecyclePhasesRequired && !$schemaSettlementRequired) {
             echo $codeEnabled
                 ? "deploy complete: code revision already exact; lifecycle hooks not run\n"
@@ -225,7 +233,7 @@ final class DeployCommand {
             return 1;
         }
         echo "deploy phase: promotion-begin\n";
-        $begin = $transport->captureWp(CodeDeploy::beginArgs($runId, $artifactHash));
+        $begin = $transport->captureWp(CodeDeploy::beginArgs($repo, $runId, $artifactHash));
         if ($begin['exit'] !== 0) {
             fwrite(STDERR, "wprism: deploy: promotion-begin failed; lifecycle and code materialization were not started\n");
             CommandOutput::renderTransportDetail($begin);
@@ -268,67 +276,11 @@ final class DeployCommand {
             }
         }
 
-        if ($lifecyclePhasesRequired) {
-            echo "deploy phase: lifecycle-retire\n";
-            $retire = $transport->streamWp(CodeDeploy::lifecycleArgs(
-                $repo,
-                $artifact,
-                $runId,
-                $artifactHash,
-                true,
-                $codeChangeRequired,
-                false,
-                'retire',
-                $deployExtra
-            ));
-            if ($retire !== 0) {
-                fwrite(STDERR, "wprism: deploy: lifecycle retirement failed (exit $retire); later phases were not run\n");
-                self::cleanupAndGuide(
-                    $transport,
-                    $abort,
-                    $printRecovery,
-                    $wantCheckpoint,
-                    $checkpoint,
-                    $codeChangeRequired,
-                    $runId,
-                    $artifactHash
-                );
-                return $retire;
-            }
-
-            echo "deploy phase: lifecycle-activate\n";
-            $activate = $transport->streamWp(CodeDeploy::lifecycleArgs(
-                $repo,
-                $artifact,
-                $runId,
-                $artifactHash,
-                $codeChangeRequired || $schemaSettlementRequired || $lifecycleSettlementRequired,
-                $codeChangeRequired,
-                false,
-                'activate',
-                $deployExtra
-            ));
-            if ($activate !== 0) {
-                fwrite(STDERR, "wprism: deploy: lifecycle activation failed (exit $activate); later phases were not run\n");
-                self::cleanupAndGuide(
-                    $transport,
-                    $abort,
-                    $printRecovery,
-                    $wantCheckpoint,
-                    $checkpoint,
-                    $codeChangeRequired,
-                    $runId,
-                    $artifactHash
-                );
-                return $activate;
-            }
-        }
-
-        if ($providerSettlementPhases !== []) {
-            // Code staging and lifecycle are already one durable promotion
-            // session backed by the retained checkpoint. Publish the separate
-            // cross-process provider fence only after those Policy-loading
-            // phases, immediately before the first provider mutation.
+        if ($providerTransactionPhases !== []) {
+            // Code staging has its own checkpoint/session receipt. Publish the
+            // external provider transaction before the first lifecycle hook or
+            // provider mutation, and include both lifecycle processes in its
+            // closed ordered phase list.
             echo "deploy phase: provider-settlement-begin\n";
             $providerBegin = CodeDeploy::beginProviderSettlement(
                 $transport,
@@ -337,12 +289,12 @@ final class DeployCommand {
                 $checkpoint,
                 $runId,
                 $artifactHash,
-                $providerSettlementPhases
+                $providerTransactionPhases
             );
             if (($providerBegin['exit'] ?? 1) !== 0) {
                 fwrite(
                     STDERR,
-                    "wprism: deploy: provider settlement authorization failed; provider phases were not started\n"
+                    "wprism: deploy: provider settlement authorization failed; lifecycle/provider phases were not started\n"
                 );
                 CommandOutput::renderTransportDetail($providerBegin);
                 self::cleanupAndGuide(
@@ -359,6 +311,112 @@ final class DeployCommand {
             }
         }
 
+        if ($lifecyclePhasesRequired) {
+            echo "deploy phase: lifecycle-retire\n";
+            $retire = $transport->streamWp(CodeDeploy::lifecycleArgs(
+                $repo,
+                $artifact,
+                $runId,
+                $artifactHash,
+                true,
+                $codeChangeRequired,
+                false,
+                'retire',
+                $deployExtra,
+                in_array('lifecycle-retire', $providerTransactionPhases, true) ? $checkpoint : ''
+            ));
+            if ($retire !== 0) {
+                fwrite(STDERR, "wprism: deploy: lifecycle retirement failed (exit $retire); later phases were not run\n");
+                self::cleanupAndGuide(
+                    $transport,
+                    $abort,
+                    $printRecovery,
+                    $wantCheckpoint,
+                    $checkpoint,
+                    $codeChangeRequired,
+                    $runId,
+                    $artifactHash
+                );
+                return $retire;
+            }
+            if (in_array('lifecycle-retire', $providerTransactionPhases, true)) {
+                $retireAdvance = CodeDeploy::advanceProviderSettlement(
+                    $transport,
+                    $repo,
+                    $artifact,
+                    $checkpoint,
+                    $runId,
+                    $artifactHash,
+                    $providerTransactionPhases,
+                    'lifecycle-retire'
+                );
+                if (($retireAdvance['exit'] ?? 1) !== 0) {
+                    fwrite(
+                        STDERR,
+                        "wprism: deploy: lifecycle retirement succeeded but durable phase progress was not recorded\n"
+                    );
+                    CommandOutput::renderTransportDetail($retireAdvance);
+                    self::cleanupAndGuide(
+                        $transport, $abort, $printRecovery, true, $checkpoint,
+                        $codeChangeRequired, $runId, $artifactHash
+                    );
+                    return ($retireAdvance['exit'] ?? 1) !== 0 ? (int) $retireAdvance['exit'] : 1;
+                }
+            }
+
+            echo "deploy phase: lifecycle-activate\n";
+            $activate = $transport->streamWp(CodeDeploy::lifecycleArgs(
+                $repo,
+                $artifact,
+                $runId,
+                $artifactHash,
+                $codeChangeRequired || $schemaSettlementRequired || $lifecycleSettlementRequired,
+                $codeChangeRequired,
+                false,
+                'activate',
+                $deployExtra,
+                in_array('lifecycle-activate', $providerTransactionPhases, true) ? $checkpoint : ''
+            ));
+            if ($activate !== 0) {
+                fwrite(STDERR, "wprism: deploy: lifecycle activation failed (exit $activate); later phases were not run\n");
+                self::cleanupAndGuide(
+                    $transport,
+                    $abort,
+                    $printRecovery,
+                    $wantCheckpoint,
+                    $checkpoint,
+                    $codeChangeRequired,
+                    $runId,
+                    $artifactHash
+                );
+                return $activate;
+            }
+            if (in_array('lifecycle-activate', $providerTransactionPhases, true)) {
+                $activateAdvance = CodeDeploy::advanceProviderSettlement(
+                    $transport,
+                    $repo,
+                    $artifact,
+                    $checkpoint,
+                    $runId,
+                    $artifactHash,
+                    $providerTransactionPhases,
+                    'lifecycle-activate'
+                );
+                if (($activateAdvance['exit'] ?? 1) !== 0) {
+                    fwrite(
+                        STDERR,
+                        "wprism: deploy: lifecycle activation succeeded but durable phase progress was not recorded\n"
+                    );
+                    CommandOutput::renderTransportDetail($activateAdvance);
+                    self::cleanupAndGuide(
+                        $transport, $abort, $printRecovery, true, $checkpoint,
+                        $codeChangeRequired, $runId, $artifactHash
+                    );
+                    return ($activateAdvance['exit'] ?? 1) !== 0 ? (int) $activateAdvance['exit'] : 1;
+                }
+            }
+        }
+
         if ($schemaSettlementRequired) {
             echo "deploy phase: schema-settle\n";
             $schema = $transport->streamWp(CodeDeploy::schemaSettleArgs(
@@ -368,7 +426,7 @@ final class DeployCommand {
                 $runId,
                 $checkpoint,
                 $lifecyclePhasesRequired,
-                !$codeChangeRequired && !$lifecycleSettlementRequired
+                false
             ));
             if ($schema !== 0) {
                 fwrite(STDERR, "wprism: deploy: schema settlement failed (exit $schema); later phases were not run\n");
@@ -391,7 +449,7 @@ final class DeployCommand {
                 $checkpoint,
                 $runId,
                 $artifactHash,
-                $providerSettlementPhases,
+                $providerTransactionPhases,
                 'schema-settle'
             );
             if (($schemaAdvance['exit'] ?? 1) !== 0) {
@@ -419,7 +477,7 @@ final class DeployCommand {
                 $artifactHash,
                 $runId,
                 in_array('lifecycle-settle', $providerSettlementPhases, true) ? $checkpoint : '',
-                !$codeChangeRequired
+                false
             ));
             if ($settle !== 0) {
                 fwrite(STDERR, "wprism: deploy: asynchronous lifecycle settlement failed (exit $settle); code-finalize was not run\n");
@@ -443,7 +501,7 @@ final class DeployCommand {
                     $checkpoint,
                     $runId,
                     $artifactHash,
-                    $providerSettlementPhases,
+                    $providerTransactionPhases,
                     'lifecycle-settle'
                 );
                 if (($lifecycleAdvance['exit'] ?? 1) !== 0) {
@@ -469,7 +527,7 @@ final class DeployCommand {
             }
         }
 
-        if ($providerSettlementPhases !== []) {
+        if ($providerTransactionPhases !== []) {
             echo "deploy phase: provider-settlement-complete\n";
             $providerComplete = CodeDeploy::completeProviderSettlement(
                 $transport,
@@ -478,7 +536,7 @@ final class DeployCommand {
                 $checkpoint,
                 $runId,
                 $artifactHash,
-                $providerSettlementPhases
+                $providerTransactionPhases
             );
             if (($providerComplete['exit'] ?? 1) !== 0) {
                 fwrite(
@@ -497,6 +555,13 @@ final class DeployCommand {
                     $artifactHash
                 );
                 return ($providerComplete['exit'] ?? 1) !== 0 ? (int) $providerComplete['exit'] : 1;
+            }
+            if (!$codeChangeRequired && !$abort($transport, $runId, $artifactHash)) {
+                fwrite(
+                    STDERR,
+                    "wprism: deploy: provider settlement completed but promotion lease cleanup could not be confirmed\n"
+                );
+                return 1;
             }
         }
 

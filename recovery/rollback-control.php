@@ -1599,5 +1599,8 @@ require_once __DIR__ . '/ProviderSettlementIntent.php';
 require_once __DIR__ . '/CheckpointRecoveryIntent.php';
 
 if (isset($_SERVER['SCRIPT_FILENAME']) && realpath((string) $_SERVER['SCRIPT_FILENAME']) === __FILE__) {
-    exit(rollback_control_main($argv));
+    // Recovery must still reach its explicit usage refusal when a PHP build
+    // disables register_argc_argv; never depend on a conditional superglobal.
+    $cliArgv = $_SERVER['argv'] ?? [];
+    exit(rollback_control_main(is_array($cliArgv) ? array_map('strval', $cliArgv) : []));
 }

@@ -3254,6 +3254,13 @@ function cmd_promote_internal(
     if ($lifecycleSettlementDeclared && $lifecycleSettlementRequired) {
         $providerSettlementPhases[] = 'lifecycle-settle';
     }
+    $providerTransactionPhases = $providerSettlementPhases;
+    if ($providerTransactionPhases !== [] && $lifecyclePhasesRequired) {
+        $providerTransactionPhases = array_merge(
+            ['lifecycle-retire', 'lifecycle-activate'],
+            $providerTransactionPhases
+        );
+    }
 
     if ($schemaSettlementRequired && $allowDeletes) {
         fwrite(
@@ -3436,7 +3443,7 @@ function cmd_promote_internal(
     }
 
     echo "promote phase: promotion-begin\n";
-    $begin = $t->captureWp(CodeDeploy::beginArgs($runId, $artifactHash, $authorizedSource));
+    $begin = $t->captureWp(CodeDeploy::beginArgs($repo, $runId, $artifactHash, $authorizedSource));
     if ($begin['exit'] !== 0) {
         fwrite(STDERR, "wprism: promote: promotion-begin failed; checkpoint, deploy, and apply were not started\n");
         print_transport_detail($begin);
@@ -3484,44 +3491,10 @@ function cmd_promote_internal(
         }
     }
 
-    if ($lifecyclePhasesRequired) {
-        echo "promote phase: lifecycle-retire\n";
-        $retire = $t->streamWp(CodeDeploy::lifecycleArgs(
-            $repo, $artifact, $runId, $artifactHash, true, $codeChangeRequired, true, 'retire', $deployExtra
-        ));
-        if ($retire !== 0) {
-            return promote_failed(
-                $t,
-                'lifecycle-retire',
-                $retire,
-                $checkpoint,
-                $codeChangeRequired,
-                $runId,
-                $artifactHash
-            );
-        }
-
-        echo "promote phase: lifecycle-activate\n";
-        $activate = $t->streamWp(CodeDeploy::lifecycleArgs(
-            $repo, $artifact, $runId, $artifactHash, true, $codeChangeRequired, true, 'activate', $deployExtra
-        ));
-        if ($activate !== 0) {
-            return promote_failed(
-                $t,
-                'lifecycle-activate',
-                $activate,
-                $checkpoint,
-                $codeChangeRequired,
-                $runId,
-                $artifactHash
-            );
-        }
-    }
-
-    if ($providerSettlementPhases !== []) {
-        // The promotion session and retained checkpoint already bind code and
-        // lifecycle. Begin the external provider transaction after those
-        // Policy-loading processes and immediately before provider mutation.
+    if ($providerTransactionPhases !== []) {
+        // Code staging is already checkpoint/session-bound. Publish before the
+        // first lifecycle hook and carry both lifecycle processes in the exact
+        // external provider transaction.
         echo "promote phase: provider-settlement-begin\n";
         $providerBegin = CodeDeploy::beginProviderSettlement(
             $t,
@@ -3530,7 +3503,7 @@ function cmd_promote_internal(
             $checkpoint,
             $runId,
             $artifactHash,
-            $providerSettlementPhases
+            $providerTransactionPhases
         );
         if (($providerBegin['exit'] ?? 1) !== 0) {
             print_transport_detail($providerBegin);
@@ -3543,6 +3516,106 @@ function cmd_promote_internal(
                 $runId,
                 $artifactHash
             );
+        }
+    }
+
+    if ($lifecyclePhasesRequired) {
+        echo "promote phase: lifecycle-retire\n";
+        $retire = $t->streamWp(CodeDeploy::lifecycleArgs(
+            $repo,
+            $artifact,
+            $runId,
+            $artifactHash,
+            true,
+            $codeChangeRequired,
+            true,
+            'retire',
+            $deployExtra,
+            in_array('lifecycle-retire', $providerTransactionPhases, true) ? $checkpoint : ''
+        ));
+        if ($retire !== 0) {
+            return promote_failed(
+                $t,
+                'lifecycle-retire',
+                $retire,
+                $checkpoint,
+                $codeChangeRequired,
+                $runId,
+                $artifactHash
+            );
+        }
+        if (in_array('lifecycle-retire', $providerTransactionPhases, true)) {
+            $retireAdvance = CodeDeploy::advanceProviderSettlement(
+                $t,
+                $repo,
+                $artifact,
+                $checkpoint,
+                $runId,
+                $artifactHash,
+                $providerTransactionPhases,
+                'lifecycle-retire'
+            );
+            if (($retireAdvance['exit'] ?? 1) !== 0) {
+                print_transport_detail($retireAdvance);
+                return promote_failed(
+                    $t,
+                    'lifecycle-retire-progress',
+                    ($retireAdvance['exit'] ?? 1) !== 0 ? (int) $retireAdvance['exit'] : 1,
+                    $checkpoint,
+                    $codeChangeRequired,
+                    $runId,
+                    $artifactHash
+                );
+            }
+        }
+
+        echo "promote phase: lifecycle-activate\n";
+        $activate = $t->streamWp(CodeDeploy::lifecycleArgs(
+            $repo,
+            $artifact,
+            $runId,
+            $artifactHash,
+            true,
+            $codeChangeRequired,
+            true,
+            'activate',
+            $deployExtra,
+            in_array('lifecycle-activate', $providerTransactionPhases, true) ? $checkpoint : ''
+        ));
+        if ($activate !== 0) {
+            return promote_failed(
+                $t,
+                'lifecycle-activate',
+                $activate,
+                $checkpoint,
+                $codeChangeRequired,
+                $runId,
+                $artifactHash
+            );
+        }
+        if (in_array('lifecycle-activate', $providerTransactionPhases, true)) {
+            $activateAdvance = CodeDeploy::advanceProviderSettlement(
+                $t,
+                $repo,
+                $artifact,
+                $checkpoint,
+                $runId,
+                $artifactHash,
+                $providerTransactionPhases,
+                'lifecycle-activate'
+            );
+            if (($activateAdvance['exit'] ?? 1) !== 0) {
+                print_transport_detail($activateAdvance);
+                return promote_failed(
+                    $t,
+                    'lifecycle-activate-progress',
+                    ($activateAdvance['exit'] ?? 1) !== 0 ? (int) $activateAdvance['exit'] : 1,
+                    $checkpoint,
+                    $codeChangeRequired,
+                    $runId,
+                    $artifactHash
+                );
+            }
         }
     }
 
@@ -3574,7 +3647,7 @@ function cmd_promote_internal(
             $checkpoint,
             $runId,
             $artifactHash,
-            $providerSettlementPhases,
+            $providerTransactionPhases,
             'schema-settle'
         );
         if (($schemaAdvance['exit'] ?? 1) !== 0) {
@@ -3619,7 +3692,7 @@ function cmd_promote_internal(
                 $checkpoint,
                 $runId,
                 $artifactHash,
-                $providerSettlementPhases,
+                $providerTransactionPhases,
                 'lifecycle-settle'
             );
             if (($lifecycleAdvance['exit'] ?? 1) !== 0) {
@@ -3637,7 +3710,7 @@ function cmd_promote_internal(
         }
     }
 
-    if ($providerSettlementPhases !== []) {
+    if ($providerTransactionPhases !== []) {
         echo "promote phase: provider-settlement-complete\n";
         $providerComplete = CodeDeploy::completeProviderSettlement(
             $t,
@@ -3646,7 +3719,7 @@ function cmd_promote_internal(
             $checkpoint,
             $runId,
             $artifactHash,
-            $providerSettlementPhases
+            $providerTransactionPhases
         );
         if (($providerComplete['exit'] ?? 1) !== 0) {
             print_transport_detail($providerComplete);
@@ -4280,7 +4353,7 @@ function cmd_promote_verified(
     }
 
     echo "promote phase: promotion-begin\n";
-    $begin = $t->captureWp(CodeDeploy::beginArgs($runId, $artifactHash, $authorizedSource));
+    $begin = $t->captureWp(CodeDeploy::beginArgs($repo, $runId, $artifactHash, $authorizedSource));
     if ($begin['exit'] !== 0) {
         fwrite(STDERR, "wprism: promote: promotion-begin failed under verified rollback\n");
         print_transport_detail($begin);
@@ -4686,6 +4759,10 @@ function cmd_classify(EnvironmentDriver $t, array $extra): int {
     });
 }
 
+// register_argc_argv is configurable; an unavailable argument vector must
+// take main()'s normal usage path rather than fail before command parsing.
+$cliArgv = $_SERVER['argv'] ?? [];
+$argv = is_array($cliArgv) ? array_map('strval', $cliArgv) : [];
 try {
     exit(main($argv));
 } catch (\Throwable $e) {

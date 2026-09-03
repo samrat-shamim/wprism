@@ -693,6 +693,13 @@ Classes: `authored` (captured), `runtime` / `derived` / `env` (excluded; `derive
 
 Extended manifest capabilities (spec v0.5):
 
+- **Exact plugin incompatibility** (§ v3.24): a plugin adapter declaring
+  `plugin-incompatibility/v1` may add a sorted, non-empty, duplicate-free
+  `incompatible_plugins` list of exact plugin basenames. If a pinned manifest
+  claims one of those basenames, policy load refuses deterministically in both
+  pin orders before compilation, capture publication, promotion, lifecycle,
+  or provider work. One side's declaration is sufficient; this is a
+  non-surface contract boundary, not load-order precedence.
 - **Host-checkpointed schema settlement** (§ v3.23): a provider action may
   declare `phase: "schema_settle"` when the manifest declares
   `schema-settlement/v1`. Its sorted, non-empty `prepares` list names tables
@@ -871,7 +878,7 @@ evidence before this line changes.
 | § | rule | rider | enforced today |
 |---|---|---|---|
 | v3.1 | N/N-1 acceptance window, per-section refusal by name | WP-4.2 / WP-4.12 | YES — {2, 3}, for a manifest AND for `site.wprism.json`; floor gated at release |
-| v3.2 | `engine_features` declaration channel | WP-4.2 / WP-6.1 | YES, DECLARABLE, and USED — ten implemented features; eleven shipped declarers opt in per adapter with no engine version bump |
+| v3.2 | `engine_features` declaration channel | WP-4.2 / WP-6.1 | YES, DECLARABLE, and USED — eleven implemented features; eleven shipped declarers opt in per adapter with no engine version bump |
 | v3.3 | closed top-level key set and its growth rule | WP-4.3 | YES from `spec_version: 2`; one set, gated at release; `_draft` is the recognised v2 authoring-only exception |
 | v3.4 | per-adapter disposition addressing; per-subject registry pins | WP-4.4 / WP-4.5 | LAYOUT yes — one document per subject; ADDRESSING no — still one whole-document hash |
 | v3.5 | per-adapter environment narrowing | WP-4.6 | YES at `spec_version: 3`; inert at v2 |
@@ -887,6 +894,7 @@ evidence before this line changes.
 | v3.19 | `wprism-adapter-index/v1` — discovery and distribution over an unsigned pointer document | WP-5.6 | YES — three host verbs, digest-pinned resolution that never falls through, one transport (`file://`); nothing under `agent/` reads the format |
 | v3.22 | manifest-owned provider protocol in engine core | adapter absorption | YES — nine provider files declare contracts as data and retain only plugin semantics plus value-level verification |
 | v3.23 | host-checkpointed schema settlement | Rank Math | YES — absent declared schema is created only after a bound checkpoint, with create-only row witnesses and durable provider-phase recovery |
+| v3.24 | exact plugin incompatibility | Rank Math + Yoast | YES — a declared exact-basename conflict refuses one shared policy in either pin order before mutation authority |
 
 The flip itself — the two defines, the migration verbs, the cohorted rollout and the rollback rehearsal —
 is WP-4.12, is DONE, and § v3.12 is the record of what it deliberately left alone. The runbook that
@@ -968,7 +976,7 @@ its name, the first `spec_version` its sections exist at, and the top-level keys
 constant in the engine, because a feature that is implemented while its section is unknown (or the
 reverse) is precisely the silent mis-read the channel exists to remove.
 
-This engine implements ten features, and the first one is what the other nine ride:
+This engine implements eleven features, and the first one is what the other ten ride:
 
 - **`spec-window/v1`** — the acceptance window of § v3.1 and this channel itself, claiming the
   `engine_features` key from `spec_version` 3. It is a real entry, not a placeholder — the channel's own
@@ -1011,6 +1019,11 @@ each one closed and the coordinates that stayed open beside it.
 - **`manifest-provider-runtime/v1`** (§ v3.22) — claims NO top-level key: it widens a manifest-sourced
   `providers[]` row with a closed `contracts` map and moves identity, capability advertising, dispatch,
   scoped receipt construction, recovery routing, and receipt-shape enforcement into engine core.
+- **`plugin-incompatibility/v1`** (§ v3.24) — claims the non-surface
+  `incompatible_plugins` top-level key: a sorted exact-basename list that
+  narrows which other plugin adapters may share the declaring adapter's policy.
+  The shared policy finalizer refuses a claimed conflict before any consumer
+  receives the aggregate policy.
 - **`post-kind-action-trigger/v1`** — claims NO top-level key: it widens the
   `actions[].triggers` value vocabulary with the single bounded selector `post:*`.
   That selector matches concrete post-kind surfaces only and never enters a provider
@@ -1152,7 +1165,7 @@ platform/adapter-library/core/disposition.json    # the platform-owned core adap
 platform/adapter-library/profiles.json            # profiles, keyed independently of package discovery
 ```
 
-19 documents, 1,349 lines, 60,521 bytes — the same entries, the same profile, addressed as 19 roots
+19 documents, 1,355 lines, 61,295 bytes — the same entries, the same profile, addressed as 19 roots
 instead of one. (The split itself moved no byte of content; the size has since grown with #561's
 promotion of `the-events-calendar` to `certified`, Polylang's reviewed production-readiness port,
 the later reviewed Polylang empty-catalog lifecycle correction, and WooCommerce's final production-readiness
@@ -1163,9 +1176,10 @@ is byte-identical before and after and no adapter digest moves. That is the inva
 rests on: `ArtifactPolicyIdentity::manifest_rows()` folds each manifest's own disposition into that
 adapter's row (`:82`) and the row hashed is its `digest` (`:162`), so a canonical-encoding difference of
 one byte in one document would move that adapter's digest and every `site.wprism.json` pin naming it. It is
-proved rather than argued: `regress_disposition_split.php` pins all 18 shipped digests, `manifest_hash`
-and `registry_sha256` as literals captured BEFORE the move, and carries one case per enumerated
-Canon-encoding hazard, in three verdicts rather than one. A nested LIST re-ordered and a UTF-8 prose
+proved rather than argued: `regress_disposition_split.php` pins all 18 shipped digests through two
+maximal compatible worlds, both worlds' `manifest_hash` and snapshot, and `registry_sha256` as
+explicit current greenfield literals. Separate frozen constants preserve the pre-move capture, and the
+suite carries one case per enumerated Canon-encoding hazard, in three verdicts rather than one. A nested LIST re-ordered and a UTF-8 prose
 `reason` re-composed each MOVE a digest, so the equality above is a measurement and not a tautology. Map
 KEY order at every nesting level moves nothing — that is precisely what makes lifting an entry out of a
 document admissible. And the int/float round trip is the hazard a digest CANNOT catch: `Canon::encode()`
@@ -1848,10 +1862,12 @@ commit (AGENTS.md rule 8), and the acceptance window is `{2, 3}`. The migration 
 The bump was engineered to move no adapter digest, and the exclusions below are the reason that was
 achievable. The invariant is not argued, it is computed:
 `sandbox/tests/offline/policy/regress_spec_v3_digest_neutrality.php` recomputes all 18 adapter digests
-and `manifest_hash` for seven representative pin sets and compares them against the explicit current
+from two maximal compatible worlds and `manifest_hash` for eight representative pin sets, including
+those two worlds, then compares them against the explicit current
 WPrism greenfield baseline in `sandbox/tests/fixtures/spec-v3/wprism-greenfield-identity.json`. The
-fixture pins the manifest, registry and snapshot maps as independent literals; the suite also mutates
-each input so a self-derived equality cannot pass vacuously.
+fixture pins the manifest, registry and snapshot maps as independent literals, so those comparisons
+cannot pass as self-derived equalities; the suite separately mutates both platform-version inputs and
+proves their existing refusal boundary.
 
 - **No shipped manifest was re-stamped by the flag-day bump.** This was the central exclusion that made the
   bump survivable and reversible. Stamping all manifests would have moved every adapter digest, every
@@ -2610,6 +2626,7 @@ expected to write.
 
 ### v3.22 `manifest-provider-runtime/v1` — core owns the manifest-provider protocol
 
+**Rider: the manifest-provider runtime consolidation work package.**
 **Enforced today: yes, for a `source: "manifest"` provider whose manifest declares the feature.**
 `WPRISM_SPEC_VERSION` remains 3. This feature claims no top-level key; it widens the existing
 `providers[]` row with `contracts`, so the `providers` certificate classification does not move.
@@ -2644,6 +2661,7 @@ regression.
 
 ### v3.23 `schema-settlement/v1` — strict observation gets a recoverable prerequisite
 
+**Rider: the Rank Math schema-settlement and durable provider-ordering work package.**
 **Enforced today: yes, for host `wprism deploy`.** `WPRISM_SPEC_VERSION`
 remains 3. This feature claims no top-level key; it widens an existing provider
 action with a closed phase-specific grammar. Direct `wp wprism deploy` refuses
@@ -2673,11 +2691,13 @@ checkpoint. A legitimately absent table remains absent to compile and plan;
 the host must settle it before the strict observer runs again.
 
 The host phase order is fixed: read-only lifecycle and schema status; exact
-artifact/checkpoint creation and authentication; code staging and fresh
-lifecycle reconciliation under the durable promotion session; publication of
-an external provider-settlement intent; schema settlement; then lifecycle
-settlement. The intent contains the artifact hash, checkpoint, release owner,
-and ordered remaining provider phases. Each successful provider phase advances
+artifact/checkpoint creation and authentication; code staging when required;
+publication of an external provider-settlement intent; lifecycle retirement;
+fresh-process lifecycle activation; schema settlement; then lifecycle
+settlement under the durable promotion session. The intent is published before the first
+lifecycle/provider mutation and contains the artifact hash, checkpoint,
+release owner, and every ordered remaining lifecycle/provider phase. Each
+successful phase advances
 it atomically. Ordinary policy load refuses while it exists, so a crash cannot
 turn an unrecorded partial provider transaction into normal operation. Recovery
 binds the same intent into its signed checkpoint instruction, restores the
@@ -2720,6 +2740,35 @@ plan correctly refuses to fabricate them. The adapter's provider owns the
 plugin-specific installer call and audited schema knowledge; the engine owns
 phase ordering, checkpoint identity, create-only verification, durable debt,
 and recovery. No Rank Math branch enters `agent/src`.
+
+### v3.24 `plugin-incompatibility/v1` — competing plugin contracts refuse before composition
+
+**Rider: the Rank Math and Yoast composition-boundary work package.**
+**Enforced today: yes, at shared policy finalization.** `WPRISM_SPEC_VERSION`
+remains 3. The feature claims the top-level `incompatible_plugins` key with the
+certificate's non-surface arm. Its value is a non-empty, lexically sorted,
+duplicate-free list of exact WordPress plugin basenames in
+`<directory>/<main-file>.php` or `<main-file>.php` form.
+
+Only a manifest that owns a `plugin` may declare the list, and its own basename
+is forbidden. The list narrows admissible co-installation; it grants no state,
+provider, lifecycle, or filesystem authority. During aggregate policy load,
+every named basename is compared with the exact `plugin` claims of the pinned
+manifests. If one is present, the finalizer refuses the declaring manifest,
+its plugin, the incompatible basename, and every pinned claimant by name. The
+complete conflict set is sorted before the first verdict is chosen, so reversing
+manifest or active-plugin order cannot choose a winner or change the message.
+
+One declaration is sufficient. The conflicting plugin's manifest need not
+repeat it, and site policy cannot override it: an adapter author is stating
+that the two contracts cannot honestly share one aggregate policy, not asking
+an operator to resolve redundant ownership. The only remedy is to pin one of
+the incompatible adapters. The finalizer runs this guard before a compiler,
+capture publisher, promotion lease, lifecycle hook, schema settlement, or
+provider receives the policy. Rank Math's declaration against Yoast is the
+first consumer; the participant-owned scenario executes capture and host
+deploy with both manifest and active-plugin orders and proves the same refusal
+with no repository publication or durable mutation debt.
 
 ## Ledger tables (per environment, never in the repo)
 

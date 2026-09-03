@@ -203,9 +203,13 @@
     },
     "engine_features": [
         "manifest-provider-runtime/v1",
+        "plugin-incompatibility/v1",
         "schema-settlement/v1",
         "spec-window/v1",
         "structured-evidence/v1"
+    ],
+    "incompatible_plugins": [
+        "wordpress-seo/wp-seo.php"
     ],
     "lifecycle_effects": [
         {

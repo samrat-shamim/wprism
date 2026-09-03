@@ -236,7 +236,7 @@ const REHEARSAL_GAPS = [
         . 'two version states deliberately use the explicit archive boundary. Its closed-layout refusals are '
         . 'exercised by tests/Adapter/AdapterLibraryTest.php and sandbox/tests/offline/adapter/'
         . 'regress_adapter_sources.php.',
-    'agent/src/Promotion/Deploy.php::run' =>
+    'agent/src/Promotion/Deploy.php::run_authorized' =>
         'promotion needs a live target: a promotion lease, the ledger and an apply session. The manifest-identity '
         . 'refusal it surfaces is CompiledArtifactReader::read_artifact()\'s, which this estate drives directly '
         . 'through the artifact-drift control.',

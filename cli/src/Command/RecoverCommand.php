@@ -1294,6 +1294,7 @@ PHP;
             );
         }
         $databaseTargetSha256 = (string) $preflight['summary']['database_target_sha256'];
+        $cipherSha256 = (string) $preflight['summary']['cipher_sha256'];
         $steps = [];
         $recovered = false;
 
@@ -1319,7 +1320,14 @@ PHP;
                 $begin = self::step(
                     $transport,
                     'begin',
-                    CodeDeploy::recoveryBeginArgs($owner, $artifactHash, $databaseTargetSha256)
+                    CodeDeploy::recoveryBeginArgs(
+                        $transport->repoPath(),
+                        $checkpoint,
+                        $owner,
+                        $artifactHash,
+                        $cipherSha256,
+                        $databaseTargetSha256
+                    )
                 );
                 $steps[] = $begin;
                 if (!$begin['ok']) {

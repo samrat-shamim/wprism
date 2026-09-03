@@ -601,7 +601,7 @@ ssh_fixture 'cd /var/www/html && wp option update scoped-apply_scoped_option pri
 # boundary rather than assuming a newly adopted target is session-empty.
 ORDINARY_OWNER="ordinary-scoped-apply-completed"
 ORDINARY_ARTIFACT="$(printf %s scoped-apply-ordinary-completed | shasum -a 256 | awk '{print $1}')"
-ssh_fixture "cd /var/www/html && wp wprism promotion-begin --promotion-owner=$ORDINARY_OWNER --artifact-hash=$ORDINARY_ARTIFACT --format=json" >"$TMP/scoped-apply-ordinary-begin.json" \
+ssh_fixture "cd /var/www/html && wp wprism promotion-begin --repo=/home/wprism/site --promotion-owner=$ORDINARY_OWNER --artifact-hash=$ORDINARY_ARTIFACT --format=json" >"$TMP/scoped-apply-ordinary-begin.json" \
   || fail "could not establish the completed ordinary-session precondition"
 ssh_fixture "cd /var/www/html && wp wprism promotion-abort --promotion-owner=$ORDINARY_OWNER --artifact-hash=$ORDINARY_ARTIFACT --format=json" >"$TMP/scoped-apply-ordinary-abort.json" \
   || fail "could not retire the ordinary promotion lock"

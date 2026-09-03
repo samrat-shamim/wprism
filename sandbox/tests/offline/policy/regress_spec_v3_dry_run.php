@@ -72,9 +72,9 @@
  * difference is asserted rather than reconciled:
  *
  *   F1  All 33 signer-partition keys are in use across the shipped
- *       manifests. Redirection also declares the three keys carried by the
- *       feature roster rather than that partition; its signer verdict is still
- *       clean because § v3.21 classifies those keys with their features. Two of
+ *       manifests. Feature-bearing adapters also declare four keys carried by
+ *       the feature roster rather than that partition; their signer verdicts
+ *       stay clean because § v3.21 classifies those keys with their features. Two of
  *       the three previously unused partition keys were channels admitted in
  *       the change that reads them:
  *       WP-4.6's `environment` (§ v3.5) and WP-4.3's `theme_version_range`
@@ -470,7 +470,7 @@ $report('partition keys no shipped manifest declares: ' . ($knownUnused === [] ?
 // feature-claimed keys deliberately sit in § v3.21's roster rather than
 // duplicating the signer partition.
 wprism_check_same(
-    ['column_codecs', 'declaration_evidence', 'engine_features'],
+    ['column_codecs', 'declaration_evidence', 'engine_features', 'incompatible_plugins'],
     $unknownInUse,
     'F1: the only shipped keys outside the signer partition are classified by Redirection\'s declared feature roster'
 );
@@ -479,7 +479,7 @@ wprism_check_same(
     array_values(array_diff($unknownInUse, array_keys(AdapterContractGrammar::feature_key_arms()))),
     'F1: every shipped key outside the partition has a certificate arm in the feature roster'
 );
-wprism_check_same(33, count($unionKeys), 'F1: the in-use union is 33 keys');
+wprism_check_same(34, count($unionKeys), 'F1: the in-use union is 34 keys');
 // Three keys the partition admits and no shipped adapter declares, and they are
 // there for different reasons: `theme` predates the library's plugin-only
 // contents; `environment` is WP-4.6's narrowing channel and `theme_version_range`
@@ -822,17 +822,19 @@ wprism_check_same(
 // author declares from, and register row R-19 projects. WP-6.5 made it six;
 // manifest-provider-runtime/v1 made it seven, Redirection's measured mixed
 // column demand made it eight, and the bounded post-kind selector makes it
-// nine, and schema-settlement/v1 makes it ten; neither claims an additional top-level section,
+// nine, schema-settlement/v1 makes it ten, and plugin-incompatibility/v1 makes
+// it eleven while claiming the incompatibility section itself.
 // and the count is now evidence for a different claim than the one it started
 // as: § v3.12 asks for "at least one grammar section shipped post-v3 through
 // engine_features with no version bump" before the window may ever close, and
-// nine of these ten shipped after the flip with WPRISM_SPEC_VERSION left at 3.
+// ten of these eleven shipped after the flip with WPRISM_SPEC_VERSION left at 3.
 wprism_check_same(
     [
         'attr-id-codecs/v1',
         'invalidate-vocabulary/v1',
         'manifest-provider-runtime/v1',
         'mixed-column-codecs/v1',
+        'plugin-incompatibility/v1',
         'post-kind-action-trigger/v1',
         'schema-settlement/v1',
         'spec-window/v1',
@@ -841,7 +843,7 @@ wprism_check_same(
         'typed-column-codecs/v1',
     ],
     \WPrism\AdapterContractGrammar::implemented_features(),
-    'V3-FEAT: the vocabulary carries ten names, so an engine that lacks a declared name has something to '
+    'V3-FEAT: the vocabulary carries eleven names, so an engine that lacks a declared name has something to '
         . 'compare against and the comparison is against a SET rather than a single special case'
 );
 // THE FLIP (WP-4.12), the other direction. `engine_features` is implemented
@@ -898,11 +900,11 @@ wprism_check_same(
 
 echo "\nRULE V3-ARM: every feature-claimed key carries a reviewed certificate arm\n";
 
-// The ROWS, pinned whole. Every one of these five is a permanent decision the
+// The ROWS, pinned whole. Every one of these six is a permanent decision the
 // register records (R-31): the arm reaches `claim_from_disposition()`, which
 // builds the `surfaces` list inside a signed statement, so moving a key between
 // arms invalidates every certificate already issued over an adapter declaring
-// it. A sixth row, or a moved arm, is a reviewed edit here.
+// it. A seventh row, or a moved arm, is a reviewed edit here.
 wprism_check_same(
     [
         'attr_id_codecs' => 'field',
@@ -910,10 +912,11 @@ wprism_check_same(
         'column_codecs' => 'field',
         'declaration_evidence' => 'non_surface',
         'engine_features' => 'non_surface',
+        'incompatible_plugins' => 'non_surface',
     ],
     AdapterContractGrammar::feature_key_arms(),
-    'V3-ARM: the roster classifies five keys — the three typed refinements over an already-declared surface '
-        . 'as `field`, and the claim channel and its evidence records, which cover no state, as `non_surface`'
+    'V3-ARM: the roster classifies six keys — three typed refinements over an already-declared surface as '
+        . '`field`, and the claim channel, evidence records, and incompatibility list as `non_surface`'
 );
 $report('feature-claimed key arms: ' . json_encode(AdapterContractGrammar::feature_key_arms(), JSON_UNESCAPED_SLASHES));
 

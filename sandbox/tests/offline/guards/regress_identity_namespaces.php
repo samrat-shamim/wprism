@@ -17,16 +17,16 @@
  *
  * The four claims, each asserted below rather than argued:
  *
- *   1. THE LIST IS CLOSED, AND IT IS IN THE RIGHT PLACE. 17 adapter names and
- *      20 `id_kind`s, enumerated in `agent/src` rather than any adapter
+ *   1. THE LIST IS CLOSED, AND IT IS IN THE RIGHT PLACE. 18 adapter names and
+ *      21 `id_kind`s, enumerated in `agent/src` rather than any adapter
  *      package, where AGENTS.md rule 2 would fold them into every adapter's
- *      digest and make an eighteenth adapter invalidate the other seventeen's
+ *      digest and make a nineteenth adapter invalidate the other eighteen's
  *      pins and certificates. `php tools/wire-surface.php --check` (a `make
  *      release-gate` step, register row R-27) asserts both halves; §7 below
- *      drives that gate against a fixture library carrying an EIGHTEENTH
+ *      drives that gate against a fixture library carrying a NINETEENTH
  *      unprefixed name and asserts it refuses by name.
  *   2. IT ENUMERATES RATHER THAN TESTING SHAPE, and the measurement is the
- *      reason: 7 of the 17 shipped names carry no hyphen at all, and 10 more
+ *      reason: 7 of the 18 shipped names carry no hyphen at all, and 11 more
  *      are hyphen-shaped without being vendor-prefixed — `the-events-calendar`
  *      is not vendor `the`. A shape test admits exactly the wrong ones.
  *   3. THE RULE IS v3-GATED AND LIVE NOW. `WPRISM_SPEC_VERSION` is 3 after
@@ -199,7 +199,7 @@ $listFile = (new ReflectionClass(IdentityNamespaces::class))->getFileName();
 wprism_check(
     is_string($listFile) && str_starts_with((string) realpath((string) $listFile), (string) realpath($repo . '/agent/src')),
     'the list is declared under agent/src, where it moves no adapter digest — under an adapter package it would be an '
-    . 'identity input on every adapter row, so an eighteenth adapter would invalidate the other seventeen\'s pins'
+    . 'identity input on every adapter row, so a nineteenth adapter would invalidate the other eighteen\'s pins'
 );
 $underManifests = [];
 foreach ($sourceLibrary->packages() as $package) {
@@ -378,7 +378,7 @@ wprism_check_same(
 );
 // The measurement that keeps the second arm honest as the library grows: every
 // shipped provider id is inside its declaring adapter's vendor namespace, or
-// that adapter has no vendor half at all. An eighteenth adapter that broke this
+// that adapter has no vendor half at all. A nineteenth adapter that broke this
 // would make its own reviewed override unloadable at v3 — a reviewed edit, and
 // this is where it is noticed.
 $providerNamespaceMisfits = [];

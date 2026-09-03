@@ -33,6 +33,38 @@ final class ProviderSettlementIntent {
         );
     }
 
+    /** Initial checkpoint recovery may cross only its exact provider debt. */
+    public static function assert_recovery_or_clear(
+        string $repo,
+        string $checkpoint,
+        string $cipherSha256,
+        string $owner,
+        string $artifactHash
+    ): void {
+        $root = self::repoRoot($repo);
+        $path = $root . self::RELATIVE_PATH;
+        if (!file_exists($path) && !is_link($path)) {
+            return;
+        }
+        $read = self::read($root);
+        $intent = $read['intent'];
+        $checkpointRoot = $root . '/.wprism/checkpoints';
+        if ($checkpoint === ''
+            || dirname($checkpoint) !== $checkpointRoot
+            || $checkpoint !== $checkpointRoot . '/' . basename($checkpoint)
+            || is_link($checkpoint)
+            || !is_file($checkpoint)
+            || realpath($checkpoint) !== $checkpoint
+            || ($intent['checkpoint']['path'] ?? null) !== $checkpoint
+            || !hash_equals((string) ($intent['checkpoint']['cipher_sha256'] ?? ''), $cipherSha256)
+            || !hash_equals((string) ($intent['owner'] ?? ''), $owner)
+            || !hash_equals((string) ($intent['artifact_hash'] ?? ''), $artifactHash)) {
+            throw new \RuntimeException(
+                'wprism: checkpoint recovery belongs to a different provider settlement transaction'
+            );
+        }
+    }
+
     /**
      * Admit only the named phase of the exact host-authenticated transaction.
      * Policy loads inside the callback see a process-local continuation; the
@@ -145,6 +177,9 @@ final class ProviderSettlementIntent {
                 ['schema-settle'],
                 ['lifecycle-settle'],
                 ['schema-settle', 'lifecycle-settle'],
+                ['lifecycle-retire', 'lifecycle-activate', 'schema-settle'],
+                ['lifecycle-retire', 'lifecycle-activate', 'lifecycle-settle'],
+                ['lifecycle-retire', 'lifecycle-activate', 'schema-settle', 'lifecycle-settle'],
             ], true)
             || $completed !== array_slice($phases, 0, count($completed))) {
             throw new \RuntimeException('wprism: malformed provider settlement control record');

@@ -281,17 +281,25 @@ PHP;
      * @return array<int,string>
      */
     public static function beginArgs(
+        string $repo,
         string $owner,
         string $artifactHash,
         ?array $authorizedSource = null
     ): array {
         $arguments = [
             'wprism', 'promotion-begin', '--promotion-owner=' . $owner,
-            '--artifact-hash=' . $artifactHash,
+            '--artifact-hash=' . $artifactHash, '--repo=' . $repo,
         ];
         if ($authorizedSource !== null) {
+            $authorizedRepo = is_string($authorizedSource['repo_path'] ?? null)
+                ? rtrim($authorizedSource['repo_path'], '/')
+                : '';
+            if ($authorizedRepo === '' || !hash_equals(rtrim($repo, '/'), $authorizedRepo)) {
+                throw new \InvalidArgumentException(
+                    'authorized release repository does not match the promotion target repository'
+                );
+            }
             $arguments = array_merge($arguments, [
-                '--repo=' . (string) ($authorizedSource['repo_path'] ?? ''),
                 '--release-operation-id=' . (string) ($authorizedSource['operation_id'] ?? ''),
                 '--expected-source-commit=' . (string) ($authorizedSource['source_commit'] ?? ''),
                 '--expected-source-tree=' . (string) ($authorizedSource['source_tree'] ?? ''),
@@ -390,14 +398,20 @@ PHP;
 
     /** @return array<int,string> */
     public static function recoveryBeginArgs(
+        string $repo,
+        string $checkpoint,
         string $owner,
         string $artifactHash,
+        string $cipherSha256,
         string $databaseTargetSha256
     ): array {
-        if (preg_match('/^[a-f0-9]{64}$/D', $databaseTargetSha256) !== 1) {
+        if (preg_match('/^[a-f0-9]{64}$/D', $databaseTargetSha256) !== 1
+            || preg_match('/^[a-f0-9]{64}$/D', $cipherSha256) !== 1) {
             throw new \InvalidArgumentException('checkpoint database target identity is malformed');
         }
-        return array_merge(self::beginArgs($owner, $artifactHash), [
+        return array_merge(self::beginArgs($repo, $owner, $artifactHash), [
+            '--checkpoint=' . $checkpoint,
+            '--expected-cipher-sha256=' . $cipherSha256,
             '--expected-database-target-sha256=' . $databaseTargetSha256,
             '--format=json',
         ]);
@@ -416,9 +430,10 @@ PHP;
     }
 
     /**
-     * Publish cross-process provider debt after checkpoint-backed lifecycle
-     * reconciliation and before schema/provider mutation. The recovery runtime owns the file;
-     * the agent only reads it while executing an exact authorized phase.
+     * Publish cross-process provider debt after checkpoint/code staging and
+     * before the first lifecycle or settlement callback. The recovery runtime
+     * owns the file; the agent only reads it while executing an exact
+     * authorized phase.
      *
      * @param list<string> $phases
      * @return array{exit:int,stdout:string,stderr:string}
@@ -488,62 +503,53 @@ PHP;
             'phases' => $phases,
             'repo' => $repo,
         ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
-        $bootstrap = <<<'PHP'
+        $program = <<<'PHP'
 $wprismProviderPayload = json_decode(base64_decode('__PAYLOAD__', true), true, 16, JSON_THROW_ON_ERROR);
 if (!is_array($wprismProviderPayload)
     || array_keys($wprismProviderPayload) !== ['artifact', 'artifact_hash', 'checkpoint', 'owner', 'phases', 'repo']) {
     throw new \RuntimeException('wprism: malformed provider settlement payload');
 }
-if (defined('WPMU_PLUGIN_DIR')) {
-    throw new \RuntimeException('wprism: provider settlement bootstrap started with WPMU_PLUGIN_DIR already defined');
-}
-\WP_CLI::add_hook('after_wp_config_load', static function () use ($wprismProviderPayload): void {
-    if (defined('SUNRISE') || defined('WPMU_PLUGIN_DIR')) {
-        throw new \RuntimeException('wprism: provider settlement cannot isolate this wp-config.php');
-    }
-    if (!defined('DISABLE_WP_CRON')) {
-        define('DISABLE_WP_CRON', true);
-    }
-    $base = defined('ABSPATH') ? rtrim((string) constant('ABSPATH'), '/\\') : (string) getcwd();
-    define('WPMU_PLUGIN_DIR', $base . '/.wprism-provider-mu-' . bin2hex(random_bytes(16)));
-    $root = rtrim((string) $wprismProviderPayload['repo'], '/') . '/.wprism/control';
-    $runtime = $root . '/recovery-runtime';
-    foreach (['CanonicalJson.php', 'AtomicStore.php', 'ProtocolLock.php', 'DatabaseTargetIdentity.php', 'ProviderSettlementIntent.php', 'RetainedCheckpointCipher.php'] as $file) {
-        $path = $runtime . '/' . $file;
-        if (is_link($path) || !is_file($path)) {
-            throw new \RuntimeException('wprism: durable provider settlement runtime is incomplete');
+$summary = \WPrism\PromotionLock::with_existing_lease_fence(
+    (string) $wprismProviderPayload['owner'],
+    (string) $wprismProviderPayload['artifact_hash'],
+    'provider-settlement-publish',
+    static function () use ($wprismProviderPayload): array {
+        $root = rtrim((string) $wprismProviderPayload['repo'], '/') . '/.wprism/control';
+        $runtime = $root . '/recovery-runtime';
+        /* controlArgs() has loaded agent/wprism.php, including the WPrism
+           identity/cipher classes (:121-122). Their recovery-runtime copies
+           are for agent-free rollback; loading both paths fatals on duplicate
+           class declarations before the intent can be published. */
+        foreach (['CanonicalJson.php', 'AtomicStore.php', 'ProtocolLock.php', 'ProviderSettlementIntent.php'] as $file) {
+            $path = $runtime . '/' . $file;
+            if (is_link($path) || !is_file($path)) {
+                throw new \RuntimeException('wprism: durable provider settlement runtime is incomplete');
+            }
+            require_once $path;
         }
-        require_once $path;
+        $verification = \WPrism\RetainedCheckpointCipher::verify(
+            (string) $wprismProviderPayload['repo'],
+            (string) $wprismProviderPayload['checkpoint']
+        );
+        \WPrism\DatabaseTargetIdentity::assertWordPressConfig(
+            (string) $verification['database_target_sha256']
+        );
+        return \WPrism\Recovery\ProviderSettlementIntent::begin(
+            $root,
+            (string) $wprismProviderPayload['repo'],
+            (string) $wprismProviderPayload['artifact'],
+            (string) $wprismProviderPayload['checkpoint'],
+            (string) $verification['cipher_sha256'],
+            (string) $wprismProviderPayload['owner'],
+            (string) $wprismProviderPayload['artifact_hash'],
+            (array) $wprismProviderPayload['phases']
+        );
     }
-    $verification = \WPrism\RetainedCheckpointCipher::verify(
-        (string) $wprismProviderPayload['repo'],
-        (string) $wprismProviderPayload['checkpoint']
-    );
-    \WPrism\DatabaseTargetIdentity::assertWordPressConfig(
-        (string) $verification['database_target_sha256']
-    );
-    $summary = \WPrism\Recovery\ProviderSettlementIntent::begin(
-        $root,
-        (string) $wprismProviderPayload['repo'],
-        (string) $wprismProviderPayload['artifact'],
-        (string) $wprismProviderPayload['checkpoint'],
-        (string) $verification['cipher_sha256'],
-        (string) $wprismProviderPayload['owner'],
-        (string) $wprismProviderPayload['artifact_hash'],
-        (array) $wprismProviderPayload['phases']
-    );
-    echo \WPrism\Recovery\CanonicalJson::encode($summary);
-    exit(0);
-});
+);
+echo \WPrism\Recovery\CanonicalJson::encode($summary);
 PHP;
-        $bootstrap = str_replace('__PAYLOAD__', $payload, $bootstrap);
-        return [
-            '--exec=' . trim(str_replace(["\r", "\n"], ' ', $bootstrap)),
-            '--skip-plugins',
-            '--skip-themes',
-            'eval',
-            '0;',
-        ];
+        $program = str_replace('__PAYLOAD__', $payload, $program);
+        return self::controlArgs(['eval', trim(str_replace(["\r", "\n"], ' ', $program))]);
     }
 
     /** @param list<string> $phases @return array{exit:int,stdout:string,stderr:string} */
@@ -607,6 +613,9 @@ PHP;
             ['schema-settle'],
             ['lifecycle-settle'],
             ['schema-settle', 'lifecycle-settle'],
+            ['lifecycle-retire', 'lifecycle-activate', 'schema-settle'],
+            ['lifecycle-retire', 'lifecycle-activate', 'lifecycle-settle'],
+            ['lifecycle-retire', 'lifecycle-activate', 'schema-settle', 'lifecycle-settle'],
         ], true)) {
             throw new \InvalidArgumentException('provider settlement phases are malformed');
         }
@@ -1511,7 +1520,8 @@ PHP;
         bool $materializingCode,
         bool $stateHandoff,
         string $lifecyclePhase,
-        array $extra = []
+        array $extra = [],
+        string $checkpoint = ''
     ): array {
         if (!in_array($lifecyclePhase, ['retire', 'activate'], true)) {
             throw new \InvalidArgumentException("unsupported lifecycle phase '$lifecyclePhase'");
@@ -1529,6 +1539,9 @@ PHP;
         }
         if ($stateHandoff) {
             $args[] = '--state-handoff';
+        }
+        if ($checkpoint !== '') {
+            $args[] = '--checkpoint=' . $checkpoint;
         }
         return array_merge($args, $extra);
     }

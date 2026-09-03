@@ -695,11 +695,14 @@ manifests cannot both acquire schema-settlement authority over the same table.
 
 This phase runs only through host `wprism deploy`; direct `wp wprism deploy`
 refuses it. The host checks plugin lifecycle and schema readiness without
-mutating, then takes and authenticates the exact database checkpoint. Code and
-fresh lifecycle reconciliation run under the existing durable promotion
-session. Immediately afterward, before provider DDL, the host publishes an
-external ordered provider intent covering `schema_settle` and then
-`lifecycle_settle`. Each successful provider phase advances the intent on disk. An
+mutating, then takes and authenticates the exact database checkpoint. Before
+the first lifecycle/provider mutation, the host publishes an external ordered
+provider intent covering every applicable phase (for Rank Math,
+`lifecycle-retire`, `lifecycle-activate`, `schema-settle`, and
+`lifecycle-settle`). When code staging is required, it precedes that intent and
+uses its own checkpoint/session receipt. Each fresh lifecycle/provider phase
+then runs under the existing durable promotion session, advancing the intent
+atomically after successful completion. An
 interrupted or failed phase leaves visible recovery debt that fences ordinary
 policy loads and host mutation (including adopt, unadopt, and checkpoint prune)
 until recovery restores the bound checkpoint. Recovery admits only the exact
@@ -740,6 +743,32 @@ in a way that makes rows beyond the cap invisible. The
 provider demonstrates the bounded implementation and its package-local suite
 proves mutation beyond the first chunk changes the witness.
 
+### Declaring a plugin incompatibility
+
+When two plugin adapters describe independently valid state models that cannot
+safely coexist—such as competing SEO suites claiming the same conceptual site
+authority—declare the boundary rather than choosing a winner by pin or plugin
+load order. The declaring manifest opts into `plugin-incompatibility/v1` and
+adds `incompatible_plugins`, a non-empty, sorted, duplicate-free list of exact
+WordPress plugin basenames:
+
+```json
+{
+  "engine_features": ["plugin-incompatibility/v1", "spec-window/v1"],
+  "incompatible_plugins": ["wordpress-seo/wp-seo.php"],
+  "plugin": "seo-by-rank-math/rank-math.php"
+}
+```
+
+Only a plugin-owning manifest may declare the section, and it cannot name its
+own basename. One side's declaration is sufficient: if any pinned manifest
+claims the named plugin, the shared policy finalizer emits the same refusal in
+either pin order before compilation, capture publication, promotion leases,
+lifecycle hooks, or providers. This is a non-surface compatibility constraint,
+not an operator composition override; the remedy is to pin only one adapter.
+Use a participant-declared integration scenario to prove both orders against
+the exact supported plugin artifacts.
+
 An adapter needing no executable semantics declares neither key and stays purely
 declarative. Most should. For worked examples,
 [`adapter-packages/woocommerce/package/manifest.json`](../../adapter-packages/woocommerce/package/manifest.json) pairs a
@@ -757,8 +786,7 @@ exposed on its own so you can iterate on a declaration in seconds instead of
 reinstalling an agent to find out you transposed a letter.
 
 ```sh
-wprism manifest-validate .
-wprism manifest-validate . --manifest=contact-form-7
+wprism manifest-validate . --manifest=contact-form-7 --pins=core,contact-form-7
 wprism manifest-validate . --pins=core,woocommerce --format=json
 wprism manifest-validate . --site=/path/to/site-repo
 wprism manifest-validate ./untrusted-adapter-package --no-code
@@ -767,11 +795,16 @@ wprism manifest-validate ./untrusted-adapter-package --no-code
 It needs no environment, no database, and no docker. The `.` above is the source
 tree containing `adapter-packages/` and `platform/adapter-library/`. Every
 manifest is loaded on its own first — so one broken file does not hide the
-verdict on the other nine — and then the requested pin set is co-loaded, which
+verdict on the other manifests — and then the requested pin set is co-loaded, which
 is the only way the cross-manifest guards run at all (one owner per declared
 name, overlapping option namespaces, conflicting plugin claims, duplicate
 provider ids, duplicate table `id_kind`s). `--manifest` narrows what is checked
-individually; `--pins`/`--all` choose the co-loaded set. A declared
+individually; `--pins`/`--all` choose the co-loaded set. Name the adapter's
+intended composition explicitly during iteration, as the first command does.
+With neither flag, or with `--all`, the command deliberately asks whether every
+adapter in the library can share one policy; that broader question may refuse
+when two adapters declare a supported incompatibility rather than reporting a
+catalog defect. A declared
 `interpreter` or `regen_dependency.regenerator` is resolved too: the named file
 must exist under the declaring package's `runtime/interpreters/` or
 `runtime/regenerators/` directory and must
@@ -1253,7 +1286,7 @@ Move the emitted JSON into `adapter-packages/<name>/package/manifest.json`, add 
 `version_range`, and the evidence notes by hand, and drop the now-redundant
 site-local rules from `site.wprism.json`. Run
 `php tools/adapter-package-validate.php --adapter=<name>` and
-`wprism manifest-validate . --manifest=<name>` on the result before going
+`php cli/wprism manifest-validate . --manifest=<name> --pins=core,<name>` on the result before going
 further — see [Checking the grammar offline](#checking-the-grammar-offline);
 the hand-added parts are exactly the ones no export path checked.
 
@@ -1572,7 +1605,7 @@ library.
 1. **Create the capsule and write its manifest** at
    `adapter-packages/<name>/package/manifest.json`. While the capsule is
    incomplete, iterate with `php cli/wprism manifest-validate .
-   --manifest=<name>`; the complete package validator intentionally refuses a
+   --manifest=<name> --pins=core,<name>`; the complete package validator intentionally refuses a
    half-authored disposition/evidence boundary.
 2. **Add the reviewed entry** at
    `adapter-packages/<name>/package/disposition.json`, with a

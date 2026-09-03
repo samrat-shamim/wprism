@@ -247,6 +247,162 @@ if (!defined('WPRISM_CONTROL_PLANE')) {
 PHP
 pass "control bootstrap disables the target's cron spawn for the whole control-plane window"
 
+# Provider debt is published by an eval program after controlArgs() has loaded
+# the protected agent. Adoption deliberately retains agent-namespace
+# identity/cipher copies for agent-free recovery; executing the real generated
+# program proves that this agent-loaded path does not require those copies and
+# fatal on duplicate class declarations before publishing the intent.
+WPRISM_ROOT="$REPO_ROOT" CONTROL_WP_ROOT="$SITE/control-wp-provider" PROVIDER_REPO="$SITE/provider-publisher" php <<'PHP'
+<?php
+final class WP_CLI {
+    /** @var array<string,list<callable>> */
+    public static array $hooks = [];
+    public static function get_runner(): object {
+        return (object) ['config' => ['path' => getenv('CONTROL_WP_ROOT')]];
+    }
+    public static function add_hook(string $name, callable $hook): void {
+        self::$hooks[$name][] = $hook;
+    }
+}
+
+$source = getenv('WPRISM_ROOT');
+$wpRoot = getenv('CONTROL_WP_ROOT');
+$repo = getenv('PROVIDER_REPO');
+foreach ([
+    $wpRoot . '/wp-content/mu-plugins/wprism',
+    $repo . '/.wprism/artifacts',
+    $repo . '/.wprism/checkpoints',
+    $repo . '/.wprism/control/recovery-runtime',
+] as $directory) {
+    if (!is_dir($directory) && !mkdir($directory, 0700, true)) {
+        throw new RuntimeException("FAIL: could not create fixture directory '$directory'");
+    }
+}
+$resolvedRepo = realpath($repo);
+if ($resolvedRepo === false) {
+    throw new RuntimeException('FAIL: could not resolve provider publisher fixture repository');
+}
+$repo = $resolvedRepo;
+$agent = $wpRoot . '/wp-content/mu-plugins/wprism/wprism.php';
+file_put_contents($agent, <<<'AGENT'
+<?php
+namespace WPrism;
+
+final class DatabaseTargetIdentity {
+    public static int $assertions = 0;
+    public static function assertWordPressConfig(string $expected): void {
+        if ($expected !== str_repeat('d', 64)) {
+            throw new \RuntimeException('fixture database target changed');
+        }
+        self::$assertions++;
+    }
+}
+
+final class RetainedCheckpointCipher {
+    public static int $verifications = 0;
+    /** @return array{cipher_sha256:string,database_target_sha256:string,format:string} */
+    public static function verify(string $repo, string $checkpoint): array {
+        self::$verifications++;
+        return [
+            'cipher_sha256' => str_repeat('c', 64),
+            'database_target_sha256' => str_repeat('d', 64),
+            'format' => 'wprism-retained-checkpoint-verification/v2',
+        ];
+    }
+}
+
+final class PromotionLock {
+    public static int $fences = 0;
+    public static function with_existing_lease_fence(
+        string $owner,
+        string $artifactHash,
+        string $phase,
+        callable $callback
+    ): mixed {
+        if ($owner !== 'publisher-owner'
+            || $artifactHash !== str_repeat('a', 64)
+            || $phase !== 'provider-settlement-publish') {
+            throw new \RuntimeException('fixture lease identity changed');
+        }
+        self::$fences++;
+        return $callback();
+    }
+}
+AGENT
+);
+
+$runtime = $repo . '/.wprism/control/recovery-runtime';
+foreach (['CanonicalJson.php', 'AtomicStore.php', 'ProtocolLock.php', 'ProviderSettlementIntent.php'] as $file) {
+    if (!copy($source . '/recovery/' . $file, $runtime . '/' . $file)) {
+        throw new RuntimeException("FAIL: could not stage recovery runtime '$file'");
+    }
+}
+// These two files are present on every adopted target for agent-free rollback.
+// Requiring them after the fake protected agent recreates the production fatal.
+foreach (['DatabaseTargetIdentity.php', 'RetainedCheckpointCipher.php'] as $file) {
+    if (!copy($source . '/agent/src/Recovery/' . $file, $runtime . '/' . $file)) {
+        throw new RuntimeException("FAIL: could not stage agent-free runtime '$file'");
+    }
+}
+$artifact = $repo . '/.wprism/artifacts/deploy-publisher-owner.json';
+$checkpoint = $repo . '/.wprism/checkpoints/deploy-publisher-owner.sql.enc';
+file_put_contents($artifact, "{}\n");
+file_put_contents($checkpoint, "ciphertext\n");
+chmod($artifact, 0600);
+chmod($checkpoint, 0600);
+
+require $source . '/cli/src/Transport/CodeDeploy.php';
+$args = \WPrism\Orchestrator\CodeDeploy::providerSettlementBeginArgs(
+    $repo,
+    $artifact,
+    $checkpoint,
+    'publisher-owner',
+    str_repeat('a', 64),
+    ['lifecycle-settle']
+);
+$bootstrap = null;
+foreach ($args as $arg) {
+    if (str_starts_with($arg, '--exec=')) {
+        $bootstrap = substr($arg, strlen('--exec='));
+        break;
+    }
+}
+$evalIndex = array_search('eval', $args, true);
+$program = is_int($evalIndex) ? ($args[$evalIndex + 1] ?? null) : null;
+if (!is_string($bootstrap) || !is_string($program)) {
+    throw new RuntimeException('FAIL: provider publisher omitted its executable control program');
+}
+eval($bootstrap);
+foreach (WP_CLI::$hooks['after_wp_config_load'] ?? [] as $hook) {
+    $hook();
+}
+ob_start();
+eval($program);
+$output = ob_get_clean();
+$summary = json_decode((string) $output, true, 8, JSON_THROW_ON_ERROR);
+if (($summary['format'] ?? null) !== 'wprism-provider-settlement-intent/v1'
+    || ($summary['phases'] ?? null) !== ['lifecycle-settle']
+    || ($summary['resumed'] ?? null) !== false
+    || ($summary['cipher_sha256'] ?? null) !== str_repeat('c', 64)) {
+    throw new RuntimeException('FAIL: executed provider publisher returned a malformed intent summary');
+}
+if (\WPrism\PromotionLock::$fences !== 1
+    || \WPrism\RetainedCheckpointCipher::$verifications !== 1
+    || \WPrism\DatabaseTargetIdentity::$assertions !== 1) {
+    throw new RuntimeException('FAIL: provider publisher bypassed its protected-agent fence or checkpoint checks');
+}
+$agentPath = realpath($agent);
+foreach ([\WPrism\DatabaseTargetIdentity::class, \WPrism\RetainedCheckpointCipher::class] as $class) {
+    if ((new ReflectionClass($class))->getFileName() !== $agentPath) {
+        throw new RuntimeException("FAIL: provider publisher replaced protected-agent class '$class'");
+    }
+}
+if (!is_file($repo . '/.wprism/control/provider-settlement-intent.json')) {
+    throw new RuntimeException('FAIL: executed provider publisher did not durably publish its intent');
+}
+PHP
+pass "provider publisher executes after protected-agent bootstrap without loading duplicate recovery classes"
+
 # No descriptor means a code-only deploy has no mutation to perform. It must
 # not manufacture activation/deactivation side effects (agency audit #77), so
 # it exits after the read-only lifecycle status without a lease, checkpoint,

@@ -145,12 +145,14 @@ printf 'boot() loads: %s\n' "$(tr '\n' ' ' <<<"$engine_files" | sed 's#[^ ]*/##g
 # thin facades over the first three; check_theme_range had no other caller
 # and moved with no facade) -- this scanner keys its allowlist on exact
 # "file.php:function_name" pairs, so those four entries move filenames too.
-# current_active_plugins/plugin_runtime_state/run stay on Deploy.php
-# unchanged.
+# current_active_plugins/plugin_runtime_state stay on Deploy.php. The
+# checkpoint-authenticated provider wrapper now owns public run(), while the
+# prior WordPress-reading body is run_authorized(), so this exact-name
+# allowlist follows the body rather than excusing the new wrapper by accident.
 #
-# issue #3350 slice 8 moved the WP-mutation body of Deploy::run() (activate/
+# issue #3350 slice 8 moved the WP-mutation body (activate/
 # deactivate/order-correct/switch_theme) into LifecycleExecutor::execute();
-# its is_wp_error()/get_option() calls move with it. Deploy.php:run keeps its
+# its is_wp_error()/get_option() calls move with it. Deploy.php:run_authorized keeps its
 # own entry unchanged -- it still calls get_option('stylesheet'/'template')
 # directly, earlier in the method, to compute $stylesheetMismatch/
 # $templateMismatch before the moved call.
@@ -194,7 +196,7 @@ printf 'boot() loads: %s\n' "$(tr '\n' ' ' <<<"$engine_files" | sed 's#[^ ]*/##g
 # ONE assignment, deliberately: the #561 merge left two consecutive `wp_allow=`
 # lines and the second silently won, dropping WP-3.3's four ProviderSdk and two
 # ProviderSurfaces entries and re-failing the scan. This is their union.
-wp_allow='TargetProbe.php:probe_target,PlatformCompatibility.php:current_facts,Policy.php:taxonomies,NativeActions.php:delete_transient_action,NativeActions.php:transient_state,NativeActions.php:option_row_present,NativeActions.php:flush_rewrite_action,NativeActions.php:rewrite_evidence,NativeActions.php:rewrite_state,NativeActions.php:raw_option_state,LifecyclePlanner.php:code_mismatch,LifecyclePlanner.php:code_drift,LifecyclePlanner.php:record_code_versions,LifecyclePlanner.php:observe_code_versions,LifecyclePlanner.php:check_theme_range,LifecycleExecutor.php:execute,Deploy.php:run,Deploy.php:current_active_plugins,Deploy.php:plugin_runtime_state,Providers.php:plugin_supplied_providers,ProviderSurfaces.php:observe,ProviderSurfaces.php:option_witness,ProviderSdk.php:checked_get_var,ProviderSdk.php:checked_get_col,ProviderSdk.php:checked_get_row,ProviderSdk.php:checked_get_results'
+wp_allow='TargetProbe.php:probe_target,PlatformCompatibility.php:current_facts,Policy.php:taxonomies,NativeActions.php:delete_transient_action,NativeActions.php:transient_state,NativeActions.php:option_row_present,NativeActions.php:flush_rewrite_action,NativeActions.php:rewrite_evidence,NativeActions.php:rewrite_state,NativeActions.php:raw_option_state,LifecyclePlanner.php:code_mismatch,LifecyclePlanner.php:code_drift,LifecyclePlanner.php:record_code_versions,LifecyclePlanner.php:observe_code_versions,LifecyclePlanner.php:check_theme_range,LifecycleExecutor.php:execute,Deploy.php:run_authorized,Deploy.php:current_active_plugins,Deploy.php:plugin_runtime_state,Providers.php:plugin_supplied_providers,ProviderSurfaces.php:observe,ProviderSurfaces.php:option_witness,ProviderSdk.php:checked_get_var,ProviderSdk.php:checked_get_col,ProviderSdk.php:checked_get_row,ProviderSdk.php:checked_get_results'
 wp_allow_via='AdapterRegistry::report() PlatformCompatibility::current_facts() Policy::taxonomies() NativeActions::execute() Deploy::code_mismatch() Deploy::code_drift() Providers::negotiate()'
 
 scan_wp() {

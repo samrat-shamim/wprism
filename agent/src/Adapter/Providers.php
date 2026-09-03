@@ -673,7 +673,14 @@ final class Providers {
                     sort($requiredSurfaces, SORT_STRING);
                     sort($reads, SORT_STRING);
                     sort($writes, SORT_STRING);
+                    $argumentFinding = ($schemaContract['args'] ?? null) === []
+                        ? 'exact arguments'
+                        : 'non-empty or optional arguments';
+                    $surfaceFinding = $reads === $requiredSurfaces && $writes === $requiredSurfaces
+                        ? 'exact schema surfaces'
+                        : 'non-exact schema surfaces';
                     if (($schemaContract['scope'] ?? null) !== 'site'
+                        || ($schemaContract['args'] ?? null) !== []
                         || $reads !== $requiredSurfaces
                         || $writes !== $requiredSurfaces) {
                         $problems[] = self::problem(
@@ -681,9 +688,11 @@ final class Providers {
                             $manifest,
                             $plugin,
                             'schema_settlement_contract',
-                            'an idempotent site-scoped capability whose reads and writes exactly equal prepares tables',
-                            ($schemaContract['scope'] ?? '(missing)') . ' scope with non-exact schema surfaces',
-                            "update provider '$id' capability '$capability' so schema settlement has exact site scope, reads, and writes"
+                            'an idempotent argument-free site-scoped capability whose reads and writes exactly equal prepares tables',
+                            ($schemaContract['scope'] ?? '(missing)') . ' scope with '
+                                . $argumentFinding . ' and ' . $surfaceFinding,
+                            "update provider '$id' capability '$capability' so schema settlement is argument-free "
+                                . 'and has exact site scope, reads, and writes'
                         );
                         $failed = true;
                         continue;

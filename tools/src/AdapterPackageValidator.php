@@ -2522,7 +2522,7 @@ final class AdapterPackageValidator
                     "Certified adapter package '$slug' cannot read artifact evidence source " . $entry->getPathname()
                 );
             }
-            $sources[] = $extension === 'sh' ? ActiveShellSource::source($source) : $source;
+            $sources[] = $extension === 'sh' ? ActiveShellSource::source($source) : self::activePhpSource($source);
         }
         $capsule = $root . '/adapter-packages/' . $slug;
         foreach (self::externalEvidence($root, $capsule, $slug) as $relative) {
@@ -2533,10 +2533,29 @@ final class AdapterPackageValidator
                     "Certified adapter package '$slug' cannot read external artifact evidence source $path"
                 );
             }
-            $sources[] = str_ends_with($path, '.sh') ? ActiveShellSource::source($source) : $source;
+            $sources[] = str_ends_with($path, '.sh')
+                ? ActiveShellSource::source($source)
+                : self::activePhpSource($source);
         }
 
         return implode("\n", $sources);
+    }
+
+    /** Comments are documentation, never executable evidence that an artifact pin is exercised. */
+    private static function activePhpSource(string $source): string
+    {
+        $active = '';
+        foreach (token_get_all($source) as $token) {
+            if (is_array($token)) {
+                if (in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                    continue;
+                }
+                $active .= $token[1];
+                continue;
+            }
+            $active .= $token;
+        }
+        return $active;
     }
 
     private static function assertReadinessEvidenceOwnership(

@@ -51,7 +51,7 @@
  *
  * WHAT THE PARTS PROVE
  * --------------------
- *   PART 1 — the shipped engine. Every one of the 17 shipped manifests still
+ *   PART 1 — the shipped engine. Every one of the 18 shipped manifests still
  *   loads, and a `$open` manifest declaring `totally_made_up_section` and
  *   `optoins` still loads: the open era is unchanged across the flip, which is
  *   what makes this rider digest-neutral. The partition and the validator's
@@ -314,7 +314,7 @@ $adapterLibrary = AdapterLibrary::fromSourceTree($repo);
 // (`CLOSED_KEY_SET_SINCE`) and not of the engine. Before the flip they were
 // $N and $N, because the gate sat one above the engine. Now the engine IS the
 // gate, so every "the open era is open" measurement below stamps `$open` — the
-// version 2 that seven of the 17 shipped manifests still declare, reachable on this
+// version 2 that seven of the 18 shipped manifests still declare, reachable on this
 // engine only because § v3.1's window accepts N-1.
 //
 // Worth stating because it expires: at N = 4 the window's floor is 3, which is
@@ -411,7 +411,7 @@ $unionKeys = array_keys($union);
 sort($unionKeys, SORT_STRING);
 $outsidePartition = array_values(array_diff($unionKeys, $shipped['partition']));
 wprism_check_same(
-    ['column_codecs', 'declaration_evidence', 'engine_features'],
+    ['column_codecs', 'declaration_evidence', 'engine_features', 'incompatible_plugins'],
     $outsidePartition,
     'the shipped keys outside the signer partition are exactly the feature-claimed sections'
 );

@@ -2,7 +2,11 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+if (!class_exists(Db::class, false)) {
+    require_once __DIR__ . '/../Kernel/Db.php';
+}
 require_once __DIR__ . '/../Kernel/ProcessFence.php';
+require_once __DIR__ . '/../Kernel/TransientDbException.php';
 require_once __DIR__ . '/PromotionSessionJournal.php';
 require_once __DIR__ . '/LifecycleJournal.php';
 require_once __DIR__ . '/StateTransitionJournal.php';
@@ -97,6 +101,167 @@ class PromotionLease {
     /** Begin a new multi-process host session; later host phases only continue it. */
     public static function begin(string $owner, string $artifactHash, ?int $ttl = null): array {
         return self::acquire($owner, $artifactHash, 'checkpoint', $ttl, false);
+    }
+
+    /**
+     * Elect an ordinary host session only after a target-local external-debt
+     * check made inside the same continuously held database process fence.
+     * The advisory fence is deliberately acquired before Ledger::ensure() or
+     * any durable lease write: a process death before the external read
+     * completes must not strand a contender's row ahead of the recovery owner.
+     *
+     * @param callable():void $assertExternalAuthority
+     * @return array{owner:string,artifact_hash:string,phase:string,acquired_at:int,expires_at:int,recovered:bool,session_id:string}
+     */
+    public static function begin_with_external_fence(
+        string $owner,
+        string $artifactHash,
+        callable $assertExternalAuthority,
+        ?int $ttl = null
+    ): array {
+        self::assert_identity($owner, $artifactHash);
+        self::claim_process_fence();
+        try {
+            $assertExternalAuthority();
+            ProcessFence::assertHeld();
+            Ledger::ensure();
+            self::assert_transactional_promotion_storage();
+            $transactionOpen = false;
+            $commitAttempted = false;
+            try {
+                Db::start('promotion begin transaction start');
+                $transactionOpen = true;
+                $summary = self::acquire_internal(
+                    $owner,
+                    $artifactHash,
+                    'checkpoint',
+                    $ttl,
+                    false,
+                    true,
+                    null,
+                    false,
+                    false,
+                    true
+                );
+                $commitAttempted = true;
+                try {
+                    Db::commit('promotion begin transaction commit');
+                } catch (DatabaseMutationException|TransientDbException $notCommitted) {
+                    Db::rollback_after_failure(
+                        $notCommitted,
+                        'promotion begin transaction rollback after refused commit'
+                    );
+                    $transactionOpen = false;
+                    $commitAttempted = false;
+                    throw $notCommitted;
+                }
+                $transactionOpen = false;
+                return $summary;
+            } catch (\Throwable $failure) {
+                if ($transactionOpen && !$commitAttempted) {
+                    Db::rollback_after_failure($failure, 'promotion begin transaction rollback');
+                }
+                throw $failure;
+            }
+        } catch (\Throwable $failure) {
+            self::release_process_fence();
+            throw $failure;
+        }
+    }
+
+    /**
+     * Reacquire the exact latest ordinary session for retained-checkpoint
+     * recovery without rotating its generation. The caller authenticates the
+     * external checkpoint/provider authority while the advisory fence is held;
+     * only then may this method recreate the matching durable lease row.
+     *
+     * @param callable():void $assertRecoveryAuthority
+     * @return array{owner:string,artifact_hash:string,phase:string,acquired_at:int,expires_at:int,recovered:true,session_id:string}
+     */
+    public static function begin_recovery_with_external_fence(
+        string $owner,
+        string $artifactHash,
+        callable $assertRecoveryAuthority,
+        ?int $ttl = null
+    ): array {
+        global $wpdb;
+        self::assert_identity($owner, $artifactHash);
+        self::claim_process_fence();
+        try {
+            $assertRecoveryAuthority();
+            ProcessFence::assertHeld();
+            Ledger::ensure();
+            self::assert_transactional_promotion_storage();
+            $session = self::current_session();
+            if ($session === null
+                || !hash_equals($owner, (string) ($session['owner'] ?? ''))
+                || !hash_equals($artifactHash, (string) ($session['artifact_hash'] ?? ''))) {
+                throw new \RuntimeException(
+                    'wprism: checkpoint recovery promotion session was absent or superseded'
+                );
+            }
+            if (($session['profile'] ?? null) === 'scoped-checkpoint-v1') {
+                throw new \RuntimeException(
+                    'wprism: ordinary checkpoint recovery cannot reuse a scoped promotion session'
+                );
+            }
+            if (self::current() !== null) {
+                throw new \RuntimeException(
+                    'wprism: checkpoint recovery requires its exact prior promotion lease cleanup'
+                );
+            }
+            $ttl = self::ttl($ttl);
+            $now = time();
+            $payload = self::payload($owner, $artifactHash, 'checkpoint-recovery', $now, $now + $ttl);
+            $table = $wpdb->prefix . 'wprism_kv';
+            $inserted = Db::query($wpdb->prepare(
+                "INSERT IGNORE INTO `$table` (k, v) VALUES (%s, %s)",
+                self::KEY,
+                wp_json_encode($payload)
+            ), 'checkpoint recovery promotion lease acquire');
+            if ((int) $inserted !== 1) {
+                throw new \RuntimeException('wprism: checkpoint recovery lost the promotion lease race');
+            }
+            $current = self::current();
+            if ($current === null
+                || !hash_equals($owner, (string) ($current['owner'] ?? ''))
+                || !hash_equals($artifactHash, (string) ($current['artifact_hash'] ?? ''))
+                || (int) ($current['expires_at'] ?? 0) <= $now) {
+                throw new \RuntimeException('wprism: checkpoint recovery promotion lease readback failed');
+            }
+            self::$leaseSessionOwner = $owner;
+            self::$leaseSessionArtifact = $artifactHash;
+            $current['recovered'] = true;
+            $current['session_id'] = self::normalized_session_id($session);
+            return $current;
+        } catch (\Throwable $failure) {
+            self::release_process_fence();
+            throw $failure;
+        }
+    }
+
+    /**
+     * Run one external publication while proving the exact existing host
+     * session and lease under the same target advisory fence as begin(). The
+     * durable lease remains for the next process; only this connection's fence
+     * is released after the callback.
+     *
+     * @template T
+     * @param callable():T $callback
+     * @return T
+     */
+    public static function with_existing_lease_fence(
+        string $owner,
+        string $artifactHash,
+        string $phase,
+        callable $callback
+    ): mixed {
+        self::acquire($owner, $artifactHash, $phase, null, true);
+        try {
+            return $callback();
+        } finally {
+            self::release_process_fence();
+        }
     }
 
     /** Begin or resume one receipt-bound, externally checkpointed promotion. */
@@ -325,7 +490,8 @@ class PromotionLease {
         bool $publishSession,
         ?array $sessionMetadata = null,
         bool $replaceProfilelessOrdinarySession = false,
-        bool $requireSessionAbsentAfterFence = false
+        bool $requireSessionAbsentAfterFence = false,
+        bool $fenceOwnedByCaller = false
     ): array {
         global $wpdb;
         self::assert_identity($owner, $artifactHash);
@@ -519,11 +685,15 @@ class PromotionLease {
                         'scoped ordinary session replacement transaction rollback'
                     );
                 } catch (\Throwable $recoveryFailure) {
-                    self::release_process_fence();
+                    if (!$fenceOwnedByCaller) {
+                        self::release_process_fence();
+                    }
                     throw $recoveryFailure;
                 }
             }
-            self::release_process_fence();
+            if (!$fenceOwnedByCaller) {
+                self::release_process_fence();
+            }
             throw $t;
         }
     }
@@ -1292,6 +1462,15 @@ class PromotionLease {
     }
 
     private static function assert_transactional_replacement_storage(): void {
+        self::assert_transactional_promotion_storage(
+            'scoped ordinary session replacement requires an InnoDB wprism_kv table; '
+                . 'refusing a nontransactional promotion handoff'
+        );
+    }
+
+    private static function assert_transactional_promotion_storage(
+        string $message = 'promotion begin requires an InnoDB wprism_kv table; refusing a nontransactional session handoff'
+    ): void {
         global $wpdb;
         $table = $wpdb->prefix . 'wprism_kv';
         $engine = $wpdb->get_var($wpdb->prepare(
@@ -1299,7 +1478,7 @@ class PromotionLease {
             $table
         ));
         if (!is_string($engine) || strcasecmp($engine, 'InnoDB') !== 0) {
-            throw new \RuntimeException('wprism: scoped ordinary session replacement requires an InnoDB wprism_kv table; refusing a nontransactional promotion handoff');
+            throw new \RuntimeException('wprism: ' . $message);
         }
     }
 

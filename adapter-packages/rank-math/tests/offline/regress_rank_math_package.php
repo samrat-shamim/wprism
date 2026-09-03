@@ -42,6 +42,7 @@ wprism_check_same(
 wprism_check_same(
     [
         'manifest-provider-runtime/v1',
+        'plugin-incompatibility/v1',
         'schema-settlement/v1',
         'spec-window/v1',
         'structured-evidence/v1',

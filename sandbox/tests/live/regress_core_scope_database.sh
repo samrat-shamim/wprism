@@ -275,14 +275,14 @@ for cell in "${ENGINE_CELLS[@]}"; do
   # and output shape between the machines these live runs happen on.
   ARTIFACT_HASH=$(php -r 'echo hash("sha256", $argv[1]);' "core-scope-database-$cell_env")
   ACQUIRE=$(wprism_json wp1 "$cell_engine lease acquire" promotion-begin \
-    --promotion-owner=core-scope-database --artifact-hash="$ARTIFACT_HASH")
+    --repo=/siterepo --promotion-owner=core-scope-database --artifact-hash="$ARTIFACT_HASH")
   jq -e --arg hash "$ARTIFACT_HASH" '.artifact_hash == $hash and (.expires_at | type) == "number"' \
     <<<"$ACQUIRE" >/dev/null || fail "$cell_engine lease acquire returned an unexpected summary: $ACQUIRE"
   # The second begin lands on the ON DUPLICATE KEY UPDATE branch — the upsert
   # actually UPDATING on conflict, which is audit §1's first required
   # assertion, reached through the CAS rather than beside it.
   RENEW=$(wprism_json wp1 "$cell_engine lease renew" promotion-begin \
-    --promotion-owner=core-scope-database --artifact-hash="$ARTIFACT_HASH")
+    --repo=/siterepo --promotion-owner=core-scope-database --artifact-hash="$ARTIFACT_HASH")
   jq -e --arg hash "$ARTIFACT_HASH" '.artifact_hash == $hash' <<<"$RENEW" >/dev/null \
     || fail "$cell_engine lease renew did not update on conflict: $RENEW"
   [ "$(jq -er '.expires_at' <<<"$RENEW")" -ge "$(jq -er '.expires_at' <<<"$ACQUIRE")" ] \
@@ -304,11 +304,11 @@ for cell in "${ENGINE_CELLS[@]}"; do
   # fail-closed/fail-open difference, and the one this suite exists to measure.
   say "audit §2: $cell_engine acquire over a planted non-JSON lease row"
   wprism_json wp1 "$cell_engine lease reseed" promotion-begin \
-    --promotion-owner=core-scope-database --artifact-hash="$ARTIFACT_HASH" >/dev/null
+    --repo=/siterepo --promotion-owner=core-scope-database --artifact-hash="$ARTIFACT_HASH" >/dev/null
   sql "$cell_container" "$cell_client" \
     "UPDATE wp_${PAIR}1.wp_wprism_kv SET v='not-json' WHERE k='promotion_lock'" >/dev/null
   set +e
-  wp1 wprism promotion-begin --promotion-owner=core-scope-database-other \
+  wp1 wprism promotion-begin --repo=/siterepo --promotion-owner=core-scope-database-other \
     --artifact-hash="$ARTIFACT_HASH" --format=json > "$ARTIFACTS/planted-$cell_env.json" 2>&1
   PLANTED_RC=$?
   set -e

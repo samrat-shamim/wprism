@@ -866,6 +866,19 @@ $check(count($schemaNegotiation['problems']) === 1
 $reset();
 \WPrism\Providers\ProbeCache::$extraCapabilities = ['inspect_schema' => $schemaReadiness];
 \WPrism\Providers\ProbeCache::$capabilityOverrides = [
+    'args' => ['mode' => ['type' => 'string', 'required' => false]],
+    'reads' => ['table:probe_projection'],
+    'writes' => ['table:probe_projection'],
+];
+$schemaNegotiation = \WPrism\Providers::negotiate($schemaPolicy, $schemaPolicy->schema_settle_actions());
+$check(count($schemaNegotiation['problems']) === 1
+    && ($schemaNegotiation['problems'][0]['code'] ?? null) === 'schema_settlement_contract'
+    && str_contains((string) ($schemaNegotiation['problems'][0]['found'] ?? ''), 'optional arguments'),
+    'schema settlement refuses a plugin-sourced prepare capability that advertises even optional arguments');
+
+$reset();
+\WPrism\Providers\ProbeCache::$extraCapabilities = ['inspect_schema' => $schemaReadiness];
+\WPrism\Providers\ProbeCache::$capabilityOverrides = [
     'args' => [],
     'reads' => ['table:probe_projection'],
     'writes' => ['table:probe_projection'],

@@ -15,7 +15,7 @@
   "agent/src/Adapter/AdapterCertification.php::verifyCertificate",
   "agent/src/Policy/Policy.php::from_snapshot",
   "agent/src/Policy/ScopeContract.php::assert_associated",
-  "agent/src/Promotion/Deploy.php::run",
+  "agent/src/Promotion/Deploy.php::run_authorized",
   "agent/src/Repository/CompiledArtifactReader.php::read_artifact",
   "agent/src/Repository/IdentityBackup.php::restore",
   "agent/src/Scope/ScopedApplySession.php::assert_source",
@@ -538,7 +538,7 @@
    "note": "writes the compiled manifest_hash into the contract's source block; assert_associated() is what later compares it."
   },
   {
-   "site": "agent/src/Promotion/Deploy.php::run",
+   "site": "agent/src/Promotion/Deploy.php::run_authorized",
    "axes": [
     "manifest"
    ],

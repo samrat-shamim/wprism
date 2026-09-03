@@ -9,7 +9,9 @@
       "adapter-packages/rank-math/evidence/artifacts.lock.json",
       "adapter-packages/rank-math/tests/offline/regress_rank_math_package.php",
       "adapter-packages/rank-math/tests/offline/regress_rank_math_provider.php",
-      "adapter-packages/rank-math/tests/certify/version-matrix.sh"
+      "adapter-packages/rank-math/tests/certify/version-matrix.sh",
+      "integration-scenarios/rank-math-yoast-incompatibility/tests/offline/regress_rank_math_yoast_incompatibility.php",
+      "integration-scenarios/rank-math-yoast-incompatibility/tests/live/regress_rank_math_yoast_incompatibility.sh"
     ],
     "clean-target": [
       "adapter-packages/rank-math/tests/conformance/entry.json",
@@ -69,13 +71,16 @@
       "adapter-packages/rank-math/tests/offline/regress_rank_math_package.php",
       "adapter-packages/rank-math/tests/conformance/seed.sh",
       "adapter-packages/rank-math/tests/conformance/check.sh",
-      "integration-scenarios/rank-math-commerce-multilingual/tests/offline/regress_rank_math_commerce_multilingual_contract.php"
+      "integration-scenarios/rank-math-commerce-multilingual/tests/offline/regress_rank_math_commerce_multilingual_contract.php",
+      "integration-scenarios/rank-math-yoast-incompatibility/tests/offline/regress_rank_math_yoast_incompatibility.php",
+      "integration-scenarios/rank-math-yoast-incompatibility/tests/live/regress_rank_math_yoast_incompatibility.sh"
     ],
     "scope-platform": [
       "adapter-packages/rank-math/package/manifest.json",
       "adapter-packages/rank-math/package/runtime/providers/rank-math-state.php",
       "adapter-packages/rank-math/tests/conformance/check.sh",
       "adapter-packages/rank-math/tests/certify/version-matrix.sh",
+      "integration-scenarios/rank-math-yoast-incompatibility/tests/live/regress_rank_math_yoast_incompatibility.sh",
       "sandbox/tests/live/regress_multisite_refusal.sh"
     ]
   },

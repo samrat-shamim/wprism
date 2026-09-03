@@ -44,10 +44,12 @@ declare(strict_types=1);
  *     to spell the primitive the way the first one did.
  *   - a declared primitive nothing demands: vocabulary that outlives its
  *     demand is how a ranking rots into an aspiration list.
- *   - an `open` primitive demanded by a CLOSED coordinate, or a `shipped`
- *     primitive demanded by one still open: the lifecycle state of a primitive
- *     and of the coordinate that wanted it are the same fact stated twice, and
- *     a disagreement means one of them is stale.
+ *   - a CLOSED coordinate on an `open` primitive, an open coordinate on a
+ *     `shipped` primitive without `blocker_layer: adapter`, or an open
+ *     primitive labelled adapter-blocked: the layer names whether platform
+ *     capability or plugin implementation/evidence remains. A shipped
+ *     primitive may therefore retain open adapter work without pretending the
+ *     platform facility is missing.
  *   - a candidate whose `disposition` disagrees with its own coordinates: a row
  *     is `closed` exactly when every coordinate is, and blocked while any one
  *     of them is not.
@@ -526,8 +528,9 @@ function gap_preamble(array $ledger): string {
         . 'This ledger records plugin state shapes discovered during adapter authoring. `blocker_layer: platform` '
         . 'means the generic engine still lacks a reusable facility; `blocker_layer: adapter` means that facility '
         . "already ships and the named plugin still needs its own bounded implementation and evidence.\n\n"
-        . 'The source probes below used official WordPress.org artifacts on ' . array_key_first($dates) . '. '
-        . 'They are deliberately separate from adapter package dispositions: a rejected candidate is not shipped '
+        . 'The currently rejected candidates were probed from official WordPress.org artifacts on '
+        . array_key_first($dates) . '; closed rows retain the evidence from their own authoring exercises. '
+        . 'Candidate rows are deliberately separate from adapter package dispositions: a rejected candidate is not shipped '
         . "adapter identity and makes no capability claim.\n\n"
         . 'Every coordinate names its `primitive_required` from a closed generic vocabulary in the ledger, so two '
         . 'candidates blocked on the same missing thing are ONE countable primitive rather than two lookalike '

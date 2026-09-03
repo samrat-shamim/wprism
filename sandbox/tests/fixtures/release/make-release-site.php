@@ -332,6 +332,9 @@ case " $* " in
       # which is what every suite that does not set it saw before.
       if [ -n "${WPRISM_PENDING:-}" ]; then cat "$WPRISM_PENDING"; else printf '[]\n'; fi
       exit 0 ;;
+  *" wprism lifecycle-status "*)
+      printf '%s\n' '{"format":"wprism-lifecycle-status/v1","reasons":[],"required":false}'
+      exit 0 ;;
   *" wprism promotion-begin "*)
       if [ "${WPRISM_ENFORCE_RELEASE_BINDING:-0}" = 1 ]; then
         begin_repo=""; begin_operation=""; begin_commit=""; begin_tree=""; begin_owner=""
@@ -389,6 +392,9 @@ try {
   *" wprism lifecycle-settle "*) exit 0 ;;
   *" wprism code-finalize "*) exit 0 ;;
   *" wprism apply "*) exit "${WPRISM_APPLY_EXIT:-0}" ;;
+  *" wprism checkpoint-target "*)
+      printf '%s\n' '{"database_target_sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","format":"wprism-database-target/v1"}'
+      exit 0 ;;
   *" wprism checkpoint-seal "*)
       out=""
       for a in "$@"; do case "$a" in --output=*) out="${a#--output=}" ;; esac; done

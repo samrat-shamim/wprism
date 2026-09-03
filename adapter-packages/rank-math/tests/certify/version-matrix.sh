@@ -237,6 +237,91 @@ update_option("rank_math_modules", $modules);
     [ -z "$UPGRADE_DIFF" ] \
       || fail "Rank Math 1.0.277 -> 1.0.277.2 upgrade lost byte identity: $UPGRADE_DIFF"
     pass 'Rank Math 1.0.277 -> 1.0.277.2 preserves native behavior, target identities, projections and byte identity'
+
+    say 'in-range downgrade: seo-by-rank-math 1.0.277.2 -> 1.0.277.1 on populated source and target'
+    DOWNGRADE_ARTIFACT_1=$(fetch_artifact seo-by-rank-math 1.0.277.1 cli1)
+    DOWNGRADE_ARTIFACT_2=$(fetch_artifact seo-by-rank-math 1.0.277.1 cli2)
+    wp1 plugin install "$DOWNGRADE_ARTIFACT_1" --force --activate >/dev/null
+    wp2 plugin install "$DOWNGRADE_ARTIFACT_2" --force --activate >/dev/null
+    [ "$(wp1 plugin get seo-by-rank-math --field=version)" = 1.0.277.1 ] \
+      && [ "$(wp2 plugin get seo-by-rank-math --field=version)" = 1.0.277.1 ] \
+      || fail 'Rank Math in-range downgrade did not install exact 1.0.277.1 on both environments'
+
+    DOWNGRADE_BEFORE=$(rank_math_native_state_hash wp2)
+    require_observed_nonempty 'Rank Math downgrade target baseline' "$DOWNGRADE_BEFORE"
+    DOWNGRADE_PLAN_RC=0
+    DOWNGRADE_PLAN_OUT=$(wp2 wprism plan --repo=/siterepo --format=json 2>&1) || DOWNGRADE_PLAN_RC=$?
+    require_wprism_answered 'Rank Math 1.0.277.2 to 1.0.277.1 downgrade plan' json "$DOWNGRADE_PLAN_OUT"
+    [ "$DOWNGRADE_PLAN_RC" -eq 0 ] \
+      || fail "Rank Math in-range downgrade plan did not report its code drift: $DOWNGRADE_PLAN_OUT"
+    DOWNGRADE_PLAN=$(awk 'NF { line=$0 } END { print line }' <<<"$DOWNGRADE_PLAN_OUT")
+    jq -e '
+      (.code_drift | length) == 1 and
+      .code_drift[0].plugin == "seo-by-rank-math/rank-math.php" and
+      .code_drift[0].installed_version == "1.0.277.1" and
+      .code_drift[0].recorded_version == "1.0.277.2"
+    ' <<<"$DOWNGRADE_PLAN" >/dev/null \
+      || fail "Rank Math in-range downgrade plan did not identify the exact version transition: $DOWNGRADE_PLAN"
+    [ "$(rank_math_native_state_hash wp2)" = "$DOWNGRADE_BEFORE" ] \
+      || fail 'Rank Math in-range downgrade plan mutated plugin state'
+
+    DOWNGRADE_DEPLOY_RC=0
+    DOWNGRADE_DEPLOY_OUT=$(host_wprism_vmatrix wp2 deploy 2>&1) || DOWNGRADE_DEPLOY_RC=$?
+    require_wprism_answered 'Rank Math 1.0.277.2 to 1.0.277.1 downgrade deploy' human "$DOWNGRADE_DEPLOY_OUT"
+    [ "$DOWNGRADE_DEPLOY_RC" -ne 0 ] \
+      && grep -q 'code_drift' <<<"$DOWNGRADE_DEPLOY_OUT" \
+      && grep -q '1.0.277.2' <<<"$DOWNGRADE_DEPLOY_OUT" \
+      && grep -q '1.0.277.1' <<<"$DOWNGRADE_DEPLOY_OUT" \
+      || fail "Rank Math in-range downgrade deploy did not refuse at the exact code witness: $DOWNGRADE_DEPLOY_OUT"
+    DOWNGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+    DOWNGRADE_APPLY_RC=0
+    DOWNGRADE_APPLY_OUT=$(wp2 wprism apply --repo=/siterepo --default-author=admin \
+      --revision="$DOWNGRADE_REV" 2>&1) || DOWNGRADE_APPLY_RC=$?
+    require_wprism_answered 'Rank Math 1.0.277.2 to 1.0.277.1 downgrade apply' human "$DOWNGRADE_APPLY_OUT"
+    [ "$DOWNGRADE_APPLY_RC" -ne 0 ] \
+      && grep -q 'code_drift' <<<"$DOWNGRADE_APPLY_OUT" \
+      && grep -q '1.0.277.2' <<<"$DOWNGRADE_APPLY_OUT" \
+      && grep -q '1.0.277.1' <<<"$DOWNGRADE_APPLY_OUT" \
+      || fail "Rank Math in-range downgrade apply did not refuse at the exact code witness: $DOWNGRADE_APPLY_OUT"
+    [ "$(rank_math_native_state_hash wp2)" = "$DOWNGRADE_BEFORE" ] \
+      || fail 'Rank Math in-range downgrade refusal mutated plugin state'
+
+    DOWNGRADE_SOURCE_DEPLOY=$(host_wprism_vmatrix wp1 deploy --force-code-drift 2>&1) \
+      || fail "Rank Math downgraded source re-baseline failed: $DOWNGRADE_SOURCE_DEPLOY"
+    DOWNGRADE_TARGET_DEPLOY=$(host_wprism_vmatrix wp2 deploy --force-code-drift 2>&1) \
+      || fail "Rank Math downgraded target re-baseline failed: $DOWNGRADE_TARGET_DEPLOY"
+    grep -q 'FORCED past code_drift' <<<"$DOWNGRADE_SOURCE_DEPLOY" \
+      && grep -q 'FORCED past code_drift' <<<"$DOWNGRADE_TARGET_DEPLOY" \
+      || fail "Rank Math explicit downgrade re-baseline did not report both forced decisions: source=$DOWNGRADE_SOURCE_DEPLOY target=$DOWNGRADE_TARGET_DEPLOY"
+
+    DOWNGRADE_POST=$(wp1 post list --post_type=post --name=rank-math-article --field=ID)
+    require_fixture_ids DOWNGRADE_POST
+    wp1 post update "$DOWNGRADE_POST" --post_title='Rank Math 1.0.277.2 to 1.0.277.1 東京 🚀' >/dev/null
+    wp1 wprism capture --repo=/siterepo
+    wp1 wprism lint --repo=/siterepo
+    "${GIT1[@]}" add -A
+    "${GIT1[@]}" commit -qm 'capture: Rank Math 1.0.277.2 to 1.0.277.1 in-range downgrade'
+    "${GIT1[@]}" push -q origin main
+    git -C "siterepo/${PAIR}2" pull -q origin main
+    DOWNGRADE_REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
+    capture_wprism_json_success RANK_MATH_BOUNDARY_APPLY_JSON 'Rank Math version-matrix downgrade apply' \
+      wp2 wprism apply --repo=/siterepo --default-author=admin \
+        --revision="$DOWNGRADE_REV" --json
+    RANK_MATH_VERSION=1.0.277.1
+    check_rank_math_boundary_content
+    RANK_MATH_VERSION=1.0.277
+
+    DOWNGRADED_TITLE=$(wp2 post list --post_type=post --name=rank-math-article --field=post_title)
+    [ "$DOWNGRADED_TITLE" = 'Rank Math 1.0.277.2 to 1.0.277.1 東京 🚀' ] \
+      || fail "Rank Math downgrade did not consume state authored after explicit re-baseline: $DOWNGRADED_TITLE"
+    wp2 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rank-math-downgraded-final
+    DOWNGRADE_DIFF=$(diff -rq \
+      "siterepo/${PAIR}1/state" \
+      "siterepo/${PAIR}2/.tmp-rank-math-downgraded-final" || true)
+    rm -rf "siterepo/${PAIR}2/.tmp-rank-math-downgraded-final"
+    [ -z "$DOWNGRADE_DIFF" ] \
+      || fail "Rank Math 1.0.277.2 -> 1.0.277.1 downgrade lost byte identity: $DOWNGRADE_DIFF"
+    pass 'Rank Math 1.0.277.2 -> 1.0.277.1 refuses until explicit re-baseline, then preserves native behavior and byte identity'
   fi
 done
 

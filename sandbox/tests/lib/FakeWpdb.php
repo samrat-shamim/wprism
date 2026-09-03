@@ -942,6 +942,17 @@ final class FakeWpdb {
             $lower = strtolower($query);
             if (str_contains($lower, 'information_schema.tables')) {
                 $rows = $this->informationSchemaRows($query, 'tables');
+                // get_var() returns the first PROJECTED column, not the first
+                // field in informationSchemaRows()'s shared inventory shape.
+                // PromotionLease's transactional-storage gate selects ENGINE
+                // alone; returning TABLE_NAME here would falsely classify an
+                // explicitly seeded InnoDB ledger as nontransactional.
+                if (preg_match('/^\s*SELECT\s+ENGINE\s+FROM\s+information_schema\.TABLES\b/i', $query) === 1) {
+                    $rows = array_map(
+                        static fn(array $row): array => ['ENGINE' => $row['ENGINE'] ?? null],
+                        $rows
+                    );
+                }
             } elseif (str_contains($lower, 'character_maximum_length')) {
                 preg_match("/TABLE_NAME\s*=\s*'([^']+)'/i", $query, $tableMatch);
                 preg_match("/COLUMN_NAME\s*=\s*'([^']+)'/i", $query, $columnMatch);

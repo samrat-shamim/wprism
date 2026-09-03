@@ -21,7 +21,8 @@ require_once __DIR__ . '/../Adapter/LifecycleSettlement.php';
 require_once __DIR__ . '/../Adapter/SchemaSettlement.php';
 require_once __DIR__ . '/../Recovery/RetainedCheckpointCipher.php';
 require_once __DIR__ . '/../Recovery/DatabaseTargetIdentity.php';
-require_once __DIR__ . '/../Repository/SchemaSettlementIntent.php';
+require_once __DIR__ . '/../Kernel/CheckpointRecoveryIntent.php';
+require_once __DIR__ . '/../Kernel/ProviderSettlementIntent.php';
 require_once __DIR__ . '/../Promotion/AuthorizedReleaseRepository.php';
 require_once __DIR__ . '/../Promotion/LifecyclePlanner.php';
 
@@ -852,75 +853,18 @@ final class Cli {
     }
 
     /**
-     * Authenticate a retained checkpoint without emitting SQL. Recovery runs
-     * this before its exact database-topology reset and binds the later open
-     * to the returned ciphertext digest.
-     *
-     * ## OPTIONS
-     * --repo=<path> : Site repo root.
-     * --input=<path> : Canonical .wprism/checkpoints/*.sql.enc input.
-     * [--format=<format>] : Output format. Accepts json.
-     *
-     * @subcommand checkpoint-verify
-     */
-    public function checkpoint_verify($args, $assoc) {
-        $summary = null;
-        try {
-            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('checkpoint-verify', '--repo');
-            $input = $assoc['input'] ?? throw CommandRefusalException::invalidArgument('checkpoint-verify', '--input');
-            $summary = RetainedCheckpointCipher::verify((string) $repo, (string) $input);
-            DatabaseTargetIdentity::assertWordPressConfig(
-                (string) $summary['database_target_sha256']
-            );
-            $summary['schema_intent'] = SchemaSettlementIntent::assert_recovery_checkpoint(
-                (string) $input,
-                (string) $summary['cipher_sha256']
-            );
-        } catch (\Throwable $t) {
-            self::halt_json_failure($t, $assoc, 'checkpoint-verify');
-            WP_CLI::error($t->getMessage());
-        }
-        if (!is_array($summary)) {
-            return;
-        }
-        WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
-    }
-
-    /**
-     * Authenticate and stream one retained checkpoint to stdout. The caller
-     * pipes it directly into isolated `wp db import -`.
-     *
-     * ## OPTIONS
-     * --repo=<path> : Site repo root.
-     * --input=<path> : Canonical .wprism/checkpoints/*.sql.enc input.
-     * [--expected-cipher-sha256=<sha256>] : Exact digest returned by checkpoint-verify.
-     *
-     * @subcommand checkpoint-open
-     */
-    public function checkpoint_open($args, $assoc) {
-        try {
-            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('checkpoint-open', '--repo');
-            $input = $assoc['input'] ?? throw CommandRefusalException::invalidArgument('checkpoint-open', '--input');
-            $expected = isset($assoc['expected-cipher-sha256'])
-                ? (string) $assoc['expected-cipher-sha256']
-                : null;
-            RetainedCheckpointCipher::open((string) $repo, (string) $input, null, $expected);
-        } catch (\Throwable $t) {
-            WP_CLI::error($t->getMessage());
-        }
-    }
-
-    /**
      * Acquire the host promotion lease before its database checkpoint. This
-     * is intentionally hash-only: the host has already compiled and verified
-     * the immutable outer artifact, while this command must remain available
-     * to release/recover a lease even if the working repo later changes.
+     * binds the immutable outer artifact and the repository holding external
+     * recovery debt. Lease election and that debt read share one continuously
+     * held target process fence.
      *
      * ## OPTIONS
      * --promotion-owner=<token> : Required internal orchestrator owner token.
      * --artifact-hash=<sha256> : Required immutable artifact hash binding code and state.
+     * --repo=<path> : Required repository containing the external recovery control root.
      * [--expected-database-target-sha256=<sha256>] : Recovery-only pre-mutation target fence.
-     * [--repo=<path>] : Internal authorized-release repository path; all four repository options are required together.
+     * [--checkpoint=<path>] : Recovery-only exact retained checkpoint.
+     * [--expected-cipher-sha256=<sha256>] : Recovery-only authenticated ciphertext identity.
      * [--release-operation-id=<id>] : Internal immutable release operation identity.
      * [--expected-source-commit=<oid>] : Internal exact materialized commit.
      * [--expected-source-tree=<oid>] : Internal exact materialized tree.
@@ -931,9 +875,25 @@ final class Cli {
      */
     public function promotion_begin($args, $assoc) {
         try {
-            if (isset($assoc['expected-database-target-sha256'])) {
+            $recoveryOptions = [
+                'checkpoint' => $assoc['checkpoint'] ?? null,
+                'expected-cipher-sha256' => $assoc['expected-cipher-sha256'] ?? null,
+                'expected-database-target-sha256' => $assoc['expected-database-target-sha256'] ?? null,
+            ];
+            $presentRecoveryOptions = array_filter(
+                $recoveryOptions,
+                static fn($value): bool => $value !== null
+            );
+            if ($presentRecoveryOptions !== [] && count($presentRecoveryOptions) !== count($recoveryOptions)) {
+                throw new CommandRefusalException(
+                    'promotion_recovery_binding_invalid',
+                    'the checkpoint recovery lease binding is incomplete',
+                    'supply checkpoint, expected-cipher-sha256 and expected-database-target-sha256 together'
+                );
+            }
+            if ($presentRecoveryOptions !== []) {
                 DatabaseTargetIdentity::assertWordPressConfig(
-                    (string) $assoc['expected-database-target-sha256']
+                    (string) $recoveryOptions['expected-database-target-sha256']
                 );
             }
             // FIRST, before the argument gates and before Ledger::ensure():
@@ -953,8 +913,8 @@ final class Cli {
             // unchanged, because human mode still prints the private message.
             $owner = $assoc['promotion-owner'] ?? throw CommandRefusalException::invalidArgument('promotion-begin', '--promotion-owner');
             $artifactHash = $assoc['artifact-hash'] ?? throw CommandRefusalException::invalidArgument('promotion-begin', '--artifact-hash');
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('promotion-begin', '--repo');
             $repositoryOptions = [
-                'repo' => $assoc['repo'] ?? null,
                 'release-operation-id' => $assoc['release-operation-id'] ?? null,
                 'expected-source-commit' => $assoc['expected-source-commit'] ?? null,
                 'expected-source-tree' => $assoc['expected-source-tree'] ?? null,
@@ -969,22 +929,64 @@ final class Cli {
                     throw new CommandRefusalException(
                         'promotion_repository_binding_invalid',
                         'the authorized release repository binding is incomplete',
-                        'supply repo, release-operation-id, expected-source-commit and expected-source-tree together'
+                        'supply release-operation-id, expected-source-commit and expected-source-tree together'
                     );
                 }
                 $repositoryBinding = AuthorizedReleaseRepository::acquire(
-                    (string) $repositoryOptions['repo'],
+                    (string) $repo,
                     (string) $repositoryOptions['release-operation-id'],
                     (string) $repositoryOptions['expected-source-commit'],
                     (string) $repositoryOptions['expected-source-tree'],
                     (string) $owner
                 );
             }
-            Ledger::ensure();
             if ($repositoryBinding !== null) {
                 $repositoryBinding->assertBound();
             }
-            $summary = PromotionLock::begin((string) $owner, (string) $artifactHash);
+            if ($presentRecoveryOptions === []) {
+                $summary = PromotionLock::begin_with_external_fence(
+                    (string) $owner,
+                    (string) $artifactHash,
+                    static function () use ($repo): void {
+                        CheckpointRecoveryIntent::assert_clear((string) $repo);
+                        ProviderSettlementIntent::assert_clear((string) $repo);
+                    }
+                );
+            } else {
+                $summary = PromotionLock::begin_recovery_with_external_fence(
+                    (string) $owner,
+                    (string) $artifactHash,
+                    static function () use (
+                        $repo,
+                        $recoveryOptions,
+                        $owner,
+                        $artifactHash
+                    ): void {
+                        $verification = RetainedCheckpointCipher::verify(
+                            (string) $repo,
+                            (string) $recoveryOptions['checkpoint']
+                        );
+                        if (!hash_equals(
+                            (string) ($verification['cipher_sha256'] ?? ''),
+                            (string) $recoveryOptions['expected-cipher-sha256']
+                        ) || !hash_equals(
+                            (string) ($verification['database_target_sha256'] ?? ''),
+                            (string) $recoveryOptions['expected-database-target-sha256']
+                        )) {
+                            throw new \RuntimeException(
+                                'wprism: checkpoint recovery lease election authentication changed after host preflight'
+                            );
+                        }
+                        CheckpointRecoveryIntent::assert_initial_recovery(
+                            (string) $repo,
+                            (string) $recoveryOptions['checkpoint'],
+                            (string) $recoveryOptions['expected-cipher-sha256'],
+                            (string) $owner,
+                            (string) $artifactHash
+                        );
+                    }
+                );
+            }
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'promotion-begin');
             WP_CLI::error($t->getMessage());
@@ -2546,6 +2548,7 @@ final class Cli {
      * [--promotion-hold] : Internal orchestrator flag; retain the lease for the following apply phase.
      * [--state-handoff] : Internal promote-only flag; bind lifecycle pre/post state hashes for apply.
      * [--lifecycle-phase=<phase>] : Internal host phase. Accepts retire or activate.
+     * [--checkpoint=<path>] : Exact authenticated checkpoint for a provider-backed lifecycle phase.
      * [--force-unresolved-refs] : Promotion passthrough for lifecycle handoff snapshots.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
@@ -2565,6 +2568,7 @@ final class Cli {
                 'promotion_hold' => isset($assoc['promotion-hold']),
                 'state_handoff' => isset($assoc['state-handoff']),
                 'lifecycle_phase' => $assoc['lifecycle-phase'] ?? 'all',
+                'checkpoint' => $assoc['checkpoint'] ?? '',
                 'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
                 'adapter_library' => $adapterLibrary,
             ]);

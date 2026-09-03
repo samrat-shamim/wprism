@@ -113,6 +113,35 @@ final class PhpstanBaselineRatchetTest extends TestCase
         );
     }
 
+    #[DataProvider('cliEntrypoints')]
+    public function testCliEntrypointsKeepTheirUsageContractWithoutArgumentGlobals(string $relative): void
+    {
+        $path = WPRISM_REPO_ROOT . '/' . $relative;
+        $normal = self::runPhp([PHP_BINARY, $path]);
+        $literal = var_export($path, true);
+        $withoutGlobals = self::runPhp([
+            PHP_BINARY,
+            '-d',
+            'display_errors=0',
+            '-r',
+            'unset($GLOBALS["argv"], $GLOBALS["argc"], $_SERVER["argv"], $_SERVER["argc"]); '
+            . '$_SERVER["SCRIPT_FILENAME"] = ' . $literal . '; require ' . $literal . ';',
+        ]);
+
+        // Requiring the extensionless executable exposes its shebang; direct
+        // CLI execution consumes it before PHP parses the file.
+        $withoutGlobals['stdout'] = preg_replace('/\A#!\/usr\/bin\/env php\R/', '', $withoutGlobals['stdout'])
+            ?? $withoutGlobals['stdout'];
+
+        $this->assertNotSame(0, $normal['exit'], "$relative without a command must refuse");
+        $this->assertSame(
+            $normal,
+            $withoutGlobals,
+            "$relative must preserve its exact no-argument refusal when argv/argc are unavailable"
+        );
+        $this->assertStringNotContainsString('Undefined variable', $withoutGlobals['stderr']);
+    }
+
     public function testBaselineIsNotSilentlyOverProvisioned(): void
     {
         // A ceiling far above the real count is the same failure as no ceiling:
@@ -254,6 +283,37 @@ final class PhpstanBaselineRatchetTest extends TestCase
         foreach (array_keys($seen) as $relative) {
             yield $relative => [$relative];
         }
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function cliEntrypoints(): iterable
+    {
+        yield 'refresh plan worker' => ['cli/src/Refresh/RefreshPlanCompile.php'];
+        yield 'orchestrator' => ['cli/wprism'];
+        yield 'recovery controller' => ['recovery/rollback-control.php'];
+        yield 'adapter certification' => ['scripts/adapter-certification.php'];
+    }
+
+    /**
+     * @param list<string> $command
+     * @return array{exit: int, stdout: string, stderr: string}
+     */
+    private static function runPhp(array $command): array
+    {
+        $process = proc_open(
+            $command,
+            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            WPRISM_REPO_ROOT
+        );
+        self::assertIsResource($process, 'could not launch PHP entrypoint');
+        fclose($pipes[0]);
+        $stdout = (string) stream_get_contents($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        return ['exit' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr];
     }
 
     private function baselineSource(): string

@@ -25,7 +25,7 @@
  *
  *   ARM 1, identity. The unit references a value on one of the three identity
  *   axes. Match is on the NORMALIZED token — lowercased, underscores removed —
- *   containing one of 17 stems, so `resolved_adapters`, `$resolvedAdapters` and
+ *   containing one of 18 stems, so `resolved_adapters`, `$resolvedAdapters` and
  *   `resolved_adapters_sha256` are one concept and not three spellings that a
  *   reviewer has to remember to add. Three carve-outs keep the arm honest — named
  *   that rather than "exclusions", which below means the register's reviewed
@@ -54,7 +54,7 @@
  * not itself one of the three axes, and neither is site identity — a
  * `site.wprism.json` move is a different change class, answered by its own
  * registered refusal (`compiled_artifact_policy_mismatch`). The cost of widening
- * was measured rather than assumed: adding a bare `digest` stem to the 17 below
+ * was measured rather than assumed: adding a bare `digest` stem to the 18 below
  * — the single most tempting relaxation — takes the candidate set from 76 to
  * 198, and the 122 it adds are overwhelmingly artifact, revision, bundle and
  * proposal digests that no `manifests/` byte moves. A register nobody can read

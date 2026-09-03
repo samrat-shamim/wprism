@@ -36,10 +36,11 @@
             "conformance-rank-math",
             "exact-artifact-version-matrix",
             "regress-rank-math-provider",
-            "regress-rank-math-commerce-multilingual"
+            "regress-rank-math-commerce-multilingual",
+            "regress-rank-math-yoast-incompatibility"
         ]
     },
-  "reason": "Certified Rank Math SEO 1.0.277/.1/.2 free-plugin state on single-site WordPress: real setup and REST writers, divergent post/attachment/term/redirection identities, hostile target adoption and collision refusal, nested settings and complete titles-option reference rebinding, native redirects and rendered SEO, checkpointed pre-observation schema settlement, fresh-process all-CPT internal-link convergence with an independently derived exact native edge multiset and failure/retry proof, hash-pinned official artifact evidence, and a participant-declared ACF/Polylang/WooCommerce interaction scenario. Connected accounts, credentials, custom schema shortcuts, Pro/add-ons, analytics history, sitemap exclusion id lists, redirection deletion and versions outside the declared interval remain explicit refusals or target-owned state.",
+  "reason": "Certified Rank Math SEO 1.0.277/.1/.2 free-plugin state on single-site WordPress: real setup and REST writers, divergent post/attachment/term/redirection identities, hostile target adoption and collision refusal, nested settings and complete titles-option reference rebinding, native redirects and rendered SEO, checkpointed schema/lifecycle recovery, native default uninstall plus digest-bound reinstall, fresh-process all-CPT internal-link convergence with an independently derived exact native edge multiset and failure/retry proof, hash-pinned boundary artifacts with populated upgrade and downgrade re-baselines, a participant-declared ACF/Polylang/WooCommerce interaction scenario, and deterministic pre-mutation refusal of the competing Yoast adapter in both plugin and manifest orders. Connected accounts, credentials, custom schema shortcuts, Pro/add-ons, analytics history, sitemap exclusion id lists, redirection deletion, Yoast co-composition and versions outside the declared interval remain explicit refusals or target-owned state.",
     "status": "certified",
     "supported_versions": {
         "plugin": "seo-by-rank-math/rank-math.php",
@@ -68,6 +69,11 @@
             "operation": "all",
             "reason": "Rank Math Pro, Content AI/connected-account credentials, external analytics history and third-party callbacks on the internal-link processing filters are outside the exact free-plugin contract and refuse rather than widening provider behavior at runtime.",
             "surface": "plugin:add-ons,credentials,providers.rank-math-state.filters"
+        },
+        {
+            "operation": "all",
+            "reason": "Rank Math and Yoast are competing SEO authorities without a reviewed shared-state ownership model. The Rank Math manifest declares the exact Yoast basename incompatible, so either pin order refuses before capture publication, promotion, lifecycle or provider mutation rather than selecting by plugin load order.",
+            "surface": "plugin:wordpress-seo/wp-seo.php"
         },
         {
             "operation": "all",

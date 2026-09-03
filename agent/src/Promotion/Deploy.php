@@ -10,6 +10,9 @@ require_once __DIR__ . '/StateHandoffVerifier.php';
 // graduated verdict by constant rather than by a second copy of the string.
 require_once __DIR__ . '/../Policy/VersionEvidenceGrammar.php';
 require_once __DIR__ . '/../Policy/AdapterLibrary.php';
+require_once __DIR__ . '/../Kernel/ProviderSettlementIntent.php';
+require_once __DIR__ . '/../Recovery/DatabaseTargetIdentity.php';
+require_once __DIR__ . '/../Recovery/RetainedCheckpointCipher.php';
 
 /**
  * docs/code-half.md §3.4/§6: reconciles active_plugins/template/
@@ -97,6 +100,50 @@ final class Deploy {
      * @return array{activated:string[], deactivated:string[], theme_switched:?string, active_plugins_order_corrected:bool, code_mismatch:array, reconciled_code_mismatch:array, external_side_effects:string[], warnings:string[]}
      */
     public static function run(string $repo, array $opts = []): array {
+        $repo = rtrim($repo, '/');
+        $checkpoint = (string) ($opts['checkpoint'] ?? '');
+        if ($checkpoint === '') {
+            return self::run_authorized($repo, $opts);
+        }
+        $compiled = (string) ($opts['compiled'] ?? '');
+        $owner = (string) ($opts['promotion_owner'] ?? '');
+        $artifactHash = (string) ($opts['artifact_hash'] ?? '');
+        $lifecyclePhase = (string) ($opts['lifecycle_phase'] ?? 'all');
+        if ($compiled === ''
+            || $owner === ''
+            || preg_match('/^[a-f0-9]{64}$/D', $artifactHash) !== 1
+            || !in_array($lifecyclePhase, ['retire', 'activate'], true)) {
+            throw new \RuntimeException(
+                'wprism: provider-backed lifecycle continuation identity is malformed'
+            );
+        }
+        return ProviderSettlementIntent::with_phase(
+            $repo,
+            $compiled,
+            $checkpoint,
+            $owner,
+            $artifactHash,
+            'lifecycle-' . $lifecyclePhase,
+            static function (array $intent) use ($repo, $checkpoint, $opts): array {
+                $verification = RetainedCheckpointCipher::verify($repo, $checkpoint);
+                if (!hash_equals(
+                    (string) ($intent['checkpoint']['cipher_sha256'] ?? ''),
+                    (string) ($verification['cipher_sha256'] ?? '')
+                )) {
+                    throw new \RuntimeException(
+                        'wprism: lifecycle continuation checkpoint identity changed'
+                    );
+                }
+                DatabaseTargetIdentity::assertWordPressConfig(
+                    (string) ($verification['database_target_sha256'] ?? '')
+                );
+                return self::run_authorized($repo, $opts);
+            }
+        );
+    }
+
+    /** @return array{activated:string[], deactivated:string[], theme_switched:?string, active_plugins_order_corrected:bool, code_mismatch:array, reconciled_code_mismatch:array, external_side_effects:string[], warnings:string[]} */
+    private static function run_authorized(string $repo, array $opts): array {
         $repo = rtrim($repo, '/');
         $adapterLibrary = $opts['adapter_library'] ?? null;
         if ($adapterLibrary !== null && !$adapterLibrary instanceof AdapterLibrary) {

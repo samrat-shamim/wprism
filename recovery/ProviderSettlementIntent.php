@@ -6,11 +6,11 @@ namespace WPrism\Recovery;
 /**
  * Database-external debt for one checkpoint-backed adapter-provider pass.
  *
- * The host publishes this after checkpoint-backed code/lifecycle reconciliation
- * and immediately before the first provider phase. It spans schema
- * establishment and lifecycle settlement across their separate WordPress
- * processes, so a crash between provider phases cannot make an exact-looking
- * target skip unfinished provider work.
+ * The host publishes this after checkpoint/code staging and before the first
+ * lifecycle or settlement callback. It spans lifecycle hooks, schema
+ * establishment, and derived-state settlement across their separate WordPress
+ * processes, so a crash between phases cannot make an exact-looking target
+ * skip unfinished work.
  */
 final class ProviderSettlementIntent {
     public const FORMAT = 'wprism-provider-settlement-intent/v1';
@@ -493,6 +493,9 @@ final class ProviderSettlementIntent {
             ['schema-settle'],
             ['lifecycle-settle'],
             ['schema-settle', 'lifecycle-settle'],
+            ['lifecycle-retire', 'lifecycle-activate', 'schema-settle'],
+            ['lifecycle-retire', 'lifecycle-activate', 'lifecycle-settle'],
+            ['lifecycle-retire', 'lifecycle-activate', 'schema-settle', 'lifecycle-settle'],
         ], true)) {
             throw new \RuntimeException('wprism provider settlement: phase set is malformed');
         }

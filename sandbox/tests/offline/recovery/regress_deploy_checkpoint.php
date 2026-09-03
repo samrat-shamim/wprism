@@ -881,6 +881,12 @@ wprism_check(
         && str_contains($preflightExec, 'DatabaseTargetIdentity::assertWordPressConfig'),
     'recovery preflight compares authenticated metadata to wp-config before step 1'
 );
+$cliSource = (string) file_get_contents(dirname(__DIR__, 4) . '/agent/src/Command/Cli.php');
+wprism_check(
+    !str_contains($cliSource, 'public function checkpoint_verify')
+        && !str_contains($cliSource, 'public function checkpoint_open'),
+    'checkpoint authentication and opening have no post-WordPress public command authority'
+);
 $restoreDriver->events = [];
 $restoreDriver->calls = [];
 $restoreResult = CodeDeploy::encryptedCheckpointImport(

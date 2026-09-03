@@ -641,11 +641,33 @@ DIRTY_NATIVE=$(native_state wp2)
 jq -en --argjson before "$HOSTILE_NATIVE" --argjson after "$DIRTY_NATIVE" '$before == $after' >/dev/null \
   || fail "schema refusal crossed the target content/runtime boundary: $DIRTY_NATIVE"
 wp2 db query 'ALTER TABLE wp_rank_math_internal_links DROP COLUMN wprism_hostile_schema' >/dev/null
+# An inactive plugin plus one absent derived table is a legitimate host-level
+# drift, not content drift. It forces the no-code deploy path through both
+# lifecycle and schema settlement while the hostile cross-plugin graph remains
+# available as an exact isolation oracle after activation recreates the table.
+wp2 plugin deactivate seo-by-rank-math >/dev/null
+wp2 db query 'DROP TABLE wp_rank_math_redirections_cache' >/dev/null
+wp2 plugin is-inactive seo-by-rank-math >/dev/null \
+  || fail 'Rank Math combination lifecycle drift premise is not inactive'
+[ "$(wp2 db query "SHOW TABLES LIKE 'wp_rank_math_redirections_cache'" --skip-column-names | tr -d '[:space:]')" = '' ] \
+  || fail 'Rank Math combination schema drift premise retained the derived cache table'
 CLEAN_DEPLOY=$(host_wprism_combo wp2 deploy 2>&1) \
   || fail "clean Rank Math combination host deploy failed: $CLEAN_DEPLOY"
-grep -q '^deploy complete: no code descriptor; lifecycle hooks not run$' <<<"$CLEAN_DEPLOY" \
-  || fail "clean existing Rank Math schema did not terminate as a read-only host preflight: $CLEAN_DEPLOY"
-pass 'independently extended plugin schema refused before content mutation; exact existing schema then passed read-only host preflight'
+CLEAN_DEPLOY_PHASES=$(sed -n 's/^deploy phase: //p' <<<"$CLEAN_DEPLOY" | paste -sd ' ' -)
+[ "$CLEAN_DEPLOY_PHASES" = 'compile lifecycle-status schema-status promotion-begin checkpoint provider-settlement-begin lifecycle-retire lifecycle-activate schema-settle lifecycle-settle provider-settlement-complete' ] \
+  || fail "compatible host deploy skipped or reordered checkpointed lifecycle/schema settlement: $CLEAN_DEPLOY"
+wp2 plugin is-active seo-by-rank-math >/dev/null \
+  || fail 'compatible host deploy did not reactivate Rank Math'
+[ "$(wp2 db query "SHOW TABLES LIKE 'wp_rank_math_redirections_cache'" --skip-column-names | tr -d '[:space:]')" = 'wp_rank_math_redirections_cache' ] \
+  || fail 'compatible host deploy did not restore the missing Rank Math schema'
+[ ! -e "$R2/.wprism/control/provider-settlement-intent.json" ] \
+  || fail 'successful compatible host deploy retained provider settlement debt'
+HOST_SETTLED_NATIVE=$(native_state wp2)
+jq -en --argjson before "$HOSTILE_NATIVE" --argjson after "$HOST_SETTLED_NATIVE" '
+  ($after | .redirection_cache = []) == ($before | .redirection_cache = []) and
+  ($after.redirection_cache | length) == 0
+' >/dev/null || fail "compatible host settlement crossed an unrelated plugin/content/runtime boundary: $HOST_SETTLED_NATIVE"
+pass 'host deploy refuses hostile schema, then checkpoint-settles legitimate lifecycle/schema drift without crossing combination boundaries'
 REVISION=$(git -C "$R2" rev-parse HEAD)
 INITIAL=$(wp2 wprism apply --repo=/siterepo --adopt-by-slug=terms,posts \
   --default-author=admin --revision="$REVISION" --format=json | awk 'NF { line=$0 } END { print line }') \
@@ -822,8 +844,7 @@ FAILURE_OUT=$(wp2 wprism apply --repo=/siterepo --default-author=admin 2>&1) || 
   || fail 'combined provider failure did not retain retry authority'
 FAILURE_NATIVE=$(native_state wp2)
 jq -en --argjson baseline "$TARGET_RUNTIME" --argjson failed "$FAILURE_NATIVE" '
-  $failed.scheduler == $baseline.scheduler and $failed.neighbor == $baseline.neighbor and
-  $failed.redirection == $baseline.redirection and
+  ($failed | .products.en.content = $baseline.products.en.content) == $baseline and
   ($failed.products.en.content | contains("provider failure retained combined retry authority")) and
   ([ $failed.products.en.links[] | select(.url | contains("retry.example.test")) ] | length) == 0
 ' >/dev/null || fail "combined provider failure crossed a runtime boundary or fabricated derived success: $FAILURE_NATIVE"
@@ -841,15 +862,18 @@ jq -e '
 ' <<<"$RETRY" >/dev/null || fail "retry selected an unexpected Rank Math action set: $RETRY"
 RETRY_NATIVE=$(native_state wp2)
 jq -en --argjson baseline "$TARGET_RUNTIME" --argjson retried "$RETRY_NATIVE" '
-  $retried.scheduler == $baseline.scheduler and $retried.neighbor == $baseline.neighbor and
-  $retried.redirection == $baseline.redirection and
+  ($retried
+    | .products.en.content = $baseline.products.en.content
+    | .products.en.links = $baseline.products.en.links
+    | .products.en.rank_counts = $baseline.products.en.rank_counts) == $baseline and
+  ($retried.products.en.content | contains("provider failure retained combined retry authority")) and
   ($retried.products.en.links | length) == 3 and
   ([ $retried.products.en.links[].type ] | sort) == ["external","external","internal"] and
   ([ $retried.products.en.links[] | select(.url | contains("retry.example.test")) ] | length) == 1 and
   ($retried.products.en.rank_counts | map_values(tonumber)) == {external_link_count:2,incoming_link_count:1,internal_link_count:1} and
   ($retried.products.de.rank_counts | map_values(tonumber)) == {external_link_count:1,incoming_link_count:1,internal_link_count:1}
 ' >/dev/null || fail "combined retry did not converge the exact new link projection in isolation: $RETRY_NATIVE"
-pass 'provider failure retained combined retry authority and repaired only the selected Rank Math/Woo projections'
+pass 'provider failure and retry preserve every Woo, Polylang, ACF, taxonomy, module, CPT and target-runtime witness outside the intended Rank Math projection'
 
 say 'combined recapture and repeated apply are exact no-ops'
 REVISION=$(git -C "$R2" rev-parse HEAD)

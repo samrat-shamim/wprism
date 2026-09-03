@@ -130,9 +130,9 @@ assert_refresh_command((json_decode($fieldJson, true)['reason_code'] ?? null) ==
 
 $source = file_get_contents(__DIR__ . '/../../../../cli/wprism');
 assert_refresh_command(is_string($source)
-    && str_contains($source, 'return RefreshCommand::run($t, $extra);')
+    && str_contains($source, 'return RefreshCommand::run($t, $extra, $beforeTarget);')
     && !str_contains($source, 'function refresh_field_diff_refusal('),
-    'cli/wprism retains only the refresh compatibility facade');
+    'cli/wprism retains only the refresh compatibility facade and its local-preflight callback');
 assert_refresh_command((new ReflectionMethod(RefreshCommand::class, 'run'))->isStatic(),
     'refresh handler exposes a standalone static boundary');
 assert_refresh_command(CommandOutput::wantsAgentRefusalJson('refresh', ['--format=json']),

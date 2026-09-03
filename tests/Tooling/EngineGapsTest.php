@@ -21,9 +21,9 @@ use RuntimeException;
  *     the same gap differently, and the ranking then counts two ones instead of
  *     one two.
  *   - a declared primitive nothing demands is a wish, not a measurement.
- *   - a lifecycle disagreement (an `open` primitive demanded by a row marked
- *     `closed`) means the ledger is describing a gap that shipped, or claiming
- *     one that did not.
+ *   - a lifecycle/layer disagreement means the ledger is describing a closed
+ *     coordinate on work that did not ship, or treating remaining adapter work
+ *     as though the generic platform facility were still missing.
  *   - a `closed_by` path that left the tree turns a closure into a story about
  *     code nobody can open.
  *   - a coordinate head no manifest declares is not a grammar coordinate at all.
@@ -134,20 +134,49 @@ final class EngineGapsTest extends TestCase
         self::assertTrue(true, 'the committed ledger passes every cross-check');
     }
 
-    /**
-     * Duplicate demand across candidates is one primitive with N candidates,
-     * and the ranking is sorted by that N. The current open set may legitimately
-     * become singleton-only after closures; uniqueness still proves a candidate
-     * cannot inflate a primitive's demand count by repeating itself.
-     */
+    /** Duplicate demand is one ranked primitive row with N unique candidates. */
     public function testDemandRankingCollapsesDuplicateDemandAndLeadsWithIt(): void
     {
-        $demand = gap_open_demand(self::ledger());
+        $ledger = self::ledger();
+        $sourceCandidate = null;
+        $sourceCoordinate = null;
+        foreach ($ledger['candidates'] as $candidate) {
+            foreach ($candidate['coordinates'] as $coordinate) {
+                if (!gap_coordinate_closed($coordinate)) {
+                    $sourceCandidate = (string) $candidate['candidate'];
+                    $sourceCoordinate = $coordinate;
+                    break 2;
+                }
+            }
+        }
+        self::assertNotNull($sourceCoordinate, 'the committed ledger has no open coordinate to aggregate');
+        self::assertNotNull($sourceCandidate, 'the committed open coordinate has no candidate owner');
+        $probe = $ledger['candidates'][0];
+        $probe['candidate'] = 'Aggregation probe';
+        $probe['blocked_adapters'] = ['aggregation-probe'];
+        $probe['coordinates'] = [$sourceCoordinate, $sourceCoordinate];
+        $ledger['candidates'][] = $probe;
+
+        $demand = gap_open_demand($ledger);
         self::assertNotSame([], $demand);
         $counts = array_map(static fn (array $row): int => count($row['candidates']), $demand);
         $sorted = $counts;
         rsort($sorted);
         self::assertSame($sorted, $counts, 'the open-demand table is not ordered most-blocking first');
+
+        $primitive = (string) $sourceCoordinate['primitive_required'];
+        $aggregated = array_values(array_filter(
+            $demand,
+            static fn (array $row): bool => $row['primitive'] === $primitive
+        ));
+        self::assertCount(1, $aggregated, 'shared demand was split into more than one primitive row');
+        $expectedCandidates = [$sourceCandidate, 'Aggregation probe'];
+        sort($expectedCandidates, SORT_STRING);
+        self::assertSame(
+            $expectedCandidates,
+            $aggregated[0]['candidates'],
+            'two candidates demanding one primitive were not collapsed into one ranked row'
+        );
         foreach ($demand as $row) {
             self::assertSame(
                 count($row['candidates']),

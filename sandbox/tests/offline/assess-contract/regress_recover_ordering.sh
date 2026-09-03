@@ -484,17 +484,29 @@ $cd = "WPrism\\Orchestrator\\CodeDeploy";
 $owner = "promote-recover-fixture-owner";
 $hash = str_repeat("ab", 32);
 $target = str_repeat("cd", 32);
+$cipher = str_repeat("ef", 32);
+$repo = "/fixture/repo";
+$checkpoint = "$repo/.wprism/checkpoints/promote-$owner.sql.enc";
 $fail = [];
-foreach (["recoveryAbortArgs", "recoveryBeginArgs"] as $recovery) {
-    if (!in_array("--format=json", $cd::$recovery($owner, $hash, $target), true)) {
+$recoveryArgs = [
+    "recoveryAbortArgs" => $cd::recoveryAbortArgs($owner, $hash, $target),
+    "recoveryBeginArgs" => $cd::recoveryBeginArgs(
+        $repo, $checkpoint, $owner, $hash, $cipher, $target
+    ),
+];
+foreach ($recoveryArgs as $recovery => $args) {
+    if (!in_array("--format=json", $args, true)) {
         $fail[] = "$recovery() does not ask for JSON";
     }
-    if (!in_array("--expected-database-target-sha256=$target", $cd::$recovery($owner, $hash, $target), true)) {
+    if (!in_array("--expected-database-target-sha256=$target", $args, true)) {
         $fail[] = "$recovery() does not fence the pre-mutation database target";
     }
 }
-foreach (["abortArgs", "beginArgs"] as $shared) {
-    if (in_array("--format=json", $cd::$shared($owner, $hash), true)) {
+foreach ([
+    "abortArgs" => $cd::abortArgs($owner, $hash),
+    "beginArgs" => $cd::beginArgs($repo, $owner, $hash),
+] as $shared => $args) {
+    if (in_array("--format=json", $args, true)) {
         $fail[] = "$shared() gained --format=json; promote/deploy cleanup output would move (rule 8)";
     }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../../../cli/src/Command/DeployCommand.php';
 
 use WPrism\Orchestrator\DeployCommand;
+use WPrism\Orchestrator\CodeDeploy;
 use WPrism\Orchestrator\DriverCapabilityReport;
 use WPrism\Orchestrator\EnvironmentDriver;
 
@@ -36,6 +37,13 @@ final class DeployCommandDriver implements EnvironmentDriver {
     public bool $schemaDeclared = false;
     public bool $schemaRequired = false;
     public bool $lifecycleSettlementDeclared = false;
+    public bool $leaseActive = false;
+    public bool $abortSucceeds = true;
+    public bool $abortRemovesLease = true;
+    public bool $probeContenderAfterTerminalProvider = false;
+    public bool $contenderPassedInitialFence = false;
+    public ?int $contenderBeginExit = null;
+    public ?bool $leaseActiveAtProviderComplete = null;
 
     public function name(): string { return 'deploy-fixture'; }
     public function driverId(): string { return 'deploy-fixture'; }
@@ -43,7 +51,8 @@ final class DeployCommandDriver implements EnvironmentDriver {
     public function describe(): string { return 'deploy fixture'; }
     public function captureRaw(string $script): array {
         if (str_contains($script, 'provider-settlement-advance')) {
-            $phase = str_contains($script, "--phase='schema-settle'") ? 'schema' : 'lifecycle';
+            preg_match("/--phase='([^']+)'/", $script, $match);
+            $phase = (string) ($match[1] ?? 'unknown');
             $this->events[] = 'raw:provider-settlement-advance:' . $phase;
             return [
                 'exit' => $this->providerAdvanceExit,
@@ -53,6 +62,7 @@ final class DeployCommandDriver implements EnvironmentDriver {
         }
         if (str_contains($script, 'provider-settlement-complete')) {
             $this->events[] = 'raw:provider-settlement-complete';
+            $this->leaseActiveAtProviderComplete = $this->leaseActive;
             if ($this->providerCompleteExit === 0) {
                 $this->providerDebtActive = false;
             }
@@ -178,7 +188,13 @@ final class DeployCommandDriver implements EnvironmentDriver {
                 'format' => 'wprism-database-target/v1',
             ], JSON_THROW_ON_ERROR), 'stderr' => ''];
         }
-        if ($command === 'promotion-begin') return ['exit' => 0, 'stdout' => 'begun', 'stderr' => ''];
+        if ($command === 'promotion-begin') {
+            if ($this->leaseActive) {
+                return ['exit' => 73, 'stdout' => '', 'stderr' => 'promotion lock held by another owner'];
+            }
+            $this->leaseActive = true;
+            return ['exit' => 0, 'stdout' => 'begun', 'stderr' => ''];
+        }
         fail_deploy_command("unexpected capture command $command");
     }
     public function captureWpPipeline(array $producer, array $consumer): array {
@@ -193,7 +209,22 @@ final class DeployCommandDriver implements EnvironmentDriver {
         $phase = $this->option($wpArgs, '--lifecycle-phase=');
         $this->events[] = 'stream:' . $command . ($phase === null ? '' : ':' . $phase);
         if ($command === 'code-stage') return $this->stageExit;
-        if ($command === 'lifecycle-settle') return $this->lifecycleSettleExit;
+        if ($command === 'lifecycle-settle') {
+            if ($this->lifecycleSettleExit === 0 && in_array('--release-on-success', $wpArgs, true)) {
+                $this->leaseActive = false;
+            }
+            if ($this->probeContenderAfterTerminalProvider) {
+                $this->contenderBeginExit = $this->leaseActive ? 73 : 0;
+            }
+            return $this->lifecycleSettleExit;
+        }
+        if ($command === 'schema-settle' && in_array('--release-on-success', $wpArgs, true)) {
+            $this->leaseActive = false;
+        }
+        if (($command === 'code-finalize' || ($command === 'deploy' && $phase === 'activate'))
+            && !in_array('--promotion-hold', $wpArgs, true)) {
+            $this->leaseActive = false;
+        }
         return 0;
     }
     public function wpInstruction(array $wpArgs): string { return implode(' ', $wpArgs); }
@@ -219,7 +250,20 @@ final class DeployCommandDriver implements EnvironmentDriver {
             && ($this->codeChangeRequired || $this->lifecycleChangeRequired || $this->schemaRequired)) {
             $phases[] = 'lifecycle-settle';
         }
+        $lifecycleRequired = $this->codeChangeRequired
+            || $this->lifecycleChangeRequired
+            || ($this->schemaRequired && $this->lifecycleSettlementDeclared);
+        if ($phases !== [] && $lifecycleRequired) {
+            $phases = array_merge(['lifecycle-retire', 'lifecycle-activate'], $phases);
+        }
         return $phases;
+    }
+
+    public function abortLease(): bool {
+        if ($this->abortRemovesLease) {
+            $this->leaseActive = false;
+        }
+        return $this->abortSucceeds;
     }
 }
 
@@ -244,9 +288,9 @@ function run_deploy_command(DeployCommandDriver $driver, array $extra, ?int $sco
         static function (EnvironmentDriver $transport, array $begin, string $owner, string $hash) use (&$callbacks): void {
             $callbacks[] = "compensate:$owner:$hash:" . (int) ($begin['exit'] ?? -1);
         },
-        static function (EnvironmentDriver $transport, string $owner, string $hash) use (&$callbacks): bool {
+        static function (EnvironmentDriver $transport, string $owner, string $hash) use (&$callbacks, $driver): bool {
             $callbacks[] = "abort:$owner:$hash";
-            return true;
+            return $driver->abortLease();
         },
         // issue #3525: the recovery callback takes no owner/hash any more — the
         // guidance names `wprism recover <env> --restore=<id>`, whose `<id>` is
@@ -268,6 +312,22 @@ function option_deploy_command(array $args, string $prefix): ?string {
     }
     return null;
 }
+
+$authorizedBeginRefused = false;
+try {
+    CodeDeploy::beginArgs('/fixture/repo', 'authorized-owner', str_repeat('a', 64), [
+        'operation_id' => 'release-operation',
+        'repo_path' => '/different/repo',
+        'source_commit' => str_repeat('b', 40),
+        'source_tree' => str_repeat('c', 40),
+    ]);
+} catch (\InvalidArgumentException $failure) {
+    $authorizedBeginRefused = str_contains($failure->getMessage(), 'does not match');
+}
+assert_deploy_command(
+    $authorizedBeginRefused,
+    'authorized promotion transport refuses a repository different from its consumed release binding'
+);
 
 // Direct execution proves the extracted handler still owns the full public
 // deploy phase graph without loading cli/wprism or starting a shell process.
@@ -416,24 +476,38 @@ $stateOnly->lifecycleChangeRequired = true;
 $stateOnly->schemaDeclared = true;
 $stateOnly->schemaRequired = true;
 $stateOnly->lifecycleSettlementDeclared = true;
+$stateOnly->contenderPassedInitialFence = true;
+$stateOnly->probeContenderAfterTerminalProvider = true;
 $stateOnlyResult = run_deploy_command($stateOnly, []);
 assert_deploy_command($stateOnlyResult['exit'] === 0, 'state-only inactive-plugin deploy succeeds');
 assert_deploy_command(
     $stateOnly->events === [
         'raw:mkdir', 'capture:compile', 'capture:lifecycle-status', 'capture:schema-status',
         'capture:promotion-begin', 'capture:checkpoint-target', 'capture:db-export',
-        'stream:deploy:retire', 'stream:deploy:activate',
         'capture:provider-settlement-begin',
-        'stream:schema-settle', 'raw:provider-settlement-advance:schema',
-        'stream:lifecycle-settle', 'raw:provider-settlement-advance:lifecycle',
+        'stream:deploy:retire', 'raw:provider-settlement-advance:lifecycle-retire',
+        'stream:deploy:activate', 'raw:provider-settlement-advance:lifecycle-activate',
+        'stream:schema-settle', 'raw:provider-settlement-advance:schema-settle',
+        'stream:lifecycle-settle', 'raw:provider-settlement-advance:lifecycle-settle',
         'raw:provider-settlement-complete',
     ],
-    'state-only deploy orders lifecycle activation before durable native schema and derived-state settlement'
+    'state-only deploy durably orders lifecycle activation before native schema and derived-state settlement'
 );
-$stateRetire = $stateOnly->calls[7];
-$stateActivate = $stateOnly->calls[8];
+$stateRetire = $stateOnly->calls[8];
+$stateActivate = $stateOnly->calls[9];
 $stateSchema = $stateOnly->calls[10];
 $stateSettle = $stateOnly->calls[11];
+$stateCheckpoint = '/fixture/repo/.wprism/checkpoints/deploy-deploy-command-test.sql.enc';
+assert_deploy_command(
+    str_contains(implode(' ', $stateOnly->calls[7]), 'PromotionLock::with_existing_lease_fence')
+        && str_contains(implode(' ', $stateOnly->calls[7]), 'ProviderSettlementIntent::begin'),
+    'provider debt is published while continuing the exact target lease fence'
+);
+assert_deploy_command(
+    in_array('--checkpoint=' . $stateCheckpoint, $stateRetire, true)
+        && in_array('--checkpoint=' . $stateCheckpoint, $stateActivate, true),
+    'both lifecycle hooks authenticate through the exact provider-settlement checkpoint'
+);
 assert_deploy_command(
     !in_array('--materializing-code', $stateRetire, true)
         && !in_array('--materializing-code', $stateActivate, true),
@@ -443,8 +517,21 @@ assert_deploy_command(
     in_array('--promotion-hold', $stateActivate, true)
         && in_array('--after-code-transition', $stateSchema, true)
         && !in_array('--release-on-success', $stateSchema, true)
-        && in_array('--release-on-success', $stateSettle, true),
-    'state-only phase chain holds one lease until the terminal lifecycle settlement succeeds'
+        && !in_array('--release-on-success', $stateSettle, true),
+    'externally tracked provider children cannot release the host lease before durable completion'
+);
+assert_deploy_command(
+    $stateOnly->contenderPassedInitialFence
+        && $stateOnly->contenderBeginExit === 73
+        && $stateOnly->leaseActiveAtProviderComplete === true,
+    'a contender whose initial fence read is stale still cannot acquire between the terminal provider and external completion'
+);
+assert_deploy_command(
+    !$stateOnly->leaseActive
+        && array_slice($stateOnlyResult['callbacks'], -1) === [
+            'abort:deploy-command-test:' . str_repeat('a', 64),
+        ],
+    'the host releases the exact state-only lease only after external provider completion'
 );
 assert_deploy_command(
     count(array_filter(
@@ -469,12 +556,14 @@ $providerFailure->lifecycleSettleExit = 31;
 $providerFailureResult = run_deploy_command($providerFailure, []);
 assert_deploy_command($providerFailureResult['exit'] === 31, 'state-only lifecycle provider refusal propagates unchanged');
 assert_deploy_command(
-    array_slice($providerFailure->events, -6) === [
-        'stream:deploy:retire',
-        'stream:deploy:activate',
+    array_slice($providerFailure->events, -8) === [
         'capture:provider-settlement-begin',
+        'stream:deploy:retire',
+        'raw:provider-settlement-advance:lifecycle-retire',
+        'stream:deploy:activate',
+        'raw:provider-settlement-advance:lifecycle-activate',
         'stream:schema-settle',
-        'raw:provider-settlement-advance:schema',
+        'raw:provider-settlement-advance:schema-settle',
         'stream:lifecycle-settle',
     ],
     'provider refusal follows one durably recorded schema completion and no later provider progress'

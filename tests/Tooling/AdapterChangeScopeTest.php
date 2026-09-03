@@ -29,7 +29,10 @@ final class AdapterChangeScopeTest extends TestCase
         self::assertSame(AdapterChangeScope::SCOPE_ADAPTERS, $result['scope']);
         self::assertSame(['woocommerce'], $result['adapters']);
         self::assertSame(
-            ['rank-math-commerce-multilingual', 'woocommerce-rewrite-coinstall'],
+            [
+                'rank-math-commerce-multilingual',
+                'woocommerce-rewrite-coinstall',
+            ],
             $result['scenarios']
         );
         self::assertSame(
@@ -55,7 +58,11 @@ final class AdapterChangeScopeTest extends TestCase
         self::assertSame(AdapterChangeScope::SCOPE_ADAPTERS, $result['scope']);
         self::assertSame(['acf', 'yoast'], $result['adapters']);
         self::assertSame(
-            ['rank-math-commerce-multilingual', 'woocommerce-rewrite-coinstall'],
+            [
+                'rank-math-commerce-multilingual',
+                'rank-math-yoast-incompatibility',
+                'woocommerce-rewrite-coinstall',
+            ],
             $result['scenarios']
         );
     }

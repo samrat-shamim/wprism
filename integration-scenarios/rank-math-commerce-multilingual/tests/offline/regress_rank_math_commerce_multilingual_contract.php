@@ -190,8 +190,8 @@ wprism_check(
     'the live oracle asserts exact link rows, retired-target counts and head semantics rather than lower bounds or token greps'
 );
 wprism_check(
-    str_contains($live, '$failed.scheduler == $baseline.scheduler')
-        && str_contains($live, '$retried.scheduler == $baseline.scheduler')
+    str_contains($live, '($failed | .products.en.content = $baseline.products.en.content) == $baseline')
+        && str_contains($live, '| .products.en.rank_counts = $baseline.products.en.rank_counts) == $baseline')
         && str_contains($live, '$final == $retried')
         && str_contains($live, 'provider:rank-math-state/rebuild_all_link_state'),
     'failure, retry and no-op phases retain exact target-only witnesses and bind the selected Rank Math action source'

@@ -459,6 +459,19 @@ final class AdapterPackageTestsTest extends TestCase
         AdapterPackageValidator::validate($root, 'acf');
     }
 
+    public function testArtifactPinMentionedOnlyInAPhpCommentIsNotExecutableEvidence(): void
+    {
+        $root = $this->validatorFixture();
+        $matrix = $root . '/adapter-packages/acf/tests/certify/version-matrix.sh';
+        self::write($matrix, str_replace('5.12.6', '5.12.5', (string) file_get_contents($matrix)));
+        $evidence = $root . '/adapter-packages/acf/tests/offline/regress_acf_meta_interpreter.php';
+        self::write($evidence, (string) file_get_contents($evidence) . "\n// Refusal artifact 5.12.6.\n");
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('artifact pin 5.12.6 is absent from active certified workflow source');
+        AdapterPackageValidator::validate($root, 'acf');
+    }
+
     public function testValidatorRejectsIncompletePackageReadinessSemantics(): void
     {
         $root = $this->validatorFixture();

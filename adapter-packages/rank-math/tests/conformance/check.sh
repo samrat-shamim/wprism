@@ -28,6 +28,7 @@ if (!$post instanceof WP_Post || !$hub instanceof WP_Post || !$attachment instan
     || !$category instanceof WP_Term || !$secondary instanceof WP_Term || !$tag instanceof WP_Term) {
     throw new RuntimeException('Rank Math native content fixture is incomplete');
 }
+
 $redirections = $wpdb->get_results(
     "SELECT id,sources,url_to,header_code,hits,status,created,updated,last_accessed "
         . "FROM {$wpdb->prefix}rank_math_redirections ORDER BY id",
@@ -135,6 +136,93 @@ PHPEOF
   printf '%s\n' "$out" | awk 'NF { line=$0 } END { print line }'
 }
 
+# One exact, value-redacted database oracle for checkpoint recovery. It covers
+# plugin activation, every Rank Math option, authored and derived rows (including
+# counters), table structure, post/term metadata, and the unrelated neighbor.
+# Hashes keep the 100 KiB plain-data fixture out of diagnostics without turning
+# equality into a sampled assertion.
+rank_math_recovery_state() { # <conf1|conf2>
+  local side="$1" repo file out
+  case "$side" in
+    conf1) repo="${CONF_REPO1:-siterepo/conf1}" ;;
+    conf2) repo="${CONF_REPO2:-siterepo/conf2}" ;;
+    *) fail "invalid Rank Math recovery-observation side: $side" ;;
+  esac
+  file="$repo/.tmp-rank-math-recovery-state.php"
+  cat > "$file" <<'PHPEOF'
+<?php
+global $wpdb;
+$hash = static fn($value): string => hash(
+    'sha256',
+    wp_json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+);
+$options = $wpdb->get_results(
+    "SELECT option_name,option_value,autoload FROM {$wpdb->options} " .
+        "WHERE option_name LIKE 'rank\\_math%' ESCAPE '\\\\' " .
+        "OR option_name LIKE 'rank-math-%' OR option_name='wprism_rank_math_target_neighbor' " .
+        'ORDER BY option_name',
+    ARRAY_A
+);
+foreach ($options as &$option) {
+    $option['option_value_sha256'] = hash('sha256', (string) $option['option_value']);
+    unset($option['option_value']);
+}
+unset($option);
+$meta = [];
+foreach (['postmeta', 'termmeta'] as $kind) {
+    $id = $kind === 'postmeta' ? 'post_id' : 'term_id';
+    $table = $wpdb->$kind;
+    $rows = $wpdb->get_results(
+        "SELECT meta_id,$id,meta_key,meta_value FROM $table " .
+            "WHERE meta_key LIKE 'rank\\_math%' ESCAPE '\\\\' ORDER BY meta_id",
+        ARRAY_A
+    );
+    foreach ($rows as &$row) {
+        $row['meta_value_sha256'] = hash('sha256', (string) $row['meta_value']);
+        unset($row['meta_value']);
+    }
+    unset($row);
+    $meta[$kind] = $rows;
+}
+$orders = [
+    'rank_math_internal_links' => 'id',
+    'rank_math_internal_meta' => 'object_id',
+    'rank_math_redirections' => 'id',
+    'rank_math_redirections_cache' => 'id',
+];
+$tables = [];
+foreach ($orders as $suffix => $order) {
+    $table = $wpdb->prefix . $suffix;
+    $present = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) === $table;
+    if (!$present) {
+        $tables[$suffix] = null;
+        continue;
+    }
+    $create = $wpdb->get_row("SHOW CREATE TABLE `$table`", ARRAY_N);
+    $rows = $wpdb->get_results("SELECT * FROM `$table` ORDER BY `$order`", ARRAY_A);
+    $tables[$suffix] = [
+        'create_sha256' => hash('sha256', (string) ($create[1] ?? '')),
+        'row_count' => count($rows),
+        'rows_sha256' => $hash($rows),
+    ];
+}
+echo wp_json_encode([
+    'active_plugins' => array_values((array) get_option('active_plugins', [])),
+    'meta' => $meta,
+    'options' => $options,
+    'tables' => $tables,
+], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+PHPEOF
+  if [ "$side" = conf1 ]; then
+    out=$(wp_conf1 eval-file /siterepo/.tmp-rank-math-recovery-state.php)
+  else
+    out=$(wp_conf2 eval-file /siterepo/.tmp-rank-math-recovery-state.php)
+  fi
+  rm -f "$file"
+  require_observed_nonempty "$side Rank Math recovery observation" "$out"
+  printf '%s\n' "$out" | awk 'NF { line=$0 } END { print line }'
+}
+
 commit_rank_math_source() { # <message>
   local message="$1"
   wp_conf1 wprism capture --repo=/siterepo >/dev/null
@@ -219,6 +307,38 @@ jq -e '
 grep -Fq 'rank-math-hub' <<<"$(jq -c '.actions' <<<"$PROVIDER_RECEIPT")" \
   && fail 'Rank Math provider receipt leaked an authored URL'
 pass 'divergent posts, terms, attachment and redirection identities converge through exact value-free provider receipts while target credentials/runtime state survive'
+
+# The real settings object contains a password field. Exercise the complete
+# capture publication path with that field populated: the outer authored option
+# must refuse, redact the value, and leave the committed repository byte-exact.
+SECRET_REPO_BEFORE=$(git -C "${CONF_REPO1:-siterepo/conf1}" status --porcelain=v1 --untracked-files=all)
+[ -z "$SECRET_REPO_BEFORE" ] || fail "Rank Math secret-refusal premise requires a clean source repository: $SECRET_REPO_BEFORE"
+wp_conf1 eval '
+$titles=(array)get_option("rank-math-options-titles",[]);
+if (array_key_exists("facebook_secret",$titles)) throw new RuntimeException("Facebook secret premise is not empty");
+$titles["facebook_secret"]="WprismFacebookSecretA19z7Q4m";
+update_option("rank-math-options-titles",$titles);
+' >/dev/null
+SECRET_CAPTURE_RC=0
+SECRET_CAPTURE_OUT=$(wp_conf1 wprism capture --repo=/siterepo 2>&1) || SECRET_CAPTURE_RC=$?
+require_wprism_answered 'Rank Math populated Facebook secret capture' human "$SECRET_CAPTURE_OUT"
+[ "$SECRET_CAPTURE_RC" -ne 0 ] \
+  && grep -Fq "secret guard tripped — options 'rank-math-options-titles'" <<<"$SECRET_CAPTURE_OUT" \
+  && ! grep -Fq 'WprismFacebookSecretA19z7Q4m' <<<"$SECRET_CAPTURE_OUT" \
+  || fail "Rank Math populated Facebook secret was not refused and redacted: $SECRET_CAPTURE_OUT"
+[ -z "$(git -C "${CONF_REPO1:-siterepo/conf1}" status --porcelain=v1 --untracked-files=all)" ] \
+  || fail 'Rank Math secret refusal partially published repository state'
+wp_conf1 eval '
+$titles=(array)get_option("rank-math-options-titles",[]);
+unset($titles["facebook_secret"]);
+update_option("rank-math-options-titles",$titles);
+' >/dev/null
+wp_conf1 wprism capture --repo=/siterepo --out=/siterepo/.tmp-rank-math-secret-restored >/dev/null
+diff -r "${CONF_REPO1:-siterepo/conf1}/state" \
+  "${CONF_REPO1:-siterepo/conf1}/.tmp-rank-math-secret-restored" \
+  || fail 'Rank Math source did not return to byte-identical canonical state after secret refusal'
+rm -rf "${CONF_REPO1:-siterepo/conf1}/.tmp-rank-math-secret-restored"
+pass 'populated Rank Math Facebook credentials refuse through capture without disclosure or partial publication'
 
 rank_math_request '/rank-math-article/'
 [ "$RANK_MATH_CODE" = 200 ] \
@@ -502,6 +622,7 @@ update_option("rank_math_modules",$modules);
 ' >/dev/null
 wp_conf2 plugin deactivate seo-by-rank-math >/dev/null
 wp_conf2 db query 'DROP TABLE wp_rank_math_redirections_cache' >/dev/null
+SCHEMA_RECOVERY_BEFORE=$(rank_math_recovery_state conf2)
 $COMPOSE exec -T --user root wp2 sh -c \
   'printf "%s\n" "<?php" "add_filter(\"rank_math/admin/create_tables\", static fn(\$modules) => \$modules);" > /var/www/html/wp-content/mu-plugins/wprism-rank-math-schema-fault.php'
 SCHEMA_FAILURE_RC=0
@@ -510,6 +631,9 @@ require_wprism_answered 'Rank Math injected host schema provider refusal' human 
 [ "$SCHEMA_FAILURE_RC" -ne 0 ] \
   && grep -Fq "provider 'rank-math-state' capability 'prepare_schema' failed" <<<"$SCHEMA_FAILURE_OUT" \
   || fail "Rank Math unreviewed schema callback did not refuse in its provider: $SCHEMA_FAILURE_OUT"
+SCHEMA_FAILURE_PHASES=$(sed -n 's/^deploy phase: //p' <<<"$SCHEMA_FAILURE_OUT" | paste -sd ' ' -)
+[ "$SCHEMA_FAILURE_PHASES" = 'compile lifecycle-status schema-status promotion-begin checkpoint provider-settlement-begin lifecycle-retire lifecycle-activate schema-settle' ] \
+  || fail "Rank Math schema refusal crossed or skipped an ordered host phase: $SCHEMA_FAILURE_OUT"
 [ "$(wp_conf2 eval 'echo null === \WPrism\Ledger::kv_get("schema_settlement_in_progress") ? "clear" : "retained";')" = retained ] \
   || fail 'Rank Math schema provider refusal did not retain exact recovery intent'
 [ -f "${CONF_REPO2:-siterepo/conf2}/.wprism/control/provider-settlement-intent.json" ] \
@@ -533,13 +657,68 @@ SCHEMA_RECOVERY_OUT=$(host_wprism conf2 recover --restore="$SCHEMA_RECOVERY_ID" 
   || fail 'Rank Math checkpoint recovery did not clear the imported schema intent'
 [ ! -e "${CONF_REPO2:-siterepo/conf2}/.wprism/control/provider-settlement-intent.json" ] \
   || fail 'Rank Math checkpoint recovery did not clear exact external provider debt'
+SCHEMA_RECOVERY_AFTER=$(rank_math_recovery_state conf2)
+jq -en --argjson before "$SCHEMA_RECOVERY_BEFORE" --argjson after "$SCHEMA_RECOVERY_AFTER" \
+  '$after == $before' >/dev/null \
+  || fail "Rank Math schema recovery did not restore the exact pre-checkpoint plugin database state: $SCHEMA_RECOVERY_AFTER"
 $COMPOSE exec -T --user root wp2 rm -f /var/www/html/wp-content/mu-plugins/wprism-rank-math-schema-fault.php
+
+# Retry from the same recovered state with valid schema authority but a real
+# Rank Math link callback. Schema settlement must complete before lifecycle
+# settlement refuses, and the durable external intent must say exactly which
+# phases finished. Recovery then has to restore the same pre-checkpoint oracle
+# a second time, including undoing activation and the newly created cache.
+$COMPOSE exec -T --user root wp2 sh -c \
+  'printf "%s\n" "<?php" "add_filter(\"rank_math/links/content\", static fn(\$content) => \$content, 10, 2);" > /var/www/html/wp-content/mu-plugins/wprism-rank-math-lifecycle-fault.php'
+LIFECYCLE_FAILURE_RC=0
+LIFECYCLE_FAILURE_OUT=$(host_wprism conf2 deploy 2>&1) || LIFECYCLE_FAILURE_RC=$?
+require_wprism_answered 'Rank Math injected lifecycle-settlement refusal' human "$LIFECYCLE_FAILURE_OUT"
+[ "$LIFECYCLE_FAILURE_RC" -ne 0 ] \
+  && grep -Fq "provider 'rank-math-state' capability 'rebuild_all_link_state' failed" <<<"$LIFECYCLE_FAILURE_OUT" \
+  || fail "Rank Math lifecycle provider fault did not refuse: $LIFECYCLE_FAILURE_OUT"
+LIFECYCLE_FAILURE_PHASES=$(sed -n 's/^deploy phase: //p' <<<"$LIFECYCLE_FAILURE_OUT" | paste -sd ' ' -)
+[ "$LIFECYCLE_FAILURE_PHASES" = 'compile lifecycle-status schema-status promotion-begin checkpoint provider-settlement-begin lifecycle-retire lifecycle-activate schema-settle lifecycle-settle' ] \
+  || fail "Rank Math lifecycle refusal did not occur after ordered schema progress: $LIFECYCLE_FAILURE_OUT"
+wp_conf2 plugin is-active seo-by-rank-math >/dev/null \
+  || fail 'Rank Math lifecycle fault did not occur after plugin activation'
+[ "$(wp_conf2 db query "SHOW TABLES LIKE 'wp_rank_math_redirections_cache'" --skip-column-names | tr -d '[:space:]')" = wp_rank_math_redirections_cache ] \
+  || fail 'Rank Math lifecycle fault did not occur after schema settlement created the derived cache'
+[ "$(wp_conf2 eval 'echo null === \WPrism\Ledger::kv_get("schema_settlement_in_progress") ? "clear" : "retained";')" = clear ] \
+  || fail 'Rank Math completed schema settlement left database-local schema debt'
+jq -e '
+  .phases == ["lifecycle-retire","lifecycle-activate","schema-settle","lifecycle-settle"] and
+  .completed_phases == ["lifecycle-retire","lifecycle-activate","schema-settle"]
+' "${CONF_REPO2:-siterepo/conf2}/.wprism/control/provider-settlement-intent.json" >/dev/null \
+  || fail 'Rank Math lifecycle fault did not retain the exact completed-phase prefix'
+LIFECYCLE_RECOVERY_ID=$(sed -n \
+  's/.*wprism recover [^ ]* --restore=\([^ ]*\) --writers-excluded.*/\1/p' \
+  <<<"$LIFECYCLE_FAILURE_OUT" | tail -1)
+[[ "$LIFECYCLE_RECOVERY_ID" =~ ^deploy-[A-Za-z0-9._-]+$ ]] \
+  || fail "Rank Math lifecycle failure did not publish one retained recovery id: $LIFECYCLE_FAILURE_OUT"
+LIFECYCLE_RECOVERY_RC=0
+LIFECYCLE_RECOVERY_OUT=$(host_wprism conf2 recover --restore="$LIFECYCLE_RECOVERY_ID" \
+  --writers-excluded --operator-directed 2>&1) || LIFECYCLE_RECOVERY_RC=$?
+[ "$LIFECYCLE_RECOVERY_RC" -eq 0 ] \
+  && grep -q "^recover ${CONF_PAIR:-conf}2: recovered$" <<<"$LIFECYCLE_RECOVERY_OUT" \
+  || fail "Rank Math lifecycle-settlement failure did not recover: $LIFECYCLE_RECOVERY_OUT"
+LIFECYCLE_RECOVERY_AFTER=$(rank_math_recovery_state conf2)
+jq -en --argjson before "$SCHEMA_RECOVERY_BEFORE" --argjson after "$LIFECYCLE_RECOVERY_AFTER" \
+  '$after == $before' >/dev/null \
+  || fail "Rank Math lifecycle recovery did not restore activation/modules/schema/authored/derived/counter/neighbor state exactly: $LIFECYCLE_RECOVERY_AFTER"
+wp_conf2 plugin is-active seo-by-rank-math >/dev/null 2>&1 \
+  && fail 'Rank Math lifecycle recovery did not restore the inactive pre-checkpoint state'
+[ "$(wp_conf2 db query "SHOW TABLES LIKE 'wp_rank_math_redirections_cache'" --skip-column-names | tr -d '[:space:]')" = '' ] \
+  || fail 'Rank Math lifecycle recovery did not remove schema created after the checkpoint'
+[ ! -e "${CONF_REPO2:-siterepo/conf2}/.wprism/control/provider-settlement-intent.json" ] \
+  || fail 'Rank Math lifecycle recovery did not clear external provider debt'
+$COMPOSE exec -T --user root wp2 rm -f /var/www/html/wp-content/mu-plugins/wprism-rank-math-lifecycle-fault.php
+
 REDEPLOY_RC=0
 REDEPLOY=$(host_wprism conf2 deploy 2>&1) || REDEPLOY_RC=$?
 [ "$REDEPLOY_RC" -eq 0 ] && grep -q '^deploy complete:' <<<"$REDEPLOY" \
   || fail "Rank Math repaired host deploy failed: $REDEPLOY"
 REDEPLOY_PHASES=$(sed -n 's/^deploy phase: //p' <<<"$REDEPLOY" | paste -sd ' ' -)
-[ "$REDEPLOY_PHASES" = 'compile lifecycle-status schema-status promotion-begin checkpoint lifecycle-retire lifecycle-activate provider-settlement-begin schema-settle lifecycle-settle provider-settlement-complete' ] \
+[ "$REDEPLOY_PHASES" = 'compile lifecycle-status schema-status promotion-begin checkpoint provider-settlement-begin lifecycle-retire lifecycle-activate schema-settle lifecycle-settle provider-settlement-complete' ] \
   || fail "Rank Math repaired deploy violated its checkpointed lifecycle/provider phase order: $REDEPLOY"
 [ "$(wp_conf2 eval 'echo null === \WPrism\Ledger::kv_get("schema_settlement_in_progress") ? "clear" : "retained";')" = clear ] \
   || fail 'Rank Math repaired schema retry did not clear exact recovery intent'
@@ -559,7 +738,7 @@ jq -e '.canary == "clean" and .verification.result == "pass" and .plan.update >=
   || fail "Rank Math canonical module state did not restore after lifecycle recovery: $RESTORE"
 [ "$(wp_conf2 option get wprism_rank_math_target_neighbor)" = target-neighbor-must-survive ] \
   || fail 'Rank Math lifecycle recovery crossed the target option boundary'
-pass 'derived-schema provider failure retains ordered external/database debt; product recovery precedes repaired activation/schema/link settlement'
+pass 'schema and lifecycle-provider failures retain exact ordered debt; product recovery restores the full pre-checkpoint state before repaired settlement'
 
 # Two real apply processes contend for one final title. At least one succeeds;
 # the other may only succeed after observing no work or refuse at the named lock.
@@ -594,6 +773,52 @@ jq -e '
   .target_owned.indexnow_log[0].message == "target runtime submission history" and
   .target_owned.neighbor == "target-neighbor-must-survive"
 ' <<<"$TARGET_FINAL" >/dev/null || fail "Rank Math concurrent apply did not converge exact native state: $TARGET_FINAL"
+
+# Rank Math's native uninstall is deliberately non-destructive unless its own
+# opt-in filter is supplied. Prove that real default path, the missing-code
+# refusal, and an exact digest-bound reinstall through host lifecycle all keep
+# the authored graph and target-owned state intact.
+wp_conf2 plugin deactivate seo-by-rank-math >/dev/null
+UNINSTALL_DATA_BEFORE=$(rank_math_recovery_state conf2)
+wp_conf2 plugin uninstall seo-by-rank-math >/dev/null
+wp_conf2 plugin is-installed seo-by-rank-math >/dev/null 2>&1 \
+  && fail 'Rank Math native uninstall left plugin code installed'
+UNINSTALL_DATA_AFTER=$(rank_math_recovery_state conf2)
+jq -en --argjson before "$UNINSTALL_DATA_BEFORE" --argjson after "$UNINSTALL_DATA_AFTER" \
+  '$after == $before' >/dev/null \
+  || fail "Rank Math default uninstall changed options, metadata, tables, counters, or neighbor state: $UNINSTALL_DATA_AFTER"
+MISSING_CODE_RC=0
+MISSING_CODE_OUT=$(host_wprism conf2 deploy 2>&1) || MISSING_CODE_RC=$?
+require_wprism_answered 'Rank Math deploy with code absent' human "$MISSING_CODE_OUT"
+[ "$MISSING_CODE_RC" -ne 0 ] \
+  && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$MISSING_CODE_OUT" \
+  || fail "missing Rank Math code did not refuse before lifecycle mutation: $MISSING_CODE_OUT"
+MISSING_CODE_AFTER=$(rank_math_recovery_state conf2)
+jq -en --argjson before "$UNINSTALL_DATA_BEFORE" --argjson after "$MISSING_CODE_AFTER" \
+  '$after == $before' >/dev/null \
+  || fail 'Rank Math missing-code refusal mutated retained plugin data'
+RANK_MATH_REINSTALL=$(fetch_artifact seo-by-rank-math 1.0.277.2 cli2 plugin)
+[ "$(wp_conf2 eval "echo hash_file('sha256', '$RANK_MATH_REINSTALL');")" = \
+  1c6cae3fda401798dfdc5d1d5814de17c040ffcb457c40e2f0256db84a680b1b ] \
+  || fail 'cached Rank Math reinstall artifact digest moved'
+wp_conf2 plugin install "$RANK_MATH_REINSTALL" --force >/dev/null
+[ "$(wp_conf2 plugin get seo-by-rank-math --field=version)" = 1.0.277.2 ] \
+  || fail 'Rank Math exact reinstall reported the wrong version'
+REINSTALL_DEPLOY=$(host_wprism conf2 deploy 2>&1) \
+  || fail "Rank Math exact-reinstall host deploy failed: $REINSTALL_DEPLOY"
+REINSTALL_PHASES=$(sed -n 's/^deploy phase: //p' <<<"$REINSTALL_DEPLOY" | paste -sd ' ' -)
+[ "$REINSTALL_PHASES" = 'compile lifecycle-status schema-status promotion-begin checkpoint provider-settlement-begin lifecycle-retire lifecycle-activate schema-settle lifecycle-settle provider-settlement-complete' ] \
+  || fail "Rank Math exact reinstall did not traverse the full checkpointed lifecycle: $REINSTALL_DEPLOY"
+wp_conf2 plugin is-active seo-by-rank-math >/dev/null \
+  || fail 'Rank Math exact reinstall was not activated by host lifecycle'
+REINSTALL_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_wprism_answered 'Rank Math apply after exact reinstall' json "$REINSTALL_APPLY"
+jq -e '.canary == "clean" and .verification.result == "pass"' <<<"$REINSTALL_APPLY" >/dev/null \
+  || fail "Rank Math exact reinstall did not verify canonical state: $REINSTALL_APPLY"
+REINSTALLED=$(observe_rank_math conf2)
+jq -en --argjson before "$TARGET_FINAL" --argjson after "$REINSTALLED" '$after == $before' >/dev/null \
+  || fail "Rank Math exact reinstall did not preserve the complete observed native state: $REINSTALLED"
+pass 'deactivate/retire, native uninstall residue, missing-code refusal and digest-bound reinstall preserve exact Rank Math behavior'
 
 FINAL_PLAN=$(wp_conf2 wprism plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
 require_wprism_answered 'Rank Math final zero plan' json "$FINAL_PLAN"

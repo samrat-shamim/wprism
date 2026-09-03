@@ -45,6 +45,7 @@ final class PolicyLoadFinalizer {
         $claimResolutions = AdapterClaimResolutions::declared($policy->site['policy'] ?? []);
         AdapterClaimResolutions::assert_binds($policy->manifests, $policy->site['policy'] ?? [], 'site.wprism.json');
         AdapterContractGrammar::validate_no_conflicting_adapter_claims($policy->manifests, $claimResolutions);
+        AdapterContractGrammar::validate_no_incompatible_plugins($policy->manifests);
         ActionProviderGrammar::validate_no_conflicting_provider_ids($policy->manifests);
         ActionProviderGrammar::validate_no_conflicting_schema_settlements($policy->manifests);
         CrossManifestGuards::validate_no_conflicting_post_type_contracts($policy->manifests);

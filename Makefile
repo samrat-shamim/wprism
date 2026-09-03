@@ -30,13 +30,14 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-menu-reference-scanner
 .PHONY: regress-serialized-term-description-scanner
 .PHONY: regress-shortcode-reference-scanner
-.PHONY: regress-promotion-abort-reason
+.PHONY: regress-promotion-abort-reason regress-promotion-begin-atomicity
 .PHONY: regress-control-plane-seams regress-code-descriptor-compiler regress-agent-src-requires regress-wp-cli-child-process regress-target-observation-premises regress-live-exit-code-contract
 .PHONY: regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar regress-reference-kind-grammar regress-code-config-grammar regress-site-policy-validator regress-policy-load-finalizer regress-artifact-policy-identity regress-compiled-artifact-reader regress-repository-media-catalog regress-repository-schema-validator regress-repository-deletion-parser regress-repository-entity-parser regress-repository-identity-registry regress-repository-reference-graph-validator regress-repository-portable-shape-validator regress-repository-menu-location-validator regress-repository-state-file-catalog regress-post-type-relation-resolver regress-option-name-reference-resolver regress-deletion-capability-resolver regress-taxonomy-pattern-resolver regress-taxonomy-keyspace-resolver regress-taxonomy-description-reference-resolver regress-taxonomy-object-type-option-resolver regress-widget-type-resolver regress-table-declaration-resolver regress-content-attribute-rule-resolver regress-policy-rule-resolver regress-exact-option-resolver regress-option-namespace-resolver
 .PHONY: regress-delete-guard-value-codec
 .PHONY: regress-delete-guard-evaluator
 .PHONY: regress-scope-discovery regress-user-meta-capture regress-entity-meta-capture regress-menu-capture regress-media-capture regress-options-capture regress-table-graph regress-table-schema regress-snapshot-identity regress-typed-table-capture regress-typed-table-materializer regress-snapshot-pruner
 .PHONY: regress-full-apply-attachment-recovery
+.PHONY: regress-plugin-incompatibility
 
 .PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half-first-sync grind-ecommerce-developer-live pair-up pair-reset pair-destroy pair-list regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix certify-ssh-adoption-roundtrip certify-ssh-rollback regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations-live regress-adapter-contract regress-adapter-sources regress-fetch-artifact regress-adapter-theme-range regress-adapter-plugin-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-stage-unchanged-skip regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-plan-title-render regress-conflict-view regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-rollback-authority regress-recovery-transport regress-local-verified-rollback regress-recovery-executor regress-checkpoint-bundle regress-code-release regress-code-source-lock regress-code-lock-compile-gate regress-init-code-split regress-code-classify regress-code-resolve regress-code-import code-half-unit \
 	regress-adopt-rollback regress-block-refs regress-composite-ref regress-doctor-env-values regress-dynamic-options-policy regress-taxonomy-object-keyspace \
@@ -392,8 +393,8 @@ regress-manifest-dispositions:
 # WP-4.4 (spec § v3.4): the reviewed claim source moved from one
 # manifests/dispositions.json to one document per subject under
 # manifests/dispositions/, and NOT ONE ADAPTER DIGEST MOVED. The historical
-# pre-split tree had 16 subjects; the current WPrism baseline has 17 and is
-# pinned separately. The suite pins the historical 16-subject digests,
+# pre-split tree had 16 subjects; the current WPrism baseline has 18 and is
+# pinned through two compatible worlds. The suite pins the historical 16-subject digests,
 # manifest_hash and registry_sha256 as literals captured from that tree;
 # measures each enumerated Canon-encoding hazard (a nested list re-ordered and
 # a UTF-8 reason re-composed MOVE a digest; map key order does not; int/float is
@@ -448,10 +449,10 @@ regress-spec-v3-dry-run:
 regress-spec-v3-document:
 	php sandbox/tests/offline/policy/regress_spec_v3_document.php
 
-# WP-4.12 -- THE FLIP's current WPrism identity baseline. The current 17
-# subject digests, manifest_hash values for seven representative pin sets,
-# registry address and frozen-policy snapshot are compared against the explicit
-# greenfield fixture (the fixture and its sha256 are literals in the suite).
+# WP-4.12 -- THE FLIP's current WPrism identity baseline. The current 18
+# subject digests, manifest_hash values for eight representative pin sets,
+# registry address and two compatible-world snapshots are compared against the
+# explicit greenfield fixture (the fixture and its sha256 are literals in the suite).
 # The suite also proves the platform-only mutation refusals: a hand-mixed bundle
 # (v3 agent, v2 platform.json) refuses at the shipped platform_boundary sentence.
 regress-spec-v3-digest-neutrality:
@@ -489,7 +490,7 @@ regress-closed-top-level-keys:
 # WPRISM_SPEC_VERSION left at 3 and asserted in the same run. Walks the three
 # verdicts on a section v3 did not have (admitted / refused by FEATURE name /
 # refused as a typo), the section's own closed grammar, and both halves of the
-# deferral: the shipped library cannot adopt it without moving 17 digests, so
+# deferral: the shipped library cannot adopt it without moving 18 digests, so
 # the prose grep in regress_shipped_option_declarations.php stays and the schema
 # check covers fixtures and out-of-tree adapters.
 regress-structured-evidence:
@@ -1772,6 +1773,12 @@ regress-deploy-command:
 regress-deploy-checkpoint:
 	php sandbox/tests/offline/recovery/regress_deploy_checkpoint.php
 
+# The external settlement-debt check precedes every durable write under the
+# target advisory fence, and the new lease/session pair commits atomically.
+# FakeWpdb injects a failure between those two writes and proves full rollback.
+regress-promotion-begin-atomicity:
+	php sandbox/tests/offline/recovery/regress_promotion_begin_atomicity.php
+
 # issue #3514's retention half: promote and deploy each retain an unbounded
 # whole-DB dump under .wprism/checkpoints and nothing ever removed one.
 # `wprism recover <env> --prune-retained=<keep-n>` is the only verb that does,
@@ -2872,6 +2879,13 @@ regress-identity-namespaces:
 # after one of its manifests is unpinned -- refusing by name.
 regress-plugin-claim-resolution:
 	php sandbox/tests/offline/guards/regress_plugin_claim_resolution.php
+
+# A manifest-owned exact-plugin incompatibility is grammar, not plugin logic:
+# malformed declarations refuse locally and a conflicting pin set refuses in
+# the shared policy finalizer with the same verdict in both pin orders, before
+# any transaction or recovery state can be created.
+regress-plugin-incompatibility:
+	php sandbox/tests/offline/policy/regress_plugin_incompatibility.php
 
 # WP-2.6: the adapter test kit. Adopt assembles the package library into the
 # staged agent and tars exactly `agent recovery`, so sandbox/ -- where the ability to PROVE
