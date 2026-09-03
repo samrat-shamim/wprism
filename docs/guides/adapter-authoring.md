@@ -724,6 +724,10 @@ Exercise that recovery path, not only the failing provider call. Inject one
 preparation failure after the checkpoint and durable schema intent exist, run
 host `wprism recover` for the exact retained id, and prove the pre-checkpoint
 plugin state plus both database-local and external debt are restored exactly.
+If that fixture changes an authored value to manufacture its pre-checkpoint
+state, establish the change through capture, commit, and apply. A direct target
+edit is ordinary drift after recovery, and the product must refuse to overwrite
+it rather than letting the fixture disguise that refusal as failed recovery.
 An offline boundary fixture must feed recovery the bytes the agent actually
 writes: `SchemaSettlementIntent` persists `Canon::encode()` output (sorted,
 pretty JSON with one trailing LF), while recovery's own control records use a

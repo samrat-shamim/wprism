@@ -237,6 +237,78 @@ wprism_check(
         && !str_contains($checkHarness, 'DELETE_OUT=$(wp_conf1 wprism capture --repo=/siterepo --format=json 2>&1)'),
     'B4: expected JSON refusals publish one clean envelope before their downstream refusal assertions'
 );
+$schemaSourceDisable = strpos($checkHarness, <<<'SH'
+wp_conf1 eval '
+$modules=array_values((array)get_option("rank_math_modules",[]));
+if (!in_array("redirections",$modules,true)) {
+    throw new RuntimeException("Rank Math source fixture lacks its authored redirections module");
+}
+$modules=array_values(array_filter($modules,static fn($m)=>$m!=="redirections"));
+update_option("rank_math_modules",$modules);
+' >/dev/null
+SH);
+$schemaBaselineCommit = strpos(
+    $checkHarness,
+    "commit_rank_math_source 'conformance: schema recovery module baseline'"
+);
+$schemaBaselineApply = strpos($checkHarness, <<<'SH'
+capture_wprism_json_success SCHEMA_BASELINE_APPLY 'Rank Math schema recovery baseline apply' \
+  wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
+SH);
+$schemaDeactivate = strpos($checkHarness, 'wp_conf2 plugin deactivate seo-by-rank-math');
+$schemaRepairedDeploy = strpos($checkHarness, 'REDEPLOY=$(host_wprism conf2 deploy 2>&1)');
+$schemaSourceRestore = strpos($checkHarness, <<<'SH'
+wp_conf1 eval '
+$modules=array_values((array)get_option("rank_math_modules",[]));
+if (in_array("redirections",$modules,true)) {
+    throw new RuntimeException("Rank Math recovery baseline unexpectedly retained redirections");
+}
+$offset=array_search("rich-snippet",$modules,true);
+if (!is_int($offset)) {
+    throw new RuntimeException("Rank Math recovery baseline lacks the rich-snippet insertion anchor");
+}
+array_splice($modules,$offset,0,["redirections"]);
+update_option("rank_math_modules",$modules);
+' >/dev/null
+SH);
+$schemaRestoreCommit = strpos(
+    $checkHarness,
+    "commit_rank_math_source 'conformance: restore Rank Math module intent after recovery'"
+);
+$schemaRestoreApply = strpos($checkHarness, <<<'SH'
+capture_wprism_json_success RESTORE 'Rank Math canonical verification after lifecycle recovery' \
+  wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
+SH);
+wprism_check(
+    is_int($schemaSourceDisable)
+        && is_int($schemaBaselineCommit)
+        && is_int($schemaBaselineApply)
+        && is_int($schemaDeactivate)
+        && is_int($schemaRepairedDeploy)
+        && is_int($schemaSourceRestore)
+        && is_int($schemaRestoreCommit)
+        && is_int($schemaRestoreApply)
+        && $schemaSourceDisable < $schemaBaselineCommit
+        && $schemaBaselineCommit < $schemaBaselineApply
+        && $schemaBaselineApply < $schemaDeactivate
+        && $schemaDeactivate < $schemaRepairedDeploy
+        && $schemaRepairedDeploy < $schemaSourceRestore
+        && $schemaSourceRestore < $schemaRestoreCommit
+        && $schemaRestoreCommit < $schemaRestoreApply,
+    'B4: recovery evidence removes and restores its authored module on source through ordered commits and answered target applies'
+);
+wprism_check(
+    !str_contains(
+        $checkHarness,
+        <<<'SH'
+wp_conf2 eval '
+$modules=array_values(array_filter((array)get_option("rank_math_modules",[]),static fn($m)=>$m!=="redirections"));
+update_option("rank_math_modules",$modules);
+' >/dev/null
+SH
+    ),
+    'B4: recovery evidence cannot recreate its authored module premise through the former target-only mutation'
+);
 wprism_check(
     str_contains($checkHarness, '"details_redacted":true')
         && str_contains($checkHarness, "the target's schema-status refusal was redacted")

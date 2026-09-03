@@ -1,5 +1,5 @@
 # format wprism-target-observation-premises/v1
-# expected observations=29 fixtures=8
+# expected observations=30 fixtures=8
 # kind	package-relative source	literal premise assertion
 observation	tests/conformance/check.sh	require_observed_nonempty "$side Rank Math observation"
 observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math zero-change plan' json
@@ -20,7 +20,8 @@ observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math author
 observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math authored schema private refusal baseline'
 observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math authored schema private refusal receipt'
 observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math injected host schema provider refusal' human
-observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math canonical verification after lifecycle recovery' json
+observation	tests/conformance/check.sh	capture_wprism_json_success SCHEMA_BASELINE_APPLY 'Rank Math schema recovery baseline apply'
+observation	tests/conformance/check.sh	capture_wprism_json_success RESTORE 'Rank Math canonical verification after lifecycle recovery'
 observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math final zero plan' json
 observation	tests/conformance/postdeploy.sh	require_observed_nonempty 'Rank Math hostile target'
 observation	tests/conformance/seed.sh	require_observed_nonempty 'Rank Math source seed'

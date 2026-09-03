@@ -686,13 +686,25 @@ wp_conf2 db query \
 pass 'authored table loss refuses before checkpoint/provider work and accepts only the database-matched table restore'
 
 # A missing derived cache with no canonical history is a legitimate schema
-# preparation. Keep the authored redirection table intact, disable the module
-# so activation cannot pre-create its cache, and inject a provider-only refusal
-# after the checkpoint. Recovery must clear both database and external debt.
-wp_conf2 eval '
-$modules=array_values(array_filter((array)get_option("rank_math_modules",[]),static fn($m)=>$m!=="redirections"));
+# preparation. Keep the authored redirection table intact and establish the
+# module-disabled baseline through capture -> commit -> apply: rank_math_modules
+# is authored state, so changing only the target would correctly become
+# ordinary drift after recovery. The tracked baseline prevents activation from
+# pre-creating the cache before the provider-only refusal after the checkpoint.
+wp_conf1 eval '
+$modules=array_values((array)get_option("rank_math_modules",[]));
+if (!in_array("redirections",$modules,true)) {
+    throw new RuntimeException("Rank Math source fixture lacks its authored redirections module");
+}
+$modules=array_values(array_filter($modules,static fn($m)=>$m!=="redirections"));
 update_option("rank_math_modules",$modules);
 ' >/dev/null
+commit_rank_math_source 'conformance: schema recovery module baseline'
+capture_wprism_json_success SCHEMA_BASELINE_APPLY 'Rank Math schema recovery baseline apply' \
+  wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
+jq -e '.canary == "clean" and .verification.result == "pass" and .plan.update >= 1' \
+  <<<"$SCHEMA_BASELINE_APPLY" >/dev/null \
+  || fail "Rank Math schema recovery baseline did not converge through apply: $SCHEMA_BASELINE_APPLY"
 wp_conf2 plugin deactivate seo-by-rank-math >/dev/null
 wp_conf2 db query 'DROP TABLE wp_rank_math_redirections_cache' >/dev/null
 SCHEMA_RECOVERY_BEFORE=$(rank_math_recovery_state conf2)
@@ -805,8 +817,21 @@ jq -e '
   (.hub_counts.incoming_link_count | tonumber) == 1 and .redirection_count == 1
 ' <<<"$LIFECYCLE" >/dev/null \
   || fail "Rank Math ordered lifecycle settlement changed authored rows or missed derived repair: $LIFECYCLE"
-RESTORE=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
-require_wprism_answered 'Rank Math canonical verification after lifecycle recovery' json "$RESTORE"
+wp_conf1 eval '
+$modules=array_values((array)get_option("rank_math_modules",[]));
+if (in_array("redirections",$modules,true)) {
+    throw new RuntimeException("Rank Math recovery baseline unexpectedly retained redirections");
+}
+$offset=array_search("rich-snippet",$modules,true);
+if (!is_int($offset)) {
+    throw new RuntimeException("Rank Math recovery baseline lacks the rich-snippet insertion anchor");
+}
+array_splice($modules,$offset,0,["redirections"]);
+update_option("rank_math_modules",$modules);
+' >/dev/null
+commit_rank_math_source 'conformance: restore Rank Math module intent after recovery'
+capture_wprism_json_success RESTORE 'Rank Math canonical verification after lifecycle recovery' \
+  wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json
 jq -e '.canary == "clean" and .verification.result == "pass" and .plan.update >= 1' <<<"$RESTORE" >/dev/null \
   || fail "Rank Math canonical module state did not restore after lifecycle recovery: $RESTORE"
 [ "$(wp_conf2 option get wprism_rank_math_target_neighbor)" = target-neighbor-must-survive ] \
