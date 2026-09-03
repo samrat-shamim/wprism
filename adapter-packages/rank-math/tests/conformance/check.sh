@@ -796,6 +796,17 @@ wp_conf2 plugin is-active seo-by-rank-math >/dev/null 2>&1 \
   || fail 'Rank Math lifecycle recovery did not remove schema created after the checkpoint'
 [ ! -e "${CONF_REPO2:-siterepo/conf2}/.wprism/control/provider-settlement-intent.json" ] \
   || fail 'Rank Math lifecycle recovery did not clear external provider debt'
+RECOVERED_NOTIFICATION=$(wp_conf2 --skip-plugins=seo-by-rank-math eval '
+echo wp_json_encode(get_option("rank_math_notifications", null));
+')
+require_observed_nonempty 'Rank Math recovered notification before repaired activation' "$RECOVERED_NOTIFICATION"
+jq -e '
+  . == [{
+    message:"Target runtime notification must survive",
+    options:{id:"wprism-target-runtime",classes:"rank-math-notice",type:"success",screen:"any",capability:""}
+  }]
+' <<<"$RECOVERED_NOTIFICATION" >/dev/null \
+  || fail "Rank Math recovery did not restore the pre-activation target notification: $RECOVERED_NOTIFICATION"
 $COMPOSE exec -T --user root wp2 rm -f /var/www/html/wp-content/mu-plugins/wprism-rank-math-lifecycle-fault.php
 
 REDEPLOY_RC=0
@@ -809,6 +820,12 @@ REDEPLOY_PHASES=$(sed -n 's/^deploy phase: //p' <<<"$REDEPLOY" | paste -sd ' ' -
   || fail 'Rank Math repaired schema retry did not clear exact recovery intent'
 wp_conf2 plugin is-active seo-by-rank-math >/dev/null \
   || fail 'Rank Math deploy did not reactivate exact plugin code'
+ACTIVATED_NOTIFICATION=$(wp_conf2 --skip-plugins=seo-by-rank-math eval '
+echo wp_json_encode(get_option("rank_math_notifications", null));
+')
+require_observed_nonempty 'Rank Math native activation notification outcome' "$ACTIVATED_NOTIFICATION"
+jq -e 'type == "array" and length == 0' <<<"$ACTIVATED_NOTIFICATION" >/dev/null \
+  || fail "Rank Math native activation did not advance its notification queue to empty: $ACTIVATED_NOTIFICATION"
 LIFECYCLE=$(observe_rank_math conf2)
 jq -e '
   ([.schema[].present] | all) and (.links | length) == 2 and
@@ -869,18 +886,46 @@ jq -e '
   .post.title == "Concurrent Rank Math intent 東京 🚀" and .post.processed == true and
   (.links | length) == 2 and .target_owned.instant_key == "target-indexnow-credential-must-survive" and
   .target_owned.indexnow_log[0].message == "target runtime submission history" and
-  .target_owned.notifications == [{
-    message:"Target runtime notification must survive",
-    options:{id:"wprism-target-runtime",classes:"rank-math-notice",type:"success",screen:"any",capability:""}
-  }] and
+  .target_owned.notifications == [] and
   .target_owned.neighbor == "target-neighbor-must-survive"
 ' <<<"$TARGET_FINAL" >/dev/null || fail "Rank Math concurrent apply did not converge exact native state: $TARGET_FINAL"
 
 # Rank Math's native uninstall is deliberately non-destructive unless its own
 # opt-in filter is supplied. Prove that real default path, the missing-code
-# refusal, and an exact digest-bound reinstall through host lifecycle all keep
-# the authored graph and target-owned state intact.
+# refusal, and an exact digest-bound reinstall through host lifecycle. A fresh
+# runtime notification must survive retirement, uninstall and missing code;
+# the next native late activation must reproduce the measured empty-queue
+# outcome before state apply preserves that exact plugin-owned result.
+LIFECYCLE_NOTIFICATION_SEED=$(wp_conf2 eval '
+\RankMath\Helper::add_notification(
+    "Target runtime notification must survive until native reactivation",
+    ["id" => "wprism-target-lifecycle-runtime", "type" => "success", "screen" => "any", "capability" => ""]
+);
+echo "rank-math-target-lifecycle-notification-seeded";
+')
+require_observed_nonempty 'Rank Math pre-uninstall runtime notification seed' "$LIFECYCLE_NOTIFICATION_SEED"
+[ "$(printf '%s\n' "$LIFECYCLE_NOTIFICATION_SEED" | awk 'NF { line=$0 } END { print line }')" = \
+    'rank-math-target-lifecycle-notification-seeded' ] \
+  || fail "Rank Math pre-uninstall notification seed did not complete: $LIFECYCLE_NOTIFICATION_SEED"
+LIFECYCLE_NOTIFICATION=$(wp_conf2 --skip-plugins=seo-by-rank-math eval '
+echo wp_json_encode(get_option("rank_math_notifications", null));
+')
+require_observed_nonempty 'Rank Math pre-uninstall runtime notification premise' "$LIFECYCLE_NOTIFICATION"
+jq -e '
+  . == [{
+    message:"Target runtime notification must survive until native reactivation",
+    options:{id:"wprism-target-lifecycle-runtime",classes:"rank-math-notice",type:"success",screen:"any",capability:""}
+  }]
+' <<<"$LIFECYCLE_NOTIFICATION" >/dev/null \
+  || fail "Rank Math pre-uninstall runtime notification was not durable: $LIFECYCLE_NOTIFICATION"
 wp_conf2 plugin deactivate seo-by-rank-math >/dev/null
+RETIRED_NOTIFICATION=$(wp_conf2 --skip-plugins=seo-by-rank-math eval '
+echo wp_json_encode(get_option("rank_math_notifications", null));
+')
+require_observed_nonempty 'Rank Math retired runtime notification' "$RETIRED_NOTIFICATION"
+jq -e --argjson expected "$LIFECYCLE_NOTIFICATION" '. == $expected' \
+  <<<"$RETIRED_NOTIFICATION" >/dev/null \
+  || fail "Rank Math native retirement changed its target runtime notification: $RETIRED_NOTIFICATION"
 UNINSTALL_DATA_BEFORE=$(rank_math_recovery_state conf2)
 wp_conf2 plugin uninstall seo-by-rank-math >/dev/null
 wp_conf2 plugin is-installed seo-by-rank-math >/dev/null 2>&1 \
@@ -906,6 +951,13 @@ RANK_MATH_REINSTALL=$(fetch_artifact seo-by-rank-math 1.0.277.2 cli2 plugin)
 wp_conf2 plugin install "$RANK_MATH_REINSTALL" --force >/dev/null
 [ "$(wp_conf2 plugin get seo-by-rank-math --field=version)" = 1.0.277.2 ] \
   || fail 'Rank Math exact reinstall reported the wrong version'
+REINSTALL_PENDING_NOTIFICATION=$(wp_conf2 --skip-plugins=seo-by-rank-math eval '
+echo wp_json_encode(get_option("rank_math_notifications", null));
+')
+require_observed_nonempty 'Rank Math reinstalled-inactive runtime notification' "$REINSTALL_PENDING_NOTIFICATION"
+jq -e --argjson expected "$LIFECYCLE_NOTIFICATION" '. == $expected' \
+  <<<"$REINSTALL_PENDING_NOTIFICATION" >/dev/null \
+  || fail "Rank Math code reinstall changed target runtime state before activation: $REINSTALL_PENDING_NOTIFICATION"
 REINSTALL_DEPLOY=$(host_wprism conf2 deploy 2>&1) \
   || fail "Rank Math exact-reinstall host deploy failed: $REINSTALL_DEPLOY"
 REINSTALL_PHASES=$(sed -n 's/^deploy phase: //p' <<<"$REINSTALL_DEPLOY" | paste -sd ' ' -)
@@ -913,6 +965,12 @@ REINSTALL_PHASES=$(sed -n 's/^deploy phase: //p' <<<"$REINSTALL_DEPLOY" | paste 
   || fail "Rank Math exact reinstall did not traverse the full checkpointed lifecycle: $REINSTALL_DEPLOY"
 wp_conf2 plugin is-active seo-by-rank-math >/dev/null \
   || fail 'Rank Math exact reinstall was not activated by host lifecycle'
+REINSTALL_ACTIVATED_NOTIFICATION=$(wp_conf2 --skip-plugins=seo-by-rank-math eval '
+echo wp_json_encode(get_option("rank_math_notifications", null));
+')
+require_observed_nonempty 'Rank Math reinstall activation notification outcome' "$REINSTALL_ACTIVATED_NOTIFICATION"
+jq -e 'type == "array" and length == 0' <<<"$REINSTALL_ACTIVATED_NOTIFICATION" >/dev/null \
+  || fail "Rank Math reinstall activation did not reproduce its empty notification outcome: $REINSTALL_ACTIVATED_NOTIFICATION"
 REINSTALL_APPLY=$(wp_conf2 wprism apply --repo=/siterepo --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
 require_wprism_answered 'Rank Math apply after exact reinstall' json "$REINSTALL_APPLY"
 jq -e '.canary == "clean" and .verification.result == "pass"' <<<"$REINSTALL_APPLY" >/dev/null \

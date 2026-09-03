@@ -309,6 +309,79 @@ SH
     ),
     'B4: recovery evidence cannot recreate its authored module premise through the former target-only mutation'
 );
+$recoveredNotification = strpos(
+    $checkHarness,
+    "require_observed_nonempty 'Rank Math recovered notification before repaired activation'"
+);
+$nativeActivationNotification = strpos(
+    $checkHarness,
+    "require_observed_nonempty 'Rank Math native activation notification outcome'"
+);
+$concurrentFinal = strpos($checkHarness, 'TARGET_FINAL=$(observe_rank_math conf2)');
+$concurrentEmptyNotification = is_int($concurrentFinal)
+    ? strpos($checkHarness, '.target_owned.notifications == []', $concurrentFinal)
+    : false;
+$preUninstallNotification = strpos(
+    $checkHarness,
+    "require_observed_nonempty 'Rank Math pre-uninstall runtime notification premise'"
+);
+$nativeUninstallDeactivate = is_int($preUninstallNotification)
+    ? strpos($checkHarness, 'wp_conf2 plugin deactivate seo-by-rank-math', $preUninstallNotification)
+    : false;
+$retiredNotification = strpos(
+    $checkHarness,
+    "require_observed_nonempty 'Rank Math retired runtime notification'"
+);
+$reinstalledInactiveNotification = strpos(
+    $checkHarness,
+    "require_observed_nonempty 'Rank Math reinstalled-inactive runtime notification'"
+);
+$reinstallDeploy = strpos($checkHarness, 'REINSTALL_DEPLOY=$(host_wprism conf2 deploy 2>&1)');
+$reinstallActivationNotification = strpos(
+    $checkHarness,
+    "require_observed_nonempty 'Rank Math reinstall activation notification outcome'"
+);
+$reinstallApply = strpos($checkHarness, 'REINSTALL_APPLY=$(wp_conf2 wprism apply');
+wprism_check(
+    is_int($recoveredNotification)
+        && is_int($nativeActivationNotification)
+        && is_int($concurrentFinal)
+        && is_int($concurrentEmptyNotification)
+        && is_int($preUninstallNotification)
+        && is_int($nativeUninstallDeactivate)
+        && is_int($retiredNotification)
+        && is_int($reinstalledInactiveNotification)
+        && is_int($reinstallDeploy)
+        && is_int($reinstallActivationNotification)
+        && is_int($reinstallApply)
+        && $recoveredNotification < $schemaRepairedDeploy
+        && $schemaRepairedDeploy < $nativeActivationNotification
+        && $nativeActivationNotification < $concurrentFinal
+        && $concurrentFinal < $concurrentEmptyNotification
+        && $concurrentEmptyNotification < $preUninstallNotification
+        && $preUninstallNotification < $nativeUninstallDeactivate
+        && $nativeUninstallDeactivate < $retiredNotification
+        && $retiredNotification < $reinstalledInactiveNotification
+        && $reinstalledInactiveNotification < $reinstallDeploy
+        && $reinstallDeploy < $reinstallActivationNotification
+        && $reinstallActivationNotification < $reinstallApply
+        && str_contains(
+            $checkHarness,
+            'jq -e \'type == "array" and length == 0\' <<<"$ACTIVATED_NOTIFICATION"'
+        )
+        && str_contains($checkHarness, '<<<"$RECOVERED_NOTIFICATION" >/dev/null \\')
+        && substr_count(
+            $checkHarness,
+            'jq -e --argjson expected "$LIFECYCLE_NOTIFICATION" \'. == $expected\''
+        ) === 2
+        && str_contains($checkHarness, '<<<"$RETIRED_NOTIFICATION" >/dev/null \\')
+        && str_contains($checkHarness, '<<<"$REINSTALL_PENDING_NOTIFICATION" >/dev/null \\')
+        && str_contains(
+            $checkHarness,
+            'jq -e \'type == "array" and length == 0\' <<<"$REINSTALL_ACTIVATED_NOTIFICATION"'
+        ),
+    'B4: recovery, apply and two native activations distinguish preserved target runtime from plugin-owned queue advancement'
+);
 wprism_check(
     str_contains($checkHarness, '"details_redacted":true')
         && str_contains($checkHarness, "the target's schema-status refusal was redacted")

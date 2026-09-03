@@ -1103,7 +1103,14 @@ plugin faithfully.
    ordinary control boot. Rank Math 1.0.277.2's valid persistent notification
    survives that control; if another plugin legitimately advances its state,
    record the native lifecycle outcome rather than weakening a real
-   stable-runtime preservation assertion.
+   stable-runtime preservation assertion. A `runtime` classification protects
+   target-owned state from canonical capture and apply; it does not override
+   the plugin's own activation semantics. Keep those claims separate in
+   evidence: prove the pre-lifecycle value survives recovery, assert the exact
+   post-activation outcome and carry that outcome through state-only apply.
+   Then seed a new runtime witness to prove retirement, uninstall, missing code
+   and inactive reinstall leave it untouched before reactivation reproduces —
+   and the following apply preserves — the plugin's native outcome.
 
    Establish local-identity divergence explicitly for every mapped table. Two
    fresh plugin tables commonly allocate primary key `1` on both sites, so
