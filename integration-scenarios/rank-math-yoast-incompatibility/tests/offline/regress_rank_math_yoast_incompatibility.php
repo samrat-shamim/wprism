@@ -85,4 +85,35 @@ foreach ([
     wprism_check(str_contains($live, $witness), "the candidate-bound live refusal pins: $witness");
 }
 
+$order1Readback = strpos($live, 'ORDER1=$(wp1 option get active_plugins');
+$order2Readback = strpos($live, 'ORDER2=$(wp2 option get active_plugins');
+$order1Guard = strpos($live,
+    '[ "$ORDER1" = \'["seo-by-rank-math/rank-math.php","wordpress-seo/wp-seo.php"]\' ]');
+$order2Guard = strpos($live,
+    '[ "$ORDER2" = \'["wordpress-seo/wp-seo.php","seo-by-rank-math/rank-math.php"]\' ]');
+$runtimeBaseline = strpos($live, 'BASE1=$(target_witness 1)');
+wprism_check(
+    $order1Readback !== false
+        && $order2Readback !== false
+        && $order1Guard !== false
+        && $order2Guard !== false
+        && $runtimeBaseline !== false
+        && $order1Readback < $order2Readback
+        && $order2Readback < $order1Guard
+        && $order1Guard < $order2Guard
+        && $order2Guard < $runtimeBaseline,
+    'the live gate reads back and exactly guards both plugin boot orders before refusal execution'
+);
+$orderSetters = [
+    "wp1 option update active_plugins \\\n  '[\"seo-by-rank-math/rank-math.php\",\"wordpress-seo/wp-seo.php\"]' --format=json",
+    "wp2 option update active_plugins \\\n  '[\"wordpress-seo/wp-seo.php\",\"seo-by-rank-math/rank-math.php\"]' --format=json",
+];
+wprism_check_same(2, substr_count($live, 'option update active_plugins'),
+    'the live gate authors exactly the two plugin-order premises it claims');
+foreach ($orderSetters as $orderSetter) {
+    $position = strpos($live, $orderSetter);
+    wprism_check($position !== false && $position < $order1Readback,
+        'each exact active-plugin order is persisted before either order is observed');
+}
+
 wprism_check_summary('regress_rank_math_yoast_incompatibility');

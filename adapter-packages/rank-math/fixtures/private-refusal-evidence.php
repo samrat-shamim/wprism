@@ -7,11 +7,27 @@ declare(strict_types=1);
 // unreadable to a different native-Linux host identity.
 
 const WPRISM_RANK_MATH_PRIVATE_REFUSAL_FORMAT = 'wprism-rank-math-private-refusal-check/v1';
-const WPRISM_RANK_MATH_PRIVATE_REFUSAL_COMMAND = 'schema-status';
-const WPRISM_RANK_MATH_PRIVATE_REFUSAL_MESSAGE =
-    "wprism: schema-settle table 'rank_math_redirections' is absent but durable identity history remains; "
-    . 'restore the database-matched table instead of preparing an empty replacement';
 const WPRISM_RANK_MATH_PRIVATE_REFUSAL_RECORD_LIMIT = 262144;
+const WPRISM_RANK_MATH_PRIVATE_REFUSAL_PROFILES = [
+    'missing-code' => [
+        'command' => 'lifecycle-status',
+        'reason_code' => 'lifecycle_status_failed',
+        'message' => "wprism: deploy refused — code_mismatch:\n\n"
+            . "  - active_plugins in state/options/core.json declares 'seo-by-rank-math/rank-math.php' "
+            . "but seo-by-rank-math/rank-math.php does not exist in this environment (checked against "
+            . "this environment's wp-content/plugins/ — phase 1 has no code/ deploy transport, so 'in code' "
+            . "means 'installed on the env'). Install/vendor the plugin here, or this branch's code/ changes "
+            . "haven't reached this environment yet.\n\n"
+            . 'Install/vendor whatever is missing (or update code/) in this environment first, or pass '
+            . '--force-code-mismatch to proceed anyway.',
+    ],
+    'schema-loss' => [
+        'command' => 'schema-status',
+        'reason_code' => 'schema_status_failed',
+        'message' => "wprism: schema-settle table 'rank_math_redirections' is absent but durable identity "
+            . 'history remains; restore the database-matched table instead of preparing an empty replacement',
+    ],
+];
 
 function rank_math_private_refusal_fail(string $message): never
 {
@@ -19,17 +35,29 @@ function rank_math_private_refusal_fail(string $message): never
     exit(1);
 }
 
-function rank_math_private_refusal_name_is_valid(string $name): bool
+/** @return array{command: string, reason_code: string, message: string} */
+function rank_math_private_refusal_profile(string $name): array
 {
+    $profile = WPRISM_RANK_MATH_PRIVATE_REFUSAL_PROFILES[$name] ?? null;
+    if (!is_array($profile)) {
+        rank_math_private_refusal_fail('unknown verification profile');
+    }
+    return $profile;
+}
+
+function rank_math_private_refusal_name_is_valid(string $name, string $profileName): bool
+{
+    $command = rank_math_private_refusal_profile($profileName)['command'];
     return preg_match(
-        '/\A[0-9]{8}-[0-9]{6}-schema-status-[a-f0-9]{24}\.json\z/',
+        '/\A[0-9]{8}-[0-9]{6}-' . preg_quote($command, '/') . '-[a-f0-9]{24}\.json\z/',
         $name
     ) === 1;
 }
 
 /** @return list<string> */
-function rank_math_private_refusal_inventory(string $directory): array
+function rank_math_private_refusal_inventory(string $directory, string $profileName): array
 {
+    $command = rank_math_private_refusal_profile($profileName)['command'];
     clearstatcache(true, $directory);
     $directoryStat = @lstat($directory);
     if ($directoryStat === false) {
@@ -45,12 +73,11 @@ function rank_math_private_refusal_inventory(string $directory): array
     }
     $names = [];
     foreach ($entries as $name) {
-        if ($name === '.' || $name === '..'
-            || !str_contains($name, '-' . WPRISM_RANK_MATH_PRIVATE_REFUSAL_COMMAND . '-')) {
+        if ($name === '.' || $name === '..' || !str_contains($name, '-' . $command . '-')) {
             continue;
         }
-        if (!rank_math_private_refusal_name_is_valid($name)) {
-            rank_math_private_refusal_fail('schema-status refusal record has a noncanonical name');
+        if (!rank_math_private_refusal_name_is_valid($name, $profileName)) {
+            rank_math_private_refusal_fail("$command refusal record has a noncanonical name");
         }
         $path = $directory . '/' . $name;
         clearstatcache(true, $path);
@@ -58,7 +85,7 @@ function rank_math_private_refusal_inventory(string $directory): array
         if (!is_array($fileStat)
             || (((int) ($fileStat['mode'] ?? 0)) & 0170000) !== 0100000
             || (((int) ($fileStat['mode'] ?? 0)) & 0777) !== 0600) {
-            rank_math_private_refusal_fail('schema-status refusal record is not one ordinary 0600 file');
+            rank_math_private_refusal_fail("$command refusal record is not one ordinary 0600 file");
         }
         $names[] = $name;
     }
@@ -67,7 +94,7 @@ function rank_math_private_refusal_inventory(string $directory): array
 }
 
 /** @return list<string> */
-function rank_math_private_refusal_decode_baseline(string $encoded): array
+function rank_math_private_refusal_decode_baseline(string $encoded, string $profileName): array
 {
     try {
         $baseline = json_decode($encoded, true, flags: JSON_THROW_ON_ERROR);
@@ -78,7 +105,7 @@ function rank_math_private_refusal_decode_baseline(string $encoded): array
         rank_math_private_refusal_fail('baseline is not a JSON list');
     }
     foreach ($baseline as $name) {
-        if (!is_string($name) || !rank_math_private_refusal_name_is_valid($name)) {
+        if (!is_string($name) || !rank_math_private_refusal_name_is_valid($name, $profileName)) {
             rank_math_private_refusal_fail('baseline contains a noncanonical record name');
         }
     }
@@ -122,27 +149,34 @@ function rank_math_private_refusal_read(string $path): string
     return $bytes;
 }
 
-function rank_math_private_refusal_receipt(): string
+function rank_math_private_refusal_receipt(string $profileName = 'schema-loss'): string
 {
+    $profile = rank_math_private_refusal_profile($profileName);
     return json_encode([
-        'command' => WPRISM_RANK_MATH_PRIVATE_REFUSAL_COMMAND,
+        'command' => $profile['command'],
         'format' => WPRISM_RANK_MATH_PRIVATE_REFUSAL_FORMAT,
         'new_records' => 1,
-        'root_message_sha256' => hash('sha256', WPRISM_RANK_MATH_PRIVATE_REFUSAL_MESSAGE),
+        'root_message_sha256' => hash('sha256', $profile['message']),
         'verified' => true,
     ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 }
 
-function rank_math_private_refusal_verify(string $directory, string $encodedBaseline): string
-{
-    $baseline = rank_math_private_refusal_decode_baseline($encodedBaseline);
-    $current = rank_math_private_refusal_inventory($directory);
+function rank_math_private_refusal_verify(
+    string $directory,
+    string $encodedBaseline,
+    string $profileName
+): string {
+    $profile = rank_math_private_refusal_profile($profileName);
+    $baseline = rank_math_private_refusal_decode_baseline($encodedBaseline, $profileName);
+    $current = rank_math_private_refusal_inventory($directory, $profileName);
     if (array_diff($baseline, $current) !== []) {
-        rank_math_private_refusal_fail('the invocation removed prior schema-status refusal evidence');
+        rank_math_private_refusal_fail('the invocation removed prior refusal evidence');
     }
     $new = array_values(array_diff($current, $baseline));
     if (count($current) !== count($baseline) + 1 || count($new) !== 1) {
-        rank_math_private_refusal_fail('the invocation did not append exactly one schema-status refusal record');
+        rank_math_private_refusal_fail(
+            "the invocation did not append exactly one {$profile['command']} refusal record"
+        );
     }
 
     $path = $directory . '/' . $new[0];
@@ -154,8 +188,8 @@ function rank_math_private_refusal_verify(string $directory, string $encodedBase
     }
     if (!is_array($record)
         || ($record['format'] ?? null) !== 'wprism-private-refusal-evidence/v2'
-        || ($record['command'] ?? null) !== WPRISM_RANK_MATH_PRIVATE_REFUSAL_COMMAND
-        || ($record['reason_code'] ?? null) !== 'schema_status_failed'
+        || ($record['command'] ?? null) !== $profile['command']
+        || ($record['reason_code'] ?? null) !== $profile['reason_code']
         || ($record['traversal']['scan_complete'] ?? null) !== true
         || ($record['traversal']['record_complete'] ?? null) !== true) {
         rank_math_private_refusal_fail('the appended refusal record has an incomplete envelope');
@@ -169,15 +203,15 @@ function rank_math_private_refusal_verify(string $directory, string $encodedBase
     ));
     if (count($roots) !== 1
         || ($roots[0]['index'] ?? null) !== 0
-        || ($roots[0]['message'] ?? null) !== WPRISM_RANK_MATH_PRIVATE_REFUSAL_MESSAGE
+        || ($roots[0]['message'] ?? null) !== $profile['message']
         || ($roots[0]['message_encoding'] ?? null) !== 'utf-8'
-        || ($roots[0]['message_original_bytes'] ?? null) !== strlen(WPRISM_RANK_MATH_PRIVATE_REFUSAL_MESSAGE)
-        || ($roots[0]['message_sha256'] ?? null) !== hash('sha256', WPRISM_RANK_MATH_PRIVATE_REFUSAL_MESSAGE)
+        || ($roots[0]['message_original_bytes'] ?? null) !== strlen($profile['message'])
+        || ($roots[0]['message_sha256'] ?? null) !== hash('sha256', $profile['message'])
         || ($roots[0]['message_truncated'] ?? null) !== false) {
         rank_math_private_refusal_fail('the appended refusal record does not retain the exact complete root cause');
     }
 
-    return rank_math_private_refusal_receipt();
+    return rank_math_private_refusal_receipt($profileName);
 }
 
 if (realpath((string) ($_SERVER['SCRIPT_FILENAME'] ?? '')) !== __FILE__) {
@@ -185,16 +219,19 @@ if (realpath((string) ($_SERVER['SCRIPT_FILENAME'] ?? '')) !== __FILE__) {
 }
 
 $mode = $argv[1] ?? '';
-$directory = $argv[2] ?? '';
-if ($mode === 'snapshot' && count($argv) === 3 && $directory !== '') {
+$profileName = $argv[2] ?? '';
+$directory = $argv[3] ?? '';
+if ($mode === 'snapshot' && count($argv) === 4 && $directory !== '') {
     echo json_encode(
-        rank_math_private_refusal_inventory($directory),
+        rank_math_private_refusal_inventory($directory, $profileName),
         JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
     ), "\n";
     exit(0);
 }
-if ($mode === 'verify' && count($argv) === 4 && $directory !== '') {
-    echo rank_math_private_refusal_verify($directory, $argv[3]), "\n";
+if ($mode === 'verify' && count($argv) === 5 && $directory !== '') {
+    echo rank_math_private_refusal_verify($directory, $argv[4], $profileName), "\n";
     exit(0);
 }
-rank_math_private_refusal_fail('usage: private-schema-loss-evidence.php <snapshot|verify> <directory> [baseline-json]');
+rank_math_private_refusal_fail(
+    'usage: private-refusal-evidence.php <snapshot|verify> <profile> <directory> [baseline-json]'
+);

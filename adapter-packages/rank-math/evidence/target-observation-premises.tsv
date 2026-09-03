@@ -1,5 +1,5 @@
 # format wprism-target-observation-premises/v1
-# expected observations=37 fixtures=8
+# expected observations=40 fixtures=8
 # kind	package-relative source	literal premise assertion
 observation	tests/conformance/check.sh	require_observed_nonempty "$side Rank Math observation"
 observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math zero-change plan' json
@@ -27,6 +27,9 @@ observation	tests/conformance/check.sh	capture_wprism_json_success RESTORE 'Rank
 observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math pre-uninstall runtime notification seed'
 observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math pre-uninstall runtime notification premise'
 observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math retired runtime notification'
+observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math missing-code private refusal baseline'
+observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math deploy with code absent' human
+observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math missing-code private refusal receipt'
 observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math reinstalled-inactive runtime notification'
 observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math reinstall activation notification outcome'
 observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math final zero plan' json

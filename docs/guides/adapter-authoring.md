@@ -1141,7 +1141,11 @@ plugin faithfully.
    can make a failed invocation appear proved by a stale record. The private
    sentence is deliberately absent from host output; grepping that stream for
    it tests against the disclosure boundary rather than the refusal that
-   occurred.
+   occurred. Apply this split to every redacted host preflight, including
+   lifecycle and missing-code refusals: pin the public command/reason/redaction
+   envelope and phase prefix, then prove the exact cause only through the new
+   command-scoped private record. A generic public refusal by itself does not
+   establish which private safety gate fired.
 9. When a hostile target needs local mapped identities before first apply,
    never mint them by capturing against the source repository: its canonical
    UUIDs have no target ledger yet. Use a disposable policy root narrowed to
@@ -1755,10 +1759,19 @@ library.
    `evidence/external-tests.json`; the key must equal the gate basename with
    underscores changed to hyphens. This keeps a cross-adapter assertion out of
    every participant capsule while making changes to any named participant
-   select the scenario automatically. Exercise both pin/plugin load orders,
-   target-only neighbor state, ownership collisions, native frontend/API
-   behavior, provider failure/retry, recapture, and the final no-op where they
-   are structurally relevant.
+   select the scenario automatically. Exercise both pin orders and every
+   structurally distinct plugin load order needed by the claim, target-only
+   neighbor state, ownership collisions, native frontend/API behavior, provider
+   failure/retry, recapture, and the final no-op where they are structurally
+   relevant. Two opposing orders are pairwise-complete for a set of movable
+   plugins; test every permutation only when higher-order sequence behavior is
+   part of the claim or plugin implementation. Install or activation order is
+   not proof of load order: WordPress and plugins may rewrite
+   `active_plugins` (Polylang deliberately forces itself first). After all exact
+   artifacts are active, persist each claimed test-owned sequence and read it
+   back in a new request before exercising product behavior. Preserve and state
+   any plugin-enforced precedence instead of claiming a permutation the native
+   runtime makes impossible.
 8. **Close and generate the package boundary.** Run the full validator only
    after the files above exist, then refresh the runtime name projection:
 

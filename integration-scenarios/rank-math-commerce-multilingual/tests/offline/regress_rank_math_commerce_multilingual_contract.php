@@ -179,7 +179,47 @@ preg_match_all('/^run_leg (forward reverse|reverse forward)$/m', $live, $legs);
 wprism_check_same(
     ['forward reverse', 'reverse forward'],
     $legs[1] ?? [],
-    'both opposite source/target plugin-load orders run the complete parameterized product path'
+    'both pairwise-opposed source/target plugin-load orders run the complete parameterized product path'
+);
+$sourceOrderReadback = strpos($live, 'SOURCE_ORDER=$(active_plugin_order wp1)');
+$targetOrderReadback = strpos($live, 'TARGET_ORDER=$(active_plugin_order wp2)');
+$jointOrderGuard = strpos($live, '  $source == $expected_source and $target == $expected_target');
+wprism_check(
+    $sourceOrderReadback !== false
+        && $targetOrderReadback !== false
+        && $jointOrderGuard !== false
+        && $sourceOrderReadback < $targetOrderReadback
+        && $targetOrderReadback < $jointOrderGuard,
+    'the live scenario reads back both actual plugin boot orders before comparing both exact expectations'
+);
+foreach ([
+    'persist_active_plugin_order 1 "$source_order"',
+    'persist_active_plugin_order 2 "$target_order"',
+] as $setter) {
+    $position = strpos($live, $setter);
+    wprism_check($position !== false && $position < $sourceOrderReadback,
+        'each explicit plugin-order premise is persisted before either order is observed');
+}
+wprism_check(
+    str_contains($live,
+        '["polylang/polylang.php","advanced-custom-fields/acf.php","seo-by-rank-math/rank-math.php","woocommerce/woocommerce.php"]')
+        && str_contains($live,
+            '["polylang/polylang.php","woocommerce/woocommerce.php","seo-by-rank-math/rank-math.php","advanced-custom-fields/acf.php"]'),
+    'both pairwise-opposed orders retain Polylang native precedence and reverse every other participant'
+);
+$hostDeploy = strpos($live, 'CLEAN_DEPLOY=$(host_wprism_combo wp2 deploy');
+$settledOrderReadback = strpos($live, 'HOST_SETTLED_ORDER=$(active_plugin_order wp2)');
+$initialApply = strpos($live, 'INITIAL=$(wp2 wprism apply');
+wprism_check(
+    $hostDeploy !== false
+        && $settledOrderReadback !== false
+        && $initialApply !== false
+        && $hostDeploy < $settledOrderReadback
+        && $settledOrderReadback < $initialApply
+        && str_contains($live,
+            'jq -en --argjson actual "$HOST_SETTLED_ORDER" --argjson expected "$expected_source"')
+        && str_contains($live, '$actual == $expected'),
+    'host lifecycle order is independently read back and matched to canonical source before product apply'
 );
 wprism_check(
     str_contains($live, '([ $target.products.en.links[].type ] | sort) == ["external","internal"]')

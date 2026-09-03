@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Candidate-bound exact ACF/Polylang/Rank Math/WooCommerce product evidence.
-# The source and target active-plugin orders are deliberately reversed so
-# ownership, provider selection and native behavior cannot depend on boot order.
+# The source and target active-plugin orders deliberately reverse every plugin
+# except Polylang, whose native pre-update filter forces itself first. This is
+# pairwise-complete precedence evidence, not an install-order approximation.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../../.." && pwd -P)"
@@ -397,6 +398,18 @@ install_stack() { # <side> <forward|reverse>
   fi
 }
 
+persist_active_plugin_order() { # <side> <forward|reverse>
+  local side="$1" order="$2" plugins
+  if [ "$order" = forward ]; then
+    plugins='["polylang/polylang.php","advanced-custom-fields/acf.php","seo-by-rank-math/rank-math.php","woocommerce/woocommerce.php"]'
+  elif [ "$order" = reverse ]; then
+    plugins='["polylang/polylang.php","woocommerce/woocommerce.php","seo-by-rank-math/rank-math.php","advanced-custom-fields/acf.php"]'
+  else
+    fail "unknown plugin-load order '$order'"
+  fi
+  "wp$side" option update active_plugins "$plugins" --format=json >/dev/null
+}
+
 run_leg() { # <source order> <target order>
 local source_order="$1" target_order="$2" expected_source expected_target
 say "fresh exact four-plugin pair: source=$source_order target=$target_order"
@@ -411,20 +424,25 @@ wp2 db query 'ALTER TABLE wp_posts AUTO_INCREMENT=9100001; ALTER TABLE wp_terms 
 
 install_stack 1 "$source_order"
 install_stack 2 "$target_order"
+# Activation does not preserve install order, and Polylang intentionally moves
+# itself first. Author the two pairwise-opposed orders after every artifact is
+# active; independent readbacks prove the subsequent request boots each one.
+persist_active_plugin_order 1 "$source_order"
+persist_active_plugin_order 2 "$target_order"
 install_custom_post_type 1
 install_custom_post_type 2
 
 SOURCE_ORDER=$(active_plugin_order wp1)
 TARGET_ORDER=$(active_plugin_order wp2)
 if [ "$source_order" = forward ]; then
-  expected_source='["advanced-custom-fields","polylang","seo-by-rank-math","woocommerce"]'
+  expected_source='["polylang","advanced-custom-fields","seo-by-rank-math","woocommerce"]'
 else
-  expected_source='["woocommerce","seo-by-rank-math","polylang","advanced-custom-fields"]'
+  expected_source='["polylang","woocommerce","seo-by-rank-math","advanced-custom-fields"]'
 fi
 if [ "$target_order" = forward ]; then
-  expected_target='["advanced-custom-fields","polylang","seo-by-rank-math","woocommerce"]'
+  expected_target='["polylang","advanced-custom-fields","seo-by-rank-math","woocommerce"]'
 else
-  expected_target='["woocommerce","seo-by-rank-math","polylang","advanced-custom-fields"]'
+  expected_target='["polylang","woocommerce","seo-by-rank-math","advanced-custom-fields"]'
 fi
 jq -en --argjson source "$SOURCE_ORDER" --argjson target "$TARGET_ORDER" \
   --argjson expected_source "$expected_source" --argjson expected_target "$expected_target" '
@@ -666,6 +684,10 @@ wp2 plugin is-active seo-by-rank-math >/dev/null \
   || fail 'compatible host deploy did not restore the missing Rank Math schema'
 [ ! -e "$R2/.wprism/control/provider-settlement-intent.json" ] \
   || fail 'successful compatible host deploy retained provider settlement debt'
+HOST_SETTLED_ORDER=$(active_plugin_order wp2)
+jq -en --argjson actual "$HOST_SETTLED_ORDER" --argjson expected "$expected_source" \
+  '$actual == $expected' >/dev/null \
+  || fail "host lifecycle did not settle canonical source plugin order: $HOST_SETTLED_ORDER"
 HOST_SETTLED_NATIVE=$(native_state wp2)
 jq -en --argjson before "$HOSTILE_NATIVE" --argjson after "$HOST_SETTLED_NATIVE" '
   ($after | .redirection_cache = []) == ($before | .redirection_cache = []) and

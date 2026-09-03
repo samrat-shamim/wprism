@@ -648,8 +648,8 @@ wp_conf2 db query \
   'INSERT INTO wp_rank_math_redirections_wprism_loss_backup SELECT * FROM wp_rank_math_redirections' >/dev/null
 wp_conf2 db query 'DROP TABLE wp_rank_math_redirections' >/dev/null
 AUTHORED_LOSS_PRIVATE_BASELINE=$($COMPOSE run --rm -T --entrypoint php cli2 \
-  /var/www/html/wp-content/mu-plugins/adapter-packages/rank-math/fixtures/private-schema-loss-evidence.php \
-  snapshot /siterepo/.wprism/refusals) \
+  /var/www/html/wp-content/mu-plugins/adapter-packages/rank-math/fixtures/private-refusal-evidence.php \
+  snapshot schema-loss /siterepo/.wprism/refusals) \
   || fail 'Rank Math authored loss could not snapshot private refusal evidence as the target CLI identity'
 require_observed_nonempty 'Rank Math authored schema private refusal baseline' "$AUTHORED_LOSS_PRIVATE_BASELINE"
 AUTHORED_LOSS_RC=0
@@ -665,8 +665,8 @@ require_wprism_answered 'Rank Math authored schema loss refusal' human "$AUTHORE
   && ! grep -Eq 'durable (identity|canonical) history remains' <<<"$AUTHORED_LOSS_OUT" \
   || fail "Rank Math authored table loss was treated as empty schema: $AUTHORED_LOSS_OUT"
 AUTHORED_LOSS_PRIVATE_RECEIPT=$($COMPOSE run --rm -T --entrypoint php cli2 \
-  /var/www/html/wp-content/mu-plugins/adapter-packages/rank-math/fixtures/private-schema-loss-evidence.php \
-  verify /siterepo/.wprism/refusals "$AUTHORED_LOSS_PRIVATE_BASELINE") \
+  /var/www/html/wp-content/mu-plugins/adapter-packages/rank-math/fixtures/private-refusal-evidence.php \
+  verify schema-loss /siterepo/.wprism/refusals "$AUTHORED_LOSS_PRIVATE_BASELINE") \
   || fail 'Rank Math authored loss could not verify private refusal evidence as the target CLI identity'
 require_observed_nonempty 'Rank Math authored schema private refusal receipt' "$AUTHORED_LOSS_PRIVATE_RECEIPT"
 [ "$AUTHORED_LOSS_PRIVATE_RECEIPT" = \
@@ -935,11 +935,35 @@ jq -en --argjson before "$UNINSTALL_DATA_BEFORE" --argjson after "$UNINSTALL_DAT
   '$after == $before' >/dev/null \
   || fail "Rank Math default uninstall changed options, metadata, tables, counters, or neighbor state: $UNINSTALL_DATA_AFTER"
 MISSING_CODE_RC=0
+MISSING_CODE_PRIVATE_BASELINE=$($COMPOSE run --rm -T --entrypoint php cli2 \
+  /var/www/html/wp-content/mu-plugins/adapter-packages/rank-math/fixtures/private-refusal-evidence.php \
+  snapshot missing-code /siterepo/.wprism/refusals) \
+  || fail 'Rank Math missing-code refusal could not snapshot private evidence as the target CLI identity'
+require_observed_nonempty 'Rank Math missing-code private refusal baseline' "$MISSING_CODE_PRIVATE_BASELINE"
 MISSING_CODE_OUT=$(host_wprism conf2 deploy 2>&1) || MISSING_CODE_RC=$?
 require_wprism_answered 'Rank Math deploy with code absent' human "$MISSING_CODE_OUT"
 [ "$MISSING_CODE_RC" -ne 0 ] \
-  && grep -Eq 'code_mismatch|missing_in_code|is not installed' <<<"$MISSING_CODE_OUT" \
+  && grep -Fq '"format":"wprism-command-refusal/v1"' <<<"$MISSING_CODE_OUT" \
+  && grep -Fq '"command":"lifecycle-status"' <<<"$MISSING_CODE_OUT" \
+  && grep -Fq '"reason_code":"lifecycle_status_failed"' <<<"$MISSING_CODE_OUT" \
+  && grep -Fq '"details_redacted":true' <<<"$MISSING_CODE_OUT" \
+  && grep -Fq "the target's lifecycle-status refusal was redacted" <<<"$MISSING_CODE_OUT" \
+  && grep -Fq '.wprism/refusals/' <<<"$MISSING_CODE_OUT" \
+  && ! grep -Eq 'code_mismatch|missing_in_code|is not installed|active_plugins' <<<"$MISSING_CODE_OUT" \
   || fail "missing Rank Math code did not refuse before lifecycle mutation: $MISSING_CODE_OUT"
+MISSING_CODE_PRIVATE_RECEIPT=$($COMPOSE run --rm -T --entrypoint php cli2 \
+  /var/www/html/wp-content/mu-plugins/adapter-packages/rank-math/fixtures/private-refusal-evidence.php \
+  verify missing-code /siterepo/.wprism/refusals "$MISSING_CODE_PRIVATE_BASELINE") \
+  || fail 'Rank Math missing-code refusal could not verify private evidence as the target CLI identity'
+require_observed_nonempty 'Rank Math missing-code private refusal receipt' "$MISSING_CODE_PRIVATE_RECEIPT"
+[ "$MISSING_CODE_PRIVATE_RECEIPT" = \
+  '{"command":"lifecycle-status","format":"wprism-rank-math-private-refusal-check/v1","new_records":1,"root_message_sha256":"9145307bebd452be68d85b17d6bcd43b48921710b4a3f4fd9ffd0010d7690d93","verified":true}' ] \
+  || fail "Rank Math missing code returned a malformed private-evidence receipt: $MISSING_CODE_PRIVATE_RECEIPT"
+MISSING_CODE_PHASES=$(sed -n 's/^deploy phase: //p' <<<"$MISSING_CODE_OUT" | paste -sd ' ' -)
+[ "$MISSING_CODE_PHASES" = 'compile lifecycle-status' ] \
+  || fail "Rank Math missing-code refusal crossed its read-only lifecycle preflight: $MISSING_CODE_OUT"
+[ ! -e "${CONF_REPO2:-siterepo/conf2}/.wprism/control/provider-settlement-intent.json" ] \
+  || fail 'Rank Math missing-code refusal published provider authority before lifecycle preflight'
 MISSING_CODE_AFTER=$(rank_math_recovery_state conf2)
 jq -en --argjson before "$UNINSTALL_DATA_BEFORE" --argjson after "$MISSING_CODE_AFTER" \
   '$after == $before' >/dev/null \

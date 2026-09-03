@@ -27,7 +27,7 @@ $outcomePath = $fixtureDir . '/historical-site-outcome.json';
 $seedPath = $root . '/adapter-packages/rank-math/tests/conformance/seed.sh';
 $postdeployPath = $root . '/adapter-packages/rank-math/tests/conformance/postdeploy.sh';
 $checkPath = $root . '/adapter-packages/rank-math/tests/conformance/check.sh';
-$privateRefusalHelperPath = $fixtureDir . '/private-schema-loss-evidence.php';
+$privateRefusalHelperPath = $fixtureDir . '/private-refusal-evidence.php';
 $adapterBytes = (string) file_get_contents($adapterPath);
 $adapter = Canon::decode($adapterBytes);
 
@@ -399,9 +399,19 @@ wprism_check(
 );
 wprism_check(
     str_contains($checkHarness, "'" . rank_math_private_refusal_receipt() . "'")
-        && hash('sha256', WPRISM_RANK_MATH_PRIVATE_REFUSAL_MESSAGE)
+        && hash('sha256', rank_math_private_refusal_profile('schema-loss')['message'])
             === '818de0fac4852aff4fb77b52978db22331055a6a041ebb963a97e4759e223389',
     'B4: live conformance pins the helper-produced value-free receipt for the exact reviewed private cause'
+);
+wprism_check(
+    str_contains($checkHarness, "'" . rank_math_private_refusal_receipt('missing-code') . "'")
+        && str_contains($checkHarness, 'snapshot missing-code /siterepo/.wprism/refusals')
+        && str_contains($checkHarness, 'verify missing-code /siterepo/.wprism/refusals')
+        && str_contains($checkHarness,
+            "! grep -Eq 'code_mismatch|missing_in_code|is not installed|active_plugins'")
+        && hash('sha256', rank_math_private_refusal_profile('missing-code')['message'])
+            === '9145307bebd452be68d85b17d6bcd43b48921710b4a3f4fd9ffd0010d7690d93',
+    'B4: missing code stays public-value-free while command-scoped evidence proves its exact private cause'
 );
 
 wprism_check_same(

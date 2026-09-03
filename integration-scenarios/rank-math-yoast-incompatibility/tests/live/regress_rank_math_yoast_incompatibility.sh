@@ -168,6 +168,13 @@ install_exact 1 seo-by-rank-math 1.0.277.2
 install_exact 1 wordpress-seo 28.3
 install_exact 2 wordpress-seo 28.3
 install_exact 2 seo-by-rank-math 1.0.277.2
+# WordPress sorts active_plugins by basename during activation, so installation
+# order is not load-order evidence. Persist both exact test-owned sequences only
+# after both artifacts exist; the next requests below boot through those orders.
+wp1 option update active_plugins \
+  '["seo-by-rank-math/rank-math.php","wordpress-seo/wp-seo.php"]' --format=json >/dev/null
+wp2 option update active_plugins \
+  '["wordpress-seo/wp-seo.php","seo-by-rank-math/rank-math.php"]' --format=json >/dev/null
 wp1 option update wprism_rank_math_yoast_sentinel rank-first >/dev/null
 wp2 option update wprism_rank_math_yoast_sentinel yoast-first >/dev/null
 write_repo "$R1" '["core","rank-math","yoast"]' rank-first
