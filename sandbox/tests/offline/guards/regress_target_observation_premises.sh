@@ -67,7 +67,7 @@ source_declares_manifest_participant() { # <file> <adapter-slug>
 
 source_uses_premise_helpers() { # <file>
   load_active_shell_source "$1" || return 1
-  grep -Eq '^[[:space:]]*require_(observed_nonempty|wprism_answered|fixture_ids|fixture_values)([[:space:];&|]|$)' \
+  grep -Eq '^[[:space:]]*(require_(observed_nonempty|wprism_answered|fixture_ids|fixture_values)|capture_wprism_json_(success|refusal))([[:space:];&|]|$)' \
     <<< "$ACTIVE_SHELL_SOURCE"
 }
 
@@ -229,6 +229,15 @@ run_contract_mutation_checks() {
     || { rm -rf "$scratch"; fail "valid package premise contract returned wrong counts: $result"; }
   source_uses_premise_helpers "$source" \
     || { rm -rf "$scratch"; fail 'active premise helper was not discovered'; }
+  local capture_helper=''
+  for capture_helper in capture_wprism_json_success capture_wprism_json_refusal; do
+    printf '%s\n' "$capture_helper OUT \"probe answered\" fake_wprism" > "$source"
+    clear_active_shell_cache
+    source_uses_premise_helpers "$source" \
+      || { rm -rf "$scratch"; fail "$capture_helper was not discovered as a premise helper"; }
+  done
+  printf '%s\n' 'require_observed_nonempty "probe answered" "$out"' > "$source"
+  clear_active_shell_cache
 
   printf '%s\n' ': # require_observed_nonempty "probe answered" "$out"' > "$source"
   clear_active_shell_cache

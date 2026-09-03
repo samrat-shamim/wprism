@@ -442,7 +442,18 @@ WPRISM refs where given.
   them to its child hooks, and `certify_version_matrix.sh` — a helper added
   to only one harness kills the other when it reaches that test with `command not
   found`, issue #3408); the wiring is enforced by
-  `sandbox/tests/offline/guards/regress_conformance_asserts.sh`.
+  `sandbox/tests/offline/guards/regress_conformance_asserts.sh`. For machine
+  output, use `capture_wprism_json_success` or
+  `capture_wprism_json_refusal` according to the expected exit class. They
+  retain the merged stream long enough to distinguish an engine answer from a
+  dead Compose invocation, publish only the last JSON line, and leave preceding
+  diagnostics visible on stderr so warning gates still see them. Caller output
+  variables may use any shell identifier except the reserved
+  `__wprism_capture_` prefix. Calling
+  `require_wprism_answered` directly validates that last line but deliberately
+  does not rewrite the caller's mixed-stream variable; passing that variable
+  to `jq` parses Compose's `Container ... Creating` prelude instead of the
+  refusal envelope.
 - **CLOSED (issue #3277):** `pair.sh up` defaults to the canonical checkout but
   accepts an exact related worktree through `WPRISM_SOURCE_ROOT`; the source must
   share the Git common directory and satisfy `WPRISM_EXPECTED_SOURCE_SHA` before

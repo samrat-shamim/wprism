@@ -1196,6 +1196,33 @@ SH
         AdapterPackageValidator::validate($root, 'acf');
     }
 
+    #[DataProvider('jsonCapturePremiseHelpers')]
+    public function testValidatorTreatsJsonCaptureHelpersAsPremiseHelpers(string $helper): void
+    {
+        $package = $this->package('probe', false);
+        self::makeDirectory($package . '/tests/conformance');
+        self::write(
+            $package . '/tests/conformance/check.sh',
+            "#!/usr/bin/env bash\n$helper OUT 'probe answered' fake_wprism\n"
+        );
+        $checks = [];
+        $arguments = [$this->root, $package, 'probe', [], &$checks];
+        $premiseEvidence = new \ReflectionMethod(AdapterPackageValidator::class, 'premiseEvidence');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(
+            "Adapter package 'probe' uses target-observation premise helpers but owns no target-observation-premises.tsv"
+        );
+        $premiseEvidence->invokeArgs(null, $arguments);
+    }
+
+    /** @return iterable<string,array{0:string}> */
+    public static function jsonCapturePremiseHelpers(): iterable
+    {
+        yield 'successful JSON answer' => ['capture_wprism_json_success'];
+        yield 'JSON refusal' => ['capture_wprism_json_refusal'];
+    }
+
     public function testValidatorRejectsAStalePackagePremiseAssertion(): void
     {
         $root = $this->validatorFixture();

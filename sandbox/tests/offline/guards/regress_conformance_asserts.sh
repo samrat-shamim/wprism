@@ -316,7 +316,7 @@ capture_probe() { # <success|refusal|dead>
     fake_wprism() {
       case "$1" in
         success)
-          printf 'compose prelude\n{"canary":"clean"}\n'
+          printf 'compose prelude\nPHP Warning: capture diagnostic canary\n{"canary":"clean"}\n'
           ;;
         refusal)
           printf '{"format":"wprism-command-refusal/v1","ok":false,"command":"apply"}\n'
@@ -334,8 +334,8 @@ capture_probe() { # <success|refusal|dead>
   ) 2>&1
 }
 CAPTURE_SUCCESS=$(capture_probe success)
-[ "$CAPTURE_SUCCESS" = 'RESULT={"canary":"clean"}' ] \
-  || fail "capture_wprism_json_success did not return the exact final success envelope: $CAPTURE_SUCCESS"
+[ "$CAPTURE_SUCCESS" = $'compose prelude\nPHP Warning: capture diagnostic canary\nRESULT={"canary":"clean"}' ] \
+  || fail "capture_wprism_json_success did not publish the exact final envelope while preserving prefix diagnostics: $CAPTURE_SUCCESS"
 CAPTURE_REFUSAL=$(capture_probe refusal) && CAPTURE_REFUSAL_RC=0 || CAPTURE_REFUSAL_RC=$?
 [ "$CAPTURE_REFUSAL_RC" -ne 0 ] \
   && grep -Fq '"format":"wprism-command-refusal/v1"' <<<"$CAPTURE_REFUSAL" \
@@ -346,10 +346,90 @@ CAPTURE_DEAD=$(capture_probe dead) && CAPTURE_DEAD_RC=0 || CAPTURE_DEAD_RC=$?
   && grep -Fq 'infrastructure failure: unit WPrism apply was never answered' <<<"$CAPTURE_DEAD" \
   && ! grep -Fq 'unit WPrism apply failed with exit 9' <<<"$CAPTURE_DEAD" \
   || fail "capture_wprism_json_success accused the engine after a dead transport: $CAPTURE_DEAD"
+
+refusal_capture_probe() { # <refusal|success|dead>
+  (
+    fail() { printf '%s\n' "$*"; exit 1; }
+    . "$FRAGMENT"
+    fake_wprism() {
+      case "$1" in
+        refusal)
+          printf 'compose prelude\nPHP Warning: refusal capture diagnostic canary\n{"format":"wprism-command-refusal/v1","ok":false,"command":"capture"}\n'
+          return 7
+          ;;
+        success)
+          printf 'compose prelude\n{"format":"wprism-command-refusal/v1","ok":false,"command":"capture"}\n'
+          ;;
+        dead)
+          printf '%s\n' "$COMPOSE_DEATH"
+          return 9
+          ;;
+      esac
+    }
+    RESULT=unset
+    capture_wprism_json_refusal RESULT 'unit WPrism capture refusal' fake_wprism "$1"
+    printf 'RESULT=%s\n' "$RESULT"
+  ) 2>&1
+}
+REFUSAL_CAPTURE=$(refusal_capture_probe refusal)
+[ "$REFUSAL_CAPTURE" = $'compose prelude\nPHP Warning: refusal capture diagnostic canary\nRESULT={"format":"wprism-command-refusal/v1","ok":false,"command":"capture"}' ] \
+  || fail "capture_wprism_json_refusal did not publish the exact refusal envelope while preserving prefix diagnostics: $REFUSAL_CAPTURE"
+REFUSAL_SUCCESS=$(refusal_capture_probe success) && REFUSAL_SUCCESS_RC=0 || REFUSAL_SUCCESS_RC=$?
+[ "$REFUSAL_SUCCESS_RC" -ne 0 ] \
+  && grep -Fq 'unit WPrism capture refusal unexpectedly succeeded: {"format":"wprism-command-refusal/v1","ok":false,"command":"capture"}' <<<"$REFUSAL_SUCCESS" \
+  && ! grep -Fq 'infrastructure failure:' <<<"$REFUSAL_SUCCESS" \
+  || fail "capture_wprism_json_refusal accepted or misclassified an unexpected success: $REFUSAL_SUCCESS"
+REFUSAL_DEAD=$(refusal_capture_probe dead) && REFUSAL_DEAD_RC=0 || REFUSAL_DEAD_RC=$?
+[ "$REFUSAL_DEAD_RC" -ne 0 ] \
+  && grep -Fq 'infrastructure failure: unit WPrism capture refusal was never answered' <<<"$REFUSAL_DEAD" \
+  && ! grep -Fq 'unexpectedly succeeded' <<<"$REFUSAL_DEAD" \
+  || fail "capture_wprism_json_refusal accused the engine after a dead transport: $REFUSAL_DEAD"
+
+capture_output_variable_probe() { # <output-variable>
+  (
+    fail() { printf '%s\n' "$*"; exit 1; }
+    . "$FRAGMENT"
+    fake_wprism() {
+      printf '{"format":"wprism-command-refusal/v1","ok":false,"command":"capture"}\n'
+      return 7
+    }
+    capture_wprism_json_refusal "$1" 'unit WPrism refusal output variable' fake_wprism
+  ) 2>&1
+}
+REFUSAL_MALFORMED=$(capture_output_variable_probe 'bad-name') && REFUSAL_MALFORMED_RC=0 || REFUSAL_MALFORMED_RC=$?
+[ "$REFUSAL_MALFORMED_RC" -ne 0 ] \
+  && [ "$REFUSAL_MALFORMED" = 'capture_wprism_json_refusal: malformed output variable' ] \
+  || fail "capture_wprism_json_refusal accepted or misreported a malformed output variable: $REFUSAL_MALFORMED"
+REFUSAL_RESERVED=$(capture_output_variable_probe '__wprism_capture_result') && REFUSAL_RESERVED_RC=0 || REFUSAL_RESERVED_RC=$?
+[ "$REFUSAL_RESERVED_RC" -ne 0 ] \
+  && [ "$REFUSAL_RESERVED" = 'capture_wprism_json_refusal: reserved output variable prefix __wprism_capture_' ] \
+  || fail "capture_wprism_json_refusal accepted or misreported its reserved output prefix: $REFUSAL_RESERVED"
+
+capture_collision_probe() {
+  (
+    fail() { printf '%s\n' "$*"; exit 1; }
+    . "$FRAGMENT"
+    fake_success() { printf '{"canary":"clean"}\n'; }
+    fake_refusal() {
+      printf '{"format":"wprism-command-refusal/v1","ok":false,"command":"capture"}\n'
+      return 7
+    }
+    collision_scope() {
+      local last=unset capture=unset
+      capture_wprism_json_success last 'unit WPrism success collision' fake_success
+      capture_wprism_json_refusal capture 'unit WPrism refusal collision' fake_refusal
+      printf 'last=%s\ncapture=%s\n' "$last" "$capture"
+    }
+    collision_scope
+  ) 2>&1
+}
+CAPTURE_COLLISIONS=$(capture_collision_probe)
+[ "$CAPTURE_COLLISIONS" = $'last={"canary":"clean"}\ncapture={"format":"wprism-command-refusal/v1","ok":false,"command":"capture"}' ] \
+  || fail "JSON capture helpers did not publish through former local-name collisions: $CAPTURE_COLLISIONS"
 grep -q '^capture_wprism_json_success ' conformance/run.sh \
   || fail "conformance apply does not use the refusal-preserving JSON command wrapper"
-grep -Eq 'require_wprism_answered capture_wprism_json_success require_observed_nonempty' conformance/run.sh \
-  || fail "manifest check subprocesses cannot call the refusal-preserving JSON command wrapper"
+grep -Eq 'require_wprism_answered capture_wprism_json_success capture_wprism_json_refusal require_observed_nonempty' conformance/run.sh \
+  || fail "manifest check subprocesses cannot call the success/refusal-preserving JSON command wrappers"
 grep -Eq 'establish_woocommerce_hpos normalize_woocommerce_harness_placeholder_mode' conformance/run.sh \
   || fail "WooCommerce manifest check subprocesses cannot call their shared lifecycle helpers"
 grep -q '^export WPRISM_ARTIFACT_LIBRARY_ROOT$' conformance/run.sh \
@@ -363,7 +443,7 @@ grep -Fq 'archive_root=$(artifact_library_platform_jq -r --arg slug "$slug" --ar
   || fail "conformance theme archive roots are not resolved from the explicit platform library"
 ! grep -q 'APPLY_JSON=.*wprism apply.*| tail -1' conformance/run.sh \
   || fail "conformance apply still discards a nonzero refusal through its old tail pipeline"
-pass "conformance children receive assertion, lifecycle, and artifact-library helpers; apply preserves answered refusals"
+pass "conformance children receive assertion, lifecycle, and artifact-library helpers; JSON captures preserve exit classification, publish clean answers, and keep prefix diagnostics gate-visible"
 
 # A mode typo must be a caller bug, never an infrastructure verdict: it may not
 # borrow the prefix operators grep to route a failure away from the engine.

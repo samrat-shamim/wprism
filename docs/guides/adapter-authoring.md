@@ -1099,6 +1099,13 @@ plugin faithfully.
    typed-ledger guard rather than an adapter-specific table diagnostic. Pin the
    `identity contradiction`, entity kind, existing local id, and rejected local
    id; a loose search for “duplicate” misses the actual fail-closed boundary.
+   For an expected `--format=json` refusal, use the shared
+   `capture_wprism_json_refusal` helper before `jq`. It proves that WPrism
+   answered, requires the non-zero exit, and returns only the final JSON line;
+   preceding diagnostics remain visible on stderr. Its output variable may use
+   any shell identifier except the reserved `__wprism_capture_` prefix.
+   `require_wprism_answered` validates a mixed stream but does not remove
+   Compose's preceding `Container ... Creating` diagnostics from that variable.
 9. When a hostile target needs local mapped identities before first apply,
    never mint them by capturing against the source repository: its canonical
    UUIDs have no target ledger yet. Use a disposable policy root narrowed to

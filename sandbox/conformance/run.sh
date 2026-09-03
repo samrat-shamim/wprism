@@ -265,7 +265,7 @@ export COMPOSE CONF1_PORT CONF2_PORT
 export WPRISM_HOST_CLI WPRISM_HOST_REGISTRY
 export -f wp_env wp_conf1 wp_conf2 host_wprism wprism_host_call say pass fail \
   require_fixture_ids require_fixture_values require_fixture_state \
-  require_wprism_answered capture_wprism_json_success require_observed_nonempty \
+  require_wprism_answered capture_wprism_json_success capture_wprism_json_refusal require_observed_nonempty \
   establish_woocommerce_hpos normalize_woocommerce_harness_placeholder_mode \
   artifact_library_repo_root artifact_library_package_context artifact_library_participant_context \
   artifact_library_platform_context artifact_library_platform_emit artifact_library_emit \

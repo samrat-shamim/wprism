@@ -2116,7 +2116,7 @@ final class AdapterPackageValidator
                     throw new RuntimeException("Adapter package '$slug' cannot read premise source " . $entry->getPathname());
                 }
                 if (preg_match(
-                    '/\brequire_(?:observed_nonempty|wprism_answered|fixture_ids|fixture_values)\b/',
+                    '/\b(?:require_(?:observed_nonempty|wprism_answered|fixture_ids|fixture_values)|capture_wprism_json_(?:success|refusal))\b/',
                     ActiveShellSource::source($source)
                 ) === 1) {
                     $needsContract = true;

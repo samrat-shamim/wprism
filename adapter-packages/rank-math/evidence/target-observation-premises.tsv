@@ -7,9 +7,9 @@ observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math zero-c
 observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math scoped provider plan' json
 observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math scoped provider apply' json
 observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math scoped terminal replay' json
-observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math unsupported custom schema capture' json
+observation	tests/conformance/check.sh	capture_wprism_json_refusal SCHEMA_OUT 'Rank Math unsupported custom schema capture'
 observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math duplicate natural identity plan' human
-observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math unsupported redirection deletion capture' json
+observation	tests/conformance/check.sh	capture_wprism_json_refusal DELETE_OUT 'Rank Math unsupported redirection deletion capture'
 observation	tests/conformance/check.sh	require_observed_nonempty 'Rank Math applied revision before provider fault'
 observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math injected provider callback refusal' human
 observation	tests/conformance/check.sh	require_wprism_answered 'Rank Math retry after callback repair' json

@@ -509,10 +509,9 @@ SOURCE_POST=$(jq -r '.ids.post' <<<"$SOURCE")
 wp_conf1 post meta update "$SOURCE_POST" rank_math_schema_Article \
   '{"@type":"Article","headline":"unsupported custom schema"}' >/dev/null
 SCHEMA_STATE_BEFORE=$(find "${CONF_REPO1:-siterepo/conf1}/state" -type f -exec shasum -a 256 {} + | shasum -a 256 | awk '{print $1}')
-SCHEMA_RC=0
-SCHEMA_OUT=$(wp_conf1 wprism capture --repo=/siterepo --format=json 2>&1) || SCHEMA_RC=$?
-require_wprism_answered 'Rank Math unsupported custom schema capture' json "$SCHEMA_OUT"
-[ "$SCHEMA_RC" -ne 0 ] && grep -Fq 'rank_math_schema_Article' <<<"$SCHEMA_OUT" \
+capture_wprism_json_refusal SCHEMA_OUT 'Rank Math unsupported custom schema capture' \
+  wp_conf1 wprism capture --repo=/siterepo --format=json
+grep -Fq 'rank_math_schema_Article' <<<"$SCHEMA_OUT" \
   || fail "Rank Math custom schema did not refuse at its exact key: $SCHEMA_OUT"
 [ "$(find "${CONF_REPO1:-siterepo/conf1}/state" -type f -exec shasum -a 256 {} + | shasum -a 256 | awk '{print $1}')" = "$SCHEMA_STATE_BEFORE" ] \
   || fail 'Rank Math custom-schema refusal partially published canonical state'
@@ -551,10 +550,9 @@ SOURCE_DELETE_REDIR=$(wp_conf1 db query \
   "SELECT id FROM wp_rank_math_redirections ORDER BY id LIMIT 1" --skip-column-names | tr -d '[:space:]')
 require_fixture_ids SOURCE_DELETE_REDIR
 wp_conf1 eval "RankMath\\Redirections\\DB::delete([(int)$SOURCE_DELETE_REDIR]);" >/dev/null
-DELETE_RC=0
-DELETE_OUT=$(wp_conf1 wprism capture --repo=/siterepo --format=json 2>&1) || DELETE_RC=$?
-require_wprism_answered 'Rank Math unsupported redirection deletion capture' json "$DELETE_OUT"
-[ "$DELETE_RC" -ne 0 ] && jq -e '
+capture_wprism_json_refusal DELETE_OUT 'Rank Math unsupported redirection deletion capture' \
+  wp_conf1 wprism capture --repo=/siterepo --format=json
+jq -e '
   .format == "wprism-command-refusal/v1" and .reason_code == "unsupported_deletion" and
   any(.diagnostics[]?; .code == "unsupported_deletion" and .surface == "table:rank_math_redirections")
 ' <<<"$DELETE_OUT" >/dev/null \

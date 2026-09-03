@@ -228,6 +228,12 @@ wprism_check(
         && str_contains($checkHarness, 'is already bound to local id $TARGET_REDIR; refusing to rebind it to $DUPLICATE_ID'),
     'B4: duplicate natural identity evidence pins the generic typed-ledger contradiction and both competing local ids'
 );
+wprism_check(
+    str_contains($checkHarness, "capture_wprism_json_refusal SCHEMA_OUT 'Rank Math unsupported custom schema capture'")
+        && str_contains($checkHarness, "capture_wprism_json_refusal DELETE_OUT 'Rank Math unsupported redirection deletion capture'")
+        && !str_contains($checkHarness, 'DELETE_OUT=$(wp_conf1 wprism capture --repo=/siterepo --format=json 2>&1)'),
+    'B4: expected JSON refusals publish one clean envelope before their downstream refusal assertions'
+);
 
 wprism_check_same(
     ['cast' => 'string', 'class' => 'authored', 'ref' => 'post'],

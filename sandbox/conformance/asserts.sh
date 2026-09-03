@@ -196,18 +196,48 @@ require_wprism_answered() { # require_wprism_answered <what> <human|json> <captu
 # Execute one machine-output WPrism command without letting `set -e`, a command
 # substitution, or `tail` discard its refusal envelope. The command's complete
 # capture is retained through exit classification; only a successful
-# command publishes its last JSON line into the caller-named variable.
+# command publishes its last JSON line into the caller-named variable. Prefix
+# diagnostics remain visible on stderr so the outer warning gate can still see
+# them. Internal locals reserve __wprism_capture_*; rejecting that prefix keeps
+# every other valid caller variable safe from Bash's dynamic local scope.
 capture_wprism_json_success() { # <OUT_VAR> <what> <command> [args...]
-  local out_var="$1" what="$2" capture rc=0 last
+  local __wprism_capture_out_var="$1" __wprism_capture_what="$2"
+  local __wprism_capture_stream='' __wprism_capture_rc=0 __wprism_capture_last=''
   shift 2
-  [[ "$out_var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
+  [[ "$__wprism_capture_out_var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
     || fail "capture_wprism_json_success: malformed output variable"
-  capture=$("$@" 2>&1) || rc=$?
-  require_wprism_answered "$what" json "$capture"
-  if [ "$rc" -ne 0 ]; then
-    printf '%s\n' "$capture" >&2
-    fail "$what failed with exit $rc"
+  [[ "$__wprism_capture_out_var" != __wprism_capture_* ]] \
+    || fail "capture_wprism_json_success: reserved output variable prefix __wprism_capture_"
+  __wprism_capture_stream=$("$@" 2>&1) || __wprism_capture_rc=$?
+  require_wprism_answered "$__wprism_capture_what" json "$__wprism_capture_stream"
+  __wprism_capture_last=$(awk 'NF { line=$0 } END { print line }' <<<"$__wprism_capture_stream")
+  awk 'NF { last=NR } { lines[NR]=$0 } END { for (i=1; i<last; i++) print lines[i] }' \
+    <<<"$__wprism_capture_stream" >&2
+  if [ "$__wprism_capture_rc" -ne 0 ]; then
+    printf '%s\n' "$__wprism_capture_last" >&2
+    fail "$__wprism_capture_what failed with exit $__wprism_capture_rc"
   fi
-  last=$(awk 'NF { line=$0 } END { print line }' <<<"$capture")
-  printf -v "$out_var" '%s' "$last"
+  printf -v "$__wprism_capture_out_var" '%s' "$__wprism_capture_last"
+}
+
+# Expected refusal sibling of capture_wprism_json_success. Compose writes its
+# container lifecycle to the merged stream before WP-CLI's JSON answer; callers
+# must assert on the selected answer, not feed that transport prelude to jq.
+capture_wprism_json_refusal() { # <OUT_VAR> <what> <command> [args...]
+  local __wprism_capture_out_var="$1" __wprism_capture_what="$2"
+  local __wprism_capture_stream='' __wprism_capture_rc=0 __wprism_capture_last=''
+  shift 2
+  [[ "$__wprism_capture_out_var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
+    || fail "capture_wprism_json_refusal: malformed output variable"
+  [[ "$__wprism_capture_out_var" != __wprism_capture_* ]] \
+    || fail "capture_wprism_json_refusal: reserved output variable prefix __wprism_capture_"
+  __wprism_capture_stream=$("$@" 2>&1) || __wprism_capture_rc=$?
+  require_wprism_answered "$__wprism_capture_what" json "$__wprism_capture_stream"
+  __wprism_capture_last=$(awk 'NF { line=$0 } END { print line }' <<<"$__wprism_capture_stream")
+  awk 'NF { last=NR } { lines[NR]=$0 } END { for (i=1; i<last; i++) print lines[i] }' \
+    <<<"$__wprism_capture_stream" >&2
+  if [ "$__wprism_capture_rc" -eq 0 ]; then
+    fail "$__wprism_capture_what unexpectedly succeeded: $__wprism_capture_last"
+  fi
+  printf -v "$__wprism_capture_out_var" '%s' "$__wprism_capture_last"
 }
