@@ -210,6 +210,11 @@ wprism_check(
         && str_contains($checkHarness, '.before.dependency_state_hash == .after.dependency_state_hash'),
     'B4: hook-instrumented control and final checks prove persistent queue isolation beside stable-state acceptance'
 );
+wprism_check(
+    str_contains($postdeployHarness, 'AUTO_INCREMENT = 9400001')
+        && str_contains($postdeployHarness, '.redirection >= 9400001'),
+    'B4: a fresh hostile target forces the plugin-table identity range to diverge without prior database history'
+);
 
 wprism_check_same(
     ['cast' => 'string', 'class' => 'authored', 'ref' => 'post'],

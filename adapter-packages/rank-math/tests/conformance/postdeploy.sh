@@ -89,6 +89,9 @@ update_option('wprism_rank_math_target_neighbor', 'target-neighbor-must-survive'
 
 $redirections = $wpdb->prefix . 'rank_math_redirections';
 $cache = $wpdb->prefix . 'rank_math_redirections_cache';
+if (false === $wpdb->query("ALTER TABLE `$redirections` AUTO_INCREMENT = 9400001")) {
+    throw new RuntimeException('Rank Math hostile redirection identity range could not be established');
+}
 $sources = maybe_serialize([[
     'ignore' => '',
     'pattern' => 'rank-math-old',
@@ -150,7 +153,7 @@ rm -f "$TARGET_REPO/.tmp-rank-math-target.php"
 require_observed_nonempty 'Rank Math hostile target' "$TARGET_OUT"
 TARGET_JSON=$(printf '%s\n' "$TARGET_OUT" | awk 'NF { line=$0 } END { print line }')
 jq -e '
-  .category >= 9200001 and .hub >= 9100001 and .post > .hub and .redirection > 0 and
+  .category >= 9200001 and .hub >= 9100001 and .post > .hub and .redirection >= 9400001 and
   (.schema | length) == 4 and (.schema[] | test("^[0-9a-f]{64}$"))
 ' <<<"$TARGET_JSON" >/dev/null || fail "Rank Math target identity/schema premise failed: $TARGET_JSON"
 printf '%s\n' "$TARGET_JSON" > "$TARGET_REPO/.tmp-rank-math-target.json"

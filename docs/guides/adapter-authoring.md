@@ -1078,6 +1078,12 @@ plugin faithfully.
    survives that control; if another plugin legitimately advances its state,
    record the native lifecycle outcome rather than weakening a real
    stable-runtime preservation assertion.
+
+   Establish local-identity divergence explicitly for every mapped table. Two
+   fresh plugin tables commonly allocate primary key `1` on both sites, so
+   equal ids prove no rebinding at all and prior scratch history can make a
+   weak fixture pass accidentally. Put the hostile side in a disjoint sequence
+   range before inserting its row, then assert both the range and unequal ids.
 9. When a hostile target needs local mapped identities before first apply,
    never mint them by capturing against the source repository: its canonical
    UUIDs have no target ledger yet. Use a disposable policy root narrowed to
