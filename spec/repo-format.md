@@ -1165,11 +1165,12 @@ platform/adapter-library/core/disposition.json    # the platform-owned core adap
 platform/adapter-library/profiles.json            # profiles, keyed independently of package discovery
 ```
 
-19 documents, 1,355 lines, 61,295 bytes — the same entries, the same profile, addressed as 19 roots
+19 documents, 1,355 lines, 61,381 bytes — the same entries, the same profile, addressed as 19 roots
 instead of one. (The split itself moved no byte of content; the size has since grown with #561's
 promotion of `the-events-calendar` to `certified`, Polylang's reviewed production-readiness port,
 the later reviewed Polylang empty-catalog lifecycle correction, and WooCommerce's final production-readiness
-review, followed by the newly authored Redirection and Rank Math subjects, all without changing the split topology.)
+review, followed by the newly authored Redirection and Rank Math subjects and Rank Math's reviewed
+virgin-target settlement correction, all without changing the split topology.)
 
 Each document carries the entry's DECODED array unchanged, so `Canon::encode` of the disposition member
 is byte-identical before and after and no adapter digest moves. That is the invariant the whole flag day
