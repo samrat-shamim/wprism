@@ -2,7 +2,7 @@
 namespace WPrism;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
-require_once __DIR__ . '/../Kernel/PrivateEvidenceException.php';
+require_once __DIR__ . '/../Kernel/PrivateRefusalEvidence.php';
 // The topology gate the Policy-free verbs below call directly. Required here
 // rather than left to agent/wprism.php's bootstrap order, exactly like
 // CommandRefusal.php above: the offline refusal suites load this file against
@@ -47,7 +47,16 @@ final class Cli {
      * may contribute public evidence.
      */
     private static function halt_json_failure(\Throwable $t, array $assoc, string $command): void {
+        $privateEvidence = PrivateRefusalEvidence::graph($t);
         if (!isset($assoc['json']) && ($assoc['format'] ?? '') !== 'json') {
+            if (self::private_refusal_evidence_required($t, $privateEvidence, false)) {
+                self::record_private_refusal_evidence(
+                    $privateEvidence,
+                    $assoc,
+                    $command,
+                    self::private_refusal_reason_code($t, $command)
+                );
+            }
             return;
         }
 
@@ -152,11 +161,13 @@ final class Cli {
             ];
         }
 
+        $serializationRedacted = false;
         $encoded = json_encode(
             $payload,
             JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
         );
         if ($encoded === false) {
+            $serializationRedacted = true;
             // Keep the one-value stdout contract even if an established typed
             // diagnostic contains a value PHP cannot serialize (for example
             // INF).  The fallback is deliberately constant and secret-free.
@@ -165,30 +176,22 @@ final class Cli {
                 . '","error":"refusal_serialization_failed","reason_code":"refusal_serialization_failed",'
                 . '"message":"structured refusal serialization failed","remediation":"inspect private operator evidence before another attempt","details_redacted":true}';
         }
-        if (($payload['details_redacted'] ?? false) === true) {
-            self::record_private_refusal_evidence($t, $assoc, $command, (string) $payload['error']);
+        if (self::private_refusal_evidence_required(
+            $t,
+            $privateEvidence,
+            ($payload['details_redacted'] ?? false) === true || $serializationRedacted
+        )) {
+            self::record_private_refusal_evidence(
+                $privateEvidence,
+                $assoc,
+                $command,
+                (string) $payload['error']
+            );
         }
         WP_CLI::line($encoded);
         WP_CLI::halt(1);
     }
 
-    /**
-     * Where "inspect private operator evidence" points.
-     *
-     * A redacted envelope is the whole machine answer, and the doctrine
-     * (issue #3404) is that the operator reruns in human mode to read the
-     * sentence — but the orchestrator itself is a machine caller: a
-     * rehearsal's promotion runs the target's apply in --format=json, so an
-     * unclassified Throwable there reached nobody. grind_adoption A6
-     * (docs/grind/adoption.md) lost a rehearsal to `apply_failed` twice
-     * before the sentence could be read on a kept pair. So the redacted
-     * chain (class, message, file:line, causes) is written under the
-     * repository's private, gitignored `.wprism/` — next to the promotion
-     * checkpoints — as `.wprism/refusals/<utc>-<command>-<pid>.json`. The
-     * envelope stays byte-identical; the record is best-effort (no repo, no
-     * writable directory → nothing written, never a second failure), carries
-     * no trace, and is 0600 like every other private artifact there.
-     */
     /**
      * The repository inode `init` started against, or null (issue #3516).
      *
@@ -231,7 +234,7 @@ final class Cli {
     }
 
     /**
-     * Whether a redacted refusal may write its private evidence into $repo.
+     * Whether a refusal may write its private evidence into $repo.
      *
      * issue #3516. The recorder used to resolve `--repo` lexically at refusal
      * time and `mkdir(0700, recursive)` its way to `.wprism/refusals` in whatever
@@ -258,9 +261,8 @@ final class Cli {
      *    records, which is the init refusal actually worth reading.
      *
      * Skipping is silent and carries no second failure, exactly as every other
-     * best-effort path here does: the envelope is unchanged and still says
-     * `details_redacted`, and the operator's documented remedy -- rerun in
-     * human mode -- is unaffected.
+     * best-effort path here does: the public envelope and human sentence stay
+     * unchanged while the kernel recorder either writes privately or skips.
      */
     private static function refusal_evidence_repository(string $repo, string $command): bool {
         $identity = self::directory_identity($repo);
@@ -293,55 +295,60 @@ final class Cli {
         $root = rtrim($repo, '/');
         $site = $root . '/site.wprism.json';
         $wprism = $root . '/.wprism';
-        return (!is_link($site) && is_file($site)) || (!is_link($wprism) && is_dir($wprism));
+        // A regular site marker cannot make an unsafe control path safe. The
+        // recorder creates `.wprism/` only when it is absent; a link or any
+        // other pre-existing type is a hard no-write boundary.
+        if (is_link($wprism) || (file_exists($wprism) && !is_dir($wprism))) {
+            return false;
+        }
+        return (!is_link($site) && is_file($site)) || is_dir($wprism);
     }
 
-    private static function record_private_refusal_evidence(
+    /** @param array{traversal:array<string,mixed>} $evidence */
+    private static function private_refusal_evidence_required(
         \Throwable $t,
+        array $evidence,
+        bool $publicDetailsRedacted
+    ): bool {
+        $traversal = $evidence['traversal'];
+        return $publicDetailsRedacted
+            || (int) ($traversal['private_edges'] ?? 0) > 0
+            || ($traversal['scan_complete'] ?? true) !== true
+            || ($t instanceof CommandRefusalException
+                && ($t->getPrevious() !== null || $t->getMessage() !== $t->publicMessage));
+    }
+
+    private static function private_refusal_reason_code(\Throwable $t, string $command): string {
+        return $t instanceof CommandRefusalException
+            ? $t->reasonCode
+            : str_replace('-', '_', $command) . '_failed';
+    }
+
+    /**
+     * Cross the public/private diagnostic edge only after command-level
+     * repository eligibility has passed. The kernel service binds the exact
+     * root inode again and owns the bounded graph's 0600, no-follow store.
+     *
+     * @param array{throwable:list<array<string,mixed>>,traversal:array<string,mixed>} $evidence
+     */
+    private static function record_private_refusal_evidence(
+        array $evidence,
         array $assoc,
         string $command,
         string $reasonCode
     ): void {
         $repo = $assoc['repo'] ?? null;
-        if (!is_string($repo) || !self::refusal_evidence_repository($repo, $command)) {
+        if (!is_string($repo)) {
             return;
         }
-        $dir = rtrim($repo, '/') . '/.wprism/refusals';
-        if (!is_dir($dir) && !@mkdir($dir, 0700, true) && !is_dir($dir)) {
+        if (!self::refusal_evidence_repository($repo, $command)) {
             return;
         }
-        $chain = [];
-        for ($cause = $t, $depth = 0; $cause !== null && $depth < 8; $depth++) {
-            $chain[] = [
-                'class' => get_class($cause),
-                'message' => $cause->getMessage(),
-                'file' => $cause->getFile(),
-                'line' => $cause->getLine(),
-            ];
-            $previous = $cause->getPrevious();
-            // Provider throwables stay out of PHP's printable cause chain: a
-            // default `(string) $t` recursively renders getPrevious(), and an
-            // opaque plugin message may carry secrets or target values. Only
-            // this 0600 private-evidence writer crosses the redacted wrapper.
-            $cause = $previous ?? ($cause instanceof PrivateEvidenceException
-                ? $cause->private_evidence_cause()
-                : null);
-        }
-        $record = json_encode([
-            'format' => 'wprism-private-refusal-evidence/v1',
-            'recorded_at' => gmdate('Y-m-d\TH:i:s\Z'),
-            'command' => $command,
-            'reason_code' => $reasonCode,
-            'throwable' => $chain,
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
-        if ($record === false) {
+        $identity = self::directory_identity($repo);
+        if ($identity === null) {
             return;
         }
-        $path = $dir . '/' . gmdate('Ymd-His') . '-' . preg_replace('/[^a-z0-9_-]+/', '-', $command)
-            . '-' . getmypid() . '.json';
-        if (@file_put_contents($path, $record . "\n", LOCK_EX) !== false) {
-            @chmod($path, 0600);
-        }
+        PrivateRefusalEvidence::record($repo, $identity, $evidence, $command, $reasonCode);
     }
 
     /**

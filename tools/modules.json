@@ -78,6 +78,7 @@
           "PersonalData",
           "PostPasswordBinding",
           "PrivateEvidenceException",
+          "PrivateRefusalEvidence",
           "JsonRefs",
           "ReferenceKindGrammar",
           "ReferenceShapeGrammar",
@@ -119,7 +120,7 @@
             ]
           }
         ],
-        "file_count": 39,
+        "file_count": 40,
         "files": [
           "ActionTriggerMatcher.php",
           "Canary.php",
@@ -139,6 +140,7 @@
           "PlainData.php",
           "PostPasswordBinding.php",
           "PrivateEvidenceException.php",
+          "PrivateRefusalEvidence.php",
           "ProcessFence.php",
           "ProviderSettlementIntent.php",
           "ReferenceKeyspaceGrammar.php",

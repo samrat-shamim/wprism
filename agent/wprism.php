@@ -24,6 +24,7 @@ require_once __DIR__ . '/src/Adapter/ManifestProviderRuntime.php';
 require_once __DIR__ . '/src/Kernel/Secrets.php';
 require_once __DIR__ . '/src/Kernel/CommandRefusal.php';
 require_once __DIR__ . '/src/Kernel/PrivateEvidenceException.php';
+require_once __DIR__ . '/src/Kernel/PrivateRefusalEvidence.php';
 // Beside CommandRefusal because that is its one dependency, and ahead of every
 // verb: the topology gate has to be loaded for the Policy-free doors
 // (journal-reset, the promotion-lease verbs, classify) that never reach
@@ -137,7 +138,7 @@ require_once __DIR__ . '/src/Assess/AssessInventory.php';
  * Additive classmap fallback (issue #3481, owner rulings D3/D4).
  *
  * Every require_once above is retained and still does all the loading: after
- * this bootstrap runs, 276 of the 281 names in wprism-classmap.php are already
+ * this bootstrap runs, 292 of the 297 names in wprism-classmap.php are already
  * declared, and the five exceptions (WPrism\AdapterCertification and its four
  * withdrawal/supersession signals) are
  * require_once'd at each of that file's three use sites in AdapterSources.php

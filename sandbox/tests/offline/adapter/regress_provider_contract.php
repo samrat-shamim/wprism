@@ -1829,7 +1829,7 @@ try {
         && !str_contains($rendered, 'INJECTED_INVOKE_LINE')
         && $t instanceof \WPrism\PrivateEvidenceException
         && $t->getPrevious() === null
-        && $t->private_evidence_cause() === \WPrism\Providers\ProbeCache::$lastInvokeThrowable,
+        && $t->private_evidence_causes() === [\WPrism\Providers\ProbeCache::$lastInvokeThrowable],
         'a provider invocation failure keeps its exact cause private without exposing it through printable Throwable state'
     );
 }

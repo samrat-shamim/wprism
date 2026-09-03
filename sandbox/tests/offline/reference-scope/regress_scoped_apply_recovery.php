@@ -68,6 +68,8 @@ final class ScopedRecoveryMemoryStore implements ScopedApplySessionStorage {
     /** @var array<string,?string> */
     public array $values = [];
     public bool $forceConflict = false;
+    public ?\Throwable $compareAndSwapFailure = null;
+    public int $compareAndSwapFailureCountdown = 0;
 
     public function read(string $key): ?string {
         if ($key !== ScopedApplySession::STORAGE_KEY
@@ -79,6 +81,14 @@ final class ScopedRecoveryMemoryStore implements ScopedApplySessionStorage {
     }
 
     public function compare_and_swap(string $key, ?string $expected, ?string $replacement): bool {
+        if ($this->compareAndSwapFailure !== null) {
+            if ($this->compareAndSwapFailureCountdown === 0) {
+                $failure = $this->compareAndSwapFailure;
+                $this->compareAndSwapFailure = null;
+                throw $failure;
+            }
+            $this->compareAndSwapFailureCountdown--;
+        }
         if ($this->forceConflict) {
             $this->forceConflict = false;
             return false;
@@ -2309,7 +2319,7 @@ $check(
         && $scopedInvokeFailure->getMessage()
             === "wprism: provider 'scoped-recovery' capability 'repair' scoped invocation failed"
         && $scopedInvokeFailure->getPrevious() === null
-        && $scopedInvokeFailure->private_evidence_cause() === $scopedInvokeCause
+        && $scopedInvokeFailure->private_evidence_causes() === [$scopedInvokeCause]
         && !str_contains((string) $scopedInvokeFailure, 'PRIVATE_SCOPED_INVOKE'),
     'scoped provider invocation keeps the exact opaque cause private while its printable wrapper stays stable'
 );
@@ -2336,7 +2346,7 @@ $check(
         && $scopedReconcileFailure->getMessage()
             === "wprism: provider 'scoped-recovery' capability 'repair' scoped reconciliation failed"
         && $scopedReconcileFailure->getPrevious() === null
-        && $scopedReconcileFailure->private_evidence_cause() === $scopedReconcileCause
+        && $scopedReconcileFailure->private_evidence_causes() === [$scopedReconcileCause]
         && !str_contains((string) $scopedReconcileFailure, 'PRIVATE_SCOPED_RECONCILE'),
     'scoped provider reconciliation keeps the exact opaque cause private while its printable wrapper stays stable'
 );
@@ -2508,19 +2518,20 @@ $dispatch = new \WPrism\RebuildActionDispatcher(
     new \WPrism\ProviderActionBatchBuilder($policy, []),
     static function (): void {}
 );
-$driveScopedDispatch = static function (ScopedApplySession $session) use (
+$driveScopedDispatch = static function (ScopedApplySession $session, ?array $negotiation = null) use (
     $dispatch,
     $dispatchAction,
     $dispatchNegotiation,
     $selectedBeforeRoot
 ): array {
+    $negotiation ??= $dispatchNegotiation;
     $warnings = [];
     $receipts = [];
     $failure = null;
     try {
         $dispatch->dispatch(
             [$dispatchAction],
-            $dispatchNegotiation,
+            $negotiation,
             [],
             [],
             [],
@@ -2570,6 +2581,76 @@ $check(
         && $dispatchProvider->reconciliations === 1
         && count($reopenedDispatch->receipts()) === 3,
     'product dispatcher reconciles a verified retained effect without a second invocation'
+);
+
+// The product dispatcher, not only Providers in isolation: a scoped invoke
+// failure persists recovery_required, keeps the opaque cause out of printable
+// exception state, and retains the exact cause behind the safe provider seam.
+[, , $providerFailureSession] = $makeDispatchRecovery('provider-failure');
+\WPrism\ScopedApplyCoordinator::assert_recovery_selection(
+    $providerFailureSession,
+    [$dispatchAction],
+    $dispatchNegotiation
+);
+$providerFailureSession->resume_recorded_recovery();
+$rawDispatchProviderCause = new RuntimeException(
+    "scoped product provider failed X-Amz-Signature=PRIVATE_DISPATCH_PROVIDER\nPRIVATE_DISPATCH_PROVIDER_LINE"
+);
+$failingDispatchProvider = new ScopedRecoveryProvider();
+$failingDispatchProvider->invokeFailure = $rawDispatchProviderCause;
+$failingDispatchNegotiation = $dispatchNegotiation;
+$failingDispatchNegotiation['providers']['scoped-recovery'] = $failingDispatchProvider;
+$providerFailureResult = $driveScopedDispatch($providerFailureSession, $failingDispatchNegotiation);
+$providerFailure = $providerFailureResult['failure'];
+$providerBoundary = $providerFailure?->getPrevious();
+$check(
+    $providerFailure instanceof RuntimeException
+        && $providerBoundary instanceof \WPrism\PrivateEvidenceException
+        && $providerBoundary->private_evidence_causes() === [$rawDispatchProviderCause]
+        && !str_contains((string) $providerFailure, 'PRIVATE_DISPATCH_PROVIDER')
+        && $providerFailureSession->is_recovery_required(),
+    'product scoped dispatch persists recovery_required and retains an opaque invoke cause without printable leakage'
+);
+
+// If that recovery CAS itself fails, it must not replace the provider fact.
+// The composite wrapper has no printable previous chain and carries both
+// causes solely for the private evidence graph.
+[$maskedStore, , $maskedSession] = $makeDispatchRecovery('masked-provider-failure');
+\WPrism\ScopedApplyCoordinator::assert_recovery_selection(
+    $maskedSession,
+    [$dispatchAction],
+    $dispatchNegotiation
+);
+$maskedSession->resume_recorded_recovery();
+$maskedProviderCause = new RuntimeException(
+    'scoped provider failed with sk_live_PRIVATE_MASKED_PROVIDER'
+);
+$maskedRecoveryCause = new RuntimeException(
+    'scoped recovery store failed at /private/PRIVATE_MASKED_RECOVERY'
+);
+$maskedProvider = new ScopedRecoveryProvider();
+$maskedProvider->invokeFailure = $maskedProviderCause;
+$maskedNegotiation = $dispatchNegotiation;
+$maskedNegotiation['providers']['scoped-recovery'] = $maskedProvider;
+$maskedStore->compareAndSwapFailure = $maskedRecoveryCause;
+$maskedStore->compareAndSwapFailureCountdown = 1;
+$maskedResult = $driveScopedDispatch($maskedSession, $maskedNegotiation);
+$maskedFailure = $maskedResult['failure'];
+$maskedPrivateCauses = $maskedFailure instanceof \WPrism\PrivateEvidenceException
+    ? $maskedFailure->private_evidence_causes()
+    : [];
+$maskedProviderBoundary = $maskedPrivateCauses[0] ?? null;
+$check(
+    $maskedFailure instanceof \WPrism\PrivateEvidenceException
+        && str_contains($maskedFailure->getMessage(), 'scoped recovery witness persistence failed')
+        && $maskedFailure->getPrevious() === null
+        && $maskedProviderBoundary instanceof \WPrism\PrivateEvidenceException
+        && $maskedProviderBoundary->private_evidence_causes() === [$maskedProviderCause]
+        && ($maskedPrivateCauses[1] ?? null) === $maskedRecoveryCause
+        && !str_contains((string) $maskedFailure, 'PRIVATE_MASKED_PROVIDER')
+        && !str_contains((string) $maskedFailure, 'PRIVATE_MASKED_RECOVERY')
+        && !$maskedSession->is_recovery_required(),
+    'a failed recovery write retains both private causes and cannot falsely claim the session persisted recovery_required'
 );
 
 [, , $changedSelectionSession] = $makeDispatchRecovery('changed-selection');

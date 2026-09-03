@@ -190,6 +190,7 @@ return [
     'WPrism\\PostTypeRelationResolver' => 'src/Grammar/PostTypeRelationResolver.php',
     'WPrism\\PreparedApply' => 'src/Apply/PreparedApply.php',
     'WPrism\\PrivateEvidenceException' => 'src/Kernel/PrivateEvidenceException.php',
+    'WPrism\\PrivateRefusalEvidence' => 'src/Kernel/PrivateRefusalEvidence.php',
     'WPrism\\ProcessFence' => 'src/Kernel/ProcessFence.php',
     'WPrism\\PromotionLease' => 'src/Promotion/PromotionLease.php',
     'WPrism\\PromotionLeaseRecord' => 'src/Promotion/PromotionLease.php',
